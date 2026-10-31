@@ -1,12 +1,14 @@
-// Kinetic player entry point (docs/plan.md Phases 5, 8, 9): load the
+// Kinetic player entry point (docs/plan.md Phases 5, 8, 9, 13): load the
 // manifest, build the timeline machine — resuming from the persisted
-// frontier and starting on the persisted settings when either exists —
+// route-play context, falling back to the legacy frontier for pre-ctx
+// records, and starting on the persisted settings when either exists —
 // mount the render shell, install the input map, and wire storage: the
-// frontier is persisted as it moves, `b` appends a bookmark, `t` opens the
-// bookmark list, and `c` opens the config screen, whose changes apply live
-// (machine.setSettings) and persist with the frontier. Composition only —
-// rendering lives in src/render/, timing in src/machine/, storage adapters
-// in src/storage/.
+// machine context (with the derived legacy frontier) is persisted as the
+// reader moves, `b` appends a bookmark that captures the current context,
+// `t` opens the bookmark list, and `c` opens the config screen, whose
+// changes apply live (machine.setSettings) and persist with the context.
+// Composition only — rendering lives in src/render/, timing in
+// src/machine/, storage adapters in src/storage/.
 
 import { createMachine } from "./machine/machine";
 import type { MachineSettings } from "./machine/types";
@@ -22,9 +24,10 @@ import { installWheelInput } from "./render/wheel";
 import { contentSignature, createIdbStorage } from "./storage/idb";
 import { createNoopStorage } from "./storage/noop";
 import type { Bookmark } from "./storage/types";
+import { resumeOptionsFor } from "./storage/types";
 
 /**
- * Frontier-write debounce. A skip burst moves the frontier ~8 times per
+ * Persist-write debounce. A skip burst moves the reader ~8 times per
  * second; one IndexedDB write per burst-pause is plenty, and the
  * visibilitychange/pagehide flushes below guarantee even a reload right
  * after an advance resumes from the right spot.
@@ -102,10 +105,12 @@ function start(): void {
       const storage =
         createIdbStorage(contentSignature(document.baseURI)) ??
         createNoopStorage();
-      // Resume: the persisted frontier IS the resume point — the machine
-      // derives cursor = frontier - 1 itself, the state the README says a
-      // load starts at ("the state the game starts at when loaded"). No
-      // record, or an unreadable one, is the first-ever load: item 0.
+      // Resume: a stored machine context is the reader's position — its
+      // `lastShown` is where the load starts, the seen set and route
+      // stack arrive with it. A record without ctx (written before
+      // Phase 13) keeps the old frontier resume; `resumeOptionsFor`
+      // applies that order once: ctx wins over frontier. No record, or
+      // an unreadable one, is the first-ever load: item 0.
       const persisted = await storage.loadState().catch(() => null);
       // Settings persist through the `c` screen (docs/plan.md Phase 9):
       // merged over the defaults at machine construction, so a resumed
@@ -115,32 +120,33 @@ function start(): void {
       const machine = createMachine({
         items: manifest.items,
         settings: currentSettings,
-        resumeFrontier: persisted?.frontier,
+        ...resumeOptionsFor(persisted),
       });
       const shell = mountShell({ root, manifest, machine });
 
-      // Persistence: frontier moves need a write (cursor travel inside
-      // seen content never changes the resume point), and so does every
-      // settings change from the `c` screen — debounced so a skip burst
-      // writes once at the pause, and flushed when the page goes away.
-      let savedFrontier = machine.getState().frontier;
-      let pendingFrontier: number | null = null;
-      let settingsDirty = false;
+      // Persistence: every machine move can change the resume point —
+      // the ctx carries the seen set, the open route, and the last shown
+      // item — and so does every settings change from the `c` screen.
+      // Writes are debounced so a skip burst writes once at the pause,
+      // and flushed when the page goes away. The record keeps `frontier`
+      // (derived, legacy readers) beside the ctx; exportContext is a
+      // sorted number list, cheap to serialize per flush.
+      let persistDirty = false;
       let persistTimer: ReturnType<typeof setTimeout> | null = null;
       const flushPersist = (): void => {
         if (persistTimer !== null) {
           globalThis.clearTimeout(persistTimer);
           persistTimer = null;
         }
-        if (pendingFrontier === null && !settingsDirty) return;
-        if (pendingFrontier !== null) {
-          savedFrontier = pendingFrontier;
-          pendingFrontier = null;
-        }
-        settingsDirty = false;
+        if (!persistDirty) return;
+        persistDirty = false;
         // A storage outage must never break reading or log to the console.
         void storage
-          .saveState({ frontier: savedFrontier, settings: currentSettings })
+          .saveState({
+            frontier: machine.getState().frontier,
+            ctx: machine.exportContext(),
+            settings: currentSettings,
+          })
           .catch(() => {});
       };
       const schedulePersist = (): void => {
@@ -151,11 +157,8 @@ function start(): void {
           );
         }
       };
-      machine.subscribe((state) => {
-        if (state.frontier === savedFrontier && pendingFrontier === null) {
-          return; // nothing moved that a reload would care about
-        }
-        pendingFrontier = state.frontier;
+      machine.subscribe(() => {
+        persistDirty = true;
         schedulePersist();
       });
       document.addEventListener("visibilitychange", () => {
@@ -166,9 +169,12 @@ function start(): void {
       // `b` (README bookmark bullet): the thumbnail is opportunistic — a
       // frame is captured only when it is drawable and the canvas readable
       // (over `file://` Chrome taints it, and null is expected); the
-      // durable bookmark is `{timestampMs, itemIndex}`, which the `t` list
-      // renders from even without a thumb (render/bookmarks.ts falls back
-      // to the manifest item's still).
+      // durable bookmark is `{timestampMs, itemIndex, ctx}`, which the `t`
+      // list renders from even without a thumb (render/bookmarks.ts falls
+      // back to the manifest item's still). The ctx rides along so the
+      // later restore can re-enter the route context the bookmark was
+      // taken in (`bookmarkRestoreTarget`); a restore without one — an
+      // old bookmark — is the plain itemIndex navigation.
       const takeBookmark = async (): Promise<void> => {
         const blob = await captureVisualThumbnail(shell.currentVisual());
         const thumbDataUrl = blob === null ? null : await blobToDataUrl(blob);
@@ -176,6 +182,7 @@ function start(): void {
           id: newBookmarkId(),
           timestampMs: Date.now(),
           itemIndex: machine.getState().cursor,
+          ctx: machine.exportContext(),
           thumbDataUrl,
         };
         await storage.addBookmark(bookmark).catch(() => []);
@@ -203,14 +210,15 @@ function start(): void {
       // `c` (README `c` bullet): the config screen. A control click
       // applies the full next settings live — machine.setSettings re-arms
       // the pending auto-advance with them (docs/plan.md Phase 9) — and
-      // queues the persist write, debounced and flushed like the frontier.
+      // queues the persist write, debounced and flushed like every other
+      // change in the record.
       const config = mountConfigOverlay({
         root,
         settings: () => currentSettings,
         onChange: (next) => {
           currentSettings = next;
           machine.setSettings(next);
-          settingsDirty = true;
+          persistDirty = true;
           schedulePersist();
         },
       });

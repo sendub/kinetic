@@ -6,10 +6,19 @@
 
 import { describe, expect, it } from "vitest";
 
+import { createMachine } from "../machine/machine";
+import type { Item, MachineContext } from "../machine/types";
+import { DEFAULT_SETTINGS } from "../machine/types";
 import { contentSignature } from "./idb";
 import { createMemoryStorage } from "./memory";
 import { createNoopStorage } from "./noop";
-import type { Bookmark, Storage } from "./types";
+import {
+  type Bookmark,
+  legacyResumeContext,
+  type PersistedState,
+  resumeOptionsFor,
+  type Storage,
+} from "./types";
 
 function bookmark(
   id: string,
@@ -21,6 +30,16 @@ function bookmark(
     timestampMs: 1700000000000 + itemIndex,
     itemIndex,
     ...(thumb === undefined ? {} : { thumbDataUrl: thumb }),
+  };
+}
+
+/** A route-play context with one open frame, for ctx round-trip tests. */
+function context(lastShown: number, visited: number[]): MachineContext {
+  return {
+    lastShown,
+    visited,
+    stack: [{ decision: 1, route: 0 }],
+    playedRoutes: [{ decision: 1, routes: [2] }],
   };
 }
 
@@ -103,6 +122,40 @@ for (const [name, makeStorage] of ADAPTERS) {
       });
     });
 
+    it("round-trips the machine context a save carries (Phase 13)", async () => {
+      const storage = makeStorage();
+      const ctx = context(7, [0, 1, 4, 7]);
+      await storage.saveState({ frontier: 5, ctx });
+      expect(await storage.loadState()).toEqual({ frontier: 5, ctx });
+      // The state is a singleton record, ctx included: a later save
+      // without one overwrites it too — what persists is the last save.
+      await storage.saveState({ frontier: 6 });
+      const later = await storage.loadState();
+      expect(later?.frontier).toBe(6);
+      expect(later?.ctx).toBeUndefined();
+    });
+
+    it("copies ctx in and out: callers cannot rewrite the stored context", async () => {
+      const storage = makeStorage();
+      const visited = [0, 1, 2];
+      await storage.saveState({
+        frontier: 3,
+        ctx: { lastShown: 2, visited, stack: [], playedRoutes: [] },
+      });
+      // Mutating the caller's arrays after the save cannot reach in...
+      visited.push(99);
+      // ...and neither can mutating a loaded context's nested arrays.
+      const loaded = (await storage.loadState()) as unknown as {
+        ctx: { visited: number[]; stack: unknown[] };
+      };
+      loaded.ctx.visited.push(42);
+      loaded.ctx.stack.push({ decision: 8, route: 8 });
+      expect(await storage.loadState()).toEqual({
+        frontier: 3,
+        ctx: { lastShown: 2, visited: [0, 1, 2], stack: [], playedRoutes: [] },
+      });
+    });
+
     it("appends a bookmark and returns the full list containing it", async () => {
       const storage = makeStorage();
       const list = await storage.addBookmark(
@@ -145,6 +198,31 @@ for (const [name, makeStorage] of ADAPTERS) {
       expect(list[1].thumbDataUrl ?? null).toBeNull();
     });
 
+    it("round-trips a bookmark's route context, keeping ctx-less bookmarks ctx-less", async () => {
+      const storage = makeStorage();
+      const ctx = context(7, [0, 4, 7]);
+      await storage.addBookmark({
+        id: "a",
+        timestampMs: 1700000007000,
+        itemIndex: 7,
+        ctx,
+      });
+      // A pre-Phase-13 bookmark: itemIndex + timestamp, no context.
+      await storage.addBookmark(bookmark("b", 3));
+      const list = await storage.getBookmarks();
+      expect(list[0]?.itemIndex).toBe(7);
+      expect(list[0]?.ctx).toEqual(ctx);
+      // Mutating a handed-out ctx must not reach the stored record.
+      const first = list[0] as Bookmark;
+      (first.ctx as unknown as { visited: number[] }).visited.push(9);
+      expect((await storage.getBookmarks())[0]?.ctx).toEqual(ctx);
+      // A legacy record reads as itemIndex-only: no ctx field at all,
+      // so the restore path sees "importContext absent".
+      const legacy = list[1] as Bookmark;
+      expect(legacy.itemIndex).toBe(3);
+      expect("ctx" in legacy).toBe(false);
+    });
+
     it("copies in and out: callers cannot rewrite what the store holds", async () => {
       const storage = makeStorage();
       const input = bookmark("a", 1);
@@ -159,6 +237,66 @@ for (const [name, makeStorage] of ADAPTERS) {
     });
   });
 }
+
+describe("route-aware resume — ctx wins, legacy frontier migrates", () => {
+  const items: readonly Item[] = Array.from(
+    { length: 10 },
+    (_, index) =>
+      ({
+        id: `x-${String(index)}`,
+        type: "image",
+        file: `x-${String(index)}.jpg`,
+      }) satisfies Item,
+  );
+
+  it("legacyResumeContext builds the context the old frontier meant", () => {
+    // visited = prefix [0, frontier), lastShown = frontier - 1, no frames.
+    expect(legacyResumeContext(4)).toEqual({
+      lastShown: 3,
+      visited: [0, 1, 2, 3],
+      stack: [],
+      playedRoutes: [],
+    });
+    // frontier 0: nothing was ever seen, so there is no context at all.
+    expect(legacyResumeContext(0)).toBeNull();
+  });
+
+  it("a state without ctx resumes as a prefix-visited machine", () => {
+    const legacy: PersistedState = { frontier: 4 };
+    // No ctx: the record takes the legacy frontier path.
+    expect(resumeOptionsFor(legacy)).toEqual({ resumeFrontier: 4 });
+    const machine = createMachine({
+      items,
+      settings: DEFAULT_SETTINGS,
+      ...resumeOptionsFor(legacy),
+    });
+    expect(machine.visitedList()).toEqual([0, 1, 2, 3]);
+    expect(machine.getState().cursor).toBe(3);
+    // The documented equivalence: importContext of the legacy context
+    // yields the same machine the frontier path builds.
+    const restored = createMachine({ items, settings: DEFAULT_SETTINGS });
+    restored.importContext(legacyResumeContext(4) as MachineContext);
+    expect(restored.visitedList()).toEqual([0, 1, 2, 3]);
+    expect(restored.getState().cursor).toBe(3);
+  });
+
+  it("ctx wins over frontier when both are present", () => {
+    const ctx = context(6, [0, 2, 5, 6]);
+    const state: PersistedState = { frontier: 1, ctx };
+    const options = resumeOptionsFor(state);
+    // The frontier is ignored — the ctx is the resume, route frames and all.
+    expect(options).toEqual({ resumeContext: ctx });
+    expect("resumeFrontier" in options).toBe(false);
+    const machine = createMachine({
+      items,
+      settings: DEFAULT_SETTINGS,
+      ...options,
+    });
+    // frontier 1 alone would have resumed item 0; the ctx lands on item 6.
+    expect(machine.getState().cursor).toBe(6);
+    expect(machine.visitedList()).toEqual([0, 2, 5, 6]);
+  });
+});
 
 describe("contentSignature — novels never share state", () => {
   it("keys a novel by its folder, index.html or bare directory alike", () => {

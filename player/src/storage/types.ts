@@ -3,20 +3,45 @@
 // machine and its tests read through this seam, and main.ts injects a real
 // adapter.
 //
-// The frontier is the single persisted source of truth for reading
-// progress: the resume position is always `frontier - 1` (the README's
-// "state the game starts at when loaded"), which `createMachine` derives
-// itself via `resumeFrontier`, so the cursor needs no storing and can
-// never disagree with it. Settings ride in the same record because the
-// `c` screen persists them (docs/plan.md Phase 9); they are data for
-// main.ts to merge over the defaults — the machine reads no storage.
+// Since Phase 13 the machine context (`ctx`, `exportContext()`) is the
+// persisted source of truth for reading progress: the seen set, the open
+// decision stack, and `lastShown` — the item the next load starts on (the
+// README's "state the game starts at when loaded"). `frontier` stays as a
+// DERIVED legacy value the writer still includes: pre-ctx readers (an
+// older build, or a record from one) resume from it exactly as before.
+// Settings ride in the same record because the `c` screen persists them
+// (docs/plan.md Phase 9); they are data for main.ts to merge over the
+// defaults — the machine reads no storage.
+//
+// Migration (docs/plan.md Phase 13, "Persistence"):
+//   - state WITH ctx  -> resume through `resumeContext` / importContext.
+//   - state WITHOUT ctx -> legacy resume, equivalent to
+//     `legacyResumeContext(frontier)` below: the machine's own
+//     `resumeFrontier` path builds precisely that context (visited = the
+//     contiguous prefix `[0, frontier)`, landing on `frontier - 1`), so an
+//     old record loads unchanged.
+// Load order (main.ts): ctx wins when both are present (`resumeOptionsFor`).
+//
+// IndexedDB schema note: `ctx` rides inside the value objects the `state`
+// and `bookmarks` stores already hold, so no keyPath or store changes are
+// needed and the database stays at version 1 — an existing version-1
+// database keeps working with no upgrade step.
 
-import type { MachineSettings } from "../machine/types";
+import type { MachineContext, MachineSettings } from "../machine/types";
 
 /** Everything the player persists about reading progress and pacing. */
 export interface PersistedState {
-  /** The first never-shown item; see the machine's frontier invariant. */
+  /**
+   * Legacy resume value (the derived frontier, `machine.getState().
+   * frontier`). Always written; read only when `ctx` is absent.
+   */
   readonly frontier: number;
+  /**
+   * The route-play context of Phase 13 (`machine.exportContext()`, JSON-
+   * safe). Present on every save from a Phase-13 build; absent on records
+   * written before routes existed, which take the legacy frontier path.
+   */
+  readonly ctx?: MachineContext;
   /**
    * The reader's settings (README `c` bullet). A partial: a record may
    * carry any subset, and the player merges it over `DEFAULT_SETTINGS` at
@@ -33,6 +58,12 @@ export interface Bookmark {
   readonly timestampMs: number;
   /** The machine's cursor when `b` was pressed; resumes re-open this item. */
   readonly itemIndex: number;
+  /**
+   * The route-play context captured with `b` (Phase 13): restoring it
+   * re-enters the item within that route context. Absent on bookmarks
+   * saved before routes existed, which restore by `itemIndex` alone.
+   */
+  readonly ctx?: MachineContext;
   /** Small JPEG preview, or null/absent when nothing was capturable. */
   readonly thumbDataUrl?: string | null;
 }
@@ -49,4 +80,43 @@ export interface Storage {
   saveState(state: PersistedState): Promise<void>;
   addBookmark(bookmark: Bookmark): Promise<Bookmark[]>;
   getBookmarks(): Promise<Bookmark[]>;
+}
+
+/**
+ * The machine options that resume a persisted state, applying the load
+ * order once: ctx wins over frontier when both are present; a record
+ * without ctx keeps the legacy frontier path. `createMachine` accepts the
+ * result as-is (main.ts spreads it into the options). A null state is the
+ * first-ever load: no resume options at all.
+ */
+export function resumeOptionsFor(state: PersistedState | null): {
+  resumeContext?: MachineContext;
+  resumeFrontier?: number;
+} {
+  if (state === null) return {};
+  return state.ctx === undefined
+    ? { resumeFrontier: state.frontier }
+    : { resumeContext: state.ctx };
+}
+
+/**
+ * The legacy migration rule stated as data (docs/plan.md Phase 13): the
+ * context equivalent to an old frontier-only record — visited is the
+ * contiguous prefix `[0, frontier)`, `lastShown` is `frontier - 1`, and
+ * no route frames. The machine's `resumeFrontier` path constructs exactly
+ * this, so the two resumes agree for every old record; a frontier below
+ * 1 means nothing was ever seen and there is no context (null — a first
+ * load). Mainly for tests and future readers that need a ctx from a
+ * frontier number.
+ */
+export function legacyResumeContext(frontier: number): MachineContext | null {
+  if (!Number.isFinite(frontier) || frontier < 1) return null;
+  const visited: number[] = [];
+  for (let index = 0; index < frontier; index += 1) visited.push(index);
+  return Object.freeze({
+    lastShown: frontier - 1,
+    visited: Object.freeze(visited),
+    stack: Object.freeze([]),
+    playedRoutes: Object.freeze([]),
+  });
 }

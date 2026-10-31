@@ -4,20 +4,32 @@
 //
 // Schema — one database for the whole app, `kinetic` (version 1):
 //   - store `state`: no keyPath; one record per novel, stored under the
-//     novel's content signature, value `{ frontier, settings? }`
-//     (`settings` is the partial the `c` screen changed; absent or
-//     malformed fields simply fall back to defaults at load).
+//     novel's content signature, value `{ frontier, ctx?, settings? }`
+//     (`ctx` is the Phase 13 route-play context; `settings` is the partial
+//     the `c` screen changed; absent or malformed fields simply fall back
+//     at load — a malformed `ctx` drops to the legacy frontier resume, a
+//     malformed settings field to its default).
 //   - store `bookmarks`: keyPath `seq`, autoIncrement, so the key alone
 //     orders entries by insertion — the list the README draws bottom-first.
 //     Each record carries a `content` field and a non-unique `content`
 //     index, so one novel's list is one index query in seq order while all
-//     novels share the database.
+//     novels share the database. A record may carry `ctx` (Phase 13)
+//     beside `itemIndex`; older records without it read as before.
+//
+// Phase 13 added `ctx` inside these value objects only — no keyPath or
+// store changed — so the database stays at version 1 and every existing
+// version-1 database keeps working with no upgrade step (see
+// `storage/types.ts` for the migration rules).
 //
 // Content signature = the novel folder's absolute URL (`contentSignature`).
 // IndexedDB already isolates by origin, but a path distinguishes novels on
 // one origin (several folders on the dev server) and on `file://` alike.
 
-import type { MachineSettings } from "../machine/types";
+import type {
+  ContextFrame,
+  MachineContext,
+  MachineSettings,
+} from "../machine/types";
 import type { Bookmark, PersistedState, Storage } from "./types";
 
 export const DB_NAME = "kinetic";
@@ -98,11 +110,19 @@ function transactionDone(tx: IDBTransaction): Promise<void> {
   });
 }
 
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value);
+}
+
 function toBookmark(record: BookmarkRecord): Bookmark {
+  // Same defensive read as `loadState`: a foreign `ctx` reads as absent —
+  // an itemIndex-only bookmark, never a broken entry.
+  const ctx = sanitizeContext(record.ctx);
   return {
     id: record.id,
     timestampMs: record.timestampMs,
     itemIndex: record.itemIndex,
+    ...(ctx === undefined ? {} : { ctx }),
     thumbDataUrl: record.thumbDataUrl ?? null,
   };
 }
@@ -146,6 +166,54 @@ function sanitizeSettings(raw: unknown): Partial<MachineSettings> | undefined {
 }
 
 /**
+ * Read a stored `ctx` defensively: only the `MachineContext` shape
+ * survives — a trustworthy `lastShown` and `visited` are required, and
+ * malformed stack/playedRoutes entries are dropped rather than guessed.
+ * Anything else reads as "no context" (undefined), which puts the record
+ * on the legacy frontier resume path — the documented migration for
+ * pre-Phase-13 records, so never a failure. Never throws.
+ */
+function sanitizeContext(raw: unknown): MachineContext | undefined {
+  if (typeof raw !== "object" || raw === null) return undefined;
+  const source = raw as Partial<MachineContext>;
+  if (!isFiniteNumber(source.lastShown)) return undefined;
+  if (!Array.isArray(source.visited) || !source.visited.every(isFiniteNumber)) {
+    return undefined;
+  }
+  const stack: ContextFrame[] = [];
+  for (const frame of Array.isArray(source.stack) ? source.stack : []) {
+    if (typeof frame !== "object" || frame === null) continue;
+    const { decision, route } = frame as Partial<ContextFrame>;
+    if (isFiniteNumber(decision) && isFiniteNumber(route)) {
+      stack.push({ decision, route });
+    }
+  }
+  const playedRoutes: { decision: number; routes: number[] }[] = [];
+  for (const entry of Array.isArray(source.playedRoutes)
+    ? source.playedRoutes
+    : []) {
+    if (typeof entry !== "object" || entry === null) continue;
+    const candidate = entry as Partial<{ decision: number; routes: unknown }>;
+    if (
+      isFiniteNumber(candidate.decision) &&
+      Array.isArray(candidate.routes) &&
+      candidate.routes.every(isFiniteNumber)
+    ) {
+      playedRoutes.push({
+        decision: candidate.decision,
+        routes: [...candidate.routes],
+      });
+    }
+  }
+  return {
+    lastShown: source.lastShown,
+    visited: [...source.visited],
+    stack,
+    playedRoutes,
+  };
+}
+
+/**
  * A Storage scoped to one novel, or null when this host has no IndexedDB at
  * all — the caller falls back to `createNoopStorage()` so the player runs.
  * Methods reject on real adapter failure; they never run against a half-open
@@ -176,10 +244,20 @@ export function createIdbStorage(contentKey: string): Storage | null {
       if (typeof stored === "object" && stored !== null) {
         const frontier = (stored as Partial<PersistedState>).frontier;
         if (typeof frontier === "number" && Number.isFinite(frontier)) {
+          const state: {
+            frontier: number;
+            ctx?: MachineContext;
+            settings?: Partial<MachineSettings>;
+          } = { frontier };
+          // A pre-Phase-13 record simply has no `ctx`: the legacy
+          // frontier resume covers it (storage/types.ts, "Migration").
+          const ctx = sanitizeContext((stored as Partial<PersistedState>).ctx);
+          if (ctx !== undefined) state.ctx = ctx;
           const settings = sanitizeSettings(
             (stored as Partial<PersistedState>).settings,
           );
-          return settings === undefined ? { frontier } : { frontier, settings };
+          if (settings !== undefined) state.settings = settings;
+          return state;
         }
       }
       return null;
@@ -189,6 +267,8 @@ export function createIdbStorage(contentKey: string): Storage | null {
       const db = await openDatabase();
       const tx = db.transaction(STATE_STORE, "readwrite");
       const record: Record<string, unknown> = { frontier: state.frontier };
+      // `ctx` is JSON-safe by contract; the structured clone copies it.
+      if (state.ctx !== undefined) record.ctx = state.ctx;
       if (state.settings !== undefined) record.settings = { ...state.settings };
       tx.objectStore(STATE_STORE).put(record, contentKey);
       await transactionDone(tx);
@@ -198,13 +278,17 @@ export function createIdbStorage(contentKey: string): Storage | null {
       const db = await openDatabase();
       const tx = db.transaction(BOOKMARKS_STORE, "readwrite");
       // `seq` is absent so autoIncrement assigns it; its value orders the list.
-      tx.objectStore(BOOKMARKS_STORE).add({
+      const record: Record<string, unknown> = {
         content: contentKey,
         id: bookmark.id,
         timestampMs: bookmark.timestampMs,
         itemIndex: bookmark.itemIndex,
         thumbDataUrl: bookmark.thumbDataUrl ?? null,
-      });
+      };
+      // The route-play context rides beside the index (Phase 13); older
+      // callers pass none and the record simply lacks the field.
+      if (bookmark.ctx !== undefined) record.ctx = bookmark.ctx;
+      tx.objectStore(BOOKMARKS_STORE).add(record);
       await transactionDone(tx); // durable before the list is read back
       return getBookmarks();
     },

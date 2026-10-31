@@ -12,11 +12,28 @@
 // newest at the bottom" IS that order, and the list scrolls to its bottom.
 
 import { visualIndexFor } from "../machine/machine";
-import type { Item } from "../machine/types";
+import type { Item, MachineContext } from "../machine/types";
 import type { Bookmark } from "../storage/types";
 
 /** The panel's message when the novel has no bookmarks yet. */
 export const EMPTY_MESSAGE = "No bookmarks yet — press b";
+
+/**
+ * What an entry click asks the player to do: the item to re-open, plus
+ * the route-play context captured with the bookmark (Phase 13) — with a
+ * `ctx` the restore is `machine.importContext(ctx)` (the arrival lands
+ * inside that route context); without one — every bookmark saved before
+ * routes existed — it is the plain itemIndex navigation (a fresh
+ * navigation with no route frames). Pure: the restore wiring applies it.
+ */
+export function bookmarkRestoreTarget(record: Bookmark): {
+  itemIndex: number;
+  ctx?: MachineContext;
+} {
+  return record.ctx === undefined
+    ? { itemIndex: record.itemIndex }
+    : { itemIndex: record.itemIndex, ctx: record.ctx };
+}
 
 /**
  * The list's render order: the storage order, oldest first, copied so a

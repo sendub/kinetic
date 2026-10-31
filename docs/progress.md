@@ -237,9 +237,10 @@ truthful: an unchecked box means nothing was accepted.
       decision stack, route-end overlays (return/reselect semantics),
       play-all-routes, visited-set seen tracking + jumpToUnseen/skipAll
       route-aware targeting; tests incl. the three unseen-target cases
-- [ ] Storage: PersistedState `visited` + `position` (decision stack)
+- [x] Storage: PersistedState `visited` + `position` (decision stack)
       with migration from frontier-only states; bookmarks carry route
-      context; restore + migration tests
+      context; restore + migration tests (ctx on PersistedState +
+      bookmark records; DB stays v1; 245 tests, 2025-11-01)
 - [ ] Renderer: decision overlay (prompt + numbered routes, click and
       1..9), route-end overlay (unseen routes + return-to-main or
       ending reselect), `Play all routes` toggle in `c`; verify steps
@@ -266,12 +267,16 @@ truthful: an unchecked box means nothing was accepted.
 - [ ] docs/packaging.md written; Tauri path noted, not built
 - [ ] README accuracy pass; this file fully checked
 
-## Phase 13b: Manual/auto mode clarity (2025-11-01, external-user report)
+## Phase 13b: Manual/auto mode clarity + key help (2025-11-01, external-user report + user clarification)
 
+- [ ] Key help overlay: built from the keymap module (single source,
+      test asserts coverage); first-load display with persisted
+      `helpSeen`; Escape opens (machine paused, screen black), Escape
+      closes and resumes the same item (hold re-arms); shares the
+      suspend gate with h/t/c; fullscreen first-Esc caveat documented
 - [ ] Verify manual-by-default + `a` auto-forward toggle + live speed
       slider end-to-end (verify steps in BOTH modes: bookmarks,
-      history, skip, skip-unseen); ensure `a` is discoverable (add
-      first-run hint if nothing surfaces it today); fix any real bug
+      history, skip, skip-unseen); fix any real bug
 
 ## Later, waiting on the user
 
