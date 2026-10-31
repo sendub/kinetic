@@ -219,8 +219,36 @@ truthful: an unchecked box means nothing was accepted.
       RPA-3.0/2.0, not `!RP-A` - fixed the plan's assumption; XOR offsets
       + uncompressed members; game E archive scripts decompile + archive
       assets extract end-to-end; 92 tests, 2025-11-01)
-- [ ] Every sampled slice extracts and plays in the player
-- [ ] docs/extracting.md has a per-game entry incl. what was skipped
+- [ ] Every sampled slice extracts and plays in the player (blocked on
+      the five extractor bugs recorded in docs/extracting.md: unresolved
+      scene names must drop the item, Movie-def key, no-space speaker
+      regex, symlinked game dir, recursive asset basename lookup)
+
+## Phase 13: Author-defined branches (2025-11-01, user request)
+
+- [ ] Format/schema/validator/CREATE: item `id` fields + `branches`
+      table (unique ids, references resolve, contiguous spans, route
+      `result` default `ending`, exactly one `continuingRoute` per
+      decision with `continueAt`)
+- [ ] Machine: decision fire on settle-of-after, route spans, nested
+      decision stack, route-end overlays (return/reselect semantics),
+      play-all-routes, visited-set seen tracking + jumpToUnseen/skipAll
+      route-aware targeting; tests incl. the three unseen-target cases
+- [ ] Storage: PersistedState `visited` + `position` (decision stack)
+      with migration from frontier-only states; bookmarks carry route
+      context; restore + migration tests
+- [ ] Renderer: decision overlay (prompt + numbered routes, click and
+      1..9), route-end overlay (unseen routes + return-to-main or
+      ending reselect), `Play all routes` toggle in `c`; verify steps
+- [ ] Demo fixture: shared lead-in, decision with continuing route +
+      explicit-ending route (one nested mini-decision inside a route);
+      determinism + validator green
+- [ ] Extractor: conservative `menu:` -> decision detection (contiguous
+      runs, no guessed joins, ledger notes) with golden-style tests
+- [x] docs/extracting.md has a per-game entry incl. what was skipped
+      (6 games logged; 1 slice with real media (game F 4/4 painted), 4
+      zero-media logged with root causes; 5 extractor bugs recorded for
+      item 4; play-folder.mjs reusable, 2025-11-01)
 - [ ] New parser branches covered by pytest
 
 ## Phase 12: Performance, packaging, docs

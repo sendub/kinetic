@@ -449,6 +449,86 @@ Some videos have an intro that should not repeat on loop.
   loopCount 2), so the verify step measures loop-back landing near 1.5
   instead of 1.0 and re-records the observed tolerance.
 
+## Phase 13: Author-defined branches (2025-11-01, user request)
+
+Optional routes inside a linear story. The user's example shape (a
+`branches` table with `after`, `prompt`, `routes[] {id,label,start,end}`,
+`continuingRoute`, `continueAt`) is illustrative, not a mandated schema.
+
+v1 model and decisions:
+
+- Item `id` field: every item gains an optional stable string id (unique
+  across the manifest when present). Branch references use ids, never
+  array positions. Validator: ids unique; all branch references resolve;
+  a route's `start` must not come after its `end` in array order; the
+  route span is the contiguous inclusive range start..end (branches
+  inside a decision are contiguous route sections in v1).
+- `branches` is a top-level array of decisions. A decision fires when the
+  LAST item of its `after` item is settled (the item before the choice).
+  The lead-in (everything before `after`) and the aftermath (from
+  `continueAt`) are ordinary items: they play once, not per route.
+- Decision overlay: `prompt` + numbered route list (`label`). Pointer
+  click or 1..9 selects; no keyboard-only requirement beyond numbers.
+  Routes: 2..N allowed; more than two is required, exactly like
+  Ren'Py menus.
+- Route end behavior: the continuing route (exactly one,
+  `continuingRoute`) proceeds to `continueAt`. Alternate routes declare
+  an explicit `result`: `"return"` (after their end: overlay offers the
+  still-unseen routes plus "return to main route", which goes to
+  `continueAt`) or `"ending"` (their last item IS the ending; afterwards
+  the overlay offers only route reselection). DEFAULT is `"ending"`:
+  there is NO implicit join - an unmarked alternate route never silently
+  merges, because an alternate's later state is not the main route's.
+- Nested branches: routes may contain decisions. The machine keeps a
+  stack of active decision contexts; returning from a nested decision
+  resumes its route. v1 supports nesting; the fixture exercises it.
+- `Play all routes` (new persisted setting, default off, in the `c`
+  screen): zero interactivity. On reaching a decision, auto-pick routes
+  in manifest order among routes not yet played (all seen -> pick the
+  continuing route once, then past it); after a route completes, return
+  to the decision and repeat until every route has played once, then
+  continue via `continueAt`. `holdSeconds`/video/text timing rules
+  unchanged. Works inside skip mode too.
+- Seen tracking (biggest machine change): a per-item visited set
+  replaces the single `frontier` as the source of truth. An item counts
+  seen when it is shown (same as today). Seeing a decision does NOT
+  mark its routes' items seen (they are just items - true by
+  construction). `e`/jumpToUnseen and skipAll target the first unseen
+  item along the CURRENT path's remaining span, else the first unseen
+  item of an unplayed route of the nearest open decision, else the
+  global first unseen in array order; document this exactly once and
+  test all three cases. Wheel/tab semantics over the array stay as
+  today (clamped to seen items, except e-jump), now defined against the
+  visited set rather than a contiguous frontier; the frontier becomes a
+  derived value (highest contiguous seen prefix) kept for backward
+  compatibility of resume.
+- Persistence: PersistedState gains `visited` (item index list),
+  `position` (item index + decision stack: decision id + chosen route +
+  per-decision played-route ids) alongside `frontier`. Bookmarks record
+  the same context; restoring a bookmark jumps to that item within that
+  route context. Old states without the fields still load (visited =
+  prefix up to frontier) - migration test required.
+- Back/forward across decisions: navigation walks the item array (as
+  today); entering the first item of a route via back/forward does not
+  re-fire the decision (decisions fire only on forward SETTLE of
+  `after`); backing into a decision's `after` item and pressing forward
+  again re-fires the overlay. Sensible + testable; document.
+- Author-written transitions: no schema mechanism needed - an author
+  puts a `text`-only item or a title image at the start or end of a
+  route. CREATE.md shows it.
+- Deferred (documented, not built): alternate timelines with
+  consequences at more than one later point (story state/variables);
+  non-contiguous route sections; per-route reading state beyond
+  visited items.
+- Extractor: Ren'Py `menu:` -> decision table where the shape is
+  conservative-detectable: each choice's block parses to a contiguous
+  run of recognized items, blocks are adjacent in file order, and
+  control after the last block continues in place. The LAST block (or a
+  block ending in `jump`/`return` to the point after the menu) is
+  `continuingRoute` when detectable, else every route defaults to
+  `ending`. Detection is best-effort: when uncertain emit separate
+  `ending` routes and log in the ledger; never guess a join.
+
 ## Later, waiting on the user
 
 - Overlay text styling iteration once the user can play with the demo.
@@ -456,5 +536,6 @@ Some videos have an intro that should not repeat on loop.
 ## Sequencing
 
 1 -> 2 -> 2b -> 3 -> 4 -> 5 -> 6 -> 7 -> 7b -> 8 -> 9 -> 9b -> 9c -> 9d ->
-10 -> 11 -> 12, serial. The default is serial per the single-slot model
-serving rule.
+10 -> 11 -> 13 -> 12, serial. The default is serial per the single-slot
+model serving rule. Phase 12 (perf, packaging, final doc pass) runs last
+so it reflects the final feature set.
