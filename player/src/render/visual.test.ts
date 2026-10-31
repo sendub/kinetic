@@ -1,12 +1,25 @@
 import { describe, expect, it } from "vitest";
 
-import type { Item } from "../machine/types";
-import { animationFrameAt, playbackModeFor } from "./visual";
+import type { Item, VideoItem } from "../machine/types";
+import { animationFrameAt, playbackModeFor, videoPlanFor } from "./visual";
 
 const item = (fields: Partial<Item>): Item =>
   ({ id: "x-001", type: "image", ...fields }) as Item;
 
-const video = item({ type: "video", file: "v.mp4", poster: "v.jpg" });
+const vid = (fields: Partial<VideoItem>): VideoItem =>
+  ({
+    id: "v-001",
+    type: "video",
+    file: "v.mp4",
+    poster: "v.jpg",
+    durationSeconds: 2,
+    ...fields,
+  }) as VideoItem;
+
+const video = vid({});
+const loopVideo = vid({ loopCount: 3 });
+const holdVideo = vid({ holdSeconds: 12 });
+const holdLoopVideo = vid({ loopCount: 3, holdSeconds: 12 });
 const animation = item({
   type: "animation",
   frames: ["a.jpg", "b.jpg"],
@@ -20,6 +33,14 @@ describe("playbackModeFor", () => {
     // cursor 3 of frontier 4: the last shown item, nothing unseen ahead.
     expect(playbackModeFor(video, undefined, false, 3, 4)).toBe("loop-once");
     expect(playbackModeFor(animation, video, false, 3, 4)).toBe("loop-once");
+    // loopCount/holdSeconds change the video plan, not the mode: still
+    // loop-once; `videoPlanFor` below decides passes vs free looping.
+    expect(playbackModeFor(loopVideo, undefined, false, 3, 4)).toBe(
+      "loop-once",
+    );
+    expect(playbackModeFor(holdVideo, undefined, false, 3, 4)).toBe(
+      "loop-once",
+    );
   });
 
   it("loops forever while the current item is text", () => {
@@ -47,6 +68,57 @@ describe("playbackModeFor", () => {
 
   it("falls back to still when there is no cursor item", () => {
     expect(playbackModeFor(undefined, undefined, false, 0, 0)).toBe("still");
+  });
+});
+
+describe("videoPlanFor", () => {
+  it("plays a standalone video with loop off, reporting each of its passes", () => {
+    // The HTML fact: `loop` NEVER fires 'ended', so a video whose ends
+    // gate must play with loop off; the default loopCount is one pass.
+    expect(videoPlanFor(video, "loop-once")).toEqual({
+      loop: false,
+      reportEnds: 1,
+    });
+    expect(videoPlanFor(loopVideo, "loop-once")).toEqual({
+      loop: false,
+      reportEnds: 3,
+    });
+  });
+
+  it("treats a holdSeconds video as background: free looping, no ends", () => {
+    // Time-driven only — the machine ignores ended for these.
+    expect(videoPlanFor(holdVideo, "loop-once")).toEqual({
+      loop: true,
+      reportEnds: 0,
+    });
+    // holdSeconds wins over loopCount: it is the explicit display duration.
+    expect(videoPlanFor(holdLoopVideo, "loop-once")).toEqual({
+      loop: true,
+      reportEnds: 0,
+    });
+  });
+
+  it("loops forever under a text chain and reports nothing", () => {
+    // Chain looping is forever, so its ends could never be counted anyway.
+    expect(videoPlanFor(video, "loop-forever")).toEqual({
+      loop: true,
+      reportEnds: 0,
+    });
+    expect(videoPlanFor(loopVideo, "loop-forever")).toEqual({
+      loop: true,
+      reportEnds: 0,
+    });
+  });
+
+  it("plays nothing on a still", () => {
+    expect(videoPlanFor(video, "still")).toEqual({
+      loop: false,
+      reportEnds: 0,
+    });
+    expect(videoPlanFor(loopVideo, "still")).toEqual({
+      loop: false,
+      reportEnds: 0,
+    });
   });
 });
 

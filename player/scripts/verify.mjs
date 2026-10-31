@@ -6,7 +6,10 @@
 // click-to-continue, backdrop/Escape/t-to-close), and reload-resume — and
 // Phase 9 config: `c` (readout of speed and skip-all, suspension, backdrop-
 // and c-to-close, a live speed change measured against the re-armed hold,
-// and persistence across reload) — against the demo fixture
+// and persistence across reload) — and Phase 9b short-video timing: the
+// standalone 1 s clip `loop-012` (loopCount 2) must play its passes by
+// counting `ended` events and restarting — an element with `loop` never
+// fires `ended` — against the demo fixture
 // in headless Chrome and prints PASS / PARTIAL / FAIL per step.
 // Run from player/:  node scripts/verify.mjs
 // Exit code: 0 when every step is PASS or PARTIAL, 1 on any FAIL or crash.
@@ -21,7 +24,7 @@
 // the #empty-state notice, and .tmp/verify-demo-tall is a copy whose item-1
 // image has been rescaled to a portrait 640x960 while the manifest still says
 // 960x540 — the one shape that tells "fit to the asset" apart from "fit to
-// the manifest" (step 28, docs/plan.md Phase 7b).
+// the manifest" (step 29, docs/plan.md Phase 7b).
 //
 // Every input is real CDP Input: Input.dispatchKeyEvent for keys,
 // Input.dispatchMouseEvent `mouseWheel` for the wheel, and
@@ -48,7 +51,7 @@ const contentDir = join(repoRoot, ".tmp", "verify-demo");
 const emptyDir = join(repoRoot, ".tmp", "verify-demo-empty");
 const tallDir = join(repoRoot, ".tmp", "verify-demo-tall");
 const chromeProfile = join(repoRoot, ".tmp", "verify-chrome-profile");
-// The portrait size step 28 rescales item 1's image to. Its aspect (2:3)
+// The portrait size step 29 rescales item 1's image to. Its aspect (2:3)
 // deliberately matches neither the manifest's 16:9 nor any test viewport.
 const TALL_ASSET = { width: 640, height: 960 };
 const chromePath =
@@ -97,7 +100,7 @@ function assembleFolders() {
   for (const file of ["index.html", "app.js", "manifest.js"]) {
     copyFileSync(join(playerDir, "dist", file), join(emptyDir, file));
   }
-  // The asset/manifest aspect mismatch folder for step 28. Only the JPEG is
+  // The asset/manifest aspect mismatch folder for step 29. Only the JPEG is
   // resampled, never the manifest, and `fixtures/demo` itself stays pristine.
   // `sips` is macOS' own resizer; without it step 28 loses its discriminator
   // and says so instead of quietly asserting a weaker fact.
@@ -329,7 +332,11 @@ const FIT_STATE = () => {
 };
 
 // A page opened at a chosen viewport: the device-metrics override is what a
-// rotated phone or an un-maximised window looks like to the layout.
+// rotated phone or an un-maximised window looks like to the layout. It opens
+// in a FRESH browser context — its own storage — so a fit page is a
+// first-ever load showing item 1's image, untouched by the main walk's
+// frontier (which step 27 pushes onto loop-012, a video; a page resuming
+// there paints no <img> to measure). Callers close the context.
 const openAtViewport = async (
   browser,
   dir,
@@ -339,7 +346,8 @@ const openAtViewport = async (
   messages,
   errors,
 ) => {
-  const page = await browser.newPage();
+  const context = await browser.createBrowserContext();
+  const page = await context.newPage();
   page.on("console", (msg) =>
     messages.push(`${label} [${msg.type()}] ${msg.text()}`),
   );
@@ -1424,7 +1432,117 @@ async function main() {
       `stepper 1.00x -> ${JSON.stringify(s26speed.speedValue)} by four trusted + clicks; the first Escape left fullscreen=${String(s26LeftFullscreen)} with the panel open=${String(s26EscFullscreen === true)} (the browser keeps it, as in step 23), the second closed=${String(s26Closed === false)}; live effect with no reload: line-010's auto-advance measured at ${String(s26holdMs)}ms (2.00x floors at the 1500 ms minHold; at the old 1.00x it is 2880 ms and the 2600 ms sampling window would show no move); after reload the player resumed at line-011 and c showed ${JSON.stringify(s26persist.speedValue)} skipAll=${String(s26persist.skipPressed)} — the settings record rode with the frontier through storage; reset to 1.00x/Off closed, so the steps below walk default behaviour`,
     );
 
-    // 27. A folder with the empty stub manifest shows the empty state —
+    // 27. Short-video looping (docs/plan.md Phase 9b): item 12, loop-012 —
+    // a 1 s clip with `loopCount` 2 and no text (a bare visual), the demo's
+    // only standalone video, last in the list. HTML fact: an element with
+    // `loop` NEVER fires `ended`, so the renderer leaves the attribute off,
+    // forwards every `ended` to machine.mediaEnded(), and restarts the
+    // element from 0 until loopCount passes have been counted. The counter
+    // goes on `document` in the CAPTURE phase BEFORE the press — `ended`
+    // does not bubble but does pass through the document on its way down —
+    // because after step 26's reload no <video> exists yet. One space press
+    // moves the cursor: the resume landing was settled. What is provable
+    // from the DOM: it plays; `loop` is off; `ended` fires exactly twice
+    // (no free third pass — that is what loop=true would do); playback
+    // restarts between the ends (currentTime resets and the second end
+    // proves the second full pass); after the 2nd end it holds on the final
+    // frame. loop-012 is the LAST item, so the machine's advance on its
+    // gate (2nd ended + durationSeconds × loopCount time bound) is a settle
+    // in place with no DOM change — the same fact step 24 records — and
+    // that arithmetic is pinned by machine unit tests; this step walks the
+    // renderer half in a real browser. The ~2 s of passes plus tail keeps
+    // the step well under its ~10 s budget: correctness over speed.
+    await page.evaluate(() => {
+      window.__kineticEnded = [];
+      document.addEventListener(
+        "ended",
+        (event) => {
+          const el = event.target;
+          window.__kineticEnded.push(
+            el && el.tagName === "VIDEO"
+              ? String(el.getAttribute("src") ?? "")
+              : "",
+          );
+        },
+        true,
+      );
+    });
+    await pressSpace(cdp); // settled resume item: one press moves the cursor
+    await page.waitForFunction(
+      () =>
+        (
+          document.getElementById("visual-video")?.getAttribute("src") ?? ""
+        ).includes("loop-012.mp4"),
+      { timeout: 5000 },
+    );
+    const s27loopAttr = await page.evaluate(
+      () => document.getElementById("visual-video")?.loop ?? null,
+    );
+    let s27played = true;
+    try {
+      await waitVideoPlaying(page);
+    } catch {
+      s27played = false;
+    }
+    // Sample past two full passes so "exactly 2" means something: playback
+    // started, ~1 s to the first end, ~2 s to the second, ~1.2 s of tail.
+    const s27samples = [];
+    const s27until = Date.now() + 3200;
+    while (Date.now() < s27until) {
+      s27samples.push(
+        await page.evaluate(() => {
+          const v = document.getElementById("visual-video");
+          return {
+            ended: (window.__kineticEnded ?? []).length,
+            paused: v ? v.paused : null,
+            visible: v ? getComputedStyle(v).display !== "none" : false,
+            currentTime: v ? Math.round(v.currentTime * 1000) / 1000 : null,
+          };
+        }),
+      );
+      await sleep(120);
+    }
+    const s27ended = await page.evaluate(() => window.__kineticEnded ?? []);
+    // The restart between pass 1 and pass 2: a sample pair where
+    // currentTime fell hard and an end had been seen by the later sample —
+    // the element was seeked back to 0 and played on, not left parked at
+    // the end. (The `ended` can land BETWEEN samples, so it is the later
+    // sample that must show ended >= 1, not the earlier one.)
+    let s27resetSeen = false;
+    for (let i = 1; i < s27samples.length; i += 1) {
+      const a = s27samples[i - 1];
+      const b = s27samples[i];
+      if (
+        b.ended >= 1 &&
+        a.currentTime !== null &&
+        b.currentTime !== null &&
+        b.currentTime + 0.4 < a.currentTime
+      ) {
+        s27resetSeen = true;
+        break;
+      }
+    }
+    const s27last = s27samples[s27samples.length - 1];
+    const s27endedOnlyOurs =
+      s27ended.length > 0 &&
+      s27ended.every((src) => src.includes("loop-012.mp4"));
+    const s27Ok =
+      s27played &&
+      s27loopAttr === false &&
+      s27ended.length === 2 &&
+      s27endedOnlyOurs &&
+      s27resetSeen &&
+      s27last.visible === true &&
+      s27last.paused === true;
+    record(
+      "27. loop-012 (1 s, loopCount 2) plays its two passes via ended-restart",
+      s27Ok ? "PASS" : !s27played ? "PARTIAL" : "FAIL",
+      `loop attr=${String(s27loopAttr)} (loop=true would never fire ended); ended=${String(s27ended.length)} ${JSON.stringify(s27ended.map((s) => s.split("/").pop()))} from a capture listener installed before the press; restart observed=${String(s27resetSeen)} (currentTime reset then climbed to the 2nd end — two full passes); final sample=${JSON.stringify(s27last)} — holds on the last frame after the 2nd ended, exactly 2 ends never a free loop; last item, so the machine advance is a settle in place (step 24), its 2nd-ended+time-bound gate pinned by machine tests${
+        s27played ? "" : "; autoplay did not start headless"
+      }`,
+    );
+
+    // 28. A folder with the empty stub manifest shows the empty state —
     // and `t` there opens the same panel, saying the novel has no
     // bookmarks yet (storage is namespaced per novel folder, and this
     // folder has none). Escape closes it again.
@@ -1441,32 +1559,32 @@ async function main() {
       },
       { timeout: 5000 },
     );
-    const s27 = await emptyPage.evaluate(PAGE_STATE);
-    const s27Ok =
-      s27.emptyState === EXPECTED.emptyNotice &&
-      s27.imgSrc === null &&
-      s27.overlayHidden === true;
+    const s28 = await emptyPage.evaluate(PAGE_STATE);
+    const s28Ok =
+      s28.emptyState === EXPECTED.emptyNotice &&
+      s28.imgSrc === null &&
+      s28.overlayHidden === true;
     const emptyCdp = await emptyPage.createCDPSession();
     await pressT(emptyCdp);
     await emptyPage.waitForFunction(OVERLAY_OPEN, { timeout: 5000 });
-    const s27overlay = await emptyPage.evaluate(READ_BOOKMARK_OVERLAY);
-    const s27EmptyOverlayOk =
-      s27overlay.hidden === false &&
-      s27overlay.entries.length === 0 &&
-      s27overlay.emptyText === "No bookmarks yet — press b";
+    const s28overlay = await emptyPage.evaluate(READ_BOOKMARK_OVERLAY);
+    const s28EmptyOverlayOk =
+      s28overlay.hidden === false &&
+      s28overlay.entries.length === 0 &&
+      s28overlay.emptyText === "No bookmarks yet — press b";
     // Same fullscreen caveat as step 23: `t` was this page's first gesture
     // so it entered fullscreen, and the browser keeps the first Escape.
     await pressEscape(emptyCdp);
     await sleep(80);
     await pressEscape(emptyCdp);
-    const s27Closed = await panelOpen(emptyPage);
+    const s28Closed = await panelOpen(emptyPage);
     record(
-      "27. empty-manifest folder shows the empty state; t there says no bookmarks yet",
-      s27Ok && s27EmptyOverlayOk && s27Closed === false ? "PASS" : "FAIL",
-      `${JSON.stringify({ emptyState: s27.emptyState, imgSrc: s27.imgSrc, overlayHidden: s27.overlayHidden })}; t opened the overlay: emptyText=${JSON.stringify(s27overlay.emptyText)} entries=${String(s27overlay.entries.length)} (the demo folder's two bookmarks are another novel's — storage is keyed per folder); Escape (after the fullscreen-exiting one the browser keeps) closed=${String(s27Closed === false)}`,
+      "28. empty-manifest folder shows the empty state; t there says no bookmarks yet",
+      s28Ok && s28EmptyOverlayOk && s28Closed === false ? "PASS" : "FAIL",
+      `${JSON.stringify({ emptyState: s28.emptyState, imgSrc: s28.imgSrc, overlayHidden: s28.overlayHidden })}; t opened the overlay: emptyText=${JSON.stringify(s28overlay.emptyText)} entries=${String(s28overlay.entries.length)} (the demo folder's two bookmarks are another novel's — storage is keyed per folder); Escape (after the fullscreen-exiting one the browser keeps) closed=${String(s28Closed === false)}`,
     );
 
-    // 28. Fill the screen (docs/plan.md Phase 7b): the media is the largest
+    // 29. Fill the screen (docs/plan.md Phase 7b): the media is the largest
     // centred contain fit of the ASSET's own aspect ratio into whatever
     // viewport the player gets, never the manifest's box. Two mismatched
     // viewports, one per letterbox direction: the fixture image (16:9, the
@@ -1553,7 +1671,7 @@ async function main() {
             .join(",") || "none"
         }`;
       record(
-        "28. media fills the viewport as a centred contain fit of its own aspect",
+        "29. media fills the viewport as a centred contain fit of its own aspect",
         status,
         `${brief(portraitState, portraitFit)} | ${brief(tallState, tallFit)} | ` +
           `overlay band=${bandWidth.toFixed(0)}px of ${tvw}px, bottom=${bandBottom.toFixed(0)} of ${tvh}px ` +
@@ -1564,15 +1682,19 @@ async function main() {
             : "; PARTIAL: sips could not rescale a copy of the fixture image, so the measured asset's aspect equals the manifest's and independence from the manifest box is asserted by rule, not by measurement"),
       );
     } finally {
-      for (const page of fitPages) await page.close();
+      for (const page of fitPages) {
+        const context = page.browserContext();
+        await page.close();
+        await context.close();
+      }
     }
 
-    // 29. Console stayed empty throughout both pages.
-    const s29Ok = consoleMessages.length === 0 && pageErrors.length === 0;
+    // 30. Console stayed empty throughout both pages.
+    const s30Ok = consoleMessages.length === 0 && pageErrors.length === 0;
     record(
-      "29. console stayed empty throughout",
-      s29Ok ? "PASS" : "FAIL",
-      s29Ok
+      "30. console stayed empty throughout",
+      s30Ok ? "PASS" : "FAIL",
+      s30Ok
         ? "zero console messages, zero page errors, every page, whole run"
         : `console=[${consoleMessages.join(" | ")}] pageErrors=[${pageErrors.join(" | ")}]`,
     );

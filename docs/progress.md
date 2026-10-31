@@ -127,10 +127,12 @@ truthful: an unchecked box means nothing was accepted.
 - [x] Machine: video timing rules (Nth-ended vs duration*loops vs
       holdSeconds override; skip dwell min) with tests (171 tests,
       2025-11-01)
-- [ ] Renderer: loopCount looping via ended-counting, holdSeconds
-      background play; verify steps for both paths
-- [ ] Demo fixture: short looping video item (loopCount 2); determinism
-      and validator green
+- [x] Renderer: loopCount looping via ended-counting, holdSeconds
+      background play; verify steps for both paths (loop=true never
+      fires ended - restart per pass, 2025-11-01)
+- [x] Demo fixture: short looping video item (loopCount 2); determinism
+      and validator green (verify step 27: 2 endeds + restart observed,
+      30 steps 29 pass, 175 tests, 2025-11-01)
 - [ ] Converter image policy: true-format sniff, byte-identical preserve
       when browser-compatible, lossless-JXL-when-smaller (encoder
       probed); ledger records each decision (lands with Phase 10)

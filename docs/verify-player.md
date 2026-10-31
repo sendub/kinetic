@@ -1,6 +1,6 @@
 # Verify the Player Shell
 
- Manual browser checklist for the player, per docs/plan.md Phases 5-9.
+ Manual browser checklist for the player, per docs/plan.md Phases 5-9b.
 Covers the Phase 5 feature set — `file://` demo folder loading, image
 visuals, text + speaker overlay, `h` toggle, space advance,
 first-keypress fullscreen, the empty-manifest state — the Phase 6 media
@@ -16,13 +16,17 @@ thought, `"speech"` for dialogue — so CSS can draw the two differently
 appends timestamped records with a confirmation flash, `t` opens the
 thumbnail list oldest-first and scrolled to the newest, clicking an entry
 continues the novel from that time point, and the frontier survives a
-reload and an `e`-verified bookmark jump; and the Phase 9 config set:
+reload and an `e`-verified bookmark jump; the Phase 9 config set:
 `c` opens the config screen showing the current reading speed and
 skip-all state, its controls change the settings live — a measured
 auto-advance proves the re-armed hold — and the changed values survive
-a reload. The key map today holds space, `h`, `tab`, `e`, `b`, `t`, `c`
-and Escape; the wheel has its own module (`render/wheel.ts`), because a
-wheel event is not a key. While the `t` or `c` overlay is open the
+a reload; and the Phase 9b short-video set: a standalone 1 s clip with
+`loopCount` 2 plays its passes by counting `ended` events and restarting
+from 0 — an element with `loop` NEVER fires `ended`, so the attribute
+stays off for exactly as long as the ends must be counted. The key map
+today holds space, `h`, `tab`, `e`, `b`, `t`, `c` and Escape; the wheel
+has its own module (`render/wheel.ts`), because a wheel event is not a
+key. While the `t` or `c` overlay is open the
 cursor-moving commands (space, `tab`, `e`, wheel) are suspended — the
 overlay takes precedence; `b` and `h` keep working.
 
@@ -56,8 +60,12 @@ from the driver — each step asserts what the DOM shows; the bookmark
 records are read back from the player's own IndexedDB, the `t` list
 is read as the reader sees it (order, scroll position, decoded
 thumbnails), and the `c` panel is read as its readout and switch state.
-Steps 21 and 28 are the exceptions on inputs: they set the
-viewport themselves, the way rotating a phone does. Exit code is 0 when
+Steps 21 and 29 are the exceptions on inputs: they set the
+viewport themselves, the way rotating a phone does, and step 29's pages
+open in fresh browser contexts — their own storage, so each is a
+first-ever load on item 1's image, untouched by the frontier the main
+walk persisted (step 27 pushes that frontier onto loop-012, a video).
+Exit code is 0 when
 every step is PASS or PARTIAL, 1 on any FAIL.
 
 To walk it by hand instead: run `node scripts/verify.mjs` once (or
@@ -68,7 +76,7 @@ first space press on a freshly shown item completes it in place
 (immediate-complete, machine Phase 3) and the next press moves on, so
 advance two presses per item. For the wheel, one mouse notch is 100 px of
 delta and steps exactly one item; steps are capped at ~12 per second, so
-a fast flick cannot outrun the eye. For step 28, drag the window to a
+a fast flick cannot outrun the eye. For step 29, drag the window to a
 shape that matches nothing — tall and narrow, or wide and short — and the
 media should stay flush with one pair of edges, centred on the other
 axis, with black only where the asset's aspect and the window's differ.
@@ -83,13 +91,16 @@ click the stepper's `+` and the skip-all switch to change settings live,
 close with backdrop, `c` or the second Escape, and reload to see the
 changed values read back at startup (set them back afterwards, or the
 next manual walk starts at the reader's own pace — which is the point).
+For step 27 advance to the demo's last item: the 1 s loop-012 clip should
+cross the screen once, snap back to the start, cross again, and hold on
+the last frame — two full passes, no more and no less.
 
 Results below were walked on 2026-10-31 by the driver on headless Chrome
-156.0.8078.76, three times with the same statuses (29 steps: 28 pass, 1
-honest partial; the evidence lines differ only in bookmark timestamps,
-sampled video `currentTime`, skip-dwell timings and the step-26 hold
-measurement). The fit rule in step
-28 is pinned twice over: the pure `containFit` in `render/fit.ts` is
+156.0.8078.76, multiple times with the same statuses (30 steps: 29 pass,
+1 honest partial; the evidence lines differ only in bookmark timestamps,
+sampled video `currentTime`, the step-27 `ended` timings, skip-dwell
+timings and the step-26 hold measurement). The fit rule in step
+29 is pinned twice over: the pure `containFit` in `render/fit.ts` is
 unit-tested, and the driver imports that same function as its expectation,
 so the two cannot drift. The `t` list's pure rules (order,
 scroll-to-bottom, timestamp, thumbnail fallback) are unit-tested in
@@ -188,9 +199,9 @@ the `storage.test.ts` contract suite.
   `src=intro-006.mp4`, poster attribute and poster background set,
   `loop=true`, `paused=false`, `currentTime` advancing, `readyState=4`;
   zero console output. The step stashes an expando on the element for
-  steps 10-13. The `ended`→`mediaEnded` gate is exercised by machine
-  unit tests instead — a chain video loops and never fires `ended`, and
-  the demo has no standalone video, so `ended` is not observable here.
+  steps 10-13. A chain video loops and never fires `ended`, so the
+  standalone `ended`→`mediaEnded` gate is walked at step 27 (loop-012)
+  and its arithmetic unit-tested in `machine.test.ts`.
 
 ### 10. Text item keeps the video playing (same element)
 
@@ -480,7 +491,36 @@ the `storage.test.ts` contract suite.
   window); after reload the player resumed at line-011 and `c` showed
   `2.00x` with skip-all `true`; the reset closed back at `1.00x`/`Off`.
 
-### 27. Empty folder shows the empty state; `t` there says no bookmarks yet
+### 27. A short video with `loopCount` plays its passes (loop-012)
+
+- Action: press space once from step 26's reload landing (line-011,
+  settled) to enter item 12 — loop-012, a 1 s clip with `loopCount: 2`
+  and no text (a bare visual), the demo's last item.
+- Expected: the renderer leaves the `loop` attribute off — an element
+  with `loop` NEVER fires `ended` — and the clip plays its two passes:
+  each pass ends with an `ended` that is forwarded to
+  `machine.mediaEnded()`, playback restarts from 0, and the item's gate
+  is the 2nd `ended` with `durationSeconds × loopCount` as time bound
+  (docs/content-format.md, "Timing"). It is the last item, so the
+  machine advance the gate earns is a settle in place (the fact step 24
+  records), with nothing past it to show; the visible contract is the
+  restart between passes and the hold on the final frame. Console stays
+  clean.
+- RESULT (PASS, 2026-10-31): driver step 27: an `ended` counter was
+  installed on `document` in the CAPTURE phase before the key press
+  (`ended` does not bubble, but passes through the document on capture;
+  after step 26's reload no `<video>` existed yet) and one space moved
+  the cursor. Observed: `loop=false`; `ended` fired exactly 2 times,
+  both from `loop-012.mp4`; `currentTime` reset to 0 and climbed to a
+  2nd end (two full passes — the manual restart, not a `loop`
+  attribute); final sample `paused=true, visible=true, currentTime=1`
+  — holds on the last frame after the 2nd ended, no third pass (a free
+  loop is exactly what `loop=true` would give instead). The machine's
+  2nd-ended + time-bound arithmetic is pinned by `machine.test.ts`;
+  this step walks the renderer half in a real browser. Console
+  contributed nothing.
+
+### 28. Empty folder shows the empty state; `t` there says no bookmarks yet
 
 - Action: open `.tmp/verify-demo-empty/index.html` (dist stub manifest,
   no items), then press `t`.
@@ -490,11 +530,11 @@ the `storage.test.ts` contract suite.
   bookmarks of its own (storage is keyed per novel folder, so the demo
   folder's two are another novel's). Escape (after the fullscreen-exiting
   one) closes it.
-- RESULT (PASS, 2026-10-31): driver step 27: notice text exact, overlay
+- RESULT (PASS, 2026-10-31): driver step 28: notice text exact, overlay
   hidden, zero console output; the overlay opened with `entries=0` and
   exactly the empty message, and Escape closed it.
 
-### 28. Media fills the screen with its own aspect ratio
+### 29. Media fills the screen with its own aspect ratio
 
 - Action: open the demo folder at a viewport that matches nothing —
   the driver sets 700x1000, portrait — and open `.tmp/verify-demo-tall`
@@ -507,7 +547,7 @@ the `storage.test.ts` contract suite.
   on a 16:9 manifest the fit must follow the image. The overlay stays a
   band across the full viewport width, over the content and its
   letterbox rather than inside it; `h` still hides it (step 6).
-- RESULT (PASS, 2026-10-31): driver step 28: at 700x1000 the 960x540
+- RESULT (PASS, 2026-10-31): driver step 29: at 700x1000 the 960x540
   image fills 700x393.8 at y=303.1 — flush in width, letterboxed top and
   bottom, centred; at 1200x700 the 640x960 image fills 466.7x700 at
   x=366.7 — flush in height, pillarboxed, centred — while the manifest's
@@ -520,17 +560,18 @@ the `storage.test.ts` contract suite.
   not pixel-sampled headless — on a real screen they should sit outside
   the media, top/bottom or left/right.
 
-### 29. Console stayed empty throughout
+### 30. Console stayed empty throughout
 
 - Action: watch DevTools' console through the whole walk (all folders).
 - Expected: zero console messages and zero uncaught errors; a plain
   `file://` open logs nothing, per the shell's own console contract. An
   autoplay rejection must be caught, never surfaced.
-- RESULT (PASS, 2026-10-31): driver step 29: zero console messages,
+- RESULT (PASS, 2026-10-31): driver step 30: zero console messages,
   zero page errors, every page, whole run — including the wheel events,
   the skip runs, the bookmark presses, the overlay opens and clicks, the
   config screen's toggle, stepper, measured live hold and second reload,
-  the reload and both geometry viewports.
+  the reload and both geometry viewports, and loop-012's two playing
+  passes with their manual restarts.
 
 ## Not covered yet
 
@@ -569,8 +610,11 @@ the `storage.test.ts` contract suite.
   which is a mouse wheel. The accumulator's threshold, rate cap and
   direction-flip rules are unit-tested (`render/wheel.test.ts`), not
   walked here; a human walk with a trackpad is a cheap extra.
-- The `ended`→`mediaEnded` advance gate for a STANDALONE video (no
-  `text` after it): machine-tested; the demo fixture's only video is
-  the head of a chain, so `ended` never fires there. A real-browser
-  walk of an unplayable-video fallback (autoplay rejection → poster
-  still → machine still advances) is likewise unit-covered only.
+- The `holdSeconds` background-video path in a real browser: the demo
+  fixture has no `holdSeconds` item, so step 27 walks only the finite
+  `loopCount` path. The decision for the other path — `loop` on, no
+  `ended` ever reported, machine driven by the clock alone — is pure and
+  pinned in `render/visual.test.ts` (`videoPlanFor`) and
+  `machine.test.ts`. A real-browser walk of an unplayable-video fallback
+  (autoplay rejection → poster still → machine still advances) is
+  likewise unit-covered only.

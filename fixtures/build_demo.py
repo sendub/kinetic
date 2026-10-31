@@ -41,6 +41,10 @@ VIDEO_FPS = 25
 VIDEO_SECONDS = 2
 VIDEO_FRAMES = VIDEO_FPS * VIDEO_SECONDS
 
+LOOP_VIDEO_ID = "loop-012"
+LOOP_VIDEO_FRAMES = VIDEO_FPS  # 1 s at the same 25 fps
+LOOP_VIDEO_LOOPS = 2  # exercises the standalone loop gate (Phase 9b)
+
 JPEG_QUALITY = 82
 
 
@@ -78,6 +82,44 @@ def rect(img, x0: int, y0: int, x1: int, y1: int, color: tuple[int, int, int]) -
 def save_jpeg(img, path: Path) -> None:
     """Fixed encoder settings; Pillow embeds no timestamps in JPEG output."""
     img.save(path, "JPEG", quality=JPEG_QUALITY, optimize=True, progressive=False)
+
+
+def start_encoder(path: Path) -> subprocess.Popen:
+    """ffmpeg reading WIDTH x HEIGHT rgb24 frames from stdin.
+
+    The bitexact flags, single thread and stripped metadata are what make
+    the mp4 byte-identical across runs (module docstring).
+    """
+    cmd = [
+        "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+        "-f", "rawvideo", "-pix_fmt", "rgb24",
+        "-s", f"{WIDTH}x{HEIGHT}", "-r", str(VIDEO_FPS), "-i", "-",
+        "-c:v", "libx264", "-preset", "veryfast", "-crf", "26",
+        "-pix_fmt", "yuv420p", "-threads", "1",
+        "-fflags", "+bitexact", "-flags", "+bitexact",
+        "-map_metadata", "-1", "-map_chapters", "-1",
+        "-movflags", "+faststart",
+        str(path),
+    ]
+    proc = subprocess.Popen(cmd, stdin=subprocess.PIPE)
+    assert proc.stdin is not None
+    return proc
+
+
+def finish_encoder(proc: subprocess.Popen) -> None:
+    proc.stdin.close()
+    if proc.wait() != 0:
+        sys.exit(f"ffmpeg failed with exit code {proc.returncode}")
+
+
+def probe_duration(path: Path) -> float:
+    """The encoded file's own duration, seconds, rounded to 3 places."""
+    probe = subprocess.run(
+        ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+         "-of", "default=noprint_wrappers=1:nokey=1", str(path)],
+        check=True, capture_output=True, text=True,
+    )
+    return round(float(probe.stdout.strip()), 3)
 
 
 # --------------------------------------------------------------------------
@@ -151,35 +193,15 @@ def build_animation_item() -> dict:
 def build_video_item() -> dict:
     """Encode VIDEO_FRAMES raw frames through ffmpeg; poster is frame 0."""
     mp4 = DEMO_DIR / f"{VIDEO_ID}.mp4"
-    cmd = [
-        "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
-        "-f", "rawvideo", "-pix_fmt", "rgb24",
-        "-s", f"{WIDTH}x{HEIGHT}", "-r", str(VIDEO_FPS), "-i", "-",
-        "-c:v", "libx264", "-preset", "veryfast", "-crf", "26",
-        "-pix_fmt", "yuv420p", "-threads", "1",
-        "-fflags", "+bitexact", "-flags", "+bitexact",
-        "-map_metadata", "-1", "-map_chapters", "-1",
-        "-movflags", "+faststart",
-        str(mp4),
-    ]
-    proc = subprocess.Popen(cmd, stdin=subprocess.PIPE)
-    assert proc.stdin is not None
+    proc = start_encoder(mp4)
     band_w = 120
     for n in range(VIDEO_FRAMES):
         img = new_canvas((12, 24, 40), (34, 52, 74))
         x = (n * 11) % (WIDTH - band_w)
         rect(img, x, 150, x + band_w, 390, (90, 200, 170))
         proc.stdin.write(img.tobytes())
-    proc.stdin.close()
-    if proc.wait() != 0:
-        sys.exit(f"ffmpeg failed with exit code {proc.returncode}")
-
-    probe = subprocess.run(
-        ["ffprobe", "-v", "error", "-show_entries", "format=duration",
-         "-of", "default=noprint_wrappers=1:nokey=1", str(mp4)],
-        check=True, capture_output=True, text=True,
-    )
-    duration = round(float(probe.stdout.strip()), 3)
+    finish_encoder(proc)
+    duration = probe_duration(mp4)
 
     # The poster is exactly the first encoded source frame (format doc:
     # "the video's first frame"), saved with the same JPEG settings.
@@ -192,6 +214,39 @@ def build_video_item() -> dict:
         "file": f"{VIDEO_ID}.mp4", "poster": f"{VIDEO_ID}.poster.jpg",
         "durationSeconds": duration,
         "text": "The ferry crossed once a day, and that was enough.",
+    }
+
+
+def build_loop_video_item() -> dict:
+    """One 1 s standalone clip for the Phase 9b loop path (docs/plan.md).
+
+    Appended at the END of the item list with `loopCount` 2 and NO text:
+    a bare visual, so the machine's media gate is the 2nd `ended` event
+    with `durationSeconds * loopCount` as the time bound, and the renderer
+    must restart the element from 0 between passes (an element with `loop`
+    never fires `ended`). Encoded with the same deterministic technique as
+    intro-006; the moving block crosses the frame so a restart is visible.
+    """
+
+    def frame(n: int):
+        img = new_canvas((16, 42, 32), (74, 118, 84))
+        x = 90 + (n * (WIDTH - 180)) // (LOOP_VIDEO_FRAMES - 1)
+        circle(img, x, HEIGHT // 2, 44, (236, 206, 120))
+        return img
+
+    mp4 = DEMO_DIR / f"{LOOP_VIDEO_ID}.mp4"
+    proc = start_encoder(mp4)
+    for n in range(LOOP_VIDEO_FRAMES):
+        proc.stdin.write(frame(n).tobytes())
+    finish_encoder(proc)
+    duration = probe_duration(mp4)
+
+    save_jpeg(frame(0), DEMO_DIR / f"{LOOP_VIDEO_ID}.poster.jpg")
+
+    return {
+        "id": LOOP_VIDEO_ID, "type": "video",
+        "file": f"{LOOP_VIDEO_ID}.mp4", "poster": f"{LOOP_VIDEO_ID}.poster.jpg",
+        "durationSeconds": duration, "loopCount": LOOP_VIDEO_LOOPS,
     }
 
 
@@ -377,6 +432,8 @@ def main() -> None:
     items.append(build_animation_item())
     items.append(build_video_item())
     items.extend(build_text_chain_items())
+    # Last: the standalone looping clip (Phase 9b), after every chain.
+    items.append(build_loop_video_item())
     manifest = {
         "schemaVersion": 1,
         "width": WIDTH,

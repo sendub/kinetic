@@ -9,8 +9,12 @@
 //   In a chain — the cursor item is `text`, or the next manifest item is
 //   `text` — the visual loops continuously and media end gates nothing.
 //   A standalone animation cycles its frames at `fps` for `loopCount` loops
-//   and stops on the final frame; a standalone video plays once and reports
-//   `ended` so the machine can advance.
+//   and stops on the final frame. A standalone video plays its passes
+//   manually: an element with `loop` NEVER fires `ended`, so the renderer
+//   leaves `loop` off, reports every `ended` to the machine, and restarts
+//   from 0 until `loopCount` passes have been reported; a `holdSeconds`
+//   video is background — `loop` on, free looping, nothing reported
+//   (docs/plan.md Phase 9b).
 //
 // One `<img>` serves images and animation frames, and ONE `<video>` element
 // is reused across renders: advancing within a chain flips `loop` and keeps
@@ -38,7 +42,8 @@ export type PlaybackMode = "still" | "loop-once" | "loop-forever";
  * skip show stills. It plays continuously — `loop-forever`, media end
  * ignored — while the cursor item is `text` or the next manifest item is:
  * the chain's visual loops under the whole chain. Otherwise a media visual
- * runs its fixed cycle once.
+ * runs its fixed cycle once (for a video, its declared passes — see
+ * `videoPlanFor`).
  */
 export function playbackModeFor(
   cursorItem: Item | undefined,
@@ -53,6 +58,35 @@ export function playbackModeFor(
     return "loop-forever";
   }
   return "loop-once";
+}
+
+/** How the reused `<video>` element must play out a `PlaybackMode`. */
+export interface VideoPlan {
+  /** The `loop` attribute: an element that loops NEVER fires `ended`. */
+  loop: boolean;
+  /**
+   * How many `ended` events to report to `machine.mediaEnded()` before
+   * the element holds on its final frame; 0 means the element's ends gate
+   * nothing (background, chain, or still).
+   */
+  reportEnds: number;
+}
+
+/**
+ * Pure element-plan decision for a video (docs/content-format.md,
+ * "Timing"). Standalone (`loop-once`): a `holdSeconds` video is background,
+ * so it loops freely and reports nothing — the machine gates on the clock
+ * alone and ignores `ended`; any other video must have its ends counted, so
+ * `loop` stays off and each pass reports one `ended` up to `loopCount`
+ * (default 1). A chain (`loop-forever`) loops beneath the whole chain and
+ * reports nothing; a still plays nothing.
+ */
+export function videoPlanFor(item: VideoItem, mode: PlaybackMode): VideoPlan {
+  if (mode !== "loop-once") {
+    return { loop: mode === "loop-forever", reportEnds: 0 };
+  }
+  if (item.holdSeconds !== undefined) return { loop: true, reportEnds: 0 };
+  return { loop: false, reportEnds: item.loopCount ?? 1 };
 }
 
 /**
@@ -92,7 +126,10 @@ export interface VisualLayer {
 }
 
 export interface VisualLayerOptions {
-  /** Video `ended` for a standalone video: wires to `machine.mediaEnded()`. */
+  /**
+   * One reported pass of a standalone video: wired to `machine.mediaEnded()`,
+   * which counts to `loopCount` (or ignores ends for background videos).
+   */
   onVideoEnded(): void;
 }
 
@@ -121,12 +158,16 @@ export function createVisualLayer(
   let drawnNotice: string | null = null;
 
   // The single reused <video>. `drawnVideoSrc` is the file it currently
-  // loads; `videoMode` its current playback mode; `videoGeneration` bumps
+  // loads; `videoMode` its current playback mode; `videoPlan` how that mode
+  // plays out on the element (see `videoPlanFor`); `videoEndedCount` the
+  // ends already reported for the current playback; `videoGeneration` bumps
   // whenever the source changes so a late autoplay rejection cannot report
   // an end for a video that is no longer on screen.
   let video: HTMLVideoElement | null = null;
   let drawnVideoSrc: string | null = null;
   let videoMode: PlaybackMode | null = null;
+  let videoPlan: VideoPlan | null = null;
+  let videoEndedCount = 0;
   let videoGeneration = 0;
 
   let animation: AnimationRun | null = null;
@@ -288,9 +329,20 @@ export function createVisualLayer(
   }
 
   function onVideoEnded(): void {
-    // A chain's video has `loop` set, so `ended` never fires there; only a
-    // standalone play-through reports, per docs/content-format.md "Timing".
-    if (videoMode === "loop-once") options.onVideoEnded();
+    // A chain or `holdSeconds` video has `loop` set, so `ended` never fires
+    // there; the plan is the single source of truth. A reporting video —
+    // `loop` off by the HTML fact that looping suppresses `ended` — forwards
+    // every pass to the machine, restarting playback until the last one,
+    // so `loopCount` passes play and the machine counts N `ended`s to drive
+    // its gate (docs/plan.md Phase 9b).
+    const plan = videoPlan;
+    if (plan === null || plan.reportEnds === 0) return;
+    videoEndedCount += 1;
+    options.onVideoEnded();
+    if (videoEndedCount < plan.reportEnds && video !== null) {
+      seekToStart(video);
+      playVideo(video, plan);
+    }
   }
 
   function seekToStart(element: HTMLVideoElement): void {
@@ -303,13 +355,38 @@ export function createVisualLayer(
   }
 
   /**
+   * Start or continue playback, and keep the machine's gate honest when
+   * autoplay rejects: muted autoplay is normally allowed; if it does not
+   * start, stay on the poster with no console error and report EVERY
+   * remaining `ended` the plan still owes — the machine otherwise waits for
+   * ends that can never come, so the timeline would dead-end on an
+   * unplayable video.
+   */
+  function playVideo(element: HTMLVideoElement, plan: VideoPlan): void {
+    const generation = videoGeneration;
+    element.play().catch(() => {
+      if (generation !== videoGeneration || videoPlan !== plan) return;
+      while (videoEndedCount < plan.reportEnds) {
+        videoEndedCount += 1;
+        options.onVideoEnded();
+      }
+    });
+  }
+
+  /**
    * Apply a mode to the reused element without touching its source, so an
    * advance within a chain (once -> forever) keeps the SAME element playing.
    */
-  function applyVideoMode(element: HTMLVideoElement, mode: PlaybackMode): void {
+  function applyVideoMode(
+    element: HTMLVideoElement,
+    item: VideoItem,
+    mode: PlaybackMode,
+  ): void {
     videoMode = mode;
+    videoPlan = videoPlanFor(item, mode);
+    videoEndedCount = 0; // every (re)start counts its passes afresh
     element.style.display = "";
-    element.loop = mode === "loop-forever";
+    element.loop = videoPlan.loop;
     if (mode === "still") {
       // Poster still: paused at the start, the poster attribute and the CSS
       // background beneath the frame keep the poster painted.
@@ -318,15 +395,7 @@ export function createVisualLayer(
       return;
     }
     if (mode === "loop-once") seekToStart(element);
-    // Muted autoplay is normally allowed; if it rejects, stay on the poster
-    // with no console error, and — for a standalone video — report media
-    // ended anyway: the machine otherwise waits for an `ended` that can
-    // never come, so the timeline would dead-end on an unplayable video.
-    const generation = videoGeneration;
-    element.play().catch(() => {
-      if (generation !== videoGeneration || videoMode !== mode) return;
-      if (mode === "loop-once") options.onVideoEnded();
-    });
+    playVideo(element, videoPlan);
   }
 
   function showVideo(item: VideoItem, mode: PlaybackMode): void {
@@ -346,10 +415,10 @@ export function createVisualLayer(
       element.style.backgroundRepeat = "no-repeat";
       element.style.backgroundPosition = "center";
       drawnVideoSrc = item.file;
-      applyVideoMode(element, mode);
+      applyVideoMode(element, item, mode);
       return;
     }
-    if (videoMode !== mode) applyVideoMode(element, mode);
+    if (videoMode !== mode) applyVideoMode(element, item, mode);
   }
 
   function hideVideo(): void {
@@ -358,6 +427,8 @@ export function createVisualLayer(
     video.style.display = "none";
     drawnVideoSrc = null;
     videoMode = null;
+    videoPlan = null;
+    videoEndedCount = 0;
     videoGeneration += 1; // retire any pending autoplay fallback
   }
 
@@ -422,6 +493,8 @@ export function createVisualLayer(
         video = null;
         drawnVideoSrc = null;
         videoMode = null;
+        videoPlan = null;
+        videoEndedCount = 0;
         videoGeneration += 1;
       }
     },
