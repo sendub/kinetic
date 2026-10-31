@@ -24,10 +24,10 @@ truthful: an unchecked box means nothing was accepted.
 
 ## Phase 3: Timeline machine - core
 
-- [ ] Manifest model, cursor, frontier, advance, auto-advance implemented
-- [ ] Wheel-back / wheel-forward rules with frontier guard
-- [ ] README advance / auto-advance / scroll bullets each map to named
-      tests; `npm test` green
+- [x] Manifest model, cursor, frontier, advance, auto-advance implemented
+- [x] Wheel-back / wheel-forward rules with frontier guard
+- [x] README advance / auto-advance / scroll bullets each map to named
+      tests; `npm test` green (22 machine tests, 2025-11-01)
 - [ ] Machine modules DOM-free (lint rule or review sign-off)
 
 ## Phase 4: Timeline machine - skip and jumps
