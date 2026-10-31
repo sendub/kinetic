@@ -12,7 +12,8 @@
 //   and stops on the final frame. A standalone video plays its passes
 //   manually: an element with `loop` NEVER fires `ended`, so the renderer
 //   leaves `loop` off, reports every pass complete to the machine, and seeks
-//   back to the pass start until `loopCount` passes have been reported; a
+//   back to the loop restart point (`loopStartSeconds`, defaulting to the
+//   range start) until `loopCount` passes have been reported; a
 //   `holdSeconds` video is background — free looping, nothing reported
 //   (docs/plan.md Phase 9b).
 //
@@ -28,6 +29,12 @@
 //   `durationSeconds`), because no frame is ever presented past it. With a
 //   range or counted passes active, `loop` stays off: the element's own
 //   looping seeks to 0, which is wrong for a range (docs/plan.md Phase 9c).
+//   A pass that completes while passes remain restarts at
+//   `loopStartSeconds` (default `startSeconds`), so an intro plays once and
+//   the loop-backs skip it; only a fresh item entry starts at
+//   `startSeconds` again (docs/plan.md Phase 9d). A video `loop`ing
+//   natively — background, no range — wraps at 0, because the element
+//   controls that restart.
 //
 // One `<img>` serves images and animation frames, and ONE `<video>` element
 // is reused across renders: advancing within a chain flips `loop` and keeps
