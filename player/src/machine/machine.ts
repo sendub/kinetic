@@ -16,7 +16,13 @@
 // never-shown item (which is then shown normally); with skip_all on it
 // marks items seen as it shows them and ends at content end.
 
-import type { Item, MachineSettings, MachineState, Scheduler } from "./types";
+import type {
+  Item,
+  MachineSettings,
+  MachineState,
+  Scheduler,
+  VideoItem,
+} from "./types";
 
 export interface MachineOptions {
   items: readonly Item[];
@@ -82,7 +88,13 @@ export interface Machine {
    * item's text hold replays and auto-advance carries the reader onward.
    */
   goTo(index: number): void;
-  /** Video `ended` event for the current video item. */
+  /**
+   * Video `ended` event for the current video item. It increments the item's
+   * ended count, which must reach `loopCount` — alongside the time bound —
+   * before a standalone video completes. Ignored when the item has
+   * `holdSeconds` (a background video loops freely and never gates), while a
+   * `text` item follows, during skip mode, and once the item is settled.
+   */
   mediaEnded(): void;
   /**
    * `c` config screen (docs/plan.md Phase 9): replace the pacing settings
@@ -124,12 +136,28 @@ export function textHoldMs(
   );
 }
 
+/** Effective `loopCount` of a video item, default 1. */
+function videoLoops(item: VideoItem): number {
+  return item.loopCount ?? 1;
+}
+
 /**
- * Auto-advance delay for an item, in ms. `nextIsText` marks a media item
- * whose following item is `text`: the chain advances on text holds alone, so
- * an animation's loop time does not apply. A video's true advance also waits
- * for mediaEnded() unless the chain applies, so this is its lower bound (the
- * text hold).
+ * A standalone video's media-gate time bound, in ms: `holdSeconds` when
+ * present — the video is then background and only the clock gates — else
+ * `durationSeconds * loopCount` (docs/content-format.md, "Timing").
+ */
+function videoGateMs(item: VideoItem): number {
+  if (item.holdSeconds !== undefined) return item.holdSeconds * 1000;
+  return item.durationSeconds * videoLoops(item) * 1000;
+}
+
+/**
+ * Auto-advance delay for an item, in ms: the time the item must be on screen
+ * before it may complete. `nextIsText` marks a media item whose following
+ * item is `text`: the chain advances on text holds alone, so an animation's
+ * loop time and a video's gate drop out. A standalone video's true advance
+ * also waits for its `mediaEnded()` loops unless the chain applies, so the
+ * ended count is a second condition the machine checks when this elapses.
  */
 export function itemHoldMs(
   item: Item,
@@ -142,6 +170,7 @@ export function itemHoldMs(
     const loopMs = (item.frames.length * item.loopCount * 1000) / item.fps;
     return Math.max(hold, loopMs);
   }
+  if (item.type === "video") return Math.max(hold, videoGateMs(item));
   return hold;
 }
 
@@ -192,7 +221,8 @@ export function createMachine(options: MachineOptions): Machine {
   }
   let skipping = false;
   let holdElapsed = false;
-  let videoEnded = false;
+  /** `mediaEnded()` calls counted for the standalone video under the cursor. */
+  let endedCount = 0;
   let timer: unknown = null;
   // When the timer now running was armed for the item under the cursor.
   // setSettings() re-arms from this instant, so the new settings act as
@@ -224,7 +254,13 @@ export function createMachine(options: MachineOptions): Machine {
     if (skipping) {
       // Skip mode: one fixed `settings.skipDwellMs` per item whatever its
       // type. Media never gates and never plays to completion; the machine
-      // only times (docs/content-format.md, "Timing").
+      // only times (docs/content-format.md, "Timing"). A video's dwell is
+      // clamped to its own gate, so a short clip is not shown longer than
+      // the content describes.
+      const item = items[cursor];
+      if (item.type === "video") {
+        return Math.min(settings.skipDwellMs, videoGateMs(item));
+      }
       return settings.skipDwellMs;
     }
     return itemHoldMs(items[cursor], settings, nextIsText(cursor));
@@ -258,18 +294,34 @@ export function createMachine(options: MachineOptions): Machine {
   function beginItem(): void {
     settled = false;
     holdElapsed = false;
-    videoEnded = false;
+    endedCount = 0; // every cursor change starts the video's loops afresh
     armTimer();
+  }
+
+  /**
+   * Whether the media half of the current item's gate is met. Only a
+   * standalone video gates on media: a `holdSeconds` video is background and
+   * time-driven only, a video under a `text` chain loops beneath the chain
+   * ungated, and every other type has no media condition. A video without
+   * `holdSeconds` completes when BOTH its time bound has elapsed (checked at
+   * the timer) AND `endedCount` has reached `loopCount` (checked at each
+   * `mediaEnded()`), whichever happens last. A settled item bypasses the gate
+   * entirely — its wait ended on the reader's press or on a resume /
+   * `e`-jump landing, so ended counts are irrelevant to it.
+   */
+  function mediaGateSatisfied(): boolean {
+    const item = items[cursor];
+    if (item.type !== "video") return true;
+    if (item.holdSeconds !== undefined || nextIsText(cursor)) return true;
+    return endedCount >= videoLoops(item);
   }
 
   function onHoldElapsed(): void {
     holdElapsed = true;
-    // A video auto-advances at the later of the text hold and `ended`, except
-    // when a `text` item follows: the renderer keeps it looping underneath
-    // the chain and the machine does not gate the advance on media end.
-    if (items[cursor].type === "video" && !nextIsText(cursor) && !videoEnded) {
-      return;
-    }
+    // The time half of the gate has elapsed; a video auto-advances only when
+    // its ended count has reached `loopCount` too (docs/content-format.md,
+    // "Timing").
+    if (!mediaGateSatisfied()) return;
     moveForward();
   }
 
@@ -332,7 +384,7 @@ export function createMachine(options: MachineOptions): Machine {
   function landOnLastSeen(): void {
     cursor = frontier - 1;
     holdElapsed = false;
-    videoEnded = false;
+    endedCount = 0;
     settled = true;
     armTimer();
     emit();
@@ -438,12 +490,15 @@ export function createMachine(options: MachineOptions): Machine {
     mediaEnded() {
       // During skip a video never plays (the renderer shows the poster), so
       // media-end events are irrelevant; guard against a straggler.
-      if (destroyed || count === 0 || settled || videoEnded || skipping) {
-        return;
-      }
-      if (items[cursor].type !== "video") return;
-      videoEnded = true;
-      if (holdElapsed) moveForward();
+      if (destroyed || count === 0 || settled || skipping) return;
+      const item = items[cursor];
+      if (item.type !== "video") return;
+      // A background (`holdSeconds`) video and a video under a text chain
+      // loop freely: their `ended` events gate nothing, so they are dropped
+      // rather than counted.
+      if (item.holdSeconds !== undefined || nextIsText(cursor)) return;
+      endedCount += 1;
+      if (holdElapsed && mediaGateSatisfied()) moveForward();
     },
 
     setSettings(next) {

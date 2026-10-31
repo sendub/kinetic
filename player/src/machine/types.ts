@@ -40,6 +40,23 @@ export interface VideoItem extends OverlayFields {
   file: string;
   poster: string;
   durationSeconds: number;
+  /**
+   * Times the video plays before auto-advance, integer at least 1, default 1
+   * (docs/content-format.md, "Items"). The gate is the later of the
+   * `loopCount`-th `mediaEnded()` and `durationSeconds * loopCount` as a time
+   * bound. The renderer sets `loop` when this exceeds 1 and reports
+   * `mediaEnded()` on each `ended`, so the machine counts them. Ignored when
+   * `holdSeconds` is present.
+   */
+  loopCount?: number;
+  /**
+   * Explicit display duration in seconds, greater than 0. When present the
+   * media gate is time-driven only — the hold is `max(textHoldMs,
+   * holdSeconds * 1000)` and `mediaEnded()` is ignored entirely, because the
+   * video is background: the renderer loops it freely and never reports an
+   * `ended` for gating.
+   */
+  holdSeconds?: number;
 }
 
 /**

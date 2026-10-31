@@ -35,7 +35,11 @@ function animation(
   };
 }
 
-function video(durationSeconds = 10, text?: string): Item {
+function video(
+  durationSeconds = 10,
+  text?: string,
+  timing: { loopCount?: number; holdSeconds?: number } = {},
+): Item {
   return {
     id: "vid",
     type: "video",
@@ -43,6 +47,8 @@ function video(durationSeconds = 10, text?: string): Item {
     poster: "vid.poster.jpg",
     durationSeconds,
     text,
+    loopCount: timing.loopCount,
+    holdSeconds: timing.holdSeconds,
   };
 }
 
@@ -92,8 +98,22 @@ describe("hold computation (docs/content-format.md Timing)", () => {
     expect(itemHoldMs(animation(3, 12, 3), SETTINGS)).toBe(1500);
   });
 
-  it("video hold lower bound is the text hold", () => {
-    expect(itemHoldMs(video(10), SETTINGS)).toBe(1500);
+  it("standalone video hold is the later of its media gate and the text hold", () => {
+    // durationSeconds 10 * loopCount 1 = 10 s, above minHold.
+    expect(itemHoldMs(video(10), SETTINGS)).toBe(10_000);
+    // A 1 s clip sits under minHold, so the text hold floors the gate.
+    expect(itemHoldMs(video(1), SETTINGS)).toBe(1500);
+    // loopCount scales the time bound; holdSeconds replaces it.
+    expect(itemHoldMs(video(1, undefined, { loopCount: 2 }), SETTINGS)).toBe(
+      2000,
+    );
+    expect(itemHoldMs(video(1, undefined, { holdSeconds: 8 }), SETTINGS)).toBe(
+      8000,
+    );
+    // ... and the text hold still floors a short holdSeconds.
+    expect(
+      itemHoldMs(video(30, "a".repeat(40), { holdSeconds: 1 }), SETTINGS),
+    ).toBe(2400);
   });
 
   it("media item followed by text holds the text hold alone", () => {
@@ -232,6 +252,8 @@ describe("video and mediaEnded()", () => {
     const m = machine([video(10), image()]);
     vi.advanceTimersByTime(5000); // text hold long past, video still running
     expect(m.getState().cursor).toBe(0);
+    vi.advanceTimersByTime(5000); // time bound (10 s) elapsed, no `ended`
+    expect(m.getState().cursor).toBe(0);
     m.mediaEnded();
     expect(m.getState()).toEqual({
       cursor: 1,
@@ -266,6 +288,201 @@ describe("video and mediaEnded()", () => {
     const m = machine([image(), image()]);
     m.mediaEnded();
     expect(m.getState().cursor).toBe(0);
+    m.destroy();
+  });
+});
+
+describe("short-video timing: loopCount and holdSeconds (docs/plan.md Phase 9b)", () => {
+  function skipSettings(skipAll: boolean): MachineSettings {
+    return { ...SETTINGS, skipAll };
+  }
+
+  it("holdSeconds holds for max(text hold, holdSeconds) with no mediaEnded", () => {
+    vi.useFakeTimers();
+    // holdSeconds 4 s > minHold 1500: the gate is the clock alone.
+    const m = machine([video(30, undefined, { holdSeconds: 4 }), image()]);
+    vi.advanceTimersByTime(3999);
+    expect(m.getState().cursor).toBe(0);
+    vi.advanceTimersByTime(1);
+    expect(m.getState()).toEqual({
+      cursor: 1,
+      frontier: 2,
+      settled: false,
+      skipping: false,
+    });
+    // The text hold still floors a shorter holdSeconds.
+    const floored = machine([
+      video(30, "a".repeat(40), { holdSeconds: 1 }),
+      image(),
+    ]);
+    vi.advanceTimersByTime(2399); // 2400 ms text hold > 1000 ms holdSeconds
+    expect(floored.getState().cursor).toBe(0);
+    vi.advanceTimersByTime(1);
+    expect(floored.getState().cursor).toBe(1);
+    m.destroy();
+    floored.destroy();
+  });
+
+  it("ignores every mediaEnded on a holdSeconds background video", () => {
+    vi.useFakeTimers();
+    const m = machine([video(30, undefined, { holdSeconds: 4 }), image()]);
+    vi.advanceTimersByTime(100);
+    m.mediaEnded(); // strays: the renderer loops freely and reports nothing,
+    m.mediaEnded(); // but a late event must not advance early either.
+    vi.advanceTimersByTime(3899);
+    expect(m.getState()).toEqual({
+      cursor: 0,
+      frontier: 1,
+      settled: false,
+      skipping: false,
+    });
+    vi.advanceTimersByTime(1);
+    expect(m.getState().cursor).toBe(1);
+    m.destroy();
+  });
+
+  it("loopCount 2 needs the second ended AND the time bound (bound first)", () => {
+    vi.useFakeTimers();
+    const m = machine([video(1, undefined, { loopCount: 2 }), image()]); // 2000 ms
+    vi.advanceTimersByTime(2000);
+    expect(m.getState().cursor).toBe(0);
+    m.mediaEnded(); // first loop done, time bound passed: still not enough
+    expect(m.getState()).toEqual({
+      cursor: 0,
+      frontier: 1,
+      settled: false,
+      skipping: false,
+    });
+    m.mediaEnded(); // second ended completes the item
+    expect(m.getState()).toEqual({
+      cursor: 1,
+      frontier: 2,
+      settled: false,
+      skipping: false,
+    });
+    m.destroy();
+  });
+
+  it("loopCount 2 waits for the time bound when both endeds land early", () => {
+    vi.useFakeTimers();
+    const m = machine([video(1, undefined, { loopCount: 2 }), image()]);
+    vi.advanceTimersByTime(100);
+    m.mediaEnded();
+    m.mediaEnded(); // loops complete early: the bound still has to elapse
+    expect(m.getState().cursor).toBe(0);
+    vi.advanceTimersByTime(1899);
+    expect(m.getState()).toEqual({
+      cursor: 0,
+      frontier: 1,
+      settled: false,
+      skipping: false,
+    });
+    vi.advanceTimersByTime(1); // 2000 ms from the item start
+    expect(m.getState().cursor).toBe(1);
+    m.destroy();
+  });
+
+  it("loopCount 1 keeps the legacy single-ended gate", () => {
+    vi.useFakeTimers();
+    // The default (absent loopCount) and an explicit 1 behave alike.
+    for (const clip of [video(10), video(10, undefined, { loopCount: 1 })]) {
+      const m = machine([clip, image()]);
+      vi.advanceTimersByTime(1500); // text hold past, bound (10 s) not
+      expect(m.getState().cursor).toBe(0);
+      m.mediaEnded(); // the single ended is met: only the clock gates now
+      expect(m.getState().cursor).toBe(0);
+      vi.advanceTimersByTime(8499); // 9999 ms of the 10 s bound
+      expect(m.getState().cursor).toBe(0);
+      vi.advanceTimersByTime(1); // bound elapsed with its ended met: advance
+      expect(m.getState().cursor).toBe(1);
+      m.destroy();
+    }
+    // Ended-first ordering is the legacy "video ends early" case: the text
+    // hold carries it, exactly as before loopCount existed.
+    const early = machine([video(1), image()]);
+    early.mediaEnded();
+    expect(early.getState().cursor).toBe(0);
+    vi.advanceTimersByTime(1500);
+    expect(early.getState().cursor).toBe(1);
+    early.destroy();
+  });
+
+  it("skip dwell clamps a video to min(skipDwellMs, holdSeconds)", () => {
+    vi.useFakeTimers();
+    // durationSeconds 3 is irrelevant here: holdSeconds 0.05 gates the dwell.
+    const m = machine(
+      [video(3, undefined, { holdSeconds: 0.05 }), image(), image()],
+      {
+        settings: skipSettings(true),
+      },
+    );
+    m.toggleSkip();
+    vi.advanceTimersByTime(49);
+    expect(m.getState().cursor).toBe(0);
+    vi.advanceTimersByTime(1);
+    expect(m.getState().cursor).toBe(1);
+    // The next item is an image: the full dwell applies again.
+    vi.advanceTimersByTime(SETTINGS.skipDwellMs);
+    expect(m.getState().cursor).toBe(2);
+    m.destroy();
+  });
+
+  it("skip dwell clamps a video to min(skipDwellMs, durationSeconds * loops)", () => {
+    vi.useFakeTimers();
+    // 0.03 s * 2 loops = 60 ms < the 120 ms dwell.
+    const m = machine(
+      [video(0.03, undefined, { loopCount: 2 }), image(), image()],
+      {
+        settings: skipSettings(true),
+      },
+    );
+    m.toggleSkip();
+    vi.advanceTimersByTime(59);
+    expect(m.getState().cursor).toBe(0);
+    vi.advanceTimersByTime(1);
+    expect(m.getState().cursor).toBe(1);
+    vi.advanceTimersByTime(SETTINGS.skipDwellMs);
+    expect(m.getState().cursor).toBe(2);
+    m.destroy();
+  });
+
+  it("leaving and re-entering a video item resets its ended count", () => {
+    vi.useFakeTimers();
+    // Seen content: resumeFrontier 2 so a wheel step can return to the video.
+    const m = machine([video(1, undefined, { loopCount: 2 }), image()], {
+      resumeFrontier: 2,
+    });
+    expect(m.getState().cursor).toBe(1);
+    m.wheelBack(); // back onto the video: fresh item state, endedCount 0
+    expect(m.getState()).toEqual({
+      cursor: 0,
+      frontier: 2,
+      settled: false,
+      skipping: false,
+    });
+    vi.advanceTimersByTime(2000); // the bound replays too
+    expect(m.getState().cursor).toBe(0);
+    m.mediaEnded(); // the two endeds are needed again from scratch
+    expect(m.getState().cursor).toBe(0);
+    m.mediaEnded();
+    expect(m.getState().cursor).toBe(1);
+    // Settle semantics are unchanged and unrelated to endedCount: a settled
+    // item — an immediate-complete advance(), or a resume / e-jump landing on
+    // content already read — has no media condition to meet, so mediaEnded()
+    // is dropped for it and its auto-advance runs on the hold alone.
+    m.advance(); // settle the image (last item: settled, cursor stays)
+    expect(m.getState().settled).toBe(true);
+    m.wheelBack();
+    m.advance(); // settle the re-shown video without any ended
+    expect(m.getState()).toEqual({
+      cursor: 0,
+      frontier: 2,
+      settled: true,
+      skipping: false,
+    });
+    m.mediaEnded(); // irrelevant now: the cursor only moves on advance()
+    m.advance();
+    expect(m.getState().cursor).toBe(1);
     m.destroy();
   });
 });
