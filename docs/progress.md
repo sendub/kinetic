@@ -31,8 +31,8 @@ truthful: an unchecked box means nothing was accepted.
       (24 pytest tests, 2025-11-01)
 - [x] Machine `text` items: text-only holds, media loops under chains,
       cursor-to-visual helper; tests green (34 tests, 2025-11-01)
-- [ ] Demo fixture extended with video+text and image+text chains; all
-      suites green
+- [x] Demo fixture extended with video+text and image+text chains; all
+      suites green (determinism sha256-verified, 2025-11-01)
 
 ## Phase 3: Timeline machine - core
 

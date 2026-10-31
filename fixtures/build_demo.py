@@ -195,6 +195,43 @@ def build_video_item() -> dict:
     }
 
 
+def build_text_chain_items() -> list[dict]:
+    """Items that exercise the `text` type (docs/content-format.md §Text items).
+
+    A `text` item carries no media fields; it shows the visual of the nearest
+    earlier media-bearing item, which keeps playing/looping beneath a chain of
+    them. Returned in manifest order to append after the video item:
+
+    - two dialogue lines over the looping video (intro-006);
+    - a still (pier-009) followed by two dialogue lines.
+    """
+    # Dialogue chain over the video: two distinct speakers/lines, no media.
+    items: list[dict] = [
+        {"id": "line-007", "type": "text", "speaker": "Mei",
+         "text": "The street glowed under the awning."},
+        {"id": "line-008", "type": "text",
+         "text": "Neither of us spoke for a while."},
+    ]
+
+    # Dialogue chain over one still: a bare image (no overlaid text), then
+    # two distinct lines drawn over it.
+    img = new_canvas((42, 30, 58), (96, 70, 64))
+    rect(img, 0, 400, WIDTH, HEIGHT, (30, 24, 34))
+    circle(img, 480, 250, 40, (250, 210, 150))
+    save_jpeg(img, DEMO_DIR / "pier-009.jpg")
+    items.append({"id": "pier-009", "type": "image", "file": "pier-009.jpg"})
+    items.append({
+        "id": "line-010", "type": "text", "speaker": "Theo",
+        "text": "The tide took the last of the crates by morning.",
+    })
+    items.append({
+        "id": "line-011", "type": "text",
+        "text": "We stacked the rest ourselves, and called it enough.",
+    })
+
+    return items
+
+
 # --------------------------------------------------------------------------
 # Inline structural check (hand-rolled; the reusable validator is next task)
 # --------------------------------------------------------------------------
@@ -221,7 +258,7 @@ def check_manifest(manifest: dict, schema: dict) -> list[str]:
     }
     id_re = re.compile(defs["id"]["pattern"])
     type_to_def = {"image": "imageItem", "animation": "animationItem",
-                   "video": "videoItem"}
+                   "video": "videoItem", "text": "textItem"}
 
     def bad(msg: str) -> None:
         errors.append(msg)
@@ -333,6 +370,7 @@ def main() -> None:
     items = build_image_items()
     items.append(build_animation_item())
     items.append(build_video_item())
+    items.extend(build_text_chain_items())
     manifest = {
         "schemaVersion": 1,
         "width": WIDTH,
