@@ -19,7 +19,8 @@ truthful: an unchecked box means nothing was accepted.
       (byte-identical reruns, sha256-verified, 2025-11-01)
 - [x] Validator passes on the fixture and fails on a broken manifest (in
       tests) (20 pytest tests, 2025-11-01)
-- [ ] Top-level CREATE.md written against the final schema
+- [x] Top-level CREATE.md written against the final schema (worked
+      example validated against the real validator, 2025-11-01)
 
 ## Phase 3: Timeline machine - core
 
