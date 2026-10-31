@@ -120,9 +120,10 @@ truthful: an unchecked box means nothing was accepted.
 
 ## Phase 9b: Media revision (2025-11-01, user requests)
 
-- [ ] Format/schema/validator/CREATE: video containers mp4|webm|mkv|
+- [x] Format/schema/validator/CREATE: video containers mp4|webm|mkv|
       mov|m4v and .jxl images; optional video `loopCount`/`holdSeconds`;
-      naming `<id>.<ext>`; browser-support caveats documented
+      naming `<id>.<ext>`; browser-support caveats documented (32 pytest
+      tests, 2025-11-01)
 - [ ] Machine: video timing rules (Nth-ended vs duration*loops vs
       holdSeconds override; skip dwell min) with tests
 - [ ] Renderer: loopCount looping via ended-counting, holdSeconds

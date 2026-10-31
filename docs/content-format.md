@@ -69,13 +69,25 @@ Every item carries `id`, `type`, and optional overlay fields:
 
 Per type:
 
-- `image` with `file`: one display-resolution image.
+- `image` with `file`: one display-resolution image, as `.png`, `.jpg`,
+  `.jpeg`, `.webp`, `.gif`, or `.jxl`. JXL decode needs Chrome/Edge
+  117+, Safari 17+, or Firefox 133+; the converter ships `.jxl` only
+  after probing an encoder and confirming the encode is smaller than
+  the compatible original, else it keeps the compatible original.
 - `animation` with `frames` (ordered display-resolution frames, at least
   two), `fps` (frames per second, greater than 0), and `loopCount` (how
   many times the sequence plays before auto-advance, at least 1).
-- `video` with `file` (H.264 faststart MP4), `poster` (still image shown
-  for instant first paint), and `durationSeconds` (runtime of the encoded
-  video, greater than 0), so skip-mode timing needs no media probing.
+- `video` with `file` (any browser-playable video file: `.mp4`,
+  `.webm`, `.mkv` (VP9/AV1), `.mov`, and `.m4v` are allowed, and
+  playability is the browser's call), `poster` (still image shown
+  for instant first paint), and the required `durationSeconds`
+  (runtime of the encoded video, greater than 0; the converter fills
+  it via ffprobe, and skip-mode timing needs it). Optional
+  `loopCount` (integer, at least 1, default 1) plays the video
+  repeatedly; optional `holdSeconds` (number greater than 0) sets an
+  explicit display duration. MKV is reliably Chromium-class and Safari
+  may refuse it, so a converter targeting Safari should emit MP4 and
+  record the choice in the build ledger.
 - `text` takes no media fields. `id` and `type` are required, `speaker`,
   `text`, and `thought` are optional, and no other fields are accepted.
   On a `text` item `thought` behaves as elsewhere: a thought line in a
@@ -152,16 +164,19 @@ content:
   loopCount * 1000 / fps`. Auto-advance fires at the later of loop
   time and text hold time, so the loops complete before the item
   advances on its own.
-- A video plays through once. Auto-advance fires at the later of the
-  `ended` event and the text hold time.
+- A video's media gate is `holdSeconds` when present: the hold is
+  time driven only, `ended` is ignored, and the video plays as
+  background. Otherwise auto-advance fires at the later of the
+  `loopCount`-th `ended` event and `durationSeconds * loopCount` as
+  a time bound. The text hold always applies alongside the gate.
 - A media item followed by `text` items, and the `text` items after
   it, form a chain. The chain advances on text hold times alone. Loop
   completion and the `ended` event gate nothing while it lasts, and
   the chain's visual plays throughout it, looping in place.
 - Skip mode shows each item for a fixed player dwell. An animation
   contributes `frames[0]` and a video its `poster`; both show that
-  still and never play. A video holds for `min(dwell,
-  durationSeconds)`.
+  still and never play. A video holds for `min(skipDwell,
+  (holdSeconds ?? durationSeconds * loopCount))`.
 - Rewind shows `frames[0]` and the poster too. Rewind, skip, and
   `e`-jump show a `text` item as the still of the visual it displays.
 
@@ -170,8 +185,12 @@ content:
 The converter writes each generated file at the folder root, named after the
 owning item id. Since ids contain no dots, suffixes parse unambiguously:
 
-- `<id>.jpg`: the display-resolution image of an image item, referenced by
-  `file`.
+- `<id>.<ext>`: the item's own media file, referenced by `file`: the
+  display-resolution image of an image item, or the video of a video
+  item. `ext` is the true shipped format, `jpg`, `png`, `webp`,
+  `jxl`, or `gif` for images and `mp4`, `webm`, `mkv`, `mov`, or
+  `m4v` for video. Browser-compatible originals are preserved
+  byte-identical, with no forced re-encode.
 - `<id>.fNNN.jpg`: animation frame N, zero-based and zero-padded to three
   digits, referenced in `frames`.
 - `<id>.poster.jpg`: the video's first frame, extracted at conversion and
@@ -199,8 +218,9 @@ Format rules:
 - Paths are relative to the content folder. The schema pattern enforces the
   character set: no leading `/`, no drive letters or scheme, no `..`, no
   spaces.
-- Images carry the extension `.png`, `.jpg`, `.jpeg`, or `.webp`; videos
-  `.mp4`. The schema pins these per field.
+- Images carry the extension `.png`, `.jpg`, `.jpeg`, `.webp`, `.gif`,
+  or `.jxl`; videos `.mp4`, `.webm`, `.mkv`, `.mov`, or `.m4v`. The
+  schema pins these per field.
 - Every media value matches the path pattern.
 
 The validator checks the schema plus these invariants:

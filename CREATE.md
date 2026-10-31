@@ -37,12 +37,19 @@ them is still valid input for the validator.
 `id` (letters, digits, `-`, `_`, starting with a letter or digit), a
 `type`, and the fields its type requires:
 
-- `image`: `file`, one image at display resolution.
+- `image`: `file`, one image at display resolution. `.jpg`, `.png`,
+  `.webp`, `.gif`, and `.jxl` are allowed; `.jxl` needs Chrome/Edge
+  117+, Safari 17+, or Firefox 133+.
 - `animation`: `frames` (at least two, at display resolution, in play
   order), `fps` greater than 0, `loopCount` of at least 1.
-- `video`: `file` (H.264 faststart MP4), `poster` (a display-resolution
-  still, the video's first frame, also shown in skip and rewind), and
-  `durationSeconds` greater than 0.
+- `video`: `file` (any browser-playable file; `.mp4`, `.webm`,
+  `.mkv`, `.mov`, and `.m4v` are allowed, and playability is the
+  browser's call), `poster` (a display-resolution still, the video's
+  first frame, also shown in skip and rewind), and `durationSeconds`
+  greater than 0. Optionally set `loopCount` (at least 1, default 1)
+  to play the video repeatedly and `holdSeconds` (greater than 0)
+  for an explicit display duration; `durationSeconds` stays required
+  either way.
 - `text`: no media fields; only `id`, `type`, and the optional
   `speaker`, `text`, and `thought`. It shows the visual of the nearest
   earlier media item, and that video or animation keeps looping
@@ -100,10 +107,14 @@ underneath, and each holds for its text alone. The first carries
 Neither the video's end nor its loops gate an advance while the chain of
 `text` items lasts.
 
-The item ids drive the file names: `<id>.jpg` for an image,
-`<id>.fNNN.jpg` for animation frames numbered from `f000`, and
-`<id>.mp4` plus `<id>.poster.jpg` for a video. These names are the
-defaults the converter generates, not a one-file-per-item rule.
+The item ids drive the file names: `<id>.<ext>` for an image or a
+video, where `ext` is the true shipped format (`jpg`, `png`, `webp`,
+`jxl`, or `gif` for images; `mp4`, `webm`, `mkv`, `mov`, or `m4v` for
+video), `<id>.fNNN.jpg` for animation frames numbered from `f000`,
+and `<id>.poster.jpg` for a video poster. Browser-compatible
+originals are preserved byte-identical, with no forced re-encode.
+These names are the defaults the converter generates, not a
+one-file-per-item rule.
 Several items may reference the same derivative file, the converter
 dedups identical sources, and you may name hand-authored files
 differently. A folder may also carry extra unreferenced files, such as
@@ -135,9 +146,10 @@ for f in walk/*.png; do
 done
 ```
 
-A video, transcoded to faststart H.264 at display resolution, with its
-poster taken from the first encoded frame and its runtime read back for
-`durationSeconds`:
+A video the browser already plays needs no re-encode: copy it in as
+`<id>.<ext>` and read back its runtime. This one is transcoded to
+faststart H.264 at display resolution, with its poster taken from the
+first encoded frame and its runtime read back for `durationSeconds`:
 
 ```sh
 ffmpeg -i clip.mov \
@@ -196,12 +208,13 @@ Ren'Py project directory into exactly this folder format:
 python -m kinetic_extract <renpy_project> <out_dir>
 ```
 
-It will validate and copy images, transcode video to faststart H.264,
-and emit the display-resolution derivatives, posters, and thumbnails,
-which is the work you do by hand above. It dedups identical sources
-into shared derivative files and leaves its build ledger among the
-folder's unreferenced extras. Validate and play its output the same
-way.
+It will sniff true formats and keep browser-compatible originals
+byte-identical, re-encoding only what it must: images become lossless
+JPEG XL when that is smaller, video becomes H.264 MP4 when no target
+browser plays it. It emits posters and thumbnails, which is the work
+you do by hand above, dedups identical sources into shared derivative
+files, and leaves its build ledger among the folder's unreferenced
+extras. Validate and play its output the same way.
 
 ## Playing the folder
 

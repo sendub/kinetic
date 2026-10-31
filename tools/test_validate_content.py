@@ -96,6 +96,50 @@ def test_player_bundle_is_optional(folder: Path) -> None:
     assert problems_of(folder) == []
 
 
+def test_video_webm_with_loop_count_passes(folder: Path) -> None:
+    """A `.webm` video file and `loopCount` are valid (plan Phase 9b)."""
+    manifest = read_manifest(folder)
+    video = manifest["items"][5]
+    assert video["type"] == "video"
+    new = video["file"].rsplit(".", 1)[0] + ".webm"
+    (folder / video["file"]).rename(folder / new)
+    video["file"] = new
+    video["loopCount"] = 2
+    write_manifest(folder, manifest)
+    assert problems_of(folder) == []
+    proc = run_cli(folder)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+
+
+def test_video_mkv_with_hold_seconds_passes(folder: Path) -> None:
+    """A `.mkv` video file and `holdSeconds` are valid; any playable
+    container the browser accepts is allowed."""
+    manifest = read_manifest(folder)
+    video = manifest["items"][5]
+    new = video["file"].rsplit(".", 1)[0] + ".mkv"
+    (folder / video["file"]).rename(folder / new)
+    video["file"] = new
+    video["holdSeconds"] = 4.5
+    write_manifest(folder, manifest)
+    assert problems_of(folder) == []
+    proc = run_cli(folder)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+
+
+def test_image_jxl_passes(folder: Path) -> None:
+    """A `.jxl` image file is valid; browsers decode JXL since Chrome/Edge
+    117, Safari 17, and Firefox 133."""
+    manifest = read_manifest(folder)
+    old = manifest["items"][0]["file"]
+    new = old.rsplit(".", 1)[0] + ".jxl"
+    (folder / old).rename(folder / new)
+    manifest["items"][0]["file"] = new
+    write_manifest(folder, manifest)
+    assert problems_of(folder) == []
+    proc = run_cli(folder)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+
+
 # ---------------------------------------------------------------------------
 # Fault tests: one deliberate defect each, exactly one problem reported
 # ---------------------------------------------------------------------------
@@ -228,15 +272,30 @@ def test_unknown_item_type(folder: Path) -> None:
 
 
 def test_wrong_media_extension(folder: Path) -> None:
+    """`.gif` images are allowed now; `.bmp` still breaks the pattern."""
     manifest = read_manifest(folder)
     name = read_manifest(folder)["items"][0]["file"]
-    (folder / name).rename(folder / "meadow-001.gif")
-    manifest["items"][0]["file"] = "meadow-001.gif"
+    (folder / name).rename(folder / "meadow-001.bmp")
+    manifest["items"][0]["file"] = "meadow-001.bmp"
     write_manifest(folder, manifest)
     problems = problems_of(folder)
     assert len(problems) == 1
     assert problems[0].startswith("manifest.json: items[0].file:")
     assert "does not match pattern" in problems[0]
+
+
+def test_video_missing_duration_seconds_is_rejected(folder: Path) -> None:
+    """`durationSeconds` stays required even when `holdSeconds` is set."""
+    manifest = read_manifest(folder)
+    video = manifest["items"][5]
+    assert video["type"] == "video"
+    del video["durationSeconds"]
+    video["holdSeconds"] = 3.0
+    write_manifest(folder, manifest)
+    problems = problems_of(folder)
+    assert len(problems) == 1
+    assert problems[0].startswith("manifest.json: items[5]:")
+    assert "durationSeconds" in problems[0]
 
 
 def test_missing_manifest_json(folder: Path) -> None:

@@ -43,13 +43,13 @@
     "imagePath": {
       "allOf": [
         { "$ref": "#/$defs/path" },
-        { "pattern": "\\.(png|jpg|jpeg|webp)$" }
+        { "pattern": "\\.(png|jpg|jpeg|webp|gif|jxl)$" }
       ]
     },
     "videoPath": {
       "allOf": [
         { "$ref": "#/$defs/path" },
-        { "pattern": "\\.mp4$" }
+        { "pattern": "\\.(mp4|webm|mkv|mov|m4v)$" }
       ]
     },
     "imageItem": {
@@ -108,6 +108,16 @@
         "durationSeconds": {
           "type": "number",
           "exclusiveMinimum": 0
+        },
+        "loopCount": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "times the video plays before auto-advance; default 1"
+        },
+        "holdSeconds": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "explicit display duration; when present the media gate is time driven and ended is ignored (docs/content-format.md, Timing)"
         },
         "speaker": { "type": "string" },
         "text": { "type": "string" },
