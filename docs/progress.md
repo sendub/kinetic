@@ -9,7 +9,8 @@ truthful: an unchecked box means nothing was accepted.
 
 - [x] `player/` initialized with TypeScript strict, esbuild, Biome, Vitest
 - [x] Scripts `dev`, `build`, `test`, `check` all exit 0
-- [ ] `dist/index.html` opens over `file://` with no console errors
+- [x] `dist/index.html` opens over `file://` with no console errors
+      (headless Chrome, stderr clean, 2025-11-01)
 
 ## Phase 2: Content format and demo fixture
 
