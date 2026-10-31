@@ -254,6 +254,59 @@ def test_unreadable_manifest_json_reports_json_error(folder: Path) -> None:
                for p in problems)
 
 
+def test_leading_text_item_is_rejected(folder: Path) -> None:
+    """The first item may not be `text`: it would have no visual to show."""
+    manifest = read_manifest(folder)
+    manifest["items"].insert(0, {
+        "id": "cold-open-000", "type": "text",
+        "text": "It began before the lights came up.",
+    })
+    write_manifest(folder, manifest)
+    problems = problems_of(folder)
+    assert len(problems) == 1
+    assert problems[0].startswith("manifest.json: items[0]:")
+    assert "first item" in problems[0] and '"text"' in problems[0]
+
+
+def test_text_only_manifest_is_rejected(folder: Path) -> None:
+    """A manifest of only `text` items has no media-bearing item anywhere."""
+    manifest = read_manifest(folder)
+    manifest["items"] = [
+        {"id": "line-a", "type": "text", "speaker": "Mei",
+         "text": "One line over nothing."},
+        {"id": "line-b", "type": "text", "text": "Another, still no visual."},
+    ]
+    write_manifest(folder, manifest)
+    problems = problems_of(folder)
+    assert len(problems) == 2
+    assert problems[0].startswith("manifest.json: items[0]:")
+    assert "first item" in problems[0]
+    assert problems[1].startswith("manifest.json: items[1]:")
+    assert "no media-bearing item" in problems[1]
+
+
+def test_text_item_after_media_passes(folder: Path) -> None:
+    """A `text` item following media items is valid; the video loops under it."""
+    manifest = read_manifest(folder)
+    manifest["items"].append({
+        "id": "line-after-video", "type": "text", "speaker": "Mei",
+        "text": "The street glowed under the awning.",
+    })
+    write_manifest(folder, manifest)
+    assert problems_of(folder) == []
+    proc = run_cli(folder)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+
+
+def test_extra_unreferenced_file_is_tolerated(folder: Path) -> None:
+    """A folder may carry extra files (e.g. the converter build ledger)."""
+    (folder / "build-ledger.json").write_text('{"sources": []}\n',
+                                              encoding="utf-8")
+    assert problems_of(folder) == []
+    proc = run_cli(folder)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+
+
 # ---------------------------------------------------------------------------
 # Output contract
 # ---------------------------------------------------------------------------

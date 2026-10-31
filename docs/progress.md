@@ -27,7 +27,8 @@ truthful: an unchecked box means nothing was accepted.
 - [x] docs/content-format.md timing formula fixed to all-ms units; `text`
       items and media reuse documented; CREATE.md synced (formula matches
       machine defaults, 2025-11-01)
-- [ ] Schema `text` variant; validator rules and new fault tests green
+- [x] Schema `text` variant; validator rules and new fault tests green
+      (24 pytest tests, 2025-11-01)
 - [ ] Machine `text` items: text-only holds, media loops under chains,
       cursor-to-visual helper; tests green
 - [ ] Demo fixture extended with video+text and image+text chains; all

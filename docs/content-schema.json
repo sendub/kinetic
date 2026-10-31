@@ -25,7 +25,8 @@
         "oneOf": [
           { "$ref": "#/$defs/imageItem" },
           { "$ref": "#/$defs/animationItem" },
-          { "$ref": "#/$defs/videoItem" }
+          { "$ref": "#/$defs/videoItem" },
+          { "$ref": "#/$defs/textItem" }
         ]
       }
     }
@@ -100,6 +101,17 @@
           "type": "number",
           "exclusiveMinimum": 0
         },
+        "speaker": { "type": "string" },
+        "text": { "type": "string" }
+      }
+    },
+    "textItem": {
+      "type": "object",
+      "required": ["id", "type"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "type": { "const": "text" },
         "speaker": { "type": "string" },
         "text": { "type": "string" }
       }

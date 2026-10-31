@@ -19,8 +19,9 @@ invariants:
    the item's `type`, so each broken field gets its own line.
 2. The invariants the schema cannot express: every referenced media file
    exists, inside the folder, at a path that obeys the folder-layout rules;
-   item ids are unique; and a present `manifest.js` shim embeds JSON equal to
-   `manifest.json`.
+   item ids are unique; the first item is not `text` and every `text` item
+   has a media-bearing item (image, animation, or video) before it; and a
+   present `manifest.js` shim embeds JSON equal to `manifest.json`.
 """
 
 from __future__ import annotations
@@ -268,6 +269,39 @@ def id_problems(manifest: Any) -> list[str]:
     return problems
 
 
+MEDIA_ITEM_TYPES = frozenset({"image", "animation", "video"})
+
+
+def text_item_problems(manifest: Any) -> list[str]:
+    """Ordering invariants for `text` items (docs/content-format.md §Text items).
+
+    The first item is not `text`, and every `text` item has some
+    media-bearing item (image, animation, or video) before it. Item 0 is
+    reported once, as a leading `text` item; a later `text` item with no
+    media before it is reported as missing its visual.
+    """
+    items = manifest.get("items") if isinstance(manifest, dict) else None
+    if not isinstance(items, list):
+        return []
+    problems: list[str] = []
+    seen_media = False
+    for i, item in enumerate(items):
+        if not isinstance(item, dict):
+            continue  # the schema reports non-object items
+        item_type = item.get("type")
+        if item_type == "text":
+            if i == 0:
+                problems.append(_line("items[0]",
+                                      'first item must not be type "text"'))
+            elif not seen_media:
+                problems.append(_line(f"items[{i}]",
+                                      "text item has no media-bearing item "
+                                      "(image, animation, or video) before it"))
+        elif item_type in MEDIA_ITEM_TYPES:
+            seen_media = True
+    return problems
+
+
 def _first_difference(a: Any, b: Any, path: str = "") -> str | None:
     """Manifest location of the first structural difference, or None if equal."""
     where = path or "<root>"
@@ -365,6 +399,7 @@ def validate_folder(content_dir: Path, schema_path: Path = DEFAULT_SCHEMA) -> li
     if manifest is not None:
         problems += id_problems(manifest)
         problems += media_problems(content_dir, manifest, schema_locs)
+        problems += text_item_problems(manifest)
 
     if (content_dir / SHIM_NAME).exists():
         problems += shim_problems(content_dir, manifest)
