@@ -4,10 +4,100 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Kinetic</title>
+    <style>
+      /* The player is index.html + app.js + manifest.js, so its styles live
+         here: a content folder copied with these three files plays offline
+         with nothing else to carry. */
+      :root {
+        color-scheme: dark;
+        --ink: #f4efe6;
+        --accent: #e6b566;
+        --ui-font: ui-sans-serif, system-ui, "Segoe UI", sans-serif;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        height: 100%;
+        margin: 0;
+        overflow: hidden;
+        background: #000;
+      }
+      #app {
+        position: fixed;
+        inset: 0;
+      }
+      /* Letterbox: the stage fills the viewport and centres the surface, which
+         keeps the manifest's display aspect and scales down to fit. */
+      .stage {
+        position: absolute;
+        inset: 0;
+        display: flex;
+      }
+      .visual {
+        display: block;
+        margin: auto;
+        width: auto;
+        height: auto;
+        max-width: 100%;
+        max-height: 100%;
+        object-fit: contain;
+      }
+      .notice {
+        margin: auto;
+        max-width: 68ch;
+        padding: clamp(16px, 3vh, 32px) clamp(20px, 4vw, 44px);
+        border: 1px solid rgba(244, 239, 230, 0.22);
+        border-radius: 4px;
+        background: rgba(10, 10, 12, 0.6);
+        color: var(--ink);
+        font: 500 clamp(14px, 1.7vh, 20px) / 1.45 var(--ui-font);
+        letter-spacing: 0.02em;
+        text-align: center;
+      }
+      /* Lower third. Sits over the visual, never beside it. */
+      .overlay {
+        position: absolute;
+        inset: auto 0 0 0;
+        padding: clamp(24px, 6vh, 72px) clamp(20px, 7vw, 112px)
+          clamp(24px, 6vh, 64px);
+        background: linear-gradient(
+          to top,
+          rgba(0, 0, 0, 0.84) 35%,
+          rgba(0, 0, 0, 0)
+        );
+        color: var(--ink);
+        font-family: var(--ui-font);
+        pointer-events: none;
+      }
+      .overlay[hidden] {
+        display: none;
+      }
+      .overlay-speaker {
+        margin: 0 0 0.55em;
+        color: var(--accent);
+        font-size: clamp(12px, 1.5vh, 17px);
+        font-weight: 600;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+      }
+      .overlay-text {
+        margin: 0;
+        max-width: 74ch;
+        font-size: clamp(17px, 2.3vh, 28px);
+        line-height: 1.5;
+        text-shadow: 0 1px 4px rgba(0, 0, 0, 0.85);
+        white-space: pre-line;
+      }
+    </style>
   </head>
   <body>
-    <h1>Kinetic</h1>
-    <p>Player scaffold. Content playback arrives in later phases.</p>
+    <div id="app"></div>
+    <!-- manifest.js sets window.KINETIC_MANIFEST and must run first: over
+         file:// nothing can fetch manifest.json, so the manifest has to be
+         embedded before app.js asks for it. -->
+    <script src="manifest.js"></script>
     <script src="app.js"></script>
   </body>
 </html>

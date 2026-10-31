@@ -53,9 +53,10 @@ truthful: an unchecked box means nothing was accepted.
 
 ## Phase 5: Player shell rendering
 
-- [ ] Manifest loader + machine wiring + image renderer
-- [ ] Text and speaker overlay; `h` toggles text
-- [ ] First keypress/click enters fullscreen
+- [x] Manifest loader + machine wiring + image renderer (render/ layer,
+      61 tests, 2025-11-01)
+- [x] Text and speaker overlay; `h` toggles text
+- [x] First keypress/click enters fullscreen
 - [ ] docs/verify-player.md written; walked on the demo fixture in Chrome
 
 ## Phase 6: Animation and video rendering
