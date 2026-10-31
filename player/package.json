@@ -1,0 +1,19 @@
+{
+  "name": "kinetic-player",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Kinetic visual novel player (static web app, single classic bundle)",
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "build": "node scripts/build.mjs",
+    "test": "vitest run",
+    "check": "biome check . && tsc --noEmit"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.6.4",
+    "esbuild": "0.28.2",
+    "typescript": "7.0.2",
+    "vitest": "5.0.5"
+  }
+}
