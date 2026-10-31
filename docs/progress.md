@@ -17,6 +17,7 @@ truthful: an unchecked box means nothing was accepted.
 - [ ] `fixtures/build_demo.py` produces `fixtures/demo/` reproducibly
 - [ ] Validator passes on the fixture and fails on a broken manifest (in
       tests)
+- [ ] Top-level CREATE.md written against the final schema
 
 ## Phase 3: Timeline machine - core
 
@@ -74,10 +75,15 @@ truthful: an unchecked box means nothing was accepted.
 - [ ] `fixtures/renpy_demo/` + golden-manifest pytest green
 - [ ] Extracted demo plays end to end in the player
 
-## Phase 11: Extractor completeness
+## Phase 11: Extractor completeness on the real corpus
 
+- [ ] Several distinct kinds sampled from <corpus>
+      (`.app`, loose dir, zip; `.rpy` and `.rpyc`-only; `.rpa`; `.rpak`
+      if present), a few random slices each
 - [ ] unrpyc vendored and pinned; `.rpyc`-only projects decompile
-- [ ] Real sample game extracted and plays; docs/extracting.md written
+- [ ] `.rpa` reader implemented
+- [ ] Every sampled slice extracts and plays in the player
+- [ ] docs/extracting.md has a per-game entry incl. what was skipped
 - [ ] New parser branches covered by pytest
 
 ## Phase 12: Performance, packaging, docs

@@ -93,12 +93,15 @@ docs/content-format.md.
 - Compiled-only projects: vendor unrpyc (a standalone Python .rpyc
   decompiler by deceleration; take the current maintained repo at vendor
   time, pin the version) to decompile `*.rpyc` when no `.rpy` exists.
-  `.rpak` archives: use an existing unrpak-style tool only if a real input
-  needs one.
 - Assets: Pillow to validate, resize to display resolution, and derive
   thumbnails; ffmpeg CLI to transcode video to H.264 MP4 and extract poster
   and first frames. ffmpeg is a converter-only tool, never a runtime
   dependency.
+- Packaged assets: most released games keep all media inside `.rpa`
+  archives; read those directly (a pickle index plus concatenated data,
+  pure Python). Handle `.rpak` with an unrpak-style tool only when real
+  input contains one. The converter test corpus and sampling rule are in
+  docs/plan.md Phase 11.
 - Converter tests: pytest over synthetic fixture projects checked into
   `fixtures/`, plus the golden `manifest.json` comparison.
 

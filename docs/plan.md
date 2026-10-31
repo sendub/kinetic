@@ -53,10 +53,15 @@ Goal: the contract both artifacts target, plus content to develop against.
   2 s H.264 video with poster, and text overlays including a speaker name.
 - Add a validator script (Python or TS) that checks a content directory
   against the schema.
+- Write top-level CREATE.md: the guide to making a new kinetic game from
+  content you already have (images, animation frame sets, videos, script
+  text), covering the content folder layout per the schema, validation,
+  and playing it; point the Ren'Py path at the converter.
 
 Acceptance: `build_demo.py` runs clean twice with identical output;
 validator passes on `fixtures/demo/` and fails on a deliberately broken
-manifest (add it to tests).
+manifest (add it to tests); CREATE.md names only fields the schema
+defines.
 
 ## Phase 3: Timeline machine - core
 
@@ -180,18 +185,31 @@ Goal: `python -m kinetic_extract <renpy_project> <out_dir>` on source
 Acceptance: pytest green; extracting `renpy_demo` yields a directory the
 player plays end to end (walk the checklist once on extracted content).
 
-## Phase 11: Extractor completeness
+## Phase 11: Extractor completeness on the real corpus
 
-Goal: handle a real compiled Ren'Py game.
+Goal: handle real Ren'Py releases across the packaging kinds they
+actually use.
 
+- Corpus: <corpus> holds many games organized by
+  category (`<category>/`, `<category>/`) with `complete/`, `ongoing/`,
+  `abandoned/`, and `waiting for updates/` subfolders, plus Mac `.app`
+  bundles (`game-e.app`, `game-d.app`, ...) and `.zip`/`.rar`
+  releases, some marked broken. Inspect and use it read-only.
+- Choose a few distinct kinds and take a few random content slices from
+  each: a Mac `.app` (game lives under `Contents/Resources/`), a loose
+  project dir, a `.zip` (unpack to a scratch dir first), source `.rpy`
+  and compiled-only `.rpyc`, `.rpa` archives, and `.rpak` if any game has
+  one. A slice is a short contiguous run of items plus its media, not a
+  whole game.
 - Vendor unrpyc (pin the fetched revision under `converter/vendor/`) and
-  decompile `*.rpyc` when `.rpy` is absent; `.rpak` support only if a real
-  input needs it.
-- Fix ordering and attachment issues surfaced by extracting one real
-  sample game; document the input used and results in docs/extracting.md.
+  decompile `*.rpyc` when `.rpy` is absent; implement the `.rpa` reader;
+  `.rpak` only if the corpus contains one.
+- Fix ordering and attachment issues the slices surface; record per-game
+  inputs, kinds, and outcomes in docs/extracting.md.
 
-Acceptance: the real sample game extracts and plays; pytest covers every
-new parser branch; skip-report output lists what was dropped.
+Acceptance: every sampled slice extracts to a content folder that plays
+in the player; docs/extracting.md has an entry per sampled game incl.
+what was skipped; every new parser branch is covered by pytest.
 
 ## Phase 12: Performance, packaging, docs
 
