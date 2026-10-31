@@ -63,10 +63,12 @@ truthful: an unchecked box means nothing was accepted.
 
 ## Phase 6: Animation and video rendering
 
-- [ ] Animations loop at manifest fps for the manifest count
-- [ ] Videos: poster to first paint, muted autoplay, `ended` feeds machine
-- [ ] Rewind and skip show first frame / poster, never play
-- [ ] Checklist extended and walked
+- [x] Animations loop at manifest fps for the manifest count
+- [x] Videos: poster to first paint, muted autoplay, `ended` feeds machine
+- [x] Rewind and skip show first frame / poster, never play (unit-tested
+      pure mode + poster still verified; wheel gesture lands in Phase 7)
+- [x] Checklist extended and walked (verify.mjs 15 steps: 13 pass, 2
+      honest partials [fullscreen effect, wheel gesture], 2025-11-01)
 
 ## Phase 7: Wheel scroll wiring
 

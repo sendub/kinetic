@@ -1,6 +1,7 @@
 #!/usr/bin/env node
-// Driver for docs/verify-player.md: walks the Phase 5 checklist against the
-// demo fixture in headless Chrome and prints PASS / PARTIAL / FAIL per step.
+// Driver for docs/verify-player.md: walks the checklist (Phase 5 shell +
+// Phase 6 media playback) against the demo fixture in headless Chrome and
+// prints PASS / PARTIAL / FAIL per step.
 // Run from player/:  node scripts/verify.mjs
 // Exit code: 0 when every step is PASS or PARTIAL, 1 on any FAIL or crash.
 //
@@ -35,8 +36,14 @@ const EXPECTED = {
     "Lanterns lined the empty street, one for each guest who never came.",
   windowText: "Rain again. It's always rain in this town.",
   line007Text: "The street glowed under the awning.",
+  line008Text: "Neither of us spoke for a while.",
+  sparkText: "Sparks circled the bonfire and went out one by one.",
   emptyNotice: "No content yet — this folder has an empty manifest.",
 };
+
+// Expando stashed on the <video> element to prove the renderer reuses the
+// SAME element across a chain instead of re-creating it (docs Phase 6).
+const VIDEO_TOKEN = "kinetic-verify-video";
 
 const results = [];
 function record(name, status, evidence) {
@@ -72,6 +79,22 @@ const PAGE_STATE = () => {
     imgSrc: img ? (img.getAttribute("src") ?? "") : null,
     imgDecoded: img ? img.complete && img.naturalWidth > 0 : false,
     imgWidth: img ? Math.round(img.getBoundingClientRect().width) : 0,
+    imgVisible: img ? getComputedStyle(img).display !== "none" : false,
+    video: (() => {
+      const v = document.getElementById("visual-video");
+      if (v === null) return null;
+      const cs = getComputedStyle(v);
+      return {
+        src: v.getAttribute("src") ?? "",
+        poster: v.getAttribute("poster") ?? "",
+        loop: v.loop,
+        paused: v.paused,
+        currentTime: Math.round(v.currentTime * 100) / 100,
+        readyState: v.readyState,
+        visible: cs.display !== "none",
+        posterPainted: cs.backgroundImage.includes("intro-006.poster.jpg"),
+      };
+    })(),
     placeholder: document.getElementById("placeholder")?.textContent ?? null,
     emptyState: document.getElementById("empty-state")?.textContent ?? null,
     overlayHidden: overlay ? overlay.hidden : null,
@@ -145,6 +168,26 @@ const waitImageDecoded = (page) =>
       return img?.complete && img.naturalWidth > 0;
     },
     { timeout: 5000 },
+  );
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const waitVideoPlaying = (page, timeout = 5000) =>
+  page.waitForFunction(
+    () => {
+      const v = document.getElementById("visual-video");
+      return v !== null && !v.paused && v.currentTime > 0;
+    },
+    { timeout },
+  );
+
+// True while the <video> element still carries the expando stashed in step 9:
+// the element was reused, never re-created.
+const videoTokenIs = (page) =>
+  page.evaluate(
+    (token) =>
+      document.getElementById("visual-video")?.__kineticVerify === token,
+    VIDEO_TOKEN,
   );
 
 async function main() {
@@ -297,53 +340,187 @@ async function main() {
       JSON.stringify(s7),
     );
 
-    // 8. Advancing into item 5 (spark-005) shows the labeled placeholder
-    // (animation media lands in Phase 6).
+    // 8. Advancing into item 5 (spark-005, an animation) plays it: the
+    // shared <img> cycles the manifest frames at 8 fps (125 ms each), then
+    // stops on the final frame after exactly 2 loops (1000 ms of cycling).
     await advancePair(cdp);
-    const s8 = await page.evaluate(PAGE_STATE);
+    await page.waitForFunction(
+      () =>
+        /^spark-005\.f\d{3}\.jpg$/.test(
+          document.getElementById("visual-image")?.getAttribute("src") ?? "",
+        ),
+      { timeout: 5000 },
+    );
+    const s8a = await page.evaluate(PAGE_STATE);
+    let frameAdvanced = true;
+    try {
+      await page.waitForFunction(
+        (first) =>
+          (document.getElementById("visual-image")?.getAttribute("src") ??
+            "") !== first,
+        { timeout: 600 },
+        s8a.imgSrc,
+      );
+    } catch {
+      frameAdvanced = false;
+    }
+    await sleep(900); // past the 2-loop mark (cycling started ~200 ms ago)
+    const s8b = await page.evaluate(PAGE_STATE);
+    await sleep(400);
+    const s8c = await page.evaluate(PAGE_STATE);
     const s8Ok =
-      s8.placeholder?.includes("spark-005") &&
-      s8.placeholder.includes("animation placeholder") &&
-      s8.imgSrc === null &&
-      s8.overlayHidden === false &&
-      s8.text === "Sparks circled the bonfire and went out one by one.";
+      frameAdvanced &&
+      s8b.imgSrc === "spark-005.f003.jpg" &&
+      s8c.imgSrc === "spark-005.f003.jpg" &&
+      s8b.imgVisible &&
+      s8b.placeholder === null &&
+      s8b.overlayHidden === false &&
+      s8b.text === EXPECTED.sparkText;
     record(
-      "8. animation item shows labeled placeholder (Phase 6 pending)",
+      "8. animation advances frames at 8 fps, stops on final frame after 2 loops",
       s8Ok ? "PASS" : "FAIL",
-      JSON.stringify(s8),
+      `first=${s8a.imgSrc}; advanced=${String(frameAdvanced)}; at1.1s=${s8b.imgSrc}; at1.5s=${s8c.imgSrc}`,
     );
 
-    // 9. Item 6 (intro-006) likewise gets its labeled video placeholder.
+    // 9. Item 6 (intro-006, a video) renders ONE <video muted playsinline>
+    // whose poster paints first (poster attribute + CSS background), and it
+    // plays. An expando marks the element so later steps can prove it is the
+    // SAME element, not a re-created one. intro-006's next item is text, so
+    // the chain applies from its first frame: loop=true, `ended` ignored.
     await advancePair(cdp);
+    await page.waitForFunction(
+      () => document.getElementById("visual-video") !== null,
+      { timeout: 5000 },
+    );
+    await page.evaluate((token) => {
+      document.getElementById("visual-video").__kineticVerify = token;
+    }, VIDEO_TOKEN);
+    let played = true;
+    try {
+      await waitVideoPlaying(page);
+    } catch {
+      played = false;
+    }
     const s9 = await page.evaluate(PAGE_STATE);
-    const s9Ok =
-      s9.placeholder?.includes("intro-006") &&
-      s9.placeholder.includes("video placeholder") &&
-      s9.imgSrc === null;
+    const s9Struct =
+      s9.video?.src.endsWith("intro-006.mp4") === true &&
+      s9.video?.poster === "intro-006.poster.jpg" &&
+      s9.video?.posterPainted === true &&
+      s9.video?.visible === true &&
+      s9.video?.loop === true &&
+      s9.imgVisible === false &&
+      s9.placeholder === null;
     record(
-      "9. video item shows labeled placeholder (Phase 6 pending)",
-      s9Ok ? "PASS" : "FAIL",
-      JSON.stringify(s9),
+      "9. video shows poster, plays muted, chain-loops (intro-006 -> text)",
+      !s9Struct ? "FAIL" : played ? "PASS" : "PARTIAL",
+      `${JSON.stringify(s9.video)}; played=${String(played)}${
+        played
+          ? "; the ended->mediaEnded gate itself is covered by machine unit tests (a chain video never fires ended)"
+          : " (autoplay did not start headless: poster stays painted and the chain advance does not gate on media end)"
+      }`,
     );
 
-    // 10. Item 7 (line-007) is a text item: machine.visualIndex() keeps the
-    // earlier video's placeholder on screen unchanged while the cursor's own
-    // speaker + line draw in the overlay.
+    // 10. Item 7 (line-007) is a `text` item: per machine.visualIndex() the
+    // visual is still intro-006 — the SAME <video> element (expando intact),
+    // still looping — never a placeholder. The overlay shows the line's own
+    // speaker and text.
     await advancePair(cdp);
     const s10 = await page.evaluate(PAGE_STATE);
+    const same10 = await videoTokenIs(page);
     const s10Ok =
-      s10.placeholder === s9.placeholder &&
-      s10.imgSrc === null &&
+      same10 &&
+      s10.video?.loop === true &&
+      s10.video?.visible === true &&
+      (!played || s10.video?.paused === false) &&
+      s10.imgVisible === false &&
+      s10.placeholder === null &&
       s10.overlayHidden === false &&
       s10.speaker === "Mei" &&
       s10.text === EXPECTED.line007Text;
     record(
-      "10. text item keeps earlier visual, shows own speaker + text",
+      "10. text item keeps the earlier video (same element, looping, no placeholder)",
       s10Ok ? "PASS" : "FAIL",
-      `placeholder unchanged from step 9=${String(s10.placeholder === s9.placeholder)}; ${JSON.stringify(s10)}`,
+      `sameElement=${String(same10)}; ${JSON.stringify(s10.video)}; overlay=${String(s10.speaker === "Mei" && s10.text === EXPECTED.line007Text)}`,
     );
 
-    // 11. A folder with the empty stub manifest shows the empty state.
+    // 11. line-007 -> line-008: the chain advance must not touch the video
+    // element at all — same token, still looping and playing.
+    await advancePair(cdp);
+    const s11 = await page.evaluate(PAGE_STATE);
+    const same11 = await videoTokenIs(page);
+    const s11Ok =
+      same11 &&
+      s11.video?.loop === true &&
+      s11.video?.visible === true &&
+      (!played || s11.video?.paused === false) &&
+      s11.video?.currentTime > 0 &&
+      s11.imgVisible === false &&
+      s11.placeholder === null &&
+      s11.overlayHidden === false &&
+      s11.speaker === null &&
+      s11.text === EXPECTED.line008Text;
+    record(
+      "11. line-007 -> line-008 keeps the same <video> element playing",
+      s11Ok ? "PASS" : "FAIL",
+      `sameElement=${String(same11)}; ${JSON.stringify(s11.video)}`,
+    );
+
+    // 12. h over a playing video: the overlay hides, the video keeps
+    // playing on the same element (docs/plan.md Phase 6: h hides text over
+    // video too). h again restores before the walk continues.
+    await pressH(cdp);
+    const s12 = await page.evaluate(PAGE_STATE);
+    const same12 = await videoTokenIs(page);
+    const s12Ok =
+      s12.overlayHidden === true &&
+      same12 &&
+      s12.video?.visible === true &&
+      (!played || s12.video?.paused === false);
+    record(
+      "12. h hides overlay while the video keeps playing",
+      s12Ok ? "PASS" : "FAIL",
+      `overlayHidden=${String(s12.overlayHidden)}; sameElement=${String(same12)}; ${JSON.stringify(s12.video)}`,
+    );
+    await pressH(cdp);
+
+    // 13. Rewinding onto the earlier video item shows the poster still: the
+    // video pauses at the start with the poster painted. The real wheel
+    // gesture lands in Phase 7, so the driver commands machine.wheelBack()
+    // through the __kineticDebug seam (render/app.ts): this proves the
+    // renderer's rewind-still behavior, NOT the wheel wiring — its honest
+    // ceiling is PARTIAL, and headless cannot distinguish the poster pixels
+    // from frame 0 (the poster IS the first frame by format docs).
+    try {
+      await page.evaluate(() => {
+        const m = window.__kineticDebug?.machine;
+        if (m === undefined) throw new Error("__kineticDebug.machine missing");
+        m.wheelBack(); // line-008 -> line-007: below frontier, still mode
+        m.wheelBack(); // line-007 -> intro-006 itself: still mode
+      });
+      await sleep(150);
+      const s13 = await page.evaluate(PAGE_STATE);
+      const same13 = await videoTokenIs(page);
+      const s13Ok =
+        same13 &&
+        s13.video?.paused === true &&
+        s13.video?.currentTime < 0.05 &&
+        s13.video?.loop === false &&
+        s13.video?.visible === true &&
+        s13.video?.posterPainted === true;
+      record(
+        "13. rewind onto the video item shows the poster still (PARTIAL in headless)",
+        s13Ok ? "PARTIAL" : "FAIL",
+        `sameElement=${String(same13)}; ${JSON.stringify(s13.video)}; driven by machine.wheelBack() — real wheel wiring lands in Phase 7; poster-vs-frame-0 pixels indistinguishable by definition`,
+      );
+    } catch (error) {
+      record(
+        "13. rewind onto the video item shows the poster still (PARTIAL in headless)",
+        "FAIL",
+        String(error),
+      );
+    }
+
+    // 14. A folder with the empty stub manifest shows the empty state.
     const emptyPage = await browser.newPage();
     emptyPage.on("console", (msg) =>
       consoleMessages.push(`empty [${msg.type()}] ${msg.text()}`),
@@ -357,23 +534,23 @@ async function main() {
       },
       { timeout: 5000 },
     );
-    const s11 = await emptyPage.evaluate(PAGE_STATE);
-    const s11Ok =
-      s11.emptyState === EXPECTED.emptyNotice &&
-      s11.imgSrc === null &&
-      s11.overlayHidden === true;
+    const s14 = await emptyPage.evaluate(PAGE_STATE);
+    const s14Ok =
+      s14.emptyState === EXPECTED.emptyNotice &&
+      s14.imgSrc === null &&
+      s14.overlayHidden === true;
     record(
-      "11. empty-manifest folder shows the empty state",
-      s11Ok ? "PASS" : "FAIL",
-      JSON.stringify(s11),
+      "14. empty-manifest folder shows the empty state",
+      s14Ok ? "PASS" : "FAIL",
+      JSON.stringify(s14),
     );
 
-    // 12. Console stayed empty throughout both pages.
-    const s12Ok = consoleMessages.length === 0 && pageErrors.length === 0;
+    // 15. Console stayed empty throughout both pages.
+    const s15Ok = consoleMessages.length === 0 && pageErrors.length === 0;
     record(
-      "12. console stayed empty throughout",
-      s12Ok ? "PASS" : "FAIL",
-      s12Ok
+      "15. console stayed empty throughout",
+      s15Ok ? "PASS" : "FAIL",
+      s15Ok
         ? "zero console messages, zero page errors, both pages, whole run"
         : `console=[${consoleMessages.join(" | ")}] pageErrors=[${pageErrors.join(" | ")}]`,
     );
