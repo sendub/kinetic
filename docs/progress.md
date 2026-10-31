@@ -14,7 +14,7 @@ truthful: an unchecked box means nothing was accepted.
 
 ## Phase 2: Content format and demo fixture
 
-- [ ] docs/content-format.md written; JSON Schema file added
+- [x] docs/content-format.md written; JSON Schema file added
 - [ ] `fixtures/build_demo.py` produces `fixtures/demo/` reproducibly
 - [ ] Validator passes on the fixture and fails on a broken manifest (in
       tests)

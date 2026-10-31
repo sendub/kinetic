@@ -1,0 +1,108 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:kinetic:content-schema-1",
+  "title": "Kinetic content manifest",
+  "description": "The manifest.json of a Kinetic content folder. See docs/content-format.md for semantics.",
+  "type": "object",
+  "required": ["schemaVersion", "width", "height", "items"],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "width": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "height": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "items": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "oneOf": [
+          { "$ref": "#/$defs/imageItem" },
+          { "$ref": "#/$defs/animationItem" },
+          { "$ref": "#/$defs/videoItem" }
+        ]
+      }
+    }
+  },
+  "$defs": {
+    "id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$"
+    },
+    "path": {
+      "type": "string",
+      "pattern": "^(?!/)(?!.*\\.\\.)[A-Za-z0-9][A-Za-z0-9._/-]*$"
+    },
+    "imagePath": {
+      "allOf": [
+        { "$ref": "#/$defs/path" },
+        { "pattern": "\\.(png|jpg|jpeg|webp)$" }
+      ]
+    },
+    "videoPath": {
+      "allOf": [
+        { "$ref": "#/$defs/path" },
+        { "pattern": "\\.mp4$" }
+      ]
+    },
+    "imageItem": {
+      "type": "object",
+      "required": ["id", "type", "file"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "type": { "const": "image" },
+        "file": { "$ref": "#/$defs/imagePath" },
+        "speaker": { "type": "string" },
+        "text": { "type": "string" }
+      }
+    },
+    "animationItem": {
+      "type": "object",
+      "required": ["id", "type", "frames", "fps", "loopCount"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "type": { "const": "animation" },
+        "frames": {
+          "type": "array",
+          "minItems": 2,
+          "items": { "$ref": "#/$defs/imagePath" }
+        },
+        "fps": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "loopCount": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "speaker": { "type": "string" },
+        "text": { "type": "string" }
+      }
+    },
+    "videoItem": {
+      "type": "object",
+      "required": ["id", "type", "file", "poster", "durationSeconds"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "type": { "const": "video" },
+        "file": { "$ref": "#/$defs/videoPath" },
+        "poster": { "$ref": "#/$defs/imagePath" },
+        "durationSeconds": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "speaker": { "type": "string" },
+        "text": { "type": "string" }
+      }
+    }
+  }
+}
