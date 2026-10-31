@@ -8,7 +8,7 @@ truthful: an unchecked box means nothing was accepted.
 ## Phase 1: Player scaffolding
 
 - [x] `player/` initialized with TypeScript strict, esbuild, Biome, Vitest
-- [ ] Scripts `dev`, `build`, `test`, `check` all exit 0
+- [x] Scripts `dev`, `build`, `test`, `check` all exit 0
 - [ ] `dist/index.html` opens over `file://` with no console errors
 
 ## Phase 2: Content format and demo fixture
