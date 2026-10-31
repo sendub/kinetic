@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { createMemoryStorage } from "../storage/memory";
 import {
   createMachine,
   itemHoldMs,
@@ -830,5 +831,89 @@ describe("subscribe, timers, and destroy()", () => {
       settled: false,
       skipping: false,
     });
+  });
+});
+
+describe("resume from persisted storage (docs/plan.md Phase 8, memory fake)", () => {
+  it("the persisted value feeds resumeFrontier: lands at frontier-1, e is a no-op there, one advance enters unseen", async () => {
+    const storage = createMemoryStorage();
+    const items = [image(), image(), image(), image(), image(), image()];
+    // Session 1: the reader saw items 0..3 (three settle-and-move pairs).
+    const first = machine(items);
+    first.advance();
+    first.advance();
+    first.advance();
+    first.advance();
+    first.advance();
+    first.advance();
+    expect(first.getState()).toEqual({
+      cursor: 3,
+      frontier: 4,
+      settled: false,
+      skipping: false,
+    });
+    // Exactly what main.ts's persister writes: the frontier, and only it.
+    await storage.saveState({ frontier: first.getState().frontier });
+    first.destroy();
+
+    // Reload, as main.ts does it: the stored frontier becomes
+    // resumeFrontier, and the machine derives cursor = frontier - 1 and
+    // the settled landing itself.
+    expect(await storage.loadState()).toEqual({ frontier: 4 });
+    const resumed = machine(items, {
+      resumeFrontier: (await storage.loadState())?.frontier,
+    });
+    expect(resumed.getState()).toEqual({
+      cursor: 3,
+      frontier: 4,
+      settled: true,
+      skipping: false,
+    });
+    // `e` at the resume spot: the landing already IS frontier - 1, no-op.
+    resumed.jumpToUnseen();
+    expect(resumed.getState()).toEqual({
+      cursor: 3,
+      frontier: 4,
+      settled: true,
+      skipping: false,
+    });
+
+    // Travelling back through seen content persists nothing: a reload
+    // returns to the resume spot, not wherever the wheel had stopped.
+    resumed.wheelBack();
+    resumed.wheelBack();
+    expect(resumed.getState().cursor).toBe(1);
+    const second = machine(items, {
+      resumeFrontier: (await storage.loadState())?.frontier,
+    });
+    expect(second.getState()).toEqual({
+      cursor: 3,
+      frontier: 4,
+      settled: true,
+      skipping: false,
+    });
+    // From the resume spot one press enters the first unseen item...
+    second.advance();
+    expect(second.getState()).toEqual({
+      cursor: 4,
+      frontier: 5,
+      settled: false,
+      skipping: false,
+    });
+    // ...and that frontier is worth persisting: the next reload resumes
+    // from it, settled at item 4.
+    await storage.saveState({ frontier: second.getState().frontier });
+    const third = machine(items, {
+      resumeFrontier: (await storage.loadState())?.frontier,
+    });
+    expect(third.getState()).toEqual({
+      cursor: 4,
+      frontier: 5,
+      settled: true,
+      skipping: false,
+    });
+    resumed.destroy();
+    second.destroy();
+    third.destroy();
   });
 });

@@ -1,6 +1,6 @@
-// The key map (docs/plan.md Phases 5, 7). Owns key -> command translation and
-// nothing else: commands go to the machine or the shell, no state lives here.
-// `b`, `t` and `c` join in later phases; the wheel is a separate module
+// The key map (docs/plan.md Phases 5, 7, 8). Owns key -> command translation
+// and nothing else: commands go to the machine or the shell, no state lives
+// here. `t` and `c` join in later phases; the wheel is a separate module
 // (render/wheel.ts) because a wheel event is not a key.
 
 /** The commands the shell and machine expose to the key map. */
@@ -9,6 +9,8 @@ export interface KeyCommands {
   toggleText(): void;
   toggleSkip(): void;
   jumpToUnseen(): void;
+  /** `b`: append a bookmark at the current item (Phase 8). */
+  bookmark(): void;
 }
 
 /** A command the key map can issue. */
@@ -27,6 +29,8 @@ const KEY_TABLE = new Map<string, KeyCommand>([
   ["Tab", "toggleSkip"],
   ["e", "jumpToUnseen"],
   ["E", "jumpToUnseen"],
+  ["b", "bookmark"],
+  ["B", "bookmark"],
 ]);
 
 /**

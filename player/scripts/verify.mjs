@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // Driver for docs/verify-player.md: walks the checklist (Phase 5 shell,
 // Phase 6 media playback, Phase 7 wheel/skip/jump, Phase 7b speech vs thought
-// and contain-fit geometry) against the demo fixture
+// and contain-fit geometry, Phase 8 bookmarks, the `b` confirmation flash and
+// reload-resume) against the demo fixture
 // in headless Chrome and prints PASS / PARTIAL / FAIL per step.
 // Run from player/:  node scripts/verify.mjs
 // Exit code: 0 when every step is PASS or PARTIAL, 1 on any FAIL or crash.
@@ -9,11 +10,14 @@
 // Each run reassembles .tmp/verify-demo from fixtures/demo plus the built
 // bundle (dist/index.html, dist/app.js); the fixture's own manifest.js is
 // never touched, so the demo manifest always comes from the fixture.
+// The Chrome profile is wiped before launch: Phase 8 put the reading
+// frontier and the bookmark list into IndexedDB, and a run must start from
+// first-ever-load state the way a fresh machine does.
 // .tmp/verify-demo-empty gets the dist stub manifest (no items) to exercise
 // the #empty-state notice, and .tmp/verify-demo-tall is a copy whose item-1
 // image has been rescaled to a portrait 640x960 while the manifest still says
 // 960x540 — the one shape that tells "fit to the asset" apart from "fit to
-// the manifest" (step 22, docs/plan.md Phase 7b).
+// the manifest" (step 23, docs/plan.md Phase 7b).
 //
 // Every input is real CDP Input: Input.dispatchKeyEvent for keys and
 // Input.dispatchMouseEvent `mouseWheel` for the wheel. Both arrive trusted, so
@@ -22,7 +26,7 @@
 // each step asserts what the DOM shows.
 
 import { execFileSync } from "node:child_process";
-import { copyFileSync, cpSync, existsSync, mkdirSync } from "node:fs";
+import { copyFileSync, cpSync, existsSync, mkdirSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import puppeteer from "puppeteer-core";
@@ -37,7 +41,8 @@ const repoRoot = join(playerDir, "..");
 const contentDir = join(repoRoot, ".tmp", "verify-demo");
 const emptyDir = join(repoRoot, ".tmp", "verify-demo-empty");
 const tallDir = join(repoRoot, ".tmp", "verify-demo-tall");
-// The portrait size step 22 rescales item 1's image to. Its aspect (2:3)
+const chromeProfile = join(repoRoot, ".tmp", "verify-chrome-profile");
+// The portrait size step 23 rescales item 1's image to. Its aspect (2:3)
 // deliberately matches neither the manifest's 16:9 nor any test viewport.
 const TALL_ASSET = { width: 640, height: 960 };
 const chromePath =
@@ -86,9 +91,9 @@ function assembleFolders() {
   for (const file of ["index.html", "app.js", "manifest.js"]) {
     copyFileSync(join(playerDir, "dist", file), join(emptyDir, file));
   }
-  // The asset/manifest aspect mismatch folder for step 22. Only the JPEG is
+  // The asset/manifest aspect mismatch folder for step 23. Only the JPEG is
   // resampled, never the manifest, and `fixtures/demo` itself stays pristine.
-  // `sips` is macOS' own resizer; without it step 22 loses its discriminator
+  // `sips` is macOS' own resizer; without it step 23 loses its discriminator
   // and says so instead of quietly asserting a weaker fact.
   mkdirSync(tallDir, { recursive: true });
   cpSync(join(repoRoot, "fixtures", "demo"), tallDir, { recursive: true });
@@ -159,6 +164,38 @@ const PAGE_STATE = () => {
       ? document.fullscreenElement.tagName.toLowerCase()
       : null,
   };
+};
+
+// The Phase 8 bookmark list, read back from IndexedDB inside the page: the
+// database is the player's own storage (src/storage/idb.ts — db `kinetic`,
+// store `bookmarks`, auto-increment `seq`, per-novel `content` index keyed
+// by the novel folder URL). Steps assert the stored record, not a DOM echo.
+const READ_BOOKMARKS = async () => {
+  const content = new URL(".", document.baseURI).href;
+  const db = await new Promise((resolve, reject) => {
+    const open = indexedDB.open("kinetic", 1);
+    open.onsuccess = () => resolve(open.result);
+    open.onerror = () => reject(open.error);
+  });
+  try {
+    const records = await new Promise((resolve, reject) => {
+      const tx = db.transaction("bookmarks", "readonly");
+      const req = tx
+        .objectStore("bookmarks")
+        .index("content")
+        .getAll(IDBKeyRange.only(content));
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+    return records.map((r) => ({
+      id: r.id,
+      itemIndex: r.itemIndex,
+      timestampMs: r.timestampMs,
+      hasThumb: typeof r.thumbDataUrl === "string" && r.thumbDataUrl !== "",
+    }));
+  } finally {
+    db.close();
+  }
 };
 
 // Geometry of the media as rendered: the element box, the CSS paint rule that
@@ -290,6 +327,7 @@ const pressSpace = (cdp) => pressKey(cdp, " ", "Space", 32, " ");
 const pressH = (cdp) => pressKey(cdp, "h", "KeyH", 72, "h");
 const pressTab = (cdp) => pressKey(cdp, "Tab", "Tab", 9, "");
 const pressE = (cdp) => pressKey(cdp, "e", "KeyE", 69, "e");
+const pressB = (cdp) => pressKey(cdp, "b", "KeyB", 66, "b");
 
 // One deliberate wheel notch. `WHEEL_PX` is render/wheel.ts's step size and
 // `WHEEL_GAP_MS` clears its rate cap, so a notch means exactly one machine
@@ -399,13 +437,16 @@ const videoTokenIs = (page) =>
 
 async function main() {
   const tallAsset = assembleFolders();
+  // Phase 8 persists across sessions, so each run must start on a machine
+  // that has never seen this novel: a fresh profile, the first-ever load.
+  rmSync(chromeProfile, { recursive: true, force: true });
   console.log(
     `driver: ${execFileSync(chromePath, ["--version"], { encoding: "utf8" }).trim()}`,
   );
   const browser = await puppeteer.launch({
     executablePath: chromePath,
     headless: true,
-    userDataDir: join(repoRoot, ".tmp", "verify-chrome-profile"),
+    userDataDir: chromeProfile,
     args: [
       "--no-sandbox",
       "--disable-gpu",
@@ -905,10 +946,47 @@ async function main() {
       `line-011 text=${String(s19.text === EXPECTED.line011Text)}; mode=${String(s19.overlayMode)}/${String(s19.textMode)} fontStyle=${String(s19.textFontStyle)} (the spoken line-010 it followed read speech/normal in step 18); visual=${JSON.stringify(s19.imgSrc)} decoded=${String(s19.imgDecoded)} visible=${String(s19.imgVisible)}`,
     );
 
-    // 20. Reload: the frontier is not persisted yet, so a reload starts the
-    // first-ever load again — item 0, not the resume spot. Honest PARTIAL:
-    // the machine accepts `resumeFrontier` and main.ts passes nothing, so
-    // persistence itself is Phase 8 wiring (IndexedDB), not a Phase 7 gap.
+    // 20. `b` appends a bookmark (docs/plan.md Phase 8, README bookmark
+    // bullet). The flash is the DOM half; the record is read back from the
+    // player's own IndexedDB. main.ts flashes only after the append is
+    // durable, so once #flash shows, the record is already committed.
+    // Over `file://` Chrome taints the canvas, so the opportunistic thumb
+    // is null — by design the durable entry is {timestampMs, itemIndex}.
+    const LINE011_INDEX = 11 - 1; // line-011 is the demo's last item
+    await pressB(cdp);
+    await page.waitForFunction(
+      () => {
+        const el = document.getElementById("flash");
+        return el !== null && (el.textContent ?? "") === "Bookmarked";
+      },
+      { timeout: 5000 },
+    );
+    const s20list = await page.evaluate(READ_BOOKMARKS);
+    const s20entry = s20list.find((b) => b.id !== undefined);
+    await sleep(1700); // the pill shows ~900 ms, then fades within ~450 ms
+    const s20FlashGone = await page.evaluate(
+      () => document.getElementById("flash") === null,
+    );
+    const s20Ok =
+      s20list.length === 1 &&
+      s20entry !== undefined &&
+      s20entry.itemIndex === LINE011_INDEX &&
+      s20entry.timestampMs > 0 &&
+      s20entry.id.length > 0 &&
+      s20FlashGone;
+    record(
+      "20. b appends a bookmark with a confirmation flash that fades",
+      s20Ok ? "PASS" : "FAIL",
+      `#flash "Bookmarked" shown=true removed=${String(s20FlashGone)}; IndexedDB bookmarks=${JSON.stringify(s20list)} — one entry at item ${LINE011_INDEX} (line-011 was on screen), timestamped; hasThumb=${String(s20entry?.hasThumb)} (over file:// Chrome taints the canvas, so a null thumb is the expected capture fallback; over http the same code stores a JPEG data URL)`,
+    );
+
+    // 21. Reload resume (docs/plan.md Phase 8): stop MID-content — two
+    // wheel-back notches leave the cursor below the resume point — so the
+    // reload proves the persisted FRONTIER (resume at frontier-1), not the
+    // position the reader happened to be at, and a first-ever load (item 0)
+    // is ruled out too.
+    await wheel(cdp, true, 2);
+    const s21before = await page.evaluate(PAGE_STATE);
     await page.reload();
     await page.waitForFunction(
       () => {
@@ -917,16 +995,21 @@ async function main() {
       },
       { timeout: 5000 },
     );
-    const s20 = await page.evaluate(PAGE_STATE);
-    const s20AtStart =
-      s20.imgSrc === "meadow-001.jpg" && s20.text === EXPECTED.meadowText;
+    const s21 = await page.evaluate(PAGE_STATE);
+    const s21StoppedMid = s21before.overlayHidden === true; // bare pier-009
+    const s21Resumed =
+      s21.text === EXPECTED.line011Text &&
+      s21.imgSrc === "pier-009.jpg" &&
+      s21.overlayHidden === false;
+    const s21NotFirstLoad =
+      s21.imgSrc !== "meadow-001.jpg" && s21.text !== EXPECTED.meadowText;
     record(
-      "20. reload resume (PARTIAL: persistence wired in Phase 8)",
-      s20AtStart ? "PARTIAL" : "FAIL",
-      `after reload the player shows ${JSON.stringify(s20.imgSrc)} with Mei's first line — it restarted at item 0 instead of resuming at the frontier; nothing stores the frontier yet (main.ts passes no resumeFrontier), which is Phase 8's IndexedDB work`,
+      "21. reload resumes at the frontier, not the wheel position or item 0",
+      s21StoppedMid && s21Resumed && s21NotFirstLoad ? "PASS" : "FAIL",
+      `before reload the reader had wheeled back to bare pier-009 (overlayHidden=${String(s21before.overlayHidden)}); after reload the player resumed at line-011 over pier-009.jpg — the last item ever shown (frontier-1), settled: the frontier is persisted and reload-resume reads it (README: "the state the game starts at when loaded"); first-ever-load item 0 ruled out=${String(s21NotFirstLoad)}`,
     );
 
-    // 21. A folder with the empty stub manifest shows the empty state.
+    // 22. A folder with the empty stub manifest shows the empty state.
     const emptyPage = await browser.newPage();
     emptyPage.on("console", (msg) =>
       consoleMessages.push(`empty [${msg.type()}] ${msg.text()}`),
@@ -940,18 +1023,18 @@ async function main() {
       },
       { timeout: 5000 },
     );
-    const s21 = await emptyPage.evaluate(PAGE_STATE);
-    const s21Ok =
-      s21.emptyState === EXPECTED.emptyNotice &&
-      s21.imgSrc === null &&
-      s21.overlayHidden === true;
+    const s22 = await emptyPage.evaluate(PAGE_STATE);
+    const s22Ok =
+      s22.emptyState === EXPECTED.emptyNotice &&
+      s22.imgSrc === null &&
+      s22.overlayHidden === true;
     record(
-      "21. empty-manifest folder shows the empty state",
-      s21Ok ? "PASS" : "FAIL",
-      JSON.stringify(s21),
+      "22. empty-manifest folder shows the empty state",
+      s22Ok ? "PASS" : "FAIL",
+      JSON.stringify(s22),
     );
 
-    // 22. Fill the screen (docs/plan.md Phase 7b): the media is the largest
+    // 23. Fill the screen (docs/plan.md Phase 7b): the media is the largest
     // centred contain fit of the ASSET's own aspect ratio into whatever
     // viewport the player gets, never the manifest's box. Two mismatched
     // viewports, one per letterbox direction: the fixture image (16:9, the
@@ -1038,7 +1121,7 @@ async function main() {
             .join(",") || "none"
         }`;
       record(
-        "22. media fills the viewport as a centred contain fit of its own aspect",
+        "23. media fills the viewport as a centred contain fit of its own aspect",
         status,
         `${brief(portraitState, portraitFit)} | ${brief(tallState, tallFit)} | ` +
           `overlay band=${bandWidth.toFixed(0)}px of ${tvw}px, bottom=${bandBottom.toFixed(0)} of ${tvh}px ` +
@@ -1052,10 +1135,10 @@ async function main() {
       for (const page of fitPages) await page.close();
     }
 
-    // 23. Console stayed empty throughout both pages.
+    // 24. Console stayed empty throughout both pages.
     const s23Ok = consoleMessages.length === 0 && pageErrors.length === 0;
     record(
-      "23. console stayed empty throughout",
+      "24. console stayed empty throughout",
       s23Ok ? "PASS" : "FAIL",
       s23Ok
         ? "zero console messages, zero page errors, every page, whole run"

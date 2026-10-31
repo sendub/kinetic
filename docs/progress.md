@@ -96,10 +96,14 @@ truthful: an unchecked box means nothing was accepted.
 - [x] Canvas thumbnail capture for image, animation, and video items
       (capture.ts + thumbSize tests; NOTE file:// taints canvas in
       Chrome - list falls back to manifest-based stills, 2025-11-01)
-- [ ] `b` appends timestamped bookmark to IndexedDB with confirmation
+- [x] `b` appends timestamped bookmark to IndexedDB with confirmation
+      (#flash, content-keyed, PASS headless over file://, 2025-11-01)
 - [ ] `t` overlay: scroll list bottom-first; click resumes and closes
-- [ ] Reload restores bookmarks, frontier, resume position
-- [ ] Storage interface faked in machine tests
+- [x] Reload restores bookmarks, frontier, resume position (verify step
+      21 PASS at frontier-1; debounced frontier persistence + flush,
+      2025-11-01)
+- [x] Storage interface faked in machine tests (memory+noop contract
+      suite, 125 tests, 2025-11-01)
 
 ## Phase 9: Config screen
 

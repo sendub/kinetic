@@ -15,16 +15,22 @@ describe("commandForKey", () => {
     expect(commandForKey("E", false)).toBe("jumpToUnseen");
   });
 
+  it("maps b to the bookmark append (Phase 8)", () => {
+    expect(commandForKey("b", false)).toBe("bookmark");
+    expect(commandForKey("B", false)).toBe("bookmark");
+  });
+
   it("ignores a held key's auto-repeat so it cannot burst through items", () => {
     expect(commandForKey(" ", true)).toBeNull();
     expect(commandForKey("h", true)).toBeNull();
     expect(commandForKey("Tab", true)).toBeNull();
     expect(commandForKey("e", true)).toBeNull();
+    expect(commandForKey("b", true)).toBeNull();
   });
 
   it("leaves keys owned by later phases unmapped", () => {
-    // b and t join the map in Phase 8, c in Phase 9.
-    for (const key of ["b", "t", "c", "Enter", "ArrowRight", "Shift"]) {
+    // t joins the map with Phase 8's overlay work, c with Phase 9.
+    for (const key of ["t", "c", "Enter", "ArrowRight", "Shift"]) {
       expect(commandForKey(key, false)).toBeNull();
     }
   });

@@ -13,6 +13,14 @@ export interface Shell {
   toggleText(): void;
   setTextVisible(visible: boolean): void;
   isTextVisible(): boolean;
+  /** The visual element currently painted, for `b`-key thumbnail capture. */
+  currentVisual(): HTMLImageElement | HTMLVideoElement | null;
+  /**
+   * A small transient notice — the `b` confirmation flash (Phase 8). It is
+   * its own element, outside `#overlay`, so `h` never touches it, and it
+   * fades and removes itself; nothing lingers on screen.
+   */
+  flash(message: string): void;
   unmount(): void;
 }
 
@@ -54,6 +62,57 @@ export function mountShell({ root, manifest, machine }: ShellOptions): Shell {
     captions.setHidden(!visible);
   }
 
+  // The confirmation flash (docs/plan.md Phase 8): a pill centred near the
+  // top that fades itself away. Styled inline because the player's contract
+  // is "index.html + app.js + manifest.js" — no new file, and `h` never
+  // reaches it because it is not the overlay. `#flash` is the driver's
+  // selector for "a bookmark was taken".
+  let flashElement: HTMLElement | null = null;
+  let flashTimers: ReturnType<typeof setTimeout>[] = [];
+
+  function clearFlash(): void {
+    for (const timer of flashTimers) globalThis.clearTimeout(timer);
+    flashTimers = [];
+    if (flashElement !== null) {
+      flashElement.remove();
+      flashElement = null;
+    }
+  }
+
+  function flash(message: string): void {
+    clearFlash(); // a second `b` replaces the first pill, mid-fade included
+    const pill = doc.createElement("div");
+    pill.id = "flash";
+    pill.setAttribute("aria-hidden", "true"); // a machine echo, not a caption
+    pill.textContent = message;
+    Object.assign(pill.style, {
+      position: "fixed",
+      top: "8%",
+      left: "50%",
+      transform: "translateX(-50%)",
+      padding: "8px 18px",
+      borderRadius: "999px",
+      background: "rgba(10, 10, 12, 0.72)",
+      border: "1px solid rgba(244, 239, 230, 0.22)",
+      color: "#f4efe6",
+      font: "500 clamp(13px, 1.6vh, 17px)/1.3 ui-sans-serif, system-ui, sans-serif",
+      letterSpacing: "0.04em",
+      pointerEvents: "none", // clicks pass through; the list stays clickable
+      userSelect: "none",
+      zIndex: "10",
+      opacity: "1",
+      transition: "opacity 400ms ease",
+    });
+    root.appendChild(pill);
+    flashElement = pill;
+    flashTimers.push(
+      globalThis.setTimeout(() => {
+        pill.style.opacity = "0";
+        flashTimers.push(globalThis.setTimeout(clearFlash, 450));
+      }, 900),
+    );
+  }
+
   const unsubscribe = machine.subscribe(render);
   render(machine.getState());
 
@@ -65,10 +124,15 @@ export function mountShell({ root, manifest, machine }: ShellOptions): Shell {
     isTextVisible() {
       return textVisible;
     },
+    currentVisual() {
+      return visuals.currentVisual();
+    },
+    flash,
     unmount() {
       unsubscribe();
       machine.destroy();
       visuals.destroy();
+      clearFlash();
       root.replaceChildren();
     },
   };
