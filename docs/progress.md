@@ -93,7 +93,9 @@ truthful: an unchecked box means nothing was accepted.
 
 ## Phase 8: Bookmarks
 
-- [ ] Canvas thumbnail capture for image, animation, and video items
+- [x] Canvas thumbnail capture for image, animation, and video items
+      (capture.ts + thumbSize tests; NOTE file:// taints canvas in
+      Chrome - list falls back to manifest-based stills, 2025-11-01)
 - [ ] `b` appends timestamped bookmark to IndexedDB with confirmation
 - [ ] `t` overlay: scroll list bottom-first; click resumes and closes
 - [ ] Reload restores bookmarks, frontier, resume position

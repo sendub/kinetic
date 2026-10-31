@@ -81,6 +81,12 @@ export interface VisualLayer {
    * the frontier) holds them too (docs/content-format.md, "Timing").
    */
   update(item: Item | undefined, state: MachineState): void;
+  /**
+   * The `<img>` or `<video>` currently painted, for thumbnail capture
+   * (render/capture.ts). Null while a notice is on screen — nothing is
+   * drawable then, and the caller falls back or skips.
+   */
+  currentVisual(): HTMLImageElement | HTMLVideoElement | null;
   /** Stop all playback and drop the video element. Idempotent. */
   destroy(): void;
 }
@@ -391,6 +397,20 @@ export function createVisualLayer(
           showNotice("placeholder", `${item.id} — text item with no visual`);
           return;
       }
+    },
+
+    currentVisual() {
+      // Exactly one surface is visible at a time: showVideo hides the <img>
+      // and showImage/showAnimation/showNotice hide the <video>.
+      if (video !== null && drawnVideoSrc !== null) return video;
+      if (
+        image !== null &&
+        drawnFile !== null &&
+        image.style.display !== "none"
+      ) {
+        return image;
+      }
+      return null;
     },
 
     destroy() {
