@@ -1,13 +1,20 @@
-// Timeline state machine core (docs/plan.md Phase 3). Pure TypeScript:
+// Timeline state machine core (docs/plan.md Phases 3-4). Pure TypeScript:
 // no DOM, no imports beyond ./types. Commands in, state out; time enters
 // through an injected Scheduler so tests are deterministic.
 //
 // Frontier invariant: frontier === 1 + the highest item index ever shown,
 // clamped to items.length. A first-ever load starts at item 0 (already
-// shown, so frontier 1); a resume starts AT the persisted frontier, which
-// marks that item shown. Therefore cursor is always in [0, frontier - 1],
-// the wheel can return through seen items but never enter unseen content,
+// shown, so frontier 1). A resume keeps the persisted frontier and starts
+// at its last shown item (frontier - 1), the same spot jumpToUnseen()
+// lands on; that landing counts as settled, so one advance() shows the
+// first unseen item. Therefore cursor is always in [0, frontier - 1], the
+// wheel can return through seen items but never enter unseen content,
 // and advance() past the last shown item pushes the frontier forward.
+//
+// Skip mode (tab) advances one item per settings.skipDwellMs regardless of
+// media: with skip_all off it ends when the cursor moves onto the first
+// never-shown item (which is then shown normally); with skip_all on it
+// marks items seen as it shows them and ends at content end.
 
 import type { Item, MachineSettings, MachineState, Scheduler } from "./types";
 
@@ -15,8 +22,10 @@ export interface MachineOptions {
   items: readonly Item[];
   settings: MachineSettings;
   /**
-   * Persisted frontier from a previous session. When present, the machine
-   * resumes at that item instead of item 0. Out-of-range values clamp.
+   * Persisted frontier from a previous session: the first never-shown
+   * item, one past the last item the reader saw. The machine then starts
+   * on that last seen item (frontier - 1), the spot `jumpToUnseen()`
+   * lands on. Out-of-range values clamp.
    */
   resumeFrontier?: number;
   /** Defaults to the global setTimeout/clearTimeout. */
@@ -33,12 +42,35 @@ export interface Machine {
   visualIndex(): number;
   /** Receives every state change; returns an unsubscribe function. */
   subscribe(listener: (state: MachineState) => void): () => void;
-  /** Space press: settles an unsettled item, else moves the cursor. */
+  /**
+   * Space press: during skip mode, exits skip mode and then behaves
+   * normally — settles an unsettled item, else moves the cursor.
+   */
   advance(): void;
-  /** Wheel step back; clamps at item 0. */
+  /**
+   * Wheel step back; clamps at item 0. During skip mode, exits skip mode
+   * and still performs the step.
+   */
   wheelBack(): void;
-  /** Wheel step forward; never passes the frontier into unseen items. */
+  /**
+   * Wheel step forward; never passes the frontier into unseen items.
+   * During skip mode, exits skip mode and steps when allowed.
+   */
   wheelForward(): void;
+  /**
+   * Tab press: toggles skip mode. While on, every item advances after
+   * `settings.skipDwellMs` regardless of text/animation/video; media never
+   * gates. With `settings.skipAll` off the mode ends when the cursor moves
+   * onto the first never-shown item (shown normally afterward); with it on
+   * the mode continues through unseen items, marking them seen, and ends
+   * when the last item of content has been shown.
+   */
+  toggleSkip(): void;
+  /**
+   * `e` press: cursor to the last shown item (`frontier - 1`), the resume
+   * position; no-op when already there. Marks nothing new seen.
+   */
+  jumpToUnseen(): void;
   /** Video `ended` event for the current video item. */
   mediaEnded(): void;
   /** Cancels the pending timer and drops all subscribers. */
@@ -113,11 +145,19 @@ export function createMachine(options: MachineOptions): Machine {
   const count = items.length;
 
   const listeners = new Set<Listener>();
-  let cursor =
-    count === 0 ? 0 : clamp(options.resumeFrontier ?? 0, 0, count - 1);
-  // The item under the cursor counts as shown the moment it is shown.
-  let frontier = count === 0 ? 0 : Math.min(cursor + 1, count);
+  let cursor = 0;
+  // First-ever load: item 0 starts shown, so the frontier is one past it.
+  let frontier = count === 0 ? 0 : 1;
   let settled = false;
+  if (count > 0 && options.resumeFrontier !== undefined) {
+    // Resume (and e-jump) lands on the last seen item, frontier - 1, and
+    // marks nothing new seen. The landing item counts as settled — it was
+    // shown in a past session — so one advance() enters unseen content.
+    frontier = clamp(options.resumeFrontier, 1, count);
+    cursor = frontier - 1;
+    settled = true;
+  }
+  let skipping = false;
   let holdElapsed = false;
   let videoEnded = false;
   let timer: unknown = null;
@@ -126,7 +166,7 @@ export function createMachine(options: MachineOptions): Machine {
   armTimer(); // the item shown at start auto-advances too
 
   function snapshot(): MachineState {
-    return Object.freeze({ cursor, frontier, settled });
+    return Object.freeze({ cursor, frontier, settled, skipping });
   }
 
   function emit(): void {
@@ -144,6 +184,16 @@ export function createMachine(options: MachineOptions): Machine {
   function armTimer(): void {
     cancelTimer();
     if (destroyed || count === 0) return;
+    if (skipping) {
+      // Skip mode: one fixed `settings.skipDwellMs` per item whatever its
+      // type. Media never gates and never plays to completion; the machine
+      // only times (docs/content-format.md, "Timing").
+      timer = scheduler.schedule(() => {
+        timer = null;
+        skipTick();
+      }, settings.skipDwellMs);
+      return;
+    }
     const delayMs = itemHoldMs(items[cursor], settings, nextIsText(cursor));
     timer = scheduler.schedule(() => {
       timer = null;
@@ -199,6 +249,51 @@ export function createMachine(options: MachineOptions): Machine {
     emit();
   }
 
+  /**
+   * Skip-mode dwell elapsed. One fixed-dwell step forward: a media item
+   * followed by `text`, and each `text` line of a chain, each consume
+   * exactly one dwell (chains are never collapsed). The mode ends when the
+   * step moves onto the first never-shown item with `skipAll` off, or when
+   * the last item of content has been shown; the ending item is then shown
+   * normally, its auto-advance armed per its own hold.
+   */
+  function skipTick(): void {
+    if (destroyed || count === 0) return;
+    if (cursor < count - 1) {
+      const enteringUnseen = cursor + 1 >= frontier;
+      cursor += 1;
+      if (enteringUnseen) frontier = Math.min(cursor + 1, count);
+      if ((enteringUnseen && !settings.skipAll) || cursor >= count - 1) {
+        skipping = false;
+      }
+    } else {
+      // Dwell elapsed on the last item; nothing is left to skip.
+      skipping = false;
+    }
+    beginItem(); // arms a dwell if skipping, else the item's normal hold
+    emit();
+  }
+
+  /** Leave skip mode; the current item restarts under its normal hold. */
+  function exitSkip(): void {
+    skipping = false;
+    beginItem();
+  }
+
+  /**
+   * `e`-jump / resume landing on `frontier - 1`, the last shown item. The
+   * landing counts as settled — that item was already seen — so the next
+   * advance() enters unseen content; auto-advance is armed per its hold.
+   */
+  function landOnLastSeen(): void {
+    cursor = frontier - 1;
+    holdElapsed = false;
+    videoEnded = false;
+    settled = true;
+    armTimer();
+    emit();
+  }
+
   return {
     getState() {
       return state;
@@ -217,6 +312,11 @@ export function createMachine(options: MachineOptions): Machine {
 
     advance() {
       if (destroyed || count === 0) return;
+      if (skipping) {
+        // Space during skip exits skip mode, then behaves normally: the
+        // current item has not met its own hold, so this press settles it.
+        exitSkip();
+      }
       if (!settled) {
         // Immediate-complete: the item's wait ends now, but the cursor
         // stays; the next advance() moves on.
@@ -229,17 +329,60 @@ export function createMachine(options: MachineOptions): Machine {
     },
 
     wheelBack() {
-      if (destroyed || cursor === 0) return;
+      if (destroyed) return;
+      // Decision (docs/plan.md Phase 4): a wheel step during skip exits
+      // skip mode AND performs the step — the step is what the user
+      // meant; merely dropping it would feel like a dead input.
+      const wasSkipping = skipping;
+      if (skipping) skipping = false; // a clamped step exits skip too
+      if (cursor === 0) {
+        if (wasSkipping) {
+          beginItem(); // normal timing for the item left under the cursor
+          emit();
+        }
+        return;
+      }
       moveVisible(cursor - 1);
     },
 
     wheelForward() {
-      if (destroyed || cursor + 1 >= frontier) return;
+      if (destroyed) return;
+      const wasSkipping = skipping;
+      if (skipping) skipping = false; // same decision as wheelBack()
+      if (cursor + 1 >= frontier) {
+        if (wasSkipping) {
+          beginItem(); // blocked step still ends skip: normal timing again
+          emit();
+        }
+        return;
+      }
       moveVisible(cursor + 1);
     },
 
+    toggleSkip() {
+      if (destroyed || count === 0) return;
+      if (skipping) {
+        exitSkip(); // tab again: manual off, normal timing from here
+      } else {
+        skipping = true;
+        beginItem(); // the current item gets a fresh dwell too
+      }
+      emit();
+    },
+
+    jumpToUnseen() {
+      if (destroyed || count === 0) return;
+      if (cursor === frontier - 1) return; // already there: stay
+      skipping = false; // a jump is manual navigation: skip mode is off
+      landOnLastSeen();
+    },
+
     mediaEnded() {
-      if (destroyed || count === 0 || settled || videoEnded) return;
+      // During skip a video never plays (the renderer shows the poster), so
+      // media-end events are irrelevant; guard against a straggler.
+      if (destroyed || count === 0 || settled || videoEnded || skipping) {
+        return;
+      }
       if (items[cursor].type !== "video") return;
       videoEnded = true;
       if (holdElapsed) moveForward();

@@ -109,7 +109,12 @@ describe("hold computation (docs/content-format.md Timing)", () => {
 describe("advance() through every item type", () => {
   it("first-ever load starts at item 0 with frontier one past it", () => {
     const m = machine(manifest([image(), animation(3, 12, 3), video()]).items);
-    expect(m.getState()).toEqual({ cursor: 0, frontier: 1, settled: false });
+    expect(m.getState()).toEqual({
+      cursor: 0,
+      frontier: 1,
+      settled: false,
+      skipping: false,
+    });
     m.destroy();
   });
 
@@ -123,17 +128,37 @@ describe("advance() through every item type", () => {
     const m = machine(items);
     // First press on a not-yet-settled item: immediate-complete, no move.
     m.advance();
-    expect(m.getState()).toEqual({ cursor: 0, frontier: 1, settled: true });
+    expect(m.getState()).toEqual({
+      cursor: 0,
+      frontier: 1,
+      settled: true,
+      skipping: false,
+    });
     // Second press moves, and the frontier follows into unseen content.
     m.advance();
-    expect(m.getState()).toEqual({ cursor: 1, frontier: 2, settled: false });
+    expect(m.getState()).toEqual({
+      cursor: 1,
+      frontier: 2,
+      settled: false,
+      skipping: false,
+    });
     m.advance(); // settle animation
     m.advance(); // move onto the video
-    expect(m.getState()).toEqual({ cursor: 2, frontier: 3, settled: false });
+    expect(m.getState()).toEqual({
+      cursor: 2,
+      frontier: 3,
+      settled: false,
+      skipping: false,
+    });
     // At the last item, settles then clamps with the frontier at the end.
     m.advance();
     m.advance();
-    expect(m.getState()).toEqual({ cursor: 2, frontier: 3, settled: true });
+    expect(m.getState()).toEqual({
+      cursor: 2,
+      frontier: 3,
+      settled: true,
+      skipping: false,
+    });
     m.destroy();
   });
 });
@@ -145,7 +170,12 @@ describe("auto-advance timing", () => {
     vi.advanceTimersByTime(2399);
     expect(m.getState().cursor).toBe(0);
     vi.advanceTimersByTime(1);
-    expect(m.getState()).toEqual({ cursor: 1, frontier: 2, settled: false });
+    expect(m.getState()).toEqual({
+      cursor: 1,
+      frontier: 2,
+      settled: false,
+      skipping: false,
+    });
     m.destroy();
   });
 
@@ -154,7 +184,12 @@ describe("auto-advance timing", () => {
     const m = machine([image(), image()]);
     m.advance(); // immediate-complete before the hold elapsed
     vi.advanceTimersByTime(60_000);
-    expect(m.getState()).toEqual({ cursor: 0, frontier: 1, settled: true });
+    expect(m.getState()).toEqual({
+      cursor: 0,
+      frontier: 1,
+      settled: true,
+      skipping: false,
+    });
     m.destroy();
   });
 
@@ -197,7 +232,12 @@ describe("video and mediaEnded()", () => {
     vi.advanceTimersByTime(5000); // text hold long past, video still running
     expect(m.getState().cursor).toBe(0);
     m.mediaEnded();
-    expect(m.getState()).toEqual({ cursor: 1, frontier: 2, settled: false });
+    expect(m.getState()).toEqual({
+      cursor: 1,
+      frontier: 2,
+      settled: false,
+      skipping: false,
+    });
     m.destroy();
   });
 
@@ -234,16 +274,36 @@ describe("text items hold on the text alone (docs/content-format.md, Text items)
     vi.useFakeTimers();
     const m = machine([image("a".repeat(40)), text("a".repeat(40)), image()]); // 2400 ms holds
     vi.advanceTimersByTime(2399);
-    expect(m.getState()).toEqual({ cursor: 0, frontier: 1, settled: false });
+    expect(m.getState()).toEqual({
+      cursor: 0,
+      frontier: 1,
+      settled: false,
+      skipping: false,
+    });
     vi.advanceTimersByTime(1);
-    expect(m.getState()).toEqual({ cursor: 1, frontier: 2, settled: false });
+    expect(m.getState()).toEqual({
+      cursor: 1,
+      frontier: 2,
+      settled: false,
+      skipping: false,
+    });
     // On the text item, mediaEnded is irrelevant: the cursor does not move.
     m.mediaEnded();
-    expect(m.getState()).toEqual({ cursor: 1, frontier: 2, settled: false });
+    expect(m.getState()).toEqual({
+      cursor: 1,
+      frontier: 2,
+      settled: false,
+      skipping: false,
+    });
     vi.advanceTimersByTime(2399);
     expect(m.getState().cursor).toBe(1);
     vi.advanceTimersByTime(1);
-    expect(m.getState()).toEqual({ cursor: 2, frontier: 3, settled: false });
+    expect(m.getState()).toEqual({
+      cursor: 2,
+      frontier: 3,
+      settled: false,
+      skipping: false,
+    });
     m.destroy();
   });
 
@@ -258,13 +318,28 @@ describe("text items hold on the text alone (docs/content-format.md, Text items)
     vi.advanceTimersByTime(2399);
     expect(m.getState().cursor).toBe(0);
     vi.advanceTimersByTime(1); // video's text hold, video still playing
-    expect(m.getState()).toEqual({ cursor: 1, frontier: 2, settled: false });
+    expect(m.getState()).toEqual({
+      cursor: 1,
+      frontier: 2,
+      settled: false,
+      skipping: false,
+    });
     vi.advanceTimersByTime(1499);
     expect(m.getState().cursor).toBe(1);
     vi.advanceTimersByTime(1); // first text line: minHold floor
-    expect(m.getState()).toEqual({ cursor: 2, frontier: 3, settled: false });
+    expect(m.getState()).toEqual({
+      cursor: 2,
+      frontier: 3,
+      settled: false,
+      skipping: false,
+    });
     vi.advanceTimersByTime(1500); // second text line
-    expect(m.getState()).toEqual({ cursor: 3, frontier: 4, settled: false });
+    expect(m.getState()).toEqual({
+      cursor: 3,
+      frontier: 4,
+      settled: false,
+      skipping: false,
+    });
     m.destroy();
   });
 
@@ -276,7 +351,12 @@ describe("text items hold on the text alone (docs/content-format.md, Text items)
     vi.advanceTimersByTime(1);
     expect(m.getState().cursor).toBe(1);
     m.mediaEnded(); // the video finishing under the text changes nothing
-    expect(m.getState()).toEqual({ cursor: 1, frontier: 2, settled: false });
+    expect(m.getState()).toEqual({
+      cursor: 1,
+      frontier: 2,
+      settled: false,
+      skipping: false,
+    });
     m.destroy();
   });
 
@@ -294,6 +374,7 @@ describe("text items hold on the text alone (docs/content-format.md, Text items)
       cursor: 1,
       frontier: 2,
       settled: false,
+      skipping: false,
     });
     expect(alone.getState().cursor).toBe(0); // still looping
     vi.advanceTimersByTime(2500);
@@ -310,7 +391,12 @@ describe("text items hold on the text alone (docs/content-format.md, Text items)
     vi.advanceTimersByTime(3999);
     expect(m.getState().cursor).toBe(2); // loops outlast the text hold
     vi.advanceTimersByTime(1);
-    expect(m.getState()).toEqual({ cursor: 2, frontier: 3, settled: true });
+    expect(m.getState()).toEqual({
+      cursor: 2,
+      frontier: 3,
+      settled: true,
+      skipping: false,
+    });
     m.destroy();
   });
 });
@@ -365,28 +451,62 @@ describe("visualIndexFor: a text item shows the earlier visual", () => {
 });
 
 describe("frontier and wheel rules", () => {
-  it("resume starts at the frontier and counts it as shown", () => {
+  it("resume starts at the last seen item; first advance shows the first unseen item", () => {
     const m = machine([image(), image(), image(), image()], {
       resumeFrontier: 2,
     });
-    expect(m.getState()).toEqual({ cursor: 2, frontier: 3, settled: false });
+    // Landing is the e-jump position: the last shown item, counted settled.
+    expect(m.getState()).toEqual({
+      cursor: 1,
+      frontier: 2,
+      settled: true,
+      skipping: false,
+    });
+    m.advance();
+    expect(m.getState()).toEqual({
+      cursor: 2,
+      frontier: 3,
+      settled: false,
+      skipping: false,
+    });
     m.destroy();
   });
 
   it("wheel forward is blocked at the frontier", () => {
-    const m = machine([image(), image(), image()], { resumeFrontier: 1 });
+    const m = machine([image(), image(), image()], { resumeFrontier: 2 });
+    expect(m.getState()).toEqual({
+      cursor: 1,
+      frontier: 2,
+      settled: true,
+      skipping: false,
+    });
     m.wheelForward(); // cursor 1 === frontier - 1: unseen ahead, blocked
-    expect(m.getState()).toEqual({ cursor: 1, frontier: 2, settled: false });
+    expect(m.getState()).toEqual({
+      cursor: 1,
+      frontier: 2,
+      settled: true,
+      skipping: false,
+    });
     m.wheelBack();
     expect(m.getState().cursor).toBe(0);
     m.wheelForward(); // returns through seen content
     expect(m.getState().cursor).toBe(1);
     m.wheelForward(); // blocked again
-    expect(m.getState()).toEqual({ cursor: 1, frontier: 2, settled: false });
+    expect(m.getState()).toEqual({
+      cursor: 1,
+      frontier: 2,
+      settled: false,
+      skipping: false,
+    });
     // advance() may cross the frontier; the wheel may not.
+    m.advance(); // settle the re-shown item
     m.advance();
-    m.advance();
-    expect(m.getState()).toEqual({ cursor: 2, frontier: 3, settled: false });
+    expect(m.getState()).toEqual({
+      cursor: 2,
+      frontier: 3,
+      settled: false,
+      skipping: false,
+    });
     m.destroy();
   });
 
@@ -394,36 +514,282 @@ describe("frontier and wheel rules", () => {
     const m = machine([image(), video(), text("one"), text("two"), image()], {
       resumeFrontier: 3,
     });
-    expect(m.getState()).toEqual({ cursor: 3, frontier: 4, settled: false });
+    // Last seen item is the text line; its visual is the video.
+    expect(m.getState()).toEqual({
+      cursor: 2,
+      frontier: 3,
+      settled: true,
+      skipping: false,
+    });
     expect(m.visualIndex()).toBe(1); // the video's visual keeps showing
     m.wheelForward(); // unseen item ahead: blocked
-    expect(m.getState()).toEqual({ cursor: 3, frontier: 4, settled: false });
+    expect(m.getState()).toEqual({
+      cursor: 2,
+      frontier: 3,
+      settled: true,
+      skipping: false,
+    });
     m.wheelBack(); // back through seen content, same visual
-    expect(m.getState()).toEqual({ cursor: 2, frontier: 4, settled: false });
+    expect(m.getState()).toEqual({
+      cursor: 1,
+      frontier: 3,
+      settled: false,
+      skipping: false,
+    });
     expect(m.visualIndex()).toBe(1);
     m.wheelForward(); // forward again through seen content
-    expect(m.getState().cursor).toBe(3);
+    expect(m.getState().cursor).toBe(2);
     m.wheelForward(); // blocked at the frontier again
-    expect(m.getState()).toEqual({ cursor: 3, frontier: 4, settled: false });
+    expect(m.getState().cursor).toBe(2);
     // advance() crosses the frontier from a text item like any other item.
+    m.advance(); // settle the re-shown text line
     m.advance();
-    m.advance();
-    expect(m.getState()).toEqual({ cursor: 4, frontier: 5, settled: false });
-    expect(m.visualIndex()).toBe(4);
+    expect(m.getState()).toEqual({
+      cursor: 3,
+      frontier: 4,
+      settled: false,
+      skipping: false,
+    });
+    expect(m.visualIndex()).toBe(1);
     m.destroy();
   });
 
   it("wheel back before item 0 clamps", () => {
     const m = machine([image(), image()]);
     m.wheelBack();
-    expect(m.getState()).toEqual({ cursor: 0, frontier: 1, settled: false });
+    expect(m.getState()).toEqual({
+      cursor: 0,
+      frontier: 1,
+      settled: false,
+      skipping: false,
+    });
     m.destroy();
   });
 
   it("a first-ever load cannot wheel into unseen content", () => {
     const m = machine([image(), image()]);
     m.wheelForward();
-    expect(m.getState()).toEqual({ cursor: 0, frontier: 1, settled: false });
+    expect(m.getState()).toEqual({
+      cursor: 0,
+      frontier: 1,
+      settled: false,
+      skipping: false,
+    });
+    m.destroy();
+  });
+});
+
+describe("skip mode (tab), docs/plan.md Phase 4", () => {
+  function skipSettings(skipAll: boolean): MachineSettings {
+    return { ...SETTINGS, skipAll };
+  }
+
+  it("advances every item after the fixed dwell; media never gates", () => {
+    vi.useFakeTimers();
+    const m = machine(
+      [
+        image(), // plain image
+        animation(10, 5, 2), // 4000 ms loop time
+        video(600), // 10-minute video
+        text("a".repeat(40)), // 2400 ms text hold when not skipping
+        image(),
+      ],
+      { settings: skipSettings(true) },
+    );
+    m.toggleSkip();
+    expect(m.getState().skipping).toBe(true);
+    const dwell = SETTINGS.skipDwellMs;
+    // Each item — image, animation, video, text — takes exactly one dwell.
+    for (let steps = 1; steps <= 4; steps += 1) {
+      vi.advanceTimersByTime(dwell - 1);
+      expect(m.getState().cursor).toBe(steps - 1);
+      m.mediaEnded(); // a straggler media-end must not skip ahead
+      vi.advanceTimersByTime(1);
+      expect(m.getState().cursor).toBe(steps);
+      expect(m.getState().skipping).toBe(steps < 4);
+    }
+    // The chain (video + text line) consumed one dwell per item, 4 x dwell
+    // total, where normal timing would have taken 1500 + 4000 + 1500 + 2400.
+    m.destroy();
+  });
+
+  it("with skipAll off, ends as the frontier item becomes current; its normal auto-advance is armed", () => {
+    vi.useFakeTimers();
+    const m = machine([image(), image(), image(), image(), image()], {
+      resumeFrontier: 3,
+    });
+    // Cursor starts at the last seen item (2); the next item is unseen.
+    m.toggleSkip();
+    vi.advanceTimersByTime(SETTINGS.skipDwellMs - 1);
+    expect(m.getState()).toEqual({
+      cursor: 2,
+      frontier: 3,
+      settled: false,
+      skipping: true,
+    });
+    vi.advanceTimersByTime(1);
+    // Moved onto the first unseen item (shown, so frontier moves too) and
+    // skip mode ended without entering further unseen content.
+    expect(m.getState()).toEqual({
+      cursor: 3,
+      frontier: 4,
+      settled: false,
+      skipping: false,
+    });
+    // Shown normally: the item's own 1500 ms hold drives auto-advance.
+    vi.advanceTimersByTime(1499);
+    expect(m.getState().cursor).toBe(3);
+    vi.advanceTimersByTime(1);
+    expect(m.getState()).toEqual({
+      cursor: 4,
+      frontier: 5,
+      settled: false,
+      skipping: false,
+    });
+    m.destroy();
+  });
+
+  it("with skipAll on, marks unseen items seen while skipping and ends at content end", () => {
+    vi.useFakeTimers();
+    const items = [image(), image(), text("one"), video(600), image()];
+    const m = machine(items, {
+      resumeFrontier: 2,
+      settings: skipSettings(true),
+    });
+    m.toggleSkip();
+    const total = SETTINGS.skipDwellMs * 3;
+    vi.advanceTimersByTime(total - 1);
+    expect(m.getState().cursor).toBe(3); // mid-skip, still skipping
+    expect(m.getState().skipping).toBe(true);
+    vi.advanceTimersByTime(1);
+    // Last item of content shown: skip mode ends, everything marked seen.
+    expect(m.getState()).toEqual({
+      cursor: 4,
+      frontier: 5,
+      settled: false,
+      skipping: false,
+    });
+    m.destroy();
+  });
+
+  it("tab toggles skip off mid-skip and the item resumes normal timing", () => {
+    vi.useFakeTimers();
+    const m = machine([image(), image(), image()], {
+      settings: skipSettings(true),
+    });
+    m.toggleSkip();
+    vi.advanceTimersByTime(SETTINGS.skipDwellMs);
+    expect(m.getState()).toEqual({
+      cursor: 1,
+      frontier: 2,
+      settled: false,
+      skipping: true,
+    });
+    m.toggleSkip(); // tab again: manual off
+    expect(m.getState().skipping).toBe(false);
+    vi.advanceTimersByTime(SETTINGS.skipDwellMs); // no dwell step anymore
+    expect(m.getState().cursor).toBe(1);
+    vi.advanceTimersByTime(1500 - SETTINGS.skipDwellMs); // normal hold fires
+    expect(m.getState().cursor).toBe(2);
+    m.destroy();
+  });
+
+  it("space during skip exits skip mode and settles the item without moving", () => {
+    vi.useFakeTimers();
+    const m = machine([image(), image(), image()], {
+      settings: skipSettings(true),
+    });
+    m.toggleSkip();
+    m.advance();
+    expect(m.getState()).toEqual({
+      cursor: 0,
+      frontier: 1,
+      settled: true,
+      skipping: false,
+    });
+    vi.advanceTimersByTime(60_000); // nothing pending advances by itself
+    expect(m.getState().cursor).toBe(0);
+    m.advance(); // then behaves normally: the next press moves
+    expect(m.getState().cursor).toBe(1);
+    m.destroy();
+  });
+
+  it("a wheel step during skip exits skip mode AND performs the step", () => {
+    vi.useFakeTimers();
+    const m = machine([image(), image(), image(), image()], {
+      resumeFrontier: 3,
+    });
+    m.toggleSkip();
+    m.wheelBack();
+    expect(m.getState()).toEqual({
+      cursor: 1,
+      frontier: 3,
+      settled: false,
+      skipping: false,
+    });
+    m.toggleSkip();
+    m.wheelForward(); // forward step also exits skip and performs
+    expect(m.getState()).toEqual({
+      cursor: 2,
+      frontier: 3,
+      settled: false,
+      skipping: false,
+    });
+    m.toggleSkip();
+    m.wheelForward(); // blocked at the frontier: exits skip, stays
+    expect(m.getState()).toEqual({
+      cursor: 2,
+      frontier: 3,
+      settled: false,
+      skipping: false,
+    });
+    m.destroy();
+  });
+});
+
+describe("e-jump (jumpToUnseen), docs/plan.md Phase 4", () => {
+  it("jumps to the item before the frontier and a repeat press is a no-op", () => {
+    const m = machine([image(), image(), image(), image(), image()], {
+      resumeFrontier: 3,
+    });
+    m.wheelBack();
+    m.wheelBack(); // bookmark-style rollback to the start
+    expect(m.getState().cursor).toBe(0);
+    m.jumpToUnseen();
+    expect(m.getState()).toEqual({
+      cursor: 2,
+      frontier: 3,
+      settled: true,
+      skipping: false,
+    });
+    m.jumpToUnseen(); // repeat: stay
+    expect(m.getState()).toEqual({
+      cursor: 2,
+      frontier: 3,
+      settled: true,
+      skipping: false,
+    });
+    m.advance(); // one press enters unseen content
+    expect(m.getState()).toEqual({
+      cursor: 3,
+      frontier: 4,
+      settled: false,
+      skipping: false,
+    });
+    m.destroy();
+  });
+
+  it("the jump marks nothing new seen and never touches unseen content", () => {
+    const m = machine([image(), image(), image()], { resumeFrontier: 1 });
+    m.jumpToUnseen(); // cursor 0 === frontier - 1: no-op
+    expect(m.getState()).toEqual({
+      cursor: 0,
+      frontier: 1,
+      settled: true,
+      skipping: false,
+    });
+    m.advance(); // settled landing: the first advance enters item 1
+    expect(m.getState().frontier).toBe(2); // nothing marked seen until shown
     m.destroy();
   });
 });
@@ -458,6 +824,11 @@ describe("subscribe, timers, and destroy()", () => {
     m.mediaEnded();
     vi.advanceTimersByTime(60_000);
     expect(seen).toEqual([]);
-    expect(m.getState()).toEqual({ cursor: 0, frontier: 1, settled: false });
+    expect(m.getState()).toEqual({
+      cursor: 0,
+      frontier: 1,
+      settled: false,
+      skipping: false,
+    });
   });
 });

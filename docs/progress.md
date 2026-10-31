@@ -45,10 +45,11 @@ truthful: an unchecked box means nothing was accepted.
 
 ## Phase 4: Timeline machine - skip and jumps
 
-- [ ] Tab skip mode: fixed rate, first frame only, frontier stop
-- [ ] `skip_all` setting honored
-- [ ] `e` jump targets the item before the frontier
-- [ ] Mode-transition tests (space/wheel cancel skip) green
+- [x] Tab skip mode: fixed rate, first frame only, frontier stop
+- [x] `skip_all` setting honored
+- [x] `e` jump targets the item before the frontier
+- [x] Mode-transition tests (space/wheel cancel skip) green (8 new tests;
+      resume semantics aligned to README, 2025-11-01)
 
 ## Phase 5: Player shell rendering
 

@@ -62,25 +62,42 @@ export interface MachineSettings {
   minHoldMs: number;
   /** Base per-code-point allowance, in milliseconds; default 60. */
   msPerChar: number;
+  /**
+   * Skip-mode dwell per item, in milliseconds; default 120. A fixed, fast
+   * rate (~8 items per second): fast enough to re-traverse read content in
+   * a burst, slow enough that the surface never lags a frame the player
+   * cannot register.
+   */
+  skipDwellMs: number;
+  /** Skip past unseen content too; default false. */
+  skipAll: boolean;
 }
 
 export const DEFAULT_SETTINGS: MachineSettings = {
   readingSpeed: 1.0,
   minHoldMs: 1500,
   msPerChar: 60,
+  skipDwellMs: 120,
+  skipAll: false,
 };
 
 /**
  * Observable machine state. `cursor` indexes the shown item; `frontier` is
  * the first never-shown item (`frontier === items.length` when everything
  * has been seen); `settled` means the current item's timing rule is
- * satisfied (via its auto-advance condition or a manual `advance()`), so
- * the next `advance()` moves on.
+ * satisfied (via its auto-advance condition, a manual `advance()`, or a
+ * resume / `e`-jump landing on an item that was read before), so the next
+ * `advance()` moves on. `skipping` means skip mode (tab) is active: the
+ * machine advances every item after `settings.skipDwellMs` regardless of
+ * media. While it is true the renderer must show an animation's first
+ * frame and a video's poster as stills and never play media — the machine
+ * only times, it cannot stop a playing element.
  */
 export interface MachineState {
   readonly cursor: number;
   readonly frontier: number;
   readonly settled: boolean;
+  readonly skipping: boolean;
 }
 
 /** Timer seam so tests control time. Handles are opaque. */
