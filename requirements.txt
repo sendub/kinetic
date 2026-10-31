@@ -1,0 +1,3 @@
+# Pinned dependencies for the Python tooling (fixtures/, later converter/).
+# Install with: .venv/bin/pip install -r requirements.txt
+Pillow==13.0.0
