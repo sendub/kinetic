@@ -57,7 +57,7 @@ Every item carries `id`, `type`, and optional overlay fields:
   for stable reference by tools (validator reports, converter logs). It
   contains no dot, so derived filenames parse unambiguously. Array position
   remains the only ordering the player reads.
-- `type`: `image`, `animation`, or `video`.
+- `type`: `image`, `animation`, `video`, or `text`.
 - `speaker`: optional name drawn above the text.
 - `text`: optional line drawn below the speaker. Empty or absent `text`
   means a bare visual: nothing is drawn and `speaker` is ignored.
@@ -71,6 +71,9 @@ Per type:
 - `video` with `file` (H.264 faststart MP4), `poster` (still image shown
   for instant first paint), and `durationSeconds` (runtime of the encoded
   video, greater than 0), so skip-mode timing needs no media probing.
+- `text` takes no media fields. `id` and `type` are required, `speaker`
+  and `text` are optional, and no other fields are accepted. See Text
+  items below.
 
 Example:
 
@@ -93,10 +96,32 @@ Example:
     {
       "id": "intro-003", "type": "video", "file": "intro-003.mp4",
       "poster": "intro-003.poster.jpg", "durationSeconds": 18.4
+    },
+    // intro-003 loops under both text items
+    {
+      "id": "line-004", "type": "text", "speaker": "Mei",
+      "text": "The street glowed under the awning."
+    },
+    {
+      "id": "line-005", "type": "text",
+      "text": "Neither of us spoke for a while."
     }
   ]
 }
 ```
+
+### Text items
+
+A `text` item adds dialogue over a visual already on screen, so several
+lines can advance over one continuous looping video or animation. It
+shows the visual of the nearest earlier item that bears media: an image
+file, an animation, or a video. That visual keeps playing while the
+current item is `text` or the next item is `text`: a video loops, an
+animation keeps looping, and an advance within such a chain is never
+gated on media end. Rewind, skip, and `e`-jump to a `text` item show
+that visual as a still: a video's `poster` or an animation's
+`frames[0]`. The first item may not be `text`, and a `text` item only
+makes sense after some media-bearing item.
 
 ## Timing
 
@@ -105,21 +130,31 @@ skip dwell, and skip-all live in the player's settings (IndexedDB), never in
 the manifest. The format defines how the player derives per-item timing from
 content:
 
-- Text hold time, in seconds, is
-  `max(minHold, chars(text) * msPerChar / readingSpeed) / 1000`, where
-  `chars` counts Unicode code points excluding the speaker, `readingSpeed`
-  is the player setting (default 1.0), and the defaults are `minHold = 1.5`
-  and `msPerChar = 60`. An item with no text holds for `minHold`.
-- An image auto-advances when its text hold time elapses.
-- An animation's loop time is `len(frames) * loopCount / fps`. Auto-advance
-  fires at the later of loop time and text hold time, so the loops complete
-  before the item advances on its own.
-- A video plays through once. Auto-advance fires at the later of the `ended`
-  event and the text hold time.
+- Text hold time, in milliseconds, is `textHoldMs = max(minHoldMs,
+  codepoints(text) * msPerChar / readingSpeed)`. `codepoints` counts
+  Unicode code points, excluding the speaker; `readingSpeed` is the
+  player setting (default 1.0); `minHoldMs` and `msPerChar` are
+  millisecond-denominated player settings whose defaults are
+  `minHoldMs = 1500` and `msPerChar = 60`. An item with no `text`
+  holds for `minHoldMs`.
+- An image auto-advances when its text hold time elapses. A `text`
+  item holds for its text hold time and nothing else.
+- An animation's loop time, in milliseconds, is `len(frames) *
+  loopCount * 1000 / fps`. Auto-advance fires at the later of loop
+  time and text hold time, so the loops complete before the item
+  advances on its own.
+- A video plays through once. Auto-advance fires at the later of the
+  `ended` event and the text hold time.
+- A media item followed by `text` items, and the `text` items after
+  it, form a chain. The chain advances on text hold times alone. Loop
+  completion and the `ended` event gate nothing while it lasts, and
+  the chain's visual plays throughout it, looping in place.
 - Skip mode shows each item for a fixed player dwell. An animation
-  contributes `frames[0]` and a video its `poster`; both show that still and
-  never play. A video holds for `min(dwell, durationSeconds)`.
-- Rewind shows `frames[0]` and the poster too.
+  contributes `frames[0]` and a video its `poster`; both show that
+  still and never play. A video holds for `min(dwell,
+  durationSeconds)`.
+- Rewind shows `frames[0]` and the poster too. Rewind, skip, and
+  `e`-jump show a `text` item as the still of the visual it displays.
 
 ## Naming conventions
 
@@ -138,8 +173,15 @@ owning item id. Since ids contain no dots, suffixes parse unambiguously:
   visible surface at run time; the thumbnail is the fallback when no surface
   can be captured, such as a video with no decoded frame.
 
-The manifest stays authoritative: the player reads exactly the files the
-manifest references, never a directory scan.
+These names describe the files the converter generates. They are
+defaults, not a one-file-per-item rule. Multiple items may reference
+the same derivative file, the converter dedups identical sources, and a
+hand-authored folder may name its files differently.
+
+The manifest stays authoritative: the player reads exactly the files
+the manifest references, never a directory scan. A folder may carry
+extra unreferenced files, such as the converter's build ledger; the
+player and the validator ignore them.
 
 ## Rules and validator invariants
 

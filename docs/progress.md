@@ -24,8 +24,9 @@ truthful: an unchecked box means nothing was accepted.
 
 ## Phase 2b: Format revision from external review (2025-11-01)
 
-- [ ] docs/content-format.md timing formula fixed to all-ms units; `text`
-      items and media reuse documented; CREATE.md synced
+- [x] docs/content-format.md timing formula fixed to all-ms units; `text`
+      items and media reuse documented; CREATE.md synced (formula matches
+      machine defaults, 2025-11-01)
 - [ ] Schema `text` variant; validator rules and new fault tests green
 - [ ] Machine `text` items: text-only holds, media loops under chains,
       cursor-to-visual helper; tests green

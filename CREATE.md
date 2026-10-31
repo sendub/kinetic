@@ -1,12 +1,13 @@
 # Making a New Kinetic Game
 
 Kinetic plays a kinetic visual novel from a content folder: a manifest
-listing images, animation frame sets, and videos in play order, plus the
-media files they reference. Two paths produce such a folder from content
-you already have (images, an animation frame set, a video, and the text
-you want overlaid): hand-authoring it, or converting a Ren'Py project
-with the extractor. Both produce the same format, and you validate and
-play the result the same way either path took.
+listing images, animation frame sets, videos, and `text` dialogue lines
+in play order, plus the media files the manifest references. Two paths
+produce such a folder from content you already have (images, an
+animation frame set, a video, and the text you want overlaid):
+hand-authoring it, or converting a Ren'Py project with the extractor.
+Both produce the same format, and you validate and play the result the
+same way either path took.
 
 docs/content-format.md specifies the folder and docs/content-schema.json
 defines the manifest; this guide adds the commands.
@@ -22,7 +23,7 @@ and no network access at play time:
 my-novel/
   manifest.json    # source of truth, written by hand
   manifest.js      # generated shim, one command, see below
-  *.jpg, *.mp4     # media, named after the item that owns them
+  *.jpg, *.mp4     # media, named per the conventions shown below
 ```
 
 `index.html` and `app.js` are the player bundle, copied in as the last
@@ -42,14 +43,20 @@ them is still valid input for the validator.
 - `video`: `file` (H.264 faststart MP4), `poster` (a display-resolution
   still, the video's first frame, also shown in skip and rewind), and
   `durationSeconds` greater than 0.
+- `text`: no media fields; only `id`, `type`, and the optional
+  `speaker` and `text`. It shows the visual of the nearest earlier
+  media item, and that video or animation keeps looping underneath it.
+  A `text` chain advances on text holds alone, never gated on media
+  end. The first item may not be `text`, and a `text` item needs a
+  media item before it.
 
 Any item may also carry `speaker` and `text` for the overlay; no `text`
 means a bare visual with nothing drawn. No other fields are accepted.
 Media paths are relative to the folder, use POSIX separators, and
 contain no spaces and no `..` segments.
 
-A complete minimal manifest with one image, one animation, and one
-video:
+A complete minimal manifest: one image, one animation, one video, and
+two `text` lines that run over the looping video:
 
 ```json
 {
@@ -69,14 +76,31 @@ video:
     {
       "id": "intro-003", "type": "video", "file": "intro-003.mp4",
       "poster": "intro-003.poster.jpg", "durationSeconds": 18.4
+    },
+    {
+      "id": "line-004", "type": "text", "speaker": "Mei",
+      "text": "The street glowed under the awning."
+    },
+    {
+      "id": "line-005", "type": "text",
+      "text": "Neither of us spoke for a while."
     }
   ]
 }
 ```
 
+The two `text` items display `intro-003`'s visual while its video loops
+underneath, and each holds for its text alone. Neither the video's end
+nor its loops gate an advance while the chain of `text` items lasts.
+
 The item ids drive the file names: `<id>.jpg` for an image,
 `<id>.fNNN.jpg` for animation frames numbered from `f000`, and
-`<id>.mp4` plus `<id>.poster.jpg` for a video.
+`<id>.mp4` plus `<id>.poster.jpg` for a video. These names are the
+defaults the converter generates, not a one-file-per-item rule.
+Several items may reference the same derivative file, the converter
+dedups identical sources, and you may name hand-authored files
+differently. A folder may also carry extra unreferenced files, such as
+the converter's build ledger; the player and the validator ignore them.
 
 ### Preparing the media
 
@@ -167,8 +191,10 @@ python -m kinetic_extract <renpy_project> <out_dir>
 
 It will validate and copy images, transcode video to faststart H.264,
 and emit the display-resolution derivatives, posters, and thumbnails,
-which is the work you do by hand above. Validate and play its output
-the same way.
+which is the work you do by hand above. It dedups identical sources
+into shared derivative files and leaves its build ledger among the
+folder's unreferenced extras. Validate and play its output the same
+way.
 
 ## Playing the folder
 
@@ -202,4 +228,6 @@ Controls, from README.md:
 
 With no input the player auto-advances at the configured reading speed:
 images hold for their text, animations complete their loops, and videos
-play through once.
+play through once. A media item followed by `text` items holds for its
+text alone while its animation or video loops underneath, and each
+`text` item holds for the length of its text.
