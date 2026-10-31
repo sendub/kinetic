@@ -228,10 +228,11 @@ truthful: an unchecked box means nothing was accepted.
 
 ## Phase 13: Author-defined branches (2025-11-01, user request)
 
-- [ ] Format/schema/validator/CREATE: item `id` fields + `branches`
+- [x] Format/schema/validator/CREATE: item `id` fields + `branches`
       table (unique ids, references resolve, contiguous spans, route
       `result` default `ending`, exactly one `continuingRoute` per
-      decision with `continueAt`)
+      decision with `continueAt`) (69 pytest tests, CREATE example
+      validates via real validator, 2025-11-01)
 - [ ] Machine: decision fire on settle-of-after, route spans, nested
       decision stack, route-end overlays (return/reselect semantics),
       play-all-routes, visited-set seen tracking + jumpToUnseen/skipAll

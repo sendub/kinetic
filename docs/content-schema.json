@@ -30,12 +30,80 @@
           { "$ref": "#/$defs/textItem" }
         ]
       }
+    },
+    "branches": {
+      "type": "array",
+      "minItems": 0,
+      "description": "optional table of branch decisions over the item array; a decision fires on the forward settle of its `after` item and offers 2..N contiguous route spans; see docs/content-format.md § Branches",
+      "items": { "$ref": "#/$defs/branch" }
     }
   },
   "$defs": {
     "id": {
       "type": "string",
       "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$"
+    },
+    "branch": {
+      "type": "object",
+      "required": ["id", "after", "prompt", "routes"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id",
+          "description": "decision id; unique across branches and distinct from every item id, which the validator enforces"
+        },
+        "after": {
+          "$ref": "#/$defs/id",
+          "description": "item id the decision fires on: when this item settles (forward), the overlay opens; must resolve to an item id, which the validator enforces"
+        },
+        "prompt": {
+          "type": "string",
+          "minLength": 1,
+          "description": "question shown above the route list; the validator caps its length"
+        },
+        "routes": {
+          "type": "array",
+          "minItems": 2,
+          "items": { "$ref": "#/$defs/route" }
+        },
+        "continuingRoute": {
+          "$ref": "#/$defs/id",
+          "description": "id of the one route that continues the story; it must name a route of this decision and require continueAt, which the validator enforces"
+        },
+        "continueAt": {
+          "$ref": "#/$defs/id",
+          "description": "item id where the continuing route proceeds after its end; allowed only with continuingRoute and must resolve to an item after every route end, which the validator enforces"
+        }
+      }
+    },
+    "route": {
+      "type": "object",
+      "required": ["id", "label", "start", "end"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id",
+          "description": "route id; unique within its decision, which the validator enforces"
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1,
+          "description": "text shown in the route list; the validator caps its length"
+        },
+        "start": {
+          "$ref": "#/$defs/id",
+          "description": "first item of the route's inclusive contiguous span; must resolve to an item id at or before `end`, after the decision's `after` item, which the validator enforces"
+        },
+        "end": {
+          "$ref": "#/$defs/id",
+          "description": "last item of the route's span; must resolve to an item id"
+        },
+        "result": {
+          "enum": ["return", "ending"],
+          "default": "ending",
+          "description": "what happens when the route ends: \"ending\" means its last item IS the ending (no implicit join); \"return\" needs the decision's continuingRoute and offers return-to-main via continueAt; default \"ending\""
+        }
+      }
     },
     "path": {
       "type": "string",

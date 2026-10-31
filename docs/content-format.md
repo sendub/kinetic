@@ -57,9 +57,10 @@ my-novel/
 Every item carries `id`, `type`, and optional overlay fields:
 
 - `id`: unique ASCII slug matching `[A-Za-z0-9][A-Za-z0-9_-]{0,63}`, used
-  for stable reference by tools (validator reports, converter logs). It
-  contains no dot, so derived filenames parse unambiguously. Array position
-  remains the only ordering the player reads.
+  for stable reference by tools (validator reports, converter logs) and
+  by `branches` (Branches below). It contains no dot, so derived
+  filenames parse unambiguously. Array position remains the only
+  ordering the player reads.
 - `type`: `image`, `animation`, `video`, or `text`.
 - `speaker`: optional name drawn above the text.
 - `text`: optional line drawn below the speaker. Empty or absent `text`
@@ -208,6 +209,68 @@ frame-exact start accuracy depends on the browser and is not
 guaranteed. What is guaranteed is that playback stays within the range
 and its `ended` fires at `endSeconds`.
 
+## Branches
+
+`branches` is an optional top-level array of decision objects laid over
+the same item array. The lead-in (everything before a decision's
+`after` item) and the aftermath (from `continueAt`) are ordinary
+items: they play once, not per route. A decision fires when its
+`after` item settles on a forward advance: the player shows an overlay
+with the `prompt` above a numbered list of route labels, and a pointer
+click or a 1..9 press selects. References between decisions, routes,
+and items always use ids, never array positions.
+
+- `id`: the decision's id, unique across `branches` and distinct from
+  every item id.
+- `after`: the item id the decision hangs off. Every route of the
+  decision starts after it in array order.
+- `prompt`: non-empty question above the route list, shorter than 200
+  characters.
+- `routes`: at least two route objects — more than two is required,
+  exactly like Ren'Py menus. Each route has an `id` unique within its
+  decision, a non-empty `label` shorter than 120 characters, and
+  `start`/`end`: an inclusive, contiguous span of items in array
+  order, `start` not after `end`. The spans of one decision are
+  pairwise disjoint and none contains that decision's `after` item.
+  A route may contain other decisions (nested branches): the nested
+  decision's `after` and routes lie inside the enclosing route's
+  span, and returning from a nested decision resumes the enclosing
+  route.
+- `result`: what happens when a route's span completes. `"ending"`,
+  the default, means the route's last item IS the ending: afterwards
+  the overlay offers only route reselection. `"return"` means that
+  after its end the overlay offers the still-unseen routes plus
+  "return to main route", which proceeds to `continueAt`. There is
+  NO implicit join: an unmarked route never silently merges into the
+  main line, because an alternate's later state is not the main
+  route's. A continuing route's own `result` is moot — it proceeds to
+  `continueAt`.
+- `continuingRoute` and `continueAt`: an optional pair naming the one
+  route that continues the story and the item id where its aftermath
+  begins. `continuingRoute` must name a route of the same decision;
+  `continueAt` is required with it and resolves to an item after
+  every route's `end`. Without `continuingRoute` the decision is a
+  pure-choice decision: `continueAt` is not allowed, "return to main
+  route" is never offered, and a completed route returns to the
+  decision. "return to main" exists only when `continuingRoute`
+  does.
+
+Player-side notes, the format's promises (machine rules in
+docs/plan.md Phase 13):
+
+- Showing a decision does not mark its routes' items seen: a route is
+  ordinary items, seen when shown. `Play all routes` (a persisted
+  setting, default off) is zero-interactivity: at a decision it
+  auto-picks the first not-yet-played route in manifest order,
+  repeats until every route has played once, then continues via
+  `continueAt`.
+- Back/forward navigation walks the item array; entering a route's
+  first item that way does not re-fire the decision — decisions fire
+  only on a forward settle of `after`. So backing into `after` and
+  pressing forward again re-opens the overlay.
+- Author-written transitions need no schema mechanism: put a
+  `text`-only item or a title image at a route span's start or end.
+
 ## Timing
 
 The manifest describes content; pacing belongs to the player. Reading speed,
@@ -319,3 +382,19 @@ The validator checks the schema plus these invariants:
    validator reports the negative value and the cross-field rules.
    The validator trusts `durationSeconds`; the file's real duration
    is checked by the converter (ffprobe).
+8. Branch ids are unique: a decision `id` appears once in `branches`
+   and is distinct from every item id; a route `id` is unique within
+   its decision.
+9. Branch references resolve: `after`, every route `start`/`end`, and
+   `continueAt` name existing item ids, and `continuingRoute` names a
+   route of its own decision.
+10. Route spans are sound (Branches): `start` is not after `end`;
+    one decision's spans are pairwise disjoint and none contains its
+    own `after` item; `after` precedes every route `start`; and
+    `continueAt` resolves to an item after every route `end`.
+11. `continuingRoute` and `continueAt` require each other: the schema
+    cannot express this pairing, so a `continuingRoute` without
+    `continueAt`, or a `continueAt` without `continuingRoute`, is a
+    problem.
+12. A decision `prompt` is shorter than 200 characters and every
+    route `label` shorter than 120.

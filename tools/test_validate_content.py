@@ -10,6 +10,7 @@ validator to report exactly that problem. Run with:
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -22,6 +23,8 @@ TOOLS_DIR = Path(__file__).resolve().parent
 REPO_ROOT = TOOLS_DIR.parent
 DEMO_DIR = REPO_ROOT / "fixtures" / "demo"
 BUILD_DEMO = REPO_ROOT / "fixtures" / "build_demo.py"
+BRANCH_EXAMPLE = TOOLS_DIR / "data" / "branches-example"
+CREATE_MD = REPO_ROOT / "CREATE.md"
 VALIDATOR = TOOLS_DIR / "validate_content.py"
 SCHEMA = REPO_ROOT / "docs" / "content-schema.json"
 
@@ -649,3 +652,259 @@ def test_cli_exits_nonzero_on_missing_folder(tmp_path: Path) -> None:
     proc = run_cli(tmp_path / "absent")
     assert proc.returncode != 0
     assert "not a directory" in proc.stderr
+
+
+# ---------------------------------------------------------------------------
+# Branches (docs/content-format.md § Branches)
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def branch_folder(tmp_path: Path) -> Path:
+    """A throwaway copy of the tools/data/branches-example folder."""
+    copy = tmp_path / "branch-novel"
+    shutil.copytree(BRANCH_EXAMPLE, copy)
+    return copy
+
+
+def test_branch_example_folder_passes() -> None:
+    """The branch fixture validates cleanly, schema and cross-field rules."""
+    assert problems_of(BRANCH_EXAMPLE) == []
+    proc = run_cli(BRANCH_EXAMPLE)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+
+
+def test_create_md_branch_example_matches_fixture() -> None:
+    """The CREATE.md worked example IS the branch fixture: extracting the
+    manifest with `branches` from the guide and comparing it to
+    tools/data/branches-example keeps prose, example, and validation in
+    lockstep (the pattern of the Phase 2 acceptance criterion)."""
+    text = CREATE_MD.read_text(encoding="utf-8")
+    blocks = re.findall(r"^```json\n(.*?)^```", text, re.DOTALL | re.MULTILINE)
+    branch_blocks = [b for b in blocks if '"branches"' in b]
+    assert len(branch_blocks) == 1
+    assert json.loads(branch_blocks[0]) == read_manifest(BRANCH_EXAMPLE)
+
+
+def test_empty_branches_array_is_valid(folder: Path) -> None:
+    """`branches` is optional and may be empty."""
+    manifest = read_manifest(folder)
+    manifest["branches"] = []
+    write_manifest(folder, manifest)
+    assert problems_of(folder) == []
+    proc = run_cli(folder)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+
+
+def test_route_result_defaults_to_ending(branch_folder: Path) -> None:
+    """Omitting `result` is valid and means "ending": the schema declares
+    the default, so no validator rule is needed."""
+    schema = json.loads(SCHEMA.read_text(encoding="utf-8"))
+    assert schema["$defs"]["route"]["properties"]["result"]["default"] == \
+        "ending"
+    manifest = read_manifest(branch_folder)
+    del manifest["branches"][1]["routes"][0]["result"]
+    write_manifest(branch_folder, manifest)
+    assert problems_of(branch_folder) == []
+    proc = run_cli(branch_folder)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+
+
+def test_decision_without_continuing_route_passes(branch_folder: Path) -> None:
+    """A pure-choice decision — no continuingRoute, no continueAt, routes
+    that return to the decision — is valid."""
+    manifest = read_manifest(branch_folder)
+    decision = manifest["branches"][0]
+    del decision["continuingRoute"]
+    del decision["continueAt"]
+    write_manifest(branch_folder, manifest)
+    assert problems_of(branch_folder) == []
+    proc = run_cli(branch_folder)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+
+
+def test_duplicate_branch_id_rejected(branch_folder: Path) -> None:
+    manifest = read_manifest(branch_folder)
+    manifest["branches"].append(manifest["branches"][0])
+    write_manifest(branch_folder, manifest)
+    problems = problems_of(branch_folder)
+    assert len(problems) == 1
+    assert problems[0].startswith("manifest.json: branches[2].id:")
+    assert "duplicate id" in problems[0] and "cafe-choice" in problems[0]
+
+
+def test_branch_id_collides_with_item_id(branch_folder: Path) -> None:
+    manifest = read_manifest(branch_folder)
+    manifest["branches"][0]["id"] = "intro-001"
+    write_manifest(branch_folder, manifest)
+    problems = problems_of(branch_folder)
+    assert len(problems) == 1
+    assert problems[0].startswith("manifest.json: branches[0].id:")
+    assert "duplicate id" in problems[0]
+
+
+def test_duplicate_route_id_rejected(branch_folder: Path) -> None:
+    manifest = read_manifest(branch_folder)
+    manifest["branches"][0]["routes"][1]["id"] = "stay"
+    write_manifest(branch_folder, manifest)
+    problems = problems_of(branch_folder)
+    assert len(problems) == 1
+    assert problems[0].startswith("manifest.json: branches[0].routes[1].id:")
+    assert "duplicate route id" in problems[0]
+
+
+def test_unresolved_after_ref_rejected(branch_folder: Path) -> None:
+    manifest = read_manifest(branch_folder)
+    manifest["branches"][0]["after"] = "ghost-099"
+    write_manifest(branch_folder, manifest)
+    problems = problems_of(branch_folder)
+    assert len(problems) == 1
+    assert problems[0].startswith("manifest.json: branches[0].after:")
+    assert "no item has id 'ghost-099'" in problems[0]
+
+
+def test_unresolved_route_start_ref_rejected(branch_folder: Path) -> None:
+    manifest = read_manifest(branch_folder)
+    manifest["branches"][0]["routes"][0]["start"] = "ghost-099"
+    write_manifest(branch_folder, manifest)
+    problems = problems_of(branch_folder)
+    assert len(problems) == 1
+    assert problems[0].startswith("manifest.json: branches[0].routes[0].start:")
+    assert "no item has id 'ghost-099'" in problems[0]
+
+
+def test_unresolved_continue_at_ref_rejected(branch_folder: Path) -> None:
+    manifest = read_manifest(branch_folder)
+    manifest["branches"][1]["continueAt"] = "ghost-099"
+    write_manifest(branch_folder, manifest)
+    problems = problems_of(branch_folder)
+    assert len(problems) == 1
+    assert problems[0].startswith("manifest.json: branches[1].continueAt:")
+    assert "no item has id 'ghost-099'" in problems[0]
+
+
+def test_route_start_after_end_rejected(branch_folder: Path) -> None:
+    """A route's `start` must not come after its `end` in array order."""
+    manifest = read_manifest(branch_folder)
+    route = manifest["branches"][0]["routes"][0]
+    route["start"], route["end"] = "tea-007", "tea-006"
+    write_manifest(branch_folder, manifest)
+    problems = problems_of(branch_folder)
+    assert len(problems) == 1
+    assert problems[0].startswith("manifest.json: branches[0].routes[0].start:")
+    assert "must not come after its end" in problems[0]
+
+
+def test_overlapping_route_spans_rejected(branch_folder: Path) -> None:
+    """Spans of one decision must be pairwise disjoint."""
+    manifest = read_manifest(branch_folder)
+    manifest["branches"][1]["routes"][1]["start"] = "tea-006"
+    write_manifest(branch_folder, manifest)
+    problems = problems_of(branch_folder)
+    assert len(problems) == 1
+    assert problems[0].startswith("manifest.json: branches[1].routes[1]:")
+    assert "overlaps the span" in problems[0]
+
+
+def test_route_span_contains_after_rejected(branch_folder: Path) -> None:
+    """No route span may contain its own decision's `after` item."""
+    manifest = read_manifest(branch_folder)
+    manifest["branches"][0]["after"] = "tea-006"  # inside the stay span
+    write_manifest(branch_folder, manifest)
+    problems = problems_of(branch_folder)
+    assert len(problems) == 1
+    assert problems[0].startswith("manifest.json: branches[0].routes[0].start:")
+    assert "contains the decision's after item" in problems[0]
+
+
+def test_route_starts_before_after_rejected(branch_folder: Path) -> None:
+    """Every route of a decision starts after its `after` item."""
+    manifest = read_manifest(branch_folder)
+    manifest["branches"][0]["after"] = "cafe-008"
+    write_manifest(branch_folder, manifest)
+    problems = problems_of(branch_folder)
+    assert len(problems) == 2  # one per offending route
+    assert all(p.startswith("manifest.json: branches[0].routes[")
+               and "must start after the decision's after item" in p
+               for p in problems)
+
+
+def test_continuing_route_without_continue_at_rejected(branch_folder: Path) -> None:
+    manifest = read_manifest(branch_folder)
+    del manifest["branches"][1]["continueAt"]
+    write_manifest(branch_folder, manifest)
+    problems = problems_of(branch_folder)
+    assert len(problems) == 1
+    assert problems[0].startswith("manifest.json: branches[1].continueAt:")
+    assert "required when continuingRoute is present" in problems[0]
+
+
+def test_continue_at_without_continuing_route_rejected(branch_folder: Path) -> None:
+    """`continueAt` is allowed only with `continuingRoute`."""
+    manifest = read_manifest(branch_folder)
+    del manifest["branches"][1]["continuingRoute"]
+    write_manifest(branch_folder, manifest)
+    problems = problems_of(branch_folder)
+    assert len(problems) == 1
+    assert problems[0].startswith("manifest.json: branches[1].continueAt:")
+    assert "allowed only with continuingRoute" in problems[0]
+
+
+def test_continuing_route_must_name_a_route(branch_folder: Path) -> None:
+    manifest = read_manifest(branch_folder)
+    manifest["branches"][1]["continuingRoute"] = "nope"
+    write_manifest(branch_folder, manifest)
+    problems = problems_of(branch_folder)
+    assert len(problems) == 1
+    assert problems[0].startswith(
+        "manifest.json: branches[1].continuingRoute:")
+    assert "names no route of this decision" in problems[0]
+
+
+def test_continue_at_before_route_end_rejected(branch_folder: Path) -> None:
+    """`continueAt` must resolve to an item after every route end."""
+    manifest = read_manifest(branch_folder)
+    manifest["branches"][1]["continueAt"] = "home-010"
+    write_manifest(branch_folder, manifest)
+    problems = problems_of(branch_folder)
+    assert len(problems) == 1
+    assert problems[0].startswith("manifest.json: branches[1].continueAt:")
+    assert "after every route end" in problems[0]
+
+
+def test_branch_prompt_too_long_rejected(branch_folder: Path) -> None:
+    manifest = read_manifest(branch_folder)
+    manifest["branches"][0]["prompt"] = "y" * 200
+    write_manifest(branch_folder, manifest)
+    problems = problems_of(branch_folder)
+    assert len(problems) == 1
+    assert problems[0].startswith("manifest.json: branches[0].prompt:")
+    assert "shorter than 200 characters" in problems[0]
+
+
+def test_route_label_too_long_rejected(branch_folder: Path) -> None:
+    manifest = read_manifest(branch_folder)
+    manifest["branches"][0]["routes"][0]["label"] = "x" * 120
+    write_manifest(branch_folder, manifest)
+    problems = problems_of(branch_folder)
+    assert len(problems) == 1
+    assert problems[0].startswith(
+        "manifest.json: branches[0].routes[0].label:")
+    assert "shorter than 120 characters" in problems[0]
+
+
+def test_branch_rules_reported_without_schema() -> None:
+    """branches_problems is the validator's own rule set, not just schema
+    fallthrough: it reports on a bare manifest dict."""
+    manifest = {
+        "items": [{"id": "a"}, {"id": "b"}, {"id": "c"}],
+        "branches": [{
+            "id": "d1", "after": "ghost", "prompt": "P?",
+            "routes": [{"id": "r", "label": "R", "start": "b", "end": "a"}],
+            "continueAt": "c",
+        }],
+    }
+    problems = validate_content.branches_problems(manifest)
+    assert any(p.startswith("manifest.json: branches[0].after:") for p in problems)
+    assert any("must not come after its end" in p for p in problems)
+    assert any("allowed only with continuingRoute" in p for p in problems)
+    assert len(problems) == 3

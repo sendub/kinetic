@@ -23,7 +23,9 @@ invariants:
    has a media-bearing item (image, animation, or video) before it; an item
    that sets `thought` true has a non-empty `text`; a video item's playback
    range is sound (`startSeconds` not negative, `endSeconds` greater than
-   `startSeconds` and no greater than `durationSeconds`); and a present
+   `startSeconds` and no greater than `durationSeconds`); the optional
+   `branches` table obeys its reference, span, and continuingRoute/
+   continueAt rules (docs/content-format.md § Branches); and a present
    `manifest.js` shim embeds JSON equal to `manifest.json`.
 """
 
@@ -328,6 +330,161 @@ def thought_problems(manifest: Any) -> list[str]:
     return problems
 
 
+BRANCH_PROMPT_MAX = 200
+BRANCH_LABEL_MAX = 120
+
+
+def branches_problems(manifest: Any) -> list[str]:
+    """Cross-field rules for the optional top-level `branches` table.
+
+    Per docs/content-format.md § Branches: decision ids are unique across
+    `branches` and distinct from every item id; route ids are unique within
+    a decision; `after`, route `start`/`end`, and `continueAt` resolve to
+    existing item ids; `continuingRoute` names a route of its own decision;
+    a route's `start` is not after its `end` in array order; the route
+    spans of one decision are disjoint and none contains that decision's
+    `after` item; `after`'s item index precedes every route `start`;
+    `continueAt` is required with `continuingRoute` and forbidden without
+    it, and resolves to an item after every route `end`; `prompt` is
+    shorter than 200 characters and every route `label` shorter than 120.
+    An unresolvable or non-string reference is reported once, and the
+    checks that would compare it are skipped.
+    """
+    if not isinstance(manifest, dict):
+        return []
+    branches = manifest.get("branches")
+    if not isinstance(branches, list):
+        return []  # absent, or the schema reports a non-array
+    items = manifest.get("items")
+    item_index: dict[str, int] = {}
+    if isinstance(items, list):
+        for i, item in enumerate(items):
+            if isinstance(item, dict) and isinstance(item.get("id"), str):
+                item_index.setdefault(item["id"], i)
+    problems: list[str] = []
+    branch_seen: dict[str, int] = {}
+
+    def resolve(value: Any, loc: str) -> int | None:
+        """Item index of a reference, reporting it when it does not resolve."""
+        if not isinstance(value, str):
+            return None  # absent, or the schema reports a non-string
+        index = item_index.get(value)
+        if index is None:
+            problems.append(_line(loc, f"no item has id {value!r}"))
+        return index
+
+    for bi, branch in enumerate(branches):
+        if not isinstance(branch, dict):
+            continue  # the schema reports non-object decisions
+        base = f"branches[{bi}]"
+        branch_id = branch.get("id")
+        if isinstance(branch_id, str):
+            if branch_id in item_index:
+                problems.append(_line(
+                    f"{base}.id",
+                    f"duplicate id {branch_id!r} (already used by an item)"))
+            elif branch_id in branch_seen:
+                problems.append(_line(
+                    f"{base}.id",
+                    f"duplicate id {branch_id!r} (first used by "
+                    f"branches[{branch_seen[branch_id]}])"))
+            else:
+                branch_seen[branch_id] = bi
+        prompt = branch.get("prompt")
+        if isinstance(prompt, str) and len(prompt) >= BRANCH_PROMPT_MAX:
+            problems.append(_line(
+                f"{base}.prompt",
+                f"must be shorter than {BRANCH_PROMPT_MAX} characters "
+                f"(found {len(prompt)})"))
+        after_loc = f"{base}.after"
+        after_idx = resolve(branch.get("after"), after_loc)
+
+        routes = branch.get("routes")
+        routes = routes if isinstance(routes, list) else []
+        route_ids: dict[str, int] = {}
+        spans: list[tuple[int, int, str]] = []
+        for ri, route in enumerate(routes):
+            if not isinstance(route, dict):
+                continue  # the schema reports non-object routes
+            rbase = f"{base}.routes[{ri}]"
+            route_id = route.get("id")
+            if isinstance(route_id, str):
+                if route_id in route_ids:
+                    problems.append(_line(
+                        f"{rbase}.id",
+                        f"duplicate route id {route_id!r} (first used by "
+                        f"{base}.routes[{route_ids[route_id]}])"))
+                else:
+                    route_ids[route_id] = ri
+            label = route.get("label")
+            if isinstance(label, str) and len(label) >= BRANCH_LABEL_MAX:
+                problems.append(_line(
+                    f"{rbase}.label",
+                    f"must be shorter than {BRANCH_LABEL_MAX} characters "
+                    f"(found {len(label)})"))
+            start_idx = resolve(route.get("start"), f"{rbase}.start")
+            end_idx = resolve(route.get("end"), f"{rbase}.end")
+            if start_idx is not None and end_idx is not None \
+                    and start_idx > end_idx:
+                problems.append(_line(
+                    f"{rbase}.start",
+                    f"route start items[{start_idx}] must not come after its "
+                    f"end items[{end_idx}] in array order"))
+            if start_idx is not None and end_idx is not None:
+                spans.append((start_idx, end_idx, rbase))
+            if start_idx is not None and after_idx is not None \
+                    and start_idx <= after_idx:
+                if end_idx is not None and after_idx <= end_idx:
+                    problems.append(_line(
+                        f"{rbase}.start",
+                        f"route span items[{start_idx}]..items[{end_idx}] "
+                        f"contains the decision's after item "
+                        f"items[{after_idx}]"))
+                else:
+                    problems.append(_line(
+                        f"{rbase}.start",
+                        f"route must start after the decision's after item "
+                        f"items[{after_idx}] (found items[{start_idx}])"))
+        for si in range(len(spans)):
+            for sj in range(si):
+                a_s, a_e, a_loc = spans[si]
+                b_s, b_e, b_loc = spans[sj]
+                if max(a_s, b_s) <= min(a_e, b_e):
+                    problems.append(_line(
+                        a_loc,
+                        f"route span items[{a_s}]..items[{a_e}] overlaps the "
+                        f"span items[{b_s}]..items[{b_e}] of "
+                        f"{b_loc}"))
+        continuing = branch.get("continuingRoute")
+        continue_loc = f"{base}.continueAt"
+        has_continue_at = "continueAt" in branch
+        if isinstance(continuing, str):
+            if continuing not in route_ids:
+                problems.append(_line(
+                    f"{base}.continuingRoute",
+                    f"names no route of this decision ({continuing!r})"))
+            if not has_continue_at:
+                problems.append(_line(
+                    continue_loc,
+                    "is required when continuingRoute is present"))
+        elif continuing is not None:
+            pass  # the schema reports a non-string continuingRoute
+        if has_continue_at:
+            continue_idx = resolve(branch.get("continueAt"), continue_loc)
+            if not isinstance(continuing, str):
+                problems.append(_line(
+                    continue_loc,
+                    "is allowed only with continuingRoute"))
+            ends = [e for _s, e, _loc in spans]
+            if continue_idx is not None and ends \
+                    and continue_idx <= max(ends):
+                problems.append(_line(
+                    continue_loc,
+                    f"must resolve to an item after every route end "
+                    f"items[{max(ends)}] (found items[{continue_idx}])"))
+    return problems
+
+
 def _numeric_field(item: dict[str, Any], field: str) -> int | float | None:
     """The field's value as a number, or None when absent or not numeric."""
     value = item.get(field)
@@ -482,6 +639,7 @@ def validate_folder(content_dir: Path, schema_path: Path = DEFAULT_SCHEMA) -> li
         problems += text_item_problems(manifest)
         problems += thought_problems(manifest)
         problems += video_range_problems(manifest, schema_locs)
+        problems += branches_problems(manifest)
 
     if (content_dir / SHIM_NAME).exists():
         problems += shim_problems(content_dir, manifest)
