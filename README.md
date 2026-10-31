@@ -9,6 +9,7 @@ Gameplay features:
 * Advance through the content one by one by pressing the space bar.
 * Browse through the content manually, advancing with the space key (or wheel), or let it advance through the content automatically at a configurable reading speed when "a" is pressed, with animations shown a few times automatically, and videos played out once.
 * Advance through the content at a rapid fixed speed, showing only the first "frame" of animations and videos, by pressing the tab key to skip. Does not skip past previously unseen content, unless a "skip all" config option is enabled.
+* Briefly show a summary of the keys on first load, and press the escape key any time to pause and show that summary on a black screen (press it again to resume where things left off).
 * Bookmark at any point by pressing "b", appending to a timestamped list of thumbnails of the content visible when b was pressed.
 * Press "t" to bring up the scrolling list of bookmark thumbnails (scrolled to the bottom, most recent thumbnail visible). Clicking a thumbnail continues the novel from that time point. Pressing "e" returns to the time point in the novel immediately before the next unseen content. This is also the state the game starts at when loaded (except for first ever load, which starts on the first image in the sequence).
 * Scroll wheel can roll back in time, showing sequence in reverse order from current time point, and scroll the other way can bring us back in the correct order, but not to unseen content.

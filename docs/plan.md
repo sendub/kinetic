@@ -529,22 +529,38 @@ v1 model and decisions:
   `ending`. Detection is best-effort: when uncertain emit separate
   `ending` routes and log in the ledger; never guess a join.
 
-## Phase 13b: Manual/auto mode clarity (2025-11-01, external-user report)
+## Phase 13b: Manual/auto mode clarity + key help (2025-11-01, external-user report + user clarification)
 
 An external user asked for "a manual reading mode that waits for Space"
 plus an auto-forward toggle and speed slider - implying they did not
 discover that this IS the current design (manual by default; `a` starts
 auto-forward; `c` screen has the reading-speed slider). README's
 auto-advance bullet now names the `a` key (root cause of the
-misunderstanding). Verify the real behavior end-to-end rather than
-assuming it: manual mode is the default on a fresh load (only space/
-wheel/tab advance, nothing auto-advances); `a` toggles auto-forward ON
-and OFF; the `c` screen slider changes speed live; bookmarks, history
-(back/forward), skip, and skip-unseen behave identically in BOTH modes;
-the default mode is discoverable (a first-run hint exists or the
-bookmarks/h overlay hints mention `a`; if nothing surfaces `a` today,
-add a one-line hint to the first item's overlay until first advance,
-persisted as seen). Fix any real bug found; cover gaps in tests/verify.
+misunderstanding), and the discoverability fix is a KEY HELP overlay,
+not a hint:
+
+- A concise overlay listing every control key, rendered from the SAME
+  source as the keymap module (single source of truth; test asserts
+  every command appears).
+- FIRST LOAD ONLY (before any advance, persisted `helpSeen` flag in
+  storage): the overlay shows over a black screen; the machine is
+  paused until it closes.
+- ESCAPE toggles it any time: opening pauses the machine and replaces
+  the screen with black (visuals hidden) + the key list; closing
+  resumes exactly where it left off (same item; its hold re-arms on
+  resume, like other paused overlays - documented). Uses the shared
+  suspend gate with h/t/c overlays (mutual exclusion preserved).
+  ESC opens only when no overlay is open; ESC closes the help overlay.
+  Fullscreen caveat (documented + verify steps): when fullscreen,
+  Chrome consumes the FIRST Escape to exit fullscreen and the page
+  cannot reliably see that keydown; windowed-mode Escape works
+  directly.
+- Verify the underlying real behavior end-to-end rather than assuming
+  it: manual mode is the default on a fresh load (only space/wheel/tab
+  advance; nothing auto-advances until `a`); `a` toggles auto-forward
+  ON and OFF; the `c` screen slider changes speed live; bookmarks,
+  history (back/forward), skip, and skip-unseen behave identically in
+  BOTH modes. Fix any real bug found; cover gaps in tests/verify.
 
 ## Later, waiting on the user
 
