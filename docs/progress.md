@@ -147,8 +147,9 @@ truthful: an unchecked box means nothing was accepted.
       convenience documented (seconds stored); converter poster-at-start
       note; shared-file-different-ranges documented (39 pytest tests,
       2025-11-01)
-- [ ] Machine: range-based timing (gate and skip clamp use
+- [x] Machine: range-based timing (gate and skip clamp use
       endSeconds-startSeconds; ended emitted at range end) with tests
+      (180 tests, 2025-11-01)
 - [ ] Renderer: seek to start on enter, range clamp, seek-back-to-start
       loop (never loop=true on ranges), chain continues without
       restart, poster = frame at start; pass boundaries via

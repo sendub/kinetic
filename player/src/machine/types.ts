@@ -43,12 +43,28 @@ export interface VideoItem extends OverlayFields {
   /**
    * Times the video plays before auto-advance, integer at least 1, default 1
    * (docs/content-format.md, "Items"). The gate is the later of the
-   * `loopCount`-th `mediaEnded()` and `durationSeconds * loopCount` as a time
-   * bound. The renderer sets `loop` when this exceeds 1 and reports
-   * `mediaEnded()` on each `ended`, so the machine counts them. Ignored when
-   * `holdSeconds` is present.
+   * `loopCount`-th `mediaEnded()` and the playback range length × `loopCount`
+   * as a time bound — the whole file without a range. The renderer loops the
+   * range back to `startSeconds` and reports `mediaEnded()` on each pass
+   * complete, so the machine counts them. Ignored when `holdSeconds` is
+   * present.
    */
   loopCount?: number;
+  /**
+   * Start of the playback range in seconds, at least 0, default 0
+   * (docs/content-format.md, "Video playback ranges"). Exact fractional
+   * seconds: the machine does no rounding. The media gate and skip dwell use
+   * the range length (`endSeconds ?? durationSeconds - (startSeconds ?? 0)`)
+   * as the time bound; `durationSeconds` stays the file's total duration.
+   */
+  startSeconds?: number;
+  /**
+   * End of the playback range in seconds, greater than `startSeconds`,
+   * default `durationSeconds`. A pass-complete report arrives when playback
+   * reaches it; the machine just counts reports, whatever emits them (the
+   * file's `ended` when this is absent).
+   */
+  endSeconds?: number;
   /**
    * Explicit display duration in seconds, greater than 0. When present the
    * media gate is time-driven only — the hold is `max(textHoldMs,

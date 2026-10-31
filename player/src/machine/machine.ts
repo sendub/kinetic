@@ -89,9 +89,10 @@ export interface Machine {
    */
   goTo(index: number): void;
   /**
-   * Video `ended` event for the current video item. It increments the item's
-   * ended count, which must reach `loopCount` — alongside the time bound —
-   * before a standalone video completes. Ignored when the item has
+   * Pass-complete report for the current video item: the file's `ended`, or
+   * a report at `endSeconds` when a playback range bounds it. It increments
+   * the item's ended count, which must reach `loopCount` — alongside the
+   * time bound — before a standalone video completes. Ignored when the item has
    * `holdSeconds` (a background video loops freely and never gates), while a
    * `text` item follows, during skip mode, and once the item is settled.
    */
@@ -142,13 +143,28 @@ function videoLoops(item: VideoItem): number {
 }
 
 /**
+ * Length of a video item's playback range, in seconds
+ * (docs/content-format.md, "Video playback ranges"): `startSeconds` defaults
+ * to 0 and `endSeconds` to the file's total `durationSeconds`, so a video
+ * without a range spans the whole file. Raw float math — nothing rounds.
+ */
+function videoRangeSeconds(item: VideoItem): number {
+  const start = item.startSeconds ?? 0;
+  const end = item.endSeconds ?? item.durationSeconds;
+  return end - start;
+}
+
+/**
  * A standalone video's media-gate time bound, in ms: `holdSeconds` when
  * present — the video is then background and only the clock gates — else
- * `durationSeconds * loopCount` (docs/content-format.md, "Timing").
+ * the playback range length × `loopCount` (docs/content-format.md, "Timing").
+ * The pass-complete half of the gate is unchanged: the machine counts
+ * `mediaEnded()` reports however the renderer emits them (per range end via
+ * rVFC, or the file's `ended` without a range). Raw float math — no rounding.
  */
 function videoGateMs(item: VideoItem): number {
   if (item.holdSeconds !== undefined) return item.holdSeconds * 1000;
-  return item.durationSeconds * videoLoops(item) * 1000;
+  return videoRangeSeconds(item) * videoLoops(item) * 1000;
 }
 
 /**

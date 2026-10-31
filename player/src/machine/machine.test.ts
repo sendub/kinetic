@@ -38,7 +38,12 @@ function animation(
 function video(
   durationSeconds = 10,
   text?: string,
-  timing: { loopCount?: number; holdSeconds?: number } = {},
+  timing: {
+    loopCount?: number;
+    holdSeconds?: number;
+    startSeconds?: number;
+    endSeconds?: number;
+  } = {},
 ): Item {
   return {
     id: "vid",
@@ -49,6 +54,8 @@ function video(
     text,
     loopCount: timing.loopCount,
     holdSeconds: timing.holdSeconds,
+    startSeconds: timing.startSeconds,
+    endSeconds: timing.endSeconds,
   };
 }
 
@@ -484,6 +491,91 @@ describe("short-video timing: loopCount and holdSeconds (docs/plan.md Phase 9b)"
     m.advance();
     expect(m.getState().cursor).toBe(1);
     m.destroy();
+  });
+});
+
+describe("range-based video timing (docs/plan.md Phase 9c)", () => {
+  // 0.5 .. 2.5 of a 4 s file: a 2 s range, so the bound is 2 s * loops,
+  // never the 4 s duration. Exact fractional seconds, no rounding.
+  const ranged = { startSeconds: 0.5, endSeconds: 2.5 };
+
+  it("time bound is the range length, not the file duration", () => {
+    expect(itemHoldMs(video(4, undefined, ranged), SETTINGS)).toBe(2000);
+    vi.useFakeTimers();
+    const m = machine([video(4, undefined, ranged), image()]);
+    vi.advanceTimersByTime(1999);
+    m.mediaEnded(); // first pass complete; the 2 s bound has not elapsed
+    expect(m.getState()).toEqual({
+      cursor: 0,
+      frontier: 1,
+      settled: false,
+      skipping: false,
+    });
+    vi.advanceTimersByTime(1); // 2000 ms, not 4000: the range gates
+    expect(m.getState().cursor).toBe(1);
+    m.destroy();
+  });
+
+  it("loopCount scales the range bound: 2 s range * 2 loops = 4 s", () => {
+    expect(
+      itemHoldMs(video(4, undefined, { ...ranged, loopCount: 2 }), SETTINGS),
+    ).toBe(4000);
+    vi.useFakeTimers();
+    const m = machine([
+      video(4, undefined, { ...ranged, loopCount: 2 }),
+      image(),
+    ]);
+    m.mediaEnded(); // one pass of the range done: needs the second
+    vi.advanceTimersByTime(3999);
+    expect(m.getState().cursor).toBe(0);
+    vi.advanceTimersByTime(1); // bound elapsed, but only one pass ended
+    expect(m.getState().cursor).toBe(0);
+    m.mediaEnded(); // second range-end report completes the item
+    expect(m.getState().cursor).toBe(1);
+    m.destroy();
+  });
+
+  it("holdSeconds overrides the range bound and ignores pass reports", () => {
+    vi.useFakeTimers();
+    const m = machine([
+      video(4, undefined, { ...ranged, holdSeconds: 3 }),
+      image(),
+    ]);
+    vi.advanceTimersByTime(1999);
+    m.mediaEnded(); // would be the 2 s range end: a background video
+    m.mediaEnded(); // loops freely, so these gate nothing
+    expect(m.getState().cursor).toBe(0);
+    vi.advanceTimersByTime(1001); // holdSeconds 3 s wins over the 2 s range
+    expect(m.getState().cursor).toBe(1);
+    m.destroy();
+  });
+
+  it("skip dwell clamps to the range length", () => {
+    vi.useFakeTimers();
+    // 0.5 .. 0.55 of a 4 s file: a 0.05 s range = 50 ms < the 120 ms dwell.
+    const m = machine(
+      [
+        video(4, undefined, { startSeconds: 0.5, endSeconds: 0.55 }),
+        image(),
+        image(),
+      ],
+      { settings: { ...SETTINGS, skipAll: true } },
+    );
+    m.toggleSkip();
+    vi.advanceTimersByTime(49);
+    expect(m.getState().cursor).toBe(0);
+    vi.advanceTimersByTime(1); // 50 ms: the range clamps the dwell
+    expect(m.getState().cursor).toBe(1);
+    vi.advanceTimersByTime(SETTINGS.skipDwellMs); // image: full dwell again
+    expect(m.getState().cursor).toBe(2);
+    m.destroy();
+  });
+
+  it("no range fields keeps the whole-duration bound (Phase 9b default)", () => {
+    expect(itemHoldMs(video(2.5), SETTINGS)).toBe(2500);
+    expect(itemHoldMs(video(2.5, undefined, { loopCount: 2 }), SETTINGS)).toBe(
+      5000,
+    );
   });
 });
 
