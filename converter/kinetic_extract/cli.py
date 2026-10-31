@@ -19,6 +19,13 @@ vendored unrpyc (docs/stack.md, ``converter/vendor/SOURCES.md``) and its
 text is cached under ``.tmp/kinetic-decompile/``; the corpus is never
 written to, and a ``.rpy`` twin always wins over a stale ``.rpyc``.
 
+Archive games (game-e and the other surveyed releases) keep
+their scripts and media inside ``game/*.rpa``: script members feed the
+parse stream (ledger source ``game/<archive>!<key>``) and asset
+references that are not on disk fall back to the archives, extracting
+single members into ``.tmp/kinetic-extract-cache/`` (provenance recorded
+as ``rpa!<key>``; see kinetic_extract.rpa).
+
 Slice options (docs/plan.md Phase 11) extract part of a big game:
 ``--label NAME`` starts the walk at that label, ``--max-items N`` stops
 after N manifest items, and ``--files GLOB`` restricts which ``.rpy``
@@ -38,6 +45,7 @@ from . import __version__
 from .assets import run_asset_pass
 from .media import DEFAULT_SIZE, most_common_image_size
 from .parser import Report, parse_project
+from .rpa import AssetArchives
 from .timeline import TimelineResult, build_timeline
 
 SIMPLIFICATIONS = [
@@ -119,6 +127,12 @@ def build_ledger(result: TimelineResult, reports: list[Report],
             ledger["rpycIgnoredTwins"] = sources["ignoredTwins"]
         if sources.get("failed"):
             ledger["rpycFailed"] = sources["failed"]
+        if sources.get("rpaScripts"):
+            ledger["rpaScriptSources"] = sources["rpaScripts"]
+        if sources.get("rpaIgnoredTwins"):
+            ledger["rpaIgnoredTwins"] = sources["rpaIgnoredTwins"]
+        if sources.get("rpaFailed"):
+            ledger["rpaFailed"] = sources["rpaFailed"]
     return ledger
 
 
@@ -182,6 +196,7 @@ def main(argv: list[str] | None = None) -> int:
     args = argp.parse_args(argv)
 
     game_dir = resolve_game_dir(args.renpy_project)
+    asset_archives = AssetArchives(game_dir)
     parses, image_defs, characters, sources = parse_project(game_dir,
                                                             args.files)
     if not parses:
@@ -190,7 +205,10 @@ def main(argv: list[str] | None = None) -> int:
               file=sys.stderr)
         return 1
     result = build_timeline(parses, image_defs, characters, game_dir,
-                            start_label=args.label, max_items=args.max_items)
+                            start_label=args.label, max_items=args.max_items,
+                            asset_lookup=asset_archives.lookup)
+    if asset_archives.failed:
+        sources.setdefault("rpaFailed", []).extend(asset_archives.failed)
     reports: list[Report] = []
     for _rel, parsed in parses:
         reports.extend(parsed.reports)

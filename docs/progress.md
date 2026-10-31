@@ -215,7 +215,10 @@ truthful: an unchecked box means nothing was accepted.
 - [x] unrpyc vendored and pinned; `.rpyc`-only projects decompile
       (CensoredUsername v2.0.3 @ 3ae8334, 0 local mods; game-d 12 .rpyc
       decompiled, .rpy wins stale twins; 81 tests, 2025-11-01)
-- [ ] `.rpa` reader implemented
+- [x] `.rpa` reader implemented (stdlib zlib+pickle; real format is
+      RPA-3.0/2.0, not `!RP-A` - fixed the plan's assumption; XOR offsets
+      + uncompressed members; game E archive scripts decompile + archive
+      assets extract end-to-end; 92 tests, 2025-11-01)
 - [ ] Every sampled slice extracts and plays in the player
 - [ ] docs/extracting.md has a per-game entry incl. what was skipped
 - [ ] New parser branches covered by pytest

@@ -314,6 +314,13 @@ def parse_project(game_dir: Path, files_glob: str | None = None,
     ``.rpy`` and a ``.rpyc`` exist for one stem, the ``.rpy`` wins and the
     stale ``.rpyc`` is left alone (the survey's stale-twin case).
 
+    Script members inside ``game/*.rpa`` archives join the same
+    filename-ordered walk (an archive-only game like game-e keeps
+    its scripts in ``scripts.rpa``); a loose file always beats an
+    archive member with the same key, and the ledger names the source
+    ``game/<archive>!<key>``. A ``.rpyc`` member decompiles through the
+    same rpyc.py path after being extracted to the shared cache dir.
+
     ``files_glob`` restricts which files feed the walk (relative to
     ``game/``, filename order; default every ``.rpy`` and its ``.rpyc``).
 
@@ -321,9 +328,12 @@ def parse_project(game_dir: Path, files_glob: str | None = None,
     is the per-file parse list (the decompiled entries carry a
     ``.rpyc``-suffixed ``relname``) and ``sources`` records provenance for
     the ledger: ``decompiled`` (``.rpyc`` parsed via unrpyc),
-    ``ignoredTwins`` (``.rpyc`` skipped because a ``.rpy`` won), and
-    ``failed`` (``.rpyc`` that could not be decompiled). Concatenating the
-    files in filename order is an MVP simplification.
+    ``ignoredTwins`` (``.rpyc`` skipped because a ``.rpy`` won),
+    ``failed`` (``.rpyc`` that could not be decompiled), ``rpaScripts``
+    (script members read from ``.rpa`` archives), ``rpaIgnoredTwins``
+    (archive members skipped because the key exists loose), and
+    ``rpaFailed`` (archives whose index could not be read). Concatenating
+    the files in filename order is an MVP simplification.
     """
     rpy_files = sorted(game_dir.glob(files_glob or "*.rpy"))
     rpyc_files = sorted(game_dir.glob(_rpyc_glob(files_glob)))
@@ -332,10 +342,13 @@ def parse_project(game_dir: Path, files_glob: str | None = None,
     # Merge both kinds into one filename-ordered plan. A .rpy always beats a
     # same-stem .rpyc (which may be stale); a .rpyc is used only when no
     # .rpy exists on disk for it.
-    plan: list[tuple[str, Path, str]] = []  # (sort_key, path, kind)
-    sources: dict = {"decompiled": [], "ignoredTwins": [], "failed": []}
+    plan: list[tuple[str, Path | None, str, object, str]] = []
+    # (sort_key, loose path or None, kind, RpaArchive or None, member key)
+    sources: dict = {"decompiled": [], "ignoredTwins": [], "failed": [],
+                     "rpaScripts": [], "rpaIgnoredTwins": [],
+                     "rpaFailed": []}
     for path in rpy_files:
-        plan.append((path.name, path, "rpy"))
+        plan.append((path.name, path, "rpy", None, ""))
     for path in rpyc_files:
         twin = path.with_suffix(".rpy")
         if twin.exists():
@@ -344,25 +357,58 @@ def parse_project(game_dir: Path, files_glob: str | None = None,
                 {"rpyc": path.resolve().relative_to(
                     project_root.resolve()).as_posix(), "kept": rel})
             continue
-        plan.append((path.name, path, "rpyc"))
+        plan.append((path.name, path, "rpyc", None, ""))
+    from . import rpa as rpa_mod
+    try:
+        archive_entries, rpa_failed, rpa_ignored = rpa_mod.script_entries(
+            game_dir, files_glob)
+    except rpa_mod.RpaError as exc:  # index unreadable even while listing
+        archive_entries, rpa_failed, rpa_ignored = [], [
+            {"archive": str(game_dir), "error": str(exc)}], []
+    sources["rpaFailed"].extend(rpa_failed)
+    for arc in rpa_ignored:
+        sources["rpaIgnoredTwins"].append(
+            {"member": arc, "reason": "loose file with the same key"})
+    for arc, key, kind in archive_entries:
+        plan.append((Path(key).name, None, kind, arc, key))
     plan.sort(key=lambda entry: entry[0])
 
     parses: list[tuple[str, FileParse]] = []
     image_defs: dict[str, str] = {}
     characters: dict[str, str] = {}
-    for _key, path, kind in plan:
-        rel = path.resolve().relative_to(project_root.resolve()).as_posix()
+    for _key, path, kind, arc, member in plan:
+        if path is not None:
+            rel = path.resolve().relative_to(project_root.resolve()).as_posix()
+        else:
+            arc_rel = arc.path.resolve().relative_to(
+                project_root.resolve()).as_posix()
+            rel = f"{arc_rel}!{member}"
         if kind == "rpy":
-            text = path.read_text(encoding="utf-8-sig")
+            if path is not None:
+                text = path.read_text(encoding="utf-8-sig")
+            else:
+                try:
+                    text = arc.open(member).decode("utf-8-sig")
+                except rpa_mod.RpaError as exc:
+                    sources["failed"].append(
+                        {"source": rel, "error": str(exc)})
+                    continue
+                sources["rpaScripts"].append(rel)
         else:
             from . import rpyc as rpyc_mod
             try:
-                text = rpyc_mod.decompile_text(path, cache_dir)
-            except rpyc_mod.RpycError as exc:
+                if path is not None:
+                    text = rpyc_mod.decompile_text(path, cache_dir)
+                else:
+                    extracted = rpa_mod.extract_cached(arc, member)
+                    text = rpyc_mod.decompile_text(extracted, cache_dir)
+            except (rpyc_mod.RpycError, rpa_mod.RpaError) as exc:
                 sources["failed"].append(
                     {"source": rel, "error": str(exc)})
                 continue
             sources["decompiled"].append(rel)
+            if path is None:
+                sources["rpaScripts"].append(rel)
         parsed = parse_file(text, rel)
         parses.append((rel, parsed))
         image_defs.update(parsed.image_defs)
