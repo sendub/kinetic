@@ -57,7 +57,9 @@ truthful: an unchecked box means nothing was accepted.
       61 tests, 2025-11-01)
 - [x] Text and speaker overlay; `h` toggles text
 - [x] First keypress/click enters fullscreen
-- [ ] docs/verify-player.md written; walked on the demo fixture in Chrome
+- [x] docs/verify-player.md written; walked on the demo fixture in Chrome
+      (driver `player/scripts/verify.mjs`, 12 steps: 11 pass, 1 partial
+      [real fullscreen visual not headless-observable], 2025-11-01)
 
 ## Phase 6: Animation and video rendering
 
