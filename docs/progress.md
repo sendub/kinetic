@@ -266,6 +266,13 @@ truthful: an unchecked box means nothing was accepted.
 - [ ] docs/packaging.md written; Tauri path noted, not built
 - [ ] README accuracy pass; this file fully checked
 
+## Phase 13b: Manual/auto mode clarity (2025-11-01, external-user report)
+
+- [ ] Verify manual-by-default + `a` auto-forward toggle + live speed
+      slider end-to-end (verify steps in BOTH modes: bookmarks,
+      history, skip, skip-unseen); ensure `a` is discoverable (add
+      first-run hint if nothing surfaces it today); fix any real bug
+
 ## Later, waiting on the user
 
 - [ ] Overlay text styling iteration (incl. thought vs dialogue look)

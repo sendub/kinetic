@@ -1157,7 +1157,12 @@ describe("skip mode (tab), docs/plan.md Phase 4", () => {
 });
 
 describe("e-jump (jumpToUnseen), docs/plan.md Phase 4", () => {
-  it("jumps to the item before the frontier and a repeat press is a no-op", () => {
+  // Phase 13 put seen content in a visited SET, so `e` no longer lands on
+  // `frontier - 1`: it lands on the first UNSEEN item of the path and shows
+  // it. The intent is unchanged — get back to where the reading stopped —
+  // and it is now one item further along, since the landing is the unseen
+  // item itself (docs/plan.md Phase 13, "Seen tracking").
+  it("jumps to the first unseen item; a repeat press steps on to the next", () => {
     const m = machine([image(), image(), image(), image(), image()], {
       resumeFrontier: 3,
     });
@@ -1166,39 +1171,42 @@ describe("e-jump (jumpToUnseen), docs/plan.md Phase 4", () => {
     expect(m.getState().cursor).toBe(0);
     m.jumpToUnseen();
     expect(m.getState()).toEqual({
-      cursor: 2,
-      frontier: 3,
-      settled: true,
-      skipping: false,
-    });
-    m.jumpToUnseen(); // repeat: stay
-    expect(m.getState()).toEqual({
-      cursor: 2,
-      frontier: 3,
-      settled: true,
-      skipping: false,
-    });
-    m.advance(); // one press enters unseen content
-    expect(m.getState()).toEqual({
       cursor: 3,
       frontier: 4,
+      settled: false,
+      skipping: false,
+    });
+    m.jumpToUnseen(); // the landing is seen now: step to the next unseen item
+    expect(m.getState()).toEqual({
+      cursor: 4,
+      frontier: 5,
+      settled: false,
+      skipping: false,
+    });
+    m.jumpToUnseen(); // nothing unseen left: stay
+    expect(m.getState()).toEqual({
+      cursor: 4,
+      frontier: 5,
       settled: false,
       skipping: false,
     });
     m.destroy();
   });
 
-  it("the jump marks nothing new seen and never touches unseen content", () => {
+  it("the jump marks seen only the item it lands on, never further ahead", () => {
     const m = machine([image(), image(), image()], { resumeFrontier: 1 });
-    m.jumpToUnseen(); // cursor 0 === frontier - 1: no-op
+    m.jumpToUnseen(); // lands ON the first unseen item and shows it
     expect(m.getState()).toEqual({
-      cursor: 0,
-      frontier: 1,
-      settled: true,
+      cursor: 1,
+      frontier: 2,
+      settled: false,
       skipping: false,
     });
-    m.advance(); // settled landing: the first advance enters item 1
-    expect(m.getState().frontier).toBe(2); // nothing marked seen until shown
+    // One item seen per press: the jump consumed nothing it did not show.
+    m.advance(); // the landing was a fresh entry: this press settles it
+    expect(m.getState().cursor).toBe(1);
+    m.advance(); // and the next enters item 2
+    expect(m.getState().frontier).toBe(3);
     m.destroy();
   });
 });
@@ -1440,7 +1448,7 @@ describe("subscribe, timers, and destroy()", () => {
 });
 
 describe("resume from persisted storage (docs/plan.md Phase 8, memory fake)", () => {
-  it("the persisted value feeds resumeFrontier: lands at frontier-1, e is a no-op there, one advance enters unseen", async () => {
+  it("the persisted value feeds resumeFrontier: lands at frontier-1, e reaches the first unseen item, one advance enters unseen", async () => {
     const storage = createMemoryStorage();
     const items = [image(), image(), image(), image(), image(), image()];
     // Session 1: the reader saw items 0..3 (three settle-and-move pairs).
@@ -1474,12 +1482,14 @@ describe("resume from persisted storage (docs/plan.md Phase 8, memory fake)", ()
       settled: true,
       skipping: false,
     });
-    // `e` at the resume spot: the landing already IS frontier - 1, no-op.
+    // `e` at the resume spot reaches the first UNSEEN item (Phase 13's jump
+    // target; under the old rule the landing already was `frontier - 1`, and
+    // the press was a no-op).
     resumed.jumpToUnseen();
     expect(resumed.getState()).toEqual({
-      cursor: 3,
-      frontier: 4,
-      settled: true,
+      cursor: 4,
+      frontier: 5,
+      settled: false,
       skipping: false,
     });
 
@@ -1487,7 +1497,7 @@ describe("resume from persisted storage (docs/plan.md Phase 8, memory fake)", ()
     // returns to the resume spot, not wherever the wheel had stopped.
     resumed.wheelBack();
     resumed.wheelBack();
-    expect(resumed.getState().cursor).toBe(1);
+    expect(resumed.getState().cursor).toBe(2);
     const second = machine(items, {
       resumeFrontier: (await storage.loadState())?.frontier,
     });

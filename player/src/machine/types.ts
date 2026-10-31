@@ -96,12 +96,59 @@ export interface TextItem extends OverlayFields {
 
 export type Item = ImageItem | AnimationItem | VideoItem | TextItem;
 
+/**
+ * What happens when a route's span completes (docs/content-format.md,
+ * "Branches"). `"ending"` — the default — means the span's last item IS the
+ * ending, so afterwards the overlay offers only route reselection; `"return"`
+ * means the overlay also offers "return to main route", which proceeds to the
+ * decision's `continueAt`. A continuing route's own `result` is moot.
+ */
+export type RouteResult = "return" | "ending";
+
+/**
+ * One route of a decision: an inclusive, contiguous span of items in array
+ * order, referenced by item ids (docs/content-format.md, "Branches").
+ */
+export interface Route {
+  /** Unique within its decision. */
+  id: string;
+  /** Text shown in the route list. */
+  label: string;
+  /** Id of the span's first item. */
+  start: string;
+  /** Id of the span's last item. */
+  end: string;
+  /** Defaults to `"ending"`: there is no implicit join into the main line. */
+  result?: RouteResult;
+}
+
+/**
+ * A branch decision laid over the item array (docs/content-format.md,
+ * "Branches"): it fires when its `after` item settles on a forward advance,
+ * and offers 2..N route spans. A route may contain further decisions.
+ */
+export interface Branch {
+  /** Unique across `branches` and distinct from every item id. */
+  id: string;
+  /** Item id the decision fires on. Every route starts after it. */
+  after: string;
+  /** Question shown above the route list. */
+  prompt: string;
+  routes: readonly Route[];
+  /** Id of the one route that continues the story; requires `continueAt`. */
+  continuingRoute?: string;
+  /** Item id where the continuing route proceeds after its end. */
+  continueAt?: string;
+}
+
 export interface Manifest {
   schemaVersion: 1;
   width: number;
   height: number;
   /** Position in the array is position in the novel. */
   items: readonly Item[];
+  /** Optional branch decisions over the same item array; absent is linear. */
+  branches?: readonly Branch[];
 }
 
 /** Player-side pacing settings (docs/content-format.md, "Timing"). */
@@ -121,6 +168,14 @@ export interface MachineSettings {
   skipDwellMs: number;
   /** Skip past unseen content too; default false. */
   skipAll: boolean;
+  /**
+   * Zero-interactivity route playback (docs/plan.md Phase 13); default false.
+   * While on, a decision never surfaces its overlay: the machine auto-picks
+   * the first not-yet-played route in manifest order — the continuing route
+   * last — and after every route has played once it proceeds to `continueAt`.
+   * Works inside skip mode too.
+   */
+  playAllRoutes: boolean;
 }
 
 export const DEFAULT_SETTINGS: MachineSettings = {
@@ -129,25 +184,82 @@ export const DEFAULT_SETTINGS: MachineSettings = {
   msPerChar: 60,
   skipDwellMs: 120,
   skipAll: false,
+  playAllRoutes: false,
 };
 
 /**
- * Observable machine state. `cursor` indexes the shown item; `frontier` is
- * the first never-shown item (`frontier === items.length` when everything
- * has been seen); `settled` means the current item's timing rule is
+ * One route as the decision overlay shows it. `seen` means the route has
+ * already been PLAYED in this save (not merely that some of its items were
+ * shown): the route-end overlay offers the routes with `seen: false` plus,
+ * when `continueOption` is set, "return to main route".
+ */
+export interface ChoiceRoute {
+  /** Index into the decision's `routes` array; `choose()` takes it. */
+  readonly routeIdx: number;
+  readonly id: string;
+  readonly label: string;
+  readonly seen: boolean;
+}
+
+/**
+ * The open decision (docs/content-format.md, "Branches"). Its presence in
+ * `MachineState` IS the awaiting-choice state: the reader picks a route with
+ * `choose(routeIdx)`, or — only when `continueOption` is true — presses
+ * "return to main route" with `chooseContinue()`.
+ */
+export interface ChoiceView {
+  readonly decisionId: string;
+  readonly prompt: string;
+  readonly routes: readonly ChoiceRoute[];
+  /** True when "return to main route" (the decision's `continueAt`) is offered. */
+  readonly continueOption?: boolean;
+}
+
+/** One open decision context: which route of it the reader is inside. */
+export interface ContextFrame {
+  readonly decision: number;
+  readonly route: number;
+}
+
+/**
+ * JSON-safe route-play context for persistence (docs/plan.md Phase 13):
+ * `exportContext()` returns it, `importContext()` and `MachineOptions.
+ * resumeContext` restore it. `visited` is the per-item seen set (item
+ * indices), `stack` the open decision contexts innermost-last, and
+ * `playedRoutes` the route indices played per decision.
+ */
+export interface MachineContext {
+  lastShown: number;
+  visited: readonly number[];
+  stack: readonly ContextFrame[];
+  playedRoutes: readonly { decision: number; routes: readonly number[] }[];
+}
+
+/**
+ * Observable machine state. `cursor` indexes the shown item; `frontier` is a
+ * DERIVED legacy value — the first never-shown item of the visited set
+ * (`frontier === items.length` when everything has been seen), exactly the
+ * old number while seen items form a contiguous prefix, and 1 past the
+ * highest item ever shown once routes make the set gappy (see
+ * `machine.ts`'s header); `visitedList()` is the authoritative set.
+ * `settled` means the current item's timing rule is
  * satisfied (via its auto-advance condition, a manual `advance()`, or a
  * resume / `e`-jump landing on an item that was read before), so the next
  * `advance()` moves on. `skipping` means skip mode (tab) is active: the
  * machine advances every item after `settings.skipDwellMs` regardless of
  * media. While it is true the renderer must show an animation's first
  * frame and a video's poster as stills and never play media — the machine
- * only times, it cannot stop a playing element.
+ * only times, it cannot stop a playing element. `choice` is present while a
+ * branch decision awaits the reader: it is the overlay's content, and while
+ * it is set every navigation command is inert until `choose()` or
+ * `chooseContinue()` answers it.
  */
 export interface MachineState {
   readonly cursor: number;
   readonly frontier: number;
   readonly settled: boolean;
   readonly skipping: boolean;
+  readonly choice?: ChoiceView;
 }
 
 /** Timer seam so tests control time. Handles are opaque. */

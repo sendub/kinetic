@@ -1,25 +1,54 @@
-// Timeline state machine core (docs/plan.md Phases 3-4). Pure TypeScript:
+// Timeline state machine core (docs/plan.md Phases 3-4, 13). Pure TypeScript:
 // no DOM, no imports beyond ./types. Commands in, state out; time enters
 // through an injected Scheduler so tests are deterministic.
 //
-// Frontier invariant: frontier === 1 + the highest item index ever shown,
-// clamped to items.length. A first-ever load starts at item 0 (already
-// shown, so frontier 1). A resume keeps the persisted frontier and starts
-// at its last shown item (frontier - 1), the same spot jumpToUnseen()
-// lands on; that landing counts as settled, so one advance() shows the
-// first unseen item. Therefore cursor is always in [0, frontier - 1], the
-// wheel can return through seen items but never enter unseen content,
-// and advance() past the last shown item pushes the frontier forward.
+// Seen set (Phase 13): `visited` is the set of item indices that have been
+// SHOWN, and it is the source of truth for "seen". MARKING RULE — an item is
+// marked the moment it becomes current, by whatever route to it: a forward
+// advance, a skip step, a route entered by `choose()`, an `e`-jump landing, a
+// wheel step or a `goTo()` bookmark click. (Marking on wheel/`goTo` arrival
+// cannot change a linear manifest: without branches the wheel and bookmarks
+// only ever move onto already-shown items, so a linear novel behaves exactly as
+// before, when "shown" was the single frontier's `1 + highest index ever
+// shown`.) Seeing a decision marks nothing: its routes are ordinary items.
+//
+// `frontier` stays in `MachineState` as a DERIVED legacy value for the
+// renderer and for resume persistence: 1 past the highest index ever shown.
+// Where the seen set is a contiguous prefix from 0 — every manifest without
+// branches, and a first play-through of one — that is also the smallest index
+// not visited, i.e. precisely the old frontier; where routes have left holes
+// (items seen inside some other route) it keeps the legacy rule instead of a
+// prefix that would fall behind content the reader has seen. The authoritative
+// set is `visitedList()`.
+//
+// Branch decisions (docs/content-format.md, "Branches"): a decision fires on
+// the FORWARD SETTLE of its `after` item — on the press or auto-advance that
+// completes it, never on navigation onto it. A firing decision either pauses
+// (`MachineState.choice`, answered by `choose()` / `chooseContinue()`, and
+// inert to every other command while it is open) or, with
+// `settings.playAllRoutes` or during skip mode, resolves itself to the first
+// not-yet-played route in manifest order — the continuing route last — and past
+// the decision once every route has played. A stack of open decision contexts
+// gives nesting: a route's end pops its frame, proceeds to `continueAt`, or
+// re-opens that decision to offer the routes still unplayed.
 //
 // Skip mode (tab) advances one item per settings.skipDwellMs regardless of
 // media: with skip_all off it ends when the cursor moves onto the first
-// never-shown item (which is then shown normally); with skip_all on it
-// marks items seen as it shows them and ends at content end.
+// never-shown item (which is then shown normally); with skip_all on it marks
+// items seen as it shows them and ends when nothing unseen is left to visit.
+// Inside a branched manifest a skip visits items in PLAY order — a decision it
+// reaches resolves itself exactly as `playAllRoutes` does, so a skip burst
+// never stops for a choice.
 
 import type {
+  Branch,
+  ChoiceRoute,
+  ChoiceView,
   Item,
+  MachineContext,
   MachineSettings,
   MachineState,
+  RouteResult,
   Scheduler,
   VideoItem,
 } from "./types";
@@ -28,12 +57,33 @@ export interface MachineOptions {
   items: readonly Item[];
   settings: MachineSettings;
   /**
+   * The manifest's branch table (docs/content-format.md, "Branches"). Each
+   * decision is resolved to item INDICES once, here: `after`, every route's
+   * `start` / `end`, `continuingRoute` and `continueAt` become positions.
+   * The content validator has already rejected a malformed table, so the
+   * machine only defends itself against references that do not resolve: a
+   * decision with an unresolvable reference is dropped rather than guessed,
+   * and the surrounding items play linearly. Absent is a linear novel.
+   */
+  branches?: readonly Branch[];
+  /**
    * Persisted frontier from a previous session: the first never-shown
    * item, one past the last item the reader saw. The machine then starts
-   * on that last seen item (frontier - 1), the spot `jumpToUnseen()`
-   * lands on. Out-of-range values clamp.
+   * on that last seen item (frontier - 1), the resume position.
+   * Out-of-range values clamp. Ignored when `resumeContext` is present,
+   * which carries that position plus the route-play context.
    */
   resumeFrontier?: number;
+  /**
+   * Restored route-play context (`exportContext()`), the Phase 13 form of a
+   * resume: the seen set, the open decision stack, the routes already
+   * played, and `lastShown` — the item shown most recently, which is where
+   * the load starts. Like the frontier resume that landing counts as
+   * settled, and arriving inside a route whose decision was never answered
+   * fires nothing: decisions fire only on the forward settle of their
+   * `after` item.
+   */
+  resumeContext?: MachineContext;
   /** Defaults to the global setTimeout/clearTimeout. */
   scheduler?: Scheduler;
 }
@@ -46,21 +96,45 @@ export interface Machine {
    * `text` item, whose visual keeps looping underneath the chain.
    */
   visualIndex(): number;
+  /**
+   * Sorted copy of the seen set — every item index that has been shown,
+   * across every route visited (docs/plan.md Phase 13). This is what
+   * persistence stores; `MachineState.frontier` is the derived legacy value.
+   */
+  visitedList(): number[];
+  /**
+   * Route-play context for persistence: `lastShown`, `visitedList()`, the
+   * open decision stack and the routes played per decision, all JSON-safe.
+   * `importContext()` (or `MachineOptions.resumeContext`) restores it.
+   */
+  exportContext(): MachineContext;
+  /**
+   * Replaces the seen set, decision stack and played routes with a stored
+   * context and shows its `lastShown` item — the bookmark-restore move: the
+   * arrival is UNSETTLED, like `goTo()`, and it fires no decision.
+   */
+  importContext(context: MachineContext): void;
   /** Receives every state change; returns an unsubscribe function. */
   subscribe(listener: (state: MachineState) => void): () => void;
   /**
    * Space press: during skip mode, exits skip mode and then behaves
-   * normally — settles an unsettled item, else moves the cursor.
+   * normally — settles an unsettled item, else moves the cursor. Settling
+   * the item a decision hangs off is what fires that decision. Inert while
+   * a choice is open: only `choose()` and `chooseContinue()` answer it.
    */
   advance(): void;
   /**
    * Wheel step back; clamps at item 0. During skip mode, exits skip mode
-   * and still performs the step.
+   * and still performs the step. Entering an item this way is pure
+   * navigation: it marks it shown but fires no decision.
    */
   wheelBack(): void;
   /**
-   * Wheel step forward; never passes the frontier into unseen items.
-   * During skip mode, exits skip mode and steps when allowed.
+   * Wheel step forward; never passes the highest item ever shown (so it can
+   * reach a seen item of another route, which is where a branched novel's
+   * back-and-forth stays sensible), and never enters unseen content. During
+   * skip mode, exits skip mode and steps when allowed. A step never fires a
+   * decision, and the arrival is unsettled, like `goTo()`.
    */
   wheelForward(): void;
   /**
@@ -69,25 +143,46 @@ export interface Machine {
    * gates. With `settings.skipAll` off the mode ends when the cursor moves
    * onto the first never-shown item (shown normally afterward); with it on
    * the mode continues through unseen items, marking them seen, and ends
-   * when the last item of content has been shown.
+   * when nothing unseen is left to visit. A decision reached during a skip
+   * resolves itself in play order instead of stopping the burst.
    */
   toggleSkip(): void;
   /**
-   * `e` press: cursor to the last shown item (`frontier - 1`), the resume
-   * position; no-op when already there. Marks nothing new seen.
+   * `e` press: the first UNSEEN item along the path — (a) in the current
+   * route span at or after the cursor, else (b) in an unplayed route of a
+   * decision on the stack (innermost first) or of the decision that fires
+   * next along it, else (c) the first unseen item of the manifest in array
+   * order. The landing is a fresh entry: the item is shown and marked seen,
+   * its own hold is armed, and skip mode ends. No-op when nothing is unseen
+   * or the cursor is already on the target; a further press steps on to the
+   * next unseen item.
    */
   jumpToUnseen(): void;
   /**
    * Bookmark click (the `t` overlay, README `t` bullet): move the cursor to
-   * `index`, clamped to `[0, frontier - 1]`. The frontier never moves —
-   * unseen items must be seen in order via `advance()`, so jumping ahead of
-   * it (or having stored a bookmark from beyond the current frontier) is
-   * clamped to seen content rather than entering or consuming it. The
-   * arrival is UNSETTLED, unlike `jumpToUnseen()`'s settled landing: a
-   * bookmark click "continues the novel from that time point", so the
-   * item's text hold replays and auto-advance carries the reader onward.
+   * `index`, clamped to `[0, highest index ever shown]`. Nothing unseen is
+   * entered — unseen items are reached by `advance()`, `choose()` or
+   * `jumpToUnseen()` — and no decision fires. The arrival is UNSETTLED,
+   * unlike a resume landing: a bookmark click "continues the novel from that
+   * time point", so the item's text hold replays and auto-advance carries
+   * the reader onward.
    */
   goTo(index: number): void;
+  /**
+   * Decision overlay: pick route `routeIdx` (the index in
+   * `MachineState.choice.routes`, so 1..9 minus one, or a pointer click).
+   * The route is marked played, its frame is pushed for nesting, and its
+   * first item is entered as a forward entry — shown, marked seen, its own
+   * timing armed. Inert when no choice is open or the index is out of range.
+   */
+  choose(routeIdx: number): void;
+  /**
+   * "Return to main route" on a completed `return` route: proceed to the
+   * decision's `continueAt`. Inert unless the open choice offers it
+   * (`MachineState.choice.continueOption`), and it does not mark the
+   * continuing route played — its items are skipped, not replayed.
+   */
+  chooseContinue(): void;
   /**
    * Pass-complete report for the current video item: the file's `ended`, or
    * a report at `endSeconds` when a playback range bounds it. It increments
@@ -109,8 +204,11 @@ export interface Machine {
    *   already behind the elapsed time fires on the next tick. An item
    *   with no pending timer (settled, or waiting on a video's `ended`) is
    *   not armed by this call.
-   * - `skipAll`: read when skip mode meets the frontier, so a change
-   *   takes effect at the next frontier crossing.
+   * - `skipAll`: read when skip mode meets content the reader has not seen,
+   *   so a change takes effect at the next crossing into unseen content.
+   * - `playAllRoutes`: read when a decision fires, so a change takes effect
+   *   at the next decision; a choice already open stays open (the reader
+   *   answers it, or turns the setting off and back on to auto-play it).
    *
    * After `destroy()` it is inert, like every other command.
    */
@@ -224,10 +322,138 @@ export function visualIndexFor(items: readonly Item[], index: number): number {
   return 0;
 }
 
+/** A route with its item references resolved to indices. */
+interface ResolvedRoute {
+  id: string;
+  label: string;
+  startIndex: number;
+  endIndex: number;
+  result: RouteResult;
+  /** True for the decision's `continuingRoute`, whose `result` is moot. */
+  continuing: boolean;
+}
+
+/** A decision with its item references resolved to indices. */
+interface ResolvedDecision {
+  /** Position in the resolved table: what the stack and context store. */
+  index: number;
+  id: string;
+  prompt: string;
+  afterIndex: number;
+  routes: ResolvedRoute[];
+  /** Index into `routes` of the continuing route; -1 without one. */
+  continuingRoute: number;
+  /** Item index the continuing route proceeds to; -1 without one. */
+  continueAt: number;
+  /** Decision whose route span contains this one; -1 at the top level. */
+  parent: number;
+}
+
+/** One open decision context: the route of it the reader is inside. */
+interface Frame {
+  decision: number;
+  route: number;
+}
+
+/** The decision the overlay is showing, and whether it offers a return. */
+interface PendingChoice {
+  decision: number;
+  continueOption: boolean;
+}
+
+/**
+ * Resolves the branch table to item indices (docs/content-format.md,
+ * "Branches"). The validator has already checked the table; an unresolvable
+ * item id, an inverted span or a continuing route without `continueAt` drops
+ * that one decision rather than guessing, so the manifest still plays.
+ */
+function resolveDecisions(
+  items: readonly Item[],
+  branches: readonly Branch[],
+): ResolvedDecision[] {
+  const resolved: ResolvedDecision[] = [];
+  if (items.length === 0 || branches.length === 0) return resolved;
+  const byId = new Map<string, number>();
+  items.forEach((item, index) => {
+    if (!byId.has(item.id)) byId.set(item.id, index);
+  });
+  for (const branch of branches) {
+    const afterIndex = byId.get(branch.after);
+    if (afterIndex === undefined) continue;
+    const continuingRoute = branch.routes.findIndex(
+      (route) => route.id === branch.continuingRoute,
+    );
+    const continueAt =
+      branch.continueAt === undefined
+        ? -1
+        : (byId.get(branch.continueAt) ?? -1);
+    // `continuingRoute` and `continueAt` are a pair; a half of the pair that
+    // does not resolve leaves the join unknown, so the decision is dropped.
+    if (continuingRoute >= 0 !== continueAt >= 0) continue;
+    const routes: ResolvedRoute[] = [];
+    let sound = branch.routes.length >= 2;
+    branch.routes.forEach((route, index) => {
+      const startIndex = byId.get(route.start);
+      const endIndex = byId.get(route.end);
+      if (startIndex === undefined || endIndex === undefined) {
+        sound = false;
+        return;
+      }
+      if (startIndex > endIndex) sound = false;
+      routes.push({
+        id: route.id,
+        label: route.label,
+        startIndex,
+        endIndex,
+        result: route.result ?? "ending",
+        continuing: index === continuingRoute,
+      });
+    });
+    if (!sound || routes.length !== branch.routes.length) continue;
+    resolved.push({
+      index: resolved.length,
+      id: branch.id,
+      prompt: branch.prompt,
+      afterIndex,
+      routes,
+      continuingRoute,
+      continueAt,
+      parent: -1,
+    });
+  }
+  // Nesting: a decision belongs to the decision whose route span contains its
+  // `after` item. Spans nest or are disjoint, so the tightest containing span
+  // is its parent, and a top-level decision is contained by none.
+  for (const child of resolved) {
+    let tightest = Infinity;
+    for (const outer of resolved) {
+      if (outer.index === child.index) continue;
+      for (const route of outer.routes) {
+        const inside =
+          child.afterIndex >= route.startIndex &&
+          child.afterIndex <= route.endIndex;
+        const width = route.endIndex - route.startIndex;
+        if (inside && width < tightest) {
+          tightest = width;
+          child.parent = outer.index;
+        }
+      }
+    }
+  }
+  return resolved;
+}
+
 type Listener = (state: MachineState) => void;
 
 function clamp(value: number, low: number, high: number): number {
   return Math.min(Math.max(value, low), high);
+}
+
+/** A finite integer, or `fallback` for anything a stored value can be. */
+function asIndex(value: unknown, fallback: number): number {
+  return typeof value === "number" && Number.isFinite(value)
+    ? Math.trunc(value)
+    : fallback;
 }
 
 export function createMachine(options: MachineOptions): Machine {
@@ -238,20 +464,29 @@ export function createMachine(options: MachineOptions): Machine {
   let settings: MachineSettings = { ...options.settings };
   const scheduler = options.scheduler ?? defaultScheduler;
   const count = items.length;
+  const decisions = resolveDecisions(items, options.branches ?? []);
+  /** Decisions keyed by the item index they fire on, in table order. */
+  const byAfter = new Map<number, number[]>();
+  for (const decision of decisions) {
+    const list = byAfter.get(decision.afterIndex);
+    if (list === undefined) byAfter.set(decision.afterIndex, [decision.index]);
+    else list.push(decision.index);
+  }
 
   const listeners = new Set<Listener>();
   let cursor = 0;
-  // First-ever load: item 0 starts shown, so the frontier is one past it.
-  let frontier = count === 0 ? 0 : 1;
+  /** Every item index shown so far, in any route (the seen set). */
+  const visited = new Set<number>();
+  /** `max(visited)`, -1 when nothing has been shown: the wheel's ceiling. */
+  let highestSeen = -1;
+  /** The item shown most recently: where the next load starts. */
+  let lastShown = 0;
   let settled = false;
-  if (count > 0 && options.resumeFrontier !== undefined) {
-    // Resume (and e-jump) lands on the last seen item, frontier - 1, and
-    // marks nothing new seen. The landing item counts as settled — it was
-    // shown in a past session — so one advance() enters unseen content.
-    frontier = clamp(options.resumeFrontier, 1, count);
-    cursor = frontier - 1;
-    settled = true;
-  }
+  /** Open decision contexts, outermost first — the nesting stack. */
+  const stack: Frame[] = [];
+  /** Which route indices of each decision have been played, by decision. */
+  const played = new Map<number, Set<number>>();
+  let pendingChoice: PendingChoice | null = null;
   let skipping = false;
   let holdElapsed = false;
   /** `mediaEnded()` calls counted for the standalone video under the cursor. */
@@ -263,11 +498,58 @@ export function createMachine(options: MachineOptions): Machine {
   // enters only through scheduler and Date.now, both fakeable in tests.
   let timerArmedAt = 0;
   let destroyed = false;
+  // Start position. A stored context is authoritative: its `lastShown` is
+  // where the reader left off. Otherwise a persisted frontier marks a seen
+  // prefix, and the load starts on its last shown item. With neither, this is
+  // the first-ever load: item 0, shown, so the frontier is one past it.
+  if (count > 0) {
+    if (options.resumeContext !== undefined) {
+      applyContext(options.resumeContext);
+      settled = true; // a resume landing was already read, as with a frontier
+    } else if (options.resumeFrontier !== undefined) {
+      const frontier = clamp(options.resumeFrontier, 1, count);
+      for (let index = 0; index < frontier; index += 1) visited.add(index);
+      highestSeen = frontier - 1;
+      lastShown = frontier - 1;
+      cursor = frontier - 1;
+      settled = true;
+    } else {
+      markShown(0);
+    }
+  }
   let state: MachineState = snapshot();
   armTimer(); // the item shown at start auto-advances too
 
   function snapshot(): MachineState {
-    return Object.freeze({ cursor, frontier, settled, skipping });
+    const choice = pendingChoice === null ? null : choiceView(pendingChoice);
+    const frontier = highestSeen < 0 ? 0 : Math.min(highestSeen + 1, count);
+    return Object.freeze(
+      choice === null
+        ? { cursor, frontier, settled, skipping }
+        : { cursor, frontier, settled, skipping, choice },
+    );
+  }
+
+  /** The overlay content for the open choice: prompt, routes, return offer. */
+  function choiceView(pending: PendingChoice): ChoiceView {
+    const decision = decisions[pending.decision];
+    const routes: ChoiceRoute[] = decision.routes.map((route, index) =>
+      Object.freeze({
+        routeIdx: index,
+        id: route.id,
+        label: route.label,
+        seen: isPlayed(decision.index, index),
+      }),
+    );
+    const view = pending.continueOption
+      ? {
+          decisionId: decision.id,
+          prompt: decision.prompt,
+          routes,
+          continueOption: true,
+        }
+      : { decisionId: decision.id, prompt: decision.prompt, routes };
+    return Object.freeze(view);
   }
 
   function emit(): void {
@@ -331,6 +613,26 @@ export function createMachine(options: MachineOptions): Machine {
     armTimer();
   }
 
+  /** The marking rule: shown now, so seen from now on. */
+  function markShown(index: number): void {
+    visited.add(index);
+    if (index > highestSeen) highestSeen = index;
+    lastShown = index;
+  }
+
+  /**
+   * Makes `index` the current item: mark it shown, restart its timing, and
+   * tell the listeners. Every route to an item — forward advance, skip step,
+   * `choose()`, `e`-jump, wheel, `goTo()` — comes through here, which is why
+   * showing and seeing are the same moment (the header's marking rule).
+   */
+  function showItem(index: number): void {
+    cursor = index;
+    markShown(index);
+    beginItem();
+    emit();
+  }
+
   /**
    * Whether the media half of the current item's gate is met. Only a
    * standalone video gates on media: a `holdSeconds` video is background and
@@ -339,8 +641,8 @@ export function createMachine(options: MachineOptions): Machine {
    * `holdSeconds` completes when BOTH its time bound has elapsed (checked at
    * the timer) AND `endedCount` has reached `loopCount` (checked at each
    * `mediaEnded()`), whichever happens last. A settled item bypasses the gate
-   * entirely — its wait ended on the reader's press or on a resume /
-   * `e`-jump landing, so ended counts are irrelevant to it.
+   * entirely — its wait ended on the reader's press or on a resume landing,
+   * so ended counts are irrelevant to it.
    */
   function mediaGateSatisfied(): boolean {
     const item = items[cursor];
@@ -358,49 +660,56 @@ export function createMachine(options: MachineOptions): Machine {
     moveForward();
   }
 
+  /**
+   * Leave the item under the cursor for the next one, unless a decision
+   * fires here or the current route span ends here. Both are forward
+   * settle-points, so they come before the plain step (docs/plan.md
+   * Phase 13).
+   */
   function moveForward(): void {
     if (count === 0 || destroyed) return;
+    if (fireDecision()) return;
+    if (atRouteEnd()) {
+      handleRouteEnd();
+      return;
+    }
     if (cursor >= count - 1) {
       // Nothing unseen ahead: the shown item is simply settled.
       settled = true;
       emit();
       return;
     }
-    cursor += 1;
-    if (cursor >= frontier) frontier = Math.min(cursor + 1, count);
-    beginItem();
-    emit();
-  }
-
-  function moveVisible(newCursor: number): void {
-    cursor = newCursor;
-    beginItem();
-    emit();
+    showItem(cursor + 1);
   }
 
   /**
    * Skip-mode dwell elapsed. One fixed-dwell step forward: a media item
    * followed by `text`, and each `text` line of a chain, each consume
-   * exactly one dwell (chains are never collapsed). The mode ends when the
-   * step moves onto the first never-shown item with `skipAll` off, or when
-   * the last item of content has been shown; the ending item is then shown
+   * exactly one dwell (chains are never collapsed). A decision reached is
+   * resolved in play order rather than stopping the burst. The mode ends when
+   * the step moves onto content the reader has not seen with `skipAll` off,
+   * or when nothing unseen is left to visit; the ending item is then shown
    * normally, its auto-advance armed per its own hold.
    */
   function skipTick(): void {
     if (destroyed || count === 0) return;
-    if (cursor < count - 1) {
-      const enteringUnseen = cursor + 1 >= frontier;
-      cursor += 1;
-      if (enteringUnseen) frontier = Math.min(cursor + 1, count);
-      if ((enteringUnseen && !settings.skipAll) || cursor >= count - 1) {
-        skipping = false;
-      }
-    } else {
+    if (fireDecision()) return;
+    if (atRouteEnd()) {
+      handleRouteEnd();
+      return;
+    }
+    if (cursor >= count - 1) {
       // Dwell elapsed on the last item; nothing is left to skip.
       skipping = false;
+      beginItem();
+      emit();
+      return;
     }
-    beginItem(); // arms a dwell if skipping, else the item's normal hold
-    emit();
+    const next = cursor + 1;
+    if ((!visited.has(next) && !settings.skipAll) || next >= count - 1) {
+      skipping = false;
+    }
+    showItem(next); // arms a dwell if skipping, else the item's normal hold
   }
 
   /** Leave skip mode; the current item restarts under its normal hold. */
@@ -409,18 +718,306 @@ export function createMachine(options: MachineOptions): Machine {
     beginItem();
   }
 
+  /** Routes played so far of one decision, creating the set on demand. */
+  function playedOf(decisionIndex: number): Set<number> {
+    let set = played.get(decisionIndex);
+    if (set === undefined) {
+      set = new Set<number>();
+      played.set(decisionIndex, set);
+    }
+    return set;
+  }
+
+  function isPlayed(decisionIndex: number, routeIdx: number): boolean {
+    return played.get(decisionIndex)?.has(routeIdx) === true;
+  }
+
   /**
-   * `e`-jump / resume landing on `frontier - 1`, the last shown item. The
-   * landing counts as settled — that item was already seen — so the next
-   * advance() enters unseen content; auto-advance is armed per its hold.
+   * The route `playAllRoutes` picks next: the first not-yet-played route in
+   * manifest order, with the continuing route held last so the alternates
+   * each get their play before the story leaves the decision (docs/plan.md
+   * Phase 13). -1 when every route has played.
    */
-  function landOnLastSeen(): void {
-    cursor = frontier - 1;
-    holdElapsed = false;
-    endedCount = 0;
+  function nextAutoRoute(decision: ResolvedDecision): number {
+    for (let index = 0; index < decision.routes.length; index += 1) {
+      if (
+        index !== decision.continuingRoute &&
+        !isPlayed(decision.index, index)
+      )
+        return index;
+    }
+    if (
+      decision.continuingRoute >= 0 &&
+      !isPlayed(decision.index, decision.continuingRoute)
+    ) {
+      return decision.continuingRoute;
+    }
+    return -1;
+  }
+
+  /** Marks the route played, pushes its frame, and enters its first item. */
+  function enterRoute(decision: ResolvedDecision, routeIdx: number): void {
+    playedOf(decision.index).add(routeIdx);
+    stack.push({ decision: decision.index, route: routeIdx });
+    showItem(decision.routes[routeIdx].startIndex);
+  }
+
+  /**
+   * The decision that fires when the item at `index` settles, considering
+   * only the ones inside the current route span: with no open frame a
+   * top-level decision, otherwise a child of the open decision whose own
+   * route contains the item. Navigation onto an `after` item fires nothing —
+   * this runs only on a forward settle.
+   */
+  function relevantDecision(index: number): number {
+    const candidates = byAfter.get(index);
+    if (candidates === undefined) return -1;
+    const frame = stack[stack.length - 1];
+    for (const candidate of candidates) {
+      const decision = decisions[candidate];
+      if (frame === undefined) {
+        if (decision.parent < 0) return decision.index;
+        continue;
+      }
+      // Inside an open route, two decisions are candidates: one the route
+      // contains, and the decision the reader is inside re-asked at its own
+      // `after` item — backing into `after` and pressing forward again
+      // re-fires the overlay (docs/content-format.md, "Branches").
+      const route = decisions[frame.decision].routes[frame.route];
+      const inside =
+        decision.parent === frame.decision &&
+        index >= route.startIndex &&
+        index <= route.endIndex;
+      if (inside || decision.index === frame.decision) return decision.index;
+    }
+    return -1;
+  }
+
+  /**
+   * Drops the open frames of a decision being answered now, and every frame
+   * inside them: re-opening a decision (its `after` settled again) abandons
+   * the route context the reader navigated out of, so answering it cannot
+   * leave a stale frame to pop later.
+   */
+  function closeFramesFor(decisionIndex: number): void {
+    for (let depth = stack.length - 1; depth >= 0; depth -= 1) {
+      if (stack[depth].decision === decisionIndex) {
+        stack.length = depth;
+        return;
+      }
+    }
+  }
+
+  /**
+   * Shows the overlay for a decision and pauses: the item under the cursor is
+   * complete (`settled`), nothing is pending but the reader's pick, and skip
+   * mode ends — an overlay is not something to skip past.
+   */
+  function openChoice(decisionIndex: number, continueOption: boolean): void {
+    closeFramesFor(decisionIndex);
+    pendingChoice = { decision: decisionIndex, continueOption };
+    skipping = false;
     settled = true;
-    armTimer();
+    cancelTimer();
     emit();
+  }
+
+  /**
+   * The forward settle of a decision's `after` item. Returns true when a
+   * decision did fire, so the caller does not move the cursor: the choice
+   * pauses, or `playAllRoutes` and skip mode resolve the decision in play
+   * order and land on the route's first item.
+   */
+  function fireDecision(): boolean {
+    const index = relevantDecision(cursor);
+    if (index < 0) return false;
+    const decision = decisions[index];
+    if (settings.playAllRoutes || skipping) {
+      autoResolve(decision);
+      return true;
+    }
+    openChoice(decision.index, false);
+    return true;
+  }
+
+  /**
+   * Answers a decision with no reader: the first route not yet played (the
+   * continuing route last), else `continueAt`, and for a pure-choice decision
+   * whose every route has played a step past the decision in array order —
+   * the lead-in simply continues, and nothing is recorded for the jump
+   * (docs/plan.md Phase 13).
+   */
+  function autoResolve(decision: ResolvedDecision): void {
+    closeFramesFor(decision.index);
+    const routeIdx = nextAutoRoute(decision);
+    if (routeIdx >= 0) {
+      enterRoute(decision, routeIdx);
+      return;
+    }
+    if (decision.continueAt >= 0) {
+      showItem(decision.continueAt);
+      return;
+    }
+    if (decision.afterIndex + 1 >= count) {
+      settled = true;
+      skipping = false;
+      emit();
+      return;
+    }
+    showItem(decision.afterIndex + 1);
+  }
+
+  /** True when the cursor is on the last item of the innermost open route. */
+  function atRouteEnd(): boolean {
+    const frame = stack[stack.length - 1];
+    if (frame === undefined) return false;
+    return cursor === decisions[frame.decision].routes[frame.route].endIndex;
+  }
+
+  /**
+   * A forward advance off a route's last item (docs/content-format.md,
+   * "Branches"): pop the frame, then by the route's kind — the continuing
+   * route proceeds to `continueAt`; a `return` route re-opens the decision
+   * with "return to main route" among its offers; an `ending` route re-opens
+   * it for reselection only. With nothing left to play and no join to take,
+   * this ending IS the end, so the frame stays and the item settles.
+   */
+  function handleRouteEnd(): void {
+    const frame = stack[stack.length - 1];
+    const decision = decisions[frame.decision];
+    const route = decision.routes[frame.route];
+    const automatic = settings.playAllRoutes || skipping;
+    if (automatic && nextAutoRoute(decision) < 0 && decision.continueAt < 0) {
+      settled = true;
+      skipping = false;
+      emit();
+      return;
+    }
+    stack.pop();
+    if (route.continuing) {
+      showItem(decision.continueAt);
+      return;
+    }
+    if (automatic) {
+      autoResolve(decision);
+      return;
+    }
+    openChoice(
+      decision.index,
+      route.result === "return" && decision.continuingRoute >= 0,
+    );
+  }
+
+  /** The last item of the current route span, or content end when none. */
+  function currentSpanEnd(): number {
+    const frame = stack[stack.length - 1];
+    if (frame === undefined) return count - 1;
+    return decisions[frame.decision].routes[frame.route].endIndex;
+  }
+
+  /** The first item of `[from, to]` the reader has not seen; -1 for none. */
+  function firstUnseen(from: number, to: number): number {
+    const last = Math.min(to, count - 1);
+    for (let index = Math.max(0, from); index <= last; index += 1) {
+      if (!visited.has(index)) return index;
+    }
+    return -1;
+  }
+
+  /** The first unseen item inside a route of this decision not yet played. */
+  function unseenInUnplayedRoute(decision: ResolvedDecision): number {
+    for (let index = 0; index < decision.routes.length; index += 1) {
+      if (isPlayed(decision.index, index)) continue;
+      const route = decision.routes[index];
+      const target = firstUnseen(route.startIndex, route.endIndex);
+      if (target >= 0) return target;
+    }
+    return -1;
+  }
+
+  /**
+   * The decision that fires next along the current path: the nearest one at
+   * or after the cursor in the same context as the open frame (or at the top
+   * level when no frame is open).
+   */
+  function nextDecisionAhead(from: number): number {
+    const frame = stack[stack.length - 1];
+    const wantParent = frame === undefined ? -1 : frame.decision;
+    let found = -1;
+    for (const decision of decisions) {
+      if (decision.parent !== wantParent || decision.afterIndex < from)
+        continue;
+      if (found < 0 || decision.afterIndex < decisions[found].afterIndex) {
+        found = decision.index;
+      }
+    }
+    return found;
+  }
+
+  /**
+   * The `e` target — the seen/jump rule of docs/plan.md Phase 13, stated
+   * here once: (a) the first unseen item of the current route span at or
+   * after the cursor, else (b) the first unseen item of an unplayed route of
+   * a decision on the stack, innermost first, or of the decision that fires
+   * next along the path, else (c) the first unseen item in array order.
+   */
+  function unseenTarget(): number {
+    const inSpan = firstUnseen(cursor, currentSpanEnd());
+    if (inSpan >= 0) return inSpan;
+    for (let depth = stack.length - 1; depth >= 0; depth -= 1) {
+      const target = unseenInUnplayedRoute(decisions[stack[depth].decision]);
+      if (target >= 0) return target;
+    }
+    const next = nextDecisionAhead(cursor);
+    if (next >= 0) {
+      const target = unseenInUnplayedRoute(decisions[next]);
+      if (target >= 0) return target;
+    }
+    return firstUnseen(0, count - 1);
+  }
+
+  /** Sorted view of the seen set: what persistence stores. */
+  function visitedSorted(): number[] {
+    return [...visited].sort((a, b) => a - b);
+  }
+
+  /**
+   * Restores a stored context: seen set, played routes, open stack, and the
+   * cursor at `lastShown`. Indices outside this manifest are dropped — a save
+   * made against different content must degrade to playing, not to a cursor
+   * off the end.
+   */
+  function applyContext(context: MachineContext): void {
+    visited.clear();
+    highestSeen = -1;
+    for (const index of context.visited ?? []) {
+      const value = asIndex(index, -1);
+      if (value >= 0 && value < count) visited.add(value);
+    }
+    played.clear();
+    for (const entry of context.playedRoutes ?? []) {
+      const decisionIndex = asIndex(entry?.decision, -1);
+      if (decisionIndex < 0 || decisionIndex >= decisions.length) continue;
+      for (const routeIdx of entry.routes ?? []) {
+        const value = asIndex(routeIdx, -1);
+        if (value >= 0 && value < decisions[decisionIndex].routes.length) {
+          playedOf(decisionIndex).add(value);
+        }
+      }
+    }
+    stack.length = 0;
+    for (const frame of context.stack ?? []) {
+      const decisionIndex = asIndex(frame?.decision, -1);
+      const routeIdx = asIndex(frame?.route, -1);
+      if (decisionIndex < 0 || decisionIndex >= decisions.length) continue;
+      if (routeIdx < 0 || routeIdx >= decisions[decisionIndex].routes.length) {
+        continue;
+      }
+      stack.push({ decision: decisionIndex, route: routeIdx });
+    }
+    pendingChoice = null;
+    cursor = clamp(asIndex(context.lastShown, 0), 0, count - 1);
+    markShown(cursor); // the landing item is shown, so it counts as seen
   }
 
   return {
@@ -432,6 +1029,38 @@ export function createMachine(options: MachineOptions): Machine {
       return visualIndexFor(items, cursor);
     },
 
+    visitedList() {
+      return visitedSorted();
+    },
+
+    exportContext() {
+      const playedRoutes = [...played.entries()]
+        .sort((a, b) => a[0] - b[0])
+        .map(([decision, routes]) =>
+          Object.freeze({
+            decision,
+            routes: Object.freeze([...routes].sort((a, b) => a - b)),
+          }),
+        );
+      return Object.freeze({
+        lastShown,
+        visited: visitedSorted(),
+        stack: Object.freeze(
+          stack.map((frame) =>
+            Object.freeze({ decision: frame.decision, route: frame.route }),
+          ),
+        ),
+        playedRoutes: Object.freeze(playedRoutes),
+      });
+    },
+
+    importContext(context) {
+      if (destroyed || count === 0) return;
+      applyContext(context);
+      skipping = false; // a restore is manual navigation, like `goTo()`
+      showItem(cursor); // UNSETTLED arrival: the item replays under its hold
+    },
+
     subscribe(listener) {
       listeners.add(listener);
       return () => {
@@ -440,7 +1069,7 @@ export function createMachine(options: MachineOptions): Machine {
     },
 
     advance() {
-      if (destroyed || count === 0) return;
+      if (destroyed || count === 0 || pendingChoice !== null) return;
       if (skipping) {
         // Space during skip exits skip mode, then behaves normally: the
         // current item has not met its own hold, so this press settles it.
@@ -448,9 +1077,11 @@ export function createMachine(options: MachineOptions): Machine {
       }
       if (!settled) {
         // Immediate-complete: the item's wait ends now, but the cursor
-        // stays; the next advance() moves on.
+        // stays; the next advance() moves on. Settling is exactly the
+        // forward settle a decision hangs off (docs/plan.md Phase 13).
         settled = true;
         cancelTimer();
+        if (fireDecision()) return;
         emit();
         return;
       }
@@ -458,9 +1089,9 @@ export function createMachine(options: MachineOptions): Machine {
     },
 
     wheelBack() {
-      if (destroyed) return;
-      // Decision (docs/plan.md Phase 4): a wheel step during skip exits
-      // skip mode AND performs the step — the step is what the user
+      if (destroyed || pendingChoice !== null) return;
+      // Decision (docs/plan.md Phase 4): a wheel step during skip exits skip
+      // mode AND performs the step — the step is what the user
       // meant; merely dropping it would feel like a dead input.
       const wasSkipping = skipping;
       if (skipping) skipping = false; // a clamped step exits skip too
@@ -471,25 +1102,28 @@ export function createMachine(options: MachineOptions): Machine {
         }
         return;
       }
-      moveVisible(cursor - 1);
+      showItem(cursor - 1); // pure nav: shown, seen, no decision fires
     },
 
     wheelForward() {
-      if (destroyed) return;
+      if (destroyed || pendingChoice !== null) return;
       const wasSkipping = skipping;
       if (skipping) skipping = false; // same decision as wheelBack()
-      if (cursor + 1 >= frontier) {
+      // The ceiling is the highest item ever shown, which across routes is
+      // the union of everything seen — so a forward step can reach a seen
+      // item of another route, and entering it is navigation, not a choice.
+      if (cursor + 1 > highestSeen) {
         if (wasSkipping) {
           beginItem(); // blocked step still ends skip: normal timing again
           emit();
         }
         return;
       }
-      moveVisible(cursor + 1);
+      showItem(cursor + 1);
     },
 
     toggleSkip() {
-      if (destroyed || count === 0) return;
+      if (destroyed || count === 0 || pendingChoice !== null) return;
       if (skipping) {
         exitSkip(); // tab again: manual off, normal timing from here
       } else {
@@ -500,24 +1134,44 @@ export function createMachine(options: MachineOptions): Machine {
     },
 
     jumpToUnseen() {
-      if (destroyed || count === 0) return;
-      if (cursor === frontier - 1) return; // already there: stay
+      if (destroyed || count === 0 || pendingChoice !== null) return;
+      const target = unseenTarget();
+      if (target < 0 || target === cursor) return; // nothing unseen: stay
       skipping = false; // a jump is manual navigation: skip mode is off
-      landOnLastSeen();
+      showItem(target); // fresh entry: seen now, its own hold armed
     },
 
     goTo(index) {
-      if (destroyed || count === 0) return;
+      if (destroyed || count === 0 || pendingChoice !== null) return;
       // A bookmark always points at content the reader had reached, but the
       // list outlives the moment it was written, so clamp defensively to
-      // seen content `[0, frontier - 1]`: unseen items must be seen in
-      // order via advance(), and jumping onto one would either show it out
-      // of order or silently consume the frontier. (The cursor may move
-      // either way — backward, or forward back to the frontier edge.)
+      // seen content `[0, highestSeen]`: unseen items must be entered by
+      // advance(), choose() or jumpToUnseen() rather than consumed by a
+      // jump. (The cursor may move either way — backward, or forward back
+      // to the edge of what has been shown.)
       skipping = false; // like jumpToUnseen: manual navigation ends skip mode
-      cursor = clamp(index, 0, frontier - 1);
-      beginItem(); // unsettled arrival: the item replays under its own hold
-      emit();
+      showItem(clamp(index, 0, Math.max(0, highestSeen)));
+    },
+
+    choose(routeIdx) {
+      if (destroyed || count === 0 || pendingChoice === null) return;
+      const decision = decisions[pendingChoice.decision];
+      if (!Number.isInteger(routeIdx) || routeIdx < 0) return;
+      if (routeIdx >= decision.routes.length) return;
+      pendingChoice = null;
+      enterRoute(decision, routeIdx);
+    },
+
+    chooseContinue() {
+      if (destroyed || count === 0) return;
+      const pending = pendingChoice;
+      if (pending === null || !pending.continueOption) return;
+      const decision = decisions[pending.decision];
+      if (decision.continueAt < 0) return;
+      pendingChoice = null;
+      // Joining the aftermath replays none of the continuing route's items,
+      // so the route is not marked played by this.
+      showItem(decision.continueAt);
     },
 
     mediaEnded() {
