@@ -164,6 +164,21 @@ truthful: an unchecked box means nothing was accepted.
       ranges (0.0-1.0, 1.0-2.0) with range posters; determinism green
       (16 files byte-identical, 2025-11-01)
 
+## Phase 9d: Loop restart point (2025-11-01, user request)
+
+- [ ] Format/schema/validator/CREATE: optional `loopStartSeconds`
+      (fractional seconds; default = startSeconds; must be < effective
+      end); first-pass vs loop-pass timing documented; poster stays at
+      startSeconds
+- [ ] Machine: gate = firstPass + (loops-1)*loopPass with
+      loopStartSeconds; holdSeconds and text hold unchanged; tests
+- [ ] Renderer: fresh entry seeks to startSeconds; after the first pass
+      completes, later passes restart at loopStartSeconds; verify step
+      measures the loop-back landing near loopStart and records the
+      observed tolerance
+- [ ] Demo fixture: `part-013` gains `loopStartSeconds: 1.5` (range
+      1.0-2.0, loopCount 2); determinism and validator green
+
 ## Phase 10: Ren'Py extractor MVP
 
 - [x] `converter/` package with CLI over source `.rpy` projects (kinetic-

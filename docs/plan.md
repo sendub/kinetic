@@ -423,12 +423,38 @@ share one file at different ranges.
   exercised deterministically; a third item may set `holdSeconds` over a
   range. Keep the video tiny.
 
+## Phase 9d: Loop restart point (2025-11-01, user request)
+
+Some videos have an intro that should not repeat on loop.
+
+- Video item gains optional `loopStartSeconds` (exact fractional
+  seconds, schema minimum 0). Default = `startSeconds` (today's
+  behavior). Validator cross-field: `loopStartSeconds` must be < the
+  effective end (`endSeconds ?? durationSeconds`), else the loop pass
+  has non-positive length. `loopStartSeconds < startSeconds` is legal
+  (loop may include pre-roll the first pass skipped); `> startSeconds`
+  is the common case (skip the intro on loops).
+- Playback: fresh entry to the item always starts at `startSeconds`;
+  after a pass completes at `endSeconds`, subsequent passes restart at
+  `loopStartSeconds` (default `startSeconds`). Re-entering the item
+  later starts a new first pass from `startSeconds`. Dialogue chains
+  continue playback uninterrupted as before. The poster stays the frame
+  at `startSeconds` (converter poster logic unchanged).
+- Timing: firstPass = end - (start ?? 0); loopPass = end -
+  (loopStart ?? start ?? 0); media gate = `holdSeconds` if present,
+  else firstPass + (loops - 1) * loopPass (loops = loopCount ?? 1) -
+  equal to range * loops when `loopStartSeconds` is absent; text hold
+  and skip-dwell clamp apply as before.
+- Demo: `part-013` gains `loopStartSeconds: 1.5` (range 1.0-2.0,
+  loopCount 2), so the verify step measures loop-back landing near 1.5
+  instead of 1.0 and re-records the observed tolerance.
+
 ## Later, waiting on the user
 
 - Overlay text styling iteration once the user can play with the demo.
 
 ## Sequencing
 
-1 -> 2 -> 2b -> 3 -> 4 -> 5 -> 6 -> 7 -> 7b -> 8 -> 9 -> 9b -> 9c -> 10 ->
-11 -> 12, serial. The default is serial per the single-slot model serving
-rule.
+1 -> 2 -> 2b -> 3 -> 4 -> 5 -> 6 -> 7 -> 7b -> 8 -> 9 -> 9b -> 9c -> 9d ->
+10 -> 11 -> 12, serial. The default is serial per the single-slot model
+serving rule.
