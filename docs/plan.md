@@ -529,6 +529,23 @@ v1 model and decisions:
   `ending`. Detection is best-effort: when uncertain emit separate
   `ending` routes and log in the ledger; never guess a join.
 
+## Phase 13b: Manual/auto mode clarity (2025-11-01, external-user report)
+
+An external user asked for "a manual reading mode that waits for Space"
+plus an auto-forward toggle and speed slider - implying they did not
+discover that this IS the current design (manual by default; `a` starts
+auto-forward; `c` screen has the reading-speed slider). README's
+auto-advance bullet now names the `a` key (root cause of the
+misunderstanding). Verify the real behavior end-to-end rather than
+assuming it: manual mode is the default on a fresh load (only space/
+wheel/tab advance, nothing auto-advances); `a` toggles auto-forward ON
+and OFF; the `c` screen slider changes speed live; bookmarks, history
+(back/forward), skip, and skip-unseen behave identically in BOTH modes;
+the default mode is discoverable (a first-run hint exists or the
+bookmarks/h overlay hints mention `a`; if nothing surfaces `a` today,
+add a one-line hint to the first item's overlay until first advance,
+persisted as seen). Fix any real bug found; cover gaps in tests/verify.
+
 ## Later, waiting on the user
 
 - Overlay text styling iteration once the user can play with the demo.
