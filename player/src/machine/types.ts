@@ -8,6 +8,14 @@ export type ItemType = "image" | "animation" | "video" | "text";
 interface OverlayFields {
   speaker?: string;
   text?: string;
+  /**
+   * `true` marks `text` as `speaker`'s unspoken thought rather than spoken
+   * dialogue, so the overlay draws the two differently (docs/plan.md
+   * Phase 7b). Timing is untouched; without a non-empty `text` it marks
+   * nothing, which the content validator rejects. Data only — no machine rule
+   * reads it.
+   */
+  thought?: boolean;
 }
 
 export interface ImageItem extends OverlayFields {

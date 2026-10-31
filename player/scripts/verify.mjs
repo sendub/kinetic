@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // Driver for docs/verify-player.md: walks the checklist (Phase 5 shell,
-// Phase 6 media playback, Phase 7 wheel/skip/jump) against the demo fixture
+// Phase 6 media playback, Phase 7 wheel/skip/jump, Phase 7b speech vs thought
+// and contain-fit geometry) against the demo fixture
 // in headless Chrome and prints PASS / PARTIAL / FAIL per step.
 // Run from player/:  node scripts/verify.mjs
 // Exit code: 0 when every step is PASS or PARTIAL, 1 on any FAIL or crash.
@@ -12,7 +13,7 @@
 // the #empty-state notice, and .tmp/verify-demo-tall is a copy whose item-1
 // image has been rescaled to a portrait 640x960 while the manifest still says
 // 960x540 — the one shape that tells "fit to the asset" apart from "fit to
-// the manifest" (step 21, docs/plan.md Phase 7b).
+// the manifest" (step 22, docs/plan.md Phase 7b).
 //
 // Every input is real CDP Input: Input.dispatchKeyEvent for keys and
 // Input.dispatchMouseEvent `mouseWheel` for the wheel. Both arrive trusted, so
@@ -36,7 +37,7 @@ const repoRoot = join(playerDir, "..");
 const contentDir = join(repoRoot, ".tmp", "verify-demo");
 const emptyDir = join(repoRoot, ".tmp", "verify-demo-empty");
 const tallDir = join(repoRoot, ".tmp", "verify-demo-tall");
-// The portrait size step 21 rescales item 1's image to. Its aspect (2:3)
+// The portrait size step 22 rescales item 1's image to. Its aspect (2:3)
 // deliberately matches neither the manifest's 16:9 nor any test viewport.
 const TALL_ASSET = { width: 640, height: 960 };
 const chromePath =
@@ -55,6 +56,7 @@ const EXPECTED = {
   line008Text: "Neither of us spoke for a while.",
   sparkText: "Sparks circled the bonfire and went out one by one.",
   line010Text: "The tide took the last of the crates by morning.",
+  line011Text: "We stacked the rest ourselves, and called it enough.",
   emptyNotice: "No content yet — this folder has an empty manifest.",
 };
 
@@ -84,9 +86,9 @@ function assembleFolders() {
   for (const file of ["index.html", "app.js", "manifest.js"]) {
     copyFileSync(join(playerDir, "dist", file), join(emptyDir, file));
   }
-  // The asset/manifest aspect mismatch folder for step 21. Only the JPEG is
+  // The asset/manifest aspect mismatch folder for step 22. Only the JPEG is
   // resampled, never the manifest, and `fixtures/demo` itself stays pristine.
-  // `sips` is macOS' own resizer; without it step 21 loses its discriminator
+  // `sips` is macOS' own resizer; without it step 22 loses its discriminator
   // and says so instead of quietly asserting a weaker fact.
   mkdirSync(tallDir, { recursive: true });
   cpSync(join(repoRoot, "fixtures", "demo"), tallDir, { recursive: true });
@@ -116,6 +118,7 @@ const PAGE_STATE = () => {
   const img = document.getElementById("visual-image");
   const overlay = document.getElementById("overlay");
   const app = document.getElementById("app");
+  const textEl = document.getElementById("overlay-text");
   return {
     appChildren: app ? Array.from(app.children).map((el) => el.id) : [],
     imgSrc: img ? (img.getAttribute("src") ?? "") : null,
@@ -142,7 +145,14 @@ const PAGE_STATE = () => {
     overlayHidden: overlay ? overlay.hidden : null,
     overlayChildren: overlay ? overlay.children.length : null,
     speaker: document.getElementById("overlay-speaker")?.textContent ?? null,
-    text: document.getElementById("overlay-text")?.textContent ?? null,
+    text: textEl?.textContent ?? null,
+    // The renderer's speech/thought claim (`data-mode`, set on both the band
+    // and the line) and what CSS made of it. The computed font-style is the
+    // observable half of docs/plan.md Phase 7b: thought italic, dialogue
+    // upright. It resolves even while the band is [hidden].
+    overlayMode: overlay?.getAttribute("data-mode") ?? null,
+    textMode: textEl?.getAttribute("data-mode") ?? null,
+    textFontStyle: textEl ? getComputedStyle(textEl).fontStyle : null,
     fsAttempts: window.__fsAttempts ?? 0,
     firstKeys: window.__firstKeys ?? [],
     fullscreenElement: document.fullscreenElement
@@ -633,15 +643,21 @@ async function main() {
       s10.placeholder === null &&
       s10.overlayHidden === false &&
       s10.speaker === "Mei" &&
-      s10.text === EXPECTED.line007Text;
+      s10.text === EXPECTED.line007Text &&
+      // line-007 is spoken dialogue: mode "speech" on band and line, upright.
+      s10.overlayMode === "speech" &&
+      s10.textMode === "speech" &&
+      s10.textFontStyle === "normal";
     record(
       "10. text item keeps the earlier video (same element, looping, no placeholder)",
       s10Ok ? "PASS" : "FAIL",
-      `sameElement=${String(same10)}; ${JSON.stringify(s10.video)}; overlay=${String(s10.speaker === "Mei" && s10.text === EXPECTED.line007Text)}`,
+      `sameElement=${String(same10)}; ${JSON.stringify(s10.video)}; overlay=${String(s10.speaker === "Mei" && s10.text === EXPECTED.line007Text)}; mode=${String(s10.overlayMode)}/${String(s10.textMode)} fontStyle=${String(s10.textFontStyle)}`,
     );
 
     // 11. line-007 -> line-008: the chain advance must not touch the video
-    // element at all — same token, still looping and playing.
+    // element at all — same token, still looping and playing. line-008 is one
+    // of the demo's two thought lines, so the same read pins the other mode:
+    // "thought" on band and line, and CSS has made it italic (Phase 7b).
     await advancePair(cdp);
     const s11 = await page.evaluate(PAGE_STATE);
     const same11 = await videoTokenIs(page);
@@ -655,28 +671,35 @@ async function main() {
       s11.placeholder === null &&
       s11.overlayHidden === false &&
       s11.speaker === null &&
-      s11.text === EXPECTED.line008Text;
+      s11.text === EXPECTED.line008Text &&
+      s11.overlayMode === "thought" &&
+      s11.textMode === "thought" &&
+      s11.textFontStyle === "italic";
     record(
       "11. line-007 -> line-008 keeps the same <video> element playing",
       s11Ok ? "PASS" : "FAIL",
-      `sameElement=${String(same11)}; ${JSON.stringify(s11.video)}`,
+      `sameElement=${String(same11)}; ${JSON.stringify(s11.video)}; mode=${String(s11.overlayMode)}/${String(s11.textMode)} fontStyle=${String(s11.textFontStyle)} text=${JSON.stringify(s11.text)}`,
     );
 
     // 12. h over a playing video: the overlay hides, the video keeps
     // playing on the same element (docs/plan.md Phase 6: h hides text over
-    // video too). h again restores before the walk continues.
+    // video too). The line being hidden here is a thought, so `h` is shown to
+    // hide that mode too (step 6 hides a spoken one). h again restores before
+    // the walk continues.
     await pressH(cdp);
     const s12 = await page.evaluate(PAGE_STATE);
     const same12 = await videoTokenIs(page);
     const s12Ok =
       s12.overlayHidden === true &&
+      s12.overlayMode === "thought" &&
+      s12.textMode === "thought" &&
       same12 &&
       s12.video?.visible === true &&
       (!played || s12.video?.paused === false);
     record(
       "12. h hides overlay while the video keeps playing",
       s12Ok ? "PASS" : "FAIL",
-      `overlayHidden=${String(s12.overlayHidden)}; sameElement=${String(same12)}; ${JSON.stringify(s12.video)}`,
+      `overlayHidden=${String(s12.overlayHidden)} (thought line, mode=${String(s12.overlayMode)}); sameElement=${String(same12)}; ${JSON.stringify(s12.video)}`,
     );
     await pressH(cdp);
 
@@ -845,14 +868,44 @@ async function main() {
       s18.text === EXPECTED.line010Text &&
       s18.speaker === "Theo" &&
       s18.imgSrc === "pier-009.jpg" &&
-      s18after.text === EXPECTED.line010Text;
+      s18after.text === EXPECTED.line010Text &&
+      // The line `e` lands on is spoken dialogue with a speaker, so it reads
+      // as speech: mode "speech" on band and line, upright (Phase 7b).
+      s18.overlayMode === "speech" &&
+      s18.textMode === "speech" &&
+      s18.textFontStyle === "normal";
     record(
       "18. e returns to the last seen item (frontier - 1); wheel cannot pass it",
       s18Ok ? "PASS" : "FAIL",
-      `after 2 wheel-back notches=${JSON.stringify(s18before.split("|").pop())}; after e=${JSON.stringify(s18.imgSrc)} speaker=${String(s18.speaker)} text=${JSON.stringify(s18.text)}; one wheel-down after e left it at ${JSON.stringify(s18after.text)} (frontier edge, item 10 unseen was not entered)`,
+      `after 2 wheel-back notches=${JSON.stringify(s18before.split("|").pop())}; after e=${JSON.stringify(s18.imgSrc)} speaker=${String(s18.speaker)} text=${JSON.stringify(s18.text)} mode=${String(s18.overlayMode)}/${String(s18.textMode)} fontStyle=${String(s18.textFontStyle)}; one wheel-down after e left it at ${JSON.stringify(s18after.text)} (frontier edge, item 10 unseen was not entered)`,
     );
 
-    // 19. Reload: the frontier is not persisted yet, so a reload starts the
+    // 19. The demo's other thought line, over a still (docs/plan.md
+    // Phase 7b). `e` left the cursor on spoken line-010 with its hold armed,
+    // so an advance pair lands on line-011, a thought: "thought" on the band
+    // and on the line, and the computed font-style italic where line-010 read
+    // "speech" / upright (step 18) — the two modes the README promises read
+    // differently. The mode change must not disturb the visual either: a
+    // `text` item shows the nearest earlier media item's, so pier-009.jpg
+    // stays painted, decoded and visible (machine.visualIndex, no regression).
+    await advancePair(cdp);
+    await waitImageDecoded(page);
+    const s19 = await page.evaluate(PAGE_STATE);
+    const s19ModeOk =
+      s19.text === EXPECTED.line011Text &&
+      s19.overlayHidden === false &&
+      s19.overlayMode === "thought" &&
+      s19.textMode === "thought" &&
+      s19.textFontStyle === "italic";
+    const s19VisualOk =
+      s19.imgSrc === "pier-009.jpg" && s19.imgDecoded && s19.imgVisible;
+    record(
+      "19. thought line over a still: data-mode=thought, italic, visual kept",
+      s19ModeOk && s19VisualOk ? "PASS" : "FAIL",
+      `line-011 text=${String(s19.text === EXPECTED.line011Text)}; mode=${String(s19.overlayMode)}/${String(s19.textMode)} fontStyle=${String(s19.textFontStyle)} (the spoken line-010 it followed read speech/normal in step 18); visual=${JSON.stringify(s19.imgSrc)} decoded=${String(s19.imgDecoded)} visible=${String(s19.imgVisible)}`,
+    );
+
+    // 20. Reload: the frontier is not persisted yet, so a reload starts the
     // first-ever load again — item 0, not the resume spot. Honest PARTIAL:
     // the machine accepts `resumeFrontier` and main.ts passes nothing, so
     // persistence itself is Phase 8 wiring (IndexedDB), not a Phase 7 gap.
@@ -864,16 +917,16 @@ async function main() {
       },
       { timeout: 5000 },
     );
-    const s19 = await page.evaluate(PAGE_STATE);
-    const s19AtStart =
-      s19.imgSrc === "meadow-001.jpg" && s19.text === EXPECTED.meadowText;
+    const s20 = await page.evaluate(PAGE_STATE);
+    const s20AtStart =
+      s20.imgSrc === "meadow-001.jpg" && s20.text === EXPECTED.meadowText;
     record(
-      "19. reload resume (PARTIAL: persistence wired in Phase 8)",
-      s19AtStart ? "PARTIAL" : "FAIL",
-      `after reload the player shows ${JSON.stringify(s19.imgSrc)} with Mei's first line — it restarted at item 0 instead of resuming at the frontier; nothing stores the frontier yet (main.ts passes no resumeFrontier), which is Phase 8's IndexedDB work`,
+      "20. reload resume (PARTIAL: persistence wired in Phase 8)",
+      s20AtStart ? "PARTIAL" : "FAIL",
+      `after reload the player shows ${JSON.stringify(s20.imgSrc)} with Mei's first line — it restarted at item 0 instead of resuming at the frontier; nothing stores the frontier yet (main.ts passes no resumeFrontier), which is Phase 8's IndexedDB work`,
     );
 
-    // 20. A folder with the empty stub manifest shows the empty state.
+    // 21. A folder with the empty stub manifest shows the empty state.
     const emptyPage = await browser.newPage();
     emptyPage.on("console", (msg) =>
       consoleMessages.push(`empty [${msg.type()}] ${msg.text()}`),
@@ -887,18 +940,18 @@ async function main() {
       },
       { timeout: 5000 },
     );
-    const s20 = await emptyPage.evaluate(PAGE_STATE);
-    const s20Ok =
-      s20.emptyState === EXPECTED.emptyNotice &&
-      s20.imgSrc === null &&
-      s20.overlayHidden === true;
+    const s21 = await emptyPage.evaluate(PAGE_STATE);
+    const s21Ok =
+      s21.emptyState === EXPECTED.emptyNotice &&
+      s21.imgSrc === null &&
+      s21.overlayHidden === true;
     record(
-      "20. empty-manifest folder shows the empty state",
-      s20Ok ? "PASS" : "FAIL",
-      JSON.stringify(s20),
+      "21. empty-manifest folder shows the empty state",
+      s21Ok ? "PASS" : "FAIL",
+      JSON.stringify(s21),
     );
 
-    // 21. Fill the screen (docs/plan.md Phase 7b): the media is the largest
+    // 22. Fill the screen (docs/plan.md Phase 7b): the media is the largest
     // centred contain fit of the ASSET's own aspect ratio into whatever
     // viewport the player gets, never the manifest's box. Two mismatched
     // viewports, one per letterbox direction: the fixture image (16:9, the
@@ -985,7 +1038,7 @@ async function main() {
             .join(",") || "none"
         }`;
       record(
-        "21. media fills the viewport as a centred contain fit of its own aspect",
+        "22. media fills the viewport as a centred contain fit of its own aspect",
         status,
         `${brief(portraitState, portraitFit)} | ${brief(tallState, tallFit)} | ` +
           `overlay band=${bandWidth.toFixed(0)}px of ${tvw}px, bottom=${bandBottom.toFixed(0)} of ${tvh}px ` +
@@ -999,12 +1052,12 @@ async function main() {
       for (const page of fitPages) await page.close();
     }
 
-    // 22. Console stayed empty throughout both pages.
-    const s21Ok = consoleMessages.length === 0 && pageErrors.length === 0;
+    // 23. Console stayed empty throughout both pages.
+    const s23Ok = consoleMessages.length === 0 && pageErrors.length === 0;
     record(
-      "22. console stayed empty throughout",
-      s21Ok ? "PASS" : "FAIL",
-      s21Ok
+      "23. console stayed empty throughout",
+      s23Ok ? "PASS" : "FAIL",
+      s23Ok
         ? "zero console messages, zero page errors, every page, whole run"
         : `console=[${consoleMessages.join(" | ")}] pageErrors=[${pageErrors.join(" | ")}]`,
     );

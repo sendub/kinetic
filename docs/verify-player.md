@@ -8,8 +8,11 @@ set: animation frame cycling with loop count, video poster-to-play
 autoplay, the `text`-chain keeping one `<video>` element alive, and the
 rewind still; the Phase 7 input set: wheel rewind and return with both
 clamps, `tab` skip, `space` during skip, and `e`; and the Phase 7b
-presentation rule: media fills the viewport as the largest centred
-contain fit of its own aspect ratio, whatever screen it gets. Later
+presentation rules: media fills the viewport as the largest centred
+contain fit of its own aspect ratio, whatever screen it gets, and overlay
+text says which mode it is — `data-mode="thought"` for an unspoken
+thought, `"speech"` for dialogue — so CSS can draw the two differently
+(thought italic, dialogue upright). Later
 phases extend this file again: Phase 8 adds `b`/`t` and reload-resume,
 Phase 9 `c`. The key map today holds space, `h`, `tab` and `e`; the wheel
 has its own module (`render/wheel.ts`), because a wheel event is not a
@@ -49,16 +52,21 @@ first space press on a freshly shown item completes it in place
 (immediate-complete, machine Phase 3) and the next press moves on, so
 advance two presses per item. For the wheel, one mouse notch is 100 px of
 delta and steps exactly one item; steps are capped at ~12 per second, so
-a fast flick cannot outrun the eye. For step 21, drag the window to a
+a fast flick cannot outrun the eye. For step 22, drag the window to a
 shape that matches nothing — tall and narrow, or wide and short — and the
 media should stay flush with one pair of edges, centred on the other
 axis, with black only where the asset's aspect and the window's differ.
+For step 19, the demo's two thought lines — line-008 over the looping
+video, line-011 over the pier still — should read italic, and every other
+line upright.
 
 Results below were walked on 2026-10-31 by the driver on headless Chrome
-156.0.8078.76, three times with identical output (22 steps: 20 pass, 2
-honest partials). The fit rule in step 21 is pinned twice over: the
-pure `containFit` in `render/fit.ts` is unit-tested, and the driver
-imports that same function as its expectation, so the two cannot drift.
+156.0.8078.76, three times with the same statuses (23 steps: 21 pass, 2
+honest partials; the evidence lines differ only in sampled video
+`currentTime` and skip-dwell timings). The fit rule in step 22 is pinned
+twice over: the pure `containFit` in `render/fit.ts` is unit-tested, and
+the driver imports that same function as its expectation, so the two
+cannot drift.
 
 ## Checklist
 
@@ -157,10 +165,13 @@ imports that same function as its expectation, so the two cannot drift.
 - Expected: per `machine.visualIndex()`, the visual is still intro-006 —
   the SAME `<video>` element (expando intact), still playing and
   looping — never a placeholder; the image element stays hidden; the
-  overlay shows Mei and "The street glowed under the awning."
+  overlay shows Mei and "The street glowed under the awning." That line
+  is spoken dialogue, so `data-mode` reads `speech` on the band and on
+  `#overlay-text`, and its computed `font-style` is `normal`.
 - RESULT (PASS, 2026-10-31): driver step 10: expando identity
   confirmed (`sameElement=true`), `loop=true`, `paused=false`, no
-  placeholder, hidden image; speaker and line correct.
+  placeholder, hidden image; speaker and line correct; and
+  `mode=speech/speech fontStyle=normal`.
 
 ### 11. line-007 → line-008 does not touch the video element
 
@@ -169,16 +180,23 @@ imports that same function as its expectation, so the two cannot drift.
 - Expected: the chain advance must not re-create or reload the visual:
   same `<video>` element identity (asserted via the stashed expando),
   still looping and playing; overlay shows the line, no speaker.
+  line-008 carries `thought: true`, so `data-mode` reads `thought` on the
+  band and on `#overlay-text`, and the computed `font-style` is `italic`
+  — the distinction the README promises, over the same playing video.
 - RESULT (PASS, 2026-10-31): driver step 11: `sameElement=true`,
   `loop=true`, `paused=false`, `currentTime > 0`; overlay text exact,
-  no speaker element.
+  no speaker element; `mode=thought/thought fontStyle=italic`.
 
 ### 12. `h` over a playing video
 
-- Action: press `h` while line-008 shows over the looping video.
+- Action: press `h` while line-008 (a thought) shows over the looping
+  video.
 - Expected: `#overlay` becomes `[hidden]`; the video keeps playing on
-  the same element, untouched.
-- RESULT (PASS, 2026-10-31): driver step 12: `overlayHidden=true` while
+  the same element, untouched. `h` hides the thought mode exactly as it
+  hides dialogue (step 6 hides a spoken line), and the mode attribute
+  stays whatever the line was — hiding changes presentation, not mode.
+- RESULT (PASS, 2026-10-31): driver step 12: `overlayHidden=true` with
+  `data-mode` still `thought` on band and line, while
   `sameElement=true`, `paused=false`; `h` again restores the overlay
   before the walk continues.
 
@@ -262,36 +280,56 @@ imports that same function as its expectation, so the two cannot drift.
   press `e`.
 - Expected: the cursor jumps to `frontier - 1`, the last item ever
   shown — the spot the reader resumes from. The wheel cannot push past
-  it from there.
+  it from there. The line there (line-010) is spoken dialogue with a
+  speaker, so `data-mode` reads `speech` on band and line and the
+  computed `font-style` is `normal`.
 - RESULT (PASS, 2026-10-31): driver step 18: after two back notches the
   overlay held intro-006's line; after `e` it showed `pier-009.jpg` with
   Theo's "The tide took the last of the crates by morning." — line-010
   (item 9), the last item the walk had ever shown, painted with item 8's
-  image because a `text` item keeps the earlier visual. One further
+  image because a `text` item keeps the earlier visual;
+  `mode=speech/speech fontStyle=normal`. One further
   wheel-down left it exactly there: the frontier edge holds, and item
   10 was never entered.
 
-### 19. Reload resume
+### 19. A thought line reads apart from the spoken one, over a still
+
+- Action: press space from the line `e` landed on (line-010) to enter
+  the last item of the demo, line-011, which carries `thought: true`.
+- Expected: the band and `#overlay-text` both say `data-mode="thought"`,
+  the computed `font-style` of the line is `italic`, and the text is
+  line-011's own; the visual does not move — a `text` item shows the
+  nearest earlier media item's, so `pier-009.jpg` stays painted, decoded
+  and visible (the same `machine.visualIndex()` rule step 10 pins for the
+  video chain). `h` hiding both modes is steps 6 and 12.
+- RESULT (PASS, 2026-10-31): driver step 19: `mode=thought/thought
+  fontStyle=italic` over `pier-009.jpg` with `decoded=true,
+  visible=true`, while the spoken line it followed read
+  `speech/normal` (step 18). Both modes therefore appear over both kinds
+  of visual: line-008 over the looping video (step 11), line-011 over a
+  still.
+
+### 20. Reload resume
 
 - Action: reload the page (⌘R) anywhere in the middle of content.
 - Expected, once Phase 8 lands: the player comes back at the last seen
   item, the same spot `e` lands on.
-- RESULT (PARTIAL, 2026-10-31): driver step 19: after reload the player
+- RESULT (PARTIAL, 2026-10-31): driver step 20: after reload the player
   showed meadow-001.jpg with Mei's first line — it restarted at item 0
   instead of resuming. Nothing persists the frontier yet: `main.ts`
   builds the machine with no `resumeFrontier`, and no storage exists.
   Persistence wired in Phase 8; this step is not faked.
 
-### 20. Empty folder shows the empty state
+### 21. Empty folder shows the empty state
 
 - Action: open `.tmp/verify-demo-empty/index.html` (dist stub manifest,
   no items).
 - Expected: `#empty-state` reads "No content yet — this folder has an
   empty manifest."; no overlay; no errors.
-- RESULT (PASS, 2026-10-31): driver step 20: notice text exact, overlay
+- RESULT (PASS, 2026-10-31): driver step 21: notice text exact, overlay
   hidden, zero console output on that page.
 
-### 21. Media fills the screen with its own aspect ratio
+### 22. Media fills the screen with its own aspect ratio
 
 - Action: open the demo folder at a viewport that matches nothing —
   the driver sets 700x1000, portrait — and open `.tmp/verify-demo-tall`
@@ -304,7 +342,7 @@ imports that same function as its expectation, so the two cannot drift.
   on a 16:9 manifest the fit must follow the image. The overlay stays a
   band across the full viewport width, over the content and its
   letterbox rather than inside it; `h` still hides it (step 6).
-- RESULT (PASS, 2026-10-31): driver step 21: at 700x1000 the 960x540
+- RESULT (PASS, 2026-10-31): driver step 22: at 700x1000 the 960x540
   image fills 700x393.8 at y=303.1 — flush in width, letterboxed top and
   bottom, centred; at 1200x700 the 640x960 image fills 466.7x700 at
   x=366.7 — flush in height, pillarboxed, centred — while the manifest's
@@ -317,13 +355,13 @@ imports that same function as its expectation, so the two cannot drift.
   not pixel-sampled headless — on a real screen they should sit outside
   the media, top/bottom or left/right.
 
-### 22. Console stayed empty throughout
+### 23. Console stayed empty throughout
 
 - Action: watch DevTools' console through the whole walk (all folders).
 - Expected: zero console messages and zero uncaught errors; a plain
   `file://` open logs nothing, per the shell's own console contract. An
   autoplay rejection must be caught, never surfaced.
-- RESULT (PASS, 2026-10-31): driver step 22: zero console messages,
+- RESULT (PASS, 2026-10-31): driver step 23: zero console messages,
   zero page errors, every page, whole run — including the wheel events,
   the skip run, the reload and both geometry viewports.
 
@@ -336,6 +374,12 @@ imports that same function as its expectation, so the two cannot drift.
   size from the manifest again — but its box is not measured at an
   oddball viewport here, and no step resizes the window mid-playback to
   watch a running video re-fit.
+- What the two modes should look like. Steps 11 and 19 assert
+  `data-mode` and the computed `font-style`, which pins only the current
+  placeholder distinction: thought italic, dialogue upright. The final
+  look is an open iteration with the user (docs/plan.md Phase 7b,
+  "Deferred"); changing it is a CSS edit in `index.html`, and those two
+  steps plus step 12 (`h`) are where a new look gets checked.
 - Bookmarks (`b`/`t`) and reload-resume: Phase 8, which also adds the
   storage interface the machine and shell read through. Config screen
   (`c`): Phase 9.

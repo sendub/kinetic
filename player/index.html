@@ -95,6 +95,16 @@
         text-shadow: 0 1px 4px rgba(0, 0, 0, 0.85);
         white-space: pre-line;
       }
+      /* Thought vs dialogue (docs/plan.md Phase 7b): an unspoken thought is
+         italic, spoken dialogue stays upright. `data-mode` comes from
+         render/overlay.ts and the whole distinction lives here, so the look
+         can change without touching logic. The final look is still an open
+         iteration with the user (docs/plan.md Phase 7b, "Deferred"), so this
+         stays minimal on purpose — and the band's geometry above is not part
+         of it. */
+      .overlay-text[data-mode="thought"] {
+        font-style: italic;
+      }
     </style>
   </head>
   <body>

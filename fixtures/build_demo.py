@@ -202,19 +202,25 @@ def build_text_chain_items() -> list[dict]:
     earlier media-bearing item, which keeps playing/looping beneath a chain of
     them. Returned in manifest order to append after the video item:
 
-    - two dialogue lines over the looping video (intro-006);
-    - a still (pier-009) followed by two dialogue lines.
+    - two lines over the looping video (intro-006);
+    - a still (pier-009) followed by two lines.
+
+    One line in each chain is marked `thought: true` (docs/plan.md Phase 7b),
+    so the demo shows both presentation modes over both kinds of visual. Only
+    the flag differs: ids, order and the text strings are unchanged, and a
+    `thought` changes no timing, so the output stays deterministic.
     """
-    # Dialogue chain over the video: two distinct speakers/lines, no media.
+    # Chain over the video: a spoken line with a speaker, then Mei's unspoken
+    # thought, with no media fields of its own.
     items: list[dict] = [
         {"id": "line-007", "type": "text", "speaker": "Mei",
          "text": "The street glowed under the awning."},
-        {"id": "line-008", "type": "text",
+        {"id": "line-008", "type": "text", "thought": True,
          "text": "Neither of us spoke for a while."},
     ]
 
-    # Dialogue chain over one still: a bare image (no overlaid text), then
-    # two distinct lines drawn over it.
+    # Chain over one still: a bare image (no overlaid text), then Theo's
+    # spoken line drawn over it, then a thought over the same still.
     img = new_canvas((42, 30, 58), (96, 70, 64))
     rect(img, 0, 400, WIDTH, HEIGHT, (30, 24, 34))
     circle(img, 480, 250, 40, (250, 210, 150))
@@ -225,7 +231,7 @@ def build_text_chain_items() -> list[dict]:
         "text": "The tide took the last of the crates by morning.",
     })
     items.append({
-        "id": "line-011", "type": "text",
+        "id": "line-011", "type": "text", "thought": True,
         "text": "We stacked the rest ourselves, and called it enough.",
     })
 

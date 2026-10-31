@@ -85,9 +85,11 @@ truthful: an unchecked box means nothing was accepted.
       step 21 PASS, 96 tests, 2025-11-01)
 - [x] `thought` field in format, schema, validator (fault tests), and
       CREATE.md (28 pytest tests, 2025-11-01)
-- [ ] Demo fixture gains a thought line
-- [ ] Renderer: `data-mode` attribute + CSS-only speech/thought
+- [x] Demo fixture gains a thought line (line-008, line-011; determinism
+      sha256-verified, 2025-11-01)
+- [x] Renderer: `data-mode` attribute + CSS-only speech/thought
       distinction; verify steps for mode and contain-fit geometry
+      (23 steps: 21 pass, 2 honest partials, 99 tests, 2025-11-01)
 
 ## Phase 8: Bookmarks
 
