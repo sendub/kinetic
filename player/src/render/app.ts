@@ -8,17 +8,6 @@ import type { MachineState, Manifest } from "../machine/types";
 import { createTextOverlayLayer } from "./overlay";
 import { createVisualLayer } from "./visual";
 
-declare global {
-  interface Window {
-    /**
-     * Verification seam (docs/verify-player.md): commands the key map does
-     * not own yet (wheel in Phase 7, skip, `e`) driven straight off the
-     * machine by the headless driver. Production code never reads it.
-     */
-    __kineticDebug?: { machine: Machine };
-  }
-}
-
 export interface Shell {
   /** The `h` toggle: hide or show the text overlay, visual untouched. */
   toggleText(): void;
@@ -68,10 +57,6 @@ export function mountShell({ root, manifest, machine }: ShellOptions): Shell {
   const unsubscribe = machine.subscribe(render);
   render(machine.getState());
 
-  // Expose the machine for the verification driver only (see declare global).
-  const view = doc.defaultView;
-  if (view !== null) view.__kineticDebug = { machine };
-
   return {
     toggleText() {
       setTextVisible(!textVisible);
@@ -84,9 +69,6 @@ export function mountShell({ root, manifest, machine }: ShellOptions): Shell {
       unsubscribe();
       machine.destroy();
       visuals.destroy();
-      if (view !== null && view.__kineticDebug?.machine === machine) {
-        delete view.__kineticDebug;
-      }
       root.replaceChildren();
     },
   };

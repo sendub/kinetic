@@ -8,6 +8,7 @@ import { mountError, mountShell } from "./render/app";
 import { installFirstGestureFullscreen } from "./render/fullscreen";
 import { installKeyMap } from "./render/keys";
 import { loadManifest } from "./render/manifest";
+import { installWheelInput } from "./render/wheel";
 
 async function fetchJson(url: string): Promise<unknown> {
   const response = await fetch(url);
@@ -36,6 +37,12 @@ function start(): void {
       installKeyMap(document, {
         advance: () => machine.advance(),
         toggleText: () => shell.toggleText(),
+        toggleSkip: () => machine.toggleSkip(),
+        jumpToUnseen: () => machine.jumpToUnseen(),
+      });
+      installWheelInput(document, {
+        wheelBack: () => machine.wheelBack(),
+        wheelForward: () => machine.wheelForward(),
       });
     },
     (error: unknown) => {

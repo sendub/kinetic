@@ -72,8 +72,21 @@ truthful: an unchecked box means nothing was accepted.
 
 ## Phase 7: Wheel scroll wiring
 
-- [ ] Wheel steps map to machine commands with debounce
-- [ ] Combined flow verified: space, tab, wheel, e, reload-resume
+- [x] Wheel steps map to machine commands with debounce (pure wheelPlan,
+      100px/step + 80ms cap; tab/e wired too, 2025-11-01)
+- [x] Combined flow verified: space, tab, wheel, e, reload-resume
+      (verify.mjs 21 steps, reload-resume honestly PARTIAL pending
+      Phase 8 storage, 2025-11-01)
+
+## Phase 7b: Presentation revision (2025-11-01, user requests)
+
+- [ ] Fill-the-screen contain-fit documented (README/content-format) and
+      applied to images, animation frames, and video
+- [ ] `thought` field in format, schema, validator (fault tests), and
+      CREATE.md
+- [ ] Demo fixture gains a thought line
+- [ ] Renderer: `data-mode` attribute + CSS-only speech/thought
+      distinction; verify steps for mode and contain-fit geometry
 
 ## Phase 8: Bookmarks
 
@@ -122,3 +135,8 @@ truthful: an unchecked box means nothing was accepted.
       over `file://`
 - [ ] docs/packaging.md written; Tauri path noted, not built
 - [ ] README accuracy pass; this file fully checked
+
+## Later, waiting on the user
+
+- [ ] Overlay text styling iteration (incl. thought vs dialogue look)
+      with the user, once a playable demo exists

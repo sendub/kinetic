@@ -1,7 +1,7 @@
 #!/usr/bin/env node
-// Driver for docs/verify-player.md: walks the checklist (Phase 5 shell +
-// Phase 6 media playback) against the demo fixture in headless Chrome and
-// prints PASS / PARTIAL / FAIL per step.
+// Driver for docs/verify-player.md: walks the checklist (Phase 5 shell,
+// Phase 6 media playback, Phase 7 wheel/skip/jump) against the demo fixture
+// in headless Chrome and prints PASS / PARTIAL / FAIL per step.
 // Run from player/:  node scripts/verify.mjs
 // Exit code: 0 when every step is PASS or PARTIAL, 1 on any FAIL or crash.
 //
@@ -11,8 +11,11 @@
 // .tmp/verify-demo-empty gets the dist stub manifest (no items) to exercise
 // the #empty-state notice.
 //
-// Keys are real CDP Input events (Input.dispatchKeyEvent): trusted events,
-// so the fullscreen gesture logic treats them as user input.
+// Every input is real CDP Input: Input.dispatchKeyEvent for keys and
+// Input.dispatchMouseEvent `mouseWheel` for the wheel. Both arrive trusted, so
+// the fullscreen gesture logic treats them as user input and the wheel takes
+// the same path a trackpad takes. Nothing reads the machine from the driver:
+// each step asserts what the DOM shows.
 
 import { execFileSync } from "node:child_process";
 import { copyFileSync, cpSync, existsSync, mkdirSync } from "node:fs";
@@ -35,9 +38,11 @@ const EXPECTED = {
   lanternText:
     "Lanterns lined the empty street, one for each guest who never came.",
   windowText: "Rain again. It's always rain in this town.",
+  ferryText: "The ferry crossed once a day, and that was enough.",
   line007Text: "The street glowed under the awning.",
   line008Text: "Neither of us spoke for a while.",
   sparkText: "Sparks circled the bonfire and went out one by one.",
+  line010Text: "The tide took the last of the crates by morning.",
   emptyNotice: "No content yet — this folder has an empty manifest.",
 };
 
@@ -150,6 +155,75 @@ async function pressKey(cdp, key, code, keyCode, text) {
 }
 const pressSpace = (cdp) => pressKey(cdp, " ", "Space", 32, " ");
 const pressH = (cdp) => pressKey(cdp, "h", "KeyH", 72, "h");
+const pressTab = (cdp) => pressKey(cdp, "Tab", "Tab", 9, "");
+const pressE = (cdp) => pressKey(cdp, "e", "KeyE", 69, "e");
+
+// One deliberate wheel notch. `WHEEL_PX` is render/wheel.ts's step size and
+// `WHEEL_GAP_MS` clears its rate cap, so a notch means exactly one machine
+// step; a trackpad's small deltas are the driver's business only as pixels.
+const WHEEL_PX = 100;
+const WHEEL_GAP_MS = 120;
+
+const wheelNotch = (cdp, up) =>
+  cdp.send("Input.dispatchMouseEvent", {
+    type: "mouseWheel",
+    x: 400,
+    y: 300,
+    deltaX: 0,
+    deltaY: up ? -WHEEL_PX : WHEEL_PX,
+  });
+
+const wheel = async (cdp, up, notches = 1) => {
+  for (let i = 0; i < notches; i += 1) {
+    await wheelNotch(cdp, up);
+    await sleep(WHEEL_GAP_MS);
+  }
+};
+
+// What a reader can see, as one string: which surface is painted and which
+// line the overlay holds. Steps compare signatures to count cursor moves
+// without reading machine state — the DOM is the only source of truth here.
+const SIGNATURE = () => {
+  const img = document.getElementById("visual-image");
+  const video = document.getElementById("visual-video");
+  const overlay = document.getElementById("overlay");
+  return [
+    img ? (img.getAttribute("src") ?? "") : "no-img",
+    img && getComputedStyle(img).display !== "none" ? "img-on" : "img-off",
+    video ? (video.getAttribute("src") ?? "") : "no-video",
+    video ? (video.paused ? "paused" : "playing") : "-",
+    overlay?.hidden ? "text-off" : "text-on",
+    document.getElementById("overlay-text")?.textContent ?? "",
+  ].join("|");
+};
+
+const readSignature = (page) => page.evaluate(SIGNATURE);
+
+// Polls the visible state from the driver, so every sample also forces the
+// renderer to run (a page-side setInterval is unreliable when the driver is
+// merely sleeping: headless produces no frames of its own). Deltas are
+// therefore quantized by `gapMs`, which is far below the 120 ms / 1500 ms
+// timings being told apart here.
+const sampleSignatures = async (page, durationMs, gapMs) => {
+  const samples = [];
+  const until = Date.now() + durationMs;
+  while (Date.now() < until) {
+    samples.push([Date.now(), await readSignature(page)]);
+    await sleep(gapMs);
+  }
+  return samples;
+};
+
+// Collapses [[time, signature]] to its changes: [[time, signature]].
+function transitions(samples) {
+  const changes = [];
+  for (const [time, sig] of samples) {
+    if (changes.length === 0 || changes[changes.length - 1][1] !== sig) {
+      changes.push([time, sig]);
+    }
+  }
+  return changes;
+}
 
 // Space on an unsettled item completes it in place (machine Phase 3
 // immediate-complete); the next space moves the cursor. One move = two presses.
@@ -483,44 +557,200 @@ async function main() {
     );
     await pressH(cdp);
 
-    // 13. Rewinding onto the earlier video item shows the poster still: the
-    // video pauses at the start with the poster painted. The real wheel
-    // gesture lands in Phase 7, so the driver commands machine.wheelBack()
-    // through the __kineticDebug seam (render/app.ts): this proves the
-    // renderer's rewind-still behavior, NOT the wheel wiring — its honest
-    // ceiling is PARTIAL, and headless cannot distinguish the poster pixels
-    // from frame 0 (the poster IS the first frame by format docs).
-    try {
-      await page.evaluate(() => {
-        const m = window.__kineticDebug?.machine;
-        if (m === undefined) throw new Error("__kineticDebug.machine missing");
-        m.wheelBack(); // line-008 -> line-007: below frontier, still mode
-        m.wheelBack(); // line-007 -> intro-006 itself: still mode
-      });
-      await sleep(150);
-      const s13 = await page.evaluate(PAGE_STATE);
-      const same13 = await videoTokenIs(page);
-      const s13Ok =
-        same13 &&
-        s13.video?.paused === true &&
-        s13.video?.currentTime < 0.05 &&
-        s13.video?.loop === false &&
-        s13.video?.visible === true &&
-        s13.video?.posterPainted === true;
-      record(
-        "13. rewind onto the video item shows the poster still (PARTIAL in headless)",
-        s13Ok ? "PARTIAL" : "FAIL",
-        `sameElement=${String(same13)}; ${JSON.stringify(s13.video)}; driven by machine.wheelBack() — real wheel wiring lands in Phase 7; poster-vs-frame-0 pixels indistinguishable by definition`,
-      );
-    } catch (error) {
-      record(
-        "13. rewind onto the video item shows the poster still (PARTIAL in headless)",
-        "FAIL",
-        String(error),
-      );
-    }
+    // 13. The wheel rewinds through real wheel events, one notch = one item,
+    // and rewinding onto the video shows the poster as a still: paused at the
+    // start, loop off, poster painted, the SAME element (expando intact). The
+    // events are CDP mouseWheel, so the whole Phase 7 path runs: listener ->
+    // accumulator -> machine -> renderer.
+    await wheelNotch(cdp, true);
+    await sleep(WHEEL_GAP_MS);
+    const s13a = await page.evaluate(PAGE_STATE);
+    await wheelNotch(cdp, true);
+    await sleep(WHEEL_GAP_MS);
+    const s13b = await page.evaluate(PAGE_STATE);
+    const same13 = await videoTokenIs(page);
+    const s13Ok =
+      s13a.text === EXPECTED.line007Text &&
+      s13b.text === EXPECTED.ferryText &&
+      same13 &&
+      s13b.video?.paused === true &&
+      s13b.video?.currentTime < 0.05 &&
+      s13b.video?.loop === false &&
+      s13b.video?.visible === true &&
+      s13b.video?.posterPainted === true;
+    record(
+      "13. two wheel notches step back two items; rewinding onto the video shows the poster still",
+      s13Ok ? "PASS" : "FAIL",
+      `after 1st notch text=${JSON.stringify(s13a.text)}; after 2nd text=${JSON.stringify(s13b.text)}; sameElement=${String(same13)}; ${JSON.stringify(s13b.video)}; driven by CDP mouseWheel; poster-vs-frame-0 pixels are identical by format definition, so the observable facts are the paused-at-zero state and the poster wiring`,
+    );
 
-    // 14. A folder with the empty stub manifest shows the empty state.
+    // 14. One notch from an image item is exactly one item: window-004 (image
+    // + text) back to sunset-003 (bare image), where the overlay draws
+    // nothing. A notch that double-stepped would land on lantern-002 instead.
+    await wheel(cdp, true, 2); // intro-006 -> spark-005 -> window-004
+    const s14a = await page.evaluate(PAGE_STATE);
+    await wheelNotch(cdp, true);
+    await sleep(WHEEL_GAP_MS);
+    const s14b = await page.evaluate(PAGE_STATE);
+    const s14Ok =
+      s14a.imgSrc === "window-004.jpg" &&
+      s14a.text === EXPECTED.windowText &&
+      s14b.imgSrc === "sunset-003.jpg" &&
+      s14b.overlayHidden === true &&
+      s14b.overlayChildren === 0;
+    record(
+      "14. one wheel notch from an image item steps back exactly one item",
+      s14Ok ? "PASS" : "FAIL",
+      `before=${JSON.stringify(s14a.imgSrc)} (text ${String(s14a.text === EXPECTED.windowText)}); after one notch=${JSON.stringify(s14b.imgSrc)}, overlayHidden=${String(s14b.overlayHidden)}, children=${String(s14b.overlayChildren)}`,
+    );
+
+    // 15. Both clamps. Past item 0 the wheel does nothing; back the other way
+    // it returns through seen items and stops at the frontier. Seven notches
+    // from item 0 reach item 7 (the last item ever shown); the three extra
+    // notches must not touch the DOM, because unseen content is off limits.
+    await wheel(cdp, true, 3); // sunset-003 -> lantern-002 -> meadow-001, +1 clamped
+    const s15a = await page.evaluate(PAGE_STATE);
+    await wheel(cdp, false, 7); // -> item 7, the frontier edge
+    const s15b = await page.evaluate(PAGE_STATE);
+    await wheel(cdp, false, 3); // beyond the frontier: no move allowed
+    const s15c = await page.evaluate(PAGE_STATE);
+    const s15Ok =
+      s15a.imgSrc === "meadow-001.jpg" &&
+      s15a.speaker === "Mei" &&
+      s15a.text === EXPECTED.meadowText &&
+      s15b.text === EXPECTED.line008Text &&
+      s15b.video?.paused === false &&
+      s15c.text === EXPECTED.line008Text &&
+      s15c.video?.src === s15b.video?.src;
+    record(
+      "15. wheel clamps at item 0 and stops at the frontier on the way back",
+      s15Ok ? "PASS" : "FAIL",
+      `after 3 extra ups item=${JSON.stringify(s15a.imgSrc)} speaker=${String(s15a.speaker)}; after 7 downs text=${JSON.stringify(s15b.text)} videoPlaying=${String(s15b.video?.paused === false)}; after 3 more downs text=${JSON.stringify(s15c.text)} (unchanged=${String(s15c.text === s15b.text)}) — item 8 (pier-009.jpg) was never painted, so nothing unseen was entered`,
+    );
+
+    // 16. tab starts skip: with no further input the cursor advances on the
+    // 120 ms dwell — measured page-side, so the driver's own latency is not in
+    // the samples — and skip ends when the cursor moves onto the first
+    // never-shown item (pier-009, item 8, which has no text). Then that
+    // frontier item is shown normally: it sits for its own 1500 ms hold
+    // instead of the 120 ms dwell, and auto-advances to line-010 afterwards.
+    await wheel(cdp, true, 4); // item 7 -> item 3, room to skip through seen items
+    const s16start = await readSignature(page);
+    const tabAt = Date.now();
+    await pressTab(cdp);
+    const skipSamples = await sampleSignatures(page, 900, 40);
+    const skipChanges = transitions(skipSamples);
+    const s16 = await page.evaluate(PAGE_STATE);
+    const skipDeltas = skipChanges
+      .slice(1)
+      .map(([time], i) => time - skipChanges[i][0])
+      .sort((x, y) => x - y);
+    const medianDwell = skipDeltas[(skipDeltas.length - 1) >> 1] ?? -1;
+    const s16Moves = skipChanges.length - 1;
+    const frontierIndex = skipChanges.findIndex(([, sig]) =>
+      sig.startsWith("pier-009.jpg"),
+    );
+    const frontierDelay =
+      frontierIndex >= 0 ? skipChanges[frontierIndex][0] - tabAt : -1;
+    const tail = skipSamples.slice(-5).map(([, sig]) => sig);
+    const stoppedOnFrontier =
+      frontierDelay > 0 &&
+      frontierDelay < 1000 && // ~5 dwells, not a full read of the item
+      s16.imgSrc === "pier-009.jpg" &&
+      s16.imgDecoded &&
+      s16.overlayHidden === true && // pier-009 has no text
+      new Set(tail).size === 1; // and it stayed: the dwell is gone
+    let resumedNormalHold = true;
+    try {
+      await page.waitForFunction(
+        (expected) =>
+          (document.getElementById("overlay-text")?.textContent ?? "") ===
+          expected,
+        { timeout: 2400 },
+        EXPECTED.line010Text,
+      );
+    } catch {
+      resumedNormalHold = false;
+    }
+    record(
+      "16. tab skips at ~120 ms per item and stops on the frontier item, shown normally",
+      s16Moves >= 4 &&
+        medianDwell >= 80 &&
+        medianDwell <= 260 &&
+        stoppedOnFrontier
+        ? resumedNormalHold
+          ? "PASS"
+          : "PARTIAL"
+        : "FAIL",
+      `from ${JSON.stringify(s16start.split("|").pop())} the cursor moved ${String(s16Moves)} times with no input (median dwell ${String(medianDwell)}ms against settings.skipDwellMs = 120); the frontier item pier-009.jpg appeared at +${String(frontierDelay)}ms, decoded=${String(s16.imgDecoded)}, overlayHidden=${String(s16.overlayHidden)}, and the last ${String(tail.length)} samples were identical; its normal 1500 ms hold then auto-advanced to line-010=${String(resumedNormalHold)}`,
+    );
+
+    // 17. Space during skip exits skip mode: the machine leaves skip and
+    // settles the item under the cursor, so nothing moves afterward. Half a
+    // second of stillness is the discriminator — a 120 ms dwell would have
+    // moved ~4 times. The first 220 ms after the press are ignored, since a
+    // dwell already in flight when the key was handled is allowed to land.
+    await wheel(cdp, true, 4); // line-010 -> intro-006
+    await pressTab(cdp);
+    const skippingChanges = transitions(await sampleSignatures(page, 320, 40));
+    await pressSpace(cdp);
+    const spaceAt = Date.now();
+    const afterSpace = (await sampleSignatures(page, 720, 60)).filter(
+      ([time]) => time > spaceAt + 220,
+    );
+    const s17 = await page.evaluate(PAGE_STATE);
+    const s17Ok =
+      skippingChanges.length >= 3 &&
+      new Set(afterSpace.map(([, s]) => s)).size === 1;
+    record(
+      "17. space during skip exits skip mode and holds the item",
+      s17Ok ? "PASS" : "FAIL",
+      `skip was running: the visible state changed ${String(skippingChanges.length - 1)} times in the ~320 ms before the press; after the press, ${String(new Set(afterSpace.map(([, s]) => s)).size - 1)} further change in ~500 ms (a 120 ms dwell would have moved ~4 times); it stopped on ${JSON.stringify(s17.text ?? s17.imgSrc)}, which is inside seen content, so a continuing skip would have moved on from there`,
+    );
+
+    // 18. e jumps back to the last item ever seen (frontier - 1), wherever the
+    // cursor was, and the wheel cannot push past it from there.
+    await wheel(cdp, true, 2);
+    const s18before = await readSignature(page);
+    await pressE(cdp);
+    await sleep(80);
+    const s18 = await page.evaluate(PAGE_STATE);
+    await wheelNotch(cdp, false);
+    await sleep(WHEEL_GAP_MS);
+    const s18after = await page.evaluate(PAGE_STATE);
+    const s18Ok =
+      s18.text === EXPECTED.line010Text &&
+      s18.speaker === "Theo" &&
+      s18.imgSrc === "pier-009.jpg" &&
+      s18after.text === EXPECTED.line010Text;
+    record(
+      "18. e returns to the last seen item (frontier - 1); wheel cannot pass it",
+      s18Ok ? "PASS" : "FAIL",
+      `after 2 wheel-back notches=${JSON.stringify(s18before.split("|").pop())}; after e=${JSON.stringify(s18.imgSrc)} speaker=${String(s18.speaker)} text=${JSON.stringify(s18.text)}; one wheel-down after e left it at ${JSON.stringify(s18after.text)} (frontier edge, item 10 unseen was not entered)`,
+    );
+
+    // 19. Reload: the frontier is not persisted yet, so a reload starts the
+    // first-ever load again — item 0, not the resume spot. Honest PARTIAL:
+    // the machine accepts `resumeFrontier` and main.ts passes nothing, so
+    // persistence itself is Phase 8 wiring (IndexedDB), not a Phase 7 gap.
+    await page.reload();
+    await page.waitForFunction(
+      () => {
+        const el = document.getElementById("overlay-text");
+        return el !== null && (el.textContent ?? "").length > 0;
+      },
+      { timeout: 5000 },
+    );
+    const s19 = await page.evaluate(PAGE_STATE);
+    const s19AtStart =
+      s19.imgSrc === "meadow-001.jpg" && s19.text === EXPECTED.meadowText;
+    record(
+      "19. reload resume (PARTIAL: persistence wired in Phase 8)",
+      s19AtStart ? "PARTIAL" : "FAIL",
+      `after reload the player shows ${JSON.stringify(s19.imgSrc)} with Mei's first line — it restarted at item 0 instead of resuming at the frontier; nothing stores the frontier yet (main.ts passes no resumeFrontier), which is Phase 8's IndexedDB work`,
+    );
+
+    // 20. A folder with the empty stub manifest shows the empty state.
     const emptyPage = await browser.newPage();
     emptyPage.on("console", (msg) =>
       consoleMessages.push(`empty [${msg.type()}] ${msg.text()}`),
@@ -534,23 +764,23 @@ async function main() {
       },
       { timeout: 5000 },
     );
-    const s14 = await emptyPage.evaluate(PAGE_STATE);
-    const s14Ok =
-      s14.emptyState === EXPECTED.emptyNotice &&
-      s14.imgSrc === null &&
-      s14.overlayHidden === true;
+    const s20 = await emptyPage.evaluate(PAGE_STATE);
+    const s20Ok =
+      s20.emptyState === EXPECTED.emptyNotice &&
+      s20.imgSrc === null &&
+      s20.overlayHidden === true;
     record(
-      "14. empty-manifest folder shows the empty state",
-      s14Ok ? "PASS" : "FAIL",
-      JSON.stringify(s14),
+      "20. empty-manifest folder shows the empty state",
+      s20Ok ? "PASS" : "FAIL",
+      JSON.stringify(s20),
     );
 
-    // 15. Console stayed empty throughout both pages.
-    const s15Ok = consoleMessages.length === 0 && pageErrors.length === 0;
+    // 21. Console stayed empty throughout both pages.
+    const s21Ok = consoleMessages.length === 0 && pageErrors.length === 0;
     record(
-      "15. console stayed empty throughout",
-      s15Ok ? "PASS" : "FAIL",
-      s15Ok
+      "21. console stayed empty throughout",
+      s21Ok ? "PASS" : "FAIL",
+      s21Ok
         ? "zero console messages, zero page errors, both pages, whole run"
         : `console=[${consoleMessages.join(" | ")}] pageErrors=[${pageErrors.join(" | ")}]`,
     );
