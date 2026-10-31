@@ -22,6 +22,16 @@ truthful: an unchecked box means nothing was accepted.
 - [x] Top-level CREATE.md written against the final schema (worked
       example validated against the real validator, 2025-11-01)
 
+## Phase 2b: Format revision from external review (2025-11-01)
+
+- [ ] docs/content-format.md timing formula fixed to all-ms units; `text`
+      items and media reuse documented; CREATE.md synced
+- [ ] Schema `text` variant; validator rules and new fault tests green
+- [ ] Machine `text` items: text-only holds, media loops under chains,
+      cursor-to-visual helper; tests green
+- [ ] Demo fixture extended with video+text and image+text chains; all
+      suites green
+
 ## Phase 3: Timeline machine - core
 
 - [x] Manifest model, cursor, frontier, advance, auto-advance implemented
@@ -75,6 +85,11 @@ truthful: an unchecked box means nothing was accepted.
 - [ ] `converter/` package with CLI over source `.rpy` projects
 - [ ] Statement subset parser; unknown statements reported, not fatal
 - [ ] Asset pass: Pillow derivatives, ffmpeg H.264 + posters
+- [ ] Content-sniffed formats (never extension); wrapped/obfuscated images
+      decoded to standard formats at conversion
+- [ ] Identical sources deduped into shared derivative files
+- [ ] `build-ledger.json` written as an unreferenced extra; validator
+      tolerance tested
 - [ ] `fixtures/renpy_demo/` + golden-manifest pytest green
 - [ ] Extracted demo plays end to end in the player
 

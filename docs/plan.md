@@ -21,6 +21,12 @@ docs/         stack.md, plan.md, progress.md, content-format.md
 - The player loads a content directory (manifest.json + media files), runs
   a pure timeline state machine, and renders through a thin DOM layer.
   Key handling and the wheel map onto machine commands.
+- Item types: `image`, `animation`, `video`, and `text`. A `text` item
+  carries only speaker/text and keeps the visual shown by earlier items
+  playing underneath, so several lines can advance over one continuous
+  looping video or animation (a common shape in kinetic adaptations of
+  non-kinetic games, e.g. game I ep3,
+  `scenes/EP02_01/EP02_01_dialogues1_white.rpy:1679` in the corpus).
 - The converter emits exactly what the player expects; the demo fixture is
   hand-built by script, not by the converter, so each side can be tested
   against the format alone.
@@ -62,6 +68,45 @@ Acceptance: `build_demo.py` runs clean twice with identical output;
 validator passes on `fixtures/demo/` and fails on a deliberately broken
 manifest (add it to tests); CREATE.md names only fields the schema
 defines.
+
+## Phase 2b: Format revision from external review (2025-11-01)
+
+Another agent building a real timeline (game I corpus) reviewed
+the format. Four changes follow; Phases 3-9 build against the revised
+format.
+
+- 2b.1 Fix docs: the timing formula in docs/content-format.md mixes
+  seconds and milliseconds (`max(minHold, chars*msPerChar/speed)/1000`
+  with `minHold=1.5` yields 0.06 s for a 1-char line). The implementation
+  is already correct (all-ms: `max(minHoldMs=1500, chars*msPerChar/
+  speed)`); rewrite the doc formula to match the code. Document the `text`
+  item type (no media fields; hold is text-only; shows the nearest earlier
+  item's visual, which keeps playing/looping while a `text` item follows
+  it; rewind and skip show that visual's still). State that multiple items
+  may reference the same derivative file and the converter dedups
+  identical sources, so naming conventions describe generated defaults,
+  not a one-file-per-item mandate. Note that a content folder may carry
+  extra unreferenced files (e.g. the converter build ledger). Sync
+  CREATE.md: worked `text`-chain example and the reuse note.
+- 2b.2 Schema and validator: add the `text` item variant (required
+  `[id, type]`, optional `speaker`/`text`, no media fields,
+  additionalProperties false); rules: the first item is not `text`, and a
+  `text` item must have some media-bearing item before it. New pytest
+  fault tests (leading `text`, text-only manifest) and a test that extra
+  unreferenced files are tolerated.
+- 2b.3 Machine: `text` item type; its hold is `textHoldMs` only; a media
+  item whose next item is `text` also holds text-only and its video loops
+  / animation keeps looping underneath the chain (advance is never gated
+  on media end while the chain lasts); expose a helper mapping a cursor
+  on a `text` item to the index of the visual it displays; rewind, skip,
+  and e-jump land on `text` items per the doc rules. Tests per behavior.
+- 2b.4 Fixtures: extend `fixtures/build_demo.py` with a video + two
+  `text` lines (looping video under dialogue) and an image + two `text`
+  lines; all gates green: machine tests, validator, fixture determinism.
+
+Acceptance: all four land with the three suites green
+(vitest, pytest, fixture rebuild) and docs/schema/CREATE agreeing on the
+`text` semantics.
 
 ## Phase 3: Timeline machine - core
 
@@ -181,6 +226,16 @@ Goal: `python -m kinetic_extract <renpy_project> <out_dir>` on source
 - Build `fixtures/renpy_demo/`: a synthetic project (script.rpy + assets)
   exercising the subset; golden manifest comparison in pytest.
 - Unrecognized statements are reported, never fatal.
+- Asset handling (external review): detect real formats by content
+  sniffing, never by extension (corpus files lie); decode wrapped or
+  obfuscated images to standard formats at conversion time (originals
+  never reach the player; activation-removal work on the corpus has
+  decoding leads); dedup identical source files into one shared
+  derivative referenced by many items.
+- Write `build-ledger.json` into the output folder (item id -> source
+  script paths, source asset paths, branch/skip notes). It is an extra
+  unreferenced file: the player and validator ignore it, tools may read
+  it.
 
 Acceptance: pytest green; extracting `renpy_demo` yields a directory the
 player plays end to end (walk the checklist once on extracted content).
@@ -204,8 +259,9 @@ actually use.
 - Vendor unrpyc (pin the fetched revision under `converter/vendor/`) and
   decompile `*.rpyc` when `.rpy` is absent; implement the `.rpa` reader;
   `.rpak` only if the corpus contains one.
-- Fix ordering and attachment issues the slices surface; record per-game
-  inputs, kinds, and outcomes in docs/extracting.md.
+- Fix ordering and attachment issues the slices surface, and any wrapped
+  or misdetectable asset formats they reveal; record per-game inputs,
+  kinds, and outcomes in docs/extracting.md.
 
 Acceptance: every sampled slice extracts to a content folder that plays
 in the player; docs/extracting.md has an entry per sampled game incl.
