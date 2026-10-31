@@ -1,4 +1,4 @@
-// The Storage contract (docs/plan.md Phase 8) exercised against every
+// The Storage contract (docs/plan.md Phases 8-9) exercised against every
 // adapter that needs no browser: the in-memory fake the machine tests use,
 // and the no-IndexedDB fallback, which is memory-backed by design. The
 // IndexedDB adapter implements the same contract; these tests pin what it
@@ -66,6 +66,41 @@ for (const [name, makeStorage] of ADAPTERS) {
       const loaded = (await storage.loadState()) as { frontier: number };
       loaded.frontier = 99;
       expect(await storage.loadState()).toEqual({ frontier: 6 });
+    });
+
+    it("round-trips the settings a save carries, partial included", async () => {
+      const storage = makeStorage();
+      await storage.saveState({
+        frontier: 4,
+        settings: { readingSpeed: 2, skipAll: true },
+      });
+      expect(await storage.loadState()).toEqual({
+        frontier: 4,
+        settings: { readingSpeed: 2, skipAll: true },
+      });
+      // The state is a singleton record, settings included: a later save
+      // without them overwrites them too — what persists is the last save.
+      await storage.saveState({ frontier: 5 });
+      const later = await storage.loadState();
+      expect(later?.frontier).toBe(5);
+      expect(later?.settings).toBeUndefined();
+    });
+
+    it("copies settings in and out: callers cannot rewrite stored settings", async () => {
+      const storage = makeStorage();
+      const input = { readingSpeed: 1.5 };
+      await storage.saveState({ frontier: 6, settings: input });
+      // Mutating the caller's object after the save cannot reach in...
+      input.readingSpeed = 3;
+      // ...and neither can mutating a loaded settings object.
+      const loaded = (await storage.loadState()) as {
+        settings: { readingSpeed: number };
+      };
+      loaded.settings.readingSpeed = 0.25;
+      expect(await storage.loadState()).toEqual({
+        frontier: 6,
+        settings: { readingSpeed: 1.5 },
+      });
     });
 
     it("appends a bookmark and returns the full list containing it", async () => {

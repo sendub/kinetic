@@ -1,16 +1,28 @@
 // Storage data types and the interface every adapter implements
-// (docs/plan.md Phase 8). Pure data: no DOM, no browser globals — the machine
-// and its tests read through this seam, and main.ts injects a real adapter.
+// (docs/plan.md Phases 8-9). Pure data: no DOM, no browser globals — the
+// machine and its tests read through this seam, and main.ts injects a real
+// adapter.
 //
-// The frontier is the single persisted source of truth: the resume position
-// is always `frontier - 1` (the README's "state the game starts at when
-// loaded"), which `createMachine` derives itself via `resumeFrontier`, so
-// the cursor needs no storing and can never disagree with it.
+// The frontier is the single persisted source of truth for reading
+// progress: the resume position is always `frontier - 1` (the README's
+// "state the game starts at when loaded"), which `createMachine` derives
+// itself via `resumeFrontier`, so the cursor needs no storing and can
+// never disagree with it. Settings ride in the same record because the
+// `c` screen persists them (docs/plan.md Phase 9); they are data for
+// main.ts to merge over the defaults — the machine reads no storage.
 
-/** Everything the player persists about reading progress. */
+import type { MachineSettings } from "../machine/types";
+
+/** Everything the player persists about reading progress and pacing. */
 export interface PersistedState {
   /** The first never-shown item; see the machine's frontier invariant. */
   readonly frontier: number;
+  /**
+   * The reader's settings (README `c` bullet). A partial: a record may
+   * carry any subset, and the player merges it over `DEFAULT_SETTINGS` at
+   * startup (main.ts). Absent means "nothing changed from the defaults".
+   */
+  readonly settings?: Partial<MachineSettings>;
 }
 
 /** One entry of the `b` bookmark list (README bookmark bullet). */

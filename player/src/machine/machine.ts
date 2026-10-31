@@ -84,6 +84,24 @@ export interface Machine {
   goTo(index: number): void;
   /** Video `ended` event for the current video item. */
   mediaEnded(): void;
+  /**
+   * `c` config screen (docs/plan.md Phase 9): replace the pacing settings
+   * with a full snapshot; the machine copies it and never reads storage.
+   * Changes apply live, each where its setting takes effect:
+   *
+   * - `readingSpeed` (and `skipDwellMs`): a pending auto-advance is
+   *   re-armed as if the new settings had held since the item began, so
+   *   the time already shown counts toward the new total — a 2400 ms hold
+   *   changed to a 1200 ms one at 500 ms fires 700 ms later. A new total
+   *   already behind the elapsed time fires on the next tick. An item
+   *   with no pending timer (settled, or waiting on a video's `ended`) is
+   *   not armed by this call.
+   * - `skipAll`: read when skip mode meets the frontier, so a change
+   *   takes effect at the next frontier crossing.
+   *
+   * After `destroy()` it is inert, like every other command.
+   */
+  setSettings(settings: MachineSettings): void;
   /** Cancels the pending timer and drops all subscribers. */
   destroy(): void;
 }
@@ -151,7 +169,11 @@ function clamp(value: number, low: number, high: number): number {
 }
 
 export function createMachine(options: MachineOptions): Machine {
-  const { items, settings } = options;
+  const { items } = options;
+  // Copied, and copied again on every setSettings(): the caller keeps
+  // owning the object it passed (main.ts persists it), and later mutation
+  // of it cannot silently retime the timeline.
+  let settings: MachineSettings = { ...options.settings };
   const scheduler = options.scheduler ?? defaultScheduler;
   const count = items.length;
 
@@ -172,6 +194,11 @@ export function createMachine(options: MachineOptions): Machine {
   let holdElapsed = false;
   let videoEnded = false;
   let timer: unknown = null;
+  // When the timer now running was armed for the item under the cursor.
+  // setSettings() re-arms from this instant, so the new settings act as
+  // if they had held since the item began (the interface docs). Time
+  // enters only through scheduler and Date.now, both fakeable in tests.
+  let timerArmedAt = 0;
   let destroyed = false;
   let state: MachineState = snapshot();
   armTimer(); // the item shown at start auto-advances too
@@ -192,24 +219,30 @@ export function createMachine(options: MachineOptions): Machine {
     }
   }
 
-  function armTimer(): void {
-    cancelTimer();
-    if (destroyed || count === 0) return;
+  /** The delay the current timer must cover, under the present settings. */
+  function currentDelayMs(): number {
     if (skipping) {
       // Skip mode: one fixed `settings.skipDwellMs` per item whatever its
       // type. Media never gates and never plays to completion; the machine
       // only times (docs/content-format.md, "Timing").
-      timer = scheduler.schedule(() => {
-        timer = null;
-        skipTick();
-      }, settings.skipDwellMs);
-      return;
+      return settings.skipDwellMs;
     }
-    const delayMs = itemHoldMs(items[cursor], settings, nextIsText(cursor));
-    timer = scheduler.schedule(() => {
-      timer = null;
-      onHoldElapsed();
-    }, delayMs);
+    return itemHoldMs(items[cursor], settings, nextIsText(cursor));
+  }
+
+  function onTimerElapsed(): void {
+    timer = null;
+    // `skipping` can only have changed through a re-arm, so dispatching
+    // here matches the mode the timer was armed under.
+    if (skipping) skipTick();
+    else onHoldElapsed();
+  }
+
+  function armTimer(): void {
+    cancelTimer();
+    if (destroyed || count === 0) return;
+    timerArmedAt = Date.now();
+    timer = scheduler.schedule(onTimerElapsed, currentDelayMs());
   }
 
   /**
@@ -411,6 +444,22 @@ export function createMachine(options: MachineOptions): Machine {
       if (items[cursor].type !== "video") return;
       videoEnded = true;
       if (holdElapsed) moveForward();
+    },
+
+    setSettings(next) {
+      settings = { ...next }; // caller keeps owning its object
+      if (destroyed || count === 0) return;
+      // Only a live auto-advance is re-timed; a settled item (or one
+      // waiting on a video's `ended`) owns no timer to re-arm. The new
+      // delay is measured from when this item's timer was armed, so the
+      // time already shown counts toward the new total.
+      if (timer === null) return;
+      const remainingMs = Math.max(
+        0,
+        currentDelayMs() - (Date.now() - timerArmedAt),
+      );
+      cancelTimer();
+      timer = scheduler.schedule(onTimerElapsed, remainingMs);
     },
 
     destroy() {

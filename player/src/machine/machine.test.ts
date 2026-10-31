@@ -1080,3 +1080,105 @@ describe("resume from persisted storage (docs/plan.md Phase 8, memory fake)", ()
     third.destroy();
   });
 });
+
+describe("setSettings (config screen, docs/plan.md Phase 9)", () => {
+  // minHold sits at 1000 in these three so the doubled speed's 1200 ms
+  // total is above the floor and the exact number is testable.
+  const holdSettings: MachineSettings = { ...SETTINGS, minHoldMs: 1000 };
+
+  it("re-arms a pending hold with the new readingSpeed from the item start", () => {
+    vi.useFakeTimers();
+    const m = machine([image("a".repeat(40)), image()], {
+      settings: holdSettings,
+    }); // 2400 ms at 1.0
+    vi.advanceTimersByTime(500);
+    m.setSettings({ ...holdSettings, readingSpeed: 2 }); // 1200 ms at 2.0
+    // The new settings act as if they had held since the item began: the
+    // item ends at 1200 ms from ITS start, i.e. 700 ms from the change.
+    vi.advanceTimersByTime(699);
+    expect(m.getState().cursor).toBe(0);
+    vi.advanceTimersByTime(1); // total from item start: 1200 ms
+    expect(m.getState().cursor).toBe(1);
+    m.destroy();
+  });
+
+  it("fires on the next tick when the elapsed time already passed the new total", () => {
+    vi.useFakeTimers();
+    const m = machine([image("a".repeat(40)), image()], {
+      settings: holdSettings,
+    }); // 2400 ms hold
+    vi.advanceTimersByTime(1300);
+    m.setSettings({ ...holdSettings, readingSpeed: 2 }); // total 1200 < 1300
+    vi.advanceTimersByTime(1);
+    expect(m.getState().cursor).toBe(1);
+    m.destroy();
+  });
+
+  it("does not re-arm a settled item: a completed hold stays completed", () => {
+    vi.useFakeTimers();
+    const m = machine([image(), image()]);
+    m.advance(); // immediate-complete: settled, timer cancelled
+    m.setSettings({ ...SETTINGS, readingSpeed: 3 });
+    vi.advanceTimersByTime(60_000);
+    expect(m.getState()).toEqual({
+      cursor: 0,
+      frontier: 1,
+      settled: true,
+      skipping: false,
+    });
+    m.destroy();
+  });
+
+  it("skipAll takes effect at the frontier crossing: skip walks the unseen tail", () => {
+    vi.useFakeTimers();
+    // Cursor starts at the last seen item (2), frontier at 3: the very
+    // next skip step enters unseen content, where skipAll decides.
+    const m = machine([image(), image(), image(), image(), image()], {
+      resumeFrontier: 3,
+    });
+    m.toggleSkip();
+    m.setSettings({ ...SETTINGS, skipAll: true }); // changed mid-skip
+    const dwell = SETTINGS.skipDwellMs;
+    vi.advanceTimersByTime(dwell); // onto the frontier item, skip goes on
+    expect(m.getState()).toEqual({
+      cursor: 3,
+      frontier: 4,
+      settled: false,
+      skipping: true,
+    });
+    vi.advanceTimersByTime(dwell); // last item: skip ends at content end
+    expect(m.getState()).toEqual({
+      cursor: 4,
+      frontier: 5,
+      settled: false,
+      skipping: false,
+    });
+    m.destroy();
+  });
+
+  it("copies what it is given: mutating the caller's object cannot retime it", () => {
+    vi.useFakeTimers();
+    const m = machine([image("a".repeat(40)), image()], {
+      settings: holdSettings,
+    }); // 2400 ms hold
+    const caller: MachineSettings = { ...holdSettings, readingSpeed: 2 };
+    m.setSettings(caller); // a 1200 ms hold is now armed
+    caller.readingSpeed = 3; // the shell keeps owning (and persisting) its own
+    vi.advanceTimersByTime(1199); // at 3.0 it would already have fired
+    expect(m.getState().cursor).toBe(0);
+    vi.advanceTimersByTime(1); // fires at the copied 2.0's total, 1200
+    expect(m.getState().cursor).toBe(1);
+    m.destroy();
+  });
+
+  it("settings survive destroy(): every command stays inert", () => {
+    vi.useFakeTimers();
+    const m = machine([image("a".repeat(40)), image()]);
+    const finalState = m.getState();
+    m.destroy();
+    m.setSettings({ ...SETTINGS, readingSpeed: 3 });
+    m.advance();
+    vi.advanceTimersByTime(60_000);
+    expect(m.getState()).toBe(finalState); // no re-arm, no move, frozen
+  });
+});

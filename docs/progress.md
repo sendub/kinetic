@@ -110,9 +110,13 @@ truthful: an unchecked box means nothing was accepted.
 
 ## Phase 9: Config screen
 
-- [ ] `c` overlay with reading speed and `skip_all`
-- [ ] Settings persist to IndexedDB and apply live
-- [ ] Machine-side config tests green; checklist walked
+- [x] `c` overlay with reading speed and `skip_all` (z below flash,
+      suspendTimeline shared gate, mutually exclusive with t)
+- [x] Settings persist to IndexedDB and apply live (PersistedState
+      settings field; setSettings re-arms current hold; reload keeps
+      2.00x/ON in verify step 26)
+- [x] Machine-side config tests green; checklist walked (163 tests, 29
+      verify steps: 28 pass 1 known partial, 2025-11-01)
 
 ## Phase 10: Ren'Py extractor MVP
 

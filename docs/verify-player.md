@@ -1,6 +1,6 @@
 # Verify the Player Shell
 
-Manual browser checklist for the player, per docs/plan.md Phases 5-8.
+ Manual browser checklist for the player, per docs/plan.md Phases 5-9.
 Covers the Phase 5 feature set — `file://` demo folder loading, image
 visuals, text + speaker overlay, `h` toggle, space advance,
 first-keypress fullscreen, the empty-manifest state — the Phase 6 media
@@ -12,16 +12,19 @@ presentation rules: media fills the viewport as the largest centred
 contain fit of its own aspect ratio, whatever screen it gets, and overlay
 text says which mode it is — `data-mode="thought"` for an unspoken
 thought, `"speech"` for dialogue — so CSS can draw the two differently
-(thought italic, dialogue upright); and the Phase 8 bookmark set: `b`
+(thought italic, dialogue upright); the Phase 8 bookmark set: `b`
 appends timestamped records with a confirmation flash, `t` opens the
 thumbnail list oldest-first and scrolled to the newest, clicking an entry
 continues the novel from that time point, and the frontier survives a
-reload and an `e`-verified bookmark jump. Phase 9 (`c`) will extend this
-file again. The key map today holds space, `h`, `tab`, `e`, `b`, `t` and
-Escape; the wheel has its own module (`render/wheel.ts`), because a wheel
-event is not a key. While the `t` overlay is open the cursor-moving
-commands (space, `tab`, `e`, wheel) are suspended — the overlay takes
-precedence; `b` and `h` keep working.
+reload and an `e`-verified bookmark jump; and the Phase 9 config set:
+`c` opens the config screen showing the current reading speed and
+skip-all state, its controls change the settings live — a measured
+auto-advance proves the re-armed hold — and the changed values survive
+a reload. The key map today holds space, `h`, `tab`, `e`, `b`, `t`, `c`
+and Escape; the wheel has its own module (`render/wheel.ts`), because a
+wheel event is not a key. While the `t` or `c` overlay is open the
+cursor-moving commands (space, `tab`, `e`, wheel) are suspended — the
+overlay takes precedence; `b` and `h` keep working.
 
 ## Run it
 
@@ -44,14 +47,16 @@ The Chrome profile is wiped before launch: Phase 8 put the frontier and
 the bookmark list into IndexedDB, and a run must start from the
 first-ever-load state a fresh machine has. Every input is real CDP Input:
 `Input.dispatchKeyEvent` for keys, `Input.dispatchMouseEvent` `mouseWheel`
-for the wheel and `mousePressed`/`mouseReleased` for the one click of the
-`t` list. All arrive trusted, so the fullscreen gesture logic accepts them
+for the wheel and `mousePressed`/`mouseReleased` for the clicks on the
+`t` list and the `c` controls. All arrive trusted, so the fullscreen
+gesture logic accepts them
 as user input and the wheel takes the same path a trackpad takes:
 listener → accumulator → machine → renderer. Nothing reads machine state
 from the driver — each step asserts what the DOM shows; the bookmark
-records are read back from the player's own IndexedDB, and the `t` list
+records are read back from the player's own IndexedDB, the `t` list
 is read as the reader sees it (order, scroll position, decoded
-thumbnails). Steps 21 and 26 are the exceptions on inputs: they set the
+thumbnails), and the `c` panel is read as its readout and switch state.
+Steps 21 and 28 are the exceptions on inputs: they set the
 viewport themselves, the way rotating a phone does. Exit code is 0 when
 every step is PASS or PARTIAL, 1 on any FAIL.
 
@@ -63,7 +68,7 @@ first space press on a freshly shown item completes it in place
 (immediate-complete, machine Phase 3) and the next press moves on, so
 advance two presses per item. For the wheel, one mouse notch is 100 px of
 delta and steps exactly one item; steps are capped at ~12 per second, so
-a fast flick cannot outrun the eye. For step 26, drag the window to a
+a fast flick cannot outrun the eye. For step 28, drag the window to a
 shape that matches nothing — tall and narrow, or wide and short — and the
 media should stay flush with one pair of edges, centred on the other
 axis, with black only where the asset's aspect and the window's differ.
@@ -73,18 +78,27 @@ line upright. For steps 20-23 press `b` at two different items (wheel
 back once in between), `t` to see the list at the bottom, click the
 older entry, `e` to return; note the first Escape belongs to the browser
 while fullscreen (it leaves fullscreen), so the overlay's second Escape
-is what closes it.
+is what closes it. For steps 25-26 press `c` for the config screen,
+click the stepper's `+` and the skip-all switch to change settings live,
+close with backdrop, `c` or the second Escape, and reload to see the
+changed values read back at startup (set them back afterwards, or the
+next manual walk starts at the reader's own pace — which is the point).
 
 Results below were walked on 2026-10-31 by the driver on headless Chrome
-156.0.8078.76, three times with the same statuses (27 steps: 26 pass, 1
+156.0.8078.76, three times with the same statuses (29 steps: 28 pass, 1
 honest partial; the evidence lines differ only in bookmark timestamps,
-sampled video `currentTime` and skip-dwell timings). The fit rule in step
-26 is pinned twice over: the pure `containFit` in `render/fit.ts` is
+sampled video `currentTime`, skip-dwell timings and the step-26 hold
+measurement). The fit rule in step
+28 is pinned twice over: the pure `containFit` in `render/fit.ts` is
 unit-tested, and the driver imports that same function as its expectation,
 so the two cannot drift. The `t` list's pure rules (order,
 scroll-to-bottom, timestamp, thumbnail fallback) are unit-tested in
 `render/bookmarks.test.ts`, and the overlay's precedence rule
-(`suspendTimeline`) in `render/keys.test.ts`.
+(`suspendTimeline`) in `render/keys.test.ts`. The `c` screen's pure rules
+(speed stepper steps and clamps, the readout text) are unit-tested in
+`render/config.test.ts`, the live-change semantics of `readingSpeed` and
+`skipAll` in `machine.test.ts`, and the settings' storage round-trip in
+the `storage.test.ts` contract suite.
 
 ## Checklist
 
@@ -93,11 +107,11 @@ scroll-to-bottom, timestamp, thumbnail fallback) are unit-tested in
 - Action: open `.tmp/verify-demo/index.html` in Chrome.
 - Expected: the item-1 image (meadow-001.jpg) shows inside `#stage`;
   `#overlay` is visible with `#overlay-speaker` "Mei" and its line in
-  `#overlay-text`; the hidden `#bookmarks` panel is mounted but not up;
-  console is empty.
+  `#overlay-text`; the hidden `#bookmarks` and `#config` panels are
+  mounted but not up; console is empty.
 - RESULT (PASS, 2026-10-31): driver step 1: `#app` children are
-  `[stage, overlay, bookmarks]` with the panel closed, image decoded and
-  painted, speaker and text as expected.
+  `[stage, overlay, bookmarks, config]` with both panels closed, image
+  decoded and painted, speaker and text as expected.
 
 ### 2. First keypress requests fullscreen
 
@@ -415,10 +429,58 @@ scroll-to-bottom, timestamp, thumbnail fallback) are unit-tested in
   pier-009 (overlay hidden), the reload resumed at line-011 over
   `pier-009.jpg` — settled, the last item ever shown — and item 0 was
   ruled out. The frontier is persisted (debounced writes plus
-  visibility/pagehide flushes, main.ts); bookmarks and resume position
-  share the one per-novel storage namespace.
+  visibility/pagehide flushes, main.ts); bookmarks, settings and the
+  resume position share the one per-novel storage namespace.
 
-### 25. Empty folder shows the empty state; `t` there says no bookmarks yet
+### 25. `c` opens the config screen: current values, suspension, closing
+
+- Action: press `c` (after step 24's reload, so this first key also
+  enters fullscreen); click the skip-all switch; click the panel's title
+  strip (backdrop); press `c` twice more.
+- Expected: `#config` covers the screen (z-index 5, under the `#flash`
+  pill, like the `t` panel) with exactly two controls — the reading
+  speed and skip-all — and nothing else. The readout shows the current
+  multiplier and its per-character allowance, `1.00x — ~60 ms/char` for
+  the default, and the switch reads `Off` (`aria-pressed="false"`).
+  While the panel is open the timeline is suspended by the same gate as
+  `t`: space, `tab`, `e` and the wheel must not move the cursor.
+  Clicking the switch flips it to `On` and the value is live at once;
+  a backdrop click closes; `c` reopens showing the value now in force,
+  and `c` again closes.
+- RESULT (PASS, 2026-10-31): driver step 25: readout `1.00x — ~60
+  ms/char`, skip-all `Off`/`false`; space + tab + e + a wheel-up notch
+  changed nothing in the DOM behind the panel; the switch click read
+  back `aria-pressed=true` / `On`; the backdrop click closed; `c`
+  reopened showing `true` and `c` closed again.
+
+### 26. A changed setting applies live and survives reload
+
+- Action: `c`, four clicks on the speed stepper's `+`, close by Escape,
+  roll one wheel notch back onto line-010 and watch it without
+  touching; reload; open `c` again; then set both controls back to
+  their defaults (four `−` clicks, the switch, backdrop close).
+- Expected: the readout moves `1.00x — ~60 ms/char` → `2.00x — ~30
+  ms/char` while the panel is open. The first Escape is the browser's
+  (it leaves fullscreen, panel stays open), the second closes — the
+  step-23 caveat again. WITHOUT any reload, line-010's auto-advance now
+  comes at ~1500 ms instead of 2880 ms: 48 code points at 2.00x is
+  1440 ms, floored by the 1500 ms minHold — machine.setSettings
+  re-armed the pending hold as if the new speed had held since the item
+  began. After reload the player still resumes at line-011 (the
+  frontier did not move), and `c` opens showing `2.00x` and skip-all
+  ON: the persisted `settings` ride in the same per-novel record as the
+  frontier, merged over the defaults at machine construction, written
+  with the same debounce-and-flush rule (main.ts). Resetting afterwards
+  keeps the steps below on default behaviour.
+- RESULT (PASS, 2026-10-31): driver step 26: the stepper took the
+  readout to `2.00x — ~30 ms/char` by four trusted clicks; the first
+  Escape left fullscreen with the panel open, the second closed; the
+  measured line-010 hold was 1408 ms (sampling-quantised ~1500 ms floor
+  — at the old 1.00x its 2880 ms would show no move inside the 2600 ms
+  window); after reload the player resumed at line-011 and `c` showed
+  `2.00x` with skip-all `true`; the reset closed back at `1.00x`/`Off`.
+
+### 27. Empty folder shows the empty state; `t` there says no bookmarks yet
 
 - Action: open `.tmp/verify-demo-empty/index.html` (dist stub manifest,
   no items), then press `t`.
@@ -428,11 +490,11 @@ scroll-to-bottom, timestamp, thumbnail fallback) are unit-tested in
   bookmarks of its own (storage is keyed per novel folder, so the demo
   folder's two are another novel's). Escape (after the fullscreen-exiting
   one) closes it.
-- RESULT (PASS, 2026-10-31): driver step 25: notice text exact, overlay
+- RESULT (PASS, 2026-10-31): driver step 27: notice text exact, overlay
   hidden, zero console output; the overlay opened with `entries=0` and
   exactly the empty message, and Escape closed it.
 
-### 26. Media fills the screen with its own aspect ratio
+### 28. Media fills the screen with its own aspect ratio
 
 - Action: open the demo folder at a viewport that matches nothing —
   the driver sets 700x1000, portrait — and open `.tmp/verify-demo-tall`
@@ -445,7 +507,7 @@ scroll-to-bottom, timestamp, thumbnail fallback) are unit-tested in
   on a 16:9 manifest the fit must follow the image. The overlay stays a
   band across the full viewport width, over the content and its
   letterbox rather than inside it; `h` still hides it (step 6).
-- RESULT (PASS, 2026-10-31): driver step 26: at 700x1000 the 960x540
+- RESULT (PASS, 2026-10-31): driver step 28: at 700x1000 the 960x540
   image fills 700x393.8 at y=303.1 — flush in width, letterboxed top and
   bottom, centred; at 1200x700 the 640x960 image fills 466.7x700 at
   x=366.7 — flush in height, pillarboxed, centred — while the manifest's
@@ -458,16 +520,17 @@ scroll-to-bottom, timestamp, thumbnail fallback) are unit-tested in
   not pixel-sampled headless — on a real screen they should sit outside
   the media, top/bottom or left/right.
 
-### 27. Console stayed empty throughout
+### 29. Console stayed empty throughout
 
 - Action: watch DevTools' console through the whole walk (all folders).
 - Expected: zero console messages and zero uncaught errors; a plain
   `file://` open logs nothing, per the shell's own console contract. An
   autoplay rejection must be caught, never surfaced.
-- RESULT (PASS, 2026-10-31): driver step 27: zero console messages,
+- RESULT (PASS, 2026-10-31): driver step 29: zero console messages,
   zero page errors, every page, whole run — including the wheel events,
   the skip runs, the bookmark presses, the overlay opens and clicks, the
-  reload and both geometry viewports.
+  config screen's toggle, stepper, measured live hold and second reload,
+  the reload and both geometry viewports.
 
 ## Not covered yet
 
@@ -484,11 +547,11 @@ scroll-to-bottom, timestamp, thumbnail fallback) are unit-tested in
   look is an open iteration with the user (docs/plan.md Phase 7b,
   "Deferred"); changing it is a CSS edit in `index.html`, and those two
   steps plus step 12 (`h`) are where a new look gets checked.
-- The `t` list is walked by mouse, the way the README describes it.
-  Entries are real buttons, but Tab is suspended while the panel is open
-  (the overlay takes precedence), so keyboard focus traversal of the
-  list is not exercised here; it is a Phase 9 question along with the
-  config screen's own focus handling.
+- The `t` list and the `c` controls are walked by mouse, the way the
+  README describes them. Entries and settings controls are real buttons
+  (the settings ones carry hover and focus-visible styling), but Tab is
+  intercepted for skip — and suspended while a panel is open — so
+  keyboard focus traversal of either panel is not exercised here.
 - A data-URL thumbnail in the `t` list: over `file://` the capture is
   taint-blocked, so steps 21-23 walk the manifest-still fallback. The
   data-URL branch is pinned by `render/bookmarks.test.ts`
@@ -496,9 +559,12 @@ scroll-to-bottom, timestamp, thumbnail fallback) are unit-tested in
   storage suites; a walk over `http://` showing a real captured thumb
   is a cheap extra.
 - Skip with `skip_all` on (skipping through unseen content, marking it
-  seen, and ending at content end): machine-tested; the demo runs with
-  the default `skip_all` off, and the setting arrives with Phase 9's
-  config screen.
+  seen, and ending at content end): machine-tested, mid-skip setting
+  changes included (`machine.test.ts`, `setSettings`). The setting
+  itself now lives on the `c` screen and steps 25-26 toggle, apply and
+  persist it, but no step runs a full skip-through with it on
+  mid-novel — that would consume unseen content and move the later
+  steps' resume point.
 - A trackpad's small, rapid deltas: the driver sends one 100 px notch,
   which is a mouse wheel. The accumulator's threshold, rate cap and
   direction-flip rules are unit-tested (`render/wheel.test.ts`), not

@@ -1,9 +1,12 @@
-// IndexedDB adapter (docs/plan.md Phase 8): bookmarks and the reading
-// frontier survive a reload. Raw IndexedDB API, no dependency.
+// IndexedDB adapter (docs/plan.md Phases 8-9): bookmarks, the reading
+// frontier, and the `c` screen's settings survive a reload. Raw IndexedDB
+// API, no dependency.
 //
 // Schema — one database for the whole app, `kinetic` (version 1):
 //   - store `state`: no keyPath; one record per novel, stored under the
-//     novel's content signature, value `{ frontier }`.
+//     novel's content signature, value `{ frontier, settings? }`
+//     (`settings` is the partial the `c` screen changed; absent or
+//     malformed fields simply fall back to defaults at load).
 //   - store `bookmarks`: keyPath `seq`, autoIncrement, so the key alone
 //     orders entries by insertion — the list the README draws bottom-first.
 //     Each record carries a `content` field and a non-unique `content`
@@ -14,6 +17,7 @@
 // IndexedDB already isolates by origin, but a path distinguishes novels on
 // one origin (several folders on the dev server) and on `file://` alike.
 
+import type { MachineSettings } from "../machine/types";
 import type { Bookmark, PersistedState, Storage } from "./types";
 
 export const DB_NAME = "kinetic";
@@ -103,6 +107,44 @@ function toBookmark(record: BookmarkRecord): Bookmark {
   };
 }
 
+/** The settings a stored record may carry, and the type each field must have. */
+const SETTINGS_FIELDS: ReadonlyArray<
+  readonly [keyof MachineSettings, "number" | "boolean"]
+> = [
+  ["readingSpeed", "number"],
+  ["minHoldMs", "number"],
+  ["msPerChar", "number"],
+  ["skipDwellMs", "number"],
+  ["skipAll", "boolean"],
+];
+
+/**
+ * Read a stored `settings` defensively, field by field: a foreign,
+ * half-written, or future-version value yields the well-typed subset it
+ * happens to hold (undefined when nothing is trustworthy), and every
+ * absent field falls back to its default at merge time. Never throws.
+ */
+function sanitizeSettings(raw: unknown): Partial<MachineSettings> | undefined {
+  if (typeof raw !== "object" || raw === null) return undefined;
+  const source = raw as Record<string, unknown>;
+  const settings: Record<string, number | boolean> = {};
+  for (const [field, kind] of SETTINGS_FIELDS) {
+    const value = source[field];
+    if (
+      kind === "number" &&
+      typeof value === "number" &&
+      Number.isFinite(value)
+    ) {
+      settings[field] = value;
+    } else if (kind === "boolean" && typeof value === "boolean") {
+      settings[field] = value;
+    }
+  }
+  return Object.keys(settings).length === 0
+    ? undefined
+    : (settings as Partial<MachineSettings>);
+}
+
 /**
  * A Storage scoped to one novel, or null when this host has no IndexedDB at
  * all — the caller falls back to `createNoopStorage()` so the player runs.
@@ -134,7 +176,10 @@ export function createIdbStorage(contentKey: string): Storage | null {
       if (typeof stored === "object" && stored !== null) {
         const frontier = (stored as Partial<PersistedState>).frontier;
         if (typeof frontier === "number" && Number.isFinite(frontier)) {
-          return { frontier };
+          const settings = sanitizeSettings(
+            (stored as Partial<PersistedState>).settings,
+          );
+          return settings === undefined ? { frontier } : { frontier, settings };
         }
       }
       return null;
@@ -143,7 +188,9 @@ export function createIdbStorage(contentKey: string): Storage | null {
     async saveState(state: PersistedState): Promise<void> {
       const db = await openDatabase();
       const tx = db.transaction(STATE_STORE, "readwrite");
-      tx.objectStore(STATE_STORE).put({ frontier: state.frontier }, contentKey);
+      const record: Record<string, unknown> = { frontier: state.frontier };
+      if (state.settings !== undefined) record.settings = { ...state.settings };
+      tx.objectStore(STATE_STORE).put(record, contentKey);
       await transactionDone(tx);
     },
 

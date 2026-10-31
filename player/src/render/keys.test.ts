@@ -23,7 +23,12 @@ describe("commandForKey", () => {
   it("maps t to the bookmark overlay and Escape closes it (Phase 8)", () => {
     expect(commandForKey("t", false)).toBe("toggleBookmarks");
     expect(commandForKey("T", false)).toBe("toggleBookmarks");
-    expect(commandForKey("Escape", false)).toBe("dismissBookmarks");
+    expect(commandForKey("Escape", false)).toBe("dismissOverlay");
+  });
+
+  it("maps c to the config screen (Phase 9)", () => {
+    expect(commandForKey("c", false)).toBe("toggleConfig");
+    expect(commandForKey("C", false)).toBe("toggleConfig");
   });
 
   it("ignores a held key's auto-repeat so it cannot burst through items", () => {
@@ -33,12 +38,13 @@ describe("commandForKey", () => {
     expect(commandForKey("e", true)).toBeNull();
     expect(commandForKey("b", true)).toBeNull();
     expect(commandForKey("t", true)).toBeNull();
+    expect(commandForKey("c", true)).toBeNull();
     expect(commandForKey("Escape", true)).toBeNull();
   });
 
   it("leaves keys owned by later phases unmapped", () => {
-    // c joins the map with Phase 9's config screen.
-    for (const key of ["c", "Enter", "ArrowRight", "Shift"]) {
+    // c joined the map with Phase 9's config screen; these stay free.
+    for (const key of ["Enter", "ArrowRight", "Shift"]) {
       expect(commandForKey(key, false)).toBeNull();
     }
   });

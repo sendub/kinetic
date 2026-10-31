@@ -3,8 +3,10 @@
 // Phase 6 media playback, Phase 7 wheel/skip/jump, Phase 7b speech vs thought
 // and contain-fit geometry, Phase 8 bookmarks — `b` with its confirmation
 // flash, the `t` overlay (order, scroll position, thumbnails, suspension,
-// click-to-continue, backdrop/Escape/t-to-close), and reload-resume) against
-// the demo fixture
+// click-to-continue, backdrop/Escape/t-to-close), and reload-resume — and
+// Phase 9 config: `c` (readout of speed and skip-all, suspension, backdrop-
+// and c-to-close, a live speed change measured against the re-armed hold,
+// and persistence across reload) — against the demo fixture
 // in headless Chrome and prints PASS / PARTIAL / FAIL per step.
 // Run from player/:  node scripts/verify.mjs
 // Exit code: 0 when every step is PASS or PARTIAL, 1 on any FAIL or crash.
@@ -19,10 +21,12 @@
 // the #empty-state notice, and .tmp/verify-demo-tall is a copy whose item-1
 // image has been rescaled to a portrait 640x960 while the manifest still says
 // 960x540 — the one shape that tells "fit to the asset" apart from "fit to
-// the manifest" (step 26, docs/plan.md Phase 7b).
+// the manifest" (step 28, docs/plan.md Phase 7b).
 //
-// Every input is real CDP Input: Input.dispatchKeyEvent for keys and
-// Input.dispatchMouseEvent `mouseWheel` for the wheel. Both arrive trusted, so
+// Every input is real CDP Input: Input.dispatchKeyEvent for keys,
+// Input.dispatchMouseEvent `mouseWheel` for the wheel, and
+// mousePressed/mouseReleased for the clicks on the `t` list and the `c`
+// controls. All arrive trusted, so
 // the fullscreen gesture logic treats them as user input and the wheel takes
 // the same path a trackpad takes. Nothing reads the machine from the driver:
 // each step asserts what the DOM shows.
@@ -44,7 +48,7 @@ const contentDir = join(repoRoot, ".tmp", "verify-demo");
 const emptyDir = join(repoRoot, ".tmp", "verify-demo-empty");
 const tallDir = join(repoRoot, ".tmp", "verify-demo-tall");
 const chromeProfile = join(repoRoot, ".tmp", "verify-chrome-profile");
-// The portrait size step 26 rescales item 1's image to. Its aspect (2:3)
+// The portrait size step 28 rescales item 1's image to. Its aspect (2:3)
 // deliberately matches neither the manifest's 16:9 nor any test viewport.
 const TALL_ASSET = { width: 640, height: 960 };
 const chromePath =
@@ -93,9 +97,9 @@ function assembleFolders() {
   for (const file of ["index.html", "app.js", "manifest.js"]) {
     copyFileSync(join(playerDir, "dist", file), join(emptyDir, file));
   }
-  // The asset/manifest aspect mismatch folder for step 26. Only the JPEG is
+  // The asset/manifest aspect mismatch folder for step 28. Only the JPEG is
   // resampled, never the manifest, and `fixtures/demo` itself stays pristine.
-  // `sips` is macOS' own resizer; without it step 26 loses its discriminator
+  // `sips` is macOS' own resizer; without it step 28 loses its discriminator
   // and says so instead of quietly asserting a weaker fact.
   mkdirSync(tallDir, { recursive: true });
   cpSync(join(repoRoot, "fixtures", "demo"), tallDir, { recursive: true });
@@ -258,6 +262,50 @@ const OVERLAY_CLOSED = () => {
 };
 const panelOpen = (page) => page.evaluate(OVERLAY_OPEN);
 
+// The `c` config screen as the reader sees it: the speed readout, the
+// skip-all switch's aria state, and the rects the driver clicks.
+const READ_CONFIG_OVERLAY = () => {
+  const panel = document.getElementById("config");
+  if (panel === null) return { present: false };
+  if (panel.hidden) return { present: true, hidden: true };
+  const rectOf = (el) => {
+    if (el === null || el === undefined) return null;
+    const r = el.getBoundingClientRect();
+    return { top: r.top, bottom: r.bottom, left: r.left, right: r.right };
+  };
+  const toggle = document.querySelector(".config-skip-all");
+  return {
+    present: true,
+    hidden: false,
+    title: document.querySelector(".config-title")?.textContent ?? null,
+    titleRect: rectOf(document.querySelector(".config-title")),
+    speedValue:
+      document.querySelector(".config-speed-value")?.textContent ?? null,
+    speedDownRect: rectOf(
+      document.querySelector('[data-config-action="speed-down"]'),
+    ),
+    speedUpRect: rectOf(
+      document.querySelector('[data-config-action="speed-up"]'),
+    ),
+    skipLabel: toggle?.textContent ?? null,
+    skipPressed: toggle?.getAttribute("aria-pressed") ?? null,
+    skipRect: rectOf(toggle),
+  };
+};
+
+const CONFIG_OPEN = () => {
+  const p = document.getElementById("config");
+  return p !== null && !p.hidden;
+};
+const configOpen = (page) => page.evaluate(CONFIG_OPEN);
+const clickCenter = async (cdp, rect) => {
+  await clickAt(
+    cdp,
+    Math.round((rect.left + rect.right) / 2),
+    Math.round((rect.top + rect.bottom) / 2),
+  );
+};
+
 // Geometry of the media as rendered: the element box, the CSS paint rule that
 // fits it, the asset's OWN decoded size (which no manifest field can change),
 // and the overlay band. Object-position is read because it is what centres the
@@ -389,6 +437,7 @@ const pressTab = (cdp) => pressKey(cdp, "Tab", "Tab", 9, "");
 const pressE = (cdp) => pressKey(cdp, "e", "KeyE", 69, "e");
 const pressB = (cdp) => pressKey(cdp, "b", "KeyB", 66, "b");
 const pressT = (cdp) => pressKey(cdp, "t", "KeyT", 84, "t");
+const pressC = (cdp) => pressKey(cdp, "c", "KeyC", 67, "c");
 const pressEscape = (cdp) => pressKey(cdp, "Escape", "Escape", 27, "");
 
 // A trusted left click at page coordinates: the `t` overlay is clicked the
@@ -1236,7 +1285,146 @@ async function main() {
       `before reload the reader had wheeled back to bare pier-009 (overlayHidden=${String(s24before.overlayHidden)}); after reload the player resumed at line-011 over pier-009.jpg — the last item ever shown (frontier-1), settled: the frontier is persisted and reload-resume reads it (README: "the state the game starts at when loaded"); first-ever-load item 0 ruled out=${String(s24NotFirstLoad)}`,
     );
 
-    // 25. A folder with the empty stub manifest shows the empty state —
+    // 25. `c` opens the config screen (docs/plan.md Phase 9, README `c`
+    // bullet): the panel shows the current reading speed (the default) and
+    // the skip-all state; while it is open the timeline is suspended by the
+    // same gate as the `t` panel (space, tab, e and the wheel must not move
+    // the cursor behind it); clicking the switch turns skip-all on; a click
+    // on the title strip is backdrop and closes; `c` reopens the panel
+    // showing the value now in force, and `c` again closes it. This `c` is
+    // the first key after step 24's reload, so the page also entered
+    // fullscreen here — step 26's Escape accounts for that, as step 23 did.
+    await pressC(cdp);
+    await page.waitForFunction(CONFIG_OPEN, { timeout: 5000 });
+    const s25open = await page.evaluate(READ_CONFIG_OVERLAY);
+    const s25DefaultsOk =
+      s25open.hidden === false &&
+      s25open.title === "Config" &&
+      s25open.speedValue === "1.00x — ~60 ms/char" &&
+      s25open.skipPressed === "false" &&
+      s25open.skipLabel === "Off";
+    const s25sigBefore = await readSignature(page);
+    await pressSpace(cdp);
+    await pressTab(cdp);
+    await pressE(cdp);
+    await wheelNotch(cdp, true);
+    await sleep(WHEEL_GAP_MS);
+    const s25sigAfter = await readSignature(page);
+    const s25Toggled = await page.evaluate(READ_CONFIG_OVERLAY);
+    await clickCenter(cdp, s25Toggled.skipRect); // flip skip-all ON
+    const s25toggled = await page.evaluate(READ_CONFIG_OVERLAY);
+    const s25ToggleOk =
+      s25toggled.hidden === false &&
+      s25toggled.skipPressed === "true" &&
+      s25toggled.skipLabel === "On";
+    await clickCenter(cdp, s25toggled.titleRect); // backdrop click closes
+    const s25Closed = await configOpen(page);
+    await pressC(cdp); // reopen: shows the value now in force
+    await page.waitForFunction(CONFIG_OPEN, { timeout: 5000 });
+    const s25again = await page.evaluate(READ_CONFIG_OVERLAY);
+    await pressC(cdp); // c closes again
+    const s25ClosedAgain = await configOpen(page);
+    const s25Ok =
+      s25DefaultsOk &&
+      s25sigAfter === s25sigBefore &&
+      s25ToggleOk &&
+      s25Closed === false &&
+      s25again.hidden === false &&
+      s25again.skipPressed === "true" &&
+      s25ClosedAgain === false;
+    record(
+      "25. c opens the config screen: values shown, timeline suspended, toggle/backdrop/c behave",
+      s25Ok ? "PASS" : "FAIL",
+      `defaults read speed=${JSON.stringify(s25open.speedValue)} skipAll=${String(s25open.skipPressed)}; while open, space+tab+e+wheel-up changed nothing (${String(s25sigAfter === s25sigBefore)}); clicking the switch: aria-pressed=${String(s25toggled.skipPressed)} label=${JSON.stringify(s25toggled.skipLabel)}; backdrop (title strip) click closed=${String(s25Closed === false)}; c reopened showing aria-pressed=${String(s25again.skipPressed)} and c closed it again=${String(s25ClosedAgain === false)}; the panel is #config, z-index 5 under #flash, with exactly the two README settings`,
+    );
+
+    // 26. A changed setting applies live, and survives a reload (the
+    // Phase 9 acceptance). Four clicks on the stepper's + take the reading
+    // speed 1.00x -> 2.00x (the readout updates in the open panel). Closing
+    // by Escape shows the fullscreen caveat again — the first Escape is the
+    // browser's and leaves fullscreen, the second reaches the page. Then
+    // WITHOUT a reload the re-armed hold is measured: one wheel notch back
+    // lands on line-010 (48 code points: 2880 ms at 1.00x), and the
+    // auto-advance back to line-011 must come ~1500 ms later — the 2.00x
+    // text allowance (1440 ms) floored at minHold — not at the old 2880 ms.
+    // Then reload: the startup merge reads the persisted record, and
+    // reopening `c` shows 2.00x and skip-all ON. Both are set back to the
+    // defaults so the steps after this one walk default behaviour.
+    await pressC(cdp);
+    await page.waitForFunction(CONFIG_OPEN, { timeout: 5000 });
+    for (let i = 0; i < 4; i += 1) {
+      const r = await page.evaluate(READ_CONFIG_OVERLAY);
+      await clickCenter(cdp, r.speedUpRect);
+    }
+    const s26speed = await page.evaluate(READ_CONFIG_OVERLAY);
+    const s26SpeedOk =
+      s26speed.speedValue === "2.00x — ~30 ms/char" &&
+      s26speed.skipPressed === "true";
+    await pressEscape(cdp);
+    await sleep(80);
+    const s26EscFullscreen = await configOpen(page);
+    const s26LeftFullscreen = await page.evaluate(
+      () => document.fullscreenElement === null,
+    );
+    await pressEscape(cdp);
+    const s26Closed = await configOpen(page);
+    await wheel(cdp, true, 1); // back onto line-010, unsettled, fresh hold
+    const s26samples = transitions(await sampleSignatures(page, 2600, 50));
+    const s26back = s26samples.findIndex(([, sig]) =>
+      sig.includes(EXPECTED.line010Text),
+    );
+    const s26on11 = s26samples
+      .slice(s26back + 1)
+      .find(([, sig]) => sig.includes(EXPECTED.line011Text));
+    const s26holdMs =
+      s26back >= 0 && s26on11 !== undefined
+        ? s26on11[0] - s26samples[s26back][0]
+        : -1;
+    const s26LiveOk = s26holdMs > 1350 && s26holdMs < 2400; // 1.00x: 2880 ms
+    await page.reload();
+    await page.waitForFunction(
+      () => {
+        const el = document.getElementById("overlay-text");
+        return el !== null && (el.textContent ?? "").length > 0;
+      },
+      { timeout: 5000 },
+    );
+    const s26resumed = await page.evaluate(PAGE_STATE);
+    await pressC(cdp);
+    await page.waitForFunction(CONFIG_OPEN, { timeout: 5000 });
+    const s26persist = await page.evaluate(READ_CONFIG_OVERLAY);
+    const s26PersistOk =
+      s26resumed.text === EXPECTED.line011Text &&
+      s26persist.speedValue === "2.00x — ~30 ms/char" &&
+      s26persist.skipPressed === "true";
+    for (let i = 0; i < 4; i += 1) {
+      const r = await page.evaluate(READ_CONFIG_OVERLAY);
+      await clickCenter(cdp, r.speedDownRect);
+    }
+    const s26reset = await page.evaluate(READ_CONFIG_OVERLAY);
+    await clickCenter(cdp, s26reset.skipRect);
+    const s26off = await page.evaluate(READ_CONFIG_OVERLAY);
+    await clickCenter(cdp, s26off.titleRect); // backdrop closes
+    const s26resetClosed = await configOpen(page);
+    const s26ResetOk =
+      s26reset.speedValue === "1.00x — ~60 ms/char" &&
+      s26off.skipPressed === "false" &&
+      s26resetClosed === false;
+    record(
+      "26. config changes apply live and persist: 2.00x speed and skip-all survive reload",
+      s26SpeedOk &&
+        s26EscFullscreen === true &&
+        s26LeftFullscreen &&
+        s26Closed === false &&
+        s26LiveOk &&
+        s26PersistOk &&
+        s26ResetOk
+        ? "PASS"
+        : "FAIL",
+      `stepper 1.00x -> ${JSON.stringify(s26speed.speedValue)} by four trusted + clicks; the first Escape left fullscreen=${String(s26LeftFullscreen)} with the panel open=${String(s26EscFullscreen === true)} (the browser keeps it, as in step 23), the second closed=${String(s26Closed === false)}; live effect with no reload: line-010's auto-advance measured at ${String(s26holdMs)}ms (2.00x floors at the 1500 ms minHold; at the old 1.00x it is 2880 ms and the 2600 ms sampling window would show no move); after reload the player resumed at line-011 and c showed ${JSON.stringify(s26persist.speedValue)} skipAll=${String(s26persist.skipPressed)} — the settings record rode with the frontier through storage; reset to 1.00x/Off closed, so the steps below walk default behaviour`,
+    );
+
+    // 27. A folder with the empty stub manifest shows the empty state —
     // and `t` there opens the same panel, saying the novel has no
     // bookmarks yet (storage is namespaced per novel folder, and this
     // folder has none). Escape closes it again.
@@ -1253,32 +1441,32 @@ async function main() {
       },
       { timeout: 5000 },
     );
-    const s25 = await emptyPage.evaluate(PAGE_STATE);
-    const s25Ok =
-      s25.emptyState === EXPECTED.emptyNotice &&
-      s25.imgSrc === null &&
-      s25.overlayHidden === true;
+    const s27 = await emptyPage.evaluate(PAGE_STATE);
+    const s27Ok =
+      s27.emptyState === EXPECTED.emptyNotice &&
+      s27.imgSrc === null &&
+      s27.overlayHidden === true;
     const emptyCdp = await emptyPage.createCDPSession();
     await pressT(emptyCdp);
     await emptyPage.waitForFunction(OVERLAY_OPEN, { timeout: 5000 });
-    const s25overlay = await emptyPage.evaluate(READ_BOOKMARK_OVERLAY);
-    const s25EmptyOverlayOk =
-      s25overlay.hidden === false &&
-      s25overlay.entries.length === 0 &&
-      s25overlay.emptyText === "No bookmarks yet — press b";
+    const s27overlay = await emptyPage.evaluate(READ_BOOKMARK_OVERLAY);
+    const s27EmptyOverlayOk =
+      s27overlay.hidden === false &&
+      s27overlay.entries.length === 0 &&
+      s27overlay.emptyText === "No bookmarks yet — press b";
     // Same fullscreen caveat as step 23: `t` was this page's first gesture
     // so it entered fullscreen, and the browser keeps the first Escape.
     await pressEscape(emptyCdp);
     await sleep(80);
     await pressEscape(emptyCdp);
-    const s25Closed = await panelOpen(emptyPage);
+    const s27Closed = await panelOpen(emptyPage);
     record(
-      "25. empty-manifest folder shows the empty state; t there says no bookmarks yet",
-      s25Ok && s25EmptyOverlayOk && s25Closed === false ? "PASS" : "FAIL",
-      `${JSON.stringify({ emptyState: s25.emptyState, imgSrc: s25.imgSrc, overlayHidden: s25.overlayHidden })}; t opened the overlay: emptyText=${JSON.stringify(s25overlay.emptyText)} entries=${String(s25overlay.entries.length)} (the demo folder's two bookmarks are another novel's — storage is keyed per folder); Escape (after the fullscreen-exiting one the browser keeps) closed=${String(s25Closed === false)}`,
+      "27. empty-manifest folder shows the empty state; t there says no bookmarks yet",
+      s27Ok && s27EmptyOverlayOk && s27Closed === false ? "PASS" : "FAIL",
+      `${JSON.stringify({ emptyState: s27.emptyState, imgSrc: s27.imgSrc, overlayHidden: s27.overlayHidden })}; t opened the overlay: emptyText=${JSON.stringify(s27overlay.emptyText)} entries=${String(s27overlay.entries.length)} (the demo folder's two bookmarks are another novel's — storage is keyed per folder); Escape (after the fullscreen-exiting one the browser keeps) closed=${String(s27Closed === false)}`,
     );
 
-    // 26. Fill the screen (docs/plan.md Phase 7b): the media is the largest
+    // 28. Fill the screen (docs/plan.md Phase 7b): the media is the largest
     // centred contain fit of the ASSET's own aspect ratio into whatever
     // viewport the player gets, never the manifest's box. Two mismatched
     // viewports, one per letterbox direction: the fixture image (16:9, the
@@ -1365,7 +1553,7 @@ async function main() {
             .join(",") || "none"
         }`;
       record(
-        "26. media fills the viewport as a centred contain fit of its own aspect",
+        "28. media fills the viewport as a centred contain fit of its own aspect",
         status,
         `${brief(portraitState, portraitFit)} | ${brief(tallState, tallFit)} | ` +
           `overlay band=${bandWidth.toFixed(0)}px of ${tvw}px, bottom=${bandBottom.toFixed(0)} of ${tvh}px ` +
@@ -1379,12 +1567,12 @@ async function main() {
       for (const page of fitPages) await page.close();
     }
 
-    // 27. Console stayed empty throughout both pages.
-    const s27Ok = consoleMessages.length === 0 && pageErrors.length === 0;
+    // 29. Console stayed empty throughout both pages.
+    const s29Ok = consoleMessages.length === 0 && pageErrors.length === 0;
     record(
-      "27. console stayed empty throughout",
-      s27Ok ? "PASS" : "FAIL",
-      s27Ok
+      "29. console stayed empty throughout",
+      s29Ok ? "PASS" : "FAIL",
+      s29Ok
         ? "zero console messages, zero page errors, every page, whole run"
         : `console=[${consoleMessages.join(" | ")}] pageErrors=[${pageErrors.join(" | ")}]`,
     );
