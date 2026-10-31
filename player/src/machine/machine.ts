@@ -155,16 +155,33 @@ function videoRangeSeconds(item: VideoItem): number {
 }
 
 /**
+ * Length of a video item's loop pass, in seconds (docs/content-format.md,
+ * "Video playback ranges"): `loopStartSeconds` to the range end, where
+ * `loopStartSeconds` defaults to `startSeconds` — so without it the loop pass
+ * equals the first pass. Raw float math — nothing rounds.
+ */
+function videoLoopPassSeconds(item: VideoItem): number {
+  const end = item.endSeconds ?? item.durationSeconds;
+  const loopStart = item.loopStartSeconds ?? item.startSeconds ?? 0;
+  return end - loopStart;
+}
+
+/**
  * A standalone video's media-gate time bound, in ms: `holdSeconds` when
- * present — the video is then background and only the clock gates — else
- * the playback range length × `loopCount` (docs/content-format.md, "Timing").
- * The pass-complete half of the gate is unchanged: the machine counts
- * `mediaEnded()` reports however the renderer emits them (per range end via
- * rVFC, or the file's `ended` without a range). Raw float math — no rounding.
+ * present — the video is then background and only the clock gates — else the
+ * passes summed: the first pass (`videoRangeSeconds`) plus `loopCount - 1`
+ * loop passes, which restart at `loopStartSeconds` and are the range again
+ * without it (docs/content-format.md, "Timing"). Equal to the range length ×
+ * `loopCount` when `loopStartSeconds` is absent. The pass-complete half of the
+ * gate is unchanged: the machine counts `mediaEnded()` reports however the
+ * renderer emits them (per range end via rVFC, or the file's `ended` without a
+ * range). Raw float math — no rounding.
  */
 function videoGateMs(item: VideoItem): number {
   if (item.holdSeconds !== undefined) return item.holdSeconds * 1000;
-  return videoRangeSeconds(item) * videoLoops(item) * 1000;
+  const firstPassMs = videoRangeSeconds(item) * 1000;
+  const loopPassMs = videoLoopPassSeconds(item) * 1000;
+  return firstPassMs + (videoLoops(item) - 1) * loopPassMs;
 }
 
 /**

@@ -43,6 +43,7 @@ function video(
     holdSeconds?: number;
     startSeconds?: number;
     endSeconds?: number;
+    loopStartSeconds?: number;
   } = {},
 ): Item {
   return {
@@ -56,6 +57,7 @@ function video(
     holdSeconds: timing.holdSeconds,
     startSeconds: timing.startSeconds,
     endSeconds: timing.endSeconds,
+    loopStartSeconds: timing.loopStartSeconds,
   };
 }
 
@@ -576,6 +578,103 @@ describe("range-based video timing (docs/plan.md Phase 9c)", () => {
     expect(itemHoldMs(video(2.5, undefined, { loopCount: 2 }), SETTINGS)).toBe(
       5000,
     );
+  });
+});
+
+describe("loop restart point (docs/plan.md Phase 9d)", () => {
+  // 1 .. 4 of an 8 s file with a loop restart at 3: the first pass is 3 s and
+  // every later pass 1 s, so the bound is 3 + (loops - 1) s, never 3 * loops.
+  // Exact fractional seconds, no rounding.
+  const looping = { startSeconds: 1, endSeconds: 4, loopStartSeconds: 3 };
+
+  it("time bound is firstPass + (loops-1) * loopPass, not range * loops", () => {
+    expect(itemHoldMs(video(8, undefined, looping), SETTINGS)).toBe(3000);
+    expect(
+      itemHoldMs(video(8, undefined, { ...looping, loopCount: 2 }), SETTINGS),
+    ).toBe(4000); // 3 + 1, not 6
+    vi.useFakeTimers();
+    const m = machine([
+      video(8, undefined, { ...looping, loopCount: 2 }),
+      image(),
+    ]);
+    m.mediaEnded(); // first pass done; the shorter loop pass is running
+    vi.advanceTimersByTime(3999);
+    expect(m.getState().cursor).toBe(0);
+    vi.advanceTimersByTime(1); // the 4 s bound elapsed; one pass report only
+    expect(m.getState().cursor).toBe(0);
+    m.mediaEnded(); // second pass completes the item
+    expect(m.getState().cursor).toBe(1);
+    m.destroy();
+  });
+
+  it("three passes sum the first pass and two loop passes", () => {
+    expect(
+      itemHoldMs(video(8, undefined, { ...looping, loopCount: 3 }), SETTINGS),
+    ).toBe(5000); // 3 + 2 * 1
+    // A restart before `startSeconds` lengthens the loop pass instead: the
+    // first pass is 2 s, each later pass the 4 s from 0 to the range end.
+    const preRoll = {
+      startSeconds: 2,
+      endSeconds: 4,
+      loopStartSeconds: 0,
+      loopCount: 2,
+    };
+    expect(itemHoldMs(video(8, undefined, preRoll), SETTINGS)).toBe(6000); // 2 + 4
+  });
+
+  it("absent or equal loopStartSeconds keeps range * loops (Phase 9c)", () => {
+    const ranged = { startSeconds: 1, endSeconds: 4 };
+    expect(
+      itemHoldMs(video(8, undefined, { ...ranged, loopCount: 2 }), SETTINGS),
+    ).toBe(6000);
+    expect(
+      itemHoldMs(
+        video(8, undefined, { ...ranged, loopStartSeconds: 1, loopCount: 2 }),
+        SETTINGS,
+      ),
+    ).toBe(6000);
+    expect(
+      itemHoldMs(video(8, undefined, { ...ranged, loopCount: 3 }), SETTINGS),
+    ).toBe(9000);
+  });
+
+  it("holdSeconds overrides the loop bound", () => {
+    const clip = { ...looping, loopCount: 2, holdSeconds: 2 };
+    expect(itemHoldMs(video(8, undefined, clip), SETTINGS)).toBe(2000);
+    vi.useFakeTimers();
+    const m = machine([video(8, undefined, clip), image()]);
+    vi.advanceTimersByTime(1999);
+    m.mediaEnded(); // pass reports gate nothing under a hold
+    expect(m.getState().cursor).toBe(0);
+    vi.advanceTimersByTime(1); // holdSeconds 2 s, not the 4 s loop bound
+    expect(m.getState().cursor).toBe(1);
+    m.destroy();
+  });
+
+  it("skip dwell clamps to the summed passes", () => {
+    vi.useFakeTimers();
+    // Dyadic seconds keep the float exact: 0 .. 0.0625 with a restart at
+    // 0.03125 is a 62.5 ms first pass plus a 31.25 ms loop pass, so 2 loops
+    // bound the dwell at 93.75 ms, which the scheduler floors to 93. The
+    // range alone (62 ms) and the range times loops (125 ms, above the 120 ms
+    // dwell) are both wrong here.
+    const clip = {
+      startSeconds: 0,
+      endSeconds: 0.0625,
+      loopStartSeconds: 0.03125,
+      loopCount: 2,
+    };
+    const m = machine([video(4, undefined, clip), image(), image()], {
+      settings: { ...SETTINGS, skipAll: true },
+    });
+    m.toggleSkip();
+    vi.advanceTimersByTime(92);
+    expect(m.getState().cursor).toBe(0);
+    vi.advanceTimersByTime(1); // 93 ms: the summed passes clamp the dwell
+    expect(m.getState().cursor).toBe(1);
+    vi.advanceTimersByTime(SETTINGS.skipDwellMs); // image: full dwell again
+    expect(m.getState().cursor).toBe(2);
+    m.destroy();
   });
 });
 

@@ -43,19 +43,19 @@ export interface VideoItem extends OverlayFields {
   /**
    * Times the video plays before auto-advance, integer at least 1, default 1
    * (docs/content-format.md, "Items"). The gate is the later of the
-   * `loopCount`-th `mediaEnded()` and the playback range length × `loopCount`
-   * as a time bound — the whole file without a range. The renderer loops the
-   * range back to `startSeconds` and reports `mediaEnded()` on each pass
-   * complete, so the machine counts them. Ignored when `holdSeconds` is
-   * present.
+   * `loopCount`-th `mediaEnded()` and the sum of the passes as a time bound —
+   * `loopCount` passes of the range without a loop restart point. The renderer
+   * loops the range back and reports `mediaEnded()` on each pass complete, so
+   * the machine counts them. Ignored when `holdSeconds` is present.
    */
   loopCount?: number;
   /**
    * Start of the playback range in seconds, at least 0, default 0
    * (docs/content-format.md, "Video playback ranges"). Exact fractional
-   * seconds: the machine does no rounding. The media gate and skip dwell use
-   * the range length (`endSeconds ?? durationSeconds - (startSeconds ?? 0)`)
-   * as the time bound; `durationSeconds` stays the file's total duration.
+   * seconds: the machine does no rounding. The first pass runs from here to
+   * `endSeconds`, and the media gate and skip dwell are built from the passes
+   * rather than the file's duration; `durationSeconds` stays the file's total
+   * duration.
    */
   startSeconds?: number;
   /**
@@ -65,6 +65,15 @@ export interface VideoItem extends OverlayFields {
    * file's `ended` when this is absent).
    */
   endSeconds?: number;
+  /**
+   * Where a loop restarts, in seconds, at least 0, default `startSeconds`
+   * (docs/content-format.md, "Video playback ranges"). Only later passes use
+   * it: the first pass always runs `startSeconds` to `endSeconds`, and each
+   * pass after that runs `loopStartSeconds` to `endSeconds`, so an intro
+   * plays once. Re-entering the item starts a new first pass. The machine
+   * needs it for the gate bound alone; the renderer owns the seeking.
+   */
+  loopStartSeconds?: number;
   /**
    * Explicit display duration in seconds, greater than 0. When present the
    * media gate is time-driven only — the hold is `max(textHoldMs,

@@ -391,6 +391,115 @@ def test_video_range_beyond_duration_is_rejected(folder: Path) -> None:
     assert "durationSeconds" in problems[0]
 
 
+def test_video_loop_start_within_range_passes(folder: Path) -> None:
+    """`loopStartSeconds` below the range end is valid (Phase 9d), the
+    common case of skipping an intro on the loop-back."""
+    manifest = read_manifest(folder)
+    video = manifest["items"][5]
+    video["durationSeconds"] = 4.0
+    video["startSeconds"] = 1.0
+    video["endSeconds"] = 2.0
+    video["loopStartSeconds"] = 1.5
+    video["loopCount"] = 2
+    write_manifest(folder, manifest)
+    assert problems_of(folder) == []
+    proc = run_cli(folder)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+
+
+def test_video_loop_start_before_start_seconds_passes(folder: Path) -> None:
+    """`loopStartSeconds` may sit before `startSeconds`: a loop may
+    include pre-roll the first pass skipped."""
+    manifest = read_manifest(folder)
+    video = manifest["items"][5]
+    video["durationSeconds"] = 4.0
+    video["startSeconds"] = 1.0
+    video["endSeconds"] = 2.0
+    video["loopStartSeconds"] = 0.5
+    write_manifest(folder, manifest)
+    assert problems_of(folder) == []
+
+
+def test_video_loop_start_at_effective_end_is_rejected(folder: Path) -> None:
+    """A loop pass must have length, so a `loopStartSeconds` equal to
+    `endSeconds` leaves it none."""
+    manifest = read_manifest(folder)
+    video = manifest["items"][5]
+    video["durationSeconds"] = 4.0
+    video["startSeconds"] = 1.0
+    video["endSeconds"] = 2.0
+    video["loopStartSeconds"] = 2.0
+    write_manifest(folder, manifest)
+    problems = problems_of(folder)
+    assert len(problems) == 1
+    assert problems[0].startswith("manifest.json: items[5].loopStartSeconds:")
+    assert "must be less than the effective end 2.0 (found 2.0)" in problems[0]
+
+
+def test_video_loop_start_past_end_is_rejected(folder: Path) -> None:
+    """A `loopStartSeconds` past `endSeconds` describes a pass of
+    negative length."""
+    manifest = read_manifest(folder)
+    video = manifest["items"][5]
+    video["durationSeconds"] = 4.0
+    video["startSeconds"] = 1.0
+    video["endSeconds"] = 2.0
+    video["loopStartSeconds"] = 2.5
+    write_manifest(folder, manifest)
+    problems = problems_of(folder)
+    assert len(problems) == 1
+    assert problems[0].startswith("manifest.json: items[5].loopStartSeconds:")
+    assert "must be less than the effective end 2.0 (found 2.5)" in problems[0]
+
+
+def test_video_loop_start_uses_duration_when_end_absent(folder: Path) -> None:
+    """With no `endSeconds` the effective end is `durationSeconds`, so
+    that is the bound that rejects."""
+    manifest = read_manifest(folder)
+    video = manifest["items"][5]
+    video["durationSeconds"] = 2.0
+    video["startSeconds"] = 0.5
+    video.pop("endSeconds", None)
+    video["loopStartSeconds"] = 1.9
+    write_manifest(folder, manifest)
+    assert problems_of(folder) == []
+
+    manifest = read_manifest(folder)
+    manifest["items"][5]["loopStartSeconds"] = 2.0
+    write_manifest(folder, manifest)
+    problems = problems_of(folder)
+    assert len(problems) == 1
+    assert problems[0].startswith("manifest.json: items[5].loopStartSeconds:")
+    assert "must be less than the effective end 2.0 (found 2.0)" in problems[0]
+
+
+def test_video_loop_start_seconds_are_not_rounded(folder: Path) -> None:
+    """Exact fractional `loopStartSeconds` validate and are stored
+    verbatim."""
+    manifest = read_manifest(folder)
+    video = manifest["items"][5]
+    video["durationSeconds"] = 12.345
+    video["startSeconds"] = 4.567
+    video["endSeconds"] = 12.345
+    video["loopStartSeconds"] = 8.901
+    write_manifest(folder, manifest)
+    assert problems_of(folder) == []
+    stored = read_manifest(folder)["items"][5]
+    assert stored["loopStartSeconds"] == 8.901
+    assert stored["startSeconds"] == 4.567
+
+
+def test_video_loop_start_reported_without_schema() -> None:
+    """The validator's own rule, not just the schema `minimum`."""
+    manifest = {"items": [{"id": "v", "type": "video",
+                           "durationSeconds": 2.0, "endSeconds": 2.0,
+                           "loopStartSeconds": 2.0}]}
+    problems = validate_content.video_range_problems(manifest)
+    assert len(problems) == 1
+    assert problems[0].startswith("manifest.json: items[0].loopStartSeconds:")
+    assert "effective end" in problems[0]
+
+
 def test_missing_manifest_json(folder: Path) -> None:
     (folder / "manifest.json").unlink()
     problems = problems_of(folder)

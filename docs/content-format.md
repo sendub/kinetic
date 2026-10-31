@@ -88,9 +88,11 @@ Per type:
   explicit display duration; optional `startSeconds` (number, at
   least 0, default 0) and `endSeconds` (number greater than
   `startSeconds`, default `durationSeconds`) play a sub-range of the
-  file, per Video playback ranges below. MKV is reliably
-  Chromium-class and Safari may refuse it, so a converter targeting
-  Safari should emit MP4 and record the choice in the build ledger.
+  file; optional `loopStartSeconds` (number, at least 0, default
+  `startSeconds`) sets where a loop restarts. Video playback ranges
+  below covers all three. MKV is reliably Chromium-class and Safari
+  may refuse it, so a converter targeting Safari should emit MP4 and
+  record the choice in the build ledger.
 - `text` takes no media fields. `id` and `type` are required, `speaker`,
   `text`, and `thought` are optional, and no other fields are accepted.
   On a `text` item `thought` behaves as elsewhere: a thought line in a
@@ -152,13 +154,32 @@ at least 0, default 0) and `endSeconds` (number greater than
 `startSeconds`, default the file's duration, `durationSeconds`). Both
 are stored as exact fractional seconds; the schema, the validator, and
 the player never round them. Playback duration is `endSeconds -
-startSeconds`, and the media gate and skip dwell use that range length
-instead of the file's duration, as Timing describes. `ended` is
-emitted when playback reaches `endSeconds`, via a `timeupdate` clamp,
-not at the file's true end. The player seeks to `startSeconds` when
-the item is entered, clamps playback to `[startSeconds, endSeconds]`,
-and loops from `start` to `end` by seeking back to `start` when a pass
-completes; `loop=true` would seek to 0, which is wrong for a range.
+startSeconds`, and the media gate and skip dwell use the range rather
+than the file's duration, as Timing describes. `ended` is emitted when
+playback reaches `endSeconds`, via a `timeupdate` clamp, not at the
+file's true end. The player seeks to `startSeconds` when the item is
+entered, clamps playback to `[startSeconds, endSeconds]`, and loops by
+seeking back to `startSeconds` when a pass completes; `loop=true`
+would seek to 0, which is wrong for a range.
+
+`loopStartSeconds` (number, at least 0, default `startSeconds`) is the
+loop restart point: the first pass runs from `startSeconds` to
+`endSeconds`, and every pass after it runs from `loopStartSeconds` to
+`endSeconds`, so a clip with an intro plays the intro once and skips
+it on the loop-backs. Entering the item again later starts a new first
+pass from `startSeconds`. `loopStartSeconds` below `startSeconds` is
+legal (a loop may include pre-roll the first pass skipped); above it
+is the common case. The validator requires it to be less than the
+effective end, `endSeconds` or `durationSeconds` when there is no
+`endSeconds`, so a later pass always has length. The poster is
+unaffected: it stays the frame at `startSeconds`.
+
+The gate follows the passes rather than the range times `loopCount`:
+`firstPass + (loops - 1) * loopPass`, where `firstPass = endSeconds -
+startSeconds`, `loopPass = endSeconds - loopStartSeconds`, and `loops
+= loopCount`. Without `loopStartSeconds` this is `(endSeconds -
+startSeconds) * loopCount` as before, and `holdSeconds` overrides it
+as it does now.
 
 Several items may reference the same `file` at different ranges. The
 validator checks each item's range against its `durationSeconds` but
@@ -209,20 +230,21 @@ content:
 - A video's media gate is `holdSeconds` when present: the hold is
   time driven only, `ended` is ignored, and the video plays as
   background. Otherwise auto-advance fires at the later of the
-  `loopCount`-th `ended` event and `(endSeconds - startSeconds) *
-  loopCount` as a time bound, which without a range is
-  `durationSeconds * loopCount`. `ended` is emitted when playback
-  reaches `endSeconds`, via a `timeupdate` clamp, not the file's
-  true end. The text hold always applies alongside the gate.
+  `loopCount`-th `ended` event and the time bound from Video
+  playback ranges, `firstPass + (loopCount - 1) * loopPass`, which
+  without `loopStartSeconds` is `(endSeconds - startSeconds) *
+  loopCount`, and without a range `durationSeconds * loopCount`.
+  `ended` is emitted when playback reaches `endSeconds`, via a
+  `timeupdate` clamp, not the file's true end. The text hold always
+  applies alongside the gate.
 - A media item followed by `text` items, and the `text` items after
   it, form a chain. The chain advances on text hold times alone. Loop
   completion and the `ended` event gate nothing while it lasts, and
   the chain's visual plays throughout it, looping in place.
 - Skip mode shows each item for a fixed player dwell. An animation
   contributes `frames[0]` and a video its `poster`; both show that
-  still and never play. A video holds for `min(skipDwell,
-  (holdSeconds ?? (endSeconds - startSeconds) * loopCount))`, the
-  range length standing in for the file's duration.
+  still and never play. A video holds for `min(skipDwell, gate)`, the
+  media gate above standing in for the file's duration.
 - Rewind shows `frames[0]` and the poster too. Rewind, skip, and
   `e`-jump show a `text` item as the still of the visual it displays.
 
@@ -286,8 +308,10 @@ The validator checks the schema plus these invariants:
    schema cannot express this cross-field rule, so the validator reports
    it.
 7. A video's playback range is sound: `startSeconds` is not negative,
-   `endSeconds` is greater than `startSeconds`, and `endSeconds` does
-   not exceed `durationSeconds`. The schema pins `startSeconds` to at
-   least 0; the validator reports the negative value and the two
-   cross-field rules. The validator trusts `durationSeconds`; the
-   file's real duration is checked by the converter (ffprobe).
+   `endSeconds` is greater than `startSeconds`, `endSeconds` does
+   not exceed `durationSeconds`, and `loopStartSeconds` is less than
+   the effective end `endSeconds ?? durationSeconds`. The schema
+   pins `startSeconds` and `loopStartSeconds` to at least 0; the
+   validator reports the negative value and the cross-field rules.
+   The validator trusts `durationSeconds`; the file's real duration
+   is checked by the converter (ffprobe).

@@ -119,6 +119,11 @@
           "exclusiveMinimum": 0,
           "description": "playback range end in exact fractional seconds, never rounded; default durationSeconds; endSeconds > startSeconds and endSeconds <= durationSeconds are cross-field rules the validator enforces (docs/content-format.md, Video playback ranges)"
         },
+        "loopStartSeconds": {
+          "type": "number",
+          "minimum": 0,
+          "description": "loop restart point in exact fractional seconds, never rounded; default startSeconds, so only the first pass plays the pre-roll; must be less than the effective end (endSeconds if present, else durationSeconds), a cross-field rule the validator enforces (docs/content-format.md, Video playback ranges)"
+        },
         "loopCount": {
           "type": "integer",
           "minimum": 1,

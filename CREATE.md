@@ -130,6 +130,14 @@ ranges, so one clip can serve several beats. To count in frames
 instead, store `startFrame / fps` and `endFrame / fps` as the
 seconds; the player never sees frame numbers.
 
+A looping video may restart its later passes somewhere else:
+`loopStartSeconds` (at least 0, default `startSeconds`) is where
+playback resumes once a pass reaches `endSeconds`, so a clip with an
+intro plays the intro once and skips it on every loop-back. It is an
+exact fractional second like the rest, and must stay below the range
+end; coming back to the item later plays the intro again. The poster
+is unaffected and stays the frame at `startSeconds`.
+
 ### Preparing the media
 
 Every image, frame, and poster must be exactly the manifest's width and

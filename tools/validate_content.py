@@ -342,11 +342,13 @@ def video_range_problems(manifest: Any,
 
     `startSeconds` may not be negative, `endSeconds` must exceed
     `startSeconds`, and `endSeconds` may not exceed `durationSeconds`
-    (docs/content-format.md § Video playback ranges). Absent fields take
-    their defaults and need no check; a non-numeric value is the schema's
-    problem, not this one. A negative `startSeconds` is also a schema
-    `minimum` violation, so when the schema already reported that
-    location it is not repeated here.
+    (docs/content-format.md § Video playback ranges). A
+    `loopStartSeconds` must fall below the effective end, `endSeconds`
+    or `durationSeconds` without one, or a looped pass has no length.
+    Absent fields take their defaults and need no check; a non-numeric
+    value is the schema's problem, not this one. A negative
+    `startSeconds` is also a schema `minimum` violation, so when the
+    schema already reported that location it is not repeated here.
     """
     items = manifest.get("items") if isinstance(manifest, dict) else None
     if not isinstance(items, list):
@@ -358,6 +360,7 @@ def video_range_problems(manifest: Any,
         start = _numeric_field(item, "startSeconds")
         end = _numeric_field(item, "endSeconds")
         duration = _numeric_field(item, "durationSeconds")
+        loop_start = _numeric_field(item, "loopStartSeconds")
         if start is not None and start < 0:
             loc = f"items[{i}].startSeconds"
             if loc not in schema_locs:
@@ -371,6 +374,11 @@ def video_range_problems(manifest: Any,
             problems.append(_line(f"items[{i}].endSeconds",
                                   f"must not exceed durationSeconds "
                                   f"{duration!r} (found {end!r})"))
+        limit = end if end is not None else duration
+        if loop_start is not None and limit is not None and loop_start >= limit:
+            problems.append(_line(f"items[{i}].loopStartSeconds",
+                                  f"must be less than the effective end "
+                                  f"{limit!r} (found {loop_start!r})"))
     return problems
 
 
