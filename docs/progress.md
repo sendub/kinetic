@@ -40,7 +40,8 @@ truthful: an unchecked box means nothing was accepted.
 - [x] Wheel-back / wheel-forward rules with frontier guard
 - [x] README advance / auto-advance / scroll bullets each map to named
       tests; `npm test` green (22 machine tests, 2025-11-01)
-- [ ] Machine modules DOM-free (lint rule or review sign-off)
+- [x] Machine modules DOM-free (durable guard test `dom-free.test.ts`
+      scanning sources, 37 tests, 2025-11-01)
 
 ## Phase 4: Timeline machine - skip and jumps
 
