@@ -44,12 +44,13 @@ them is still valid input for the validator.
   order), `fps` greater than 0, `loopCount` of at least 1.
 - `video`: `file` (any browser-playable file; `.mp4`, `.webm`,
   `.mkv`, `.mov`, and `.m4v` are allowed, and playability is the
-  browser's call), `poster` (a display-resolution still, the video's
-  first frame, also shown in skip and rewind), and `durationSeconds`
-  greater than 0. Optionally set `loopCount` (at least 1, default 1)
-  to play the video repeatedly and `holdSeconds` (greater than 0)
-  for an explicit display duration; `durationSeconds` stays required
-  either way.
+  browser's call), `poster` (a display-resolution still, the frame
+  at `startSeconds` and the first frame without a range, also shown
+  in skip and rewind), and `durationSeconds` greater than 0, the
+  file's total duration. Optionally set `loopCount` (at least 1,
+  default 1) to play the video repeatedly and `holdSeconds` (greater
+  than 0) for an explicit display duration; `durationSeconds` stays
+  required either way.
 - `text`: no media fields; only `id`, `type`, and the optional
   `speaker`, `text`, and `thought`. It shows the visual of the nearest
   earlier media item, and that video or animation keeps looping
@@ -119,6 +120,15 @@ Several items may reference the same derivative file, the converter
 dedups identical sources, and you may name hand-authored files
 differently. A folder may also carry extra unreferenced files, such as
 the converter's build ledger; the player and the validator ignore them.
+
+A video item may play a sub-range of its file: `startSeconds` (at
+least 0, default 0) and `endSeconds` (greater than `startSeconds`,
+default `durationSeconds`). Both are exact fractional seconds, never
+rounded; playback runs to `endSeconds` and its `ended` fires at the
+range end. Several items may reference the same file at different
+ranges, so one clip can serve several beats. To count in frames
+instead, store `startFrame / fps` and `endFrame / fps` as the
+seconds; the player never sees frame numbers.
 
 ### Preparing the media
 
@@ -196,7 +206,8 @@ per problem, shaped like
 `manifest.json: items[1].fps: must be greater than 0 (found 0)`, plus a
 problem count on stderr, and exits 1. The validator checks the schema
 plus the filesystem invariants in docs/content-format.md: every
-referenced file exists inside the folder, item ids are unique, and a
+referenced file exists inside the folder, item ids are unique, each
+video's playback range fits inside its `durationSeconds`, and a
 present `manifest.js` embeds JSON equal to `manifest.json`.
 
 ## Converting a Ren'Py project (planned, Phase 10)

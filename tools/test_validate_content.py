@@ -111,6 +111,53 @@ def test_video_webm_with_loop_count_passes(folder: Path) -> None:
     assert proc.returncode == 0, proc.stdout + proc.stderr
 
 
+def test_video_playback_range_passes(folder: Path) -> None:
+    """startSeconds/endSeconds within durationSeconds are valid (Phase 9c)."""
+    manifest = read_manifest(folder)
+    video = manifest["items"][5]
+    assert video["type"] == "video"
+    video["durationSeconds"] = 4.0  # the validator trusts this, never probes
+    video["startSeconds"] = 1.5
+    video["endSeconds"] = 2.5
+    write_manifest(folder, manifest)
+    assert problems_of(folder) == []
+    proc = run_cli(folder)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+
+
+def test_same_video_file_at_two_ranges_passes(folder: Path) -> None:
+    """Several items may share one file at different ranges; no dedup,
+    no sharing ban."""
+    manifest = read_manifest(folder)
+    video = manifest["items"][5]
+    duration = video["durationSeconds"]
+    video["startSeconds"] = 0.0
+    video["endSeconds"] = duration / 2
+    second = dict(video, id="intro-006b",
+                  startSeconds=duration / 2, endSeconds=duration)
+    manifest["items"].insert(6, second)
+    write_manifest(folder, manifest)
+    assert problems_of(folder) == []
+    proc = run_cli(folder)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+
+
+def test_fractional_seconds_are_not_rounded(folder: Path) -> None:
+    """Exact fractional seconds validate, and validation leaves the
+    stored values verbatim."""
+    manifest = read_manifest(folder)
+    video = manifest["items"][5]
+    video["durationSeconds"] = 12.345
+    video["startSeconds"] = 4.567
+    video["endSeconds"] = 12.345
+    write_manifest(folder, manifest)
+    assert problems_of(folder) == []
+    stored = read_manifest(folder)["items"][5]
+    assert stored["durationSeconds"] == 12.345
+    assert stored["startSeconds"] == 4.567
+    assert stored["endSeconds"] == 12.345
+
+
 def test_video_mkv_with_hold_seconds_passes(folder: Path) -> None:
     """A `.mkv` video file and `holdSeconds` are valid; any playable
     container the browser accepts is allowed."""
@@ -295,6 +342,52 @@ def test_video_missing_duration_seconds_is_rejected(folder: Path) -> None:
     problems = problems_of(folder)
     assert len(problems) == 1
     assert problems[0].startswith("manifest.json: items[5]:")
+    assert "durationSeconds" in problems[0]
+
+
+def test_video_range_end_not_after_start_is_rejected(folder: Path) -> None:
+    """`endSeconds` must exceed `startSeconds`; equal is too (Phase 9c)."""
+    manifest = read_manifest(folder)
+    video = manifest["items"][5]
+    video["startSeconds"] = 1.5
+    video["endSeconds"] = 1.5
+    write_manifest(folder, manifest)
+    problems = problems_of(folder)
+    assert len(problems) == 1
+    assert problems[0].startswith("manifest.json: items[5].endSeconds:")
+    assert "startSeconds" in problems[0]
+
+
+def test_video_negative_start_seconds_is_rejected(folder: Path) -> None:
+    """`startSeconds` may not be negative, even fractionally."""
+    manifest = read_manifest(folder)
+    video = manifest["items"][5]
+    video["startSeconds"] = -0.5
+    write_manifest(folder, manifest)
+    problems = problems_of(folder)
+    assert len(problems) == 1
+    assert problems[0].startswith("manifest.json: items[5].startSeconds:")
+
+
+def test_video_negative_start_seconds_reported_without_schema() -> None:
+    """The validator's own rule, not just the schema `minimum`."""
+    manifest = {"items": [{"id": "v", "type": "video",
+                           "durationSeconds": 2.0, "startSeconds": -0.5}]}
+    problems = validate_content.video_range_problems(manifest)
+    assert len(problems) == 1
+    assert problems[0].startswith("manifest.json: items[0].startSeconds:")
+    assert "negative" in problems[0]
+
+
+def test_video_range_beyond_duration_is_rejected(folder: Path) -> None:
+    """`endSeconds` may not exceed the file's `durationSeconds`."""
+    manifest = read_manifest(folder)
+    video = manifest["items"][5]
+    video["endSeconds"] = video["durationSeconds"] + 10.0
+    write_manifest(folder, manifest)
+    problems = problems_of(folder)
+    assert len(problems) == 1
+    assert problems[0].startswith("manifest.json: items[5].endSeconds:")
     assert "durationSeconds" in problems[0]
 
 

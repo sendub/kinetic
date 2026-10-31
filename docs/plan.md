@@ -368,11 +368,16 @@ share one file at different ranges.
   the file's total duration (required, from ffprobe) and is the default
   `endSeconds`; playback duration is `endSeconds - startSeconds`.
 - Timing uses the range length: media gate = `holdSeconds` if present,
-  else the later of the `loopCount`-th `ended` (an `ended` is emitted
-  when playback reaches `endSeconds`, via a `timeupdate` clamp, not the
-  file's true end) and `(endSeconds - startSeconds) * loopCount`; text
-  hold also applies. Skip dwell clamps to the range length (or
-  `holdSeconds`).
+  else the later of the `loopCount`-th pass-complete and
+  `(endSeconds - startSeconds) * loopCount`; text hold also applies.
+  Skip dwell clamps to the range length (or `holdSeconds`). A
+  pass-complete means playback reached `endSeconds`: detect it per
+  presented frame with `requestVideoFrameCallback` (its `mediaTime` is
+  exact per frame), NOT by polling `timeupdate`, which fires only every
+  ~4-250ms and so overshoots the end frame; fall back to `timeupdate`
+  when rVFC is unavailable (Firefox pre-133) and say so in the docs.
+  The file's true `ended` event still serves unbounded videos
+  (endSeconds absent).
 - Posters and stills show the frame AT `startSeconds`, including skip
   and rewind. The converter extracts the poster at `startSeconds` via
   `ffmpeg -ss <start>`. For hand-authored or test folders that cannot
@@ -399,12 +404,19 @@ share one file at different ranges.
   converts to fractional seconds (`frame / fps`) stored in the manifest.
   This is a converter/authoring aid only; the manifest field stays
   fractional seconds. The player never sees frame numbers.
-- Honest seek caveat to document: browser `seek` lands on the nearest
-  keyframe, so the first displayed frame after `startSeconds` may be an
-  earlier keyframe; frame-exact first/last accuracy depends on the
-  browser. Verify asserts the achievable behavior (playback stays in
-  range, loops within range, ends at `endSeconds`), and notes the
-  keyframe-precision limit rather than claiming frame-exact start.
+- Honest boundary policy (from external review): two limits are real
+  and must be measured, not assumed away. (1) Seek does not necessarily
+  display the frame nearest `startSeconds` - it lands on a keyframe,
+  possibly earlier. (2) Even rVFC only observes frames the browser
+  presents; the last frame before a seek-back can be bounded by present
+  cadence. The player therefore TESTS what is actually shown: verify
+  captures the first frame displayed after entering a range and the
+  last frame before loop/stop (via rVFC metadata and canvas-free
+  element-state evidence, or screenshots), records the observed
+  tolerances in seconds and frames in docs/verify-player.md, and the
+  content-format doc states the guarantee the player actually keeps:
+  playback stays inside the range and boundaries land within the
+  documented tolerance. No claim of frame-exact start/end anywhere.
 - Demo: convert the existing 1 s `loop-012` into a ~2 s clip and split
   it into two items over the SAME file at different ranges (e.g.
   `0.0-1.0` and `1.0-2.0`), so sharing + range + per-item poster are all

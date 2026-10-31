@@ -21,7 +21,9 @@ invariants:
    exists, inside the folder, at a path that obeys the folder-layout rules;
    item ids are unique; the first item is not `text` and every `text` item
    has a media-bearing item (image, animation, or video) before it; an item
-   that sets `thought` true has a non-empty `text`; and a present
+   that sets `thought` true has a non-empty `text`; a video item's playback
+   range is sound (`startSeconds` not negative, `endSeconds` greater than
+   `startSeconds` and no greater than `durationSeconds`); and a present
    `manifest.js` shim embeds JSON equal to `manifest.json`.
 """
 
@@ -326,6 +328,52 @@ def thought_problems(manifest: Any) -> list[str]:
     return problems
 
 
+def _numeric_field(item: dict[str, Any], field: str) -> int | float | None:
+    """The field's value as a number, or None when absent or not numeric."""
+    value = item.get(field)
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return value
+
+
+def video_range_problems(manifest: Any,
+                         schema_locs: set[str] = frozenset()) -> list[str]:
+    """Cross-field rules for a video item's playback range.
+
+    `startSeconds` may not be negative, `endSeconds` must exceed
+    `startSeconds`, and `endSeconds` may not exceed `durationSeconds`
+    (docs/content-format.md § Video playback ranges). Absent fields take
+    their defaults and need no check; a non-numeric value is the schema's
+    problem, not this one. A negative `startSeconds` is also a schema
+    `minimum` violation, so when the schema already reported that
+    location it is not repeated here.
+    """
+    items = manifest.get("items") if isinstance(manifest, dict) else None
+    if not isinstance(items, list):
+        return []
+    problems: list[str] = []
+    for i, item in enumerate(items):
+        if not isinstance(item, dict) or item.get("type") != "video":
+            continue
+        start = _numeric_field(item, "startSeconds")
+        end = _numeric_field(item, "endSeconds")
+        duration = _numeric_field(item, "durationSeconds")
+        if start is not None and start < 0:
+            loc = f"items[{i}].startSeconds"
+            if loc not in schema_locs:
+                problems.append(_line(loc,
+                                      f"must not be negative (found {start!r})"))
+        if end is not None and start is not None and end <= start:
+            problems.append(_line(f"items[{i}].endSeconds",
+                                  f"must be greater than startSeconds "
+                                  f"{start!r} (found {end!r})"))
+        if end is not None and duration is not None and end > duration:
+            problems.append(_line(f"items[{i}].endSeconds",
+                                  f"must not exceed durationSeconds "
+                                  f"{duration!r} (found {end!r})"))
+    return problems
+
+
 def _first_difference(a: Any, b: Any, path: str = "") -> str | None:
     """Manifest location of the first structural difference, or None if equal."""
     where = path or "<root>"
@@ -425,6 +473,7 @@ def validate_folder(content_dir: Path, schema_path: Path = DEFAULT_SCHEMA) -> li
         problems += media_problems(content_dir, manifest, schema_locs)
         problems += text_item_problems(manifest)
         problems += thought_problems(manifest)
+        problems += video_range_problems(manifest, schema_locs)
 
     if (content_dir / SHIM_NAME).exists():
         problems += shim_problems(content_dir, manifest)

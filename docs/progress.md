@@ -141,18 +141,21 @@ truthful: an unchecked box means nothing was accepted.
 
 ## Phase 9c: Video playback ranges (2025-11-01, user requests)
 
-- [ ] Format/schema/validator/CREATE: optional `startSeconds`/
+- [x] Format/schema/validator/CREATE: optional `startSeconds`/
       `endSeconds` (exact fractional seconds, no rounding; defaults 0
       and durationSeconds); range validation; frame-number authoring
       convenience documented (seconds stored); converter poster-at-start
-      note; shared-file-different-ranges documented
+      note; shared-file-different-ranges documented (39 pytest tests,
+      2025-11-01)
 - [ ] Machine: range-based timing (gate and skip clamp use
       endSeconds-startSeconds; ended emitted at range end) with tests
 - [ ] Renderer: seek to start on enter, range clamp, seek-back-to-start
       loop (never loop=true on ranges), chain continues without
-      restart, poster = frame at start; verify steps asserting the
-      ACTUAL first/last displayed frames the browser achieves (keyframe
-      caveat recorded)
+      restart, poster = frame at start; pass boundaries via
+      requestVideoFrameCallback (timeupdate only as fallback, being
+      4-250ms coarse); verify tests the ACTUAL first/last displayed
+      frames and RECORDS the observed tolerance (seconds/frames) in
+      docs/verify-player.md - no frame-exact claims
 - [ ] Demo fixture: shared ~2 s clip used by two items at different
       ranges (0.0-1.0, 1.0-2.0) with range posters; determinism green
 

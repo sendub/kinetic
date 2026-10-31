@@ -85,9 +85,12 @@ Per type:
   it via ffprobe, and skip-mode timing needs it). Optional
   `loopCount` (integer, at least 1, default 1) plays the video
   repeatedly; optional `holdSeconds` (number greater than 0) sets an
-  explicit display duration. MKV is reliably Chromium-class and Safari
-  may refuse it, so a converter targeting Safari should emit MP4 and
-  record the choice in the build ledger.
+  explicit display duration; optional `startSeconds` (number, at
+  least 0, default 0) and `endSeconds` (number greater than
+  `startSeconds`, default `durationSeconds`) play a sub-range of the
+  file, per Video playback ranges below. MKV is reliably
+  Chromium-class and Safari may refuse it, so a converter targeting
+  Safari should emit MP4 and record the choice in the build ledger.
 - `text` takes no media fields. `id` and `type` are required, `speaker`,
   `text`, and `thought` are optional, and no other fields are accepted.
   On a `text` item `thought` behaves as elsewhere: a thought line in a
@@ -142,6 +145,45 @@ that visual as a still: a video's `poster` or an animation's
 `frames[0]`. The first item may not be `text`, and a `text` item only
 makes sense after some media-bearing item.
 
+### Video playback ranges
+
+A video item may play a sub-range of its file: `startSeconds` (number,
+at least 0, default 0) and `endSeconds` (number greater than
+`startSeconds`, default the file's duration, `durationSeconds`). Both
+are stored as exact fractional seconds; the schema, the validator, and
+the player never round them. Playback duration is `endSeconds -
+startSeconds`, and the media gate and skip dwell use that range length
+instead of the file's duration, as Timing describes. `ended` is
+emitted when playback reaches `endSeconds`, via a `timeupdate` clamp,
+not at the file's true end. The player seeks to `startSeconds` when
+the item is entered, clamps playback to `[startSeconds, endSeconds]`,
+and loops from `start` to `end` by seeking back to `start` when a pass
+completes; `loop=true` would seek to 0, which is wrong for a range.
+
+Several items may reference the same `file` at different ranges. The
+validator checks each item's range against its `durationSeconds` but
+neither dedups nor forbids sharing. The file's real duration is the
+converter's check (ffprobe); the validator trusts `durationSeconds`.
+
+Posters and stills show the frame at `startSeconds`, including in skip
+and rewind, so the converter extracts the poster with `ffmpeg -ss
+<startSeconds>`. A hand-authored or test folder that cannot decode to
+seek may keep the file's first frame as the poster; the still then
+shows the file's start rather than the range's, and the folder's notes
+should say so.
+
+As an authoring convenience a range may be expressed as
+`startFrame`/`endFrame` at a given fps; the authoring tool converts
+each number to fractional seconds (`frame / fps`) and stores that in
+the manifest. The manifest field stays fractional seconds, and the
+player never sees frame numbers.
+
+Honest caveat: browser `seek` lands on the nearest keyframe, so the
+first frame shown after `startSeconds` may be an earlier keyframe;
+frame-exact start accuracy depends on the browser and is not
+guaranteed. What is guaranteed is that playback stays within the range
+and its `ended` fires at `endSeconds`.
+
 ## Timing
 
 The manifest describes content; pacing belongs to the player. Reading speed,
@@ -167,8 +209,11 @@ content:
 - A video's media gate is `holdSeconds` when present: the hold is
   time driven only, `ended` is ignored, and the video plays as
   background. Otherwise auto-advance fires at the later of the
-  `loopCount`-th `ended` event and `durationSeconds * loopCount` as
-  a time bound. The text hold always applies alongside the gate.
+  `loopCount`-th `ended` event and `(endSeconds - startSeconds) *
+  loopCount` as a time bound, which without a range is
+  `durationSeconds * loopCount`. `ended` is emitted when playback
+  reaches `endSeconds`, via a `timeupdate` clamp, not the file's
+  true end. The text hold always applies alongside the gate.
 - A media item followed by `text` items, and the `text` items after
   it, form a chain. The chain advances on text hold times alone. Loop
   completion and the `ended` event gate nothing while it lasts, and
@@ -176,7 +221,8 @@ content:
 - Skip mode shows each item for a fixed player dwell. An animation
   contributes `frames[0]` and a video its `poster`; both show that
   still and never play. A video holds for `min(skipDwell,
-  (holdSeconds ?? durationSeconds * loopCount))`.
+  (holdSeconds ?? (endSeconds - startSeconds) * loopCount))`, the
+  range length standing in for the file's duration.
 - Rewind shows `frames[0]` and the poster too. Rewind, skip, and
   `e`-jump show a `text` item as the still of the visual it displays.
 
@@ -193,9 +239,11 @@ owning item id. Since ids contain no dots, suffixes parse unambiguously:
   byte-identical, with no forced re-encode.
 - `<id>.fNNN.jpg`: animation frame N, zero-based and zero-padded to three
   digits, referenced in `frames`.
-- `<id>.poster.jpg`: the video's first frame, extracted at conversion and
-  referenced by `poster`. The poster doubles as the first frame shown in
-  skip mode and rewind.
+- `<id>.poster.jpg`: the video's start frame, the frame at
+  `startSeconds`, extracted at conversion with `ffmpeg -ss` and
+  referenced by `poster`; without a range this is the file's first
+  frame. The poster doubles as the first frame shown in skip mode and
+  rewind.
 - `<id>.thumb.jpg`: a preview no wider than 320 pixels, derived from the
   item's first visual (image, frame 0, or poster). Bookmarks capture the
   visible surface at run time; the thumbnail is the fallback when no surface
@@ -237,3 +285,9 @@ The validator checks the schema plus these invariants:
 6. An item sets `thought` true only when its `text` is non-empty. The
    schema cannot express this cross-field rule, so the validator reports
    it.
+7. A video's playback range is sound: `startSeconds` is not negative,
+   `endSeconds` is greater than `startSeconds`, and `endSeconds` does
+   not exceed `durationSeconds`. The schema pins `startSeconds` to at
+   least 0; the validator reports the negative value and the two
+   cross-field rules. The validator trusts `durationSeconds`; the
+   file's real duration is checked by the converter (ffprobe).

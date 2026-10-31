@@ -109,6 +109,16 @@
           "type": "number",
           "exclusiveMinimum": 0
         },
+        "startSeconds": {
+          "type": "number",
+          "minimum": 0,
+          "description": "playback range start in exact fractional seconds, never rounded; default 0; endSeconds > startSeconds and endSeconds <= durationSeconds are cross-field rules the validator enforces (docs/content-format.md, Video playback ranges)"
+        },
+        "endSeconds": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "playback range end in exact fractional seconds, never rounded; default durationSeconds; endSeconds > startSeconds and endSeconds <= durationSeconds are cross-field rules the validator enforces (docs/content-format.md, Video playback ranges)"
+        },
         "loopCount": {
           "type": "integer",
           "minimum": 1,
