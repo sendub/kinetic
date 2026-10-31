@@ -29,8 +29,8 @@ truthful: an unchecked box means nothing was accepted.
       machine defaults, 2025-11-01)
 - [x] Schema `text` variant; validator rules and new fault tests green
       (24 pytest tests, 2025-11-01)
-- [ ] Machine `text` items: text-only holds, media loops under chains,
-      cursor-to-visual helper; tests green
+- [x] Machine `text` items: text-only holds, media loops under chains,
+      cursor-to-visual helper; tests green (34 tests, 2025-11-01)
 - [ ] Demo fixture extended with video+text and image+text chains; all
       suites green
 

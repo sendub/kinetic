@@ -25,6 +25,12 @@ export interface MachineOptions {
 
 export interface Machine {
   getState(): MachineState;
+  /**
+   * Index of the item whose visual to render, `items[visualIndex()]`. It
+   * equals `cursor` for a media item and the nearest earlier media item for a
+   * `text` item, whose visual keeps looping underneath the chain.
+   */
+  visualIndex(): number;
   /** Receives every state change; returns an unsubscribe function. */
   subscribe(listener: (state: MachineState) => void): () => void;
   /** Space press: settles an unsettled item, else moves the cursor. */
@@ -58,16 +64,41 @@ export function textHoldMs(
 }
 
 /**
- * Auto-advance delay for an item, in ms. A video's true advance also waits
- * for mediaEnded(), so this is its lower bound (the text hold).
+ * Auto-advance delay for an item, in ms. `nextIsText` marks a media item
+ * whose following item is `text`: the chain advances on text holds alone, so
+ * an animation's loop time does not apply. A video's true advance also waits
+ * for mediaEnded() unless the chain applies, so this is its lower bound (the
+ * text hold).
  */
-export function itemHoldMs(item: Item, settings: MachineSettings): number {
+export function itemHoldMs(
+  item: Item,
+  settings: MachineSettings,
+  nextIsText = false,
+): number {
   const hold = textHoldMs(item.text, settings);
+  if (nextIsText) return hold;
   if (item.type === "animation") {
     const loopMs = (item.frames.length * item.loopCount * 1000) / item.fps;
     return Math.max(hold, loopMs);
   }
   return hold;
+}
+
+/**
+ * Index of the item whose visual the renderer draws at position `index`
+ * (`items[visualIndexFor(items, index)]`). A media item shows its own
+ * visual; a `text` item shows the visual of the nearest earlier
+ * media-bearing item, which keeps looping underneath the chain
+ * (docs/content-format.md, "Text items"). A `text` item before any media
+ * item is a schema violation; index 0 is returned then, so the result is
+ * always a usable index for a non-empty manifest.
+ */
+export function visualIndexFor(items: readonly Item[], index: number): number {
+  if (items[index]?.type !== "text") return index;
+  for (let i = index - 1; i >= 0; i -= 1) {
+    if (items[i].type !== "text") return i;
+  }
+  return 0;
 }
 
 type Listener = (state: MachineState) => void;
@@ -113,11 +144,20 @@ export function createMachine(options: MachineOptions): Machine {
   function armTimer(): void {
     cancelTimer();
     if (destroyed || count === 0) return;
-    const delayMs = itemHoldMs(items[cursor], settings);
+    const delayMs = itemHoldMs(items[cursor], settings, nextIsText(cursor));
     timer = scheduler.schedule(() => {
       timer = null;
       onHoldElapsed();
     }, delayMs);
+  }
+
+  /**
+   * True when the item after `index` is `text`. The two then form a chain
+   * that advances on text holds alone: loop completion and the video `ended`
+   * event gate nothing while it lasts (docs/content-format.md, "Timing").
+   */
+  function nextIsText(index: number): boolean {
+    return items[index + 1]?.type === "text";
   }
 
   /** Fresh view of the item under the cursor. */
@@ -130,8 +170,12 @@ export function createMachine(options: MachineOptions): Machine {
 
   function onHoldElapsed(): void {
     holdElapsed = true;
-    // A video auto-advances at the later of the text hold and `ended`.
-    if (items[cursor].type === "video" && !videoEnded) return;
+    // A video auto-advances at the later of the text hold and `ended`, except
+    // when a `text` item follows: the renderer keeps it looping underneath
+    // the chain and the machine does not gate the advance on media end.
+    if (items[cursor].type === "video" && !nextIsText(cursor) && !videoEnded) {
+      return;
+    }
     moveForward();
   }
 
@@ -158,6 +202,10 @@ export function createMachine(options: MachineOptions): Machine {
   return {
     getState() {
       return state;
+    },
+
+    visualIndex() {
+      return visualIndexFor(items, cursor);
     },
 
     subscribe(listener) {

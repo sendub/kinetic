@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createMachine, itemHoldMs, textHoldMs } from "./machine";
+import {
+  createMachine,
+  itemHoldMs,
+  textHoldMs,
+  visualIndexFor,
+} from "./machine";
 import type { Item, MachineSettings, MachineState, Manifest } from "./types";
 import { DEFAULT_SETTINGS } from "./types";
 
@@ -7,6 +12,10 @@ const SETTINGS: MachineSettings = { ...DEFAULT_SETTINGS };
 
 function image(text?: string): Item {
   return { id: "img", type: "image", file: "img.jpg", text };
+}
+
+function text(content?: string): Item {
+  return { id: "line", type: "text", text: content };
 }
 
 function animation(
@@ -84,6 +93,16 @@ describe("hold computation (docs/content-format.md Timing)", () => {
 
   it("video hold lower bound is the text hold", () => {
     expect(itemHoldMs(video(10), SETTINGS)).toBe(1500);
+  });
+
+  it("media item followed by text holds the text hold alone", () => {
+    // nextIsText: the animation loop time (4000) drops out entirely.
+    expect(itemHoldMs(animation(10, 5, 2), SETTINGS, true)).toBe(1500);
+    expect(
+      itemHoldMs(animation(10, 5, 2, "a".repeat(40)), SETTINGS, true),
+    ).toBe(2400);
+    expect(itemHoldMs(video(10, "a".repeat(40)), SETTINGS, true)).toBe(2400);
+    expect(itemHoldMs(image("a".repeat(40)), SETTINGS, true)).toBe(2400);
   });
 });
 
@@ -210,6 +229,141 @@ describe("video and mediaEnded()", () => {
   });
 });
 
+describe("text items hold on the text alone (docs/content-format.md, Text items)", () => {
+  it("text item holds exactly its text hold and is never gated on media end", () => {
+    vi.useFakeTimers();
+    const m = machine([image("a".repeat(40)), text("a".repeat(40)), image()]); // 2400 ms holds
+    vi.advanceTimersByTime(2399);
+    expect(m.getState()).toEqual({ cursor: 0, frontier: 1, settled: false });
+    vi.advanceTimersByTime(1);
+    expect(m.getState()).toEqual({ cursor: 1, frontier: 2, settled: false });
+    // On the text item, mediaEnded is irrelevant: the cursor does not move.
+    m.mediaEnded();
+    expect(m.getState()).toEqual({ cursor: 1, frontier: 2, settled: false });
+    vi.advanceTimersByTime(2399);
+    expect(m.getState().cursor).toBe(1);
+    vi.advanceTimersByTime(1);
+    expect(m.getState()).toEqual({ cursor: 2, frontier: 3, settled: false });
+    m.destroy();
+  });
+
+  it("video followed by text advances at the text hold though mediaEnded never fired", () => {
+    vi.useFakeTimers();
+    const m = machine([
+      video(600, "a".repeat(40)),
+      text("one"),
+      text("two"),
+      image(),
+    ]);
+    vi.advanceTimersByTime(2399);
+    expect(m.getState().cursor).toBe(0);
+    vi.advanceTimersByTime(1); // video's text hold, video still playing
+    expect(m.getState()).toEqual({ cursor: 1, frontier: 2, settled: false });
+    vi.advanceTimersByTime(1499);
+    expect(m.getState().cursor).toBe(1);
+    vi.advanceTimersByTime(1); // first text line: minHold floor
+    expect(m.getState()).toEqual({ cursor: 2, frontier: 3, settled: false });
+    vi.advanceTimersByTime(1500); // second text line
+    expect(m.getState()).toEqual({ cursor: 3, frontier: 4, settled: false });
+    m.destroy();
+  });
+
+  it("video with no text still advances at minHold under a text chain", () => {
+    vi.useFakeTimers();
+    const m = machine([video(600), text("one"), image()]);
+    vi.advanceTimersByTime(1499);
+    expect(m.getState().cursor).toBe(0);
+    vi.advanceTimersByTime(1);
+    expect(m.getState().cursor).toBe(1);
+    m.mediaEnded(); // the video finishing under the text changes nothing
+    expect(m.getState()).toEqual({ cursor: 1, frontier: 2, settled: false });
+    m.destroy();
+  });
+
+  it("animation followed by text ignores its loop time", () => {
+    vi.useFakeTimers();
+    // Loop time is 4000 ms; its text hold is 1500 ms.
+    const chained = machine([
+      animation(10, 5, 2, "short"),
+      text("next"),
+      image(),
+    ]);
+    const alone = machine([animation(10, 5, 2, "short"), image()]);
+    vi.advanceTimersByTime(1500);
+    expect(chained.getState()).toEqual({
+      cursor: 1,
+      frontier: 2,
+      settled: false,
+    });
+    expect(alone.getState().cursor).toBe(0); // still looping
+    vi.advanceTimersByTime(2500);
+    expect(alone.getState().cursor).toBe(1); // fires at its loop time
+    chained.destroy();
+    alone.destroy();
+  });
+
+  it("media item after a text chain resumes its own timing rules", () => {
+    vi.useFakeTimers();
+    const m = machine([image(), text("one"), animation(10, 5, 2)]);
+    vi.advanceTimersByTime(3000);
+    expect(m.getState().cursor).toBe(2); // now on the animation
+    vi.advanceTimersByTime(3999);
+    expect(m.getState().cursor).toBe(2); // loops outlast the text hold
+    vi.advanceTimersByTime(1);
+    expect(m.getState()).toEqual({ cursor: 2, frontier: 3, settled: true });
+    m.destroy();
+  });
+});
+
+describe("visualIndexFor: a text item shows the earlier visual", () => {
+  const items = manifest([
+    image(), // 0
+    text("one"), // 1
+    text("two"), // 2
+    animation(3, 12, 3), // 3
+    text("three"), // 4
+    video(), // 5
+    text("four"), // 6
+  ]).items;
+
+  it("maps every media item to itself", () => {
+    expect(visualIndexFor(items, 0)).toBe(0);
+    expect(visualIndexFor(items, 3)).toBe(3);
+    expect(visualIndexFor(items, 5)).toBe(5);
+  });
+
+  it("maps a text item to the nearest earlier media item", () => {
+    expect(visualIndexFor(items, 1)).toBe(0);
+    expect(visualIndexFor(items, 4)).toBe(3);
+    expect(visualIndexFor(items, 6)).toBe(5);
+  });
+
+  it("maps consecutive text items to the same media index", () => {
+    expect(visualIndexFor(items, 1)).toBe(0);
+    expect(visualIndexFor(items, 2)).toBe(0);
+  });
+
+  it("machine.visualIndex() is constant across a chain and moves at the next media item", () => {
+    vi.useFakeTimers();
+    const m = machine(items);
+    expect(m.visualIndex()).toBe(0);
+    for (const [expectedCursor, expectedVisual] of [
+      [1, 0],
+      [2, 0],
+      [3, 3],
+      [4, 3],
+      [5, 5],
+      [6, 5],
+    ]) {
+      m.advance(); // settle the current item
+      m.advance(); // move to the next one
+      expect(m.getState().cursor).toBe(expectedCursor);
+      expect(m.visualIndex()).toBe(expectedVisual);
+    }
+    m.destroy();
+  });
+});
+
 describe("frontier and wheel rules", () => {
   it("resume starts at the frontier and counts it as shown", () => {
     const m = machine([image(), image(), image(), image()], {
@@ -233,6 +387,29 @@ describe("frontier and wheel rules", () => {
     m.advance();
     m.advance();
     expect(m.getState()).toEqual({ cursor: 2, frontier: 3, settled: false });
+    m.destroy();
+  });
+
+  it("wheel forward at the frontier stays blocked across a text chain", () => {
+    const m = machine([image(), video(), text("one"), text("two"), image()], {
+      resumeFrontier: 3,
+    });
+    expect(m.getState()).toEqual({ cursor: 3, frontier: 4, settled: false });
+    expect(m.visualIndex()).toBe(1); // the video's visual keeps showing
+    m.wheelForward(); // unseen item ahead: blocked
+    expect(m.getState()).toEqual({ cursor: 3, frontier: 4, settled: false });
+    m.wheelBack(); // back through seen content, same visual
+    expect(m.getState()).toEqual({ cursor: 2, frontier: 4, settled: false });
+    expect(m.visualIndex()).toBe(1);
+    m.wheelForward(); // forward again through seen content
+    expect(m.getState().cursor).toBe(3);
+    m.wheelForward(); // blocked at the frontier again
+    expect(m.getState()).toEqual({ cursor: 3, frontier: 4, settled: false });
+    // advance() crosses the frontier from a text item like any other item.
+    m.advance();
+    m.advance();
+    expect(m.getState()).toEqual({ cursor: 4, frontier: 5, settled: false });
+    expect(m.visualIndex()).toBe(4);
     m.destroy();
   });
 

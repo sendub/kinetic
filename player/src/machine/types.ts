@@ -2,7 +2,7 @@
 // semantics live in docs/content-format.md. Pure data: no DOM, no runtime
 // dependencies, and no code in this module.
 
-export type ItemType = "image" | "animation" | "video";
+export type ItemType = "image" | "animation" | "video" | "text";
 
 /** Shared overlay fields. Empty or absent `text` means a bare visual. */
 interface OverlayFields {
@@ -34,7 +34,17 @@ export interface VideoItem extends OverlayFields {
   durationSeconds: number;
 }
 
-export type Item = ImageItem | AnimationItem | VideoItem;
+/**
+ * Dialogue over a visual already on screen. Carries no media fields: the
+ * visual displayed is the nearest earlier media-bearing item's, which keeps
+ * playing underneath the chain (docs/content-format.md, "Text items").
+ */
+export interface TextItem extends OverlayFields {
+  id: string;
+  type: "text";
+}
+
+export type Item = ImageItem | AnimationItem | VideoItem | TextItem;
 
 export interface Manifest {
   schemaVersion: 1;
