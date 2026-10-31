@@ -173,12 +173,15 @@ truthful: an unchecked box means nothing was accepted.
 - [x] Machine: gate = firstPass + (loops-1)*loopPass with
       loopStartSeconds; holdSeconds and text hold unchanged; tests
       (188 tests, 2025-11-01)
-- [ ] Renderer: fresh entry seeks to startSeconds; after the first pass
+- [x] Renderer: fresh entry seeks to startSeconds; after the first pass
       completes, later passes restart at loopStartSeconds; verify step
       measures the loop-back landing near loopStart and records the
-      observed tolerance
-- [ ] Demo fixture: `part-013` gains `loopStartSeconds: 1.5` (range
-      1.0-2.0, loopCount 2); determinism and validator green
+      observed tolerance (OBSERVED +0.020 s: first presented frame past
+      1.5 s, which is not a 25fps frame time; 191 tests, 31 steps,
+      2025-11-01)
+- [x] Demo fixture: `part-013` gains `loopStartSeconds: 1.5` (range
+      1.0-2.0, loopCount 2); determinism and validator green (16 files
+      byte-identical, 2025-11-01)
 
 ## Phase 10: Ren'Py extractor MVP
 

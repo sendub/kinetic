@@ -8,12 +8,13 @@
 // and c-to-close, a live speed change measured against the re-armed hold,
 // and persistence across reload) — and Phase 9b/9c short-video timing over
 // the demo fixture: the two range items `part-012` ([0,1], 1 pass) and
-// `part-013` ([1,2], 2 passes) share one 2 s clip and prove the range
-// machinery end to end — seek to `startSeconds` on entry, pass completes
-// detected per presented frame (`requestVideoFrameCallback`, with the
-// file's `ended` where the range runs to the file's end), loop-back to the
-// range start while passes remain and pause when none do, and `loop` never
-// on for a range — and prints PASS / PARTIAL / FAIL per step.
+// `part-013` ([1,2], 2 passes, `loopStartSeconds` 1.5 — Phase 9d) share
+// one 2 s clip and prove the range machinery end to end — seek to
+// `startSeconds` on entry, pass completes detected per presented frame
+// (`requestVideoFrameCallback`, with the file's `ended` where the range
+// runs to the file's end), loop-back to `loopStartSeconds` after a
+// completed pass while passes remain and pause when none do, and `loop`
+// never on for a range — and prints PASS / PARTIAL / FAIL per step.
 // Run from player/:  node scripts/verify.mjs
 // Exit code: 0 when every step is PASS or PARTIAL, 1 on any FAIL or crash.
 //
@@ -1570,19 +1571,23 @@ async function main() {
       }`,
     );
 
-    // 28. Video playback ranges, range 2 (docs/plan.md Phase 9c): item 12,
-    // part-013 — the SAME clip-012.mp4 file at [1.0, 2.0] with
-    // `loopCount` 2, entered automatically by step 27's machine advance.
-    // Because the range end equals the file's duration, the pass boundary
-    // is the file's own `ended` (no frame is ever presented past it), so
-    // the ended counter doubles as the pass-report counter: exactly 2,
-    // each seeking back to 1.0 except after the last. Observed and
-    // recorded: the first frame after entry (start offset from 1.0), the
-    // loop-back (mediaTime wrap 2.0 -> 1.0) and where it landed, the two
-    // pass reports, and the hold near 2.0 at the end. The item is LAST,
-    // so the machine's advance on its gate (2nd pass report + the
-    // 2.0 s time bound) is a settle in place — the fact step 24 records —
-    // and its arithmetic is pinned by machine unit tests; loop stays off
+    // 28. Video playback ranges, range 2 (docs/plan.md Phases 9c and 9d):
+    // item 12, part-013 — the SAME clip-012.mp4 file at [1.0, 2.0] with
+    // `loopCount` 2 and `loopStartSeconds` 1.5, entered automatically by
+    // step 27's machine advance. Entry seeks to startSeconds 1.0; the
+    // loop-back after pass 1 seeks to loopStartSeconds 1.5, NOT 1.0 — the
+    // intro [1.0, 1.5) plays once. Because the range end equals the file's
+    // duration, the pass boundary is the file's own `ended` (no frame is
+    // ever presented past it), so the ended counter doubles as the
+    // pass-report counter: exactly 2, each seeking back to 1.5 except
+    // after the last. Observed and recorded: the first frame after entry
+    // (start offset from 1.0), the loop-back (mediaTime wrap 2.0 -> 1.5)
+    // and where it actually landed, the two pass reports, and the hold
+    // near 2.0 at the end. The time gate is now firstPass + loopPass =
+    // 1.0 + 0.5 = 1.5 s (machine-tested arithmetic), so the settle below
+    // waits ~1.5 s after entry plus the reports; the 6 s timeout covers
+    // it generously. The item is LAST, so the machine's advance is a
+    // settle in place — the fact step 24 records; loop stays off
     // throughout (a range must never loop=true).
     let s28settled = true;
     try {
@@ -1606,12 +1611,14 @@ async function main() {
       f.poster.includes("part-013.poster.jpg"),
     );
     const s28first = s28frames[0] ?? null;
-    // The loop-back: the pass-1 boundary seeks 2.0 -> 1.0, so the frame
-    // stream wraps; one wrap means one in-pass restart.
+    // The loop-back: the pass-1 boundary seeks 2.0 -> 1.5, so the frame
+    // stream wraps by ~0.45 — well above the 0.04 s in-pass cadence, well
+    // below the old 0.5 threshold, which would MISS a wrap that lands on
+    // loopStartSeconds instead of 1.0. One wrap = one in-pass restart.
     let s28wraps = 0;
     let s28wrapLand = null;
     for (let i = 1; i < s28frames.length; i += 1) {
-      if (s28frames[i - 1].mediaTime - s28frames[i].mediaTime > 0.5) {
+      if (s28frames[i - 1].mediaTime - s28frames[i].mediaTime > 0.25) {
         s28wraps += 1;
         s28wrapLand = s28frames[i].mediaTime;
       }
@@ -1638,7 +1645,10 @@ async function main() {
       s28inside &&
       s28wraps === 1 &&
       s28wrapLand !== null &&
-      Math.abs(s28wrapLand - 1.0) <= 0.15 &&
+      // The loop-back lands at loopStartSeconds 1.5, NOT at the range
+      // start 1.0 (which the pre-9c/9d element-loop or a startSeconds
+      // seek-back would give): exactly one landing, recorded actual.
+      Math.abs(s28wrapLand - 1.5) <= 0.15 &&
       s28ended.length === 2 &&
       s28last !== null &&
       s28last.paused === true &&
@@ -1646,9 +1656,9 @@ async function main() {
       s28last.currentTime >= 1.9 &&
       s28last.currentTime <= 2.05;
     record(
-      "28. part-013 plays range [1,2] twice, looping back at the pass boundary",
+      "28. part-013 plays [1,2] twice, looping back at loopStartSeconds 1.5",
       s28Ok ? "PASS" : "FAIL",
-      `${String(s28frames.length)} presented frames, all inside [1-0.05, 2+0.05]=${String(s28inside)}; entered at OBSERVED mediaTime ${s28first ? s28first.mediaTime.toFixed(3) : "n/a"} (start offset ${s28startOffset >= 0 ? "+" : ""}${s28startOffset.toFixed(3)}s from 1.0); pass-1 loop-back observed=${String(s28wraps === 1)} landing OBSERVED ${s28wrapLand === null ? "n/a" : s28wrapLand.toFixed(3)} (offset ${s28wrapLand === null ? "n/a" : `${s28wrapLand - 1.0 >= 0 ? "+" : ""}${(s28wrapLand - 1.0).toFixed(3)}s`}); pass reports (native ended from clip-012, endSeconds == duration)=${String(s28ended.length)} of 2 — machine moved on only after both, and the 2nd left the element holding OBSERVED ${JSON.stringify(s28last)} near 2.0, paused, loop=${String(s28last?.loop)} (last item: the advance is a settle in place, step 24; its gate arithmetic is pinned by machine tests)`,
+      `${String(s28frames.length)} presented frames, all inside [1-0.05, 2+0.05]=${String(s28inside)}; entered at OBSERVED mediaTime ${s28first ? s28first.mediaTime.toFixed(3) : "n/a"} (start offset ${s28startOffset >= 0 ? "+" : ""}${s28startOffset.toFixed(3)}s from startSeconds 1.0); pass-1 loop-back observed=${String(s28wraps === 1)} landing OBSERVED ${s28wrapLand === null ? "n/a" : s28wrapLand.toFixed(3)} (offset ${s28wrapLand === null ? "n/a" : `${s28wrapLand - 1.5 >= 0 ? "+" : ""}${(s28wrapLand - 1.5).toFixed(3)}s`} from loopStartSeconds 1.5, not 1.0); pass reports (native ended from clip-012, endSeconds == duration)=${String(s28ended.length)} of 2 — machine moved on only after both plus the 1.5 s time bound (firstPass 1.0 + loopPass 0.5), and the 2nd left the element holding OBSERVED ${JSON.stringify(s28last)} near 2.0, paused, loop=${String(s28last?.loop)} (last item: the advance is a settle in place, step 24; its gate arithmetic is pinned by machine tests)`,
     );
 
     // 29. A folder with the empty stub manifest shows the empty state —

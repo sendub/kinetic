@@ -26,6 +26,14 @@ const rangeVideo = vid({ startSeconds: 0.0, endSeconds: 1.0, loopCount: 1 });
 const endRangeVideo = vid({ startSeconds: 1.0, endSeconds: 2.0, loopCount: 2 });
 const startOnlyVideo = vid({ startSeconds: 1.5 });
 const holdRangeVideo = vid({ holdSeconds: 12, endSeconds: 1.0 });
+// phase 9d shape (part-013's): the range loops back from a restart point
+// inside it, so the first pass plays a pre-roll the loop-backs skip.
+const loopStartVideo = vid({
+  startSeconds: 1.0,
+  endSeconds: 2.0,
+  loopStartSeconds: 1.5,
+  loopCount: 2,
+});
 const animation = item({
   type: "animation",
   frames: ["a.jpg", "b.jpg"],
@@ -86,6 +94,7 @@ describe("videoPlanFor", () => {
       loop: false,
       reportEnds: 1,
       startSeconds: 0,
+      loopStartSeconds: 0,
       endSeconds: null,
       boundary: "ended",
     });
@@ -93,6 +102,7 @@ describe("videoPlanFor", () => {
       loop: false,
       reportEnds: 3,
       startSeconds: 0,
+      loopStartSeconds: 0,
       endSeconds: null,
       boundary: "ended",
     });
@@ -104,6 +114,7 @@ describe("videoPlanFor", () => {
       loop: true,
       reportEnds: 0,
       startSeconds: 0,
+      loopStartSeconds: 0,
       endSeconds: null,
       boundary: "ended",
     });
@@ -112,6 +123,7 @@ describe("videoPlanFor", () => {
       loop: true,
       reportEnds: 0,
       startSeconds: 0,
+      loopStartSeconds: 0,
       endSeconds: null,
       boundary: "ended",
     });
@@ -123,6 +135,7 @@ describe("videoPlanFor", () => {
       loop: true,
       reportEnds: 0,
       startSeconds: 0,
+      loopStartSeconds: 0,
       endSeconds: null,
       boundary: "ended",
     });
@@ -130,6 +143,7 @@ describe("videoPlanFor", () => {
       loop: true,
       reportEnds: 0,
       startSeconds: 0,
+      loopStartSeconds: 0,
       endSeconds: null,
       boundary: "ended",
     });
@@ -140,6 +154,7 @@ describe("videoPlanFor", () => {
       loop: false,
       reportEnds: 0,
       startSeconds: 0,
+      loopStartSeconds: 0,
       endSeconds: null,
       boundary: "ended",
     });
@@ -147,6 +162,7 @@ describe("videoPlanFor", () => {
       loop: false,
       reportEnds: 0,
       startSeconds: 0,
+      loopStartSeconds: 0,
       endSeconds: null,
       boundary: "ended",
     });
@@ -159,6 +175,7 @@ describe("videoPlanFor", () => {
       loop: false,
       reportEnds: 1,
       startSeconds: 0,
+      loopStartSeconds: 0,
       endSeconds: 1,
       boundary: "rvfc",
     });
@@ -166,6 +183,7 @@ describe("videoPlanFor", () => {
       loop: false,
       reportEnds: 2,
       startSeconds: 1,
+      loopStartSeconds: 1, // default: the loop replays the whole range
       endSeconds: 2,
       boundary: "ended", // an end at the file's end IS the file's end event
     });
@@ -173,6 +191,7 @@ describe("videoPlanFor", () => {
       loop: false,
       reportEnds: 1,
       startSeconds: 1.5,
+      loopStartSeconds: 1.5,
       endSeconds: null,
       boundary: "ended",
     });
@@ -180,7 +199,7 @@ describe("videoPlanFor", () => {
 
   it("never loops when a range is active — even under a chain or hold", () => {
     // loop=true would seek to 0, wrong for a range: the renderer seeks
-    // back to startSeconds itself at each pass boundary.
+    // back itself at each pass boundary (to `loopStartSeconds`).
     const forever = videoPlanFor(rangeVideo, "loop-forever", true);
     expect(forever.loop).toBe(false);
     expect(forever.reportEnds).toBe(0); // the chain gates nothing
@@ -209,6 +228,54 @@ describe("videoPlanFor", () => {
     expect(videoPlanFor(video, "loop-once", false).boundary).toBe("ended");
     expect(videoPlanFor(endRangeVideo, "loop-once", false).boundary).toBe(
       "ended",
+    );
+  });
+
+  // --- loop restart point (docs/plan.md Phase 9d) ------------------------
+
+  it("defaults the loop restart to the range start", () => {
+    // Without `loopStartSeconds` every pass restarts at `startSeconds` —
+    // today's behaviour; entry and loop-back are the same point.
+    expect(
+      videoPlanFor(endRangeVideo, "loop-once", true).loopStartSeconds,
+    ).toBe(1);
+    expect(
+      videoPlanFor(rangeVideo, "loop-forever", true).loopStartSeconds,
+    ).toBe(0);
+    // A plain no-range video restarts at 0, same as its entry.
+    expect(videoPlanFor(loopVideo, "loop-once", true).loopStartSeconds).toBe(0);
+  });
+
+  it("honours an explicit loopStartSeconds for the loop-back only", () => {
+    // The seek-back after a completed pass restarts at loopStartSeconds
+    // (1.5); a fresh entry and a still still use startSeconds (1.0).
+    const plan = videoPlanFor(loopStartVideo, "loop-once", true);
+    expect(plan.startSeconds).toBe(1); // entry seek unchanged
+    expect(plan.loopStartSeconds).toBe(1.5); // loop-back seek
+    expect(plan.reportEnds).toBe(2);
+    // A chain under text carries the same restart point; nothing counted.
+    const chain = videoPlanFor(loopStartVideo, "loop-forever", true);
+    expect(chain.loopStartSeconds).toBe(1.5);
+    expect(chain.reportEnds).toBe(0);
+    // holdSeconds (background) carries it too, free looping.
+    const hold = videoPlanFor(
+      { ...loopStartVideo, holdSeconds: 12 },
+      "loop-once",
+      true,
+    );
+    expect(hold.loopStartSeconds).toBe(1.5);
+  });
+
+  it("leaves the boundary signal untouched by loopStartSeconds", () => {
+    // loopStartSeconds never changes how a pass is bounded: an end at the
+    // file's end is `ended`, an interior end is rVFC/timeupdate.
+    expect(videoPlanFor(loopStartVideo, "loop-once", true).boundary).toBe(
+      "ended",
+    );
+    const interior = { ...loopStartVideo, endSeconds: 1.9 };
+    expect(videoPlanFor(interior, "loop-once", true).boundary).toBe("rvfc");
+    expect(videoPlanFor(interior, "loop-once", false).boundary).toBe(
+      "timeupdate",
     );
   });
 });

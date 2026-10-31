@@ -102,9 +102,10 @@ changed values read back at startup (set them back afterwards, or the
 next manual walk starts at the reader's own pace — which is the point).
 For steps 27-28 advance to the demo's last two items, which share one
 2 s clip at different ranges: part-012 should show the clip's first half
-once and move on; part-013 should show the second half, snap back to
-1 s and show it again, then hold near the end — two passes of [1, 2],
-no third pass, and `loop` never checked anywhere on the element.
+once and move on; part-013 (`loopStartSeconds: 1.5`) should show [1, 2],
+snap back to 1.5 s — not to 1 s — show the rest once more, then hold
+near the end: a 1.0 s pass then a 0.5 s pass, no third pass, and `loop`
+never checked anywhere on the element.
 
 Results below were walked on 2026-10-31 by the driver on headless Chrome
 156.0.8078.76, multiple times with the same statuses (31 steps: 30 pass,
@@ -121,9 +122,10 @@ scroll-to-bottom, timestamp, thumbnail fallback) are unit-tested in
 (speed stepper steps and clamps, the readout text) are unit-tested in
 `render/config.test.ts`, the live-change semantics of `readingSpeed` and
 `skipAll` in `machine.test.ts`, and the settings' storage round-trip in
-the `storage.test.ts` contract suite. The range-plan rules (start/end in
-the plan, `loop` off for any range, pass-boundary source rVFC /
-`timeupdate` / `ended`) are unit-tested in `render/visual.test.ts`.
+the `storage.test.ts` contract suite. The range-plan rules (entry start,
+loop restart point and end in the plan, `loop` off for any range,
+pass-boundary source rVFC / `timeupdate` / `ended`) are unit-tested in
+`render/visual.test.ts`.
 
 ## Measured boundary guarantee
 
@@ -144,16 +146,21 @@ tolerances below. Walked 2026-10-31, headless Chrome 156.0.8078.76:
   earlier frame elsewhere; the format doc's guarantee is in-range
   playback, never frame-exact starts.
 - OBSERVED max end overshoot (pass-complete past `endSeconds`, rVFC
-  path; and the loop-back landing past `startSeconds`): **+0.000 s** at
-  25 fps, with frame cadence 0.04 s bounding it by construction — a
-  pass completes on the first PRESENTED frame at or after the bound, so
-  the overshoot is bounded by the presentation cadence, not by a
-  promise. The `timeupdate` fallback would replace that bound with its
-  ~4-250 ms cadence.
-- The driver asserts generous bounds (≤ 0.15 s start offsets, ≤ 0.25 s
-  rVFC overshoot, range containment [-0.05, end+0.05]) so a slower
-  machine still passes while the OBSERVED numbers above record what
-  this one showed.
+  path): **+0.000 s** at 25 fps, with frame cadence 0.04 s bounding it by
+  construction — a pass completes on the first PRESENTED frame at or
+  after the bound, so the overshoot is bounded by the presentation
+  cadence, not by a promise. The `timeupdate` fallback would replace
+  that bound with its ~4-250 ms cadence.
+- OBSERVED loop-back landing past `loopStartSeconds` (part-013's seek
+  back to 1.5 after pass 1): **+0.020 s** (`mediaTime=1.520`) — a pass
+  resumes on the first PRESENTED frame at or after the restart point,
+  and 1.5 s is not itself a 25 fps frame time (frames sit at 1.48 and
+  1.52), so this is the cadence bound working as designed. The landing
+  was at 1.5, not 1.0: the pre-roll played once, as Phase 9d requires.
+- The driver asserts generous bounds (≤ 0.15 s start offsets and
+  loop-back landing offsets, ≤ 0.25 s rVFC overshoot, range containment
+  [-0.05, end+0.05]) so a slower machine still passes while the
+  OBSERVED numbers above record what this one showed.
 
 ## Checklist
 
@@ -568,31 +575,37 @@ tolerances below. Walked 2026-10-31, headless Chrome 156.0.8078.76:
   + 1500 ms min-hold (poster flipped, observed). Console contributed
   nothing.
 
-### 28. Range 2 on the SAME file: part-013 plays [1, 2] twice
+### 28. Range 2 on the SAME file: part-013 plays [1, 2], loop-back at 1.5
 
 - Action: step 27's machine advance enters item 12 automatically —
-  part-013, the same `clip-012.mp4` at [1.0, 2.0] with `loopCount: 2`.
-  Watch until the item settles.
+  part-013, the same `clip-012.mp4` at [1.0, 2.0] with `loopCount: 2`
+  and `loopStartSeconds: 1.5` (docs/plan.md Phase 9d). Watch until the
+  item settles.
 - Expected: the renderer re-enters the SAME `<video>` element on a new
   item (same file): poster flips to part-013.poster.jpg, playback seeks
-  to 1.0, passes count from zero. Because `endSeconds` equals the file's
-  duration, no frame is ever presented at or past 2.0, so the pass
-  boundary is the file's own `ended` — the honest exact signal there
-  (rVFC would wait for a frame that cannot exist) — and the `ended`
-  counter doubles as the pass-report counter: exactly 2. Between them
-  the element seeks back to `startSeconds` and plays on; after the
-  second it holds near 2.0 (`loop=false` throughout, so no third pass).
-  The machine moves on only after BOTH reports plus its 2.0 s time
-  bound; as the last item, that advance is a settle in place (step 24
-  records it; the gate arithmetic is pinned by `machine.test.ts`).
-  OBSERVED start offset and loop-back landing are recorded.
-- RESULT (PASS, 2026-10-31): driver step 28: 50 presented frames, all
+  to `startSeconds` 1.0, passes count from zero. Because `endSeconds`
+  equals the file's duration, no frame is ever presented at or past 2.0,
+  so the pass boundary is the file's own `ended` — the honest exact
+  signal there (rVFC would wait for a frame that cannot exist) — and the
+  `ended` counter doubles as the pass-report counter: exactly 2. Between
+  them the element seeks back to `loopStartSeconds` — 1.5, NOT the range
+  start 1.0: the pre-roll [1.0, 1.5) plays once — and plays on; after
+  the second it holds near 2.0 (`loop=false` throughout, so no third
+  pass). The machine moves on only after BOTH reports plus its time
+  bound, now firstPass 1.0 + loopPass 0.5 = 1.5 s; as the last item,
+  that advance is a settle in place (step 24 records it; the gate
+  arithmetic is pinned by `machine.test.ts`). OBSERVED start offset and
+  loop-back landing (vs 1.5) are recorded.
+- RESULT (PASS, 2026-10-31): driver step 28: 37 presented frames, all
   inside [1, 2]; entered at OBSERVED `mediaTime=1.000` (+0.000 s from
-  1.0); exactly one loop-back, landing OBSERVED `mediaTime=1.000`
-  (+0.000 s); pass reports = 2 of 2 (native `ended` from clip-012, the
-  boundary source this range selects); the second left the element
-  OBSERVED `paused=true, currentTime=2.000, loop=false` near 2.0 and a
-  350 ms tail showed no third pass. Console contributed nothing.
+  `startSeconds` 1.0); exactly one loop-back, landing OBSERVED
+  `mediaTime=1.520` (+0.020 s from `loopStartSeconds` 1.5 — the first
+  presented frame at or after it; 1.5 itself is not a 25 fps frame time;
+  NOT 1.0, so the pre-roll played once); pass reports = 2 of 2 (native
+  `ended` from clip-012, the boundary source this range selects); the
+  second left the element OBSERVED `paused=true, currentTime=2.000,
+  loop=false` near 2.0 and a 350 ms tail showed no third pass. Console
+  contributed nothing.
 
 ### 29. Empty folder shows the empty state; `t` there says no bookmarks yet
 

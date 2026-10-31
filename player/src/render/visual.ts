@@ -90,8 +90,14 @@ export interface VideoPlan {
    * nothing (background, chain, or still).
    */
   reportEnds: number;
-  /** Where a pass begins: seek target on entry and on every loop-back. */
+  /** Where the FIRST pass begins: the seek target on a fresh entry. */
   startSeconds: number;
+  /**
+   * Where every pass AFTER the first begins: the seek target at a
+   * loop-back while passes remain, defaulting to `startSeconds`
+   * (docs/plan.md Phase 9d) — an intro plays once and the loop skips it.
+   */
+  loopStartSeconds: number;
   /** Where a pass ends; null means the file's end (no `endSeconds`). */
   endSeconds: number | null;
   /**
@@ -116,9 +122,11 @@ export interface VideoPlan {
  *
  * With a range active (either bound present), `loop` stays OFF even for a
  * chain: the element's own looping seeks to 0, which is wrong for a range,
- * so the renderer seeks back to `startSeconds` itself at each pass boundary
- * (docs/plan.md Phase 9c). `hasRVFC` is the runtime capability of the
- * `<video>` element, passed in so this decision stays pure and testable.
+ * so the renderer seeks back itself at each pass boundary — to
+ * `startSeconds` on a fresh entry and to `loopStartSeconds` (default
+ * `startSeconds`) on every loop-back (docs/plan.md Phases 9c and 9d).
+ * `hasRVFC` is the runtime capability of the `<video>` element, passed in
+ * so this decision stays pure and testable.
  */
 export function videoPlanFor(
   item: VideoItem,
@@ -126,6 +134,7 @@ export function videoPlanFor(
   hasRVFC: boolean,
 ): VideoPlan {
   const startSeconds = item.startSeconds ?? 0;
+  const loopStartSeconds = item.loopStartSeconds ?? startSeconds;
   const endSeconds = item.endSeconds ?? null;
   const ranged =
     item.startSeconds !== undefined || item.endSeconds !== undefined;
@@ -140,17 +149,26 @@ export function videoPlanFor(
       loop: mode === "loop-forever" && !ranged,
       reportEnds: 0,
       startSeconds,
+      loopStartSeconds,
       endSeconds,
       boundary,
     };
   }
   if (item.holdSeconds !== undefined) {
-    return { loop: !ranged, reportEnds: 0, startSeconds, endSeconds, boundary };
+    return {
+      loop: !ranged,
+      reportEnds: 0,
+      startSeconds,
+      loopStartSeconds,
+      endSeconds,
+      boundary,
+    };
   }
   return {
     loop: false,
     reportEnds: item.loopCount ?? 1,
     startSeconds,
+    loopStartSeconds,
     endSeconds,
     boundary,
   };
@@ -484,11 +502,11 @@ export function createVisualLayer(
   /**
    * Playback reached the pass end (`endSeconds`) on a presented frame.
    * A counted pass reports one `mediaEnded()` to the machine and seeks
-   * back to `startSeconds` while passes remain; after the last one the
-   * element pauses — the machine's gate is met and it moves on. A chain or
-   * background video (nothing counted) just keeps looping within the
-   * range: forward to `endSeconds`, back to `startSeconds`, no report
-   * (docs/plan.md Phase 9c).
+   * back to `loopStartSeconds` while passes remain; after the last one
+   * the element pauses — the machine's gate is met and it moves on. A
+   * chain or background video (nothing counted) just keeps looping
+   * within the range: forward to `endSeconds`, back to
+   * `loopStartSeconds`, no report (docs/plan.md Phases 9c and 9d).
    */
   function passBoundary(element: HTMLVideoElement, plan: VideoPlan): void {
     if (plan.reportEnds > 0) {
@@ -500,7 +518,7 @@ export function createVisualLayer(
         return;
       }
     }
-    seekTo(element, plan.startSeconds);
+    seekTo(element, plan.loopStartSeconds);
     startRangeWatch(element); // re-arms the rVFC chain after the seek
   }
 
@@ -514,17 +532,18 @@ export function createVisualLayer(
     if (plan === null || plan.boundary !== "ended") return;
     if (plan.reportEnds === 0) {
       // A chain/background video whose range runs to the file's end: loop
-      // back to the range start, nothing reported (`loop` is off precisely
-      // because a range is active — a non-ranged free looper never ends).
+      // back to the restart point, nothing reported (`loop` is off
+      // precisely because a range is active — a non-ranged free looper
+      // never ends).
       if (video === null || plan.loop) return;
-      seekTo(video, plan.startSeconds);
+      seekTo(video, plan.loopStartSeconds);
       playVideo(video, plan);
       return;
     }
     videoEndedCount += 1;
     options.onVideoEnded();
     if (videoEndedCount < plan.reportEnds && video !== null) {
-      seekTo(video, plan.startSeconds);
+      seekTo(video, plan.loopStartSeconds);
       playVideo(video, plan);
     }
   }

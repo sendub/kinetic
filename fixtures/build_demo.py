@@ -254,11 +254,15 @@ def build_clip_video_items() -> list[dict]:
     two bare visual items at different ranges:
 
     - part-012: [0.0, 1.0], `loopCount` 1, poster extracted at 0.0;
-    - part-013: [1.0, 2.0], `loopCount` 2, poster extracted at 1.0.
+    - part-013: [1.0, 2.0], `loopCount` 2, `loopStartSeconds` 1.5
+      (docs/plan.md Phase 9d: the first pass plays [1.0, 2.0], the
+      loop-back restarts at 1.5 — the colour change at ~1.5 s makes the
+      restart point observable), poster extracted at 1.0.
 
     Together they exercise sharing + ranges + per-range posters; the
-    renderer loops each range start<->end itself (never `loop=true`), and
-    the machine counts pass completes per item as in Phase 9b.
+    renderer loops each range itself (never `loop=true`), seeking back
+    to `startSeconds` on entry and `loopStartSeconds` on the loop-back,
+    and the machine counts pass completes per item as in Phase 9b.
     """
 
     def frame(n: int):
@@ -288,6 +292,7 @@ def build_clip_video_items() -> list[dict]:
             "file": f"{CLIP_ID}.mp4", "poster": "part-013.poster.jpg",
             "durationSeconds": duration,
             "startSeconds": 1.0, "endSeconds": 2.0, "loopCount": 2,
+            "loopStartSeconds": 1.5,
         },
     ]
     extract_poster(mp4, 0.0, DEMO_DIR / "part-012.poster.jpg")
@@ -459,6 +464,14 @@ def check_manifest(manifest: dict, schema: dict) -> list[str]:
                 bad(f"{where}.endSeconds: must be > startSeconds")
             elif isinstance(dur, (int, float)) and dur > 0 and end > dur:
                 bad(f"{where}.endSeconds: must not exceed durationSeconds")
+            # Loop restart point (Phase 9d): below the effective end
+            # (`endSeconds` if present, else `durationSeconds`), else a
+            # later pass has no length — the validator's cross-field rule.
+            loop_start = item.get("loopStartSeconds", start)
+            if not isinstance(loop_start, (int, float)) or loop_start < 0:
+                bad(f"{where}.loopStartSeconds: must be >= 0")
+            elif isinstance(end, (int, float)) and not loop_start < end:
+                bad(f"{where}.loopStartSeconds: must be < the effective end")
     return errors
 
 
