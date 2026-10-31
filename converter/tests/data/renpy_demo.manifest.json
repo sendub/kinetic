@@ -1,0 +1,66 @@
+{
+  "schemaVersion": 1,
+  "width": 320,
+  "height": 180,
+  "items": [
+    {
+      "id": "bg-room-001",
+      "type": "image",
+      "file": "bg-room-001.png",
+      "speaker": "Ana",
+      "text": "Welcome to the house."
+    },
+    {
+      "id": "line-002",
+      "type": "text",
+      "speaker": "Viktor",
+      "text": "The lights are dim. [greeting]?"
+    },
+    {
+      "id": "line-003",
+      "type": "text",
+      "speaker": "Dmitri",
+      "text": "The fire is low, but the room is warm."
+    },
+    {
+      "id": "clip-004",
+      "type": "video",
+      "file": "clip-004.mp4",
+      "poster": "clip-004.poster.jpg",
+      "durationSeconds": 1.0,
+      "speaker": "Ana",
+      "text": "The screen flickers to life."
+    },
+    {
+      "id": "line-005",
+      "type": "text",
+      "speaker": "Dmitri",
+      "text": "Тени танцуют на стене."
+    },
+    {
+      "id": "bg-yard-006",
+      "type": "image",
+      "file": "bg-yard-006.png",
+      "text": "Тишина в саду. [wind]"
+    },
+    {
+      "id": "line-007",
+      "type": "text",
+      "speaker": "Гостья",
+      "text": "It almost feels like home."
+    },
+    {
+      "id": "bg-room-008",
+      "type": "image",
+      "file": "bg-room-008.png",
+      "speaker": "Ana",
+      "text": "Back inside, where it is quiet."
+    },
+    {
+      "id": "line-009",
+      "type": "text",
+      "speaker": "Dmitri",
+      "text": "Good night."
+    }
+  ]
+}

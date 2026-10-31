@@ -3,4 +3,5 @@ dist/
 .venv/
 __pycache__/
 .tmp/
+*.egg-info/
 fixtures/demo/

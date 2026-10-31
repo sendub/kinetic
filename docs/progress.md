@@ -164,8 +164,10 @@ truthful: an unchecked box means nothing was accepted.
 
 ## Phase 10: Ren'Py extractor MVP
 
-- [ ] `converter/` package with CLI over source `.rpy` projects
-- [ ] Statement subset parser; unknown statements reported, not fatal
+- [x] `converter/` package with CLI over source `.rpy` projects (kinetic-
+      extract; accepts project/game/.app; 11 tests, 2025-11-01)
+- [x] Statement subset parser; unknown statements reported, not fatal
+      (menu/unknown/layer reported, Cyrillic + `[var]` literal, 2025-11-01)
 - [ ] Asset pass: Pillow derivatives, ffmpeg H.264 + posters
 - [ ] Content-sniffed formats (never extension); wrapped/obfuscated images
       decoded to standard formats at conversion
