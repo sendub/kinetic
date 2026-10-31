@@ -28,8 +28,16 @@
         position: fixed;
         inset: 0;
       }
-      /* Letterbox: the stage fills the viewport and centres the surface, which
-         keeps the manifest's display aspect and scales down to fit. */
+      /* The stage is the viewport, and so is the media box: `object-fit:
+         contain` then paints the largest version of the asset that fits
+         inside it, aspect ratio kept, centered (docs/plan.md Phase 7b). The
+         letterbox therefore comes only from the mismatch between the asset's
+         own aspect and the screen's — never from the manifest, whose
+         width/height describe the asset, not a box to fit to. Nothing here
+         takes a size, so one rule covers images, animation frames and video
+         on a single element (all frames of an animation share a size, so the
+         aspect is stable while frames swap). Scaling up is included: a small
+         asset fills the screen. Same rule as arithmetic: src/render/fit.ts. */
       .stage {
         position: absolute;
         inset: 0;
@@ -37,11 +45,8 @@
       }
       .visual {
         display: block;
-        margin: auto;
-        width: auto;
-        height: auto;
-        max-width: 100%;
-        max-height: 100%;
+        width: 100%;
+        height: 100%;
         object-fit: contain;
       }
       .notice {

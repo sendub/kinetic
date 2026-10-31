@@ -9,7 +9,10 @@
 // bundle (dist/index.html, dist/app.js); the fixture's own manifest.js is
 // never touched, so the demo manifest always comes from the fixture.
 // .tmp/verify-demo-empty gets the dist stub manifest (no items) to exercise
-// the #empty-state notice.
+// the #empty-state notice, and .tmp/verify-demo-tall is a copy whose item-1
+// image has been rescaled to a portrait 640x960 while the manifest still says
+// 960x540 — the one shape that tells "fit to the asset" apart from "fit to
+// the manifest" (step 21, docs/plan.md Phase 7b).
 //
 // Every input is real CDP Input: Input.dispatchKeyEvent for keys and
 // Input.dispatchMouseEvent `mouseWheel` for the wheel. Both arrive trusted, so
@@ -23,10 +26,19 @@ import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import puppeteer from "puppeteer-core";
 
+// The contain-fit geometry comes from the renderer's own pure helper, read
+// straight from src (node runs the types away), so the driver's expectation
+// cannot drift from the rule the unit tests pin.
+import { containFit } from "../src/render/fit.ts";
+
 const playerDir = join(dirname(fileURLToPath(import.meta.url)), "..");
 const repoRoot = join(playerDir, "..");
 const contentDir = join(repoRoot, ".tmp", "verify-demo");
 const emptyDir = join(repoRoot, ".tmp", "verify-demo-empty");
+const tallDir = join(repoRoot, ".tmp", "verify-demo-tall");
+// The portrait size step 21 rescales item 1's image to. Its aspect (2:3)
+// deliberately matches neither the manifest's 16:9 nor any test viewport.
+const TALL_ASSET = { width: 640, height: 960 };
 const chromePath =
   process.env.KINETIC_CHROME ??
   "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
@@ -72,6 +84,31 @@ function assembleFolders() {
   for (const file of ["index.html", "app.js", "manifest.js"]) {
     copyFileSync(join(playerDir, "dist", file), join(emptyDir, file));
   }
+  // The asset/manifest aspect mismatch folder for step 21. Only the JPEG is
+  // resampled, never the manifest, and `fixtures/demo` itself stays pristine.
+  // `sips` is macOS' own resizer; without it step 21 loses its discriminator
+  // and says so instead of quietly asserting a weaker fact.
+  mkdirSync(tallDir, { recursive: true });
+  cpSync(join(repoRoot, "fixtures", "demo"), tallDir, { recursive: true });
+  for (const file of ["index.html", "app.js"]) {
+    copyFileSync(join(playerDir, "dist", file), join(tallDir, file));
+  }
+  let tallAsset = true;
+  try {
+    execFileSync(
+      "sips",
+      [
+        "-z",
+        String(TALL_ASSET.height),
+        String(TALL_ASSET.width),
+        join(tallDir, "meadow-001.jpg"),
+      ],
+      { stdio: "pipe" },
+    );
+  } catch {
+    tallAsset = false;
+  }
+  return tallAsset;
 }
 
 // Serialised into the page; reads only what the renderer put in the DOM.
@@ -113,6 +150,92 @@ const PAGE_STATE = () => {
       : null,
   };
 };
+
+// Geometry of the media as rendered: the element box, the CSS paint rule that
+// fits it, the asset's OWN decoded size (which no manifest field can change),
+// and the overlay band. Object-position is read because it is what centres the
+// contained paint, so "centred" is a measured fact and not an assumption.
+const FIT_STATE = () => {
+  const img = document.getElementById("visual-image");
+  const overlay = document.getElementById("overlay");
+  const manifest = window.KINETIC_MANIFEST ?? { width: 0, height: 0 };
+  const box = img?.getBoundingClientRect();
+  const cs = img ? getComputedStyle(img) : null;
+  const band = overlay?.getBoundingClientRect();
+  return {
+    viewport: [window.innerWidth, window.innerHeight],
+    natural: img ? [img.naturalWidth, img.naturalHeight] : null,
+    box: box ? [box.width, box.height, box.left, box.top] : null,
+    objectFit: cs?.objectFit ?? null,
+    objectPosition: cs?.objectPosition ?? null,
+    overlayBand: band ? [band.left, band.width, band.bottom] : null,
+    manifest: [manifest.width, manifest.height],
+  };
+};
+
+// A page opened at a chosen viewport: the device-metrics override is what a
+// rotated phone or an un-maximised window looks like to the layout.
+const openAtViewport = async (
+  browser,
+  dir,
+  width,
+  height,
+  label,
+  messages,
+  errors,
+) => {
+  const page = await browser.newPage();
+  page.on("console", (msg) =>
+    messages.push(`${label} [${msg.type()}] ${msg.text()}`),
+  );
+  page.on("pageerror", (err) => errors.push(`${label} ${err.message}`));
+  await page.setViewport({ width, height, deviceScaleFactor: 1 });
+  await page.goto(pathToFileURL(join(dir, "index.html")).href);
+  await waitImageDecoded(page);
+  return page;
+};
+
+/**
+ * What the contain fit must be, checked against the measured page: the media
+ * box is the whole viewport (so nothing was letterboxed to the manifest box),
+ * the paint rule is `object-fit: contain` at the centre, and the contain fit
+ * of the asset's own size keeps its aspect ratio, is flush with the viewport
+ * in one dimension and letterboxed in the other. `manifestFit` is the box the
+ * manifest's display size would have produced, kept for the evidence line.
+ */
+function judgeFit(state) {
+  const [vw, vh] = state.viewport;
+  const [aw, ah] = state.natural ?? [0, 0];
+  const fit = containFit(aw, ah, vw, vh);
+  const manifestFit = containFit(state.manifest[0], state.manifest[1], vw, vh);
+  const [bw, bh, bl, bt] = state.box ?? [0, 0, 0, 0];
+  const facts = {
+    // The media box covers the viewport: the fit happens in the paint.
+    boxIsViewport:
+      Math.abs(bw - vw) <= 1 &&
+      Math.abs(bh - vh) <= 1 &&
+      Math.abs(bl) <= 1 &&
+      Math.abs(bt) <= 1,
+    contained: state.objectFit === "contain",
+    centred:
+      state.objectPosition === "50% 50%" &&
+      Math.abs(bl + bw / 2 - vw / 2) <= 1 &&
+      Math.abs(bt + bh / 2 - vh / 2) <= 1,
+    // The fitted rect keeps the asset's aspect ratio, to within rounding.
+    aspectKept: Math.abs(fit.width / fit.height - aw / ah) < 1e-6,
+    // It is maximal: one dimension is flush with the viewport...
+    flushOneEdge:
+      Math.abs(Math.max(fit.width / vw, fit.height / vh) - 1) < 1e-9,
+    // ...and the other leaves room, i.e. a real letterbox at this viewport.
+    letterboxes: Math.min(fit.width / vw, fit.height / vh) < 0.999,
+  };
+  return {
+    fit,
+    manifestFit,
+    facts,
+    ok: Object.values(facts).every(Boolean),
+  };
+}
 
 // Records requestFullscreen calls and the first keydowns' trust, before the
 // page scripts run. The wrapper keeps the real request; it only observes.
@@ -265,7 +388,7 @@ const videoTokenIs = (page) =>
   );
 
 async function main() {
-  assembleFolders();
+  const tallAsset = assembleFolders();
   console.log(
     `driver: ${execFileSync(chromePath, ["--version"], { encoding: "utf8" }).trim()}`,
   );
@@ -775,13 +898,114 @@ async function main() {
       JSON.stringify(s20),
     );
 
-    // 21. Console stayed empty throughout both pages.
+    // 21. Fill the screen (docs/plan.md Phase 7b): the media is the largest
+    // centred contain fit of the ASSET's own aspect ratio into whatever
+    // viewport the player gets, never the manifest's box. Two mismatched
+    // viewports, one per letterbox direction: the fixture image (16:9, the
+    // same aspect as the manifest) in a portrait viewport, and the copy whose
+    // item-1 image was rescaled to 2:3 while the manifest stayed 16:9, in a
+    // wide viewport. Only the second can tell "fit to the asset" apart from
+    // "fit to the manifest", so without the rescaled asset the step says
+    // PARTIAL rather than asserting a weaker fact as if it were the real one.
+    const fitPages = [];
+    try {
+      const portrait = await openAtViewport(
+        browser,
+        contentDir,
+        700,
+        1000,
+        "portrait fit",
+        consoleMessages,
+        pageErrors,
+      );
+      const tall = await openAtViewport(
+        browser,
+        tallDir,
+        1200,
+        700,
+        "tall fit",
+        consoleMessages,
+        pageErrors,
+      );
+      fitPages.push(portrait, tall);
+      const portraitState = await portrait.evaluate(FIT_STATE);
+      const tallState = await tall.evaluate(FIT_STATE);
+      const portraitFit = judgeFit(portraitState);
+      const tallFit = judgeFit(tallState);
+      const [tvw, tvh] = tallState.viewport;
+      const [bandLeft, bandWidth, bandBottom] = tallState.overlayBand ?? [
+        0, 0, 0,
+      ];
+      const facts = {
+        assetIsPortrait:
+          tallState.natural?.join("x") ===
+          `${TALL_ASSET.width}x${TALL_ASSET.height}`,
+        manifestIsWide: tallState.manifest.join("x") === "960x540",
+        // The asset's own aspect genuinely differs from the manifest's in this
+        // folder, and `aspectKept` above proves the fitted box follows the
+        // asset's — so the box cannot have come from the manifest size.
+        assetDiffersFromManifest:
+          tallState.natural !== null &&
+          Math.abs(
+            tallState.natural[0] / tallState.natural[1] -
+              tallState.manifest[0] / tallState.manifest[1],
+          ) > 0.05,
+        // The overlay is a band across the whole viewport, not a caption
+        // inside the pillarbox: full width, bottom flush, wider than media.
+        bandSpansScreen:
+          Math.abs(bandLeft) <= 1 &&
+          Math.abs(bandWidth - tvw) <= 1 &&
+          Math.abs(bandBottom - tvh) <= 1,
+        bandOverLetterbox: bandWidth > tallFit.fit.width + 20,
+      };
+      const core = portraitFit.ok && tallFit.ok;
+      const rest =
+        facts.assetIsPortrait &&
+        facts.manifestIsWide &&
+        facts.assetDiffersFromManifest &&
+        facts.bandSpansScreen &&
+        facts.bandOverLetterbox;
+      const status = !tallAsset
+        ? core && rest
+          ? "PARTIAL"
+          : "FAIL"
+        : core && rest
+          ? "PASS"
+          : "FAIL";
+      const brief = (state, fit) =>
+        `viewport=${state.viewport.join("x")} asset=${state.natural?.join("x")} ` +
+        `box=${state.box?.map((n) => Math.round(n)).join("x")} ` +
+        `contain=${fit.fit.width.toFixed(1)}x${fit.fit.height.toFixed(1)}@${fit.fit.x.toFixed(1)},${fit.fit.y.toFixed(1)} ` +
+        `(manifest fit would be ${fit.manifestFit.width.toFixed(1)}x${fit.manifestFit.height.toFixed(1)}) ` +
+        `fit=${state.objectFit}/${state.objectPosition} ` +
+        `bad=${
+          Object.entries(fit.facts)
+            .filter(([, v]) => !v)
+            .map(([k]) => k)
+            .join(",") || "none"
+        }`;
+      record(
+        "21. media fills the viewport as a centred contain fit of its own aspect",
+        status,
+        `${brief(portraitState, portraitFit)} | ${brief(tallState, tallFit)} | ` +
+          `overlay band=${bandWidth.toFixed(0)}px of ${tvw}px, bottom=${bandBottom.toFixed(0)} of ${tvh}px ` +
+          `(spans screen=${String(facts.bandSpansScreen)}, past the pillarbox=${String(facts.bandOverLetterbox)}, ` +
+          `asset aspect ${tallState.natural?.join("x")} vs manifest ${tallState.manifest.join("x")}=${String(facts.assetDiffersFromManifest)})` +
+          (tallAsset
+            ? "; the letterbox paint itself is CSS object-fit: contain, so its pixels are not sampled here - on a real screen the black bars should sit outside the media, top/bottom or left/right"
+            : "; PARTIAL: sips could not rescale a copy of the fixture image, so the measured asset's aspect equals the manifest's and independence from the manifest box is asserted by rule, not by measurement"),
+      );
+    } finally {
+      for (const page of fitPages) await page.close();
+    }
+
+    // 22. Console stayed empty throughout both pages.
     const s21Ok = consoleMessages.length === 0 && pageErrors.length === 0;
     record(
-      "21. console stayed empty throughout",
+      "22. console stayed empty throughout",
       s21Ok ? "PASS" : "FAIL",
       s21Ok
-        ? "zero console messages, zero page errors, both pages, whole run"
+        ? "zero console messages, zero page errors, every page, whole run"
         : `console=[${consoleMessages.join(" | ")}] pageErrors=[${pageErrors.join(" | ")}]`,
     );
   } finally {

@@ -15,6 +15,11 @@
 // One `<img>` serves images and animation frames, and ONE `<video>` element
 // is reused across renders: advancing within a chain flips `loop` and keeps
 // the same element playing, never re-creating or reloading it.
+//
+// Sizing is not this module's business: `.visual` (index.html) is a box the
+// size of the viewport whose paint is `object-fit: contain`, so whatever the
+// player gets fills it maximally with the aspect ratio kept, and the manifest's
+// width/height are used for nothing at render time (docs/plan.md Phase 7b).
 
 import type {
   AnimationItem,
@@ -157,10 +162,11 @@ export function createVisualLayer(
       image.className = "visual";
       image.alt = "";
       image.draggable = false;
-      // Declare the manifest's display size so layout is reserved before the
-      // file decodes; CSS then scales that box down to fit the viewport.
-      image.width = manifest.width;
-      image.height = manifest.height;
+      // No size is taken from the manifest: its width/height are the asset's
+      // intrinsic size, and `.visual` (index.html) is a viewport-sized box
+      // with `object-fit: contain`, so the media fills whatever screen it
+      // gets, aspect kept. Setting the attributes here would letterbox the
+      // content to the manifest instead (docs/plan.md Phase 7b).
       stage.append(image);
     }
     image.style.display = "";

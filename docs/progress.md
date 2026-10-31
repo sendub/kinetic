@@ -80,8 +80,9 @@ truthful: an unchecked box means nothing was accepted.
 
 ## Phase 7b: Presentation revision (2025-11-01, user requests)
 
-- [ ] Fill-the-screen contain-fit documented (README/content-format) and
-      applied to images, animation frames, and video
+- [x] Fill-the-screen contain-fit documented (README/content-format) and
+      applied to images, animation frames, and video (verify geometry
+      step 21 PASS, 96 tests, 2025-11-01)
 - [ ] `thought` field in format, schema, validator (fault tests), and
       CREATE.md
 - [ ] Demo fixture gains a thought line
