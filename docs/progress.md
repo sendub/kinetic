@@ -118,6 +118,23 @@ truthful: an unchecked box means nothing was accepted.
 - [x] Machine-side config tests green; checklist walked (163 tests, 29
       verify steps: 28 pass 1 known partial, 2025-11-01)
 
+## Phase 9b: Media revision (2025-11-01, user requests)
+
+- [ ] Format/schema/validator/CREATE: video containers mp4|webm|mkv|
+      mov|m4v and .jxl images; optional video `loopCount`/`holdSeconds`;
+      naming `<id>.<ext>`; browser-support caveats documented
+- [ ] Machine: video timing rules (Nth-ended vs duration*loops vs
+      holdSeconds override; skip dwell min) with tests
+- [ ] Renderer: loopCount looping via ended-counting, holdSeconds
+      background play; verify steps for both paths
+- [ ] Demo fixture: short looping video item (loopCount 2); determinism
+      and validator green
+- [ ] Converter image policy: true-format sniff, byte-identical preserve
+      when browser-compatible, lossless-JXL-when-smaller (encoder
+      probed); ledger records each decision (lands with Phase 10)
+- [ ] Converter video policy: pass through browser-native sources;
+      transcode only what no target browser plays (lands with Phase 10)
+
 ## Phase 10: Ren'Py extractor MVP
 
 - [ ] `converter/` package with CLI over source `.rpy` projects

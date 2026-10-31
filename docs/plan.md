@@ -248,9 +248,14 @@ Goal: `python -m kinetic_extract <renpy_project> <out_dir>` on source
 `.rpy` projects.
 
 - Python package `converter/` (name it per its pyproject), CLI, statement
-  parser subset from docs/stack.md, asset pass: copy/validate images,
-  transcode video to faststart H.264, emit posters, first frames, and
-  display-resolution derivatives with Pillow and ffmpeg.
+  parser subset from docs/stack.md, asset pass per the Phase 9b policy:
+  preserve compatible video/audio-native files as-is and transcode only
+  what no target browser plays; images preserved byte-identical when the
+  true format is browser-compatible, else converted (lossless JPEG XL
+  when smaller, else PNG/JPEG); emit posters and first frames with
+  Pillow and ffmpeg. No display-resolution downscaling is needed for
+  playback (fill-the-screen CSS scales at runtime); downscale only when
+  an asset's bytes are huge, recording the choice in the ledger.
 - Build `fixtures/renpy_demo/`: a synthetic project (script.rpy + assets)
   exercising the subset; golden manifest comparison in pytest.
 - Unrecognized statements are reported, never fatal.
@@ -313,12 +318,49 @@ Acceptance: harness output recorded in docs/progress.md with p95 under
 budget (or a Revisit-trigger note); a folder copied to a fresh machine
 plays by double-clicking `index.html` alone.
 
+## Phase 9b: Media revision (2025-11-01, user requests)
+
+Format flexibility for video and smarter image handling, plus the
+resulting converter policy.
+
+- Video containers: any browser-playable file is allowed - `.mp4`,
+  `.webm`, `.mkv` (VP9/AV1) and `.mov`/`.m4v` are listed in the schema;
+  playability is the browser's call, and the player just sets
+  `<video src>`. The converter keeps browser-native sources as-is and
+  transcodes only what no target browser plays (to H.264 MP4, widest
+  support). Note honestly in docs: MKV playback is Chromium-class; Safari
+  may refuse MKV, so converting to MP4 when the user's default browser
+  needs it is the converter author's call, recorded in the build ledger.
+- Short-video timing: optional `loopCount` (integer >= 1, default 1) and
+  optional `holdSeconds` (> 0) on video items. `durationSeconds` stays
+  required (converter fills it via ffprobe; skip-mode timing needs it).
+  Machine rule: media gate = `holdSeconds` when present (time-driven
+  only, `ended` ignored - the video is background); otherwise the later
+  of the `loopCount`-th `ended` and `durationSeconds * loopCount` as a
+  time bound; text hold always also applies. Skip dwell for a video is
+  `min(skipDwell, (holdSeconds ?? durationSeconds * loopCount))`. The
+  renderer plays with `loop` when `loopCount > 1` and fires
+  `mediaEnded()` on the Nth `ended`; with `holdSeconds` it loops freely
+  and never fires `mediaEnded` for gating.
+- Image pipeline policy (converter): sniff the actual format (extensions
+  lie); keep browser-compatible originals (PNG/JPEG/WebP/GIF)
+  byte-identical, no re-encode, true extension in the manifest; where a
+  lossless JPEG XL encode is smaller than the compatible original, ship
+  `.jxl` instead. Player/schema allow `.jxl` images. Honest caveat to
+  document: JXL decode requires Chrome/Edge 117+, Safari 17+, Firefox
+  133+; the converter must verify an encoder exists (Pillow/libjxl or
+  `cjxl`) before shipping `.jxl`, else keep the original. Naming
+  conventions relax to `<id>.<ext>` where ext is the true shipped
+  format; derivatives of wrapped assets follow the same
+  preserve-or-JXL rule.
+- Demo fixture gains a looping short video item (loopCount 2) exercising
+  the new machine and renderer paths.
+
 ## Later, waiting on the user
 
 - Overlay text styling iteration once the user can play with the demo.
 
 ## Sequencing
 
-1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10 -> 11 -> 12, serial. Phase
-10 depends on 2 only, so it can run earlier if a subagent is idle, but the
-default is serial per the single-slot model serving rule.
+1 -> 2 -> 2b -> 3 -> 4 -> 5 -> 6 -> 7 -> 7b -> 8 -> 9 -> 9b -> 10 -> 11 ->
+12, serial. The default is serial per the single-slot model serving rule.

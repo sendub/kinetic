@@ -3,7 +3,7 @@
 A simple alternative to Ren'Py for playing kinetic visual novels.
 
 Gameplay features:
-* Display an ordered sequence of images, "animations" (a handful of images intended to be viewed in sequence multiple times) and videos. Media is scaled to fill the screen as much as possible without changing its aspect ratio.
+* Display an ordered sequence of images, "animations" (a handful of images intended to be viewed in sequence multiple times) and videos. Media is scaled to fill the screen as much as possible without changing its aspect ratio. Videos may be any file the browser can play (e.g. MP4, WebM, or MKV with VP9/AV1); short videos can set a loop count and/or an explicit display duration, like animations.
 * Overlay text on the images, hideable with the "h" key. Text is either dialogue spoken by a character or unspoken thoughts of a character; the two read differently.
 * Advance through the content one by one by pressing the space bar.
 * Advance through the content automatically at a configurable reading speed, with animations shown a few times automatically, and videos played out once.
