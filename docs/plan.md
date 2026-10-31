@@ -356,11 +356,67 @@ resulting converter policy.
 - Demo fixture gains a looping short video item (loopCount 2) exercising
   the new machine and renderer paths.
 
+## Phase 9c: Video playback ranges (2025-11-01, user requests)
+
+Allow an item to play a sub-range of a video, and let several items
+share one file at different ranges.
+
+- Fields on a video item: optional `startSeconds` (number >= 0, default
+  0) and `endSeconds` (number > startSeconds, default the file's
+  duration). Both stored as exact fractional seconds - the schema,
+  validator, and player MUST NOT round them. `durationSeconds` stays
+  the file's total duration (required, from ffprobe) and is the default
+  `endSeconds`; playback duration is `endSeconds - startSeconds`.
+- Timing uses the range length: media gate = `holdSeconds` if present,
+  else the later of the `loopCount`-th `ended` (an `ended` is emitted
+  when playback reaches `endSeconds`, via a `timeupdate` clamp, not the
+  file's true end) and `(endSeconds - startSeconds) * loopCount`; text
+  hold also applies. Skip dwell clamps to the range length (or
+  `holdSeconds`).
+- Posters and stills show the frame AT `startSeconds`, including skip
+  and rewind. The converter extracts the poster at `startSeconds` via
+  `ffmpeg -ss <start>`. For hand-authored or test folders that cannot
+  decode to seek, `poster` may equal the file (first frame) and the doc
+  notes the difference.
+- Playback within the range: the player seeks to `startSeconds` on
+  enter, clamps to `[startSeconds, endSeconds]`, and loops from `start`
+  to `end`. Because `loop=true` seeks to 0 (wrong for a range), range
+  looping is done by the player seeking back to `start` on a pass
+  complete - the machine counts passes exactly as in Phase 9b.
+- A `text`-item chain continues the current item's video playback
+  rather than restarting it: while a chain lasts, the shared video
+  element keeps playing forward from where it is (within the range),
+  and is NOT re-seeked to `start` on each text advance.
+- Sharing: several items may reference the same `file` at different
+  ranges; the validator checks the range is inside `[0, durationSeconds]`
+  but does not dedup or forbid sharing.
+- Range validation: validator (schema + tools) rejects `endSeconds <=
+  startSeconds`, negative `startSeconds`, and `endSeconds >
+  durationSeconds`; the file's real duration is checked by the converter
+  (ffprobe), not the validator, which trusts `durationSeconds`.
+- Frame-number authoring convenience (optional, documented): an author
+  may express `startFrame`/`endFrame` at a given fps as a shorthand; it
+  converts to fractional seconds (`frame / fps`) stored in the manifest.
+  This is a converter/authoring aid only; the manifest field stays
+  fractional seconds. The player never sees frame numbers.
+- Honest seek caveat to document: browser `seek` lands on the nearest
+  keyframe, so the first displayed frame after `startSeconds` may be an
+  earlier keyframe; frame-exact first/last accuracy depends on the
+  browser. Verify asserts the achievable behavior (playback stays in
+  range, loops within range, ends at `endSeconds`), and notes the
+  keyframe-precision limit rather than claiming frame-exact start.
+- Demo: convert the existing 1 s `loop-012` into a ~2 s clip and split
+  it into two items over the SAME file at different ranges (e.g.
+  `0.0-1.0` and `1.0-2.0`), so sharing + range + per-item poster are all
+  exercised deterministically; a third item may set `holdSeconds` over a
+  range. Keep the video tiny.
+
 ## Later, waiting on the user
 
 - Overlay text styling iteration once the user can play with the demo.
 
 ## Sequencing
 
-1 -> 2 -> 2b -> 3 -> 4 -> 5 -> 6 -> 7 -> 7b -> 8 -> 9 -> 9b -> 10 -> 11 ->
-12, serial. The default is serial per the single-slot model serving rule.
+1 -> 2 -> 2b -> 3 -> 4 -> 5 -> 6 -> 7 -> 7b -> 8 -> 9 -> 9b -> 9c -> 10 ->
+11 -> 12, serial. The default is serial per the single-slot model serving
+rule.

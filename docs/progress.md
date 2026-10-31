@@ -139,6 +139,23 @@ truthful: an unchecked box means nothing was accepted.
 - [ ] Converter video policy: pass through browser-native sources;
       transcode only what no target browser plays (lands with Phase 10)
 
+## Phase 9c: Video playback ranges (2025-11-01, user requests)
+
+- [ ] Format/schema/validator/CREATE: optional `startSeconds`/
+      `endSeconds` (exact fractional seconds, no rounding; defaults 0
+      and durationSeconds); range validation; frame-number authoring
+      convenience documented (seconds stored); converter poster-at-start
+      note; shared-file-different-ranges documented
+- [ ] Machine: range-based timing (gate and skip clamp use
+      endSeconds-startSeconds; ended emitted at range end) with tests
+- [ ] Renderer: seek to start on enter, range clamp, seek-back-to-start
+      loop (never loop=true on ranges), chain continues without
+      restart, poster = frame at start; verify steps asserting the
+      ACTUAL first/last displayed frames the browser achieves (keyframe
+      caveat recorded)
+- [ ] Demo fixture: shared ~2 s clip used by two items at different
+      ranges (0.0-1.0, 1.0-2.0) with range posters; determinism green
+
 ## Phase 10: Ren'Py extractor MVP
 
 - [ ] `converter/` package with CLI over source `.rpy` projects
