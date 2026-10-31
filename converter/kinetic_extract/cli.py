@@ -7,9 +7,10 @@ Usage:
 <renpy_project> may be a directory containing ``game/``, a ``game/``
 directory itself, or a macOS ``.app`` bundle (the ``game`` dir is resolved
 under ``Contents/Resources/autorun``). Writes ``manifest.json``, the
-``manifest.js`` shim, and ``build-ledger.json`` into ``out_dir`` and prints
-the skipped/notes summary. Asset files are copied/derived by the next
-task; the folder is not yet playable until then.
+``manifest.js`` shim, ``build-ledger.json``, and every shipped media file
+(including posters) into ``out_dir`` and prints the skipped/notes summary.
+The output folder is playable as-is (copy the player bundle in to open it
+offline).
 """
 
 from __future__ import annotations
@@ -21,6 +22,7 @@ from pathlib import Path
 from typing import Any
 
 from . import __version__
+from .assets import run_asset_pass
 from .media import DEFAULT_SIZE, most_common_image_size
 from .parser import Report, parse_project
 from .timeline import TimelineResult, build_timeline
@@ -32,9 +34,9 @@ SIMPLIFICATIONS = [
     "menu branches are unsupported: skipped, linear flow before them kept",
     "first dialogue line under a visual attaches to the media item; later "
     "lines become text items over the same visual",
-    "asset files are not copied yet: media references follow the "
-    "<id>.<ext> convention and the ledger keeps source paths, so the "
-    "folder is not yet playable (asset pass is the next task)",
+    "assets ship at their sniffed true format (preserve or lossless-JXL "
+    "for images, native copy or h264 transcode for video); unsupported "
+    "wrapped images drop their item, recorded in the ledger",
 ]
 
 
@@ -63,7 +65,8 @@ def build_manifest(result: TimelineResult, width: int, height: int,
         "schemaVersion": 1,
         "width": width,
         "height": height,
-        "items": [record.item for record in result.items],
+        "items": [record.item for record in result.items
+                  if not record.skipped],
     }
 
 
@@ -74,6 +77,10 @@ def build_ledger(result: TimelineResult, reports: list[Report],
         entry: dict[str, Any] = {"source": record.source}
         entry["asset"] = record.asset
         entry["notes"] = record.notes
+        # Per-item asset facts from the asset pass: sniffed format,
+        # decision, byte sizes, codec, shipped file. The ledger stays the
+        # unreferenced extra: the player and validator ignore it.
+        entry.update(record.asset_meta)
         items[record.item["id"]] = entry
     return {
         "generatedBy": f"kinetic-extract {__version__}",
@@ -99,13 +106,17 @@ def write_outputs(out_dir: Path, manifest: dict[str, Any],
 
 
 def print_summary(result: TimelineResult, reports: list[Report],
-                  resolution_note: str) -> None:
+                  resolution_note: str, skipped: int) -> None:
     counts: dict[str, int] = {}
     for record in result.items:
+        if record.skipped:
+            continue
         item_type = record.item["type"]
         counts[item_type] = counts.get(item_type, 0) + 1
     type_summary = ", ".join(f"{t} {counts[t]}" for t in sorted(counts))
-    print(f"items: {len(result.items)} ({type_summary})")
+    shipped = sum(1 for r in result.items if r.asset_meta.get("shippedFile"))
+    print(f"items: {sum(counts.values())} ({type_summary}); "
+          f"media shipped: {shipped}; items skipped: {skipped}")
     print(f"resolution: {resolution_note}")
     note_count = sum(len(r.notes) for r in result.items)
     print(f"reported statements: {len(reports)}; item notes: {note_count}")
@@ -114,8 +125,6 @@ def print_summary(result: TimelineResult, reports: list[Report],
     for record in result.items:
         for note in record.notes:
             print(f"  {record.source}: {record.item['id']}: {note}")
-    print("note: media files are not copied yet (asset pass is the next "
-          "task); the folder is not yet playable")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -143,6 +152,7 @@ def main(argv: list[str] | None = None) -> int:
     reports: list[Report] = []
     for _rel, parsed in parses:
         reports.extend(parsed.reports)
+    skipped = run_asset_pass(result.items, args.out_dir)
 
     if args.width and args.height:
         width, height, source_note = args.width, args.height, "--width/--height override"
@@ -158,5 +168,6 @@ def main(argv: list[str] | None = None) -> int:
     ledger = build_ledger(result, reports,
                           [rel for rel, _ in parses])
     write_outputs(args.out_dir, manifest, ledger)
-    print_summary(result, reports, f"{width}x{height} ({source_note})")
+    print_summary(result, reports, f"{width}x{height} ({source_note})",
+                  skipped)
     return 0

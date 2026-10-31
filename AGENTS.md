@@ -11,6 +11,10 @@ are implementing and docs/stack.md for settled decisions.
   deps pinned in `requirements.txt`. Create the venv with
   `python3 -m venv .venv && .venv/bin/pip install -r requirements.txt` if
   missing.
+- Converter: editable install once per venv:
+  `.venv/bin/pip install -e ./converter --cache .tmp/pip-cache`; run
+  `.venv/bin/kinetic-extract <renpy_project> <out>`; tests
+  `.venv/bin/pytest converter/ -q`.
 - ffmpeg and macOS `sips` are on PATH; there is no Rust toolchain.
 
 ## Sandbox gotchas

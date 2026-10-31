@@ -124,19 +124,17 @@ def test_cli_end_to_end(tmp_path: Path) -> None:
     assert json.loads(shim[len("window.KINETIC_MANIFEST = "):-2]) == manifest
 
 
-def test_validator_reports_only_missing_media(tmp_path: Path) -> None:
-    """The manifest is schema-clean; only media files are absent (next task)."""
+def test_validator_passes_with_ledger(tmp_path: Path) -> None:
+    """The asset pass shipped every file; the ledger is a tolerated extra."""
     out = tmp_path / "out"
     assert cli_main([str(FIXTURE), str(out)]) == 0
+    assert (out / "build-ledger.json").exists()
     proc = subprocess.run(
         [sys.executable, str(REPO_ROOT / "tools" / "validate_content.py"),
          str(out)],
         capture_output=True, text=True, check=False)
-    assert proc.returncode == 1  # missing media until the asset pass lands
-    problems = [line for line in proc.stdout.splitlines() if line.strip()]
-    assert problems, "expected missing-media problems"
-    for problem in problems:
-        assert "media file" in problem and "does not exist" in problem, problem
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert proc.stdout.strip() == ""
 
 
 def test_fixture_size_budget() -> None:

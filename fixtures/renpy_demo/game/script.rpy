@@ -7,6 +7,11 @@ define g = Character("Гостья")
 
 image bg-room "data/bg-room.png"
 image bg-yard "data/bg-yard.png"
+image mislabel-bmp "data/mislabeled.png"
+image mislabel-png "data/mislabeled.jpg"
+image bg-reprise "data/bg-room.png"
+image photo-noise "data/photo-noise.png"
+image bg-gif "data/anim.gif"
 
 label start:
     $ greeting = "Are you ready"
@@ -43,4 +48,14 @@ label inside:
     scene bg-room
     a "Back inside, where it is quiet."
     d "Good night."
+    scene mislabel-bmp
+    a "A small painting on the wall."
+    show mislabel-png
+    "The frame beside it hides its true format too."
+    show bg-reprise
+    d "The same room again, seen from the hall."
+    scene photo-noise
+    a "A photograph, grainy and warm."
+    show bg-gif
+    "A tiny paper lantern blinks by the door."
     return

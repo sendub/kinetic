@@ -133,11 +133,13 @@ truthful: an unchecked box means nothing was accepted.
 - [x] Demo fixture: short looping video item (loopCount 2); determinism
       and validator green (verify step 27: 2 endeds + restart observed,
       30 steps 29 pass, 175 tests, 2025-11-01)
-- [ ] Converter image policy: true-format sniff, byte-identical preserve
-      when browser-compatible, lossless-JXL-when-smaller (encoder
-      probed); ledger records each decision (lands with Phase 10)
-- [ ] Converter video policy: pass through browser-native sources;
-      transcode only what no target browser plays (lands with Phase 10)
+- [x] Converter image policy: true-format sniff, byte-identical preserve
+      when browser-compatible, lossless-JXL-when-smaller (cjxl probed at
+      runtime, djxl round-trip verified); ledger records each decision
+      (landed with Phase 10, 2025-11-01)
+- [x] Converter video policy: pass through browser-native sources;
+      transcode only what no target browser plays (landed with Phase 10,
+      native h264 copy proven on fixture, 2025-11-01)
 
 ## Phase 9c: Video playback ranges (2025-11-01, user requests)
 
@@ -168,14 +170,22 @@ truthful: an unchecked box means nothing was accepted.
       extract; accepts project/game/.app; 11 tests, 2025-11-01)
 - [x] Statement subset parser; unknown statements reported, not fatal
       (menu/unknown/layer reported, Cyrillic + `[var]` literal, 2025-11-01)
-- [ ] Asset pass: Pillow derivatives, ffmpeg H.264 + posters
-- [ ] Content-sniffed formats (never extension); wrapped/obfuscated images
-      decoded to standard formats at conversion
-- [ ] Identical sources deduped into shared derivative files
-- [ ] `build-ledger.json` written as an unreferenced extra; validator
-      tolerance tested
-- [ ] `fixtures/renpy_demo/` + golden-manifest pytest green
-- [ ] Extracted demo plays end to end in the player
+- [x] Asset pass per Phase 9b policy: preserve browser-native video,
+      transcode only non-browser-playable to H.264; images preserved or
+      converted by size; posters via ffmpeg (extractor ships `.jxl` for
+      the demo's small PNGs because libjxl beat them on bytes - see the
+      JXL-vs-broad-compat note below; 59 tests, 2025-11-01)
+- [x] Content-sniffed formats (never extension); wrapped images carved
+      when PNG/JPEG magic is in the first 64 B, else reported skipped
+      (obfuscated/rpg-pickle images deferred to Phase 11's decoder)
+- [x] Identical sources deduped into shared derivative files (ledger
+      dedupOf; bg-room shared by two ids)
+- [x] `build-ledger.json` written as an unreferenced extra; validator
+      tolerance tested (exit 0 on output with ledger)
+- [x] `fixtures/renpy_demo/` + golden-manifest pytest green (11 tests)
+- [x] Extracted demo plays end to end in the player (head-to-tail walk:
+      14 items, all visuals painted incl. .jxl + video poster, zero
+      console errors, 2025-11-01)
 
 ## Phase 11: Extractor completeness on the real corpus
 

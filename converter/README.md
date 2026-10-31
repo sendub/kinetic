@@ -1,12 +1,23 @@
 # kinetic-extract
 
 Ren'Py extractor MVP (docs/plan.md Phase 10): reads a Ren'Py project's
-`game/*.rpy` sources with a statement-subset parser and writes a Kinetic
-content folder (`manifest.json`, `manifest.js`, `build-ledger.json`).
+`game/*.rpy` sources with a statement-subset parser and writes a playable
+Kinetic content folder: `manifest.json`, `manifest.js`,
+`build-ledger.json`, and every media file (posters included).
 
-Media references follow the `<id>.<ext>` naming convention, but asset
-copying and derivation are the next task: the extracted folder is not yet
-playable until the asset pass ships.
+Media references follow the `<id>.<ext>` naming convention with `ext` the
+TRUE shipped format: assets are sniffed by content (never by extension),
+compatible images ship byte-identical or as lossless JPEG XL when
+strictly smaller (`cjxl`/`djxl`, probed at runtime), incompatible ones
+are converted to the smallest of PNG/JPEG q92/JXL, wrapped PNG/JPEG data
+is carved, native browser videos are copied and others are transcoded to
+H.264 faststart MP4, and posters are the frame at `startSeconds`.
+Identical sources dedup into one shared file. Every decision lands in
+`build-ledger.json`.
+
+When an image is neither recognizable nor trivially carvable, its item
+is dropped from the manifest and recorded (`decision: skipped`) in the
+ledger — no placeholder is invented.
 
 ## Setup
 

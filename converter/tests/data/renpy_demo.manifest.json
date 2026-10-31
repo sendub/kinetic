@@ -6,7 +6,7 @@
     {
       "id": "bg-room-001",
       "type": "image",
-      "file": "bg-room-001.png",
+      "file": "bg-room-001.jxl",
       "speaker": "Ana",
       "text": "Welcome to the house."
     },
@@ -40,7 +40,7 @@
     {
       "id": "bg-yard-006",
       "type": "image",
-      "file": "bg-yard-006.png",
+      "file": "bg-yard-006.jxl",
       "text": "Тишина в саду. [wind]"
     },
     {
@@ -52,7 +52,7 @@
     {
       "id": "bg-room-008",
       "type": "image",
-      "file": "bg-room-008.png",
+      "file": "bg-room-001.jxl",
       "speaker": "Ana",
       "text": "Back inside, where it is quiet."
     },
@@ -61,6 +61,39 @@
       "type": "text",
       "speaker": "Dmitri",
       "text": "Good night."
+    },
+    {
+      "id": "mislabel-bmp-010",
+      "type": "image",
+      "file": "mislabel-bmp-010.jxl",
+      "speaker": "Ana",
+      "text": "A small painting on the wall."
+    },
+    {
+      "id": "mislabel-png-011",
+      "type": "image",
+      "file": "mislabel-png-011.jxl",
+      "text": "The frame beside it hides its true format too."
+    },
+    {
+      "id": "bg-reprise-012",
+      "type": "image",
+      "file": "bg-room-001.jxl",
+      "speaker": "Dmitri",
+      "text": "The same room again, seen from the hall."
+    },
+    {
+      "id": "photo-noise-013",
+      "type": "image",
+      "file": "photo-noise-013.jxl",
+      "speaker": "Ana",
+      "text": "A photograph, grainy and warm."
+    },
+    {
+      "id": "bg-gif-014",
+      "type": "image",
+      "file": "bg-gif-014.gif",
+      "text": "A tiny paper lantern blinks by the door."
     }
   ]
 }

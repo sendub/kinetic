@@ -33,12 +33,21 @@ def _slug(name: str | None, fallback: str) -> str:
 
 @dataclass
 class ItemRecord:
-    """One manifest item plus its ledger entry."""
+    """One manifest item plus its ledger entry.
+
+    The asset pass (assets.py) later fills ``asset_meta`` (sniffed format,
+    ship decision, sizes, shipped file) and sets ``skipped`` for items whose
+    asset is unsupported; skipped items are kept in the ledger but dropped
+    from the manifest.
+    """
 
     item: dict[str, Any]
     source: str
     asset: str | None
+    asset_abs: Path | None = None
     notes: list[str] = field(default_factory=list)
+    asset_meta: dict[str, Any] = field(default_factory=dict)
+    skipped: bool = False
 
 
 @dataclass
@@ -94,7 +103,7 @@ def build_timeline(parses: list[tuple[str, FileParse]],
         ext = media_ext(pend.asset_rel, pend.kind)
         item: dict[str, Any] = {"id": item_id, "type": pend.kind}
         record = ItemRecord(item=item, source=pend.source,
-                            asset=pend.asset_rel)
+                            asset=pend.asset_rel, asset_abs=pend.asset_abs)
         if pend.asset_abs is not None:
             if not pend.asset_abs.exists():
                 record.notes.append(
