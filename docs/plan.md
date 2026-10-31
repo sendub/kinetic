@@ -200,14 +200,16 @@ Goal: prove the speed budget and ship instructions.
 - Preload cursor +/- N items as ImageBitmaps with an LRU cache; tune N.
 - Perf harness: scripted navigation over the demo and the extracted game,
   measuring paint-to-paint latency; report p50/p95. Target p95 < 41 ms.
-- docs/packaging.md: distribute the folder, open instructions, gatekeeper
-  notes; document the optional Tauri path from stack.md without building
-  it.
+- Self-contained novel folder: the converter copies the player bundle
+  (`index.html`, `app.js`) into its output; double-clicking `index.html`
+  on a fresh copy plays over `file://`.
+- docs/packaging.md: folder layout, browser notes, and the optional
+  Tauri path from stack.md without building it.
 - Final README accuracy pass; close out progress.md.
 
 Acceptance: harness output recorded in docs/progress.md with p95 under
-budget (or a Revisit-trigger note); fresh machine plays from the packaging
-instructions alone.
+budget (or a Revisit-trigger note); a folder copied to a fresh machine
+plays by double-clicking `index.html` alone.
 
 ## Sequencing
 

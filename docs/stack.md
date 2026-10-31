@@ -102,11 +102,24 @@ docs/content-format.md.
 - Converter tests: pytest over synthetic fixture projects checked into
   `fixtures/`, plus the golden `manifest.json` comparison.
 
+## Distribution decision (confirmed with user 2025-10-31)
+
+The double-clickable thing is a self-contained content folder, not an app
+bundle: the converter writes the player (`index.html` + single `app.js`)
+next to `manifest.js` and the media. Double-clicking `index.html` opens
+the novel in the default browser, and the first keypress enters
+fullscreen. No binary, no signing, and no gatekeeper prompt: locally
+generated files carry no quarantine flag, and documents opened by the
+browser never face a developer check. The `file://` constraints noted
+above (classic script bundle, generated `manifest.js` shim, media via
+relative tag loads) are what make this work; IndexedDB is available on
+`file://` in Chrome and Safari.
+
 ## Revisit triggers
 
-- User wants a double-clickable, signed .app bundle: add a Tauri packaging
-  phase (needs `rustup` installed by the user; nothing in the app changes,
-  Tauri wraps the same static files).
+- User later wants a real .app (own icon in Applications, Spotlight
+  results): add a Tauri packaging phase (needs `rustup` installed by the
+  user; nothing in the app changes, Tauri wraps the same static files).
 - Measured navigation p95 above 41 ms on real content: revisit bitmap
   counts, tiling, or a WebGL presenter before touching anything else.
 - A real Ren'Py input needs constructs beyond the parse subset: extend the

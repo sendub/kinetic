@@ -85,6 +85,7 @@ truthful: an unchecked box means nothing was accepted.
 - [ ] ImageBitmap preload with LRU cache in the renderer
 - [ ] Perf harness output recorded here; p95 navigation < 41 ms (or a
       documented revisit-trigger note)
-- [ ] docs/packaging.md written incl. gatekeeper notes and optional Tauri
-      path
+- [ ] Self-contained novel folder plays by double-clicking `index.html`
+      over `file://`
+- [ ] docs/packaging.md written; Tauri path noted, not built
 - [ ] README accuracy pass; this file fully checked
