@@ -1,8 +1,10 @@
 #!/usr/bin/env node
 // Driver for docs/verify-player.md: walks the checklist (Phase 5 shell,
 // Phase 6 media playback, Phase 7 wheel/skip/jump, Phase 7b speech vs thought
-// and contain-fit geometry, Phase 8 bookmarks, the `b` confirmation flash and
-// reload-resume) against the demo fixture
+// and contain-fit geometry, Phase 8 bookmarks — `b` with its confirmation
+// flash, the `t` overlay (order, scroll position, thumbnails, suspension,
+// click-to-continue, backdrop/Escape/t-to-close), and reload-resume) against
+// the demo fixture
 // in headless Chrome and prints PASS / PARTIAL / FAIL per step.
 // Run from player/:  node scripts/verify.mjs
 // Exit code: 0 when every step is PASS or PARTIAL, 1 on any FAIL or crash.
@@ -17,7 +19,7 @@
 // the #empty-state notice, and .tmp/verify-demo-tall is a copy whose item-1
 // image has been rescaled to a portrait 640x960 while the manifest still says
 // 960x540 — the one shape that tells "fit to the asset" apart from "fit to
-// the manifest" (step 23, docs/plan.md Phase 7b).
+// the manifest" (step 26, docs/plan.md Phase 7b).
 //
 // Every input is real CDP Input: Input.dispatchKeyEvent for keys and
 // Input.dispatchMouseEvent `mouseWheel` for the wheel. Both arrive trusted, so
@@ -42,7 +44,7 @@ const contentDir = join(repoRoot, ".tmp", "verify-demo");
 const emptyDir = join(repoRoot, ".tmp", "verify-demo-empty");
 const tallDir = join(repoRoot, ".tmp", "verify-demo-tall");
 const chromeProfile = join(repoRoot, ".tmp", "verify-chrome-profile");
-// The portrait size step 23 rescales item 1's image to. Its aspect (2:3)
+// The portrait size step 26 rescales item 1's image to. Its aspect (2:3)
 // deliberately matches neither the manifest's 16:9 nor any test viewport.
 const TALL_ASSET = { width: 640, height: 960 };
 const chromePath =
@@ -91,9 +93,9 @@ function assembleFolders() {
   for (const file of ["index.html", "app.js", "manifest.js"]) {
     copyFileSync(join(playerDir, "dist", file), join(emptyDir, file));
   }
-  // The asset/manifest aspect mismatch folder for step 23. Only the JPEG is
+  // The asset/manifest aspect mismatch folder for step 26. Only the JPEG is
   // resampled, never the manifest, and `fixtures/demo` itself stays pristine.
-  // `sips` is macOS' own resizer; without it step 23 loses its discriminator
+  // `sips` is macOS' own resizer; without it step 26 loses its discriminator
   // and says so instead of quietly asserting a weaker fact.
   mkdirSync(tallDir, { recursive: true });
   cpSync(join(repoRoot, "fixtures", "demo"), tallDir, { recursive: true });
@@ -158,6 +160,10 @@ const PAGE_STATE = () => {
     overlayMode: overlay?.getAttribute("data-mode") ?? null,
     textMode: textEl?.getAttribute("data-mode") ?? null,
     textFontStyle: textEl ? getComputedStyle(textEl).fontStyle : null,
+    bookmarksOpen: (() => {
+      const p = document.getElementById("bookmarks");
+      return p === null ? null : !p.hidden;
+    })(),
     fsAttempts: window.__fsAttempts ?? 0,
     firstKeys: window.__firstKeys ?? [],
     fullscreenElement: document.fullscreenElement
@@ -197,6 +203,60 @@ const READ_BOOKMARKS = async () => {
     db.close();
   }
 };
+
+// The `t` overlay as the reader sees it: whether the panel is up, the
+// entries top to bottom, where the list is scrolled, and per entry its item
+// index, timestamp text, label and whether the thumbnail actually resolved
+// (a stored data URL, or the manifest still the entry falls back to when
+// the canvas capture was taint-blocked over file://).
+const READ_BOOKMARK_OVERLAY = () => {
+  const panel = document.getElementById("bookmarks");
+  if (panel === null) return { present: false };
+  if (panel.hidden) return { present: true, hidden: true };
+  const list = document.querySelector(".bookmarks-list");
+  const rectOf = (el) => {
+    if (el === null || el === undefined) return null;
+    const r = el.getBoundingClientRect();
+    return { top: r.top, bottom: r.bottom, left: r.left, right: r.right };
+  };
+  return {
+    present: true,
+    hidden: false,
+    title: document.querySelector(".bookmarks-title")?.textContent ?? null,
+    titleRect: rectOf(document.querySelector(".bookmarks-title")),
+    scrollHeight: list.scrollHeight,
+    clientHeight: list.clientHeight,
+    scrollTop: list.scrollTop,
+    listRect: rectOf(list),
+    emptyText: panel.querySelector(".bookmarks-empty")?.textContent ?? null,
+    entries: Array.from(document.querySelectorAll(".bookmark-entry")).map(
+      (el) => {
+        const img = el.querySelector("img.bookmark-thumb");
+        return {
+          itemIndex: Number(el.getAttribute("data-item-index")),
+          time: el.querySelector(".bookmark-time")?.textContent ?? "",
+          label: el.querySelector(".bookmark-label")?.textContent ?? "",
+          thumbSrcHead: img
+            ? (img.getAttribute("src") ?? "").slice(0, 24)
+            : null,
+          thumbResolved: img ? img.complete && img.naturalWidth > 0 : false,
+          rect: rectOf(el),
+        };
+      },
+    ),
+  };
+};
+
+// Page-side predicates for "is the panel up", and the Node-side wrapper.
+const OVERLAY_OPEN = () => {
+  const p = document.getElementById("bookmarks");
+  return p !== null && !p.hidden;
+};
+const OVERLAY_CLOSED = () => {
+  const p = document.getElementById("bookmarks");
+  return p === null || p.hidden;
+};
+const panelOpen = (page) => page.evaluate(OVERLAY_OPEN);
 
 // Geometry of the media as rendered: the element box, the CSS paint rule that
 // fits it, the asset's OWN decoded size (which no manifest field can change),
@@ -328,6 +388,27 @@ const pressH = (cdp) => pressKey(cdp, "h", "KeyH", 72, "h");
 const pressTab = (cdp) => pressKey(cdp, "Tab", "Tab", 9, "");
 const pressE = (cdp) => pressKey(cdp, "e", "KeyE", 69, "e");
 const pressB = (cdp) => pressKey(cdp, "b", "KeyB", 66, "b");
+const pressT = (cdp) => pressKey(cdp, "t", "KeyT", 84, "t");
+const pressEscape = (cdp) => pressKey(cdp, "Escape", "Escape", 27, "");
+
+// A trusted left click at page coordinates: the `t` overlay is clicked the
+// way a reader clicks it, through CDP Input.
+const clickAt = async (cdp, x, y) => {
+  await cdp.send("Input.dispatchMouseEvent", {
+    type: "mousePressed",
+    x,
+    y,
+    button: "left",
+    clickCount: 1,
+  });
+  await cdp.send("Input.dispatchMouseEvent", {
+    type: "mouseReleased",
+    x,
+    y,
+    button: "left",
+    clickCount: 1,
+  });
+};
 
 // One deliberate wheel notch. `WHEEL_PX` is render/wheel.ts's step size and
 // `WHEEL_GAP_MS` clears its rate cap, so a notch means exactly one machine
@@ -946,47 +1027,193 @@ async function main() {
       `line-011 text=${String(s19.text === EXPECTED.line011Text)}; mode=${String(s19.overlayMode)}/${String(s19.textMode)} fontStyle=${String(s19.textFontStyle)} (the spoken line-010 it followed read speech/normal in step 18); visual=${JSON.stringify(s19.imgSrc)} decoded=${String(s19.imgDecoded)} visible=${String(s19.imgVisible)}`,
     );
 
-    // 20. `b` appends a bookmark (docs/plan.md Phase 8, README bookmark
-    // bullet). The flash is the DOM half; the record is read back from the
-    // player's own IndexedDB. main.ts flashes only after the append is
-    // durable, so once #flash shows, the record is already committed.
+    // 20. `b` appends bookmarks (docs/plan.md Phase 8, README bookmark
+    // bullet) — TWICE, at two DIFFERENT items: a wheel-back walk moves the
+    // cursor from line-011 (item 10) to line-008 (item 7) for the first
+    // press, and the way back to line-011 for the second, so the list holds
+    // two distinct entries. The flash is the DOM half; the records are read
+    // back from the player's own IndexedDB. main.ts flashes only after the
+    // append is durable, so once #flash shows, the record is committed.
     // Over `file://` Chrome taints the canvas, so the opportunistic thumb
     // is null — by design the durable entry is {timestampMs, itemIndex}.
-    const LINE011_INDEX = 11 - 1; // line-011 is the demo's last item
+    const flashShown = () => {
+      const el = document.getElementById("flash");
+      return el !== null && (el.textContent ?? "") === "Bookmarked";
+    };
+    await wheel(cdp, true, 3); // line-011 -> line-008 (item 7)
+    const s20at008 = await page.evaluate(PAGE_STATE);
     await pressB(cdp);
-    await page.waitForFunction(
-      () => {
-        const el = document.getElementById("flash");
-        return el !== null && (el.textContent ?? "") === "Bookmarked";
-      },
-      { timeout: 5000 },
-    );
+    await page.waitForFunction(flashShown, { timeout: 5000 });
+    await wheel(cdp, false, 3); // -> line-011 (item 10, the frontier edge)
+    await pressB(cdp);
+    await page.waitForFunction(flashShown, { timeout: 5000 });
     const s20list = await page.evaluate(READ_BOOKMARKS);
-    const s20entry = s20list.find((b) => b.id !== undefined);
     await sleep(1700); // the pill shows ~900 ms, then fades within ~450 ms
     const s20FlashGone = await page.evaluate(
       () => document.getElementById("flash") === null,
     );
     const s20Ok =
-      s20list.length === 1 &&
-      s20entry !== undefined &&
-      s20entry.itemIndex === LINE011_INDEX &&
-      s20entry.timestampMs > 0 &&
-      s20entry.id.length > 0 &&
+      s20at008.text === EXPECTED.line008Text &&
+      s20list.length === 2 &&
+      s20list[0].itemIndex === 7 && // insertion order: first press first
+      s20list[1].itemIndex === 10 &&
+      s20list.every((b) => b.timestampMs > 0 && b.id.length > 0) &&
       s20FlashGone;
     record(
-      "20. b appends a bookmark with a confirmation flash that fades",
+      "20. b appends bookmarks at two different items, with a flash that fades",
       s20Ok ? "PASS" : "FAIL",
-      `#flash "Bookmarked" shown=true removed=${String(s20FlashGone)}; IndexedDB bookmarks=${JSON.stringify(s20list)} — one entry at item ${LINE011_INDEX} (line-011 was on screen), timestamped; hasThumb=${String(s20entry?.hasThumb)} (over file:// Chrome taints the canvas, so a null thumb is the expected capture fallback; over http the same code stores a JPEG data URL)`,
+      `#flash "Bookmarked" shown twice, removed=${String(s20FlashGone)}; IndexedDB bookmarks=${JSON.stringify(s20list)} — two entries at items 7 and 10 (b pressed on line-008, then on line-011), timestamped, insertion-ordered; hasThumb=${JSON.stringify(s20list.map((b) => b.hasThumb))} (over file:// Chrome taints the canvas, so null thumbs are the expected capture fallback; over http the same code stores JPEG data URLs)`,
     );
 
-    // 21. Reload resume (docs/plan.md Phase 8): stop MID-content — two
+    // 21. `t` opens the bookmark overlay (README `t` bullet): a panel whose
+    // list runs OLDEST at the top down to the NEWEST at the bottom, and is
+    // scrolled to the bottom so the most recent entry is visible. The
+    // viewport shrinks first so two entries genuinely overflow the list —
+    // at a tall viewport "scrolled to the bottom" would assert nothing.
+    // Thumbnails resolve (data URL or the manifest still the entry falls
+    // back to), timestamps read YYYY-MM-DD HH:MM:SS, and while the panel is
+    // open the timeline is suspended: a wheel notch must not move the
+    // cursor behind it (space and tab are gated by the same rule).
+    const TIME_RE = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/;
+    await page.setViewport({ width: 800, height: 180, deviceScaleFactor: 1 });
+    await pressT(cdp);
+    await page.waitForFunction(OVERLAY_OPEN, { timeout: 5000 });
+    const s21 = await page.evaluate(READ_BOOKMARK_OVERLAY);
+    const maxScroll = Math.max(0, s21.scrollHeight - s21.clientHeight);
+    const newest = s21.entries[s21.entries.length - 1];
+    const newestVisible =
+      newest !== undefined &&
+      newest.rect.top >= s21.listRect.top - 1 &&
+      newest.rect.bottom <= s21.listRect.bottom + 1;
+    const s21ListOk =
+      s21.title === "Bookmarks" &&
+      s21.entries.length === 2 &&
+      s21.entries[0].itemIndex === 7 && // OLDEST first, at the top
+      s21.entries[1].itemIndex === 10 && // newest at the bottom
+      maxScroll > 0 && // the short viewport forced a real scroll
+      s21.scrollTop >= maxScroll - 1 && // scrolled to the bottom
+      newestVisible &&
+      s21.entries.every(
+        (e) =>
+          e.thumbResolved &&
+          (e.thumbSrcHead?.startsWith("data:") === true ||
+            /\.(?:jpg|jpeg|png|webp|gif)$/i.test(e.thumbSrcHead ?? "")) &&
+          TIME_RE.test(e.time),
+      );
+    // Suspension: the overlay takes precedence. Without it a wheel-up notch
+    // would move the cursor to item 9 and repaint the overlay band behind
+    // the panel (signature change); space and tab are gated by the same
+    // rule (keys.ts suspendTimeline).
+    const s21sigBefore = await readSignature(page);
+    await pressSpace(cdp);
+    await pressTab(cdp);
+    await wheelNotch(cdp, true);
+    await sleep(WHEEL_GAP_MS);
+    const s21sigAfter = await readSignature(page);
+    const s21still = await page.evaluate(READ_BOOKMARK_OVERLAY);
+    const s21SuspendOk =
+      s21sigAfter === s21sigBefore &&
+      s21still.hidden === false &&
+      s21still.entries.length === 2;
+    await page.setViewport({ width: 800, height: 600, deviceScaleFactor: 1 });
+    record(
+      "21. t opens the overlay: oldest first, scrolled to the newest, timeline suspended",
+      s21ListOk && s21SuspendOk ? "PASS" : "FAIL",
+      `viewport 800x180 to force overflow: entries=${JSON.stringify(s21.entries.map((e) => e.itemIndex))} top-to-bottom (oldest first), scrollTop=${String(s21.scrollTop)} of max ${String(maxScroll)} (newest entry fully visible=${String(newestVisible)}), thumbs=${JSON.stringify(s21.entries.map((e) => [e.thumbSrcHead, e.thumbResolved]))} (both file:// captures were null, so these are the manifest stills: line-008 -> intro-006.poster.jpg, line-011 -> pier-009.jpg), times=${JSON.stringify(s21.entries.map((e) => e.time))}, labels=${JSON.stringify(s21.entries.map((e) => e.label))}; while open, space+tab+wheel-up changed nothing (${String(s21sigAfter === s21sigBefore)}) and the panel stayed open; viewport restored to 800x600`,
+    );
+
+    // 22. Clicking the OLDER entry (item 7, at the top of the list) closes
+    // the panel and continues the novel from that time point (README `t`
+    // bullet): machine.goTo lands the cursor on the bookmarked item
+    // UNSETTLED and never moves the frontier. A space press settles the
+    // re-shown line in place (a settled arrival would have moved), and `e`
+    // afterwards lands back on frontier - 1 (line-011 over pier-009) — the
+    // frontier is exactly where the walk left it, so `e` still works after
+    // closing. The click is a trusted CDP mouse event at the entry's rect.
+    const s22open = await page.evaluate(READ_BOOKMARK_OVERLAY);
+    const older = s22open.entries[0];
+    await clickAt(
+      cdp,
+      Math.round((older.rect.left + older.rect.right) / 2),
+      Math.round((older.rect.top + older.rect.bottom) / 2),
+    );
+    await page.waitForFunction(OVERLAY_CLOSED, { timeout: 5000 });
+    const s22 = await page.evaluate(PAGE_STATE);
+    const s22Landed =
+      s22.bookmarksOpen === false &&
+      s22.text === EXPECTED.line008Text &&
+      s22.video?.visible === true &&
+      s22.imgVisible === false; // line-008's visual is the chain's video
+    await pressSpace(cdp); // settle the re-shown line in place: no move
+    const s22Held = await page.evaluate(PAGE_STATE);
+    await pressE(cdp);
+    await sleep(80);
+    await waitImageDecoded(page);
+    const s22e = await page.evaluate(PAGE_STATE);
+    const s22FrontierOk =
+      s22Held.text === EXPECTED.line008Text && // unsettled arrival: space held it
+      s22e.text === EXPECTED.line011Text &&
+      s22e.imgSrc === "pier-009.jpg" &&
+      s22e.imgVisible === true;
+    record(
+      "22. clicking the older entry continues from that item; e proves the frontier unchanged",
+      s22Landed && s22FrontierOk ? "PASS" : "FAIL",
+      `click on entry #7 closed the panel (bookmarksOpen=${String(s22.bookmarksOpen)}); the player continued at line-008 over the intro-006 video (text=${JSON.stringify(s22.text)}); the arrival was UNSETTLED: one space settled it in place (still line-008=${String(s22Held.text === EXPECTED.line008Text)}); e then landed on ${JSON.stringify(s22e.imgSrc)} with line-011=${String(s22e.text === EXPECTED.line011Text)} — frontier - 1 exactly where the walk left it (item 11 unseen never entered), so goTo moved the cursor only inside seen content`,
+    );
+
+    // 23. The other ways in and out of the panel: `t` reopens it (the list
+    // is re-read from storage on every open), a click on the backdrop —
+    // the title strip, outside the scroll list — closes it, `t` again
+    // closes it, and Escape closes it too. One fullscreen caveat, shown
+    // honestly: while fullscreen, Chrome reserves Escape for leaving
+    // fullscreen and the page never receives that keydown (measured in a
+    // probe: a document capture listener sees nothing and
+    // fullscreenElement goes to null). The second Escape reaches the page
+    // and closes the panel.
+    await pressT(cdp);
+    await page.waitForFunction(OVERLAY_OPEN, { timeout: 5000 });
+    const s23reopened = await page.evaluate(READ_BOOKMARK_OVERLAY);
+    const title = s23reopened.titleRect;
+    await clickAt(
+      cdp,
+      Math.round((title.left + title.right) / 2),
+      Math.round((title.top + title.bottom) / 2),
+    );
+    const s23AfterBackdrop = await panelOpen(page);
+    await pressT(cdp);
+    await page.waitForFunction(OVERLAY_OPEN, { timeout: 5000 });
+    await pressEscape(cdp);
+    await sleep(80);
+    const s23EscFullscreen = await panelOpen(page);
+    const s23LeftFullscreen = await page.evaluate(
+      () => document.fullscreenElement === null,
+    );
+    await pressEscape(cdp);
+    const s23AfterEscape = await panelOpen(page);
+    await pressT(cdp);
+    await page.waitForFunction(OVERLAY_OPEN, { timeout: 5000 });
+    await pressT(cdp);
+    const s23AfterT = await panelOpen(page);
+    const s23Ok =
+      s23reopened.entries.length === 2 &&
+      s23AfterBackdrop === false &&
+      s23EscFullscreen === true &&
+      s23LeftFullscreen === true &&
+      s23AfterEscape === false &&
+      s23AfterT === false;
+    record(
+      "23. t reopens (fresh from storage); backdrop click, Escape and t again all close",
+      s23Ok ? "PASS" : "FAIL",
+      `reopen showed ${String(s23reopened.entries.length)} entries again; backdrop (title strip) click closed=${String(s23AfterBackdrop === false)}; while fullscreen the first Escape is the browser's — it left fullscreen=${String(s23LeftFullscreen)} and the panel stayed open=${String(s23EscFullscreen)} — the second closed=${String(s23AfterEscape === false)}; second t press closed=${String(s23AfterT === false)}; the walk continues with the panel closed`,
+    );
+
+    // 24. Reload resume (docs/plan.md Phase 8): stop MID-content — two
     // wheel-back notches leave the cursor below the resume point — so the
     // reload proves the persisted FRONTIER (resume at frontier-1), not the
     // position the reader happened to be at, and a first-ever load (item 0)
     // is ruled out too.
     await wheel(cdp, true, 2);
-    const s21before = await page.evaluate(PAGE_STATE);
+    const s24before = await page.evaluate(PAGE_STATE);
     await page.reload();
     await page.waitForFunction(
       () => {
@@ -995,21 +1222,24 @@ async function main() {
       },
       { timeout: 5000 },
     );
-    const s21 = await page.evaluate(PAGE_STATE);
-    const s21StoppedMid = s21before.overlayHidden === true; // bare pier-009
-    const s21Resumed =
-      s21.text === EXPECTED.line011Text &&
-      s21.imgSrc === "pier-009.jpg" &&
-      s21.overlayHidden === false;
-    const s21NotFirstLoad =
-      s21.imgSrc !== "meadow-001.jpg" && s21.text !== EXPECTED.meadowText;
+    const s24 = await page.evaluate(PAGE_STATE);
+    const s24StoppedMid = s24before.overlayHidden === true; // bare pier-009
+    const s24Resumed =
+      s24.text === EXPECTED.line011Text &&
+      s24.imgSrc === "pier-009.jpg" &&
+      s24.overlayHidden === false;
+    const s24NotFirstLoad =
+      s24.imgSrc !== "meadow-001.jpg" && s24.text !== EXPECTED.meadowText;
     record(
-      "21. reload resumes at the frontier, not the wheel position or item 0",
-      s21StoppedMid && s21Resumed && s21NotFirstLoad ? "PASS" : "FAIL",
-      `before reload the reader had wheeled back to bare pier-009 (overlayHidden=${String(s21before.overlayHidden)}); after reload the player resumed at line-011 over pier-009.jpg — the last item ever shown (frontier-1), settled: the frontier is persisted and reload-resume reads it (README: "the state the game starts at when loaded"); first-ever-load item 0 ruled out=${String(s21NotFirstLoad)}`,
+      "24. reload resumes at the frontier, not the wheel position or item 0",
+      s24StoppedMid && s24Resumed && s24NotFirstLoad ? "PASS" : "FAIL",
+      `before reload the reader had wheeled back to bare pier-009 (overlayHidden=${String(s24before.overlayHidden)}); after reload the player resumed at line-011 over pier-009.jpg — the last item ever shown (frontier-1), settled: the frontier is persisted and reload-resume reads it (README: "the state the game starts at when loaded"); first-ever-load item 0 ruled out=${String(s24NotFirstLoad)}`,
     );
 
-    // 22. A folder with the empty stub manifest shows the empty state.
+    // 25. A folder with the empty stub manifest shows the empty state —
+    // and `t` there opens the same panel, saying the novel has no
+    // bookmarks yet (storage is namespaced per novel folder, and this
+    // folder has none). Escape closes it again.
     const emptyPage = await browser.newPage();
     emptyPage.on("console", (msg) =>
       consoleMessages.push(`empty [${msg.type()}] ${msg.text()}`),
@@ -1023,18 +1253,32 @@ async function main() {
       },
       { timeout: 5000 },
     );
-    const s22 = await emptyPage.evaluate(PAGE_STATE);
-    const s22Ok =
-      s22.emptyState === EXPECTED.emptyNotice &&
-      s22.imgSrc === null &&
-      s22.overlayHidden === true;
+    const s25 = await emptyPage.evaluate(PAGE_STATE);
+    const s25Ok =
+      s25.emptyState === EXPECTED.emptyNotice &&
+      s25.imgSrc === null &&
+      s25.overlayHidden === true;
+    const emptyCdp = await emptyPage.createCDPSession();
+    await pressT(emptyCdp);
+    await emptyPage.waitForFunction(OVERLAY_OPEN, { timeout: 5000 });
+    const s25overlay = await emptyPage.evaluate(READ_BOOKMARK_OVERLAY);
+    const s25EmptyOverlayOk =
+      s25overlay.hidden === false &&
+      s25overlay.entries.length === 0 &&
+      s25overlay.emptyText === "No bookmarks yet — press b";
+    // Same fullscreen caveat as step 23: `t` was this page's first gesture
+    // so it entered fullscreen, and the browser keeps the first Escape.
+    await pressEscape(emptyCdp);
+    await sleep(80);
+    await pressEscape(emptyCdp);
+    const s25Closed = await panelOpen(emptyPage);
     record(
-      "22. empty-manifest folder shows the empty state",
-      s22Ok ? "PASS" : "FAIL",
-      JSON.stringify(s22),
+      "25. empty-manifest folder shows the empty state; t there says no bookmarks yet",
+      s25Ok && s25EmptyOverlayOk && s25Closed === false ? "PASS" : "FAIL",
+      `${JSON.stringify({ emptyState: s25.emptyState, imgSrc: s25.imgSrc, overlayHidden: s25.overlayHidden })}; t opened the overlay: emptyText=${JSON.stringify(s25overlay.emptyText)} entries=${String(s25overlay.entries.length)} (the demo folder's two bookmarks are another novel's — storage is keyed per folder); Escape (after the fullscreen-exiting one the browser keeps) closed=${String(s25Closed === false)}`,
     );
 
-    // 23. Fill the screen (docs/plan.md Phase 7b): the media is the largest
+    // 26. Fill the screen (docs/plan.md Phase 7b): the media is the largest
     // centred contain fit of the ASSET's own aspect ratio into whatever
     // viewport the player gets, never the manifest's box. Two mismatched
     // viewports, one per letterbox direction: the fixture image (16:9, the
@@ -1121,7 +1365,7 @@ async function main() {
             .join(",") || "none"
         }`;
       record(
-        "23. media fills the viewport as a centred contain fit of its own aspect",
+        "26. media fills the viewport as a centred contain fit of its own aspect",
         status,
         `${brief(portraitState, portraitFit)} | ${brief(tallState, tallFit)} | ` +
           `overlay band=${bandWidth.toFixed(0)}px of ${tvw}px, bottom=${bandBottom.toFixed(0)} of ${tvh}px ` +
@@ -1135,12 +1379,12 @@ async function main() {
       for (const page of fitPages) await page.close();
     }
 
-    // 24. Console stayed empty throughout both pages.
-    const s23Ok = consoleMessages.length === 0 && pageErrors.length === 0;
+    // 27. Console stayed empty throughout both pages.
+    const s27Ok = consoleMessages.length === 0 && pageErrors.length === 0;
     record(
-      "24. console stayed empty throughout",
-      s23Ok ? "PASS" : "FAIL",
-      s23Ok
+      "27. console stayed empty throughout",
+      s27Ok ? "PASS" : "FAIL",
+      s27Ok
         ? "zero console messages, zero page errors, every page, whole run"
         : `console=[${consoleMessages.join(" | ")}] pageErrors=[${pageErrors.join(" | ")}]`,
     );

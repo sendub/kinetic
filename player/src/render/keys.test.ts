@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-
-import { commandForKey } from "./keys";
+import type { TimelineCommands } from "./keys";
+import { commandForKey, suspendTimeline } from "./keys";
 
 describe("commandForKey", () => {
   it("maps space to advance and h to the text toggle", () => {
@@ -20,17 +20,25 @@ describe("commandForKey", () => {
     expect(commandForKey("B", false)).toBe("bookmark");
   });
 
+  it("maps t to the bookmark overlay and Escape closes it (Phase 8)", () => {
+    expect(commandForKey("t", false)).toBe("toggleBookmarks");
+    expect(commandForKey("T", false)).toBe("toggleBookmarks");
+    expect(commandForKey("Escape", false)).toBe("dismissBookmarks");
+  });
+
   it("ignores a held key's auto-repeat so it cannot burst through items", () => {
     expect(commandForKey(" ", true)).toBeNull();
     expect(commandForKey("h", true)).toBeNull();
     expect(commandForKey("Tab", true)).toBeNull();
     expect(commandForKey("e", true)).toBeNull();
     expect(commandForKey("b", true)).toBeNull();
+    expect(commandForKey("t", true)).toBeNull();
+    expect(commandForKey("Escape", true)).toBeNull();
   });
 
   it("leaves keys owned by later phases unmapped", () => {
-    // t joins the map with Phase 8's overlay work, c with Phase 9.
-    for (const key of ["t", "c", "Enter", "ArrowRight", "Shift"]) {
+    // c joins the map with Phase 9's config screen.
+    for (const key of ["c", "Enter", "ArrowRight", "Shift"]) {
       expect(commandForKey(key, false)).toBeNull();
     }
   });
@@ -41,5 +49,56 @@ describe("commandForKey", () => {
     for (const key of ["constructor", "toString", "hasOwnProperty"]) {
       expect(commandForKey(key, false)).toBeNull();
     }
+  });
+});
+
+describe("suspendTimeline (the t overlay takes precedence, Phase 8)", () => {
+  function spy(): { calls: string[]; commands: TimelineCommands } {
+    const calls: string[] = [];
+    const name = (label: string) => () => calls.push(label);
+    return {
+      calls,
+      commands: {
+        advance: name("advance"),
+        toggleSkip: name("toggleSkip"),
+        jumpToUnseen: name("jumpToUnseen"),
+        wheelBack: name("wheelBack"),
+        wheelForward: name("wheelForward"),
+      },
+    };
+  }
+
+  it("runs every command while the overlay is closed", () => {
+    const { calls, commands } = spy();
+    const open = false;
+    const gated = suspendTimeline(commands, () => open);
+    gated.advance();
+    gated.toggleSkip();
+    gated.jumpToUnseen();
+    gated.wheelBack();
+    gated.wheelForward();
+    expect(calls).toEqual([
+      "advance",
+      "toggleSkip",
+      "jumpToUnseen",
+      "wheelBack",
+      "wheelForward",
+    ]);
+  });
+
+  it("swallows every timeline command while the overlay is open", () => {
+    const { calls, commands } = spy();
+    let open = true;
+    const gated = suspendTimeline(commands, () => open);
+    gated.advance();
+    gated.toggleSkip();
+    gated.jumpToUnseen();
+    gated.wheelBack();
+    gated.wheelForward();
+    expect(calls).toEqual([]);
+    open = false; // closing the overlay resumes the timeline immediately
+    gated.advance();
+    gated.wheelBack();
+    expect(calls).toEqual(["advance", "wheelBack"]);
   });
 });

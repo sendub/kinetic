@@ -1,22 +1,27 @@
 # Verify the Player Shell
 
-Manual browser checklist for the player, per docs/plan.md Phases 5-7b.
+Manual browser checklist for the player, per docs/plan.md Phases 5-8.
 Covers the Phase 5 feature set — `file://` demo folder loading, image
 visuals, text + speaker overlay, `h` toggle, space advance,
 first-keypress fullscreen, the empty-manifest state — the Phase 6 media
 set: animation frame cycling with loop count, video poster-to-play
 autoplay, the `text`-chain keeping one `<video>` element alive, and the
 rewind still; the Phase 7 input set: wheel rewind and return with both
-clamps, `tab` skip, `space` during skip, and `e`; and the Phase 7b
+clamps, `tab` skip, `space` during skip, and `e`; the Phase 7b
 presentation rules: media fills the viewport as the largest centred
 contain fit of its own aspect ratio, whatever screen it gets, and overlay
 text says which mode it is — `data-mode="thought"` for an unspoken
 thought, `"speech"` for dialogue — so CSS can draw the two differently
-(thought italic, dialogue upright). Later
-phases extend this file again: Phase 8 adds `b`/`t` and reload-resume,
-Phase 9 `c`. The key map today holds space, `h`, `tab` and `e`; the wheel
-has its own module (`render/wheel.ts`), because a wheel event is not a
-key.
+(thought italic, dialogue upright); and the Phase 8 bookmark set: `b`
+appends timestamped records with a confirmation flash, `t` opens the
+thumbnail list oldest-first and scrolled to the newest, clicking an entry
+continues the novel from that time point, and the frontier survives a
+reload and an `e`-verified bookmark jump. Phase 9 (`c`) will extend this
+file again. The key map today holds space, `h`, `tab`, `e`, `b`, `t` and
+Escape; the wheel has its own module (`render/wheel.ts`), because a wheel
+event is not a key. While the `t` overlay is open the cursor-moving
+commands (space, `tab`, `e`, wheel) are suspended — the overlay takes
+precedence; `b` and `h` keep working.
 
 ## Run it
 
@@ -35,14 +40,20 @@ overwritten), `.tmp/verify-demo-empty` from the `dist` stub manifest, and
 640x960 by `sips` while its manifest still says 960x540, the one shape
 that tells the asset's aspect ratio apart from the manifest's — then
 drives every step below and prints `PASS`, `PARTIAL`, or `FAIL` per step.
-Every input is real CDP Input: `Input.dispatchKeyEvent` for keys and
-`Input.dispatchMouseEvent` `mouseWheel` for the wheel. Both arrive
-trusted, so the fullscreen gesture logic accepts them as user input and
-the wheel takes the same path a trackpad takes: listener → accumulator →
-machine → renderer. Nothing reads machine state from the driver — each
-step asserts what the DOM shows. Step 21 is the exception on inputs: it
-sets the viewport itself, the way rotating a phone does. Exit code is 0
-when every step is PASS or PARTIAL, 1 on any FAIL.
+The Chrome profile is wiped before launch: Phase 8 put the frontier and
+the bookmark list into IndexedDB, and a run must start from the
+first-ever-load state a fresh machine has. Every input is real CDP Input:
+`Input.dispatchKeyEvent` for keys, `Input.dispatchMouseEvent` `mouseWheel`
+for the wheel and `mousePressed`/`mouseReleased` for the one click of the
+`t` list. All arrive trusted, so the fullscreen gesture logic accepts them
+as user input and the wheel takes the same path a trackpad takes:
+listener → accumulator → machine → renderer. Nothing reads machine state
+from the driver — each step asserts what the DOM shows; the bookmark
+records are read back from the player's own IndexedDB, and the `t` list
+is read as the reader sees it (order, scroll position, decoded
+thumbnails). Steps 21 and 26 are the exceptions on inputs: they set the
+viewport themselves, the way rotating a phone does. Exit code is 0 when
+every step is PASS or PARTIAL, 1 on any FAIL.
 
 To walk it by hand instead: run `node scripts/verify.mjs` once (or
 assemble the folder yourself per CREATE.md § Playing the folder), open
@@ -52,21 +63,28 @@ first space press on a freshly shown item completes it in place
 (immediate-complete, machine Phase 3) and the next press moves on, so
 advance two presses per item. For the wheel, one mouse notch is 100 px of
 delta and steps exactly one item; steps are capped at ~12 per second, so
-a fast flick cannot outrun the eye. For step 22, drag the window to a
+a fast flick cannot outrun the eye. For step 26, drag the window to a
 shape that matches nothing — tall and narrow, or wide and short — and the
 media should stay flush with one pair of edges, centred on the other
 axis, with black only where the asset's aspect and the window's differ.
 For step 19, the demo's two thought lines — line-008 over the looping
 video, line-011 over the pier still — should read italic, and every other
-line upright.
+line upright. For steps 20-23 press `b` at two different items (wheel
+back once in between), `t` to see the list at the bottom, click the
+older entry, `e` to return; note the first Escape belongs to the browser
+while fullscreen (it leaves fullscreen), so the overlay's second Escape
+is what closes it.
 
 Results below were walked on 2026-10-31 by the driver on headless Chrome
-156.0.8078.76, three times with the same statuses (23 steps: 21 pass, 2
-honest partials; the evidence lines differ only in sampled video
-`currentTime` and skip-dwell timings). The fit rule in step 22 is pinned
-twice over: the pure `containFit` in `render/fit.ts` is unit-tested, and
-the driver imports that same function as its expectation, so the two
-cannot drift.
+156.0.8078.76, three times with the same statuses (27 steps: 26 pass, 1
+honest partial; the evidence lines differ only in bookmark timestamps,
+sampled video `currentTime` and skip-dwell timings). The fit rule in step
+26 is pinned twice over: the pure `containFit` in `render/fit.ts` is
+unit-tested, and the driver imports that same function as its expectation,
+so the two cannot drift. The `t` list's pure rules (order,
+scroll-to-bottom, timestamp, thumbnail fallback) are unit-tested in
+`render/bookmarks.test.ts`, and the overlay's precedence rule
+(`suspendTimeline`) in `render/keys.test.ts`.
 
 ## Checklist
 
@@ -75,10 +93,11 @@ cannot drift.
 - Action: open `.tmp/verify-demo/index.html` in Chrome.
 - Expected: the item-1 image (meadow-001.jpg) shows inside `#stage`;
   `#overlay` is visible with `#overlay-speaker` "Mei" and its line in
-  `#overlay-text`; console is empty.
+  `#overlay-text`; the hidden `#bookmarks` panel is mounted but not up;
+  console is empty.
 - RESULT (PASS, 2026-10-31): driver step 1: `#app` children are
-  `[stage, overlay]`, image decoded and painted, speaker and text as
-  expected.
+  `[stage, overlay, bookmarks]` with the panel closed, image decoded and
+  painted, speaker and text as expected.
 
 ### 2. First keypress requests fullscreen
 
@@ -254,8 +273,8 @@ cannot drift.
 - RESULT (PASS, 2026-10-31): driver step 16 (state sampled from the
   driver every ~40 ms, which also keeps the renderer ticking): from
   Theo's line the visible state moved 5 times with no input, median
-  dwell 129 ms against the 120 ms setting; the frontier item
-  `pier-009.jpg` appeared at +653 ms, decoded, with the overlay hidden
+  dwell 127 ms against the 120 ms setting; the frontier item
+  `pier-009.jpg` appeared at +641 ms, decoded, with the overlay hidden
   (that item has no text), and the last five samples were identical —
   the cadence really stopped there. Its own 1500 ms hold then advanced
   the walk to line-010, which is the normal timing resuming on the
@@ -309,27 +328,111 @@ cannot drift.
   of visual: line-008 over the looping video (step 11), line-011 over a
   still.
 
-### 20. Reload resume
+### 20. `b` appends bookmarks, twice, at different items
 
-- Action: reload the page (⌘R) anywhere in the middle of content.
-- Expected, once Phase 8 lands: the player comes back at the last seen
-  item, the same spot `e` lands on.
-- RESULT (PARTIAL, 2026-10-31): driver step 20: after reload the player
-  showed meadow-001.jpg with Mei's first line — it restarted at item 0
-  instead of resuming. Nothing persists the frontier yet: `main.ts`
-  builds the machine with no `resumeFrontier`, and no storage exists.
-  Persistence wired in Phase 8; this step is not faked.
+- Action: from line-011, wheel back three items to line-008 and press
+  `b`; wheel forward three items back to line-011 and press `b` again.
+  (The two presses must sit on different items, so the list holds two
+  distinct entries.)
+- Expected: each press flashes the `#flash` "Bookmarked" pill, which
+  fades away within ~1.4 s; the player's IndexedDB holds one record per
+  press, in insertion order, each `{id, timestampMs, itemIndex}`. The
+  thumb is opportunistic: over `file://` Chrome taints the canvas, so
+  `thumbDataUrl` is null and that is the expected fallback, not a
+  failure.
+- RESULT (PASS, 2026-10-31): driver step 20: the pill appeared twice and
+  was removed; IndexedDB held exactly two records, items 7 and 10 in
+  press order (`hasThumb=false,false`, timestamps > 0). Over http the
+  same code stores a JPEG data URL (capture + storage paths are
+  unit-tested; `render/capture.ts`, `storage` contract suite).
 
-### 21. Empty folder shows the empty state
+### 21. `t` opens the bookmark list: oldest first, scrolled to the newest
+
+- Action: press `t`.
+- Expected: the `#bookmarks` panel covers the screen. The scroll list
+  shows entries top-to-bottom OLDEST first — storage returns insertion
+  order, and that order is the visual order — so the newest sits at the
+  bottom, and the list is scrolled to its bottom with the most recent
+  entry visible. Each entry shows a thumbnail (the stored capture, or
+  the manifest still of the content that was visible at that item), the
+  timestamp as `YYYY-MM-DD HH:MM:SS`, and the item index plus id. While
+  the panel is open the timeline is suspended: space, `tab`, `e` and the
+  wheel must not move the cursor behind it.
+- RESULT (PASS, 2026-10-31): driver step 21 (viewport shrunk to 800x180
+  first so two entries genuinely overflow, making "scrolled to the
+  bottom" assertable): entries `[7, 10]` top-to-bottom (oldest first),
+  `scrollTop=15` of max 15 with the newest entry fully visible; thumbs
+  both decoded (`intro-006.poster.jpg` for the line-008 bookmark,
+  `pier-009.jpg` for line-011 — the still of the content that was on
+  screen, via the same visual rule as `machine.visualIndex()`, because
+  the `file://` captures were null); times like `2026-10-31 17:29:41`,
+  labels `#7 line-008`, `#10 line-011`; while open, space + tab + a
+  wheel-up notch changed nothing in the DOM behind the panel and the
+  panel stayed open; viewport then restored to 800x600.
+
+### 22. Clicking an entry continues the novel from that item
+
+- Action: with the panel open, click the OLDER entry (item 7, at the
+  top).
+- Expected: the panel closes; the cursor lands on item 7 — line-008 over
+  the intro-006 video, its chain visual — UNSETTLED, so its hold plays
+  and auto-advance continues the novel from there (README: "continues
+  the novel from that time point"). The frontier does not move, so `e`
+  still works afterwards and returns to `frontier - 1` (line-011). One
+  space after the click settles the re-shown line in place rather than
+  moving past it — the arrival really was unsettled.
+- RESULT (PASS, 2026-10-31): driver step 22: a trusted click on entry
+  `#7` closed the panel (`bookmarksOpen=false`) and the player showed
+  line-008 over the video; one space held it in place (a settled
+  arrival would have moved to pier-009); `e` then landed on
+  `pier-009.jpg` with line-011 — frontier - 1 exactly where the walk
+  left it, so `goTo` moved the cursor only inside seen content.
+
+### 23. Closing: backdrop click, Escape, or `t` again
+
+- Action: press `t` again to reopen (the list re-reads from storage on
+  every open); click the panel's title strip (backdrop, outside the
+  list); reopen and press Escape; reopen and press `t`.
+- Expected: every route closes the panel. One fullscreen caveat: while
+  fullscreen, Chrome reserves Escape for leaving fullscreen and the page
+  never sees that keydown (a document capture listener observes nothing
+  and `fullscreenElement` goes to null) — the second Escape reaches the
+  page and closes the panel. Out of fullscreen (and for later overlays
+  opened when not fullscreen) Escape closes on the first press.
+- RESULT (PASS, 2026-10-31): driver step 23: reopen showed the 2 entries
+  again; the backdrop click closed; the first Escape left fullscreen
+  (`fullscreenElement` → null) with the panel open, the second closed;
+  a second `t` press closed.
+
+### 24. Reload resume
+
+- Action: wheel back two items (to bare pier-009, mid-content), then
+  reload the page (⌘R).
+- Expected: the player comes back at the last seen item — `frontier - 1`
+  (line-011 over pier-009), the same spot `e` lands on — not at the
+  wheel position and not at item 0.
+- RESULT (PASS, 2026-10-31): driver step 24: stopped mid-content on
+  pier-009 (overlay hidden), the reload resumed at line-011 over
+  `pier-009.jpg` — settled, the last item ever shown — and item 0 was
+  ruled out. The frontier is persisted (debounced writes plus
+  visibility/pagehide flushes, main.ts); bookmarks and resume position
+  share the one per-novel storage namespace.
+
+### 25. Empty folder shows the empty state; `t` there says no bookmarks yet
 
 - Action: open `.tmp/verify-demo-empty/index.html` (dist stub manifest,
-  no items).
+  no items), then press `t`.
 - Expected: `#empty-state` reads "No content yet — this folder has an
-  empty manifest."; no overlay; no errors.
-- RESULT (PASS, 2026-10-31): driver step 21: notice text exact, overlay
-  hidden, zero console output on that page.
+  empty manifest."; no overlay; no errors. `t` opens the same panel with
+  its empty message "No bookmarks yet — press b" — this folder has no
+  bookmarks of its own (storage is keyed per novel folder, so the demo
+  folder's two are another novel's). Escape (after the fullscreen-exiting
+  one) closes it.
+- RESULT (PASS, 2026-10-31): driver step 25: notice text exact, overlay
+  hidden, zero console output; the overlay opened with `entries=0` and
+  exactly the empty message, and Escape closed it.
 
-### 22. Media fills the screen with its own aspect ratio
+### 26. Media fills the screen with its own aspect ratio
 
 - Action: open the demo folder at a viewport that matches nothing —
   the driver sets 700x1000, portrait — and open `.tmp/verify-demo-tall`
@@ -342,7 +445,7 @@ cannot drift.
   on a 16:9 manifest the fit must follow the image. The overlay stays a
   band across the full viewport width, over the content and its
   letterbox rather than inside it; `h` still hides it (step 6).
-- RESULT (PASS, 2026-10-31): driver step 22: at 700x1000 the 960x540
+- RESULT (PASS, 2026-10-31): driver step 26: at 700x1000 the 960x540
   image fills 700x393.8 at y=303.1 — flush in width, letterboxed top and
   bottom, centred; at 1200x700 the 640x960 image fills 466.7x700 at
   x=366.7 — flush in height, pillarboxed, centred — while the manifest's
@@ -355,15 +458,16 @@ cannot drift.
   not pixel-sampled headless — on a real screen they should sit outside
   the media, top/bottom or left/right.
 
-### 23. Console stayed empty throughout
+### 27. Console stayed empty throughout
 
 - Action: watch DevTools' console through the whole walk (all folders).
 - Expected: zero console messages and zero uncaught errors; a plain
   `file://` open logs nothing, per the shell's own console contract. An
   autoplay rejection must be caught, never surfaced.
-- RESULT (PASS, 2026-10-31): driver step 23: zero console messages,
+- RESULT (PASS, 2026-10-31): driver step 27: zero console messages,
   zero page errors, every page, whole run — including the wheel events,
-  the skip run, the reload and both geometry viewports.
+  the skip runs, the bookmark presses, the overlay opens and clicks, the
+  reload and both geometry viewports.
 
 ## Not covered yet
 
@@ -380,9 +484,17 @@ cannot drift.
   look is an open iteration with the user (docs/plan.md Phase 7b,
   "Deferred"); changing it is a CSS edit in `index.html`, and those two
   steps plus step 12 (`h`) are where a new look gets checked.
-- Bookmarks (`b`/`t`) and reload-resume: Phase 8, which also adds the
-  storage interface the machine and shell read through. Config screen
-  (`c`): Phase 9.
+- The `t` list is walked by mouse, the way the README describes it.
+  Entries are real buttons, but Tab is suspended while the panel is open
+  (the overlay takes precedence), so keyboard focus traversal of the
+  list is not exercised here; it is a Phase 9 question along with the
+  config screen's own focus handling.
+- A data-URL thumbnail in the `t` list: over `file://` the capture is
+  taint-blocked, so steps 21-23 walk the manifest-still fallback. The
+  data-URL branch is pinned by `render/bookmarks.test.ts`
+  (`entryThumbSrc`), and the JPEG itself by the Phase 8 capture and
+  storage suites; a walk over `http://` showing a real captured thumb
+  is a cheap extra.
 - Skip with `skip_all` on (skipping through unseen content, marking it
   seen, and ending at content end): machine-tested; the demo runs with
   the default `skip_all` off, and the setting arrives with Phase 9's

@@ -98,7 +98,10 @@ truthful: an unchecked box means nothing was accepted.
       Chrome - list falls back to manifest-based stills, 2025-11-01)
 - [x] `b` appends timestamped bookmark to IndexedDB with confirmation
       (#flash, content-keyed, PASS headless over file://, 2025-11-01)
-- [ ] `t` overlay: scroll list bottom-first; click resumes and closes
+- [x] `t` overlay: scroll list bottom-first; click resumes and closes
+      (goTo clamps to seen range, arrives unsettled; verify steps 21-23
+      PASS incl. Escape-fullscreen quirk documented, 146 tests,
+      2025-11-01)
 - [x] Reload restores bookmarks, frontier, resume position (verify step
       21 PASS at frontier-1; debounced frontier persistence + flush,
       2025-11-01)

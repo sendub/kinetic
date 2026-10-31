@@ -1,16 +1,17 @@
 // Kinetic player entry point (docs/plan.md Phases 5, 8): load the manifest,
 // build the timeline machine — resuming from the persisted frontier when one
 // exists — mount the render shell, install the input map, and wire storage:
-// the frontier is persisted as it moves, and `b` appends a bookmark.
-// Composition only — rendering lives in src/render/, timing in src/machine/,
-// storage adapters in src/storage/.
+// the frontier is persisted as it moves, `b` appends a bookmark, and `t`
+// opens the bookmark list. Composition only — rendering lives in
+// src/render/, timing in src/machine/, storage adapters in src/storage/.
 
 import { createMachine } from "./machine/machine";
 import { DEFAULT_SETTINGS } from "./machine/types";
 import { mountError, mountShell } from "./render/app";
+import { mountBookmarkOverlay } from "./render/bookmarks";
 import { captureVisualThumbnail } from "./render/capture";
 import { installFirstGestureFullscreen } from "./render/fullscreen";
-import { installKeyMap } from "./render/keys";
+import { installKeyMap, suspendTimeline } from "./render/keys";
 import { loadManifest } from "./render/manifest";
 import { installWheelInput } from "./render/wheel";
 import { contentSignature, createIdbStorage } from "./storage/idb";
@@ -122,7 +123,8 @@ function start(): void {
       // frame is captured only when it is drawable and the canvas readable
       // (over `file://` Chrome taints it, and null is expected); the
       // durable bookmark is `{timestampMs, itemIndex}`, which the `t` list
-      // of the next task renders from even without a thumb.
+      // renders from even without a thumb (render/bookmarks.ts falls back
+      // to the manifest item's still).
       const takeBookmark = async (): Promise<void> => {
         const blob = await captureVisualThumbnail(shell.currentVisual());
         const thumbDataUrl = blob === null ? null : await blobToDataUrl(blob);
@@ -138,18 +140,53 @@ function start(): void {
         shell.flash("Bookmarked");
       };
 
+      // `t` (README `t` bullet): the bookmark list panel. It reads the list
+      // fresh on every open (bookmarks taken since the last look show up),
+      // and an entry click continues the novel at that item — machine.goTo
+      // moves the cursor inside seen content and re-arms its timing.
+      const overlay = mountBookmarkOverlay({
+        root,
+        items: manifest.items,
+        onPick: (itemIndex) => machine.goTo(itemIndex),
+      });
+      const showBookmarks = (): void => {
+        // A storage outage reads as an empty list, not a dead key.
+        storage.getBookmarks().then(
+          (list) => overlay.render(list),
+          () => overlay.render([]),
+        );
+      };
+      // While the panel is open it takes precedence: the cursor-moving
+      // commands (space/tab/e/wheel) are suspended until it closes. `b`
+      // still bookmarks the current item, `h` still toggles text.
+      const timeline = suspendTimeline(
+        {
+          advance: () => machine.advance(),
+          toggleSkip: () => machine.toggleSkip(),
+          jumpToUnseen: () => machine.jumpToUnseen(),
+          wheelBack: () => machine.wheelBack(),
+          wheelForward: () => machine.wheelForward(),
+        },
+        () => overlay.isOpen(),
+      );
+
       installKeyMap(document, {
-        advance: () => machine.advance(),
+        advance: timeline.advance,
         toggleText: () => shell.toggleText(),
-        toggleSkip: () => machine.toggleSkip(),
-        jumpToUnseen: () => machine.jumpToUnseen(),
+        toggleSkip: timeline.toggleSkip,
+        jumpToUnseen: timeline.jumpToUnseen,
         bookmark: () => {
           void takeBookmark();
         },
+        toggleBookmarks: () => {
+          if (overlay.isOpen()) overlay.close();
+          else showBookmarks();
+        },
+        dismissBookmarks: () => overlay.close(),
       });
       installWheelInput(document, {
-        wheelBack: () => machine.wheelBack(),
-        wheelForward: () => machine.wheelForward(),
+        wheelBack: timeline.wheelBack,
+        wheelForward: timeline.wheelForward,
       });
     },
     (error: unknown) => {

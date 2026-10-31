@@ -105,6 +105,111 @@
       .overlay-text[data-mode="thought"] {
         font-style: italic;
       }
+      /* t bookmark overlay (docs/plan.md Phase 8, README t bullet): one
+         panel owns the screen while open, and the cursor-moving keys are
+         suspended behind it (render/keys.ts). The list runs oldest at the
+         top down to newest at the bottom and scrolls, so opening lands at
+         the bottom — the most recent thumbnail visible. The z-index keeps
+         it over stage and overlay but under the #flash pill (z 10), so a
+         `b` taken while browsing still confirms on screen. Sizes stay
+         proportional to the viewport; nothing here takes the manifest's
+         display size, same as the stage above. */
+      #bookmarks {
+        position: absolute;
+        inset: 0;
+        z-index: 5;
+        display: flex;
+        flex-direction: column;
+        gap: clamp(8px, 1.8vh, 20px);
+        padding: clamp(16px, 3vh, 36px) clamp(20px, 6vw, 88px);
+        background: rgba(8, 8, 10, 0.94);
+        color: var(--ink);
+        font-family: var(--ui-font);
+      }
+      #bookmarks[hidden] {
+        display: none;
+      }
+      .bookmarks-title {
+        margin: 0;
+        color: var(--accent);
+        font-size: clamp(12px, 1.5vh, 17px);
+        font-weight: 600;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+      }
+      .bookmarks-hint {
+        margin: 0;
+        color: rgba(244, 239, 230, 0.55);
+        font-size: clamp(10px, 1.2vh, 13px);
+      }
+      .bookmarks-list {
+        flex: 1 1 auto;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+        gap: clamp(8px, 1.5vh, 16px);
+        overflow-y: auto;
+        overscroll-behavior: contain;
+        padding-right: 4px;
+      }
+      .bookmarks-list[hidden] {
+        display: none;
+      }
+      .bookmark-entry {
+        flex: none;
+        display: flex;
+        align-items: center;
+        gap: clamp(10px, 2vw, 18px);
+        min-height: clamp(56px, 12vh, 120px);
+        padding: clamp(6px, 1vh, 12px) clamp(10px, 2vw, 18px);
+        border: 1px solid rgba(244, 239, 230, 0.16);
+        border-radius: 6px;
+        background: rgba(18, 18, 22, 0.9);
+        color: var(--ink);
+        font: inherit;
+        text-align: left;
+        cursor: pointer;
+      }
+      .bookmark-entry:hover,
+      .bookmark-entry:focus-visible {
+        border-color: var(--accent);
+        background: rgba(30, 30, 36, 0.95);
+        outline: none;
+      }
+      /* The thumbnail keeps the asset's aspect at a list-row height;
+         `contain` so an oddly shaped still letterboxes inside its box. */
+      .bookmark-thumb {
+        display: block;
+        height: clamp(32px, 8vh, 72px);
+        width: auto;
+        object-fit: contain;
+        border-radius: 3px;
+        background: #000;
+      }
+      .bookmark-thumb-empty {
+        width: clamp(56px, 14vw, 128px);
+      }
+      .bookmark-meta {
+        display: flex;
+        flex-direction: column;
+        gap: 0.3em;
+        min-width: 0;
+      }
+      .bookmark-time {
+        font-variant-numeric: tabular-nums;
+        font-size: clamp(12px, 1.6vh, 18px);
+      }
+      .bookmark-label {
+        color: rgba(244, 239, 230, 0.62);
+        font-size: clamp(10px, 1.3vh, 14px);
+        letter-spacing: 0.04em;
+      }
+      .bookmarks-empty {
+        margin: auto;
+        color: rgba(244, 239, 230, 0.7);
+        font-size: clamp(14px, 1.8vh, 20px);
+        letter-spacing: 0.02em;
+      }
     </style>
   </head>
   <body>

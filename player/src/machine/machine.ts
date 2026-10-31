@@ -71,6 +71,17 @@ export interface Machine {
    * position; no-op when already there. Marks nothing new seen.
    */
   jumpToUnseen(): void;
+  /**
+   * Bookmark click (the `t` overlay, README `t` bullet): move the cursor to
+   * `index`, clamped to `[0, frontier - 1]`. The frontier never moves —
+   * unseen items must be seen in order via `advance()`, so jumping ahead of
+   * it (or having stored a bookmark from beyond the current frontier) is
+   * clamped to seen content rather than entering or consuming it. The
+   * arrival is UNSETTLED, unlike `jumpToUnseen()`'s settled landing: a
+   * bookmark click "continues the novel from that time point", so the
+   * item's text hold replays and auto-advance carries the reader onward.
+   */
+  goTo(index: number): void;
   /** Video `ended` event for the current video item. */
   mediaEnded(): void;
   /** Cancels the pending timer and drops all subscribers. */
@@ -375,6 +386,20 @@ export function createMachine(options: MachineOptions): Machine {
       if (cursor === frontier - 1) return; // already there: stay
       skipping = false; // a jump is manual navigation: skip mode is off
       landOnLastSeen();
+    },
+
+    goTo(index) {
+      if (destroyed || count === 0) return;
+      // A bookmark always points at content the reader had reached, but the
+      // list outlives the moment it was written, so clamp defensively to
+      // seen content `[0, frontier - 1]`: unseen items must be seen in
+      // order via advance(), and jumping onto one would either show it out
+      // of order or silently consume the frontier. (The cursor may move
+      // either way — backward, or forward back to the frontier edge.)
+      skipping = false; // like jumpToUnseen: manual navigation ends skip mode
+      cursor = clamp(index, 0, frontier - 1);
+      beginItem(); // unsettled arrival: the item replays under its own hold
+      emit();
     },
 
     mediaEnded() {

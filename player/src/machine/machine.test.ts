@@ -795,6 +795,169 @@ describe("e-jump (jumpToUnseen), docs/plan.md Phase 4", () => {
   });
 });
 
+describe("goTo (t-overlay bookmark click), docs/plan.md Phase 8", () => {
+  it("moves the cursor to any seen index from any position, frontier unmoved", () => {
+    const m = machine([image(), image(), image(), image(), image()], {
+      resumeFrontier: 4,
+    });
+    expect(m.getState()).toEqual({
+      cursor: 3,
+      frontier: 4,
+      settled: true,
+      skipping: false,
+    });
+    m.goTo(0); // back to the very first item
+    expect(m.getState()).toEqual({
+      cursor: 0,
+      frontier: 4,
+      settled: false,
+      skipping: false,
+    });
+    m.goTo(2); // forward, mid-seen
+    expect(m.getState()).toEqual({
+      cursor: 2,
+      frontier: 4,
+      settled: false,
+      skipping: false,
+    });
+    m.goTo(1);
+    m.goTo(3); // back onto the frontier edge itself
+    expect(m.getState()).toEqual({
+      cursor: 3,
+      frontier: 4,
+      settled: false,
+      skipping: false,
+    });
+    m.advance(); // arrival was unsettled: this press settles, it does not move
+    expect(m.getState().cursor).toBe(3);
+    m.advance(); // and the next enters unseen content as ever
+    expect(m.getState()).toEqual({
+      cursor: 4,
+      frontier: 5,
+      settled: false,
+      skipping: false,
+    });
+    m.destroy();
+  });
+
+  it("clamps into [0, frontier - 1]: unseen items are never entered", () => {
+    // frontier 2 of 4: items 2 and 3 are unseen and out of reach.
+    const m = machine([image(), image(), image(), image()], {
+      resumeFrontier: 2,
+    });
+    m.goTo(3); // beyond the frontier: clamps to the last SHOWN item
+    expect(m.getState()).toEqual({
+      cursor: 1,
+      frontier: 2,
+      settled: false,
+      skipping: false,
+    });
+    m.goTo(99); // same clamp for a far-off index
+    expect(m.getState().cursor).toBe(1);
+    expect(m.getState().frontier).toBe(2);
+    m.goTo(-5); // and below zero
+    expect(m.getState().cursor).toBe(0);
+    expect(m.getState().frontier).toBe(2);
+    m.destroy();
+  });
+
+  it("arrives UNSETTLED, unlike the e-jump: the bookmarked item replays", () => {
+    vi.useFakeTimers();
+    const m = machine([image(), image(), image()], { resumeFrontier: 3 });
+    // Resume landed settled (a re-arrival); a bookmark click does not.
+    expect(m.getState().settled).toBe(true);
+    m.goTo(0);
+    expect(m.getState()).toEqual({
+      cursor: 0,
+      frontier: 3,
+      settled: false,
+      skipping: false,
+    });
+    // The item's own hold is armed: at 1499 ms nothing has moved...
+    vi.advanceTimersByTime(1499);
+    expect(m.getState()).toEqual({
+      cursor: 0,
+      frontier: 3,
+      settled: false,
+      skipping: false,
+    });
+    // ...and at the bare-image hold (1500 ms) auto-advance continues the
+    // novel from the bookmark — README: "continues the novel from that
+    // time point" — without moving the frontier.
+    vi.advanceTimersByTime(1);
+    expect(m.getState()).toEqual({
+      cursor: 1,
+      frontier: 3,
+      settled: false,
+      skipping: false,
+    });
+    m.destroy();
+  });
+
+  it("goTo on the last item of content clamps and holds instead of moving", () => {
+    vi.useFakeTimers();
+    const m = machine([image(), image(), image()], { resumeFrontier: 3 });
+    m.goTo(0);
+    m.goTo(2); // frontier - 1 === last item
+    expect(m.getState()).toEqual({
+      cursor: 2,
+      frontier: 3,
+      settled: false,
+      skipping: false,
+    });
+    vi.advanceTimersByTime(10_000); // hold elapses: settle, nothing to enter
+    expect(m.getState()).toEqual({
+      cursor: 2,
+      frontier: 3,
+      settled: true,
+      skipping: false,
+    });
+    m.destroy();
+  });
+
+  it("a goTo during skip exits skip mode AND performs the jump", () => {
+    const m = machine([image(), image(), image(), image()], {
+      resumeFrontier: 3,
+    });
+    m.toggleSkip();
+    m.goTo(0);
+    expect(m.getState()).toEqual({
+      cursor: 0,
+      frontier: 3,
+      settled: false,
+      skipping: false,
+    });
+    m.destroy();
+  });
+
+  it("emits to subscribers and no-ops on an empty manifest or after destroy", () => {
+    const empty = machine([]);
+    empty.goTo(0);
+    expect(empty.getState()).toEqual({
+      cursor: 0,
+      frontier: 0,
+      settled: false,
+      skipping: false,
+    });
+    empty.destroy();
+
+    const m = machine([image(), image()], { resumeFrontier: 2 });
+    const seen: MachineState[] = [];
+    m.subscribe((s) => seen.push(s));
+    m.goTo(0);
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toEqual({
+      cursor: 0,
+      frontier: 2,
+      settled: false,
+      skipping: false,
+    });
+    m.destroy();
+    m.goTo(1);
+    expect(m.getState().cursor).toBe(0); // destroy() froze the machine
+  });
+});
+
 describe("subscribe, timers, and destroy()", () => {
   it("notifies subscribers on every state change until unsubscribe", () => {
     const m = machine([image(), image()]);
