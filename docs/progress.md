@@ -166,12 +166,13 @@ truthful: an unchecked box means nothing was accepted.
 
 ## Phase 9d: Loop restart point (2025-11-01, user request)
 
-- [ ] Format/schema/validator/CREATE: optional `loopStartSeconds`
+- [x] Format/schema/validator/CREATE: optional `loopStartSeconds`
       (fractional seconds; default = startSeconds; must be < effective
       end); first-pass vs loop-pass timing documented; poster stays at
-      startSeconds
-- [ ] Machine: gate = firstPass + (loops-1)*loopPass with
+      startSeconds (46 pytest tests, 2025-11-01)
+- [x] Machine: gate = firstPass + (loops-1)*loopPass with
       loopStartSeconds; holdSeconds and text hold unchanged; tests
+      (188 tests, 2025-11-01)
 - [ ] Renderer: fresh entry seeks to startSeconds; after the first pass
       completes, later passes restart at loopStartSeconds; verify step
       measures the loop-back landing near loopStart and records the
@@ -204,9 +205,10 @@ truthful: an unchecked box means nothing was accepted.
 
 ## Phase 11: Extractor completeness on the real corpus
 
-- [ ] Several distinct kinds sampled from <corpus>
-      (`.app`, loose dir, zip; `.rpy` and `.rpyc`-only; `.rpa`; `.rpak`
-      if present), a few random slices each
+- [x] Several distinct kinds sampled from <corpus>
+      (.app+.rpy, loose dir, .rpyc-only, .rpa-archive game, .zip; no
+      .rpak found; Electron zip excluded; 30 converter tests incl.
+      --label/--max-items/--files, 2025-11-01)
 - [ ] unrpyc vendored and pinned; `.rpyc`-only projects decompile
 - [ ] `.rpa` reader implemented
 - [ ] Every sampled slice extracts and plays in the player

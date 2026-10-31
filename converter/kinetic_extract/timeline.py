@@ -72,14 +72,30 @@ class _Pending:
         self.consumed = False    # a dialogue line already formed the item
 
 
+class _SliceDone(Exception):
+    """Raised internally to stop the walk once a slice is complete."""
+
+
 def build_timeline(parses: list[tuple[str, FileParse]],
                    image_defs: dict[str, str],
                    characters: dict[str, str],
                    game_dir: Path,
+                   start_label: str | None = None,
+                   max_items: int | None = None,
                    ) -> TimelineResult:
-    """Walk all parsed files (already in filename order) linearly."""
+    """Walk all parsed files (already in filename order) linearly.
+
+    Slice options (docs/plan.md Phase 11): ``start_label`` skips all flow
+    before that label is defined; ``max_items`` stops the walk after that
+    many items. Both unset (default) means the whole project.
+    """
     result = TimelineResult()
     pending: _Pending | None = None
+    started = start_label is None
+
+    def check_limit() -> None:
+        if max_items is not None and len(result.items) >= max_items:
+            raise _SliceDone()
 
     def asset_paths(rel: str | None) -> tuple[str | None, Path | None]:
         if rel is None:
@@ -128,6 +144,7 @@ def build_timeline(parses: list[tuple[str, FileParse]],
             item["file"] = f"{item_id}.{ext}"
         apply_line(item, record, speaker, text)
         result.items.append(record)
+        check_limit()
         return item
 
     def apply_line(item: dict[str, Any], record: ItemRecord,
@@ -145,49 +162,66 @@ def build_timeline(parses: list[tuple[str, FileParse]],
             record.notes.append(
                 f"kept {count} interpolation(s) literal in text")
 
-    for _rel, parsed in parses:
-        for event in parsed.events:
-            if event.kind == "visual":
-                name = event.name or "black"
-                if name in _SOLID_COLORS and name not in image_defs:
-                    # A solid screen carries no media; the visual is cleared.
-                    flush_bare()
-                    parsed.reports.append(Report(
-                        event.source, f"scene {name}",
-                        "solid color screen: no media item"))
+    try:
+        for _rel, parsed in parses:
+            for event in parsed.events:
+                if not started:
+                    if event.kind == "label" and event.name == start_label:
+                        started = True
                     continue
-                rel = image_defs.get(name)
-                ledger_rel, abs_path = asset_paths(rel)
-                if rel is None:
-                    parsed.reports.append(Report(
-                        event.source, name,
-                        "image not defined; visual reference kept by name"))
-                flush_bare()
-                pending = _Pending("image", name, ledger_rel, abs_path,
-                                   event.source)
-            elif event.kind == "video":
-                ledger_rel, abs_path = asset_paths(event.asset)
-                flush_bare()
-                pending = _Pending("video", Path(event.asset or "movie").stem,
-                                   ledger_rel, abs_path, event.source)
-            elif event.kind == "stop-movie":
-                flush_bare()
-            elif event.kind == "dialogue":
-                if pending is not None and not pending.consumed:
-                    emit_media(pending, event.speaker, event.text)
-                    pending.consumed = True
-                else:
-                    item_id = result._next_id("line")
-                    item: dict[str, Any] = {"id": item_id, "type": "text"}
-                    record = ItemRecord(item=item, source=event.source,
-                                        asset=None)
-                    if pending is None:
-                        record.notes.append(
-                            "dialogue with no preceding visual in flow")
-                    apply_line(item, record, event.speaker, event.text)
-                    result.items.append(record)
-        flush_bare()
+                check_limit()
+                if event.kind == "visual":
+                    name = event.name or "black"
+                    if name in _SOLID_COLORS and name not in image_defs:
+                        # A solid screen carries no media; the visual is
+                        # cleared.
+                        flush_bare()
+                        parsed.reports.append(Report(
+                            event.source, f"scene {name}",
+                            "solid color screen: no media item"))
+                        continue
+                    rel = image_defs.get(name)
+                    ledger_rel, abs_path = asset_paths(rel)
+                    if rel is None:
+                        parsed.reports.append(Report(
+                            event.source, name,
+                            "image not defined; visual reference kept by "
+                            "name"))
+                    flush_bare()
+                    pending = _Pending("image", name, ledger_rel, abs_path,
+                                       event.source)
+                elif event.kind == "video":
+                    ledger_rel, abs_path = asset_paths(event.asset)
+                    flush_bare()
+                    pending = _Pending(
+                        "video", Path(event.asset or "movie").stem,
+                        ledger_rel, abs_path, event.source)
+                elif event.kind == "stop-movie":
+                    flush_bare()
+                elif event.kind == "dialogue":
+                    if pending is not None and not pending.consumed:
+                        emit_media(pending, event.speaker, event.text)
+                        pending.consumed = True
+                    else:
+                        item_id = result._next_id("line")
+                        item: dict[str, Any] = {"id": item_id,
+                                                "type": "text"}
+                        record = ItemRecord(item=item, source=event.source,
+                                            asset=None)
+                        if pending is None:
+                            record.notes.append(
+                                "dialogue with no preceding visual in flow")
+                        apply_line(item, record, event.speaker, event.text)
+                        result.items.append(record)
+                        check_limit()
+            flush_bare()
+    except _SliceDone:
+        pass
 
-    if not result.items:
+    if start_label is not None and not started:
+        raise SystemExit(
+            f"kinetic-extract: label {start_label!r} not found in the "
+            "parsed script")
+    if not result.items and start_label is None and max_items is None:
         raise SystemExit("kinetic-extract: script produced no items")
     return result

@@ -3,6 +3,7 @@
 Usage:
 
     kinetic-extract <renpy_project> <out_dir> [--width N] [--height N]
+                    [--label NAME] [--max-items N] [--files GLOB]
 
 <renpy_project> may be a directory containing ``game/``, a ``game/``
 directory itself, or a macOS ``.app`` bundle (the ``game`` dir is resolved
@@ -11,6 +12,12 @@ under ``Contents/Resources/autorun``). Writes ``manifest.json``, the
 (including posters) into ``out_dir`` and prints the skipped/notes summary.
 The output folder is playable as-is (copy the player bundle in to open it
 offline).
+
+Slice options (docs/plan.md Phase 11) extract part of a big game:
+``--label NAME`` starts the walk at that label, ``--max-items N`` stops
+after N manifest items, and ``--files GLOB`` restricts which ``.rpy``
+files feed the walk (matched in ``game/``, parsed in filename order).
+With none of them the whole project is extracted, as before.
 """
 
 from __future__ import annotations
@@ -71,7 +78,8 @@ def build_manifest(result: TimelineResult, width: int, height: int,
 
 
 def build_ledger(result: TimelineResult, reports: list[Report],
-                 inputs: list[str]) -> dict[str, Any]:
+                 inputs: list[str], slice_opts: dict[str, Any] | None = None,
+                 ) -> dict[str, Any]:
     items: dict[str, Any] = {}
     for record in result.items:
         entry: dict[str, Any] = {"source": record.source}
@@ -82,7 +90,7 @@ def build_ledger(result: TimelineResult, reports: list[Report],
         # unreferenced extra: the player and validator ignore it.
         entry.update(record.asset_meta)
         items[record.item["id"]] = entry
-    return {
+    ledger = {
         "generatedBy": f"kinetic-extract {__version__}",
         "inputs": inputs,
         "simplifications": SIMPLIFICATIONS,
@@ -90,6 +98,9 @@ def build_ledger(result: TimelineResult, reports: list[Report],
         "report": [{"source": r.source, "statement": r.statement,
                     "reason": r.reason} for r in reports],
     }
+    if slice_opts:
+        ledger["slice"] = slice_opts
+    return ledger
 
 
 def write_outputs(out_dir: Path, manifest: dict[str, Any],
@@ -140,15 +151,25 @@ def main(argv: list[str] | None = None) -> int:
                            "source image width)")
     argp.add_argument("--height", type=int, default=None,
                       help="override display height")
+    argp.add_argument("--label", default=None, metavar="NAME",
+                      help="start extraction at this label (skip earlier "
+                           "flow; fatal if no such label is parsed)")
+    argp.add_argument("--max-items", type=int, default=None, metavar="N",
+                      help="stop the walk after N manifest items")
+    argp.add_argument("--files", default=None, metavar="GLOB",
+                      help="only parse game/*.rpy files matching GLOB "
+                           "(filename order; default: every .rpy)")
     args = argp.parse_args(argv)
 
     game_dir = resolve_game_dir(args.renpy_project)
-    parses, image_defs, characters = parse_project(game_dir)
+    parses, image_defs, characters = parse_project(game_dir, args.files)
     if not parses:
-        print(f"kinetic-extract: {game_dir}: no .rpy source files",
+        print(f"kinetic-extract: {game_dir}: no .rpy source files"
+              + (f" matching {args.files!r}" if args.files else ""),
               file=sys.stderr)
         return 1
-    result = build_timeline(parses, image_defs, characters, game_dir)
+    result = build_timeline(parses, image_defs, characters, game_dir,
+                            start_label=args.label, max_items=args.max_items)
     reports: list[Report] = []
     for _rel, parsed in parses:
         reports.extend(parsed.reports)
@@ -165,8 +186,13 @@ def main(argv: list[str] | None = None) -> int:
         if args.width or args.height:
             source_note += " with --width/--height override"
     manifest = build_manifest(result, width, height)
+    slice_opts = {"label": args.label, "maxItems": args.max_items,
+                  "files": args.files}
     ledger = build_ledger(result, reports,
-                          [rel for rel, _ in parses])
+                          [rel for rel, _ in parses],
+                          slice_opts=slice_opts if any(
+                              v is not None for v in slice_opts.values())
+                          else None)
     write_outputs(args.out_dir, manifest, ledger)
     print_summary(result, reports, f"{width}x{height} ({source_note})",
                   skipped)

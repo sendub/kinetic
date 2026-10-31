@@ -40,6 +40,13 @@ directory itself, or a macOS `.app` bundle (resolves
 display resolution; the default is the most common image size among
 referenced source images (Pillow), falling back to 1280x720.
 
+Slice options (docs/plan.md Phase 11) extract part of a big game:
+`--label NAME` starts the walk at that label, `--max-items N` stops
+after N manifest items, and `--files GLOB` parses only the `game/*.rpy`
+files matching GLOB (filename order). With none of them the whole
+project is extracted, as before. Requested slice options are recorded
+under `slice` in `build-ledger.json`.
+
 ## Tests
 
 ```sh

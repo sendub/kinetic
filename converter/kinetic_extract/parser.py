@@ -89,7 +89,7 @@ class Report:
 class Event:
     """A recognized statement in linear flow order."""
 
-    kind: str            # visual | video | dialogue | stop-movie
+    kind: str            # visual | video | dialogue | stop-movie | label
     source: str
     text: str = ""       # dialogue text (dialogue events)
     speaker: str | None = None
@@ -236,7 +236,11 @@ def parse_file(text: str, relname: str) -> FileParse:
             open_block()
             continue
         if keyword == "label":
-            # The label body is the linear flow itself: never skipped.
+            # The label body is the linear flow itself: never skipped. The
+            # event marks the position so a slice can start here (--label).
+            m = _LABEL_HEAD_RE.match(line)
+            if m:
+                result.events.append(Event("label", source, name=m.group(1)))
             continue
         if keyword in {"jump", "call"}:
             target = rest.split(":", 1)[0].split()[0] if rest.split() else ""
@@ -282,14 +286,16 @@ def parse_file(text: str, relname: str) -> FileParse:
     return result
 
 
-def parse_project(game_dir: Path) -> tuple[list[tuple[str, FileParse]],
-                                           dict[str, str], dict[str, str]]:
-    """Parse every game/*.rpy in filename order.
+def parse_project(game_dir: Path, files_glob: str | None = None,
+                  ) -> tuple[list[tuple[str, FileParse]],
+                             dict[str, str], dict[str, str]]:
+    """Parse game/*.rpy in filename order, or only the files matching
+    ``files_glob`` (a pattern relative to game/, still in filename order).
 
     Returns (per-file parses, merged image defs, merged character defs).
     Concatenating files in filename order is an MVP simplification.
     """
-    files = sorted(game_dir.glob("*.rpy"))
+    files = sorted(game_dir.glob(files_glob or "*.rpy"))
     project_root = game_dir.parent
     parses: list[tuple[str, FileParse]] = []
     image_defs: dict[str, str] = {}
