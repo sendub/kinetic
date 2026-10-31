@@ -286,25 +286,85 @@ def parse_file(text: str, relname: str) -> FileParse:
     return result
 
 
-def parse_project(game_dir: Path, files_glob: str | None = None,
-                  ) -> tuple[list[tuple[str, FileParse]],
-                             dict[str, str], dict[str, str]]:
-    """Parse game/*.rpy in filename order, or only the files matching
-    ``files_glob`` (a pattern relative to game/, still in filename order).
+def _rpyc_glob(files_glob: str | None) -> str:
+    """Glob for candidate .rpyc twins of the .rpy pattern in ``files_glob``.
 
-    Returns (per-file parses, merged image defs, merged character defs).
-    Concatenating files in filename order is an MVP simplification.
+    Default (None) matches every .rpyc. A ``*.rpy``/``name.rpy`` pattern
+    maps to the matching ``.rpyc`` so ``--files`` keeps restricting both
+    kinds; any other pattern is used verbatim (a caller may target .rpyc
+    directly).
     """
-    files = sorted(game_dir.glob(files_glob or "*.rpy"))
+    if files_glob is None:
+        return "*.rpyc"
+    if files_glob.endswith(".rpy"):
+        return files_glob[:-len(".rpy")] + ".rpyc"
+    return files_glob
+
+
+def parse_project(game_dir: Path, files_glob: str | None = None,
+                  cache_dir: Path | None = None,
+                  ) -> tuple[list[tuple[str, FileParse]],
+                             dict[str, str], dict[str, str], dict]:
+    """Parse the project's script sources in filename order.
+
+    ``.rpy`` sources are read directly; a ``.rpyc`` with no same-stem
+    ``.rpy`` (a compiled-only script) is decompiled in memory through the
+    vendored unrpyc and parsed from that text (nothing is written into the
+    corpus; the text is cached — see kinetic_extract.rpyc). When both a
+    ``.rpy`` and a ``.rpyc`` exist for one stem, the ``.rpy`` wins and the
+    stale ``.rpyc`` is left alone (the survey's stale-twin case).
+
+    ``files_glob`` restricts which files feed the walk (relative to
+    ``game/``, filename order; default every ``.rpy`` and its ``.rpyc``).
+
+    Returns ``(parses, image_defs, characters, sources)`` where ``parses``
+    is the per-file parse list (the decompiled entries carry a
+    ``.rpyc``-suffixed ``relname``) and ``sources`` records provenance for
+    the ledger: ``decompiled`` (``.rpyc`` parsed via unrpyc),
+    ``ignoredTwins`` (``.rpyc`` skipped because a ``.rpy`` won), and
+    ``failed`` (``.rpyc`` that could not be decompiled). Concatenating the
+    files in filename order is an MVP simplification.
+    """
+    rpy_files = sorted(game_dir.glob(files_glob or "*.rpy"))
+    rpyc_files = sorted(game_dir.glob(_rpyc_glob(files_glob)))
     project_root = game_dir.parent
+
+    # Merge both kinds into one filename-ordered plan. A .rpy always beats a
+    # same-stem .rpyc (which may be stale); a .rpyc is used only when no
+    # .rpy exists on disk for it.
+    plan: list[tuple[str, Path, str]] = []  # (sort_key, path, kind)
+    sources: dict = {"decompiled": [], "ignoredTwins": [], "failed": []}
+    for path in rpy_files:
+        plan.append((path.name, path, "rpy"))
+    for path in rpyc_files:
+        twin = path.with_suffix(".rpy")
+        if twin.exists():
+            rel = twin.resolve().relative_to(project_root.resolve()).as_posix()
+            sources["ignoredTwins"].append(
+                {"rpyc": path.resolve().relative_to(
+                    project_root.resolve()).as_posix(), "kept": rel})
+            continue
+        plan.append((path.name, path, "rpyc"))
+    plan.sort(key=lambda entry: entry[0])
+
     parses: list[tuple[str, FileParse]] = []
     image_defs: dict[str, str] = {}
     characters: dict[str, str] = {}
-    for path in files:
+    for _key, path, kind in plan:
         rel = path.resolve().relative_to(project_root.resolve()).as_posix()
-        text = path.read_text(encoding="utf-8-sig")
+        if kind == "rpy":
+            text = path.read_text(encoding="utf-8-sig")
+        else:
+            from . import rpyc as rpyc_mod
+            try:
+                text = rpyc_mod.decompile_text(path, cache_dir)
+            except rpyc_mod.RpycError as exc:
+                sources["failed"].append(
+                    {"source": rel, "error": str(exc)})
+                continue
+            sources["decompiled"].append(rel)
         parsed = parse_file(text, rel)
         parses.append((rel, parsed))
         image_defs.update(parsed.image_defs)
         characters.update(parsed.characters)
-    return parses, image_defs, characters
+    return parses, image_defs, characters, sources

@@ -85,8 +85,12 @@ Pending: slice runs in the follow-up item.
 
 ### game-d.app
 
-Pending: slice runs in the follow-up item; needs vendored unrpyc first
-(next Phase 11 item).
+Done (2025-11-01, unrpyc item smoke). 12 `.rpyc` decompiled via the
+vendored unrpyc (no `.rpy` present). `--max-items 8` yields 8 items
+(5 image, 3 text), 0 media shipped: scene names are dynamic refs with no
+`image` defs, so assets are unresolved. Skips logged are unrecognized
+`play/stop sound|music` (925 total), unsupported statements (214), `menu`
+(7), image-not-defined (5). Sources recorded in ledger `rpycSources`.
 
 ### game-e.app
 

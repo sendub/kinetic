@@ -13,6 +13,12 @@ under ``Contents/Resources/autorun``). Writes ``manifest.json``, the
 The output folder is playable as-is (copy the player bundle in to open it
 offline).
 
+Compiled-only projects (``*.rpyc`` with no ``*.rpy``) are supported: a
+``.rpyc`` with no same-stem ``.rpy`` is decompiled in memory through the
+vendored unrpyc (docs/stack.md, ``converter/vendor/SOURCES.md``) and its
+text is cached under ``.tmp/kinetic-decompile/``; the corpus is never
+written to, and a ``.rpy`` twin always wins over a stale ``.rpyc``.
+
 Slice options (docs/plan.md Phase 11) extract part of a big game:
 ``--label NAME`` starts the walk at that label, ``--max-items N`` stops
 after N manifest items, and ``--files GLOB`` restricts which ``.rpy``
@@ -44,6 +50,8 @@ SIMPLIFICATIONS = [
     "assets ship at their sniffed true format (preserve or lossless-JXL "
     "for images, native copy or h264 transcode for video); unsupported "
     "wrapped images drop their item, recorded in the ledger",
+    "compiled-only .rpyc sources (no .rpy twin) are decompiled in memory "
+    "via the vendored unrpyc; a .rpy twin always wins over a stale .rpyc",
 ]
 
 
@@ -79,6 +87,7 @@ def build_manifest(result: TimelineResult, width: int, height: int,
 
 def build_ledger(result: TimelineResult, reports: list[Report],
                  inputs: list[str], slice_opts: dict[str, Any] | None = None,
+                 sources: dict[str, Any] | None = None,
                  ) -> dict[str, Any]:
     items: dict[str, Any] = {}
     for record in result.items:
@@ -100,6 +109,16 @@ def build_ledger(result: TimelineResult, reports: list[Report],
     }
     if slice_opts:
         ledger["slice"] = slice_opts
+    if sources:
+        # .rpyc handling (docs/plan.md Phase 11): which sources were
+        # decompiled via the vendored unrpyc, which stale .rpyc twins were
+        # left for a .rpy that won, and any .rpyc that failed to read.
+        if sources.get("decompiled"):
+            ledger["rpycSources"] = sources["decompiled"]
+        if sources.get("ignoredTwins"):
+            ledger["rpycIgnoredTwins"] = sources["ignoredTwins"]
+        if sources.get("failed"):
+            ledger["rpycFailed"] = sources["failed"]
     return ledger
 
 
@@ -157,14 +176,16 @@ def main(argv: list[str] | None = None) -> int:
     argp.add_argument("--max-items", type=int, default=None, metavar="N",
                       help="stop the walk after N manifest items")
     argp.add_argument("--files", default=None, metavar="GLOB",
-                      help="only parse game/*.rpy files matching GLOB "
-                           "(filename order; default: every .rpy)")
+                      help="only parse game/*.rpy (and matching *.rpyc) files "
+                           "matching GLOB (filename order; default: every "
+                           ".rpy and any .rpyc without a .rpy twin)")
     args = argp.parse_args(argv)
 
     game_dir = resolve_game_dir(args.renpy_project)
-    parses, image_defs, characters = parse_project(game_dir, args.files)
+    parses, image_defs, characters, sources = parse_project(game_dir,
+                                                            args.files)
     if not parses:
-        print(f"kinetic-extract: {game_dir}: no .rpy source files"
+        print(f"kinetic-extract: {game_dir}: no .rpy or .rpyc source files"
               + (f" matching {args.files!r}" if args.files else ""),
               file=sys.stderr)
         return 1
@@ -192,7 +213,8 @@ def main(argv: list[str] | None = None) -> int:
                           [rel for rel, _ in parses],
                           slice_opts=slice_opts if any(
                               v is not None for v in slice_opts.values())
-                          else None)
+                          else None,
+                          sources=sources)
     write_outputs(args.out_dir, manifest, ledger)
     print_summary(result, reports, f"{width}x{height} ({source_note})",
                   skipped)
