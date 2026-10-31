@@ -20,7 +20,8 @@
     },
     "items": {
       "type": "array",
-      "minItems": 1,
+      "minItems": 0,
+      "description": "an empty items array is valid: it is an honestly-empty folder (no visual of the sliced flow resolved to a file), and the player shows its no-content state for it (docs/extracting.md BUG 1)",
       "items": {
         "oneOf": [
           { "$ref": "#/$defs/imageItem" },

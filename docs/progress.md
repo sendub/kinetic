@@ -219,10 +219,12 @@ truthful: an unchecked box means nothing was accepted.
       RPA-3.0/2.0, not `!RP-A` - fixed the plan's assumption; XOR offsets
       + uncompressed members; game E archive scripts decompile + archive
       assets extract end-to-end; 92 tests, 2025-11-01)
-- [ ] Every sampled slice extracts and plays in the player (blocked on
-      the five extractor bugs recorded in docs/extracting.md: unresolved
-      scene names must drop the item, Movie-def key, no-space speaker
-      regex, symlinked game dir, recursive asset basename lookup)
+- [x] Every sampled slice extracts and plays in the player (all five
+      bugs fixed - implicit image/video registration, drop-unresolved +
+      valid empty manifests + inert player empty state, Movie-def video
+      items, no-space speakers, realpath symlinks; game A 6 videos painted,
+      game B 4 images @1920, game E archive assets, game F clean, game C honestly
+      empty cross-package; 106 pytest + 194 vitest, 2025-11-01)
 
 ## Phase 13: Author-defined branches (2025-11-01, user request)
 
@@ -249,7 +251,9 @@ truthful: an unchecked box means nothing was accepted.
       (6 games logged; 1 slice with real media (game F 4/4 painted), 4
       zero-media logged with root causes; 5 extractor bugs recorded for
       item 4; play-folder.mjs reusable, 2025-11-01)
-- [ ] New parser branches covered by pytest
+- [x] New parser branches covered by pytest (test_implicit.py +13:
+      registration precedence/spaces/ambiguity, Movie def, no-space
+      speakers, symlink rels, drop-unresolved, empty output; 2025-11-01)
 
 ## Phase 12: Performance, packaging, docs
 

@@ -47,7 +47,10 @@ my-novel/
   exactly this size, and the player scales its surface to the screen.
 - `items`: the ordered sequence. Position in the array is position in the
   novel; the player's cursor, frontier, bookmarks, and jumps all refer to
-  these indexes.
+  these indexes. The array may be empty: an empty manifest is a valid,
+  honestly-empty folder — a converter run in which no visual resolved to
+  a file ships no items rather than placeholders — and the player renders
+  its no-content state for it.
 
 ## Items
 
@@ -298,7 +301,8 @@ The validator checks the schema plus these invariants:
 1. `manifest.json` validates against `docs/content-schema.json`.
 2. Every path in the manifest resolves to an existing file in the folder.
 3. Item ids are unique.
-4. `schemaVersion` is 1; `items` is non-empty; `frames` has at least two
+4. `schemaVersion` is 1; `items` is an array (an empty one is valid — an
+   honestly-empty folder, see Manifest); `frames` has at least two
    entries; `loopCount` is at least 1; `fps` and `durationSeconds` are
    greater than 0; `width` and `height` are at least 1. The schema enforces
    all of these.

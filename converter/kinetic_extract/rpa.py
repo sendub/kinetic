@@ -344,31 +344,43 @@ class AssetArchives:
             self._failed = failed
         return self._archives
 
-    def lookup(self, rel: str, kind: str) -> tuple[str, Path] | None:
-        """(ledger name ``rpa!<key>``, extracted file path) for a script
-        reference ``rel`` (relative to game/), or None when no archive has
-        it. Ren'Py-style matching, cheapest rule first: exact key, the
+    def candidates(self, rel: str,
+                   kind: str) -> list[tuple[RpaArchive, str]]:
+        """Every member key matching a script reference ``rel``, in the
+        order ``lookup`` would pick them (first = the pick).
+
+        Ren'Py-style matching, cheapest rule first: exact key, the
         reference without its extension plus the kind's extensions, the
         same path with any extension in an index, and finally a base-name
         match (the reference's file name with or without extension),
-        preferring the kind's extension and the shortest matching key."""
+        preferring the kind's extension and the shortest matching key.
+        More than one candidate means an ambiguous name — the caller
+        records that in the ledger (docs/extracting.md BUG 5)."""
         archives = self._load()
         if not archives:
-            return None
+            return []
         kind_exts = [f".{e}" for e in (IMAGE_EXTS if kind == "image"
                                        else VIDEO_EXTS)]
         stem = str(Path(rel).with_suffix(""))
+        out: list[tuple[RpaArchive, str]] = []
+        seen: set[str] = set()
+
+        def add(arc: RpaArchive, key: str) -> None:
+            if key not in seen:
+                seen.add(key)
+                out.append((arc, key))
+
         for arc in archives:
             if rel in arc:
-                return self._hit(arc, rel)
-        for ext in kind_exts:
+                add(arc, rel)
+        for ext in sorted(kind_exts):
             for arc in archives:
                 if stem + ext in arc:
-                    return self._hit(arc, stem + ext)
+                    add(arc, stem + ext)
         for arc in archives:
             for key in arc.index():
                 if Path(key).with_suffix("") == Path(stem):
-                    return self._hit(arc, key)
+                    add(arc, key)
         base = Path(stem).name
         cands: list[tuple[int, int, str, RpaArchive]] = []
         for arc in archives:
@@ -377,11 +389,20 @@ class AssetArchives:
                 if kp.name == base or kp.with_suffix("").name == base:
                     rank = 0 if Path(key).suffix.lower() in kind_exts else 1
                     cands.append((rank, len(key), key, arc))
-        if cands:
-            cands.sort(key=lambda c: (c[0], c[1], c[2], c[3].path.name))
-            _, _, key, arc = cands[0]
-            return self._hit(arc, key)
-        return None
+        cands.sort(key=lambda c: (c[0], c[1], c[2], c[3].path.name))
+        for _rank, _len, key, arc in cands:
+            add(arc, key)
+        return out
+
+    def lookup(self, rel: str, kind: str) -> tuple[str, Path] | None:
+        """(ledger name ``rpa!<key>``, extracted file path) for a script
+        reference ``rel`` (relative to game/), or None when no archive has
+        it. The pick is the first of ``candidates``."""
+        found = self.candidates(rel, kind)
+        if not found:
+            return None
+        arc, key = found[0]
+        return self._hit(arc, key)
 
     def _hit(self, arc: RpaArchive, key: str) -> tuple[str, Path]:
         return f"rpa!{key}", extract_cached(arc, key)

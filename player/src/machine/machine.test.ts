@@ -1364,6 +1364,40 @@ describe("goTo (t-overlay bookmark click), docs/plan.md Phase 8", () => {
     m.goTo(1);
     expect(m.getState().cursor).toBe(0); // destroy() froze the machine
   });
+
+  it("an empty manifest is inert: no timer is armed and no command emits", () => {
+    // The empty-state guarantee behind an honestly-empty folder
+    // (docs/extracting.md BUG 1): the machine must not schedule holds
+    // for items that do not exist, and every command must be a silent
+    // no-op rather than a crash the player would log to the console.
+    vi.useFakeTimers();
+    const m = machine([]);
+    expect(m.getState()).toEqual({
+      cursor: 0,
+      frontier: 0,
+      settled: false,
+      skipping: false,
+    });
+    vi.advanceTimersByTime(60_000); // no auto-advance was armed at start
+    expect(m.getState().cursor).toBe(0);
+    const seen: MachineState[] = [];
+    m.subscribe((s) => seen.push(s));
+    m.advance();
+    m.wheelBack();
+    m.wheelForward();
+    m.toggleSkip();
+    m.jumpToUnseen();
+    m.mediaEnded();
+    m.setSettings(SETTINGS);
+    expect(seen).toHaveLength(0);
+    expect(m.getState()).toEqual({
+      cursor: 0,
+      frontier: 0,
+      settled: false,
+      skipping: false,
+    });
+    m.destroy();
+  });
 });
 
 describe("subscribe, timers, and destroy()", () => {

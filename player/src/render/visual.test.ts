@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
 
 import type { Item, VideoItem } from "../machine/types";
-import { animationFrameAt, playbackModeFor, videoPlanFor } from "./visual";
+import {
+  animationFrameAt,
+  emptyStateNoticeText,
+  playbackModeFor,
+  videoPlanFor,
+} from "./visual";
 
 const item = (fields: Partial<Item>): Item =>
   ({ id: "x-001", type: "image", ...fields }) as Item;
@@ -323,5 +328,19 @@ describe("animationFrameAt", () => {
     expect(animationFrameAt(0, fps, loops, 500)).toBe(0);
     expect(animationFrameAt(frames, 0, loops, 500)).toBe(0);
     expect(animationFrameAt(frames, fps, loops, -1)).toBe(0);
+  });
+});
+
+describe("empty-state notice (docs/extracting.md BUG 1)", () => {
+  it("names the empty manifest as the honest empty-folder case", () => {
+    // A validator-clean folder may ship zero items; the shell must then
+    // show this notice — no error, nothing that reaches the console.
+    expect(emptyStateNoticeText(0)).toBe(
+      "No content yet — this folder has an empty manifest.",
+    );
+  });
+
+  it("distinguishes a folder with items but no drawable visual", () => {
+    expect(emptyStateNoticeText(4)).toBe("No content to show.");
   });
 });

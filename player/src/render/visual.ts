@@ -229,6 +229,19 @@ interface AnimationRun {
 
 const now = (): number => globalThis.performance.now();
 
+/**
+ * The notice text when no item can produce a visual: an empty manifest
+ * (a folder whose visuals all failed to resolve — docs/extracting.md
+ * BUG 1 — ships zero items) reads differently from a folder that has
+ * items but nothing drawable at the cursor. Pure so the empty-state
+ * wording is unit-tested without a DOM.
+ */
+export function emptyStateNoticeText(itemCount: number): string {
+  return itemCount === 0
+    ? "No content yet — this folder has an empty manifest."
+    : "No content to show.";
+}
+
 export function createVisualLayer(
   stage: HTMLElement,
   manifest: Manifest,
@@ -656,13 +669,7 @@ export function createVisualLayer(
   return {
     update(item, state) {
       if (item === undefined) {
-        const empty = manifest.items.length === 0;
-        showNotice(
-          "empty-state",
-          empty
-            ? "No content yet — this folder has an empty manifest."
-            : "No content to show.",
-        );
+        showNotice("empty-state", emptyStateNoticeText(manifest.items.length));
         return;
       }
       const mode = playbackModeFor(

@@ -43,6 +43,7 @@ from typing import Any
 
 from . import __version__
 from .assets import run_asset_pass
+from .images import ImplicitImages
 from .media import DEFAULT_SIZE, most_common_image_size
 from .parser import Report, parse_project
 from .rpa import AssetArchives
@@ -60,6 +61,12 @@ SIMPLIFICATIONS = [
     "wrapped images drop their item, recorded in the ledger",
     "compiled-only .rpyc sources (no .rpy twin) are decompiled in memory "
     "via the vendored unrpyc; a .rpy twin always wins over a stale .rpyc",
+    "image names resolve like Ren'Py's: explicit `image` defs first, then "
+    "loose files under game/ and .rpa members by path or basename "
+    "(implicit registration; ambiguous basenames take the first match in "
+    "sorted order and are noted), and an item whose visual resolves "
+    "nowhere is dropped (ledger droppedUnresolved), never shipped as a "
+    "missing-file placeholder",
 ]
 
 
@@ -204,9 +211,11 @@ def main(argv: list[str] | None = None) -> int:
               + (f" matching {args.files!r}" if args.files else ""),
               file=sys.stderr)
         return 1
+    implicit = ImplicitImages(game_dir, asset_archives)
     result = build_timeline(parses, image_defs, characters, game_dir,
                             start_label=args.label, max_items=args.max_items,
-                            asset_lookup=asset_archives.lookup)
+                            asset_lookup=asset_archives.lookup,
+                            implicit_lookup=implicit.lookup)
     if asset_archives.failed:
         sources.setdefault("rpaFailed", []).extend(asset_archives.failed)
     reports: list[Report] = []

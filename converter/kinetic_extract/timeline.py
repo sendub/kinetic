@@ -21,9 +21,31 @@ from .parser import Event, FileParse, Report
 
 _INTERPOLATION_RE = re.compile(r"\[[^][]*\]")
 _SLUG_BAD_RE = re.compile(r"[^A-Za-z0-9_-]+")
+# `image X = Movie(play="f.webm", ...)` (parser stores the value verbatim
+# as an expression): the play file is the item's video (BUG 2).
+_MOVIE_PLAY_RE = re.compile(r"\bplay\s*=\s*\"((?:[^\"\\]|\\.)*)\"")
+_QUOTED_RE = re.compile(r"\"((?:[^\"\\]|\\.)*)\"")
 
 # Image names Ren'Py renders without a file: a plain black/white screen.
 _SOLID_COLORS = frozenset({"black", "white"})
+
+
+def def_value_target(defined: tuple[str, str]) -> tuple[str, str | None]:
+    """(kind, file) for a stored image-def value.
+
+    A quoted file answers as an image; a `Movie(play="…")` expression
+    answers as a video with that play file (docs/extracting.md BUG 2);
+    any other expression falls back to its first quoted file, as before;
+    an expression without a file answers (kind, None).
+    """
+    kind_tag, value = defined
+    if kind_tag == "file":
+        return "image", value
+    m = _MOVIE_PLAY_RE.search(value)
+    if m:
+        return "video", m.group(1)
+    m = _QUOTED_RE.search(value)
+    return "image", m.group(1) if m else None
 
 
 def _slug(name: str | None, fallback: str) -> str:
@@ -74,6 +96,12 @@ class _Pending:
         # is then "rpa!<key>" and asset_abs the extracted cache file).
         self.from_archive = from_archive
         self.consumed = False    # a dialogue line already formed the item
+        # True when no file answers this visual: it and the lines under it
+        # are dropped, never shipped as a placeholder (BUG 1).
+        self.unresolved = False
+        # Resolution notes carried onto the item's ledger entry (e.g. an
+        # ambiguous implicit name).
+        self.notes: list[str] = []
 
 
 class _SliceDone(Exception):
@@ -81,12 +109,13 @@ class _SliceDone(Exception):
 
 
 def build_timeline(parses: list[tuple[str, FileParse]],
-                   image_defs: dict[str, str],
+                   image_defs: dict[str, tuple[str, str]],
                    characters: dict[str, str],
                    game_dir: Path,
                    start_label: str | None = None,
                    max_items: int | None = None,
                    asset_lookup=None,
+                   implicit_lookup=None,
                    ) -> TimelineResult:
     """Walk all parsed files (already in filename order) linearly.
 
@@ -98,6 +127,12 @@ def build_timeline(parses: list[tuple[str, FileParse]],
     the .rpa archive fallback (kinetic_extract.rpa.AssetArchives.lookup):
     consulted only when a referenced asset is not on disk next to the
     script; a hit ships the extracted member instead.
+
+    ``implicit_lookup(name, kind) -> (ledger_rel, path, from_archive,
+    candidate_count) | None`` is the implicit image index
+    (kinetic_extract.images.ImplicitImages.lookup): consulted when a
+    scene/show name has no definition, or its defined file exists
+    nowhere. Explicit definitions win over it (docs/extracting.md BUG 5).
     """
     result = TimelineResult()
     pending: _Pending | None = None
@@ -120,9 +155,12 @@ def build_timeline(parses: list[tuple[str, FileParse]],
         return ledger_rel, target, False
 
     def flush_bare() -> None:
-        """Emit an unconsumed visual (replaced or at end of flow) bare."""
+        """Emit an unconsumed visual (replaced or at end of flow) bare.
+        An unresolved visual was already reported at its statement; it is
+        dropped, never emitted (BUG 1)."""
         nonlocal pending
-        if pending is not None and not pending.consumed:
+        if (pending is not None and not pending.consumed
+                and not pending.unresolved):
             emit_media(pending, speaker=None, text=None)
         pending = None
 
@@ -135,6 +173,7 @@ def build_timeline(parses: list[tuple[str, FileParse]],
         item: dict[str, Any] = {"id": item_id, "type": pend.kind}
         record = ItemRecord(item=item, source=pend.source,
                             asset=pend.asset_rel, asset_abs=pend.asset_abs)
+        record.notes.extend(pend.notes)
         if pend.from_archive:
             # Provenance for assets resolved out of an .rpa archive
             # (kinetic_extract.rpa.AssetArchives): the ledger asset reads
@@ -205,17 +244,53 @@ def build_timeline(parses: list[tuple[str, FileParse]],
                             event.source, f"scene {name}",
                             "solid color screen: no media item"))
                         continue
-                    rel = image_defs.get(name)
-                    ledger_rel, abs_path, from_arc = asset_paths(
-                        rel, "image")
-                    if rel is None:
-                        parsed.reports.append(Report(
-                            event.source, name,
-                            "image not defined; visual reference kept by "
-                            "name"))
+                    # Resolution order (docs/extracting.md BUG 5): the
+                    # explicit definition first — a `Movie(play=…)` def
+                    # answers as a video (BUG 2) — then its file on disk
+                    # or in the archives, then the implicit name index.
+                    defined = image_defs.get(name)
+                    kind, ref = def_value_target(defined) if defined \
+                        else ("image", None)
+                    resolved = None  # (kind, ledger_rel, abs, from_arc, n)
+                    if ref is not None:
+                        ledger_rel, abs_path, from_arc = asset_paths(
+                            ref, kind)
+                        if from_arc or (abs_path is not None
+                                        and abs_path.exists()):
+                            resolved = (kind, ledger_rel, abs_path,
+                                        from_arc, 1)
+                    if resolved is None and implicit_lookup is not None:
+                        hit = implicit_lookup(
+                            name, "video" if kind == "video" else "image")
+                        if hit is not None:
+                            ledger_rel, abs_path, from_arc, n = hit
+                            resolved = (kind, ledger_rel, abs_path,
+                                        from_arc, n)
                     flush_bare()
-                    pending = _Pending("image", name, ledger_rel, abs_path,
+                    if resolved is None:
+                        # BUG 1: an item whose visual never resolves is
+                        # dropped — never shipped as a missing-file
+                        # placeholder the validator and player must fail.
+                        reason = (
+                            f"droppedUnresolved: defined source asset "
+                            f"{ref!r} not found" if ref is not None else
+                            "droppedUnresolved: no image definition or "
+                            "asset answers the name")
+                        parsed.reports.append(
+                            Report(event.source, name, reason))
+                        pending = _Pending("image", name, None, None,
+                                           event.source)
+                        pending.unresolved = True
+                        continue
+                    kind, ledger_rel, abs_path, from_arc, n = resolved
+                    pending = _Pending(kind, name, ledger_rel, abs_path,
                                        event.source, from_arc)
+                    if n > 1:
+                        chosen = ledger_rel.rsplit("!", 1)[-1]
+                        pending.notes.append(
+                            f"image name {name!r} is ambiguous: {n} assets "
+                            f"answer it; using the first in sorted order "
+                            f"({chosen})")
                 elif event.kind == "video":
                     ledger_rel, abs_path, from_arc = asset_paths(
                         event.asset, "video")
@@ -223,9 +298,26 @@ def build_timeline(parses: list[tuple[str, FileParse]],
                     pending = _Pending(
                         "video", Path(event.asset or "movie").stem,
                         ledger_rel, abs_path, event.source, from_arc)
+                    if not from_arc and (abs_path is None
+                                         or not abs_path.exists()):
+                        # Same rule as scene refs (BUG 1): the video file
+                        # must exist for the item to ship.
+                        parsed.reports.append(Report(
+                            event.source, f"movie {event.asset}",
+                            f"droppedUnresolved: video asset "
+                            f"{event.asset!r} not found"))
+                        pending.unresolved = True
                 elif event.kind == "stop-movie":
                     flush_bare()
                 elif event.kind == "dialogue":
+                    if pending is not None and pending.unresolved:
+                        # The line belongs to a dropped visual (BUG 1):
+                        # a text item needs a visual, so it drops with it.
+                        parsed.reports.append(Report(
+                            event.source, event.text,
+                            "droppedUnresolved: line dropped with its "
+                            "unresolved visual"))
+                        continue
                     if pending is not None and not pending.consumed:
                         emit_media(pending, event.speaker, event.text)
                         pending.consumed = True

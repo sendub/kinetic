@@ -20,13 +20,19 @@ Design notes:
 
 from __future__ import annotations
 
+import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
 _DEFINE_CHAR_RE = re.compile(
     r"define\s+([A-Za-z_]\w*)\s*=\s*Character\(\s*\"((?:[^\"\\]|\\.)*)\"")
-_SPEAKER_SAY_RE = re.compile(r"([A-Za-z_]\w*)\s+\"")
+# The speaker is any identifier at the line head followed by a quoted
+# string. The space between them is optional: the corpus writes both
+# `em "..."` and `em"..."` (docs/extracting.md BUG 3), and the keywords
+# the walker knows (`image`, `scene`, ...) are matched before this runs,
+# so the looser form cannot capture them.
+_SPEAKER_SAY_RE = re.compile(r"([A-Za-z_]\w*)\s*\"")
 _LABEL_HEAD_RE = re.compile(r"^label\s+([A-Za-z_]\w*)")
 
 # Block-opening keywords whose contents the walker skips silently (the
@@ -103,7 +109,9 @@ class FileParse:
 
     relname: str
     events: list[Event] = field(default_factory=list)
-    image_defs: dict[str, str] = field(default_factory=dict)   # name -> file
+    # name -> ("file", quoted path) | ("expr", verbatim non-quoted value,
+    # e.g. `Movie(play="x.webm")` — kinetic_extract.timeline classifies it).
+    image_defs: dict[str, tuple[str, str]] = field(default_factory=dict)
     characters: dict[str, str] = field(default_factory=dict)   # var -> display
     reports: list[Report] = field(default_factory=list)
 
@@ -129,19 +137,37 @@ def _name_tokens(rest: str) -> str:
     return " ".join(parts)
 
 
-def _split_image_def(rest: str) -> tuple[str, str | None]:
-    """Split `name "file"` (Ren'Py also allows `name = "file"`).
+def _split_image_def(rest: str) -> tuple[str, tuple[str, str] | None]:
+    """Split an `image` statement into (name, (kind, value) | None).
 
-    Returns (image name, file or None when the line has no quoted file).
+    Ren'Py writes definitions three ways the corpus uses:
+    `name "file"`, `name = "file"`, and `name = Movie(play="file.webm")`.
+    The name is every token up to the first `=` when one precedes the
+    first quote — the whole line up to the quote otherwise. Cutting at
+    the quote instead registered `image x = Movie(play="m.webm")` under
+    the key `x = Movie(play` (docs/extracting.md BUG 2). A quoted value
+    is parsed and stored as `("file", path)`; anything else keeps the
+    parens and is stored verbatim as `("expr", value)` for the timeline
+    to read (it recognizes `Movie(play="…")`). None means the line
+    carries no file at all.
     """
     quote_at = rest.find("\"")
+    eq_at = rest.find("=")
+    if eq_at != -1 and (quote_at == -1 or eq_at < quote_at):
+        name = rest[:eq_at]
+        value = rest[eq_at + 1:].strip()
+        if not value:
+            return " ".join(name.split()), None
+        if value.startswith("\""):
+            parsed = _parse_quoted(value, 0)
+            return " ".join(name.split()), ("file", parsed[0]) if parsed \
+                else None
+        return " ".join(name.split()), ("expr", value)
     if quote_at == -1:
         return _name_tokens(rest), None
     name = rest[:quote_at]
-    if name.rstrip().endswith("="):
-        name = name.rstrip()[:-1]
     parsed = _parse_quoted(rest, quote_at)
-    return " ".join(name.split()), parsed[0] if parsed else None
+    return " ".join(name.split()), ("file", parsed[0]) if parsed else None
 
 
 def parse_file(text: str, relname: str) -> FileParse:
@@ -184,12 +210,12 @@ def parse_file(text: str, relname: str) -> FileParse:
         if keyword in _QUIET_STATEMENT_KEYWORDS:
             continue
         if keyword == "image":
-            head, quoted = _split_image_def(rest)
-            if quoted is None:
+            head, defined = _split_image_def(rest)
+            if defined is None:
                 result.reports.append(
                     Report(source, line, "image without a file"))
             else:
-                result.image_defs[head] = quoted
+                result.image_defs[head] = defined
             continue
         if keyword == "scene":
             name = _name_tokens(rest)
@@ -301,6 +327,27 @@ def _rpyc_glob(files_glob: str | None) -> str:
     return files_glob
 
 
+def _ledger_rel(path: Path, game_dir: Path) -> str:
+    """The ledger location ``game/<rel>`` for a file under ``game_dir``.
+
+    Paths come from ``game_dir`` globs, so they share their textual
+    prefix with the directory itself. Resolving the file through a
+    symlinked game dir — the game-c case
+    (docs/extracting.md BUG 4) — lands outside the project root and
+    ``relative_to`` raised; the prefix is therefore taken unresolved
+    first, with ``os.path.realpath`` applied to BOTH sides as the
+    fallback so a real-vs-real comparison never escapes the tree.
+    """
+    try:
+        return f"game/{path.relative_to(game_dir).as_posix()}"
+    except ValueError:
+        root = os.path.realpath(game_dir)
+        real = os.path.realpath(path)
+        if real.startswith(root + os.sep):
+            return f"game/{real[len(root) + 1:]}"
+        return f"game/{Path(real).name}"
+
+
 def parse_project(game_dir: Path, files_glob: str | None = None,
                   cache_dir: Path | None = None,
                   ) -> tuple[list[tuple[str, FileParse]],
@@ -337,7 +384,6 @@ def parse_project(game_dir: Path, files_glob: str | None = None,
     """
     rpy_files = sorted(game_dir.glob(files_glob or "*.rpy"))
     rpyc_files = sorted(game_dir.glob(_rpyc_glob(files_glob)))
-    project_root = game_dir.parent
 
     # Merge both kinds into one filename-ordered plan. A .rpy always beats a
     # same-stem .rpyc (which may be stale); a .rpyc is used only when no
@@ -352,10 +398,9 @@ def parse_project(game_dir: Path, files_glob: str | None = None,
     for path in rpyc_files:
         twin = path.with_suffix(".rpy")
         if twin.exists():
-            rel = twin.resolve().relative_to(project_root.resolve()).as_posix()
             sources["ignoredTwins"].append(
-                {"rpyc": path.resolve().relative_to(
-                    project_root.resolve()).as_posix(), "kept": rel})
+                {"rpyc": _ledger_rel(path, game_dir),
+                 "kept": _ledger_rel(twin, game_dir)})
             continue
         plan.append((path.name, path, "rpyc", None, ""))
     from . import rpa as rpa_mod
@@ -378,11 +423,9 @@ def parse_project(game_dir: Path, files_glob: str | None = None,
     characters: dict[str, str] = {}
     for _key, path, kind, arc, member in plan:
         if path is not None:
-            rel = path.resolve().relative_to(project_root.resolve()).as_posix()
+            rel = _ledger_rel(path, game_dir)
         else:
-            arc_rel = arc.path.resolve().relative_to(
-                project_root.resolve()).as_posix()
-            rel = f"{arc_rel}!{member}"
+            rel = f"{_ledger_rel(arc.path, game_dir)}!{member}"
         if kind == "rpy":
             if path is not None:
                 text = path.read_text(encoding="utf-8-sig")

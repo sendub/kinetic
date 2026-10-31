@@ -101,6 +101,14 @@ def test_cli_records_rpyc_source_in_ledger(tmp_path: Path,
     game = tmp_path / "game-d.app" / "Contents" / "Resources" / "autorun" / "game"
     game.mkdir(parents=True)
     shutil.copyfile(FIXTURE_RPYC, game / "credits.rpyc")
+    # BUG 1: a scene whose name answers no file is dropped, not shipped
+    # as a placeholder — so the project holds one real loose asset (the
+    # shape the real game-d.app has) for the flow to produce items,
+    # resolved implicitly by name (BUG 5).
+    from PIL import Image
+
+    (game / "images").mkdir()
+    Image.new("RGB", (16, 9), "navy").save(game / "images" / "credits_1.png")
     out = tmp_path / "out"
 
     assert cli_main([str(tmp_path / "game-d.app"), str(out)]) == 0

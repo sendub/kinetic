@@ -71,6 +71,19 @@ def problems_of(folder: Path) -> list[str]:
     return validate_content.validate_folder(folder, SCHEMA)
 
 
+def test_empty_items_list_is_valid(folder: Path) -> None:
+    """An empty `items` array is a valid, honestly-empty folder (docs/
+    extracting.md BUG 1): a slice in which no visual resolved to a file
+    ships zero items — no missing-file placeholders — and the player
+    shows its no-content state for it."""
+    manifest = read_manifest(folder)
+    manifest["items"] = []
+    write_manifest(folder, manifest)
+    assert problems_of(folder) == []
+    proc = run_cli(folder)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+
+
 def run_cli(folder: Path) -> subprocess.CompletedProcess[str]:
     return subprocess.run([sys.executable, str(VALIDATOR), str(folder)],
                           capture_output=True, text=True)
