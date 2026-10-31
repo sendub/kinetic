@@ -1,3 +1,5 @@
 # Pinned dependencies for the Python tooling (fixtures/, later converter/).
 # Install with: .venv/bin/pip install -r requirements.txt
+jsonschema==4.26.0
 Pillow==13.0.0
+pytest==9.2.0

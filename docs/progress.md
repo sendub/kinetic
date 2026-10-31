@@ -17,8 +17,8 @@ truthful: an unchecked box means nothing was accepted.
 - [x] docs/content-format.md written; JSON Schema file added
 - [x] `fixtures/build_demo.py` produces `fixtures/demo/` reproducibly
       (byte-identical reruns, sha256-verified, 2025-11-01)
-- [ ] Validator passes on the fixture and fails on a broken manifest (in
-      tests)
+- [x] Validator passes on the fixture and fails on a broken manifest (in
+      tests) (20 pytest tests, 2025-11-01)
 - [ ] Top-level CREATE.md written against the final schema
 
 ## Phase 3: Timeline machine - core
