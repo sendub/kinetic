@@ -186,6 +186,34 @@ Goal: scroll wheel rewinds and returns through content.
 Acceptance: checklist walked end to end on the demo fixture; machine tests
 unchanged or extended; tests green.
 
+## Phase 7b: Presentation revision (2025-11-01, user requests)
+
+Two additions on top of Phase 7, plus one deferral.
+
+- Fill the screen: media (image items, animation frames, videos) scales
+  to fill the viewport as much as possible without changing its aspect
+  ratio - the largest centered contain fit, letterboxing the remainder,
+  independent of the manifest display size. Runtime rule; the converter
+  still pre-sizes assets, the player fits what it is given to whatever
+  screen it gets.
+- Thought text: overlay text is either dialogue spoken by a character or
+  the unspoken thoughts of a character, and the two must read
+  differently. Format addition: optional boolean `thought` (default
+  false) on items carrying text; `true` marks the line as `speaker`'s
+  unspoken thought. Validator: `thought` only allowed where text is
+  present. Renderer: overlay exposes `data-mode="speech|thought"` and
+  applies a default distinction (thought italic, dialogue upright); all
+  styling lives in CSS so the look can change without touching logic.
+  CREATE.md and the demo fixture gain a thought line.
+- Deferred (needs the user): the final look of overlay text, including
+  how thought differs from dialogue, is an iteration to run with the
+  user once a playable demo exists. Until then keep the default
+  distinction minimal and CSS-only; do not invest in styling depth.
+
+Acceptance: README, docs, schema, validator, renderer, demo fixture, and
+verify steps agree on both rules; `data-mode` assertion in verify.mjs;
+contain-fit asserted by geometry in verify.mjs.
+
 ## Phase 8: Bookmarks
 
 Goal: b/t/e work as one feature.
@@ -284,6 +312,10 @@ Goal: prove the speed budget and ship instructions.
 Acceptance: harness output recorded in docs/progress.md with p95 under
 budget (or a Revisit-trigger note); a folder copied to a fresh machine
 plays by double-clicking `index.html` alone.
+
+## Later, waiting on the user
+
+- Overlay text styling iteration once the user can play with the demo.
 
 ## Sequencing
 
