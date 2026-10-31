@@ -6,11 +6,14 @@
 // click-to-continue, backdrop/Escape/t-to-close), and reload-resume — and
 // Phase 9 config: `c` (readout of speed and skip-all, suspension, backdrop-
 // and c-to-close, a live speed change measured against the re-armed hold,
-// and persistence across reload) — and Phase 9b short-video timing: the
-// standalone 1 s clip `loop-012` (loopCount 2) must play its passes by
-// counting `ended` events and restarting — an element with `loop` never
-// fires `ended` — against the demo fixture
-// in headless Chrome and prints PASS / PARTIAL / FAIL per step.
+// and persistence across reload) — and Phase 9b/9c short-video timing over
+// the demo fixture: the two range items `part-012` ([0,1], 1 pass) and
+// `part-013` ([1,2], 2 passes) share one 2 s clip and prove the range
+// machinery end to end — seek to `startSeconds` on entry, pass completes
+// detected per presented frame (`requestVideoFrameCallback`, with the
+// file's `ended` where the range runs to the file's end), loop-back to the
+// range start while passes remain and pause when none do, and `loop` never
+// on for a range — and prints PASS / PARTIAL / FAIL per step.
 // Run from player/:  node scripts/verify.mjs
 // Exit code: 0 when every step is PASS or PARTIAL, 1 on any FAIL or crash.
 //
@@ -24,7 +27,7 @@
 // the #empty-state notice, and .tmp/verify-demo-tall is a copy whose item-1
 // image has been rescaled to a portrait 640x960 while the manifest still says
 // 960x540 — the one shape that tells "fit to the asset" apart from "fit to
-// the manifest" (step 29, docs/plan.md Phase 7b).
+// the manifest" (step 30, docs/plan.md Phase 7b).
 //
 // Every input is real CDP Input: Input.dispatchKeyEvent for keys,
 // Input.dispatchMouseEvent `mouseWheel` for the wheel, and
@@ -51,7 +54,7 @@ const contentDir = join(repoRoot, ".tmp", "verify-demo");
 const emptyDir = join(repoRoot, ".tmp", "verify-demo-empty");
 const tallDir = join(repoRoot, ".tmp", "verify-demo-tall");
 const chromeProfile = join(repoRoot, ".tmp", "verify-chrome-profile");
-// The portrait size step 29 rescales item 1's image to. Its aspect (2:3)
+// The portrait size step 30 rescales item 1's image to. Its aspect (2:3)
 // deliberately matches neither the manifest's 16:9 nor any test viewport.
 const TALL_ASSET = { width: 640, height: 960 };
 const chromePath =
@@ -100,9 +103,9 @@ function assembleFolders() {
   for (const file of ["index.html", "app.js", "manifest.js"]) {
     copyFileSync(join(playerDir, "dist", file), join(emptyDir, file));
   }
-  // The asset/manifest aspect mismatch folder for step 29. Only the JPEG is
+  // The asset/manifest aspect mismatch folder for step 30. Only the JPEG is
   // resampled, never the manifest, and `fixtures/demo` itself stays pristine.
-  // `sips` is macOS' own resizer; without it step 28 loses its discriminator
+  // `sips` is macOS' own resizer; without it step 30 loses its discriminator
   // and says so instead of quietly asserting a weaker fact.
   mkdirSync(tallDir, { recursive: true });
   cpSync(join(repoRoot, "fixtures", "demo"), tallDir, { recursive: true });
@@ -335,7 +338,7 @@ const FIT_STATE = () => {
 // rotated phone or an un-maximised window looks like to the layout. It opens
 // in a FRESH browser context — its own storage — so a fit page is a
 // first-ever load showing item 1's image, untouched by the main walk's
-// frontier (which step 27 pushes onto loop-012, a video; a page resuming
+// frontier (which steps 27-28 push onto part-013, a video; a page resuming
 // there paints no <img> to measure). Callers close the context.
 const openAtViewport = async (
   browser,
@@ -1432,37 +1435,69 @@ async function main() {
       `stepper 1.00x -> ${JSON.stringify(s26speed.speedValue)} by four trusted + clicks; the first Escape left fullscreen=${String(s26LeftFullscreen)} with the panel open=${String(s26EscFullscreen === true)} (the browser keeps it, as in step 23), the second closed=${String(s26Closed === false)}; live effect with no reload: line-010's auto-advance measured at ${String(s26holdMs)}ms (2.00x floors at the 1500 ms minHold; at the old 1.00x it is 2880 ms and the 2600 ms sampling window would show no move); after reload the player resumed at line-011 and c showed ${JSON.stringify(s26persist.speedValue)} skipAll=${String(s26persist.skipPressed)} — the settings record rode with the frontier through storage; reset to 1.00x/Off closed, so the steps below walk default behaviour`,
     );
 
-    // 27. Short-video looping (docs/plan.md Phase 9b): item 12, loop-012 —
-    // a 1 s clip with `loopCount` 2 and no text (a bare visual), the demo's
-    // only standalone video, last in the list. HTML fact: an element with
-    // `loop` NEVER fires `ended`, so the renderer leaves the attribute off,
-    // forwards every `ended` to machine.mediaEnded(), and restarts the
-    // element from 0 until loopCount passes have been counted. The counter
-    // goes on `document` in the CAPTURE phase BEFORE the press — `ended`
-    // does not bubble but does pass through the document on its way down —
-    // because after step 26's reload no <video> exists yet. One space press
-    // moves the cursor: the resume landing was settled. What is provable
-    // from the DOM: it plays; `loop` is off; `ended` fires exactly twice
-    // (no free third pass — that is what loop=true would do); playback
-    // restarts between the ends (currentTime resets and the second end
-    // proves the second full pass); after the 2nd end it holds on the final
-    // frame. loop-012 is the LAST item, so the machine's advance on its
-    // gate (2nd ended + durationSeconds × loopCount time bound) is a settle
-    // in place with no DOM change — the same fact step 24 records — and
-    // that arithmetic is pinned by machine unit tests; this step walks the
-    // renderer half in a real browser. The ~2 s of passes plus tail keeps
-    // the step well under its ~10 s budget: correctness over speed.
+    // 27. Video playback ranges, range 1 (docs/plan.md Phase 9c): item 11,
+    // part-012 — plays [0.0, 1.0] of the shared 2 s clip `clip-012.mp4`
+    // with `loopCount` 1 and no text. Before the key press the driver
+    // installs (a) an `ended` capture counter on `document` and (b) a
+    // sampler that attaches a self-scheduling `requestVideoFrameCallback`
+    // chain to the first <video> that fires `play` (the element does not
+    // exist yet after step 26's reload; nothing is presented before
+    // `play()`, so the first recorded callback IS the first frame shown
+    // after entry). Each frame records the poster attribute, which marks
+    // which range item is on screen. Observed and recorded: the first
+    // presented frame's `mediaTime` and the element's `currentTime` at
+    // that callback; whether playback stayed inside [0, 1]; how far past
+    // 1.0 the pass completed (rVFC sees `mediaTime >= endSeconds` exactly
+    // at the presented frame). HTML facts: `loop` is off (a ranged video
+    // must never loop=true — the element's loop would seek to 0), and no
+    // native `ended` may fire from clip-012 during this phase (the pass
+    // ends at 1.0, before the file's end; the renderer's own rVFC watch
+    // reports the pass and the machine advances after its 1500 ms
+    // min-hold — observed as the poster attribute switching to
+    // part-013.poster.jpg).
+    const s27rvfc = await page.evaluate(
+      () =>
+        typeof HTMLVideoElement.prototype.requestVideoFrameCallback ===
+        "function",
+    );
     await page.evaluate(() => {
-      window.__kineticEnded = [];
+      window.__kineticVid = { frames: [], ended: [] };
       document.addEventListener(
         "ended",
         (event) => {
           const el = event.target;
-          window.__kineticEnded.push(
-            el && el.tagName === "VIDEO"
-              ? String(el.getAttribute("src") ?? "")
-              : "",
-          );
+          if (el && el.tagName === "VIDEO") {
+            window.__kineticVid.ended.push({
+              src: String(el.getAttribute("src") ?? ""),
+              currentTime: el.currentTime,
+            });
+          }
+        },
+        true,
+      );
+      const startSampler = (v) => {
+        if (v.__kineticSampler) return;
+        v.__kineticSampler = true;
+        const tick = (_now, meta) => {
+          const rec = window.__kineticVid;
+          if (rec.frames.length < 4000) {
+            rec.frames.push({
+              poster: String(v.getAttribute("poster") ?? ""),
+              mediaTime: meta.mediaTime,
+              currentTime: v.currentTime,
+              at: Date.now(),
+            });
+          }
+          v.requestVideoFrameCallback(tick);
+        };
+        v.requestVideoFrameCallback(tick);
+      };
+      document.addEventListener(
+        "play",
+        (event) => {
+          if (event.target && event.target.tagName === "VIDEO") {
+            startSampler(event.target);
+          }
         },
         true,
       );
@@ -1472,10 +1507,10 @@ async function main() {
       () =>
         (
           document.getElementById("visual-video")?.getAttribute("src") ?? ""
-        ).includes("loop-012.mp4"),
+        ).includes("clip-012.mp4"),
       { timeout: 5000 },
     );
-    const s27loopAttr = await page.evaluate(
+    const s27loop = await page.evaluate(
       () => document.getElementById("visual-video")?.loop ?? null,
     );
     let s27played = true;
@@ -1484,65 +1519,139 @@ async function main() {
     } catch {
       s27played = false;
     }
-    // Sample past two full passes so "exactly 2" means something: playback
-    // started, ~1 s to the first end, ~2 s to the second, ~1.2 s of tail.
-    const s27samples = [];
-    const s27until = Date.now() + 3200;
-    while (Date.now() < s27until) {
-      s27samples.push(
-        await page.evaluate(() => {
-          const v = document.getElementById("visual-video");
-          return {
-            ended: (window.__kineticEnded ?? []).length,
-            paused: v ? v.paused : null,
-            visible: v ? getComputedStyle(v).display !== "none" : false,
-            currentTime: v ? Math.round(v.currentTime * 1000) / 1000 : null,
-          };
-        }),
+    // The machine advances part-012 -> part-013 on its own (1 pass report
+    // + 1500 ms min-hold); the poster attribute marks the entry.
+    let s27advanced = true;
+    try {
+      await page.waitForFunction(
+        () =>
+          (
+            document.getElementById("visual-video")?.getAttribute("poster") ??
+            ""
+          ).includes("part-013.poster.jpg"),
+        { timeout: 6000 },
       );
-      await sleep(120);
+    } catch {
+      s27advanced = false;
     }
-    const s27ended = await page.evaluate(() => window.__kineticEnded ?? []);
-    // The restart between pass 1 and pass 2: a sample pair where
-    // currentTime fell hard and an end had been seen by the later sample —
-    // the element was seeked back to 0 and played on, not left parked at
-    // the end. (The `ended` can land BETWEEN samples, so it is the later
-    // sample that must show ended >= 1, not the earlier one.)
-    let s27resetSeen = false;
-    for (let i = 1; i < s27samples.length; i += 1) {
-      const a = s27samples[i - 1];
-      const b = s27samples[i];
-      if (
-        b.ended >= 1 &&
-        a.currentTime !== null &&
-        b.currentTime !== null &&
-        b.currentTime + 0.4 < a.currentTime
-      ) {
-        s27resetSeen = true;
-        break;
-      }
-    }
-    const s27last = s27samples[s27samples.length - 1];
-    const s27endedOnlyOurs =
-      s27ended.length > 0 &&
-      s27ended.every((src) => src.includes("loop-012.mp4"));
+    const s27rec = await page.evaluate(() => window.__kineticVid);
+    const s27frames = s27rec.frames.filter((f) =>
+      f.poster.includes("part-012.poster.jpg"),
+    );
+    const s27first = s27frames[0] ?? null;
+    const s27maxEnd =
+      s27frames.length > 0
+        ? Math.max(...s27frames.map((f) => f.mediaTime))
+        : -1;
+    const s27inside =
+      s27frames.length > 0 &&
+      s27frames.every((f) => f.mediaTime >= -0.05 && f.mediaTime <= 1.25);
+    const s27endedInPhase = s27rec.ended.filter((e) =>
+      e.src.includes("clip-012.mp4"),
+    ).length;
+    const s27startOffset = s27first ? s27first.mediaTime : -1;
+    const s27passDelta = s27maxEnd - 1.0;
     const s27Ok =
+      s27rvfc &&
       s27played &&
-      s27loopAttr === false &&
-      s27ended.length === 2 &&
-      s27endedOnlyOurs &&
-      s27resetSeen &&
-      s27last.visible === true &&
-      s27last.paused === true;
+      s27loop === false &&
+      s27advanced &&
+      s27first !== null &&
+      s27startOffset <= 0.15 &&
+      s27inside &&
+      s27passDelta >= -0.04 &&
+      s27passDelta <= 0.25 &&
+      s27endedInPhase === 0;
     record(
-      "27. loop-012 (1 s, loopCount 2) plays its two passes via ended-restart",
-      s27Ok ? "PASS" : !s27played ? "PARTIAL" : "FAIL",
-      `loop attr=${String(s27loopAttr)} (loop=true would never fire ended); ended=${String(s27ended.length)} ${JSON.stringify(s27ended.map((s) => s.split("/").pop()))} from a capture listener installed before the press; restart observed=${String(s27resetSeen)} (currentTime reset then climbed to the 2nd end — two full passes); final sample=${JSON.stringify(s27last)} — holds on the last frame after the 2nd ended, exactly 2 ends never a free loop; last item, so the machine advance is a settle in place (step 24), its 2nd-ended+time-bound gate pinned by machine tests${
+      "27. part-012 plays range [0,1] and reports its pass via rVFC",
+      s27Ok ? "PASS" : !s27rvfc ? "PARTIAL" : !s27played ? "PARTIAL" : "FAIL",
+      `requestVideoFrameCallback available=${String(s27rvfc)}; first presented frame mediaTime=${JSON.stringify(s27first && Math.round(s27first.mediaTime * 1000) / 1000)} currentTime=${JSON.stringify(s27first && Math.round(s27first.currentTime * 1000) / 1000)} (start offset OBSERVED ${s27startOffset >= 0 ? "+" : ""}${s27startOffset.toFixed(3)}s of ${String(s27frames.length)} frames, all inside [0, 1+0.25]=${String(s27inside)}); pass completed OBSERVED at mediaTime ${s27maxEnd.toFixed(3)} = +${s27passDelta.toFixed(3)}s past endSeconds 1.0; loop=${String(s27loop)} (never loop=true on a range); native ended from clip-012 during this phase=${String(s27endedInPhase)} (0: the pass ends before the file); machine advanced to part-013=${String(s27advanced)} (poster attribute flipped)${
         s27played ? "" : "; autoplay did not start headless"
       }`,
     );
 
-    // 28. A folder with the empty stub manifest shows the empty state —
+    // 28. Video playback ranges, range 2 (docs/plan.md Phase 9c): item 12,
+    // part-013 — the SAME clip-012.mp4 file at [1.0, 2.0] with
+    // `loopCount` 2, entered automatically by step 27's machine advance.
+    // Because the range end equals the file's duration, the pass boundary
+    // is the file's own `ended` (no frame is ever presented past it), so
+    // the ended counter doubles as the pass-report counter: exactly 2,
+    // each seeking back to 1.0 except after the last. Observed and
+    // recorded: the first frame after entry (start offset from 1.0), the
+    // loop-back (mediaTime wrap 2.0 -> 1.0) and where it landed, the two
+    // pass reports, and the hold near 2.0 at the end. The item is LAST,
+    // so the machine's advance on its gate (2nd pass report + the
+    // 2.0 s time bound) is a settle in place — the fact step 24 records —
+    // and its arithmetic is pinned by machine unit tests; loop stays off
+    // throughout (a range must never loop=true).
+    let s28settled = true;
+    try {
+      await page.waitForFunction(
+        () => {
+          const v = document.getElementById("visual-video");
+          return (
+            v?.paused === true &&
+            v.currentTime >= 1.9 &&
+            (v.getAttribute("poster") ?? "").includes("part-013.poster.jpg")
+          );
+        },
+        { timeout: 6000 },
+      );
+    } catch {
+      s28settled = false;
+    }
+    await sleep(350); // a stray third pass (loop=true behaviour) would show
+    const s28rec = await page.evaluate(() => window.__kineticVid);
+    const s28frames = s28rec.frames.filter((f) =>
+      f.poster.includes("part-013.poster.jpg"),
+    );
+    const s28first = s28frames[0] ?? null;
+    // The loop-back: the pass-1 boundary seeks 2.0 -> 1.0, so the frame
+    // stream wraps; one wrap means one in-pass restart.
+    let s28wraps = 0;
+    let s28wrapLand = null;
+    for (let i = 1; i < s28frames.length; i += 1) {
+      if (s28frames[i - 1].mediaTime - s28frames[i].mediaTime > 0.5) {
+        s28wraps += 1;
+        s28wrapLand = s28frames[i].mediaTime;
+      }
+    }
+    const s28inside =
+      s28frames.length > 0 &&
+      s28frames.every((f) => f.mediaTime >= 0.95 && f.mediaTime <= 2.05);
+    const s28ended = s28rec.ended.filter((e) => e.src.includes("clip-012.mp4"));
+    const s28last = await page.evaluate(() => {
+      const v = document.getElementById("visual-video");
+      return v
+        ? {
+            paused: v.paused,
+            loop: v.loop,
+            currentTime: Math.round(v.currentTime * 1000) / 1000,
+          }
+        : null;
+    });
+    const s28startOffset = s28first ? s28first.mediaTime - 1.0 : 99;
+    const s28Ok =
+      s28settled &&
+      s28first !== null &&
+      Math.abs(s28startOffset) <= 0.15 &&
+      s28inside &&
+      s28wraps === 1 &&
+      s28wrapLand !== null &&
+      Math.abs(s28wrapLand - 1.0) <= 0.15 &&
+      s28ended.length === 2 &&
+      s28last !== null &&
+      s28last.paused === true &&
+      s28last.loop === false &&
+      s28last.currentTime >= 1.9 &&
+      s28last.currentTime <= 2.05;
+    record(
+      "28. part-013 plays range [1,2] twice, looping back at the pass boundary",
+      s28Ok ? "PASS" : "FAIL",
+      `${String(s28frames.length)} presented frames, all inside [1-0.05, 2+0.05]=${String(s28inside)}; entered at OBSERVED mediaTime ${s28first ? s28first.mediaTime.toFixed(3) : "n/a"} (start offset ${s28startOffset >= 0 ? "+" : ""}${s28startOffset.toFixed(3)}s from 1.0); pass-1 loop-back observed=${String(s28wraps === 1)} landing OBSERVED ${s28wrapLand === null ? "n/a" : s28wrapLand.toFixed(3)} (offset ${s28wrapLand === null ? "n/a" : `${s28wrapLand - 1.0 >= 0 ? "+" : ""}${(s28wrapLand - 1.0).toFixed(3)}s`}); pass reports (native ended from clip-012, endSeconds == duration)=${String(s28ended.length)} of 2 — machine moved on only after both, and the 2nd left the element holding OBSERVED ${JSON.stringify(s28last)} near 2.0, paused, loop=${String(s28last?.loop)} (last item: the advance is a settle in place, step 24; its gate arithmetic is pinned by machine tests)`,
+    );
+
+    // 29. A folder with the empty stub manifest shows the empty state —
     // and `t` there opens the same panel, saying the novel has no
     // bookmarks yet (storage is namespaced per novel folder, and this
     // folder has none). Escape closes it again.
@@ -1559,32 +1668,32 @@ async function main() {
       },
       { timeout: 5000 },
     );
-    const s28 = await emptyPage.evaluate(PAGE_STATE);
-    const s28Ok =
-      s28.emptyState === EXPECTED.emptyNotice &&
-      s28.imgSrc === null &&
-      s28.overlayHidden === true;
+    const s29 = await emptyPage.evaluate(PAGE_STATE);
+    const s29Ok =
+      s29.emptyState === EXPECTED.emptyNotice &&
+      s29.imgSrc === null &&
+      s29.overlayHidden === true;
     const emptyCdp = await emptyPage.createCDPSession();
     await pressT(emptyCdp);
     await emptyPage.waitForFunction(OVERLAY_OPEN, { timeout: 5000 });
-    const s28overlay = await emptyPage.evaluate(READ_BOOKMARK_OVERLAY);
-    const s28EmptyOverlayOk =
-      s28overlay.hidden === false &&
-      s28overlay.entries.length === 0 &&
-      s28overlay.emptyText === "No bookmarks yet — press b";
+    const s29overlay = await emptyPage.evaluate(READ_BOOKMARK_OVERLAY);
+    const s29EmptyOverlayOk =
+      s29overlay.hidden === false &&
+      s29overlay.entries.length === 0 &&
+      s29overlay.emptyText === "No bookmarks yet — press b";
     // Same fullscreen caveat as step 23: `t` was this page's first gesture
     // so it entered fullscreen, and the browser keeps the first Escape.
     await pressEscape(emptyCdp);
     await sleep(80);
     await pressEscape(emptyCdp);
-    const s28Closed = await panelOpen(emptyPage);
+    const s29Closed = await panelOpen(emptyPage);
     record(
-      "28. empty-manifest folder shows the empty state; t there says no bookmarks yet",
-      s28Ok && s28EmptyOverlayOk && s28Closed === false ? "PASS" : "FAIL",
-      `${JSON.stringify({ emptyState: s28.emptyState, imgSrc: s28.imgSrc, overlayHidden: s28.overlayHidden })}; t opened the overlay: emptyText=${JSON.stringify(s28overlay.emptyText)} entries=${String(s28overlay.entries.length)} (the demo folder's two bookmarks are another novel's — storage is keyed per folder); Escape (after the fullscreen-exiting one the browser keeps) closed=${String(s28Closed === false)}`,
+      "29. empty-manifest folder shows the empty state; t there says no bookmarks yet",
+      s29Ok && s29EmptyOverlayOk && s29Closed === false ? "PASS" : "FAIL",
+      `${JSON.stringify({ emptyState: s29.emptyState, imgSrc: s29.imgSrc, overlayHidden: s29.overlayHidden })}; t opened the overlay: emptyText=${JSON.stringify(s29overlay.emptyText)} entries=${String(s29overlay.entries.length)} (the demo folder's two bookmarks are another novel's — storage is keyed per folder); Escape (after the fullscreen-exiting one the browser keeps) closed=${String(s29Closed === false)}`,
     );
 
-    // 29. Fill the screen (docs/plan.md Phase 7b): the media is the largest
+    // 30. Fill the screen (docs/plan.md Phase 7b): the media is the largest
     // centred contain fit of the ASSET's own aspect ratio into whatever
     // viewport the player gets, never the manifest's box. Two mismatched
     // viewports, one per letterbox direction: the fixture image (16:9, the
@@ -1671,7 +1780,7 @@ async function main() {
             .join(",") || "none"
         }`;
       record(
-        "29. media fills the viewport as a centred contain fit of its own aspect",
+        "30. media fills the viewport as a centred contain fit of its own aspect",
         status,
         `${brief(portraitState, portraitFit)} | ${brief(tallState, tallFit)} | ` +
           `overlay band=${bandWidth.toFixed(0)}px of ${tvw}px, bottom=${bandBottom.toFixed(0)} of ${tvh}px ` +
@@ -1689,12 +1798,12 @@ async function main() {
       }
     }
 
-    // 30. Console stayed empty throughout both pages.
-    const s30Ok = consoleMessages.length === 0 && pageErrors.length === 0;
+    // 31. Console stayed empty throughout both pages.
+    const s31Ok = consoleMessages.length === 0 && pageErrors.length === 0;
     record(
-      "30. console stayed empty throughout",
-      s30Ok ? "PASS" : "FAIL",
-      s30Ok
+      "31. console stayed empty throughout",
+      s31Ok ? "PASS" : "FAIL",
+      s31Ok
         ? "zero console messages, zero page errors, every page, whole run"
         : `console=[${consoleMessages.join(" | ")}] pageErrors=[${pageErrors.join(" | ")}]`,
     );

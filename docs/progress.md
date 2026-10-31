@@ -150,15 +150,17 @@ truthful: an unchecked box means nothing was accepted.
 - [x] Machine: range-based timing (gate and skip clamp use
       endSeconds-startSeconds; ended emitted at range end) with tests
       (180 tests, 2025-11-01)
-- [ ] Renderer: seek to start on enter, range clamp, seek-back-to-start
+- [x] Renderer: seek to start on enter, range clamp, seek-back-to-start
       loop (never loop=true on ranges), chain continues without
       restart, poster = frame at start; pass boundaries via
       requestVideoFrameCallback (timeupdate only as fallback, being
       4-250ms coarse); verify tests the ACTUAL first/last displayed
       frames and RECORDS the observed tolerance (seconds/frames) in
-      docs/verify-player.md - no frame-exact claims
-- [ ] Demo fixture: shared ~2 s clip used by two items at different
+      docs/verify-player.md - no frame-exact claims (Chrome measured
+      0.000s; 183 tests, 31 verify steps, 2025-11-01)
+- [x] Demo fixture: shared ~2 s clip used by two items at different
       ranges (0.0-1.0, 1.0-2.0) with range posters; determinism green
+      (16 files byte-identical, 2025-11-01)
 
 ## Phase 10: Ren'Py extractor MVP
 

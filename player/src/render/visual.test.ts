@@ -20,6 +20,12 @@ const video = vid({});
 const loopVideo = vid({ loopCount: 3 });
 const holdVideo = vid({ holdSeconds: 12 });
 const holdLoopVideo = vid({ loopCount: 3, holdSeconds: 12 });
+// phase 9c shapes: a sub-range of the file, and the same range whose end
+// IS the file's end (2 s duration is the `vid` default).
+const rangeVideo = vid({ startSeconds: 0.0, endSeconds: 1.0, loopCount: 1 });
+const endRangeVideo = vid({ startSeconds: 1.0, endSeconds: 2.0, loopCount: 2 });
+const startOnlyVideo = vid({ startSeconds: 1.5 });
+const holdRangeVideo = vid({ holdSeconds: 12, endSeconds: 1.0 });
 const animation = item({
   type: "animation",
   frames: ["a.jpg", "b.jpg"],
@@ -75,50 +81,135 @@ describe("videoPlanFor", () => {
   it("plays a standalone video with loop off, reporting each of its passes", () => {
     // The HTML fact: `loop` NEVER fires 'ended', so a video whose ends
     // gate must play with loop off; the default loopCount is one pass.
-    expect(videoPlanFor(video, "loop-once")).toEqual({
+    // No `endSeconds`: the file's own end bounds each pass.
+    expect(videoPlanFor(video, "loop-once", true)).toEqual({
       loop: false,
       reportEnds: 1,
+      startSeconds: 0,
+      endSeconds: null,
+      boundary: "ended",
     });
-    expect(videoPlanFor(loopVideo, "loop-once")).toEqual({
+    expect(videoPlanFor(loopVideo, "loop-once", true)).toEqual({
       loop: false,
       reportEnds: 3,
+      startSeconds: 0,
+      endSeconds: null,
+      boundary: "ended",
     });
   });
 
   it("treats a holdSeconds video as background: free looping, no ends", () => {
     // Time-driven only — the machine ignores ended for these.
-    expect(videoPlanFor(holdVideo, "loop-once")).toEqual({
+    expect(videoPlanFor(holdVideo, "loop-once", true)).toEqual({
       loop: true,
       reportEnds: 0,
+      startSeconds: 0,
+      endSeconds: null,
+      boundary: "ended",
     });
     // holdSeconds wins over loopCount: it is the explicit display duration.
-    expect(videoPlanFor(holdLoopVideo, "loop-once")).toEqual({
+    expect(videoPlanFor(holdLoopVideo, "loop-once", true)).toEqual({
       loop: true,
       reportEnds: 0,
+      startSeconds: 0,
+      endSeconds: null,
+      boundary: "ended",
     });
   });
 
   it("loops forever under a text chain and reports nothing", () => {
     // Chain looping is forever, so its ends could never be counted anyway.
-    expect(videoPlanFor(video, "loop-forever")).toEqual({
+    expect(videoPlanFor(video, "loop-forever", true)).toEqual({
       loop: true,
       reportEnds: 0,
+      startSeconds: 0,
+      endSeconds: null,
+      boundary: "ended",
     });
-    expect(videoPlanFor(loopVideo, "loop-forever")).toEqual({
+    expect(videoPlanFor(loopVideo, "loop-forever", true)).toEqual({
       loop: true,
       reportEnds: 0,
+      startSeconds: 0,
+      endSeconds: null,
+      boundary: "ended",
     });
   });
 
   it("plays nothing on a still", () => {
-    expect(videoPlanFor(video, "still")).toEqual({
+    expect(videoPlanFor(video, "still", true)).toEqual({
       loop: false,
       reportEnds: 0,
+      startSeconds: 0,
+      endSeconds: null,
+      boundary: "ended",
     });
-    expect(videoPlanFor(loopVideo, "still")).toEqual({
+    expect(videoPlanFor(loopVideo, "still", true)).toEqual({
       loop: false,
       reportEnds: 0,
+      startSeconds: 0,
+      endSeconds: null,
+      boundary: "ended",
     });
+  });
+
+  // --- playback ranges (docs/plan.md Phase 9c) --------------------------
+
+  it("carries the range into the plan: start is the seek target, end the bound", () => {
+    expect(videoPlanFor(rangeVideo, "loop-once", true)).toEqual({
+      loop: false,
+      reportEnds: 1,
+      startSeconds: 0,
+      endSeconds: 1,
+      boundary: "rvfc",
+    });
+    expect(videoPlanFor(endRangeVideo, "loop-once", true)).toEqual({
+      loop: false,
+      reportEnds: 2,
+      startSeconds: 1,
+      endSeconds: 2,
+      boundary: "ended", // an end at the file's end IS the file's end event
+    });
+    expect(videoPlanFor(startOnlyVideo, "loop-once", true)).toEqual({
+      loop: false,
+      reportEnds: 1,
+      startSeconds: 1.5,
+      endSeconds: null,
+      boundary: "ended",
+    });
+  });
+
+  it("never loops when a range is active — even under a chain or hold", () => {
+    // loop=true would seek to 0, wrong for a range: the renderer seeks
+    // back to startSeconds itself at each pass boundary.
+    const forever = videoPlanFor(rangeVideo, "loop-forever", true);
+    expect(forever.loop).toBe(false);
+    expect(forever.reportEnds).toBe(0); // the chain gates nothing
+    expect(forever.startSeconds).toBe(0);
+    expect(forever.endSeconds).toBe(1);
+    const background = videoPlanFor(holdRangeVideo, "loop-once", true);
+    expect(background.loop).toBe(false);
+    expect(background.reportEnds).toBe(0);
+    expect(background.endSeconds).toBe(1);
+    // A still of a range holds the frame AT startSeconds.
+    const still = videoPlanFor(endRangeVideo, "still", true);
+    expect(still.loop).toBe(false);
+    expect(still.reportEnds).toBe(0);
+    expect(still.startSeconds).toBe(1);
+  });
+
+  it("bounds a pass by rVFC when available, by timeupdate where it is not", () => {
+    // rVFC's mediaTime is exact per presented frame; timeupdate fires only
+    // every ~4-250 ms and so overshoots the end frame — the documented
+    // fallback (Firefox pre-133).
+    expect(videoPlanFor(rangeVideo, "loop-once", true).boundary).toBe("rvfc");
+    expect(videoPlanFor(rangeVideo, "loop-once", false).boundary).toBe(
+      "timeupdate",
+    );
+    // The file's own end needs neither: 'ended' is the exact signal then.
+    expect(videoPlanFor(video, "loop-once", false).boundary).toBe("ended");
+    expect(videoPlanFor(endRangeVideo, "loop-once", false).boundary).toBe(
+      "ended",
+    );
   });
 });
 

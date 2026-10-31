@@ -1,6 +1,6 @@
 # Verify the Player Shell
 
- Manual browser checklist for the player, per docs/plan.md Phases 5-9b.
+ Manual browser checklist for the player, per docs/plan.md Phases 5-9c.
 Covers the Phase 5 feature set — `file://` demo folder loading, image
 visuals, text + speaker overlay, `h` toggle, space advance,
 first-keypress fullscreen, the empty-manifest state — the Phase 6 media
@@ -20,13 +20,22 @@ reload and an `e`-verified bookmark jump; the Phase 9 config set:
 `c` opens the config screen showing the current reading speed and
 skip-all state, its controls change the settings live — a measured
 auto-advance proves the re-armed hold — and the changed values survive
-a reload; and the Phase 9b short-video set: a standalone 1 s clip with
-`loopCount` 2 plays its passes by counting `ended` events and restarting
-from 0 — an element with `loop` NEVER fires `ended`, so the attribute
-stays off for exactly as long as the ends must be counted. The key map
-today holds space, `h`, `tab`, `e`, `b`, `t`, `c` and Escape; the wheel
-has its own module (`render/wheel.ts`), because a wheel event is not a
-key. While the `t` or `c` overlay is open the
+a reload; and the Phase 9b/9c short-video set: two items sharing ONE
+2 s clip at different playback ranges — `part-012` plays [0, 1] once and
+`part-013` plays [1, 2] twice — which walks the whole range machinery in
+a real browser: seek to `startSeconds` on entry, the poster of each range
+item being the frame at ITS start, pass completes detected per presented
+frame with `requestVideoFrameCallback` (the file's own `ended` bounds a
+pass only when the range runs to the file's end, where rVFC can never
+see a frame at `endSeconds`), a loop-back seek to `startSeconds` while
+passes remain and a pause when none do, and `loop` NEVER on for a ranged
+video (the element's own loop would seek to 0). No frame-exact claims
+anywhere: steps 27-28 MEASURE what the browser actually presented and
+record the observed boundary tolerances (under "measured boundary
+guarantee" below). The key
+map today holds space, `h`, `tab`, `e`, `b`, `t`, `c` and Escape; the
+wheel has its own module (`render/wheel.ts`), because a wheel event is
+not a key. While the `t` or `c` overlay is open the
 cursor-moving commands (space, `tab`, `e`, wheel) are suspended — the
 overlay takes precedence; `b` and `h` keep working.
 
@@ -60,11 +69,11 @@ from the driver — each step asserts what the DOM shows; the bookmark
 records are read back from the player's own IndexedDB, the `t` list
 is read as the reader sees it (order, scroll position, decoded
 thumbnails), and the `c` panel is read as its readout and switch state.
-Steps 21 and 29 are the exceptions on inputs: they set the
-viewport themselves, the way rotating a phone does, and step 29's pages
+Steps 21 and 30 are the exceptions on inputs: they set the
+viewport themselves, the way rotating a phone does, and step 30's pages
 open in fresh browser contexts — their own storage, so each is a
 first-ever load on item 1's image, untouched by the frontier the main
-walk persisted (step 27 pushes that frontier onto loop-012, a video).
+walk persisted (steps 27-28 push that frontier onto part-013, a video).
 Exit code is 0 when
 every step is PASS or PARTIAL, 1 on any FAIL.
 
@@ -91,16 +100,19 @@ click the stepper's `+` and the skip-all switch to change settings live,
 close with backdrop, `c` or the second Escape, and reload to see the
 changed values read back at startup (set them back afterwards, or the
 next manual walk starts at the reader's own pace — which is the point).
-For step 27 advance to the demo's last item: the 1 s loop-012 clip should
-cross the screen once, snap back to the start, cross again, and hold on
-the last frame — two full passes, no more and no less.
+For steps 27-28 advance to the demo's last two items, which share one
+2 s clip at different ranges: part-012 should show the clip's first half
+once and move on; part-013 should show the second half, snap back to
+1 s and show it again, then hold near the end — two passes of [1, 2],
+no third pass, and `loop` never checked anywhere on the element.
 
 Results below were walked on 2026-10-31 by the driver on headless Chrome
-156.0.8078.76, multiple times with the same statuses (30 steps: 29 pass,
+156.0.8078.76, multiple times with the same statuses (31 steps: 30 pass,
 1 honest partial; the evidence lines differ only in bookmark timestamps,
-sampled video `currentTime`, the step-27 `ended` timings, skip-dwell
-timings and the step-26 hold measurement). The fit rule in step
-29 is pinned twice over: the pure `containFit` in `render/fit.ts` is
+sampled video `currentTime`, the step-27/28 boundary measurements and
+range-frame counts, skip-dwell timings and the step-26 hold
+measurement). The fit rule in step
+30 is pinned twice over: the pure `containFit` in `render/fit.ts` is
 unit-tested, and the driver imports that same function as its expectation,
 so the two cannot drift. The `t` list's pure rules (order,
 scroll-to-bottom, timestamp, thumbnail fallback) are unit-tested in
@@ -109,7 +121,39 @@ scroll-to-bottom, timestamp, thumbnail fallback) are unit-tested in
 (speed stepper steps and clamps, the readout text) are unit-tested in
 `render/config.test.ts`, the live-change semantics of `readingSpeed` and
 `skipAll` in `machine.test.ts`, and the settings' storage round-trip in
-the `storage.test.ts` contract suite.
+the `storage.test.ts` contract suite. The range-plan rules (start/end in
+the plan, `loop` off for any range, pass-boundary source rVFC /
+`timeupdate` / `ended`) are unit-tested in `render/visual.test.ts`.
+
+## Measured boundary guarantee
+
+The player makes NO frame-exact claim about range boundaries; it
+measures what the browser actually presents and states the guarantee it
+keeps: playback stays inside the range, and boundaries land within the
+tolerances below. Walked 2026-10-31, headless Chrome 156.0.8078.76:
+
+- `requestVideoFrameCallback` availability: **available** (Chrome/Edge/
+  Safari have it; Firefox pre-133 does not — the renderer checks at
+  runtime and falls back to `timeupdate`, which fires only every
+  ~4-250 ms and so lands boundaries up to that coarse interval late;
+  the fallback notes itself once on the console when used).
+- OBSERVED max start offset (first presented frame after entering a
+  range, both ranges): **+0.000 s** — the entry seeks landed exactly on
+  `startSeconds` this run; treat this as measured on this browser/file
+  pair, not a universal bound. Keyframe-gated seeks could land on an
+  earlier frame elsewhere; the format doc's guarantee is in-range
+  playback, never frame-exact starts.
+- OBSERVED max end overshoot (pass-complete past `endSeconds`, rVFC
+  path; and the loop-back landing past `startSeconds`): **+0.000 s** at
+  25 fps, with frame cadence 0.04 s bounding it by construction — a
+  pass completes on the first PRESENTED frame at or after the bound, so
+  the overshoot is bounded by the presentation cadence, not by a
+  promise. The `timeupdate` fallback would replace that bound with its
+  ~4-250 ms cadence.
+- The driver asserts generous bounds (≤ 0.15 s start offsets, ≤ 0.25 s
+  rVFC overshoot, range containment [-0.05, end+0.05]) so a slower
+  machine still passes while the OBSERVED numbers above record what
+  this one showed.
 
 ## Checklist
 
@@ -200,8 +244,9 @@ the `storage.test.ts` contract suite.
   `loop=true`, `paused=false`, `currentTime` advancing, `readyState=4`;
   zero console output. The step stashes an expando on the element for
   steps 10-13. A chain video loops and never fires `ended`, so the
-  standalone `ended`→`mediaEnded` gate is walked at step 27 (loop-012)
-  and its arithmetic unit-tested in `machine.test.ts`.
+  standalone pass-complete→`mediaEnded` gate is walked at steps 27-28
+  (the shared clip's two ranges) and its arithmetic unit-tested in
+  `machine.test.ts`.
 
 ### 10. Text item keeps the video playing (same element)
 
@@ -491,36 +536,65 @@ the `storage.test.ts` contract suite.
   window); after reload the player resumed at line-011 and `c` showed
   `2.00x` with skip-all `true`; the reset closed back at `1.00x`/`Off`.
 
-### 27. A short video with `loopCount` plays its passes (loop-012)
+### 27. Range 1 of a shared clip: part-012 plays [0, 1] once, pass via rVFC
 
 - Action: press space once from step 26's reload landing (line-011,
-  settled) to enter item 12 — loop-012, a 1 s clip with `loopCount: 2`
-  and no text (a bare visual), the demo's last item.
-- Expected: the renderer leaves the `loop` attribute off — an element
-  with `loop` NEVER fires `ended` — and the clip plays its two passes:
-  each pass ends with an `ended` that is forwarded to
-  `machine.mediaEnded()`, playback restarts from 0, and the item's gate
-  is the 2nd `ended` with `durationSeconds × loopCount` as time bound
-  (docs/content-format.md, "Timing"). It is the last item, so the
-  machine advance the gate earns is a settle in place (the fact step 24
-  records), with nothing past it to show; the visible contract is the
-  restart between passes and the hold on the final frame. Console stays
-  clean.
-- RESULT (PASS, 2026-10-31): driver step 27: an `ended` counter was
-  installed on `document` in the CAPTURE phase before the key press
-  (`ended` does not bubble, but passes through the document on capture;
-  after step 26's reload no `<video>` existed yet) and one space moved
-  the cursor. Observed: `loop=false`; `ended` fired exactly 2 times,
-  both from `loop-012.mp4`; `currentTime` reset to 0 and climbed to a
-  2nd end (two full passes — the manual restart, not a `loop`
-  attribute); final sample `paused=true, visible=true, currentTime=1`
-  — holds on the last frame after the 2nd ended, no third pass (a free
-  loop is exactly what `loop=true` would give instead). The machine's
-  2nd-ended + time-bound arithmetic is pinned by `machine.test.ts`;
-  this step walks the renderer half in a real browser. Console
-  contributed nothing.
+  settled) to enter item 11 — part-012, a bare visual that plays
+  [0.0, 1.0] of the shared `clip-012.mp4` with `loopCount: 1`. The
+  driver installs an `ended` capture counter AND a
+  `requestVideoFrameCallback` sampler (on the first `play` the video
+  element ever fires) before the key press, so the FIRST presented frame
+  after entry is recorded.
+- Expected: the element plays muted with `loop=false` (a ranged video
+  must never loop=true — the element's own loop would seek to 0, not
+  `startSeconds`); the first presented frame is at/after 0 and
+  `mediaTime` stays inside [0, 1]; the pass completes when a PRESENTED
+  frame shows `mediaTime >= endSeconds` — rVFC, exact per frame — and
+  that report is what satisfies the item's media gate; no native
+  `ended` can fire during this phase (the pass ends before the file
+  does); the machine then advances to part-013, marked by the poster
+  attribute flipping to part-013.poster.jpg (the second item's poster —
+  the frame at ITS startSeconds). OBSERVED start offset, frame
+  containment, and pass-complete overshoot are recorded, not asserted
+  frame-exact (see "Measured boundary guarantee").
+- RESULT (PASS, 2026-10-31): driver step 27:
+  `requestVideoFrameCallback` available=true; first presented frame
+  `mediaTime=0.000` with element `currentTime=0.014` at that callback
+  (OBSERVED start offset +0.000 s); 26 frames, all inside [0, 1]; pass
+  completed OBSERVED at `mediaTime=1.000` — +0.000 s past `endSeconds`
+  1.0 (bounded by the 0.04 s frame cadence, not by a frame-exact
+  claim); `loop=false`; native `ended` from clip-012 during the
+  phase=0; the machine advanced to part-013 after its single pass report
+  + 1500 ms min-hold (poster flipped, observed). Console contributed
+  nothing.
 
-### 28. Empty folder shows the empty state; `t` there says no bookmarks yet
+### 28. Range 2 on the SAME file: part-013 plays [1, 2] twice
+
+- Action: step 27's machine advance enters item 12 automatically —
+  part-013, the same `clip-012.mp4` at [1.0, 2.0] with `loopCount: 2`.
+  Watch until the item settles.
+- Expected: the renderer re-enters the SAME `<video>` element on a new
+  item (same file): poster flips to part-013.poster.jpg, playback seeks
+  to 1.0, passes count from zero. Because `endSeconds` equals the file's
+  duration, no frame is ever presented at or past 2.0, so the pass
+  boundary is the file's own `ended` — the honest exact signal there
+  (rVFC would wait for a frame that cannot exist) — and the `ended`
+  counter doubles as the pass-report counter: exactly 2. Between them
+  the element seeks back to `startSeconds` and plays on; after the
+  second it holds near 2.0 (`loop=false` throughout, so no third pass).
+  The machine moves on only after BOTH reports plus its 2.0 s time
+  bound; as the last item, that advance is a settle in place (step 24
+  records it; the gate arithmetic is pinned by `machine.test.ts`).
+  OBSERVED start offset and loop-back landing are recorded.
+- RESULT (PASS, 2026-10-31): driver step 28: 50 presented frames, all
+  inside [1, 2]; entered at OBSERVED `mediaTime=1.000` (+0.000 s from
+  1.0); exactly one loop-back, landing OBSERVED `mediaTime=1.000`
+  (+0.000 s); pass reports = 2 of 2 (native `ended` from clip-012, the
+  boundary source this range selects); the second left the element
+  OBSERVED `paused=true, currentTime=2.000, loop=false` near 2.0 and a
+  350 ms tail showed no third pass. Console contributed nothing.
+
+### 29. Empty folder shows the empty state; `t` there says no bookmarks yet
 
 - Action: open `.tmp/verify-demo-empty/index.html` (dist stub manifest,
   no items), then press `t`.
@@ -530,11 +604,11 @@ the `storage.test.ts` contract suite.
   bookmarks of its own (storage is keyed per novel folder, so the demo
   folder's two are another novel's). Escape (after the fullscreen-exiting
   one) closes it.
-- RESULT (PASS, 2026-10-31): driver step 28: notice text exact, overlay
+- RESULT (PASS, 2026-10-31): driver step 29: notice text exact, overlay
   hidden, zero console output; the overlay opened with `entries=0` and
   exactly the empty message, and Escape closed it.
 
-### 29. Media fills the screen with its own aspect ratio
+### 30. Media fills the screen with its own aspect ratio
 
 - Action: open the demo folder at a viewport that matches nothing —
   the driver sets 700x1000, portrait — and open `.tmp/verify-demo-tall`
@@ -547,7 +621,7 @@ the `storage.test.ts` contract suite.
   on a 16:9 manifest the fit must follow the image. The overlay stays a
   band across the full viewport width, over the content and its
   letterbox rather than inside it; `h` still hides it (step 6).
-- RESULT (PASS, 2026-10-31): driver step 29: at 700x1000 the 960x540
+- RESULT (PASS, 2026-10-31): driver step 30: at 700x1000 the 960x540
   image fills 700x393.8 at y=303.1 — flush in width, letterboxed top and
   bottom, centred; at 1200x700 the 640x960 image fills 466.7x700 at
   x=366.7 — flush in height, pillarboxed, centred — while the manifest's
@@ -560,18 +634,18 @@ the `storage.test.ts` contract suite.
   not pixel-sampled headless — on a real screen they should sit outside
   the media, top/bottom or left/right.
 
-### 30. Console stayed empty throughout
+### 31. Console stayed empty throughout
 
 - Action: watch DevTools' console through the whole walk (all folders).
 - Expected: zero console messages and zero uncaught errors; a plain
   `file://` open logs nothing, per the shell's own console contract. An
   autoplay rejection must be caught, never surfaced.
-- RESULT (PASS, 2026-10-31): driver step 30: zero console messages,
+- RESULT (PASS, 2026-10-31): driver step 31: zero console messages,
   zero page errors, every page, whole run — including the wheel events,
   the skip runs, the bookmark presses, the overlay opens and clicks, the
   config screen's toggle, stepper, measured live hold and second reload,
-  the reload and both geometry viewports, and loop-012's two playing
-  passes with their manual restarts.
+  the reload and both geometry viewports, and the two range items' playing
+  passes with their seek-backs.
 
 ## Not covered yet
 
@@ -606,13 +680,20 @@ the `storage.test.ts` contract suite.
   persist it, but no step runs a full skip-through with it on
   mid-novel — that would consume unseen content and move the later
   steps' resume point.
+- The `timeupdate` range-boundary fallback: this Chrome has
+  `requestVideoFrameCallback`, so steps 27-28 walk the rVFC path (and
+  the `ended` path where the range runs to the file's end). The fallback
+  for browsers without rVFC — `timeupdate`-bounded passes, ~4-250 ms
+  coarse, noted once on the console — is the pure boundary choice in
+  `videoPlanFor` (`render/visual.test.ts`); a walk on Firefox pre-133
+  is a cheap extra.
 - A trackpad's small, rapid deltas: the driver sends one 100 px notch,
   which is a mouse wheel. The accumulator's threshold, rate cap and
   direction-flip rules are unit-tested (`render/wheel.test.ts`), not
   walked here; a human walk with a trackpad is a cheap extra.
 - The `holdSeconds` background-video path in a real browser: the demo
-  fixture has no `holdSeconds` item, so step 27 walks only the finite
-  `loopCount` path. The decision for the other path — `loop` on, no
+  fixture has no `holdSeconds` item, so steps 27-28 walk only the finite
+  `loopCount` path (ranged). The decision for the other path — `loop` on, no
   `ended` ever reported, machine driven by the clock alone — is pure and
   pinned in `render/visual.test.ts` (`videoPlanFor`) and
   `machine.test.ts`. A real-browser walk of an unplayable-video fallback

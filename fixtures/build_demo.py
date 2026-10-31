@@ -41,9 +41,9 @@ VIDEO_FPS = 25
 VIDEO_SECONDS = 2
 VIDEO_FRAMES = VIDEO_FPS * VIDEO_SECONDS
 
-LOOP_VIDEO_ID = "loop-012"
-LOOP_VIDEO_FRAMES = VIDEO_FPS  # 1 s at the same 25 fps
-LOOP_VIDEO_LOOPS = 2  # exercises the standalone loop gate (Phase 9b)
+CLIP_ID = "clip-012"
+CLIP_SECONDS = 2.0
+CLIP_FRAMES = VIDEO_FPS * 2  # 2.0 s at the same 25 fps
 
 JPEG_QUALITY = 82
 
@@ -217,37 +217,82 @@ def build_video_item() -> dict:
     }
 
 
-def build_loop_video_item() -> dict:
-    """One 1 s standalone clip for the Phase 9b loop path (docs/plan.md).
+def extract_poster(mp4: Path, seconds: float, poster: Path) -> None:
+    """Extract one frame at `seconds` as the poster (deterministic encode).
 
-    Appended at the END of the item list with `loopCount` 2 and NO text:
-    a bare visual, so the machine's media gate is the 2nd `ended` event
-    with `durationSeconds * loopCount` as the time bound, and the renderer
-    must restart the element from 0 between passes (an element with `loop`
-    never fires `ended`). Encoded with the same deterministic technique as
-    intro-006; the moving block crosses the frame so a restart is visible.
+    The same bitexact discipline as `start_encoder`: fixed decoders/encoders,
+    no metadata, so two runs write the same bytes. `-ss` before `-i` is an
+    input seek; with the file's GOP the target lands on a keyframe, so the
+    decoded frame is exact.
+    """
+    subprocess.run(
+        ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+         "-ss", f"{seconds:.3f}", "-i", str(mp4), "-frames:v", "1",
+         "-fflags", "+bitexact", "-flags", "+bitexact",
+         "-map_metadata", "-1", "-map_chapters", "-1", str(poster)],
+        check=True,
+    )
+
+
+# Background colours, one per quarter-second — distinct enough that a pass
+# boundary landing inside the clip is visible and observable in the verifier.
+CLIP_QUARTERS = [
+    ((16, 42, 32), (74, 118, 84)),    # green
+    ((42, 22, 52), (96, 58, 110)),    # violet
+    ((44, 20, 22), (110, 58, 52)),    # rust
+    ((18, 34, 56), (58, 90, 132)),    # blue
+]
+
+
+def build_clip_video_items() -> list[dict]:
+    """The 2.0 s clip `clip-012.mp4` and the two range items over it.
+
+    Replaces Phase 9b's standalone `loop-012` (docs/plan.md Phase 9c): ONE
+    2.0 s file (25 fps, 50 frames, a distinct background per half-second so
+    every range boundary shows a visible change, plus a circle crossing the
+    frame continuously so playback position is observable), referenced by
+    two bare visual items at different ranges:
+
+    - part-012: [0.0, 1.0], `loopCount` 1, poster extracted at 0.0;
+    - part-013: [1.0, 2.0], `loopCount` 2, poster extracted at 1.0.
+
+    Together they exercise sharing + ranges + per-range posters; the
+    renderer loops each range start<->end itself (never `loop=true`), and
+    the machine counts pass completes per item as in Phase 9b.
     """
 
     def frame(n: int):
-        img = new_canvas((16, 42, 32), (74, 118, 84))
-        x = 90 + (n * (WIDTH - 180)) // (LOOP_VIDEO_FRAMES - 1)
+        quarter = (n * 4) // CLIP_FRAMES  # frames 0-12, 13-24, 25-37, 38-49
+        top, bottom = CLIP_QUARTERS[min(quarter, 3)]
+        img = new_canvas(top, bottom)
+        x = 90 + (n * (WIDTH - 180)) // (CLIP_FRAMES - 1)
         circle(img, x, HEIGHT // 2, 44, (236, 206, 120))
         return img
 
-    mp4 = DEMO_DIR / f"{LOOP_VIDEO_ID}.mp4"
+    mp4 = DEMO_DIR / f"{CLIP_ID}.mp4"
     proc = start_encoder(mp4)
-    for n in range(LOOP_VIDEO_FRAMES):
+    for n in range(CLIP_FRAMES):
         proc.stdin.write(frame(n).tobytes())
     finish_encoder(proc)
     duration = probe_duration(mp4)
 
-    save_jpeg(frame(0), DEMO_DIR / f"{LOOP_VIDEO_ID}.poster.jpg")
-
-    return {
-        "id": LOOP_VIDEO_ID, "type": "video",
-        "file": f"{LOOP_VIDEO_ID}.mp4", "poster": f"{LOOP_VIDEO_ID}.poster.jpg",
-        "durationSeconds": duration, "loopCount": LOOP_VIDEO_LOOPS,
-    }
+    items = [
+        {
+            "id": "part-012", "type": "video",
+            "file": f"{CLIP_ID}.mp4", "poster": "part-012.poster.jpg",
+            "durationSeconds": duration,
+            "startSeconds": 0.0, "endSeconds": 1.0, "loopCount": 1,
+        },
+        {
+            "id": "part-013", "type": "video",
+            "file": f"{CLIP_ID}.mp4", "poster": "part-013.poster.jpg",
+            "durationSeconds": duration,
+            "startSeconds": 1.0, "endSeconds": 2.0, "loopCount": 2,
+        },
+    ]
+    extract_poster(mp4, 0.0, DEMO_DIR / "part-012.poster.jpg")
+    extract_poster(mp4, 1.0, DEMO_DIR / "part-013.poster.jpg")
+    return items
 
 
 def build_text_chain_items() -> list[dict]:
@@ -405,6 +450,15 @@ def check_manifest(manifest: dict, schema: dict) -> list[str]:
             dur = item.get("durationSeconds")
             if not isinstance(dur, (int, float)) or dur <= 0:
                 bad(f"{where}.durationSeconds: must be > 0")
+            # Playback ranges (Phase 9c): exact fractional seconds.
+            start = item.get("startSeconds", 0)
+            end = item.get("endSeconds", dur)
+            if not isinstance(start, (int, float)) or start < 0:
+                bad(f"{where}.startSeconds: must be >= 0")
+            if not isinstance(end, (int, float)) or not end > start:
+                bad(f"{where}.endSeconds: must be > startSeconds")
+            elif isinstance(dur, (int, float)) and dur > 0 and end > dur:
+                bad(f"{where}.endSeconds: must not exceed durationSeconds")
     return errors
 
 
@@ -432,8 +486,8 @@ def main() -> None:
     items.append(build_animation_item())
     items.append(build_video_item())
     items.extend(build_text_chain_items())
-    # Last: the standalone looping clip (Phase 9b), after every chain.
-    items.append(build_loop_video_item())
+    # Last: the two range items sharing one clip (Phase 9c), after every chain.
+    items.extend(build_clip_video_items())
     manifest = {
         "schemaVersion": 1,
         "width": WIDTH,
