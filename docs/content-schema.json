@@ -61,7 +61,11 @@
         "type": { "const": "image" },
         "file": { "$ref": "#/$defs/imagePath" },
         "speaker": { "type": "string" },
-        "text": { "type": "string" }
+        "text": { "type": "string" },
+        "thought": {
+          "type": "boolean",
+          "description": "true marks text as the speaker's unspoken thought rather than spoken dialogue; requires a non-empty text, which the validator enforces"
+        }
       }
     },
     "animationItem": {
@@ -85,7 +89,11 @@
           "minimum": 1
         },
         "speaker": { "type": "string" },
-        "text": { "type": "string" }
+        "text": { "type": "string" },
+        "thought": {
+          "type": "boolean",
+          "description": "true marks text as the speaker's unspoken thought rather than spoken dialogue; requires a non-empty text, which the validator enforces"
+        }
       }
     },
     "videoItem": {
@@ -102,7 +110,11 @@
           "exclusiveMinimum": 0
         },
         "speaker": { "type": "string" },
-        "text": { "type": "string" }
+        "text": { "type": "string" },
+        "thought": {
+          "type": "boolean",
+          "description": "true marks text as the speaker's unspoken thought rather than spoken dialogue; requires a non-empty text, which the validator enforces"
+        }
       }
     },
     "textItem": {
@@ -113,7 +125,11 @@
         "id": { "$ref": "#/$defs/id" },
         "type": { "const": "text" },
         "speaker": { "type": "string" },
-        "text": { "type": "string" }
+        "text": { "type": "string" },
+        "thought": {
+          "type": "boolean",
+          "description": "true marks text as the speaker's unspoken thought rather than spoken dialogue; requires a non-empty text, which the validator enforces"
+        }
       }
     }
   }

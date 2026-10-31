@@ -44,16 +44,20 @@ them is still valid input for the validator.
   still, the video's first frame, also shown in skip and rewind), and
   `durationSeconds` greater than 0.
 - `text`: no media fields; only `id`, `type`, and the optional
-  `speaker` and `text`. It shows the visual of the nearest earlier
-  media item, and that video or animation keeps looping underneath it.
+  `speaker`, `text`, and `thought`. It shows the visual of the nearest
+  earlier media item, and that video or animation keeps looping
+  underneath it.
   A `text` chain advances on text holds alone, never gated on media
   end. The first item may not be `text`, and a `text` item needs a
   media item before it.
 
 Any item may also carry `speaker` and `text` for the overlay; no `text`
-means a bare visual with nothing drawn. No other fields are accepted.
-Media paths are relative to the folder, use POSIX separators, and
-contain no spaces and no `..` segments.
+means a bare visual with nothing drawn. A line may be marked with
+`thought: true` to show it as the `speaker`'s unspoken thoughts rather
+than spoken dialogue; the player draws the two differently. `thought`
+defaults to `false` and needs a non-empty `text`. No other fields are
+accepted. Media paths are relative to the folder, use POSIX separators,
+and contain no spaces and no `..` segments.
 
 A complete minimal manifest: one image, one animation, one video, and
 two `text` lines that run over the looping video:
@@ -79,6 +83,7 @@ two `text` lines that run over the looping video:
     },
     {
       "id": "line-004", "type": "text", "speaker": "Mei",
+      "thought": true,
       "text": "The street glowed under the awning."
     },
     {
@@ -90,8 +95,10 @@ two `text` lines that run over the looping video:
 ```
 
 The two `text` items display `intro-003`'s visual while its video loops
-underneath, and each holds for its text alone. Neither the video's end
-nor its loops gate an advance while the chain of `text` items lasts.
+underneath, and each holds for its text alone. The first carries
+`thought: true`, so the player shows it as Mei's unspoken thoughts.
+Neither the video's end nor its loops gate an advance while the chain of
+`text` items lasts.
 
 The item ids drive the file names: `<id>.jpg` for an image,
 `<id>.fNNN.jpg` for animation frames numbered from `f000`, and

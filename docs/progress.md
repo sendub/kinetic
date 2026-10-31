@@ -83,8 +83,8 @@ truthful: an unchecked box means nothing was accepted.
 - [x] Fill-the-screen contain-fit documented (README/content-format) and
       applied to images, animation frames, and video (verify geometry
       step 21 PASS, 96 tests, 2025-11-01)
-- [ ] `thought` field in format, schema, validator (fault tests), and
-      CREATE.md
+- [x] `thought` field in format, schema, validator (fault tests), and
+      CREATE.md (28 pytest tests, 2025-11-01)
 - [ ] Demo fixture gains a thought line
 - [ ] Renderer: `data-mode` attribute + CSS-only speech/thought
       distinction; verify steps for mode and contain-fit geometry

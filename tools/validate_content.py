@@ -20,8 +20,9 @@ invariants:
 2. The invariants the schema cannot express: every referenced media file
    exists, inside the folder, at a path that obeys the folder-layout rules;
    item ids are unique; the first item is not `text` and every `text` item
-   has a media-bearing item (image, animation, or video) before it; and a
-   present `manifest.js` shim embeds JSON equal to `manifest.json`.
+   has a media-bearing item (image, animation, or video) before it; an item
+   that sets `thought` true has a non-empty `text`; and a present
+   `manifest.js` shim embeds JSON equal to `manifest.json`.
 """
 
 from __future__ import annotations
@@ -302,6 +303,29 @@ def text_item_problems(manifest: Any) -> list[str]:
     return problems
 
 
+def thought_problems(manifest: Any) -> list[str]:
+    """Cross-field rule: an item sets `thought` true only with a non-empty `text`.
+
+    The schema allows `thought` on every item type that can carry text but
+    cannot tie it to `text` being present, so this reports each item that
+    marks its line as a thought with nothing to mark. `thought: false` and
+    an absent `thought` are fine. A non-boolean `thought` is the schema's
+    problem, not this one.
+    """
+    items = manifest.get("items") if isinstance(manifest, dict) else None
+    if not isinstance(items, list):
+        return []
+    problems: list[str] = []
+    for i, item in enumerate(items):
+        if not isinstance(item, dict) or item.get("thought") is not True:
+            continue  # false, absent, or non-boolean: nothing to check here
+        text = item.get("text")
+        if not isinstance(text, str) or not text.strip():
+            problems.append(_line(f"items[{i}].thought",
+                                  'must not be true without non-empty "text"'))
+    return problems
+
+
 def _first_difference(a: Any, b: Any, path: str = "") -> str | None:
     """Manifest location of the first structural difference, or None if equal."""
     where = path or "<root>"
@@ -400,6 +424,7 @@ def validate_folder(content_dir: Path, schema_path: Path = DEFAULT_SCHEMA) -> li
         problems += id_problems(manifest)
         problems += media_problems(content_dir, manifest, schema_locs)
         problems += text_item_problems(manifest)
+        problems += thought_problems(manifest)
 
     if (content_dir / SHIM_NAME).exists():
         problems += shim_problems(content_dir, manifest)

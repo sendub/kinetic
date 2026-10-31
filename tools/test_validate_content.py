@@ -298,6 +298,51 @@ def test_text_item_after_media_passes(folder: Path) -> None:
     assert proc.returncode == 0, proc.stdout + proc.stderr
 
 
+def test_thought_without_text_is_rejected(folder: Path) -> None:
+    """`thought: true` with no `text` marks nothing; the validator rejects it."""
+    manifest = read_manifest(folder)
+    assert "text" not in manifest["items"][2]
+    manifest["items"][2]["thought"] = True
+    write_manifest(folder, manifest)
+    problems = problems_of(folder)
+    assert len(problems) == 1
+    assert problems[0].startswith("manifest.json: items[2].thought:")
+    assert "non-empty" in problems[0] and '"text"' in problems[0]
+
+
+def test_thought_with_empty_text_is_rejected(folder: Path) -> None:
+    """An empty `text` is a bare visual, so a `thought` on it is meaningless."""
+    manifest = read_manifest(folder)
+    manifest["items"][2]["text"] = ""
+    manifest["items"][2]["thought"] = True
+    write_manifest(folder, manifest)
+    problems = problems_of(folder)
+    assert len(problems) == 1
+    assert problems[0].startswith("manifest.json: items[2].thought:")
+
+
+def test_text_item_thought_with_text_passes(folder: Path) -> None:
+    """A `text` item with `thought: true` and text is a valid thought line."""
+    manifest = read_manifest(folder)
+    manifest["items"].append({
+        "id": "thought-after-video", "type": "text", "speaker": "Mei",
+        "thought": True,
+        "text": "I should have said something then.",
+    })
+    write_manifest(folder, manifest)
+    assert problems_of(folder) == []
+    proc = run_cli(folder)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+
+
+def test_thought_false_is_accepted(folder: Path) -> None:
+    """`thought: false` is the default and never a problem."""
+    manifest = read_manifest(folder)
+    manifest["items"][2]["thought"] = False
+    write_manifest(folder, manifest)
+    assert problems_of(folder) == []
+
+
 def test_extra_unreferenced_file_is_tolerated(folder: Path) -> None:
     """A folder may carry extra files (e.g. the converter build ledger)."""
     (folder / "build-ledger.json").write_text('{"sources": []}\n',

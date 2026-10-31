@@ -61,6 +61,11 @@ Every item carries `id`, `type`, and optional overlay fields:
 - `speaker`: optional name drawn above the text.
 - `text`: optional line drawn below the speaker. Empty or absent `text`
   means a bare visual: nothing is drawn and `speaker` is ignored.
+- `thought`: optional boolean, default `false`, on every item type
+  above, since all four can carry text. `thought: true` marks `text`
+  as `speaker`'s unspoken thought rather than spoken dialogue, so the
+  overlay draws the two differently. Without a non-empty `text` a
+  `thought` is meaningless, and the validator rejects it.
 
 Per type:
 
@@ -71,9 +76,10 @@ Per type:
 - `video` with `file` (H.264 faststart MP4), `poster` (still image shown
   for instant first paint), and `durationSeconds` (runtime of the encoded
   video, greater than 0), so skip-mode timing needs no media probing.
-- `text` takes no media fields. `id` and `type` are required, `speaker`
-  and `text` are optional, and no other fields are accepted. See Text
-  items below.
+- `text` takes no media fields. `id` and `type` are required, `speaker`,
+  `text`, and `thought` are optional, and no other fields are accepted.
+  On a `text` item `thought` behaves as elsewhere: a thought line in a
+  dialogue chain. See Text items below.
 
 Example:
 
@@ -100,6 +106,7 @@ Example:
     // intro-003 loops under both text items
     {
       "id": "line-004", "type": "text", "speaker": "Mei",
+      "thought": true,
       "text": "The street glowed under the awning."
     },
     {
@@ -137,6 +144,8 @@ content:
   millisecond-denominated player settings whose defaults are
   `minHoldMs = 1500` and `msPerChar = 60`. An item with no `text`
   holds for `minHoldMs`.
+- `thought` changes no timing: a thought line holds exactly as the
+  same `text` would as dialogue.
 - An image auto-advances when its text hold time elapses. A `text`
   item holds for its text hold time and nothing else.
 - An animation's loop time, in milliseconds, is `len(frames) *
@@ -194,7 +203,7 @@ Format rules:
   `.mp4`. The schema pins these per field.
 - Every media value matches the path pattern.
 
-The validator checks the schema plus these filesystem invariants:
+The validator checks the schema plus these invariants:
 
 1. `manifest.json` validates against `docs/content-schema.json`.
 2. Every path in the manifest resolves to an existing file in the folder.
@@ -205,3 +214,6 @@ The validator checks the schema plus these filesystem invariants:
    all of these.
 5. When `manifest.js` is present, the embedded JSON parses equal to
    `manifest.json`.
+6. An item sets `thought` true only when its `text` is non-empty. The
+   schema cannot express this cross-field rule, so the validator reports
+   it.
