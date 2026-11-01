@@ -578,6 +578,8 @@ truthful: an unchecked box means nothing was accepted.
       line; tests + scenario.
 - [ ] README tidy (user, 2026-11-01): cut wordiness and duplication
       (e.g. the `a` line repeats the manual Space mode that belongs on
-      the Space line); one concise line per feature.
+      the Space line); one concise line per feature. State what IS,
+      not hedged plans (e.g. "if we use a browser" -> it is a browser
+      player); same reality pass over the other user-facing docs.
 - [ ] Phase-closer: full suite (driver, vitest, pytest, package-proof),
       rebuild BOTH demo folders, present the updated demo to the user.
