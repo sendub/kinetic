@@ -28,6 +28,12 @@ export interface Shell {
    * fades and removes itself; nothing lingers on screen.
    */
   flash(message: string): void;
+  /**
+   * Show several pills in order — the route announcements' "Back to try
+   * another route" before its "Route: <label>". Each message holds for one
+   * pill's visible time (~900 ms) before the next replaces it.
+   */
+  flashSequence(messages: readonly string[]): void;
   unmount(): void;
 }
 
@@ -114,6 +120,10 @@ export function mountShell({ root, manifest, machine }: ShellOptions): Shell {
   // selector for "a bookmark was taken".
   let flashElement: HTMLElement | null = null;
   let flashTimers: ReturnType<typeof setTimeout>[] = [];
+  // Queue timers for a pending `flashSequence` message. They live apart
+  // from `flashTimers` on purpose: `flash` clears its own pill's timers,
+  // and must never cancel the message still queued behind it.
+  const sequenceTimers: ReturnType<typeof setTimeout>[] = [];
 
   function clearFlash(): void {
     for (const timer of flashTimers) globalThis.clearTimeout(timer);
@@ -158,6 +168,18 @@ export function mountShell({ root, manifest, machine }: ShellOptions): Shell {
     );
   }
 
+  function flashSequence(messages: readonly string[]): void {
+    // A new announcement wins: a message of the previous sequence still
+    // queued would otherwise land on top of this one's fresher pill.
+    for (const timer of sequenceTimers) globalThis.clearTimeout(timer);
+    sequenceTimers.length = 0;
+    let delay = 0;
+    for (const message of messages) {
+      sequenceTimers.push(globalThis.setTimeout(() => flash(message), delay));
+      delay += 900; // one pill's visible hold, from docs/plan.md Phase 16
+    }
+  }
+
   const unsubscribe = machine.subscribe(render);
   render(machine.getState());
 
@@ -176,11 +198,14 @@ export function mountShell({ root, manifest, machine }: ShellOptions): Shell {
       return visuals.currentVisual();
     },
     flash,
+    flashSequence,
     unmount() {
       unsubscribe();
       machine.destroy();
       visuals.destroy();
       clearFlash();
+      for (const timer of sequenceTimers) globalThis.clearTimeout(timer);
+      sequenceTimers.length = 0;
       root.replaceChildren();
     },
   };

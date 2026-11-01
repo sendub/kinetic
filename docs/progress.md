@@ -398,9 +398,15 @@ truthful: an unchecked box means nothing was accepted.
       refuse=false] at arrival + fired views; played = ENTERED by any
       means, rule + continue-offer wording aligned in
       content-format.md; +6 tests, 330 green, 2025-11-02)
-- [ ] Play-all-routes on the demo: reproduce the no-branches report,
+- [x] Play-all-routes on the demo: reproduce the no-branches report,
       fix, and add route announcements (flash "Route: <label>" on
       route entry; "Back to try another route" on the jump-back).
+      (root cause: arrivals never auto-resolved under play-all + no
+      journey feedback; now auto-resolves on arrival for undecided
+      decisions, resolved history untouched, `e` proven to reach
+      missed routes; render/routes.ts announces entries + back-jumps,
+      manual picks flash too; scenario shows the full refuse->back->
+      hire->inner sequence with all six pills; 339 tests, 2025-11-02)
 - [ ] `e` at the end of content must land on the first unseen item
       including route content (repro: after reaching the final
       ending, `e` did nothing though routes were unseen). Plus the

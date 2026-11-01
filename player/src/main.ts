@@ -39,6 +39,7 @@ import { installFirstGestureFullscreen } from "./render/fullscreen";
 import { mountHelpOverlay } from "./render/help";
 import { installKeyMap, suspendTimeline } from "./render/keys";
 import { loadManifest } from "./render/manifest";
+import { mountRouteAnnouncements } from "./render/routes";
 import { installWheelInput } from "./render/wheel";
 import { contentSignature, createIdbStorage } from "./storage/idb";
 import { createNoopStorage } from "./storage/noop";
@@ -310,6 +311,19 @@ function start(): void {
       machine.subscribe((state) => {
         if (state.choice !== undefined) choice.render(state.choice);
         else choice.close();
+      });
+
+      // Route announcements (docs/plan.md Phase 16, Branches): the `#flash`
+      // pill names the route the reader has just entered — a manual pick or
+      // a play-all auto-pick alike — and leads with "Back to try another
+      // route" when the journey jumped back in time to take it. A pure
+      // render-side rule over state transitions (render/routes.ts reads the
+      // machine's route context, mutates nothing): the branch journey the
+      // user could not follow becomes three lines of pill on screen.
+      mountRouteAnnouncements({
+        machine,
+        manifest,
+        flash: (messages) => shell.flashSequence(messages),
       });
 
       // Mutual exclusion, centralized (the rule is stated pure in

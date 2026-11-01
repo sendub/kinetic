@@ -1012,8 +1012,8 @@ export function createMachine(options: MachineOptions): Machine {
    * on, minus consumption — the decision must exist here and still have an
    * offer (a pure decision whose every route has played closes on fire
    * rather than pausing, so an arrival shows nothing for it either).
-   * `playAllRoutes` is the no-stop path: the reader asked for zero
-   * interactivity, so nothing opens and the hold keeps its old auto path.
+   * `playAllRoutes` never shows a view here either: the reader asked for
+   * zero interactivity, and the arrival is answered instead, below.
    */
   function arrivalDecision(): number {
     if (settings.playAllRoutes || pendingChoice !== null) return -1;
@@ -1066,8 +1066,34 @@ export function createMachine(options: MachineOptions): Machine {
    * for the decision hanging off the new cursor, if any.
    */
   function openArrivalChoiceIfDue(): void {
+    if (settings.playAllRoutes) {
+      autoResolveArrival();
+      return;
+    }
     const index = arrivalDecision();
     if (index >= 0) openArrivalChoice(index);
+  }
+
+  /**
+   * The play-all arrival rule (docs/plan.md Phase 16, Branches): an
+   * arrival at the `after` item of a decision NO ROUTE has ever been played
+   * for resolves it on the spot — play-all is the no-stop path, and waiting
+   * on a screen the reader asked never to see is a stall. A decision that
+   * already has a played route is NOT resurrected by an arrival: its
+   * history is resolved, and its unplayed routes stay reachable the way
+   * unseen content always is — as `e`-visible items, or by a forward step
+   * off `after`, which re-fires the decision as documented (and under
+   * play-all auto-resolves it).
+   */
+  function autoResolveArrival(): void {
+    if (pendingChoice !== null) return; // a fired choice owns the timeline
+    const index = relevantDecision(cursor);
+    if (index < 0) return;
+    const decision = decisions[index];
+    if (decision.continuingRoute < 0 && nextAutoRoute(decision) < 0) return;
+    const routes = played.get(decision.index);
+    if (routes !== undefined && routes.size > 0) return;
+    autoResolve(decision);
   }
 
   /**

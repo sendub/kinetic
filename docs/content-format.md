@@ -284,7 +284,15 @@ docs/plan.md Phase 13):
   zero-interactivity: at a decision it auto-picks the first
   not-yet-played route in manifest order, repeats until every route has
   played once, then continues via `continueAt` (a pure choice: past the
-  region end, per the rule above).
+  region end, per the rule above). A navigation ARRIVAL at a decision no
+  route has ever been played for resolves it on the spot — the no-stop
+  path never waits on an overlay it will not show. A decision with a
+  played route is not resurrected by an arrival: its unplayed routes stay
+  reachable as unseen items (`e` lands on them), or through the normal
+  forward-settle re-fire of `after`, which play-all answers as any other
+  fire. The journey is announced by the render layer: entering a route
+  flashes a "Route: <label>" pill — manual pick or auto-pick alike — led
+  by "Back to try another route" when the entry jumped back in time.
 - Back/forward navigation walks the item array; entering a route's
   first item that way does not re-fire the decision — decisions fire
   only on a forward settle of `after`. So backing into `after` and

@@ -422,21 +422,61 @@ describe("navigation arrivals show unresolved decisions (docs/plan.md Phase 16)"
     m.destroy();
   });
 
-  it("playAllRoutes: an arrival shows nothing and the hold auto-resolves", () => {
-    vi.useFakeTimers();
+  it("playAllRoutes: an arrival auto-resolves the decision on the spot", () => {
+    // docs/plan.md Phase 16, Branches: play-all is the no-stop path, so an
+    // arrival at an UNRESOLVED decision answers it at once — waiting for
+    // the hold (or a press) over a screen play-all never shows was the
+    // stall the user reported as "play all routes played no branches".
     const auto = { ...SETTINGS, playAllRoutes: true };
     const m = machine(CANON, { settings: auto });
     step(m);
     step(m); // cursor 2 (the play-all path shows no overlay anywhere)
     m.wheelBack();
-    m.wheelForward(); // arrival onto `decide`: still no overlay — no-stop path
+    m.wheelForward(); // arrival onto `decide`: resolved on arrival, no wait
     expect(m.getState().choice).toBeUndefined();
-    vi.advanceTimersByTime(SETTINGS.minHoldMs + 10); // the hold takes it
-    expect(m.getState().choice).toBeUndefined(); // auto-resolved, no stop
     expect(m.getState().cursor).toBe(3); // route A entered
     expect(m.exportContext().playedRoutes).toEqual([
       { decision: 0, routes: [0] },
     ]);
+    m.destroy();
+  });
+
+  it("playAllRoutes: an e-jump onto the after item resolves it too", () => {
+    const auto = { ...SETTINGS, playAllRoutes: true };
+    const m = machine(CANON, { settings: auto, resumeFrontier: 2 });
+    m.jumpToUnseen(); // lands on `decide`, the first unseen item
+    expect(m.getState().choice).toBeUndefined();
+    expect(m.getState().cursor).toBe(3); // route A entered, not an arrival view
+    expect(m.exportContext().playedRoutes).toEqual([
+      { decision: 0, routes: [0] },
+    ]);
+    m.destroy();
+  });
+
+  it("playAllRoutes: arrival at an answered decision does not resurrect it", () => {
+    // A decision with a played route keeps its resolved history: an
+    // arrival neither opens the overlay nor auto-plays a route. Its unseen
+    // routes stay `e`-visible items, and a forward step off `after`
+    // re-fires the decision — the documented re-fire path, which play-all
+    // then answers the same way as any other fire.
+    const shape = manifest(CANON);
+    const m = createMachine({
+      items: shape.items,
+      branches: shape.branches,
+      settings: SETTINGS,
+    }); // manual, play-all off: the reader answers the decision themselves
+    step(m);
+    step(m); // cursor 2 (`decide`)
+    m.advance(); // its settle fires the decision; answered with route A
+    m.choose(0);
+    expect(m.getState().cursor).toBe(3);
+    m.setSettings({ ...SETTINGS, playAllRoutes: true }); // play-all from here
+    m.wheelBack(); // back onto `decide` with route A already played
+    expect(m.getState().cursor).toBe(2);
+    expect(m.getState().choice).toBeUndefined();
+    const context = m.exportContext();
+    expect(context.playedRoutes).toEqual([{ decision: 0, routes: [0] }]);
+    expect(context.stack).toEqual([{ decision: 0, route: 0 }]); // untouched
     m.destroy();
   });
 });
