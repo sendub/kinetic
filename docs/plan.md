@@ -614,6 +614,61 @@ under text chains (`nextIsText`). Add a per-video opt-in floor:
   chain at ~4.5 s, not the text sum, with the dialogue advancing under
   the video, and skip through it stays immediate.
 
+## Phase 16: Player feedback from the playable demo (2025-11-02, user)
+
+The user played `.tmp/pkg-demo` and filed thirteen points. Grouped into
+one checklist item per subsystem; these points also open the Phase 7b
+deferred overlay styling.
+
+Styling:
+- All overlay text centers, dialogue and thought alike; the choice
+  prompt and route rows center too.
+- A thought renders pastel-blue; when a thought belongs to a named
+  character the speaker name still shows (it does not today).
+- Reading-speed config becomes minus button, draggable slider, plus
+  button, current speed in smaller text right of the slider.
+
+Navigation:
+- One space press advances exactly one step, and one wheel tick moves
+  exactly one step, forward and back. Investigate the real behavior
+  first (auto-mode space may settle without moving; check wheel tick
+  pixel thresholds), then make one action mean one step. Auto mode's
+  own hold-then-advance is untouched.
+- Scrolling (wheel) or tab-skipping onto a decision's `after` item
+  SHOWS the choice overlay when the decision is unresolved, instead of
+  passing it invisibly.
+- Tab skip now PAUSES at a decision (shows the overlay, waits for the
+  pick, resumes skipping after) instead of auto-resolving it;
+  play-all-routes remains the no-pause path.
+
+Branches:
+- Re-picking the ending route "Turn them down" currently loops the
+  same decision with no exit. Rule: once ANY route of a decision has
+  completed, every re-opening of that decision offers the
+  "Return to main route" option whenever a continuing route exists,
+  whatever result the just-played route had. The ending-loop is
+  thereby escapable.
+- The seen mark on a route row means the route was PLAYED (items
+  became current), not that the decision fired; scrolling back after
+  taking one route must not show the other as seen.
+- Play-all-routes reportedly played no branches at all on the demo:
+  reproduce, fix, and make the journey legible - a flash announcement
+  when a route starts ("Route: <label>") and when time jumps back to
+  try another ("Back to try another route"). Without play-all,
+  picking a route flashes "Route: <label>" once at entry too.
+- Continuing-route semantics stay: "Late, over coffee" continues to
+  the main route by design; after an ending, `e` surfaces unseen
+  route content (see below). Documented in CREATE.md.
+
+Machine bugs to reproduce and fix:
+- `e` at the end of content does nothing even though route content is
+  unseen; it must land on the first unseen item (routes included).
+- Auto-forward after viewing to the end and wheeling back to the start
+  stalls at the range-video item `part-012`: a navigated re-entry into
+  a video must replay and complete honestly under auto mode.
+- `playAllRoutes` resets to off after reload; it must persist like the
+  other settings.
+
 ## Later, waiting on the user
 
 - Overlay text styling iteration once the user can play with the demo.

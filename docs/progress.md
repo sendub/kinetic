@@ -348,6 +348,39 @@ truthful: an unchecked box means nothing was accepted.
       the chain at 360 ms under skip, auto still 8000 ms; regression
       tests added, 305 green, 2025-11-02)
 
+## Phase 16: Player feedback from the playable demo (2025-11-02, user)
+
+- [ ] Styling pass (merges three style points): all overlay text and
+      the choice prompt/rows center; thoughts render pastel-blue and
+      KEEP the speaker name when named; demo verified + docs.
+      Closes the Phase 7b deferred styling direction (first pass).
+- [ ] Reading-speed config: minus button + draggable slider + plus
+      button, current speed as smaller text to the right.
+- [ ] Single-action navigation: reproduce what needs more than one
+      action, then one space = one step and one wheel tick = one step
+      both directions, manual and as space-in-auto; auto's own
+      hold-then-advance unchanged.
+- [ ] Decisions surface on navigation (merges the wheel and tab
+      points): arriving at a decision's after by wheel or tab-shows
+      shows the overlay and waits; tab-skip pauses at decisions
+      (picks resume skipping); play-all remains the no-pause path.
+- [ ] Re-opening a decision after ANY completed route offers
+      "Return to main route" whenever a continuing route exists;
+      the ending-route loop gains an exit.
+- [ ] Route seen mark = route PLAYED (its items became current), not
+      the decision firing; taking one route must not mark the other
+      seen.
+- [ ] Play-all-routes on the demo: reproduce the no-branches report,
+      fix, and add route announcements (flash "Route: <label>" on
+      route entry; "Back to try another route" on the jump-back).
+- [ ] `e` at the end of content must land on the first unseen item
+      including route content (repro: after reaching the final
+      ending, `e` did nothing though routes were unseen).
+- [ ] Auto-forward stall at `part-012` after viewing to the end and
+      wheeling back to start under auto: navigated re-entry into a
+      range video must replay and gate honestly.
+- [ ] `playAllRoutes` persists across reload like the other settings.
+
 ## Later, waiting on the user
 
 - [ ] Overlay text styling iteration (incl. thought vs dialogue look)
