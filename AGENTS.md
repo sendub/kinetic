@@ -32,6 +32,20 @@ are implementing and docs/stack.md for settled decisions.
 - The Ren'Py corpus at /Volumes/Data/games is read-only reference data;
   never modify it.
 
+## Test speed (orchestrator directive, 2025-11-02)
+
+Per checklist item, run only what the item can break:
+
+- Always: `npm test` and `npm run check` from `player/` (seconds).
+- Browser-visible change: add `npm run build` + ONE targeted scenario
+  script against the real demo (~10 s, the `.tmp/repro-*.mjs` pattern).
+  Do NOT run the full `verify.mjs` per item.
+- Python change: `pytest` on the touched test file only.
+- The full suite (44-step `verify.mjs`, full pytest, `package-proof`)
+  runs ONCE when the current phase is believed complete, before its
+  closing commit. The driver is one sequential stateful script; there
+  is no step subset flag.
+
 ## Git
 
 Subagents do not run git add/commit/push and never edit docs/progress.md;
