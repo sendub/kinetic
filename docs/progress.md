@@ -634,5 +634,19 @@ truthful: an unchecked box means nothing was accepted.
       resumes the skip burst (a press during it still means stop); unit
       test in branches.test.ts, and the playall scenario requires the
       whole burst on ONE Tab press (green).
+- [ ] Saves keyed by id, not position (user, 2026-11-01: content updates
+      such as a prequel must keep saves valid). The seen set, position,
+      history, bookmarks and played/completed routes store item /
+      decision / route ids, so inserting, reordering or extending content
+      never re-points saved state. No migration: there are no released
+      games to stay compatible with (user), so old index-based saves are
+      simply dropped. Tests: a save made against one manifest restores
+      correctly against a manifest with items inserted before it.
+- [ ] Reach unseen content from anywhere (user, 2026-11-01): a key (e.g.
+      `u`) goes to the next unseen content wherever it is, earlier
+      content included (a prequel, a new mid-story route); a quiet
+      notice on resume when unseen content exists before the reader's
+      position. `e` stays "go to the end". Folds into the end card item
+      (the end card offers the same jump). Help, README, scenarios.
 - [ ] Phase-closer: full suite (driver, vitest, pytest, package-proof),
       rebuild BOTH demo folders, present the updated demo to the user.
