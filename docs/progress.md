@@ -241,9 +241,11 @@ truthful: an unchecked box means nothing was accepted.
       with migration from frontier-only states; bookmarks carry route
       context; restore + migration tests (ctx on PersistedState +
       bookmark records; DB stays v1; 245 tests, 2025-11-01)
-- [ ] Renderer: decision overlay (prompt + numbered routes, click and
+- [x] Renderer: decision overlay (prompt + numbered routes, click and
       1..9), route-end overlay (unseen routes + return-to-main or
       ending reselect), `Play all routes` toggle in `c`; verify steps
+      (280 tests; driver/docs resynced to first-unseen semantics; 33
+      steps green, 2025-11-01)
 - [ ] Demo fixture: shared lead-in, decision with continuing route +
       explicit-ending route (one nested mini-decision inside a route);
       determinism + validator green

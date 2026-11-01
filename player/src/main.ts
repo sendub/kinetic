@@ -11,7 +11,12 @@
 // player STARTS manual (README advance bullet; `a` toggles auto-forward),
 // and the help screen — the keymap's own table on a black screen — shows
 // before any advance until storage says `helpSeen`; opening it pauses the
-// machine and hides the stage, closing it resumes the same item.
+// machine and hides the stage, closing it resumes the same item. The
+// Phase 13 renderer half: the manifest's branch table goes into the
+// machine, the `#choice` overlay answers the machine's open decision
+// (prompt, numbered routes, return-to-main offer; help can open over it,
+// everything else yields to it), the story text hides while it waits, and
+// a bookmark restore re-enters the recorded route context.
 // Composition only — rendering lives in src/render/, timing in
 // src/machine/, storage adapters in src/storage/.
 
@@ -21,6 +26,11 @@ import { DEFAULT_SETTINGS } from "./machine/types";
 import { mountError, mountShell } from "./render/app";
 import { mountBookmarkOverlay } from "./render/bookmarks";
 import { captureVisualThumbnail } from "./render/capture";
+import {
+  enterActionFor,
+  inputOwnerFor,
+  mountChoiceOverlay,
+} from "./render/choice";
 import { mountConfigOverlay } from "./render/config";
 import { installFirstGestureFullscreen } from "./render/fullscreen";
 import { mountHelpOverlay } from "./render/help";
@@ -131,9 +141,14 @@ function start(): void {
       // The machine starts MANUAL (README advance bullet, docs/plan.md
       // Phase 13b): only the reader's presses move it until `a` turns
       // auto-forward on. The machine's own default is manual — not
-      // passing `autoAdvance` here is that default, stated.
+      // passing `autoAdvance` here is that default, stated. The manifest's
+      // branch table rides straight in (docs/content-format.md,
+      // "Branches"): the machine resolves it once and drops any decision
+      // whose references do not resolve; absent branches stay a linear
+      // novel, exactly as before.
       const machine = createMachine({
         items: manifest.items,
+        branches: manifest.branches,
         settings: currentSettings,
         ...resumeOptionsFor(persisted),
       });
@@ -209,12 +224,19 @@ function start(): void {
 
       // `t` (README `t` bullet): the bookmark list panel. It reads the list
       // fresh on every open (bookmarks taken since the last look show up),
-      // and an entry click continues the novel at that item — machine.goTo
-      // moves the cursor inside seen content and re-arms its timing.
+      // and an entry click continues the novel from that moment: a record
+      // with a ctx restores THROUGH it — importContext re-enters the item
+      // inside the route context the bookmark captured, an UNSETTLED
+      // arrival that fires no decision (same landing rule as a resume);
+      // a pre-Phase-13 record without one keeps the legacy plain-itemIndex
+      // navigation (machine.goTo).
       const overlay = mountBookmarkOverlay({
         root,
         items: manifest.items,
-        onPick: (itemIndex) => machine.goTo(itemIndex),
+        onPick: (target) => {
+          if (target.ctx !== undefined) machine.importContext(target.ctx);
+          else machine.goTo(target.itemIndex);
+        },
       });
       const showBookmarks = (): void => {
         // A storage outage reads as an empty list, not a dead key.
@@ -262,13 +284,34 @@ function start(): void {
         }
       }
 
-      // Mutual exclusion, centralized: exactly one full-screen screen is
-      // up at a time. While help is up only its closing actions do
-      // anything (the wiring below): `t` and `c` cannot open over it, and
-      // Escape closes what is open or opens help when nothing is. The
-      // future choice overlay takes a place in this same rule.
+      // The decision overlay (docs/plan.md Phase 13, render/choice.ts):
+      // it shows the machine's open `choice` and nothing else — every
+      // state change syncs it, so it appears when a decision fires and
+      // disappears the moment `choose()` / `chooseContinue()` answers it.
+      // A resume landing never re-fires a decision, so the panel is never
+      // open at load (the first-load help can never meet it).
+      const choice = mountChoiceOverlay({
+        root,
+        onPick: (routeIdx) => machine.choose(routeIdx),
+        onContinue: () => machine.chooseContinue(),
+      });
+      machine.subscribe((state) => {
+        if (state.choice !== undefined) choice.render(state.choice);
+        else choice.close();
+      });
+
+      // Mutual exclusion, centralized (the rule is stated pure in
+      // render/choice.ts as `inputOwnerFor`): the key HELP wins over
+      // everything — Escape opens it even over a pending choice, and the
+      // choice waits underneath, reappearing when help closes (help's
+      // machine pause/resume is inert while a decision's item is settled).
+      // A pending CHOICE owns everything else: `t`/`c` cannot open over
+      // it, `h`/`b`/`a` are inert, the timeline is suspended, and only
+      // its own inputs act (1..9, Enter with the offer, row clicks).
+      // Otherwise the story reads, and `t`/`c` are the open screens.
+      const owner = () => inputOwnerFor(help.isOpen(), choice.isOpen());
       const anyScreenOpen = () =>
-        overlay.isOpen() || config.isOpen() || help.isOpen();
+        overlay.isOpen() || config.isOpen() || help.isOpen() || choice.isOpen();
 
       // While a panel is open it takes precedence: the cursor-moving
       // commands (space/tab/e/wheel) are suspended until it closes. `b`
@@ -286,65 +329,94 @@ function start(): void {
         anyScreenOpen,
       );
 
-      installKeyMap(document, {
-        // Space over help closes it and is consumed — no advance (and on
-        // the first load it is also the first gesture, so fullscreen gets
-        // its request like any other first press; render/fullscreen.ts).
-        advance: () => {
-          if (help.isOpen()) {
-            closeHelp();
-            return;
-          }
-          timeline.advance();
+      installKeyMap(
+        document,
+        {
+          // Space over help closes it and is consumed — no advance (and on
+          // the first load it is also the first gesture, so fullscreen gets
+          // its request like any other first press; render/fullscreen.ts).
+          // Over a pending choice the gate below already swallows it: the
+          // decision is answered by its own keys, never by space.
+          advance: () => {
+            if (help.isOpen()) {
+              closeHelp();
+              return;
+            }
+            timeline.advance();
+          },
+          toggleText: () => {
+            if (owner() !== "story") return;
+            shell.toggleText();
+          },
+          toggleSkip: timeline.toggleSkip,
+          jumpToUnseen: timeline.jumpToUnseen,
+          bookmark: () => {
+            if (owner() !== "story") return;
+            void takeBookmark();
+          },
+          toggleBookmarks: () => {
+            if (owner() !== "story") return;
+            if (overlay.isOpen()) overlay.close();
+            else {
+              config.close();
+              showBookmarks();
+            }
+          },
+          toggleConfig: () => {
+            if (owner() !== "story") return;
+            if (config.isOpen()) config.close();
+            else {
+              overlay.close();
+              config.open();
+            }
+          },
+          // `a` (README auto-forward bullet): manual is the start, and `a`
+          // toggles auto-advance. Turning it off cancels the pending hold;
+          // a skip dwell keeps running — skipping is the reader's own run.
+          toggleAutoForward: () => {
+            if (owner() !== "story") return;
+            machine.setAutoAdvance(!machine.isAutoAdvance());
+          },
+          // Enter is owned by the screen (render/choice.ts's rule): it
+          // closes help, else takes the choice's "return to main route"
+          // when that offer is up, else it is inert.
+          closeHelp: () => {
+            const action = enterActionFor(
+              owner(),
+              machine.getState().choice?.continueOption === true,
+            );
+            if (action === "close-help") closeHelp();
+            else if (action === "continue") machine.chooseContinue();
+          },
+          // Escape (docs/plan.md Phase 13b, extended by 13): closes help,
+          // else closes the open `t`/`c` panel, else opens help — and
+          // "else" includes OVER a pending choice: help wins over
+          // everything (the declared exception to choice ownership), the
+          // decision waits underneath and is still open when help closes.
+          // A choice is never closed by Escape: only its own answer ends
+          // it. `t`/`c` can never be open while one is, so they need no
+          // case here.
+          dismissOverlay: () => {
+            if (help.isOpen()) {
+              closeHelp();
+              return;
+            }
+            if (config.isOpen() || overlay.isOpen()) {
+              config.close();
+              overlay.close();
+              return;
+            }
+            openHelp(); // Escape with nothing up opens help
+          },
         },
-        toggleText: () => {
-          if (help.isOpen()) return;
-          shell.toggleText();
+        // 1..9 answer a pending decision (render/keys.ts's route digits).
+        // The owner check lives here: with no choice open a digit is
+        // inert, and with help up help owns the screen.
+        (routeIdx) => {
+          if (owner() !== "choice") return;
+          machine.choose(routeIdx);
         },
-        toggleSkip: timeline.toggleSkip,
-        jumpToUnseen: timeline.jumpToUnseen,
-        bookmark: () => {
-          if (help.isOpen()) return;
-          void takeBookmark();
-        },
-        toggleBookmarks: () => {
-          if (help.isOpen()) return;
-          if (overlay.isOpen()) overlay.close();
-          else {
-            config.close();
-            showBookmarks();
-          }
-        },
-        toggleConfig: () => {
-          if (help.isOpen()) return;
-          if (config.isOpen()) config.close();
-          else {
-            overlay.close();
-            config.open();
-          }
-        },
-        // `a` (README auto-forward bullet): manual is the start, and `a`
-        // toggles auto-advance. Turning it off cancels the pending hold;
-        // a skip dwell keeps running — skipping is the reader's own run.
-        toggleAutoForward: () => {
-          if (help.isOpen()) return;
-          machine.setAutoAdvance(!machine.isAutoAdvance());
-        },
-        // Enter closes help from anywhere; with help closed it is inert.
-        closeHelp: () => closeHelp(),
-        dismissOverlay: () => {
-          if (help.isOpen()) {
-            closeHelp();
-            return;
-          }
-          if (config.isOpen() || overlay.isOpen()) {
-            config.close();
-            overlay.close();
-            return;
-          }
-          openHelp(); // Escape with nothing up opens help
-        },
-      });
+      );
       installWheelInput(document, {
         wheelBack: timeline.wheelBack,
         wheelForward: timeline.wheelForward,

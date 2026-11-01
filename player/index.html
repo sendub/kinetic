@@ -360,6 +360,95 @@
         color: rgba(244, 239, 230, 0.8);
         font-size: clamp(12px, 1.6vh, 18px);
       }
+      /* Decision overlay (docs/plan.md Phase 13): the machine's open
+         choice drawn as a prompt over its numbered routes. z 5: it never
+         coexists with the bookmark/config panels (one screen at a time),
+         and the key help — the one screen that may open OVER a pending
+         choice — stays above it at z 6; #flash (z 10) is unaffected.
+         Rows are buttons so a pointer click is the row's own; the seen
+         marker rides at the row's end. Look is minimal like the panels
+         above: a later iteration with the user. */
+      #choice {
+        position: absolute;
+        inset: 0;
+        z-index: 5;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        gap: clamp(12px, 2.4vh, 28px);
+        padding: clamp(16px, 3vh, 36px) clamp(20px, 6vw, 88px);
+        background: rgba(8, 8, 10, 0.94);
+        color: var(--ink);
+        font-family: var(--ui-font);
+      }
+      #choice[hidden] {
+        display: none;
+      }
+      .choice-title {
+        margin: 0;
+        max-width: 60ch;
+        color: var(--accent);
+        font-size: clamp(16px, 2.4vh, 26px);
+        font-weight: 600;
+        line-height: 1.35;
+        letter-spacing: 0.02em;
+      }
+      .choice-hint {
+        margin: 0;
+        color: rgba(244, 239, 230, 0.55);
+        font-size: clamp(10px, 1.2vh, 13px);
+      }
+      .choice-list {
+        display: flex;
+        flex-direction: column;
+        gap: clamp(6px, 1.2vh, 14px);
+        max-width: 72ch;
+      }
+      .choice-row {
+        display: flex;
+        align-items: center;
+        gap: clamp(10px, 2vw, 18px);
+        padding: clamp(8px, 1.6vh, 16px) clamp(12px, 2vw, 22px);
+        border: 1px solid rgba(244, 239, 230, 0.28);
+        border-radius: 8px;
+        background: rgba(18, 18, 22, 0.9);
+        color: var(--ink);
+        font: inherit;
+        font-size: clamp(14px, 1.9vh, 21px);
+        text-align: left;
+        cursor: pointer;
+      }
+      .choice-row:hover,
+      .choice-row:focus-visible {
+        border-color: var(--accent);
+        background: rgba(30, 28, 24, 0.95);
+      }
+      .choice-continue {
+        border-style: dashed;
+      }
+      .choice-num {
+        flex: none;
+        min-width: 2.2em;
+        padding: clamp(2px, 0.5vh, 5px) clamp(6px, 1.2vw, 12px);
+        border: 1px solid rgba(244, 239, 230, 0.28);
+        border-radius: 5px;
+        background: rgba(10, 10, 12, 0.9);
+        color: var(--accent);
+        font-size: clamp(11px, 1.4vh, 16px);
+        letter-spacing: 0.06em;
+        text-align: center;
+      }
+      .choice-label {
+        flex: 1;
+        line-height: 1.4;
+      }
+      .choice-seen {
+        flex: none;
+        color: rgba(244, 239, 230, 0.5);
+        font-size: clamp(10px, 1.2vh, 13px);
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+      }
     </style>
   </head>
   <body>

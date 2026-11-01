@@ -285,7 +285,8 @@ const OVERLAY_CLOSED = () => {
 const panelOpen = (page) => page.evaluate(OVERLAY_OPEN);
 
 // The `c` config screen as the reader sees it: the speed readout, the
-// skip-all switch's aria state, and the rects the driver clicks.
+// skip-all and play-all-routes switches' aria state, and the rects the
+// driver clicks.
 const READ_CONFIG_OVERLAY = () => {
   const panel = document.getElementById("config");
   if (panel === null) return { present: false };
@@ -296,6 +297,7 @@ const READ_CONFIG_OVERLAY = () => {
     return { top: r.top, bottom: r.bottom, left: r.left, right: r.right };
   };
   const toggle = document.querySelector(".config-skip-all");
+  const playToggle = document.querySelector(".config-play-all");
   return {
     present: true,
     hidden: false,
@@ -312,6 +314,9 @@ const READ_CONFIG_OVERLAY = () => {
     skipLabel: toggle?.textContent ?? null,
     skipPressed: toggle?.getAttribute("aria-pressed") ?? null,
     skipRect: rectOf(toggle),
+    playLabel: playToggle?.textContent ?? null,
+    playPressed: playToggle?.getAttribute("aria-pressed") ?? null,
+    playRect: rectOf(playToggle),
   };
 };
 
@@ -1535,12 +1540,16 @@ async function main() {
 
     // 24. Clicking the OLDER entry (item 7, at the top of the list) closes
     // the panel and continues the novel from that time point (README `t`
-    // bullet): machine.goTo lands the cursor on the bookmarked item
-    // UNSETTLED and never moves the frontier. A space press settles the
-    // re-shown line in place (a settled arrival would have moved), and `e`
+    // bullet): the record carries a ctx, so the restore goes through
+    // `machine.importContext` — the cursor lands on the bookmarked item
+    // UNSETTLED inside its recorded context, and the seen set comes back
+    // as it was captured, never shrinking the frontier. A space press
+    // settles the re-shown line in place (a settled arrival would have
+    // moved), and `e`
     // afterwards steps to the first UNSEEN item — part-013 (item 12):
     // the walk's seen run is 0..11, since step 20's resumed hold entered
-    // part-012 on its own. goTo moved the cursor only inside seen content,
+    // part-012 on its own. The restore moved the cursor only inside seen
+    // content,
     // and `e` lands exactly at the frontier edge (the LAST item). A space
     // settles it there so the steps below hold the position. The click is
     // a trusted CDP mouse event at the entry's rect.
@@ -1583,7 +1592,7 @@ async function main() {
     record(
       "24. clicking the older entry continues from that item; e proves the frontier unchanged",
       s24Landed && s24FrontierOk ? "PASS" : "FAIL",
-      `click on entry #7 closed the panel (bookmarksOpen=${String(s24.bookmarksOpen)}); the player continued at line-008 over the intro-006 video (text=${JSON.stringify(s24.text)}); the arrival was UNSETTLED: one space settled it in place (still line-008=${String(s24Held.text === EXPECTED.line008Text)}); e then stepped onto ${JSON.stringify(s24e.video?.poster || s24e.imgSrc)} — item 12, the first unseen item (0..11 had been shown — step 20's resumed hold entered part-012): the frontier is exactly where the walk left it, so goTo moved the cursor only inside seen content`,
+      `click on entry #7 closed the panel (bookmarksOpen=${String(s24.bookmarksOpen)}); the player continued at line-008 over the intro-006 video (text=${JSON.stringify(s24.text)}); the arrival was UNSETTLED: one space settled it in place (still line-008=${String(s24Held.text === EXPECTED.line008Text)}); e then stepped onto ${JSON.stringify(s24e.video?.poster || s24e.imgSrc)} — item 12, the first unseen item (0..11 had been shown — step 20's resumed hold entered part-012): the frontier is exactly where the walk left it, so the ctx restore moved the cursor only inside seen content`,
     );
 
     // 25. The other ways in and out of the panel: `t` reopens it (the list
@@ -1667,9 +1676,10 @@ async function main() {
     // bullet): the panel shows the current reading speed (the default) and
     // the skip-all state; while it is open the timeline is suspended by the
     // same gate as the `t` panel (space, tab, e and the wheel must not move
-    // the cursor behind it); clicking the switch turns skip-all on; a click
+    // the cursor behind it); clicking the switches turns skip-all and the
+    // Phase 13 play-all-routes on (both default off); a click
     // on the title strip is backdrop and closes; `c` reopens the panel
-    // showing the value now in force, and `c` again closes it. This `c` is
+    // showing the values now in force, and `c` again closes it. This `c` is
     // the first key after step 26's reload, so the page also entered
     // fullscreen here — step 28's Escape accounts for that, the fullscreen
     // caveat OBSERVED there.
@@ -1682,7 +1692,9 @@ async function main() {
       s27open.title === "Config" &&
       s27open.speedValue === "1.00x — ~60 ms/char" &&
       s27open.skipPressed === "false" &&
-      s27open.skipLabel === "Off";
+      s27open.skipLabel === "Off" &&
+      s27open.playPressed === "false" && // play-all-routes defaults off
+      s27open.playLabel === "Off";
     const s27sigBefore = await readSignature(page);
     await pressSpace(cdp);
     await pressTab(cdp);
@@ -1692,16 +1704,24 @@ async function main() {
     const s27sigAfter = await readSignature(page);
     const s27Toggled = await page.evaluate(READ_CONFIG_OVERLAY);
     await clickCenter(cdp, s27Toggled.skipRect); // flip skip-all ON
+    await clickCenter(cdp, s27Toggled.playRect); // flip play-all-routes ON
     const s27toggled = await page.evaluate(READ_CONFIG_OVERLAY);
     const s27ToggleOk =
       s27toggled.hidden === false &&
       s27toggled.skipPressed === "true" &&
-      s27toggled.skipLabel === "On";
+      s27toggled.skipLabel === "On" &&
+      s27toggled.playPressed === "true" &&
+      s27toggled.playLabel === "On";
     await clickCenter(cdp, s27toggled.titleRect); // backdrop click closes
     const s27Closed = await configOpen(page);
     await pressC(cdp); // reopen: shows the value now in force
     await page.waitForFunction(CONFIG_OPEN, { timeout: 5000 });
     const s27again = await page.evaluate(READ_CONFIG_OVERLAY);
+    // Flip play-all back to its default before leaving the panel: this
+    // linear demo has no decisions for it to auto-play, and the walk's
+    // record stays default-clean for the steps after this one.
+    await clickCenter(cdp, s27again.playRect);
+    const s27playOff = await page.evaluate(READ_CONFIG_OVERLAY);
     await pressC(cdp); // c closes again
     const s27ClosedAgain = await configOpen(page);
     const s27Ok =
@@ -1711,11 +1731,13 @@ async function main() {
       s27Closed === false &&
       s27again.hidden === false &&
       s27again.skipPressed === "true" &&
+      s27again.playPressed === "true" &&
+      s27playOff.playPressed === "false" &&
       s27ClosedAgain === false;
     record(
       "27. c opens the config screen: values shown, timeline suspended, toggle/backdrop/c behave",
       s27Ok ? "PASS" : "FAIL",
-      `panel opened over paint ${JSON.stringify(s27bg)}; defaults read speed=${JSON.stringify(s27open.speedValue)} skipAll=${String(s27open.skipPressed)}; while open, space+tab+e+wheel-up changed nothing (${String(s27sigAfter === s27sigBefore)}); clicking the switch: aria-pressed=${String(s27toggled.skipPressed)} label=${JSON.stringify(s27toggled.skipLabel)}; backdrop (title strip) click closed=${String(s27Closed === false)}; c reopened showing aria-pressed=${String(s27again.skipPressed)} and c closed it again=${String(s27ClosedAgain === false)}; the panel is #config, z-index 5 under #flash, with exactly the two README settings`,
+      `panel opened over paint ${JSON.stringify(s27bg)}; defaults read speed=${JSON.stringify(s27open.speedValue)} skipAll=${String(s27open.skipPressed)} playAll=${String(s27open.playPressed)}; while open, space+tab+e+wheel-up changed nothing (${String(s27sigAfter === s27sigBefore)}); clicking the switches: skip aria-pressed=${String(s27toggled.skipPressed)} label=${JSON.stringify(s27toggled.skipLabel)}, play-all aria-pressed=${String(s27toggled.playPressed)} label=${JSON.stringify(s27toggled.playLabel)}; backdrop (title strip) click closed=${String(s27Closed === false)}; c reopened showing skip aria-pressed=${String(s27again.skipPressed)} play-all aria-pressed=${String(s27again.playPressed)}, play-all flipped back to ${String(s27playOff.playPressed)} and c closed it again=${String(s27ClosedAgain === false)}; the panel is #config, z-index 5 under #flash, holding the player's settings: reading speed, skip-all, play-all-routes (Phase 13)`,
     );
 
     // 28. A changed setting applies live, and survives a reload (the

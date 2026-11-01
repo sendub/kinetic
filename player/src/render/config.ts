@@ -1,9 +1,10 @@
 // The `c` config screen (docs/plan.md Phase 9, README `c` bullet): a
-// minimal panel holding exactly the two settings the README names — the
-// configurable reading speed (its stepper maps to `readingSpeed`,
-// 0.25-3.0 in 0.25 steps, and the readout shows the multiplier and the
-// per-character allowance it gives) and the `tab` bullet's "skip all"
-// config option (the `skipAll` boolean). No other UI.
+// minimal panel holding the player's settings — the configurable reading
+// speed (its stepper maps to `readingSpeed`, 0.25-3.0 in 0.25 steps, and
+// the readout shows the multiplier and the per-character allowance it
+// gives), the `tab` bullet's "skip all" config option (the `skipAll`
+// boolean), and Phase 13's `playAllRoutes` zero-interactivity route
+// playback. No other UI.
 //
 // Every control click produces the full next settings through `onChange`,
 // so the shell applies it live (machine.setSettings) and persists it from
@@ -44,6 +45,11 @@ export function speedLabel(readingSpeed: number, msPerChar: number): string {
 /** The skip-all switch's text state, mirroring its aria-pressed value. */
 export function skipAllLabel(skipAll: boolean): string {
   return skipAll ? "On" : "Off";
+}
+
+/** The play-all-routes switch's text state, same two states (Phase 13). */
+export function playAllLabel(playAllRoutes: boolean): string {
+  return playAllRoutes ? "On" : "Off";
 }
 
 export interface ConfigOverlay {
@@ -115,7 +121,21 @@ export function mountConfigOverlay({
   skipToggle.setAttribute("data-config-action", "skip-all");
   skipRow.append(skipLabelEl, skipToggle);
 
-  panel.append(title, hint, speedRow, skipRow);
+  // `Play all routes` (docs/plan.md Phase 13): zero-interactivity route
+  // playback, its own persisted setting like skip-all.
+  const playRow = doc.createElement("div");
+  playRow.className = "config-row";
+  const playLabelEl = doc.createElement("span");
+  playLabelEl.className = "config-label";
+  playLabelEl.textContent = "Play all routes";
+  const playToggle = doc.createElement("button");
+  playToggle.className = "config-toggle config-play-all";
+  playToggle.type = "button";
+  playToggle.setAttribute("role", "switch");
+  playToggle.setAttribute("data-config-action", "play-all");
+  playRow.append(playLabelEl, playToggle);
+
+  panel.append(title, hint, speedRow, skipRow, playRow);
   root.appendChild(panel);
 
   // The values on show, kept so the next control click edits the whole
@@ -127,6 +147,8 @@ export function mountConfigOverlay({
     speedValue.textContent = speedLabel(next.readingSpeed, next.msPerChar);
     skipToggle.textContent = skipAllLabel(next.skipAll);
     skipToggle.setAttribute("aria-pressed", String(next.skipAll));
+    playToggle.textContent = playAllLabel(next.playAllRoutes);
+    playToggle.setAttribute("aria-pressed", String(next.playAllRoutes));
   }
 
   function move(next: MachineSettings): void {
@@ -151,6 +173,8 @@ export function mountConfigOverlay({
       move({ ...current, readingSpeed: stepSpeed(current.readingSpeed, 1) });
     } else if (action === "skip-all") {
       move({ ...current, skipAll: !current.skipAll });
+    } else if (action === "play-all") {
+      move({ ...current, playAllRoutes: !current.playAllRoutes });
     }
   });
 

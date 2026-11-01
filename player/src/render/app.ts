@@ -55,6 +55,15 @@ export function mountShell({ root, manifest, machine }: ShellOptions): Shell {
   });
   const captions = createTextOverlayLayer(overlay);
   let textVisible = true;
+  // The decision overlay hides the story text while it waits for an
+  // answer (docs/plan.md Phase 13): a caption under the prompt would be
+  // the item the decision hangs off, not anything the reader can act on.
+  // `h` keeps its own state underneath — closing the choice restores it.
+  let choiceOpen = false;
+
+  function applyCaptions(): void {
+    captions.setHidden(!textVisible || choiceOpen);
+  }
 
   function render(state: MachineState): void {
     // The visual is the machine's, so a `text` item keeps the earlier media
@@ -62,11 +71,13 @@ export function mountShell({ root, manifest, machine }: ShellOptions): Shell {
     // (still / loop-once / loop-forever) derives from the same state.
     visuals.update(manifest.items[machine.visualIndex()], state);
     captions.update(manifest.items[state.cursor]);
+    choiceOpen = state.choice !== undefined;
+    applyCaptions();
   }
 
   function setTextVisible(visible: boolean): void {
     textVisible = visible;
-    captions.setHidden(!visible);
+    applyCaptions();
   }
 
   // The confirmation flash (docs/plan.md Phase 8): a pill centred near the

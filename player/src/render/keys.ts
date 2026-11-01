@@ -1,4 +1,4 @@
-// The key map (docs/plan.md Phases 5, 7, 8, 9, 13b). Owns key -> command
+// The key map (docs/plan.md Phases 5, 7, 8, 9, 13, 13b). Owns key -> command
 // translation and nothing else: commands go to the machine or the shell,
 // no state lives here. The wheel is a separate module (render/wheel.ts)
 // because a wheel event is not a key. The key help overlay renders this
@@ -104,7 +104,8 @@ export interface KeyHelpEntry {
  */
 const HELP_ROWS: ReadonlyArray<{
   command: KeyCommand | null;
-  wheelLabel?: string;
+  /** Label for a non-command row (the wheel, the decision digits). */
+  plainLabel?: string;
   description: string;
 }> = [
   {
@@ -113,8 +114,14 @@ const HELP_ROWS: ReadonlyArray<{
   },
   {
     command: null,
-    wheelLabel: "wheel",
+    plainLabel: "wheel",
     description: "roll back one item, or forward again through what you read",
+  },
+  {
+    command: null,
+    plainLabel: "1-9 / Enter",
+    description:
+      "while a decision is shown: pick that route / return to the main route",
   },
   {
     command: "toggleSkip",
@@ -128,7 +135,10 @@ const HELP_ROWS: ReadonlyArray<{
   { command: "bookmark", description: "bookmark this moment" },
   { command: "toggleBookmarks", description: "show or hide the bookmark list" },
   { command: "jumpToUnseen", description: "jump to the last item you read" },
-  { command: "toggleConfig", description: "config: reading speed, skip-all" },
+  {
+    command: "toggleConfig",
+    description: "config: reading speed, skip-all, play-all-routes",
+  },
   { command: "closeHelp", description: "close this help" },
   {
     command: "dismissOverlay",
@@ -148,7 +158,7 @@ export function keyHelpEntries(): KeyHelpEntry[] {
     command: row.command,
     keys:
       row.command === null
-        ? [row.wheelLabel ?? "wheel"]
+        ? [row.plainLabel ?? "wheel"]
         : entryKeysFor(row.command),
     description: row.description,
   }));
@@ -162,6 +172,21 @@ export function keyHelpEntries(): KeyHelpEntry[] {
 export function commandForKey(key: string, repeat: boolean): KeyCommand | null {
   if (repeat) return null;
   return KEY_TABLE.get(key) ?? null;
+}
+
+/**
+ * The decision overlay's digit input (docs/content-format.md, "Branches"):
+ * `1`..`9` select route indices 0..8. Kept OUT of `KEY_TABLE` deliberately:
+ * the table maps keys to zero-argument commands, while a digit carries a
+ * parameter and is only meaningful while a choice is open — the shell
+ * (main.ts) owns that context and drops the digit when no choice is up.
+ * The overlay itself numbers its rows, so the keys are discoverable there;
+ * a help row (below) names them for the screen as a whole.
+ */
+export function routeIndexForKey(key: string, repeat: boolean): number | null {
+  if (repeat) return null;
+  if (key.length !== 1 || key < "1" || key > "9") return null;
+  return key.charCodeAt(0) - "1".charCodeAt(0);
 }
 
 /**
@@ -212,18 +237,32 @@ export function suspendTimeline(
  * Installs the key map; returns a function that removes it. `preventDefault`
  * covers every mapped key: space would otherwise scroll the document behind
  * the player, and Tab would otherwise move focus out of it.
+ *
+ * `onRouteDigit`, when given, receives route digits (`routeIndexForKey`)
+ * for keys no mapped command claims — the decision overlay's 1..9. The
+ * callback owns the context check: a digit arriving with no choice open is
+ * dropped by the shell, and stays inert either way.
  */
 export function installKeyMap(
   target: EventTarget,
   commands: KeyCommands,
+  onRouteDigit?: (index: number) => void,
 ): () => void {
   const onKeyDown = (event: Event): void => {
     const keydown = event as KeyboardEvent;
     if (typeof keydown.key !== "string") return;
-    const command = commandForKey(keydown.key, keydown.repeat === true);
-    if (command === null) return;
+    const repeat = keydown.repeat === true;
+    const command = commandForKey(keydown.key, repeat);
+    if (command !== null) {
+      keydown.preventDefault();
+      commands[command]();
+      return;
+    }
+    if (onRouteDigit === undefined) return;
+    const index = routeIndexForKey(keydown.key, repeat);
+    if (index === null) return;
     keydown.preventDefault();
-    commands[command]();
+    onRouteDigit(index);
   };
   target.addEventListener("keydown", onKeyDown);
   return () => target.removeEventListener("keydown", onKeyDown);

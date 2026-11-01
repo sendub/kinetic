@@ -26,10 +26,12 @@ export const EMPTY_MESSAGE = "No bookmarks yet — press b";
  * routes existed — it is the plain itemIndex navigation (a fresh
  * navigation with no route frames). Pure: the restore wiring applies it.
  */
-export function bookmarkRestoreTarget(record: Bookmark): {
-  itemIndex: number;
-  ctx?: MachineContext;
-} {
+export interface BookmarkRestore {
+  readonly itemIndex: number;
+  readonly ctx?: MachineContext;
+}
+
+export function bookmarkRestoreTarget(record: Bookmark): BookmarkRestore {
   return record.ctx === undefined
     ? { itemIndex: record.itemIndex }
     : { itemIndex: record.itemIndex, ctx: record.ctx };
@@ -114,8 +116,12 @@ export interface BookmarkOverlayOptions {
   root: HTMLElement;
   /** The manifest, for thumbnails derived from item stills. */
   items: readonly Item[];
-  /** An entry was clicked: the caller jumps the machine to `itemIndex`. */
-  onPick(itemIndex: number): void;
+  /**
+   * An entry was clicked: the caller restores what the bookmark recorded
+   * — `bookmarkRestoreTarget` decides between ctx restore and the legacy
+   * itemIndex navigation.
+   */
+  onPick(target: BookmarkRestore): void;
 }
 
 export function mountBookmarkOverlay({
@@ -148,11 +154,15 @@ export function mountBookmarkOverlay({
   panel.append(title, hint, list, empty);
   root.appendChild(panel);
 
-  function entryElement(bookmark: Bookmark): HTMLElement {
+  function entryElement(bookmark: Bookmark, position: number): HTMLElement {
     const entry = doc.createElement("button");
     entry.className = "bookmark-entry";
     entry.type = "button";
     entry.setAttribute("data-item-index", String(bookmark.itemIndex));
+    // Which record of the last-rendered list this row is: the click
+    // resolves the full bookmark through it, so the restore can carry the
+    // record's ctx (Phase 13) rather than just its itemIndex.
+    entry.setAttribute("data-entry-index", String(position));
 
     const src = entryThumbSrc(bookmark, items);
     if (src !== null) {
@@ -183,6 +193,10 @@ export function mountBookmarkOverlay({
     return entry;
   }
 
+  // The records behind the rows currently rendered, so a click restores
+  // the FULL bookmark (ctx and all), not just the position it points at.
+  let shown: readonly Bookmark[] = [];
+
   // One listener for the whole panel: an entry click picks and closes; a
   // click anywhere outside the scroll list is backdrop and only closes.
   // Clicks inside the list but between entries are left alone — that area
@@ -192,9 +206,13 @@ export function mountBookmarkOverlay({
     const entry =
       target instanceof Element ? target.closest(".bookmark-entry") : null;
     if (entry !== null) {
-      const itemIndex = Number(entry.getAttribute("data-item-index"));
+      const position = Number(entry.getAttribute("data-entry-index"));
+      const record =
+        Number.isInteger(position) && position >= 0
+          ? shown[position]
+          : undefined;
       close();
-      if (Number.isInteger(itemIndex) && itemIndex >= 0) onPick(itemIndex);
+      if (record !== undefined) onPick(bookmarkRestoreTarget(record));
       return;
     }
     if (target instanceof Element && list.contains(target)) return;
@@ -203,7 +221,10 @@ export function mountBookmarkOverlay({
 
   function render(bookmarks: readonly Bookmark[]): void {
     const ordered = listOrder(bookmarks);
-    list.replaceChildren(...ordered.map(entryElement));
+    shown = ordered;
+    list.replaceChildren(
+      ...ordered.map((bookmark, position) => entryElement(bookmark, position)),
+    );
     list.hidden = ordered.length === 0;
     empty.hidden = ordered.length !== 0;
     panel.hidden = false;

@@ -4,6 +4,7 @@ import {
   commandForKey,
   keyHelpEntries,
   mappedKeys,
+  routeIndexForKey,
   suspendTimeline,
 } from "./keys";
 
@@ -69,6 +70,21 @@ describe("commandForKey", () => {
     for (const key of ["constructor", "toString", "hasOwnProperty"]) {
       expect(commandForKey(key, false)).toBeNull();
     }
+  });
+});
+
+describe("routeIndexForKey (the decision overlay's 1..9, Phase 13)", () => {
+  it("maps the digits to route indices 0..8", () => {
+    expect(routeIndexForKey("1", false)).toBe(0); // index 0: a digit, not "absent"
+    expect(routeIndexForKey("5", false)).toBe(4);
+    expect(routeIndexForKey("9", false)).toBe(8);
+  });
+
+  it("leaves everything else — 0, letters, repeats — unmapped", () => {
+    expect(routeIndexForKey("0", false)).toBeNull();
+    expect(routeIndexForKey("a", false)).toBeNull();
+    expect(routeIndexForKey("Enter", false)).toBeNull();
+    expect(routeIndexForKey("1", true)).toBeNull();
   });
 });
 
@@ -159,5 +175,11 @@ describe("keyHelpEntries (the help lists the map itself, Phase 13b)", () => {
 
   it("lists the wheel — not a key, but a control all the same", () => {
     expect(listedLabels().has("wheel")).toBe(true);
+  });
+
+  it("lists the decision digits and Enter — the choice overlay's own keys", () => {
+    // The digits live outside KEY_TABLE (they carry a parameter and belong
+    // to one context), so this row is the help's promise about them.
+    expect(listedLabels().has("1-9 / Enter")).toBe(true);
   });
 });

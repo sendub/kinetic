@@ -15,10 +15,12 @@ thought, `"speech"` for dialogue — so CSS can draw the two differently
 (thought italic, dialogue upright); the Phase 8 bookmark set: `b`
 appends timestamped records with a confirmation flash, `t` opens the
 thumbnail list oldest-first and scrolled to the newest, clicking an entry
-continues the novel from that time point, and the frontier survives a
-reload and an `e`-verified bookmark jump; the Phase 9 config set:
-`c` opens the config screen showing the current reading speed and
-skip-all state, its controls change the settings live — a measured
+continues the novel from that time point — since Phase 13 through the
+route-play context recorded with the bookmark — and the reading state
+survives a reload and an `e`-verified bookmark jump; the Phase 9 config
+set: `c` opens the config screen showing the current reading speed,
+skip-all, and (Phase 13) play-all-routes state, its controls change the
+settings live — a measured
 auto-advance proves the re-armed hold — and the changed values survive
 a reload; and the Phase 9b/9c short-video set: two items sharing ONE
 2 s clip at different playback ranges — `part-012` plays [0, 1] once and
@@ -33,11 +35,20 @@ video (the element's own loop would seek to 0). No frame-exact claims
 anywhere: steps 27-28 MEASURE what the browser actually presented and
 record the observed boundary tolerances (under "measured boundary
 guarantee" below). The key
-map today holds space, `h`, `tab`, `e`, `b`, `t`, `c` and Escape; the
-wheel has its own module (`render/wheel.ts`), because a wheel event is
-not a key. While the `t` or `c` overlay is open the
+map today holds space, `h`, `tab`, `e`, `b`, `t`, `c`, `a`, Enter and
+Escape (Phase 13b), plus the 1..9 route digits of a pending decision
+(Phase 13); the wheel has its own module (`render/wheel.ts`), because a
+wheel event is not a key. While the `t` or `c` overlay is open the
 cursor-moving commands (space, `tab`, `e`, wheel) are suspended — the
-overlay takes precedence; `b` and `h` keep working.
+overlay takes precedence; `b` and `h` keep working. The `#help` screen
+(Phase 13b) pauses the machine behind a black page; a pending branch
+decision (the `#choice` overlay, Phase 13) owns the input — digits,
+Enter with the return offer, row clicks — and suspends the timeline,
+with only help allowed to open over it. The decision overlay's
+end-to-end walk arrives with the branch fixture; its row model, input
+precedence and Enter rule are pinned by `render/choice.test.ts`, the
+route digits by `render/keys.test.ts`, and `Play all routes` defaults
+off in the `c` screen (walked at step 25).
 
 ## Run it
 
@@ -56,9 +67,10 @@ overwritten), `.tmp/verify-demo-empty` from the `dist` stub manifest, and
 640x960 by `sips` while its manifest still says 960x540, the one shape
 that tells the asset's aspect ratio apart from the manifest's — then
 drives every step below and prints `PASS`, `PARTIAL`, or `FAIL` per step.
-The Chrome profile is wiped before launch: Phase 8 put the frontier and
-the bookmark list into IndexedDB, and a run must start from the
-first-ever-load state a fresh machine has. Every input is real CDP Input:
+The Chrome profile is wiped before launch: IndexedDB holds the reading
+state and the bookmark list (since Phase 13 the state record is the
+machine's route-play ctx, with `frontier` a derived legacy field), and
+a run must start from the first-ever-load state a fresh machine has. Every input is real CDP Input:
 `Input.dispatchKeyEvent` for keys, `Input.dispatchMouseEvent` `mouseWheel`
 for the wheel and `mousePressed`/`mouseReleased` for the clicks on the
 `t` list and the `c` controls. All arrive trusted, so the fullscreen
@@ -72,8 +84,8 @@ thumbnails), and the `c` panel is read as its readout and switch state.
 Steps 21 and 30 are the exceptions on inputs: they set the
 viewport themselves, the way rotating a phone does, and step 30's pages
 open in fresh browser contexts — their own storage, so each is a
-first-ever load on item 1's image, untouched by the frontier the main
-walk persisted (steps 27-28 push that frontier onto part-013, a video).
+first-ever load on item 1's image, untouched by the seen edge the main
+walk persisted (steps 27-28 push that edge onto part-013, a video).
 Exit code is 0 when
 every step is PASS or PARTIAL, 1 on any FAIL.
 
@@ -93,11 +105,14 @@ For step 19, the demo's two thought lines — line-008 over the looping
 video, line-011 over the pier still — should read italic, and every other
 line upright. For steps 20-23 press `b` at two different items (wheel
 back once in between), `t` to see the list at the bottom, click the
-older entry, `e` to return; note the first Escape belongs to the browser
+older entry, `e` to step onto the first unseen item; note the first
+Escape belongs to the browser
 while fullscreen (it leaves fullscreen), so the overlay's second Escape
 is what closes it. For steps 25-26 press `c` for the config screen,
-click the stepper's `+` and the skip-all switch to change settings live,
-close with backdrop, `c` or the second Escape, and reload to see the
+click the stepper's `+` and the skip-all switch to change settings live
+(the play-all-routes switch is flipped the same way, and back to off
+before the walk continues), close with backdrop, `c` or the second
+Escape, and reload to see the
 changed values read back at startup (set them back afterwards, or the
 next manual walk starts at the reader's own pace — which is the point).
 For steps 27-28 advance to the demo's last two items, which share one
@@ -107,18 +122,29 @@ snap back to 1.5 s — not to 1 s — show the rest once more, then hold
 near the end: a 1.0 s pass then a 0.5 s pass, no third pass, and `loop`
 never checked anywhere on the element.
 
-Results below were walked on 2026-10-31 by the driver on headless Chrome
-156.0.8078.76, multiple times with the same statuses (31 steps: 30 pass,
-1 honest partial; the evidence lines differ only in bookmark timestamps,
-sampled video `currentTime`, the step-27/28 boundary measurements and
-range-frame counts, skip-dwell timings and the step-26 hold
-measurement). The fit rule in step
+Results below were walked on 2026-10-31 by the driver on headless
+Chrome 156.0.8078.76 and re-walked on 2026-11-01 after the Phase 13
+resync, both times multiple runs with the same statuses — now 33 steps:
+32 pass, 1 honest partial (the two added steps cover Phase 13b's
+first-load help and manual/auto behavior; the evidence lines differ only
+in bookmark timestamps, sampled video `currentTime`, boundary
+measurements and range-frame counts, skip-dwell timings and the hold
+measurement). The headings keep the checklist's own numbering; the
+entries reworded for the Phase 13 seen/jump semantics — the wheel clamp,
+skip's stop, `e`, the bookmark click, the reload resume and the config
+screen — re-record their results on 2026-11-01 under the driver's
+current step numbers, and entries not reworded keep the numbers they
+were recorded under. The fit rule in step
 30 is pinned twice over: the pure `containFit` in `render/fit.ts` is
 unit-tested, and the driver imports that same function as its expectation,
 so the two cannot drift. The `t` list's pure rules (order,
 scroll-to-bottom, timestamp, thumbnail fallback) are unit-tested in
 `render/bookmarks.test.ts`, and the overlay's precedence rule
-(`suspendTimeline`) in `render/keys.test.ts`. The `c` screen's pure rules
+(`suspendTimeline`) in `render/keys.test.ts`. The decision overlay's pure
+rules (the row model from a `ChoiceView`, the input-owner precedence
+help > choice > story, the Enter rule, the route digits and their help
+row) are unit-tested in `render/choice.test.ts` and
+`render/keys.test.ts`. The `c` screen's pure rules
 (speed stepper steps and clamps, the readout text) are unit-tested in
 `render/config.test.ts`, the live-change semantics of `readingSpeed` and
 `skipAll` in `machine.test.ts`, and the settings' storage round-trip in
@@ -330,14 +356,17 @@ tolerances below. Walked 2026-10-31, headless Chrome 156.0.8078.76:
   times.
 - Expected: past the first item nothing moves — item 0 (meadow-001)
   stays; on the way back the wheel returns through seen items and stops
-  at the frontier, never entering unseen content.
-- RESULT (PASS, 2026-10-31): driver step 15: after three extra up
+  at the highest item ever shown — one below the seen edge — never
+  entering unseen content (Phase 13: seen-ness is the per-item visited
+  set, and the wheel's ceiling is the highest item shown in any route;
+  on a first play-through that is exactly the old frontier rule).
+- RESULT (PASS, 2026-11-01): driver step 16: after three extra up
   notches the DOM still showed meadow-001.jpg with Mei's line. Seven
-  down notches brought line-008 back (the last item ever shown, and the
-  video resumed playing there, since at the frontier edge media plays
-  again). Three more notches changed nothing: the overlay kept
-  line-008 and `pier-009.jpg` was never painted, so no unseen item was
-  entered.
+  down notches brought line-008 back — the highest item ever shown —
+  and the video resumed playing there (arriving back onto a seen item
+  plays its media normally). Three more notches changed nothing:
+  `pier-009.jpg` (item 8, the next unseen item) was never painted, so
+  nothing unseen was entered.
 
 ### 16. `tab` skips, and stops on the first unseen item
 
@@ -345,17 +374,19 @@ tolerances below. Walked 2026-10-31, headless Chrome 156.0.8078.76:
   touch nothing.
 - Expected: the cursor advances one item per `settings.skipDwellMs`
   (120 ms) with no further input, media shown as stills; the mode ends
-  when the cursor moves onto the first never-shown item, which is then
-  shown normally — no more 120 ms cadence, its own hold applies.
-- RESULT (PASS, 2026-10-31): driver step 16 (state sampled from the
+  when the cursor moves onto the first never-shown item — the visited
+  set's first gap along the path, which on linear content is the old
+  frontier item — and that item is then shown normally: no more 120 ms
+  cadence, its own hold applies.
+- RESULT (PASS, 2026-11-01): driver step 17 (state sampled from the
   driver every ~40 ms, which also keeps the renderer ticking): from
   Theo's line the visible state moved 5 times with no input, median
-  dwell 127 ms against the 120 ms setting; the frontier item
-  `pier-009.jpg` appeared at +641 ms, decoded, with the overlay hidden
-  (that item has no text), and the last five samples were identical —
-  the cadence really stopped there. Its own 1500 ms hold then advanced
-  the walk to line-010, which is the normal timing resuming on the
-  frontier item.
+  dwell 129 ms against the 120 ms setting; the first never-shown item
+  `pier-009.jpg` — the frontier, the seen set's first gap — appeared at
+  +648 ms, decoded, with the overlay hidden (that item has no text),
+  and the last five samples were identical — the cadence really stopped
+  there. Its own 1500 ms hold then advanced the walk to line-010,
+  which is the normal timing resuming on the first-unseen item.
 
 ### 17. Space during skip exits skip mode
 
@@ -370,40 +401,48 @@ tolerances below. Walked 2026-10-31, headless Chrome 156.0.8078.76:
   have moved on from there. The press neither moved nor skipped past the
   item.
 
-### 18. `e` returns to the last seen item
+### 18. `e` steps onto the first unseen item
 
 - Action: wheel back two items from wherever skip left the cursor, then
   press `e`.
-- Expected: the cursor jumps to `frontier - 1`, the last item ever
-  shown — the spot the reader resumes from. The wheel cannot push past
-  it from there. The line there (line-010) is spoken dialogue with a
-  speaker, so `data-mode` reads `speech` on band and line and the
-  computed `font-style` is `normal`.
-- RESULT (PASS, 2026-10-31): driver step 18: after two back notches the
-  overlay held intro-006's line; after `e` it showed `pier-009.jpg` with
-  Theo's "The tide took the last of the crates by morning." — line-010
-  (item 9), the last item the walk had ever shown, painted with item 8's
-  image because a `text` item keeps the earlier visual;
-  `mode=speech/speech fontStyle=normal`. One further
-  wheel-down left it exactly there: the frontier edge holds, and item
-  10 was never entered.
+- Expected (Phase 13 semantics — this step MOVED with the visited-set
+  resync): the cursor lands ON the first never-shown item along the
+  path — the spot the reading stopped at — not on `frontier - 1` as it
+  did before Phase 13: on this linear walk that is item 10 (line-011),
+  while the old landing (line-010) is already seen content. Arriving
+  shows the item and marks it seen, so the derived frontier moves with
+  it; the wheel cannot push past from there (the next item is unseen).
+  The line there is the demo's thought: `data-mode="thought"` on band
+  and line, the computed `font-style` `italic`, painted over item 8's
+  still because a `text` item keeps the earlier visual.
+- RESULT (PASS, 2026-11-01): driver step 19: after two back notches the
+  overlay held intro-006's line; after `e` it showed `pier-009.jpg`
+  with "We stacked the rest ourselves, and called it enough." — item
+  10, the path's first never-shown item, shown now so the frontier
+  moved with it — `mode=thought/thought fontStyle=italic`. One
+  wheel-down after `e` left it exactly there: the next item is unseen
+  and the wheel does not enter unseen content. (The pre-Phase-13 walk
+  landed on line-010, item 9, `speech/normal`.)
 
 ### 19. A thought line reads apart from the spoken one, over a still
 
-- Action: press space from the line `e` landed on (line-010) to enter
-  the last item of the demo, line-011, which carries `thought: true`.
+- Action: the line `e` lands on (step 18) IS the demo's last item,
+  line-011, which carries `thought: true`; the driver re-reads it —
+  wheel-back from wherever the walk has since moved it.
 - Expected: the band and `#overlay-text` both say `data-mode="thought"`,
   the computed `font-style` of the line is `italic`, and the text is
   line-011's own; the visual does not move — a `text` item shows the
   nearest earlier media item's, so `pier-009.jpg` stays painted, decoded
   and visible (the same `machine.visualIndex()` rule step 10 pins for the
   video chain). `h` hiding both modes is steps 6 and 12.
-- RESULT (PASS, 2026-10-31): driver step 19: `mode=thought/thought
+- RESULT (PASS, 2026-11-01): driver step 21: `mode=thought/thought
   fontStyle=italic` over `pier-009.jpg` with `decoded=true,
-  visible=true`, while the spoken line it followed read
-  `speech/normal` (step 18). Both modes therefore appear over both kinds
-  of visual: line-008 over the looping video (step 11), line-011 over a
-  still.
+  visible=true`, while the spoken lines it sits among read
+  `speech/normal` (steps 6/18). Both modes therefore appear over both
+  kinds of visual: line-008 over the looping video (step 11), line-011
+  over a still. (Before the Phase 13 `e` change this step entered
+  line-011 with a space from `e`'s old landing on line-010; the
+  observations are unchanged.)
 
 ### 20. `b` appends bookmarks, twice, at different items
 
@@ -413,13 +452,19 @@ tolerances below. Walked 2026-10-31, headless Chrome 156.0.8078.76:
   distinct entries.)
 - Expected: each press flashes the `#flash` "Bookmarked" pill, which
   fades away within ~1.4 s; the player's IndexedDB holds one record per
-  press, in insertion order, each `{id, timestampMs, itemIndex}`. The
+  press, in insertion order, each `{id, timestampMs, itemIndex, ctx}` —
+  the Phase 13 `ctx` being the route-play context captured with the
+  press (seen set, decision stack, `lastShown`), the payload that lets
+  step 22's restore re-enter the recorded context; a pre-Phase-13
+  record lacks it and restores by `itemIndex` alone. The
   thumb is opportunistic: over `file://` Chrome taints the canvas, so
   `thumbDataUrl` is null and that is the expected fallback, not a
   failure.
-- RESULT (PASS, 2026-10-31): driver step 20: the pill appeared twice and
+- RESULT (PASS, 2026-11-01): driver step 22: the pill appeared twice and
   was removed; IndexedDB held exactly two records, items 7 and 10 in
-  press order (`hasThumb=false,false`, timestamps > 0). Over http the
+  press order (`hasThumb=false,false`, timestamps > 0 — the driver
+  prints the selected fields; each stored record carries its `ctx`).
+  Over http the
   same code stores a JPEG data URL (capture + storage paths are
   unit-tested; `render/capture.ts`, `storage` contract suite).
 
@@ -451,19 +496,27 @@ tolerances below. Walked 2026-10-31, headless Chrome 156.0.8078.76:
 
 - Action: with the panel open, click the OLDER entry (item 7, at the
   top).
-- Expected: the panel closes; the cursor lands on item 7 — line-008 over
-  the intro-006 video, its chain visual — UNSETTLED, so its hold plays
-  and auto-advance continues the novel from there (README: "continues
-  the novel from that time point"). The frontier does not move, so `e`
-  still works afterwards and returns to `frontier - 1` (line-011). One
-  space after the click settles the re-shown line in place rather than
+- Expected (Phase 13 semantics): the panel closes; the player continues
+  at item 7 — line-008 over the intro-006 video, its chain visual —
+  UNSETTLED, so its hold plays and auto-advance continues the novel
+  from there (README: "continues the novel from that time point"). The
+  restore goes through the record's ctx (`bookmarkRestoreTarget` →
+  `machine.importContext`): the item is re-entered within the route
+  context captured with the bookmark, the seen set restored as it was
+  then — on this linear story the same landing the legacy itemIndex
+  navigation gives. The seen edge stays exactly where the walk left it,
+  so `e` afterwards steps onto the first UNSEEN item — item 12,
+  part-013's poster, since 0..11 have been shown (under the old rule it
+  returned to `frontier - 1`, line-011 — seen content now). One space
+  after the click settles the re-shown line in place rather than
   moving past it — the arrival really was unsettled.
-- RESULT (PASS, 2026-10-31): driver step 22: a trusted click on entry
+- RESULT (PASS, 2026-11-01): driver step 24: a trusted click on entry
   `#7` closed the panel (`bookmarksOpen=false`) and the player showed
   line-008 over the video; one space held it in place (a settled
-  arrival would have moved to pier-009); `e` then landed on
-  `pier-009.jpg` with line-011 — frontier - 1 exactly where the walk
-  left it, so `goTo` moved the cursor only inside seen content.
+  arrival would have moved on); `e` then stepped onto
+  `part-013.poster.jpg` — item 12, the first unseen item (0..11 had
+  been shown) — the frontier exactly where the walk left it, so the
+  restore moved the cursor only inside seen content.
 
 ### 23. Closing: backdrop click, Escape, or `t` again
 
@@ -485,36 +538,49 @@ tolerances below. Walked 2026-10-31, headless Chrome 156.0.8078.76:
 
 - Action: wheel back two items (to bare pier-009, mid-content), then
   reload the page (⌘R).
-- Expected: the player comes back at the last seen item — `frontier - 1`
-  (line-011 over pier-009), the same spot `e` lands on — not at the
-  wheel position and not at item 0.
-- RESULT (PASS, 2026-10-31): driver step 24: stopped mid-content on
+- Expected (Phase 13 semantics): the player comes back at the item the
+  reader left — the persisted ctx's `lastShown` (line-011 over
+  pier-009) — settled, and NOT item 0, NOT the seen edge (that is what
+  step 18's `e` walks to), and not wherever a frontier number alone
+  would point on a gappy visited set.
+- RESULT (PASS, 2026-11-01): driver step 26: stopped mid-content on
   pier-009 (overlay hidden), the reload resumed at line-011 over
-  `pier-009.jpg` — settled, the last item ever shown — and item 0 was
-  ruled out. The frontier is persisted (debounced writes plus
+  `pier-009.jpg` — an identical painted signature, still identical
+  1.8 s later: the resume landed settled and the reloaded machine,
+  manual by default, holds it — and item 0 was ruled out. The ctx is
+  persisted (debounced writes plus
   visibility/pagehide flushes, main.ts); bookmarks, settings and the
   resume position share the one per-novel storage namespace.
 
 ### 25. `c` opens the config screen: current values, suspension, closing
 
 - Action: press `c` (after step 24's reload, so this first key also
-  enters fullscreen); click the skip-all switch; click the panel's title
+  enters fullscreen); click the skip-all and the play-all-routes
+  switches; click the panel's title
   strip (backdrop); press `c` twice more.
 - Expected: `#config` covers the screen (z-index 5, under the `#flash`
-  pill, like the `t` panel) with exactly two controls — the reading
-  speed and skip-all — and nothing else. The readout shows the current
+  pill, like the `t` panel) with exactly three controls — the reading
+  speed, skip-all, and the Phase 13 play-all-routes switch — and
+  nothing else. The readout shows the current
   multiplier and its per-character allowance, `1.00x — ~60 ms/char` for
-  the default, and the switch reads `Off` (`aria-pressed="false"`).
+  the default, and both switches read `Off` (`aria-pressed="false"` —
+  play-all-routes defaults off, like skip-all).
   While the panel is open the timeline is suspended by the same gate as
   `t`: space, `tab`, `e` and the wheel must not move the cursor.
-  Clicking the switch flips it to `On` and the value is live at once;
-  a backdrop click closes; `c` reopens showing the value now in force,
-  and `c` again closes.
-- RESULT (PASS, 2026-10-31): driver step 25: readout `1.00x — ~60
-  ms/char`, skip-all `Off`/`false`; space + tab + e + a wheel-up notch
-  changed nothing in the DOM behind the panel; the switch click read
-  back `aria-pressed=true` / `On`; the backdrop click closed; `c`
-  reopened showing `true` and `c` closed again.
+  Clicking a switch flips it to `On` and the value is live at once
+  (`playAllRoutes` takes effect at the next decision; on this linear
+  demo it has no decision to auto-play);
+  a backdrop click closes; `c` reopens showing the values now in force
+  (both switches `On`), the driver flips play-all back to `Off`, and
+  `c` again closes.
+- RESULT (PASS, 2026-11-01): driver step 27: readout `1.00x — ~60
+  ms/char`, skip-all and play-all `Off`/`false`; space + tab + e + a
+  wheel-up notch
+  changed nothing in the DOM behind the panel; the switch clicks read
+  back `aria-pressed=true` / `On` for both; the backdrop click closed;
+  `c`
+  reopened showing `true` on both, the play-all flip back to `false`
+  took, and `c` closed again.
 
 ### 26. A changed setting applies live and survives reload
 
@@ -529,18 +595,20 @@ tolerances below. Walked 2026-10-31, headless Chrome 156.0.8078.76:
   comes at ~1500 ms instead of 2880 ms: 48 code points at 2.00x is
   1440 ms, floored by the 1500 ms minHold — machine.setSettings
   re-armed the pending hold as if the new speed had held since the item
-  began. After reload the player still resumes at line-011 (the
-  frontier did not move), and `c` opens showing `2.00x` and skip-all
+  began. After reload the player resumes on exactly the item the walk
+  was frozen on — the ctx's `lastShown`, the seen edge unmoved — and
+  `c` opens showing `2.00x` and skip-all
   ON: the persisted `settings` ride in the same per-novel record as the
-  frontier, merged over the defaults at machine construction, written
+  route-play ctx, merged over the defaults at machine construction, written
   with the same debounce-and-flush rule (main.ts). Resetting afterwards
   keeps the steps below on default behaviour.
-- RESULT (PASS, 2026-10-31): driver step 26: the stepper took the
+- RESULT (PASS, 2026-11-01): driver step 28: the stepper took the
   readout to `2.00x — ~30 ms/char` by four trusted clicks; the first
   Escape left fullscreen with the panel open, the second closed; the
-  measured line-010 hold was 1408 ms (sampling-quantised ~1500 ms floor
+  measured line-010 hold was 1433 ms (sampling-quantised ~1500 ms floor
   — at the old 1.00x its 2880 ms would show no move inside the 2600 ms
-  window); after reload the player resumed at line-011 and `c` showed
+  window); after reload the player came back to exactly the item the
+  walk froze on and `c` showed
   `2.00x` with skip-all `true`; the reset closed back at `1.00x`/`Off`.
 
 ### 27. Range 1 of a shared clip: part-012 plays [0, 1] once, pass via rVFC

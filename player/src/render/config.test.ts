@@ -6,6 +6,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  playAllLabel,
   SPEED_MAX,
   SPEED_MIN,
   skipAllLabel,
@@ -56,5 +57,12 @@ describe("skipAllLabel (the README tab bullet's config option)", () => {
   it("names the two states", () => {
     expect(skipAllLabel(true)).toBe("On");
     expect(skipAllLabel(false)).toBe("Off");
+  });
+});
+
+describe("playAllLabel (the Phase 13 play-all-routes switch)", () => {
+  it("names the two states, off being the default", () => {
+    expect(playAllLabel(true)).toBe("On");
+    expect(playAllLabel(false)).toBe("Off");
   });
 });
