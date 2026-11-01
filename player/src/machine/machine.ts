@@ -30,7 +30,10 @@
 // not-yet-played route in manifest order — the continuing route last — and past
 // the decision once every route has played. A stack of open decision contexts
 // gives nesting: a route's end pops its frame, proceeds to `continueAt`, or
-// re-opens that decision to offer the routes still unplayed.
+// re-opens that decision to offer the routes still unplayed. A pure-choice
+// decision (no `continuingRoute`) whose every route has played does not
+// re-open: it CLOSES and flow continues past the whole menu region — max
+// route end + 1, the Ren'Py fall-through (docs/plan.md Phase 13).
 //
 // Skip mode (tab) advances one item per settings.skipDwellMs regardless of
 // media: with skip_all off it ends when the cursor moves onto the first
@@ -385,6 +388,15 @@ interface ResolvedDecision {
 interface Frame {
   decision: number;
   route: number;
+}
+
+/** A decision's menu-region end: the max `end` over all of its routes. */
+function regionEnd(decision: ResolvedDecision): number {
+  let end = -1;
+  for (const route of decision.routes) {
+    if (route.endIndex > end) end = route.endIndex;
+  }
+  return end;
 }
 
 /** The decision the overlay is showing, and whether it offers a return. */
@@ -875,6 +887,7 @@ export function createMachine(options: MachineOptions): Machine {
     const index = relevantDecision(cursor);
     if (index < 0) return false;
     const decision = decisions[index];
+    if (closeIfPureAndComplete(decision)) return true;
     if (settings.playAllRoutes || skipping) {
       autoResolve(decision);
       return true;
@@ -885,10 +898,8 @@ export function createMachine(options: MachineOptions): Machine {
 
   /**
    * Answers a decision with no reader: the first route not yet played (the
-   * continuing route last), else `continueAt`, and for a pure-choice decision
-   * whose every route has played a step past the decision in array order —
-   * the lead-in simply continues, and nothing is recorded for the jump
-   * (docs/plan.md Phase 13).
+   * continuing route last), else `continueAt`, else — for a pure-choice
+   * decision whose every route has played — the all-played close below.
    */
   function autoResolve(decision: ResolvedDecision): void {
     closeFramesFor(decision.index);
@@ -901,13 +912,32 @@ export function createMachine(options: MachineOptions): Machine {
       showItem(decision.continueAt);
       return;
     }
-    if (decision.afterIndex + 1 >= count) {
+    closeIfPureAndComplete(decision);
+  }
+
+  /**
+   * The all-played rule for a pure-choice decision (docs/plan.md Phase 13):
+   * once every route of a decision WITHOUT `continuingRoute` has played, the
+   * decision CLOSES — it never re-opens — and author flow continues after the
+   * whole menu region: max route end + 1, the Ren'Py fall-through, never
+   * inside another route's span (the routes tile the region, so a re-arrival
+   * at `after` with all played resumes past every route, not at `after` + 1).
+   * Beyond the last item the story ends as before. Returns true when the
+   * decision closed, so the caller neither pauses nor re-offers.
+   */
+  function closeIfPureAndComplete(decision: ResolvedDecision): boolean {
+    if (decision.continuingRoute >= 0 || nextAutoRoute(decision) >= 0)
+      return false;
+    closeFramesFor(decision.index);
+    const next = regionEnd(decision) + 1;
+    if (next >= count) {
       settled = true;
       skipping = false;
       emit();
-      return;
+      return true;
     }
-    showItem(decision.afterIndex + 1);
+    showItem(next);
+    return true;
   }
 
   /** True when the cursor is on the last item of the innermost open route. */
@@ -922,26 +952,22 @@ export function createMachine(options: MachineOptions): Machine {
    * "Branches"): pop the frame, then by the route's kind — the continuing
    * route proceeds to `continueAt`; a `return` route re-opens the decision
    * with "return to main route" among its offers; an `ending` route re-opens
-   * it for reselection only. With nothing left to play and no join to take,
-   * this ending IS the end, so the frame stays and the item settles.
+   * it for reselection only. A pure-choice decision whose every route has
+   * now played does not re-open: it closes and flow continues past the whole
+   * menu region (docs/plan.md Phase 13), ending the story when the region
+   * runs to the last item.
    */
   function handleRouteEnd(): void {
     const frame = stack[stack.length - 1];
     const decision = decisions[frame.decision];
     const route = decision.routes[frame.route];
-    const automatic = settings.playAllRoutes || skipping;
-    if (automatic && nextAutoRoute(decision) < 0 && decision.continueAt < 0) {
-      settled = true;
-      skipping = false;
-      emit();
-      return;
-    }
+    if (closeIfPureAndComplete(decision)) return;
     stack.pop();
     if (route.continuing) {
       showItem(decision.continueAt);
       return;
     }
-    if (automatic) {
+    if (settings.playAllRoutes || skipping) {
       autoResolve(decision);
       return;
     }

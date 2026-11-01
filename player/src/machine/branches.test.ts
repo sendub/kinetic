@@ -391,6 +391,34 @@ describe("choosing a route and ending one", () => {
     expect(m.getState().choice?.decisionId).toBe("d2");
     m.destroy();
   });
+
+  it("a pure choice re-opens while a route is unplayed, then closes past the region", () => {
+    // Route Q (later in the array) first, then route P: P's end is NOT
+    // the region end, so the close proves it targets region end + 1 (tail-1,
+    // 6), not route end + 1 (4). Q's items cannot be skipped on the way —
+    // they lie inside the region, which is only left once all-played.
+    const m = machine(PURE);
+    step(m); // 0 -> 1 (`decide`)
+    m.advance(); // fires d1
+    m.choose(1); // route Q: 4..5
+    step(m); // 4 -> 5
+    step(m); // Q's end: P is unplayed, so the decision re-opens with seen flags
+    expect(m.getState().choice?.decisionId).toBe("d1");
+    expect(m.getState().choice?.routes.map((r) => r.seen)).toEqual([
+      false,
+      true,
+    ]);
+    m.choose(0); // route P: 2..3
+    step(m); // 2 -> 3
+    const cursors: number[] = [];
+    m.subscribe((s) => cursors.push(s.cursor));
+    m.advance(); // settle P's last item
+    m.advance(); // every route played now: the decision CLOSES
+    // 3 -> 6 directly: a route-end+1 close would have landed on q-1.
+    expect([...new Set(cursors)]).toEqual([3, 6]);
+    expect(m.getState().choice).toBeUndefined();
+    m.destroy();
+  });
 });
 
 describe("nested decisions", () => {
@@ -490,24 +518,31 @@ describe("playAllRoutes (docs/plan.md Phase 13)", () => {
     m.destroy();
   });
 
-  it("a pure-choice decision plays each alternate and then stops at its ending", () => {
+  it("a pure-choice decision plays each alternate, then closes past the region", () => {
+    // Was "stops at its ending": the old auto walk stalled on Q's last
+    // item, so the tail never played. Under the all-played rule
+    // (docs/plan.md Phase 13) the closed decision lets the walk flow on.
     const m = machine(PURE, { settings: auto });
     for (let press = 0; press < 30; press += 1) m.advance();
-    // P then Q; Q's last item IS the ending, so nothing merges into the tail.
-    expect(m.getState().cursor).toBe(5);
+    // P, then Q; Q completing plays every route, so the decision closes
+    // at region end + 1 and the tail items play through to the content end.
+    expect(m.getState().cursor).toBe(7);
     expect(m.getState().settled).toBe(true);
     expect(m.getState().choice).toBeUndefined();
-    expect(m.exportContext().visited).toEqual([0, 1, 2, 3, 4, 5]);
+    expect(m.exportContext().visited).toEqual([0, 1, 2, 3, 4, 5, 6, 7]);
     m.destroy();
   });
 
-  it("an all-played pure-choice decision is stepped past at after plus one", () => {
+  it("an all-played pure choice re-arrives at after to past the region", () => {
+    // Was "stepped past at after plus one": after + 1 lands INSIDE route
+    // P's span — the old micro-rule, superseded. Re-arrival at `after`
+    // with every route played resumes past the whole menu region.
     const m = machine(PURE, { settings: auto });
     for (let press = 0; press < 30; press += 1) m.advance();
-    expect(m.getState().cursor).toBe(5);
+    expect(m.getState().cursor).toBe(7);
     m.goTo(1); // the decision's after item, everything already played
     m.advance(); // settle: the decision is closed, so the lead-in continues
-    expect(m.getState().cursor).toBe(2); // after + 1 in array order
+    expect(m.getState().cursor).toBe(6); // region end + 1, not after + 1 = 2
     expect(m.getState().choice).toBeUndefined();
     m.destroy();
   });
@@ -593,6 +628,22 @@ describe("skip mode with branches", () => {
     expect(m.exportContext().playedRoutes).toEqual([
       { decision: 0, routes: [0] },
     ]);
+    m.destroy();
+  });
+
+  it("a skip burst flows past a closed pure choice to the tail", () => {
+    // The single all-played rule in skip mode: the burst does not stall
+    // on the decision's last route — it flows on past the region.
+    vi.useFakeTimers();
+    const m = machine(PURE, { settings: { ...SETTINGS, skipAll: true } });
+    const seen: (string | undefined)[] = [];
+    m.subscribe((s) => seen.push(s.choice?.decisionId));
+    m.toggleSkip();
+    vi.advanceTimersByTime(SETTINGS.skipDwellMs * 12);
+    expect(seen.every((c) => c === undefined)).toBe(true);
+    expect(m.visitedList()).toEqual([0, 1, 2, 3, 4, 5, 6, 7]);
+    expect(m.getState().skipping).toBe(false);
+    expect(m.getState().cursor).toBe(7);
     m.destroy();
   });
 });
@@ -823,6 +874,22 @@ describe("route-play context for storage", () => {
     expect(m.getState().choice).toBeUndefined();
     m.advance(); // the press moves on, and nothing fires on the way
     expect(m.getState().cursor).toBe(6);
+    expect(m.getState().choice).toBeUndefined();
+    m.destroy();
+  });
+
+  it("a resume onto an all-played pure choice's after item flows past the region", () => {
+    vi.useFakeTimers();
+    const context: MachineContext = {
+      lastShown: 1, // the resume lands on `decide`, the after item
+      visited: [0, 1, 2, 3, 4, 5],
+      stack: [],
+      playedRoutes: [{ decision: 0, routes: [0, 1] }],
+    };
+    const m = machine(PURE, { resumeContext: context });
+    expect(m.getState().cursor).toBe(1);
+    m.advance(); // forward settle: every route played, so no overlay
+    expect(m.getState().cursor).toBe(6); // region end + 1, the tail
     expect(m.getState().choice).toBeUndefined();
     m.destroy();
   });

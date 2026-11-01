@@ -479,6 +479,20 @@ v1 model and decisions:
   the overlay offers only route reselection). DEFAULT is `"ending"`:
   there is NO implicit join - an unmarked alternate route never silently
   merges, because an alternate's later state is not the main route's.
+- Pure-choice decisions (no `continuingRoute`), all-played rule
+  (2025-11-01, found by the extracted-demo walk): when a route of a
+  decision WITHOUT `continuingRoute` completes and every route of that
+  decision has now been played, the decision CLOSES and the machine
+  advances to the REGION END + 1 - max(end) over all routes of that
+  decision, plus one (Ren'Py fall-through: the choice blocks tile the
+  menu region, and author flow after the menu continues after the
+  whole region, never inside another route's span). Before every route
+  has played once, the overlay reopens as before (route replay stays
+  possible by returning via `e`/nav). Same rule in `Play all routes`
+  and skip mode: the walk flows past instead of stalling. The old
+  "at after -> after+1" micro-rule is superseded: a re-arrival at
+  `after` (e.g. resume) with all routes played jumps to region end+1
+  too. Documented in content-format.md.
 - Nested branches: routes may contain decisions. The machine keeps a
   stack of active decision contexts; returning from a nested decision
   resumes its route. v1 supports nesting; the fixture exercises it.

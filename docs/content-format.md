@@ -252,8 +252,11 @@ and items always use ids, never array positions.
   every route's `end`. Without `continuingRoute` the decision is a
   pure-choice decision: `continueAt` is not allowed, "return to main
   route" is never offered, and a completed route returns to the
-  decision. "return to main" exists only when `continuingRoute`
-  does.
+  decision until every route of it has played — then the decision
+  CLOSES and flow continues past the whole menu region (the max route
+  `end` plus one, the Ren'Py fall-through), never inside another
+  route's span; route replay stays possible by navigating into the
+  route. "return to main" exists only when `continuingRoute` does.
 
 Player-side notes, the format's promises (machine rules in
 docs/plan.md Phase 13):
@@ -263,7 +266,8 @@ docs/plan.md Phase 13):
   setting, default off) is zero-interactivity: at a decision it
   auto-picks the first not-yet-played route in manifest order,
   repeats until every route has played once, then continues via
-  `continueAt`.
+  `continueAt` (a pure choice: past the region end, per the rule
+  above).
 - Back/forward navigation walks the item array; entering a route's
   first item that way does not re-fire the decision — decisions fire
   only on a forward settle of `after`. So backing into `after` and

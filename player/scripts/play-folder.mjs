@@ -175,8 +175,25 @@ try {
   // over it share one surface, so identical steps are normal mid-manifest. Past
   // the last item a press only re-settles, so extra steps are harmless.
   const steps = items * 2 + 8;
+  let decisions = 0;
   for (let step = 0; step < steps; step += 1) {
-    await page.keyboard.press(" ");
+    // A pending decision blocks space; pick route 1 to keep walking.
+    // #choice is a persistent element: the `hidden` attribute is truth.
+    const choiceUp = await page.evaluate(() => {
+      const el = document.querySelector("#choice");
+      return !!el && !el.hidden;
+    });
+    if (choiceUp) {
+      decisions += 1;
+      // Cycle routes so pure-choice decisions run out of unplayed
+      // routes and the walk proceeds past them.
+      const routeCount = await page.evaluate(
+        () => document.querySelectorAll("#choice .choice-num").length || 1,
+      );
+      await page.keyboard.press(String((decisions % routeCount) + 1));
+    } else {
+      await page.keyboard.press(" ");
+    }
     await new Promise((r) => setTimeout(r, 90));
     await observe();
   }
@@ -201,6 +218,7 @@ try {
       {
         items,
         mediaFiles: mediaFiles.length,
+        decisions,
         decodedVisuals,
         paintedSteps,
         placeholderSteps,
