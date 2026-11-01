@@ -364,6 +364,74 @@
         border-color: var(--accent);
         color: var(--accent);
       }
+      /* Reset-confirmation box (docs/plan.md Phase 16): the `c` panel's
+         "Reset progress" row opens it, centered over everything — above
+         the config panel (z 5) and help (z 6), still under the #flash
+         pill (z 10). Same dark family as the panels; the reader's own
+         buttons decide, and Escape/n simply cancels. */
+      #confirm {
+        position: absolute;
+        inset: 0;
+        z-index: 7;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: clamp(12px, 2.4vh, 28px);
+        padding: clamp(16px, 3vh, 36px) clamp(20px, 6vw, 88px);
+        background: rgba(8, 8, 10, 0.94);
+        color: var(--ink);
+        font-family: var(--ui-font);
+        text-align: center;
+      }
+      #confirm[hidden] {
+        display: none;
+      }
+      .confirm-title {
+        margin: 0;
+        color: var(--accent);
+        font-size: clamp(12px, 1.5vh, 17px);
+        font-weight: 600;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+      }
+      .confirm-message {
+        margin: 0;
+        max-width: 52ch;
+        font-size: clamp(13px, 1.7vh, 19px);
+        line-height: 1.5;
+      }
+      .confirm-hint {
+        margin: 0;
+        color: rgba(244, 239, 230, 0.55);
+        font-size: clamp(10px, 1.2vh, 13px);
+      }
+      .confirm-actions {
+        display: flex;
+        gap: clamp(10px, 2vw, 18px);
+      }
+      /* The buttons share the config panel's control skin: same border,
+         hover and focus ring; the destructive one carries the accent. */
+      .confirm-button {
+        padding: clamp(4px, 1vh, 10px) clamp(14px, 2.4vw, 26px);
+        border: 1px solid rgba(244, 239, 230, 0.16);
+        border-radius: 6px;
+        background: rgba(18, 18, 22, 0.9);
+        color: var(--ink);
+        font: inherit;
+        font-size: clamp(13px, 1.7vh, 19px);
+        cursor: pointer;
+      }
+      .confirm-button:hover,
+      .confirm-button:focus-visible {
+        border-color: var(--accent);
+        background: rgba(30, 30, 36, 0.95);
+        outline: none;
+      }
+      .confirm-reset {
+        border-color: var(--accent);
+        color: var(--accent);
+      }
       /* Key help screen (docs/plan.md Phase 13b): black over everything —
          the stage is hidden too, so the screen really is black, not just
          covered. Opaque background, above the bookmark/config panels (z 5)
