@@ -638,7 +638,7 @@ truthful: an unchecked box means nothing was accepted.
       resumes the skip burst (a press during it still means stop); unit
       test in branches.test.ts, and the playall scenario requires the
       whole burst on ONE Tab press (green).
-- [ ] Saves keyed by id, not position (user, 2026-11-01: content updates
+- [x] Saves keyed by id, not position (user, 2026-11-01: content updates
       such as a prequel must keep saves valid). The seen set, position,
       history, bookmarks and played/completed routes store item /
       decision / route ids, so inserting, reordering or extending content
@@ -646,23 +646,26 @@ truthful: an unchecked box means nothing was accepted.
       games to stay compatible with (user), so old index-based saves are
       simply dropped. Tests: a save made against one manifest restores
       correctly against a manifest with items inserted before it.
+      (storage/ids.ts codec converts at the storage boundary: item/decision/route ids for seen set, position, stack, played/completed, history; unknown ids dropped individually; old index saves resume as first boot; bookmarks store itemId. Also fixed: a bookmark restore REPLACED the seen set - now unions seen/played/completed. ids.test.ts: prequel + mid-route insert + deletion; screens scenario swaps in a prequel manifest. 447 tests, 2026-11-01)
 - [ ] Reach unseen content from anywhere (user, 2026-11-01): a key (e.g.
       `u`) goes to the next unseen content wherever it is, earlier
       content included (a prequel, a new mid-story route); a quiet
       notice on resume when unseen content exists before the reader's
       position. `e` stays "go to the end". Folds into the end card item
       (the end card offers the same jump). Help, README, scenarios.
-- [ ] Skip can play videos (user, 2026-11-01): a config option ("Skip
+- [x] Skip can play videos (user, 2026-11-01): a config option ("Skip
       plays videos", default off) makes a skip burst play each video as
       it would play when not skipping (its loops / duration) before
       moving on; Space during such a playback aborts that video and the
       burst continues. Off keeps today's first-frame skip. Settings
       screen, README, tests, scenario.
-- [ ] Space during auto-forward returns to manual (user, 2026-11-01):
+      (setting 'Skip plays videos', default off: a skip burst waits each video's own time bound and plays it; chain lines after it dwell with the video playing under them; Space aborts the video and the burst continues. media scenario: floor clip ~6.0 s, then stops on branch-title; Space abort < 800 ms. 2026-11-01)
+- [x] Space during auto-forward returns to manual (user, 2026-11-01):
       with auto-forward on, Space turns it off and the reader continues
       manually from the current item (that press does not also step;
       the next Space does). Replaces "in auto-forward Space ends this
       item first". Help, README, tests, scenario.
+      (Space with auto on turns it off, no move; next Space steps. Space that stops a skip also turns auto off, so the next press steps. reading scenario check. 2026-11-01)
 - [ ] Skip paces by pictures (user, 2026-11-01): during a skip burst a
       `text` item takes zero time and the overlay text is hidden, so the
       constant ~25 ms pace applies to pictures and video stills only.
