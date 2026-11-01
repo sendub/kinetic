@@ -334,22 +334,26 @@ referenced file exists inside the folder, item ids are unique, each
 video's playback range fits inside its `durationSeconds`, and a
 present `manifest.js` embeds JSON equal to `manifest.json`.
 
-## Converting a Ren'Py project (planned, Phase 10)
+## Converting a Ren'Py project
 
-The extractor is not built yet. Per docs/plan.md Phase 10 it will turn a
-Ren'Py project directory into exactly this folder format:
+The extractor turns a Ren'Py project directory (loose dir, `.app`
+bundle, or slice with `--label/--max-items/--files`) into exactly this
+folder format:
 
 ```sh
-python -m kinetic_extract <renpy_project> <out_dir>
+.venv/bin/pip install -e ./converter   # once per venv
+.venv/bin/kinetic-extract <renpy_project> <out_dir>
 ```
 
-It will sniff true formats and keep browser-compatible originals
+It sniffs true formats and keeps browser-compatible originals
 byte-identical, re-encoding only what it must: images become lossless
 JPEG XL when that is smaller, video becomes H.264 MP4 when no target
-browser plays it. It emits posters and thumbnails, which is the work
+browser plays it. It emits posters, which is the work
 you do by hand above, dedups identical sources into shared derivative
-files, and leaves its build ledger among the folder's unreferenced
-extras. Validate and play its output the same way.
+files, decompiles `.rpyc` (vendored unrpyc) and reads `.rpa` archives as
+sources, converts simple `menu:` blocks into branches (conservatively;
+never guessing joins), and leaves its build ledger among the folder's
+unreferenced extras. Validate and play its output the same way.
 
 ## Playing the folder
 

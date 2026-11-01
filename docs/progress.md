@@ -278,7 +278,10 @@ truthful: an unchecked box means nothing was accepted.
 - [ ] Self-contained novel folder plays by double-clicking `index.html`
       over `file://`
 - [ ] docs/packaging.md written; Tauri path noted, not built
-- [ ] README accuracy pass; this file fully checked
+- [x] README accuracy pass; this file fully checked (fresh-eyes audit:
+      8 drift fixes incl. e-landing, resume, first-load help, extractor
+      scope; CREATE stale-planned section refreshed; all boxes below
+      this line checked, 2025-11-01)
 
 ## Phase 13b: Manual/auto mode clarity + key help (2025-11-01, external-user report + user clarification)
 
