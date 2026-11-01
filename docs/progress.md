@@ -324,10 +324,12 @@ truthful: an unchecked box means nothing was accepted.
       video items (>0), chain-exit semantics + manual/skip-immediate
       documented; per-item not per-file; validator type/positivity +
       CREATE example note (73 pytest tests, 2025-11-01)
-- [ ] Machine: chain-exit floor max(hold, minPlay - chainElapsed) for
+- [x] Machine: chain-exit floor max(hold, minPlay - chainElapsed) for
       the last item of a text chain over a video with the field,
       machine-time bookkeeping, auto/skip-dwell/play-all paths honored,
       manual advance unaffected; tests incl. the 8 s/5.829 s scenario
+      (chainHeadAt anchored to timer-arm; 302 tests, zero adaptations,
+      2025-11-01)
 - [ ] Demo fixture + verify: ~6 s clip + dialogue chain with
       minPlaySeconds 4.5; step proves the wait (~4.5 s, not ~2 s) and
       that skip stays immediate; determinism green

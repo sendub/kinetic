@@ -214,7 +214,9 @@ export interface Machine {
    *   changed to a 1200 ms one at 500 ms fires 700 ms later. A new total
    *   already behind the elapsed time fires on the next tick. An item
    *   with no pending timer (settled, or waiting on a video's `ended`) is
-   *   not armed by this call.
+   *   not armed by this call. A pending `minPlaySeconds` chain-exit floor
+   *   re-arms from the chain's own start instant, so the time already
+   *   shown counts toward the floor exactly as toward the hold (Phase 15).
    * - `skipAll`: read when skip mode meets content the reader has not seen,
    *   so a change takes effect at the next crossing into unseen content.
    * - `playAllRoutes`: read when a decision fires, so a change takes effect
@@ -541,6 +543,12 @@ export function createMachine(options: MachineOptions): Machine {
   // if they had held since the item began (the interface docs). Time
   // enters only through scheduler and Date.now, both fakeable in tests.
   let timerArmedAt = 0;
+  // When the media item that STARTED the current text chain became current
+  // (the chain head), or null when the cursor is not inside such a chain:
+  // the anchor for a video's `minPlaySeconds` chain-exit floor (Phase 15).
+  // Like `timerArmedAt` it is a machine-time instant; the floor's remaining
+  // time is derived from it, so a settings re-arm never resets the wait.
+  let chainHeadAt: number | null = null;
   // Auto-forward mode (Phase 13b): absent/false is manual — the documented
   // default (README advance bullet): items wait for the reader until `a`.
   let autoAdvance = options.autoAdvance === true;
@@ -566,6 +574,9 @@ export function createMachine(options: MachineOptions): Machine {
       markShown(0);
     }
   }
+  // The start position is an arrival like any other (Phase 15): a chain
+  // entered at start — resumed or fresh — measures its floor from now.
+  if (count > 0) chainHeadAt = chainHeadMarkFor(cursor, false);
   let state: MachineState = snapshot();
   // The item shown at start: auto mode arms its hold; manual mode (the
   // player's start, Phase 13b) waits for the reader instead.
@@ -617,19 +628,27 @@ export function createMachine(options: MachineOptions): Machine {
 
   /** The delay the current timer must cover, under the present settings. */
   function currentDelayMs(): number {
+    const floor = chainExitFloorMs();
     if (skipping) {
       // Skip mode: one fixed `settings.skipDwellMs` per item whatever its
       // type. Media never gates and never plays to completion; the machine
       // only times (docs/content-format.md, "Timing"). A video's dwell is
       // clamped to its own gate, so a short clip is not shown longer than
-      // the content describes.
+      // the content describes. The dwell stays fast INSIDE a video's text
+      // chain; only the step LEAVING the chain waits out the floor.
       const item = items[cursor];
       if (item.type === "video") {
-        return Math.min(settings.skipDwellMs, videoGateMs(item));
+        return Math.max(
+          Math.min(settings.skipDwellMs, videoGateMs(item)),
+          floor,
+        );
       }
-      return settings.skipDwellMs;
+      return Math.max(settings.skipDwellMs, floor);
     }
-    return itemHoldMs(items[cursor], settings, nextIsText(cursor));
+    return Math.max(
+      itemHoldMs(items[cursor], settings, nextIsText(cursor)),
+      floor,
+    );
   }
 
   function onTimerElapsed(): void {
@@ -660,6 +679,47 @@ export function createMachine(options: MachineOptions): Machine {
     return items[index + 1]?.type === "text";
   }
 
+  /**
+   * The `minPlaySeconds` chain-exit floor still owed (docs/plan.md Phase 15),
+   * in ms measured from when the current timer was armed — the same anchor
+   * `setSettings()` re-arms against, so elapsed time always counts toward the
+   * floor and a settings change can neither reset nor shorten it twice. The
+   * floor exists only when the item under the cursor is the LAST of a video's
+   * text chain: a `text` item whose next item is not `text`, whose chain head
+   * (the nearest earlier media item) is a video with the field. A floor
+   * already owed nothing — the chain started long enough ago — is 0, and the
+   * hold is exactly what it was before the field existed.
+   */
+  function chainExitFloorMs(): number {
+    if (chainHeadAt === null) return 0;
+    const item = items[cursor];
+    if (item?.type !== "text" || nextIsText(cursor)) return 0;
+    const head = items[visualIndexFor(items, cursor)];
+    if (head.type !== "video" || head.minPlaySeconds === undefined) return 0;
+    return Math.max(
+      0,
+      head.minPlaySeconds * 1000 - (timerArmedAt - chainHeadAt),
+    );
+  }
+
+  /**
+   * The chain-head instant for arriving at `index` (Phase 15): a media item
+   * that starts a text chain stamps the chain's start; leaving any chain
+   * clears it; a `text` item entered by a plain forward step KEEPS the
+   * chain's existing start. Any other arrival at a `text` item — wheel,
+   * `goTo()`, an `e`-jump, a route entry — re-bases to now: the machine-time
+   * of the original chain start is unknowable across re-entry, and a fresh
+   * measurement may only wait LONGER than the original floor, never
+   * shorter — acceptable and documented (the floor concerns forward auto
+   * play).
+   */
+  function chainHeadMarkFor(index: number, keepsChain: boolean): number | null {
+    if (items[index]?.type === "text") {
+      return keepsChain ? chainHeadAt : Date.now();
+    }
+    return nextIsText(index) ? Date.now() : null;
+  }
+
   /** Fresh view of the item under the cursor. */
   function beginItem(): void {
     settled = false;
@@ -682,7 +742,9 @@ export function createMachine(options: MachineOptions): Machine {
    * showing and seeing are the same moment (the header's marking rule).
    */
   function showItem(index: number): void {
+    const keepsChain = index === cursor + 1 && chainHeadAt !== null;
     cursor = index;
+    chainHeadAt = chainHeadMarkFor(index, keepsChain);
     markShown(index);
     beginItem();
     emit();

@@ -6,7 +6,13 @@ import {
   textHoldMs,
   visualIndexFor,
 } from "./machine";
-import type { Item, MachineSettings, MachineState, Manifest } from "./types";
+import type {
+  Branch,
+  Item,
+  MachineSettings,
+  MachineState,
+  Manifest,
+} from "./types";
 import { DEFAULT_SETTINGS } from "./types";
 
 const SETTINGS: MachineSettings = { ...DEFAULT_SETTINGS };
@@ -44,6 +50,7 @@ function video(
     startSeconds?: number;
     endSeconds?: number;
     loopStartSeconds?: number;
+    minPlaySeconds?: number;
   } = {},
 ): Item {
   return {
@@ -58,6 +65,7 @@ function video(
     startSeconds: timing.startSeconds,
     endSeconds: timing.endSeconds,
     loopStartSeconds: timing.loopStartSeconds,
+    minPlaySeconds: timing.minPlaySeconds,
   };
 }
 
@@ -1811,5 +1819,204 @@ describe("setSettings (config screen, docs/plan.md Phase 9)", () => {
     m.advance();
     vi.advanceTimersByTime(60_000);
     expect(m.getState()).toBe(finalState); // no re-arm, no move, frozen
+  });
+});
+
+describe("minPlaySeconds chain-exit floor (docs/plan.md Phase 15)", () => {
+  // The external tester's scenario reduced to numbers: an 8 s video with
+  // minPlaySeconds 5.0 and three dialogue lines that sit at minHold. With
+  // minHoldMs 800 the dialogue sums to 2.4 s, so an exit near the text sum
+  // — the observed 5.829 s bug shape — means the floor is not applied.
+  const floorSettings: MachineSettings = { ...SETTINGS, minHoldMs: 800 };
+
+  function chained(minPlaySeconds?: number): Item[] {
+    return [
+      video(
+        8,
+        undefined,
+        minPlaySeconds === undefined ? {} : { minPlaySeconds },
+      ),
+      text("one"),
+      text("two"),
+      text("three"),
+      image(),
+    ];
+  }
+
+  it("exits an 8 s video's chain at the 5 s floor, not the 2.4 s text sum", () => {
+    vi.useFakeTimers();
+    const m = machine(chained(5), { settings: floorSettings });
+    // The chain plays through its dialogue normally while the video runs.
+    vi.advanceTimersByTime(800);
+    expect(m.getState().cursor).toBe(1);
+    vi.advanceTimersByTime(800);
+    expect(m.getState().cursor).toBe(2);
+    vi.advanceTimersByTime(800); // last item of the chain, machine time 2.4 s
+    expect(m.getState().cursor).toBe(3);
+    // Leaving the chain waits for the floor: exit at 5000, not 3200.
+    vi.advanceTimersByTime(2599); // total 4999
+    expect(m.getState().cursor).toBe(3);
+    vi.advanceTimersByTime(1);
+    expect(m.getState()).toEqual({
+      cursor: 4,
+      frontier: 5,
+      settled: false,
+      skipping: false,
+    });
+    m.destroy();
+  });
+
+  it("a chain without minPlaySeconds exits on the text holds alone", () => {
+    vi.useFakeTimers();
+    const m = machine(chained(), { settings: floorSettings });
+    vi.advanceTimersByTime(3199); // video hold + 3 x 800 ms dialogue
+    expect(m.getState().cursor).toBe(3);
+    vi.advanceTimersByTime(1);
+    expect(m.getState().cursor).toBe(4); // timing exactly as before the field
+    m.destroy();
+  });
+
+  it("manual advance leaves the chain immediately under the floor", () => {
+    vi.useFakeTimers();
+    const m = machine(chained(5), { settings: floorSettings });
+    for (let steps = 1; steps <= 4; steps += 1) {
+      m.advance(); // settle the current item
+      m.advance(); // move on — instant, the floor gates timers only
+      expect(m.getState().cursor).toBe(steps);
+    }
+    expect(m.getState().frontier).toBe(5); // all of it at machine time 0
+    m.destroy();
+  });
+
+  it("skip dwell stays fast inside the chain; the leaving step waits for the floor", () => {
+    vi.useFakeTimers();
+    // skipAll so the burst walks the unseen chain rather than ending at it:
+    // the skip-all auto path must honor the floor at the chain exit.
+    const m = machine(chained(5), {
+      settings: { ...floorSettings, skipAll: true },
+    });
+    m.toggleSkip();
+    const dwell = SETTINGS.skipDwellMs;
+    vi.advanceTimersByTime(dwell); // video -> text one: a plain dwell
+    expect(m.getState().cursor).toBe(1);
+    vi.advanceTimersByTime(dwell);
+    expect(m.getState().cursor).toBe(2);
+    vi.advanceTimersByTime(dwell); // last item of the chain, machine time 360
+    expect(m.getState().cursor).toBe(3);
+    expect(m.getState().skipping).toBe(true);
+    // The step LEAVING the chain waits out the floor: 5000, not 480.
+    vi.advanceTimersByTime(4639); // total 4999
+    expect(m.getState().cursor).toBe(3);
+    expect(m.getState().skipping).toBe(true);
+    vi.advanceTimersByTime(1);
+    expect(m.getState()).toEqual({
+      cursor: 4,
+      frontier: 5,
+      settled: false,
+      skipping: false,
+    });
+    m.destroy();
+  });
+
+  it("the playAllRoutes burst honors the floor when its route's chain exits", () => {
+    vi.useFakeTimers();
+    const items: Item[] = [
+      { id: "a", type: "image", file: "a.jpg" }, // the decision's `after`
+      {
+        id: "v",
+        type: "video",
+        file: "v.mp4",
+        poster: "v.jpg",
+        durationSeconds: 8,
+        minPlaySeconds: 5,
+      },
+      { id: "t1", type: "text", text: "one" },
+      { id: "t2", type: "text", text: "two" },
+      { id: "t3", type: "text", text: "three" }, // route A ends here
+      { id: "b", type: "image", file: "b.jpg" }, // continuing route B
+      { id: "c", type: "image", file: "c.jpg" }, // continueAt
+    ];
+    const branch: Branch = {
+      id: "d",
+      after: "a",
+      prompt: "Which?",
+      routes: [
+        { id: "A", label: "A", start: "v", end: "t3" },
+        { id: "B", label: "B", start: "b", end: "b" },
+      ],
+      continuingRoute: "B",
+      continueAt: "c",
+    };
+    const m = createMachine({
+      items,
+      branches: [branch],
+      settings: { ...floorSettings, playAllRoutes: true },
+      autoAdvance: true,
+    });
+    vi.advanceTimersByTime(800); // "a" settles, the decision auto-enters A
+    expect(m.getState().cursor).toBe(1); // chain head at machine time 800
+    vi.advanceTimersByTime(800);
+    expect(m.getState().cursor).toBe(2);
+    vi.advanceTimersByTime(800);
+    expect(m.getState().cursor).toBe(3);
+    vi.advanceTimersByTime(800); // last chain item at machine time 3200
+    expect(m.getState().cursor).toBe(4);
+    // Route end waits for the floor — deadline 800 + 5000, not 4000.
+    vi.advanceTimersByTime(2599); // total 5799
+    expect(m.getState().cursor).toBe(4);
+    vi.advanceTimersByTime(1); // the burst proceeds into route B
+    expect(m.getState().cursor).toBe(5);
+    m.destroy();
+  });
+
+  it("setSettings mid-chain re-arms the floor honestly: elapsed counts", () => {
+    vi.useFakeTimers();
+    const m = machine(chained(5), { settings: floorSettings });
+    vi.advanceTimersByTime(2400); // on the last chain item, timer to 5000
+    expect(m.getState().cursor).toBe(3);
+    vi.advanceTimersByTime(600); // 600 ms of the pending hold shown
+    m.setSettings({ ...floorSettings, minHoldMs: 200 }); // much shorter holds
+    // The floor is not reset by the change (it still ends at 5000) and not
+    // shortened by it either: 5000 - 3000 elapsed = 2000 ms from here.
+    vi.advanceTimersByTime(1999); // total 4999
+    expect(m.getState().cursor).toBe(3);
+    vi.advanceTimersByTime(1);
+    expect(m.getState().cursor).toBe(4);
+    m.destroy();
+  });
+
+  it("goTo into a chain's middle re-bases the floor from the entry", () => {
+    vi.useFakeTimers();
+    const m = machine(chained(5), { settings: floorSettings });
+    vi.advanceTimersByTime(2400); // last chain item; exit would fire at 5000
+    expect(m.getState().cursor).toBe(3);
+    m.goTo(2); // navigation re-entry: fresh floor from now (conservative)
+    vi.advanceTimersByTime(800); // forward through the rest of the chain
+    expect(m.getState().cursor).toBe(3);
+    // The original floor (5000) has passed, yet the re-based floor runs to
+    // 2400 + 5000: navigation may wait LONGER, never shorter (documented).
+    vi.advanceTimersByTime(4199); // total 7399
+    expect(m.getState().cursor).toBe(3);
+    vi.advanceTimersByTime(1);
+    expect(m.getState().cursor).toBe(4);
+    m.destroy();
+  });
+
+  it("an already-elapsed floor adds no wait: text timing unchanged", () => {
+    vi.useFakeTimers();
+    // Dialogue long enough (3 x 2400 ms over the default holds) that the
+    // last chain item is entered at 6300 ms — long past the 5 s floor.
+    const m = machine([
+      video(8, undefined, { minPlaySeconds: 5 }),
+      text("a".repeat(40)),
+      text("a".repeat(40)),
+      text("a".repeat(40)),
+      image(),
+    ]);
+    vi.advanceTimersByTime(8699); // entered 3rd line at 6300 + its 2399 hold
+    expect(m.getState().cursor).toBe(3);
+    vi.advanceTimersByTime(1); // exit at 8700: the plain text timing
+    expect(m.getState().cursor).toBe(4); // floor <= 0 behaves as today
+    m.destroy();
   });
 });
