@@ -42,12 +42,15 @@
 // inert to every other command while it is open) or, with
 // `settings.playAllRoutes`, resolves itself to the first not-yet-played route
 // in manifest order — the continuing route last — and past the decision once
-// every route has played. Navigation onto an unresolved decision's `after`
-// item (wheel, `goTo()`, the `e` jump) SHOWS that decision instead of
-// passing it invisibly (docs/plan.md Phase 16): `MachineState.choice` appears
+// every route has played. Navigation onto a decision's `after` item (wheel,
+// `goTo()`, the `e` jump) SHOWS that decision instead of passing it invisibly
+// (docs/plan.md Phase 16, widened by Phase 18): `MachineState.choice` appears
 // with `arrival: true`, timing pauses, and the decision is NOT consumed —
 // navigating away just closes the overlay, and a pick from it chooses exactly
-// like a fired decision. A stack of open decision contexts
+// like a fired decision. Unresolved or not, the view is the same one a route
+// end re-offers: rows with their seen marks, plus "return to main route"
+// where that rule offers it — so a scroll back from the story's end surfaces
+// every decision point, nested ones included. A stack of open decision contexts
 // gives nesting: a route's end pops its frame, proceeds to `continueAt`, or
 // re-opens that decision to offer the routes still unplayed. A pure-choice
 // decision (no `continuingRoute`) whose every route has played does not
@@ -172,10 +175,10 @@ export interface Machine {
   /**
    * Wheel step back; clamps at item 0. During skip mode, exits skip mode
    * and still performs the step. Entering an item this way is pure
-   * navigation: it marks it shown but CONSUMES no decision — landing on an
-   * unresolved decision's `after` item opens its arrival view
-   * (`choice.arrival`), and stepping away from one closes it without
-   * touching the stack.
+   * navigation: it marks it shown but CONSUMES no decision — landing on a
+   * decision's `after` item — unresolved or already completed — opens its
+   * arrival view (`choice.arrival`), and stepping away from one closes it
+   * without touching the stack.
    */
   wheelBack(): void;
   /**
@@ -184,7 +187,7 @@ export interface Machine {
    * back-and-forth stays sensible), and never enters unseen content. During
    * skip mode, exits skip mode and steps when allowed. A step never consumes
    * a decision, and the arrival is unsettled, like `goTo()` — except that
-   * landing on an unresolved decision's `after` item opens its arrival view
+   * landing on a decision's `after` item opens its arrival view
    * (`choice.arrival`), and stepping away closes it, stack unchanged.
    */
   wheelForward(): void;
@@ -214,9 +217,9 @@ export interface Machine {
    * manifest in array order; a further press steps on to the next unseen
    * item. Every landing is a fresh entry: the item is shown and marked
    * seen, its own hold is armed, and skip mode ends. No-op when the cursor
-   * is already on the target. Like the wheel and `goTo()`: a jump onto an
-   * unresolved decision's `after` item opens its arrival view, and a jump
-   * away from one closes it, stack unchanged.
+   * is already on the target. Like the wheel and `goTo()`: a jump onto a
+   * decision's `after` item opens its arrival view, and a jump away from one
+   * closes it, stack unchanged.
    *
    * When NOTHING is unseen the resume step does not apply: the press
    * instead shows the ENDING (docs/plan.md Phase 16, "Machine bugs"): the
@@ -231,9 +234,9 @@ export interface Machine {
    * Bookmark click (the `t` overlay, README `t` bullet): move the cursor to
    * `index`, clamped to `[0, highest index ever shown]`. Nothing unseen is
    * entered — unseen items are reached by `advance()`, `choose()` or
-   * `jumpToUnseen()` — and no decision is consumed; landing on an
-   * unresolved decision's `after` item opens its arrival view
-   * (`choice.arrival`), and a jump away from one closes it. The arrival is
+   * `jumpToUnseen()` — and no decision is consumed; landing on a decision's
+   * `after` item opens its arrival view (`choice.arrival`), and a jump away
+   * from one closes it. The arrival is
    * UNSETTLED, unlike a resume landing: a bookmark click "continues the
    * novel from that time point", so the item's text hold replays and
    * auto-advance carries the reader onward.
@@ -1141,26 +1144,68 @@ export function createMachine(options: MachineOptions): Machine {
   }
 
   /**
-   * Whether a navigation arrival at the cursor should SHOW a decision
-   * (docs/plan.md Phase 16): the same condition the forward settle fires
-   * on, minus consumption — the decision must exist here and still have an
-   * offer (a pure decision whose every route has played closes on fire
-   * rather than pausing, so an arrival shows nothing for it either).
-   * `playAllRoutes` never shows a view here either: the reader asked for
-   * zero interactivity, and the arrival is answered instead, below.
+   * Whether `index` sits inside some route of `decision`'s parent, or of that
+   * parent's parent, up to the top level — the chain that makes it a decision
+   * of this region. `relevantDecision` derives the same fact from the OPEN
+   * frame; an arrival has no frame to consult (a continuous wheel back from
+   * the story's end pops every frame on the way), and this is how a nested
+   * decision still surfaces when its enclosing route is no longer open.
    */
-  function arrivalDecision(): number {
-    if (settings.playAllRoutes || pendingChoice !== null) return -1;
-    const index = relevantDecision(cursor);
-    if (index < 0) return -1;
-    const decision = decisions[index];
-    if (decision.continuingRoute < 0 && nextAutoRoute(decision) < 0) return -1;
-    return index;
+  function insideAncestorSpan(
+    decision: ResolvedDecision,
+    index: number,
+  ): boolean {
+    let current = decision;
+    while (current.parent >= 0) {
+      const parent = decisions[current.parent];
+      const inside = parent.routes.some(
+        (route) => index >= route.startIndex && index <= route.endIndex,
+      );
+      if (!inside) return false;
+      current = parent;
+    }
+    return true;
   }
 
   /**
-   * A navigation arrival landed on an unresolved decision's `after` item:
-   * show the decision without consuming it. Pauses timing — the cursor
+   * The decision an arrival at the cursor may SHOW (docs/plan.md Phase 18,
+   * Branches): `relevantDecision`'s answer when a frame is open, plus — for
+   * the frameless browsing case — any decision hanging off this item whose
+   * ancestors' route spans contain it.
+   */
+  function arrivalRelevantDecision(index: number): number {
+    const immediate = relevantDecision(index);
+    if (immediate >= 0) return immediate;
+    const candidates = byAfter.get(index);
+    if (candidates === undefined) return -1;
+    for (const candidate of candidates) {
+      if (insideAncestorSpan(decisions[candidate], index)) return candidate;
+    }
+    return -1;
+  }
+
+  /**
+   * Whether a navigation arrival at the cursor should SHOW a decision
+   * (docs/plan.md Phase 16, widened by Phase 18 bullet 3): a decision here,
+   * whatever its history. An UNRESOLVED one shows a fresh choice; a COMPLETED
+   * one — a route entered, or an all-played pure choice that CLOSED — shows
+   * the same re-offer a route end does: rows with seen marks, the return row
+   * where `offersContinue` says so. The reader is browsing, so nothing here
+   * consumes the decision or closes-and-advances it; scrolling back from the
+   * end must surface every decision point, nested included.
+   * `playAllRoutes` never shows a view here: the reader asked for zero
+   * interactivity, so a completed arrival passes through untouched and an
+   * unresolved one is answered instead, below.
+   */
+  function arrivalDecision(): number {
+    if (settings.playAllRoutes || pendingChoice !== null) return -1;
+    return arrivalRelevantDecision(cursor);
+  }
+
+  /**
+   * A navigation arrival landed on a decision's `after` item: show it without
+   * consuming it — a fresh choice when unresolved, the route-end re-offer when
+   * the reader has already been routed here. Pauses timing — the cursor
    * marks the item settled and the pending timer is cancelled. The timer
    * proof (docs/plan.md Phase 16): a manual arrival arms none at all
    * (`armTimer` returns while `!skipping && !autoAdvance`, and every

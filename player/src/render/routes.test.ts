@@ -159,4 +159,26 @@ describe("routeAnnouncementsFor (the entry rule)", () => {
       ),
     ).toEqual([]);
   });
+
+  it("a completed decision opening on arrival is silent; the pick from it is not", () => {
+    // docs/plan.md Phase 18, bullet 3 widened arrivals to COMPLETED
+    // decisions. The pill rule is untouched: an arrival changes no route
+    // context (branches.test.ts pins the empty stack), so even landing on a
+    // route's first item it says nothing — and the row picked from that view
+    // enters the route exactly like a route-end re-selection, which does.
+    expect(
+      routeAnnouncementsFor(
+        { cursor: 5, frame: null },
+        { cursor: 2, frame: null }, // the arrival: the overlay opens here
+        LABELS,
+      ),
+    ).toEqual([]);
+    expect(
+      routeAnnouncementsFor(
+        { cursor: 2, frame: null },
+        { cursor: 2, frame: frame(0, 0) }, // the pick from that view
+        LABELS,
+      ),
+    ).toEqual([routeFlashLabel("Route A")]);
+  });
 });

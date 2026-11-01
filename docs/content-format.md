@@ -308,6 +308,17 @@ docs/plan.md Phase 13):
   first item that way does not re-fire the decision — decisions fire
   only on a forward settle of `after`. So backing into `after` and
   pressing forward again re-opens the overlay.
+- Landing on `after` by navigation (wheel, bookmark jump, the `e` jump)
+  shows the decision there — unresolved or already completed — as the
+  same view a route end re-offers: every route with its seen mark, plus
+  "return to main route" wherever the return-row rule offers it. Nothing
+  is consumed and no route context changes, so stepping away just closes
+  it, and a continuous scroll back from the story's end surfaces every
+  decision point, nested ones included, even after a pure choice has
+  closed. A pick from that view enters the route exactly like a
+  route-end re-selection. `Play all routes` keeps its no-stop rule: an
+  arrival at a completed decision passes through unshown, and only an
+  unresolved arrival is auto-resolved.
 - Author-written transitions need no schema mechanism: put a
   `text`-only item or a title image at a route span's start or end.
 

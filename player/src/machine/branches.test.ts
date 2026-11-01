@@ -1666,3 +1666,188 @@ describe("route-play context for storage", () => {
     m.destroy();
   });
 });
+
+describe("arrivals show COMPLETED decisions too (docs/plan.md Phase 18, bullet 3)", () => {
+  // The user's scroll: back from the story's end must surface EVERY decision
+  // point, including the ones already answered and the nested ones whose
+  // route is no longer open. The view is the route-end re-offer — rows with
+  // their seen marks, the return row wherever `offersContinue` says so — and
+  // it changes no route context: arriving is browsing, not answering.
+  const manual = (shape: Shape) => {
+    const m = manifest(shape);
+    return createMachine({
+      items: m.items,
+      branches: m.branches,
+      settings: SETTINGS,
+    }); // manual: one press = one step, the player's own navigation
+  };
+  const view = (m: ReturnType<typeof manual>) => {
+    const choice = m.getState().choice;
+    return {
+      cursor: m.getState().cursor,
+      id: choice?.decisionId,
+      arrival: choice?.arrival,
+      seen: choice?.routes.map((r) => r.seen),
+      returns: choice?.continueOption === true,
+      stack: m.exportContext().stack,
+    };
+  };
+
+  it("a completed outer decision opens on arrival with seen marks and the return row", () => {
+    const m = manual(CANON);
+    m.advance(); // 0 -> 1
+    m.advance(); // 1 -> 2 (`decide`)
+    m.advance(); // the forward settle fires d1
+    m.choose(2); // route C, the continuing route: 7..8
+    m.advance(); // 7 -> 8
+    m.advance(); // C completes and joins at `after-1`, 9
+    expect(m.getState().cursor).toBe(9);
+    for (let back = 0; back < 6; back += 1) m.wheelBack(); // 9 -> 3, no view yet
+    expect(view(m).id).toBeUndefined();
+    m.wheelBack(); // onto `decide`: the completed decision re-offers itself
+    expect(view(m)).toEqual({
+      cursor: 2,
+      id: "d1",
+      arrival: true,
+      seen: [false, false, true],
+      returns: true, // C completed once: the row is offered here too
+      stack: [],
+    });
+    m.wheelBack(); // stepping away closes it, and consumes nothing
+    expect(m.getState().choice).toBeUndefined();
+    expect(m.exportContext().playedRoutes).toEqual([
+      { decision: 0, routes: [2] },
+    ]);
+    m.destroy();
+  });
+
+  it("a completed inner decision opens on arrival while its outer route is closed", () => {
+    // The route frames are gone by the story end, so this arrival has no
+    // frame to read the nesting from — the ancestor route spans say where
+    // `a-decide` belongs, and both levels surface on one continuous wheel
+    // back (inner first, then outer).
+    const m = manual(NESTED);
+    m.advance();
+    m.advance(); // 0 -> 1 (`decide`)
+    m.advance(); // fires d1
+    m.choose(0); // route A: 2..9
+    m.advance(); // 2 -> 3 (`a-decide`)
+    m.advance(); // fires d2
+    m.choose(0); // route X: 4..5
+    m.advance(); // 4 -> 5
+    m.advance(); // settle
+    m.advance(); // X's end re-opens d2
+    m.choose(1); // route Y: 6..7
+    m.advance(); // 6 -> 7
+    m.advance(); // settle
+    m.advance(); // Y completes and rejoins A at `a-cont`, 8
+    m.advance(); // 8 -> 9
+    m.advance(); // settle A's last item
+    m.advance(); // A's end re-opens d1
+    m.choose(2); // route C: 12, the continuing route
+    m.advance(); // settle
+    m.advance(); // C completes and joins at `after-1`, 13 — the end
+    expect(m.getState().cursor).toBe(13);
+    expect(m.exportContext().stack).toEqual([]);
+    const opened: unknown[] = [];
+    for (let back = 0; back < 13; back += 1) {
+      m.wheelBack();
+      if (m.getState().choice !== undefined) opened.push(view(m));
+    }
+    expect(opened).toEqual([
+      {
+        cursor: 3,
+        id: "d2",
+        arrival: true,
+        seen: [true, true],
+        returns: true, // Y, the inner continuing route, completed
+        stack: [],
+      },
+      {
+        cursor: 1,
+        id: "d1",
+        arrival: true,
+        seen: [true, false, true],
+        returns: true,
+        stack: [],
+      },
+    ]);
+    expect(m.getState().cursor).toBe(0);
+    m.destroy();
+  });
+
+  it("an all-played pure choice that CLOSED still re-offers on arrival", () => {
+    // The CLOSE rule governs the forward flow (docs/plan.md Phase 13), not a
+    // scroll back: the arrival shows the rows instead of closing-and-
+    // advancing past the region, because the reader is browsing.
+    const m = manual(PURE);
+    m.advance(); // 0 -> 1 (`decide`)
+    m.advance(); // fires d1
+    m.choose(1); // route Q: 4..5
+    m.advance(); // 4 -> 5
+    m.advance(); // settle
+    m.advance(); // Q's end re-opens d1: P is unplayed
+    m.choose(0); // route P: 2..3
+    m.advance(); // 2 -> 3
+    m.advance(); // P's end, all routes played: the decision CLOSES past the region
+    expect(m.getState().cursor).toBe(6);
+    expect(m.getState().choice).toBeUndefined();
+    m.wheelBack(); // 6 -> 5 (route Q's items): no decision here
+    m.wheelBack(); // -> 4
+    m.wheelBack(); // -> 3
+    m.wheelBack(); // -> 2
+    expect(m.getState().choice).toBeUndefined();
+    m.wheelBack(); // onto `decide`
+    expect(view(m)).toEqual({
+      cursor: 1,
+      id: "d1",
+      arrival: true,
+      seen: [true, true],
+      returns: false, // a pure choice never offers the row
+      stack: [],
+    });
+    m.destroy();
+  });
+
+  it("a pick from a completed arrival enters the route exactly like a re-selection", () => {
+    const m = manual(PURE);
+    m.advance(); // 0 -> 1 (`decide`)
+    m.advance(); // its forward settle fires d1
+    m.choose(1); // route Q: 4..5
+    m.advance(); // 4 -> 5
+    m.advance(); // Q's end: re-opens with P unplayed
+    m.choose(0); // route P: 2..3
+    m.advance(); // 2 -> 3
+    m.advance(); // P's end closes the decision past the region, 6
+    for (let back = 0; back < 5; back += 1) m.wheelBack(); // onto `decide`
+    expect(m.getState().choice?.arrival).toBe(true);
+    m.choose(1); // route Q again from the arrival view
+    expect(m.getState().cursor).toBe(4); // Q's first item, entered
+    expect(m.getState().choice).toBeUndefined();
+    expect(m.exportContext().stack).toEqual([{ decision: 0, route: 1 }]);
+    m.destroy();
+  });
+
+  it("playAllRoutes: an arrival at a completed decision passes through", () => {
+    // Chosen behaviour (the ambiguity this item names): play-all stays the
+    // no-stop path for COMPLETED decisions — it shows no view and auto-
+    // resolves nothing that is already answered. Its unresolved arrival rule
+    // is untouched (pinned above).
+    const m = manual(CANON);
+    m.advance();
+    m.advance();
+    m.advance(); // fires d1
+    m.choose(2); // route C, the continuing route
+    m.advance(); // 7 -> 8
+    m.advance(); // joins at `after-1`, 9
+    m.setSettings({ ...SETTINGS, playAllRoutes: true });
+    for (let back = 0; back < 7; back += 1) m.wheelBack(); // onto `decide`
+    expect(m.getState().cursor).toBe(2); // shown, and passed through
+    expect(m.getState().choice).toBeUndefined();
+    expect(m.exportContext()).toMatchObject({
+      playedRoutes: [{ decision: 0, routes: [2] }],
+      stack: [],
+    });
+    m.destroy();
+  });
+});

@@ -502,9 +502,12 @@ truthful: an unchecked box means nothing was accepted.
       route finishes once; sanitizeContext caught dropping it; hint
       conditional, Enter-no-row silently inert; verify steps 33-34
       flagged for the phase closer; 384 tests, 2026-11-01)
-- [ ] Navigation arrival re-opens COMPLETED decisions (re-offer with
+- [x] Navigation arrival re-opens COMPLETED decisions (re-offer with
       seen marks; return row per the new rule) so every decision point
-      surfaces when scrolling back, nested included.
+      surfaces when scrolling back, nested included. (frameless arrivals
+      find nested decisions via ancestor route spans; closed pure
+      choices re-offer on arrival; play-all passes completed arrivals
+      through; 390 tests, 2026-11-01)
 - [ ] Wheel (any notch, any direction) closes the choice overlay -
       fired, arrival, or re-offer - and navigates; only keys choose.
 - [ ] Skip never reveals unseen: burst advances only through seen

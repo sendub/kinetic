@@ -241,8 +241,8 @@ export interface ChoiceView {
   readonly continueOption?: boolean;
   /**
    * True when the overlay shows because a navigation ARRIVAL (wheel,
-   * `goTo()`, the `e` jump) landed on the unresolved decision's `after`
-   * item (docs/plan.md Phase 16), not because a forward settle fired it:
+   * `goTo()`, the `e` jump) landed on a decision's `after` item — unresolved
+   * (a fresh choice) or already completed (the route-end re-offer) (docs/plan.md Phase 16), not because a forward settle fired it:
    * timing is paused and the decision is NOT consumed — navigating away
    * closes the view and changes no route context. Navigation commands act
    * through an arrival-open view (each closes it); a fired choice still
