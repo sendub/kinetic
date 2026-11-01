@@ -671,5 +671,12 @@ truthful: an unchecked box means nothing was accepted.
       decision hanging off a line, route ends), so skip can still stop
       ON a particular line, which then shows normally once skip ends.
       Tests (a 5-line chain costs one picture's dwell), scenario.
+- [ ] Menus pause the timeline (user, 2026-11-01): opening the config
+      (`c`) or bookmark (`t`) screen pauses a running auto-forward or
+      skip burst (no item advances behind it, a playing video pauses as
+      under the Esc help), and closing the screen resumes exactly what
+      was running (auto-forward with a fresh hold, or the skip burst).
+      A bookmark click that jumps away does not resume the old burst.
+      Tests, scenario.
 - [ ] Phase-closer: full suite (driver, vitest, pytest, package-proof),
       rebuild BOTH demo folders, present the updated demo to the user.
