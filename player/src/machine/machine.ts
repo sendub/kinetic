@@ -197,23 +197,30 @@ export interface Machine {
    */
   toggleSkip(): void;
   /**
-   * `e` press: the first UNSEEN item along the path — (a) in the current
-   * route span at or after the cursor, else (b) in an unplayed route of a
-   * decision on the stack (innermost first) or of the decision that fires
-   * next along it, else (c) the first unseen item of the manifest in array
-   * order. The landing is a fresh entry: the item is shown and marked seen,
-   * its own hold is armed, and skip mode ends. No-op when the cursor is
-   * already on the target; a further press steps on to the next unseen
-   * item. Like the wheel and `goTo()`: a jump onto an unresolved decision's
-   * `after` item opens its arrival view, and a jump away from one closes
-   * it, stack unchanged.
+   * `e` press. With content still unseen and the cursor away from the
+   * READING position (the item reading last reached, `lastShown` — wheel
+   * scrubbing does not move it), the first press RESUMES: it goes to that
+   * item first (docs/plan.md Phase 18 — after wheeling back, `e` must
+   * return to where the reader stopped before jumping on). Standing on
+   * the reading position, the press takes the seen/jump rule of
+   * docs/plan.md Phase 13: the first UNSEEN item along the path — (a) in
+   * the current route span at or after the cursor, else (b) in an unplayed
+   * route of a decision on the stack (innermost first) or of the decision
+   * that fires next along it, else (c) the first unseen item of the
+   * manifest in array order; a further press steps on to the next unseen
+   * item. Every landing is a fresh entry: the item is shown and marked
+   * seen, its own hold is armed, and skip mode ends. No-op when the cursor
+   * is already on the target. Like the wheel and `goTo()`: a jump onto an
+   * unresolved decision's `after` item opens its arrival view, and a jump
+   * away from one closes it, stack unchanged.
    *
-   * When NOTHING is unseen the press instead shows the ENDING (docs/plan.md
-   * Phase 16, "Machine bugs"): the most recently seen ending item — the
-   * array end, or the final item of a route whose `result` is `ending` (see
-   * `endings` below) — or the array end when the save knows no ending yet.
-   * A press on that item with everything seen stays put; the press never
-   * cycles through endings.
+   * When NOTHING is unseen the resume step does not apply: the press
+   * instead shows the ENDING (docs/plan.md Phase 16, "Machine bugs"): the
+   * most recently seen ending item — the array end, or the final item of
+   * a route whose `result` is `ending` (see `endings` below) — or the
+   * array end when the save knows no ending yet. A press on that item
+   * with everything seen stays put; the press never cycles through
+   * endings.
    */
   jumpToUnseen(): void;
   /**
@@ -619,7 +626,13 @@ export function createMachine(options: MachineOptions): Machine {
   const visited = new Set<number>();
   /** `max(visited)`, -1 when nothing has been shown: the wheel's ceiling. */
   let highestSeen = -1;
-  /** The item shown most recently: where the next load starts. */
+  /**
+   * Where reading last reached — the item most recently shown by a READING
+   * move (a forward step, a skip burst's dwell, `choose()`, the `e` jump,
+   * `goTo()`, a restore). Wheel scrubbing shows without reading and never
+   * moves this: the load position, and the Phase 18 resume step of `e`,
+   * stay where the reader actually stopped (docs/plan.md Phase 18).
+   */
   let lastShown = 0;
   let settled = false;
   /** Open decision contexts, outermost first — the nesting stack. */
@@ -665,7 +678,7 @@ export function createMachine(options: MachineOptions): Machine {
       cursor = frontier - 1;
       settled = true;
     } else {
-      markShown(0);
+      markShown(0, true);
     }
   }
   // The start position is an arrival like any other (Phase 15): a chain
@@ -818,11 +831,16 @@ export function createMachine(options: MachineOptions): Machine {
     armTimer();
   }
 
-  /** The marking rule: shown now, so seen from now on. */
-  function markShown(index: number): void {
+  /**
+   * The marking rule: shown now, so seen from now on. `reads` splits the
+   * one field that is not about seeing: the reading position `lastShown`
+   * moves only when the showing is READING (docs/plan.md Phase 18) — wheel
+   * scrubbing (see `showItem`) shows without moving it.
+   */
+  function markShown(index: number, reads: boolean): void {
     visited.add(index);
     if (index > highestSeen) highestSeen = index;
-    lastShown = index;
+    if (reads) lastShown = index;
     if (endings.has(index)) lastEnding = index;
   }
 
@@ -833,14 +851,16 @@ export function createMachine(options: MachineOptions): Machine {
    * through here, which is why showing and seeing are the same moment (the
    * header's marking rule). `kind` is the other half of that record: the
    * forward step is an `advance`, every other route is a `nav` arrival
-   * (see `TransitionKind`).
+   * (see `TransitionKind`). `reads` says whether arriving IS reading:
+   * every route except the wheel's scrub steps, which show seen content
+   * without moving the reading position (docs/plan.md Phase 18).
    */
-  function showItem(index: number, kind: TransitionKind): void {
+  function showItem(index: number, kind: TransitionKind, reads = true): void {
     const keepsChain = index === cursor + 1 && chainHeadAt !== null;
     cursor = index;
     transition = kind;
     chainHeadAt = chainHeadMarkFor(index, keepsChain);
-    markShown(index);
+    markShown(index, reads);
     beginItem();
     emit();
   }
@@ -1404,7 +1424,9 @@ export function createMachine(options: MachineOptions): Machine {
     const storedEnding = asIndex(context.lastEnding, -1);
     lastEnding = endings.has(storedEnding) ? storedEnding : -1;
     cursor = clamp(asIndex(context.lastShown, 0), 0, count - 1);
-    markShown(cursor); // the landing item is shown, so it counts as seen
+    // The landing item is shown, so it counts as seen — and it is the
+    // reading position the context carried.
+    markShown(cursor, true);
   }
 
   return {
@@ -1515,7 +1537,10 @@ export function createMachine(options: MachineOptions): Machine {
         if (wasSkipping || closedArrival) emit();
         return;
       }
-      showItem(cursor - 1, "nav"); // pure nav: shown, seen; no decision consumed
+      // Pure nav: shown, seen; no decision consumed. A scrub step shows
+      // without reading — the reading position (and the `e` resume that
+      // follows) stays where the reader stopped (docs/plan.md Phase 18).
+      showItem(cursor - 1, "nav", false);
       openArrivalChoiceIfDue();
     },
 
@@ -1533,7 +1558,7 @@ export function createMachine(options: MachineOptions): Machine {
         if (wasSkipping || closedArrival) emit();
         return;
       }
-      showItem(cursor + 1, "nav");
+      showItem(cursor + 1, "nav", false); // scrubbing, like wheelBack
       openArrivalChoiceIfDue();
     },
 
@@ -1552,13 +1577,23 @@ export function createMachine(options: MachineOptions): Machine {
       if (destroyed || count === 0) return;
       const closedArrival = dismissArrivalChoice();
       if (pendingChoice !== null) return; // a fired choice owns the timeline
-      let target = unseenTarget();
-      if (target < 0) {
+      const unseen = unseenTarget();
+      let target: number;
+      if (unseen < 0) {
         // Everything has been seen: `e` shows the ENDING — the most
         // recently seen ending item, or the array end when the save
         // knows none yet (docs/plan.md Phase 16). A repeat press finds
         // the cursor already there and stays put: no cycle.
         target = lastEnding >= 0 ? lastEnding : count - 1;
+      } else if (cursor !== lastShown) {
+        // The resume step (docs/plan.md Phase 18): after scrubbing away,
+        // the first press goes back to where reading stopped — showing
+        // that item is READING, so the landing re-marks it (a no-op: it
+        // is already seen, and `lastShown` already names it). The next
+        // press, standing on `lastShown`, takes the unseen rules below.
+        target = lastShown;
+      } else {
+        target = unseen;
       }
       if (target < 0 || target === cursor) {
         if (closedArrival) emit(); // nothing to jump to: the view just closed

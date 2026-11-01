@@ -1498,18 +1498,32 @@ describe("skip mode (tab), docs/plan.md Phase 4", () => {
 
 describe("e-jump (jumpToUnseen), docs/plan.md Phase 4", () => {
   // Phase 13 put seen content in a visited SET, so `e` no longer lands on
-  // `frontier - 1`: it lands on the first UNSEEN item of the path and shows
-  // it. The intent is unchanged — get back to where the reading stopped —
-  // and it is now one item further along, since the landing is the unseen
-  // item itself (docs/plan.md Phase 13, "Seen tracking").
-  it("jumps to the first unseen item; a repeat press steps on to the next", () => {
+  // `frontier - 1`: from the reading position it lands on the first UNSEEN
+  // item of the path and shows it. The intent is unchanged — get back to
+  // where the reading stopped — and it is now one item further along,
+  // since the landing is the unseen item itself (docs/plan.md Phase 13,
+  // "Seen tracking"). Phase 18 added the resume step in front: when the
+  // cursor has scrubbed away from the reading position, the first press
+  // goes back there before any unseen jump (docs/plan.md Phase 18).
+  it("jumps back to the reading position first, then steps the unseen items", () => {
     const m = machine([image(), image(), image(), image(), image()], {
       resumeFrontier: 3,
     });
     m.wheelBack();
     m.wheelBack(); // bookmark-style rollback to the start
     expect(m.getState().cursor).toBe(0);
+    // Phase 18: away from the reading position (frontier - 1, still where
+    // the reading stopped — scrubbing did not move it), the first press
+    // RESUMES there; the jump lands seen, so the frontier does not move.
     m.jumpToUnseen();
+    expect(m.getState()).toEqual({
+      cursor: 2,
+      frontier: 3,
+      settled: false,
+      skipping: false,
+      transition: "nav",
+    });
+    m.jumpToUnseen(); // standing on it now: the first unseen item
     expect(m.getState()).toEqual({
       cursor: 3,
       frontier: 4,
@@ -1517,7 +1531,7 @@ describe("e-jump (jumpToUnseen), docs/plan.md Phase 4", () => {
       skipping: false,
       transition: "nav",
     });
-    m.jumpToUnseen(); // the landing is seen now: step to the next unseen item
+    m.jumpToUnseen(); // a further press steps on to the next unseen item
     expect(m.getState()).toEqual({
       cursor: 4,
       frontier: 5,
@@ -1551,6 +1565,70 @@ describe("e-jump (jumpToUnseen), docs/plan.md Phase 4", () => {
     expect(m.getState().cursor).toBe(1);
     m.advance(); // and the next enters item 2
     expect(m.getState().frontier).toBe(3);
+    m.destroy();
+  });
+});
+
+describe("`e`'s resume step (docs/plan.md Phase 18)", () => {
+  it("user repro: after wheeling back, the first press lands ON the last-shown item; the next moves on", () => {
+    vi.useFakeTimers();
+    // The reported flow on the player's own manual start: one space shows
+    // the next item, the wheel scrubs back, and `e` must return to where
+    // the reading stopped — not jump past it to the first unseen item.
+    const m = createMachine({
+      items: [image(), image(), image(), image(), image()],
+      settings: SETTINGS,
+    });
+    m.advance(); // one space: item 1 is the last item the reader read
+    expect(m.getState().cursor).toBe(1);
+    m.wheelBack(); // wheel back to item 0: scrubbing is not reading
+    expect(m.getState().cursor).toBe(0);
+    m.jumpToUnseen(); // the press resumes ON the last-shown item
+    expect(m.getState()).toEqual({
+      cursor: 1,
+      frontier: 2,
+      settled: false,
+      skipping: false,
+      transition: "nav", // a nav landing: below the edge it shows a poster
+    });
+    m.jumpToUnseen(); // standing there now: the first unseen item ahead
+    expect(m.getState()).toEqual({
+      cursor: 2,
+      frontier: 3,
+      settled: false,
+      skipping: false,
+      transition: "nav",
+    });
+    m.jumpToUnseen(); // repeated presses still step unseen in array order
+    expect(m.getState()).toEqual({
+      cursor: 3,
+      frontier: 4,
+      settled: false,
+      skipping: false,
+      transition: "nav",
+    });
+    m.destroy();
+  });
+
+  it("a resume landing below the seen edge is a nav arrival — the poster rule holds under it", () => {
+    vi.useFakeTimers();
+    // The machine half of the interaction: `playbackModeFor` (tested in
+    // render/visual.test.ts) keeps a nav arrival below the seen edge a
+    // poster, so the resume landing must never report `advance`.
+    const m = machine([image(), image(), image(), image(), image()], {
+      resumeFrontier: 4,
+    });
+    m.goTo(2); // a bookmark: the reading position moves down with the click
+    m.wheelBack(); // then scrub away from it
+    expect(m.getState().cursor).toBe(1);
+    m.jumpToUnseen(); // resume the reading position, below the seen edge
+    expect(m.getState()).toMatchObject({
+      cursor: 2,
+      frontier: 4, // cursor 2 < frontier - 1: the visual stays a still
+      transition: "nav",
+    });
+    m.jumpToUnseen(); // and from there the unseen rules carry on
+    expect(m.getState().cursor).toBe(4);
     m.destroy();
   });
 });

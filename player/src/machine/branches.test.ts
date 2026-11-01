@@ -1182,6 +1182,8 @@ describe("jumpToUnseen targets (the three cases, docs/plan.md Phase 13)", () => 
     m.wheelBack(); // back to 2, then 1: outside the span
     m.wheelBack();
     expect(m.getState().cursor).toBe(1);
+    m.jumpToUnseen(); // Phase 18 resume step: back to the reading position first
+    expect(m.getState().cursor).toBe(3);
     m.jumpToUnseen(); // a: route A's own unseen item 4, not a global scan
     expect(m.getState().cursor).toBe(4);
     expect(m.getState().settled).toBe(false);

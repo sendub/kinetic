@@ -466,28 +466,32 @@ tolerances below. Walked 2026-10-31, headless Chrome 156.0.8078.76:
   have moved on from there. The press neither moved nor skipped past the
   item.
 
-### 18. `e` steps onto the first unseen item
+### 18. `e` resumes the reading position, then steps onto the first unseen item
 
 - Action: wheel back two items from wherever skip left the cursor, then
-  press `e`.
-- Expected (Phase 13 semantics — this step MOVED with the visited-set
-  resync): the cursor lands ON the first never-shown item along the
-  path — the spot the reading stopped at — not on `frontier - 1` as it
-  did before Phase 13: on this linear walk that is item 10 (line-011),
-  while the old landing (line-010) is already seen content. Arriving
-  shows the item and marks it seen, so the derived frontier moves with
-  it; the wheel cannot push past from there (the next item is unseen).
-  The line there is the demo's thought: `data-mode="thought"` on band
-  and line, the computed `font-style` `italic`, painted over item 8's
-  still because a `text` item keeps the earlier visual.
-- RESULT (PASS, 2026-11-01): driver step 19: after two back notches the
-  overlay held intro-006's line; after `e` it showed `pier-009.jpg`
-  with "We stacked the rest ourselves, and called it enough." — item
-  10, the path's first never-shown item, shown now so the frontier
-  moved with it — `mode=thought/thought fontStyle=italic`. One
+  press `e` twice.
+- Expected (Phase 18 semantics — this step MOVED with the resume step):
+  the wheel-back does not move the reading position, so the first `e`
+  lands back ON the last-shown item — the spot the reading stopped at
+  (where skip had left the cursor), not on `frontier - 1` as it
+  did before Phase 13. The second `e`, standing there, lands ON the first
+  never-shown item along the path: on this linear walk that is item 10
+  (line-011), while the resume landing (line-010) is already seen
+  content. Arriving shows the item and marks it seen, so the derived
+  frontier moves with it; the wheel cannot push past from there (the next
+  item is unseen). The line there is the demo's thought:
+  `data-mode="thought"` on band and line, the computed `font-style`
+  `italic`, painted over item 8's still because a `text` item keeps the
+  earlier visual.
+- RESULT (PASS, 2026-11-01, pre-Phase-18 walk): driver step 19: after two
+  back notches the overlay held intro-006's line; after `e` it showed
+  `pier-009.jpg` with "We stacked the rest ourselves, and called it
+  enough." — item 10, the path's first never-shown item, shown now so the
+  frontier moved with it — `mode=thought/thought fontStyle=italic`. One
   wheel-down after `e` left it exactly there: the next item is unseen
   and the wheel does not enter unseen content. (The pre-Phase-13 walk
-  landed on line-010, item 9, `speech/normal`.)
+  landed on line-010, item 9, `speech/normal`; under Phase 18 that first
+  press lands on item 9 and only the second reaches item 10.)
 
 ### 19. A thought line reads apart from the spoken one, over a still
 

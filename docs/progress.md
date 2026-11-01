@@ -487,10 +487,13 @@ truthful: an unchecked box means nothing was accepted.
 
 ## Phase 18: Second demo-feedback round (2026-11-01, user)
 
-- [ ] `e` resume-first: with unseen content remaining, pressing `e`
+- [x] `e` resume-first: with unseen content remaining, pressing `e`
       away from the last-shown item lands ON the last-shown item
       (resume); from there it keeps the first-unseen stepping; all-seen
-      keeps the most-recent-ending rule. Tests + docs.
+      keeps the most-recent-ending rule. Tests + docs. (lastShown now
+      tracks READING moves only - wheel scrubbing no longer moves it,
+      which is what makes resume honest; exact user-flow test + below-
+      edge poster interaction pinned; 378 tests, 2026-11-01)
 - [ ] "Return to main route" only after the CONTINUING route has
       completed at least once; "Enter returns" hint renders only when
       the row exists. content-format + CREATE reword; tests.
