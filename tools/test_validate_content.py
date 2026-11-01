@@ -204,6 +204,51 @@ def test_image_jxl_passes(folder: Path) -> None:
     assert proc.returncode == 0, proc.stdout + proc.stderr
 
 
+def test_video_min_play_seconds_with_text_passes(folder: Path) -> None:
+    """An exact fractional `minPlaySeconds` on a video carrying dialogue
+    is valid (plan Phase 15) and stored verbatim."""
+    manifest = read_manifest(folder)
+    video = manifest["items"][5]
+    assert video["type"] == "video" and "text" in video
+    video["minPlaySeconds"] = 4.5
+    write_manifest(folder, manifest)
+    assert problems_of(folder) == []
+    proc = run_cli(folder)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert read_manifest(folder)["items"][5]["minPlaySeconds"] == 4.5
+
+
+def test_video_zero_min_play_seconds_is_rejected(folder: Path) -> None:
+    """The schema `exclusiveMinimum` rejects a zero floor; the validator
+    adds no rule of its own, since the field stands alone."""
+    manifest = read_manifest(folder)
+    manifest["items"][5]["minPlaySeconds"] = 0
+    write_manifest(folder, manifest)
+    problems = problems_of(folder)
+    assert len(problems) == 1
+    assert problems[0].startswith("manifest.json: items[5].minPlaySeconds:")
+    assert "must be greater than 0" in problems[0]
+
+
+def test_video_negative_min_play_seconds_is_rejected(folder: Path) -> None:
+    """A negative floor describes no wait; the schema rejects it."""
+    manifest = read_manifest(folder)
+    manifest["items"][5]["minPlaySeconds"] = -1.5
+    write_manifest(folder, manifest)
+    problems = problems_of(folder)
+    assert len(problems) == 1
+    assert problems[0].startswith("manifest.json: items[5].minPlaySeconds:")
+    assert "must be greater than 0" in problems[0]
+
+
+def test_video_absent_min_play_seconds_stays_valid(folder: Path) -> None:
+    """`minPlaySeconds` is optional; an item without it is unchanged."""
+    manifest = read_manifest(folder)
+    assert "minPlaySeconds" not in manifest["items"][5]
+    write_manifest(folder, manifest)
+    assert problems_of(folder) == []
+
+
 # ---------------------------------------------------------------------------
 # Fault tests: one deliberate defect each, exactly one problem reported
 # ---------------------------------------------------------------------------

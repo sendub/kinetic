@@ -203,6 +203,11 @@
           "exclusiveMinimum": 0,
           "description": "explicit display duration; when present the media gate is time driven and ended is ignored (docs/content-format.md, Timing)"
         },
+        "minPlaySeconds": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "floor for chain-exit timing: in auto mode the player waits at the end of the video's dialogue chain until minPlaySeconds have elapsed since the chain's video item became current; manual advance and skip stay immediate; outside chains it has no effect beyond the media gate (docs/content-format.md, Timing)"
+        },
         "speaker": { "type": "string" },
         "text": { "type": "string" },
         "thought": {

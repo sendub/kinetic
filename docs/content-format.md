@@ -89,10 +89,12 @@ Per type:
   it via ffprobe, and skip-mode timing needs it). Optional
   `loopCount` (integer, at least 1, default 1) plays the video
   repeatedly; optional `holdSeconds` (number greater than 0) sets an
-  explicit display duration; optional `startSeconds` (number, at
-  least 0, default 0) and `endSeconds` (number greater than
-  `startSeconds`, default `durationSeconds`) play a sub-range of the
-  file; optional `loopStartSeconds` (number, at least 0, default
+  explicit display duration; optional `minPlaySeconds` (number
+  greater than 0) is a chain-exit floor, covered under Timing;
+  optional `startSeconds` (number, at least 0, default 0) and
+  `endSeconds` (number greater than `startSeconds`, default
+  `durationSeconds`) play a sub-range of the file; optional
+  `loopStartSeconds` (number, at least 0, default
   `startSeconds`) sets where a loop restarts. Video playback ranges
   below covers all three. MKV is reliably Chromium-class and Safari
   may refuse it, so a converter targeting Safari should emit MP4 and
@@ -311,6 +313,21 @@ content:
   it, form a chain. The chain advances on text hold times alone. Loop
   completion and the `ended` event gate nothing while it lasts, and
   the chain's visual plays throughout it, looping in place.
+- A video's `minPlaySeconds` is a floor on leaving its chain. When
+  the current item is the last of that chain (the next item is not
+  `text`) and auto-advance governs the step - normal auto mode, the
+  auto-advance inside skip dwell, and play-all or skip-all bursts,
+  all machine-time paths - the hold is `max(holdMs,
+  minPlaySeconds * 1000 - chainElapsedMs)`, where `chainElapsedMs`
+  is the machine time since the chain's video item became current.
+  The chain plays through its dialogue normally while the video
+  runs; only leaving the chain waits. Manual advance and skip
+  transitions stay immediate: the floor delays only timer-driven
+  advance. `holdSeconds` remains the whole-item display gate for
+  standalone videos; with both on one item, chain exit honors both,
+  the max of the requirements. Outside a chain the field has no
+  effect beyond the media gate. The floor is per video item, not
+  per file: items sharing one file may set different floors.
 - Skip mode shows each item for a fixed player dwell. An animation
   contributes `frames[0]` and a video its `poster`; both show that
   still and never play. A video holds for `min(skipDwell, gate)`, the
@@ -371,7 +388,8 @@ The validator checks the schema plus these invariants:
 4. `schemaVersion` is 1; `items` is an array (an empty one is valid — an
    honestly-empty folder, see Manifest); `frames` has at least two
    entries; `loopCount` is at least 1; `fps` and `durationSeconds` are
-   greater than 0; `width` and `height` are at least 1. The schema enforces
+   greater than 0; `minPlaySeconds`, when present, is greater than 0;
+   `width` and `height` are at least 1. The schema enforces
    all of these.
 5. When `manifest.js` is present, the embedded JSON parses equal to
    `manifest.json`.

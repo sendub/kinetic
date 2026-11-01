@@ -50,7 +50,12 @@ them is still valid input for the validator.
   file's total duration. Optionally set `loopCount` (at least 1,
   default 1) to play the video repeatedly and `holdSeconds` (greater
   than 0) for an explicit display duration; `durationSeconds` stays
-  required either way.
+  required either way. When a long video opens a brief dialogue
+  chain and must get seen, set `minPlaySeconds` (greater than 0):
+  in auto mode the player waits at the end of the chain until that
+  many seconds have passed since the video became current. Manual
+  advance and skip transitions stay immediate, and outside a chain
+  the field does nothing.
 - `text`: no media fields; only `id`, `type`, and the optional
   `speaker`, `text`, and `thought`. It shows the visual of the nearest
   earlier media item, and that video or animation keeps looping

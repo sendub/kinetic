@@ -320,10 +320,10 @@ truthful: an unchecked box means nothing was accepted.
 
 ## Phase 15: Minimum video play time under chains (2025-11-01, external tester)
 
-- [ ] Format/schema/validator/CREATE: optional `minPlaySeconds` on
+- [x] Format/schema/validator/CREATE: optional `minPlaySeconds` on
       video items (>0), chain-exit semantics + manual/skip-immediate
       documented; per-item not per-file; validator type/positivity +
-      CREATE example note
+      CREATE example note (73 pytest tests, 2025-11-01)
 - [ ] Machine: chain-exit floor max(hold, minPlay - chainElapsed) for
       the last item of a text chain over a video with the field,
       machine-time bookkeeping, auto/skip-dwell/play-all paths honored,
