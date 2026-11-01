@@ -17,7 +17,11 @@ appends timestamped records with a confirmation flash, `t` opens the
 thumbnail list oldest-first and scrolled to the newest, clicking an entry
 continues the novel from that time point — since Phase 13 through the
 route-play context recorded with the bookmark — and the reading state
-survives a reload and an `e`-verified bookmark jump; the Phase 9 config
+survives a reload and an `e`-verified bookmark jump — since Phase 14
+that state record is written on the change itself (no debounce window is
+left to lose it in), and the flash arrives only once BOTH the bookmark
+and the state write have committed, which is what step 39 walks with a
+reload issued the instant the pill appears; the Phase 9 config
 set: `c` opens the config screen showing the current reading speed,
 skip-all, and (Phase 13) play-all-routes state, its controls change the
 settings live — a measured
@@ -146,13 +150,18 @@ is not a reselection point), and `main-024` closes the path; a reload
 then comes back on `main-024` with no overlay, `e` jumps to `early-022`
 — the one line never played — and a clean slate with `c`'s skip-all and
 play-all-routes both on runs the WHOLE story on one `tab` press, every
-route once, the continuing route last, and no overlay anywhere.
+route once, the continuing route last, and no overlay anywhere. For
+step 39, start from a clean slate, walk to `window-004`, press `b`, and
+reload the MOMENT the "Bookmarked" pill appears — do not wait first: the
+page must come back on that same line, and `t` → the newest row must
+lead back to it too.
 
 Results below were walked on 2026-10-31 by the driver on headless
 Chrome 156.0.8078.76, re-walked on 2026-11-01 after the Phase 13
 resync, and again after the branch fixture joined the demo — both later
-re-walks multiple runs with the same statuses — now 41 steps: 40 pass,
-1 honest partial (the evidence lines differ run to run only in
+re-walks multiple runs with the same statuses, and once more on
+2026-11-01 with the Phase 14 persistence fix and its step 42 — now 42
+steps: 41 pass, 1 honest partial (the evidence lines differ run to run only in
 bookmark timestamps, sampled video `currentTime`, boundary measurements
 and range-frame counts, skip-dwell timings, the hold measurement, the
 branch change log's positions, and per-event video timestamps). The headings keep the checklist's own numbering; the
@@ -174,7 +183,11 @@ row) are unit-tested in `render/choice.test.ts` and
 (speed stepper steps and clamps, the readout text) are unit-tested in
 `render/config.test.ts`, the live-change semantics of `readingSpeed` and
 `skipAll` in `machine.test.ts`, and the settings' storage round-trip in
-the `storage.test.ts` contract suite. The range-plan rules (entry start,
+the `storage.test.ts` contract suite. The Phase 14 write
+policy — a change issues its state write immediately, and a snapshot
+superseded while one is in flight replaces the pending one instead of
+queueing behind it — is unit-tested in `storage/persist.test.ts`. The
+range-plan rules (entry start,
 loop restart point and end in the plan, `loop` off for any range,
 pass-boundary source rVFC / `timeupdate` / `ended`) are unit-tested in
 `render/visual.test.ts`.
@@ -580,8 +593,9 @@ tolerances below. Walked 2026-10-31, headless Chrome 156.0.8078.76:
   `pier-009.jpg` — an identical painted signature, still identical
   1.8 s later: the resume landed settled and the reloaded machine,
   manual by default, holds it — and item 0 was ruled out. The ctx is
-  persisted (debounced writes plus
-  visibility/pagehide flushes, main.ts); bookmarks, settings and the
+  persisted (each change issues its write
+  immediately, with the visibility/pagehide handlers re-issuing the
+  current snapshot as belt-and-braces, main.ts); bookmarks, settings and the
   resume position share the one per-novel storage namespace.
 
 ### 25. `c` opens the config screen: current values, suspension, closing
@@ -632,7 +646,8 @@ tolerances below. Walked 2026-10-31, headless Chrome 156.0.8078.76:
   `c` opens showing `2.00x` and skip-all
   ON: the persisted `settings` ride in the same per-novel record as the
   route-play ctx, merged over the defaults at machine construction, written
-  with the same debounce-and-flush rule (main.ts). Resetting afterwards
+  on the change itself like every other field of the record (main.ts).
+  Resetting afterwards
   keeps the steps below on default behaviour.
 - RESULT (PASS, 2026-11-01): driver step 28: the stepper took the
   readout to `2.00x — ~30 ms/char` by four trusted clicks; the first
@@ -906,6 +921,28 @@ tolerances below. Walked 2026-10-31, headless Chrome 156.0.8078.76:
   straight on to `late`; `#choice` never opened across 54 samples and
   the whole log; the burst ended on the closing line. Console stayed
   empty (step 31).
+
+### 39. `b` then an immediate reload: the resume IS the bookmarked item
+
+- Action: clean slate (wipe storage, first-ever load), dismiss the help,
+  walk to `window-004`, press `b`, wait for the "Bookmarked" pill, and
+  reload the INSTANT it appears — no waiting first. Then `t` and click the
+  newest row.
+- Expected (Phase 14): the page comes back on `window-004` — the position
+  was committed BEFORE the pill appeared, because a change issues its state
+  write immediately and the confirmation waits for the bookmark and that
+  write to commit. Before the fix this reload landed on the PREVIOUS item:
+  the debounced write had not been issued yet, and IndexedDB promises
+  nothing about a transaction opened while the document goes away. The list
+  holds exactly the one new bookmark, and its row restores the same item
+  through the captured ctx.
+- RESULT (PASS, 2026-11-01): driver step 42: clean slate, walked to item 3
+  (`window-004.jpg`), `b` -> the pill -> reload with NOTHING in between
+  (pill → new-document load took 43 ms — inside the window the 250 ms
+  debounce used to lose): the page came back on `window-004.jpg` with
+  Theo's line, help stayed closed, IndexedDB held 1 bookmark at item 3, and
+  clicking that newest row left the screen on the same item and line; the
+  console stayed empty through the writes, the reload and the click.
 
 ## Not covered yet
 

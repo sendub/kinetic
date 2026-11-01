@@ -1,10 +1,13 @@
-// Kinetic player entry point (docs/plan.md Phases 5, 8, 9, 13, 13b): load
+// Kinetic player entry point (docs/plan.md Phases 5, 8, 9, 13, 13b, 14): load
 // the manifest, build the timeline machine — resuming from the persisted
 // route-play context, falling back to the legacy frontier for pre-ctx
 // records, and starting on the persisted settings when either exists —
 // mount the render shell, install the input map, and wire storage: the
-// machine context (with the derived legacy frontier) is persisted as the
-// reader moves, `b` appends a bookmark that captures the current context,
+// machine context (with the derived legacy frontier) is written the moment
+// the reader moves — Phase 14: no debounce, because a write issued on the
+// change is the only one a reload a moment later can find —, `b` appends a
+// bookmark that captures the current context and confirms only once both
+// writes commit,
 // `t` opens the bookmark list, and `c` opens the config screen, whose
 // changes apply live (machine.setSettings) and persist with the context.
 // Phase 13b adds the manual/auto clarity and the `#help` key help: the
@@ -39,16 +42,9 @@ import { loadManifest } from "./render/manifest";
 import { installWheelInput } from "./render/wheel";
 import { contentSignature, createIdbStorage } from "./storage/idb";
 import { createNoopStorage } from "./storage/noop";
-import type { Bookmark } from "./storage/types";
+import { createImmediateWriter } from "./storage/persist";
+import type { Bookmark, PersistedState } from "./storage/types";
 import { helpSeenFrom, resumeOptionsFor } from "./storage/types";
-
-/**
- * Persist-write debounce. A skip burst moves the reader ~8 times per
- * second; one IndexedDB write per burst-pause is plenty, and the
- * visibilitychange/pagehide flushes below guarantee even a reload right
- * after an advance resumes from the right spot.
- */
-const PERSIST_DEBOUNCE_MS = 250;
 
 async function fetchJson(url: string): Promise<unknown> {
   const response = await fetch(url);
@@ -156,46 +152,44 @@ function start(): void {
 
       // Persistence: every machine move can change the resume point —
       // the ctx carries the seen set, the open route, and the last shown
-      // item — and so does every settings change from the `c` screen.
-      // Writes are debounced so a skip burst writes once at the pause,
-      // and flushed when the page goes away. The record keeps `frontier`
-      // (derived, legacy readers) beside the ctx; exportContext is a
-      // sorted number list, cheap to serialize per flush.
-      let persistDirty = false;
-      let persistTimer: ReturnType<typeof setTimeout> | null = null;
-      const flushPersist = (): void => {
-        if (persistTimer !== null) {
-          globalThis.clearTimeout(persistTimer);
-          persistTimer = null;
-        }
-        if (!persistDirty) return;
-        persistDirty = false;
-        // A storage outage must never break reading or log to the console.
-        void storage
-          .saveState({
-            frontier: machine.getState().frontier,
-            ctx: machine.exportContext(),
-            settings: currentSettings,
-            helpSeen,
-          })
-          .catch(() => {});
-      };
-      const schedulePersist = (): void => {
-        if (persistTimer === null) {
-          persistTimer = globalThis.setTimeout(
-            flushPersist,
-            PERSIST_DEBOUNCE_MS,
-          );
-        }
-      };
-      machine.subscribe(() => {
-        persistDirty = true;
-        schedulePersist();
+      // item — and so does every settings change from the `c` screen. A
+      // change ISSUES its write at once (docs/plan.md Phase 14): the old
+      // 250 ms debounce left the newest position simply unwritten when a
+      // reload came a moment after an advance, and the flushes below could
+      // not rescue an unwritten one — IndexedDB promises nothing about a
+      // transaction opened while the document is going away. So timing
+      // coalesces nothing; only concurrency does: createImmediateWriter
+      // keeps one write in flight and at most one pending snapshot, so a
+      // skip burst still costs one write per burst-pause without a queue
+      // that grows with the reader. The record keeps `frontier` (derived,
+      // legacy readers) beside the ctx; exportContext is a sorted number
+      // list, cheap to serialize per write.
+      const stateRecord = (): PersistedState => ({
+        frontier: machine.getState().frontier,
+        ctx: machine.exportContext(),
+        settings: currentSettings,
+        helpSeen,
       });
+      const writeState = createImmediateWriter((state: PersistedState) =>
+        storage.saveState(state),
+      );
+      const persistNow = (): Promise<void> => writeState(stateRecord());
+      // A state-write outage stays silent: reading must never break, and an
+      // unhandled rejection would put a console error on a plain `file://`
+      // open. Only the bookmark the reader asked for reports its failure.
+      const persistQuietly = (): void => {
+        persistNow().catch(() => {});
+      };
+      machine.subscribe(persistQuietly);
+      // Belt and braces for the microseconds one transaction is in flight:
+      // these re-issue the CURRENT snapshot (so a write that failed earlier
+      // gets one more chance before the page goes), which is all a page in
+      // the middle of being torn down can do — the durability itself comes
+      // from the write having been issued on the change.
       document.addEventListener("visibilitychange", () => {
-        if (document.visibilityState === "hidden") flushPersist();
+        if (document.visibilityState === "hidden") persistQuietly();
       });
-      document.addEventListener("pagehide", flushPersist);
+      document.addEventListener("pagehide", persistQuietly);
 
       // `b` (README bookmark bullet): the thumbnail is opportunistic — a
       // frame is captured only when it is drawable and the canvas readable
@@ -206,6 +200,12 @@ function start(): void {
       // later restore can re-enter the route context the bookmark was
       // taken in (`bookmarkRestoreTarget`); a restore without one — an
       // old bookmark — is the plain itemIndex navigation.
+      // Phase 14 adds the ORDER: the bookmark record and a state write are
+      // both issued, and the flash waits for BOTH to commit. The state write
+      // is the one the last advance already issued (usually long done), and
+      // awaiting it again covers the case where it is still in flight when
+      // `b` lands — so the pill means a reload this very second resumes on
+      // this item AND finds the entry in the `t` list.
       const takeBookmark = async (): Promise<void> => {
         const blob = await captureVisualThumbnail(shell.currentVisual());
         const thumbDataUrl = blob === null ? null : await blobToDataUrl(blob);
@@ -216,8 +216,22 @@ function start(): void {
           ctx: machine.exportContext(),
           thumbDataUrl,
         };
-        await storage.addBookmark(bookmark).catch(() => []);
-        // The confirmation arrives after the append is durable, and never
+        const settled = await Promise.allSettled([
+          persistNow(),
+          storage.addBookmark(bookmark),
+        ]);
+        const failed = settled.find(
+          (result): result is PromiseRejectedResult =>
+            result.status === "rejected",
+        );
+        if (failed !== undefined) {
+          // The one storage failure worth a console line: the reader asked
+          // for a bookmark and it did not commit. No pill — "Bookmarked"
+          // means saved, and it is not.
+          console.warn("[kinetic] bookmark not saved", failed.reason);
+          return;
+        }
+        // The confirmation arrives after both writes are durable, and never
         // interferes with `h`: it is not the overlay.
         shell.flash("Bookmarked");
       };
@@ -248,16 +262,15 @@ function start(): void {
       // `c` (README `c` bullet): the config screen. A control click
       // applies the full next settings live — machine.setSettings re-arms
       // the pending auto-advance with them (docs/plan.md Phase 9) — and
-      // queues the persist write, debounced and flushed like every other
-      // change in the record.
+      // writes them, like every other change in the record. setSettings
+      // is not a state change, so this is the write's trigger.
       const config = mountConfigOverlay({
         root,
         settings: () => currentSettings,
         onChange: (next) => {
           currentSettings = next;
           machine.setSettings(next);
-          persistDirty = true;
-          schedulePersist();
+          persistQuietly();
         },
       });
       // The key help screen (docs/plan.md Phase 13b): the keymap's own
@@ -279,8 +292,7 @@ function start(): void {
         machine.resume();
         if (!helpSeen) {
           helpSeen = true;
-          persistDirty = true;
-          flushPersist(); // immediate: the close must outlive a reload
+          persistQuietly(); // the close must outlive a reload
         }
       }
 

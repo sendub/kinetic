@@ -303,6 +303,21 @@ truthful: an unchecked box means nothing was accepted.
       32 pass + known partial, 266 tests, no bugs found in both-mode
       behavior, 2025-11-01)
 
+## Phase 14: External tester findings (2025-11-01)
+
+- [x] Persistence durability: reading position must survive an
+      immediate reload (the 250 ms debounced state write is lost;
+      pagehide flush cannot commit an IDB transaction mid-flight -
+      reproduced on HEAD 007b5aff: bookmark+immediate reload resumes at
+      stale item, though the bookmark itself restores correctly). Fix:
+      persist position immediately on change; bookmark capture flushes
+      state; the "Bookmarked" confirmation appears only after the
+      commit; verify step proving bookmark + immediate reload resumes
+      AND restores; docs updated. (Fixed: immediate single-slot
+      write-with-latest-pending replaces the debounce; flash awaits
+      bookmark+state commits; 42-step verify + repro prove
+      pill->reload 43 ms resume; 294 tests, 2025-11-01)
+
 ## Later, waiting on the user
 
 - [ ] Overlay text styling iteration (incl. thought vs dialogue look)

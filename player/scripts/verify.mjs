@@ -2755,7 +2755,11 @@ async function main() {
     // wheel and no click: after steps 31-32's extra tabs the first
     // mouse-class dispatch on the main page had hung — foreground is
     // reclaimed above; keys and reloads carry everything here.)
-    await sleep(400); // past the ctx persistence debounce: lastShown is in
+    // The write went out when lastShown changed (Phase 14 removed the
+    // debounce); this short wait lets that transaction commit before the
+    // reload — belt and braces, not the mechanism, since step 42 reloads
+    // with no wait at all and still resumes correctly.
+    await sleep(400);
     const s38sig = await page.evaluate(PAINT_SIG);
     await page.reload();
     await sleep(700); // resume paints at load; helpSeen keeps the help shut
@@ -2828,8 +2832,9 @@ async function main() {
     // `#choice` never surfaces; every route plays once; the aftermath
     // follows.
     // Fresh slate. OBSERVED once: with the cursor left inside branch
-    // content (step 39's landing) a pending debounced write held an IDB
-    // connection, the delete only reached `blocked`, and the reload
+    // content (step 39's landing) the app page still held an IndexedDB
+    // connection — one open handle is enough, writes pending or not — the
+    // delete only reached `blocked`, and the reload
     // document still had helpSeen — no help screen, and the step died on
     // a bare 5 s wait. So: report which event ended the delete, and if
     // the fresh start did not materialise, wipe once more. Every wait
@@ -2953,7 +2958,8 @@ async function main() {
     }
 
     // 41. Console stayed empty through the WHOLE run, branch steps
-    // included (it was already checked at 33, before them).
+    // included (it was already checked at 33, before them; step 42 re-reads
+    // the same arrays after its own work).
     const s41Ok = consoleMessages.length === 0 && pageErrors.length === 0;
     record(
       "41. console stayed empty throughout the whole run, branch steps included",
@@ -2961,6 +2967,116 @@ async function main() {
       s41Ok
         ? "zero console messages, zero page errors, every page, whole run — including the decision overlays, the nested decision, the rejoin, the e-jump into the never-taken route, the resume inside branch content, and the play-all skip burst"
         : `console=[${consoleMessages.join(" | ")}] pageErrors=[${pageErrors.join(" | ")}]`,
+    );
+
+    // 42. The Phase 14 durability walk: a bookmark on a clean slate, and a
+    // reload issued the INSTANT its confirmation appears — nothing waits in
+    // between. That is exactly where the old 250 ms debounce lost the
+    // position: the state write had not been issued yet, and a transaction
+    // opened at pagehide is not promised a commit (docs/progress.md Phase
+    // 14). The pill is now the commit of BOTH writes (main.ts), so "reload
+    // when the pill shows" is the fastest sequence a reader can perform —
+    // and the step asserts the whole pair: the reload resumes on the
+    // bookmarked item, and the newest `t` row leads back to it too.
+    let s42Fresh = await wipeAndReload();
+    if (!s42Fresh) s42Fresh = await wipeAndReload();
+    const s42HelpDismissed = s42Fresh ? await dismissHelp(page, cdp) : false;
+    // Walk to window-004 (item 3). The machine is MANUAL on a fresh slate,
+    // so one pair of presses — immediate-complete, then move — is exactly
+    // one item, and nothing advances on its own between the presses.
+    let s42Walked = false;
+    for (let move = 0; move < 6 && !s42Walked; move += 1) {
+      const at = await page.evaluate(PAGE_STATE);
+      if ((at.imgSrc ?? "").includes("window-004.jpg")) s42Walked = true;
+      else await advancePair(cdp);
+    }
+    const s42at = await page.evaluate(PAGE_STATE);
+    const s42atOk =
+      s42at.imgSrc === "window-004.jpg" &&
+      s42at.speaker === "Theo" &&
+      s42at.text === EXPECTED.windowText;
+    await pressB(cdp);
+    let s42Flashed = true;
+    try {
+      await page.waitForFunction(flashShown, { timeout: 5000 });
+    } catch {
+      s42Flashed = false;
+    }
+    // No sleep here, and no read either: the reload is the very next thing
+    // the driver does after the pill (the stored bookmark is read back from
+    // the NEW document, so even that IndexedDB open waits).
+    const s42flashSeenAt = Date.now();
+    await page.reload();
+    const s42flashToLoadMs = Date.now() - s42flashSeenAt;
+    let s42Painted = true;
+    try {
+      await page.waitForFunction(
+        () =>
+          (document.getElementById("visual-image")?.getAttribute("src") ??
+            "") !== "",
+        { timeout: 5000 },
+      );
+    } catch {
+      s42Painted = false;
+    }
+    const s42resumed = await page.evaluate(PAGE_STATE);
+    const s42stored = await page.evaluate(READ_BOOKMARKS);
+    const s42resumeOk =
+      s42Painted &&
+      s42resumed.imgSrc === "window-004.jpg" &&
+      s42resumed.speaker === "Theo" &&
+      s42resumed.text === EXPECTED.windowText &&
+      s42resumed.helpOpen === false &&
+      s42resumed.stageHidden === false;
+    // `t`, then the newest row (the only one on this slate): the restore
+    // goes through the ctx the bookmark captured and lands on that item.
+    await pressT(cdp);
+    let s42PanelOpen = true;
+    try {
+      await page.waitForFunction(OVERLAY_OPEN, { timeout: 5000 });
+    } catch {
+      s42PanelOpen = false;
+    }
+    const s42list = await page.evaluate(READ_BOOKMARK_OVERLAY);
+    const s42entries = s42list.entries ?? [];
+    const s42newest = s42entries[s42entries.length - 1];
+    let s42clicked = false;
+    if (s42newest?.rect) {
+      await clickAt(
+        cdp,
+        Math.round((s42newest.rect.left + s42newest.rect.right) / 2),
+        Math.round((s42newest.rect.top + s42newest.rect.bottom) / 2),
+      );
+      s42clicked = true;
+      try {
+        await page.waitForFunction(OVERLAY_CLOSED, { timeout: 5000 });
+      } catch {
+        s42clicked = false;
+      }
+    }
+    const s42after = await page.evaluate(PAGE_STATE);
+    const s42ConsoleClean =
+      consoleMessages.length === 0 && pageErrors.length === 0;
+    const s42Ok =
+      s42Fresh &&
+      s42HelpDismissed &&
+      s42Walked &&
+      s42atOk &&
+      s42Flashed &&
+      s42stored.length === 1 &&
+      s42stored[0]?.itemIndex === 3 &&
+      s42resumeOk &&
+      s42PanelOpen &&
+      s42entries.length === 1 &&
+      s42clicked &&
+      s42after.imgSrc === "window-004.jpg" &&
+      s42after.text === EXPECTED.windowText &&
+      s42after.bookmarksOpen === false &&
+      s42ConsoleClean;
+    record(
+      "42. b then an immediate reload: the resume is the bookmarked item, and its t row agrees (Phase 14)",
+      s42Ok ? "PASS" : "FAIL",
+      `clean slate (help dismissed=${String(s42HelpDismissed)}), walked to item 3 ${JSON.stringify(s42at.imgSrc)}=${String(s42atOk)}, b -> the "Bookmarked" pill (the commit of the bookmark AND the state write) -> reload with NOTHING in between (pill -> new document load took ${String(s42flashToLoadMs)} ms — the window the old 250 ms debounce lost): the page came back on ${JSON.stringify(s42resumed.imgSrc)} / ${JSON.stringify(s42resumed.text)}=${String(s42resumeOk)}, the position being committed before the pill appeared, and the help stayed closed=${String(s42resumed.helpOpen === false)}; IndexedDB holds ${String(s42stored.length)} bookmark at item ${String(s42stored[0]?.itemIndex)}, and clicking that newest row in the t list=${String(s42clicked)} left the screen on ${JSON.stringify(s42after.imgSrc)} / ${JSON.stringify(s42after.text)} (the ctx restore re-enters the same item); console still empty=${String(s42ConsoleClean)}`,
     );
   } finally {
     await browser.close();
