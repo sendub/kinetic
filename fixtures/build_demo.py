@@ -343,6 +343,135 @@ def build_text_chain_items() -> list[dict]:
     return items
 
 
+def build_branch_items() -> tuple[list[dict], list[dict]]:
+    """Phase 13's real branch demo, appended after the linear items.
+
+    The item array stays the single source of order; ids only name
+    positions (docs/content-format.md § Branches). Array layout:
+
+        13 bridge-014  14 bridge-015          lead-in; bridge-015 is the
+                                              decision's `after` item
+        15 hire-016    16 hire-017            route "hire" (continuing)
+        17 late-021    18 early-022           nested decision's routes
+        19 hire-018                           the nested continueAt rejoin
+        20 refuse-019 21 refuse-020           route "refuse" (ending)
+        22 main-023   23 main-024             aftermath (continueAt)
+
+    `outer-hire` fires on the settle of bridge-015: `hire` is the
+    continuing route (it proceeds to main-023), `refuse` is an explicit
+    `ending`. Inside the hire span, `inner-time` hangs off hire-017 with
+    `late` (continuing, rejoining at hire-018) and `early` (`return` — the
+    only route that offers "Return to main route") — exactly the nesting
+    the format doc promises. Every new image is drawn with the same
+    deterministic helpers as the rest of the fixture.
+    """
+    items: list[dict] = []
+
+    img = new_canvas((70, 58, 96), (196, 178, 150))
+    rect(img, 320, 170, 640, 390, (250, 236, 208))
+    rect(img, 452, 260, 508, 390, (120, 96, 70))
+    save_jpeg(img, DEMO_DIR / "bridge-014.jpg")
+    items.append({
+        "id": "bridge-014", "type": "image", "file": "bridge-014.jpg",
+        "speaker": "Mei",
+        "text": "The studio waited on an answer about the temp.",
+    })
+
+    # The decision's `after` item: its own bare image, no text — the
+    # prompt lives in the branch table, not on the item.
+    img = new_canvas((40, 52, 82), (150, 130, 92))
+    circle(img, WIDTH // 2, 280, 120, (232, 204, 150))
+    rect(img, 380, 280, 580, 430, (90, 70, 56))
+    save_jpeg(img, DEMO_DIR / "bridge-015.jpg")
+    items.append({"id": "bridge-015", "type": "image", "file": "bridge-015.jpg"})
+
+    img = new_canvas((58, 70, 48), (178, 190, 150))
+    rect(img, 250, 240, 710, 300, (226, 214, 190))
+    rect(img, 430, 210, 530, 240, (250, 244, 226))
+    save_jpeg(img, DEMO_DIR / "hire-016.jpg")
+    items.append({
+        "id": "hire-016", "type": "image", "file": "hire-016.jpg",
+        "speaker": "Mei",
+        "text": "Mei slid the contract over before the coffee cooled.",
+    })
+    items.append({
+        "id": "hire-017", "type": "text", "speaker": "Theo",
+        "text": "Start Monday, if that works for you.",
+    })
+    # The nested decision's two one-line routes, laid out inside the
+    # hire span, before its continueAt (hire-018).
+    items.append({
+        "id": "late-021", "type": "text",
+        "text": "They showed at ten, late and grinning.",
+    })
+    items.append({
+        "id": "early-022", "type": "text",
+        "text": "They were at the door before the sun was up, so the kettle "
+                "went on.",
+    })
+    items.append({
+        "id": "hire-018", "type": "text",
+        "text": "Either way, the studio had its week back.",
+    })
+
+    img = new_canvas((52, 40, 40), (158, 120, 108))
+    rect(img, 0, 380, WIDTH, HEIGHT, (60, 46, 44))
+    circle(img, 480, 200, 60, (244, 226, 198))
+    save_jpeg(img, DEMO_DIR / "refuse-019.jpg")
+    items.append({
+        "id": "refuse-019", "type": "image", "file": "refuse-019.jpg",
+        "speaker": "Mei",
+        "text": "We'll pass this time, Mei said, and she meant it.",
+    })
+    items.append({
+        "id": "refuse-020", "type": "text",
+        "text": "An ending card: the studio kept its quiet.",
+    })
+
+    img = new_canvas((90, 96, 130), (210, 204, 178))
+    circle(img, 700, 130, 64, (254, 246, 214))
+    rect(img, 0, 420, WIDTH, HEIGHT, (96, 108, 92))
+    save_jpeg(img, DEMO_DIR / "main-023.jpg")
+    items.append({
+        "id": "main-023", "type": "image", "file": "main-023.jpg",
+        "speaker": "Mei",
+        "text": "Whatever was decided, the morning moved on.",
+    })
+    items.append({
+        "id": "main-024", "type": "text",
+        "text": "And the tape rolled on without an answer.",
+    })
+
+    branches = [
+        {
+            "id": "inner-time", "after": "hire-017",
+            "prompt": "When do they meet?",
+            "routes": [
+                {"id": "late", "label": "Late, over coffee",
+                 "start": "late-021", "end": "late-021"},
+                {"id": "early", "label": "Early, before the sun",
+                 "start": "early-022", "end": "early-022",
+                 "result": "return"},
+            ],
+            "continuingRoute": "late", "continueAt": "hire-018",
+        },
+        {
+            "id": "outer-hire", "after": "bridge-015",
+            "prompt": "What does the studio decide?",
+            "routes": [
+                {"id": "hire", "label": "Offer them the job",
+                 "start": "hire-016", "end": "hire-018",
+                 "result": "return"},
+                {"id": "refuse", "label": "Turn them down",
+                 "start": "refuse-019", "end": "refuse-020",
+                 "result": "ending"},
+            ],
+            "continuingRoute": "hire", "continueAt": "main-023",
+        },
+    ]
+    return items, branches
+
+
 # --------------------------------------------------------------------------
 # Inline structural check (hand-rolled; the reusable validator is next task)
 # --------------------------------------------------------------------------
@@ -499,13 +628,18 @@ def main() -> None:
     items.append(build_animation_item())
     items.append(build_video_item())
     items.extend(build_text_chain_items())
-    # Last: the two range items sharing one clip (Phase 9c), after every chain.
+    # The two range items sharing one clip (Phase 9c), after every chain.
     items.extend(build_clip_video_items())
+    # Last: the Phase 13 branch demo — lead-in, decision, nested decision,
+    # ending route, aftermath. The `branches` table rides with it.
+    branch_items, branches = build_branch_items()
+    items.extend(branch_items)
     manifest = {
         "schemaVersion": 1,
         "width": WIDTH,
         "height": HEIGHT,
         "items": items,
+        "branches": branches,
     }
 
     manifest_text = json.dumps(manifest, indent=2, ensure_ascii=True)

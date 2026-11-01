@@ -19,7 +19,18 @@
 // (`requestVideoFrameCallback`, with the file's `ended` where the range
 // runs to the file's end), loop-back to `loopStartSeconds` after a
 // completed pass while passes remain and pause when none do, and `loop`
-// never on for a range — and prints PASS / PARTIAL / FAIL per step.
+// never on for a range — and Phase 13's branch fixture (steps 34-40):
+// the `#choice` overlay on the settle of `bridge-015`, the ending route
+// (`refuse`) with its reselection overlay and seen marker, the continuing
+// route (`hire`) with the NESTED decision on `hire-017` whose picked
+// `return` route (`early`) re-opens it with the "Return to main route"
+// row — Enter-answered onto the rejoin at `hire-018` —, the continuing
+// route's end going straight to `continueAt`
+// (`main-023`, once), reload resume inside branch content with no decision
+// re-fire, the seen-aware `e`-jump into the never-taken route, and
+// `Play all routes` through a skip-all burst that surfaces no choice and
+// plays every route (continuing last) before the aftermath —
+// and prints PASS / PARTIAL / FAIL per step.
 // Run from player/:  node scripts/verify.mjs
 // Exit code: 0 when every step is PASS or PARTIAL, 1 on any FAIL or crash.
 //
@@ -44,11 +55,21 @@
 // each step asserts what the DOM shows.
 
 import { execFileSync } from "node:child_process";
-import { copyFileSync, cpSync, existsSync, mkdirSync, rmSync } from "node:fs";
+import {
+  copyFileSync,
+  cpSync,
+  existsSync,
+  mkdirSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import puppeteer from "puppeteer-core";
 
+// The continue row's label, read from the module that draws it, so the
+// branch steps assert the same string the screen shows (as with fit.ts).
+import { CONTINUE_LABEL } from "../src/render/choice.ts";
 // The contain-fit geometry comes from the renderer's own pure helper, read
 // straight from src (node runs the types away), so the driver's expectation
 // cannot drift from the rule the unit tests pin.
@@ -71,6 +92,26 @@ const chromePath =
 // fixture fails a step here rather than silently re-defining correctness.
 const EXPECTED = {
   meadowText: "You're early today. The meadow is empty.",
+  // Phase 13's branch fixture: strings copied from fixtures/demo, so a
+  // change to the branch content fails a step rather than silently
+  // re-defining correctness.
+  outerPrompt: "What does the studio decide?",
+  innerPrompt: "When do they meet?",
+  hireLabel: "Offer them the job",
+  refuseLabel: "Turn them down",
+  lateLabel: "Late, over coffee",
+  earlyLabel: "Early, before the sun",
+  bridge014Text: "The studio waited on an answer about the temp.",
+  hire016Text: "Mei slid the contract over before the coffee cooled.",
+  hire017Text: "Start Monday, if that works for you.",
+  late021Text: "They showed at ten, late and grinning.",
+  early022Text:
+    "They were at the door before the sun was up, so the kettle went on.",
+  hire018Text: "Either way, the studio had its week back.",
+  refuse019Text: "We'll pass this time, Mei said, and she meant it.",
+  refuse020Text: "An ending card: the studio kept its quiet.",
+  main023Text: "Whatever was decided, the morning moved on.",
+  main024Text: "And the tape rolled on without an answer.",
   lanternText:
     "Lanterns lined the empty street, one for each guest who never came.",
   windowText: "Rain again. It's always rain in this town.",
@@ -105,6 +146,16 @@ function assembleFolders() {
   for (const file of ["index.html", "app.js"]) {
     copyFileSync(join(playerDir, "dist", file), join(contentDir, file));
   }
+  // A same-origin blank page (no app, so no IDB connection): step 40's
+  // storage wipe runs its deleteDatabase from there. A delete issued from
+  // the live app is blocked by the app's own connection, and a reload
+  // that carries such a half-deleted database strands the next boot (and
+  // its help screen) — OBSERVED. about:blank cannot serve: its opaque
+  // origin refuses IndexedDB.
+  writeFileSync(
+    join(contentDir, "blank.html"),
+    "<!doctype html><title>blank</title>\n",
+  );
   mkdirSync(emptyDir, { recursive: true });
   for (const file of ["index.html", "app.js", "manifest.js"]) {
     copyFileSync(join(playerDir, "dist", file), join(emptyDir, file));
@@ -366,6 +417,91 @@ const HELP_CLOSED = () => {
 };
 const helpOpen = (page) => page.evaluate(HELP_OPEN);
 
+// The `#choice` decision overlay (Phase 13) as the reader sees it: the
+// prompt, and each row's number, label, `seen` marker and whether it is
+// the unnumbered return offer. Purely the DOM render/choice.ts writes —
+// the driver asserts the screen, never machine state.
+const READ_CHOICE = () => {
+  const panel = document.getElementById("choice");
+  if (panel === null) return { present: false };
+  if (panel.hidden) return { present: true, hidden: true };
+  return {
+    present: true,
+    hidden: false,
+    prompt: document.querySelector(".choice-title")?.textContent ?? null,
+    rows: Array.from(document.querySelectorAll(".choice-row")).map((el) => ({
+      idx: el.getAttribute("data-choice-idx"),
+      isContinue: el.hasAttribute("data-choice-continue"),
+      number: el.querySelector(".choice-num")?.textContent ?? "",
+      label: el.querySelector(".choice-label")?.textContent ?? "",
+      seen: el.querySelector(".choice-seen")?.textContent ?? null,
+    })),
+  };
+};
+const CHOICE_OPEN = () => {
+  const p = document.getElementById("choice");
+  return p !== null && !p.hidden;
+};
+const CHOICE_CLOSED = () => {
+  const p = document.getElementById("choice");
+  return p === null || p.hidden;
+};
+const choiceOpen = (page) => page.evaluate(CHOICE_OPEN);
+
+// A page-side change log for the branch walk: every visible mutation
+// records one line of `img|overlay-text|choice-open?`, deduplicated. The
+// driver's own probes only ever see NOW; this log is what proves an
+// ORDER ("late-021 was shown before hire-018", "hire-016 was never
+// shown") across a burst of key presses.
+const INSTALL_BRANCH_LOG = () => {
+  window.__branchLog = [];
+  if (window.__branchLogObs) window.__branchLogObs.disconnect();
+  const probe = () => {
+    const img = document.getElementById("visual-image");
+    const textEl = document.getElementById("overlay-text");
+    const choice = document.getElementById("choice");
+    const line = [
+      img ? (img.getAttribute("src") ?? "") : "no-img",
+      textEl ? (textEl.textContent ?? "") : "",
+      choice !== null && !choice.hidden ? "choice-open" : "choice-shut",
+    ].join("|");
+    const log = window.__branchLog;
+    if (log.length === 0 || log[log.length - 1] !== line) log.push(line);
+  };
+  window.__branchLogObs = new MutationObserver(probe);
+  window.__branchLogObs.observe(document.getElementById("app"), {
+    subtree: true,
+    childList: true,
+    attributes: true,
+    attributeFilter: ["src", "hidden"],
+    characterData: true,
+  });
+  probe();
+};
+const readBranchLog = (page) => page.evaluate(() => window.__branchLog);
+
+// One sample of the screen for the play-all burst: the painted visual,
+// the overlay line, and whether `#choice` is up — the step asserts the
+// overlay never surfaces while `Play all routes` resolves decisions.
+const SKIP_PROBE = () => {
+  const img = document.getElementById("visual-image");
+  const video = document.getElementById("visual-video");
+  const overlay = document.getElementById("overlay");
+  const textEl = document.getElementById("overlay-text");
+  const choice = document.getElementById("choice");
+  const imgShown = img !== null && getComputedStyle(img).display !== "none";
+  const videoShown =
+    video !== null &&
+    !video.hidden &&
+    getComputedStyle(video).display !== "none";
+  return [
+    imgShown ? (img.getAttribute("src") ?? "") : "no-img",
+    videoShown ? (video.getAttribute("poster") ?? "") : "no-video",
+    overlay && !overlay.hidden ? (textEl?.textContent ?? "") : "text-off",
+    choice !== null && !choice.hidden ? "choice-open" : "choice-shut",
+  ].join("|");
+};
+
 // The central "close the help if it is up" driver helper (Phase 13b):
 // every existing step that assumed first-run goes straight to item 1
 // dismisses the help through this, pressing Enter — a closing action that
@@ -536,6 +672,10 @@ const pressC = (cdp) => pressKey(cdp, "c", "KeyC", 67, "c");
 const pressA = (cdp) => pressKey(cdp, "a", "KeyA", 65, "a");
 const pressEnter = (cdp) => pressKey(cdp, "Enter", "Enter", 13, "\r");
 const pressEscape = (cdp) => pressKey(cdp, "Escape", "Escape", 27, "");
+// A decision route digit (Phase 13): the overlay takes 1..9 as its own
+// input (keys.ts's routeIndexForKey reads `key`).
+const pressDigit = (cdp, digit) =>
+  pressKey(cdp, digit, `Digit${digit}`, 48 + Number(digit), digit);
 
 // A trusted left click at page coordinates: the `t` overlay is clicked the
 // way a reader clicks it, through CDP Input.
@@ -742,6 +882,10 @@ async function main() {
     executablePath: chromePath,
     headless: true,
     userDataDir: chromeProfile,
+    // 30 s: a comfortable margin over any legitimate CDP wait here, and
+    // short enough that a stalled dispatch surfaces as a fast error with
+    // a name instead of a 180 s silent hang.
+    protocolTimeout: 30000,
     args: [
       "--no-sandbox",
       "--disable-gpu",
@@ -1922,6 +2066,14 @@ async function main() {
             window.__kineticVid.ended.push({
               src: String(el.getAttribute("src") ?? ""),
               currentTime: el.currentTime,
+              at: Date.now(),
+              // The reused <img> keeps the last image item's src while a
+              // video plays; once it reads bridge-014.jpg the machine has
+              // moved on, and an `ended` fired by that transition is not
+              // a part-013 pass report (Phase 13 made part-013 mid-story).
+              img:
+                document.getElementById("visual-image")?.getAttribute("src") ??
+                "",
             });
           }
         },
@@ -1938,6 +2090,17 @@ async function main() {
               mediaTime: meta.mediaTime,
               currentTime: v.currentTime,
               at: Date.now(),
+              // Which image the reused <img> last painted. While part-013
+              // is on screen this still reads pier-009.jpg (videos keep
+              // the earlier image); the flip to bridge-014.jpg dates the
+              // item change, so frames and `ended` events the element
+              // produces AFTER it — the hidden re-loop the renderer plays
+              // when the last pass's report carries the machine straight
+              // onto the next item — are observed but not counted as
+              // part-013's own passes.
+              img:
+                document.getElementById("visual-image")?.getAttribute("src") ??
+                "",
             });
           }
           v.requestVideoFrameCallback(tick);
@@ -2044,11 +2207,12 @@ async function main() {
     // (start offset from 1.0), the loop-back (mediaTime wrap 2.0 -> 1.5)
     // and where it actually landed, the two pass reports, and the hold
     // near 2.0 at the end. The time gate is now firstPass + loopPass =
-    // 1.0 + 0.5 = 1.5 s (machine-tested arithmetic), so the settle below
-    // waits ~1.5 s after entry plus the reports; the 6 s timeout covers
-    // it generously. The item is LAST, so the machine's advance is a
-    // settle in place — the fact step 26 records; loop stays off
-    // throughout (a range must never loop=true).
+    // 1.0 + 0.5 = 1.5 s (machine-tested arithmetic), so the wait below
+    // lands ~1.5 s after entry plus the reports; the 6 s timeout covers
+    // it generously. Since the Phase 13 fixture this item is NOT the
+    // story's end: after the gate the machine steps on into bridge-014,
+    // the branch lead-in (the steps below take up the walk from there);
+    // loop stays off throughout (a range must never loop=true).
     let s30settled = true;
     try {
       await page.waitForFunction(
@@ -2067,9 +2231,17 @@ async function main() {
     }
     await sleep(350); // a stray third pass (loop=true behaviour) would show
     const s30rec = await page.evaluate(() => window.__kineticVid);
-    const s30frames = s30rec.frames.filter((f) =>
+    const s30recFrames = s30rec.frames.filter((f) =>
       f.poster.includes("part-013.poster.jpg"),
     );
+    // Only frames presented while part-013 was on screen: after its last
+    // pass report the machine moves straight into bridge-014, and (an
+    // OBSERVED renderer artefact of that synchronous item change) the
+    // element plays one further hidden pass before settling. Frames from
+    // that hidden re-loop carry img=bridge-014.jpg and are excluded from
+    // the pass arithmetic; their count is reported.
+    const s30frames = s30recFrames.filter((f) => f.img !== "bridge-014.jpg");
+    const s30hiddenFrames = s30recFrames.length - s30frames.length;
     const s30first = s30frames[0] ?? null;
     // The loop-back: the pass-1 boundary seeks 2.0 -> 1.5, so the frame
     // stream wraps by ~0.45 — well above the 0.04 s in-pass cadence, well
@@ -2087,6 +2259,14 @@ async function main() {
       s30frames.length > 0 &&
       s30frames.every((f) => f.mediaTime >= 0.95 && f.mediaTime <= 2.05);
     const s30ended = s30rec.ended.filter((e) => e.src.includes("clip-012.mp4"));
+    // Since the Phase 13 fixture, part-013 is NOT the story's end: past
+    // its gate the machine moves on into bridge-014 (the branch lead-in),
+    // and the element transition is observed to fire one further native
+    // `ended` — an event of the NEXT item's screen, not a part-013 pass
+    // report. The pass-report count is therefore read while part-013 is
+    // still what's on screen (the reused <img> still shows pier-009).
+    const s30pass = s30ended.filter((e) => e.img !== "bridge-014.jpg");
+    const s30endedExtra = s30ended.length - s30pass.length;
     const s30last = await page.evaluate(() => {
       const v = document.getElementById("visual-video");
       return v
@@ -2109,7 +2289,7 @@ async function main() {
       // start 1.0 (which the pre-9c/9d element-loop or a startSeconds
       // seek-back would give): exactly one landing, recorded actual.
       Math.abs(s30wrapLand - 1.5) <= 0.15 &&
-      s30ended.length === 2 &&
+      s30pass.length === 2 &&
       s30last !== null &&
       s30last.paused === true &&
       s30last.loop === false &&
@@ -2118,7 +2298,7 @@ async function main() {
     record(
       "30. part-013 plays [1,2] twice, looping back at loopStartSeconds 1.5",
       s30Ok ? "PASS" : "FAIL",
-      `${String(s30frames.length)} presented frames, all inside [1-0.05, 2+0.05]=${String(s30inside)}; entered at OBSERVED mediaTime ${s30first ? s30first.mediaTime.toFixed(3) : "n/a"} (start offset ${s30startOffset >= 0 ? "+" : ""}${s30startOffset.toFixed(3)}s from startSeconds 1.0); pass-1 loop-back observed=${String(s30wraps === 1)} landing OBSERVED ${s30wrapLand === null ? "n/a" : s30wrapLand.toFixed(3)} (offset ${s30wrapLand === null ? "n/a" : `${s30wrapLand - 1.5 >= 0 ? "+" : ""}${(s30wrapLand - 1.5).toFixed(3)}s`} from loopStartSeconds 1.5, not 1.0); pass reports (native ended from clip-012, endSeconds == duration)=${String(s30ended.length)} of 2 — machine moved on only after both plus the 1.5 s time bound (firstPass 1.0 + loopPass 0.5), and the 2nd left the element holding OBSERVED ${JSON.stringify(s30last)} near 2.0, paused, loop=${String(s30last?.loop)} (last item: the advance is a settle in place, step 26; its gate arithmetic is pinned by machine tests)`,
+      `${String(s30frames.length)} presented frames, all inside [1-0.05, 2+0.05]=${String(s30inside)}; entered at OBSERVED mediaTime ${s30first ? s30first.mediaTime.toFixed(3) : "n/a"} (start offset ${s30startOffset >= 0 ? "+" : ""}${s30startOffset.toFixed(3)}s from startSeconds 1.0); pass-1 loop-back observed=${String(s30wraps === 1)} landing OBSERVED ${s30wrapLand === null ? "n/a" : s30wrapLand.toFixed(3)} (offset ${s30wrapLand === null ? "n/a" : `${s30wrapLand - 1.5 >= 0 ? "+" : ""}${(s30wrapLand - 1.5).toFixed(3)}s`} from loopStartSeconds 1.5, not 1.0); pass reports (native ended from clip-012, endSeconds == duration)=${String(s30pass.length)} of 2 while part-013 was on screen${s30endedExtra > 0 ? ` (OBSERVED since the Phase 13 fixture made part-013 mid-story: the last pass report carries the machine straight into bridge-014 in the same event, and the element then played ${String(s30hiddenFrames)} further hidden pass${s30hiddenFrames === 1 ? "" : "es"} + ${String(s30endedExtra)} stray native ended — a renderer re-loop artefact of the synchronous item change, excluded from the arithmetic above and reported)` : ""} — the machine moved on only after both reports plus the 1.5 s time bound (firstPass 1.0 + loopPass 0.5), and the 2nd left the element holding OBSERVED ${JSON.stringify(s30last)} near 2.0, paused, loop=${String(s30last?.loop)}; its gate arithmetic is pinned by machine tests`,
     );
 
     // 31. A folder with the empty stub manifest shows the empty state —
@@ -2173,6 +2353,13 @@ async function main() {
         : "FAIL",
       `${JSON.stringify({ emptyState: s31.emptyState, imgSrc: s31.imgSrc, overlayHidden: s31.overlayHidden, helpOpen: s31.helpOpen, stageHidden: s31.stageHidden })} — the empty novel gets its own help screen too (helpSeen is per novel folder); Enter closed it=${String(s31HelpDismissed)}; t opened the overlay: emptyText=${JSON.stringify(s31overlay.emptyText)} entries=${String(s31overlay.entries.length)} (the demo folder's two bookmarks are another novel's — storage is keyed per folder); Escape (after the fullscreen-exiting one the browser keeps) closed=${String(s31Closed === false)}`,
     );
+    // Done with the empty-novel tab. It must actually CLOSE: its app
+    // holds a connection to the same "kinetic" IndexedDB (keyed inside,
+    // one database), and a live connection makes every later
+    // deleteDatabase block forever — OBSERVED: with this tab still open,
+    // step 40's fresh-slate wipe could never delete, the storage stayed
+    // dirty, and the first-ever help screen never came back.
+    await emptyPage.close();
 
     // 32. Fill the screen (docs/plan.md Phase 7b): the media is the largest
     // centred contain fit of the ASSET's own aspect ratio into whatever
@@ -2279,13 +2466,500 @@ async function main() {
       }
     }
 
-    // 33. Console stayed empty throughout both pages.
+    // 33. Console stayed empty through the linear walk. The branch steps
+    // below keep writing into the same arrays, and step 41 re-checks the
+    // whole run after them.
     const s33Ok = consoleMessages.length === 0 && pageErrors.length === 0;
     record(
-      "33. console stayed empty throughout",
+      "33. console stayed empty through the linear walk (re-checked at 41)",
       s33Ok ? "PASS" : "FAIL",
       s33Ok
-        ? "zero console messages, zero page errors, every page, whole run"
+        ? "zero console messages, zero page errors, every page, up to here (the branch steps are covered by step 41)"
+        : `console=[${consoleMessages.join(" | ")}] pageErrors=[${pageErrors.join(" | ")}]`,
+    );
+
+    // ---- Phase 13: the branch fixture, walked for real (docs/plan.md
+    // Phase 13). Steps 29-30 left auto-forward ON with part-013's gate
+    // done — and part-013 is no longer the story's end, so the story has
+    // been walking ITSELF on through the lead-in while steps 31-33 ran on
+    // other pages. The fixture's branch table: `outer-hire` hangs off
+    // bridge-015 (routes hire [continuing, result return] / refuse
+    // [ending], continueAt main-023), and inside the hire span
+    // `inner-time` hangs off hire-017 (late [continuing, continueAt
+    // hire-018] / early [ending]).
+    // OBSERVED: after steps 31-32 opened (and closed) their own tabs, the
+    // FIRST trusted-mouse dispatch on the main page hung for the whole
+    // protocol timeout (twice, on wheel and on click alike, across
+    // reloads) while keys and evaluates kept answering — the tab had not
+    // regained foreground. Take it back explicitly.
+    await page.bringToFront();
+    await page.evaluate(INSTALL_BRANCH_LOG);
+
+    // 34. Walking on past the old last item reaches the lead-in, and the
+    // FORWARD SETTLE of bridge-015 — carried by the auto-advance, still
+    // on, which has been walking the story on its own ever since
+    // part-013's gate (part-013 is mid-story now) — opens `#choice`
+    // INSTEAD of moving. The item holds: with auto-forward armed and a
+    // 2 s wait, the decision is what owns the screen.
+    let s34autoFired = true;
+    try {
+      // No input at all: bridge-014's text hold, bridge-015's 1500 ms
+      // floor, and the settle fires — all on the auto-advance.
+      await page.waitForFunction(CHOICE_OPEN, { timeout: 12000 });
+    } catch {
+      s34autoFired = false;
+    }
+    // Fallback drive (the step's core claim is the overlay itself): if no
+    // decision came on its own, press toward one.
+    let s34driven = false;
+    for (let i = 0; i < 6 && !(await page.evaluate(CHOICE_OPEN)); i += 1) {
+      s34driven = true;
+      await pressSpace(cdp);
+      await sleep(300);
+    }
+    const s34fired = await page.evaluate(CHOICE_OPEN);
+    const s34 = await page.evaluate(PAGE_STATE);
+    const s34choice = await page.evaluate(READ_CHOICE);
+    const s34sig = await page.evaluate(PAINT_SIG);
+    await sleep(2000); // auto-forward ON: a pending decision does not move
+    const s34sigHeld = await page.evaluate(PAINT_SIG);
+    const s34still = await page.evaluate(READ_CHOICE);
+    const s34RowsOk =
+      s34choice.hidden === false &&
+      s34choice.prompt === EXPECTED.outerPrompt &&
+      s34choice.rows.length === 2 &&
+      s34choice.rows[0]?.idx === "0" &&
+      s34choice.rows[0]?.number === "1" &&
+      s34choice.rows[0]?.label === EXPECTED.hireLabel &&
+      s34choice.rows[1]?.idx === "1" &&
+      s34choice.rows[1]?.number === "2" &&
+      s34choice.rows[1]?.label === EXPECTED.refuseLabel &&
+      s34choice.rows.every((r) => !r.isContinue && r.seen === null);
+    record(
+      "34. branch: settling bridge-015 opens #choice (prompt + 2 routes); the item does not advance",
+      s34fired &&
+        s34.imgSrc === "bridge-015.jpg" &&
+        s34.overlayHidden === true &&
+        s34RowsOk &&
+        s34sig === s34sigHeld &&
+        s34still.hidden === false &&
+        s34still.prompt === EXPECTED.outerPrompt
+        ? "PASS"
+        : "FAIL",
+      `the decision ${s34autoFired && !s34driven ? "OPENED PURELY ON THE AUTO-ADVANCE — no key press between part-013 and the overlay: part-013 is mid-story now, and the auto-advance's settle of bridge-015 fires it" : `came only after ${String(s34driven ? "drive presses" : "nothing")} (auto-fired=${String(s34autoFired)})`}: #choice up=${String(s34choice.hidden === false)} current=${JSON.stringify(s34.imgSrc)} overlayHidden=${String(s34.overlayHidden)} prompt=${JSON.stringify(s34choice.prompt)} rows=${JSON.stringify(s34choice.rows)} (numbered 1..2, manifest order, no seen markers, no return row); the settled decision's item holds: 2000 ms of sampling with auto-forward ON changed nothing (${String(s34sig === s34sigHeld)}) and the overlay stayed up=${String(s34still.hidden === false)} — a pending decision owns the screen`,
+    );
+
+    // 35. Digit 2 picks `refuse` — the ENDING route. The refuse span plays
+    // (refuse-019's own image, then its ending line over it), and the hire
+    // route's image is NEVER painted: the page-side change log proves it.
+    // Past refuse-020 the decision RE-OPENS for reselection: refuse row
+    // carries the seen marker, the hire row does not, and result `ending`
+    // offers NO "Return to main route" row.
+    await pressDigit(cdp, "2"); // refuse
+    await page.waitForFunction(CHOICE_CLOSED, { timeout: 5000 });
+    await pressA(cdp); // manual from here: the branch walk's presses are ours
+    const s35 = await page.evaluate(PAGE_STATE);
+    await advancePair(cdp); // -> refuse-020, the route's ending line
+    const s35b = await page.evaluate(PAGE_STATE);
+    await advancePair(cdp); // settle it, then move off the route end
+    let s35reopen = true;
+    try {
+      await page.waitForFunction(CHOICE_OPEN, { timeout: 5000 });
+    } catch {
+      s35reopen = false;
+    }
+    const s35choice = await page.evaluate(READ_CHOICE);
+    const s35log = await readBranchLog(page);
+    const s35Ok =
+      s35.imgSrc === "refuse-019.jpg" &&
+      s35.speaker === "Mei" &&
+      s35.text === EXPECTED.refuse019Text &&
+      s35b.imgSrc === "refuse-019.jpg" && // the ending line plays over it
+      s35b.text === EXPECTED.refuse020Text &&
+      s35reopen &&
+      s35choice.hidden === false &&
+      s35choice.prompt === EXPECTED.outerPrompt &&
+      s35choice.rows.length === 2 &&
+      s35choice.rows[0]?.seen === null &&
+      s35choice.rows[1]?.seen === "seen" &&
+      s35choice.rows.every((r) => !r.isContinue) &&
+      !s35log.some((l) => l.includes("hire-016.jpg"));
+    record(
+      "35. route refuse (ending): its span plays, hire-016 never shows, the decision re-opens seen-marked with no return row",
+      s35Ok ? "PASS" : "FAIL",
+      `digit 2 opened the refuse span on refuse-019 (img=${JSON.stringify(s35.imgSrc)} speaker=${String(s35.speaker)} text=${String(s35.text === EXPECTED.refuse019Text)}), then its ending line over the SAME image (${String(s35b.text === EXPECTED.refuse020Text)}); the page-side log never held hire-016.jpg=${String(!s35log.some((l) => l.includes("hire-016.jpg")))} (the hire route was entered, never painted); past the route end #choice came back=${String(s35reopen)} rows=${JSON.stringify(s35choice.rows)} — refuse row marked seen, hire row unmarked, NO "Return to main route" row (result ending re-opens for reselection only)`,
+    );
+
+    // 36. Digit 1 picks `hire` — the CONTINUING route. It opens on
+    // hire-016, and settling hire-017 fires the NESTED `inner-time`
+    // decision (prompt + late/early rows, no return row). Digit 2 picks
+    // `early` — the nested `return` route, the only one that can offer a
+    // continue row (step 35 proved the ending route re-opens WITHOUT
+    // one): after early-022 the inner decision RE-OPENS with early
+    // seen-marked, late unmarked, and the unnumbered "Return to main
+    // route" row. Enter answers it onto the continueAt — the change log
+    // proves early-022 was shown before hire-018, the re-opened overlay
+    // between them. The `late` route still plays, in the play-all burst
+    // (step 40).
+    await pressDigit(cdp, "1"); // hire
+    await page.waitForFunction(CHOICE_CLOSED, { timeout: 5000 });
+    const s36 = await page.evaluate(PAGE_STATE);
+    await advancePair(cdp); // -> hire-017
+    const s36b = await page.evaluate(PAGE_STATE);
+    await pressSpace(cdp); // settle it: the nested decision fires
+    let s36inner = true;
+    try {
+      await page.waitForFunction(CHOICE_OPEN, { timeout: 5000 });
+    } catch {
+      s36inner = false;
+    }
+    const s36choice = await page.evaluate(READ_CHOICE);
+    await pressDigit(cdp, "2"); // early — the nested `return` route
+    let s36early = true;
+    try {
+      await page.waitForFunction(
+        (expected) =>
+          (document.getElementById("overlay-text")?.textContent ?? "") ===
+          expected,
+        { timeout: 5000 },
+        EXPECTED.early022Text,
+      );
+    } catch {
+      s36early = false;
+    }
+    const s36earlyState = await page.evaluate(PAGE_STATE);
+    await advancePair(cdp); // settle early-022, then step off the route end
+    let s36reopen = true;
+    try {
+      await page.waitForFunction(CHOICE_OPEN, { timeout: 5000 });
+    } catch {
+      s36reopen = false;
+    }
+    const s36reopenChoice = await page.evaluate(READ_CHOICE);
+    await pressEnter(cdp); // "Return to main route"
+    let s36rejoin = true;
+    try {
+      await page.waitForFunction(
+        (expected) =>
+          (document.getElementById("overlay-text")?.textContent ?? "") ===
+          expected,
+        { timeout: 5000 },
+        EXPECTED.hire018Text,
+      );
+    } catch {
+      s36rejoin = false;
+    }
+    const s36rejoinState = await page.evaluate(PAGE_STATE);
+    const s36rejoinChoice = await page.evaluate(READ_CHOICE);
+    const s36log = await readBranchLog(page);
+    const s36earlyAt = s36log.findIndex((l) =>
+      l.includes(EXPECTED.early022Text),
+    );
+    const s36rejoinAt = s36log.findIndex((l) =>
+      l.includes(EXPECTED.hire018Text),
+    );
+    // The re-open is part of the path now: a choice-open line MUST sit
+    // between the route's last item and the rejoin the Enter answered.
+    const s36reopenBetween =
+      s36earlyAt >= 0 &&
+      s36rejoinAt > s36earlyAt &&
+      s36log
+        .slice(s36earlyAt + 1, s36rejoinAt)
+        .some((l) => l.includes("choice-open"));
+    const s36ReopenRowsOk =
+      s36reopenChoice.hidden === false &&
+      s36reopenChoice.prompt === EXPECTED.innerPrompt &&
+      s36reopenChoice.rows.length === 3 &&
+      s36reopenChoice.rows[0]?.label === EXPECTED.lateLabel &&
+      s36reopenChoice.rows[0]?.seen === null &&
+      s36reopenChoice.rows[1]?.label === EXPECTED.earlyLabel &&
+      s36reopenChoice.rows[1]?.seen === "seen" &&
+      s36reopenChoice.rows[2]?.isContinue === true &&
+      s36reopenChoice.rows[2]?.label === CONTINUE_LABEL &&
+      s36reopenChoice.rows[2]?.seen === null;
+    const s36Ok =
+      s36.imgSrc === "hire-016.jpg" &&
+      s36.speaker === "Mei" &&
+      s36.text === EXPECTED.hire016Text &&
+      s36b.imgSrc === "hire-016.jpg" && // hire-017 is a chain line over it
+      s36b.text === EXPECTED.hire017Text &&
+      s36inner &&
+      s36choice.hidden === false &&
+      s36choice.prompt === EXPECTED.innerPrompt &&
+      s36choice.rows.length === 2 &&
+      s36choice.rows[0]?.label === EXPECTED.lateLabel &&
+      s36choice.rows[1]?.label === EXPECTED.earlyLabel &&
+      s36choice.rows.every((r) => !r.isContinue) &&
+      s36early &&
+      s36earlyState.imgSrc === "hire-016.jpg" &&
+      s36earlyState.text === EXPECTED.early022Text &&
+      s36reopen &&
+      s36ReopenRowsOk &&
+      s36rejoin &&
+      s36rejoinState.text === EXPECTED.hire018Text &&
+      s36rejoinState.imgSrc === "hire-016.jpg" &&
+      s36rejoinChoice.hidden === true &&
+      s36reopenBetween;
+    record(
+      "36. route hire: nested decision on hire-017; picking early (return) re-opens it with the Return row; Enter rejoins at hire-018",
+      s36Ok ? "PASS" : "FAIL",
+      `digit 1 opened the hire route on hire-016 (img/text/speaker=${String(s36.imgSrc === "hire-016.jpg" && s36.text === EXPECTED.hire016Text && s36.speaker === "Mei")}); settling hire-017 fired the NESTED overlay=${String(s36inner)} prompt=${JSON.stringify(s36choice.prompt)} rows=${JSON.stringify(s36choice.rows.map((r) => r.label))} (no return row); digit 2 picked early -> early-022 over the hire-016 visual=${String(s36early)}; stepping off its end RE-OPENED the inner decision=${String(s36reopen)} rows=${JSON.stringify(s36reopenChoice.rows.map((r) => [r.label, r.seen, r.isContinue]))} — early seen-marked, late unmarked, plus the unnumbered ${JSON.stringify(CONTINUE_LABEL)} row (result return is the only offer); Enter took it -> hire-018 current=${String(s36rejoinState.text === EXPECTED.hire018Text)} with #choice shut=${String(s36rejoinChoice.hidden === true)} — the page-side log shows ${JSON.stringify(EXPECTED.early022Text)} at #${String(s36earlyAt)}, a choice-open line between, then ${JSON.stringify(EXPECTED.hire018Text)} at #${String(s36rejoinAt)}=${String(s36reopenBetween)} (late plays only in the play-all burst)`,
+    );
+
+    // 37. hire-018 is the OUTER hire route's end, and hire is the
+    // continuing route: its end goes STRAIGHT to continueAt — no overlay,
+    // no continue row (the return row exists only after a non-continuing
+    // `return` route; the continuing route's own result is moot). The
+    // aftermath plays once: main-023.jpg appears exactly once in the log.
+    await advancePair(cdp); // settle hire-018, then step off the outer end
+    let s37main = true;
+    try {
+      await page.waitForFunction(
+        () =>
+          (
+            document.getElementById("visual-image")?.getAttribute("src") ?? ""
+          ).includes("main-023.jpg"),
+        { timeout: 5000 },
+      );
+    } catch {
+      s37main = false;
+    }
+    const s37 = await page.evaluate(PAGE_STATE);
+    const s37choice = await page.evaluate(READ_CHOICE);
+    const s37log = await readBranchLog(page);
+    const s37mainCount = s37log.filter((l) =>
+      l.includes("main-023.jpg"),
+    ).length;
+    await advancePair(cdp); // -> main-024, the closing line
+    const s37b = await page.evaluate(PAGE_STATE);
+    const s37Ok =
+      s37main &&
+      s37.imgSrc === "main-023.jpg" &&
+      s37.speaker === "Mei" &&
+      s37.text === EXPECTED.main023Text &&
+      s37choice.hidden === true &&
+      s37mainCount === 1 &&
+      s37b.text === EXPECTED.main024Text &&
+      s37b.imgSrc === "main-023.jpg";
+    record(
+      "37. continuing-route end: off hire-018 straight into main-023 (continueAt), no overlay, aftermath once",
+      s37Ok ? "PASS" : "FAIL",
+      `stepping off the hire route's end landed on the aftermath directly: img=${JSON.stringify(s37.imgSrc)} text=${String(s37.text === EXPECTED.main023Text)} speaker=${String(s37.speaker)}, #choice stayed shut=${String(s37choice.hidden === true)} (the continuing route proceeds to continueAt — its end is not a reselection point; the engine test "the continuing route proceeds to continueAt past its end" pins the rule); main-023.jpg appears ${String(s37mainCount)}x in the whole-page change log (the aftermath plays once, not per route); the walk continues onto the closing line=${String(s37b.text === EXPECTED.main024Text)}`,
+    );
+
+    // 38. Reload resume INSIDE branch content: the walk ended on the
+    // closing line main-024 (continueAt aftermath included), so lastShown
+    // is branch content — reload must come back on exactly that item,
+    // with NO decision re-firing on load: decisions fire on the forward
+    // settle of `after`, never on a resume landing. (These steps need no
+    // wheel and no click: after steps 31-32's extra tabs the first
+    // mouse-class dispatch on the main page had hung — foreground is
+    // reclaimed above; keys and reloads carry everything here.)
+    await sleep(400); // past the ctx persistence debounce: lastShown is in
+    const s38sig = await page.evaluate(PAINT_SIG);
+    await page.reload();
+    await sleep(700); // resume paints at load; helpSeen keeps the help shut
+    const s38 = await page.evaluate(PAGE_STATE);
+    const s38choice = await page.evaluate(READ_CHOICE);
+    const s38sigResumed = await page.evaluate(PAINT_SIG);
+    await sleep(1800); // past every hold: a resume lands settled and holds
+    const s38sigHeld = await page.evaluate(PAINT_SIG);
+    const s38Ok =
+      s38sigResumed === s38sig &&
+      s38sigHeld === s38sig &&
+      s38.text === EXPECTED.main024Text &&
+      s38.imgSrc === "main-023.jpg" &&
+      s38choice.hidden === true &&
+      s38.helpOpen === false &&
+      s38.stageHidden === false;
+    record(
+      "38. reload resumes inside branch content on lastShown (main-024); no decision re-fires on load",
+      s38Ok ? "PASS" : "FAIL",
+      `the branch walk's last item reloaded: the page came back on the SAME item (signature identical=${String(s38sigResumed === s38sig)}, still identical 1.8 s later=${String(s38sigHeld === s38sig)}) — lastShown drove the landing, the restored route-play ctx carried the played routes, and #choice never re-fired on load=${String(s38choice.hidden === true)} (resuming inside branch content fires nothing: decisions fire only on the forward settle of their after item); the help stayed closed=${String(s38.helpOpen === false)}`,
+    );
+
+    // 39. Seen-aware `e` on the resumed page: everything on the played
+    // path is seen (the ctx's visited set survived the reload), and the
+    // ONLY item never shown is late-021 — the inner route the walk never
+    // picked (early was, and returned). Rule (c) (first unseen item in
+    // array order) lands there, and the landing marks it seen, so a
+    // second press is a no-op.
+    await pressE(cdp);
+    let s39e = true;
+    try {
+      await page.waitForFunction(
+        (expected) =>
+          (document.getElementById("overlay-text")?.textContent ?? "") ===
+          expected,
+        { timeout: 5000 },
+        EXPECTED.late021Text,
+      );
+    } catch {
+      s39e = false;
+    }
+    const s39 = await page.evaluate(PAGE_STATE);
+    const s39choice = await page.evaluate(READ_CHOICE);
+    const s39sig = await page.evaluate(PAINT_SIG);
+    await pressE(cdp); // everything is seen now: nothing left to jump to
+    await sleep(400);
+    const s39sigHeld = await page.evaluate(PAINT_SIG);
+    const s39Ok =
+      s39e &&
+      s39.text === EXPECTED.late021Text &&
+      s39.imgSrc === "hire-016.jpg" && // the jump shows the never-taken line
+      s39choice.hidden === true &&
+      s39sig === s39sigHeld;
+    record(
+      "39. e from the resumed main-024 jumps to the never-taken route's item (first unseen in array order); a second press is inert",
+      s39Ok ? "PASS" : "FAIL",
+      `e landed on ${JSON.stringify(s39.text)} over ${JSON.stringify(s39.imgSrc)} — late-021, the inner route the walk never played (early was picked and returned in step 36 — the played path is all seen: the visited set came back with the ctx, itself OBSERVED here; no decision is open, so the rule (c) array-order jump is what fires; #choice stayed shut=${String(s39choice.hidden === true)}); the landing marks it seen, so with nothing unseen left the second e changed nothing (${String(s39sig === s39sigHeld)}; before=${JSON.stringify(s39sig)} after=${JSON.stringify(s39sigHeld)})`,
+    );
+
+    // 40. `Play all routes` + skip-all, zero interactivity (docs/plan.md
+    // Phase 13): a CLEAN slate (storage wiped, first-ever load), both
+    // switches ON in `c` BEFORE the walk reaches any decision, then one
+    // tab burst runs the whole story. A decision reached during a skip
+    // resolves in play order — the first not-yet-played route in manifest
+    // order, the CONTINUING route held last — so refuse plays before hire
+    // even though hire is first in the manifest, and early before late.
+    // early is now the inner `return` route: its end must AUTO-resolve
+    // too — a completed return under play-all advances to the next
+    // unplayed route without ever surfacing the Return row.
+    // `#choice` never surfaces; every route plays once; the aftermath
+    // follows.
+    // Fresh slate. OBSERVED once: with the cursor left inside branch
+    // content (step 39's landing) a pending debounced write held an IDB
+    // connection, the delete only reached `blocked`, and the reload
+    // document still had helpSeen — no help screen, and the step died on
+    // a bare 5 s wait. So: report which event ended the delete, and if
+    // the fresh start did not materialise, wipe once more. Every wait
+    // here records instead of crashing.
+    const wipeAndReload = async () => {
+      await page.goto(pathToFileURL(join(contentDir, "blank.html")).href);
+      let outcome = "threw";
+      try {
+        outcome = await page.evaluate(
+          () =>
+            new Promise((done) => {
+              const rq = indexedDB.deleteDatabase("kinetic");
+              rq.onsuccess = () => done("success");
+              rq.onerror = () => done("error");
+              rq.onblocked = () => done("blocked");
+            }),
+        );
+      } catch {
+        /* stays "threw"; the fresh-start check below decides */
+      }
+      await page.goto(pathToFileURL(join(contentDir, "index.html")).href);
+      let helpShown = true;
+      try {
+        await page.waitForFunction(
+          () => document.getElementById("help") !== null,
+          { timeout: 4000 },
+        );
+      } catch {
+        helpShown = false;
+      }
+      console.error(`[40] wipe: ${outcome}, help shown=${String(helpShown)}`);
+      return helpShown;
+    };
+    let s40Fresh = await wipeAndReload();
+    if (!s40Fresh) s40Fresh = await wipeAndReload();
+    const s40HelpDismissed = s40Fresh ? await dismissHelp(page, cdp) : false;
+    let s40ConfigOpened = true;
+    try {
+      await pressC(cdp);
+      await page.waitForFunction(CONFIG_OPEN, { timeout: 5000 });
+    } catch {
+      s40ConfigOpened = false;
+    }
+    if (!s40ConfigOpened) {
+      const diag = await page.evaluate(() => ({
+        help: document.getElementById("help") !== null,
+        config: document.getElementById("config") !== null,
+        text: document.getElementById("overlay-text")?.textContent ?? null,
+        img:
+          document.getElementById("visual-image")?.getAttribute("src") ?? null,
+      }));
+      record(
+        "40. Play all routes + skip-all: one burst plays every route (continuing last), no choice ever surfaces, aftermath follows",
+        "FAIL",
+        `the fresh-slate start never reached the config screen (help shown=${String(s40Fresh)}, dismissed=${String(s40HelpDismissed)}): ${JSON.stringify(diag)}`,
+      );
+    } else {
+      const s40cfg = await page.evaluate(READ_CONFIG_OVERLAY);
+      await clickCenter(cdp, s40cfg.skipRect); // skip-all ON: burst the walk
+      await clickCenter(cdp, s40cfg.playRect); // play-all-routes ON
+      const s40toggled = await page.evaluate(READ_CONFIG_OVERLAY);
+      await clickCenter(cdp, s40toggled.titleRect); // backdrop closes
+      await page.evaluate(INSTALL_BRANCH_LOG); // a fresh log for the burst
+      await pressTab(cdp);
+      const s40samples = [];
+      const s40start = Date.now();
+      let s40reached = false;
+      while (Date.now() - s40start < 25000) {
+        const line = await page.evaluate(SKIP_PROBE);
+        s40samples.push(line);
+        if (line.includes(EXPECTED.main024Text)) {
+          s40reached = true;
+          break;
+        }
+        await sleep(50);
+      }
+      await sleep(600); // a trailing overlay or stray advance would still show
+      const s40log = await readBranchLog(page);
+      const s40closed = await page.evaluate(READ_CHOICE);
+      const s40Markers = [
+        "bridge-014.jpg",
+        "bridge-015.jpg",
+        "refuse-019.jpg", // alternates before the continuing route
+        EXPECTED.refuse020Text,
+        "hire-016.jpg",
+        EXPECTED.hire017Text,
+        EXPECTED.early022Text, // the inner alternate before its continuing late
+        EXPECTED.late021Text,
+        EXPECTED.hire018Text, // the rejoin, then the aftermath
+        "main-023.jpg",
+        EXPECTED.main024Text,
+      ];
+      const s40Idx = s40Markers.map((marker) =>
+        s40log.findIndex((l) => l.includes(marker)),
+      );
+      const s40OrderOk =
+        s40Idx.every((i) => i >= 0) &&
+        s40Idx.every((i, k) => k === 0 || i > s40Idx[k - 1]);
+      const s40NoChoice =
+        !s40samples.some((l) => l.includes("choice-open")) &&
+        !s40log.some((l) => l.includes("choice-open")) &&
+        s40closed.hidden === true;
+      const s40SwitchesOk =
+        s40toggled.skipPressed === "true" &&
+        s40toggled.playPressed === "true" &&
+        (await configOpen(page)) === false;
+      const s40Ok =
+        s40HelpDismissed &&
+        s40SwitchesOk &&
+        s40reached &&
+        s40OrderOk &&
+        s40NoChoice;
+      const s40OrderText = s40Markers
+        .map((marker, i) => marker + "@" + s40Idx[i])
+        .join(" ");
+      record(
+        "40. Play all routes + skip-all: one burst plays every route (continuing last), no choice ever surfaces, aftermath follows",
+        s40Ok ? "PASS" : "FAIL",
+        `clean slate (storage wiped, help dismissed=${String(s40HelpDismissed)}), skip-all=${String(s40toggled.skipPressed)} play-all-routes=${String(s40toggled.playPressed)} set in c BEFORE the walk, then one tab press ran everything: observed play order ${JSON.stringify(s40OrderText)} — strictly increasing=${String(s40OrderOk)}, so refuse-019 played BEFORE hire-016 and early-022 BEFORE late-021 (auto-pick = first unplayed route in manifest order, the continuing route LAST — engine nextAutoRoute, pinned by branches.test.ts), and the aftermath main-023 followed every route; #choice never opened across ${String(s40samples.length)} samples and the whole change log=${String(s40NoChoice)}; the burst ended on the closing line=${String(s40reached)}`,
+      );
+    }
+
+    // 41. Console stayed empty through the WHOLE run, branch steps
+    // included (it was already checked at 33, before them).
+    const s41Ok = consoleMessages.length === 0 && pageErrors.length === 0;
+    record(
+      "41. console stayed empty throughout the whole run, branch steps included",
+      s41Ok ? "PASS" : "FAIL",
+      s41Ok
+        ? "zero console messages, zero page errors, every page, whole run — including the decision overlays, the nested decision, the rejoin, the e-jump into the never-taken route, the resume inside branch content, and the play-all skip burst"
         : `console=[${consoleMessages.join(" | ")}] pageErrors=[${pageErrors.join(" | ")}]`,
     );
   } finally {

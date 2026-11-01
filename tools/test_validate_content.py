@@ -81,6 +81,7 @@ def test_empty_items_list_is_valid(folder: Path) -> None:
     shows its no-content state for it."""
     manifest = read_manifest(folder)
     manifest["items"] = []
+    manifest["branches"] = []  # the demo's branches would dangle refs
     write_manifest(folder, manifest)
     assert problems_of(folder) == []
     proc = run_cli(folder)
@@ -553,6 +554,7 @@ def test_text_only_manifest_is_rejected(folder: Path) -> None:
          "text": "One line over nothing."},
         {"id": "line-b", "type": "text", "text": "Another, still no visual."},
     ]
+    manifest["branches"] = []  # the demo's branches would dangle refs
     write_manifest(folder, manifest)
     problems = problems_of(folder)
     assert len(problems) == 2

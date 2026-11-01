@@ -246,9 +246,12 @@ truthful: an unchecked box means nothing was accepted.
       ending reselect), `Play all routes` toggle in `c`; verify steps
       (280 tests; driver/docs resynced to first-unseen semantics; 33
       steps green, 2025-11-01)
-- [ ] Demo fixture: shared lead-in, decision with continuing route +
+- [x] Demo fixture: shared lead-in, decision with continuing route +
       explicit-ending route (one nested mini-decision inside a route);
-      determinism + validator green
+      determinism + validator green (41 verify steps 40+1 known partial:
+      decision fire, nesting, return-row proven, play-all auto-order,
+      resume ctx, e-into-unseen-route; deterministic rebuilds,
+      2025-11-01)
 - [ ] Extractor: conservative `menu:` -> decision detection (contiguous
       runs, no guessed joins, ledger notes) with golden-style tests
 - [x] docs/extracting.md has a per-game entry incl. what was skipped
