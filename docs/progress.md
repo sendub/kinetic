@@ -337,6 +337,17 @@ truthful: an unchecked box means nothing was accepted.
       tester's ask - plan corrected; 44-step driver 43+1 known, 302
       tests, byte-identical rebuilds, 2025-11-01)
 
+- [x] External re-report (2025-11-02): skip-all reportedly still waits
+      for `minPlaySeconds` at chain exit on a video with BOTH
+      `holdSeconds: 8` and `minPlaySeconds: 8` + 2 text + image
+      (reproduced on 3c70ed1, which predates the 2bd3e42 skip
+      exclusion). Reproduce at HEAD with that exact config + skipAll
+      ON; fix if real; add the config as a permanent machine regression
+      test either way. (VERDICT: stale report - the repro commit
+      predated the skip-exclusion fix; at HEAD the exact config exits
+      the chain at 360 ms under skip, auto still 8000 ms; regression
+      tests added, 305 green, 2025-11-02)
+
 ## Later, waiting on the user
 
 - [ ] Overlay text styling iteration (incl. thought vs dialogue look)

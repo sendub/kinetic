@@ -2001,6 +2001,91 @@ describe("minPlaySeconds chain-exit floor (docs/plan.md Phase 15)", () => {
     m.destroy();
   });
 
+  // The external tester's EXACT re-report config (2025-11-02, reproduced on
+  // 3c70ed1, which predates the 2bd3e42 skip exclusion): a video carrying
+  // BOTH `holdSeconds: 8` and `minPlaySeconds: 8`, two dialogue lines, then
+  // an image. Pinned as a permanent regression at HEAD.
+  function holdFloorChained(): Item[] {
+    return [
+      video(8, undefined, { holdSeconds: 8, minPlaySeconds: 8 }),
+      text("one"),
+      text("two"),
+      image(),
+    ];
+  }
+
+  it("skipAll + holdSeconds video: floor never gates skip", () => {
+    vi.useFakeTimers();
+    const m = machine(holdFloorChained(), {
+      settings: { ...SETTINGS, skipAll: true },
+    });
+    // Skip started on the video item itself — the reported repro path.
+    m.toggleSkip();
+    expect(m.getState().skipping).toBe(true);
+    const dwell = SETTINGS.skipDwellMs; // 120
+    for (let steps = 1; steps <= 3; steps += 1) {
+      vi.advanceTimersByTime(dwell); // one plain dwell per item, floor ignored
+      expect(m.getState().cursor).toBe(steps);
+    }
+    // The chain is left at machine time 3 x 120 = 360 ms — a few dwells,
+    // nowhere near the 8 s floor (the old bug waited ~7.9 s here).
+    expect(m.getState()).toEqual({
+      cursor: 3,
+      frontier: 4,
+      settled: false,
+      skipping: false,
+    });
+    vi.advanceTimersByTime(8000); // the floor would have gated the exit
+    expect(m.getState().cursor).toBe(3); // unchanged: the exit was not it
+    m.destroy();
+  });
+
+  it("same manifest, AUTO mode (no skip): the chain exits at the 8 s floor", () => {
+    vi.useFakeTimers();
+    const m = machine(holdFloorChained()); // default settings, auto
+    // Chain timing: video (chain head) + two lines at minHold = 3000 ms.
+    vi.advanceTimersByTime(2999);
+    expect(m.getState().cursor).toBe(1);
+    vi.advanceTimersByTime(1); // last chain item at machine time 3000
+    expect(m.getState().cursor).toBe(2);
+    // Leaving waits for the floor: NOT the 4500 ms text-only exit…
+    vi.advanceTimersByTime(4999); // total 7999
+    expect(m.getState().cursor).toBe(2);
+    // …but 8000 from the chain head, exactly the expected ~7.9 s of wall.
+    vi.advanceTimersByTime(1);
+    expect(m.getState()).toEqual({
+      cursor: 3,
+      frontier: 4,
+      settled: false,
+      skipping: false,
+    });
+    m.destroy();
+  });
+
+  it("default settings (skipAll off): skip stays immediate at unseen content; the floor then gates auto only", () => {
+    vi.useFakeTimers();
+    const m = machine(holdFloorChained()); // default settings: skipAll off
+    m.toggleSkip(); // entered on the video, as in the report
+    // One dwell, then skip ENDS at the first unseen line — it never waits
+    // on the floor; this is where the default variant can exit fast.
+    vi.advanceTimersByTime(SETTINGS.skipDwellMs);
+    expect(m.getState()).toEqual({
+      cursor: 1,
+      frontier: 2,
+      settled: false,
+      skipping: false,
+    });
+    // Skip ended before the chain exit, so auto governs the rest and the
+    // floor applies from the chain head (0): exit at 8000, not 1620 + hold.
+    vi.advanceTimersByTime(1500);
+    expect(m.getState().cursor).toBe(2);
+    vi.advanceTimersByTime(6379); // total 7999
+    expect(m.getState().cursor).toBe(2);
+    vi.advanceTimersByTime(1);
+    expect(m.getState().cursor).toBe(3);
+    m.destroy();
+  });
+
   it("an already-elapsed floor adds no wait: text timing unchanged", () => {
     vi.useFakeTimers();
     // Dialogue long enough (3 x 2400 ms over the default holds) that the
