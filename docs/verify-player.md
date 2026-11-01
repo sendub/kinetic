@@ -59,6 +59,12 @@ into the never-taken route, and `Play all routes` through a skip-all
 burst. Its row model, input precedence and Enter rule are pinned by
 `render/choice.test.ts`, the route digits by `render/keys.test.ts`, and
 `Play all routes` defaults off in the `c` screen (walked at step 25).
+The Phase 16 walk rules — one press advances exactly one step, wheel and
+tab-skip arrivals SHOW an unresolved decision's overlay (skip pauses
+there; the pick resumes manual), the Return row is re-offered once any
+route completed, `e` shows the ENDING once all is seen, and config's
+"Reset progress" restores the first-ever play — are walked by steps
+42-44 and reflected in the reworded entries 3, 27, 33, 34, 37 and 40.
 
 ## Run it
 
@@ -115,8 +121,8 @@ in auto-forward a press only ends that wait where it stands and the next
 press moves on. For the wheel, one notch — any event of ~8 px and up —
 steps exactly one item, and a fast flick is priced at 100 px per step;
 steps are capped at ~12 per second, so a flick cannot outrun the eye.
-(The driver `scripts/verify.mjs` still walks with the old two-press pair;
-its manual-mode steps need a pass for this rule.) For step 29, drag the window to a
+(The driver walks this rule since the Phase 16 rework: its manual-mode
+steps press once per move.) For step 29, drag the window to a
 shape that matches nothing — tall and narrow, or wide and short — and the
 media should stay flush with one pair of edges, centred on the other
 axis, with black only where the asset's aspect and the window's differ.
@@ -145,15 +151,19 @@ past part-013: the lead-in image, a line, then `bridge-015` — settling
 it opens the decision overlay and NOTHING advances, whatever auto-forward
 is doing; press `2` to take the ending route (`refuse-019`'s own image,
 its ending line, then the overlay comes back with `refuse` marked seen
-and no return row), press `1` to take `hire` (`hire-016`/`hire-017`),
+and — since Phase 16 — the "Return to main route" row offered), press
+`1` to take `hire` (`hire-016`/`hire-017`),
 where settling `hire-017` opens the nested overlay — `1` plays `late-021`
 and its end rejoins at `hire-018` on its own; stepping off `hire-018`
 lands on the `main-023` aftermath directly (the continuing route's end
 is not a reselection point), and `main-024` closes the path; a reload
 then comes back on `main-024` with no overlay, `e` jumps to `early-022`
-— the one line never played — and a clean slate with `c`'s skip-all and
-play-all-routes both on runs the WHOLE story on one `tab` press, every
-route once, the continuing route last, and no overlay anywhere. For
+— the one line never played — and with everything seen another `e`
+shows the ENDING (Phase 16: the most recently seen ending, the array
+end here; pressing again there stays put); a clean slate with `c`'s
+skip-all and play-all-routes both on runs the WHOLE story on one `tab`
+press, every route once, the continuing route last, and no overlay
+anywhere (play-all remains the no-pause path). For
 step 39, start from a clean slate, walk to `window-004`, press `b`, and
 reload the MOMENT the "Bookmarked" pill appears — do not wait first: the
 page must come back on that same line, and `t` → the newest row must
@@ -162,17 +172,20 @@ lead back to it too.
 Results below were walked on 2026-10-31 by the driver on headless
 Chrome 156.0.8078.76, re-walked on 2026-11-01 after the Phase 13
 resync, and again after the branch fixture joined the demo — both later
-re-walks multiple runs with the same statuses, and once more on
-2026-11-01 with the Phase 14 persistence fix and its step 42 — now 42
-steps: 41 pass, 1 honest partial (the evidence lines differ run to run only in
+re-walks multiple runs with the same statuses, once more on
+2026-11-01 with the Phase 14 persistence fix and its step 42, and on
+2026-11-01 as the Phase 16 close-run with the one-press driver and its
+three new steps — now 47 driver steps: 46 pass, 1 honest partial (the evidence lines differ run to run only in
 bookmark timestamps, sampled video `currentTime`, boundary measurements
 and range-frame counts, skip-dwell timings, the hold measurement, the
 branch change log's positions, and per-event video timestamps). The headings keep the checklist's own numbering; the
 entries reworded for the Phase 13 seen/jump semantics — the wheel clamp,
 skip's stop, `e`, the bookmark click, the reload resume and the config
 screen — re-record their results on 2026-11-01 under the driver's
-current step numbers, and entries not reworded keep the numbers they
-were recorded under. The fit rule in step
+current step numbers; the entries reworded for the Phase 16 walk
+semantics (3, 27, 33, 34, 37, 40) and the new Phase 16 entries 42-44
+re-record theirs on 2026-11-01, and entries not reworded keep the numbers
+they were recorded under. The fit rule in step
 30 is pinned twice over: the pure `containFit` in `render/fit.ts` is
 unit-tested, and the driver imports that same function as its expectation,
 so the two cannot drift. The `t` list's pure rules (order,
@@ -263,11 +276,15 @@ tolerances below. Walked 2026-10-31, headless Chrome 156.0.8078.76:
 
 ### 3. Space advances through the first images
 
-- Action: press space twice (settle, then move).
-- Expected: item 2 (lantern-002.jpg) shows with its line; no speaker
-  element, since that item has none.
-- RESULT (PASS, 2026-10-31): driver step 3: lantern image decoded,
-  overlay shows only the text (1 child, no `#overlay-speaker`).
+- Action: press space once — in manual mode one press is one step
+  (Phase 16; the old settle-then-move pair is gone).
+- Expected: item 2 (lantern-002.jpg) shows with its line on that single
+  press; no speaker element, since that item has none.
+- RESULT (PASS, 2026-11-01): driver steps 3-4: item 1 held its full
+  2400 ms hold untouched (manual is the default), `a` then advanced it
+  on a fresh hold and `a` again cancelled mid-item; after a wheel-back,
+  one press showed the lantern image decoded with its text and no
+  `#overlay-speaker`. Steps 45-46 pin the 1:1 rule on fresh pages.
 
 ### 4. Bare image shows no overlay
 
@@ -663,13 +680,16 @@ tolerances below. Walked 2026-10-31, headless Chrome 156.0.8078.76:
 
 ### 27. Range 1 of a shared clip: part-012 plays [0, 1] once, pass via rVFC
 
-- Action: press space once from step 26's reload landing (line-011,
-  settled) to enter item 11 — part-012, a bare visual that plays
-  [0.0, 1.0] of the shared `clip-012.mp4` with `loopCount: 1`. The
-  driver installs an `ended` capture counter AND a
+- Action: on a clean slate (storage wiped, help dismissed), walk the
+  first-ever boot onto line-011 with TEN single presses — one press =
+  one item since Phase 16, so the count lands exactly. The driver
+  installs an `ended` capture counter AND a
   `requestVideoFrameCallback` sampler (on the first `play` the video
-  element ever fires) before the key press, so the FIRST presented frame
-  after entry is recorded.
+  element ever fires) before the eleventh press, which enters item 11 —
+  part-012, a bare visual that plays [0.0, 1.0] of the shared
+  `clip-012.mp4` with `loopCount: 1` — so the FIRST presented frame
+  after entry is recorded; auto-forward comes on after entry, and its
+  gate drives the step on.
 - Expected: the element plays muted with `loop=false` (a ranged video
   must never loop=true — the element's own loop would seek to 0, not
   `startSeconds`); the first presented frame is at/after 0 and
@@ -682,9 +702,9 @@ tolerances below. Walked 2026-10-31, headless Chrome 156.0.8078.76:
   the frame at ITS startSeconds). OBSERVED start offset, frame
   containment, and pass-complete overshoot are recorded, not asserted
   frame-exact (see "Measured boundary guarantee").
-- RESULT (PASS, 2026-10-31): driver step 27:
+- RESULT (PASS, 2026-11-01): driver step 29:
   `requestVideoFrameCallback` available=true; first presented frame
-  `mediaTime=0.000` with element `currentTime=0.014` at that callback
+  `mediaTime=0.000` with element `currentTime=0.012` at that callback
   (OBSERVED start offset +0.000 s); 26 frames, all inside [0, 1]; pass
   completed OBSERVED at `mediaTime=1.000` — +0.000 s past `endSeconds`
   1.0 (bounded by the 0.04 s frame cadence, not by a frame-exact
@@ -821,31 +841,35 @@ tolerances below. Walked 2026-10-31, headless Chrome 156.0.8078.76:
   image; the hire route's image is never painted anywhere along the way.
   Past the route end `#choice` comes back for reselection: the played
   `refuse` row carries the seen marker, the unplayed `hire` row does
-  not, and there is NO "Return to main route" row — an ending route
-  never offers one, even though the decision has a continuing route.
+  not, and — Phase 16, "the ending-loop is escapable" — the re-open now
+  OFFERS the unnumbered "Return to main route" row: once ANY route of a
+  decision has completed, every re-opening carries it whenever the
+  decision has a continuing route, whatever the played route's result.
 - RESULT (PASS, 2026-11-01): driver step 35: digit 2 opened the span on
   `refuse-019` (`img="refuse-019.jpg"`, speaker Mei), then the ending
   line over the SAME image; the page-side change log NEVER held
   `hire-016.jpg` (the route was entered, never painted); past the end
-  the overlay returned with rows `[hire: seen=null, refuse: seen="seen"]`
-  and no continue row.
+  the overlay returned with rows `[hire: seen=null, refuse: seen="seen",
+  "Return to main route" (continue)]`.
 
 ### 34. The continuing route and the nested decision: pick early, take the return row, rejoin at hire-018
 
-- Action: at the re-opened overlay press `1` (`hire`), walk to
-  `hire-017`, settle it, and at the SECOND overlay press `2` (`early`,
+- Action: at the re-opened overlay press `1` (`hire`), step to
+  `hire-017`, press once more to settle it (a manual press settles the
+  shown item and its move fires the decision before stepping — Phase
+  16), and at the SECOND overlay press `2` (`early`,
   the nested `result: "return"` route). Step off `early-022`, then press
   Enter at the re-opened overlay.
 - Expected: `hire-016`/`hire-017` play over the hire image; the FORWARD
   SETTLE of `hire-017` opens the NESTED decision's overlay — its own
   prompt ("When do they meet?") and its rows ("Late, over coffee",
-  "Early, before the sun"), no return row. `early-022` then plays (over
-  the hire image — its span holds no image of its own), and its end as a
-  `return` route RE-OPENS the inner decision — this is the only place
-  the "Return to main route" row appears: the played `early` row is
-  seen-marked, the unplayed `late` row is not, and the unnumbered return
-  row closes the list (step 33 proved the `ending` route re-opens
-  without one). Enter answers it: the join lands directly on the
+  "Early, before the sun"), no return row yet — no route of THIS
+  decision has completed. `early-022` then plays (over
+  the hire image — its span holds no image of its own), and its end
+  RE-OPENS the inner decision with the same Phase 16 re-offer step 33
+  pins: the played `early` row is seen-marked, the unplayed `late` row
+  is not, and the unnumbered return row closes the list. Enter answers
+  it: the join lands directly on the
   `continueAt` `hire-018`, and the change log must show `early-022`'s
   line before the rejoin line with the re-opened overlay's `choice-open`
   between them. `late` stays unplayed here — it plays in the `Play all
@@ -885,20 +909,26 @@ tolerances below. Walked 2026-10-31, headless Chrome 156.0.8078.76:
   identical before and after the reload and 1.8 s later — same item,
   `#choice` never re-fired, help stayed closed (`helpSeen` survives).
 
-### 37. `e` jumps to the never-taken route; a second press is inert
+### 37. `e` jumps to the never-taken route; with all seen it shows the ENDING
 
-- Action: from the resumed `main-024`, press `e` twice.
+- Action: from the resumed `main-024`, press `e` three times.
 - Expected: every item on the played path is seen (the visited set
   returned with the ctx), and the ONLY unseen item is `late-021` — the
   inner route never picked (`early` was, and returned, in step 34). With
   the current span all seen and no decision open, the rule-(c)
   array-order jump lands there: `late-021`'s line over the hire image,
-  no overlay. The landing marks it seen, so the second press has nothing
-  to jump to and changes nothing.
+  no overlay. The landing marks it seen, so the second press finds
+  NOTHING unseen — and since Phase 16 it then shows the ENDING: the most
+  recently seen ending item (here `main-024`, the array end — tracked as
+  `lastEnding` the moment the cursor is placed on an ending item, and
+  persisted with the ctx). A third press on that item stays put: the
+  press never cycles through endings.
 - RESULT (PASS, 2026-11-01): driver step 39: `e` landed on "They showed
   at ten, late and grinning." over `hire-016.jpg` — `late-021`, the
   never-taken route (the ctx's visited set came back with it, itself
-  OBSERVED); the second press changed nothing.
+  OBSERVED); the second `e` met an all-seen story and showed the
+  ending — "And the tape rolled on without an answer." over
+  `main-023.jpg`; a third press changed nothing.
 
 ### 38. `Play all routes` + skip-all: one burst plays every route, continuing last
 
@@ -951,8 +981,10 @@ tolerances below. Walked 2026-10-31, headless Chrome 156.0.8078.76:
 
 - Action: on the step-39 page, press `e` until it lands on `stroll-025`
   (each press walks the unseen frontier one item — navigation fires no
-  decision); one `space` settles the video item in place; then `a` (auto
-  ON) and `space`, letting auto drive the chain `stroll-025 → line-026 →
+  decision); then `a` (auto ON) — a manual press now steps (Phase 16),
+  so the in-place settle this measurement needs is the AUTO-mode press:
+  one `space` ends the chain head's wait where it stands, another
+  `space` steps on, letting auto drive the chain `stroll-025 → line-026 →
   line-027`; sample until the visual changes past the chain, then `a`
   off.
 - Expected (Phase 15): the dialogue advances at reading speed UNDER the
@@ -962,10 +994,10 @@ tolerances below. Walked 2026-10-31, headless Chrome 156.0.8078.76:
   changes no earlier than ~4.5 s, where the two dialogue holds alone sum
   to ~3 s. The floor never stalls the media under the chain.
 - RESULT (PASS, 2026-11-01): driver step 43: the frontier walk landed on
-  the chain head; `line-026` was current at +4 ms and `line-027` at
+  the chain head; `line-026` was current at +6 ms and `line-027` at
   +1563 ms after auto took the chain, both with `stroll-025.mp4` still
   PLAYING beneath them, and the visual past the chain changed at
-  +4548 ms from the video becoming current — the floor, ≥4.4 s asserted,
+  +4554 ms from the video becoming current — the floor, ≥4.4 s asserted,
   where the two dialogue holds alone come to ~3 s.
 
 ### 41. `skip` through the floor chain stays immediate
@@ -983,6 +1015,63 @@ tolerances below. Walked 2026-10-31, headless Chrome 156.0.8078.76:
   +516 ms (from the chain's head: 386 ms) — four 120 ms dwells, posters
   only, nothing playing; the same re-entry under auto (step 40 above)
   waited 4.5 s. Console empty throughout.
+
+### 42. One-press advance, strict 1:1 (Phase 16)
+
+- Action: on a first-ever page, dismiss the help; press space once, then
+  three quick presses; then one wheel notch back and one forward.
+- Expected: one press moves exactly one item; three presses move exactly
+  THREE (not the item ~2 a settle-then-move pair would give); one wheel
+  notch steps exactly one item, forward and back — the manual-mode rule
+  of docs/plan.md Phase 16 ("one action means one step"), proven away
+  from any stored state.
+- RESULT (PASS, 2026-11-01): driver step 45, on a private first-ever
+  page (its own storage): item 1 + one press -> `lantern-002.jpg` with
+  its line; 3 quick presses -> `spark-005.f000.jpg` — exactly items 2,
+  3, 4; wheel up one notch -> `window-004.jpg` with its line, wheel
+  down one notch -> spark-005 again. Zero console output.
+
+### 43. Decisions surface on navigation (Phase 16)
+
+- Action: parked on `bridge-014` with the outer decision unresolved:
+  press once onto `bridge-015`; wheel off it and back; wheel off again,
+  press `tab`, and let the skip burst run into the decision; pick `2`
+  (`refuse`) from the pause; step the ending and off its end; press
+  Enter at the re-opened overlay.
+- Expected: the ADVANCE arrival shows no overlay (its settle fires, not
+  its arrival); the wheel ARRIVAL shows `#choice` without consuming the
+  decision, and wheeling away closes it. The skip burst PAUSES at the
+  decision with the overlay up — it does not sweep past — and the pick
+  resumes MANUAL (no skip resume, no timer). Off the ending the
+  re-opened decision carries the Return row (step 33's rule reached by
+  the nav route), and Enter escapes the ending-loop onto `main-023`.
+- RESULT (PASS, 2026-11-01): driver step 46: arrival press left
+  #choice SHUT; wheel back onto `bridge-015` opened it with the exact
+  prompt and 2 unmarked rows (showing consumes nothing), wheel-away
+  closed it; tab paused the burst on the decision at +261 ms with the
+  overlay held; the pick landed on `refuse-019` and 1500 ms moved
+  nothing (manual); the re-offer rows were `[hire: null, refuse:
+  "seen", "Return to main route" (continue)]` and Enter arrived on
+  `main-023`.
+
+### 44. Reset progress (Phase 16)
+
+- Action: clean slate; walk to ~item 5 (intro-006) and press `b`; `c`
+  -> the "Reset progress" row opens the confirmation box -> click
+  Cancel, then reload; then open the box again and click Reset.
+- Expected: the box asks ("Reset progress", Reset/Cancel) and nothing
+  is cleared until confirmed — after Cancel the reload resumes on the
+  SAME item with the bookmark row still stored and the help still
+  closed; confirming runs the app's own delete+reload, which IS the
+  first-ever play: help overlay up over a black stage, item 1 current,
+  `t` says "No bookmarks yet — press b", and `c` reads the default
+  1.00x with the switches off.
+- RESULT (PASS, 2026-11-01): driver step 47: five presses landed on the
+  intro-006 video and `b` pill-ed; the box opened with title/buttons
+  exact; Cancel kept the resume item and the one stored bookmark across
+  a reload; the confirmed Reset brought back the help screen on
+  `meadow-001.jpg`, an empty `t` list with the empty notice, and
+  `1.00x — ~60 ms/char` with skip/play both off.
 
 ## Not covered yet
 
