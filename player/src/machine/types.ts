@@ -206,6 +206,12 @@ export const DEFAULT_SETTINGS: MachineSettings = {
  * already been PLAYED in this save (not merely that some of its items were
  * shown): the route-end overlay offers the routes with `seen: false` plus,
  * when `continueOption` is set, "return to main route".
+ *
+ * PLAYED means `choose()` or a play-all auto-pick put the reader inside the
+ * route (docs/plan.md Phase 16, Branches). Nothing else marks it: firing,
+ * viewing or dismissing the decision, a wheel step or `e`-jump through the
+ * route's items (those mark the ITEMS seen, not the route), and a restored
+ * position landing inside the span.
  */
 export interface ChoiceRoute {
   /** Index into the decision's `routes` array; `choose()` takes it. */

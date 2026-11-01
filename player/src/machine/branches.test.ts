@@ -615,6 +615,167 @@ describe("choosing a route and ending one", () => {
   });
 });
 
+describe("the seen mark means the route was PLAYED (docs/plan.md Phase 16)", () => {
+  // The rule (docs/plan.md Phase 16, Branches; `ChoiceRoute.seen`): a route
+  // row's mark means the reader was ROUTED INTO that route — `choose()` or a
+  // play-all auto-pick, whose first item then became current. Firing, viewing
+  // or dismissing a decision marks nothing; the other route's items being seen
+  // marks nothing; a restored position marks nothing.
+  //
+  // The decision this block pins (the Phase 16 item asked for the call):
+  // NAVIGATION does not mark a route. It cannot here — finishing the demo's
+  // hire route and wheeling back to its decision walks the cursor over the
+  // refuse route's items, so a mark read from `visited ∩ span` would show the
+  // route the reader never played as seen, which is the sighting the item
+  // reports. `visited` stays the source for ITEM marks (the `e` jump, skip,
+  // bookmarks, frontier resume); the row mark stays the played set, so these
+  // tests fail the moment the row mark starts reading `visited`.
+  const manual = (shape: Shape) => {
+    const m = manifest(shape);
+    return createMachine({
+      items: m.items,
+      branches: m.branches,
+      settings: SETTINGS,
+    }); // manual: the player's start (one press = one step)
+  };
+  const seenFlags = (m: ReturnType<typeof manual>) =>
+    m.getState().choice?.routes.map((r) => r.seen);
+
+  it("one route played to the end: the back-scroll past the others marks them nothing", () => {
+    // The user's flow on the demo: take the continuing route, finish, wheel
+    // back to the branch. The back-scroll PASSES the other spans — their items
+    // become visited — and the overlay still marks only the route taken.
+    const m = manual(CANON);
+    m.advance(); // 0 -> 1
+    m.advance(); // 1 -> 2 (`decide`)
+    m.advance(); // the forward settle fires d1
+    m.choose(2); // route C, the continuing route
+    m.advance(); // 7 -> 8
+    m.advance(); // off C's end: the continuing route proceeds to `after-1`
+    expect(m.getState().cursor).toBe(9);
+    for (let back = 0; back < 7; back += 1) m.wheelBack(); // onto `decide`
+    expect(m.getState().cursor).toBe(2);
+    expect(m.getState().choice?.arrival).toBe(true);
+    expect(seenFlags(m)).toEqual([false, false, true]);
+    // The pass-through did mark those ITEMS seen — route A's span (3, 4) and
+    // route B's (5, 6) — and none of it reaches the rows.
+    for (const index of [3, 4, 5, 6]) expect(m.visitedList()).toContain(index);
+    expect(m.exportContext().playedRoutes).toEqual([
+      { decision: 0, routes: [2] },
+    ]);
+    m.destroy();
+  });
+
+  it("the same view fired by a press after the back-scroll marks the same", () => {
+    const m = manual(CANON);
+    m.advance();
+    m.advance();
+    m.advance(); // fires d1
+    m.choose(2);
+    m.advance();
+    m.advance(); // -> 9, `after-1`
+    for (let back = 0; back < 8; back += 1) m.wheelBack(); // 9 -> 1
+    expect(m.getState().choice).toBeUndefined();
+    m.advance(); // a forward step ONTO the after item arrives quietly
+    expect(m.getState().cursor).toBe(2);
+    expect(m.getState().choice).toBeUndefined();
+    m.advance(); // its forward settle FIRES the decision
+    expect(m.getState().choice?.arrival).toBeUndefined();
+    expect(seenFlags(m)).toEqual([false, false, true]);
+    m.destroy();
+  });
+
+  it("firing, viewing and dismissing a decision mark no route", () => {
+    const fired = manual(CANON);
+    fired.advance(); // 0 -> 1
+    fired.advance(); // 1 -> 2
+    fired.advance(); // fired: no route has been played, so nothing is marked
+    expect(seenFlags(fired)).toEqual([false, false, false]);
+    fired.wheelBack(); // a fired choice owns the timeline: nothing moved
+    expect(fired.getState().cursor).toBe(2);
+    fired.chooseContinue(); // no offer yet, so this answers nothing
+    expect(fired.getState().choice?.decisionId).toBe("d1");
+    fired.destroy();
+    const arrival = manual(CANON);
+    arrival.advance();
+    arrival.advance(); // 1 -> 2, an arrival like any other
+    arrival.wheelBack();
+    arrival.wheelForward(); // an arrival view, then dismissed by moving away
+    expect(seenFlags(arrival)).toEqual([false, false, false]);
+    arrival.wheelBack();
+    expect(arrival.getState().choice).toBeUndefined();
+    expect(arrival.exportContext().playedRoutes).toEqual([]);
+    arrival.destroy();
+  });
+
+  it("wheeling into another route's span marks it nothing; playing it marks it", () => {
+    const m = manual(CANON);
+    m.advance();
+    m.advance();
+    m.advance(); // fires d1
+    m.choose(2); // route C at 7
+    m.wheelBack(); // 6: route B's last item, shown by navigation
+    expect(m.visitedList()).toContain(6);
+    m.wheelForward(); // 7: back inside the played route
+    for (let back = 0; back < 5; back += 1) m.wheelBack(); // onto `decide`
+    expect(seenFlags(m)).toEqual([false, false, true]); // B stays unmarked
+    m.choose(1); // now the reader plays route B for real
+    expect(m.getState().cursor).toBe(5);
+    m.advance(); // 5 -> 6
+    m.advance(); // off B's end: the re-offer marks the route just played
+    expect(seenFlags(m)).toEqual([false, true, true]);
+    m.destroy();
+  });
+
+  it("a restored position inside a route marks no route seen", () => {
+    // The rule's other half: the mark comes from play, so a save landing
+    // inside a span the reader never entered marks nothing — even though every
+    // item of the region is in the restored seen set.
+    const shape = manifest(CANON);
+    const m = createMachine({
+      items: shape.items,
+      branches: shape.branches,
+      settings: SETTINGS,
+      resumeContext: {
+        lastShown: 5, // route B's first item
+        visited: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
+        stack: [],
+        playedRoutes: [],
+      },
+    });
+    expect(m.getState().cursor).toBe(5);
+    for (let back = 0; back < 3; back += 1) m.wheelBack(); // onto `decide`
+    expect(m.getState().choice?.arrival).toBe(true);
+    expect(seenFlags(m)).toEqual([false, false, false]);
+    m.destroy();
+  });
+
+  it("nested: an inner route left unseen by a back-scroll stays unmarked", () => {
+    const m = machine(NESTED);
+    step(m); // 0 -> 1 (`decide`)
+    m.advance(); // d1
+    m.choose(0); // route A, which contains d2
+    step(m); // 2 -> 3 (`a-decide`)
+    m.advance(); // d2
+    m.choose(0); // route X, an ending
+    step(m); // 4 -> 5
+    step(m); // off X's end: d2 re-opens, marking X
+    expect(seenFlags(m)).toEqual([true, false]);
+    m.chooseContinue(); // back inside route A at `a-cont`
+    expect(m.getState().cursor).toBe(8);
+    for (let back = 0; back < 5; back += 1) m.wheelBack(); // 8 -> 3
+    expect(m.getState().cursor).toBe(3); // `a-decide`, past Y's items (6, 7)
+    expect(m.getState().choice?.decisionId).toBe("d2");
+    expect(m.visitedList()).toContain(7); // Y's items were shown by the scroll
+    expect(seenFlags(m)).toEqual([true, false]); // Y is still unplayed
+    m.wheelBack(); // 3 -> 2, closing the inner view as it steps away
+    m.wheelBack(); // 2 -> 1 (`decide`)
+    expect(m.getState().choice?.decisionId).toBe("d1");
+    expect(seenFlags(m)).toEqual([true, false, false]); // B and C unplayed
+    m.destroy();
+  });
+});
+
 describe("nested decisions", () => {
   it("a nested decision fires inside its route and its ending returns there", () => {
     const m = machine(NESTED);

@@ -242,12 +242,15 @@ and items always use ids, never array positions.
   the default, means the route's last item IS the ending: afterwards
   the overlay offers route reselection. `"return"` means that
   after its end the overlay offers the still-unseen routes plus
-  "return to main route", which proceeds to `continueAt`. Once ANY
-  route of a decision has completed, every re-opening of that
-  decision offers "return to main route" whenever `continuingRoute`
-  exists — whatever result the route that just finished had, so an
-  ending is escapable rather than a loop. Before any route has
-  completed, no such offer appears. There is
+  "return to main route", which proceeds to `continueAt`. A route
+  counts as played once it is ENTERED - its first content becomes
+  current, by any means - so the seen mark appears immediately and an
+  abandoned route still counts as seen. Once ANY route of a decision
+  has been entered, every re-opening of that decision offers
+  "return to main route" whenever `continuingRoute` exists - whatever
+  result the route that just finished had, so an ending is escapable
+  rather than a loop. Before any route has been entered, no such
+  offer appears. There is
   NO implicit join: an unmarked route never silently merges into the
   main line, because an alternate's later state is not the main
   route's. A continuing route's own `result` is moot — it proceeds to
@@ -269,12 +272,19 @@ Player-side notes, the format's promises (machine rules in
 docs/plan.md Phase 13):
 
 - Showing a decision does not mark its routes' items seen: a route is
-  ordinary items, seen when shown. `Play all routes` (a persisted
-  setting, default off) is zero-interactivity: at a decision it
-  auto-picks the first not-yet-played route in manifest order,
-  repeats until every route has played once, then continues via
-  `continueAt` (a pure choice: past the region end, per the rule
-  above).
+  ordinary items, seen when shown.
+- The `seen` mark on a route ROW is narrower than that item set: it means
+  the route was PLAYED — the reader was routed into it by `choose()` or
+  a play-all auto-pick. Navigating or jumping through a route's items,
+  or resuming inside one, shows those items and leaves the row unmarked;
+  merely firing, viewing or dismissing a decision marks nothing
+  (docs/plan.md Phase 16, Branches). The two differ exactly where a
+  back-scroll from one route's aftermath crosses another route's span.
+- `Play all routes` (a persisted setting, default off) is
+  zero-interactivity: at a decision it auto-picks the first
+  not-yet-played route in manifest order, repeats until every route has
+  played once, then continues via `continueAt` (a pure choice: past the
+  region end, per the rule above).
 - Back/forward navigation walks the item array; entering a route's
   first item that way does not re-fire the decision — decisions fire
   only on a forward settle of `after`. So backing into `after` and

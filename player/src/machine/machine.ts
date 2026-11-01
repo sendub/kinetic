@@ -11,6 +11,10 @@
 // only ever move onto already-shown items, so a linear novel behaves exactly as
 // before, when "shown" was the single frontier's `1 + highest index ever
 // shown`.) Seeing a decision marks nothing: its routes are ordinary items.
+// The route ROW's seen mark is a different, narrower thing than this set: it
+// is `played` — the routes the reader was actually routed into (docs/plan.md
+// Phase 16, Branches) — so a back-scroll across another route shows that
+// route's items without marking its row.
 //
 // `frontier` stays in `MachineState` as a DERIVED legacy value for the
 // renderer and for resume persistence: 1 past the highest index ever shown.
@@ -876,6 +880,16 @@ export function createMachine(options: MachineOptions): Machine {
     return set;
   }
 
+  /**
+   * The route row's seen mark (docs/plan.md Phase 16, Branches): the route was
+   * PLAYED — `enterRoute` put the reader inside it, from `choose()` or a
+   * play-all auto-pick. Deliberately NOT `visited` ∩ span: finishing one route
+   * and wheeling back to its decision walks the cursor across the OTHER
+   * route's items, and a restored position lands inside a span — both would
+   * then read as a route the reader never took, which is exactly what the
+   * Phase 16 report rules out. `visited` stays the source for ITEM marks (the
+   * `e` jump, skip, bookmarks, the frontier resume); the row mark is play.
+   */
   function isPlayed(decisionIndex: number, routeIdx: number): boolean {
     return played.get(decisionIndex)?.has(routeIdx) === true;
   }

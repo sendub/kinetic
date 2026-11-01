@@ -390,9 +390,14 @@ truthful: an unchecked box means nothing was accepted.
       rule - fired/re-offer/arrival views alike; row last, Enter ->
       continueAt once, stack popped; 324 tests, real-Chrome scenario,
       content-format result bullet updated, 2025-11-02)
-- [ ] Route seen mark = route PLAYED (its items became current), not
+- [x] Route seen mark = route PLAYED (its items became current), not
       the decision firing; taking one route must not mark the other
-      seen.
+      seen. (investigation: the rule already held - the user's
+      profile had genuinely played "Turn them down" earlier, save is
+      scoped per content; fresh profile proven [hire=true,
+      refuse=false] at arrival + fired views; played = ENTERED by any
+      means, rule + continue-offer wording aligned in
+      content-format.md; +6 tests, 330 green, 2025-11-02)
 - [ ] Play-all-routes on the demo: reproduce the no-branches report,
       fix, and add route announcements (flash "Route: <label>" on
       route entry; "Back to try another route" on the jump-back).
