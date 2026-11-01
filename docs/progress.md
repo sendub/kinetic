@@ -233,10 +233,12 @@ truthful: an unchecked box means nothing was accepted.
       `result` default `ending`, exactly one `continuingRoute` per
       decision with `continueAt`) (69 pytest tests, CREATE example
       validates via real validator, 2025-11-01)
-- [ ] Machine: decision fire on settle-of-after, route spans, nested
+- [x] Machine: decision fire on settle-of-after, route spans, nested
       decision stack, route-end overlays (return/reselect semantics),
       play-all-routes, visited-set seen tracking + jumpToUnseen/skipAll
       route-aware targeting; tests incl. the three unseen-target cases
+      (234 tests at landing; e-lands-on-first-unseen semantics noted,
+      2025-11-01)
 - [x] Storage: PersistedState `visited` + `position` (decision stack)
       with migration from frontier-only states; bookmarks carry route
       context; restore + migration tests (ctx on PersistedState +
@@ -275,9 +277,13 @@ truthful: an unchecked box means nothing was accepted.
       run perf, headless Chrome file://: demo p95 36.7 -> 16.8 ms;
       extracted-with-JXL folder 32.2 -> 18.6 ms; target met, no
       revisit trigger, 2025-11-01)
-- [ ] Self-contained novel folder plays by double-clicking `index.html`
-      over `file://`
-- [ ] docs/packaging.md written; Tauri path noted, not built
+- [x] Self-contained novel folder plays by double-clicking `index.html`
+      over `file://` (npm run package-proof 18/18 on demo +
+      extracted-with-JXL folders: paint, advance, help, zero errors;
+      assemble_folder.py reproducible, 2025-11-01)
+- [x] docs/packaging.md written; Tauri path noted, not built
+      (folder contents, both assembly paths, zip-to-reader, revisit
+      trigger, browser-matrix + no-audio caveats, 2025-11-01)
 - [x] README accuracy pass; this file fully checked (fresh-eyes audit:
       8 drift fixes incl. e-landing, resume, first-load help, extractor
       scope; CREATE stale-planned section refreshed; all boxes below
