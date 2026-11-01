@@ -391,29 +391,15 @@ Or let `tools/assemble_folder.py <content-dir> <out-folder>` assemble a
 playable copy in one command: it copies the bundle and content, generates
 a missing `manifest.js`, and prints the folder size (docs/packaging.md).
 
-Run `npm run build` in `player/` first if the bundle is not current. The
-bundle in `player/dist` is the current build; the behavior described
-here lands in the later phases of docs/plan.md.
+Run `npm run build` in `player/` first if the bundle is not current.
 
 Double-click `index.html` to open the novel in your default browser.
 The first keypress or click puts the player in fullscreen, so that first
 keypress can simply be space, the advance key.
 
-Controls, from README.md:
+The controls are listed in README.md ("Playing").
 
-- `space`: advance one item.
-- `tab`: skip at a rapid fixed speed, showing only the first frame of
-  animations and videos; never past unseen content unless a skip-all
-  config option is enabled.
-- `h`: hide or show the overlay text.
-- `b`: bookmark the current moment as a timestamped thumbnail.
-- `t`: open the bookmark list; click a thumbnail to resume there.
-- `e`: jump to the item just before the next unseen one.
-- `c`: open the config screen (reading speed, skip-all).
-- scroll wheel: roll back through seen items; roll the other way to
-  return, never to unseen content.
-
-With no input the player auto-advances at the configured reading speed:
+In auto mode (`a`) the player advances at the configured reading speed:
 images hold for their text, animations complete their loops, and videos
 play through once. A media item followed by `text` items holds for its
 text alone while its animation or video loops underneath, and each
