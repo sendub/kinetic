@@ -617,5 +617,12 @@ truthful: an unchecked box means nothing was accepted.
       still showing each item's first frame; check media decode keeps up
       (docs/perf.md budget) and update the skip timing bounds in tests
       and the navigation/media scenarios.
+- [x] Skip-all + play-all keeps skipping across route changes (external
+      conversion agent, 2026-11-01, on a025c94: after the "Back in time"
+      screen the skip stopped on the next route's first item until Tab
+      was pressed again). Fixed in f5629d6: an interstitial that ELAPSES
+      resumes the skip burst (a press during it still means stop); unit
+      test in branches.test.ts, and the playall scenario requires the
+      whole burst on ONE Tab press (green).
 - [ ] Phase-closer: full suite (driver, vitest, pytest, package-proof),
       rebuild BOTH demo folders, present the updated demo to the user.
