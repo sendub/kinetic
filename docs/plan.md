@@ -773,6 +773,9 @@ directory holds too many files.
 ## Later, waiting on the user
 
 - Overlay text styling iteration once the user can play with the demo.
+- Route map screen (user-approved proposal, 2026-11-01, "save till
+  later"): a key opens the decision tree with seen/unseen marks;
+  clicking a decision or route jumps there.
 
 ## Sequencing
 

@@ -551,7 +551,7 @@ truthful: an unchecked box means nothing was accepted.
       keeps `e` from entering a route's items at an unanswered
       decision; 8 tests that pinned "repeated presses step unseen"
       rewritten; 405 tests, 2026-11-01)
-- [ ] Demo rebuild (user, 2026-11-01: "re-create a good demo and tests
+- [x] Demo rebuild (user, 2026-11-01: "re-create a good demo and tests
       for it" instead of patching): a fresh `fixtures/build_demo.py`
       with one labelled section per feature and EVERY line of text
       explanatory (no story), covering every content feature in README
@@ -560,12 +560,14 @@ truthful: an unchecked box means nothing was accepted.
       branches: continuing route with a nested continuing/return pair,
       an ending route, shared aftermath). Deterministic build; README
       lists the sections; validator tests look items up by id.
-- [ ] Scenario suite replaces `player/scripts/verify.mjs`: a shared
+      (sections: intro, text kinds, animation, video chain + still chain, loopCount MP4 + holdSeconds WebM, ranges, floor, branches; lines kept short where reading time must not mask loopCount/holdSeconds; deterministic; 82 validator tests, 2026-11-01)
+- [x] Scenario suite replaces `player/scripts/verify.mjs`: a shared
       harness plus independent scenario scripts, each on a fresh
       profile (no state inherited between scenarios), one runner
       (`npm run verify`). Every old driver step 1-47 maps to a scenario
       (mapping table in docs/verify-player.md); the old driver is
       deleted; AGENTS.md test-speed rules updated.
+      (6 scenarios / 127 checks green: reading, media, navigation, screens, branches, playall; old steps mapped in docs/verify-player.md. Found and fixed on the way: bookmark click after a wheel-back landed on the reading position; play-all + skip-all burst stopped at each interstitial. 2026-11-01)
 - [ ] Key help simplified (user, 2026-11-01): the Esc screen highlights
       the main interaction keys only, one way per action. Enter is
       removed as an alternate key everywhere (never requested): `0`
@@ -585,5 +587,16 @@ truthful: an unchecked box means nothing was accepted.
       scenario, 2026-11-01: four `+` clicks then a reload within ~100 ms
       came back at 1.00x in 4 of 6 runs; fire-and-forget settings write).
       Same durability as `b`'s commit-then-confirm.
+- [ ] Route context recomputed on every navigation (user-approved
+      proposal, 2026-11-01): wheel, `e`, bookmark and resume landings
+      derive the open route frames from the cursor's position in the
+      route spans, so a forward press after any jump follows the route
+      the item belongs to. Machine tests across nested spans.
+- [ ] End card (user-approved proposal): an ending shows how many routes
+      are still unseen and the one-key way to the next one, replacing
+      the one-line hint.
+- [ ] Fast smoke subset of the scenario suite (user-approved proposal):
+      `npm run verify -- --smoke` runs one quick check per scenario
+      (~20 s); AGENTS.md per-item rule points at it.
 - [ ] Phase-closer: full suite (driver, vitest, pytest, package-proof),
       rebuild BOTH demo folders, present the updated demo to the user.
