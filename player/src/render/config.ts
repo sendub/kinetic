@@ -1,10 +1,11 @@
 // The `c` config screen (docs/plan.md Phase 9, README `c` bullet): a
 // minimal panel holding the player's settings — the configurable reading
-// speed (its stepper maps to `readingSpeed`, 0.25-3.0 in 0.25 steps, and
-// the readout shows the multiplier and the per-character allowance it
-// gives), the `tab` bullet's "skip all" config option (the `skipAll`
-// boolean), and Phase 13's `playAllRoutes` zero-interactivity route
-// playback. No other UI.
+// speed (docs/plan.md Phase 16: a minus button, a draggable slider, a plus
+// button and the current speed in smaller text at the row's right; the
+// slider's own range is the stepper's 0.25-3.0 in 0.25 steps, and the
+// readout shows the multiplier and the per-character allowance it gives),
+// the `tab` bullet's "skip all" config option (the `skipAll` boolean), and
+// Phase 13's `playAllRoutes` zero-interactivity route playback. No other UI.
 //
 // Every control click produces the full next settings through `onChange`,
 // so the shell applies it live (machine.setSettings) and persists it from
@@ -12,11 +13,12 @@
 // pure rules are exported and tested below, and the DOM half only applies
 // them. While the panel is open the timeline is suspended (keys.ts
 // suspendTimeline); `c` or Escape closes it, as does a click outside the
-// two controls (backdrop).
+// controls (backdrop) — the slider counts as a control, so grabbing it
+// never closes the panel.
 
 import type { MachineSettings } from "../machine/types";
 
-/** The reading-speed range the stepper walks, and its step. */
+/** The reading-speed range the stepper and the slider walk, and its step. */
 export const SPEED_MIN = 0.25;
 export const SPEED_MAX = 3.0;
 export const SPEED_STEP = 0.25;
@@ -33,9 +35,10 @@ export function stepSpeed(current: number, delta: number): number {
 }
 
 /**
- * The readout beside the stepper: the multiplier and the approximate
- * milliseconds per code point it gives (base `msPerChar` / speed) — the
- * hold rule of docs/content-format.md, "Timing", in one line.
+ * The readout at the row's right (smaller than the row's label): the
+ * multiplier and the approximate milliseconds per code point it gives (base
+ * `msPerChar` / speed) — the hold rule of docs/content-format.md, "Timing",
+ * in one line.
  */
 export function speedLabel(readingSpeed: number, msPerChar: number): string {
   const perChar = Math.round(msPerChar / readingSpeed);
@@ -99,6 +102,19 @@ export function mountConfigOverlay({
   speedDown.textContent = "−";
   speedDown.setAttribute("aria-label", "Decrease reading speed");
   speedDown.setAttribute("data-config-action", "speed-down");
+  // The slider between the two buttons (docs/plan.md Phase 16): a native
+  // range input, so the arrow keys and a drag both fire `input` and need no
+  // extra code here. Its range is the stepper's, so both controls and the
+  // persisted value share one grid. `data-config-action` marks it a control:
+  // a click on the track must not read as backdrop.
+  const speedSlider = doc.createElement("input");
+  speedSlider.type = "range";
+  speedSlider.className = "config-slider";
+  speedSlider.min = String(SPEED_MIN);
+  speedSlider.max = String(SPEED_MAX);
+  speedSlider.step = String(SPEED_STEP);
+  speedSlider.setAttribute("aria-label", "Reading speed");
+  speedSlider.setAttribute("data-config-action", "speed-slider");
   const speedValue = doc.createElement("span");
   speedValue.className = "config-value config-speed-value";
   const speedUp = doc.createElement("button");
@@ -107,7 +123,7 @@ export function mountConfigOverlay({
   speedUp.textContent = "+";
   speedUp.setAttribute("aria-label", "Increase reading speed");
   speedUp.setAttribute("data-config-action", "speed-up");
-  speedRow.append(speedLabelEl, speedDown, speedValue, speedUp);
+  speedRow.append(speedLabelEl, speedDown, speedSlider, speedUp, speedValue);
 
   const skipRow = doc.createElement("div");
   skipRow.className = "config-row";
@@ -144,6 +160,7 @@ export function mountConfigOverlay({
 
   function paint(next: MachineSettings): void {
     current = next;
+    speedSlider.value = String(next.readingSpeed);
     speedValue.textContent = speedLabel(next.readingSpeed, next.msPerChar);
     skipToggle.textContent = skipAllLabel(next.skipAll);
     skipToggle.setAttribute("aria-pressed", String(next.skipAll));
@@ -176,6 +193,16 @@ export function mountConfigOverlay({
     } else if (action === "play-all") {
       move({ ...current, playAllRoutes: !current.playAllRoutes });
     }
+  });
+
+  // A drag or an arrow key: the slider's own `input` event carries the new
+  // value, and `stepSpeed(_, 0)` snaps it onto the grid and clamps it to the
+  // range — the same rule a stepper press goes through, so a mid-drag value
+  // cannot leave the legal steps.
+  speedSlider.addEventListener("input", () => {
+    const raw = Number.parseFloat(speedSlider.value);
+    if (Number.isNaN(raw)) return; // a cleared input is no value at all
+    move({ ...current, readingSpeed: stepSpeed(raw, 0) });
   });
 
   function close(): void {

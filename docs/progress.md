@@ -358,8 +358,12 @@ truthful: an unchecked box means nothing was accepted.
       had no speaker; new overlay test pins it; measured centering +
       computed colors; 306 tests, driver unchanged 43+1 known,
       2025-11-02)
-- [ ] Reading-speed config: minus button + draggable slider + plus
+- [x] Reading-speed config: minus button + draggable slider + plus
       button, current speed as smaller text to the right.
+      (measured: minus < slider < plus x-order, readout 10px vs 13px
+      labels; native range 0.25-3.0 step 0.25 matching the repo's
+      multiplier model; live setSettings proof: 5523 ms hold at 1x vs
+      3004 ms at 3x; survives reload; +6 tests, 312 green, 2025-11-02)
 - [ ] Single-action navigation: reproduce what needs more than one
       action, then one space = one step and one wheel tick = one step
       both directions, manual and as space-in-auto; auto's own
