@@ -265,6 +265,15 @@ export interface MachineContext {
   visited: readonly number[];
   stack: readonly ContextFrame[];
   playedRoutes: readonly { decision: number; routes: readonly number[] }[];
+  /**
+   * The ending seen most recently (docs/plan.md Phase 16, "Machine bugs"):
+   * an item index the cursor was shown on that IS an ending — the last
+   * item of the array, or the final item of a route whose `result` is
+   * `ending`. `e` shows it when everything has been seen. Absent means no
+   * known ending (every save written before Phase 16): `e` then falls back
+   * to the array end, and only when everything has been seen.
+   */
+  lastEnding?: number;
 }
 
 /**

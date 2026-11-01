@@ -407,12 +407,16 @@ truthful: an unchecked box means nothing was accepted.
       missed routes; render/routes.ts announces entries + back-jumps,
       manual picks flash too; scenario shows the full refuse->back->
       hire->inner sequence with all six pills; 339 tests, 2025-11-02)
-- [ ] `e` at the end of content must land on the first unseen item
+- [x] `e` at the end of content must land on the first unseen item
       including route content (repro: after reaching the final
       ending, `e` did nothing though routes were unseen). Plus the
       new rule: when ALL content is seen, `e` shows the ending - the
       most recently seen ending when branches gave several (track
-      last-ending-touched in the resume ctx).
+      last-ending-touched in the resume ctx). (fresh-save repro
+      jumps fine - user's save had seen everything, old rule no-oped;
+      unseen-wins pinned anyway; endings = array end + ending-route
+      finals, lastEnding in ctx w/ clean legacy migration; repeat e
+      stays put; scenario 10/10; 344 tests, 2025-11-02)
 - [ ] Auto-forward stall at `part-012` after viewing to the end and
       wheeling back to start under auto: navigated re-entry into a
       range video must replay and gate honestly.

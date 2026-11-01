@@ -1244,6 +1244,108 @@ describe("jumpToUnseen targets (the three cases, docs/plan.md Phase 13)", () => 
   });
 });
 
+describe('`e` with everything seen: the most recently seen ending (docs/plan.md Phase 16, "Machine bugs")', () => {
+  // CANON's ending items are `b-2` (index 6, the only route whose `result`
+  // is `ending`) and `after-2` (index 10, the array end). Route A is a
+  // `return` route and route C is the continuing route: neither of their
+  // span ends (4, 8) is an ending, so viewing them leaves the remembered
+  // ending untouched.
+  const ALL_SEEN = {
+    lastShown: 0,
+    visited: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+    stack: [],
+    playedRoutes: [{ decision: 0, routes: [0, 1, 2] }],
+  } satisfies MachineContext;
+
+  it("user-flow regression: unseen content still wins — a hire-only run at the end `e`-jumps to the first unseen item, never to the ending", () => {
+    // The demo shape: take ONLY the continuing route at the decision
+    // (play-all OFF), reach the final item, press `e`. Unseen routes are
+    // still open (refuse/early on the demo; A and B here), so `e` lands on
+    // the first unseen item in array order — the ending it just showed
+    // must not preempt that.
+    const m = machine(CANON);
+    step(m);
+    step(m);
+    m.advance();
+    m.choose(2); // the continuing route at 7
+    step(m); // 7 -> 8
+    step(m); // the route end proceeds to after-1 (9)
+    step(m); // 9 -> 10, the content end
+    expect(m.getState().cursor).toBe(10);
+    m.jumpToUnseen();
+    expect(m.getState().cursor).toBe(3); // the first unseen, not the ending
+    expect(m.getState().choice).toBeUndefined(); // entering is navigation
+    expect(m.exportContext().lastEnding).toBe(10); // the ending was seen last
+    m.destroy();
+  });
+
+  it("all seen: `e` shows the most recently seen ending; a repeat press stays put", () => {
+    const m = machine(CANON, {
+      settings: { ...SETTINGS, playAllRoutes: true },
+    });
+    for (let press = 0; press < 40; press += 1) m.advance();
+    expect(m.visitedList().length).toBe(11); // everything has been seen
+    // View the ending route's final beat last. Route A's end (4) is a
+    // `return` route's item: viewing it must not register an ending.
+    m.goTo(6);
+    m.goTo(4);
+    m.goTo(6);
+    m.wheelBack(); // 5; nothing unseen is left anywhere
+    m.jumpToUnseen();
+    expect(m.getState().cursor).toBe(6); // the most recently seen ending
+    m.jumpToUnseen(); // repeat: stay put, no cycle
+    expect(m.getState().cursor).toBe(6);
+    // Then view the main ending last — it wins from then on.
+    m.goTo(10);
+    m.wheelBack();
+    m.jumpToUnseen();
+    expect(m.getState().cursor).toBe(10);
+    m.destroy();
+  });
+
+  it("the ending is re-shown like any `e` landing: fresh entry, hold armed", () => {
+    const m = machine(CANON, { resumeContext: ALL_SEEN });
+    expect(m.getState().cursor).toBe(0);
+    m.jumpToUnseen(); // no ending known in this ctx: the array end
+    expect(m.getState().cursor).toBe(10);
+    expect(m.getState().settled).toBe(false); // a fresh entry, like every jump
+    expect(m.exportContext().lastEnding).toBe(10); // landing registers it
+    m.destroy();
+  });
+
+  it("ctx round-trips lastEnding through export and resume", () => {
+    const m = machine(CANON, {
+      resumeContext: { ...ALL_SEEN, lastEnding: 6 },
+    });
+    expect(m.exportContext().lastEnding).toBe(6);
+    m.jumpToUnseen(); // all seen: straight to the remembered ending
+    expect(m.getState().cursor).toBe(6);
+    const ctx = m.exportContext();
+    expect(ctx.lastEnding).toBe(6);
+    const resumed = machine(CANON, { resumeContext: ctx });
+    expect(resumed.getState().cursor).toBe(6);
+    expect(resumed.exportContext().lastEnding).toBe(6);
+    m.destroy();
+    resumed.destroy();
+  });
+
+  it("a legacy ctx without the field restores, and `e` falls back to the array end only when all seen", () => {
+    const m = machine(CANON, { resumeContext: ALL_SEEN });
+    expect(m.exportContext().lastEnding).toBeUndefined(); // no known ending
+    m.jumpToUnseen(); // all seen: the array end
+    expect(m.getState().cursor).toBe(10);
+    // With content still unseen the unseen rules win untouched: the same
+    // legacy context one item short of complete still jumps to the hole.
+    const partial = machine(CANON, {
+      resumeContext: { ...ALL_SEEN, visited: [0, 1, 2, 3, 4, 5, 7, 8, 9, 10] },
+    });
+    partial.jumpToUnseen();
+    expect(partial.getState().cursor).toBe(6); // the first unseen, as before
+    m.destroy();
+    partial.destroy();
+  });
+});
+
 describe("route-play context for storage", () => {
   it("exportContext reports lastShown, visited, the stack and played routes", () => {
     const m = machine(CANON);

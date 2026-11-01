@@ -126,8 +126,9 @@ export interface Machine {
   visitedList(): number[];
   /**
    * Route-play context for persistence: `lastShown`, `visitedList()`, the
-   * open decision stack and the routes played per decision, all JSON-safe.
-   * `importContext()` (or `MachineOptions.resumeContext`) restores it.
+   * open decision stack, the routes played per decision, and `lastEnding`
+   * when one is known — all JSON-safe. `importContext()` (or
+   * `MachineOptions.resumeContext`) restores it.
    */
   exportContext(): MachineContext;
   /**
@@ -190,11 +191,18 @@ export interface Machine {
    * decision on the stack (innermost first) or of the decision that fires
    * next along it, else (c) the first unseen item of the manifest in array
    * order. The landing is a fresh entry: the item is shown and marked seen,
-   * its own hold is armed, and skip mode ends. No-op when nothing is unseen
-   * or the cursor is already on the target; a further press steps on to the
-   * next unseen item. Like the wheel and `goTo()`: a jump onto an unresolved
-   * decision's `after` item opens its arrival view, and a jump away from one
-   * closes it, stack unchanged.
+   * its own hold is armed, and skip mode ends. No-op when the cursor is
+   * already on the target; a further press steps on to the next unseen
+   * item. Like the wheel and `goTo()`: a jump onto an unresolved decision's
+   * `after` item opens its arrival view, and a jump away from one closes
+   * it, stack unchanged.
+   *
+   * When NOTHING is unseen the press instead shows the ENDING (docs/plan.md
+   * Phase 16, "Machine bugs"): the most recently seen ending item — the
+   * array end, or the final item of a route whose `result` is `ending` (see
+   * `endings` below) — or the array end when the save knows no ending yet.
+   * A press on that item with everything seen stays put; the press never
+   * cycles through endings.
    */
   jumpToUnseen(): void;
   /**
@@ -556,6 +564,35 @@ export function createMachine(options: MachineOptions): Machine {
     else list.push(decision.index);
   }
 
+  /**
+   * The ENDING items for the `e`-at-the-end rule (docs/plan.md Phase 16,
+   * "Machine bugs"): the last item of the array — the plain end of the
+   * story, and the ending every continuing route reaches after its
+   * `continueAt` — plus the final item of every route whose `result` is
+   * `ending`. A `return` route's end re-offers the decision and a
+   * continuing route's end rejoins the story, so neither IS an ending;
+   * a pure-choice decision's routes default to `result: "ending"` and
+   * their spans are covered by that same rule. The demo's set is exactly
+   * `main-024` (array end) and `refuse-020` (the one ending route's final
+   * beat) — `early-022` (return) and the continuing spans' ends are not.
+   */
+  const endings = new Set<number>();
+  if (count > 0) endings.add(count - 1);
+  for (const decision of decisions) {
+    for (const route of decision.routes) {
+      if (!route.continuing && route.result === "ending")
+        endings.add(route.endIndex);
+    }
+  }
+  /**
+   * The ending seen most recently, -1 when none is known yet. Marked by
+   * the same rule as the seen set — an ending counts the moment the cursor
+   * is placed on it, by whatever route — and persisted as `lastEnding` in
+   * the context (absent there means no known ending, which pre-16 saves
+   * and the frontier resume carry).
+   */
+  let lastEnding = -1;
+
   const listeners = new Set<Listener>();
   let cursor = 0;
   /** Every item index shown so far, in any route (the seen set). */
@@ -766,6 +803,7 @@ export function createMachine(options: MachineOptions): Machine {
     visited.add(index);
     if (index > highestSeen) highestSeen = index;
     lastShown = index;
+    if (endings.has(index)) lastEnding = index;
   }
 
   /**
@@ -1271,8 +1309,8 @@ export function createMachine(options: MachineOptions): Machine {
   }
 
   /**
-   * Restores a stored context: seen set, played routes, open stack, and the
-   * cursor at `lastShown`. Indices outside this manifest are dropped — a save
+   * Restores a stored context: seen set, played routes, open stack, the
+   * remembered ending (absent = none known), and the cursor at `lastShown`. Indices outside this manifest are dropped — a save
    * made against different content must degrade to playing, not to a cursor
    * off the end. The seen edge comes back with the seen set: `highestSeen`
    * is the restored maximum, not the landing item — otherwise a resumed
@@ -1312,6 +1350,12 @@ export function createMachine(options: MachineOptions): Machine {
       stack.push({ decision: decisionIndex, route: routeIdx });
     }
     pendingChoice = null;
+    // The remembered ending comes back with the context; a stored index
+    // that is not an ending of THIS manifest (a save against different
+    // content) is dropped rather than guessed. A legacy context carries
+    // no field at all, which reads as "no known ending".
+    const storedEnding = asIndex(context.lastEnding, -1);
+    lastEnding = endings.has(storedEnding) ? storedEnding : -1;
     cursor = clamp(asIndex(context.lastShown, 0), 0, count - 1);
     markShown(cursor); // the landing item is shown, so it counts as seen
   }
@@ -1347,6 +1391,10 @@ export function createMachine(options: MachineOptions): Machine {
           ),
         ),
         playedRoutes: Object.freeze(playedRoutes),
+        // Absent when no ending has been seen — the pre-16 shape, so an
+        // older reader and a legacy save round-trip unchanged (the
+        // `e`-ending migration rule in docs/plan.md Phase 16).
+        ...(lastEnding >= 0 ? { lastEnding } : {}),
       });
     },
 
@@ -1457,7 +1505,14 @@ export function createMachine(options: MachineOptions): Machine {
       if (destroyed || count === 0) return;
       const closedArrival = dismissArrivalChoice();
       if (pendingChoice !== null) return; // a fired choice owns the timeline
-      const target = unseenTarget();
+      let target = unseenTarget();
+      if (target < 0) {
+        // Everything has been seen: `e` shows the ENDING — the most
+        // recently seen ending item, or the array end when the save
+        // knows none yet (docs/plan.md Phase 16). A repeat press finds
+        // the cursor already there and stays put: no cycle.
+        target = lastEnding >= 0 ? lastEnding : count - 1;
+      }
       if (target < 0 || target === cursor) {
         if (closedArrival) emit(); // nothing to jump to: the view just closed
         return;
