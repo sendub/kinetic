@@ -425,7 +425,11 @@ truthful: an unchecked box means nothing was accepted.
       alone (equals the replay), at edge unchanged replay+reports;
       user flow walks to end, max gap 4.1 s = a legitimately long
       text hold; 348 tests, 2025-11-02)
-- [ ] `playAllRoutes` persists across reload like the other settings.
+- [x] `playAllRoutes` persists across reload like the other settings.
+      (root cause: idb sanitizeSettings whitelist omitted the field -
+      stored but dropped on read; sanitizer now derives fields+types
+      from DEFAULT_SETTINGS so no setting can be missed again;
+      scenario: reload ON/OFF both correct; 351 tests, 2025-11-02)
 
 ## Later, waiting on the user
 

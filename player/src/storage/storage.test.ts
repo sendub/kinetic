@@ -9,7 +9,7 @@ import { describe, expect, it } from "vitest";
 import { createMachine } from "../machine/machine";
 import type { Item, MachineContext } from "../machine/types";
 import { DEFAULT_SETTINGS } from "../machine/types";
-import { contentSignature } from "./idb";
+import { contentSignature, sanitizeSettings } from "./idb";
 import { createMemoryStorage } from "./memory";
 import { createNoopStorage } from "./noop";
 import {
@@ -92,11 +92,11 @@ for (const [name, makeStorage] of ADAPTERS) {
       const storage = makeStorage();
       await storage.saveState({
         frontier: 4,
-        settings: { readingSpeed: 2, skipAll: true },
+        settings: { readingSpeed: 2, skipAll: true, playAllRoutes: true },
       });
       expect(await storage.loadState()).toEqual({
         frontier: 4,
-        settings: { readingSpeed: 2, skipAll: true },
+        settings: { readingSpeed: 2, skipAll: true, playAllRoutes: true },
       });
       // The state is a singleton record, settings included: a later save
       // without them overwrites them too — what persists is the last save.
@@ -353,5 +353,47 @@ describe("contentSignature — novels never share state", () => {
       contentSignature("http://127.0.0.1:5173/dusk/index.html"),
     );
     expect(contentSignature("not a uri")).toBe("not a uri");
+  });
+});
+
+describe("sanitizeSettings — the settings the shipped adapter reads back", () => {
+  // The browser-free adapters pass settings through, so this is the only
+  // test of the IndexedDB read. Its bug: the accepted-field list was
+  // hand-written and missed `playAllRoutes`, so a stored play-all choice
+  // read back absent and the toggle reset to off on every reload.
+  it("keeps playAllRoutes like every other settings field", () => {
+    expect(
+      sanitizeSettings({
+        readingSpeed: 2,
+        skipAll: true,
+        playAllRoutes: true,
+      }),
+    ).toEqual({ readingSpeed: 2, skipAll: true, playAllRoutes: true });
+    // A stored false is a real value, not an absent field.
+    expect(sanitizeSettings({ playAllRoutes: false })).toEqual({
+      playAllRoutes: false,
+    });
+  });
+
+  it("degrades foreign values and unknown fields, like the defaults do", () => {
+    // Same rule as every other field: a wrong type drops, a field the
+    // machine does not know never rides along, nothing trustworthy is
+    // undefined (the merge then falls back to the defaults).
+    expect(
+      sanitizeSettings({ playAllRoutes: "yes", readingSpeed: "2" }),
+    ).toBeUndefined();
+    expect(
+      sanitizeSettings({ playAllRoutes: true, futureSwitch: true }),
+    ).toEqual({ playAllRoutes: true });
+  });
+
+  it("accepts exactly the DEFAULT_SETTINGS fields — nothing is missed", () => {
+    const all = Object.fromEntries(
+      Object.entries(DEFAULT_SETTINGS).map(([field, value]) => [
+        field,
+        typeof value === "number" ? value + 1 : !value,
+      ]),
+    );
+    expect(sanitizeSettings(all)).toEqual(all);
   });
 });

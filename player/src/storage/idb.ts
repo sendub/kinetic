@@ -30,6 +30,7 @@ import type {
   MachineContext,
   MachineSettings,
 } from "../machine/types";
+import { DEFAULT_SETTINGS } from "../machine/types";
 import type { Bookmark, PersistedState, Storage } from "./types";
 
 export const DB_NAME = "kinetic";
@@ -127,29 +128,31 @@ function toBookmark(record: BookmarkRecord): Bookmark {
   };
 }
 
-/** The settings a stored record may carry, and the type each field must have. */
-const SETTINGS_FIELDS: ReadonlyArray<
-  readonly [keyof MachineSettings, "number" | "boolean"]
-> = [
-  ["readingSpeed", "number"],
-  ["minHoldMs", "number"],
-  ["msPerChar", "number"],
-  ["skipDwellMs", "number"],
-  ["skipAll", "boolean"],
-];
-
 /**
  * Read a stored `settings` defensively, field by field: a foreign,
  * half-written, or future-version value yields the well-typed subset it
  * happens to hold (undefined when nothing is trustworthy), and every
- * absent field falls back to its default at merge time. Never throws.
+ * absent field falls back to its default at merge time. The accepted
+ * fields are exactly `DEFAULT_SETTINGS`' own, each with the type its
+ * default has — the same rule `mergeSettings` applies at load — so a new
+ * settings field is restored without touching this list (a hand-written
+ * whitelist once missed `playAllRoutes`, and a stored play-all choice
+ * read back absent: off after every reload). Never throws. Exported for
+ * `storage.test.ts`: the browser-free adapters pass settings through
+ * untouched, so this function is the whole contract for the shipped
+ * adapter.
  */
-function sanitizeSettings(raw: unknown): Partial<MachineSettings> | undefined {
+export function sanitizeSettings(
+  raw: unknown,
+): Partial<MachineSettings> | undefined {
   if (typeof raw !== "object" || raw === null) return undefined;
   const source = raw as Record<string, unknown>;
   const settings: Record<string, number | boolean> = {};
-  for (const [field, kind] of SETTINGS_FIELDS) {
+  for (const field of Object.keys(
+    DEFAULT_SETTINGS,
+  ) as (keyof MachineSettings)[]) {
     const value = source[field];
+    const kind = typeof DEFAULT_SETTINGS[field];
     if (
       kind === "number" &&
       typeof value === "number" &&
