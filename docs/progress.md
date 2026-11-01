@@ -608,5 +608,12 @@ truthful: an unchecked box means nothing was accepted.
 - [ ] Fast smoke subset of the scenario suite (user-approved proposal):
       `npm run verify -- --smoke` runs one quick check per scenario
       (~20 s); AGENTS.md per-item rule points at it.
+- [ ] Faster Tab skip (user, 2026-11-01: "too slow... something more
+      like Ren'Py"): Ren'Py's `config.skip_delay` defaults to 5 ms per
+      statement, so its skip runs at display frame rate (~30-60 lines/s);
+      ours dwells 120 ms (~8/s). Default `skipDwellMs` ~25 ms (~40/s),
+      still showing each item's first frame; check media decode keeps up
+      (docs/perf.md budget) and update the skip timing bounds in tests
+      and the navigation/media scenarios.
 - [ ] Phase-closer: full suite (driver, vitest, pytest, package-proof),
       rebuild BOTH demo folders, present the updated demo to the user.
