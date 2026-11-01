@@ -193,6 +193,49 @@ export function animationFrameAt(
   return step % frameCount;
 }
 
+/**
+ * The files to warm so the next `ahead` MEDIA items paint instantly
+ * (docs/plan.md Phase 12, docs/perf.md). Array order only: v1 follows the
+ * manifest order ahead of `cursor` and does not walk route spans — an
+ * upcoming decision's routes are not trivially derivable without the
+ * reader's answer, and a wrong guess costs one wasted warm, never a miss
+ * (the real render path still loads whatever it shows). A `text` item
+ * contributes nothing: it keeps an earlier item's visual, which is either
+ * already on screen or already among the media picked below. An animation
+ * contributes all its frames (the entry cycles through them), a video
+ * contributes ONLY its poster — the first paint of a video item is the
+ * poster through the same img decode path (docs/verify-player.md step 9);
+ * the file itself is the element's `preload=auto` business, never a gate.
+ */
+export function upcomingVisualFiles(
+  items: readonly Item[],
+  cursor: number,
+  ahead: number,
+): string[] {
+  const files: string[] = [];
+  let media = 0;
+  for (let i = cursor + 1; i < items.length && media < ahead; i += 1) {
+    const item = items[i];
+    switch (item.type) {
+      case "image":
+        media += 1;
+        files.push(item.file);
+        break;
+      case "animation":
+        media += 1;
+        files.push(...item.frames);
+        break;
+      case "video":
+        media += 1;
+        files.push(item.poster);
+        break;
+      case "text":
+        break; // no new visual of its own
+    }
+  }
+  return files;
+}
+
 export interface VisualLayer {
   /**
    * Draw the item under `machine.visualIndex()` with the playback mode that
@@ -200,6 +243,13 @@ export interface VisualLayer {
    * the frontier) holds them too (docs/content-format.md, "Timing").
    */
   update(item: Item | undefined, state: MachineState): void;
+  /**
+   * Warm the decode path for the next media items (see
+   * `upcomingVisualFiles`): fetch + decode behind a hidden `Image` per
+   * file, kept in an LRU so the browser's decoded bitmap stays alive until
+   * the item is entered. Idempotent and cheap; call it on idle moments.
+   */
+  preloadUpcoming(cursor: number): void;
   /**
    * The `<img>` or `<video>` currently painted, for thumbnail capture
    * (render/capture.ts). Null while a notice is on screen — nothing is
@@ -275,7 +325,50 @@ export function createVisualLayer(
 
   let animation: AnimationRun | null = null;
   let animationTimer: ReturnType<typeof setTimeout> | null = null;
-  const preloaded = new Set<string>();
+
+  // --- decode preload (docs/plan.md Phase 12, docs/perf.md) ---------------
+  //
+  // MEASURED (docs/perf.md, headless Chrome 156, file://): a cold
+  // navigation — keypress to the first rAF frame whose image is decoded —
+  // ran 2-4 frames WITHOUT preload (demo p50 27.9 / p95 36.7; extract-demo
+  // p50 13.9 / p95 32.2) because the fetch + decode land on the navigation
+  // itself, while a file this run already painted navigates in ~0-1
+  // frames. The capability probe says `img.decode()` and
+  // `createImageBitmap(img)` both work on file:// images in this Chrome,
+  // but the presenter is an `<img>` element: an ImageBitmap only pays off
+  // by replacing it with a canvas draw (a full presenter refactor the
+  // budget does not need). A hidden `Image` per file goes through the SAME
+  // resource + decode path the `<img>` will use on entry, so holding it
+  // alive is the smallest variant that removes the cold cost — CHOSEN.
+  // WITH this preload both folders navigate inside one frame (demo p95
+  // 16-16.8 ms, extract p95 10.2-18.6 ms across runs): under the 41 ms
+  // budget, and the canvas/ImageBitmap refactor stays unmade.
+  //
+  // `PRELOAD_AHEAD` media items (docs/stack.md "cursor +/- a few items";
+  // v1 looks forward in array order only — see `upcomingVisualFiles`),
+  // capped at `PRELOAD_CAP` live files; eviction drops the reference and
+  // the browser reclaims (an ImageBitmap map would `close()` here instead).
+  const PRELOAD_AHEAD = 3;
+  const PRELOAD_CAP = 8;
+  const warm = new Map<string, HTMLImageElement>();
+
+  /** Fetch+decode `file` (or touch it if already warm) and mark it newest. */
+  function warmFile(file: string): void {
+    const held = warm.get(file);
+    if (held !== undefined) {
+      warm.delete(file); // Map iteration order is insertion order: a
+      warm.set(file, held); // delete+set re-places the file at the newest end.
+      return;
+    }
+    const img = doc.createElement("img"); // off-DOM: fetches + decodes, paints nowhere
+    img.src = file;
+    warm.set(file, img);
+    while (warm.size > PRELOAD_CAP) {
+      const oldest = warm.keys().next().value;
+      if (oldest === undefined) break;
+      warm.delete(oldest); // drop the ref; GC frees the decoded bitmap
+    }
+  }
 
   function dropImage(): void {
     image?.remove();
@@ -332,6 +425,7 @@ export function createVisualLayer(
     hideVideo();
     dropNotice();
     const img = ensureImage();
+    warmFile(file); // hold the on-screen file's decode, LRU-fresh
     if (drawnFile === file) return;
     img.src = file;
     drawnFile = file;
@@ -353,6 +447,7 @@ export function createVisualLayer(
       img.src = file;
       drawnFile = file;
     }
+    warmFile(file); // the cycling frames stay at the LRU's fresh end
   }
 
   /**
@@ -390,14 +485,9 @@ export function createVisualLayer(
     stopAnimation();
     setFrame(item.frames[0]); // first paint is frame 0 either way
     if (mode === "still") return; // rewind/skip: frames[0], never play
-    // Warm the decode cache so looped swaps never wait on the file.
-    for (const frame of item.frames) {
-      if (!preloaded.has(frame)) {
-        preloaded.add(frame);
-        const warm = new Image();
-        warm.src = frame;
-      }
-    }
+    // Warm the decode cache so looped swaps never wait on the file (the
+    // same LRU the Phase 12 preload uses).
+    for (const frame of item.frames) warmFile(frame);
     animation = {
       id: item.id,
       mode,
@@ -641,6 +731,7 @@ export function createVisualLayer(
       // share one file at different ranges, so it is repainted per entry.
       drawnVideoItem = item.id;
       element.poster = item.poster;
+      warmFile(item.poster); // first paint is the poster: same img decode path
       // Poster as a CSS background: painted instantly while the file loads
       // or while autoplay is pending, so the first frame is never a blank.
       element.style.backgroundImage = `url("${item.poster}")`;
@@ -695,6 +786,19 @@ export function createVisualLayer(
           // rather than a blank screen.
           showNotice("placeholder", `${item.id} — text item with no visual`);
           return;
+      }
+    },
+
+    preloadUpcoming(cursor) {
+      // Warm what the reader is most likely to enter next, in array order
+      // (see `upcomingVisualFiles`). Repeat calls on the same cursor are
+      // LRU touches, not refetches, so the caller can fire on every idle.
+      for (const file of upcomingVisualFiles(
+        manifest.items,
+        cursor,
+        PRELOAD_AHEAD,
+      )) {
+        warmFile(file);
       }
     },
 

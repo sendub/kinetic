@@ -267,9 +267,14 @@ truthful: an unchecked box means nothing was accepted.
 
 ## Phase 12: Performance, packaging, docs
 
-- [ ] ImageBitmap preload with LRU cache in the renderer
-- [ ] Perf harness output recorded here; p95 navigation < 41 ms (or a
-      documented revisit-trigger note)
+- [x] ImageBitmap preload with LRU cache in the renderer (data chose
+      the variant: hidden-Image() LRU(8) of next 3 visuals -
+      ImageBitmap would need a canvas presenter the numbers didn't
+      justify; docs/perf.md, 288 tests, 2025-11-01)
+- [x] Perf harness output recorded here; p95 navigation < 41 ms (npm
+      run perf, headless Chrome file://: demo p95 36.7 -> 16.8 ms;
+      extracted-with-JXL folder 32.2 -> 18.6 ms; target met, no
+      revisit trigger, 2025-11-01)
 - [ ] Self-contained novel folder plays by double-clicking `index.html`
       over `file://`
 - [ ] docs/packaging.md written; Tauri path noted, not built

@@ -73,6 +73,33 @@ export function mountShell({ root, manifest, machine }: ShellOptions): Shell {
     captions.update(manifest.items[state.cursor]);
     choiceOpen = state.choice !== undefined;
     applyCaptions();
+    schedulePreload(state);
+  }
+
+  // Decode preload (docs/plan.md Phase 12, docs/perf.md): warm the next
+  // media files when the machine is idle — the item settled (it waits on
+  // the reader) or skip is dwelling — so a file's fetch + decode never
+  // lands on the navigation frame. One idle task at a time, reading the
+  // cursor WHEN IT RUNS: a fast run of state changes stays one preload, and
+  // requestIdleCallback keeps it off busy frames (a ~0 ms timer where the
+  // host has no idle API).
+  let preloadQueued = false;
+  const requestIdle: (fn: () => void) => void =
+    typeof globalThis.requestIdleCallback === "function"
+      ? (fn) => {
+          globalThis.requestIdleCallback(fn, { timeout: 200 });
+        }
+      : (fn) => {
+          globalThis.setTimeout(fn, 0);
+        };
+
+  function schedulePreload(state: MachineState): void {
+    if (!(state.settled || state.skipping) || preloadQueued) return;
+    preloadQueued = true;
+    requestIdle(() => {
+      preloadQueued = false;
+      visuals.preloadUpcoming(machine.getState().cursor);
+    });
   }
 
   function setTextVisible(visible: boolean): void {

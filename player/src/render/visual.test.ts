@@ -5,6 +5,7 @@ import {
   animationFrameAt,
   emptyStateNoticeText,
   playbackModeFor,
+  upcomingVisualFiles,
   videoPlanFor,
 } from "./visual";
 
@@ -342,5 +343,55 @@ describe("empty-state notice (docs/extracting.md BUG 1)", () => {
 
   it("distinguishes a folder with items but no drawable visual", () => {
     expect(emptyStateNoticeText(4)).toBe("No content to show.");
+  });
+});
+
+describe("upcomingVisualFiles (Phase 12 decode preload)", () => {
+  const img = (file: string): Item => item({ id: file, type: "image", file });
+  const line = (id: string): Item => item({ id, type: "text", text: "x" });
+
+  it("collects image files in array order ahead of the cursor", () => {
+    const items = [img("a.jpg"), line("l1"), img("b.jpg"), img("c.jpg")];
+    expect(upcomingVisualFiles(items, 0, 3)).toEqual(["b.jpg", "c.jpg"]);
+  });
+
+  it("skips text items: they keep an earlier visual, they add none", () => {
+    const items = [img("a.jpg"), line("l1"), line("l2"), img("b.jpg")];
+    expect(upcomingVisualFiles(items, 0, 1)).toEqual(["b.jpg"]);
+  });
+
+  it("counts media items, not files: an animation contributes all frames", () => {
+    const anim: Item = item({
+      type: "animation",
+      frames: ["s.f0.jpg", "s.f1.jpg", "s.f2.jpg"],
+      fps: 8,
+      loopCount: 2,
+    });
+    const items = [animation, anim, img("z.jpg")];
+    // ahead=1 reaches only `anim`: all three of its frames cycle through
+    // the <img> once entered, so every one must be warm — and the cap on
+    // `ahead` counts MEDIA items, so the following image is cut off.
+    expect(upcomingVisualFiles(items, 0, 1)).toEqual([
+      "s.f0.jpg",
+      "s.f1.jpg",
+      "s.f2.jpg",
+    ]);
+    expect(upcomingVisualFiles(items, 0, 2)).toEqual([
+      "s.f0.jpg",
+      "s.f1.jpg",
+      "s.f2.jpg",
+      "z.jpg",
+    ]);
+  });
+
+  it("contributes a video's poster only — first paint is the poster", () => {
+    const items = [video, img("b.jpg")];
+    expect(upcomingVisualFiles(items, -1, 1)).toEqual(["v.jpg"]);
+  });
+
+  it("stops at the array end and at `ahead` media items (v1: array order)", () => {
+    const items = [img("a.jpg"), img("b.jpg"), img("c.jpg"), img("d.jpg")];
+    expect(upcomingVisualFiles(items, 0, 2)).toEqual(["b.jpg", "c.jpg"]);
+    expect(upcomingVisualFiles(items, 3, 3)).toEqual([]);
   });
 });
