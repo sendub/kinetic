@@ -676,6 +676,53 @@ Machine bugs to reproduce and fix:
 - `playAllRoutes` resets to off after reload; it must persist like the
   other settings.
 
+Second round of demo feedback (2025-11-02, user):
+- Video re-watch does not replay: after passing one or more videos,
+  wheeling back BEFORE them, then advancing forward again with space
+  or auto, the videos no longer play (poster only). A forward
+  re-entry into a video at the seen edge must play it again, exactly
+  like first arrival. Root-cause against the Phase 16.9 gate change
+  (`mediaGateSatisfied`) and the renderer's video play trigger: the
+  likely culprit is that the play path is skipped when the cursor
+  re-enters a video already below/at the edge. Ensure the renderer
+  plays on any forward current-item set, independent of the gate.
+- New config option "Reset progress" that clears ALL saved state for
+  the content (resume position, seen/visited, played routes,
+  bookmarks, settings) to restore the "first ever play" experience,
+  including the first-load key-help overlay. Selecting it opens a
+  confirmation box ("Are you sure? reset / cancel"); nothing is
+  cleared until confirmed; cancel leaves state untouched. After
+  confirming, the app behaves as a fresh profile at item 1 with help
+  shown.
+
+## Phase 17: Converter media organisation into subfolders
+(2025-11-02, user)
+
+Real games have hundreds/thousands of media files; putting them all
+in one output folder is unwieldy and can choke macOS Finder. The
+converter should spread extracted media across subfolders so no single
+directory holds too many files.
+
+- Bucketing by a deterministic prefix of the file name - a short hash
+  prefix (or the leading chars of the file's basename) chosen so the
+  same input always maps to the same subfolder. Keep it shallow
+  (e.g. `media/ab/…` with a 2-char prefix = 256 buckets); the plan is
+  a single flat sharding level, not a trie, unless a bucket still
+  overflows.
+- The content schema/validator/player must already treat `file` paths
+  as relative subpaths (they do - ids map to files under `assets/`);
+  confirm media `file` values may include a subfolder (`assets/ab/
+  <id>.jpg`) and that the player resolves them from the folder root.
+- The player's build-ledger, missing-file checks, and the
+  `package-proof` "everything referenced exists" walk must follow the
+  subpaths. The manifest validator's filename rule must accept an
+  optional subpath while still forbidding `..`/absolute paths.
+- Determinism preserved: same input -> same bucket (hash of the name,
+  not a counter). The demo fixture may stay flat (small); the
+  converter path is what shards.
+- Update docs (content-format, extracting) and add a converter test
+  asserting shard placement is stable + all referenced files exist.
+
 ## Later, waiting on the user
 
 - Overlay text styling iteration once the user can play with the demo.

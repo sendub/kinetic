@@ -430,8 +430,29 @@ truthful: an unchecked box means nothing was accepted.
       stored but dropped on read; sanitizer now derives fields+types
       from DEFAULT_SETTINGS so no setting can be missed again;
       scenario: reload ON/OFF both correct; 351 tests, 2025-11-02)
+- [ ] Video re-watch does not replay: after passing videos, wheeling
+      back before them, then advancing forward with space/auto, they
+      show only their poster. A forward re-entry must play the video
+      again like first arrival. Reproduce, root-cause against the
+      Phase 16.9 `mediaGateSatisfied` change + the renderer play
+      trigger, fix so any forward current-item set plays a video.
+- [ ] New "Reset progress" config option: clears ALL saved state for
+      the content (resume, seen/visited, played routes, bookmarks,
+      settings) to restore the first-ever-play experience incl. the
+      first-load key-help; a confirmation box ("Are you sure?")
+      guards it - nothing clears until confirmed, cancel is a no-op.
+      Verify: state survives reload until confirmed; after confirm the
+      app is fresh at item 1 with help shown.
 
-## Later, waiting on the user
+## Phase 17: Converter media organisation into subfolders (2025-11-02, user)
 
-- [ ] Overlay text styling iteration (incl. thought vs dialogue look)
-      with the user, once a playable demo exists
+- [ ] Confirm/format: a media item's `file` may carry a subfolder
+      path (`assets/ab/<id>.jpg`); validator + schema accept a relative
+      subpath, still forbid `..`/absolute; player resolves it from the
+      folder root; the missing-file walk and package-proof follow
+      subpaths. Fix any gap; test a subpath fixture.
+- [ ] Converter: shard extracted media into 2-char hash-prefix buckets
+      (`assets/<2hex>/<id>.<ext>`), deterministic (hash of the name,
+      not a counter); update the extractor + golden so every referenced
+      file exists and shard placement is stable across runs; docs
+      (content-format, extracting) updated.
