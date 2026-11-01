@@ -1938,3 +1938,49 @@ describe("skip never reveals across a route end (docs/plan.md Phase 18, bullet 5
     m.destroy();
   });
 });
+
+describe("the ending hint (docs/plan.md Phase 18, bullet 6)", () => {
+  const manual = (shape: Shape) => {
+    const m = manifest(shape);
+    return createMachine({
+      items: m.items,
+      branches: m.branches,
+      settings: SETTINGS,
+    });
+  };
+
+  it("shows on an ending while content is unseen, hides under a choice, and is gone once all is seen", () => {
+    const m = manual(PURE);
+    m.advance(); // 0 -> 1
+    m.advance(); // fires d1
+    m.choose(1); // route Q: 4..5, an ending route
+    expect(m.getState().endingHint).toBeUndefined(); // not an ending item
+    m.advance(); // 4 -> 5: Q's last item, an ending
+    expect(m.getState().endingHint).toBe(true); // P and the tail are unseen
+    m.advance(); // the re-offer opens: the overlay owns the screen
+    expect(m.getState().choice).toBeDefined();
+    expect(m.getState().endingHint).toBeUndefined();
+    m.choose(0); // route P: 2..3
+    m.advance(); // 2 -> 3: P's end, also an ending; the tail is unseen
+    expect(m.getState().endingHint).toBe(true);
+    m.advance(); // all routes played: closes past the region, onto 6
+    m.advance(); // 6 -> 7, the array end: now everything has been seen
+    expect(m.getState().cursor).toBe(7);
+    expect(m.getState().endingHint).toBeUndefined();
+    m.destroy();
+  });
+
+  it("the array end with an unplayed route behind it shows the hint", () => {
+    const m = manual(CANON);
+    m.advance();
+    m.advance();
+    m.advance(); // fires d1
+    m.choose(2); // route C, continuing: joins at 9
+    m.advance(); // 7 -> 8
+    m.advance(); // joins at 9
+    m.advance(); // 9 -> 10, the array end; A and B are unseen
+    expect(m.getState().cursor).toBe(10);
+    expect(m.getState().endingHint).toBe(true);
+    m.destroy();
+  });
+});

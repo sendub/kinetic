@@ -519,8 +519,10 @@ truthful: an unchecked box means nothing was accepted.
       (a continuing route's end into an unseen join counts as a reveal;
       verify step 17 rewritten for the phase closer; 395 tests,
       2026-11-01)
-- [ ] Ending hint: when an ending shows and unseen content remains, a
-      quiet standing line invites `e`; absent when all seen.
+- [x] Ending hint: when an ending shows and unseen content remains, a
+      quiet standing line invites `e`; absent when all seen. (machine
+      `endingHint` state, hidden under a choice and by `h`; #ending-hint
+      at the top; 397 tests, 2026-11-01)
 - [ ] Play-all: black interstitial (~2.5 s machine-held) on each
       back-in-time jump showing prompt, last route, seen marks,
       highlighted new route; route pills 1.6 s. Scenario proof.

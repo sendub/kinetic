@@ -337,6 +337,13 @@ export interface MachineState {
   readonly skipping: boolean;
   readonly transition: TransitionKind;
   readonly choice?: ChoiceView;
+  /**
+   * Present (true) while the cursor stands on an ENDING — the array end or
+   * an ending route's last item — and some content is still unseen, with
+   * no choice open (docs/plan.md Phase 18): the render layer shows a quiet
+   * standing line inviting `e`. Absent once everything has been seen.
+   */
+  readonly endingHint?: true;
 }
 
 /** Timer seam so tests control time. Handles are opaque. */

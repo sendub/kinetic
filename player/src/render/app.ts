@@ -52,7 +52,27 @@ export function mountShell({ root, manifest, machine }: ShellOptions): Shell {
   const overlay = doc.createElement("div");
   overlay.id = "overlay";
   overlay.className = "overlay";
-  root.replaceChildren(stage, overlay);
+  // The ending hint (docs/plan.md Phase 18): a quiet standing line while an
+  // ending shows and content is still unseen. Outside `#overlay` so the
+  // caption layer never repaints it; `h` hides it with the captions.
+  const endingHint = doc.createElement("div");
+  endingHint.id = "ending-hint";
+  endingHint.textContent = "Some content is still unseen - press e.";
+  endingHint.hidden = true;
+  Object.assign(endingHint.style, {
+    position: "fixed",
+    top: "3%",
+    left: "50%",
+    transform: "translateX(-50%)",
+    color: "rgba(244, 239, 230, 0.78)",
+    textShadow: "0 1px 3px rgba(0, 0, 0, 0.9)",
+    font: "italic 400 clamp(12px, 1.5vh, 16px)/1.3 ui-sans-serif, system-ui, sans-serif",
+    letterSpacing: "0.03em",
+    pointerEvents: "none",
+    userSelect: "none",
+    zIndex: "5",
+  });
+  root.replaceChildren(stage, overlay, endingHint);
 
   const visuals = createVisualLayer(stage, manifest, {
     // A standalone video's `ended` (or an autoplay rejection, see
@@ -66,9 +86,11 @@ export function mountShell({ root, manifest, machine }: ShellOptions): Shell {
   // the item the decision hangs off, not anything the reader can act on.
   // `h` keeps its own state underneath — closing the choice restores it.
   let choiceOpen = false;
+  let endingHintDue = false;
 
   function applyCaptions(): void {
     captions.setHidden(!textVisible || choiceOpen);
+    endingHint.hidden = !textVisible || !endingHintDue;
   }
 
   function render(state: MachineState): void {
@@ -78,6 +100,7 @@ export function mountShell({ root, manifest, machine }: ShellOptions): Shell {
     visuals.update(manifest.items[machine.visualIndex()], state);
     captions.update(manifest.items[state.cursor]);
     choiceOpen = state.choice !== undefined;
+    endingHintDue = state.endingHint === true;
     applyCaptions();
     schedulePreload(state);
   }

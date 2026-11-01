@@ -721,11 +721,17 @@ export function createMachine(options: MachineOptions): Machine {
   function snapshot(): MachineState {
     const choice = pendingChoice === null ? null : choiceView(pendingChoice);
     const frontier = highestSeen < 0 ? 0 : Math.min(highestSeen + 1, count);
-    return Object.freeze(
-      choice === null
-        ? { cursor, frontier, settled, skipping, transition }
-        : { cursor, frontier, settled, skipping, transition, choice },
-    );
+    const endingHint =
+      choice === null && endings.has(cursor) && visited.size < count;
+    return Object.freeze({
+      cursor,
+      frontier,
+      settled,
+      skipping,
+      transition,
+      ...(choice === null ? {} : { choice }),
+      ...(endingHint ? { endingHint: true as const } : {}),
+    });
   }
 
   /** The overlay content for the open choice: prompt, routes, return offer. */
