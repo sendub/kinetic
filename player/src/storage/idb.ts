@@ -191,28 +191,43 @@ function sanitizeContext(raw: unknown): MachineContext | undefined {
       stack.push({ decision, route });
     }
   }
-  const playedRoutes: { decision: number; routes: number[] }[] = [];
-  for (const entry of Array.isArray(source.playedRoutes)
-    ? source.playedRoutes
-    : []) {
-    if (typeof entry !== "object" || entry === null) continue;
-    const candidate = entry as Partial<{ decision: number; routes: unknown }>;
-    if (
-      isFiniteNumber(candidate.decision) &&
-      Array.isArray(candidate.routes) &&
-      candidate.routes.every(isFiniteNumber)
-    ) {
-      playedRoutes.push({
-        decision: candidate.decision,
-        routes: [...candidate.routes],
-      });
+  const routeSets = (
+    entries: readonly { decision: number; routes: readonly number[] }[],
+  ): { decision: number; routes: number[] }[] => {
+    const out: { decision: number; routes: number[] }[] = [];
+    for (const entry of entries) {
+      if (typeof entry !== "object" || entry === null) continue;
+      const candidate = entry as Partial<{ decision: number; routes: unknown }>;
+      if (
+        isFiniteNumber(candidate.decision) &&
+        Array.isArray(candidate.routes) &&
+        candidate.routes.every(isFiniteNumber)
+      ) {
+        out.push({
+          decision: candidate.decision,
+          routes: [...candidate.routes],
+        });
+      }
     }
-  }
+    return out;
+  };
+  const playedRoutes = routeSets(
+    Array.isArray(source.playedRoutes) ? source.playedRoutes : [],
+  );
+  // `completedRoutes` (docs/plan.md Phase 18) sanitizes exactly like
+  // `playedRoutes`. It survives the round trip — the "Return to main route"
+  // row depends on it — and an absent/empty field restores as
+  // nothing-completed, the documented migration for pre-18 saves, so it is
+  // omitted rather than grown back as an empty array.
+  const completedRoutes = routeSets(
+    Array.isArray(source.completedRoutes) ? source.completedRoutes : [],
+  );
   return {
     lastShown: source.lastShown,
     visited: [...source.visited],
     stack,
     playedRoutes,
+    ...(completedRoutes.length > 0 ? { completedRoutes } : {}),
   };
 }
 

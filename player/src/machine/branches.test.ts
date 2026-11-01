@@ -365,10 +365,11 @@ describe("navigation arrivals show unresolved decisions (docs/plan.md Phase 16)"
     m.destroy();
   });
 
-  it("an arrival view offers the return only once a route has completed", () => {
+  it("an arrival view offers the return only once the CONTINUING route has completed", () => {
     // The arrival-open view follows the same rule as a fired re-offer
-    // (docs/plan.md Phase 16, Branches): before any route has been played
-    // there is no "Return to main route" to show; after one has, it appears.
+    // (docs/plan.md Phase 18, Branches): the row exists only once the
+    // decision's continuing route has been played through to its end — a
+    // completion of any OTHER route does not open it.
     const m = machine(CANON);
     step(m);
     step(m); // cursor 2 (`decide`), no route played yet
@@ -380,8 +381,10 @@ describe("navigation arrivals show unresolved decisions (docs/plan.md Phase 16)"
     m.advance();
     m.advance();
     m.advance();
-    m.advance(); // off B's end: the re-offer now offers the return
-    expect(m.getState().choice?.continueOption).toBe(true);
+    m.advance(); // off B's end
+    // Phase 18: B completed but C (the continuing route) has not, so the
+    // re-offer is routes-only — picking C is the way forward.
+    expect(m.getState().choice?.continueOption).toBeUndefined();
     m.choose(2); // route C, the continuing route: rejoins the main line at 9
     expect(m.getState().cursor).toBe(7);
     for (let press = 0; press < 2; press += 1) step(m); // 7 -> 8, then off C's
@@ -527,7 +530,9 @@ describe("choosing a route and ending one", () => {
     m.destroy();
   });
 
-  it("a return route ends by offering the unseen routes plus return to main", () => {
+  it("a return route ends by offering the unseen routes — no return row yet", () => {
+    // Phase 18: finishing route A completes a NON-continuing route, which no
+    // longer opens "Return to main route"; the re-offer is routes-only.
     const m = machine(CANON);
     step(m);
     step(m);
@@ -546,17 +551,23 @@ describe("choosing a route and ending one", () => {
         { routeIdx: 1, id: "r-b", label: "Route B", seen: false },
         { routeIdx: 2, id: "r-c", label: "Route C", seen: false },
       ],
-      continueOption: true,
     });
-    m.chooseContinue();
+    m.chooseContinue(); // not offered: inert (docs/plan.md Phase 18)
+    expect(m.getState().cursor).toBe(4);
+    m.choose(2); // pick the continuing route to advance...
+    step(m); // 7 -> 8
+    step(m); // ...and finishing it joins the aftermath at `continueAt`
     expect(m.getState().cursor).toBe(9);
     m.destroy();
   });
 
-  it("an ending route re-opens the decision with the return offer too", () => {
-    // docs/plan.md Phase 16 (Branches): once ANY route has completed, every
-    // re-opening offers "Return to main route" — whatever result the route
-    // that just finished had — so the ending loop is escapable.
+  it("an ending route re-opens the decision with no return row yet", () => {
+    // Adapted for docs/plan.md Phase 18 (Branches): the Phase 16 rule offered
+    // the return once ANY route had completed, "so the ending loop is
+    // escapable". Now the row needs the CONTINUING route completed — an
+    // ending-only re-offer is routes-only, and the escape is picking the
+    // continuing route; finishing it once makes every later re-offer carry
+    // the row.
     const m = machine(CANON);
     step(m);
     step(m);
@@ -568,17 +579,19 @@ describe("choosing a route and ending one", () => {
     m.advance(); // off the span's last item
     const choice = m.getState().choice;
     expect(choice?.decisionId).toBe("d1");
-    expect(choice?.continueOption).toBe(true);
+    expect(choice?.continueOption).toBeUndefined(); // B completed, C not
     expect(choice?.routes.map((r) => r.seen)).toEqual([false, true, false]);
-    m.choose(1); // re-pick the ending; the offer survives another pass
+    m.choose(1); // re-pick the ending; still no offer after another pass
     m.advance();
     m.advance();
     m.advance();
     m.advance();
-    expect(m.getState().choice?.continueOption).toBe(true);
-    m.chooseContinue(); // lands on `continueAt` exactly once, frame popped
+    expect(m.getState().choice?.continueOption).toBeUndefined();
+    m.choose(2); // the continuing route: its end joins the aftermath once
+    step(m); // 7 -> 8
+    step(m); // off C's end: continuing route completed, joined at continueAt
     expect(m.getState().cursor).toBe(9);
-    expect(m.exportContext().stack).toEqual([]);
+    expect(m.exportContext().stack).toEqual([]); // C's frame popped at its end
     expect(m.getState().choice).toBeUndefined();
     m.destroy();
   });
@@ -599,19 +612,30 @@ describe("choosing a route and ending one", () => {
     m.destroy();
   });
 
-  it("chooseContinue does not mark the continuing route played", () => {
+  it("chooseContinue needs the completed continuing route, and marks nothing new", () => {
+    // Phase 18 rework: the row exists only after the continuing route
+    // completes once (the old flow — pick A, re-offer, continue — no longer
+    // offers it). Once it does answer, it still marks nothing: the played
+    // set is untouched by the join.
     const m = machine(CANON);
     step(m);
     step(m);
     m.advance();
-    m.choose(0);
-    step(m); // 3 -> 4
-    step(m); // the route end re-opens the decision
-    m.chooseContinue(); // "return to main route" skips route C's items
+    m.choose(2); // route C, the continuing route
+    step(m); // 7 -> 8
+    step(m); // C completes: joins the aftermath, the row unlocks
     expect(m.getState().cursor).toBe(9);
-    expect(m.exportContext().playedRoutes).toEqual([
-      { decision: 0, routes: [0] },
-    ]);
+    for (let back = 0; back < 7; back += 1) m.wheelBack(); // back to `decide`
+    expect(m.getState().choice?.arrival).toBe(true);
+    expect(m.getState().choice?.continueOption).toBe(true); // C completed once
+    m.choose(0); // route A again from the arrival view
+    step(m); // 3 -> 4
+    step(m); // A's end: the re-offer keeps the row
+    expect(m.getState().choice?.continueOption).toBe(true);
+    const before = m.exportContext().playedRoutes;
+    m.chooseContinue(); // joins the aftermath, marks nothing
+    expect(m.getState().cursor).toBe(9);
+    expect(m.exportContext().playedRoutes).toEqual(before);
     m.destroy();
   });
 
@@ -792,8 +816,85 @@ describe("the seen mark means the route was PLAYED (docs/plan.md Phase 16)", () 
     expect(seenFlags(m)).toEqual([false, false, false]);
     m.destroy();
   });
+});
 
-  it("nested: an inner route left unseen by a back-scroll stays unmarked", () => {
+describe("the return row needs the CONTINUING route completed (docs/plan.md Phase 18)", () => {
+  // The rule: "Return to main route" exists only once the decision's
+  // continuing route has COMPLETED — been played through to its route end
+  // (`handleRouteEnd`). Entered-and-abandoned does not count: a continuation
+  // the reader has not reached the end of is not a place to "return" to;
+  // picking the continuing route is the way forward there. A decision with
+  // NO continuing route never has the row (unchanged, pinned by PURE).
+  const manual = (shape: Shape) => {
+    const m = manifest(shape);
+    return createMachine({
+      items: m.items,
+      branches: m.branches,
+      settings: SETTINGS,
+    }); // manual: the player's start (one press = one step)
+  };
+
+  it("enter the continuing route and wheel away: re-offers carry no return row", () => {
+    // The user's flow: enter the continuing route (the demo's `hire`),
+    // abandon it mid-span, come back. Entry is not completion — every view
+    // of the decision, arrival or fired, stays routes-only.
+    const m = manual(CANON);
+    m.advance(); // 0 -> 1
+    m.advance(); // 1 -> 2 (`decide`)
+    m.advance(); // fires d1
+    m.choose(2); // enter route C (the continuing route) at 7
+    expect(m.getState().cursor).toBe(7);
+    for (let back = 0; back < 5; back += 1) m.wheelBack(); // 7 -> 2, abandoning it
+    expect(m.getState().choice?.arrival).toBe(true);
+    expect(m.getState().choice?.continueOption).toBeUndefined(); // entry ≠ completion
+    m.advance(); // over the arrival view: the press FIRES the decision
+    expect(m.getState().choice?.arrival).toBeUndefined();
+    expect(m.getState().choice?.continueOption).toBeUndefined();
+    m.destroy();
+  });
+
+  it("finish the continuing route once: every later re-offer and arrival has the row", () => {
+    const m = manual(CANON);
+    m.advance();
+    m.advance();
+    m.advance(); // fires d1
+    m.choose(2); // route C at 7
+    m.advance(); // 7 -> 8
+    m.advance(); // C completes: joins the aftermath at 9
+    expect(m.getState().cursor).toBe(9);
+    for (let back = 0; back < 7; back += 1) m.wheelBack(); // back to `decide`
+    expect(m.getState().choice?.arrival).toBe(true);
+    expect(m.getState().choice?.continueOption).toBe(true); // arrival view
+    m.choose(0); // route A from the arrival view...
+    m.advance(); // 3 -> 4
+    m.advance(); // ...A's end: the fired re-offer keeps the row (Phase 18:
+    expect(m.getState().choice?.continueOption).toBe(true); // completion is permanent)
+    m.destroy();
+  });
+
+  it("finish an ending route first: no row — picking the continuing route advances", () => {
+    // Fresh save, refuse-style: play an ENDING route to its end first. The
+    // re-offer is routes-only; the way forward is the continuing route.
+    const m = manual(CANON);
+    m.advance();
+    m.advance();
+    m.advance(); // fires d1
+    m.choose(1); // route B, an ending
+    m.advance(); // 5 -> 6
+    m.advance(); // B's end: re-offer
+    const choice = m.getState().choice;
+    expect(choice?.routes.every((r) => r.routeIdx !== -1)).toBe(true);
+    expect(choice?.continueOption).toBeUndefined(); // an ending done ≠ a return
+    m.choose(2); // so pick the continuing route...
+    expect(m.getState().cursor).toBe(7); // ...and it plays — the way forward
+    m.destroy();
+  });
+
+  it("inner early return after a LATE completion carries the row", () => {
+    // NESTED: the inner decision d2 is re-opened by X's end with no row;
+    // only when d2's continuing route Y completes (late, on the way out)
+    // do later arrivals at d2 carry the inner return row. The outer d1 row
+    // stays gated by ITS own continuing route: A was entered and left.
     const m = machine(NESTED);
     step(m); // 0 -> 1 (`decide`)
     m.advance(); // d1
@@ -802,25 +903,85 @@ describe("the seen mark means the route was PLAYED (docs/plan.md Phase 16)", () 
     m.advance(); // d2
     m.choose(0); // route X, an ending
     step(m); // 4 -> 5
-    step(m); // off X's end: d2 re-opens, marking X
-    expect(seenFlags(m)).toEqual([true, false]);
-    m.chooseContinue(); // back inside route A at `a-cont`
+    step(m); // off X's end: d2 re-opens, routes-only
+    expect(m.getState().choice?.continueOption).toBeUndefined();
+    m.choose(1); // route Y: d2's continuing route is the way forward
+    step(m); // 6 -> 7
+    step(m); // off Y's end: pop d2, rejoin A at `a-cont` — Y now COMPLETED
     expect(m.getState().cursor).toBe(8);
-    for (let back = 0; back < 5; back += 1) m.wheelBack(); // 8 -> 3
-    expect(m.getState().cursor).toBe(3); // `a-decide`, past Y's items (6, 7)
+    for (let back = 0; back < 5; back += 1) m.wheelBack(); // 8 -> 3, back early
+    expect(m.getState().cursor).toBe(3); // `a-decide`
     expect(m.getState().choice?.decisionId).toBe("d2");
-    expect(m.visitedList()).toContain(7); // Y's items were shown by the scroll
-    expect(seenFlags(m)).toEqual([true, false]); // Y is still unplayed
+    expect(m.getState().choice?.continueOption).toBe(true); // the late completion opened it
     m.wheelBack(); // 3 -> 2, closing the inner view as it steps away
     m.wheelBack(); // 2 -> 1 (`decide`)
     expect(m.getState().choice?.decisionId).toBe("d1");
-    expect(seenFlags(m)).toEqual([true, false, false]); // B and C unplayed
+    expect(m.getState().choice?.continueOption).toBeUndefined(); // A entered-and-left
+  });
+
+  it("completedRoutes round-trips through ctx; a legacy save reads as nothing-completed", () => {
+    const first = machine(CANON);
+    step(first);
+    step(first);
+    first.advance(); // fires d1
+    first.choose(2); // route C
+    step(first); // 7 -> 8
+    step(first); // C completes -> 9
+    const stored = JSON.parse(
+      JSON.stringify(first.exportContext()),
+    ) as MachineContext;
+    expect(stored.completedRoutes).toEqual([{ decision: 0, routes: [2] }]);
+    first.destroy();
+
+    // The completion survives the round trip: the restored save still offers
+    // the row at the decision.
+    const resumed = machine(CANON, { resumeContext: stored });
+    for (let back = 0; back < 7; back += 1) resumed.wheelBack(); // 9 -> 2
+    expect(resumed.getState().choice?.continueOption).toBe(true);
+    resumed.destroy();
+
+    // Legacy migration: the same save without the field restores
+    // conservatively — the row stays hidden — until the reader finishes the
+    // continuing route once in this session.
+    const legacy = { ...stored } as MachineContext;
+    delete legacy.completedRoutes;
+    const old = machine(CANON, { resumeContext: legacy });
+    for (let back = 0; back < 7; back += 1) old.wheelBack(); // 9 -> 2
+    expect(old.getState().choice?.continueOption).toBeUndefined();
+    old.choose(2); // finish route C once, here...
+    step(old); // 7 -> 8
+    step(old); // ...its end joins at 9 and unlocks the row
+    for (let back = 0; back < 7; back += 1) old.wheelBack(); // 9 -> 2
+    expect(old.getState().choice?.continueOption).toBe(true);
+    expect(old.exportContext().completedRoutes).toEqual([
+      { decision: 0, routes: [2] },
+    ]);
+    old.destroy();
+  });
+
+  it("Enter with no row is a silent no-op", () => {
+    // The key path: `enterActionFor` answers "none" without a row (pinned in
+    // render/choice.test.ts), and the machine's `chooseContinue` — what
+    // Enter would call — is inert with no offer: no move, no state change,
+    // no re-emit.
+    const m = manual(CANON);
+    m.advance();
+    m.advance();
+    m.advance(); // fires d1, no rows played: no row
+    expect(m.getState().choice?.continueOption).toBeUndefined();
+    const before = m.getState();
+    m.chooseContinue();
+    expect(m.getState()).toBe(before);
+    expect(m.getState().choice?.decisionId).toBe("d1"); // the decision still waits
     m.destroy();
   });
 });
 
 describe("nested decisions", () => {
-  it("a nested decision fires inside its route and its ending returns there", () => {
+  it("a nested decision fires inside its route; its continuing route returns there", () => {
+    // Phase 18 rework: the inner X route completing no longer opens d2's
+    // return row — the reader advances by picking d2's continuing route Y,
+    // and Y's end is what rejoins route A at `a-cont`.
     const m = machine(NESTED);
     step(m); // 0 -> 1
     m.advance(); // d1 fires
@@ -832,15 +993,15 @@ describe("nested decisions", () => {
     m.choose(0); // route X, an ending
     expect(m.getState().cursor).toBe(4);
     step(m); // 4 -> 5
-    step(m); // off X's end: back to d2, whose re-offer now offers the return
+    step(m); // off X's end: back to d2, routes-only (X completed, Y not)
     const choice = m.getState().choice;
     expect(choice?.decisionId).toBe("d2");
-    // docs/plan.md Phase 16 (Branches): an inner decision follows the same
-    // rule — X completed and d2 has a continuing route, so "Return to main
-    // route" is offered and goes to d2's `continueAt` (`a-cont`, 8).
-    expect(choice?.continueOption).toBe(true);
+    expect(choice?.continueOption).toBeUndefined();
     expect(choice?.routes.map((r) => r.seen)).toEqual([true, false]);
-    m.chooseContinue();
+    m.choose(1); // route Y, d2's continuing route
+    expect(m.getState().cursor).toBe(6);
+    step(m); // 6 -> 7
+    step(m); // Y's end: join d2's `continueAt` (`a-cont`, 8)
     expect(m.getState().cursor).toBe(8);
     m.destroy();
   });
@@ -859,11 +1020,15 @@ describe("nested decisions", () => {
     expect(m.getState().cursor).toBe(8);
     expect(m.getState().choice).toBeUndefined();
     step(m); // 8 -> 9, A's last item
-    step(m); // off A's end: pop d1's A frame, offer the return
+    step(m); // off A's end: pop d1's A frame, re-offer
     expect(m.getState().cursor).toBe(9);
     expect(m.getState().choice?.decisionId).toBe("d1");
-    expect(m.getState().choice?.continueOption).toBe(true);
-    m.chooseContinue();
+    // Phase 18: A completed but d1's continuing route C never ran, so the
+    // outer re-offer is routes-only — C is the way onward.
+    expect(m.getState().choice?.continueOption).toBeUndefined();
+    m.choose(2); // route C: its end joins d1's `continueAt` (13)
+    expect(m.getState().cursor).toBe(12);
+    step(m); // 12 is C's whole span; its end joins the aftermath
     expect(m.getState().cursor).toBe(13);
     m.destroy();
   });
@@ -879,15 +1044,17 @@ describe("nested decisions", () => {
     step(m); // 6 -> 7
     step(m); // off Y's end: pop d2 and rejoin A at 8
     step(m); // 8 -> 9, A's last item
-    step(m); // off A's end: d1 offers the return
+    step(m); // off A's end: d1 re-opens (routes-only, Phase 18)
     m.choose(1); // reselect route B
     expect(m.getState().cursor).toBe(10);
     expect(m.exportContext().stack).toEqual([{ decision: 0, route: 1 }]);
     step(m); // 10 -> 11
-    step(m); // off B's end: an ending, re-offer with the return (Phase 16)
-    expect(m.getState().choice?.continueOption).toBe(true);
+    step(m); // off B's end: an ending, re-offer — still no return row (C unplayed)
+    expect(m.getState().choice?.continueOption).toBeUndefined();
     expect(m.exportContext().stack).toEqual([]); // B's frame popped at its end
-    m.chooseContinue(); // leave d1 for good: joins the main line at 13
+    m.choose(2); // the continuing route leaves d1 for good, advancing itself
+    expect(m.getState().cursor).toBe(12);
+    step(m); // 12 is C's whole span; its end joins the main line at 13
     expect(m.getState().cursor).toBe(13);
     m.destroy();
   });
@@ -1214,8 +1381,11 @@ describe("jumpToUnseen targets (the three cases, docs/plan.md Phase 13)", () => 
     m.advance();
     m.choose(0); // route A, whose result is "return"
     step(m); // 3 -> 4
-    step(m); // the route end offers the return
-    m.chooseContinue(); // 9
+    step(m); // the route end re-opens — routes-only (Phase 18: C uncompleted)
+    expect(m.getState().choice?.continueOption).toBeUndefined();
+    m.choose(2); // picking the continuing route is the way forward...
+    step(m); // 7 -> 8
+    step(m); // ...and its end joins the main line at after-1 (9)
     step(m); // 9 -> 10, content end, no frame open
     expect(m.getState().cursor).toBe(10);
     m.jumpToUnseen(); // c: nothing ahead, so the first unseen in the array
@@ -1354,7 +1524,7 @@ describe('`e` with everything seen: the most recently seen ending (docs/plan.md 
 });
 
 describe("route-play context for storage", () => {
-  it("exportContext reports lastShown, visited, the stack and played routes", () => {
+  it("exportContext reports lastShown, visited, the stack, and route play", () => {
     const m = machine(CANON);
     step(m);
     step(m);
@@ -1365,6 +1535,9 @@ describe("route-play context for storage", () => {
       visited: [0, 1, 2, 3],
       stack: [{ decision: 0, route: 0 }],
       playedRoutes: [{ decision: 0, routes: [0] }],
+      // Phase 18 shape: completion tracking rides alongside, empty here —
+      // A is entered, nothing has been played through to its end.
+      completedRoutes: [],
     });
     m.destroy();
   });
@@ -1393,7 +1566,10 @@ describe("route-play context for storage", () => {
     step(second); // the restored frame still ends the route it is inside
     expect(second.getState().cursor).toBe(4);
     expect(second.getState().choice?.decisionId).toBe("d1");
-    expect(second.getState().choice?.continueOption).toBe(true);
+    // Phase 18: A's completion does not open the return row — the continuing
+    // route C has never been played. (The stored ctx is also pre-completion
+    // tracking: it round-trips as "nothing completed", the migration read.)
+    expect(second.getState().choice?.continueOption).toBeUndefined();
     expect(second.getState().choice?.routes.map((r) => r.seen)).toEqual([
       true,
       false,

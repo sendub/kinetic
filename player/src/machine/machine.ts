@@ -101,9 +101,12 @@ export interface MachineOptions {
   resumeFrontier?: number;
   /**
    * Restored route-play context (`exportContext()`), the Phase 13 form of a
-   * resume: the seen set, the open decision stack, the routes already
-   * played, and `lastShown` — the item shown most recently, which is where
-   * the load starts. Like the frontier resume that landing counts as
+   * resume: the seen set, the open decision stack, the routes played and
+   * completed per decision, and `lastShown` — the item shown most recently,
+   * which is where the load starts. A context predating `completedRoutes`
+   * restores with nothing completed (see `MachineContext`): the conservative
+   * reading, the return row simply stays hidden until the continuing route
+   * is finished once. Like the frontier resume that landing counts as
    * settled, and arriving inside a route whose decision was never answered
    * fires nothing: decisions fire only on the forward settle of their
    * `after` item.
@@ -137,15 +140,16 @@ export interface Machine {
   visitedList(): number[];
   /**
    * Route-play context for persistence: `lastShown`, `visitedList()`, the
-   * open decision stack, the routes played per decision, and `lastEnding`
-   * when one is known — all JSON-safe. `importContext()` (or
+   * open decision stack, the routes played and completed per decision, and
+   * `lastEnding` when one is known — all JSON-safe. `importContext()` (or
    * `MachineOptions.resumeContext`) restores it.
    */
   exportContext(): MachineContext;
   /**
-   * Replaces the seen set, decision stack and played routes with a stored
-   * context and shows its `lastShown` item — the bookmark-restore move: the
-   * arrival is UNSETTLED, like `goTo()`, and it fires no decision.
+   * Replaces the seen set, decision stack, played routes and completed
+   * routes with a stored context and shows its `lastShown` item — the
+   * bookmark-restore move: the arrival is UNSETTLED, like `goTo()`, and it
+   * fires no decision.
    */
   importContext(context: MachineContext): void;
   /** Receives every state change; returns an unsubscribe function. */
@@ -244,10 +248,11 @@ export interface Machine {
    */
   choose(routeIdx: number): void;
   /**
-   * "Return to main route" on a decision with a completed route: proceed to
-   * the decision's `continueAt`. Inert unless the open choice offers it
-   * (`MachineState.choice.continueOption`), and it does not mark the
-   * continuing route played — its items are skipped, not replayed.
+   * "Return to main route" on a decision whose CONTINUING route has
+   * completed: proceed to the decision's `continueAt`. Inert unless the open
+   * choice offers it (`MachineState.choice.continueOption`, which requires a
+   * completed continuing route — docs/plan.md Phase 18), and it does not
+   * mark the continuing route played — its items are skipped, not replayed.
    */
   chooseContinue(): void;
   /**
@@ -639,6 +644,17 @@ export function createMachine(options: MachineOptions): Machine {
   const stack: Frame[] = [];
   /** Which route indices of each decision have been played, by decision. */
   const played = new Map<number, Set<number>>();
+  /**
+   * Which route indices of each decision have been COMPLETED — the reader
+   * stepped off the route's last item from inside it (`handleRouteEnd`).
+   * Entering is not completing: `played` marks on entry, this set marks on
+   * reaching the route end. It exists for one rule (docs/plan.md Phase 18,
+   * Branches): "Return to main route" is offered only once the decision's
+   * CONTINUING route has been completed at least once — a continuation the
+   * reader has not reached the end of is not a place to "return" to;
+   * picking the continuing route is the way forward there.
+   */
+  const completed = new Map<number, Set<number>>();
   let pendingChoice: PendingChoice | null = null;
   let skipping = false;
   let holdElapsed = false;
@@ -999,6 +1015,16 @@ export function createMachine(options: MachineOptions): Machine {
     return played.get(decisionIndex)?.has(routeIdx) === true;
   }
 
+  /** Routes completed so far of one decision, creating the set on demand. */
+  function completedOf(decisionIndex: number): Set<number> {
+    let set = completed.get(decisionIndex);
+    if (set === undefined) {
+      set = new Set<number>();
+      completed.set(decisionIndex, set);
+    }
+    return set;
+  }
+
   /**
    * The route `playAllRoutes` picks next: the first not-yet-played route in
    * manifest order, with the continuing route held last so the alternates
@@ -1078,16 +1104,19 @@ export function createMachine(options: MachineOptions): Machine {
 
   /**
    * Whether an open view of this decision offers "Return to main route"
-   * (docs/plan.md Phase 16, Branches): a decision with a continuing route
-   * offers it on EVERY re-opening once ANY of its routes has completed —
-   * whatever result that route had, so an ending is escapable — and never
-   * before a route has completed. A pure-choice decision (no continuing
-   * route) is never offered one.
+   * (docs/plan.md Phase 18, Branches): only once the decision's CONTINUING
+   * route has been COMPLETED at least once — played through to its route end,
+   * not merely entered. A continuation the reader has not reached the end of
+   * is not a place to "return" to: from a re-offer they should pick the
+   * continuing route to advance, and finishing it once opens the row on
+   * every later re-opening and arrival. A decision with no continuing route
+   * is never offered one (unchanged).
    */
   function offersContinue(decision: ResolvedDecision): boolean {
     if (decision.continuingRoute < 0) return false;
-    const routes = played.get(decision.index);
-    return routes !== undefined && routes.size > 0;
+    return (
+      completed.get(decision.index)?.has(decision.continuingRoute) === true
+    );
   }
 
   /**
@@ -1274,19 +1303,22 @@ export function createMachine(options: MachineOptions): Machine {
 
   /**
    * A forward advance off a route's last item (docs/content-format.md,
-   * "Branches"): pop the frame, then by the route's kind — the continuing
-   * route proceeds to `continueAt`; any other route re-opens the decision,
-   * and because this route has just completed the re-offer includes "return
-   * to main route" whenever the decision has a continuing route (an ending
-   * is therefore escapable, not a loop). A pure-choice decision whose every
-   * route has now played does not re-open: it closes and flow continues past
-   * the whole menu region (docs/plan.md Phase 13), ending the story when the
-   * region runs to the last item.
+   * "Branches"): the route is COMPLETED — recorded in the `completed` set —
+   * then pop the frame, and by the route's kind — the continuing route
+   * proceeds to `continueAt` (its own completion is recorded right here, at
+   * the join); any other route re-opens the decision, and that re-offer
+   * includes "return to main route" only if the decision's CONTINUING route
+   * has already completed (docs/plan.md Phase 18) — the route that just
+   * finished opens the join only by being that route. A pure-choice decision
+   * whose every route has now played does not re-open: it closes and flow
+   * continues past the whole menu region (docs/plan.md Phase 13), ending the
+   * story when the region runs to the last item.
    */
   function handleRouteEnd(): void {
     const frame = stack[stack.length - 1];
     const decision = decisions[frame.decision];
     const route = decision.routes[frame.route];
+    completedOf(decision.index).add(frame.route);
     if (closeIfPureAndComplete(decision)) return;
     stack.pop();
     if (route.continuing) {
@@ -1406,6 +1438,23 @@ export function createMachine(options: MachineOptions): Machine {
         }
       }
     }
+    // Completed routes restore with the same validation. The field is newer
+    // than the rest of the context: a legacy save carries none, and its
+    // known played routes say nothing about completions — so the restore
+    // treats NOTHING as completed (the conservative reading: the return row
+    // just stays hidden until the reader finishes the continuing route once,
+    // rather than offering a return to an end they may never have reached).
+    completed.clear();
+    for (const entry of context.completedRoutes ?? []) {
+      const decisionIndex = asIndex(entry?.decision, -1);
+      if (decisionIndex < 0 || decisionIndex >= decisions.length) continue;
+      for (const routeIdx of entry.routes ?? []) {
+        const value = asIndex(routeIdx, -1);
+        if (value >= 0 && value < decisions[decisionIndex].routes.length) {
+          completedOf(decisionIndex).add(value);
+        }
+      }
+    }
     stack.length = 0;
     for (const frame of context.stack ?? []) {
       const decisionIndex = asIndex(frame?.decision, -1);
@@ -1443,14 +1492,15 @@ export function createMachine(options: MachineOptions): Machine {
     },
 
     exportContext() {
-      const playedRoutes = [...played.entries()]
-        .sort((a, b) => a[0] - b[0])
-        .map(([decision, routes]) =>
-          Object.freeze({
-            decision,
-            routes: Object.freeze([...routes].sort((a, b) => a - b)),
-          }),
-        );
+      const routeSets = (map: Map<number, Set<number>>) =>
+        [...map.entries()]
+          .sort((a, b) => a[0] - b[0])
+          .map(([decision, routes]) =>
+            Object.freeze({
+              decision,
+              routes: Object.freeze([...routes].sort((a, b) => a - b)),
+            }),
+          );
       return Object.freeze({
         lastShown,
         visited: visitedSorted(),
@@ -1459,7 +1509,14 @@ export function createMachine(options: MachineOptions): Machine {
             Object.freeze({ decision: frame.decision, route: frame.route }),
           ),
         ),
-        playedRoutes: Object.freeze(playedRoutes),
+        playedRoutes: Object.freeze(routeSets(played)),
+        // The Phase 18 completion tracking: which routes were played through
+        // to their end. Exported alongside `playedRoutes` even when empty —
+        // an ABSENT field (a save written before this shape) restores
+        // conservatively: nothing reads as completed, so the return row stays
+        // hidden until the continuing route is finished once in the new
+        // session.
+        completedRoutes: Object.freeze(routeSets(completed)),
         // Absent when no ending has been seen — the pre-16 shape, so an
         // older reader and a legacy save round-trip unchanged (the
         // `e`-ending migration rule in docs/plan.md Phase 16).

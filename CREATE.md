@@ -161,7 +161,13 @@ of route labels. A route's `start` and `end` name the inclusive,
 contiguous run of items it plays. The continuing route is named by
 `continuingRoute` and proceeds to `continueAt`; every other route
 must be an `ending` (the default: its last item IS the ending) or
-declare `result: "return"`. There is no implicit join. Full semantics
+declare `result: "return"`. There is no implicit join. Two different
+milestones decide what a re-opened decision shows: a route row's seen
+mark needs only ENTERING that route, while the "Return to main route"
+row appears only once the reader has played the `continuingRoute`
+through to its end at least once - a route entered and abandoned opens
+nothing, and until the continuing route is finished, re-openings offer
+routes only. Full semantics
 are in docs/content-format.md § Branches; the validator checks every
 id, reference, and span.
 

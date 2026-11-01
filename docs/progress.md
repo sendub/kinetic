@@ -494,9 +494,14 @@ truthful: an unchecked box means nothing was accepted.
       tracks READING moves only - wheel scrubbing no longer moves it,
       which is what makes resume honest; exact user-flow test + below-
       edge poster interaction pinned; 378 tests, 2026-11-01)
-- [ ] "Return to main route" only after the CONTINUING route has
+- [x] "Return to main route" only after the CONTINUING route has
       completed at least once; "Enter returns" hint renders only when
-      the row exists. content-format + CREATE reword; tests.
+      the row exists. content-format + CREATE reword; tests. (new
+      completedRoutes set marked at route ends incl. the auto-join;
+      ctx migration: legacy saves show no row until the continuing
+      route finishes once; sanitizeContext caught dropping it; hint
+      conditional, Enter-no-row silently inert; verify steps 33-34
+      flagged for the phase closer; 384 tests, 2026-11-01)
 - [ ] Navigation arrival re-opens COMPLETED decisions (re-offer with
       seen marks; return row per the new rule) so every decision point
       surfaces when scrolling back, nested included.

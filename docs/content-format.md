@@ -242,17 +242,24 @@ and items always use ids, never array positions.
   route.
 - `result`: what happens when a route's span completes. `"ending"`,
   the default, means the route's last item IS the ending: afterwards
-  the overlay offers route reselection. `"return"` means that
-  after its end the overlay offers the still-unseen routes plus
-  "return to main route", which proceeds to `continueAt`. A route
-  counts as played once it is ENTERED - its first content becomes
-  current, by any means - so the seen mark appears immediately and an
-  abandoned route still counts as seen. Once ANY route of a decision
-  has been entered, every re-opening of that decision offers
-  "return to main route" whenever `continuingRoute` exists - whatever
-  result the route that just finished had, so an ending is escapable
-  rather than a loop. Before any route has been entered, no such
-  offer appears. There is
+  the overlay offers route reselection. `"return"` means that after
+  its end the overlay offers route reselection through to the
+  decision's join (see the return-row rule below). A route counts as
+  played once it is ENTERED - its first content becomes current, by
+  any means - so the seen mark appears immediately and an abandoned
+  route still counts as seen. The ENTERED mark and the return row are
+  DIFFERENT things (docs/plan.md Phase 18): "return to main route" -
+  which proceeds to `continueAt` - appears on a decision's re-openings
+  and arrival views only once that decision's CONTINUING route has
+  COMPLETED at least once, been played through to its route end.
+  Entered-and-abandoned does not count, and no OTHER route's completion
+  opens the row: a continuation the reader has not reached the end of
+  is not a place to "return" to. Until the continuing route finishes,
+  re-openings offer routes only and picking it is the way forward; its
+  own end joining at `continueAt` opens the row, as does finishing it
+  from any re-offer. Once it has completed, every re-opening carries
+  the row, so an ending is escapable rather than a loop. A decision
+  with no `continuingRoute` is never offered it. There is
   NO implicit join: an unmarked route never silently merges into the
   main line, because an alternate's later state is not the main
   route's. A continuing route's own `result` is moot — it proceeds to
@@ -268,7 +275,9 @@ and items always use ids, never array positions.
   CLOSES and flow continues past the whole menu region (the max route
   `end` plus one, the Ren'Py fall-through), never inside another
   route's span; route replay stays possible by navigating into the
-  route. "return to main" exists only when `continuingRoute` does.
+  route. "return to main" exists only when `continuingRoute` does -
+  and then only once that route has COMPLETED (the rule above), not
+  merely entered.
 
 Player-side notes, the format's promises (machine rules in
 docs/plan.md Phase 13):

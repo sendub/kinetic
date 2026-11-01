@@ -32,7 +32,21 @@ import type { ChoiceView } from "../machine/types";
 export const CONTINUE_LABEL = "Return to main route";
 
 /** The panel's input hint, shown under the prompt. */
-export const CHOICE_HINT = "1-9 or click picks a route · Enter returns";
+export const CHOICE_HINT = "1-9 or click picks a route";
+
+/** The Enter half of the hint — only true when the return row is drawn. */
+export const CONTINUE_HINT = " · Enter returns";
+
+/**
+ * The hint for one view: the route keys always, Enter only when a
+ * "Return to main route" row exists (docs/plan.md Phase 18 — the user had
+ * read "Enter returns" on views where nothing could answer it).
+ */
+export function choiceHint(choice: ChoiceView): string {
+  return choice.continueOption === true
+    ? CHOICE_HINT + CONTINUE_HINT
+    : CHOICE_HINT;
+}
 
 /** The marker beside a route that has already been played in this save. */
 export const SEEN_MARKER = "seen";
@@ -175,6 +189,9 @@ export function mountChoiceOverlay({
     },
     render(choice: ChoiceView) {
       prompt.textContent = choice.prompt;
+      // The Enter hint follows the row: shown only when `continueOption`
+      // is set, so the panel never promises a return it does not offer.
+      hint.textContent = choiceHint(choice);
       const rows = choiceRows(choice).map((row) => {
         const line = doc.createElement("button");
         line.className = "choice-row";

@@ -231,7 +231,13 @@ export interface ChoiceView {
   readonly decisionId: string;
   readonly prompt: string;
   readonly routes: readonly ChoiceRoute[];
-  /** True when "return to main route" (the decision's `continueAt`) is offered. */
+  /**
+   * True when "return to main route" (the decision's `continueAt`) is
+   * offered — which requires the decision's CONTINUING route to have been
+   * COMPLETED at least once (docs/plan.md Phase 18): entered-and-abandoned
+   * does not count, and a decision with no continuing route never shows
+   * the row. The renderer draws the row and its Enter hint only when set.
+   */
   readonly continueOption?: boolean;
   /**
    * True when the overlay shows because a navigation ARRIVAL (wheel,
@@ -257,14 +263,26 @@ export interface ContextFrame {
  * JSON-safe route-play context for persistence (docs/plan.md Phase 13):
  * `exportContext()` returns it, `importContext()` and `MachineOptions.
  * resumeContext` restore it. `visited` is the per-item seen set (item
- * indices), `stack` the open decision contexts innermost-last, and
- * `playedRoutes` the route indices played per decision.
+ * indices), `stack` the open decision contexts innermost-last,
+ * `playedRoutes` the route indices played per decision, and
+ * `completedRoutes` the route indices played THROUGH to their route end
+ * per decision (docs/plan.md Phase 18).
  */
 export interface MachineContext {
   lastShown: number;
   visited: readonly number[];
   stack: readonly ContextFrame[];
   playedRoutes: readonly { decision: number; routes: readonly number[] }[];
+  /**
+   * Which routes were COMPLETED — stepped off their last item from inside
+   * the route (docs/plan.md Phase 18, Branches). Entered-and-abandoned is
+   * `playedRoutes` only; completion additionally needs `completedRoutes`.
+   * "Return to main route" is offered from the CONTINUING route appearing
+   * here. The field is newer than the rest of the context: absent (a legacy
+   * save) restores as nothing-completed, the conservative reading — the row
+   * simply stays hidden until the reader finishes the continuing route once.
+   */
+  completedRoutes?: readonly { decision: number; routes: readonly number[] }[];
   /**
    * The ending seen most recently (docs/plan.md Phase 16, "Machine bugs"):
    * an item index the cursor was shown on that IS an ending — the last

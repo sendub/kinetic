@@ -7,6 +7,7 @@ import { describe, expect, it } from "vitest";
 import type { ChoiceRoute, ChoiceView } from "../machine/types";
 import {
   CONTINUE_LABEL,
+  choiceHint,
   choiceRows,
   enterActionFor,
   inputOwnerFor,
@@ -101,5 +102,19 @@ describe("enterActionFor (Enter, owned by the screen)", () => {
     expect(enterActionFor("choice", false)).toBe("none");
     expect(enterActionFor("story", true)).toBe("none");
     expect(enterActionFor("story", false)).toBe("none");
+  });
+});
+
+describe("choiceHint (docs/plan.md Phase 18: the Enter hint follows the row)", () => {
+  // The user had read "Enter returns" on overlays where nothing answered
+  // Enter. The hint's Enter half now renders only when the return row —
+  // which itself requires a completed continuing route — is drawn.
+  it("mentions Enter only when the return row is drawn", () => {
+    const bare = choiceHint(choice([route(0), route(1)]));
+    expect(bare).toBe("1-9 or click picks a route");
+    expect(bare).not.toContain("Enter");
+    const withReturn = choiceHint(choice([route(0), route(1)], true));
+    expect(withReturn).toContain("1-9 or click picks a route");
+    expect(withReturn).toContain("Enter returns");
   });
 });
