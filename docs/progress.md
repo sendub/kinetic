@@ -587,11 +587,21 @@ truthful: an unchecked box means nothing was accepted.
       scenario, 2026-11-01: four `+` clicks then a reload within ~100 ms
       came back at 1.00x in 4 of 6 runs; fire-and-forget settings write).
       Same durability as `b`'s commit-then-confirm.
-- [ ] Route context recomputed on every navigation (user-approved
-      proposal, 2026-11-01): wheel, `e`, bookmark and resume landings
-      derive the open route frames from the cursor's position in the
-      route spans, so a forward press after any jump follows the route
-      the item belongs to. Machine tests across nested spans.
+- [ ] History rollback (user, 2026-11-01: "scrolling back should show
+      what was originally seen going forward"; choice screens are the
+      key visual waypoints of a fast roll back). The machine records
+      every screen shown while reading - each item with its route
+      context, and each choice screen (first fire and route-end
+      re-offers) as its own entry - and the wheel replays that record
+      exactly, back and forth, choice screens included (shown in full).
+      Space from a rolled-back point reads on: while it matches the
+      record it just moves along it; a different path (another pick at
+      a rolled-back choice) replaces the recorded future, as in Ren'Py
+      rollback. `e` and bookmark jumps append to the record. The record
+      (capped) persists in the save, so roll back works after a reload.
+      Absorbs the "route context recomputed on navigation" proposal: a
+      rolled-back entry restores its own route frames. Machine tests,
+      docs, scenarios (navigation, branches) updated.
 - [ ] End card (user-approved proposal): an ending shows how many routes
       are still unseen and the one-key way to the next one, replacing
       the one-line hint.

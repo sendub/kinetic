@@ -770,6 +770,12 @@ directory holds too many files.
   feature; the new suite is independent scenarios on fresh profiles,
   each step of the old driver mapped to one of them.
 
+- History rollback replaces index-order wheel walking (user,
+  2026-11-01): the wheel walked seen items in array order, so after two
+  routes scroll-back interleaved them in file order, and a choice screen
+  was never its own step. The record of screens actually shown is now
+  what the wheel replays (see docs/progress.md Phase 18).
+
 ## Later, waiting on the user
 
 - Overlay text styling iteration once the user can play with the demo.
