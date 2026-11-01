@@ -566,5 +566,11 @@ truthful: an unchecked box means nothing was accepted.
       (`npm run verify`). Every old driver step 1-47 maps to a scenario
       (mapping table in docs/verify-player.md); the old driver is
       deleted; AGENTS.md test-speed rules updated.
+- [ ] Key help simplified (user, 2026-11-01): the Esc screen highlights
+      the main interaction keys only, one way per action. Enter is
+      removed as an alternate key everywhere (never requested): `0`
+      picks "Return to main route" (the row shows 0), help closes by
+      Esc/Space/click; the reset box's keys are not listed in the help.
+      Tests, README, scenarios updated.
 - [ ] Phase-closer: full suite (driver, vitest, pytest, package-proof),
       rebuild BOTH demo folders, present the updated demo to the user.
