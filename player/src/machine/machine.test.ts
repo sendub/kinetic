@@ -684,25 +684,29 @@ describe("short-video timing: loopCount and holdSeconds (docs/plan.md Phase 9b)"
     m.destroy();
   });
 
-  it("leaving and re-entering a video item resets its ended count", () => {
+  it("a video re-shown below the seen edge replays its hold with no ended (Phase 16)", () => {
     vi.useFakeTimers();
     // Seen content: resumeFrontier 2 so a wheel step can return to the video.
+    // The wheel step lands BELOW the seen edge (frontier 2, cursor 0), where
+    // the renderer shows a still and can never report a pass — the shape of
+    // the part-012 stall (docs/plan.md Phase 16). The machine therefore
+    // re-runs the plan's TIME alone: the 2 s bound completes the item with
+    // no ended report at all. (Ended-count reset on re-entry at the seen
+    // edge, this test's former subject, is pinned by the next test.)
     const m = machine([video(1, undefined, { loopCount: 2 }), image()], {
       resumeFrontier: 2,
     });
     expect(m.getState().cursor).toBe(1);
-    m.wheelBack(); // back onto the video: fresh item state, endedCount 0
+    m.wheelBack(); // back onto the video: fresh item state, hold armed afresh
     expect(m.getState()).toEqual({
       cursor: 0,
       frontier: 2,
       settled: false,
       skipping: false,
     });
-    vi.advanceTimersByTime(2000); // the bound replays too
+    vi.advanceTimersByTime(1999); // the bound replays: below the edge it gates alone
     expect(m.getState().cursor).toBe(0);
-    m.mediaEnded(); // the two endeds are needed again from scratch
-    expect(m.getState().cursor).toBe(0);
-    m.mediaEnded();
+    vi.advanceTimersByTime(1);
     expect(m.getState().cursor).toBe(1);
     // Settle semantics are unchanged and unrelated to endedCount: a settled
     // item — an immediate-complete advance(), or a resume / e-jump landing on
@@ -721,6 +725,61 @@ describe("short-video timing: loopCount and holdSeconds (docs/plan.md Phase 9b)"
     m.mediaEnded(); // irrelevant now: the cursor only moves on advance()
     m.advance();
     expect(m.getState().cursor).toBe(1);
+    m.destroy();
+  });
+
+  it("a navigated re-entry AT the seen edge replays the gate and owes its ends again", () => {
+    vi.useFakeTimers();
+    // Wheel steps that land ON the seen edge (cursor == frontier - 1) enter
+    // the video the way forward play does: the renderer re-seeks to
+    // `startSeconds` and reports every pass (render/visual.ts, the fresh-
+    // entry rule). So the ended half of the gate stays live there, counted
+    // afresh for the new entry — what the rewound case above gave up.
+    const m = machine([
+      image(),
+      video(1, undefined, { loopCount: 2 }),
+      image(),
+    ]);
+    vi.advanceTimersByTime(1500); // onto the video at the frontier
+    expect(m.getState()).toMatchObject({ cursor: 1, frontier: 2 });
+    m.wheelBack(); // item 0
+    m.wheelForward(); // re-enter the video, still at the seen edge
+    expect(m.getState()).toMatchObject({ cursor: 1, frontier: 2 });
+    vi.advanceTimersByTime(2000); // the bound replayed, but the ends are owed
+    expect(m.getState().cursor).toBe(1);
+    m.mediaEnded(); // one of two
+    expect(m.getState().cursor).toBe(1);
+    m.mediaEnded(); // the second pass completes the re-entry
+    expect(m.getState().cursor).toBe(2);
+    m.destroy();
+  });
+
+  it("an auto re-walk of seen content passes a range video on its time bound (part-012)", () => {
+    vi.useFakeTimers();
+    // The user's flow, machine-shaped: auto walks forward over the video
+    // (its reports arrive at the seen edge), reaches the end, and the
+    // reader wheels back; auto on, the re-walk meets the same video BELOW
+    // the edge — a still for the renderer, no reports. Pre-fix this froze
+    // forever on item 2 (the part-012 stall).
+    const m = machine([
+      image(),
+      image(),
+      video(1, undefined, { loopCount: 2 }),
+      image(),
+      image(),
+    ]);
+    vi.advanceTimersByTime(3000); // items 0 and 1 on their text holds
+    m.mediaEnded(); // the forward pass at the seen edge reports its passes
+    m.mediaEnded();
+    vi.advanceTimersByTime(2000); // the video's bound
+    vi.advanceTimersByTime(3000); // items 3 and 4, then the end settles
+    expect(m.getState()).toMatchObject({ cursor: 4, settled: true });
+    m.wheelBack(); // onto item 3
+    m.wheelBack(); // onto the video: below the edge
+    vi.advanceTimersByTime(1999);
+    expect(m.getState().cursor).toBe(2);
+    vi.advanceTimersByTime(1); // the plan's replay time elapsed: auto moves on
+    expect(m.getState().cursor).toBe(3);
     m.destroy();
   });
 });

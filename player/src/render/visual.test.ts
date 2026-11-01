@@ -284,6 +284,44 @@ describe("videoPlanFor", () => {
       "timeupdate",
     );
   });
+
+  // --- navigated re-entry (docs/plan.md Phase 16, part-012 stall) ---------
+
+  it("replays the full plan on a re-entry at the seen edge", () => {
+    // Navigation (wheel, `goTo()`, `e`) that lands ON the seen edge is a
+    // fresh entry: mode loop-once, and the plan runs the whole declared
+    // pass sequence — entry seek at `startSeconds`, every pass reported,
+    // loop-backs at `loopStartSeconds` — so the machine's ended half of
+    // the gate is fed on a re-entry exactly as on forward play.
+    expect(playbackModeFor(rangeVideo, undefined, false, 11, 12)).toBe(
+      "loop-once",
+    );
+    expect(videoPlanFor(rangeVideo, "loop-once", true)).toMatchObject({
+      loop: false,
+      reportEnds: 1, // part-012's shape: one 0..1 s pass, reported
+      startSeconds: 0,
+      endSeconds: 1,
+    });
+    // part-013's shape: two passes from a restart point inside the range.
+    expect(videoPlanFor(loopStartVideo, "loop-once", true)).toMatchObject({
+      reportEnds: 2,
+      startSeconds: 1, // the fresh-entry seek stays the range start
+      loopStartSeconds: 1.5, // loop-backs skip the pre-roll
+    });
+  });
+
+  it("reports nothing for a video entered below the seen edge", () => {
+    // Rewound navigation: `playbackModeFor` says "still", the element is
+    // paused on the poster at `startSeconds`, and the plan reports no
+    // pass — the renderer CANNOT feed the machine's ended condition down
+    // here, which is why the machine gates such an entry on its time
+    // bound alone instead of freezing (the auto-forward part-012 stall).
+    expect(playbackModeFor(rangeVideo, undefined, false, 11, 27)).toBe("still");
+    const plan = videoPlanFor(rangeVideo, "still", true);
+    expect(plan.reportEnds).toBe(0);
+    expect(plan.loop).toBe(false);
+    expect(plan.startSeconds).toBe(0); // the still holds the entry frame
+  });
 });
 
 describe("animationFrameAt", () => {

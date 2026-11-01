@@ -357,6 +357,15 @@ content:
   media gate above standing in for the file's duration.
 - Rewind shows `frames[0]` and the poster too. Rewind, skip, and
   `e`-jump show a `text` item as the still of the visual it displays.
+- Because a rewound still never plays, it reports no `ended`: with the
+  cursor below the seen frontier - a rewound item, a bookmark or `e`
+  landing, or an auto re-walk of already-seen content - the video gate
+  is the time bound alone, the same pass-summed duration, and
+  auto-advance fires when it elapses without replaying the clip, the
+  shape an image's gate takes. At the seen frontier a freshly entered
+  video - including one arrived at by navigation - does replay its range
+  and counted passes from `startSeconds`, and the `ended` condition
+  stays in force there (docs/plan.md Phase 16).
 
 ## Naming conventions
 

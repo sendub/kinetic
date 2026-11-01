@@ -239,6 +239,10 @@ export interface Machine {
    * time bound — before a standalone video completes. Ignored when the item has
    * `holdSeconds` (a background video loops freely and never gates), while a
    * `text` item follows, during skip mode, and once the item is settled.
+   * Below the seen edge the visual is a still that reports nothing, so the
+   * ended half of the gate drops out there and the item completes on its
+   * time bound alone (docs/plan.md Phase 16, "Auto-forward stall at
+   * part-012").
    */
   mediaEnded(): void;
   /**
@@ -831,11 +835,26 @@ export function createMachine(options: MachineOptions): Machine {
    * `mediaEnded()`), whichever happens last. A settled item bypasses the gate
    * entirely — its wait ended on the reader's press or on a resume landing,
    * so ended counts are irrelevant to it.
+   *
+   * The ended half applies only while the renderer can actually report it.
+   * Below the seen edge (`cursor < frontier - 1`) the visual is a still —
+   * the documented rewind rule (docs/content-format.md, "Timing";
+   * `playbackModeFor` in render/visual.ts) — and a still never plays, so no
+   * pass report can ever arrive: waiting for one froze auto-advance on a
+   * navigated re-entry of a range video (docs/plan.md Phase 16, "Auto-forward
+   * stall at part-012"). There the gate is the time bound alone, and that
+   * bound IS the full replay of the plan — `videoGateMs` sums the first pass
+   * and every loop pass exactly as forward play does — so a video entered by
+   * navigation (wheel, `goTo()`, `e`, or an auto re-walk of seen content)
+   * becomes eligible when its plan's replay time has elapsed, the same shape
+   * an image completes on. At the seen edge the visual plays on a fresh entry
+   * and reports its passes, and the ended count gates there as always.
    */
   function mediaGateSatisfied(): boolean {
     const item = items[cursor];
     if (item.type !== "video") return true;
     if (item.holdSeconds !== undefined || nextIsText(cursor)) return true;
+    if (cursor < Math.min(highestSeen + 1, count) - 1) return true; // still
     return endedCount >= videoLoops(item);
   }
 

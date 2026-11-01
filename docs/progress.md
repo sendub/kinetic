@@ -417,9 +417,14 @@ truthful: an unchecked box means nothing was accepted.
       unseen-wins pinned anyway; endings = array end + ending-route
       finals, lastEnding in ctx w/ clean legacy migration; repeat e
       stays put; scenario 10/10; 344 tests, 2025-11-02)
-- [ ] Auto-forward stall at `part-012` after viewing to the end and
+- [x] Auto-forward stall at `part-012` after viewing to the end and
       wheeling back to start under auto: navigated re-entry into a
-      range video must replay and gate honestly.
+      range video must replay and gate honestly. (root cause: below
+      the seen edge videos show a STILL and never report ended, yet
+      the gate demanded pass reports; gate below edge = time bound
+      alone (equals the replay), at edge unchanged replay+reports;
+      user flow walks to end, max gap 4.1 s = a legitimately long
+      text hold; 348 tests, 2025-11-02)
 - [ ] `playAllRoutes` persists across reload like the other settings.
 
 ## Later, waiting on the user
