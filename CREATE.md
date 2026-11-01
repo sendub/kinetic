@@ -359,6 +359,10 @@ Copy the built player bundle from this repo into the content folder:
 cp player/dist/index.html player/dist/app.js my-novel/
 ```
 
+Or let `tools/assemble_folder.py <content-dir> <out-folder>` assemble a
+playable copy in one command: it copies the bundle and content, generates
+a missing `manifest.js`, and prints the folder size (docs/packaging.md).
+
 Run `npm run build` in `player/` first if the bundle is not current. The
 bundle in `player/dist` is the current build; the behavior described
 here lands in the later phases of docs/plan.md.

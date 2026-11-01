@@ -1,0 +1,105 @@
+# Packaging a Kinetic Novel
+
+A Kinetic novel is a self-contained folder: the player bundle sitting next
+to its content, playable by double-clicking `index.html` over `file://`.
+The settled decision behind this shape is docs/stack.md § Distribution
+decision; this file is the practical sheet.
+
+## What a novel folder contains
+
+- `index.html`: the entry point a reader double-clicks.
+- `app.js`: the player as one classic (IIFE) bundle; `file://` blocks ES
+  modules, so this is not a module build (docs/stack.md).
+- `manifest.json`: the manifest, source of truth (docs/content-format.md).
+- `manifest.js`: the generated shim that hands the manifest to the page
+  without a fetch, since `file://` blocks it; the validator rejects a
+  shim that differs from `manifest.json`.
+- The media the manifest references, plus unreferenced extras the
+  converter leaves behind (such as `build-ledger.json`), which the
+  player and the validator ignore.
+
+## Building one
+
+Build the bundle once, then assemble. From the repo root:
+
+```sh
+(cd player && npm run build)
+.venv/bin/python tools/assemble_folder.py my-novel novel-play
+```
+
+The same command packages a converter output; both paths produce the
+identical folder shape:
+
+```sh
+.venv/bin/python tools/assemble_folder.py extracted-dir novel-play
+```
+
+The output folder holds exactly what the script places: the current
+bundle from `player/dist/` (a stale `index.html` or `app.js` inside the
+content folder is ignored), the content files, and a generated
+`manifest.js` when the content has only `manifest.json`. A non-empty
+output is refused unless `--force` replaces it. The script prints the
+file count and total size. Check the result with the validator; a clean
+run exits 0:
+
+```sh
+.venv/bin/python tools/validate_content.py novel-play
+```
+
+## Double-click behavior and transport
+
+Double-clicking `index.html` opens the novel in the default browser, and
+the first keypress or click enters fullscreen (CREATE.md § Playing the
+folder). The `file://` constraints that make this work are documented
+once, in docs/stack.md; they are already satisfied by the bundle and the
+shim, so a folder needs no server and nothing installed.
+
+To send a novel to a reader, zip the folder and send the archive:
+
+```sh
+zip -r novel.zip novel-play
+```
+
+The reader unzips anywhere and double-clicks `index.html`. Locally
+generated files carry no quarantine flag, so nothing prompts
+(docs/stack.md § Distribution decision).
+
+## Size expectations
+
+The bundle is just under 100 KB (`app.js` about 83 KB, `index.html`
+about 15 KB); everything else is media, so a novel's size is its media's
+size. Measured proof folders: the demo fixture assembles to 23 files,
+about 275 KB; the extracted one-video slice to 13 files, about 230 KB.
+
+## Honest caveats
+
+- The reader needs a modern browser. `.jxl` images decode on Chrome/Edge
+  117+, Safari 17+, or Firefox 133+, and `.mkv` video is reliably
+  Chromium-class; the full matrix is docs/content-format.md § Items.
+  When a reader's browser lacks a format, the fix is content-side:
+  re-encode to a format it plays.
+- There is no audio by design (README.md), and videos are muted; nothing
+  a reader plugs in changes that.
+
+## Tauri and signing: revisit trigger, not built
+
+If a signed `.app` is wanted later (own icon in Applications, Spotlight
+results), the path from docs/stack.md § Revisit triggers is a Tauri v2
+wrapper: a small Rust binary over the system webview that ships these
+same static files, with nothing inside the app changing. It needs a Rust
+toolchain the user installs, and the current folder shape already
+satisfies distribution, so it stays unbuilt until that trigger fires.
+
+## Proof
+
+`npm run package-proof` (from `player/`) reruns the headless acceptance:
+it assembles `fixtures/demo` into `.tmp/pkg-demo` and the extracted slice
+into `.tmp/pkg-extract` with the script above, proves the overwrite
+refusal and `--force`, passes the validator on both, and loads each
+folder in headless Chrome over `file://` with a fresh profile: first load
+shows the key help, the first visual paints, space advances one item,
+Escape opens and closes the help, and the console stays clean. Finder's
+`open` does not exist in a headless run, so the documented equivalent is
+proven instead: `index.html` exists on disk and the `file://` URL of that
+exact path loads and plays, which is the same handoff a double-click
+makes.

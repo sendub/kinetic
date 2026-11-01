@@ -8,6 +8,7 @@
     "dev": "node scripts/dev.mjs",
     "build": "node scripts/build.mjs",
     "perf": "node scripts/perf.mjs",
+    "package-proof": "node scripts/package-proof.mjs",
     "test": "vitest run",
     "check": "biome check . && tsc --noEmit"
   },
