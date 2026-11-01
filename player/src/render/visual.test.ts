@@ -51,43 +51,92 @@ const text = item({ type: "text", text: "A line." });
 describe("playbackModeFor", () => {
   it("plays a standalone media item at the frontier exactly once", () => {
     // cursor 3 of frontier 4: the last shown item, nothing unseen ahead.
-    expect(playbackModeFor(video, undefined, false, 3, 4)).toBe("loop-once");
-    expect(playbackModeFor(animation, video, false, 3, 4)).toBe("loop-once");
-    // loopCount/holdSeconds change the video plan, not the mode: still
-    // loop-once; `videoPlanFor` below decides passes vs free looping.
-    expect(playbackModeFor(loopVideo, undefined, false, 3, 4)).toBe(
+    // At the edge the kind of the arrival changes nothing.
+    expect(playbackModeFor(video, undefined, false, "nav", 3, 4)).toBe(
       "loop-once",
     );
-    expect(playbackModeFor(holdVideo, undefined, false, 3, 4)).toBe(
+    expect(playbackModeFor(video, undefined, false, "advance", 3, 4)).toBe(
+      "loop-once",
+    );
+    expect(playbackModeFor(animation, video, false, "nav", 3, 4)).toBe(
+      "loop-once",
+    );
+    // loopCount/holdSeconds change the video plan, not the mode: still
+    // loop-once; `videoPlanFor` below decides passes vs free looping.
+    expect(playbackModeFor(loopVideo, undefined, false, "nav", 3, 4)).toBe(
+      "loop-once",
+    );
+    expect(playbackModeFor(holdVideo, undefined, false, "nav", 3, 4)).toBe(
       "loop-once",
     );
   });
 
   it("loops forever while the current item is text", () => {
-    expect(playbackModeFor(text, undefined, false, 6, 7)).toBe("loop-forever");
-    expect(playbackModeFor(text, video, false, 6, 7)).toBe("loop-forever");
+    expect(playbackModeFor(text, undefined, false, "nav", 6, 7)).toBe(
+      "loop-forever",
+    );
+    expect(playbackModeFor(text, video, false, "advance", 6, 7)).toBe(
+      "loop-forever",
+    );
   });
 
   it("loops forever while the NEXT item is text — the chain's head", () => {
-    expect(playbackModeFor(video, text, false, 5, 6)).toBe("loop-forever");
-    expect(playbackModeFor(animation, text, false, 5, 6)).toBe("loop-forever");
+    expect(playbackModeFor(video, text, false, "nav", 5, 6)).toBe(
+      "loop-forever",
+    );
+    expect(playbackModeFor(animation, text, false, "advance", 5, 6)).toBe(
+      "loop-forever",
+    );
   });
 
-  it("shows stills on rewind: the cursor sits below the frontier", () => {
-    // Even a chain item rewound to is a still (docs/content-format.md).
-    expect(playbackModeFor(video, text, false, 5, 8)).toBe("still");
-    expect(playbackModeFor(text, undefined, false, 6, 8)).toBe("still");
-    expect(playbackModeFor(animation, undefined, false, 0, 4)).toBe("still");
+  it("shows stills on a nav arrival below the frontier", () => {
+    // Wheel scrub, bookmark `goTo()`, `e` jump, route entry: the cursor is on
+    // content already seen, so it stays a poster (docs/content-format.md).
+    // Even a chain item rewound to is a still.
+    expect(playbackModeFor(video, text, false, "nav", 5, 8)).toBe("still");
+    expect(playbackModeFor(text, undefined, false, "nav", 6, 8)).toBe("still");
+    expect(playbackModeFor(animation, undefined, false, "nav", 0, 4)).toBe(
+      "still",
+    );
   });
 
-  it("shows stills during skip, chain or not", () => {
-    expect(playbackModeFor(video, text, true, 5, 6)).toBe("still");
-    expect(playbackModeFor(text, undefined, true, 5, 6)).toBe("still");
-    expect(playbackModeFor(animation, undefined, true, 5, 6)).toBe("still");
+  it("replays a forward advance below the frontier", () => {
+    // The reader is re-READING this content by pressing forward (or auto
+    // re-walking it), so media plays again at any position: same modes the
+    // same items get at the edge.
+    expect(playbackModeFor(video, undefined, false, "advance", 5, 8)).toBe(
+      "loop-once",
+    );
+    expect(playbackModeFor(animation, undefined, false, "advance", 0, 4)).toBe(
+      "loop-once",
+    );
+    expect(playbackModeFor(video, text, false, "advance", 5, 8)).toBe(
+      "loop-forever",
+    );
+    expect(playbackModeFor(text, undefined, false, "advance", 6, 8)).toBe(
+      "loop-forever",
+    );
+  });
+
+  it("shows stills during skip, chain or not, at any position", () => {
+    // Skip wins over the arrival kind and the cursor position.
+    for (const kind of ["nav", "advance"] as const) {
+      expect(playbackModeFor(video, text, true, kind, 5, 6)).toBe("still");
+      expect(playbackModeFor(text, undefined, true, kind, 5, 6)).toBe("still");
+      expect(playbackModeFor(animation, undefined, true, kind, 5, 6)).toBe(
+        "still",
+      );
+      expect(playbackModeFor(video, undefined, true, kind, 5, 8)).toBe("still");
+    }
   });
 
   it("falls back to still when there is no cursor item", () => {
-    expect(playbackModeFor(undefined, undefined, false, 0, 0)).toBe("still");
+    expect(playbackModeFor(undefined, undefined, false, "nav", 0, 0)).toBe(
+      "still",
+    );
+    expect(playbackModeFor(undefined, undefined, false, "advance", 0, 0)).toBe(
+      "still",
+    );
   });
 });
 
@@ -293,7 +342,7 @@ describe("videoPlanFor", () => {
     // pass sequence — entry seek at `startSeconds`, every pass reported,
     // loop-backs at `loopStartSeconds` — so the machine's ended half of
     // the gate is fed on a re-entry exactly as on forward play.
-    expect(playbackModeFor(rangeVideo, undefined, false, 11, 12)).toBe(
+    expect(playbackModeFor(rangeVideo, undefined, false, "nav", 11, 12)).toBe(
       "loop-once",
     );
     expect(videoPlanFor(rangeVideo, "loop-once", true)).toMatchObject({
@@ -310,17 +359,35 @@ describe("videoPlanFor", () => {
     });
   });
 
-  it("reports nothing for a video entered below the seen edge", () => {
+  it("reports nothing for a video entered by navigation below the edge", () => {
     // Rewound navigation: `playbackModeFor` says "still", the element is
     // paused on the poster at `startSeconds`, and the plan reports no
     // pass — the renderer CANNOT feed the machine's ended condition down
     // here, which is why the machine gates such an entry on its time
     // bound alone instead of freezing (the auto-forward part-012 stall).
-    expect(playbackModeFor(rangeVideo, undefined, false, 11, 27)).toBe("still");
+    expect(playbackModeFor(rangeVideo, undefined, false, "nav", 11, 27)).toBe(
+      "still",
+    );
     const plan = videoPlanFor(rangeVideo, "still", true);
     expect(plan.reportEnds).toBe(0);
     expect(plan.loop).toBe(false);
     expect(plan.startSeconds).toBe(0); // the still holds the entry frame
+  });
+
+  it("feeds the ended condition again on an advance below the edge", () => {
+    // The same cursor/frontier as above, reached by pressing forward: mode
+    // loop-once, so the plan runs its passes and reports them. The machine's
+    // gate stays the time bound there — it IS this replay's duration — so
+    // auto pacing matches whether or not the element managed to play.
+    expect(
+      playbackModeFor(rangeVideo, undefined, false, "advance", 11, 27),
+    ).toBe("loop-once");
+    expect(videoPlanFor(rangeVideo, "loop-once", true)).toMatchObject({
+      loop: false,
+      reportEnds: 1,
+      startSeconds: 0,
+      endSeconds: 1,
+    });
   });
 });
 

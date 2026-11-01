@@ -430,12 +430,18 @@ truthful: an unchecked box means nothing was accepted.
       stored but dropped on read; sanitizer now derives fields+types
       from DEFAULT_SETTINGS so no setting can be missed again;
       scenario: reload ON/OFF both correct; 351 tests, 2025-11-02)
-- [ ] Video re-watch does not replay: after passing videos, wheeling
+- [x] Video re-watch does not replay: after passing videos, wheeling
       back before them, then advancing forward with space/auto, they
       show only their poster. A forward re-entry must play the video
       again like first arrival. Reproduce, root-cause against the
       Phase 16.9 `mediaGateSatisfied` change + the renderer play
       trigger, fix so any forward current-item set plays a video.
+      (culprit: playbackModeFor forced poster for EVERY below-edge
+      cursor; machine now tags each step advance|nav (one funnel,
+      non-moving commands never rewrite it); advance plays at any
+      cursor, nav-below-edge + skipping stay posters, at-edge
+      unchanged; scenario: space + auto replay all three videos,
+      wheel stays paused; 360 tests, 2025-11-02)
 - [ ] New "Reset progress" config option: clears ALL saved state for
       the content (resume, seen/visited, played routes, bookmarks,
       settings) to restore the first-ever-play experience incl. the

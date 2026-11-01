@@ -4,8 +4,12 @@
 // underneath the chain (docs/content-format.md, "Text items").
 //
 // Playback is derived from machine state alone:
-//   playing = !skipping && cursor >= frontier - 1. Rewind and skip show
-//   stills (animation `frames[0]`, video poster), never play.
+//   playing = !skipping && (cursor >= frontier - 1 || the step that arrived
+//   was a forward advance). Skip and a NAV arrival below the seen edge — the
+//   wheel scrub, a bookmark, the `e` jump, a route entry — show stills
+//   (animation `frames[0]`, video poster); an ADVANCE (space or the auto
+//   timer) replays its media wherever the cursor sits, so content read once
+//   plays again when the reader advances back over it.
 //   In a chain — the cursor item is `text`, or the next manifest item is
 //   `text` — the visual loops continuously and media end gates nothing.
 //   A standalone animation cycles its frames at `fps` for `loopCount` loops
@@ -50,6 +54,7 @@ import type {
   Item,
   MachineState,
   Manifest,
+  TransitionKind,
   VideoItem,
 } from "../machine/types";
 
@@ -57,23 +62,28 @@ import type {
 export type PlaybackMode = "still" | "loop-once" | "loop-forever";
 
 /**
- * Pure chain/still decision. The visual plays only while the cursor is at
- * the frontier (`cursor >= frontier - 1`) and skip mode is off; rewind and
- * skip show stills. It plays continuously — `loop-forever`, media end
- * ignored — while the cursor item is `text` or the next manifest item is:
- * the chain's visual loops under the whole chain. Otherwise a media visual
- * runs its fixed cycle once (for a video, its declared passes — see
- * `videoPlanFor`).
+ * Pure chain/still decision. The visual plays while skip mode is off, and
+ * either the cursor is at the frontier (`cursor >= frontier - 1`) or the step
+ * that made it current was a forward `advance`: a `nav` arrival below the
+ * seen edge — the wheel scrub, a bookmark, the `e` jump, a route entry —
+ * shows stills, while advancing forward over already-seen content plays it
+ * again (docs/content-format.md, "Timing"). It plays continuously —
+ * `loop-forever`, media end ignored — while the cursor item is `text` or the
+ * next manifest item is: the chain's visual loops under the whole chain.
+ * Otherwise a media visual runs its fixed cycle once (for a video, its
+ * declared passes — see `videoPlanFor`).
  */
 export function playbackModeFor(
   cursorItem: Item | undefined,
   nextItem: Item | undefined,
   skipping: boolean,
+  transition: TransitionKind,
   cursor: number,
   frontier: number,
 ): PlaybackMode {
   if (cursorItem === undefined) return "still";
-  if (skipping || cursor < frontier - 1) return "still";
+  if (skipping || (cursor < frontier - 1 && transition === "nav"))
+    return "still";
   if (cursorItem.type === "text" || nextItem?.type === "text") {
     return "loop-forever";
   }
@@ -239,8 +249,9 @@ export function upcomingVisualFiles(
 export interface VisualLayer {
   /**
    * Draw the item under `machine.visualIndex()` with the playback mode that
-   * `state` implies. `skipping` holds media to stills; rewind (cursor below
-   * the frontier) holds them too (docs/content-format.md, "Timing").
+   * `state` implies. `skipping` holds media to stills, and so does a nav
+   * arrival with the cursor below the frontier; an advance arriving there
+   * replays the media (docs/content-format.md, "Timing").
    */
   update(item: Item | undefined, state: MachineState): void;
   /**
@@ -767,6 +778,7 @@ export function createVisualLayer(
         manifest.items[state.cursor],
         manifest.items[state.cursor + 1],
         state.skipping,
+        state.transition,
         state.cursor,
         state.frontier,
       );

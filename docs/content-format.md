@@ -355,14 +355,29 @@ content:
   contributes `frames[0]` and a video its `poster`; both show that
   still and never play. A video holds for `min(skipDwell, gate)`, the
   media gate above standing in for the file's duration.
-- Rewind shows `frames[0]` and the poster too. Rewind, skip, and
-  `e`-jump show a `text` item as the still of the visual it displays.
+- Rewind and skip show `frames[0]` and the poster too, with the one
+  exception stated next. A `nav` arrival below the seen edge - a wheel
+  step, a bookmark jump, the `e` jump - shows a `text` item as the
+  still of the visual it displays.
+- Media plays again on a forward advance. The player records how the
+  current item was reached: a forward step - a space press or the auto
+  timer moving one item on - is an `advance`; every other arrival - the
+  wheel, a bookmark jump or restore, the `e` jump, a route entry, skip's
+  dwell step, the load landing - is `nav`. An advance plays its media
+  wherever the cursor sits, so content read once replays when the
+  reader advances back over it, and the visual under a `text` item it
+  lands on loops on, as the chain rule says. A `nav` arrival shows the
+  stills above while the cursor is below the seen edge; at the edge it
+  plays. Skip shows stills either way.
 - Because a rewound still never plays, it reports no `ended`: with the
-  cursor below the seen frontier - a rewound item, a bookmark or `e`
-  landing, or an auto re-walk of already-seen content - the video gate
-  is the time bound alone, the same pass-summed duration, and
-  auto-advance fires when it elapses without replaying the clip, the
-  shape an image's gate takes. At the seen frontier a freshly entered
+  cursor below the seen frontier on a `nav` arrival - a wheel step, a
+  bookmark or `e` landing, a restore - the video gate is the time bound
+  alone, the same pass-summed duration, and auto-advance fires when it
+  elapses without replaying the clip, the shape an image's gate takes.
+  A forward advance below that edge does replay its passes and does
+  report them; the bound stays the whole gate there too, because it
+  equals that replay, so auto pacing matches playback whether or not the
+  element managed to play. At the seen frontier a freshly entered
   video - including one arrived at by navigation - does replay its range
   and counted passes from `startSeconds`, and the `ended` condition
   stays in force there (docs/plan.md Phase 16).

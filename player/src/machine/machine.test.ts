@@ -156,6 +156,7 @@ describe("advance() through every item type", () => {
       frontier: 1,
       settled: false,
       skipping: false,
+      transition: "nav",
     });
     m.destroy();
   });
@@ -175,6 +176,7 @@ describe("advance() through every item type", () => {
       frontier: 1,
       settled: true,
       skipping: false,
+      transition: "nav",
     });
     // Second press moves, and the frontier follows into unseen content.
     m.advance();
@@ -183,6 +185,7 @@ describe("advance() through every item type", () => {
       frontier: 2,
       settled: false,
       skipping: false,
+      transition: "advance",
     });
     m.advance(); // settle animation
     m.advance(); // move onto the video
@@ -191,6 +194,7 @@ describe("advance() through every item type", () => {
       frontier: 3,
       settled: false,
       skipping: false,
+      transition: "advance",
     });
     // At the last item, settles then clamps with the frontier at the end.
     m.advance();
@@ -200,6 +204,7 @@ describe("advance() through every item type", () => {
       frontier: 3,
       settled: true,
       skipping: false,
+      transition: "advance",
     });
     m.destroy();
   });
@@ -217,6 +222,7 @@ describe("auto-advance timing", () => {
       frontier: 2,
       settled: false,
       skipping: false,
+      transition: "advance",
     });
     m.destroy();
   });
@@ -231,6 +237,7 @@ describe("auto-advance timing", () => {
       frontier: 1,
       settled: true,
       skipping: false,
+      transition: "nav",
     });
     m.destroy();
   });
@@ -289,6 +296,7 @@ describe("manual and auto modes, pause/resume (docs/plan.md Phase 13b)", () => {
       frontier: 2,
       settled: false,
       skipping: false,
+      transition: "advance",
     });
     vi.advanceTimersByTime(60_000); // the fresh item waits for the reader too
     expect(m.getState().cursor).toBe(1);
@@ -298,6 +306,7 @@ describe("manual and auto modes, pause/resume (docs/plan.md Phase 13b)", () => {
       frontier: 3,
       settled: false,
       skipping: false,
+      transition: "advance",
     });
     m.advance(); // at the last item there is nowhere to go: it settles
     expect(m.getState()).toEqual({
@@ -305,6 +314,7 @@ describe("manual and auto modes, pause/resume (docs/plan.md Phase 13b)", () => {
       frontier: 3,
       settled: true,
       skipping: false,
+      transition: "advance",
     });
     m.destroy();
   });
@@ -327,6 +337,7 @@ describe("manual and auto modes, pause/resume (docs/plan.md Phase 13b)", () => {
       frontier: 4,
       settled: true,
       skipping: false,
+      transition: "nav",
     });
     m.advance(); // and only the next press moves on
     expect(m.getState().cursor).toBe(2);
@@ -429,6 +440,7 @@ describe("manual and auto modes, pause/resume (docs/plan.md Phase 13b)", () => {
       frontier: 1,
       settled: true,
       skipping: false,
+      transition: "nav",
     });
     m.destroy();
   });
@@ -498,6 +510,7 @@ describe("video and mediaEnded()", () => {
       frontier: 2,
       settled: false,
       skipping: false,
+      transition: "advance",
     });
     m.destroy();
   });
@@ -547,6 +560,7 @@ describe("short-video timing: loopCount and holdSeconds (docs/plan.md Phase 9b)"
       frontier: 2,
       settled: false,
       skipping: false,
+      transition: "advance",
     });
     // The text hold still floors a shorter holdSeconds.
     const floored = machine([
@@ -573,6 +587,7 @@ describe("short-video timing: loopCount and holdSeconds (docs/plan.md Phase 9b)"
       frontier: 1,
       settled: false,
       skipping: false,
+      transition: "nav",
     });
     vi.advanceTimersByTime(1);
     expect(m.getState().cursor).toBe(1);
@@ -590,6 +605,7 @@ describe("short-video timing: loopCount and holdSeconds (docs/plan.md Phase 9b)"
       frontier: 1,
       settled: false,
       skipping: false,
+      transition: "nav",
     });
     m.mediaEnded(); // second ended completes the item
     expect(m.getState()).toEqual({
@@ -597,6 +613,7 @@ describe("short-video timing: loopCount and holdSeconds (docs/plan.md Phase 9b)"
       frontier: 2,
       settled: false,
       skipping: false,
+      transition: "advance",
     });
     m.destroy();
   });
@@ -614,6 +631,7 @@ describe("short-video timing: loopCount and holdSeconds (docs/plan.md Phase 9b)"
       frontier: 1,
       settled: false,
       skipping: false,
+      transition: "nav",
     });
     vi.advanceTimersByTime(1); // 2000 ms from the item start
     expect(m.getState().cursor).toBe(1);
@@ -703,6 +721,7 @@ describe("short-video timing: loopCount and holdSeconds (docs/plan.md Phase 9b)"
       frontier: 2,
       settled: false,
       skipping: false,
+      transition: "nav",
     });
     vi.advanceTimersByTime(1999); // the bound replays: below the edge it gates alone
     expect(m.getState().cursor).toBe(0);
@@ -721,6 +740,7 @@ describe("short-video timing: loopCount and holdSeconds (docs/plan.md Phase 9b)"
       frontier: 2,
       settled: true,
       skipping: false,
+      transition: "nav",
     });
     m.mediaEnded(); // irrelevant now: the cursor only moves on advance()
     m.advance();
@@ -800,6 +820,7 @@ describe("range-based video timing (docs/plan.md Phase 9c)", () => {
       frontier: 1,
       settled: false,
       skipping: false,
+      transition: "nav",
     });
     vi.advanceTimersByTime(1); // 2000 ms, not 4000: the range gates
     expect(m.getState().cursor).toBe(1);
@@ -976,6 +997,7 @@ describe("text items hold on the text alone (docs/content-format.md, Text items)
       frontier: 1,
       settled: false,
       skipping: false,
+      transition: "nav",
     });
     vi.advanceTimersByTime(1);
     expect(m.getState()).toEqual({
@@ -983,6 +1005,7 @@ describe("text items hold on the text alone (docs/content-format.md, Text items)
       frontier: 2,
       settled: false,
       skipping: false,
+      transition: "advance",
     });
     // On the text item, mediaEnded is irrelevant: the cursor does not move.
     m.mediaEnded();
@@ -991,6 +1014,7 @@ describe("text items hold on the text alone (docs/content-format.md, Text items)
       frontier: 2,
       settled: false,
       skipping: false,
+      transition: "advance",
     });
     vi.advanceTimersByTime(2399);
     expect(m.getState().cursor).toBe(1);
@@ -1000,6 +1024,7 @@ describe("text items hold on the text alone (docs/content-format.md, Text items)
       frontier: 3,
       settled: false,
       skipping: false,
+      transition: "advance",
     });
     m.destroy();
   });
@@ -1020,6 +1045,7 @@ describe("text items hold on the text alone (docs/content-format.md, Text items)
       frontier: 2,
       settled: false,
       skipping: false,
+      transition: "advance",
     });
     vi.advanceTimersByTime(1499);
     expect(m.getState().cursor).toBe(1);
@@ -1029,6 +1055,7 @@ describe("text items hold on the text alone (docs/content-format.md, Text items)
       frontier: 3,
       settled: false,
       skipping: false,
+      transition: "advance",
     });
     vi.advanceTimersByTime(1500); // second text line
     expect(m.getState()).toEqual({
@@ -1036,6 +1063,7 @@ describe("text items hold on the text alone (docs/content-format.md, Text items)
       frontier: 4,
       settled: false,
       skipping: false,
+      transition: "advance",
     });
     m.destroy();
   });
@@ -1053,6 +1081,7 @@ describe("text items hold on the text alone (docs/content-format.md, Text items)
       frontier: 2,
       settled: false,
       skipping: false,
+      transition: "advance",
     });
     m.destroy();
   });
@@ -1072,6 +1101,7 @@ describe("text items hold on the text alone (docs/content-format.md, Text items)
       frontier: 2,
       settled: false,
       skipping: false,
+      transition: "advance",
     });
     expect(alone.getState().cursor).toBe(0); // still looping
     vi.advanceTimersByTime(2500);
@@ -1093,6 +1123,7 @@ describe("text items hold on the text alone (docs/content-format.md, Text items)
       frontier: 3,
       settled: true,
       skipping: false,
+      transition: "advance",
     });
     m.destroy();
   });
@@ -1158,6 +1189,7 @@ describe("frontier and wheel rules", () => {
       frontier: 2,
       settled: true,
       skipping: false,
+      transition: "nav",
     });
     m.advance();
     expect(m.getState()).toEqual({
@@ -1165,6 +1197,7 @@ describe("frontier and wheel rules", () => {
       frontier: 3,
       settled: false,
       skipping: false,
+      transition: "advance",
     });
     m.destroy();
   });
@@ -1176,6 +1209,7 @@ describe("frontier and wheel rules", () => {
       frontier: 2,
       settled: true,
       skipping: false,
+      transition: "nav",
     });
     m.wheelForward(); // cursor 1 === frontier - 1: unseen ahead, blocked
     expect(m.getState()).toEqual({
@@ -1183,6 +1217,7 @@ describe("frontier and wheel rules", () => {
       frontier: 2,
       settled: true,
       skipping: false,
+      transition: "nav",
     });
     m.wheelBack();
     expect(m.getState().cursor).toBe(0);
@@ -1194,6 +1229,7 @@ describe("frontier and wheel rules", () => {
       frontier: 2,
       settled: false,
       skipping: false,
+      transition: "nav",
     });
     // advance() may cross the frontier; the wheel may not.
     m.advance(); // settle the re-shown item
@@ -1203,6 +1239,7 @@ describe("frontier and wheel rules", () => {
       frontier: 3,
       settled: false,
       skipping: false,
+      transition: "advance",
     });
     m.destroy();
   });
@@ -1217,6 +1254,7 @@ describe("frontier and wheel rules", () => {
       frontier: 3,
       settled: true,
       skipping: false,
+      transition: "nav",
     });
     expect(m.visualIndex()).toBe(1); // the video's visual keeps showing
     m.wheelForward(); // unseen item ahead: blocked
@@ -1225,6 +1263,7 @@ describe("frontier and wheel rules", () => {
       frontier: 3,
       settled: true,
       skipping: false,
+      transition: "nav",
     });
     m.wheelBack(); // back through seen content, same visual
     expect(m.getState()).toEqual({
@@ -1232,6 +1271,7 @@ describe("frontier and wheel rules", () => {
       frontier: 3,
       settled: false,
       skipping: false,
+      transition: "nav",
     });
     expect(m.visualIndex()).toBe(1);
     m.wheelForward(); // forward again through seen content
@@ -1246,6 +1286,7 @@ describe("frontier and wheel rules", () => {
       frontier: 4,
       settled: false,
       skipping: false,
+      transition: "advance",
     });
     expect(m.visualIndex()).toBe(1);
     m.destroy();
@@ -1259,6 +1300,7 @@ describe("frontier and wheel rules", () => {
       frontier: 1,
       settled: false,
       skipping: false,
+      transition: "nav",
     });
     m.destroy();
   });
@@ -1271,6 +1313,7 @@ describe("frontier and wheel rules", () => {
       frontier: 1,
       settled: false,
       skipping: false,
+      transition: "nav",
     });
     m.destroy();
   });
@@ -1323,6 +1366,7 @@ describe("skip mode (tab), docs/plan.md Phase 4", () => {
       frontier: 3,
       settled: false,
       skipping: true,
+      transition: "nav",
     });
     vi.advanceTimersByTime(1);
     // Moved onto the first unseen item (shown, so frontier moves too) and
@@ -1332,6 +1376,7 @@ describe("skip mode (tab), docs/plan.md Phase 4", () => {
       frontier: 4,
       settled: false,
       skipping: false,
+      transition: "nav",
     });
     // Shown normally: the item's own 1500 ms hold drives auto-advance.
     vi.advanceTimersByTime(1499);
@@ -1342,6 +1387,7 @@ describe("skip mode (tab), docs/plan.md Phase 4", () => {
       frontier: 5,
       settled: false,
       skipping: false,
+      transition: "advance",
     });
     m.destroy();
   });
@@ -1365,6 +1411,7 @@ describe("skip mode (tab), docs/plan.md Phase 4", () => {
       frontier: 5,
       settled: false,
       skipping: false,
+      transition: "nav",
     });
     m.destroy();
   });
@@ -1381,6 +1428,7 @@ describe("skip mode (tab), docs/plan.md Phase 4", () => {
       frontier: 2,
       settled: false,
       skipping: true,
+      transition: "nav",
     });
     m.toggleSkip(); // tab again: manual off
     expect(m.getState().skipping).toBe(false);
@@ -1403,6 +1451,7 @@ describe("skip mode (tab), docs/plan.md Phase 4", () => {
       frontier: 1,
       settled: true,
       skipping: false,
+      transition: "nav",
     });
     vi.advanceTimersByTime(60_000); // nothing pending advances by itself
     expect(m.getState().cursor).toBe(0);
@@ -1423,6 +1472,7 @@ describe("skip mode (tab), docs/plan.md Phase 4", () => {
       frontier: 3,
       settled: false,
       skipping: false,
+      transition: "nav",
     });
     m.toggleSkip();
     m.wheelForward(); // forward step also exits skip and performs
@@ -1431,6 +1481,7 @@ describe("skip mode (tab), docs/plan.md Phase 4", () => {
       frontier: 3,
       settled: false,
       skipping: false,
+      transition: "nav",
     });
     m.toggleSkip();
     m.wheelForward(); // blocked at the frontier: exits skip, stays
@@ -1439,6 +1490,7 @@ describe("skip mode (tab), docs/plan.md Phase 4", () => {
       frontier: 3,
       settled: false,
       skipping: false,
+      transition: "nav",
     });
     m.destroy();
   });
@@ -1463,6 +1515,7 @@ describe("e-jump (jumpToUnseen), docs/plan.md Phase 4", () => {
       frontier: 4,
       settled: false,
       skipping: false,
+      transition: "nav",
     });
     m.jumpToUnseen(); // the landing is seen now: step to the next unseen item
     expect(m.getState()).toEqual({
@@ -1470,6 +1523,7 @@ describe("e-jump (jumpToUnseen), docs/plan.md Phase 4", () => {
       frontier: 5,
       settled: false,
       skipping: false,
+      transition: "nav",
     });
     m.jumpToUnseen(); // nothing unseen left: stay
     expect(m.getState()).toEqual({
@@ -1477,6 +1531,7 @@ describe("e-jump (jumpToUnseen), docs/plan.md Phase 4", () => {
       frontier: 5,
       settled: false,
       skipping: false,
+      transition: "nav",
     });
     m.destroy();
   });
@@ -1489,6 +1544,7 @@ describe("e-jump (jumpToUnseen), docs/plan.md Phase 4", () => {
       frontier: 2,
       settled: false,
       skipping: false,
+      transition: "nav",
     });
     // One item seen per press: the jump consumed nothing it did not show.
     m.advance(); // the landing was a fresh entry: this press settles it
@@ -1509,6 +1565,7 @@ describe("goTo (t-overlay bookmark click), docs/plan.md Phase 8", () => {
       frontier: 4,
       settled: true,
       skipping: false,
+      transition: "nav",
     });
     m.goTo(0); // back to the very first item
     expect(m.getState()).toEqual({
@@ -1516,6 +1573,7 @@ describe("goTo (t-overlay bookmark click), docs/plan.md Phase 8", () => {
       frontier: 4,
       settled: false,
       skipping: false,
+      transition: "nav",
     });
     m.goTo(2); // forward, mid-seen
     expect(m.getState()).toEqual({
@@ -1523,6 +1581,7 @@ describe("goTo (t-overlay bookmark click), docs/plan.md Phase 8", () => {
       frontier: 4,
       settled: false,
       skipping: false,
+      transition: "nav",
     });
     m.goTo(1);
     m.goTo(3); // back onto the frontier edge itself
@@ -1531,6 +1590,7 @@ describe("goTo (t-overlay bookmark click), docs/plan.md Phase 8", () => {
       frontier: 4,
       settled: false,
       skipping: false,
+      transition: "nav",
     });
     m.advance(); // arrival was unsettled: this press settles, it does not move
     expect(m.getState().cursor).toBe(3);
@@ -1540,6 +1600,7 @@ describe("goTo (t-overlay bookmark click), docs/plan.md Phase 8", () => {
       frontier: 5,
       settled: false,
       skipping: false,
+      transition: "advance",
     });
     m.destroy();
   });
@@ -1555,6 +1616,7 @@ describe("goTo (t-overlay bookmark click), docs/plan.md Phase 8", () => {
       frontier: 2,
       settled: false,
       skipping: false,
+      transition: "nav",
     });
     m.goTo(99); // same clamp for a far-off index
     expect(m.getState().cursor).toBe(1);
@@ -1576,6 +1638,7 @@ describe("goTo (t-overlay bookmark click), docs/plan.md Phase 8", () => {
       frontier: 3,
       settled: false,
       skipping: false,
+      transition: "nav",
     });
     // The item's own hold is armed: at 1499 ms nothing has moved...
     vi.advanceTimersByTime(1499);
@@ -1584,6 +1647,7 @@ describe("goTo (t-overlay bookmark click), docs/plan.md Phase 8", () => {
       frontier: 3,
       settled: false,
       skipping: false,
+      transition: "nav",
     });
     // ...and at the bare-image hold (1500 ms) auto-advance continues the
     // novel from the bookmark — README: "continues the novel from that
@@ -1594,6 +1658,7 @@ describe("goTo (t-overlay bookmark click), docs/plan.md Phase 8", () => {
       frontier: 3,
       settled: false,
       skipping: false,
+      transition: "advance",
     });
     m.destroy();
   });
@@ -1608,6 +1673,7 @@ describe("goTo (t-overlay bookmark click), docs/plan.md Phase 8", () => {
       frontier: 3,
       settled: false,
       skipping: false,
+      transition: "nav",
     });
     vi.advanceTimersByTime(10_000); // hold elapses: settle, nothing to enter
     expect(m.getState()).toEqual({
@@ -1615,6 +1681,7 @@ describe("goTo (t-overlay bookmark click), docs/plan.md Phase 8", () => {
       frontier: 3,
       settled: true,
       skipping: false,
+      transition: "nav",
     });
     m.destroy();
   });
@@ -1630,6 +1697,7 @@ describe("goTo (t-overlay bookmark click), docs/plan.md Phase 8", () => {
       frontier: 3,
       settled: false,
       skipping: false,
+      transition: "nav",
     });
     m.destroy();
   });
@@ -1642,6 +1710,7 @@ describe("goTo (t-overlay bookmark click), docs/plan.md Phase 8", () => {
       frontier: 0,
       settled: false,
       skipping: false,
+      transition: "nav",
     });
     empty.destroy();
 
@@ -1655,6 +1724,7 @@ describe("goTo (t-overlay bookmark click), docs/plan.md Phase 8", () => {
       frontier: 2,
       settled: false,
       skipping: false,
+      transition: "nav",
     });
     m.destroy();
     m.goTo(1);
@@ -1673,6 +1743,7 @@ describe("goTo (t-overlay bookmark click), docs/plan.md Phase 8", () => {
       frontier: 0,
       settled: false,
       skipping: false,
+      transition: "nav",
     });
     vi.advanceTimersByTime(60_000); // no auto-advance was armed at start
     expect(m.getState().cursor).toBe(0);
@@ -1691,6 +1762,7 @@ describe("goTo (t-overlay bookmark click), docs/plan.md Phase 8", () => {
       frontier: 0,
       settled: false,
       skipping: false,
+      transition: "nav",
     });
     m.destroy();
   });
@@ -1731,6 +1803,7 @@ describe("subscribe, timers, and destroy()", () => {
       frontier: 1,
       settled: false,
       skipping: false,
+      transition: "nav",
     });
   });
 });
@@ -1752,6 +1825,7 @@ describe("resume from persisted storage (docs/plan.md Phase 8, memory fake)", ()
       frontier: 4,
       settled: false,
       skipping: false,
+      transition: "advance",
     });
     // Exactly what main.ts's persister writes: the frontier, and only it.
     await storage.saveState({ frontier: first.getState().frontier });
@@ -1769,6 +1843,7 @@ describe("resume from persisted storage (docs/plan.md Phase 8, memory fake)", ()
       frontier: 4,
       settled: true,
       skipping: false,
+      transition: "nav",
     });
     // `e` at the resume spot reaches the first UNSEEN item (Phase 13's jump
     // target; under the old rule the landing already was `frontier - 1`, and
@@ -1779,6 +1854,7 @@ describe("resume from persisted storage (docs/plan.md Phase 8, memory fake)", ()
       frontier: 5,
       settled: false,
       skipping: false,
+      transition: "nav",
     });
 
     // Travelling back through seen content persists nothing: a reload
@@ -1794,6 +1870,7 @@ describe("resume from persisted storage (docs/plan.md Phase 8, memory fake)", ()
       frontier: 4,
       settled: true,
       skipping: false,
+      transition: "nav",
     });
     // From the resume spot one press enters the first unseen item...
     second.advance();
@@ -1802,6 +1879,7 @@ describe("resume from persisted storage (docs/plan.md Phase 8, memory fake)", ()
       frontier: 5,
       settled: false,
       skipping: false,
+      transition: "advance",
     });
     // ...and that frontier is worth persisting: the next reload resumes
     // from it, settled at item 4.
@@ -1814,6 +1892,7 @@ describe("resume from persisted storage (docs/plan.md Phase 8, memory fake)", ()
       frontier: 5,
       settled: true,
       skipping: false,
+      transition: "nav",
     });
     resumed.destroy();
     second.destroy();
@@ -1865,6 +1944,7 @@ describe("setSettings (config screen, docs/plan.md Phase 9)", () => {
       frontier: 1,
       settled: true,
       skipping: false,
+      transition: "nav",
     });
     m.destroy();
   });
@@ -1885,6 +1965,7 @@ describe("setSettings (config screen, docs/plan.md Phase 9)", () => {
       frontier: 4,
       settled: false,
       skipping: true,
+      transition: "nav",
     });
     vi.advanceTimersByTime(dwell); // last item: skip ends at content end
     expect(m.getState()).toEqual({
@@ -1892,6 +1973,7 @@ describe("setSettings (config screen, docs/plan.md Phase 9)", () => {
       frontier: 5,
       settled: false,
       skipping: false,
+      transition: "nav",
     });
     m.destroy();
   });
@@ -1963,6 +2045,7 @@ describe("minPlaySeconds chain-exit floor (docs/plan.md Phase 15)", () => {
       frontier: 5,
       settled: false,
       skipping: false,
+      transition: "advance",
     });
     m.destroy();
   });
@@ -2014,6 +2097,7 @@ describe("minPlaySeconds chain-exit floor (docs/plan.md Phase 15)", () => {
       frontier: 5,
       settled: false,
       skipping: false,
+      transition: "nav",
     });
     m.destroy();
   });
@@ -2135,6 +2219,7 @@ describe("minPlaySeconds chain-exit floor (docs/plan.md Phase 15)", () => {
       frontier: 4,
       settled: false,
       skipping: false,
+      transition: "nav",
     });
     vi.advanceTimersByTime(8000); // the floor would have gated the exit
     expect(m.getState().cursor).toBe(3); // unchanged: the exit was not it
@@ -2159,6 +2244,7 @@ describe("minPlaySeconds chain-exit floor (docs/plan.md Phase 15)", () => {
       frontier: 4,
       settled: false,
       skipping: false,
+      transition: "advance",
     });
     m.destroy();
   });
@@ -2175,6 +2261,7 @@ describe("minPlaySeconds chain-exit floor (docs/plan.md Phase 15)", () => {
       frontier: 2,
       settled: false,
       skipping: false,
+      transition: "nav",
     });
     // Skip ended before the chain exit, so auto governs the rest and the
     // floor applies from the chain head (0): exit at 8000, not 1620 + hold.
@@ -2202,6 +2289,120 @@ describe("minPlaySeconds chain-exit floor (docs/plan.md Phase 15)", () => {
     expect(m.getState().cursor).toBe(3);
     vi.advanceTimersByTime(1); // exit at 8700: the plain text timing
     expect(m.getState().cursor).toBe(4); // floor <= 0 behaves as today
+    m.destroy();
+  });
+});
+
+describe("transition kind: which mover made the item current", () => {
+  // `MachineState.transition` is the renderer's replay signal: an `advance`
+  // plays its media wherever the cursor sits, a `nav` arrival below the seen
+  // edge holds the poster (docs/content-format.md, "Timing"). Pinned here
+  // mover by mover; the pure mode rule itself is render/visual.test.ts.
+  const five = () => [image(), image(), image(), image(), image()];
+
+  it("is nav for a load landing, fresh or resumed", () => {
+    vi.useFakeTimers();
+    const fresh = machine(five());
+    expect(fresh.getState().transition).toBe("nav");
+    const resumed = machine(five(), { resumeFrontier: 3 });
+    expect(resumed.getState().transition).toBe("nav");
+    const restored = createMachine({
+      items: five(),
+      settings: SETTINGS,
+      autoAdvance: true,
+      resumeContext: {
+        lastShown: 2,
+        visited: [0, 1, 2],
+        stack: [],
+        playedRoutes: [],
+      },
+    });
+    expect(restored.getState().transition).toBe("nav");
+    for (const m of [fresh, resumed, restored]) m.destroy();
+  });
+
+  it("is advance for a space press that moves, and unchanged for one that only settles", () => {
+    vi.useFakeTimers();
+    const manual = createMachine({ items: five(), settings: SETTINGS });
+    manual.advance(); // manual: one press settles AND moves
+    expect(manual.getState().cursor).toBe(1);
+    expect(manual.getState().transition).toBe("advance");
+    manual.destroy();
+
+    const auto = machine(five());
+    auto.advance(); // auto: this press ends the wait where it stands
+    expect(auto.getState()).toMatchObject({ cursor: 0, settled: true });
+    expect(auto.getState().transition).toBe("nav"); // no transition happened
+    auto.advance(); // the press that moves is the advance
+    expect(auto.getState().cursor).toBe(1);
+    expect(auto.getState().transition).toBe("advance");
+    auto.destroy();
+  });
+
+  it("is advance when the auto hold elapses", () => {
+    vi.useFakeTimers();
+    const m = machine(five());
+    vi.advanceTimersByTime(SETTINGS.minHoldMs);
+    expect(m.getState().cursor).toBe(1);
+    expect(m.getState().transition).toBe("advance");
+    m.destroy();
+  });
+
+  it("is nav for the wheel, in both directions", () => {
+    vi.useFakeTimers();
+    const m = machine(five());
+    vi.advanceTimersByTime(SETTINGS.minHoldMs * 3); // seen edge at item 3
+    expect(m.getState().cursor).toBe(3);
+    m.wheelBack();
+    expect(m.getState()).toMatchObject({ cursor: 2, transition: "nav" });
+    m.wheelForward();
+    expect(m.getState()).toMatchObject({ cursor: 3, transition: "nav" });
+    m.destroy();
+  });
+
+  it("is nav for a bookmark goTo and for the e jump", () => {
+    vi.useFakeTimers();
+    const m = machine(five());
+    vi.advanceTimersByTime(SETTINGS.minHoldMs * 3);
+    m.goTo(0);
+    expect(m.getState()).toMatchObject({ cursor: 0, transition: "nav" });
+    m.jumpToUnseen(); // the first unseen item: item 3's successor
+    expect(m.getState()).toMatchObject({ cursor: 4, transition: "nav" });
+    m.destroy();
+  });
+
+  it("is nav for a bookmark restore (importContext)", () => {
+    vi.useFakeTimers();
+    const m = machine(five());
+    vi.advanceTimersByTime(SETTINGS.minHoldMs * 3);
+    const context = m.exportContext();
+    m.advance(); // an advance, to prove the restore overwrites the kind
+    expect(m.getState().transition).toBe("advance");
+    m.importContext({ ...context, lastShown: 1 });
+    expect(m.getState()).toMatchObject({ cursor: 1, settled: false });
+    expect(m.getState().transition).toBe("nav");
+    m.destroy();
+  });
+
+  it("is nav for skip's dwell step, and no command that does not move rewrites it", () => {
+    vi.useFakeTimers();
+    const m = machine(five());
+    vi.advanceTimersByTime(SETTINGS.minHoldMs * 3); // seen edge at item 3
+    m.wheelBack();
+    m.wheelBack(); // cursor 1, deep below the edge
+    expect(m.getState().transition).toBe("nav");
+    m.toggleSkip(); // tab on: an emit on the SAME item
+    expect(m.getState().transition).toBe("nav");
+    vi.advanceTimersByTime(SETTINGS.skipDwellMs);
+    expect(m.getState().cursor).toBe(2); // a dwell step forward
+    expect(m.getState().transition).toBe("nav"); // a fast traverse, not a read
+    m.toggleSkip(); // tab off: same item, kind untouched
+    expect(m.getState().transition).toBe("nav");
+    m.advance(); // auto mode: this press ends the wait where it stands
+    expect(m.getState().cursor).toBe(2);
+    m.advance(); // and the press that moves turns the kind around
+    expect(m.getState().cursor).toBe(3);
+    expect(m.getState().transition).toBe("advance");
     m.destroy();
   });
 });

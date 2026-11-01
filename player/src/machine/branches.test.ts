@@ -245,6 +245,7 @@ describe("a decision fires on the forward settle of its after item", () => {
       frontier: 3,
       settled: true,
       skipping: false,
+      transition: "advance",
       choice: expect.objectContaining({ decisionId: "d1" }),
     });
     m.destroy();
@@ -494,6 +495,7 @@ describe("choosing a route and ending one", () => {
       frontier: 6,
       settled: false, // a fresh entry: the route's first item plays normally
       skipping: false,
+      transition: "nav",
     });
     expect(m.exportContext().playedRoutes).toEqual([
       { decision: 0, routes: [1] },
@@ -520,6 +522,7 @@ describe("choosing a route and ending one", () => {
       frontier: 10,
       settled: false,
       skipping: false,
+      transition: "nav",
     });
     m.destroy();
   });
@@ -1014,6 +1017,7 @@ describe("skip mode with branches", () => {
       frontier: 3,
       settled: false,
       skipping: false,
+      transition: "nav",
     });
     // Shown normally from there, and its own hold is what fires the decision.
     vi.advanceTimersByTime(1500);
@@ -1237,6 +1241,7 @@ describe("jumpToUnseen targets (the three cases, docs/plan.md Phase 13)", () => 
       frontier: 2,
       settled: false,
       skipping: false,
+      transition: "nav",
     });
     vi.advanceTimersByTime(1500); // its own hold carries it on
     expect(m.getState().cursor).toBe(2);
@@ -1380,6 +1385,7 @@ describe("route-play context for storage", () => {
       frontier: 5,
       settled: true, // a resume landing was already read
       skipping: false,
+      transition: "nav",
     });
     expect(second.visitedList()).toEqual([0, 1, 2, 3, 4]);
     step(second); // the restored frame still ends the route it is inside
@@ -1407,6 +1413,7 @@ describe("route-play context for storage", () => {
       frontier: 6,
       settled: true, // the resume landing, as with a persisted frontier
       skipping: false,
+      transition: "nav",
     });
     expect(m.getState().choice).toBeUndefined();
     m.advance(); // the press moves on, and nothing fires on the way
@@ -1445,6 +1452,7 @@ describe("route-play context for storage", () => {
       frontier: 9,
       settled: false, // a restore replays the item, like a bookmark click
       skipping: false,
+      transition: "nav",
     });
     expect(m.visitedList()).toEqual([0, 1, 2, 7, 8]);
     step(m); // off route C's end: the imported frame joins at continueAt
@@ -1475,6 +1483,7 @@ describe("route-play context for storage", () => {
       frontier: 4,
       settled: true,
       skipping: false,
+      transition: "nav",
     });
     m.destroy();
   });

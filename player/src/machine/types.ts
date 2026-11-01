@@ -277,6 +277,19 @@ export interface MachineContext {
 }
 
 /**
+ * How the item under the cursor became current. `advance` is a forward step
+ * the reader took or the auto timer took — a space press or the auto-advance
+ * firing — so the item is being READ now and its media plays. `nav` is an
+ * arrival at content the reader already has on the map: the wheel, a
+ * bookmark `goTo()`, a bookmark restore, the `e` jump, a route entry or a
+ * route-end join, skip's dwell step, and the load-time landing. Scrubbing
+ * stays fast, so a nav arrival below the seen edge holds the poster. The
+ * renderer reads this with `cursor`/`frontier` to decide whether a video
+ * replays (docs/content-format.md, "Timing"; `playbackModeFor`).
+ */
+export type TransitionKind = "advance" | "nav";
+
+/**
  * Observable machine state. `cursor` indexes the shown item; `frontier` is a
  * DERIVED legacy value — the first never-shown item of the visited set
  * (`frontier === items.length` when everything has been seen), exactly the
@@ -295,13 +308,16 @@ export interface MachineContext {
  * it is set every navigation command is inert until `choose()` or
  * `chooseContinue()` answers it — the exception being an arrival-open view
  * (`choice.arrival`, Phase 16), which navigation closes as the reader moves
- * away.
+ * away. `transition` is the kind of the step that made `cursor` current
+ * (`TransitionKind`): a forward advance plays its media wherever the cursor
+ * sits, a nav arrival below the seen edge shows posters instead.
  */
 export interface MachineState {
   readonly cursor: number;
   readonly frontier: number;
   readonly settled: boolean;
   readonly skipping: boolean;
+  readonly transition: TransitionKind;
   readonly choice?: ChoiceView;
 }
 

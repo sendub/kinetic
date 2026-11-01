@@ -16,6 +16,16 @@
 // Phase 16, Branches) — so a back-scroll across another route shows that
 // route's items without marking its row.
 //
+// Transition kind (`MachineState.transition`): the same funnel that marks an
+// item also records HOW it became current — `advance` for the forward step
+// (a space press or the auto timer moving one item on), `nav` for every other
+// route to it (the wheel, a bookmark `goTo()` or restore, the `e` jump, a
+// route entry, a route-end join, skip's dwell step, and the load-time
+// landing). Timing is identical either way; the renderer reads the kind with
+// `cursor` and `frontier` so a re-read below the seen edge plays its video
+// while scrubbing back over the same items holds posters
+// (docs/content-format.md, "Timing").
+//
 // `frontier` stays in `MachineState` as a DERIVED legacy value for the
 // renderer and for resume persistence: 1 past the highest index ever shown.
 // Where the seen set is a contiguous prefix from 0 — every manifest without
@@ -64,6 +74,7 @@ import type {
   MachineState,
   RouteResult,
   Scheduler,
+  TransitionKind,
   VideoItem,
 } from "./types";
 
@@ -239,10 +250,11 @@ export interface Machine {
    * time bound — before a standalone video completes. Ignored when the item has
    * `holdSeconds` (a background video loops freely and never gates), while a
    * `text` item follows, during skip mode, and once the item is settled.
-   * Below the seen edge the visual is a still that reports nothing, so the
-   * ended half of the gate drops out there and the item completes on its
-   * time bound alone (docs/plan.md Phase 16, "Auto-forward stall at
-   * part-012").
+   * Below the seen edge a navigation arrival shows a still that reports
+   * nothing, so the ended half of the gate drops out there and the item
+   * completes on its time bound alone (docs/plan.md Phase 16, "Auto-forward
+   * stall at part-012"); an advance below that edge does play and does report,
+   * and the same bound paces its replay.
    */
   mediaEnded(): void;
   /**
@@ -599,6 +611,10 @@ export function createMachine(options: MachineOptions): Machine {
 
   const listeners = new Set<Listener>();
   let cursor = 0;
+  // The kind of the step that made `cursor` current. The start position is an
+  // arrival like any other, not an advance — and it is at the seen edge, so
+  // the renderer plays it either way.
+  let transition: TransitionKind = "nav";
   /** Every item index shown so far, in any route (the seen set). */
   const visited = new Set<number>();
   /** `max(visited)`, -1 when nothing has been shown: the wheel's ceiling. */
@@ -665,8 +681,8 @@ export function createMachine(options: MachineOptions): Machine {
     const frontier = highestSeen < 0 ? 0 : Math.min(highestSeen + 1, count);
     return Object.freeze(
       choice === null
-        ? { cursor, frontier, settled, skipping }
-        : { cursor, frontier, settled, skipping, choice },
+        ? { cursor, frontier, settled, skipping, transition }
+        : { cursor, frontier, settled, skipping, transition, choice },
     );
   }
 
@@ -811,14 +827,18 @@ export function createMachine(options: MachineOptions): Machine {
   }
 
   /**
-   * Makes `index` the current item: mark it shown, restart its timing, and
-   * tell the listeners. Every route to an item — forward advance, skip step,
-   * `choose()`, `e`-jump, wheel, `goTo()` — comes through here, which is why
-   * showing and seeing are the same moment (the header's marking rule).
+   * Makes `index` the current item: record how it was reached, mark it shown,
+   * restart its timing, and tell the listeners. Every route to an item —
+   * forward advance, skip step, `choose()`, `e`-jump, wheel, `goTo()` — comes
+   * through here, which is why showing and seeing are the same moment (the
+   * header's marking rule). `kind` is the other half of that record: the
+   * forward step is an `advance`, every other route is a `nav` arrival
+   * (see `TransitionKind`).
    */
-  function showItem(index: number): void {
+  function showItem(index: number, kind: TransitionKind): void {
     const keepsChain = index === cursor + 1 && chainHeadAt !== null;
     cursor = index;
+    transition = kind;
     chainHeadAt = chainHeadMarkFor(index, keepsChain);
     markShown(index);
     beginItem();
@@ -837,24 +857,29 @@ export function createMachine(options: MachineOptions): Machine {
    * so ended counts are irrelevant to it.
    *
    * The ended half applies only while the renderer can actually report it.
-   * Below the seen edge (`cursor < frontier - 1`) the visual is a still —
-   * the documented rewind rule (docs/content-format.md, "Timing";
-   * `playbackModeFor` in render/visual.ts) — and a still never plays, so no
-   * pass report can ever arrive: waiting for one froze auto-advance on a
-   * navigated re-entry of a range video (docs/plan.md Phase 16, "Auto-forward
-   * stall at part-012"). There the gate is the time bound alone, and that
-   * bound IS the full replay of the plan — `videoGateMs` sums the first pass
-   * and every loop pass exactly as forward play does — so a video entered by
-   * navigation (wheel, `goTo()`, `e`, or an auto re-walk of seen content)
-   * becomes eligible when its plan's replay time has elapsed, the same shape
-   * an image completes on. At the seen edge the visual plays on a fresh entry
-   * and reports its passes, and the ended count gates there as always.
+   * Below the seen edge (`cursor < frontier - 1`) a NAV arrival shows a still
+   * — the poster rule for scrubbing back over read content (
+   * docs/content-format.md, "Timing"; `playbackModeFor` in render/visual.ts)
+   * — and a still never plays, so no pass report can ever arrive: waiting for
+   * one froze auto-advance on a navigated re-entry of a range video
+   * (docs/plan.md Phase 16, "Auto-forward stall at part-012"). There the gate
+   * is the time bound alone, and that bound IS the full replay of the plan —
+   * `videoGateMs` sums the first pass and every loop pass exactly as forward
+   * play does — so an item entered by navigation (wheel, `goTo()`, `e`, a
+   * restore) becomes eligible when its plan's replay time has elapsed, the
+   * same shape an image completes on. A forward ADVANCE below the edge does
+   * play the clip and does report its passes; leaving the bound as the whole
+   * gate there is what makes auto pacing match playback whether or not the
+   * element managed to play. At the seen edge the visual plays on a fresh
+   * entry and reports its passes, and the ended count gates there as always.
    */
   function mediaGateSatisfied(): boolean {
     const item = items[cursor];
     if (item.type !== "video") return true;
     if (item.holdSeconds !== undefined || nextIsText(cursor)) return true;
-    if (cursor < Math.min(highestSeen + 1, count) - 1) return true; // still
+    // Below the edge the bound paces the item alone: a nav arrival never
+    // plays, and an advance's replay lasts exactly this long anyway.
+    if (cursor < Math.min(highestSeen + 1, count) - 1) return true;
     return endedCount >= videoLoops(item);
   }
 
@@ -886,7 +911,7 @@ export function createMachine(options: MachineOptions): Machine {
       emit();
       return;
     }
-    showItem(cursor + 1);
+    showItem(cursor + 1, "advance");
   }
 
   /**
@@ -918,7 +943,10 @@ export function createMachine(options: MachineOptions): Machine {
     if ((!visited.has(next) && !settings.skipAll) || next >= count - 1) {
       skipping = false;
     }
-    showItem(next); // arms a dwell if skipping, else the item's normal hold
+    // A dwell step is a fast traverse, not a read: it arrives as nav, and the
+    // burst ends at the seen edge (or on the last item), so the item it hands
+    // back to normal timing plays either way.
+    showItem(next, "nav"); // arms a dwell if skipping, else the item's normal hold
   }
 
   /** Leave skip mode; the current item restarts under its normal hold. */
@@ -978,7 +1006,7 @@ export function createMachine(options: MachineOptions): Machine {
   function enterRoute(decision: ResolvedDecision, routeIdx: number): void {
     playedOf(decision.index).add(routeIdx);
     stack.push({ decision: decision.index, route: routeIdx });
-    showItem(decision.routes[routeIdx].startIndex);
+    showItem(decision.routes[routeIdx].startIndex, "nav");
   }
 
   /**
@@ -1186,7 +1214,7 @@ export function createMachine(options: MachineOptions): Machine {
       return;
     }
     if (decision.continueAt >= 0) {
-      showItem(decision.continueAt);
+      showItem(decision.continueAt, "nav");
       return;
     }
     closeIfPureAndComplete(decision);
@@ -1213,7 +1241,7 @@ export function createMachine(options: MachineOptions): Machine {
       emit();
       return true;
     }
-    showItem(next);
+    showItem(next, "nav");
     return true;
   }
 
@@ -1242,7 +1270,7 @@ export function createMachine(options: MachineOptions): Machine {
     if (closeIfPureAndComplete(decision)) return;
     stack.pop();
     if (route.continuing) {
-      showItem(decision.continueAt);
+      showItem(decision.continueAt, "nav");
       return;
     }
     // The same pause as `fireDecision`: a skip burst stops at this re-offer
@@ -1421,7 +1449,7 @@ export function createMachine(options: MachineOptions): Machine {
       if (destroyed || count === 0) return;
       applyContext(context);
       skipping = false; // a restore is manual navigation, like `goTo()`
-      showItem(cursor); // UNSETTLED arrival: the item replays under its hold
+      showItem(cursor, "nav"); // UNSETTLED arrival: the item replays under its hold
     },
 
     subscribe(listener) {
@@ -1487,7 +1515,7 @@ export function createMachine(options: MachineOptions): Machine {
         if (wasSkipping || closedArrival) emit();
         return;
       }
-      showItem(cursor - 1); // pure nav: shown, seen; no decision consumed
+      showItem(cursor - 1, "nav"); // pure nav: shown, seen; no decision consumed
       openArrivalChoiceIfDue();
     },
 
@@ -1505,7 +1533,7 @@ export function createMachine(options: MachineOptions): Machine {
         if (wasSkipping || closedArrival) emit();
         return;
       }
-      showItem(cursor + 1);
+      showItem(cursor + 1, "nav");
       openArrivalChoiceIfDue();
     },
 
@@ -1537,7 +1565,7 @@ export function createMachine(options: MachineOptions): Machine {
         return;
       }
       skipping = false; // a jump is manual navigation: skip mode is off
-      showItem(target); // fresh entry: seen now, its own hold armed
+      showItem(target, "nav"); // fresh entry: seen now, its own hold armed
       openArrivalChoiceIfDue();
     },
 
@@ -1554,7 +1582,7 @@ export function createMachine(options: MachineOptions): Machine {
       // jump. (The cursor may move either way — backward, or forward back
       // to the edge of what has been shown.)
       skipping = false; // like jumpToUnseen: manual navigation ends skip mode
-      showItem(clamp(index, 0, Math.max(0, highestSeen)));
+      showItem(clamp(index, 0, Math.max(0, highestSeen)), "nav");
       openArrivalChoiceIfDue();
     },
 
@@ -1583,7 +1611,7 @@ export function createMachine(options: MachineOptions): Machine {
       pendingChoice = null;
       // Joining the aftermath replays none of the continuing route's items,
       // so the route is not marked played by this.
-      showItem(decision.continueAt);
+      showItem(decision.continueAt, "nav");
     },
 
     mediaEnded() {
