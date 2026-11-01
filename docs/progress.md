@@ -350,10 +350,14 @@ truthful: an unchecked box means nothing was accepted.
 
 ## Phase 16: Player feedback from the playable demo (2025-11-02, user)
 
-- [ ] Styling pass (merges three style points): all overlay text and
+- [x] Styling pass (merges three style points): all overlay text and
       the choice prompt/rows center; thoughts render pastel-blue and
       KEEP the speaker name when named; demo verified + docs.
       Closes the Phase 7b deferred styling direction (first pass).
+      (Named-thought speaker was never broken - demo thoughts simply
+      had no speaker; new overlay test pins it; measured centering +
+      computed colors; 306 tests, driver unchanged 43+1 known,
+      2025-11-02)
 - [ ] Reading-speed config: minus button + draggable slider + plus
       button, current speed as smaller text to the right.
 - [ ] Single-action navigation: reproduce what needs more than one
@@ -375,7 +379,10 @@ truthful: an unchecked box means nothing was accepted.
       route entry; "Back to try another route" on the jump-back).
 - [ ] `e` at the end of content must land on the first unseen item
       including route content (repro: after reaching the final
-      ending, `e` did nothing though routes were unseen).
+      ending, `e` did nothing though routes were unseen). Plus the
+      new rule: when ALL content is seen, `e` shows the ending - the
+      most recently seen ending when branches gave several (track
+      last-ending-touched in the resume ctx).
 - [ ] Auto-forward stall at `part-012` after viewing to the end and
       wheeling back to start under auto: navigated re-entry into a
       range video must replay and gate honestly.

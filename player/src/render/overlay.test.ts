@@ -16,6 +16,17 @@ describe("overlayContentFor", () => {
     ).toEqual({ speaker: "Mei", text: "You're early." });
   });
 
+  it("pairs a speaker with a thought line, not just with dialogue", () => {
+    // docs/plan.md Phase 16: a named thought still shows its speaker;
+    // the thought flag changes how the line reads, never whether the
+    // name line is drawn.
+    expect(
+      overlayContentFor(
+        item({ speaker: "Mei", thought: true, text: "Neither of us spoke." }),
+      ),
+    ).toEqual({ speaker: "Mei", text: "Neither of us spoke." });
+  });
+
   it("draws a line with no speaker", () => {
     const content = overlayContentFor(item({ text: "Rain again." }));
     expect(content).not.toBeNull();

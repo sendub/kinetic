@@ -663,6 +663,11 @@ Branches:
 Machine bugs to reproduce and fix:
 - `e` at the end of content does nothing even though route content is
   unseen; it must land on the first unseen item (routes included).
+- New `e` rule (2025-11-02, user): when everything has been seen,
+  `e` shows the ENDING content; with multiple endings (branches), the
+  most recently seen one. Needs last-ending-touched tracking (the
+  ending = the final settled item of an ending route or the array
+  end), persisted with the resume context.
 - Auto-forward after viewing to the end and wheeling back to the start
   stalls at the range-video item `part-012`: a navigated re-entry into
   a video must replay and complete honestly under auto mode.

@@ -67,7 +67,9 @@
         letter-spacing: 0.02em;
         text-align: center;
       }
-      /* Lower third. Sits over the visual, never beside it. */
+      /* Lower third. Sits over the visual, never beside it. Every line in
+         the band — speaker, dialogue, thought — is centered (docs/plan.md
+         Phase 16, Styling); the band's geometry is untouched. */
       .overlay {
         position: absolute;
         inset: auto 0 0 0;
@@ -81,6 +83,7 @@
         color: var(--ink);
         font-family: var(--ui-font);
         pointer-events: none;
+        text-align: center;
       }
       .overlay[hidden] {
         display: none;
@@ -93,8 +96,11 @@
         letter-spacing: 0.16em;
         text-transform: uppercase;
       }
+      /* The line's own column is centered in the band, not just its text:
+         `margin: 0 auto` keeps a short `max-width` block from hugging the
+         left edge on wide screens. */
       .overlay-text {
-        margin: 0;
+        margin: 0 auto;
         max-width: 74ch;
         font-size: clamp(17px, 2.3vh, 28px);
         line-height: 1.5;
@@ -102,14 +108,16 @@
         white-space: pre-line;
       }
       /* Thought vs dialogue (docs/plan.md Phase 7b): an unspoken thought is
-         italic, spoken dialogue stays upright. `data-mode` comes from
-         render/overlay.ts and the whole distinction lives here, so the look
-         can change without touching logic. The final look is still an open
-         iteration with the user (docs/plan.md Phase 7b, "Deferred"), so this
-         stays minimal on purpose — and the band's geometry above is not part
-         of it. */
+         italic and pastel-blue, spoken dialogue stays upright and in the
+         default ink. `data-mode` comes from render/overlay.ts and the whole
+         distinction lives here, so the look can change without touching
+         logic — the first styling pass of docs/plan.md Phase 16 picked the
+         blue: #b9d4e8 reads clearly over the dark band and the inherited
+         text-shadow keeps the edges legible. The look stays open to further
+         iteration with the user; the band's geometry is not part of it. */
       .overlay-text[data-mode="thought"] {
         font-style: italic;
+        color: #b9d4e8;
       }
       /* t bookmark overlay (docs/plan.md Phase 8, README t bullet): one
          panel owns the screen while open, and the cursor-moving keys are
@@ -385,28 +393,37 @@
         display: none;
       }
       .choice-title {
-        margin: 0;
+        margin: 0 auto;
         max-width: 60ch;
         color: var(--accent);
         font-size: clamp(16px, 2.4vh, 26px);
         font-weight: 600;
         line-height: 1.35;
         letter-spacing: 0.02em;
+        text-align: center;
       }
       .choice-hint {
         margin: 0;
         color: rgba(244, 239, 230, 0.55);
         font-size: clamp(10px, 1.2vh, 13px);
+        text-align: center;
       }
+      /* Rows are centered as whole rows (docs/plan.md Phase 16, Styling):
+         `align-items: center` shrinks each button to its content and puts
+         it on the panel's center line, so number badge, label and seen
+         marker stay inline as one centered unit. */
       .choice-list {
         display: flex;
         flex-direction: column;
+        align-items: center;
         gap: clamp(6px, 1.2vh, 14px);
+        margin: 0 auto;
         max-width: 72ch;
       }
       .choice-row {
         display: flex;
         align-items: center;
+        justify-content: center;
         gap: clamp(10px, 2vw, 18px);
         padding: clamp(8px, 1.6vh, 16px) clamp(12px, 2vw, 22px);
         border: 1px solid rgba(244, 239, 230, 0.28);
@@ -415,7 +432,7 @@
         color: var(--ink);
         font: inherit;
         font-size: clamp(14px, 1.9vh, 21px);
-        text-align: left;
+        text-align: center;
         cursor: pointer;
       }
       .choice-row:hover,
