@@ -194,8 +194,10 @@ export interface Machine {
   /**
    * Tab press: toggles skip mode. While on, every item advances after
    * `settings.skipDwellMs` regardless of text/animation/video; media never
-   * gates. With `settings.skipAll` off the mode ends when the cursor moves
-   * onto the first never-shown item (shown normally afterward); with it on
+   * gates. With `settings.skipAll` off skip never reveals unseen content
+   * (docs/plan.md Phase 18): the burst steps only onto seen items and ends
+   * ON the last seen one before the frontier, which is then shown normally;
+   * a press with nothing seen ahead does nothing at all. With it on
    * the mode continues through unseen items, marking them seen, and ends
    * when nothing unseen is left to visit. A decision reached during a skip
    * STOPS the burst: the choice opens (`skipping` ends) and the reader
@@ -974,6 +976,11 @@ export function createMachine(options: MachineOptions): Machine {
    */
   function skipTick(): void {
     if (destroyed || count === 0) return;
+    if (skipWouldReveal()) {
+      exitSkip(); // stop ON the last seen item (docs/plan.md Phase 18)
+      emit();
+      return;
+    }
     if (fireDecision()) return;
     if (atRouteEnd()) {
       handleRouteEnd();
@@ -987,13 +994,41 @@ export function createMachine(options: MachineOptions): Machine {
       return;
     }
     const next = cursor + 1;
-    if ((!visited.has(next) && !settings.skipAll) || next >= count - 1) {
+    if (!visited.has(next) && !settings.skipAll) {
+      // Never reveal (docs/plan.md Phase 18): stop ON the last seen item,
+      // which plays from here under its own normal hold.
+      exitSkip();
+      emit();
+      return;
+    }
+    // Stepping onto the last seen item before the frontier ends the burst
+    // there: the item is shown under its normal hold, never a dwell.
+    if (next >= count - 1 || (!settings.skipAll && !visited.has(next + 1))) {
       skipping = false;
     }
     // A dwell step is a fast traverse, not a read: it arrives as nav, and the
     // burst ends at the seen edge (or on the last item), so the item it hands
     // back to normal timing plays either way.
     showItem(next, "nav"); // arms a dwell if skipping, else the item's normal hold
+  }
+
+  /**
+   * Whether skip's next forward step would SHOW an unseen item with
+   * `skipAll` off (docs/plan.md Phase 18): a continuing route's end joining
+   * at an unseen `continueAt`, or a plain step onto an unseen item. A
+   * decision here opens its overlay instead (no reveal), and a re-offer
+   * reveals nothing either.
+   */
+  function skipWouldReveal(): boolean {
+    if (settings.skipAll) return false;
+    if (relevantDecision(cursor) >= 0) return false;
+    if (atRouteEnd()) {
+      const frame = stack[stack.length - 1];
+      const decision = decisions[frame.decision];
+      if (!decision.routes[frame.route].continuing) return false;
+      return decision.continueAt >= 0 && !visited.has(decision.continueAt);
+    }
+    return cursor + 1 < count && !visited.has(cursor + 1);
   }
 
   /** Leave skip mode; the current item restarts under its normal hold. */
@@ -1699,6 +1734,9 @@ export function createMachine(options: MachineOptions): Machine {
       if (skipping) {
         exitSkip(); // tab again: manual off, normal timing from here
       } else {
+        // Nothing seen ahead (a fresh start, or standing on the last seen
+        // item): skip would only reveal, so the press does nothing.
+        if (skipWouldReveal()) return;
         skipping = true;
         beginItem(); // the current item gets a fresh dwell too
       }

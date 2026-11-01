@@ -1353,42 +1353,48 @@ describe("skip mode (tab), docs/plan.md Phase 4", () => {
     m.destroy();
   });
 
-  it("with skipAll off, ends as the frontier item becomes current; its normal auto-advance is armed", () => {
+  it("with skipAll off, ends ON the last seen item; its normal auto-advance is armed", () => {
+    // docs/plan.md Phase 18: skip never reveals unseen content.
     vi.useFakeTimers();
     const m = machine([image(), image(), image(), image(), image()], {
       resumeFrontier: 3,
     });
-    // Cursor starts at the last seen item (2); the next item is unseen.
+    m.wheelBack();
+    m.wheelBack(); // cursor 0; items 1 and 2 are seen, 3 is the frontier
     m.toggleSkip();
-    vi.advanceTimersByTime(SETTINGS.skipDwellMs - 1);
+    vi.advanceTimersByTime(SETTINGS.skipDwellMs);
+    expect(m.getState()).toMatchObject({ cursor: 1, skipping: true });
+    vi.advanceTimersByTime(SETTINGS.skipDwellMs);
+    // Onto the last seen item (2): the burst ends here, nothing unseen shown.
     expect(m.getState()).toEqual({
       cursor: 2,
       frontier: 3,
-      settled: false,
-      skipping: true,
-      transition: "nav",
-    });
-    vi.advanceTimersByTime(1);
-    // Moved onto the first unseen item (shown, so frontier moves too) and
-    // skip mode ended without entering further unseen content.
-    expect(m.getState()).toEqual({
-      cursor: 3,
-      frontier: 4,
       settled: false,
       skipping: false,
       transition: "nav",
     });
     // Shown normally: the item's own 1500 ms hold drives auto-advance.
     vi.advanceTimersByTime(1499);
-    expect(m.getState().cursor).toBe(3);
+    expect(m.getState().cursor).toBe(2);
     vi.advanceTimersByTime(1);
     expect(m.getState()).toEqual({
-      cursor: 4,
-      frontier: 5,
+      cursor: 3,
+      frontier: 4,
       settled: false,
       skipping: false,
       transition: "advance",
     });
+    m.destroy();
+  });
+
+  it("with skipAll off, tab with nothing seen ahead does nothing (a fresh start)", () => {
+    vi.useFakeTimers();
+    const m = machine([image(), image(), image()]);
+    const before = m.getState();
+    m.toggleSkip();
+    expect(m.getState()).toBe(before); // no skip mode, no emit
+    vi.advanceTimersByTime(SETTINGS.skipDwellMs * 3);
+    expect(m.getState().frontier).toBe(1); // nothing unseen was revealed
     m.destroy();
   });
 
@@ -2034,9 +2040,12 @@ describe("setSettings (config screen, docs/plan.md Phase 9)", () => {
     const m = machine([image(), image(), image(), image(), image()], {
       resumeFrontier: 3,
     });
+    m.wheelBack(); // cursor 1: a seen item ahead, so tab starts skip
     m.toggleSkip();
     m.setSettings({ ...SETTINGS, skipAll: true }); // changed mid-skip
     const dwell = SETTINGS.skipDwellMs;
+    vi.advanceTimersByTime(dwell); // onto 2, the last seen item
+    expect(m.getState()).toMatchObject({ cursor: 2, skipping: true });
     vi.advanceTimersByTime(dwell); // onto the frontier item, skip goes on
     expect(m.getState()).toEqual({
       cursor: 3,
@@ -2327,25 +2336,14 @@ describe("minPlaySeconds chain-exit floor (docs/plan.md Phase 15)", () => {
     m.destroy();
   });
 
-  it("default settings (skipAll off): skip stays immediate at unseen content; the floor then gates auto only", () => {
+  it("default settings (skipAll off): tab at a fresh start is inert; the floor gates auto from the chain head", () => {
     vi.useFakeTimers();
     const m = machine(holdFloorChained()); // default settings: skipAll off
-    m.toggleSkip(); // entered on the video, as in the report
-    // One dwell, then skip ENDS at the first unseen line — it never waits
-    // on the floor; this is where the default variant can exit fast.
-    vi.advanceTimersByTime(SETTINGS.skipDwellMs);
-    expect(m.getState()).toEqual({
-      cursor: 1,
-      frontier: 2,
-      settled: false,
-      skipping: false,
-      transition: "nav",
-    });
-    // Skip ended before the chain exit, so auto governs the rest and the
-    // floor applies from the chain head (0): exit at 8000, not 1620 + hold.
-    vi.advanceTimersByTime(1500);
-    expect(m.getState().cursor).toBe(2);
-    vi.advanceTimersByTime(6379); // total 7999
+    const before = m.getState();
+    m.toggleSkip(); // entered on the video, as in the report: nothing seen ahead
+    expect(m.getState()).toBe(before); // skip never reveals (docs/plan.md Phase 18)
+    // Auto governs the chain, and the floor applies from its head (0).
+    vi.advanceTimersByTime(7999);
     expect(m.getState().cursor).toBe(2);
     vi.advanceTimersByTime(1);
     expect(m.getState().cursor).toBe(3);

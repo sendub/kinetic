@@ -1427,19 +1427,20 @@ async function main() {
 
     // 17. tab starts skip: with no further input the cursor advances on the
     // 120 ms dwell — measured page-side, so the driver's own latency is not in
-    // the samples — and skip ends when the cursor moves onto the first
-    // never-shown item (pier-009, item 8, which has no text). Then that
-    // frontier item is shown normally: it sits for its own 1500 ms hold
-    // instead of the 120 ms dwell, and auto-advances to line-010 afterwards.
+    // the samples — and skip never reveals unseen content (docs/plan.md
+    // Phase 18): the burst stops ON the last seen item (item 7, line-008),
+    // never painting pier-009 (item 8, the frontier). That item is shown
+    // normally: it sits for its own hold instead of the 120 ms dwell, and
+    // auto-advances onto pier-009 afterwards.
     // Auto-forward is turned ON here with `a`: the skip dwell is the
     // reader's own run and fires in both modes (manual mode rode steps
     // 4-16), but "shown normally, its own hold then advances" is auto mode.
     await wheel(cdp, true, 4); // item 7 -> item 3, room to skip through seen items
-    await pressA(cdp); // auto-forward ON for this step's frontier tail
+    await pressA(cdp); // auto-forward ON for this step's tail
     const s17start = await readSignature(page);
     const tabAt = Date.now();
     await pressTab(cdp);
-    const skipSamples = await sampleSignatures(page, 900, 40);
+    const skipSamples = await sampleSignatures(page, 700, 40);
     const skipChanges = transitions(skipSamples);
     const s17 = await page.evaluate(PAGE_STATE);
     const skipDeltas = skipChanges
@@ -1448,42 +1449,41 @@ async function main() {
       .sort((x, y) => x - y);
     const medianDwell = skipDeltas[(skipDeltas.length - 1) >> 1] ?? -1;
     const s17Moves = skipChanges.length - 1;
-    const frontierIndex = skipChanges.findIndex(([, sig]) =>
+    const revealedDuringSkip = skipChanges.some(([, sig]) =>
       sig.startsWith("pier-009.jpg"),
     );
-    const frontierDelay =
-      frontierIndex >= 0 ? skipChanges[frontierIndex][0] - tabAt : -1;
+    const lastChangeAt =
+      skipChanges.length > 0
+        ? skipChanges[skipChanges.length - 1][0] - tabAt
+        : -1;
     const tail = skipSamples.slice(-5).map(([, sig]) => sig);
-    const stoppedOnFrontier =
-      frontierDelay > 0 &&
-      frontierDelay < 1000 && // ~5 dwells, not a full read of the item
-      s17.imgSrc === "pier-009.jpg" &&
-      s17.imgDecoded &&
-      s17.overlayHidden === true && // pier-009 has no text
+    const stoppedOnLastSeen =
+      !revealedDuringSkip &&
+      s17.text === EXPECTED.line008Text &&
       new Set(tail).size === 1; // and it stayed: the dwell is gone
     let resumedNormalHold = true;
     try {
       await page.waitForFunction(
-        (expected) =>
-          (document.getElementById("overlay-text")?.textContent ?? "") ===
-          expected,
-        { timeout: 2400 },
-        EXPECTED.line010Text,
+        () =>
+          (
+            document.getElementById("visual-image")?.getAttribute("src") ?? ""
+          ).endsWith("pier-009.jpg"),
+        { timeout: 6000 },
       );
     } catch {
       resumedNormalHold = false;
     }
     record(
-      "17. tab skips at ~120 ms per item and stops on the frontier item, shown normally",
-      s17Moves >= 4 &&
+      "17. tab skips at ~120 ms per item and stops ON the last seen item, shown normally",
+      s17Moves >= 3 &&
         medianDwell >= 80 &&
         medianDwell <= 260 &&
-        stoppedOnFrontier
+        stoppedOnLastSeen
         ? resumedNormalHold
           ? "PASS"
           : "PARTIAL"
         : "FAIL",
-      `from ${JSON.stringify(s17start.split("|").pop())} the cursor moved ${String(s17Moves)} times with no input (median dwell ${String(medianDwell)}ms against settings.skipDwellMs = 120; the dwell runs in both modes — a was pressed at the step's start); the frontier item pier-009.jpg appeared at +${String(frontierDelay)}ms, decoded=${String(s17.imgDecoded)}, overlayHidden=${String(s17.overlayHidden)}, and the last ${String(tail.length)} samples were identical; its normal 1500 ms hold then auto-advanced to line-010=${String(resumedNormalHold)} (auto-forward on)`,
+      `from ${JSON.stringify(s17start.split("|").pop())} the cursor moved ${String(s17Moves)} times with no input (median dwell ${String(medianDwell)}ms against settings.skipDwellMs = 120; last move at +${String(lastChangeAt)}ms); it stopped on ${JSON.stringify(s17.text)} (expected line-008), pier-009 painted during the burst=${String(revealedDuringSkip)}, the last ${String(tail.length)} samples identical=${String(new Set(tail).size === 1)}; its normal hold then auto-advanced onto pier-009=${String(resumedNormalHold)} (auto-forward on)`,
     );
 
     // 18. Space during skip exits skip mode: the machine leaves skip and

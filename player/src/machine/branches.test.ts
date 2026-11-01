@@ -1174,22 +1174,16 @@ describe("skip mode with branches", () => {
     m.destroy();
   });
 
-  it("skipAll off still ends on the first item the reader had not seen", () => {
+  it("skipAll off: tab on the last seen item does nothing; the reader's own hold fires the decision", () => {
+    // docs/plan.md Phase 18: skip never reveals unseen content.
     vi.useFakeTimers();
     const m = machine(CANON, { resumeFrontier: 2 });
     expect(m.getState().cursor).toBe(1);
-    m.toggleSkip();
-    vi.advanceTimersByTime(SETTINGS.skipDwellMs); // onto item 2, unseen
-    expect(m.getState()).toEqual({
-      cursor: 2,
-      frontier: 3,
-      settled: false,
-      skipping: false,
-      transition: "nav",
-    });
-    // Shown normally from there, and its own hold is what fires the decision.
-    vi.advanceTimersByTime(1500);
-    expect(m.getState().choice?.decisionId).toBe("d1");
+    const before = m.getState();
+    m.toggleSkip(); // item 2 is unseen: nothing to skip through
+    expect(m.getState()).toBe(before);
+    vi.advanceTimersByTime(SETTINGS.skipDwellMs);
+    expect(m.getState().frontier).toBe(2); // item 2 stayed unseen
     m.destroy();
   });
 
@@ -1915,6 +1909,32 @@ describe("the wheel closes any choice overlay and navigates (docs/plan.md Phase 
     m.advance(); // A's end re-offers again, exactly as before
     expect(m.getState().choice?.decisionId).toBe("d1");
     expect(m.getState().cursor).toBe(4);
+    m.destroy();
+  });
+});
+
+describe("skip never reveals across a route end (docs/plan.md Phase 18, bullet 5)", () => {
+  it("a continuing route's end with an unseen join: the burst stops on the route's last item and tab stays inert", () => {
+    vi.useFakeTimers();
+    const shape = manifest(CANON);
+    const m = createMachine({
+      items: shape.items,
+      branches: shape.branches,
+      settings: SETTINGS,
+    });
+    m.advance();
+    m.advance();
+    m.advance(); // fires d1
+    m.choose(2); // route C, the continuing route: 7..8, joins at 9 (unseen)
+    m.advance(); // 7 -> 8
+    m.wheelBack(); // 8 -> 7
+    m.toggleSkip();
+    vi.advanceTimersByTime(SETTINGS.skipDwellMs);
+    expect(m.getState()).toMatchObject({ cursor: 8, skipping: false });
+    const before = m.getState();
+    m.toggleSkip(); // the only step from here would join at the unseen 9
+    expect(m.getState()).toBe(before);
+    expect(m.visitedList()).not.toContain(9);
     m.destroy();
   });
 });

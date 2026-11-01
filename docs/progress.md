@@ -513,9 +513,12 @@ truthful: an unchecked box means nothing was accepted.
       (closing a fired/re-offered view restores its route stack, so
       the reader is back inside the route and its end re-offers; 393
       tests, 2026-11-01)
-- [ ] Skip never reveals unseen: burst advances only through seen
+- [x] Skip never reveals unseen: burst advances only through seen
       items and stops ON the last seen; tab from a fresh start moves
       nothing; skipAll unchanged. README/verify wording + tests.
+      (a continuing route's end into an unseen join counts as a reveal;
+      verify step 17 rewritten for the phase closer; 395 tests,
+      2026-11-01)
 - [ ] Ending hint: when an ending shows and unseen content remains, a
       quiet standing line invites `e`; absent when all seen.
 - [ ] Play-all: black interstitial (~2.5 s machine-held) on each
