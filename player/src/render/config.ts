@@ -4,7 +4,8 @@
 // button and the current speed in smaller text at the row's right; the
 // slider's own range is the stepper's 0.25-3.0 in 0.25 steps, and the
 // readout shows the multiplier and the per-character allowance it gives),
-// the `tab` bullet's "skip all" config option (the `skipAll` boolean), and
+// the `tab` bullet's "skip all" config option (the `skipAll` boolean),
+// Phase 18's "skip plays videos" (`skipPlaysVideos`), and
 // Phase 13's `playAllRoutes` zero-interactivity route playback, plus
 // Phase 16's "Reset progress" action row, which opens the confirmation box
 // (render/confirm.ts) and changes no setting itself. No other UI.
@@ -50,6 +51,11 @@ export function speedLabel(readingSpeed: number, msPerChar: number): string {
 /** The skip-all switch's text state, mirroring its aria-pressed value. */
 export function skipAllLabel(skipAll: boolean): string {
   return skipAll ? "On" : "Off";
+}
+
+/** The skip-plays-videos switch's text state, same two states (Phase 18). */
+export function skipVideosLabel(skipPlaysVideos: boolean): string {
+  return skipPlaysVideos ? "On" : "Off";
 }
 
 /** The play-all-routes switch's text state, same two states (Phase 13). */
@@ -146,6 +152,20 @@ export function mountConfigOverlay({
   skipToggle.setAttribute("data-config-action", "skip-all");
   skipRow.append(skipLabelEl, skipToggle);
 
+  // `Skip plays videos` (docs/plan.md Phase 18): a skip burst plays each
+  // video it reaches as forward reading would; Space aborts one.
+  const skipVideoRow = doc.createElement("div");
+  skipVideoRow.className = "config-row";
+  const skipVideoLabelEl = doc.createElement("span");
+  skipVideoLabelEl.className = "config-label";
+  skipVideoLabelEl.textContent = "Skip plays videos";
+  const skipVideoToggle = doc.createElement("button");
+  skipVideoToggle.className = "config-toggle config-skip-videos";
+  skipVideoToggle.type = "button";
+  skipVideoToggle.setAttribute("role", "switch");
+  skipVideoToggle.setAttribute("data-config-action", "skip-videos");
+  skipVideoRow.append(skipVideoLabelEl, skipVideoToggle);
+
   // `Play all routes` (docs/plan.md Phase 13): zero-interactivity route
   // playback, its own persisted setting like skip-all.
   const playRow = doc.createElement("div");
@@ -178,7 +198,7 @@ export function mountConfigOverlay({
   resetButton.setAttribute("data-config-action", "reset-progress");
   resetRow.append(resetLabelEl, resetButton);
 
-  panel.append(title, hint, speedRow, skipRow, playRow, resetRow);
+  panel.append(title, hint, speedRow, skipRow, skipVideoRow, playRow, resetRow);
   root.appendChild(panel);
 
   // The values on show, kept so the next control click edits the whole
@@ -191,6 +211,8 @@ export function mountConfigOverlay({
     speedValue.textContent = speedLabel(next.readingSpeed, next.msPerChar);
     skipToggle.textContent = skipAllLabel(next.skipAll);
     skipToggle.setAttribute("aria-pressed", String(next.skipAll));
+    skipVideoToggle.textContent = skipVideosLabel(next.skipPlaysVideos);
+    skipVideoToggle.setAttribute("aria-pressed", String(next.skipPlaysVideos));
     playToggle.textContent = playAllLabel(next.playAllRoutes);
     playToggle.setAttribute("aria-pressed", String(next.playAllRoutes));
   }
@@ -217,6 +239,8 @@ export function mountConfigOverlay({
       move({ ...current, readingSpeed: stepSpeed(current.readingSpeed, 1) });
     } else if (action === "skip-all") {
       move({ ...current, skipAll: !current.skipAll });
+    } else if (action === "skip-videos") {
+      move({ ...current, skipPlaysVideos: !current.skipPlaysVideos });
     } else if (action === "play-all") {
       move({ ...current, playAllRoutes: !current.playAllRoutes });
     } else if (action === "reset-progress") {

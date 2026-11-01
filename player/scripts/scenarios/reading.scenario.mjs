@@ -1,6 +1,6 @@
 // Boot and plain reading (old driver steps 1-8, 21, 45): the first-load
 // key help, Space closing it without advancing, manual by default with `a`
-// toggling auto-forward, speech / thought / narration / a bare picture, `h`,
+// toggling auto-forward (Space during auto turning it off), speech / thought / narration / a bare picture, `h`,
 // and strict one-press-one-item stepping with one-notch wheel steps.
 
 import {
@@ -82,6 +82,22 @@ export default async function ({ check, open }) {
   check(
     "a again turns auto-forward off: the next hold never fires",
     (await currentItemId(page)) === "text-speech",
+  );
+
+  // Space during auto-forward returns to manual (docs/plan.md Phase 18):
+  // `a` on, then Space at once — the press moves nothing, and no hold fires
+  // afterwards. The next Space (the text-kinds step below) steps as manual.
+  await pressA(cdp);
+  await pressSpace(cdp);
+  const pressedOn = await currentItemId(page);
+  await sleep(
+    Math.max(1500, item("text-speech").text.length * MS_PER_CHAR) + 800,
+  );
+  const afterHold = await currentItemId(page);
+  check(
+    "Space during auto-forward turns it off in place: nothing advances afterwards",
+    pressedOn === "text-speech" && afterHold === "text-speech",
+    { pressedOn, afterHold },
   );
 
   // Text kinds: speech has a speaker, the thought is italic, narration has

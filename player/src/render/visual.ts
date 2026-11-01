@@ -9,7 +9,9 @@
 //   wheel scrub, a bookmark, an `e` landing, a route entry — show stills
 //   (animation `frames[0]`, video poster); an ADVANCE (space or the auto
 //   timer) replays its media wherever the cursor sits, so content read once
-//   plays again when the reader advances back over it.
+//   plays again when the reader advances back over it. The `skipPlaysVideos`
+//   setting's `skipVideo` state flag overrides skip's still: the video (and
+//   its chain) plays as an advance would (docs/plan.md Phase 18).
 //   In a chain — the cursor item is `text`, or the next manifest item is
 //   `text` — the visual loops continuously and media end gates nothing.
 //   A standalone animation cycles its frames at `fps` for `loopCount` loops
@@ -71,7 +73,10 @@ export type PlaybackMode = "still" | "loop-once" | "loop-forever";
  * `loop-forever`, media end ignored — while the cursor item is `text` or the
  * next manifest item is: the chain's visual loops under the whole chain.
  * Otherwise a media visual runs its fixed cycle once (for a video, its
- * declared passes — see `videoPlanFor`).
+ * declared passes — see `videoPlanFor`). `skipVideo` (the machine state's
+ * flag, the `skipPlaysVideos` setting — docs/plan.md Phase 18) means skip is
+ * PLAYING the video: it plays as a forward advance would, so neither skip
+ * nor a nav arrival below the edge holds it to its poster.
  */
 export function playbackModeFor(
   cursorItem: Item | undefined,
@@ -80,10 +85,11 @@ export function playbackModeFor(
   transition: TransitionKind,
   cursor: number,
   frontier: number,
+  skipVideo = false,
 ): PlaybackMode {
   if (cursorItem === undefined) return "still";
-  if (skipping || (cursor < frontier - 1 && transition === "nav"))
-    return "still";
+  const held = skipping || (cursor < frontier - 1 && transition === "nav");
+  if (held && !skipVideo) return "still";
   if (cursorItem.type === "text" || nextItem?.type === "text") {
     return "loop-forever";
   }
@@ -781,6 +787,7 @@ export function createVisualLayer(
         state.transition,
         state.cursor,
         state.frontier,
+        state.skipVideo === true,
       );
       switch (item.type) {
         case "image":

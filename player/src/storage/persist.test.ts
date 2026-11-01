@@ -183,18 +183,26 @@ describe("immediate flush — the newest record is the committed one (Phase 14)"
   it("a flush commits the latest state to the memory adapter, visible at once", async () => {
     const storage = createMemoryStorage();
     const writer = createImmediateWriter(storage.saveState);
-    await writer({
-      frontier: 1,
-      ctx: { lastShown: 0, visited: [0], stack: [], playedRoutes: [] },
+    const ctx = (item: string) => ({
+      lastShown: item,
+      visited: [item],
+      stack: [],
+      playedRoutes: [],
+      completedRoutes: [],
     });
+    await writer({ ctx: ctx("a") });
     // The reader keeps moving: a second change arrives while... the memory
     // adapter resolves on the spot, so this is the case the fix is for —
     // there is no debounce window in which the newest position can be lost.
-    const inFlight = writer({ frontier: 2 });
+    const inFlight = writer({ ctx: ctx("b") });
     // Not awaited yet, and already the store's record: an immediate reload
     // reads the position the reader is on, not the one before it.
-    expect(await storage.loadState()).toMatchObject({ frontier: 2 });
+    expect(await storage.loadState()).toMatchObject({
+      ctx: { lastShown: "b" },
+    });
     await inFlight;
-    expect(await storage.loadState()).toMatchObject({ frontier: 2 });
+    expect(await storage.loadState()).toMatchObject({
+      ctx: { lastShown: "b" },
+    });
   });
 });

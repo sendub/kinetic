@@ -69,8 +69,9 @@ Known constraints of the browser host, both accepted:
   cache. Navigation paints a prepared bitmap; 41 ms is then comfortably
   reachable, and we measure rather than assume (perf harness in the final
   phase).
-- Persistence: IndexedDB in both modes (settings, bookmark list, seen
-  frontier). No server, no files-from-browser problem.
+- Persistence: IndexedDB in both modes (settings, bookmark list, reading
+  progress, all keyed by item / decision / route id so content updates
+  keep saves valid). No server, no files-from-browser problem.
 
 ## Content format decision
 

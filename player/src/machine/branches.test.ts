@@ -43,6 +43,8 @@ function machine(
     resumeFrontier?: number;
     resumeContext?: MachineContext;
     settings?: MachineSettings;
+    /** Opt into AUTO-forward, for the tests a hold firing on the timer drives. */
+    auto?: boolean;
   } = {},
 ) {
   const m = manifest(shape);
@@ -52,10 +54,10 @@ function machine(
     settings: opts.settings ?? SETTINGS,
     resumeFrontier: opts.resumeFrontier,
     resumeContext: opts.resumeContext,
-    // The branch tests ride the AUTO-timed path (a hold firing on the
-    // timer is half the branch flow); manual is the player's start and
-    // the machine default (Phase 13b), pinned in machine.test.ts.
-    autoAdvance: true,
+    // Manual — the player's start and the machine default (Phase 13b):
+    // one press is one step, and a press on a decision's after item fires
+    // it. Tests a hold firing on the timer drives opt into auto.
+    autoAdvance: opts.auto === true,
   });
 }
 
@@ -174,8 +176,12 @@ const PURE: Shape = {
 
 /** Settle and move, the two presses that carry the cursor past one item. */
 function step(m: ReturnType<typeof machine>): void {
+  // A Space press in auto-forward turns auto off (docs/plan.md Phase 18),
+  // so an auto test's step presses in manual and turns auto back on.
+  const auto = m.isAutoAdvance();
+  if (auto) m.setAutoAdvance(false);
   m.advance();
-  m.advance();
+  if (auto) m.setAutoAdvance(true);
 }
 
 /**
@@ -281,7 +287,7 @@ describe("a decision fires on the forward settle of its after item", () => {
 
   it("an auto-advance off the after item opens the choice instead of moving", () => {
     vi.useFakeTimers();
-    const m = machine(CANON);
+    const m = machine(CANON, { auto: true });
     step(m);
     step(m); // cursor 2, unsettled
     vi.advanceTimersByTime(1500); // its hold elapses: the decision takes over
@@ -556,10 +562,10 @@ describe("the reading history replays decisions (docs/plan.md, History rollback 
 describe("choosing a route and ending one", () => {
   it("choose marks the route played and enters its first item fresh", () => {
     vi.useFakeTimers();
-    const m = machine(CANON);
+    const m = machine(CANON, { auto: true });
     step(m);
     step(m);
-    m.advance(); // fires
+    step(m); // fires
     m.choose(1); // route B
     expect(m.getState()).toEqual({
       cursor: 5,
@@ -583,10 +589,8 @@ describe("choosing a route and ending one", () => {
     m.advance();
     m.choose(2); // route C is the continuing route
     expect(m.getState().cursor).toBe(7);
-    m.advance();
     m.advance(); // 7 -> 8, its last item
     expect(m.getState().cursor).toBe(8);
-    m.advance();
     m.advance(); // off the end: join the aftermath, no overlay
     expect(m.getState()).toEqual({
       cursor: 9,
@@ -741,10 +745,9 @@ describe("choosing a route and ending one", () => {
     step(m); // 2 -> 3
     const cursors: number[] = [];
     m.subscribe((s) => cursors.push(s.cursor));
-    m.advance(); // settle P's last item
-    m.advance(); // every route played now: the decision CLOSES
+    m.advance(); // off P's last item: every route played, the decision CLOSES
     // 3 -> 6 directly: a route-end+1 close would have landed on q-1.
-    expect([...new Set(cursors)]).toEqual([3, 6]);
+    expect([...new Set(cursors)]).toEqual([6]);
     expect(m.getState().choice).toBeUndefined();
     m.destroy();
   });
@@ -1477,7 +1480,7 @@ describe("`e` goes to the end of the history (docs/plan.md, History rollback spe
 
   it("an `e` landing is a fresh entry, not a settled landing", () => {
     vi.useFakeTimers();
-    const m = machine(CANON);
+    const m = machine(CANON, { auto: true });
     step(m); // 0 -> 1: the history's end
     m.wheelBack(); // roll back to 0
     m.jumpToEnd(); // a fresh entry on 1

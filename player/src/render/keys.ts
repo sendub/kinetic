@@ -130,7 +130,7 @@ const HELP_ROWS: ReadonlyArray<{
   plainLabel?: string;
   description: string;
 }> = [
-  { command: "advance", description: "next item" },
+  { command: "advance", description: "next item; stops auto-forward" },
   { command: null, plainLabel: "wheel", description: "roll back / forward" },
   { command: "jumpToEnd", description: "jump to the end of what you read" },
   { command: "toggleSkip", description: "skip what you have seen" },

@@ -6,10 +6,11 @@
 
 import { describe, expect, it } from "vitest";
 
-import type { Item, MachineContext } from "../machine/types";
-import type { Bookmark } from "../storage/types";
+import type { Item } from "../machine/types";
+import type { Bookmark, SavedContext } from "../storage/types";
 import {
   bookmarkContext,
+  bookmarkItemIndex,
   bookmarkRestoreTarget,
   bottomScrollTop,
   entryLabel,
@@ -17,6 +18,7 @@ import {
   formatTimestamp,
   keptScrollTop,
   listOrder,
+  mergeProgress,
 } from "./bookmarks";
 
 const items: readonly Item[] = [
@@ -38,10 +40,19 @@ const items: readonly Item[] = [
   { id: "line-004", type: "text", text: "A line over the video." },
 ];
 
-function bookmark(fields: Partial<Bookmark> & { itemIndex: number }): Bookmark {
+const EMPTY_CTX: SavedContext = {
+  lastShown: "a-001",
+  visited: [],
+  stack: [],
+  playedRoutes: [],
+  completedRoutes: [],
+};
+
+function bookmark(fields: Partial<Bookmark> & { itemId: string }): Bookmark {
   return {
     id: "bk-1",
     timestampMs: new Date(2025, 10, 1, 12, 0, 0).getTime(),
+    ctx: { ...EMPTY_CTX, lastShown: fields.itemId },
     ...fields,
   };
 }
@@ -49,20 +60,49 @@ function bookmark(fields: Partial<Bookmark> & { itemIndex: number }): Bookmark {
 describe("listOrder (oldest first, top to bottom)", () => {
   it("keeps the storage order (oldest first) as the render order", () => {
     const stored = [
-      bookmark({ id: "old", itemIndex: 2 }),
-      bookmark({ id: "mid", itemIndex: 0 }),
-      bookmark({ id: "new", itemIndex: 1 }),
+      bookmark({ id: "old", itemId: "c-003" }),
+      bookmark({ id: "mid", itemId: "a-001" }),
+      bookmark({ id: "new", itemId: "b-002" }),
     ];
     // Never re-sorted by item index or clock: insertion order IS the
     // top-to-bottom order, so the newest stays at the list's bottom.
-    expect(listOrder(stored).map((b) => b.id)).toEqual(["old", "mid", "new"]);
+    expect(listOrder(stored, items).map((b) => b.id)).toEqual([
+      "old",
+      "mid",
+      "new",
+    ]);
   });
 
   it("copies, so a later mutation of the caller's array cannot restyle the panel", () => {
-    const stored = [bookmark({ itemIndex: 0 })];
-    const rendered = listOrder(stored);
-    stored.push(bookmark({ id: "late", itemIndex: 1 }));
+    const stored = [bookmark({ itemId: "a-001" })];
+    const rendered = listOrder(stored, items);
+    stored.push(bookmark({ id: "late", itemId: "b-002" }));
     expect(rendered).toHaveLength(1);
+  });
+
+  it("leaves out a bookmark whose item is no longer in the manifest", () => {
+    // Saves are keyed by id (Phase 18): a deleted item's bookmark has
+    // nothing to show or restore, so it is not listed; the rest keep
+    // their order wherever their items now sit.
+    const stored = [
+      bookmark({ id: "kept", itemId: "c-003" }),
+      bookmark({ id: "orphan", itemId: "gone" }),
+      bookmark({ id: "also", itemId: "a-001" }),
+    ];
+    expect(listOrder(stored, items).map((b) => b.id)).toEqual(["kept", "also"]);
+  });
+});
+
+describe("bookmarkItemIndex (the id resolved against the manifest)", () => {
+  it("finds the item wherever it now sits, -1 when it is gone", () => {
+    const prequel: readonly Item[] = [
+      { id: "pre-1", type: "image", file: "p.jpg" },
+      ...items,
+    ];
+    const b = bookmark({ itemId: "c-003" });
+    expect(bookmarkItemIndex(b, items)).toBe(2);
+    expect(bookmarkItemIndex(b, prequel)).toBe(3);
+    expect(bookmarkItemIndex(bookmark({ itemId: "gone" }), items)).toBe(-1);
   });
 });
 
@@ -104,18 +144,20 @@ describe("formatTimestamp (YYYY-MM-DD HH:MM:SS)", () => {
 describe("entryThumbSrc (data URL, else the manifest still)", () => {
   it("prefers the captured data URL when present", () => {
     const b = bookmark({
-      itemIndex: 0,
+      itemId: "a-001",
       thumbDataUrl: "data:image/jpeg;base64,AA",
     });
     expect(entryThumbSrc(b, items)).toBe("data:image/jpeg;base64,AA");
   });
 
   it("falls back to the manifest still for each media type", () => {
-    expect(entryThumbSrc(bookmark({ itemIndex: 0 }), items)).toBe("a-001.jpg");
-    expect(entryThumbSrc(bookmark({ itemIndex: 1 }), items)).toBe(
+    expect(entryThumbSrc(bookmark({ itemId: "a-001" }), items)).toBe(
+      "a-001.jpg",
+    );
+    expect(entryThumbSrc(bookmark({ itemId: "b-002" }), items)).toBe(
       "b-002.f000.jpg",
     );
-    expect(entryThumbSrc(bookmark({ itemIndex: 2 }), items)).toBe(
+    expect(entryThumbSrc(bookmark({ itemId: "c-003" }), items)).toBe(
       "c-003.poster.jpg",
     );
   });
@@ -123,19 +165,19 @@ describe("entryThumbSrc (data URL, else the manifest still)", () => {
   it("a text item shows the nearest earlier media item's still", () => {
     // The same visual rule as machine.visualIndex(): line-004 (index 3)
     // played over the video, so its thumbnail is the video's poster.
-    expect(entryThumbSrc(bookmark({ itemIndex: 3 }), items)).toBe(
+    expect(entryThumbSrc(bookmark({ itemId: "line-004" }), items)).toBe(
       "c-003.poster.jpg",
     );
   });
 
-  it("treats null and empty thumbs as absent, and an unknown index has none", () => {
+  it("treats null and empty thumbs as absent, and an unknown item has none", () => {
     expect(
-      entryThumbSrc(bookmark({ itemIndex: 0, thumbDataUrl: null }), items),
+      entryThumbSrc(bookmark({ itemId: "a-001", thumbDataUrl: null }), items),
     ).toBe("a-001.jpg");
     expect(
-      entryThumbSrc(bookmark({ itemIndex: 0, thumbDataUrl: "" }), items),
+      entryThumbSrc(bookmark({ itemId: "a-001", thumbDataUrl: "" }), items),
     ).toBe("a-001.jpg");
-    expect(entryThumbSrc(bookmark({ itemIndex: 99 }), items)).toBeNull();
+    expect(entryThumbSrc(bookmark({ itemId: "gone" }), items)).toBeNull();
   });
 });
 
@@ -149,46 +191,63 @@ describe("entryLabel", () => {
   });
 });
 
-describe("bookmarkRestoreTarget (ctx-aware restore, Phase 13)", () => {
-  const ctx: MachineContext = {
-    lastShown: 4,
-    visited: [0, 3, 4],
-    stack: [{ decision: 0, route: 1 }],
-    playedRoutes: [{ decision: 0, routes: [1] }],
+describe("bookmarkRestoreTarget (ctx restore landing on the item)", () => {
+  const ctx: SavedContext = {
+    lastShown: "c-003",
+    visited: ["a-001", "b-002", "c-003"],
+    stack: [{ decision: "pick", route: "left" }],
+    playedRoutes: [{ decision: "pick", routes: ["left"] }],
+    completedRoutes: [],
   };
 
-  it("hands back the itemIndex plus the recorded route context", () => {
-    const record = bookmark({ itemIndex: 4, ctx });
-    // With a ctx the restore is `machine.importContext(ctx)` inside
-    // `bookmarkRestoreTarget`'s hands: the caller re-enters the item
-    // within that route context.
-    expect(bookmarkRestoreTarget(record)).toEqual({ itemIndex: 4, ctx });
+  it("hands back the item id plus the recorded route context", () => {
+    const record = bookmark({ itemId: "c-003", ctx });
+    expect(bookmarkRestoreTarget(record)).toEqual({ itemId: "c-003", ctx });
   });
 
-  it("lands on the bookmarked item even when the ctx names a later one", () => {
-    // A bookmark written before the history existed could carry a reading
-    // position (4) past the bookmarked item (3); the click lands on 3.
-    const target = bookmarkRestoreTarget(bookmark({ itemIndex: 3, ctx }));
-    expect(target).toEqual({ itemIndex: 3, ctx: { ...ctx, lastShown: 3 } });
+  it("lands on the bookmarked item even when the ctx names another", () => {
+    const target = bookmarkRestoreTarget(bookmark({ itemId: "b-002", ctx }));
+    expect(target).toEqual({
+      itemId: "b-002",
+      ctx: { ...ctx, lastShown: "b-002" },
+    });
   });
 
   it("drops a stored reading history: the restore appends to the current one", () => {
-    const withHistory: MachineContext = {
+    const withHistory: SavedContext = {
       ...ctx,
-      history: [{ index: 4, stack: [] }],
+      history: [{ item: "c-003", stack: [] }],
       historyPos: 0,
     };
     expect(bookmarkContext(withHistory)).toEqual(ctx);
     expect(
-      bookmarkRestoreTarget(bookmark({ itemIndex: 4, ctx: withHistory })),
-    ).toEqual({ itemIndex: 4, ctx });
+      bookmarkRestoreTarget(bookmark({ itemId: "c-003", ctx: withHistory })),
+    ).toEqual({ itemId: "c-003", ctx });
   });
+});
 
-  it("restores a pre-Phase-13 bookmark by itemIndex alone — no ctx key", () => {
-    const target = bookmarkRestoreTarget(bookmark({ itemIndex: 2 }));
-    expect(target).toEqual({ itemIndex: 2 });
-    // Absent, not undefined: the caller's `ctx === undefined` branch is
-    // the plain itemIndex navigation, a fresh nav with no route frames.
-    expect("ctx" in target).toBe(false);
+describe("mergeProgress (a bookmark restore never forgets progress, Phase 18)", () => {
+  it("keeps the bookmark's landing and frames, unions seen and played", () => {
+    const bookmark = {
+      lastShown: 3,
+      visited: [0, 1, 2, 3],
+      stack: [{ decision: 0, route: 0 }],
+      playedRoutes: [{ decision: 0, routes: [0] }],
+      completedRoutes: [],
+    };
+    const current = {
+      lastShown: 9,
+      visited: [0, 1, 2, 3, 7, 8, 9],
+      stack: [],
+      playedRoutes: [{ decision: 0, routes: [1] }],
+      completedRoutes: [{ decision: 0, routes: [1] }],
+    };
+    expect(mergeProgress(bookmark, current)).toEqual({
+      lastShown: 3,
+      visited: [0, 1, 2, 3, 7, 8, 9],
+      stack: [{ decision: 0, route: 0 }],
+      playedRoutes: [{ decision: 0, routes: [0, 1] }],
+      completedRoutes: [{ decision: 0, routes: [1] }],
+    });
   });
 });

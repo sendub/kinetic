@@ -130,6 +130,20 @@ describe("playbackModeFor", () => {
     }
   });
 
+  it("plays the video skip is playing (skipVideo), as an advance would", () => {
+    // docs/plan.md Phase 18: `skipPlaysVideos` lifts skip's still, and the
+    // nav arrival below the edge a skip step is.
+    expect(playbackModeFor(video, undefined, true, "nav", 5, 8, true)).toBe(
+      "loop-once",
+    );
+    expect(playbackModeFor(video, text, true, "nav", 5, 8, true)).toBe(
+      "loop-forever",
+    );
+    expect(playbackModeFor(text, undefined, true, "nav", 6, 8, true)).toBe(
+      "loop-forever",
+    );
+  });
+
   it("falls back to still when there is no cursor item", () => {
     expect(playbackModeFor(undefined, undefined, false, "nav", 0, 0)).toBe(
       "still",

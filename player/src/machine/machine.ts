@@ -73,6 +73,9 @@
 // `after` item opens the choice and ends the burst — `skipAll` governs only
 // unseen stops — and after the pick the reader stays in manual mode (a skip
 // burst never auto-resumes). `playAllRoutes` remains the no-stop path.
+// `skipPlaysVideos` (Phase 18) makes a burst play each video it reaches for
+// the video's own time bound instead of one dwell; Space aborts it and the
+// burst goes on.
 
 import type {
   Branch,
@@ -158,7 +161,11 @@ export interface Machine {
    * `visitedList()`, the open decision stack, the routes played and
    * completed per decision, and the reading history with the entry on
    * screen — all JSON-safe. `MachineOptions.resumeContext` restores all of
-   * it; `importContext()` restores all but the history.
+   * it; `importContext()` restores all but the history. It is in array
+   * POSITIONS (item, resolved-decision and route indices); storage never
+   * holds this form — `storage/ids.ts` converts it to the id-keyed save
+   * and back against the manifest being played, so a content update
+   * (a prequel, a new route, a reorder) keeps saves valid.
    */
   exportContext(): MachineContext;
   /**
@@ -166,7 +173,9 @@ export interface Machine {
    * played routes and completed routes with a stored context and shows its
    * `lastShown` item. The arrival is UNSETTLED, like `goTo()`, fires no
    * decision, and is a jump: the landing is appended to THIS session's
-   * history (the stored context's history, if any, is ignored).
+   * history (the stored context's history, if any, is ignored). Like
+   * `exportContext()` it takes positions: a bookmark's id-keyed context is
+   * converted by `storage/ids.ts` first.
    */
   importContext(context: MachineContext): void;
   /** Receives every state change; returns an unsubscribe function. */
@@ -175,10 +184,14 @@ export interface Machine {
    * Space press. In MANUAL mode — the player's start — one press is one
    * step: the current item's wait ends AND the cursor moves on the same
    * press (docs/plan.md Phase 16, "one action means one step"). In
-   * AUTO-forward the press ends the current item's wait where it stands and
-   * the next press moves on; auto's own hold-then-advance timer path is
-   * untouched. During skip mode the press stops the burst ON the item under
-   * the cursor — the reader meant this one — so it settles without moving.
+   * AUTO-forward the press turns auto-forward OFF and moves nothing
+   * (docs/plan.md Phase 18): the pending hold is cancelled, the reader stays
+   * on the item, and the next press steps under the manual rule. During
+   * skip mode the press stops the burst ON the item under the cursor — the
+   * reader meant this one — so it settles without moving (and auto-forward,
+   * if on, turns off like any Space in auto); except while skip
+   * PLAYS a video (`settings.skipPlaysVideos`), where the press aborts the
+   * video and the burst carries on with its next step.
    * Settling the item a decision hangs off is what fires that decision.
    * Inert while a choice is open, a replayed one included: only `choose()`
    * and `chooseContinue()` answer it. Every step is reading, so it records
@@ -204,7 +217,9 @@ export interface Machine {
   /**
    * Tab press: toggles skip mode. While on, every item advances after
    * `settings.skipDwellMs` regardless of text/animation/video; media never
-   * gates. With `settings.skipAll` off skip never reveals unseen content
+   * gates. With `settings.skipPlaysVideos` on, a video instead plays its
+   * whole plan (its time bound, `videoGateMs`) before the burst moves on,
+   * playing on beneath its text chain's dwelling lines. With `settings.skipAll` off skip never reveals unseen content
    * (docs/plan.md Phase 18): the burst steps only onto seen items and ends
    * ON the last seen one before the frontier, which is then shown normally;
    * a press with nothing seen ahead does nothing at all. With it on
@@ -283,6 +298,9 @@ export interface Machine {
    *   shown counts toward the floor exactly as toward the hold (Phase 15).
    * - `skipAll`: read when skip mode meets content the reader has not seen,
    *   so a change takes effect at the next crossing into unseen content.
+   * - `skipPlaysVideos`: a pending skip timer on a video re-times as for
+   *   `readingSpeed` (dwell <-> the video's bound), and the state's
+   *   `skipVideo` flag follows at once.
    * - `playAllRoutes`: read when a decision fires, so a change takes effect
    *   at the next decision; a choice already open stays open (the reader
    *   answers it, or turns the setting off and back on to auto-play it).
@@ -424,7 +442,7 @@ export function visualIndexFor(items: readonly Item[], index: number): number {
 }
 
 /** A route with its item references resolved to indices. */
-interface ResolvedRoute {
+export interface ResolvedRoute {
   id: string;
   label: string;
   startIndex: number;
@@ -435,7 +453,7 @@ interface ResolvedRoute {
 }
 
 /** A decision with its item references resolved to indices. */
-interface ResolvedDecision {
+export interface ResolvedDecision {
   /** Position in the resolved table: what the stack and context store. */
   index: number;
   id: string;
@@ -477,7 +495,7 @@ interface PendingChoice {
  * item id, an inverted span or a continuing route without `continueAt` drops
  * that one decision rather than guessing, so the manifest still plays.
  */
-function resolveDecisions(
+export function resolveDecisions(
   items: readonly Item[],
   branches: readonly Branch[],
 ): ResolvedDecision[] {
@@ -762,6 +780,7 @@ export function createMachine(options: MachineOptions): Machine {
       transition,
       ...(choice === null ? {} : { choice }),
       ...(endingHint ? { endingHint: true as const } : {}),
+      ...(skipPlaysVideo() ? { skipVideo: true as const } : {}),
       ...(interstitial === null
         ? {}
         : { interstitial: interstitialView(interstitial) }),
@@ -887,8 +906,15 @@ export function createMachine(options: MachineOptions): Machine {
       // the content describes. The `minPlaySeconds` floor NEVER enters here:
       // a reader in skip mode chose speed, and manual advance and skip stay
       // immediate — the floor exists so AUTO play sees the video (Phase 15).
+      // `skipPlaysVideos` (docs/plan.md Phase 18) lifts the clamp for a
+      // video: it plays its whole plan — range, passes or `holdSeconds` —
+      // timed by the same bound forward play below the edge uses, so a clip
+      // that cannot play never stalls the burst. A chain head plays its plan
+      // on the head; the chain's lines then take one dwell each while the
+      // video plays on beneath them (`skipPlaysVideo`).
       const item = items[cursor];
       if (item.type === "video") {
+        if (settings.skipPlaysVideos) return videoGateMs(item);
         return Math.min(settings.skipDwellMs, videoGateMs(item));
       }
       return settings.skipDwellMs;
@@ -897,6 +923,18 @@ export function createMachine(options: MachineOptions): Machine {
       itemHoldMs(items[cursor], settings, nextIsText(cursor)),
       chainExitFloorMs(),
     );
+  }
+
+  /**
+   * Whether skip mode is playing the video on screen (`skipPlaysVideos`,
+   * docs/plan.md Phase 18): skipping, the setting on, and the visual under
+   * the cursor a video — the video item itself or a line of its text chain.
+   * The snapshot's `skipVideo` flag, and what makes Space abort the video
+   * and keep the burst going rather than stop it.
+   */
+  function skipPlaysVideo(): boolean {
+    if (!skipping || !settings.skipPlaysVideos || count === 0) return false;
+    return items[visualIndexFor(items, cursor)]?.type === "video";
   }
 
   function onTimerElapsed(): void {
@@ -1717,10 +1755,21 @@ export function createMachine(options: MachineOptions): Machine {
       if (finishInterstitial()) return; // a press ends the hold early
       // Only the choice's own inputs answer it, a replayed one included.
       if (pendingChoice !== null) return;
+      if (skipPlaysVideo()) {
+        // Space while skip plays a video (`skipPlaysVideos`, docs/plan.md
+        // Phase 18) aborts the video and the burst carries on: the dwell
+        // elapses now, so the step is skip's own (never-reveal included).
+        cancelTimer();
+        skipTick();
+        return;
+      }
       if (skipping) {
         // Space during skip exits skip mode AND stops on the current item:
         // exiting leaves it unset, and this press settles it in place
-        // (the reader meant "stop here", not "step past this one").
+        // (the reader meant "stop here", not "step past this one"). In
+        // auto-forward the stop also returns to manual (docs/plan.md Phase
+        // 18), so the next press steps instead of only turning auto off.
+        autoAdvance = false;
         exitSkip();
         settled = true;
         cancelTimer();
@@ -1728,21 +1777,21 @@ export function createMachine(options: MachineOptions): Machine {
         emit();
         return;
       }
+      if (autoAdvance) {
+        // Space during auto-forward returns to manual (docs/plan.md Phase
+        // 18): auto turns off and the reader stays on this item — the press
+        // does not also step, the next one does (the manual rule below).
+        // The item keeps its settled state; only the pending hold goes.
+        autoAdvance = false;
+        cancelTimer();
+        return; // nothing observable moved: no emit
+      }
+      // Immediate-complete (docs/plan.md Phase 16): one press = one step.
+      // The press marks the item done and falls through to moveForward(),
+      // which fires any decision before stepping.
       if (!settled) {
-        // Immediate-complete: the item's wait ends now. AUTO mode keeps the
-        // two-stage press — settle here, move on the next advance() — and
-        // this settle is exactly the forward settle a decision hangs off
-        // (docs/plan.md Phase 13). MANUAL mode folds the settle into the
-        // move (docs/plan.md Phase 16): one press = one step, so the same
-        // press marks the item done and falls through to moveForward(),
-        // which fires any decision before stepping.
         settled = true;
         cancelTimer();
-        if (autoAdvance) {
-          if (fireDecision()) return;
-          emit();
-          return;
-        }
       }
       moveForward();
     },
@@ -1841,8 +1890,12 @@ export function createMachine(options: MachineOptions): Machine {
     },
 
     setSettings(next) {
+      const wasSkipVideo = skipPlaysVideo();
       settings = { ...next }; // caller keeps owning its object
       if (destroyed || count === 0) return;
+      // `skipVideo` is derived from the settings: tell the renderer when a
+      // toggle mid-burst starts or stops the video under the cursor.
+      if (skipPlaysVideo() !== wasSkipVideo) emit();
       // Only a live auto-advance is re-timed; a settled item (or one
       // waiting on a video's `ended`) owns no timer to re-arm. The new
       // delay is measured from when this item's timer was armed, so the

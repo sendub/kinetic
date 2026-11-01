@@ -2,7 +2,7 @@
 // full-screen panel holding the bookmark list, rendered OLDEST-first at the
 // top down to the NEWEST at the bottom, auto-scrolled to the bottom so the
 // most recent thumbnail is the one visible. Clicking an entry closes the
-// panel and continues the novel from that time point (`machine.goTo`); a
+// panel and continues the novel from that time point (`machine.importContext`); a
 // click anywhere else on the panel is backdrop and only closes it. Each
 // thumbnail carries an "x" in its top-right corner (docs/plan.md Phase 18,
 // "Delete a bookmark"): clicking it deletes that bookmark — storage
@@ -13,10 +13,15 @@
 // applies them. Entries render in the order the Storage contract gives —
 // oldest first (insertion order, `storage/types.ts`) — so "top to bottom,
 // newest at the bottom" IS that order, and the list scrolls to its bottom.
+//
+// A bookmark names its item by id (docs/plan.md Phase 18, "Saves keyed by
+// id, not position"): the row resolves it to wherever that item sits in
+// the manifest being played, and a bookmark whose item is no longer in it
+// is simply not listed — there is nothing left to show or restore.
 
 import { visualIndexFor } from "../machine/machine";
 import type { Item, MachineContext } from "../machine/types";
-import type { Bookmark } from "../storage/types";
+import type { Bookmark, SavedContext } from "../storage/types";
 
 /** The panel's message when the novel has no bookmarks yet. */
 export const EMPTY_MESSAGE = "No bookmarks yet — press b";
@@ -26,49 +31,102 @@ export const DELETE_GLYPH = "×";
 export const DELETE_LABEL = "Delete this bookmark";
 
 /**
- * What an entry click asks the player to do: the item to re-open, plus
- * the route-play context captured with the bookmark (Phase 13) — with a
- * `ctx` the restore is `machine.importContext(ctx)` (the arrival lands
- * inside that route context); without one — every bookmark saved before
- * routes existed — it is the plain itemIndex navigation (a fresh
- * navigation with no route frames). Pure: the restore wiring applies it.
+ * What an entry click asks the player to do: restore the context captured
+ * with the bookmark, landing on the bookmarked item — `ctx.lastShown` is
+ * the bookmark's `itemId`. Still id-keyed: the restore wiring converts it
+ * against the manifest (`storage/ids.ts`) and hands it to
+ * `machine.importContext`. Pure.
  */
 export interface BookmarkRestore {
-  readonly itemIndex: number;
-  readonly ctx?: MachineContext;
+  readonly itemId: string;
+  readonly ctx: SavedContext;
 }
 
 export function bookmarkRestoreTarget(record: Bookmark): BookmarkRestore {
-  // The bookmarked ITEM is the time point: the restore lands on `itemIndex`
-  // (bookmarks written before the history existed could carry a `lastShown`
-  // further on, the old reading position).
-  return record.ctx === undefined
-    ? { itemIndex: record.itemIndex }
-    : {
-        itemIndex: record.itemIndex,
-        ctx: { ...bookmarkContext(record.ctx), lastShown: record.itemIndex },
-      };
+  // The bookmarked ITEM is the time point: the restore lands on it, not on
+  // any other `lastShown` a stored context might carry.
+  return {
+    itemId: record.itemId,
+    ctx: { ...bookmarkContext(record.ctx), lastShown: record.itemId },
+  };
 }
 
 /**
- * The context a bookmark stores: the machine context without its reading
- * history (docs/plan.md, "History rollback spec"). A bookmark restore is a
- * jump that appends to the CURRENT history, so the record would only be
- * dead weight — up to `HISTORY_CAP` entries in every bookmark.
+ * The context a bookmark stores: the context without its reading history
+ * (docs/plan.md, "History rollback spec"). A bookmark restore is a jump
+ * that appends to the CURRENT history, so the record would only be dead
+ * weight — up to `HISTORY_CAP` entries in every bookmark.
  */
-export function bookmarkContext(context: MachineContext): MachineContext {
+export function bookmarkContext<T extends MachineContext | SavedContext>(
+  context: T,
+): Omit<T, "history" | "historyPos"> {
   const { history: _history, historyPos: _historyPos, ...rest } = context;
   return rest;
 }
 
 /**
- * The list's render order: the storage order, oldest first, copied so a
- * later mutation of the caller's array cannot restyle the open panel. This
- * function is where the storage contract ("oldest first, never re-sorted
- * by clock") becomes the visual contract ("oldest at the top").
+ * A bookmark restore never forgets progress (docs/plan.md Phase 18): the
+ * landing and route frames come from the bookmark, but the seen set and the
+ * played / completed routes are the UNION of the bookmark's and the
+ * reader's current ones, so opening an old bookmark cannot make content
+ * read since then count as unseen again.
  */
-export function listOrder(bookmarks: readonly Bookmark[]): Bookmark[] {
-  return bookmarks.map((bookmark) => ({ ...bookmark }));
+export function mergeProgress(
+  bookmark: MachineContext,
+  current: MachineContext,
+): MachineContext {
+  const unionRoutes = (
+    a: MachineContext["completedRoutes"],
+    b: MachineContext["completedRoutes"],
+  ) => {
+    const byDecision = new Map<number, Set<number>>();
+    for (const entry of [...(a ?? []), ...(b ?? [])]) {
+      const set = byDecision.get(entry.decision) ?? new Set<number>();
+      for (const route of entry.routes) set.add(route);
+      byDecision.set(entry.decision, set);
+    }
+    return [...byDecision.entries()]
+      .sort((x, y) => x[0] - y[0])
+      .map(([decision, routes]) => ({
+        decision,
+        routes: [...routes].sort((x, y) => x - y),
+      }));
+  };
+  return {
+    ...bookmark,
+    visited: [...new Set([...bookmark.visited, ...current.visited])].sort(
+      (a, b) => a - b,
+    ),
+    playedRoutes: unionRoutes(bookmark.playedRoutes, current.playedRoutes),
+    completedRoutes: unionRoutes(
+      bookmark.completedRoutes,
+      current.completedRoutes,
+    ),
+  };
+}
+
+/** Where a bookmark's item now sits in `items`; -1 when it is gone. */
+export function bookmarkItemIndex(
+  bookmark: Bookmark,
+  items: readonly Item[],
+): number {
+  return items.findIndex((item) => item.id === bookmark.itemId);
+}
+
+/**
+ * The list's render order: the storage order, oldest first, copied so a
+ * later mutation of the caller's array cannot restyle the open panel —
+ * minus every bookmark whose item `items` no longer holds. This function
+ * is where the storage contract ("oldest first, never re-sorted by
+ * clock") becomes the visual contract ("oldest at the top").
+ */
+export function listOrder(
+  bookmarks: readonly Bookmark[],
+  items: readonly Item[],
+): Bookmark[] {
+  return bookmarks
+    .filter((bookmark) => bookmarkItemIndex(bookmark, items) >= 0)
+    .map((bookmark) => ({ ...bookmark }));
 }
 
 /**
@@ -91,8 +149,8 @@ export function formatTimestamp(ms: number): string {
  * (`thumbDataUrl`); otherwise the still of the content that was visible at
  * that index — image file, animation `frames[0]`, video poster, and for a
  * `text` item the nearest earlier media item's, the same visual rule as
- * `machine.visualIndex()`. Null when nothing resolvable exists (an index
- * outside the manifest).
+ * `machine.visualIndex()`. Null when nothing resolvable exists (an item
+ * no longer in the manifest).
  */
 export function entryThumbSrc(
   bookmark: Bookmark,
@@ -100,8 +158,9 @@ export function entryThumbSrc(
 ): string | null {
   const dataUrl = bookmark.thumbDataUrl;
   if (typeof dataUrl === "string" && dataUrl !== "") return dataUrl;
-  const visualIndex = visualIndexFor(items, bookmark.itemIndex);
-  const item: Item | undefined = items[visualIndex];
+  const index = bookmarkItemIndex(bookmark, items);
+  if (index < 0) return null;
+  const item: Item | undefined = items[visualIndexFor(items, index)];
   if (item === undefined) return null;
   if (item.type === "image") return item.file;
   if (item.type === "animation") return item.frames[0] ?? null;
@@ -159,8 +218,7 @@ export interface BookmarkOverlayOptions {
   items: readonly Item[];
   /**
    * An entry was clicked: the caller restores what the bookmark recorded
-   * — `bookmarkRestoreTarget` decides between ctx restore and the legacy
-   * itemIndex navigation.
+   * — `bookmarkRestoreTarget`: its context, landing on its item.
    */
   onPick(target: BookmarkRestore): void;
   /**
@@ -206,10 +264,12 @@ export function mountBookmarkOverlay({
     const entry = doc.createElement("button");
     entry.className = "bookmark-entry";
     entry.type = "button";
-    entry.setAttribute("data-item-index", String(bookmark.itemIndex));
+    const itemIndex = bookmarkItemIndex(bookmark, items);
+    entry.setAttribute("data-item-index", String(itemIndex));
+    entry.setAttribute("data-item-id", bookmark.itemId);
     // Which record of the last-rendered list this row is: the click
     // resolves the full bookmark through it, so the restore can carry the
-    // record's ctx (Phase 13) rather than just its itemIndex.
+    // record's ctx (Phase 13) rather than just its item.
     entry.setAttribute("data-entry-index", String(position));
 
     // The thumbnail sits in a positioned box so the "x" can take its
@@ -246,10 +306,7 @@ export function mountBookmarkOverlay({
     time.textContent = formatTimestamp(bookmark.timestampMs);
     const label = doc.createElement("span");
     label.className = "bookmark-label";
-    label.textContent = entryLabel(
-      bookmark.itemIndex,
-      items[bookmark.itemIndex]?.id,
-    );
+    label.textContent = entryLabel(itemIndex, items[itemIndex]?.id);
     meta.append(time, label);
     entry.appendChild(meta);
     return entry;
@@ -293,7 +350,7 @@ export function mountBookmarkOverlay({
   function render(bookmarks: readonly Bookmark[]): void {
     const wasOpen = !panel.hidden;
     const previousScroll = list.scrollTop;
-    const ordered = listOrder(bookmarks);
+    const ordered = listOrder(bookmarks, items);
     shown = ordered;
     list.replaceChildren(
       ...ordered.map((bookmark, position) => entryElement(bookmark, position)),

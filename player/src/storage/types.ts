@@ -3,45 +3,79 @@
 // machine and its tests read through this seam, and main.ts injects a real
 // adapter.
 //
-// Since Phase 13 the machine context (`ctx`, `exportContext()`) is the
-// persisted source of truth for reading progress: the seen set, the open
-// decision stack, and `lastShown` — the item the next load starts on (the
-// README's "state the game starts at when loaded"). `frontier` stays as a
-// DERIVED legacy value the writer still includes: pre-ctx readers (an
-// older build, or a record from one) resume from it exactly as before.
-// Settings ride in the same record because the `c` screen persists them
-// (docs/plan.md Phase 9); they are data for main.ts to merge over the
-// defaults — the machine reads no storage.
+// What storage holds is the id-keyed save (docs/plan.md Phase 18, "Saves
+// keyed by id, not position"): `SavedContext` is the machine context with
+// every item, decision and route named by its manifest id instead of its
+// array position, so a content update — a prequel inserted before
+// everything, a new mid-story route, a reorder, an extension — never
+// re-points a save. `storage/ids.ts` converts to and from the machine's
+// index form against the manifest being played. Settings ride in the same
+// record because the `c` screen persists them (docs/plan.md Phase 9); they
+// are data for main.ts to merge over the defaults — the machine reads no
+// storage.
 //
-// Migration (docs/plan.md Phase 13, "Persistence"):
-//   - state WITH ctx  -> resume through `resumeContext` / importContext.
-//   - state WITHOUT ctx -> legacy resume, equivalent to
-//     `legacyResumeContext(frontier)` below: the machine's own
-//     `resumeFrontier` path builds precisely that context (visited = the
-//     contiguous prefix `[0, frontier)`, landing on `frontier - 1`), so an
-//     old record loads unchanged.
-// Load order (main.ts): ctx wins when both are present (`resumeOptionsFor`).
+// No migration (user, 2026-11-01: there are no released games): a record
+// or bookmark written in the old index-based shape — a numeric
+// `lastShown` / `itemIndex`, or a bare `frontier` — is dropped at load.
+// Its progress reads as a first boot; its settings and help flag, which
+// never referred to positions, are kept.
 //
 // IndexedDB schema note: `ctx` rides inside the value objects the `state`
 // and `bookmarks` stores already hold, so no keyPath or store changes are
-// needed and the database stays at version 1 — an existing version-1
-// database keeps working with no upgrade step.
+// needed and the database stays at version 1.
 
-import type { MachineContext, MachineSettings } from "../machine/types";
+import type { MachineSettings } from "../machine/types";
+
+/** An open route frame, by decision id and route id. */
+export interface SavedFrame {
+  readonly decision: string;
+  readonly route: string;
+}
+
+/**
+ * One reading-history screen by ids (the machine's `HistoryEntry`): the
+ * item shown, the frames open over it, and — for a choice screen — the
+ * decision whose overlay it was.
+ */
+export interface SavedHistoryEntry {
+  readonly item: string;
+  readonly stack: readonly SavedFrame[];
+  readonly decision?: string;
+}
+
+/** The routes of one decision, by ids. */
+export interface SavedRouteSet {
+  readonly decision: string;
+  readonly routes: readonly string[];
+}
+
+/**
+ * The persisted route-play context (the machine's `MachineContext`, keyed
+ * by id): `lastShown` the item on screen, `visited` the seen set,
+ * `stack` the open frames outermost first, `playedRoutes` /
+ * `completedRoutes` per decision, and the reading history with
+ * `historyPos` the entry on screen (an index into `history` itself, not
+ * into the manifest). Bookmarks store it without the history.
+ */
+export interface SavedContext {
+  readonly lastShown: string;
+  readonly visited: readonly string[];
+  readonly stack: readonly SavedFrame[];
+  readonly playedRoutes: readonly SavedRouteSet[];
+  readonly completedRoutes: readonly SavedRouteSet[];
+  readonly history?: readonly SavedHistoryEntry[];
+  readonly historyPos?: number;
+}
 
 /** Everything the player persists about reading progress and pacing. */
 export interface PersistedState {
   /**
-   * Legacy resume value (the derived frontier, `machine.getState().
-   * frontier`). Always written; read only when `ctx` is absent.
+   * The id-keyed route-play context (`storage/ids.ts` converts
+   * `machine.exportContext()`). Absent when nothing has been saved yet, or
+   * when the stored one was unreadable or in the old index-based shape —
+   * both resume as a first boot.
    */
-  readonly frontier: number;
-  /**
-   * The route-play context of Phase 13 (`machine.exportContext()`, JSON-
-   * safe). Present on every save from a Phase-13 build; absent on records
-   * written before routes existed, which take the legacy frontier path.
-   */
-  readonly ctx?: MachineContext;
+  readonly ctx?: SavedContext;
   /**
    * The reader's settings (README `c` bullet). A partial: a record may
    * carry any subset, and the player merges it over `DEFAULT_SETTINGS` at
@@ -64,14 +98,17 @@ export interface Bookmark {
   readonly id: string;
   /** Wall-clock capture time, in epoch milliseconds. */
   readonly timestampMs: number;
-  /** The machine's cursor when `b` was pressed; resumes re-open this item. */
-  readonly itemIndex: number;
   /**
-   * The route-play context captured with `b` (Phase 13): restoring it
-   * re-enters the item within that route context. Absent on bookmarks
-   * saved before routes existed, which restore by `itemIndex` alone.
+   * The id of the item on screen when `b` was pressed; restoring re-opens
+   * it wherever it now sits in the manifest. A bookmark whose item is no
+   * longer in the manifest is not listed (render/bookmarks.ts).
    */
-  readonly ctx?: MachineContext;
+  readonly itemId: string;
+  /**
+   * The route-play context captured with `b`, without its history:
+   * restoring it re-enters the item within that route context.
+   */
+  readonly ctx: SavedContext;
   /** Small JPEG preview, or null/absent when nothing was capturable. */
   readonly thumbDataUrl?: string | null;
 }
@@ -109,23 +146,6 @@ export interface Storage {
 }
 
 /**
- * The machine options that resume a persisted state, applying the load
- * order once: ctx wins over frontier when both are present; a record
- * without ctx keeps the legacy frontier path. `createMachine` accepts the
- * result as-is (main.ts spreads it into the options). A null state is the
- * first-ever load: no resume options at all.
- */
-export function resumeOptionsFor(state: PersistedState | null): {
-  resumeContext?: MachineContext;
-  resumeFrontier?: number;
-} {
-  if (state === null) return {};
-  return state.ctx === undefined
-    ? { resumeFrontier: state.frontier }
-    : { resumeContext: state.ctx };
-}
-
-/**
  * The Phase 13b migration rule stated as data: the key help has been seen
  * only when a record says so. A null state (first-ever load) and any
  * pre-13b record both read as false, so their readers see the help once.
@@ -133,26 +153,4 @@ export function resumeOptionsFor(state: PersistedState | null): {
  */
 export function helpSeenFrom(state: PersistedState | null): boolean {
   return state !== null && state.helpSeen === true;
-}
-
-/**
- * The legacy migration rule stated as data (docs/plan.md Phase 13): the
- * context equivalent to an old frontier-only record — visited is the
- * contiguous prefix `[0, frontier)`, `lastShown` is `frontier - 1`, and
- * no route frames. The machine's `resumeFrontier` path constructs exactly
- * this, so the two resumes agree for every old record; a frontier below
- * 1 means nothing was ever seen and there is no context (null — a first
- * load). Mainly for tests and future readers that need a ctx from a
- * frontier number.
- */
-export function legacyResumeContext(frontier: number): MachineContext | null {
-  if (!Number.isFinite(frontier) || frontier < 1) return null;
-  const visited: number[] = [];
-  for (let index = 0; index < frontier; index += 1) visited.push(index);
-  return Object.freeze({
-    lastShown: frontier - 1,
-    visited: Object.freeze(visited),
-    stack: Object.freeze([]),
-    playedRoutes: Object.freeze([]),
-  });
 }

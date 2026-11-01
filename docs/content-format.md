@@ -48,8 +48,15 @@ my-novel/
 - `width`, `height`: display resolution in pixels. Every generated image is
   exactly this size, and the player scales its surface to the screen.
 - `items`: the ordered sequence. Position in the array is position in the
-  novel; the player's cursor, frontier, bookmarks, and jumps all refer to
-  these indexes. The array may be empty: an empty manifest is a valid,
+  novel; the player's cursor and jumps refer to these indexes while it
+  runs. Saved state never does: the seen set, the reading position and
+  history, bookmarks, and played / completed routes are stored by item
+  `id`, decision `id` and route `id`, so a content update (items inserted
+  before existing ones, a new route, a reorder, an extension) keeps every
+  save valid. A saved id the updated manifest no longer has is dropped on
+  its own (a deleted item leaves the seen set and the history, and a
+  bookmark on it is no longer listed). Keep ids stable across updates.
+  The array may be empty: an empty manifest is a valid,
   honestly-empty folder — a converter run in which no visual resolved to
   a file ships no items rather than placeholders — and the player renders
   its no-content state for it.

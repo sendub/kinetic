@@ -4,14 +4,14 @@ A browser player for kinetic visual novels: a simple alternative to Ren'Py. A no
 
 ## Playing
 
-* **Space**: next item. Manual is the default: one press, one item.
-* **a**: auto-forward on/off. Items advance at the reading speed; animations play a few times, videos play out (or follow their loop count or display duration).
+* **Space**: next item. Manual is the default: one press, one item. In auto-forward, Space turns auto-forward off and stays on the item.
+* **a**: auto-forward on/off (Space also turns it off). Items advance at the reading speed; animations play a few times, videos play out (or follow their loop count or display duration).
 * **Mouse wheel**: roll back through exactly what you saw, in the order you saw it, choice screens included; roll forward again to where you were.
 * **e**: jump to the end of what you have read.
-* **Tab**: skip through content you have already seen, showing only first frames; it stops on the last seen item. The "skip all" setting lets it run through unseen content too.
+* **Tab**: skip through content you have already seen, showing only first frames; it stops on the last seen item, and Space stops it on the current one. The "skip all" setting lets it run through unseen content too; with "skip plays videos" on, videos play out during a skip and Space cuts one short.
 * **h**: hide or show the text.
 * **b**: bookmark the current moment. **t**: the bookmark list (thumbnails with times, newest at the bottom); click a thumbnail to continue from there; its x deletes it.
-* **c**: settings: reading speed, skip all, play all routes, reset progress.
+* **c**: settings: reading speed, skip all, skip plays videos, play all routes, reset progress.
 * **Esc**: key help (also shown on first load, before anything starts); Esc again resumes. In fullscreen the browser takes the first Esc to leave fullscreen.
 * **1-9**: pick a route at a decision (or click it). **0**: "Return to main route", when that row is shown.
 

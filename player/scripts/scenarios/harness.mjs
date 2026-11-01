@@ -111,9 +111,11 @@ const READ_BOOKMARKS = async () => {
       req.onsuccess = () => resolve(req.result);
       req.onerror = () => reject(req.error);
     });
+    // Bookmarks name their item by id (Phase 18, saves keyed by id); the
+    // demo index is added node-side by `readBookmarks`.
     return records.map((r) => ({
       id: r.id,
-      itemIndex: r.itemIndex,
+      itemId: r.itemId,
       timestampMs: r.timestampMs,
       hasThumb: typeof r.thumbDataUrl === "string" && r.thumbDataUrl !== "",
     }));
@@ -816,6 +818,18 @@ export async function currentItemId(page) {
     (it) => !it.text && (it.file === file || it.poster === file),
   );
   return bare?.id ?? null;
+}
+
+/**
+ * The stored bookmark rows (READ_BOOKMARKS) with each row's demo index
+ * beside its `itemId` (-1 for an id the demo manifest lacks).
+ */
+export async function readBookmarks(page) {
+  const rows = await page.evaluate(READ_BOOKMARKS);
+  return rows.map((row) => ({
+    ...row,
+    itemIndex: indexById.get(row.itemId) ?? -1,
+  }));
 }
 
 /** Press Space until the screen shows `id` (at most `limit` presses). */

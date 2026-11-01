@@ -1,38 +1,41 @@
 // IndexedDB adapter (docs/plan.md Phases 8-9): bookmarks, the reading
-// frontier, and the `c` screen's settings survive a reload. Raw IndexedDB
+// position, and the `c` screen's settings survive a reload. Raw IndexedDB
 // API, no dependency.
 //
 // Schema — one database for the whole app, `kinetic` (version 1):
 //   - store `state`: no keyPath; one record per novel, stored under the
-//     novel's content signature, value `{ frontier, ctx?, settings? }`
-//     (`ctx` is the Phase 13 route-play context; `settings` is the partial
-//     the `c` screen changed; absent or malformed fields simply fall back
-//     at load — a malformed `ctx` drops to the legacy frontier resume, a
-//     malformed settings field to its default).
+//     novel's content signature, value `{ ctx?, settings?, helpSeen? }`
+//     (`ctx` is the id-keyed route-play context, `SavedContext`;
+//     `settings` is the partial the `c` screen changed; absent or
+//     malformed fields simply fall back at load — a malformed or
+//     index-based `ctx` reads as no progress (a first boot), a malformed
+//     settings field as its default).
 //   - store `bookmarks`: keyPath `seq`, autoIncrement, so the key alone
 //     orders entries by insertion — the list the README draws bottom-first.
 //     Each record carries a `content` field and a non-unique `content`
 //     index, so one novel's list is one index query in seq order while all
-//     novels share the database. A record may carry `ctx` (Phase 13)
-//     beside `itemIndex`; older records without it read as before.
+//     novels share the database. A record carries `itemId` and its
+//     id-keyed `ctx`; an index-based record (`itemIndex`) is not listed.
 //
-// Phase 13 added `ctx` inside these value objects only — no keyPath or
-// store changed — so the database stays at version 1 and every existing
-// version-1 database keeps working with no upgrade step (see
-// `storage/types.ts` for the migration rules).
+// The stored values changed shape over time but no keyPath or store did,
+// so the database stays at version 1 with no upgrade step; old-shape
+// values are dropped at read (`storage/types.ts`, "No migration").
 //
 // Content signature = the novel folder's absolute URL (`contentSignature`).
 // IndexedDB already isolates by origin, but a path distinguishes novels on
 // one origin (several folders on the dev server) and on `file://` alike.
 
-import type {
-  ContextFrame,
-  HistoryEntry,
-  MachineContext,
-  MachineSettings,
-} from "../machine/types";
+import type { MachineSettings } from "../machine/types";
 import { DEFAULT_SETTINGS } from "../machine/types";
-import type { Bookmark, PersistedState, Storage } from "./types";
+import type {
+  Bookmark,
+  PersistedState,
+  SavedContext,
+  SavedFrame,
+  SavedHistoryEntry,
+  SavedRouteSet,
+  Storage,
+} from "./types";
 
 export const DB_NAME = "kinetic";
 const DB_VERSION = 1;
@@ -55,9 +58,14 @@ export function contentSignature(pageUri: string): string {
   }
 }
 
-interface BookmarkRecord extends Bookmark {
+interface BookmarkRecord {
   seq: number;
   content: string;
+  id: string;
+  timestampMs: number;
+  itemId?: unknown;
+  ctx?: unknown;
+  thumbDataUrl?: string | null;
 }
 
 let dbPromise: Promise<IDBDatabase> | null = null;
@@ -125,15 +133,24 @@ function isFiniteNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value);
 }
 
-function toBookmark(record: BookmarkRecord): Bookmark {
-  // Same defensive read as `loadState`: a foreign `ctx` reads as absent —
-  // an itemIndex-only bookmark, never a broken entry.
+function isString(value: unknown): value is string {
+  return typeof value === "string";
+}
+
+/**
+ * A stored bookmark row as a `Bookmark`, or null for a row without a
+ * string `itemId` and a readable id-keyed `ctx` — an index-based row
+ * written before saves were keyed by id, or a foreign one. Such a row is
+ * left in place (Reset progress clears it) but never listed.
+ */
+function toBookmark(record: BookmarkRecord): Bookmark | null {
   const ctx = sanitizeContext(record.ctx);
+  if (!isString(record.itemId) || ctx === undefined) return null;
   return {
     id: record.id,
     timestampMs: record.timestampMs,
-    itemIndex: record.itemIndex,
-    ...(ctx === undefined ? {} : { ctx }),
+    itemId: record.itemId,
+    ctx,
     thumbDataUrl: record.thumbDataUrl ?? null,
   };
 }
@@ -179,73 +196,68 @@ export function sanitizeSettings(
 }
 
 /**
- * Read a stored `ctx` defensively: only the `MachineContext` shape
- * survives — a trustworthy `lastShown` and `visited` are required, and
- * malformed stack/playedRoutes/history entries are dropped rather than
- * guessed.
- * Anything else reads as "no context" (undefined), which puts the record
- * on the legacy frontier resume path — the documented migration for
- * pre-Phase-13 records, so never a failure. Never throws. Exported for
- * `storage.test.ts`, like `sanitizeSettings`.
+ * Read a stored `ctx` defensively: only the id-keyed `SavedContext` shape
+ * survives — a string `lastShown` and an all-string `visited` are
+ * required, and malformed stack / route-set / history entries are dropped
+ * rather than guessed (the codec then drops ids the manifest lacks).
+ * Anything else reads as "no context" (undefined) — including every
+ * index-based context written before saves were keyed by id (numeric
+ * `lastShown`), which is the documented no-migration rule: that progress
+ * reads as a first boot. Never throws. Exported for `storage.test.ts`,
+ * like `sanitizeSettings`.
  */
-export function sanitizeContext(raw: unknown): MachineContext | undefined {
+export function sanitizeContext(raw: unknown): SavedContext | undefined {
   if (typeof raw !== "object" || raw === null) return undefined;
-  const source = raw as Partial<MachineContext>;
-  if (!isFiniteNumber(source.lastShown)) return undefined;
-  if (!Array.isArray(source.visited) || !source.visited.every(isFiniteNumber)) {
+  const source = raw as Record<string, unknown>;
+  if (!isString(source.lastShown)) return undefined;
+  if (!Array.isArray(source.visited) || !source.visited.every(isString)) {
     return undefined;
   }
-  const frames = (raw: unknown): ContextFrame[] => {
-    const out: ContextFrame[] = [];
-    for (const frame of Array.isArray(raw) ? raw : []) {
-      if (typeof frame !== "object" || frame === null) continue;
-      const { decision, route } = frame as Partial<ContextFrame>;
-      if (isFiniteNumber(decision) && isFiniteNumber(route)) {
-        out.push({ decision, route });
-      }
-    }
-    return out;
+  const frame = (raw: unknown): SavedFrame | undefined => {
+    if (typeof raw !== "object" || raw === null) return undefined;
+    const { decision, route } = raw as Record<string, unknown>;
+    return isString(decision) && isString(route)
+      ? { decision, route }
+      : undefined;
   };
-  const stack = frames(source.stack);
-  // The reading history (docs/plan.md, "History rollback spec"): entries
-  // without a finite `index` (or with a non-numeric `decision`) are
-  // dropped; the machine checks the rest against its manifest. Absent or
-  // empty is omitted — a save without one restores a one-entry history at
-  // its `lastShown` landing.
-  const history: HistoryEntry[] = [];
+  const stack: SavedFrame[] = [];
+  for (const raw of Array.isArray(source.stack) ? source.stack : []) {
+    const value = frame(raw);
+    if (value !== undefined) stack.push(value);
+  }
+  // The reading history: an entry without a string `item`, with a
+  // non-string `decision`, or with any malformed frame is dropped whole
+  // (its screen cannot be rebuilt). Absent or empty is omitted — the
+  // restore then lands on `lastShown` with a one-entry history.
+  const history: SavedHistoryEntry[] = [];
   for (const entry of Array.isArray(source.history) ? source.history : []) {
     if (typeof entry !== "object" || entry === null) continue;
-    const candidate = entry as Partial<{
-      index: unknown;
-      stack: unknown;
-      decision: unknown;
-    }>;
-    if (!isFiniteNumber(candidate.index)) continue;
-    if (
-      candidate.decision !== undefined &&
-      !isFiniteNumber(candidate.decision)
-    ) {
+    const candidate = entry as Record<string, unknown>;
+    if (!isString(candidate.item)) continue;
+    if (candidate.decision !== undefined && !isString(candidate.decision)) {
       continue;
     }
+    const frames = (Array.isArray(candidate.stack) ? candidate.stack : []).map(
+      frame,
+    );
+    if (frames.some((value) => value === undefined)) continue;
     history.push({
-      index: candidate.index,
-      stack: frames(candidate.stack),
+      item: candidate.item,
+      stack: frames as SavedFrame[],
       ...(candidate.decision === undefined
         ? {}
         : { decision: candidate.decision }),
     });
   }
-  const routeSets = (
-    entries: readonly { decision: number; routes: readonly number[] }[],
-  ): { decision: number; routes: number[] }[] => {
-    const out: { decision: number; routes: number[] }[] = [];
-    for (const entry of entries) {
+  const routeSets = (raw: unknown): SavedRouteSet[] => {
+    const out: SavedRouteSet[] = [];
+    for (const entry of Array.isArray(raw) ? raw : []) {
       if (typeof entry !== "object" || entry === null) continue;
-      const candidate = entry as Partial<{ decision: number; routes: unknown }>;
+      const candidate = entry as Record<string, unknown>;
       if (
-        isFiniteNumber(candidate.decision) &&
+        isString(candidate.decision) &&
         Array.isArray(candidate.routes) &&
-        candidate.routes.every(isFiniteNumber)
+        candidate.routes.every(isString)
       ) {
         out.push({
           decision: candidate.decision,
@@ -255,23 +267,14 @@ export function sanitizeContext(raw: unknown): MachineContext | undefined {
     }
     return out;
   };
-  const playedRoutes = routeSets(
-    Array.isArray(source.playedRoutes) ? source.playedRoutes : [],
-  );
-  // `completedRoutes` (docs/plan.md Phase 18) sanitizes exactly like
-  // `playedRoutes`. It survives the round trip — the "Return to main route"
-  // row depends on it — and an absent/empty field restores as
-  // nothing-completed, the documented migration for pre-18 saves, so it is
-  // omitted rather than grown back as an empty array.
-  const completedRoutes = routeSets(
-    Array.isArray(source.completedRoutes) ? source.completedRoutes : [],
-  );
   return {
     lastShown: source.lastShown,
     visited: [...source.visited],
     stack,
-    playedRoutes,
-    ...(completedRoutes.length > 0 ? { completedRoutes } : {}),
+    playedRoutes: routeSets(source.playedRoutes),
+    // Which routes were played THROUGH to their end (docs/plan.md Phase
+    // 18): the "Return to main route" row depends on it.
+    completedRoutes: routeSets(source.completedRoutes),
     ...(history.length > 0 ? { history } : {}),
     ...(history.length > 0 && isFiniteNumber(source.historyPos)
       ? { historyPos: source.historyPos }
@@ -295,7 +298,9 @@ export function createIdbStorage(contentKey: string): Storage | null {
     const records = await requestPromise(
       index.getAll(IDBKeyRange.only(contentKey)),
     );
-    return records.map(toBookmark);
+    return records
+      .map(toBookmark)
+      .filter((bookmark): bookmark is Bookmark => bookmark !== null);
   }
 
   return {
@@ -307,38 +312,31 @@ export function createIdbStorage(contentKey: string): Storage | null {
       );
       // Read defensively: a foreign or half-written record reads as no
       // persisted state (a first-ever load), never as a broken resume.
-      if (typeof stored === "object" && stored !== null) {
-        const frontier = (stored as Partial<PersistedState>).frontier;
-        if (typeof frontier === "number" && Number.isFinite(frontier)) {
-          const state: {
-            frontier: number;
-            ctx?: MachineContext;
-            settings?: Partial<MachineSettings>;
-            helpSeen?: boolean;
-          } = { frontier };
-          // A pre-Phase-13 record simply has no `ctx`: the legacy
-          // frontier resume covers it (storage/types.ts, "Migration").
-          const ctx = sanitizeContext((stored as Partial<PersistedState>).ctx);
-          if (ctx !== undefined) state.ctx = ctx;
-          const settings = sanitizeSettings(
-            (stored as Partial<PersistedState>).settings,
-          );
-          if (settings !== undefined) state.settings = settings;
-          // The key-help flag (Phase 13b): a real boolean survives, a
-          // foreign value reads as absent — which means "not seen" and
-          // shows the help once (helpSeenFrom, storage/types.ts).
-          const helpSeen = (stored as Partial<PersistedState>).helpSeen;
-          if (typeof helpSeen === "boolean") state.helpSeen = helpSeen;
-          return state;
-        }
-      }
-      return null;
+      if (typeof stored !== "object" || stored === null) return null;
+      const source = stored as Record<string, unknown>;
+      const state: {
+        ctx?: SavedContext;
+        settings?: Partial<MachineSettings>;
+        helpSeen?: boolean;
+      } = {};
+      // An index-based ctx (written before saves were keyed by id) reads
+      // as absent: that progress is a first boot (storage/types.ts).
+      const ctx = sanitizeContext(source.ctx);
+      if (ctx !== undefined) state.ctx = ctx;
+      const settings = sanitizeSettings(source.settings);
+      if (settings !== undefined) state.settings = settings;
+      // The key-help flag (Phase 13b): a real boolean survives, a
+      // foreign value reads as absent — which means "not seen" and
+      // shows the help once (helpSeenFrom, storage/types.ts).
+      if (typeof source.helpSeen === "boolean")
+        state.helpSeen = source.helpSeen;
+      return state;
     },
 
     async saveState(state: PersistedState): Promise<void> {
       const db = await openDatabase();
       const tx = db.transaction(STATE_STORE, "readwrite");
-      const record: Record<string, unknown> = { frontier: state.frontier };
+      const record: Record<string, unknown> = {};
       // `ctx` is JSON-safe by contract; the structured clone copies it.
       if (state.ctx !== undefined) record.ctx = state.ctx;
       if (state.settings !== undefined) record.settings = { ...state.settings };
@@ -361,12 +359,10 @@ export function createIdbStorage(contentKey: string): Storage | null {
         content: contentKey,
         id: bookmark.id,
         timestampMs: bookmark.timestampMs,
-        itemIndex: bookmark.itemIndex,
+        itemId: bookmark.itemId,
+        ctx: bookmark.ctx,
         thumbDataUrl: bookmark.thumbDataUrl ?? null,
       };
-      // The route-play context rides beside the index (Phase 13); older
-      // callers pass none and the record simply lacks the field.
-      if (bookmark.ctx !== undefined) record.ctx = bookmark.ctx;
       tx.objectStore(BOOKMARKS_STORE).add(record);
       await transactionDone(tx); // durable before the list is read back
       return getBookmarks();

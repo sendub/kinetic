@@ -183,6 +183,16 @@ export interface MachineSettings {
   /** Skip past unseen content too; default false. */
   skipAll: boolean;
   /**
+   * Skip plays videos (docs/plan.md Phase 18); default false. While on, a
+   * skip burst that reaches a video plays it as forward reading would — its
+   * range, loop passes or `holdSeconds`, timed by `videoGateMs` — instead of
+   * a `skipDwellMs` poster, then the burst carries on. A video heading a
+   * text chain plays its plan on the head item, then the chain's lines take
+   * one dwell each with the video playing on beneath them. Space during
+   * such a playback aborts the video and the burst continues.
+   */
+  skipPlaysVideos: boolean;
+  /**
    * Zero-interactivity route playback (docs/plan.md Phase 13); default false.
    * While on, a decision never surfaces its overlay: the machine auto-picks
    * the first not-yet-played route in manifest order — the continuing route
@@ -200,6 +210,7 @@ export const DEFAULT_SETTINGS: MachineSettings = {
   // 5 ms per statement), still showing each item's first frame.
   skipDwellMs: 25,
   skipAll: false,
+  skipPlaysVideos: false,
   playAllRoutes: false,
 };
 
@@ -275,7 +286,10 @@ export interface HistoryEntry {
  * `completedRoutes` the route indices played THROUGH to their route end
  * per decision (docs/plan.md Phase 18), and `history` / `historyPos` the
  * reading history and the entry on screen. `lastShown` is the item on
- * screen: the landing of a restore without a history.
+ * screen: the landing of a restore without a history. Every number here
+ * is a POSITION in this manifest; what storage holds is the same context
+ * keyed by item / decision / route id (`SavedContext`, converted by
+ * `storage/ids.ts`), so saves survive content updates.
  */
 export interface MachineContext {
   lastShown: number;
@@ -329,7 +343,8 @@ export type TransitionKind = "advance" | "nav";
  * `advance()` moves on. `skipping` means skip mode (tab) is active: the
  * machine advances every item after `settings.skipDwellMs` regardless of
  * media. While it is true the renderer must show an animation's first
- * frame and a video's poster as stills and never play media — the machine
+ * frame and a video's poster as stills and never play media (unless
+ * `skipVideo` says skip is playing the video) — the machine
  * only times, it cannot stop a playing element. `choice` is present while a
  * branch decision awaits the reader: it is the overlay's content, and while
  * it is set space, tab and bookmark jumps are inert until `choose()` or
@@ -354,6 +369,14 @@ export interface MachineState {
    * has been seen.
    */
   readonly endingHint?: true;
+  /**
+   * Present (true) while skip mode is PLAYING the video on screen (the
+   * `skipPlaysVideos` setting): the cursor item is a video, or a text line
+   * of a video's chain. The render layer then plays the video as a forward
+   * advance would, instead of holding it to its poster; `skipping` stays
+   * true (docs/plan.md Phase 18, "Skip can play videos").
+   */
+  readonly skipVideo?: true;
   /**
    * Present while `Play all routes` holds the back-in-time interstitial
    * (docs/plan.md Phase 18): a route ended and the journey is about to jump

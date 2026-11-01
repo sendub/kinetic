@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { createContextCodec, resumeOptionsFor } from "../storage/ids";
 import { createMemoryStorage } from "../storage/memory";
 import {
   createMachine,
@@ -76,7 +77,12 @@ function manifest(items: readonly Item[]): Manifest {
 
 function machine(
   items: readonly Item[],
-  opts: { resumeFrontier?: number; settings?: MachineSettings } = {},
+  opts: {
+    resumeFrontier?: number;
+    settings?: MachineSettings;
+    /** false: the player's manual start, for press-driven tests. */
+    auto?: boolean;
+  } = {},
 ) {
   return createMachine({
     items,
@@ -85,17 +91,22 @@ function machine(
     // These tests ride the AUTO-timed path (holds fire on the timer), so
     // they opt in: the player's own start — and the machine's default —
     // is manual (Phase 13b), pinned by the explicit manual tests below.
-    autoAdvance: true,
+    autoAdvance: opts.auto !== false,
   });
 }
 
 /**
- * Reads a linear manifest forward with presses until `target` is on screen
- * (two presses per step in auto mode, one in manual), so the reading history
- * holds every item on the way.
+ * Reads a linear manifest forward with presses until `target` is on screen,
+ * so the reading history holds every item on the way. A Space press in auto
+ * mode turns auto off (docs/plan.md Phase 18), so the presses go in manual
+ * — one press, one step — and auto comes back on with the landing's hold.
  */
 function readTo(m: ReturnType<typeof createMachine>, target: number): void {
+  if (m.getState().cursor >= target) return;
+  const auto = m.isAutoAdvance();
+  if (auto) m.setAutoAdvance(false);
   while (m.getState().cursor < target) m.advance();
+  if (auto) m.setAutoAdvance(true);
 }
 
 afterEach(() => {
@@ -171,7 +182,7 @@ describe("advance() through every item type", () => {
     m.destroy();
   });
 
-  it("settles an unsettled item without moving, then moves", () => {
+  it("in auto, the first press turns auto off in place; then one press per step", () => {
     vi.useFakeTimers();
     const items = manifest([
       image("first"),
@@ -179,16 +190,18 @@ describe("advance() through every item type", () => {
       video(),
     ]).items;
     const m = machine(items);
-    // First press on a not-yet-settled item: immediate-complete, no move.
+    // docs/plan.md Phase 18: Space during auto-forward returns to manual —
+    // nothing moves and nothing settles on that press.
     m.advance();
+    expect(m.isAutoAdvance()).toBe(false);
     expect(m.getState()).toEqual({
       cursor: 0,
       frontier: 1,
-      settled: true,
+      settled: false,
       skipping: false,
       transition: "nav",
     });
-    // Second press moves, and the frontier follows into unseen content.
+    // Manual from here: each press moves one item.
     m.advance();
     expect(m.getState()).toEqual({
       cursor: 1,
@@ -197,8 +210,7 @@ describe("advance() through every item type", () => {
       skipping: false,
       transition: "advance",
     });
-    m.advance(); // settle animation
-    m.advance(); // move onto the video
+    m.advance(); // onto the video
     expect(m.getState()).toEqual({
       cursor: 2,
       frontier: 3,
@@ -206,8 +218,7 @@ describe("advance() through every item type", () => {
       skipping: false,
       transition: "advance",
     });
-    // At the last item, settles then clamps with the frontier at the end.
-    m.advance();
+    // At the last item, a press settles it with the frontier at the end.
     m.advance();
     expect(m.getState()).toEqual({
       cursor: 2,
@@ -237,18 +248,30 @@ describe("auto-advance timing", () => {
     m.destroy();
   });
 
-  it("settling an item stops its pending auto-advance", () => {
+  it("Space in auto cancels the pending auto-advance and returns to manual", () => {
     vi.useFakeTimers();
-    const m = machine([image(), image()]);
-    m.advance(); // immediate-complete before the hold elapsed
-    vi.advanceTimersByTime(60_000);
+    const m = machine([image(), image(), image()]);
+    const seen: MachineState[] = [];
+    m.subscribe((state) => seen.push(state));
+    vi.advanceTimersByTime(1000); // part of the 1500 ms hold
+    m.advance(); // docs/plan.md Phase 18: auto off, the reader stays here
+    expect(m.isAutoAdvance()).toBe(false);
+    vi.advanceTimersByTime(60_000); // no hold is armed any more
     expect(m.getState()).toEqual({
       cursor: 0,
       frontier: 1,
-      settled: true,
+      settled: false,
       skipping: false,
       transition: "nav",
     });
+    expect(seen).toHaveLength(0); // the press changed nothing on screen
+    m.advance(); // the next press steps, manual-style
+    expect(m.getState().cursor).toBe(1);
+    vi.advanceTimersByTime(60_000); // and manual waits for the reader
+    expect(m.getState().cursor).toBe(1);
+    m.setAutoAdvance(true); // `a` brings auto back with a fresh hold
+    vi.advanceTimersByTime(1500);
+    expect(m.getState().cursor).toBe(2);
     m.destroy();
   });
 
@@ -437,17 +460,17 @@ describe("manual and auto modes, pause/resume (docs/plan.md Phase 13b)", () => {
   it("resume on a settled item arms nothing: settled items move on presses", () => {
     vi.useFakeTimers();
     const m = createMachine({
-      items: [image(), image()],
+      items: [image(), image(), image()],
       settings: SETTINGS,
+      resumeFrontier: 2, // a resume landing: item 1, settled
       autoAdvance: true,
     });
-    m.advance(); // settled in place
     m.pause();
     m.resume();
     vi.advanceTimersByTime(60_000);
     expect(m.getState()).toEqual({
-      cursor: 0,
-      frontier: 1,
+      cursor: 1,
+      frontier: 2,
       settled: true,
       skipping: false,
       transition: "nav",
@@ -727,8 +750,7 @@ describe("short-video timing: loopCount and holdSeconds (docs/plan.md Phase 9b)"
     // no ended report at all. (Ended-count reset on re-entry at the seen
     // edge, this test's former subject, is pinned by the next test.)
     const m = machine([video(1, undefined, { loopCount: 2 }), image()]);
-    m.advance(); // settle the video
-    m.advance(); // onto the image
+    readTo(m, 1); // onto the image
     expect(m.getState().cursor).toBe(1);
     m.wheelBack(); // back onto the video: fresh item state, hold armed afresh
     expect(m.getState()).toEqual({
@@ -742,22 +764,17 @@ describe("short-video timing: loopCount and holdSeconds (docs/plan.md Phase 9b)"
     expect(m.getState().cursor).toBe(0);
     vi.advanceTimersByTime(1);
     expect(m.getState().cursor).toBe(1);
-    // Settle semantics are unchanged and unrelated to endedCount: a settled
-    // item — an immediate-complete advance(), or a resume landing on
-    // content already read — has no media condition to meet, so mediaEnded()
-    // is dropped for it and its auto-advance runs on the hold alone.
-    m.advance(); // settle the image (last item: settled, cursor stays)
+    // A press in auto returns to manual (docs/plan.md Phase 18): from then
+    // on the cursor only moves on advance(), and mediaEnded() moves nothing.
+    vi.advanceTimersByTime(1500); // the last image's hold settles it in place
     expect(m.getState().settled).toBe(true);
     m.wheelBack();
-    m.advance(); // settle the re-shown video without any ended
-    expect(m.getState()).toEqual({
-      cursor: 0,
-      frontier: 2,
-      settled: true,
-      skipping: false,
-      transition: "nav",
-    });
-    m.mediaEnded(); // irrelevant now: the cursor only moves on advance()
+    m.advance(); // auto off on the re-shown video, no ended needed
+    expect(m.getState()).toMatchObject({ cursor: 0, settled: false });
+    m.mediaEnded();
+    m.mediaEnded();
+    vi.advanceTimersByTime(60_000);
+    expect(m.getState().cursor).toBe(0);
     m.advance();
     expect(m.getState().cursor).toBe(1);
     m.destroy();
@@ -1174,7 +1191,7 @@ describe("visualIndexFor: a text item shows the earlier visual", () => {
 
   it("machine.visualIndex() is constant across a chain and moves at the next media item", () => {
     vi.useFakeTimers();
-    const m = machine(items);
+    const m = machine(items, { auto: false });
     expect(m.visualIndex()).toBe(0);
     for (const [expectedCursor, expectedVisual] of [
       [1, 0],
@@ -1184,8 +1201,7 @@ describe("visualIndexFor: a text item shows the earlier visual", () => {
       [5, 5],
       [6, 5],
     ]) {
-      m.advance(); // settle the current item
-      m.advance(); // move to the next one
+      m.advance(); // manual: one press, one step
       expect(m.getState().cursor).toBe(expectedCursor);
       expect(m.visualIndex()).toBe(expectedVisual);
     }
@@ -1197,6 +1213,7 @@ describe("frontier and wheel rules", () => {
   it("resume starts at the last seen item; first advance shows the first unseen item", () => {
     const m = machine([image(), image(), image(), image()], {
       resumeFrontier: 2,
+      auto: false,
     });
     // Landing is the resume position: the last shown item, counted settled.
     expect(m.getState()).toEqual({
@@ -1218,8 +1235,7 @@ describe("frontier and wheel rules", () => {
   });
 
   it("wheel forward is blocked at the end of the history", () => {
-    const m = machine([image(), image(), image()]);
-    m.advance(); // settle item 0
+    const m = machine([image(), image(), image()], { auto: false });
     m.advance(); // read onto item 1
     const atEnd = {
       cursor: 1,
@@ -1244,7 +1260,6 @@ describe("frontier and wheel rules", () => {
       transition: "nav",
     });
     // advance() may cross the frontier; the wheel may not.
-    m.advance(); // settle the re-shown item
     m.advance();
     expect(m.getState()).toEqual({
       cursor: 2,
@@ -1257,8 +1272,10 @@ describe("frontier and wheel rules", () => {
   });
 
   it("wheel forward at the end of the history stays blocked across a text chain", () => {
-    const m = machine([image(), video(), text("one"), text("two"), image()]);
-    for (let press = 0; press < 4; press += 1) m.advance(); // read onto item 2
+    const m = machine([image(), video(), text("one"), text("two"), image()], {
+      auto: false,
+    });
+    for (let press = 0; press < 2; press += 1) m.advance(); // read onto item 2
     // Last read item is the text line; its visual is the video.
     const atEnd = {
       cursor: 2,
@@ -1285,7 +1302,6 @@ describe("frontier and wheel rules", () => {
     m.wheelForward(); // blocked at the history's end again
     expect(m.getState().cursor).toBe(2);
     // advance() crosses the frontier from a text item like any other item.
-    m.advance(); // settle the re-shown text line
     m.advance();
     expect(m.getState()).toEqual({
       cursor: 3,
@@ -1464,6 +1480,8 @@ describe("skip mode (tab), docs/plan.md Phase 4", () => {
       skipping: false,
       transition: "nav",
     });
+    // The stop also returns auto-forward to manual (docs/plan.md Phase 18).
+    expect(m.isAutoAdvance()).toBe(false);
     vi.advanceTimersByTime(60_000); // nothing pending advances by itself
     expect(m.getState().cursor).toBe(0);
     m.advance(); // then behaves normally: the next press moves
@@ -1495,6 +1513,156 @@ describe("skip mode (tab), docs/plan.md Phase 4", () => {
     expect(m.getState().skipping).toBe(true);
     m.wheelBack(); // clamped at the first entry: still exits skip, stays
     expect(m.getState()).toEqual(step(0));
+    m.destroy();
+  });
+});
+
+describe("skip plays videos (docs/plan.md Phase 18)", () => {
+  const playing: MachineSettings = {
+    ...SETTINGS,
+    skipAll: true,
+    skipPlaysVideos: true,
+  };
+
+  it("is off by default", () => {
+    expect(DEFAULT_SETTINGS.skipPlaysVideos).toBe(false);
+  });
+
+  it("a burst plays a standalone video for its whole plan, then carries on", () => {
+    vi.useFakeTimers();
+    const m = machine(
+      [image(), video(1, undefined, { loopCount: 3 }), image(), image()],
+      { settings: playing },
+    );
+    m.toggleSkip();
+    expect(m.getState().skipVideo).toBeUndefined(); // an image: plain dwell
+    vi.advanceTimersByTime(SETTINGS.skipDwellMs);
+    expect(m.getState()).toMatchObject({
+      cursor: 1,
+      skipping: true,
+      skipVideo: true,
+    });
+    // Three 1 s passes: the plan's time bound, not one dwell. A pass report
+    // gates nothing (time alone paces it, as forward play below the edge).
+    vi.advanceTimersByTime(2999);
+    m.mediaEnded();
+    expect(m.getState().cursor).toBe(1);
+    vi.advanceTimersByTime(1);
+    expect(m.getState()).toMatchObject({ cursor: 2, skipping: true });
+    expect(m.getState().skipVideo).toBeUndefined();
+    vi.advanceTimersByTime(SETTINGS.skipDwellMs); // the burst goes on
+    expect(m.getState().cursor).toBe(3);
+    m.destroy();
+  });
+
+  it("honours a range and holdSeconds as forward play does", () => {
+    vi.useFakeTimers();
+    const m = machine(
+      [
+        image(),
+        video(4, undefined, { startSeconds: 1, endSeconds: 2.5 }),
+        video(2, undefined, { holdSeconds: 3 }),
+        image(),
+        image(),
+      ],
+      { settings: playing },
+    );
+    m.toggleSkip();
+    vi.advanceTimersByTime(SETTINGS.skipDwellMs);
+    expect(m.getState().cursor).toBe(1);
+    vi.advanceTimersByTime(1499); // the 1.5 s range
+    expect(m.getState().cursor).toBe(1);
+    vi.advanceTimersByTime(1);
+    expect(m.getState().cursor).toBe(2);
+    vi.advanceTimersByTime(2999); // holdSeconds 3
+    expect(m.getState().cursor).toBe(2);
+    vi.advanceTimersByTime(1);
+    expect(m.getState()).toMatchObject({ cursor: 3, skipping: true });
+    m.destroy();
+  });
+
+  it("a chain head plays its plan; its lines dwell with the video playing beneath", () => {
+    vi.useFakeTimers();
+    const m = machine(
+      [image(), video(2), text("one"), text("two"), image(), image()],
+      { settings: playing },
+    );
+    m.toggleSkip();
+    vi.advanceTimersByTime(SETTINGS.skipDwellMs);
+    expect(m.getState()).toMatchObject({ cursor: 1, skipVideo: true });
+    vi.advanceTimersByTime(2000); // the head: the video's 2 s plan
+    expect(m.getState()).toMatchObject({ cursor: 2, skipVideo: true });
+    vi.advanceTimersByTime(SETTINGS.skipDwellMs); // a line: one dwell
+    expect(m.getState()).toMatchObject({ cursor: 3, skipVideo: true });
+    vi.advanceTimersByTime(SETTINGS.skipDwellMs);
+    expect(m.getState()).toMatchObject({ cursor: 4, skipping: true });
+    expect(m.getState().skipVideo).toBeUndefined(); // an image again
+    m.destroy();
+  });
+
+  it("Space during the playback aborts the video and the burst continues", () => {
+    vi.useFakeTimers();
+    const m = machine(
+      [image(), video(10), image(), video(10), text("line"), image(), image()],
+      { settings: playing },
+    );
+    m.toggleSkip();
+    vi.advanceTimersByTime(SETTINGS.skipDwellMs);
+    expect(m.getState().cursor).toBe(1);
+    vi.advanceTimersByTime(500);
+    m.advance(); // abort: straight on to the next item, still skipping
+    expect(m.getState()).toMatchObject({ cursor: 2, skipping: true });
+    expect(m.isAutoAdvance()).toBe(true); // auto untouched by the abort
+    vi.advanceTimersByTime(SETTINGS.skipDwellMs); // the burst goes on
+    expect(m.getState()).toMatchObject({ cursor: 3, skipVideo: true });
+    m.advance(); // a chain head aborts the same way, onto its line
+    expect(m.getState()).toMatchObject({ cursor: 4, skipping: true });
+    vi.advanceTimersByTime(SETTINGS.skipDwellMs);
+    expect(m.getState().cursor).toBe(5);
+    // Space on a non-video still stops the burst on the item.
+    m.advance();
+    expect(m.getState()).toMatchObject({
+      cursor: 5,
+      skipping: false,
+      settled: true,
+    });
+    m.destroy();
+  });
+
+  it("never reveals: an abort onto the seen edge ends the burst there", () => {
+    vi.useFakeTimers();
+    const m = machine([image(), video(10), image(), image()], {
+      settings: { ...playing, skipAll: false },
+    });
+    readTo(m, 2); // items 0..2 seen, 3 unseen
+    m.wheelBack();
+    m.wheelBack(); // back to 0
+    m.toggleSkip();
+    vi.advanceTimersByTime(SETTINGS.skipDwellMs);
+    expect(m.getState()).toMatchObject({ cursor: 1, skipVideo: true });
+    m.advance(); // abort onto item 2, the last seen: the burst ends there
+    expect(m.getState()).toMatchObject({ cursor: 2, skipping: false });
+    expect(m.getState().frontier).toBe(3); // nothing unseen shown
+    m.destroy();
+  });
+
+  it("a settings toggle mid-burst re-times the video and flips the flag", () => {
+    vi.useFakeTimers();
+    const m = machine([image(), video(10), image(), image()], {
+      settings: { ...playing, skipPlaysVideos: false },
+    });
+    const seen: MachineState[] = [];
+    m.subscribe((state) => seen.push(state));
+    m.toggleSkip();
+    vi.advanceTimersByTime(SETTINGS.skipDwellMs);
+    expect(m.getState().cursor).toBe(1);
+    expect(m.getState().skipVideo).toBeUndefined(); // off: a poster dwell
+    m.setSettings(playing);
+    expect(seen[seen.length - 1].skipVideo).toBe(true);
+    vi.advanceTimersByTime(9999);
+    expect(m.getState().cursor).toBe(1); // now the 10 s plan
+    vi.advanceTimersByTime(1);
+    expect(m.getState().cursor).toBe(2);
     m.destroy();
   });
 });
@@ -1800,18 +1968,18 @@ describe("goTo (t-overlay bookmark click), docs/plan.md Phase 8", () => {
 
 describe("subscribe, timers, and destroy()", () => {
   it("notifies subscribers on every state change until unsubscribe", () => {
-    const m = machine([image(), image()]);
+    const m = machine([image(), image(), image()], { auto: false });
     const seen: MachineState[] = [];
     const unsubscribe = m.subscribe((s) => seen.push(s));
-    m.advance(); // settles: notify
+    m.advance(); // move: notify
     m.advance(); // move: notify
     unsubscribe();
     m.wheelBack(); // not observed after unsubscribe
     expect(seen.map((s) => [s.cursor, s.settled])).toEqual([
-      [0, true],
       [1, false],
+      [2, false],
     ]);
-    expect(m.getState().cursor).toBe(0);
+    expect(m.getState().cursor).toBe(1);
     m.destroy();
   });
 
@@ -1839,14 +2007,15 @@ describe("subscribe, timers, and destroy()", () => {
 });
 
 describe("resume from persisted storage (docs/plan.md Phase 8, memory fake)", () => {
-  it("the persisted value feeds resumeFrontier: lands at frontier-1, e stays there, one advance enters unseen", async () => {
+  it("the persisted id-keyed ctx resumes: lands where the reader was, e stays there, one advance enters unseen", async () => {
     const storage = createMemoryStorage();
-    const items = [image(), image(), image(), image(), image(), image()];
-    // Session 1: the reader saw items 0..3 (three settle-and-move pairs).
-    const first = machine(items);
-    first.advance();
-    first.advance();
-    first.advance();
+    const items = [0, 1, 2, 3, 4, 5].map((n) => ({
+      ...image(),
+      id: `img-${String(n)}`,
+    }));
+    const codec = createContextCodec(items);
+    // Session 1: the reader saw items 0..3 (three manual presses).
+    const first = machine(items, { auto: false });
     first.advance();
     first.advance();
     first.advance();
@@ -1857,17 +2026,23 @@ describe("resume from persisted storage (docs/plan.md Phase 8, memory fake)", ()
       skipping: false,
       transition: "advance",
     });
-    // Exactly what main.ts's persister writes: the frontier, and only it.
-    await storage.saveState({ frontier: first.getState().frontier });
+    // Exactly what main.ts's persister writes: the ctx, keyed by id.
+    await storage.saveState({ ctx: codec.toSaved(first.exportContext()) });
     first.destroy();
-
-    // Reload, as main.ts does it: the stored frontier becomes
-    // resumeFrontier, and the machine derives cursor = frontier - 1 and
-    // the settled landing itself.
-    expect(await storage.loadState()).toEqual({ frontier: 4 });
-    const resumed = machine(items, {
-      resumeFrontier: (await storage.loadState())?.frontier,
+    expect((await storage.loadState())?.ctx).toMatchObject({
+      lastShown: "img-3",
+      visited: ["img-0", "img-1", "img-2", "img-3"],
     });
+
+    // Reload, as main.ts does it: the stored ctx becomes resumeContext,
+    // landing settled on the item the reader was on.
+    const reload = async () =>
+      createMachine({
+        items,
+        settings: SETTINGS,
+        ...resumeOptionsFor(await storage.loadState(), codec),
+      });
+    const resumed = await reload();
     expect(resumed.getState()).toEqual({
       cursor: 3,
       frontier: 4,
@@ -1875,27 +2050,13 @@ describe("resume from persisted storage (docs/plan.md Phase 8, memory fake)", ()
       skipping: false,
       transition: "nav",
     });
-    // `e` at the resume spot stays: a frontier-only save restores a
-    // one-entry history, and its landing is that entry.
+    // `e` at the resume spot stays: the landing is the history's end.
     const landed = resumed.getState();
     resumed.jumpToEnd();
     expect(resumed.getState()).toBe(landed);
+    resumed.destroy();
 
-    // The one-entry history has nothing behind it to roll back to, and
-    // the frontier-only record is untouched by anything the wheel does.
-    resumed.wheelBack();
-    resumed.wheelBack();
-    expect(resumed.getState().cursor).toBe(3);
-    const second = machine(items, {
-      resumeFrontier: (await storage.loadState())?.frontier,
-    });
-    expect(second.getState()).toEqual({
-      cursor: 3,
-      frontier: 4,
-      settled: true,
-      skipping: false,
-      transition: "nav",
-    });
+    const second = await reload();
     // From the resume spot one press enters the first unseen item...
     second.advance();
     expect(second.getState()).toEqual({
@@ -1905,12 +2066,10 @@ describe("resume from persisted storage (docs/plan.md Phase 8, memory fake)", ()
       skipping: false,
       transition: "advance",
     });
-    // ...and that frontier is worth persisting: the next reload resumes
+    // ...and that position is worth persisting: the next reload resumes
     // from it, settled at item 4.
-    await storage.saveState({ frontier: second.getState().frontier });
-    const third = machine(items, {
-      resumeFrontier: (await storage.loadState())?.frontier,
-    });
+    await storage.saveState({ ctx: codec.toSaved(second.exportContext()) });
+    const third = await reload();
     expect(third.getState()).toEqual({
       cursor: 4,
       frontier: 5,
@@ -1918,7 +2077,6 @@ describe("resume from persisted storage (docs/plan.md Phase 8, memory fake)", ()
       skipping: false,
       transition: "nav",
     });
-    resumed.destroy();
     second.destroy();
     third.destroy();
   });
@@ -1960,15 +2118,17 @@ describe("setSettings (config screen, docs/plan.md Phase 9)", () => {
   it("does not re-arm a settled item: a completed hold stays completed", () => {
     vi.useFakeTimers();
     const m = machine([image(), image()]);
-    m.advance(); // immediate-complete: settled, timer cancelled
+    vi.advanceTimersByTime(1500); // onto the last item
+    vi.advanceTimersByTime(1500); // its hold completes it in place: settled
+    expect(m.getState().settled).toBe(true);
     m.setSettings({ ...SETTINGS, readingSpeed: 3 });
     vi.advanceTimersByTime(60_000);
     expect(m.getState()).toEqual({
-      cursor: 0,
-      frontier: 1,
+      cursor: 1,
+      frontier: 2,
       settled: true,
       skipping: false,
-      transition: "nav",
+      transition: "advance",
     });
     m.destroy();
   });
@@ -2088,9 +2248,8 @@ describe("minPlaySeconds chain-exit floor (docs/plan.md Phase 15)", () => {
 
   it("manual advance leaves the chain immediately under the floor", () => {
     vi.useFakeTimers();
-    const m = machine(chained(5), { settings: floorSettings });
+    const m = machine(chained(5), { settings: floorSettings, auto: false });
     for (let steps = 1; steps <= 4; steps += 1) {
-      m.advance(); // settle the current item
       m.advance(); // move on — instant, the floor gates timers only
       expect(m.getState().cursor).toBe(steps);
     }
@@ -2338,7 +2497,7 @@ describe("transition kind: which mover made the item current", () => {
     for (const m of [fresh, resumed, restored]) m.destroy();
   });
 
-  it("is advance for a space press that moves, and unchanged for one that only settles", () => {
+  it("is advance for a space press that moves, and unchanged for one that moves nothing", () => {
     vi.useFakeTimers();
     const manual = createMachine({ items: five(), settings: SETTINGS });
     manual.advance(); // manual: one press settles AND moves
@@ -2347,8 +2506,8 @@ describe("transition kind: which mover made the item current", () => {
     manual.destroy();
 
     const auto = machine(five());
-    auto.advance(); // auto: this press ends the wait where it stands
-    expect(auto.getState()).toMatchObject({ cursor: 0, settled: true });
+    auto.advance(); // auto: this press only returns to manual (Phase 18)
+    expect(auto.getState()).toMatchObject({ cursor: 0, settled: false });
     expect(auto.getState().transition).toBe("nav"); // no transition happened
     auto.advance(); // the press that moves is the advance
     expect(auto.getState().cursor).toBe(1);

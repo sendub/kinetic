@@ -2,16 +2,21 @@
 // held-WebM videos): the animation's frame timing, the video chain on one
 // reused <video>, playback ranges measured frame by frame, the contain fit,
 // the minPlaySeconds chain-exit floor in auto and skip, a loopCount video and
-// a holdSeconds WebM. Each part starts from its own fresh browser.
+// a holdSeconds WebM, and the "skip plays videos" setting (a burst plays the
+// floor clip out; Space cuts it short and the burst goes on). Each part
+// starts from its own fresh browser.
 
 import {
   CHAIN_PROBE,
+  CONFIG_OPEN,
+  clickCenter,
   FIT_STATE,
   item,
   judgeFit,
   ON_TEXT,
   PAGE_STATE,
   pressA,
+  pressC,
   pressH,
   pressSpace,
   pressTab,
@@ -635,6 +640,136 @@ async function floor({ check, open }) {
   );
 }
 
+async function skipVideos({ check, open }) {
+  // docs/plan.md Phase 18, "Skip can play videos": with the setting on, a
+  // skip burst plays a video as forward reading would (the floor clip: its
+  // 6 s file, no loop count) and then carries on through its chain's lines
+  // at the dwell; Space during the playback aborts it and the burst goes on.
+  const { page, cdp } = await open("skipvideos", { closeHelp: true });
+  const clip = item("floor-clip");
+  const l2 = item("floor-2");
+  const l3 = item("floor-3");
+  const exit = item("branch-title");
+  const planMs = clip.durationSeconds * 1000;
+  const walked = await spaceTo(page, cdp, "branch-title"); // all seen
+  await pressC(cdp);
+  await page.waitForFunction(CONFIG_OPEN, { timeout: 2000 });
+  const rect = await page.evaluate(() => {
+    const r = document
+      .querySelector(".config-skip-videos")
+      .getBoundingClientRect();
+    return { top: r.top, bottom: r.bottom, left: r.left, right: r.right };
+  });
+  await clickCenter(cdp, rect);
+  const pressed = await page.evaluate(() =>
+    document.querySelector(".config-skip-videos").getAttribute("aria-pressed"),
+  );
+  await pressC(cdp); // close: the timeline resumes
+  const idx = (samples, it) =>
+    samples.findIndex(([, sig]) => sig.endsWith(`|${it.text}`));
+
+  // Played: the clip is PLAYING under skip for its plan, then the lines
+  // dwell and the burst stops on the last seen item.
+  const back = await wheelUntil(
+    page,
+    cdp,
+    true,
+    ON_TEXT,
+    item("floor-title").text,
+  );
+  await pressTab(cdp);
+  const run = await sampleUntil(
+    page,
+    CHAIN_PROBE,
+    onText(exit),
+    planMs + 4000,
+    15,
+  );
+  await sleep(500);
+  const stayed = await page.evaluate(ON_TEXT, exit.text);
+  const iClip = idx(run.samples, clip);
+  const i2 = idx(run.samples, l2);
+  const i3 = idx(run.samples, l3);
+  // The clip ends at the first later sample showing another line: each
+  // line holds one ~25 ms dwell, so even a 15 ms sampler may miss one.
+  const iOff =
+    iClip < 0
+      ? -1
+      : run.samples.findIndex(
+          ([, sig], i) => i > iClip && !sig.endsWith(`|${clip.text}`),
+        );
+  const onClip = iOff > iClip ? run.samples.slice(iClip, iOff) : [];
+  const playedOnClip = onClip.some(([, sig]) =>
+    sig.startsWith(`${clip.file}|playing|`),
+  );
+  const clipMs = onClip.length > 0 ? run.samples[iOff][0] - onClip[0][0] : -1;
+  const linesMs =
+    iOff >= 0 && run.doneAt !== null ? run.doneAt - run.samples[iOff][0] : -1;
+  check(
+    "skip plays videos: the burst plays the floor clip out, then dwells through its lines and stops on the last seen item",
+    walked &&
+      pressed === "true" &&
+      back &&
+      iClip >= 0 &&
+      (i2 > iClip || i3 > iClip) &&
+      playedOnClip &&
+      clipMs >= planMs - 150 &&
+      clipMs <= planMs + 700 &&
+      linesMs >= 0 &&
+      linesMs < 600 &&
+      stayed,
+    {
+      walked,
+      pressed,
+      back,
+      playedOnClip,
+      clipMs,
+      planMs,
+      linesMs,
+      sampledLines: [i2 > iClip, i3 > iClip],
+      stayed,
+      changes: run.samples
+        .filter(([, sig], i, all) => i === 0 || all[i - 1][1] !== sig)
+        .slice(0, 12)
+        .map(([at, sig]) => `${String(at - run.samples[0][0])} ${sig}`),
+    },
+  );
+
+  // Aborted: Space while the clip plays cuts it short and the burst goes
+  // on through the lines to the last seen item — it does not stop there.
+  const back2 = await wheelUntil(
+    page,
+    cdp,
+    true,
+    ON_TEXT,
+    item("floor-title").text,
+  );
+  await pressTab(cdp);
+  const started = await sampleUntil(
+    page,
+    CHAIN_PROBE,
+    (sig) => sig.startsWith(`${clip.file}|playing|`),
+    3000,
+    20,
+  );
+  await sleep(600);
+  const spaceAt = Date.now();
+  await pressSpace(cdp);
+  const after = await sampleUntil(page, CHAIN_PROBE, onText(exit), 3000, 8);
+  await sleep(500);
+  const stayed2 = await page.evaluate(ON_TEXT, exit.text);
+  const fromSpace = after.doneAt === null ? -1 : after.doneAt - spaceAt;
+  check(
+    "Space during a skip-played video aborts it and the burst continues to the last seen item",
+    back2 &&
+      started.doneAt !== null &&
+      after.doneAt !== null &&
+      fromSpace < 800 &&
+      stayed2,
+    { back2, playing: started.doneAt !== null, fromSpace, stayed2 },
+  );
+}
+
 async function loops({ check, open }) {
   // NEW: a loopCount video in auto mode plays all its passes before it
   // advances (resting paused at the end only if its text hold is longer).
@@ -786,6 +921,7 @@ export default async function (ctx) {
   await ranges(ctx);
   await contentFit(ctx);
   await floor(ctx);
+  await skipVideos(ctx);
   await loops(ctx);
   await hold(ctx);
 }

@@ -2,9 +2,12 @@
 // mid-flow key help, bookmarks (`b`, the `t` list, restore from a row),
 // reload resume, the `c` config screen and its settings' persistence
 // (including a reload the instant after a change), the empty-manifest
-// folder, and "Reset progress". Each part opens its own
-// fresh profile, so no part leans on another's storage.
+// folder, "Reset progress", and a save surviving a content update (a
+// prequel inserted before everything, an item deleted). Each part opens
+// its own fresh profile, so no part leans on another's storage.
 
+import { cpSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { DEFAULT_SETTINGS } from "../../src/machine/types.ts";
 import { speedLabel } from "../../src/render/config.ts";
 import {
@@ -14,6 +17,7 @@ import {
   clickCenter,
   configOpen,
   currentItemId,
+  demoDir,
   emptyDir,
   HELP_CLOSED,
   HELP_OPEN,
@@ -34,10 +38,10 @@ import {
   pressT,
   pressTab,
   READ_BOOKMARK_OVERLAY,
-  READ_BOOKMARKS,
   READ_CONFIG_OVERLAY,
   READ_CONFIRM_OVERLAY,
   READ_HELP,
+  readBookmarks,
   readSignature,
   SIGNATURE,
   sampleSignatures,
@@ -232,7 +236,7 @@ async function bookmarks({ check, open }) {
   const atNewer = await currentItemId(page);
   await pressB(cdp);
   const flash2 = await waitFor(page, FLASH_SHOWN);
-  const stored = await page.evaluate(READ_BOOKMARKS);
+  const stored = await readBookmarks(page);
   await sleep(1700); // the pill shows ~900 ms, then fades within ~450 ms
   const flashGone = await page.evaluate(
     () => document.getElementById("flash") === null,
@@ -392,7 +396,7 @@ async function bookmarks({ check, open }) {
     3000,
   );
   const afterDelete = await page.evaluate(READ_BOOKMARK_OVERLAY);
-  const storedAfter = await page.evaluate(READ_BOOKMARKS);
+  const storedAfter = await readBookmarks(page);
   const sigAfterDelete = await readSignature(page);
   const idAfterDelete = await currentItemId(page);
   check(
@@ -457,7 +461,7 @@ async function resume({ check, open }) {
   );
   const resumed = await page.evaluate(PAGE_STATE);
   const resumedId = await currentItemId(page);
-  const stored = await page.evaluate(READ_BOOKMARKS);
+  const stored = await readBookmarks(page);
   await pressT(cdp);
   const listOpen = await waitFor(page, OVERLAY_OPEN);
   const list = await page.evaluate(READ_BOOKMARK_OVERLAY);
@@ -859,6 +863,157 @@ async function reset({ check, open }) {
   );
 }
 
+// The reading-state record as IndexedDB holds it (src/storage/idb.ts).
+const READ_STATE = async () => {
+  const content = new URL(".", document.baseURI).href;
+  const db = await new Promise((resolve, reject) => {
+    const open = indexedDB.open("kinetic", 1);
+    open.onsuccess = () => resolve(open.result);
+    open.onerror = () => reject(open.error);
+  });
+  try {
+    return await new Promise((resolve, reject) => {
+      const req = db
+        .transaction("state", "readonly")
+        .objectStore("state")
+        .get(content);
+      req.onsuccess = () => resolve(req.result ?? null);
+      req.onerror = () => reject(req.error);
+    });
+  } finally {
+    db.close();
+  }
+};
+
+// Phase 18, "Saves keyed by id, not position": read part of the demo,
+// bookmark, then UPDATE the folder's content in place — two prequel items
+// inserted before everything and `text-bare` deleted, so every later item
+// moves — and reload. The save names items by id, so the resume, the
+// bookmark and the seen set still point at the same content.
+async function contentUpdate({ check, open }) {
+  // A private copy of the demo: the update rewrites its manifest, and the
+  // save is keyed by the folder, so the copy is reloaded in place.
+  const folder = join(dirname(demoDir), "demo-update");
+  rmSync(folder, { recursive: true, force: true });
+  cpSync(demoDir, folder, { recursive: true });
+  const { page, cdp } = await open("update", { closeHelp: true, folder });
+  await leaveFullscreen(page, cdp);
+
+  const walked1 = await spaceTo(page, cdp, "video-chain-3");
+  await pressB(cdp);
+  const flashed = await waitFor(page, FLASH_SHOWN);
+  const walked2 = await spaceTo(page, cdp, "chain-still-3");
+  await sleep(300);
+  const record = await page.evaluate(READ_STATE);
+  check(
+    "the save names items by id, not position",
+    walked1 &&
+      flashed &&
+      walked2 &&
+      record?.ctx?.lastShown === "chain-still-3" &&
+      Array.isArray(record?.ctx?.visited) &&
+      record.ctx.visited.includes("intro-title") &&
+      record.ctx.visited.every((id) => typeof id === "string") &&
+      !("frontier" in (record ?? {})),
+    {
+      walked1,
+      flashed,
+      walked2,
+      ctx: record?.ctx && { ...record.ctx, history: undefined },
+    },
+  );
+
+  // The content update: prequel items reusing the demo's own media files.
+  const updated = JSON.parse(
+    readFileSync(join(folder, "manifest.json"), "utf8"),
+  );
+  const prequel = [
+    {
+      id: "prequel-1",
+      type: "image",
+      file: "branch-title.jpg",
+      text: "Prequel one: a content update added this before the story.",
+    },
+    {
+      id: "prequel-2",
+      type: "image",
+      file: "after-start.jpg",
+      text: "Prequel two: everything after it moved two places on.",
+    },
+  ];
+  updated.items = [
+    ...prequel,
+    ...updated.items.filter((it) => it.id !== "text-bare"),
+  ];
+  const json = JSON.stringify(updated, null, 2);
+  writeFileSync(join(folder, "manifest.json"), `${json}\n`);
+  writeFileSync(
+    join(folder, "manifest.js"),
+    `window.KINETIC_MANIFEST = ${json};\n`,
+  );
+  const newIndex = (id) => updated.items.findIndex((it) => it.id === id);
+
+  await page.reload();
+  await waitFor(
+    page,
+    () =>
+      (document.getElementById("visual-image")?.getAttribute("src") ?? "") !==
+      "",
+  );
+  await sleep(500);
+  const resumedId = await currentItemId(page);
+  const resumed = await page.evaluate(PAGE_STATE);
+  check(
+    "after the update a reload resumes on the same item (chain-still-3, moved from 11 to 12), help closed",
+    resumedId === "chain-still-3" && resumed.helpOpen === false,
+    { resumedId, help: resumed.helpOpen, nowAt: newIndex("chain-still-3") },
+  );
+
+  // The seen set moved with the ids: rolled back three screens, Tab runs
+  // through the seen items and stops ON chain-still-3, the last seen one —
+  // not a place early (where the old positions would end) and never into
+  // video-loops.
+  await wheel(cdp, true, 3);
+  const rolledTo = await currentItemId(page);
+  await pressTab(cdp);
+  const seenIds = new Set();
+  for (let t = 0; t < 30; t += 1) {
+    await sleep(50);
+    seenIds.add(await currentItemId(page));
+  }
+  await sleep(500);
+  const stopId = await currentItemId(page);
+  check(
+    "the seen set followed the ids: Tab skip stops on chain-still-3, the last seen item",
+    rolledTo === "video-chain-3" &&
+      stopId === "chain-still-3" &&
+      !seenIds.has("video-loops"),
+    { rolledTo, stopId, passed: [...seenIds] },
+  );
+
+  await pressT(cdp);
+  const listOpen = await waitFor(page, OVERLAY_OPEN);
+  const list = await page.evaluate(READ_BOOKMARK_OVERLAY);
+  const rows = list.entries ?? [];
+  if (rows.length > 0) await rowCenterClick(cdp, rows[0]);
+  await waitFor(page, OVERLAY_CLOSED);
+  await sleep(300);
+  const restoredId = await currentItemId(page);
+  check(
+    "the bookmark still names video-chain-3 at its new place, and its row restores there",
+    listOpen &&
+      rows.length === 1 &&
+      rows[0].itemIndex === newIndex("video-chain-3") &&
+      rows[0].label.includes("video-chain-3") &&
+      restoredId === "video-chain-3",
+    {
+      rows: rows.map((r) => [r.itemIndex, r.label]),
+      expected: newIndex("video-chain-3"),
+      restoredId,
+    },
+  );
+}
+
 export default async function (ctx) {
   for (const part of [
     helpMidFlow,
@@ -868,6 +1023,7 @@ export default async function (ctx) {
     settingsImmediateReload,
     emptyFolder,
     reset,
+    contentUpdate,
   ]) {
     try {
       await part(ctx);

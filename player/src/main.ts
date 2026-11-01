@@ -1,9 +1,9 @@
 // Kinetic player entry point (docs/plan.md Phases 5, 8, 9, 13, 13b, 14): load
 // the manifest, build the timeline machine — resuming from the persisted
-// route-play context, falling back to the legacy frontier for pre-ctx
-// records, and starting on the persisted settings when either exists —
+// route-play context and starting on the persisted settings when either
+// exists —
 // mount the render shell, install the input map, and wire storage: the
-// machine context (with the derived legacy frontier) is written the moment
+// machine context, keyed by id (storage/ids.ts), is written the moment
 // the reader moves — Phase 14: no debounce, because a write issued on the
 // change is the only one a reload a moment later can find —, `b` appends a
 // bookmark that captures the current context and confirms only once both
@@ -30,7 +30,11 @@ import { createMachine } from "./machine/machine";
 import type { MachineSettings } from "./machine/types";
 import { DEFAULT_SETTINGS } from "./machine/types";
 import { mountError, mountShell } from "./render/app";
-import { bookmarkContext, mountBookmarkOverlay } from "./render/bookmarks";
+import {
+  bookmarkContext,
+  mergeProgress,
+  mountBookmarkOverlay,
+} from "./render/bookmarks";
 import { captureVisualThumbnail } from "./render/capture";
 import { inputOwnerFor, mountChoiceOverlay } from "./render/choice";
 import { mountConfigOverlay } from "./render/config";
@@ -43,10 +47,11 @@ import { loadManifest } from "./render/manifest";
 import { mountRouteAnnouncements } from "./render/routes";
 import { installWheelInput } from "./render/wheel";
 import { contentSignature, createIdbStorage } from "./storage/idb";
+import { createContextCodec, resumeOptionsFor } from "./storage/ids";
 import { createNoopStorage } from "./storage/noop";
 import { createImmediateWriter } from "./storage/persist";
 import type { Bookmark, PersistedState } from "./storage/types";
-import { helpSeenFrom, resumeOptionsFor } from "./storage/types";
+import { helpSeenFrom } from "./storage/types";
 
 async function fetchJson(url: string): Promise<unknown> {
   const response = await fetch(url);
@@ -129,12 +134,15 @@ function start(): void {
       // the player always runs — it just remembers nothing across a reload.
       const storage =
         createIdbStorage(contentSignature(contentRoot)) ?? createNoopStorage();
-      // Resume: a stored machine context is the reader's position — its
-      // `lastShown` is where the load starts, the seen set and route
-      // stack arrive with it. A record without ctx (written before
-      // Phase 13) keeps the old frontier resume; `resumeOptionsFor`
-      // applies that order once: ctx wins over frontier. No record, or
-      // an unreadable one, is the first-ever load: item 0.
+      // Resume: a stored context is the reader's position — its history
+      // entry on screen (or `lastShown`) is where the load starts, the
+      // seen set and route stack arrive with it. Storage holds it keyed
+      // by item / decision / route id (docs/plan.md Phase 18), so a
+      // content update keeps it valid; the codec converts it to this
+      // manifest's positions and drops ids that no longer exist. No
+      // record, an unreadable one, or an old index-based one is the
+      // first-ever load: item 0.
+      const codec = createContextCodec(manifest.items, manifest.branches);
       const persisted = await storage.loadState().catch(() => null);
       // Settings persist through the `c` screen (docs/plan.md Phase 9):
       // merged over the defaults at machine construction, so a resumed
@@ -158,7 +166,7 @@ function start(): void {
         items: manifest.items,
         branches: manifest.branches,
         settings: currentSettings,
-        ...resumeOptionsFor(persisted),
+        ...resumeOptionsFor(persisted, codec),
       });
       const shell = mountShell({ root, manifest, machine });
 
@@ -173,12 +181,10 @@ function start(): void {
       // coalesces nothing; only concurrency does: createImmediateWriter
       // keeps one write in flight and at most one pending snapshot, so a
       // skip burst still costs one write per burst-pause without a queue
-      // that grows with the reader. The record keeps `frontier` (derived,
-      // legacy readers) beside the ctx; exportContext is a sorted number
-      // list, cheap to serialize per write.
+      // that grows with the reader. The codec caches the converted history
+      // as the machine caches its export, so a write stays cheap.
       const stateRecord = (): PersistedState => ({
-        frontier: machine.getState().frontier,
-        ctx: machine.exportContext(),
+        ctx: codec.toSaved(machine.exportContext()),
         settings: currentSettings,
         helpSeen,
       });
@@ -221,12 +227,12 @@ function start(): void {
       // `b` (README bookmark bullet): the thumbnail is opportunistic — a
       // frame is captured only when it is drawable and the canvas readable
       // (over `file://` Chrome taints it, and null is expected); the
-      // durable bookmark is `{timestampMs, itemIndex, ctx}`, which the `t`
-      // list renders from even without a thumb (render/bookmarks.ts falls
-      // back to the manifest item's still). The ctx rides along so the
-      // later restore can re-enter the route context the bookmark was
-      // taken in (`bookmarkRestoreTarget`); a restore without one — an
-      // old bookmark — is the plain itemIndex navigation.
+      // durable bookmark is `{timestampMs, itemId, ctx}` — keyed by id, so
+      // a content update keeps it pointing at the same item — which the
+      // `t` list renders from even without a thumb (render/bookmarks.ts
+      // falls back to the manifest item's still). The ctx rides along so
+      // the later restore can re-enter the route context the bookmark was
+      // taken in (`bookmarkRestoreTarget`).
       // Phase 14 adds the ORDER: the bookmark record and a state write are
       // both issued, and the flash waits for BOTH to commit. The state write
       // is the one the last advance already issued (usually long done), and
@@ -236,11 +242,12 @@ function start(): void {
       const takeBookmark = async (): Promise<void> => {
         const blob = await captureVisualThumbnail(shell.currentVisual());
         const thumbDataUrl = blob === null ? null : await blobToDataUrl(blob);
+        const ctx = codec.toSaved(bookmarkContext(machine.exportContext()));
         const bookmark: Bookmark = {
           id: newBookmarkId(),
           timestampMs: Date.now(),
-          itemIndex: machine.getState().cursor,
-          ctx: bookmarkContext(machine.exportContext()),
+          itemId: ctx.lastShown,
+          ctx,
           thumbDataUrl,
         };
         const settled = await Promise.allSettled([
@@ -265,19 +272,21 @@ function start(): void {
 
       // `t` (README `t` bullet): the bookmark list panel. It reads the list
       // fresh on every open (bookmarks taken since the last look show up),
-      // and an entry click continues the novel from that moment: a record
-      // with a ctx restores THROUGH it — importContext re-enters the item
-      // inside the route context the bookmark captured, an UNSETTLED
-      // arrival that fires no decision (same landing rule as a resume);
-      // a pre-Phase-13 record without one keeps the legacy plain-itemIndex
-      // navigation (machine.goTo). Either is a jump: the landing is
-      // appended to the reading history.
+      // and an entry click continues the novel from that moment: the
+      // record's ctx, converted to this manifest's positions, restores
+      // THROUGH importContext — it re-enters the item inside the route
+      // context the bookmark captured, an UNSETTLED arrival that fires no
+      // decision (same landing rule as a resume), and a jump: the landing
+      // is appended to the reading history. Only bookmarks whose item is
+      // still in the manifest are listed (render/bookmarks.ts).
       const overlay = mountBookmarkOverlay({
         root,
         items: manifest.items,
         onPick: (target) => {
-          if (target.ctx !== undefined) machine.importContext(target.ctx);
-          else machine.goTo(target.itemIndex);
+          const ctx = codec.fromSaved(target.ctx);
+          if (ctx !== undefined) {
+            machine.importContext(mergeProgress(ctx, machine.exportContext()));
+          }
         },
         // The thumbnail's "x" (docs/plan.md Phase 18): delete, then draw
         // what storage now holds. A failed delete re-reads the list, so
@@ -512,6 +521,8 @@ function start(): void {
           // `a` (README auto-forward bullet): manual is the start, and `a`
           // toggles auto-advance. Turning it off cancels the pending hold;
           // a skip dwell keeps running — skipping is the reader's own run.
+          // Space also turns it off (machine `advance()`, Phase 18); no
+          // on-screen indicator mirrors the mode, so nothing else syncs.
           toggleAutoForward: () => {
             if (!storyInput()) return;
             machine.setAutoAdvance(!machine.isAutoAdvance());

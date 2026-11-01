@@ -16,6 +16,7 @@ import {
   SPEED_MIN,
   SPEED_STEP,
   skipAllLabel,
+  skipVideosLabel,
   speedLabel,
   stepSpeed,
 } from "./config";
@@ -64,6 +65,14 @@ describe("skipAllLabel (the README tab bullet's config option)", () => {
   it("names the two states", () => {
     expect(skipAllLabel(true)).toBe("On");
     expect(skipAllLabel(false)).toBe("Off");
+  });
+});
+
+describe("skipVideosLabel (the Phase 18 skip-plays-videos switch)", () => {
+  it("names the two states, off being the default", () => {
+    expect(skipVideosLabel(true)).toBe("On");
+    expect(skipVideosLabel(false)).toBe("Off");
+    expect(DEFAULT_SETTINGS.skipPlaysVideos).toBe(false);
   });
 });
 
@@ -322,6 +331,30 @@ const byConfirm = (root: FakeElement, action: string): FakeElement =>
     (el) => el.getAttribute("data-confirm-action") === action,
   );
 
+describe("the config row: Skip plays videos (docs/plan.md Phase 18)", () => {
+  it("shows Off by default and toggles the setting live, keeping the rest", () => {
+    const { root, changes } = mount(defaults);
+    const toggle = byAction(root, "skip-videos");
+    expect(toggle.tag).toBe("button");
+    expect(toggle.getAttribute("role")).toBe("switch");
+    expect(toggle.textContent).toBe("Off");
+    expect(toggle.getAttribute("aria-pressed")).toBe("false");
+    toggle.fire("click");
+    expect(changes).toEqual([{ ...defaults, skipPlaysVideos: true }]);
+    expect(toggle.textContent).toBe("On");
+    expect(toggle.getAttribute("aria-pressed")).toBe("true");
+    toggle.fire("click");
+    expect(changes[1]).toEqual(defaults);
+  });
+
+  it("reopens on the value in force", () => {
+    const holder = mount(defaults);
+    holder.setInForce({ ...defaults, skipPlaysVideos: true });
+    holder.overlay.open();
+    expect(byAction(holder.root, "skip-videos").textContent).toBe("On");
+  });
+});
+
 describe("the config row: Reset progress (opens the box, touches nothing)", () => {
   it("shows on a fresh state and opens the confirmation on click", () => {
     // `defaults` here IS the fresh-state settings; the row still shows.
@@ -337,15 +370,27 @@ describe("the config row: Reset progress (opens the box, touches nothing)", () =
 });
 
 describe("the confirm box: cancel is a no-op, reset deletes and reloads", () => {
+  const SAVED = {
+    lastShown: "i4",
+    visited: ["i4"],
+    stack: [],
+    playedRoutes: [],
+    completedRoutes: [],
+  };
   /** A memory backend already holding one save and one bookmark. */
   async function filledStorage() {
     const storage = createMemoryStorage();
     await storage.saveState({
-      frontier: 5,
+      ctx: SAVED,
       settings: { readingSpeed: 2 },
       helpSeen: true,
     });
-    await storage.addBookmark({ id: "b1", timestampMs: 1, itemIndex: 4 });
+    await storage.addBookmark({
+      id: "b1",
+      timestampMs: 1,
+      itemId: "i4",
+      ctx: SAVED,
+    });
     return storage;
   }
 
@@ -363,7 +408,7 @@ describe("the confirm box: cancel is a no-op, reset deletes and reloads", () => 
     expect(confirm.isOpen()).toBe(false);
     expect(resets).toHaveLength(0);
     expect(await storage.loadState()).toEqual({
-      frontier: 5,
+      ctx: SAVED,
       settings: { readingSpeed: 2 },
       helpSeen: true,
     });
