@@ -442,13 +442,17 @@ truthful: an unchecked box means nothing was accepted.
       cursor, nav-below-edge + skipping stay posters, at-edge
       unchanged; scenario: space + auto replay all three videos,
       wheel stays paused; 360 tests, 2025-11-02)
-- [ ] New "Reset progress" config option: clears ALL saved state for
+- [x] New "Reset progress" config option: clears ALL saved state for
       the content (resume, seen/visited, played routes, bookmarks,
       settings) to restore the first-ever-play experience incl. the
       first-load key-help; a confirmation box ("Are you sure?")
       guards it - nothing clears until confirmed, cancel is a no-op.
       Verify: state survives reload until confirmed; after confirm the
-      app is fresh at item 1 with help shown.
+      app is fresh at item 1 with help shown. (#confirm overlay,
+      Enter/y vs Esc/n, suspends like h/t/c; flush->delete->reload
+      with the pagehide re-save guarded; deleteState/deleteBookmarks
+      on the storage interface; scenario 16/16: cancel keeps state+
+      bookmark, confirm boots fresh with help; 363 tests, 2025-11-02)
 
 ## Phase 17: Converter media organisation into subfolders (2025-11-02, user)
 

@@ -8,6 +8,7 @@ import { describe, expect, it } from "vitest";
 
 import type { MachineSettings } from "../machine/types";
 import { DEFAULT_SETTINGS } from "../machine/types";
+import { createMemoryStorage } from "../storage/memory";
 import {
   mountConfigOverlay,
   playAllLabel,
@@ -18,6 +19,7 @@ import {
   speedLabel,
   stepSpeed,
 } from "./config";
+import { mountConfirmOverlay, resetProgress } from "./confirm";
 
 describe("stepSpeed (README: configurable reading speed)", () => {
   it("walks the 0.25 grid in both directions", () => {
@@ -195,6 +197,7 @@ function mount(initial: MachineSettings) {
   const root = new FakeDocument().createElement("div");
   let inForce = initial;
   const changes: MachineSettings[] = [];
+  const resets: number[] = [];
   const overlay = mountConfigOverlay({
     root: root as unknown as HTMLElement,
     settings: () => inForce,
@@ -202,10 +205,14 @@ function mount(initial: MachineSettings) {
       changes.push(next);
       inForce = next;
     },
+    onReset: () => {
+      resets.push(resets.length);
+    },
   });
   return {
     root,
     changes,
+    resets,
     overlay,
     setInForce: (next: MachineSettings): void => {
       inForce = next;
@@ -299,5 +306,121 @@ describe("config panel (the reading-speed row: - slider + readout)", () => {
     expect(byClass(holder.root, "config-speed-value").textContent).toBe(
       speedLabel(2.5, defaults.msPerChar),
     );
+  });
+});
+
+// --- the "Reset progress" row and its confirmation box (docs/plan.md
+// Phase 16): the row only ASKS (its click opens the box and changes no
+// setting); the box's cancel is a pure no-op on storage; the box's reset
+// is `resetProgress` — flush, delete both stores, reload, in that order.
+// main.ts supplies the same wiring around the same two components. ---
+
+const byConfirm = (root: FakeElement, action: string): FakeElement =>
+  find(
+    root,
+    `[data-confirm-action=${action}]`,
+    (el) => el.getAttribute("data-confirm-action") === action,
+  );
+
+describe("the config row: Reset progress (opens the box, touches nothing)", () => {
+  it("shows on a fresh state and opens the confirmation on click", () => {
+    // `defaults` here IS the fresh-state settings; the row still shows.
+    const { root, overlay, changes, resets } = mount(defaults);
+    const resetButton = byAction(root, "reset-progress");
+    expect(resetButton.tag).toBe("button");
+    overlay.open();
+    resetButton.fire("click");
+    expect(resets).toHaveLength(1); // the box is the whole action
+    expect(changes).toHaveLength(0); // no setting moved
+    expect(overlay.isOpen()).toBe(true); // config stays under the box
+  });
+});
+
+describe("the confirm box: cancel is a no-op, reset deletes and reloads", () => {
+  /** A memory backend already holding one save and one bookmark. */
+  async function filledStorage() {
+    const storage = createMemoryStorage();
+    await storage.saveState({
+      frontier: 5,
+      settings: { readingSpeed: 2 },
+      helpSeen: true,
+    });
+    await storage.addBookmark({ id: "b1", timestampMs: 1, itemIndex: 4 });
+    return storage;
+  }
+
+  it("cancel (and a backdrop click) leave storage untouched", async () => {
+    const storage = await filledStorage();
+    const resets: number[] = [];
+    const root = new FakeDocument().createElement("div");
+    const confirm = mountConfirmOverlay({
+      root: root as unknown as HTMLElement,
+      onConfirm: () => resets.push(1), // never runs on this path
+      onCancel: () => {}, // like main.ts: closing is all cancel does
+    });
+    confirm.open();
+    byConfirm(root, "cancel").fire("click");
+    expect(confirm.isOpen()).toBe(false);
+    expect(resets).toHaveLength(0);
+    expect(await storage.loadState()).toEqual({
+      frontier: 5,
+      settings: { readingSpeed: 2 },
+      helpSeen: true,
+    });
+    expect((await storage.getBookmarks()).map((b) => b.id)).toEqual(["b1"]);
+    // A backdrop click is the same cancel.
+    confirm.open();
+    byClass(root, "confirm-title").fire("click");
+    expect(confirm.isOpen()).toBe(false);
+    expect(await storage.loadState()).not.toBeNull();
+  });
+
+  it("reset deletes BOTH stores, committed, and only then reloads", async () => {
+    const storage = await filledStorage();
+    const events: string[] = [];
+    const root = new FakeDocument().createElement("div");
+    let pending: Promise<void> | null = null;
+    const confirm = mountConfirmOverlay({
+      root: root as unknown as HTMLElement,
+      // main.ts's wiring: the box's answer is the whole reset.
+      onConfirm: () => {
+        confirm.close();
+        pending = resetProgress({
+          flush: async () => {
+            events.push("flush"); // the writer drains BEFORE any delete
+          },
+          // The same memory backend, with the two deletes spied so the
+          // ORDER (committed deletes, then reload) is observable.
+          storage: {
+            loadState: () => storage.loadState(),
+            saveState: (state) => storage.saveState(state),
+            addBookmark: (bookmark) => storage.addBookmark(bookmark),
+            getBookmarks: () => storage.getBookmarks(),
+            deleteState: async () => {
+              events.push("state");
+              await storage.deleteState();
+            },
+            deleteBookmarks: async () => {
+              events.push("bookmarks");
+              await storage.deleteBookmarks();
+            },
+          },
+          reload: () => {
+            events.push("reload"); // the stubbed location.reload
+          },
+        });
+      },
+      onCancel: () => {},
+    });
+    confirm.open();
+    byConfirm(root, "reset").fire("click");
+    expect(confirm.isOpen()).toBe(false);
+    await pending;
+    expect(events[0]).toBe("flush");
+    expect(events[events.length - 1]).toBe("reload");
+    expect(events.slice(1, 3).sort()).toEqual(["bookmarks", "state"]);
+    // Gone for good: the fresh boot's load finds nothing.
+    expect(await storage.loadState()).toBeNull();
+    expect(await storage.getBookmarks()).toEqual([]);
   });
 });

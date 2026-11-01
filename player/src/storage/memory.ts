@@ -78,5 +78,15 @@ export function createMemoryStorage(): Storage {
     getBookmarks() {
       return Promise.resolve(readBookmarks());
     },
+
+    deleteState() {
+      state = null;
+      return Promise.resolve();
+    },
+
+    deleteBookmarks() {
+      bookmarks.length = 0;
+      return Promise.resolve();
+    },
   };
 }

@@ -88,6 +88,17 @@ export interface Storage {
   saveState(state: PersistedState): Promise<void>;
   addBookmark(bookmark: Bookmark): Promise<Bookmark[]>;
   getBookmarks(): Promise<Bookmark[]>;
+  /**
+   * "Reset progress" (docs/plan.md Phase 16): drop this content's state
+   * row / rows, as if it had never been read. `deleteState` removes the
+   * one `state` record and `deleteBookmarks` every `bookmarks` row of
+   * this content; both resolve only once the deletion is COMMITTED, so a
+   * caller can reload right after and never see a half-deleted record
+   * (the verify-step-40 lesson: an uncommitted delete plus a reload
+   * strands the next boot). Deleting again is a no-op.
+   */
+  deleteState(): Promise<void>;
+  deleteBookmarks(): Promise<void>;
 }
 
 /**

@@ -19,7 +19,10 @@
 // machine, the `#choice` overlay answers the machine's open decision
 // (prompt, numbered routes, return-to-main offer; help can open over it,
 // everything else yields to it), the story text hides while it waits, and
-// a bookmark restore re-enters the recorded route context.
+// a bookmark restore re-enters the recorded route context. Phase 16's
+// "Reset progress" adds the `c` row and its confirmation box: on confirm
+// the content's state and bookmark rows are deleted (each committed) and
+// the page RELOADS — a true fresh boot, help screen included.
 // Composition only — rendering lives in src/render/, timing in
 // src/machine/, storage adapters in src/storage/.
 
@@ -35,6 +38,7 @@ import {
   mountChoiceOverlay,
 } from "./render/choice";
 import { mountConfigOverlay } from "./render/config";
+import { mountConfirmOverlay, resetProgress } from "./render/confirm";
 import { installFirstGestureFullscreen } from "./render/fullscreen";
 import { mountHelpOverlay } from "./render/help";
 import { installKeyMap, suspendTimeline } from "./render/keys";
@@ -175,10 +179,15 @@ function start(): void {
         storage.saveState(state),
       );
       const persistNow = (): Promise<void> => writeState(stateRecord());
+      // A confirmed "Reset progress" (Phase 16) sets this: from that
+      // moment every state write stops, or the `pagehide` flush of the
+      // reload below would simply re-save the row the reset deleted.
+      let resetting = false;
       // A state-write outage stays silent: reading must never break, and an
       // unhandled rejection would put a console error on a plain `file://`
       // open. Only the bookmark the reader asked for reports its failure.
       const persistQuietly = (): void => {
+        if (resetting) return;
         persistNow().catch(() => {});
       };
       machine.subscribe(persistQuietly);
@@ -273,7 +282,37 @@ function start(): void {
           machine.setSettings(next);
           persistQuietly();
         },
+        onReset: () => {
+          // The box asks; nothing is touched until it confirms. It sits
+          // over the config panel — same screen family, same suspension.
+          confirm.open();
+        },
       });
+      // The reset confirmation box (docs/plan.md Phase 16). Confirming
+      // deletes this content's state row AND its bookmarks rows, then
+      // RELOADS: a fresh boot is the honest "first ever play" (help
+      // overlay shown, item 1 current, default settings) — re-creating
+      // that in place would replay main.ts's startup by hand and prove
+      // less. The order inside resetProgress is the storage contract:
+      // pending write flushed, both deletes committed, THEN reload
+      // (render/confirm.ts; the verify-step-40 file:// IDB lesson). The
+      // `resetting` flag above keeps the reload's own pagehide flush
+      // from re-saving the deleted row.
+      const confirm = mountConfirmOverlay({
+        root,
+        onConfirm: () => runReset(),
+        // Cancel: close, and nothing else was ever touched.
+        onCancel: () => {},
+      });
+      function runReset(): void {
+        confirm.close();
+        resetting = true;
+        void resetProgress({
+          flush: persistNow,
+          storage,
+          reload: () => globalThis.location.reload(),
+        });
+      }
       // The key help screen (docs/plan.md Phase 13b): the keymap's own
       // table on a black screen. Opening it pauses the machine and hides
       // the stage; closing it resumes the same item, its hold re-armed
@@ -338,6 +377,10 @@ function start(): void {
       // the gate below). Otherwise the story reads, and `t`/`c` are the
       // open screens.
       const owner = () => inputOwnerFor(help.isOpen(), choice.isOpen());
+      // The reset box owns the screen too, the way its parent `c` panel
+      // does: while it is open only its own controls act (its keys ride
+      // the map below), like the suspension behind `h`/`t`/`c`.
+      const storyInput = () => owner() === "story" && !confirm.isOpen();
       // A FIRED choice suspends the timeline (it owns the screen until
       // answered). An ARRIVAL-open choice (`choice.arrival`, docs/plan.md
       // Phase 16) does not: the wheel has to be able to step away — which
@@ -350,6 +393,7 @@ function start(): void {
       const anyScreenOpen = () =>
         overlay.isOpen() ||
         config.isOpen() ||
+        confirm.isOpen() ||
         help.isOpen() ||
         (choice.isOpen() && firedChoiceHoldsTimeline());
 
@@ -387,17 +431,17 @@ function start(): void {
             timeline.advance();
           },
           toggleText: () => {
-            if (owner() !== "story") return;
+            if (!storyInput()) return;
             shell.toggleText();
           },
           toggleSkip: timeline.toggleSkip,
           jumpToUnseen: timeline.jumpToUnseen,
           bookmark: () => {
-            if (owner() !== "story") return;
+            if (!storyInput()) return;
             void takeBookmark();
           },
           toggleBookmarks: () => {
-            if (owner() !== "story") return;
+            if (!storyInput()) return;
             if (overlay.isOpen()) overlay.close();
             else {
               config.close();
@@ -405,7 +449,7 @@ function start(): void {
             }
           },
           toggleConfig: () => {
-            if (owner() !== "story") return;
+            if (!storyInput()) return;
             if (config.isOpen()) config.close();
             else {
               overlay.close();
@@ -416,19 +460,34 @@ function start(): void {
           // toggles auto-advance. Turning it off cancels the pending hold;
           // a skip dwell keeps running — skipping is the reader's own run.
           toggleAutoForward: () => {
-            if (owner() !== "story") return;
+            if (!storyInput()) return;
             machine.setAutoAdvance(!machine.isAutoAdvance());
           },
-          // Enter is owned by the screen (render/choice.ts's rule): it
-          // closes help, else takes the choice's "return to main route"
-          // when that offer is up, else it is inert.
+          // Enter is owned by the screen (render/choice.ts's rule): the
+          // reset box first (Phase 16 — reset, synonym of `y`), else it
+          // closes help, else it takes the choice's "return to main
+          // route" when that offer is up, else it is inert.
           closeHelp: () => {
+            if (confirm.isOpen()) {
+              runReset();
+              return;
+            }
             const action = enterActionFor(
               owner(),
               machine.getState().choice?.continueOption === true,
             );
             if (action === "close-help") closeHelp();
             else if (action === "continue") machine.chooseContinue();
+          },
+          // `y`/`n` act only while the reset box is open (keys.ts maps
+          // them always; the box is the context, like Enter and Escape
+          // are theirs). With no box up they are inert, as the digits
+          // are with no decision.
+          confirmReset: () => {
+            if (confirm.isOpen()) runReset();
+          },
+          confirmCancel: () => {
+            if (confirm.isOpen()) confirm.close();
           },
           // Escape (docs/plan.md Phase 13b, extended by 13): closes help,
           // else closes the open `t`/`c` panel, else opens help — and
@@ -437,8 +496,14 @@ function start(): void {
           // decision waits underneath and is still open when help closes.
           // A choice is never closed by Escape: only its own answer ends
           // it. `t`/`c` can never be open while one is, so they need no
-          // case here.
+          // case here. The reset box (Phase 16) is checked FIRST: it
+          // sits over the `c` panel, and Escape cancels the box without
+          // disturbing the panel under it.
           dismissOverlay: () => {
+            if (confirm.isOpen()) {
+              confirm.close();
+              return;
+            }
             if (help.isOpen()) {
               closeHelp();
               return;

@@ -5,7 +5,9 @@
 // slider's own range is the stepper's 0.25-3.0 in 0.25 steps, and the
 // readout shows the multiplier and the per-character allowance it gives),
 // the `tab` bullet's "skip all" config option (the `skipAll` boolean), and
-// Phase 13's `playAllRoutes` zero-interactivity route playback. No other UI.
+// Phase 13's `playAllRoutes` zero-interactivity route playback, plus
+// Phase 16's "Reset progress" action row, which opens the confirmation box
+// (render/confirm.ts) and changes no setting itself. No other UI.
 //
 // Every control click produces the full next settings through `onChange`,
 // so the shell applies it live (machine.setSettings) and persists it from
@@ -69,12 +71,19 @@ export interface ConfigOverlayOptions {
   settings(): MachineSettings;
   /** A control moved: the full next settings, for live apply and persist. */
   onChange(next: MachineSettings): void;
+  /**
+   * The "Reset progress" row's control: open the confirmation box
+   * (render/confirm.ts). A settings change is NOT produced here — the
+   * row is an action, not an option (docs/plan.md Phase 16).
+   */
+  onReset(): void;
 }
 
 export function mountConfigOverlay({
   root,
   settings,
   onChange,
+  onReset,
 }: ConfigOverlayOptions): ConfigOverlay {
   const doc = root.ownerDocument;
 
@@ -151,7 +160,25 @@ export function mountConfigOverlay({
   playToggle.setAttribute("data-config-action", "play-all");
   playRow.append(playLabelEl, playToggle);
 
-  panel.append(title, hint, speedRow, skipRow, playRow);
+  // `Reset progress` (docs/plan.md Phase 16): an action row, not a switch.
+  // It shows on every open — fresh state included, because "you have
+  // nothing to clear" is simple and honest. Its control opens the
+  // confirmation box (render/confirm.ts); the panel itself changes no
+  // setting and clears nothing until the box confirms.
+  const resetRow = doc.createElement("div");
+  resetRow.className = "config-row";
+  const resetLabelEl = doc.createElement("span");
+  resetLabelEl.className = "config-label";
+  resetLabelEl.textContent = "Reset progress";
+  const resetButton = doc.createElement("button");
+  resetButton.className = "config-toggle config-reset";
+  resetButton.type = "button";
+  resetButton.textContent = "Reset…";
+  resetButton.setAttribute("aria-label", "Reset all progress for this content");
+  resetButton.setAttribute("data-config-action", "reset-progress");
+  resetRow.append(resetLabelEl, resetButton);
+
+  panel.append(title, hint, speedRow, skipRow, playRow, resetRow);
   root.appendChild(panel);
 
   // The values on show, kept so the next control click edits the whole
@@ -192,6 +219,10 @@ export function mountConfigOverlay({
       move({ ...current, skipAll: !current.skipAll });
     } else if (action === "play-all") {
       move({ ...current, playAllRoutes: !current.playAllRoutes });
+    } else if (action === "reset-progress") {
+      // An action, not a settings move: the box confirms, the reset
+      // reloads — the panel simply asks.
+      onReset();
     }
   });
 

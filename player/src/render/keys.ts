@@ -30,6 +30,14 @@ export interface KeyCommands {
   toggleAutoForward(): void;
   /** Enter: close the key help overlay when it is up (Phase 13b). */
   closeHelp(): void;
+  /**
+   * `y`: confirm while the reset box is open (Phase 16, "Reset
+   * progress"). Enter is its synonym — the shell routes Enter through
+   * `closeHelp`, which checks the box first. Inert with no box open.
+   */
+  confirmReset(): void;
+  /** `n`: cancel while the reset box is open; Escape is its synonym. */
+  confirmCancel(): void;
 }
 
 /** A command the key map can issue. */
@@ -58,6 +66,10 @@ const KEY_TABLE = new Map<string, KeyCommand>([
   ["A", "toggleAutoForward"],
   ["Enter", "closeHelp"],
   ["Escape", "dismissOverlay"],
+  ["y", "confirmReset"],
+  ["Y", "confirmReset"],
+  ["n", "confirmCancel"],
+  ["N", "confirmCancel"],
 ]);
 
 /** Every key the table maps — the key help's coverage guard reads this. */
@@ -137,7 +149,16 @@ const HELP_ROWS: ReadonlyArray<{
   { command: "jumpToUnseen", description: "jump to the last item you read" },
   {
     command: "toggleConfig",
-    description: "config: reading speed, skip-all, play-all-routes",
+    description: "config: reading speed, skip-all, play-all-routes, reset",
+  },
+  {
+    command: "confirmReset",
+    description:
+      "while the reset box is open: reset (or Enter) — clears all saved progress",
+  },
+  {
+    command: "confirmCancel",
+    description: "while the reset box is open: cancel (or Escape)",
   },
   { command: "closeHelp", description: "close this help" },
   {
@@ -192,8 +213,9 @@ export function routeIndexForKey(key: string, repeat: boolean): number | null {
 /**
  * The cursor-moving commands: the key map's advance/toggleSkip/jumpToUnseen
  * plus the wheel's two steps. While a full-screen screen (the `t` bookmark
- * overlay, the `c` config screen, or the `#help` key help — Phase 13b) is
- * open these are suspended — the overlay takes precedence, so no key or
+ * overlay, the `c` config screen, its reset confirmation box (Phase 16),
+ * or the `#help` key help — Phase 13b) is open these are suspended — the
+ * overlay takes precedence, so no key or
  * wheel notch slides the timeline underneath it (`e` is included for the
  * same reason: jumping behind the panel would move the cursor out of
  * sight). `b` and `h` are not timeline commands and keep working behind

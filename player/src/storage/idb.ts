@@ -304,5 +304,37 @@ export function createIdbStorage(contentKey: string): Storage | null {
     },
 
     getBookmarks,
+
+    // "Reset progress" (docs/plan.md Phase 16). Both deletes run in a
+    // readwrite transaction whose promise resolves on `transactionDone`,
+    // so the deletion is COMMITTED before the caller is handed back
+    // control — a `location.reload()` right after can never catch a
+    // half-deleted record (the verify-step-40 lesson). This is a plain
+    // record delete, not `deleteDatabase`, so the app's own open
+    // connection is no obstacle; it closes harmlessly with the page.
+    async deleteState(): Promise<void> {
+      const db = await openDatabase();
+      const tx = db.transaction(STATE_STORE, "readwrite");
+      tx.objectStore(STATE_STORE).delete(contentKey);
+      await transactionDone(tx);
+    },
+
+    async deleteBookmarks(): Promise<void> {
+      const db = await openDatabase();
+      const tx = db.transaction(BOOKMARKS_STORE, "readwrite");
+      // An index cannot delete directly; walk this content's cursor and
+      // delete each row through it, then let the transaction commit.
+      const index = tx.objectStore(BOOKMARKS_STORE).index(CONTENT_INDEX);
+      const cursorRequest = index.openCursor(IDBKeyRange.only(contentKey));
+      cursorRequest.onsuccess = () => {
+        const cursor = cursorRequest.result;
+        if (cursor === null) return;
+        cursor.delete();
+        cursor.continue();
+      };
+      // A failed cursor request bubbles and aborts the transaction,
+      // which `transactionDone` below reports as a rejection.
+      await transactionDone(tx);
+    },
   };
 }
