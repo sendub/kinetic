@@ -5,9 +5,12 @@
 // (.tmp/repro-playall.mjs) walks the pills themselves.
 
 import { describe, expect, it } from "vitest";
+import { createMachine } from "../machine/machine";
 import type { Branch, Item, Manifest } from "../machine/types";
+import { DEFAULT_SETTINGS } from "../machine/types";
 import {
   BACK_JUMP_MESSAGE,
+  mountRouteAnnouncements,
   routeAnnouncementsFor,
   routeFlashLabel,
   routeStartLabels,
@@ -160,16 +163,14 @@ describe("routeAnnouncementsFor (the entry rule)", () => {
     ).toEqual([]);
   });
 
-  it("a completed decision opening on arrival is silent; the pick from it is not", () => {
-    // docs/plan.md Phase 18, bullet 3 widened arrivals to COMPLETED
-    // decisions. The pill rule is untouched: an arrival changes no route
-    // context (branches.test.ts pins the empty stack), so even landing on a
-    // route's first item it says nothing — and the row picked from that view
+  it("a choice screen opening is silent; the pick from it is not", () => {
+    // A choice screen (fired, or replayed from the history) has no route
+    // frame open over it, so it says nothing — and the row picked from it
     // enters the route exactly like a route-end re-selection, which does.
     expect(
       routeAnnouncementsFor(
         { cursor: 5, frame: null },
-        { cursor: 2, frame: null }, // the arrival: the overlay opens here
+        { cursor: 2, frame: null }, // the overlay opens here
         LABELS,
       ),
     ).toEqual([]);
@@ -192,5 +193,39 @@ describe("route pills after the play-all interstitial (docs/plan.md Phase 18)", 
         LABELS,
       ),
     ).toEqual([routeFlashLabel("Route A")]);
+  });
+});
+
+describe("mountRouteAnnouncements: history replays are quiet (History rollback spec)", () => {
+  it("a wheel replay back into a route announces nothing; a real pick does", () => {
+    const machine = createMachine({
+      items: MANIFEST.items,
+      branches: MANIFEST.branches,
+      settings: DEFAULT_SETTINGS,
+    }); // manual: one press is one step
+    const shown: string[][] = [];
+    let replaying = false;
+    mountRouteAnnouncements({
+      machine,
+      manifest: MANIFEST,
+      flash: (messages) => shown.push([...messages]),
+      quiet: () => replaying,
+    });
+    machine.advance(); // lead -> decide
+    machine.advance(); // fires the decision
+    machine.choose(0); // Route A: announced
+    expect(shown).toEqual([[routeFlashLabel("Route A")]]);
+    replaying = true;
+    machine.wheelBack(); // the choice screen
+    machine.wheelForward(); // Route A's first item, its frame restored
+    replaying = false;
+    expect(machine.getState().cursor).toBe(2);
+    expect(shown).toHaveLength(1); // the replay said nothing
+    machine.wheelBack(); // the choice screen again, then a different pick
+    machine.choose(1);
+    expect(shown[shown.length - 1]).toEqual([
+      routeFlashLabel("Turn them down"),
+    ]);
+    machine.destroy();
   });
 });

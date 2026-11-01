@@ -14,14 +14,32 @@ import type { Bookmark, PersistedState, Storage } from "./types";
  * same arrays to caller and store.
  */
 function copyContext(context: MachineContext): MachineContext {
+  const routeSets = (
+    entries: readonly { decision: number; routes: readonly number[] }[],
+  ) =>
+    entries.map((entry) => ({
+      decision: entry.decision,
+      routes: [...entry.routes],
+    }));
   return {
     lastShown: context.lastShown,
     visited: [...context.visited],
     stack: context.stack.map((frame) => ({ ...frame })),
-    playedRoutes: context.playedRoutes.map((entry) => ({
-      decision: entry.decision,
-      routes: [...entry.routes],
-    })),
+    playedRoutes: routeSets(context.playedRoutes),
+    ...(context.completedRoutes === undefined
+      ? {}
+      : { completedRoutes: routeSets(context.completedRoutes) }),
+    ...(context.history === undefined
+      ? {}
+      : {
+          history: context.history.map((entry) => ({
+            ...entry,
+            stack: entry.stack.map((frame) => ({ ...frame })),
+          })),
+        }),
+    ...(context.historyPos === undefined
+      ? {}
+      : { historyPos: context.historyPos }),
   };
 }
 

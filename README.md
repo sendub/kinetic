@@ -1,28 +1,39 @@
 # Kinetic
 
-A simple alternative to Ren'Py for playing kinetic visual novels.
+A browser player for kinetic visual novels: a simple alternative to Ren'Py. A novel is a self-contained folder of media plus the player; open its `index.html` in a browser. No install, no server, no network.
 
-Gameplay features:
-* Display an ordered sequence of images, "animations" (a handful of images intended to be viewed in sequence multiple times) and videos. Media is scaled to fill the screen as much as possible without changing its aspect ratio. Videos may be any file the browser can play (e.g. MP4, WebM, or MKV with VP9/AV1); short videos can set a loop count and/or an explicit display duration, like animations. A video can also specify a start and end time and play/loop within that range, with its poster being the first frame of the range; a loop restart time can make the first pass play the full range while later passes restart partway through, keeping dialogue over it uninterrupted. Different items may use different ranges of the same file, and dialogue in an item's chain continues the playback rather than restarting it. A video can optionally set a minimum play time; dialogue over it still advances at reading speed, but in auto mode the player waits at the end of that dialogue chain until the video's requested time has elapsed before changing the visual, while manual advance and skip stay immediate.
-* Support author-defined branches: a decision point shows a short prompt and a list of routes; shared lead-in and aftermath play once rather than per route. After a route finishes, offer to replay another route or continue the main route; a route without convergence declares an explicit return-to-main or an ending instead of a forced join. A "Play all routes" config option shows everything with zero interactivity. Seen tracking, skip-unseen, bookmarks, and resume are route-aware: seeing a decision never marks its routes seen, and a decision inside a route works too.
-* Overlay text on the images, hideable with the "h" key. Text is either dialogue spoken by a character or unspoken thoughts of a character; the two read differently.
-* Advance through the content one by one by pressing the space bar.
-* Browse through the content manually, advancing with the space key (or wheel), or let it advance through the content automatically at a configurable reading speed when "a" is pressed, with animations shown a few times automatically, and videos played out once unless they set a loop count or an explicit display duration.
-* Advance through the content at a rapid fixed speed, showing only the first "frame" of animations and videos, by pressing the tab key to skip. Never reveals previously unseen content: skip stops on the last seen item (and tab does nothing when nothing seen lies ahead), unless a "skip all" config option is enabled.
-* Show a summary of the keys on first load and hold there, the story starting only when the reader closes it, and press the escape key any time to pause and show that summary on a black screen (press it again to resume where things left off). While the player is fullscreen the browser takes the first escape keypress to leave fullscreen, so it cannot be relied on to reach the player; windowed escape works directly.
-* Bookmark at any point by pressing "b", appending to a timestamped list of thumbnails of the content visible when b was pressed.
-* Press "t" to bring up the scrolling list of bookmark thumbnails (scrolled to the bottom, most recent thumbnail visible). Clicking a thumbnail continues the novel from that time point. Pressing "e" returns to where you were reading; pressed there, it jumps to not-yet-seen content elsewhere (such as a route not yet played), never merely to the next item. When an ending shows while some content is still unseen, a quiet line at the top invites pressing "e". Loading the game resumes where it was left off, route context included; the first ever load starts on the first image in the sequence. Bookmarks, resume state, and settings persist across sessions in browser storage (IndexedDB).
-* Scroll wheel can roll back in time, showing sequence in reverse order from current time point, and scroll the other way can bring us back in the correct order, but not to unseen content.
-* Press "c" to open a config screen.
+## Playing
 
-Other features:
-* Extractor/converter of raw content from Ren'Py projects to our format: it parses .rpy scripts, decompiles .rpyc when no .rpy twin exists, and reads .rpa archives directly, so packed games need no unpacking; Ren'Py menus become branches only where the shape is conservatively detectable, never a guessed join.
-* A novel is a self-contained folder: the player bundle sits beside the content and its media, and opening index.html plays it in the browser, with no server and no network at play time.
-* macOS compatible, free of runtime dependencies except possibly browser-related stuff if we use a browser for display.
-* Fast to load: either not needing to be verified by macOS gatekeeper, or the core part that needs checking is tiny and the content doesn't need checking.
-* Fast to view content and scroll back and forth, bookmark and jump to bookmarked timepoints. Never a delay to view content longer than 1/24th of a second.
+* **Space**: next item. Manual is the default: one press, one item.
+* **a**: auto-forward on/off. Items advance at the reading speed; animations play a few times, videos play out (or follow their loop count or display duration).
+* **Mouse wheel**: roll back through exactly what you saw, in the order you saw it, choice screens included; roll forward again to where you were.
+* **e**: jump to the end of what you have read.
+* **Tab**: skip through content you have already seen, showing only first frames; it stops on the last seen item. The "skip all" setting lets it run through unseen content too.
+* **h**: hide or show the text.
+* **b**: bookmark the current moment. **t**: the bookmark list (thumbnails with times, newest at the bottom); click one to continue from there.
+* **c**: settings: reading speed, skip all, play all routes, reset progress.
+* **Esc**: key help (also shown on first load, before anything starts); Esc again resumes. In fullscreen the browser takes the first Esc to leave fullscreen.
+* **1-9**: pick a route at a decision (or click it).
 
-The demo (`fixtures/demo`, built by `fixtures/build_demo.py`) is a guided tour: every line of its text explains what is on screen. Its sections, in order:
+The player goes fullscreen on the first key press. Position, route history, bookmarks and settings are saved in the browser, and the next visit resumes on the screen you left.
+
+## Content
+
+* Images, animations (a few images looped) and videos in any format the browser plays (MP4, WebM, or MKV with VP9/AV1). Media fills the screen without stretching.
+* Videos can set a loop count, a display duration, a start/end range (with that range's own poster), a loop restart point, and a minimum play time (in auto mode the dialogue over it waits for the clip). Several items can share one video file.
+* Text over the picture: dialogue with the speaker's name, thoughts (drawn differently), and narration. A run of text items keeps the previous picture or video on screen, a video playing on.
+* Branches: a decision shows a prompt and its routes; shared lead-in and aftermath play once. A route continues the story, comes back to the decision, or ends. After a route ends you can pick another, and "Return to main route" appears once the continuing route has been finished. Decisions can nest. The "play all routes" setting plays every route with no interaction.
+* Seen tracking is per item and per route; skip, resume and the ending hint respect it.
+
+## Tools
+
+* `converter/`: turns a Ren'Py project into this format. It reads `.rpy` scripts, decompiles `.rpyc` when no `.rpy` exists, and reads `.rpa` archives directly. Menus become branches only where their shape is clear.
+* Runs on macOS with nothing to install beyond a browser. Navigation shows content within 1/24 s (measured in `docs/perf.md`).
+
+## The demo
+
+`fixtures/demo` (built by `fixtures/build_demo.py`) is a guided tour: every line of its text explains what is on screen. Its sections:
+
 * Spoken dialogue, a thought, narration, and a bare picture (try `h`).
 * An animation: four pictures at 8 per second, shown twice.
 * A video under a chain of text lines (the clip plays on), then a chain over a still picture.
@@ -31,7 +42,8 @@ The demo (`fixtures/demo`, built by `fixtures/build_demo.py`) is a guided tour: 
 * A clip with a minimum play time that holds its short dialogue chain in auto mode.
 * A decision: Route 1 continues the story and holds a nested decision (1a carries on, 1b comes back to the choice); Route 2 is an ending; both lead back to the choice, and finishing Route 1 reaches the shared aftermath.
 
-Non-features:
-* Audio support.
-* Splash screens, title screens, menu screens other than the key-help, bookmark, and config screens; apart from the first-load key summary, starting the game jumps straight to content.
-* Window mode. (Always fullscreen)
+## Not supported
+
+* Audio.
+* Title or menu screens: only the key help, bookmark list and settings screens exist, and starting jumps straight to content.
+* Windowed play.

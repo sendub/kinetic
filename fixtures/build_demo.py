@@ -463,9 +463,9 @@ def section_branches() -> tuple[list[dict], list[dict]]:
          "text": "Shared aftermath: reached by finishing Route 1. Return to "
                  "main route jumps here once Route 1 is done."},
         {"id": "after-end", "type": "text",
-         "text": "The end. Also try: b bookmarks, t lists bookmarks, e finds "
-                 "unseen content, c opens settings, a auto-plays, tab skips "
-                 "what you have read."},
+         "text": "The end. Also try: b bookmarks, t lists bookmarks, e jumps "
+                 "to the end of what you have read, c opens settings, a "
+                 "auto-plays, tab skips what you have read."},
     ]
     branches = [
         {

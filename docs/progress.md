@@ -587,7 +587,7 @@ truthful: an unchecked box means nothing was accepted.
       scenario, 2026-11-01: four `+` clicks then a reload within ~100 ms
       came back at 1.00x in 4 of 6 runs; fire-and-forget settings write).
       Same durability as `b`'s commit-then-confirm.
-- [ ] History rollback (user, 2026-11-01: "scrolling back should show
+- [x] History rollback (user, 2026-11-01: "scrolling back should show
       what was originally seen going forward"; choice screens are the
       key visual waypoints of a fast roll back). The machine records
       every screen shown while reading - each item with its route
@@ -602,6 +602,12 @@ truthful: an unchecked box means nothing was accepted.
       Absorbs the "route context recomputed on navigation" proposal: a
       rolled-back entry restores its own route frames. Machine tests,
       docs, scenarios (navigation, branches) updated.
+      (machine history of item + choice-screen entries with their route
+      frames, pos, replay/fork, cap 5000, persisted in ctx with legacy
+      migration; `e` = jumpToEnd; arrival views and the seen-only wheel
+      removed; route pills quiet on replays. 416 tests; scenarios 138/138
+      incl. "Route 2 then Route 1, scroll back shows Route 1, re-offer
+      screen, Route 2, first choice screen, decision picture". 2026-11-01)
 - [ ] End card (user-approved proposal): an ending shows how many routes
       are still unseen and the one-key way to the next one, replacing
       the one-line hint.

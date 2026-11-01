@@ -10,7 +10,7 @@ export interface KeyCommands {
   advance(): void;
   toggleText(): void;
   toggleSkip(): void;
-  jumpToUnseen(): void;
+  jumpToEnd(): void;
   /** `b`: append a bookmark at the current item (Phase 8). */
   bookmark(): void;
   /** `t`: open or close the bookmark thumbnail overlay (Phase 8). */
@@ -54,8 +54,8 @@ const KEY_TABLE = new Map<string, KeyCommand>([
   ["h", "toggleText"],
   ["H", "toggleText"],
   ["Tab", "toggleSkip"],
-  ["e", "jumpToUnseen"],
-  ["E", "jumpToUnseen"],
+  ["e", "jumpToEnd"],
+  ["E", "jumpToEnd"],
   ["b", "bookmark"],
   ["B", "bookmark"],
   ["t", "toggleBookmarks"],
@@ -127,7 +127,8 @@ const HELP_ROWS: ReadonlyArray<{
   {
     command: null,
     plainLabel: "wheel",
-    description: "roll back one item, or forward again through what you read",
+    description:
+      "roll back through what you read, choice screens included, or forward again",
   },
   {
     command: null,
@@ -148,9 +149,8 @@ const HELP_ROWS: ReadonlyArray<{
   { command: "bookmark", description: "bookmark this moment" },
   { command: "toggleBookmarks", description: "show or hide the bookmark list" },
   {
-    command: "jumpToUnseen",
-    description:
-      "back to where you were reading; from there, to unseen content elsewhere",
+    command: "jumpToEnd",
+    description: "jump to the end of what you have read",
   },
   {
     command: "toggleConfig",
@@ -216,7 +216,7 @@ export function routeIndexForKey(key: string, repeat: boolean): number | null {
 }
 
 /**
- * The cursor-moving commands: the key map's advance/toggleSkip/jumpToUnseen
+ * The cursor-moving commands: the key map's advance/toggleSkip/jumpToEnd
  * plus the wheel's two steps. While a full-screen screen (the `t` bookmark
  * overlay, the `c` config screen, its reset confirmation box (Phase 16),
  * or the `#help` key help — Phase 13b) is open these are suspended — the
@@ -231,7 +231,7 @@ export function routeIndexForKey(key: string, repeat: boolean): number | null {
 export interface TimelineCommands {
   advance(): void;
   toggleSkip(): void;
-  jumpToUnseen(): void;
+  jumpToEnd(): void;
   wheelBack(): void;
   wheelForward(): void;
 }
@@ -254,7 +254,7 @@ export function suspendTimeline(
   return {
     advance: gate(commands.advance),
     toggleSkip: gate(commands.toggleSkip),
-    jumpToUnseen: gate(commands.jumpToUnseen),
+    jumpToEnd: gate(commands.jumpToEnd),
     wheelBack: gate(commands.wheelBack),
     wheelForward: gate(commands.wheelForward),
   };

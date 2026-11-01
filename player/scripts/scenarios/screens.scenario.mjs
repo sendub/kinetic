@@ -272,32 +272,29 @@ async function bookmarks({ check, open }) {
   await page.setViewport({ width: 800, height: 600, deviceScaleFactor: 1 });
   await sleep(100);
 
-  // Click the OLDER row: the list closes on that item; `e` then resumes at
-  // the first unseen item, proving the restore left the frontier alone.
+  // Click the OLDER row: the list closes on that item. The jump is
+  // appended to the reading history (docs/plan.md, History rollback spec):
+  // a wheel notch back shows the screen before it (chain-still-3), and `e`
+  // returns to the landing, the history's end.
   const reread = await page.evaluate(READ_BOOKMARK_OVERLAY);
   await rowCenterClick(cdp, reread.entries[0]);
   const listClosed = await waitFor(page, OVERLAY_CLOSED);
   const landed = await page.evaluate(PAGE_STATE);
   const landedId = await currentItemId(page);
+  await wheelNotch(cdp, true);
+  await sleep(WHEEL_GAP_MS);
+  const beforeJump = await currentItemId(page);
   await pressE(cdp);
-  const atFrontier = await waitFor(
-    page,
-    (poster) =>
-      document.getElementById("visual-video")?.getAttribute("poster") ===
-      poster,
-    5000,
-    item("video-loops").poster,
-  );
-  const frontierId = await currentItemId(page);
+  const backOnLanding = await waitForItem(page, "video-chain-3", 3000);
   check(
-    "clicking the older row continues from that item; e then resumes at the unchanged frontier",
+    "clicking the older row continues from that item; the jump is appended to the history (wheel back: chain-still-3; e: back on it)",
     listClosed &&
       landedId === "video-chain-3" &&
       landed.video?.visible === true &&
       landed.imgVisible === false &&
-      atFrontier &&
-      frontierId === "video-loops",
-    { landedId, video: landed.video?.visible, frontierId },
+      beforeJump === "chain-still-3" &&
+      backOnLanding,
+    { landedId, video: landed.video?.visible, beforeJump, backOnLanding },
   );
 
   // Ways out: backdrop click, a windowed Escape, and t again.
@@ -381,13 +378,15 @@ async function resume({ check, open }) {
     { resumedId, help: resumed.helpOpen, stored, rows: rows.length, afterRow },
   );
 
-  // Read on to chain-still-3 (the reading position), wheel back onto the
-  // bare chain-still, reload: wheel scrubbing does not move the reading
-  // position (Phase 18), so the page comes back on the item last READ.
+  // Read on to chain-still-3, roll back onto the bare chain-still, reload:
+  // the reading history and its position persist (docs/plan.md, History
+  // rollback spec), so the page comes back on the rolled-back screen, and
+  // `e` returns to the history's end, the item last read.
   await spaceTo(page, cdp, "chain-still-3");
   const readSig = await page.evaluate(PAINT_SIG);
   await wheel(cdp, true, 2);
   const scrubbedTo = await currentItemId(page);
+  const scrubSig = await page.evaluate(PAINT_SIG);
   await sleep(300);
   await page.reload();
   await sleep(700);
@@ -395,9 +394,12 @@ async function resume({ check, open }) {
   const sigResumed = await page.evaluate(PAINT_SIG);
   await sleep(1800); // past every floor hold: a manual resume holds still
   const sigHeld = await page.evaluate(PAINT_SIG);
+  await pressE(cdp);
+  await sleep(300);
+  const endSig = await page.evaluate(PAINT_SIG);
 
-  // Not the seen edge either: the bookmark row puts the reading position
-  // back on text-narration while 0..11 stay seen; a reload resumes there.
+  // Not the seen edge either: the bookmark row lands on text-narration
+  // (appended to the history) while 0..11 stay seen; a reload resumes there.
   await pressT(cdp);
   await waitFor(page, OVERLAY_OPEN);
   const again = await page.evaluate(READ_BOOKMARK_OVERLAY);
@@ -411,19 +413,22 @@ async function resume({ check, open }) {
   await sleep(700);
   const resumedBehind = await currentItemId(page);
   check(
-    "reload resumes on the item last read (not a wheel-scrubbed one, not the seen edge); the seen help stays closed",
+    "reload resumes on the screen it left (a rolled-back one too; e then returns to the last read), and on a bookmark landing; the seen help stays closed",
     scrubbedTo === "chain-still" &&
-      sigResumed === readSig &&
-      sigHeld === readSig &&
+      sigResumed === scrubSig &&
+      sigHeld === scrubSig &&
+      endSig === readSig &&
       after.helpOpen === false &&
       after.stageHidden === false &&
       restored === target.id &&
       resumedBehind === target.id,
     {
       scrubbedTo,
+      scrubSig,
       readSig,
       sigResumed,
       sigHeld,
+      endSig,
       help: after.helpOpen,
       restored,
       resumedBehind,

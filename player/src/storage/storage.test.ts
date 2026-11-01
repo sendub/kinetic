@@ -9,7 +9,7 @@ import { describe, expect, it } from "vitest";
 import { createMachine } from "../machine/machine";
 import type { Item, MachineContext } from "../machine/types";
 import { DEFAULT_SETTINGS } from "../machine/types";
-import { contentSignature, sanitizeSettings } from "./idb";
+import { contentSignature, sanitizeContext, sanitizeSettings } from "./idb";
 import { createMemoryStorage } from "./memory";
 import { createNoopStorage } from "./noop";
 import {
@@ -134,6 +134,29 @@ for (const [name, makeStorage] of ADAPTERS) {
       const later = await storage.loadState();
       expect(later?.frontier).toBe(6);
       expect(later?.ctx).toBeUndefined();
+    });
+
+    it("round-trips a context's completed routes and reading history", async () => {
+      const storage = makeStorage();
+      const ctx: MachineContext = {
+        ...context(7, [0, 1, 4, 7]),
+        completedRoutes: [{ decision: 1, routes: [2] }],
+        history: [
+          { index: 0, stack: [] },
+          { index: 1, stack: [], decision: 1 },
+          { index: 7, stack: [{ decision: 1, route: 0 }] },
+        ],
+        historyPos: 1,
+      };
+      await storage.saveState({ frontier: 8, ctx });
+      const loaded = await storage.loadState();
+      expect(loaded).toEqual({ frontier: 8, ctx });
+      // Copies out: a caller mutating the loaded record reaches nothing.
+      const handedOut = loaded as unknown as {
+        ctx: { history: { stack: unknown[] }[] };
+      };
+      handedOut.ctx.history[2].stack.push({});
+      expect((await storage.loadState())?.ctx).toEqual(ctx);
     });
 
     it("round-trips helpSeen; a save without it grows no field (Phase 13b)", async () => {
@@ -395,5 +418,55 @@ describe("sanitizeSettings — the settings the shipped adapter reads back", () 
       ]),
     );
     expect(sanitizeSettings(all)).toEqual(all);
+  });
+});
+
+describe("sanitizeContext — the context the shipped adapter reads back", () => {
+  const base = {
+    lastShown: 3,
+    visited: [0, 1, 2, 3],
+    stack: [],
+    playedRoutes: [],
+  };
+
+  it("keeps the reading history and its position (History rollback spec)", () => {
+    const history = [
+      { index: 0, stack: [] },
+      { index: 2, stack: [], decision: 0 },
+      { index: 3, stack: [{ decision: 0, route: 1 }] },
+    ];
+    expect(sanitizeContext({ ...base, history, historyPos: 1 })).toEqual({
+      ...base,
+      history,
+      historyPos: 1,
+    });
+  });
+
+  it("drops malformed history entries and frames; no history grows no field", () => {
+    expect(
+      sanitizeContext({
+        ...base,
+        history: [
+          null,
+          { index: "2", stack: [] },
+          { index: 1, stack: [], decision: "d1" },
+          { index: 2, stack: [{ decision: 0 }, { decision: 0, route: 1 }] },
+          { index: 3 },
+        ],
+        historyPos: "1",
+      }),
+    ).toEqual({
+      ...base,
+      history: [
+        { index: 2, stack: [{ decision: 0, route: 1 }] },
+        { index: 3, stack: [] },
+      ],
+    });
+    // A legacy context (no history) reads back without one: the machine
+    // then starts a one-entry history at `lastShown`.
+    expect(sanitizeContext(base)).toEqual(base);
+    expect(sanitizeContext({ ...base, history: "x", historyPos: 2 })).toEqual(
+      base,
+    );
   });
 });

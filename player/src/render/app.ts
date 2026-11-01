@@ -61,7 +61,7 @@ export function mountShell({ root, manifest, machine }: ShellOptions): Shell {
   // caption layer never repaints it; `h` hides it with the captions.
   const endingHint = doc.createElement("div");
   endingHint.id = "ending-hint";
-  endingHint.textContent = "Some content is still unseen - press e.";
+  endingHint.textContent = "Some content is still unseen.";
   endingHint.hidden = true;
   Object.assign(endingHint.style, {
     position: "fixed",

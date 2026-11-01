@@ -32,16 +32,26 @@ export interface BookmarkRestore {
 }
 
 export function bookmarkRestoreTarget(record: Bookmark): BookmarkRestore {
-  // The bookmarked ITEM is the time point. Wheel scrubbing does not move the
-  // reading position (docs/plan.md Phase 18), so a bookmark taken after
-  // scrolling back has a ctx whose `lastShown` is further on; the restore
-  // lands on `itemIndex` (and makes it the reading position).
+  // The bookmarked ITEM is the time point: the restore lands on `itemIndex`
+  // (bookmarks written before the history existed could carry a `lastShown`
+  // further on, the old reading position).
   return record.ctx === undefined
     ? { itemIndex: record.itemIndex }
     : {
         itemIndex: record.itemIndex,
-        ctx: { ...record.ctx, lastShown: record.itemIndex },
+        ctx: { ...bookmarkContext(record.ctx), lastShown: record.itemIndex },
       };
+}
+
+/**
+ * The context a bookmark stores: the machine context without its reading
+ * history (docs/plan.md, "History rollback spec"). A bookmark restore is a
+ * jump that appends to the CURRENT history, so the record would only be
+ * dead weight — up to `HISTORY_CAP` entries in every bookmark.
+ */
+export function bookmarkContext(context: MachineContext): MachineContext {
+  const { history: _history, historyPos: _historyPos, ...rest } = context;
+  return rest;
 }
 
 /**

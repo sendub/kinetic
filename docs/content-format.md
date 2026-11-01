@@ -150,8 +150,8 @@ shows the visual of the nearest earlier item that bears media: an image
 file, an animation, or a video. That visual keeps playing while the
 current item is `text` or the next item is `text`: a video loops, an
 animation keeps looping, and an advance within such a chain is never
-gated on media end. Rewind, skip, and `e`-jump to a `text` item show
-that visual as a still: a video's `poster` or an animation's
+gated on media end. Rewind, skip, and an `e` landing on a `text` item
+show that visual as a still: a video's `poster` or an animation's
 `frames[0]`. The first item may not be `text`, and a `text` item only
 makes sense after some media-bearing item.
 
@@ -250,7 +250,8 @@ and items always use ids, never array positions.
   route still counts as seen. The ENTERED mark and the return row are
   DIFFERENT things (docs/plan.md Phase 18): "return to main route" -
   which proceeds to `continueAt` - appears on a decision's re-openings
-  and arrival views only once that decision's CONTINUING route has
+  and replayed choice screens only once that decision's CONTINUING
+  route has
   COMPLETED at least once, been played through to its route end.
   Entered-and-abandoned does not count, and no OTHER route's completion
   opens the row: a continuation the reader has not reached the end of
@@ -289,45 +290,47 @@ docs/plan.md Phase 13):
   a play-all auto-pick. Navigating or jumping through a route's items,
   or resuming inside one, shows those items and leaves the row unmarked;
   merely firing, viewing or dismissing a decision marks nothing
-  (docs/plan.md Phase 16, Branches). The two differ where a jump (`e`,
-  a bookmark) lands inside a route the reader never chose.
-- The wheel walks SEEN items only (docs/plan.md Phase 18): a back- or
-  forward-scroll steps over an unplayed route's span rather than
-  revealing it, so scrolling back from a route's aftermath goes straight
-  to the decision it came through.
+  (docs/plan.md Phase 16, Branches). The two differ where a jump (a
+  bookmark, a restore) lands inside a route the reader never chose.
+- Reading history (docs/plan.md, "History rollback spec"): the player
+  records every screen shown while reading, in order - each item with
+  the route context it showed in, and each choice screen (a first fire
+  or a route-end re-offer) as its own entry. The wheel replays that
+  record one screen per notch, back and forth, clamped to it: an item
+  comes back in its own route context, and a choice screen comes back
+  in full, with the current seen marks and return-row rule. A wheel step
+  answers nothing and marks nothing played; an unplayed route's items
+  never appear, because they were never shown. Reading on from a
+  rolled-back point replays the record while the reader takes the same
+  path, and a different path (another pick at a replayed choice screen)
+  drops the recorded future, as in Ren'Py rollback. `e` goes to the end
+  of the record (a no-op there); it does not look for unseen content.
+  A bookmark jump appends its landing to the record. The record is
+  capped (5000 screens, oldest dropped first) and persists in the save,
+  so a reload lands on the screen that was showing and can roll back.
+  The play-all interstitial is not recorded.
 - `Play all routes` (a persisted setting, default off) is
   zero-interactivity: at a decision it auto-picks the first
   not-yet-played route in manifest order, repeats until every route has
   played once, then continues via `continueAt` (a pure choice: past the
-  region end, per the rule above). A navigation ARRIVAL at a decision no
-  route has ever been played for resolves it on the spot — the no-stop
-  path never waits on an overlay it will not show. A decision with a
-  played route is not resurrected by an arrival: its unplayed routes stay
-  reachable as unseen items (`e` lands on them), or through the normal
-  forward-settle re-fire of `after`, which play-all answers as any other
-  fire. The journey is announced by the render layer: entering a route
+  region end, per the rule above). Play-all answers decisions that FIRE;
+  a choice screen recorded before it was switched on still replays under
+  the wheel like any other entry. The journey is announced by the render layer: entering a route
   flashes a "Route: <label>" pill — manual pick or auto-pick alike — led
   by "Back to try another route" when the entry jumped back in time.
-- Back/forward navigation walks the item array; entering a route's
-  first item that way does not re-fire the decision — decisions fire
-  only on a forward settle of `after`. So backing into `after` and
-  pressing forward again re-opens the overlay.
-- Landing on `after` by navigation (wheel, bookmark jump, the `e` jump)
-  shows the decision there — unresolved or already completed — as the
-  same view a route end re-offers: every route with its seen mark, plus
-  "return to main route" wherever the return-row rule offers it. Nothing
-  is consumed and no route context changes, so stepping away just closes
-  it, and a continuous scroll back from the story's end surfaces every
-  decision point, nested ones included, even after a pure choice has
-  closed. A pick from that view enters the route exactly like a
-  route-end re-selection. `Play all routes` keeps its no-stop rule: an
-  arrival at a completed decision passes through unshown, and only an
-  unresolved arrival is auto-resolved.
+- Decisions fire only on a forward settle of `after`: a wheel step or
+  a bookmark jump onto `after` fires nothing. Rolling back to `after`
+  and pressing forward again re-opens the overlay (which, matching the
+  record, just moves along it).
+- A pick from a replayed choice screen is a real pick: it enters the
+  route exactly like a route-end re-selection (forking the record when
+  it differs from the recorded path), and "return to main route" works
+  there too where the return-row rule offers it.
 - The wheel is never trapped by a choice overlay: a notch in either
-  direction closes any open view - fired, arrival, or route-end
-  re-offer - answering nothing, and steps as usual. Closing a fired or
-  re-offered view restores the route context it had, so the next
-  forward settle at that spot opens it again. Only keys choose.
+  direction leaves any choice screen for the neighbouring history entry,
+  answering nothing (the screen stays in the record). Space, tab and
+  bookmark jumps do not act on a choice screen; only its own keys and
+  rows answer it.
 - Author-written transitions need no schema mechanism: put a
   `text`-only item or a title image at a route span's start or end.
 
@@ -388,12 +391,12 @@ content:
   media gate above standing in for the file's duration.
 - Rewind and skip show `frames[0]` and the poster too, with the one
   exception stated next. A `nav` arrival below the seen edge - a wheel
-  step, a bookmark jump, the `e` jump - shows a `text` item as the
+  step, a bookmark jump, an `e` landing - shows a `text` item as the
   still of the visual it displays.
 - Media plays again on a forward advance. The player records how the
   current item was reached: a forward step - a space press or the auto
   timer moving one item on - is an `advance`; every other arrival - the
-  wheel, a bookmark jump or restore, the `e` jump, a route entry, skip's
+  wheel, a bookmark jump or restore, an `e` landing, a route entry, skip's
   dwell step, the load landing - is `nav`. An advance plays its media
   wherever the cursor sits, so content read once replays when the
   reader advances back over it, and the visual under a `text` item it

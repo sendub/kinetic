@@ -1,10 +1,11 @@
-// Navigation (old driver steps 14-19, rewritten for the Phase 18 rules):
-// the wheel steps one SEEN item per notch, shows a rewound video's poster as
-// a still, clamps at item 0 and at the seen frontier, and steps over an
-// unplayed route; Tab skip runs through seen items at the skip dwell and
-// stops ON the last seen one (doing nothing with nothing seen ahead); Space
-// ends a skip; `e` resumes at the reading position, is never a forward
-// step, and jumps to the first unseen item when it is further on.
+// Navigation (old driver steps 14-19, rewritten for the Phase 18 rules and
+// the history rollback spec): the wheel steps one screen of the reading
+// history per notch, shows a rewound video's poster as a still, clamps at
+// the first and last entries, and replays a route path exactly as read —
+// choice screens included, unplayed routes never shown; Tab skip runs
+// through seen items at the skip dwell and stops ON the last seen one
+// (doing nothing with nothing seen ahead); Space ends a skip; `e` goes to
+// the end of the history and is a no-op there.
 
 import {
   currentItemId,
@@ -27,7 +28,7 @@ import {
   wheel,
 } from "./harness.mjs";
 
-export const title = "wheel, tab skip, e (seen-only navigation)";
+export const title = "wheel, tab skip, e (history navigation)";
 
 const MS_PER_CHAR = 60; // DEFAULT_SETTINGS reading speed 1.00x
 const SKIP_DWELL_MS = 120; // DEFAULT_SETTINGS skipDwellMs
@@ -121,8 +122,8 @@ async function wheelScenario(check, open) {
     { bareImg: bare.imgSrc, bareOverlay: bare.overlayHidden, narr: narr.text },
   );
 
-  // Clamps: past item 0 nothing moves; forward stops at the seen frontier
-  // (video-chain-3) and never paints the unseen chain-still.
+  // Clamps: past item 0 nothing moves; forward stops at the end of the
+  // history (video-chain-3) and never paints the unseen chain-still.
   await wheel(cdp, true, 5); // narration -> item 0, plus two clamped notches
   const top = await page.evaluate(PAGE_STATE);
   await page.evaluate(INSTALL_BRANCH_LOG);
@@ -135,7 +136,7 @@ async function wheelScenario(check, open) {
     line.startsWith(`${item("chain-still").file}|`),
   );
   check(
-    "wheel clamps at item 0 and stops at the seen frontier going forward",
+    "wheel clamps at item 0 and stops at the end of the history going forward",
     top.text === item("intro-title").text &&
       top.imgSrc === item("intro-title").file &&
       edge.text === item("video-chain-3").text &&
@@ -237,9 +238,9 @@ async function skipScenario(check, open) {
   );
 }
 
-// Old step 18 (Space during skip exits it and holds), and old step 19's
-// jump case: the burst's stop is the reading position, and the first
-// unseen item is further on, so `e` jumps to it.
+// Old step 18 (Space during skip exits it and holds), and `e` from the
+// skip's stop: it returns to the end of the history (where the reading had
+// reached) and never jumps on to unseen content.
 async function skipSpaceScenario(check, open) {
   const { page, cdp } = await open("skip-space", { closeHelp: true });
   const reached = await spaceTo(page, cdp, "chain-still-3");
@@ -265,23 +266,24 @@ async function skipSpaceScenario(check, open) {
     { skipMoves: running.length - 1, stillAfter, stopId },
   );
 
-  // Stopped mid-burst, so the first unseen item (video-loops) is not the
-  // next one: `e` jumps there.
+  // Stopped mid-burst: the skip's steps replayed the record, so its end
+  // is still chain-still-3; `e` goes there, not on to unseen video-loops.
   await pressE(cdp);
   await sleep(150);
   const landed = await currentItemId(page);
+  await pressE(cdp);
+  await sleep(300);
+  const again = await currentItemId(page);
   check(
-    "e at the reading position jumps to the first unseen item when it is not simply next",
-    stopIndex >= 0 &&
-      item("video-loops").index > stopIndex + 1 &&
-      landed === "video-loops",
-    { from: stopId, landed },
+    "e after a stopped skip returns to the end of the history and stays there",
+    stopIndex >= 0 && landed === "chain-still-3" && again === "chain-still-3",
+    { from: stopId, landed, again },
   );
 }
 
-// Old step 19, Phase 18 rule: wheel scrubbing leaves the reading position
-// where it was; `e` resumes there; pressed there with the next item unseen,
-// `e` does nothing (Space reads on).
+// Old step 19, history rule: after rolling back, `e` returns to the end of
+// the history; pressed there with the next item unseen, `e` does nothing
+// (Space reads on).
 async function resumeScenario(check, open) {
   const { page, cdp } = await open("resume", { closeHelp: true });
   await pressSpace(cdp);
@@ -304,16 +306,17 @@ async function resumeScenario(check, open) {
   const changes = changesOf(await samplePaint(page, 800, 50));
   const still = await currentItemId(page);
   check(
-    "e at the reading position does nothing when the first unseen item is the next one",
+    "e at the end of the history does nothing (the next item stays unseen)",
     changes.length === 1 && still === "text-speech",
     { changes: changes.length - 1, on: still },
   );
 }
 
-// NEW: across routes the wheel walks seen items only. Play Route 1 (nested
-// 1a) to the end, then wheel back and forward through the branch: the
-// unplayed Route 2 and nested 1b spans are stepped over. Then `e` from the
-// end jumps into the first unseen item, inside an unplayed route.
+// Across routes the wheel replays the reading history: play Route 1
+// (nested 1a) to the end, then wheel back and forward through the branch.
+// Each choice screen is its own step, and the unplayed Route 2 and nested
+// 1b spans are never shown. `e` at the end stays put: no jump into an
+// unplayed route.
 async function routesScenario(check, open) {
   const { page, cdp } = await open("routes", { closeHelp: true });
   const path = [];
@@ -349,12 +352,17 @@ async function routesScenario(check, open) {
         (it) => (it.text && text === it.text) || (it.file && img === it.file),
       );
     });
+  // A screen: the item, plus "+choice" while the decision panel shows.
+  const screen = async () =>
+    `${await currentItemId(page)}${
+      (await page.evaluate(READ_CHOICE)).hidden === false ? "+choice" : ""
+    }`;
 
   await page.evaluate(INSTALL_BRANCH_LOG);
-  const backIds = [await currentItemId(page)];
-  for (let i = 0; i < 10; i += 1) {
+  const backIds = [await screen()];
+  for (let i = 0; i < 12; i += 1) {
     await wheel(cdp, true, 1);
-    backIds.push(await currentItemId(page));
+    backIds.push(await screen());
   }
   const backLog = await readBranchLog(page);
   const expectBack = [
@@ -362,8 +370,10 @@ async function routesScenario(check, open) {
     "after-start",
     "route1-end",
     "nest-continue",
+    "route1-nest+choice",
     "route1-nest",
     "route1-start",
+    "branch-decide+choice",
     "branch-decide",
     "branch-lead",
     "branch-title",
@@ -371,7 +381,7 @@ async function routesScenario(check, open) {
     "floor-2",
   ];
   check(
-    "wheel back from the end walks seen items only, stepping over unplayed routes",
+    "wheel back from the end replays the history: each choice screen a step, unplayed routes never shown",
     played &&
       squash(backIds).join() === expectBack.join() &&
       !showsUnplayed(backLog),
@@ -384,28 +394,27 @@ async function routesScenario(check, open) {
   );
 
   await page.evaluate(INSTALL_BRANCH_LOG);
-  const fwdIds = [await currentItemId(page)];
-  for (let i = 0; i < 14; i += 1) {
+  const fwdIds = [await screen()];
+  for (let i = 0; i < 15; i += 1) {
     await wheel(cdp, false, 1);
-    fwdIds.push(await currentItemId(page));
+    fwdIds.push(await screen());
   }
   const fwdLog = await readBranchLog(page);
   check(
-    "wheel forward walks seen items only and stops at the last seen item",
+    "wheel forward replays the same screens in order and stops at the end of the history",
     squash(fwdIds).join() === [...expectBack].reverse().join() &&
       !showsUnplayed(fwdLog),
     { fwdIds: squash(fwdIds), unplayedShown: showsUnplayed(fwdLog) },
   );
 
-  // Standing on the reading position (after-end) with the first unseen
-  // item (nested 1b) far behind: `e` jumps into the unplayed route.
+  // At the end of the history with nested 1b unseen: `e` stays put.
   const before = await currentItemId(page);
   await pressE(cdp);
-  await sleep(150);
+  await sleep(300);
   const landed = await currentItemId(page);
   check(
-    "e at the end of a played route jumps to the first unseen item in an unplayed route",
-    before === "after-end" && landed === "nest-return",
+    "e at the end of the history stays put (no jump into the unplayed 1b)",
+    before === "after-end" && landed === "after-end",
     { before, landed },
   );
 }

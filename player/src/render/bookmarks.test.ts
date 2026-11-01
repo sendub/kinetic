@@ -9,6 +9,7 @@ import { describe, expect, it } from "vitest";
 import type { Item, MachineContext } from "../machine/types";
 import type { Bookmark } from "../storage/types";
 import {
+  bookmarkContext,
   bookmarkRestoreTarget,
   bottomScrollTop,
   entryLabel,
@@ -152,11 +153,23 @@ describe("bookmarkRestoreTarget (ctx-aware restore, Phase 13)", () => {
     expect(bookmarkRestoreTarget(record)).toEqual({ itemIndex: 4, ctx });
   });
 
-  it("lands on the bookmarked item even when reading had gone further (Phase 18)", () => {
-    // Taken after scrolling back: the ctx's reading position (4) is past
-    // the bookmarked item (3); the click continues from item 3.
+  it("lands on the bookmarked item even when the ctx names a later one", () => {
+    // A bookmark written before the history existed could carry a reading
+    // position (4) past the bookmarked item (3); the click lands on 3.
     const target = bookmarkRestoreTarget(bookmark({ itemIndex: 3, ctx }));
     expect(target).toEqual({ itemIndex: 3, ctx: { ...ctx, lastShown: 3 } });
+  });
+
+  it("drops a stored reading history: the restore appends to the current one", () => {
+    const withHistory: MachineContext = {
+      ...ctx,
+      history: [{ index: 4, stack: [] }],
+      historyPos: 0,
+    };
+    expect(bookmarkContext(withHistory)).toEqual(ctx);
+    expect(
+      bookmarkRestoreTarget(bookmark({ itemIndex: 4, ctx: withHistory })),
+    ).toEqual({ itemIndex: 4, ctx });
   });
 
   it("restores a pre-Phase-13 bookmark by itemIndex alone — no ctx key", () => {

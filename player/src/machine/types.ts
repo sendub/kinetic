@@ -209,9 +209,9 @@ export const DEFAULT_SETTINGS: MachineSettings = {
  *
  * PLAYED means `choose()` or a play-all auto-pick put the reader inside the
  * route (docs/plan.md Phase 16, Branches). Nothing else marks it: firing,
- * viewing or dismissing the decision, a wheel step or `e`-jump through the
- * route's items (those mark the ITEMS seen, not the route), and a restored
- * position landing inside the span.
+ * viewing or leaving the decision, a wheel step or `e` replaying history
+ * through the route's items, and a restored position landing inside the
+ * span.
  */
 export interface ChoiceRoute {
   /** Index into the decision's `routes` array; `choose()` takes it. */
@@ -225,7 +225,10 @@ export interface ChoiceRoute {
  * The open decision (docs/content-format.md, "Branches"). Its presence in
  * `MachineState` IS the awaiting-choice state: the reader picks a route with
  * `choose(routeIdx)`, or — only when `continueOption` is true — presses
- * "return to main route" with `chooseContinue()`.
+ * "return to main route" with `chooseContinue()`. A choice screen replayed
+ * from the reading history (the wheel, `e`) is the same view: the panel,
+ * the current seen marks and the return-row rule, and a pick from it is a
+ * real pick.
  */
 export interface ChoiceView {
   readonly decisionId: string;
@@ -239,18 +242,6 @@ export interface ChoiceView {
    * the row. The renderer draws the row and its Enter hint only when set.
    */
   readonly continueOption?: boolean;
-  /**
-   * True when the overlay shows because a navigation ARRIVAL (wheel,
-   * `goTo()`, the `e` jump) landed on a decision's `after` item — unresolved
-   * (a fresh choice) or already completed (the route-end re-offer) (docs/plan.md Phase 16), not because a forward settle fired it:
-   * timing is paused and the decision is NOT consumed — navigating away
-   * closes the view and changes no route context. Navigation commands act
-   * through an arrival-open view (each closes it); a fired choice still
-   * owns the timeline until answered. A pick chooses exactly like a fired
-   * decision. The renderer draws both alike — only the navigation gate
-   * reads this flag.
-   */
-  readonly arrival?: boolean;
 }
 
 /** One open decision context: which route of it the reader is inside. */
@@ -260,13 +251,29 @@ export interface ContextFrame {
 }
 
 /**
+ * One screen of the reading history (docs/plan.md, "History rollback
+ * spec"). An ITEM screen is item `index` with the route frames open when it
+ * showed (`stack`, outermost first). With `decision` present it is a CHOICE
+ * screen instead: that decision's overlay as it opened over item `index` —
+ * the decision's `after` item on a first fire, a route's last item on a
+ * route-end re-offer — with the frames open under the overlay.
+ */
+export interface HistoryEntry {
+  readonly index: number;
+  readonly stack: readonly ContextFrame[];
+  readonly decision?: number;
+}
+
+/**
  * JSON-safe route-play context for persistence (docs/plan.md Phase 13):
  * `exportContext()` returns it, `importContext()` and `MachineOptions.
  * resumeContext` restore it. `visited` is the per-item seen set (item
  * indices), `stack` the open decision contexts innermost-last,
- * `playedRoutes` the route indices played per decision, and
+ * `playedRoutes` the route indices played per decision,
  * `completedRoutes` the route indices played THROUGH to their route end
- * per decision (docs/plan.md Phase 18).
+ * per decision (docs/plan.md Phase 18), and `history` / `historyPos` the
+ * reading history and the entry on screen. `lastShown` is the item on
+ * screen: the landing of a restore without a history.
  */
 export interface MachineContext {
   lastShown: number;
@@ -284,14 +291,14 @@ export interface MachineContext {
    */
   completedRoutes?: readonly { decision: number; routes: readonly number[] }[];
   /**
-   * The ending seen most recently (docs/plan.md Phase 16, "Machine bugs"):
-   * an item index the cursor was shown on that IS an ending — the last
-   * item of the array, or the final item of a route whose `result` is
-   * `ending`. `e` shows it when everything has been seen. Absent means no
-   * known ending (every save written before Phase 16): `e` then falls back
-   * to the array end, and only when everything has been seen.
+   * The reading history (docs/plan.md, "History rollback spec"): every
+   * screen shown while reading, oldest first, capped (`HISTORY_CAP`, oldest
+   * dropped first). Newer than the rest of the context: absent (a legacy
+   * save) restores a one-entry history at the `lastShown` landing.
    */
-  lastEnding?: number;
+  history?: readonly HistoryEntry[];
+  /** The history entry on screen; absent means the last one. */
+  historyPos?: number;
 }
 
 /**
@@ -299,7 +306,7 @@ export interface MachineContext {
  * the reader took or the auto timer took — a space press or the auto-advance
  * firing — so the item is being READ now and its media plays. `nav` is an
  * arrival at content the reader already has on the map: the wheel, a
- * bookmark `goTo()`, a bookmark restore, the `e` jump, a route entry or a
+ * bookmark `goTo()`, a bookmark restore, `e`, a route entry or a
  * route-end join, skip's dwell step, and the load-time landing. Scrubbing
  * stays fast, so a nav arrival below the seen edge holds the poster. The
  * renderer reads this with `cursor`/`frontier` to decide whether a video
@@ -316,17 +323,17 @@ export type TransitionKind = "advance" | "nav";
  * `machine.ts`'s header); `visitedList()` is the authoritative set.
  * `settled` means the current item's timing rule is
  * satisfied (via its auto-advance condition, a manual `advance()`, or a
- * resume / `e`-jump landing on an item that was read before), so the next
+ * resume landing on an item that was read before), so the next
  * `advance()` moves on. `skipping` means skip mode (tab) is active: the
  * machine advances every item after `settings.skipDwellMs` regardless of
  * media. While it is true the renderer must show an animation's first
  * frame and a video's poster as stills and never play media — the machine
  * only times, it cannot stop a playing element. `choice` is present while a
  * branch decision awaits the reader: it is the overlay's content, and while
- * it is set every navigation command is inert until `choose()` or
- * `chooseContinue()` answers it — the exception being an arrival-open view
- * (`choice.arrival`, Phase 16), which navigation closes as the reader moves
- * away. `transition` is the kind of the step that made `cursor` current
+ * it is set space, tab and bookmark jumps are inert until `choose()` or
+ * `chooseContinue()` answers it; the wheel and `e` move through the reading
+ * history and leave it (the choice screen stays in the history).
+ * `transition` is the kind of the step that made `cursor` current
  * (`TransitionKind`): a forward advance plays its media wherever the cursor
  * sits, a nav arrival below the seen edge shows posters instead.
  */
@@ -341,7 +348,8 @@ export interface MachineState {
    * Present (true) while the cursor stands on an ENDING — the array end or
    * an ending route's last item — and some content is still unseen, with
    * no choice open (docs/plan.md Phase 18): the render layer shows a quiet
-   * standing line inviting `e`. Absent once everything has been seen.
+   * standing line saying content is still unseen. Absent once everything
+   * has been seen.
    */
   readonly endingHint?: true;
   /**

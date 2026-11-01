@@ -30,7 +30,7 @@ import { createMachine } from "./machine/machine";
 import type { MachineSettings } from "./machine/types";
 import { DEFAULT_SETTINGS } from "./machine/types";
 import { mountError, mountShell } from "./render/app";
-import { mountBookmarkOverlay } from "./render/bookmarks";
+import { bookmarkContext, mountBookmarkOverlay } from "./render/bookmarks";
 import { captureVisualThumbnail } from "./render/capture";
 import {
   enterActionFor,
@@ -230,7 +230,7 @@ function start(): void {
           id: newBookmarkId(),
           timestampMs: Date.now(),
           itemIndex: machine.getState().cursor,
-          ctx: machine.exportContext(),
+          ctx: bookmarkContext(machine.exportContext()),
           thumbDataUrl,
         };
         const settled = await Promise.allSettled([
@@ -260,7 +260,8 @@ function start(): void {
       // inside the route context the bookmark captured, an UNSETTLED
       // arrival that fires no decision (same landing rule as a resume);
       // a pre-Phase-13 record without one keeps the legacy plain-itemIndex
-      // navigation (machine.goTo).
+      // navigation (machine.goTo). Either is a jump: the landing is
+      // appended to the reading history.
       const overlay = mountBookmarkOverlay({
         root,
         items: manifest.items,
@@ -371,10 +372,23 @@ function start(): void {
       const interstitial = mountInterstitial(root);
       machine.subscribe((state) => interstitial.render(state.interstitial));
 
+      // The wheel and `e` replay the reading history, restoring each
+      // entry's route frames; a replayed route entry is not a pick, so its
+      // state changes announce no route pill (render/routes.ts).
+      let replaying = false;
+      const replay = (move: () => void) => () => {
+        replaying = true;
+        try {
+          move();
+        } finally {
+          replaying = false;
+        }
+      };
       mountRouteAnnouncements({
         machine,
         manifest,
         flash: (messages) => shell.flashSequence(messages),
+        quiet: () => replaying,
       });
 
       // Mutual exclusion, centralized (the rule is stated pure in
@@ -385,35 +399,26 @@ function start(): void {
       // A pending CHOICE owns everything else: `t`/`c` cannot open over
       // it, `h`/`b`/`a` are inert, the timeline is suspended, and only
       // its own inputs act (1..9, Enter with the offer, row clicks) —
-      // except an arrival-open view, through which navigation acts (see
-      // the gate below). Otherwise the story reads, and `t`/`c` are the
-      // open screens.
+      // except the history moves, the wheel and `e` (see the gates
+      // below). Otherwise the story reads, and `t`/`c` are the open
+      // screens.
       const owner = () => inputOwnerFor(help.isOpen(), choice.isOpen());
       // The reset box owns the screen too, the way its parent `c` panel
       // does: while it is open only its own controls act (its keys ride
       // the map below), like the suspension behind `h`/`t`/`c`.
       const storyInput = () => owner() === "story" && !confirm.isOpen();
-      // A FIRED choice suspends the timeline (it owns the screen until
-      // answered). An ARRIVAL-open choice (`choice.arrival`, docs/plan.md
-      // Phase 16) does not: the wheel has to be able to step away — which
-      // closes the view without consuming the decision — and space has to
-      // land as the press that fires it. The machine keeps every command
-      // inert on a fired choice by itself, so letting commands through an
-      // arrival view can only ever reach arrival semantics.
-      const firedChoiceHoldsTimeline = () =>
-        machine.getState().choice?.arrival !== true;
       const anyPanelOpen = () =>
         overlay.isOpen() ||
         config.isOpen() ||
         confirm.isOpen() ||
         help.isOpen();
-      const anyScreenOpen = () =>
-        anyPanelOpen() || (choice.isOpen() && firedChoiceHoldsTimeline());
-      // The wheel is never trapped by a choice (docs/plan.md Phase 18): a
-      // notch closes a fired or re-offered view too and steps — the machine
-      // restores the route context, so nothing is answered. Only the
-      // panels (help, `t`, `c`, the reset box) still suspend it.
-      const wheelGate = (command: () => void) => () => {
+      const anyScreenOpen = () => anyPanelOpen() || choice.isOpen();
+      // The history moves are never trapped by a choice (docs/plan.md,
+      // "History rollback spec"): a wheel notch or `e` leaves a choice
+      // screen for the neighbouring / last history entry — the screen stays
+      // in the history and nothing is answered. Only the panels (help,
+      // `t`, `c`, the reset box) still suspend them.
+      const historyGate = (command: () => void) => () => {
         if (anyPanelOpen()) return;
         command();
       };
@@ -428,14 +433,15 @@ function start(): void {
           {
             advance: () => machine.advance(),
             toggleSkip: () => machine.toggleSkip(),
-            jumpToUnseen: () => machine.jumpToUnseen(),
+            jumpToEnd: () => machine.jumpToEnd(),
             wheelBack: () => machine.wheelBack(),
             wheelForward: () => machine.wheelForward(),
           },
           anyScreenOpen,
         ),
-        wheelBack: wheelGate(() => machine.wheelBack()),
-        wheelForward: wheelGate(() => machine.wheelForward()),
+        jumpToEnd: historyGate(replay(() => machine.jumpToEnd())),
+        wheelBack: historyGate(replay(() => machine.wheelBack())),
+        wheelForward: historyGate(replay(() => machine.wheelForward())),
       };
 
       installKeyMap(
@@ -444,10 +450,8 @@ function start(): void {
           // Space over help closes it and is consumed — no advance (and on
           // the first load it is also the first gesture, so fullscreen gets
           // its request like any other first press; render/fullscreen.ts).
-          // Over a FIRED choice the gate below already swallows it: the
-          // decision is answered by its own keys, never by space. Over an
-          // ARRIVAL-open view space passes (Phase 16): it settles-and-moves,
-          // which fires the decision without moving off the item.
+          // Over a choice the gate below already swallows it: the
+          // decision is answered by its own keys, never by space.
           advance: () => {
             if (help.isOpen()) {
               closeHelp();
@@ -460,7 +464,7 @@ function start(): void {
             shell.toggleText();
           },
           toggleSkip: timeline.toggleSkip,
-          jumpToUnseen: timeline.jumpToUnseen,
+          jumpToEnd: timeline.jumpToEnd,
           bookmark: () => {
             if (!storyInput()) return;
             void takeBookmark();

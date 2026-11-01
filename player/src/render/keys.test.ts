@@ -17,8 +17,8 @@ describe("commandForKey", () => {
 
   it("maps tab to skip mode and e to the unseen jump (Phase 7)", () => {
     expect(commandForKey("Tab", false)).toBe("toggleSkip");
-    expect(commandForKey("e", false)).toBe("jumpToUnseen");
-    expect(commandForKey("E", false)).toBe("jumpToUnseen");
+    expect(commandForKey("e", false)).toBe("jumpToEnd");
+    expect(commandForKey("E", false)).toBe("jumpToEnd");
   });
 
   it("maps b to the bookmark append (Phase 8)", () => {
@@ -97,7 +97,7 @@ describe("suspendTimeline (the t overlay takes precedence, Phase 8)", () => {
       commands: {
         advance: name("advance"),
         toggleSkip: name("toggleSkip"),
-        jumpToUnseen: name("jumpToUnseen"),
+        jumpToEnd: name("jumpToEnd"),
         wheelBack: name("wheelBack"),
         wheelForward: name("wheelForward"),
       },
@@ -110,13 +110,13 @@ describe("suspendTimeline (the t overlay takes precedence, Phase 8)", () => {
     const gated = suspendTimeline(commands, () => open);
     gated.advance();
     gated.toggleSkip();
-    gated.jumpToUnseen();
+    gated.jumpToEnd();
     gated.wheelBack();
     gated.wheelForward();
     expect(calls).toEqual([
       "advance",
       "toggleSkip",
-      "jumpToUnseen",
+      "jumpToEnd",
       "wheelBack",
       "wheelForward",
     ]);
@@ -128,7 +128,7 @@ describe("suspendTimeline (the t overlay takes precedence, Phase 8)", () => {
     const gated = suspendTimeline(commands, () => open);
     gated.advance();
     gated.toggleSkip();
-    gated.jumpToUnseen();
+    gated.jumpToEnd();
     gated.wheelBack();
     gated.wheelForward();
     expect(calls).toEqual([]);

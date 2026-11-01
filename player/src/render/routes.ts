@@ -5,11 +5,14 @@
 // first. The machine is unchanged: a route entry is observed as a state
 // transition — the innermost open route frame appears or changes, and the
 // cursor lands on that route's first item, which is exactly what
-// `enterRoute` does (`choose`, auto-pick). Navigating across route items
-// (wheel, `e`, `goTo`) changes no frame, so it announces nothing; a
-// bookmark restore landing mid-route announces nothing either, and one
-// landing exactly on a route's first item simply names where the reader
-// now is.
+// `enterRoute` does (`choose`, auto-pick). A bookmark `goTo` changes no
+// frame, so it announces nothing; a bookmark restore landing mid-route
+// announces nothing either, and one landing exactly on a route's first
+// item simply names where the reader now is. The wheel and `e` replay the
+// reading history, restoring each entry's frames — a replayed route entry
+// would look like an entry — so the shell marks those moves `quiet` and
+// they announce nothing (docs/plan.md, "History rollback spec": a replay
+// answers nothing).
 
 import type { Machine } from "../machine/machine";
 import type { ContextFrame, Manifest } from "../machine/types";
@@ -90,6 +93,11 @@ export interface RouteAnnouncementsOptions {
   manifest: Manifest;
   /** Show the pills, in order: the next only after the former has shown. */
   flash(messages: readonly string[]): void;
+  /**
+   * True while the state change being observed is a history replay (a
+   * wheel step or `e`): the observation moves on, nothing is announced.
+   */
+  quiet?: () => boolean;
 }
 
 /**
@@ -101,6 +109,7 @@ export function mountRouteAnnouncements({
   machine,
   manifest,
   flash,
+  quiet,
 }: RouteAnnouncementsOptions): () => void {
   const labels = routeStartLabels(manifest);
 
@@ -120,6 +129,6 @@ export function mountRouteAnnouncements({
     const next = observe();
     const messages = routeAnnouncementsFor(previous, next, labels);
     previous = next;
-    if (messages.length > 0) flash(messages);
+    if (messages.length > 0 && quiet?.() !== true) flash(messages);
   });
 }

@@ -5,21 +5,34 @@
 // Seen set (Phase 13): `visited` is the set of item indices that have been
 // SHOWN, and it is the source of truth for "seen". MARKING RULE — an item is
 // marked the moment it becomes current, by whatever route to it: a forward
-// advance, a skip step, a route entered by `choose()`, an `e`-jump landing, a
-// wheel step or a `goTo()` bookmark click. (Marking on wheel/`goTo` arrival
-// cannot change a linear manifest: without branches the wheel and bookmarks
-// only ever move onto already-shown items, so a linear novel behaves exactly as
-// before, when "shown" was the single frontier's `1 + highest index ever
-// shown`.) Seeing a decision marks nothing: its routes are ordinary items.
-// The route ROW's seen mark is a different, narrower thing than this set: it
-// is `played` — the routes the reader was actually routed into (docs/plan.md
-// Phase 16, Branches) — so a back-scroll across another route shows that
-// route's items without marking its row.
+// advance, a skip step, a route entered by `choose()`, a wheel or `e` replay
+// of the history, a `goTo()` bookmark click or a restore. (The wheel and `e`
+// only ever show history entries, which were shown before, and a bookmark
+// only reaches seen content, so marking on those arrivals changes nothing.)
+// Seeing a decision marks nothing: its routes are ordinary items. The route
+// ROW's seen mark is a different, narrower thing than this set: it is
+// `played` — the routes the reader was actually routed into (docs/plan.md
+// Phase 16, Branches).
+//
+// Reading history (docs/plan.md, "History rollback spec"): `history` records
+// every screen shown, in the order shown — an item with the route frames open
+// when it showed, or a decision's choice overlay as it opened (a first fire or
+// a route-end re-offer) — and `pos` points at the entry on screen. Reading
+// appends (a forward show, a skip step, a pick, the return row, a continuing
+// route's join, a play-all auto-pick, an overlay opening); from `pos < last`
+// a reading step whose screen equals the next recorded entry just moves `pos`
+// along (replay), and one that differs drops the recorded future first (the
+// Ren'Py fork). Jumps that are not reading (`goTo()`, a bookmark restore)
+// append their landing at the end. The wheel moves `pos` only and shows the
+// entry exactly — the item with its frames restored, or the choice screen in
+// full — answering nothing and marking nothing played; `e` shows the last
+// entry. The record is capped (`HISTORY_CAP`, oldest first) and persists in
+// the context. The play-all interstitial is transient and never recorded.
 //
 // Transition kind (`MachineState.transition`): the same funnel that marks an
 // item also records HOW it became current — `advance` for the forward step
 // (a space press or the auto timer moving one item on), `nav` for every other
-// route to it (the wheel, a bookmark `goTo()` or restore, the `e` jump, a
+// route to it (a wheel or `e` replay, a bookmark `goTo()` or restore, a
 // route entry, a route-end join, skip's dwell step, and the load-time
 // landing). Timing is identical either way; the renderer reads the kind with
 // `cursor` and `frontier` so a re-read below the seen edge plays its video
@@ -38,19 +51,13 @@
 // Branch decisions (docs/content-format.md, "Branches"): a decision fires on
 // the FORWARD SETTLE of its `after` item — on the press or auto-advance that
 // completes it, never on navigation onto it. A firing decision either pauses
-// (`MachineState.choice`, answered by `choose()` / `chooseContinue()`, and
-// inert to every other command while it is open) or, with
-// `settings.playAllRoutes`, resolves itself to the first not-yet-played route
-// in manifest order — the continuing route last — and past the decision once
-// every route has played. Navigation onto a decision's `after` item (wheel,
-// `goTo()`, the `e` jump) SHOWS that decision instead of passing it invisibly
-// (docs/plan.md Phase 16, widened by Phase 18): `MachineState.choice` appears
-// with `arrival: true`, timing pauses, and the decision is NOT consumed —
-// navigating away just closes the overlay, and a pick from it chooses exactly
-// like a fired decision. Unresolved or not, the view is the same one a route
-// end re-offers: rows with their seen marks, plus "return to main route"
-// where that rule offers it — so a scroll back from the story's end surfaces
-// every decision point, nested ones included. A stack of open decision contexts
+// (`MachineState.choice`, answered by `choose()` / `chooseContinue()`; space,
+// tab and bookmark jumps are inert while it is open, the wheel and `e` leave
+// it through the history) or, with `settings.playAllRoutes`, resolves itself
+// to the first not-yet-played route in manifest order — the continuing route
+// last — and past the decision once every route has played. Scrolling back
+// over a decision point shows its choice screen because the history recorded
+// it, not because the item has a decision. A stack of open decision contexts
 // gives nesting: a route's end pops its frame, proceeds to `continueAt`, or
 // re-opens that decision to offer the routes still unplayed. A pure-choice
 // decision (no `continuingRoute`) whose every route has played does not
@@ -71,6 +78,8 @@ import type {
   Branch,
   ChoiceRoute,
   ChoiceView,
+  ContextFrame,
+  HistoryEntry,
   InterstitialView,
   Item,
   MachineContext,
@@ -106,8 +115,10 @@ export interface MachineOptions {
   /**
    * Restored route-play context (`exportContext()`), the Phase 13 form of a
    * resume: the seen set, the open decision stack, the routes played and
-   * completed per decision, and `lastShown` — the item shown most recently,
-   * which is where the load starts. A context predating `completedRoutes`
+   * completed per decision, and the reading history — the load starts on
+   * the entry at `historyPos` (a choice screen shows its overlay). A
+   * context without a history lands on `lastShown` and starts a one-entry
+   * history there. A context predating `completedRoutes`
    * restores with nothing completed (see `MachineContext`): the conservative
    * reading, the return row simply stays hidden until the continuing route
    * is finished once. Like the frontier resume that landing counts as
@@ -143,17 +154,19 @@ export interface Machine {
    */
   visitedList(): number[];
   /**
-   * Route-play context for persistence: `lastShown`, `visitedList()`, the
-   * open decision stack, the routes played and completed per decision, and
-   * `lastEnding` when one is known — all JSON-safe. `importContext()` (or
-   * `MachineOptions.resumeContext`) restores it.
+   * Route-play context for persistence: `lastShown` (the item on screen),
+   * `visitedList()`, the open decision stack, the routes played and
+   * completed per decision, and the reading history with the entry on
+   * screen — all JSON-safe. `MachineOptions.resumeContext` restores all of
+   * it; `importContext()` restores all but the history.
    */
   exportContext(): MachineContext;
   /**
-   * Replaces the seen set, decision stack, played routes and completed
-   * routes with a stored context and shows its `lastShown` item — the
-   * bookmark-restore move: the arrival is UNSETTLED, like `goTo()`, and it
-   * fires no decision.
+   * The bookmark-restore move: replaces the seen set, decision stack,
+   * played routes and completed routes with a stored context and shows its
+   * `lastShown` item. The arrival is UNSETTLED, like `goTo()`, fires no
+   * decision, and is a jump: the landing is appended to THIS session's
+   * history (the stored context's history, if any, is ignored).
    */
   importContext(context: MachineContext): void;
   /** Receives every state change; returns an unsubscribe function. */
@@ -167,31 +180,25 @@ export interface Machine {
    * untouched. During skip mode the press stops the burst ON the item under
    * the cursor — the reader meant this one — so it settles without moving.
    * Settling the item a decision hangs off is what fires that decision.
-   * Inert while a choice is open: only `choose()` and `chooseContinue()`
-   * answer it. Over an ARRIVAL-open choice (`choice.arrival`) the press
-   * drops the arrival view and lands as the plain press on the same item —
-   * the settle-and-move that FIRES the decision, never a step past it.
+   * Inert while a choice is open, a replayed one included: only `choose()`
+   * and `chooseContinue()` answer it. Every step is reading, so it records
+   * into the history: from a rolled-back position it replays the record
+   * while the screen matches and forks otherwise.
    */
   advance(): void;
   /**
-   * Wheel step back to the previous SEEN item (an unplayed route's span is
-   * stepped over, never revealed — docs/plan.md Phase 18); clamps at the
-   * first item. During skip mode, exits skip mode
-   * and still performs the step. Entering an item this way is pure
-   * navigation: it marks it shown but CONSUMES no decision — landing on a
-   * decision's `after` item — unresolved or already completed — opens its
-   * arrival view (`choice.arrival`), and stepping away from one closes it
-   * without touching the stack.
+   * Wheel step back one entry in the reading history, clamped at the first
+   * (docs/plan.md, "History rollback spec"). The entry is shown exactly: an
+   * item with the route frames it showed under, or a choice screen in full
+   * (the overlay, the current seen marks and return-row rule). A step
+   * answers nothing, marks nothing played, and leaves any open choice (it
+   * stays in the history). An item arrival is unsettled, like `goTo()`.
+   * During skip mode, exits skip mode and still performs the step.
    */
   wheelBack(): void;
   /**
-   * Wheel step forward; never passes the highest item ever shown (so it can
-   * reach a seen item of another route, which is where a branched novel's
-   * back-and-forth stays sensible), and never enters unseen content. During
-   * skip mode, exits skip mode and steps when allowed. A step never consumes
-   * a decision, and the arrival is unsettled, like `goTo()` — except that
-   * landing on a decision's `after` item opens its arrival view
-   * (`choice.arrival`), and stepping away closes it, stack unchanged.
+   * Wheel step forward one entry in the reading history, clamped at the
+   * last; otherwise as `wheelBack()`.
    */
   wheelForward(): void;
   /**
@@ -209,40 +216,19 @@ export interface Machine {
    */
   toggleSkip(): void;
   /**
-   * `e` press. With content still unseen and the cursor away from the
-   * READING position (the item reading last reached, `lastShown` — wheel
-   * scrubbing does not move it), the first press RESUMES: it goes to that
-   * item first (docs/plan.md Phase 18 — after wheeling back, `e` must
-   * return to where the reader stopped before jumping on). Standing on
-   * the reading position, the press takes the seen/jump rule of
-   * docs/plan.md Phase 13: the first UNSEEN item along the path — (a) in
-   * the current route span at or after the cursor, else (b) in an unplayed
-   * route of a decision on the stack (innermost first) or of the decision
-   * that fires next along it, else (c) the first unseen item of the
-   * manifest in array order — except that `e` is never a forward step
-   * (docs/plan.md Phase 18): when that target is simply the next item
-   * (`cursor + 1`), the press does nothing, since Space reads on. Every landing is a fresh entry: the item is shown and marked
-   * seen, its own hold is armed, and skip mode ends. No-op when the cursor
-   * is already on the target. Like the wheel and `goTo()`: a jump onto a
-   * decision's `after` item opens its arrival view, and a jump away from one
-   * closes it, stack unchanged.
-   *
-   * When NOTHING is unseen the resume step does not apply: the press
-   * instead shows the ENDING (docs/plan.md Phase 16, "Machine bugs"): the
-   * most recently seen ending item — the array end, or the final item of
-   * a route whose `result` is `ending` (see `endings` below) — or the
-   * array end when the save knows no ending yet. A press on that item
-   * with everything seen stays put; the press never cycles through
-   * endings.
+   * `e` press: go to the END of the reading history and show that entry
+   * exactly, as a wheel step would (docs/plan.md, "History rollback spec").
+   * A no-op when already there. It finds no unseen content and looks up no
+   * ending.
    */
-  jumpToUnseen(): void;
+  jumpToEnd(): void;
   /**
    * Bookmark click (the `t` overlay, README `t` bullet): move the cursor to
    * `index`, clamped to `[0, highest index ever shown]`. Nothing unseen is
-   * entered — unseen items are reached by `advance()`, `choose()` or
-   * `jumpToUnseen()` — and no decision is consumed; landing on a decision's
-   * `after` item opens its arrival view (`choice.arrival`), and a jump away
-   * from one closes it. The arrival is
+   * entered — unseen items are reached by `advance()` or `choose()` — and no
+   * decision fires; the route stack is left as it is. Inert while a choice
+   * is open. The landing is appended to the end of the reading history.
+   * The arrival is
    * UNSETTLED, unlike a resume landing: a bookmark click "continues the
    * novel from that time point", so the item's text hold replays and
    * auto-advance carries the reader onward.
@@ -253,7 +239,10 @@ export interface Machine {
    * `MachineState.choice.routes`, so 1..9 minus one, or a pointer click).
    * The route is marked played, its frame is pushed for nesting, and its
    * first item is entered as a forward entry — shown, marked seen, its own
-   * timing armed. Inert when no choice is open or the index is out of range.
+   * timing armed. From a choice screen replayed out of the history this is
+   * the same real pick: it replays the record when the next entry is this
+   * route's first item and forks it otherwise. Inert when no choice is open
+   * or the index is out of range.
    */
   choose(routeIdx: number): void;
   /**
@@ -480,21 +469,6 @@ function regionEnd(decision: ResolvedDecision): number {
 interface PendingChoice {
   decision: number;
   continueOption: boolean;
-  /**
-   * True when a navigation ARRIVAL onto the decision's `after` item opened
-   * the overlay (docs/plan.md Phase 16) rather than a forward settle
-   * firing it: the decision is unconsumed — navigating away closes the
-   * view and changes no stack.
-   */
-  arrival?: boolean;
-  /**
-   * The route stack as it stood before a FIRED or RE-OFFERED overlay
-   * opened (`closeFramesFor`, the route-end pop): a wheel notch closes such
-   * an overlay (docs/plan.md Phase 18) and puts this back, so the reader
-   * scrolls on inside the route they were in and its end re-offers again.
-   * Absent on an arrival view, which never touched the stack.
-   */
-  restoreStack?: readonly Frame[];
 }
 
 /**
@@ -598,6 +572,38 @@ function asIndex(value: unknown, fallback: number): number {
  */
 export const INTERSTITIAL_MS = 2500;
 
+/**
+ * The reading history's cap, in entries (docs/plan.md, "History rollback
+ * spec"): past it the oldest entries are dropped first.
+ */
+export const HISTORY_CAP = 5000;
+
+/** One reading-history entry (see `HistoryEntry`), owned by the machine. */
+interface Entry {
+  index: number;
+  stack: Frame[];
+  decision?: number;
+}
+
+function sameStack(a: readonly Frame[], b: readonly Frame[]): boolean {
+  return (
+    a.length === b.length &&
+    a.every(
+      (frame, depth) =>
+        frame.decision === b[depth].decision && frame.route === b[depth].route,
+    )
+  );
+}
+
+/** Whether two history entries are the same screen. */
+function sameEntry(a: Entry, b: Entry): boolean {
+  return (
+    a.index === b.index &&
+    a.decision === b.decision &&
+    sameStack(a.stack, b.stack)
+  );
+}
+
 export function createMachine(options: MachineOptions): Machine {
   const { items } = options;
   // Copied, and copied again on every setSettings(): the caller keeps
@@ -616,16 +622,11 @@ export function createMachine(options: MachineOptions): Machine {
   }
 
   /**
-   * The ENDING items for the `e`-at-the-end rule (docs/plan.md Phase 16,
-   * "Machine bugs"): the last item of the array — the plain end of the
-   * story, and the ending every continuing route reaches after its
-   * `continueAt` — plus the final item of every route whose `result` is
-   * `ending`. A `return` route's end re-offers the decision and a
-   * continuing route's end rejoins the story, so neither IS an ending;
-   * a pure-choice decision's routes default to `result: "ending"` and
-   * their spans are covered by that same rule. The demo's set is exactly
-   * `main-024` (array end) and `refuse-020` (the one ending route's final
-   * beat) — `early-022` (return) and the continuing spans' ends are not.
+   * The ENDING items, where the ending hint can show (docs/plan.md Phase
+   * 18): the last item of the array plus the final item of every route
+   * whose `result` is `ending`. A `return` route's end re-offers the
+   * decision and a continuing route's end rejoins the story, so neither IS
+   * an ending.
    */
   const endings = new Set<number>();
   if (count > 0) endings.add(count - 1);
@@ -635,14 +636,6 @@ export function createMachine(options: MachineOptions): Machine {
         endings.add(route.endIndex);
     }
   }
-  /**
-   * The ending seen most recently, -1 when none is known yet. Marked by
-   * the same rule as the seen set — an ending counts the moment the cursor
-   * is placed on it, by whatever route — and persisted as `lastEnding` in
-   * the context (absent there means no known ending, which pre-16 saves
-   * and the frontier resume carry).
-   */
-  let lastEnding = -1;
 
   const listeners = new Set<Listener>();
   let cursor = 0;
@@ -655,13 +648,18 @@ export function createMachine(options: MachineOptions): Machine {
   /** `max(visited)`, -1 when nothing has been shown: the wheel's ceiling. */
   let highestSeen = -1;
   /**
-   * Where reading last reached — the item most recently shown by a READING
-   * move (a forward step, a skip burst's dwell, `choose()`, the `e` jump,
-   * `goTo()`, a restore). Wheel scrubbing shows without reading and never
-   * moves this: the load position, and the Phase 18 resume step of `e`,
-   * stay where the reader actually stopped (docs/plan.md Phase 18).
+   * The reading history (header, "Reading history"), oldest first, and the
+   * position of the entry on screen; -1 only for an empty manifest.
    */
-  let lastShown = 0;
+  const history: Entry[] = [];
+  let pos = -1;
+  /**
+   * `exportHistory()`'s frozen copy, kept until the record changes: every
+   * state change exports the context (persistence, the route pills), and
+   * at the cap that is thousands of entries, while most changes only move
+   * `pos`. Set to null wherever `history` itself changes.
+   */
+  let historyExport: readonly HistoryEntry[] | null = null;
   let settled = false;
   /** Open decision contexts, outermost first — the nesting stack. */
   const stack: Frame[] = [];
@@ -714,23 +712,26 @@ export function createMachine(options: MachineOptions): Machine {
   } | null = null;
   let interstitialTimer: unknown = null;
   let destroyed = false;
-  // Start position. A stored context is authoritative: its `lastShown` is
-  // where the reader left off. Otherwise a persisted frontier marks a seen
+  // Start position. A stored context is authoritative: its history entry on
+  // screen (or, without a history, its `lastShown`) is where the reader left
+  // off. Otherwise a persisted frontier marks a seen
   // prefix, and the load starts on its last shown item. With neither, this is
   // the first-ever load: item 0, shown, so the frontier is one past it.
   if (count > 0) {
     if (options.resumeContext !== undefined) {
       applyContext(options.resumeContext);
+      restoreHistory(options.resumeContext);
       settled = true; // a resume landing was already read, as with a frontier
     } else if (options.resumeFrontier !== undefined) {
       const frontier = clamp(options.resumeFrontier, 1, count);
       for (let index = 0; index < frontier; index += 1) visited.add(index);
       highestSeen = frontier - 1;
-      lastShown = frontier - 1;
       cursor = frontier - 1;
+      pushEntry(currentEntry());
       settled = true;
     } else {
-      markShown(0, true);
+      markShown(0);
+      pushEntry(currentEntry());
     }
   }
   // The start position is an arrival like any other (Phase 15): a chain
@@ -738,14 +739,15 @@ export function createMachine(options: MachineOptions): Machine {
   if (count > 0) chainHeadAt = chainHeadMarkFor(cursor, false);
   let state: MachineState = snapshot();
   // The item shown at start: auto mode arms its hold; manual mode (the
-  // player's start, Phase 13b) waits for the reader instead.
-  armTimer();
+  // player's start, Phase 13b) waits for the reader instead. A restored
+  // choice screen waits for its pick.
+  if (pendingChoice === null) armTimer();
 
   function snapshot(): MachineState {
     const choice = pendingChoice === null ? null : choiceView(pendingChoice);
     const frontier = highestSeen < 0 ? 0 : Math.min(highestSeen + 1, count);
-    // Play-all carries on from a route ending by itself, so the `e` invite
-    // there is noise; the array end still earns it.
+    // Play-all carries on from a route ending by itself, so the hint there
+    // is noise; the array end still earns it.
     const endingHint =
       choice === null &&
       interstitial === null &&
@@ -859,7 +861,6 @@ export function createMachine(options: MachineOptions): Machine {
       prompt: decision.prompt,
       routes,
       ...(pending.continueOption ? { continueOption: true } : {}),
-      ...(pending.arrival === true ? { arrival: true } : {}),
     };
     return Object.freeze(view);
   }
@@ -954,7 +955,7 @@ export function createMachine(options: MachineOptions): Machine {
    * that starts a text chain stamps the chain's start; leaving any chain
    * clears it; a `text` item entered by a plain forward step KEEPS the
    * chain's existing start. Any other arrival at a `text` item — wheel,
-   * `goTo()`, an `e`-jump, a route entry — re-bases to now: the machine-time
+   * `goTo()`, an `e` landing, a route entry — re-bases to now: the machine-time
    * of the original chain start is unknowable across re-entry, and a fresh
    * measurement may only wait LONGER than the original floor, never
    * shorter — acceptable and documented (the floor concerns forward auto
@@ -975,37 +976,122 @@ export function createMachine(options: MachineOptions): Machine {
     armTimer();
   }
 
-  /**
-   * The marking rule: shown now, so seen from now on. `reads` splits the
-   * one field that is not about seeing: the reading position `lastShown`
-   * moves only when the showing is READING (docs/plan.md Phase 18) — wheel
-   * scrubbing (see `showItem`) shows without moving it.
-   */
-  function markShown(index: number, reads: boolean): void {
+  /** The marking rule: shown now, so seen from now on. */
+  function markShown(index: number): void {
     visited.add(index);
     if (index > highestSeen) highestSeen = index;
-    if (reads) lastShown = index;
-    if (endings.has(index)) lastEnding = index;
+  }
+
+  /** The screen under the cursor as a history entry (a copy). */
+  function currentEntry(decision?: number): Entry {
+    return {
+      index: cursor,
+      stack: stack.map((frame) => ({ ...frame })),
+      ...(decision === undefined ? {} : { decision }),
+    };
+  }
+
+  /** Appends an entry as the last one, dropping the oldest past the cap. */
+  function pushEntry(entry: Entry): void {
+    historyExport = null;
+    history.push(entry);
+    if (history.length > HISTORY_CAP) {
+      history.splice(0, history.length - HISTORY_CAP);
+    }
+    pos = history.length - 1;
+  }
+
+  /**
+   * Reading showed `entry` (header, "Reading history"): the same screen as
+   * the one on record stays put; from `pos < last` a screen equal to the
+   * next recorded entry just advances `pos` (replay), and any other drops
+   * the recorded future before it is appended (fork).
+   */
+  function recordRead(entry: Entry): void {
+    if (pos >= 0 && sameEntry(history[pos], entry)) return;
+    if (pos < history.length - 1) {
+      if (sameEntry(history[pos + 1], entry)) {
+        pos += 1;
+        return;
+      }
+      history.length = pos + 1; // pushEntry drops the cached export
+    }
+    pushEntry(entry);
+  }
+
+  /**
+   * A jump that is not reading (`goTo()`, a bookmark restore): its landing
+   * is appended at the END of the record, keeping every recorded screen.
+   */
+  function recordJump(entry: Entry): void {
+    pos = history.length - 1;
+    if (pos >= 0 && sameEntry(history[pos], entry)) return;
+    pushEntry(entry);
   }
 
   /**
    * Makes `index` the current item: record how it was reached, mark it shown,
-   * restart its timing, and tell the listeners. Every route to an item —
-   * forward advance, skip step, `choose()`, `e`-jump, wheel, `goTo()` — comes
-   * through here, which is why showing and seeing are the same moment (the
-   * header's marking rule). `kind` is the other half of that record: the
-   * forward step is an `advance`, every other route is a `nav` arrival
-   * (see `TransitionKind`). `reads` says whether arriving IS reading:
-   * every route except the wheel's scrub steps, which show seen content
-   * without moving the reading position (docs/plan.md Phase 18).
+   * record it in the history, restart its timing, and tell the listeners.
+   * Every reading route to an item — forward advance, skip step, `choose()`,
+   * a join, `goTo()` — comes through here, which is why showing and seeing
+   * are the same moment (the header's marking rule). `kind` is the forward
+   * step's `advance` or any other route's `nav` arrival (see
+   * `TransitionKind`); `jump` marks the non-reading jumps (`goTo()`, a
+   * restore), which append at the history's end instead of replaying or
+   * forking it. A history replay (`showEntry`) does not come through here.
    */
-  function showItem(index: number, kind: TransitionKind, reads = true): void {
+  function showItem(index: number, kind: TransitionKind, jump = false): void {
     const keepsChain = index === cursor + 1 && chainHeadAt !== null;
     cursor = index;
     transition = kind;
     chainHeadAt = chainHeadMarkFor(index, keepsChain);
-    markShown(index, reads);
+    markShown(index);
+    if (jump) recordJump(currentEntry());
+    else recordRead(currentEntry());
     beginItem();
+    emit();
+  }
+
+  /**
+   * Puts history entry `at` on screen without timing or emitting: the
+   * cursor, the route frames it showed under, and — for a choice screen —
+   * the overlay, with the CURRENT seen marks and return-row rule. Nothing
+   * is answered or marked played.
+   */
+  function placeEntry(at: number): void {
+    pos = at;
+    const entry = history[at];
+    stack.length = 0;
+    stack.push(...entry.stack.map((frame) => ({ ...frame })));
+    cursor = entry.index;
+    transition = "nav";
+    chainHeadAt = chainHeadMarkFor(cursor, false);
+    markShown(cursor);
+    pendingChoice =
+      entry.decision === undefined
+        ? null
+        : {
+            decision: entry.decision,
+            continueOption: offersContinue(decisions[entry.decision]),
+          };
+  }
+
+  /**
+   * The wheel and `e`: show history entry `at` exactly (docs/plan.md,
+   * "History rollback spec"). Skip mode ends; an item arrives unsettled
+   * with its own hold, a choice screen settled and waiting for its pick.
+   */
+  function showEntry(at: number): void {
+    skipping = false;
+    placeEntry(at);
+    if (pendingChoice === null) {
+      beginItem();
+    } else {
+      settled = true;
+      holdElapsed = false;
+      endedCount = 0;
+      cancelTimer();
+    }
     emit();
   }
 
@@ -1165,12 +1251,11 @@ export function createMachine(options: MachineOptions): Machine {
   /**
    * The route row's seen mark (docs/plan.md Phase 16, Branches): the route was
    * PLAYED — `enterRoute` put the reader inside it, from `choose()` or a
-   * play-all auto-pick. Deliberately NOT `visited` ∩ span: finishing one route
-   * and wheeling back to its decision walks the cursor across the OTHER
-   * route's items, and a restored position lands inside a span — both would
-   * then read as a route the reader never took, which is exactly what the
-   * Phase 16 report rules out. `visited` stays the source for ITEM marks (the
-   * `e` jump, skip, bookmarks, the frontier resume); the row mark is play.
+   * play-all auto-pick. Deliberately NOT `visited` ∩ span: a bookmark or a
+   * restored position can land inside a span the reader never chose, which
+   * would then read as a route the reader took — exactly what the Phase 16
+   * report rules out. `visited` stays the source for ITEM marks (skip,
+   * bookmarks, the frontier resume); the row mark is play.
    */
   function isPlayed(decisionIndex: number, routeIdx: number): boolean {
     return played.get(decisionIndex)?.has(routeIdx) === true;
@@ -1220,9 +1305,8 @@ export function createMachine(options: MachineOptions): Machine {
    * The decision hanging off the item at `index`, considering only the ones
    * inside the current route span: with no open frame a top-level decision,
    * otherwise a child of the open decision whose own route contains the
-   * item. The forward settle asks it firing (it consumes the answer); a
-   * navigation arrival asks it showing (arrival view, `choice.arrival`,
-   * unconsumed) — the same condition either way.
+   * item. The forward settle asks it (`fireDecision`), as does skip's
+   * reveal check.
    */
   function relevantDecision(index: number): number {
     const candidates = byAfter.get(index);
@@ -1270,7 +1354,7 @@ export function createMachine(options: MachineOptions): Machine {
    * not merely entered. A continuation the reader has not reached the end of
    * is not a place to "return" to: from a re-offer they should pick the
    * continuing route to advance, and finishing it once opens the row on
-   * every later re-opening and arrival. A decision with no continuing route
+   * every later re-opening and history replay. A decision with no continuing route
    * is never offered one (unchanged).
    */
   function offersContinue(decision: ResolvedDecision): boolean {
@@ -1281,21 +1365,20 @@ export function createMachine(options: MachineOptions): Machine {
   }
 
   /**
-   * Shows the overlay for a decision and pauses: the item under the cursor is
-   * complete (`settled`), nothing is pending but the reader's pick, and skip
-   * mode ends — an overlay is not something to skip past.
+   * Shows the overlay for a decision, records it in the history, and
+   * pauses: the item under the cursor is complete (`settled`), nothing is
+   * pending but the reader's pick, and skip mode ends — an overlay is not
+   * something to skip past.
    */
-  function openChoice(
-    decisionIndex: number,
-    restoreStack: readonly Frame[] = stack.slice(),
-  ): void {
+  function openChoice(decisionIndex: number): void {
     closeFramesFor(decisionIndex);
     const decision = decisions[decisionIndex];
     pendingChoice = {
       decision: decisionIndex,
       continueOption: offersContinue(decision),
-      restoreStack,
     };
+    // An overlay opening is a screen shown while reading: recorded.
+    recordRead(currentEntry(decisionIndex));
     // A skip burst pauses at a decision (docs/plan.md Phase 16): the overlay
     // ends the burst, and the pick never restarts it — the reader answers in
     // manual mode from here (a skip burst never auto-resumes).
@@ -1303,157 +1386,6 @@ export function createMachine(options: MachineOptions): Machine {
     settled = true;
     cancelTimer();
     emit();
-  }
-
-  /**
-   * Whether `index` sits inside some route of `decision`'s parent, or of that
-   * parent's parent, up to the top level — the chain that makes it a decision
-   * of this region. `relevantDecision` derives the same fact from the OPEN
-   * frame; an arrival has no frame to consult (a continuous wheel back from
-   * the story's end pops every frame on the way), and this is how a nested
-   * decision still surfaces when its enclosing route is no longer open.
-   */
-  function insideAncestorSpan(
-    decision: ResolvedDecision,
-    index: number,
-  ): boolean {
-    let current = decision;
-    while (current.parent >= 0) {
-      const parent = decisions[current.parent];
-      const inside = parent.routes.some(
-        (route) => index >= route.startIndex && index <= route.endIndex,
-      );
-      if (!inside) return false;
-      current = parent;
-    }
-    return true;
-  }
-
-  /**
-   * The decision an arrival at the cursor may SHOW (docs/plan.md Phase 18,
-   * Branches): `relevantDecision`'s answer when a frame is open, plus — for
-   * the frameless browsing case — any decision hanging off this item whose
-   * ancestors' route spans contain it.
-   */
-  function arrivalRelevantDecision(index: number): number {
-    const immediate = relevantDecision(index);
-    if (immediate >= 0) return immediate;
-    const candidates = byAfter.get(index);
-    if (candidates === undefined) return -1;
-    for (const candidate of candidates) {
-      if (insideAncestorSpan(decisions[candidate], index)) return candidate;
-    }
-    return -1;
-  }
-
-  /**
-   * Whether a navigation arrival at the cursor should SHOW a decision
-   * (docs/plan.md Phase 16, widened by Phase 18 bullet 3): a decision here,
-   * whatever its history. An UNRESOLVED one shows a fresh choice; a COMPLETED
-   * one — a route entered, or an all-played pure choice that CLOSED — shows
-   * the same re-offer a route end does: rows with seen marks, the return row
-   * where `offersContinue` says so. The reader is browsing, so nothing here
-   * consumes the decision or closes-and-advances it; scrolling back from the
-   * end must surface every decision point, nested included.
-   * `playAllRoutes` never shows a view here: the reader asked for zero
-   * interactivity, so a completed arrival passes through untouched and an
-   * unresolved one is answered instead, below.
-   */
-  function arrivalDecision(): number {
-    if (settings.playAllRoutes || pendingChoice !== null) return -1;
-    return arrivalRelevantDecision(cursor);
-  }
-
-  /**
-   * A navigation arrival landed on a decision's `after` item: show it without
-   * consuming it — a fresh choice when unresolved, the route-end re-offer when
-   * the reader has already been routed here. Pauses timing — the cursor
-   * marks the item settled and the pending timer is cancelled. The timer
-   * proof (docs/plan.md Phase 16): a manual arrival arms none at all
-   * (`armTimer` returns while `!skipping && !autoAdvance`, and every
-   * navigation command clears `skipping` before the step), so this cancel
-   * is the whole pause; and no timer that later elapses on this item can
-   * pass through it either, because leaving it goes through `moveForward`
-   * → `fireDecision`, which fires the decision instead of stepping.
-   * Navigation away closes the view (`dismissArrivalChoice`); the stack is
-   * untouched — `closeFramesFor` is deliberately NOT called here, unlike a
-   * fired `openChoice`.
-   */
-  function openArrivalChoice(decisionIndex: number): void {
-    pendingChoice = {
-      decision: decisionIndex,
-      continueOption: offersContinue(decisions[decisionIndex]),
-      arrival: true,
-    };
-    settled = true;
-    cancelTimer();
-    emit();
-  }
-
-  /**
-   * Navigation closes an arrival-open view — the reader is leaving, not
-   * answering — and returns true when it did, so the caller can emit even
-   * when the cursor cannot move. A fired choice is left untouched: it owns
-   * the timeline until answered (keys other than the wheel).
-   */
-  function dismissArrivalChoice(): boolean {
-    if (pendingChoice?.arrival !== true) return false;
-    pendingChoice = null;
-    return true;
-  }
-
-  /**
-   * The wheel is never trapped by an overlay (docs/plan.md Phase 18): a
-   * notch closes ANY open choice — arrival, fired, or route-end re-offer —
-   * and the step proceeds as usual. A fired or re-offered view gets its
-   * route stack back (`restoreStack`), so nothing is answered: the reader
-   * is where they were before it opened, and the next forward settle at
-   * that spot opens it again. Returns true when a view closed.
-   */
-  function dismissChoiceForWheel(): boolean {
-    if (pendingChoice === null) return false;
-    const restore = pendingChoice.restoreStack;
-    pendingChoice = null;
-    if (restore !== undefined) {
-      stack.length = 0;
-      stack.push(...restore.map((frame) => ({ ...frame })));
-    }
-    return true;
-  }
-
-  /**
-   * Navigation commands call this after `showItem`: open the arrival view
-   * for the decision hanging off the new cursor, if any.
-   */
-  function openArrivalChoiceIfDue(): void {
-    if (settings.playAllRoutes) {
-      autoResolveArrival();
-      return;
-    }
-    const index = arrivalDecision();
-    if (index >= 0) openArrivalChoice(index);
-  }
-
-  /**
-   * The play-all arrival rule (docs/plan.md Phase 16, Branches): an
-   * arrival at the `after` item of a decision NO ROUTE has ever been played
-   * for resolves it on the spot — play-all is the no-stop path, and waiting
-   * on a screen the reader asked never to see is a stall. A decision that
-   * already has a played route is NOT resurrected by an arrival: its
-   * history is resolved, and its unplayed routes stay reachable the way
-   * unseen content always is — as `e`-visible items, or by a forward step
-   * off `after`, which re-fires the decision as documented (and under
-   * play-all auto-resolves it).
-   */
-  function autoResolveArrival(): void {
-    if (pendingChoice !== null) return; // a fired choice owns the timeline
-    const index = relevantDecision(cursor);
-    if (index < 0) return;
-    const decision = decisions[index];
-    if (decision.continuingRoute < 0 && nextAutoRoute(decision) < 0) return;
-    const routes = played.get(decision.index);
-    if (routes !== undefined && routes.size > 0) return;
-    autoResolve(decision);
   }
 
   /**
@@ -1546,7 +1478,6 @@ export function createMachine(options: MachineOptions): Machine {
     const route = decision.routes[frame.route];
     completedOf(decision.index).add(frame.route);
     if (closeIfPureAndComplete(decision)) return;
-    const beforePop = stack.slice();
     stack.pop();
     if (route.continuing) {
       showItem(decision.continueAt, "nav");
@@ -1563,91 +1494,25 @@ export function createMachine(options: MachineOptions): Machine {
       autoResolve(decision);
       return;
     }
-    openChoice(decision.index, beforePop);
-  }
-
-  /** The last item of the current route span, or content end when none. */
-  function currentSpanEnd(): number {
-    const frame = stack[stack.length - 1];
-    if (frame === undefined) return count - 1;
-    return decisions[frame.decision].routes[frame.route].endIndex;
+    openChoice(decision.index);
   }
 
   /**
-   * The nearest SEEN item from the cursor in `direction` (-1 back, +1
-   * forward), or -1 when there is none: the wheel's step target. Unseen
-   * items — another route's span the reader never played — are skipped.
+   * One wheel notch through the history (`direction` -1 back, +1 forward),
+   * clamped to the record. Decision (docs/plan.md Phase 4): a step during
+   * skip exits skip mode AND performs the step; a clamped step still ends
+   * skip, and the item left behind gets its normal timing.
    */
-  function seenNeighbour(direction: -1 | 1): number {
-    for (
-      let index = cursor + direction;
-      index >= 0 && index <= highestSeen;
-      index += direction
-    ) {
-      if (visited.has(index)) return index;
-    }
-    return -1;
-  }
-
-  /** The first item of `[from, to]` the reader has not seen; -1 for none. */
-  function firstUnseen(from: number, to: number): number {
-    const last = Math.min(to, count - 1);
-    for (let index = Math.max(0, from); index <= last; index += 1) {
-      if (!visited.has(index)) return index;
-    }
-    return -1;
-  }
-
-  /** The first unseen item inside a route of this decision not yet played. */
-  function unseenInUnplayedRoute(decision: ResolvedDecision): number {
-    for (let index = 0; index < decision.routes.length; index += 1) {
-      if (isPlayed(decision.index, index)) continue;
-      const route = decision.routes[index];
-      const target = firstUnseen(route.startIndex, route.endIndex);
-      if (target >= 0) return target;
-    }
-    return -1;
-  }
-
-  /**
-   * The decision that fires next along the current path: the nearest one at
-   * or after the cursor in the same context as the open frame (or at the top
-   * level when no frame is open).
-   */
-  function nextDecisionAhead(from: number): number {
-    const frame = stack[stack.length - 1];
-    const wantParent = frame === undefined ? -1 : frame.decision;
-    let found = -1;
-    for (const decision of decisions) {
-      if (decision.parent !== wantParent || decision.afterIndex < from)
-        continue;
-      if (found < 0 || decision.afterIndex < decisions[found].afterIndex) {
-        found = decision.index;
+  function stepHistory(direction: -1 | 1): void {
+    const target = pos + direction;
+    if (target < 0 || target >= history.length) {
+      if (skipping) {
+        exitSkip();
+        emit();
       }
+      return;
     }
-    return found;
-  }
-
-  /**
-   * The `e` target — the seen/jump rule of docs/plan.md Phase 13, stated
-   * here once: (a) the first unseen item of the current route span at or
-   * after the cursor, else (b) the first unseen item of an unplayed route of
-   * a decision on the stack, innermost first, or of the decision that fires
-   * next along the path, else (c) the first unseen item in array order.
-   */
-  function unseenTarget(): number {
-    const inSpan = firstUnseen(cursor, currentSpanEnd());
-    if (inSpan >= 0) return inSpan;
-    for (let depth = stack.length - 1; depth >= 0; depth -= 1) {
-      const target = unseenInUnplayedRoute(decisions[stack[depth].decision]);
-      if (target >= 0) return target;
-    }
-    const next = nextDecisionAhead(cursor);
-    if (next >= 0) {
-      const target = unseenInUnplayedRoute(decisions[next]);
-      if (target >= 0) return target;
-    }
-    return firstUnseen(0, count - 1);
+    showEntry(target);
   }
 
   /** Sorted view of the seen set: what persistence stores. */
@@ -1656,8 +1521,9 @@ export function createMachine(options: MachineOptions): Machine {
   }
 
   /**
-   * Restores a stored context: seen set, played routes, open stack, the
-   * remembered ending (absent = none known), and the cursor at `lastShown`. Indices outside this manifest are dropped — a save
+   * Restores a stored context: seen set, played and completed routes, open
+   * stack, and the cursor at `lastShown` — everything but the history
+   * (`restoreHistory`). Indices outside this manifest are dropped — a save
    * made against different content must degrade to playing, not to a cursor
    * off the end. The seen edge comes back with the seen set: `highestSeen`
    * is the restored maximum, not the landing item — otherwise a resumed
@@ -1714,16 +1580,73 @@ export function createMachine(options: MachineOptions): Machine {
       stack.push({ decision: decisionIndex, route: routeIdx });
     }
     pendingChoice = null;
-    // The remembered ending comes back with the context; a stored index
-    // that is not an ending of THIS manifest (a save against different
-    // content) is dropped rather than guessed. A legacy context carries
-    // no field at all, which reads as "no known ending".
-    const storedEnding = asIndex(context.lastEnding, -1);
-    lastEnding = endings.has(storedEnding) ? storedEnding : -1;
     cursor = clamp(asIndex(context.lastShown, 0), 0, count - 1);
-    // The landing item is shown, so it counts as seen — and it is the
-    // reading position the context carried.
-    markShown(cursor, true);
+    // The landing item is shown, so it counts as seen.
+    markShown(cursor);
+  }
+
+  /** A stored history entry checked against this manifest; null if foreign. */
+  function validEntry(raw: HistoryEntry | undefined): Entry | null {
+    if (typeof raw !== "object" || raw === null) return null;
+    const index = asIndex(raw.index, -1);
+    if (index < 0 || index >= count) return null;
+    const entryStack: Frame[] = [];
+    for (const frame of Array.isArray(raw.stack) ? raw.stack : []) {
+      const decision = asIndex(frame?.decision, -1);
+      const route = asIndex(frame?.route, -1);
+      if (decision < 0 || decision >= decisions.length) return null;
+      if (route < 0 || route >= decisions[decision].routes.length) return null;
+      entryStack.push({ decision, route });
+    }
+    if (raw.decision === undefined) return { index, stack: entryStack };
+    const decision = asIndex(raw.decision, -1);
+    if (decision < 0 || decision >= decisions.length) return null;
+    return { index, stack: entryStack, decision };
+  }
+
+  /**
+   * The resume half of a stored context (docs/plan.md, "History rollback
+   * spec"): its history, checked entry by entry (a foreign entry is
+   * dropped) and capped, with the entry at `historyPos` (default: the
+   * last) put on screen. A context without a usable history — every save
+   * written before the history existed — starts a one-entry history at its
+   * `lastShown` landing, under its stored stack.
+   */
+  function restoreHistory(context: MachineContext): void {
+    historyExport = null;
+    history.length = 0;
+    pos = -1;
+    const stored = Array.isArray(context.history) ? context.history : [];
+    for (const raw of stored.slice(-HISTORY_CAP)) {
+      const entry = validEntry(raw);
+      if (entry !== null) history.push(entry);
+    }
+    if (history.length === 0) {
+      pushEntry(currentEntry());
+      return;
+    }
+    const last = history.length - 1;
+    placeEntry(clamp(asIndex(context.historyPos, last), 0, last));
+  }
+
+  /** The history as JSON-safe context data (cached until it changes). */
+  function exportHistory(): readonly HistoryEntry[] {
+    if (historyExport !== null) return historyExport;
+    historyExport = Object.freeze(
+      history.map((entry) =>
+        Object.freeze({
+          index: entry.index,
+          stack: Object.freeze(
+            entry.stack.map(
+              (frame): ContextFrame =>
+                Object.freeze({ decision: frame.decision, route: frame.route }),
+            ),
+          ),
+          ...(entry.decision === undefined ? {} : { decision: entry.decision }),
+        }),
+      ),
+    );
+    return historyExport;
   }
 
   return {
@@ -1750,7 +1673,7 @@ export function createMachine(options: MachineOptions): Machine {
             }),
           );
       return Object.freeze({
-        lastShown,
+        lastShown: cursor,
         visited: visitedSorted(),
         stack: Object.freeze(
           stack.map((frame) =>
@@ -1765,10 +1688,8 @@ export function createMachine(options: MachineOptions): Machine {
         // hidden until the continuing route is finished once in the new
         // session.
         completedRoutes: Object.freeze(routeSets(completed)),
-        // Absent when no ending has been seen — the pre-16 shape, so an
-        // older reader and a legacy save round-trip unchanged (the
-        // `e`-ending migration rule in docs/plan.md Phase 16).
-        ...(lastEnding >= 0 ? { lastEnding } : {}),
+        history: exportHistory(),
+        historyPos: pos,
       });
     },
 
@@ -1779,7 +1700,9 @@ export function createMachine(options: MachineOptions): Machine {
       interstitial = null;
       applyContext(context);
       skipping = false; // a restore is manual navigation, like `goTo()`
-      showItem(cursor, "nav"); // UNSETTLED arrival: the item replays under its hold
+      // UNSETTLED arrival: the item replays under its hold. A jump: the
+      // landing is appended to this session's history.
+      showItem(cursor, "nav", true);
     },
 
     subscribe(listener) {
@@ -1792,14 +1715,8 @@ export function createMachine(options: MachineOptions): Machine {
     advance() {
       if (destroyed || count === 0) return;
       if (finishInterstitial()) return; // a press ends the hold early
-      if (pendingChoice !== null) {
-        if (pendingChoice.arrival !== true) return;
-        // Space over an arrival-open view: the reader pressed on the item,
-        // so the view yields to the plain press it would have been — the
-        // settle-and-move below, which FIRES the decision (moveForward
-        // reaches fireDecision) rather than stepping into the next item.
-        pendingChoice = null;
-      }
+      // Only the choice's own inputs answer it, a replayed one included.
+      if (pendingChoice !== null) return;
       if (skipping) {
         // Space during skip exits skip mode AND stops on the current item:
         // exiting leaves it unset, and this press settles it in place
@@ -1833,47 +1750,13 @@ export function createMachine(options: MachineOptions): Machine {
     wheelBack() {
       if (destroyed) return;
       finishInterstitial(); // navigation is never trapped: enter, then move
-      // Any open choice closes on this step and the step proceeds
-      // (docs/plan.md Phase 18: only keys choose; the wheel navigates).
-      const closedArrival = dismissChoiceForWheel();
-      // Decision (docs/plan.md Phase 4): a wheel step during skip exits skip
-      // mode AND performs the step — the step is what the user
-      // meant; merely dropping it would feel like a dead input.
-      const wasSkipping = skipping;
-      if (skipping) skipping = false; // a clamped step exits skip too
-      // The wheel walks SEEN content only (docs/plan.md Phase 18): an
-      // unplayed route's span between here and the previous seen item is
-      // stepped over, never revealed — the array order interleaves routes.
-      const target = seenNeighbour(-1);
-      if (target < 0) {
-        if (wasSkipping) beginItem(); // normal timing for the item left behind
-        if (wasSkipping || closedArrival) emit();
-        return;
-      }
-      // Pure nav: shown, seen; no decision consumed. A scrub step shows
-      // without reading — the reading position (and the `e` resume that
-      // follows) stays where the reader stopped (docs/plan.md Phase 18).
-      showItem(target, "nav", false);
-      openArrivalChoiceIfDue();
+      stepHistory(-1);
     },
 
     wheelForward() {
       if (destroyed) return;
       finishInterstitial(); // navigation is never trapped: enter, then move
-      const closedArrival = dismissChoiceForWheel(); // as wheelBack()
-      const wasSkipping = skipping;
-      if (skipping) skipping = false; // same decision as wheelBack()
-      // The ceiling is the highest item ever shown, which across routes is
-      // the union of everything seen — so a forward step can reach a seen
-      // item of another route, and entering it is navigation, not a choice.
-      const target = seenNeighbour(1); // seen content only, as wheelBack
-      if (target < 0) {
-        if (wasSkipping) beginItem(); // blocked step still ends skip
-        if (wasSkipping || closedArrival) emit();
-        return;
-      }
-      showItem(target, "nav", false); // scrubbing, like wheelBack
-      openArrivalChoiceIfDue();
+      stepHistory(1);
     },
 
     toggleSkip() {
@@ -1891,61 +1774,26 @@ export function createMachine(options: MachineOptions): Machine {
       emit();
     },
 
-    jumpToUnseen() {
+    jumpToEnd() {
       if (destroyed || count === 0) return;
       finishInterstitial();
-      const closedArrival = dismissArrivalChoice();
-      if (pendingChoice !== null) return; // a fired choice owns the timeline
-      const unseen = unseenTarget();
-      let target: number;
-      if (unseen < 0) {
-        // Everything has been seen: `e` shows the ENDING — the most
-        // recently seen ending item, or the array end when the save
-        // knows none yet (docs/plan.md Phase 16). A repeat press finds
-        // the cursor already there and stays put: no cycle.
-        target = lastEnding >= 0 ? lastEnding : count - 1;
-      } else if (cursor !== lastShown) {
-        // The resume step (docs/plan.md Phase 18): after scrubbing away,
-        // the first press goes back to where reading stopped — showing
-        // that item is READING, so the landing re-marks it (a no-op: it
-        // is already seen, and `lastShown` already names it). The next
-        // press, standing on `lastShown`, takes the unseen rules below.
-        target = lastShown;
-      } else if (unseen === cursor + 1) {
-        // `e` is never a forward step (docs/plan.md Phase 18): standing at
-        // the reading position with the next unseen item simply next in
-        // reading order, the reader is already where they left off — Space
-        // is how to read on. (At an unanswered decision this also keeps `e`
-        // from entering the first route's items without a pick.)
-        target = -1;
-      } else {
-        target = unseen;
-      }
-      if (target < 0 || target === cursor) {
-        if (closedArrival) emit(); // nothing to jump to: the view just closed
-        return;
-      }
-      skipping = false; // a jump is manual navigation: skip mode is off
-      showItem(target, "nav"); // fresh entry: seen now, its own hold armed
-      openArrivalChoiceIfDue();
+      const last = history.length - 1;
+      if (pos >= last) return; // already at the end: nothing to do
+      showEntry(last);
     },
 
     goTo(index) {
       if (destroyed || count === 0) return;
       finishInterstitial();
-      dismissArrivalChoice(); // navigation away closes an arrival view
-      if (pendingChoice !== null) return; // a fired choice owns the timeline
-      // Bookmark navigation is navigation too: landing on an unresolved
-      // decision's `after` item opens its arrival view, leaving closes it.
+      if (pendingChoice !== null) return; // a choice owns the timeline
       // A bookmark always points at content the reader had reached, but the
       // list outlives the moment it was written, so clamp defensively to
       // seen content `[0, highestSeen]`: unseen items must be entered by
-      // advance(), choose() or jumpToUnseen() rather than consumed by a
-      // jump. (The cursor may move either way — backward, or forward back
-      // to the edge of what has been shown.)
-      skipping = false; // like jumpToUnseen: manual navigation ends skip mode
-      showItem(clamp(index, 0, Math.max(0, highestSeen)), "nav");
-      openArrivalChoiceIfDue();
+      // advance() or choose() rather than consumed by a jump. (The cursor
+      // may move either way — backward, or forward back to the edge of what
+      // has been shown.) The landing is appended to the history's end.
+      skipping = false; // manual navigation ends skip mode
+      showItem(clamp(index, 0, Math.max(0, highestSeen)), "nav", true);
     },
 
     choose(routeIdx) {
@@ -1954,10 +1802,9 @@ export function createMachine(options: MachineOptions): Machine {
       if (!Number.isInteger(routeIdx) || routeIdx < 0) return;
       if (routeIdx >= decision.routes.length) return;
       pendingChoice = null;
-      // From an arrival-open view this chooses exactly like a fired decision
-      // (docs/plan.md Phase 16): the answered decision's open frames close
-      // first — a no-op after a fired open, but it keeps a re-entry into the
-      // reader's own route from double-pushing the frame.
+      // The answered decision's open frames close first — a no-op after a
+      // fired open, but it keeps a re-entry into the reader's own route
+      // from double-pushing the frame.
       closeFramesFor(decision.index);
       // A skip burst never restarts here: the pause at a decision ended it
       // and the pick belongs to manual reading (docs/plan.md Phase 16).

@@ -27,6 +27,7 @@
 
 import type {
   ContextFrame,
+  HistoryEntry,
   MachineContext,
   MachineSettings,
 } from "../machine/types";
@@ -171,25 +172,59 @@ export function sanitizeSettings(
 /**
  * Read a stored `ctx` defensively: only the `MachineContext` shape
  * survives — a trustworthy `lastShown` and `visited` are required, and
- * malformed stack/playedRoutes entries are dropped rather than guessed.
+ * malformed stack/playedRoutes/history entries are dropped rather than
+ * guessed.
  * Anything else reads as "no context" (undefined), which puts the record
  * on the legacy frontier resume path — the documented migration for
- * pre-Phase-13 records, so never a failure. Never throws.
+ * pre-Phase-13 records, so never a failure. Never throws. Exported for
+ * `storage.test.ts`, like `sanitizeSettings`.
  */
-function sanitizeContext(raw: unknown): MachineContext | undefined {
+export function sanitizeContext(raw: unknown): MachineContext | undefined {
   if (typeof raw !== "object" || raw === null) return undefined;
   const source = raw as Partial<MachineContext>;
   if (!isFiniteNumber(source.lastShown)) return undefined;
   if (!Array.isArray(source.visited) || !source.visited.every(isFiniteNumber)) {
     return undefined;
   }
-  const stack: ContextFrame[] = [];
-  for (const frame of Array.isArray(source.stack) ? source.stack : []) {
-    if (typeof frame !== "object" || frame === null) continue;
-    const { decision, route } = frame as Partial<ContextFrame>;
-    if (isFiniteNumber(decision) && isFiniteNumber(route)) {
-      stack.push({ decision, route });
+  const frames = (raw: unknown): ContextFrame[] => {
+    const out: ContextFrame[] = [];
+    for (const frame of Array.isArray(raw) ? raw : []) {
+      if (typeof frame !== "object" || frame === null) continue;
+      const { decision, route } = frame as Partial<ContextFrame>;
+      if (isFiniteNumber(decision) && isFiniteNumber(route)) {
+        out.push({ decision, route });
+      }
     }
+    return out;
+  };
+  const stack = frames(source.stack);
+  // The reading history (docs/plan.md, "History rollback spec"): entries
+  // without a finite `index` (or with a non-numeric `decision`) are
+  // dropped; the machine checks the rest against its manifest. Absent or
+  // empty is omitted — a save without one restores a one-entry history at
+  // its `lastShown` landing.
+  const history: HistoryEntry[] = [];
+  for (const entry of Array.isArray(source.history) ? source.history : []) {
+    if (typeof entry !== "object" || entry === null) continue;
+    const candidate = entry as Partial<{
+      index: unknown;
+      stack: unknown;
+      decision: unknown;
+    }>;
+    if (!isFiniteNumber(candidate.index)) continue;
+    if (
+      candidate.decision !== undefined &&
+      !isFiniteNumber(candidate.decision)
+    ) {
+      continue;
+    }
+    history.push({
+      index: candidate.index,
+      stack: frames(candidate.stack),
+      ...(candidate.decision === undefined
+        ? {}
+        : { decision: candidate.decision }),
+    });
   }
   const routeSets = (
     entries: readonly { decision: number; routes: readonly number[] }[],
@@ -228,6 +263,10 @@ function sanitizeContext(raw: unknown): MachineContext | undefined {
     stack,
     playedRoutes,
     ...(completedRoutes.length > 0 ? { completedRoutes } : {}),
+    ...(history.length > 0 ? { history } : {}),
+    ...(history.length > 0 && isFiniteNumber(source.historyPos)
+      ? { historyPos: source.historyPos }
+      : {}),
   };
 }
 

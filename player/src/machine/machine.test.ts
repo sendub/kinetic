@@ -89,6 +89,15 @@ function machine(
   });
 }
 
+/**
+ * Reads a linear manifest forward with presses until `target` is on screen
+ * (two presses per step in auto mode, one in manual), so the reading history
+ * holds every item on the way.
+ */
+function readTo(m: ReturnType<typeof createMachine>, target: number): void {
+  while (m.getState().cursor < target) m.advance();
+}
+
 afterEach(() => {
   vi.useRealTimers();
 });
@@ -473,9 +482,15 @@ describe("manual and auto modes, pause/resume (docs/plan.md Phase 13b)", () => {
     const first = manualMachine(items);
     for (let press = 0; press < 3; press += 1) first.advance(); // seen 0..3
     expect(first.getState()).toMatchObject({ cursor: 3, frontier: 4 });
-    first.goTo(1); // a `t` click back inside seen content: lastShown moves…
+    first.goTo(1); // a `t` click back inside seen content: the cursor moves…
     expect(first.getState()).toMatchObject({ cursor: 1, frontier: 4 }); // the edge does not
-    const ctx = first.exportContext();
+    // A restore WITHOUT a history keeps only the seen set and the landing,
+    // so the seen edge must come from the seen set.
+    const {
+      history: _history,
+      historyPos: _pos,
+      ...ctx
+    } = first.exportContext();
     first.destroy();
 
     const resumed = createMachine({
@@ -488,10 +503,9 @@ describe("manual and auto modes, pause/resume (docs/plan.md Phase 13b)", () => {
       frontier: 4, // the seen edge came back with the seen set
       settled: true,
     });
-    resumed.wheelForward();
-    resumed.wheelForward();
+    resumed.goTo(3); // a bookmark jump still reaches the seen edge
     expect(resumed.getState().cursor).toBe(3);
-    resumed.wheelForward(); // the frontier stays the ceiling: item 4 is unseen
+    resumed.goTo(4); // the frontier stays the ceiling: item 4 is unseen
     expect(resumed.getState().cursor).toBe(3);
     resumed.destroy();
   });
@@ -705,16 +719,16 @@ describe("short-video timing: loopCount and holdSeconds (docs/plan.md Phase 9b)"
 
   it("a video re-shown below the seen edge replays its hold with no ended (Phase 16)", () => {
     vi.useFakeTimers();
-    // Seen content: resumeFrontier 2 so a wheel step can return to the video.
+    // Seen content: read onto item 1 so a wheel step can return to the video.
     // The wheel step lands BELOW the seen edge (frontier 2, cursor 0), where
     // the renderer shows a still and can never report a pass — the shape of
     // the part-012 stall (docs/plan.md Phase 16). The machine therefore
     // re-runs the plan's TIME alone: the 2 s bound completes the item with
     // no ended report at all. (Ended-count reset on re-entry at the seen
     // edge, this test's former subject, is pinned by the next test.)
-    const m = machine([video(1, undefined, { loopCount: 2 }), image()], {
-      resumeFrontier: 2,
-    });
+    const m = machine([video(1, undefined, { loopCount: 2 }), image()]);
+    m.advance(); // settle the video
+    m.advance(); // onto the image
     expect(m.getState().cursor).toBe(1);
     m.wheelBack(); // back onto the video: fresh item state, hold armed afresh
     expect(m.getState()).toEqual({
@@ -729,7 +743,7 @@ describe("short-video timing: loopCount and holdSeconds (docs/plan.md Phase 9b)"
     vi.advanceTimersByTime(1);
     expect(m.getState().cursor).toBe(1);
     // Settle semantics are unchanged and unrelated to endedCount: a settled
-    // item — an immediate-complete advance(), or a resume / e-jump landing on
+    // item — an immediate-complete advance(), or a resume landing on
     // content already read — has no media condition to meet, so mediaEnded()
     // is dropped for it and its auto-advance runs on the hold alone.
     m.advance(); // settle the image (last item: settled, cursor stays)
@@ -1184,7 +1198,7 @@ describe("frontier and wheel rules", () => {
     const m = machine([image(), image(), image(), image()], {
       resumeFrontier: 2,
     });
-    // Landing is the e-jump position: the last shown item, counted settled.
+    // Landing is the resume position: the last shown item, counted settled.
     expect(m.getState()).toEqual({
       cursor: 1,
       frontier: 2,
@@ -1203,23 +1217,20 @@ describe("frontier and wheel rules", () => {
     m.destroy();
   });
 
-  it("wheel forward is blocked at the frontier", () => {
-    const m = machine([image(), image(), image()], { resumeFrontier: 2 });
-    expect(m.getState()).toEqual({
+  it("wheel forward is blocked at the end of the history", () => {
+    const m = machine([image(), image(), image()]);
+    m.advance(); // settle item 0
+    m.advance(); // read onto item 1
+    const atEnd = {
       cursor: 1,
       frontier: 2,
-      settled: true,
+      settled: false,
       skipping: false,
-      transition: "nav",
-    });
-    m.wheelForward(); // cursor 1 === frontier - 1: unseen ahead, blocked
-    expect(m.getState()).toEqual({
-      cursor: 1,
-      frontier: 2,
-      settled: true,
-      skipping: false,
-      transition: "nav",
-    });
+      transition: "advance",
+    };
+    expect(m.getState()).toEqual(atEnd);
+    m.wheelForward(); // the last history entry: nothing ahead, blocked
+    expect(m.getState()).toEqual(atEnd);
     m.wheelBack();
     expect(m.getState().cursor).toBe(0);
     m.wheelForward(); // returns through seen content
@@ -1245,27 +1256,21 @@ describe("frontier and wheel rules", () => {
     m.destroy();
   });
 
-  it("wheel forward at the frontier stays blocked across a text chain", () => {
-    const m = machine([image(), video(), text("one"), text("two"), image()], {
-      resumeFrontier: 3,
-    });
-    // Last seen item is the text line; its visual is the video.
-    expect(m.getState()).toEqual({
+  it("wheel forward at the end of the history stays blocked across a text chain", () => {
+    const m = machine([image(), video(), text("one"), text("two"), image()]);
+    for (let press = 0; press < 4; press += 1) m.advance(); // read onto item 2
+    // Last read item is the text line; its visual is the video.
+    const atEnd = {
       cursor: 2,
       frontier: 3,
-      settled: true,
+      settled: false,
       skipping: false,
-      transition: "nav",
-    });
+      transition: "advance",
+    };
+    expect(m.getState()).toEqual(atEnd);
     expect(m.visualIndex()).toBe(1); // the video's visual keeps showing
-    m.wheelForward(); // unseen item ahead: blocked
-    expect(m.getState()).toEqual({
-      cursor: 2,
-      frontier: 3,
-      settled: true,
-      skipping: false,
-      transition: "nav",
-    });
+    m.wheelForward(); // nothing recorded ahead: blocked
+    expect(m.getState()).toEqual(atEnd);
     m.wheelBack(); // back through seen content, same visual
     expect(m.getState()).toEqual({
       cursor: 1,
@@ -1277,7 +1282,7 @@ describe("frontier and wheel rules", () => {
     expect(m.visualIndex()).toBe(1);
     m.wheelForward(); // forward again through seen content
     expect(m.getState().cursor).toBe(2);
-    m.wheelForward(); // blocked at the frontier again
+    m.wheelForward(); // blocked at the history's end again
     expect(m.getState().cursor).toBe(2);
     // advance() crosses the frontier from a text item like any other item.
     m.advance(); // settle the re-shown text line
@@ -1357,9 +1362,8 @@ describe("skip mode (tab), docs/plan.md Phase 4", () => {
   it("with skipAll off, ends ON the last seen item; its normal auto-advance is armed", () => {
     // docs/plan.md Phase 18: skip never reveals unseen content.
     vi.useFakeTimers();
-    const m = machine([image(), image(), image(), image(), image()], {
-      resumeFrontier: 3,
-    });
+    const m = machine([image(), image(), image(), image(), image()]);
+    readTo(m, 2);
     m.wheelBack();
     m.wheelBack(); // cursor 0; items 1 and 2 are seen, 3 is the frontier
     m.toggleSkip();
@@ -1469,60 +1473,43 @@ describe("skip mode (tab), docs/plan.md Phase 4", () => {
 
   it("a wheel step during skip exits skip mode AND performs the step", () => {
     vi.useFakeTimers();
-    const m = machine([image(), image(), image(), image()], {
-      resumeFrontier: 3,
-    });
+    const m = machine([image(), image(), image(), image()]);
+    readTo(m, 2);
+    m.wheelBack(); // item 1: a seen item ahead, so tab can skip
     m.toggleSkip();
+    expect(m.getState().skipping).toBe(true);
     m.wheelBack();
-    expect(m.getState()).toEqual({
-      cursor: 1,
+    const step = (cursor: number) => ({
+      cursor,
       frontier: 3,
       settled: false,
       skipping: false,
       transition: "nav",
     });
+    expect(m.getState()).toEqual(step(0));
     m.toggleSkip();
     m.wheelForward(); // forward step also exits skip and performs
-    expect(m.getState()).toEqual({
-      cursor: 2,
-      frontier: 3,
-      settled: false,
-      skipping: false,
-      transition: "nav",
-    });
+    expect(m.getState()).toEqual(step(1));
+    m.wheelBack();
     m.toggleSkip();
-    m.wheelForward(); // blocked at the frontier: exits skip, stays
-    expect(m.getState()).toEqual({
-      cursor: 2,
-      frontier: 3,
-      settled: false,
-      skipping: false,
-      transition: "nav",
-    });
+    expect(m.getState().skipping).toBe(true);
+    m.wheelBack(); // clamped at the first entry: still exits skip, stays
+    expect(m.getState()).toEqual(step(0));
     m.destroy();
   });
 });
 
-describe("e-jump (jumpToUnseen), docs/plan.md Phase 4", () => {
-  // Phase 13 put seen content in a visited SET, so `e` no longer lands on
-  // `frontier - 1`: from the reading position it lands on the first UNSEEN
-  // item of the path and shows it. The intent is unchanged — get back to
-  // where the reading stopped — and it is now one item further along,
-  // since the landing is the unseen item itself (docs/plan.md Phase 13,
-  // "Seen tracking"). Phase 18 added the resume step in front: when the
-  // cursor has scrubbed away from the reading position, the first press
-  // goes back there before any unseen jump (docs/plan.md Phase 18).
-  it("jumps back to the reading position first; there it never steps forward", () => {
-    const m = machine([image(), image(), image(), image(), image()], {
-      resumeFrontier: 3,
-    });
+describe("`e` (jumpToEnd): the end of the reading history", () => {
+  // docs/plan.md, "History rollback spec": `e` goes to the last history
+  // entry and shows it exactly; a no-op there. It no longer looks for
+  // unseen content or an ending.
+  it("goes to the last history entry; there it does nothing", () => {
+    const m = machine([image(), image(), image(), image(), image()]);
+    readTo(m, 2);
     m.wheelBack();
-    m.wheelBack(); // bookmark-style rollback to the start
+    m.wheelBack(); // rolled back to the start
     expect(m.getState().cursor).toBe(0);
-    // Phase 18: away from the reading position (frontier - 1, still where
-    // the reading stopped — scrubbing did not move it), the first press
-    // RESUMES there; the jump lands seen, so the frontier does not move.
-    m.jumpToUnseen();
+    m.jumpToEnd();
     const resumed = m.getState();
     expect(resumed).toEqual({
       cursor: 2,
@@ -1531,38 +1518,37 @@ describe("e-jump (jumpToUnseen), docs/plan.md Phase 4", () => {
       skipping: false,
       transition: "nav",
     });
-    // Standing on it now, the first unseen item is simply the next one:
-    // `e` is never a forward step (docs/plan.md Phase 18) — Space reads on.
-    m.jumpToUnseen();
+    // At the end now: unseen item 3 is next, but `e` never reveals it.
+    m.jumpToEnd();
     expect(m.getState()).toBe(resumed);
     m.destroy();
   });
 
-  it("at the reading position with the next item unseen, the press reveals nothing", () => {
+  it("at the end of the history with the next item unseen, the press reveals nothing", () => {
     const m = machine([image(), image(), image()], { resumeFrontier: 1 });
     const before = m.getState();
-    m.jumpToUnseen();
+    m.jumpToEnd();
     expect(m.getState()).toBe(before);
     expect(m.getState().frontier).toBe(1); // item 1 stayed unseen
     m.destroy();
   });
 });
 
-describe("`e`'s resume step (docs/plan.md Phase 18)", () => {
-  it("user repro: after wheeling back, the first press lands ON the last-shown item; the next stays", () => {
+describe("`e` after rolling back (docs/plan.md, History rollback spec)", () => {
+  it("user repro: after wheeling back, the press lands ON the last-read item; the next stays", () => {
     vi.useFakeTimers();
     // The reported flow on the player's own manual start: one space shows
-    // the next item, the wheel scrubs back, and `e` must return to where
-    // the reading stopped — not jump past it to the first unseen item.
+    // the next item, the wheel rolls back, and `e` must return to the end
+    // of the history — where the reading stopped — and reveal nothing.
     const m = createMachine({
       items: [image(), image(), image(), image(), image()],
       settings: SETTINGS,
     });
     m.advance(); // one space: item 1 is the last item the reader read
     expect(m.getState().cursor).toBe(1);
-    m.wheelBack(); // wheel back to item 0: scrubbing is not reading
+    m.wheelBack(); // wheel back to item 0: a history step, not reading
     expect(m.getState().cursor).toBe(0);
-    m.jumpToUnseen(); // the press resumes ON the last-shown item
+    m.jumpToEnd(); // the press lands ON the history's last entry
     expect(m.getState()).toEqual({
       cursor: 1,
       frontier: 2,
@@ -1571,30 +1557,30 @@ describe("`e`'s resume step (docs/plan.md Phase 18)", () => {
       transition: "nav", // a nav landing: below the edge it shows a poster
     });
     const resumed = m.getState();
-    m.jumpToUnseen(); // standing there: the next item is unseen, so `e` stays
-    expect(m.getState()).toBe(resumed); // never a forward step (Phase 18)
+    m.jumpToEnd(); // standing there: the next item is unseen, so `e` stays
+    expect(m.getState()).toBe(resumed); // no unseen jump
     m.destroy();
   });
 
-  it("a resume landing below the seen edge is a nav arrival — the poster rule holds under it", () => {
+  it("an `e` landing below the seen edge is a nav arrival — the poster rule holds under it", () => {
     vi.useFakeTimers();
     // The machine half of the interaction: `playbackModeFor` (tested in
     // render/visual.test.ts) keeps a nav arrival below the seen edge a
-    // poster, so the resume landing must never report `advance`.
+    // poster, so the `e` landing must never report `advance`.
     const m = machine([image(), image(), image(), image(), image()], {
       resumeFrontier: 4,
     });
-    m.goTo(2); // a bookmark: the reading position moves down with the click
-    m.wheelBack(); // then scrub away from it
-    expect(m.getState().cursor).toBe(1);
-    m.jumpToUnseen(); // resume the reading position, below the seen edge
+    m.goTo(2); // a bookmark jump: its landing is appended to the history
+    m.wheelBack(); // the record's previous screen: the resume landing
+    expect(m.getState().cursor).toBe(3);
+    m.jumpToEnd(); // back to the jump's landing, below the seen edge
     expect(m.getState()).toMatchObject({
       cursor: 2,
       frontier: 4, // cursor 2 < frontier - 1: the visual stays a still
       transition: "nav",
     });
-    m.jumpToUnseen(); // and from there the unseen rules carry on
-    expect(m.getState().cursor).toBe(4);
+    m.jumpToEnd(); // the end already: no unseen jump follows
+    expect(m.getState().cursor).toBe(2);
     m.destroy();
   });
 });
@@ -1671,7 +1657,7 @@ describe("goTo (t-overlay bookmark click), docs/plan.md Phase 8", () => {
     m.destroy();
   });
 
-  it("arrives UNSETTLED, unlike the e-jump: the bookmarked item replays", () => {
+  it("arrives UNSETTLED, unlike a resume landing: the bookmarked item replays", () => {
     vi.useFakeTimers();
     const m = machine([image(), image(), image()], { resumeFrontier: 3 });
     // Resume landed settled (a re-arrival); a bookmark click does not.
@@ -1797,7 +1783,7 @@ describe("goTo (t-overlay bookmark click), docs/plan.md Phase 8", () => {
     m.wheelBack();
     m.wheelForward();
     m.toggleSkip();
-    m.jumpToUnseen();
+    m.jumpToEnd();
     m.mediaEnded();
     m.setSettings(SETTINGS);
     expect(seen).toHaveLength(0);
@@ -1889,18 +1875,17 @@ describe("resume from persisted storage (docs/plan.md Phase 8, memory fake)", ()
       skipping: false,
       transition: "nav",
     });
-    // `e` at the resume spot stays: the landing is the reading position and
-    // the first unseen item is simply the next one (docs/plan.md Phase 18,
-    // `e` is never a forward step).
+    // `e` at the resume spot stays: a frontier-only save restores a
+    // one-entry history, and its landing is that entry.
     const landed = resumed.getState();
-    resumed.jumpToUnseen();
+    resumed.jumpToEnd();
     expect(resumed.getState()).toBe(landed);
 
-    // Travelling back through seen content persists nothing: a reload
-    // returns to the resume spot, not wherever the wheel had stopped.
+    // The one-entry history has nothing behind it to roll back to, and
+    // the frontier-only record is untouched by anything the wheel does.
     resumed.wheelBack();
     resumed.wheelBack();
-    expect(resumed.getState().cursor).toBe(1);
+    expect(resumed.getState().cursor).toBe(3);
     const second = machine(items, {
       resumeFrontier: (await storage.loadState())?.frontier,
     });
@@ -1992,9 +1977,8 @@ describe("setSettings (config screen, docs/plan.md Phase 9)", () => {
     vi.useFakeTimers();
     // Cursor starts at the last seen item (2), frontier at 3: the very
     // next skip step enters unseen content, where skipAll decides.
-    const m = machine([image(), image(), image(), image(), image()], {
-      resumeFrontier: 3,
-    });
+    const m = machine([image(), image(), image(), image(), image()]);
+    readTo(m, 2);
     m.wheelBack(); // cursor 1: a seen item ahead, so tab starts skip
     m.toggleSkip();
     m.setSettings({ ...SETTINGS, skipAll: true }); // changed mid-skip
@@ -2399,8 +2383,10 @@ describe("transition kind: which mover made the item current", () => {
     vi.advanceTimersByTime(SETTINGS.minHoldMs * 3);
     m.goTo(0);
     expect(m.getState()).toMatchObject({ cursor: 0, transition: "nav" });
-    m.jumpToUnseen(); // the first unseen item: item 3's successor
-    expect(m.getState()).toMatchObject({ cursor: 4, transition: "nav" });
+    m.wheelBack(); // the screen before the jump: item 3
+    expect(m.getState()).toMatchObject({ cursor: 3, transition: "nav" });
+    m.jumpToEnd(); // the history's end: the bookmark landing
+    expect(m.getState()).toMatchObject({ cursor: 0, transition: "nav" });
     m.destroy();
   });
 
