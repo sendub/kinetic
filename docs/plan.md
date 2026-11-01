@@ -776,6 +776,39 @@ directory holds too many files.
   was never its own step. The record of screens actually shown is now
   what the wheel replays (see docs/progress.md Phase 18).
 
+### History rollback spec (Phase 18, user-confirmed 2026-11-01)
+
+- The machine keeps a HISTORY: the ordered record of screens shown while
+  reading. An entry is either an ITEM screen `{ index, stack }` (the item
+  and the route frames open when it showed) or a CHOICE screen
+  `{ decision, stack }` (a decision's overlay as it opened: first fire,
+  route-end re-offer). A position `pos` points at the entry on screen;
+  normally the last.
+- Reading appends: every forward show (Space, auto, skip steps, a pick,
+  the return row, a continuing route's join, play-all auto-picks) and
+  every overlay open. Navigation that is not reading (`e`, a bookmark
+  click, a resume landing) appends its landing too, so the record stays
+  what was on screen.
+- The wheel moves `pos` only: back/forward one entry, clamped to the
+  record; it shows the entry exactly - an item with its stack restored,
+  or the choice screen in full (the same panel, current seen marks and
+  return-row rule) - and marks nothing played. A pick from a replayed
+  choice screen is a real pick.
+- Reading from `pos < last`: if the next screen equals the record's next
+  entry, `pos` just advances (replay); otherwise the record after `pos`
+  is dropped and the new screen appended (Ren'Py-style fork).
+- `e` = go to the end of the history (`pos = last`), showing that entry;
+  a no-op when already there. No unseen-content jumping, no ending
+  lookup (the end card takes over finding unseen routes; until then the
+  ending hint reads "Some content is still unseen.").
+- Persistence: the record and `pos` ride in the machine context (capped,
+  oldest entries dropped first, e.g. 5000); a save without one restores
+  a one-entry history at its landing.
+- What stays: the seen set, played/completed routes, the return-row
+  rule, skip-never-reveals (skip walks forward reading, not history),
+  and bookmarks (a bookmark click is a jump that appends to the
+  record).
+
 ## Later, waiting on the user
 
 - Overlay text styling iteration once the user can play with the demo.
