@@ -203,6 +203,34 @@
       .bookmark-thumb-empty {
         width: clamp(56px, 14vw, 128px);
       }
+      /* The thumbnail's box positions its delete "x" (docs/plan.md Phase
+         18, "Delete a bookmark") on the thumbnail's top-right corner. */
+      .bookmark-thumb-box {
+        position: relative;
+        flex: none;
+        display: block;
+      }
+      .bookmark-delete {
+        position: absolute;
+        top: 2px;
+        right: 2px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: clamp(18px, 2.6vh, 26px);
+        height: clamp(18px, 2.6vh, 26px);
+        border: 1px solid rgba(244, 239, 230, 0.4);
+        border-radius: 50%;
+        background: rgba(10, 10, 12, 0.92);
+        color: var(--ink);
+        font-size: clamp(12px, 1.8vh, 18px);
+        line-height: 1;
+        cursor: pointer;
+      }
+      .bookmark-delete:hover {
+        border-color: var(--accent);
+        color: var(--accent);
+      }
       .bookmark-meta {
         display: flex;
         flex-direction: column;

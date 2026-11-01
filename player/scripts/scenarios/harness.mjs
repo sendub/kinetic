@@ -159,6 +159,11 @@ const READ_BOOKMARK_OVERLAY = () => {
             : null,
           thumbResolved: img ? img.complete && img.naturalWidth > 0 : false,
           rect: rectOf(el),
+          // The thumbnail's delete "x" (Phase 18) and the thumbnail box
+          // it must sit in the top-right corner of.
+          deleteRect: rectOf(el.querySelector(".bookmark-delete")),
+          deleteText: el.querySelector(".bookmark-delete")?.textContent ?? null,
+          thumbBoxRect: rectOf(el.querySelector(".bookmark-thumb-box")),
         };
       },
     ),
@@ -405,8 +410,9 @@ const CHAIN_PROBE = () => {
 
 // The central "close the help if it is up" driver helper (Phase 13b):
 // every existing step that assumed first-run goes straight to item 1
-// dismisses the help through this, pressing Enter — a closing action that
-// touches nothing else. Trusted either through CDP or puppeteer's own
+// dismisses the help through this, pressing Escape — the help's own key
+// and a closing action that touches nothing else (Enter is no key since
+// Phase 18's "Key help simplified"). Trusted either through CDP or puppeteer's own
 // keyboard (which openAtViewport, without a CDP session, still drives
 // through CDP); the wait after it proves the close happened.
 const dismissHelp = async (page, cdp) => {
@@ -414,7 +420,7 @@ const dismissHelp = async (page, cdp) => {
     timeout: 5000,
   });
   if (!(await helpOpen(page))) return false;
-  await pressEnter(cdp);
+  await pressEscape(cdp);
   await page.waitForFunction(HELP_CLOSED, { timeout: 5000 });
   return true;
 };
@@ -423,7 +429,7 @@ const dismissHelpByKeyboard = async (page) => {
     timeout: 5000,
   });
   if (!(await helpOpen(page))) return false;
-  await page.keyboard.press("Enter");
+  await page.keyboard.press("Escape");
   await page.waitForFunction(HELP_CLOSED, { timeout: 5000 });
   return true;
 };
@@ -475,7 +481,7 @@ const openAtViewport = async (
   await page.goto(pathToFileURL(join(dir, "index.html")).href);
   // First load shows the key help (Phase 13b) over a hidden stage — there
   // is no media geometry to measure behind it. Closing the help with
-  // Enter is this page's first gesture, so fullscreen gets its request as
+  // Escape is this page's first gesture, so fullscreen gets its request as
   // it would for any reader's first action; then the stage paints.
   await dismissHelpByKeyboard(page);
   await waitImageDecoded(page);
@@ -895,7 +901,7 @@ export async function openScenario(name, options = {}) {
   await page.goto(pathToFileURL(join(folder, "index.html")).href);
   await page.waitForFunction(HELP_OPEN, { timeout: 5000 });
   if (options.closeHelp) {
-    await pressEnter(cdp);
+    await pressEscape(cdp);
     await page.waitForFunction(HELP_CLOSED, { timeout: 5000 });
   }
   return { browser, page, cdp, errors, url: page.url() };

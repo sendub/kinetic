@@ -28,12 +28,10 @@ export interface KeyCommands {
    * player's default: items wait for the reader until `a` is pressed.
    */
   toggleAutoForward(): void;
-  /** Enter: close the key help overlay when it is up (Phase 13b). */
-  closeHelp(): void;
   /**
    * `y`: confirm while the reset box is open (Phase 16, "Reset
-   * progress"). Enter is its synonym — the shell routes Enter through
-   * `closeHelp`, which checks the box first. Inert with no box open.
+   * progress"). Inert with no box open. The box shows its own buttons,
+   * so the help screen does not list `y`/`n` (`UNLISTED_COMMANDS`).
    */
   confirmReset(): void;
   /** `n`: cancel while the reset box is open; Escape is its synonym. */
@@ -64,12 +62,22 @@ const KEY_TABLE = new Map<string, KeyCommand>([
   ["C", "toggleConfig"],
   ["a", "toggleAutoForward"],
   ["A", "toggleAutoForward"],
-  ["Enter", "closeHelp"],
   ["Escape", "dismissOverlay"],
   ["y", "confirmReset"],
   ["Y", "confirmReset"],
   ["n", "confirmCancel"],
   ["N", "confirmCancel"],
+]);
+
+/**
+ * Commands the help screen deliberately leaves out (docs/plan.md Phase 18,
+ * "Key help simplified"): the reset box's `y`/`n` belong to that box,
+ * which shows its own Reset / Cancel buttons, so the help lists only the
+ * main interaction keys.
+ */
+export const UNLISTED_COMMANDS: ReadonlySet<KeyCommand> = new Set([
+  "confirmReset",
+  "confirmCancel",
 ]);
 
 /** Every key the table maps — the key help's coverage guard reads this. */
@@ -109,10 +117,12 @@ export interface KeyHelpEntry {
 }
 
 /**
- * The rows, in reading order: the cursor first (space, wheel, tab), then
- * the modes, then the screens. Every `command` below must cover a command
- * the table maps — `keys.test.ts` asserts both directions, so adding a key
- * or command without a row fails a test (docs/plan.md Phase 13b).
+ * The rows, one short line per main interaction key (docs/plan.md Phase
+ * 18, "Key help simplified"): the cursor first (space, wheel, e, tab),
+ * then the modes, then the screens, then the decision keys. Every command
+ * the table maps has a row unless it is in `UNLISTED_COMMANDS` —
+ * `keys.test.ts` asserts both directions, so adding a key or command
+ * without a row fails a test (docs/plan.md Phase 13b).
  */
 const HELP_ROWS: ReadonlyArray<{
   command: KeyCommand | null;
@@ -120,56 +130,20 @@ const HELP_ROWS: ReadonlyArray<{
   plainLabel?: string;
   description: string;
 }> = [
-  {
-    command: "advance",
-    description: "one step on; in auto-forward it ends this item first",
-  },
-  {
-    command: null,
-    plainLabel: "wheel",
-    description:
-      "roll back through what you read, choice screens included, or forward again",
-  },
-  {
-    command: null,
-    plainLabel: "1-9 / Enter",
-    description:
-      "while a decision is shown: pick that route / return to the main route",
-  },
-  {
-    command: "toggleSkip",
-    description:
-      "skip mode: run through read items; stops on the last one read",
-  },
-  {
-    command: "toggleAutoForward",
-    description: "auto-forward on / off — on, items advance without input",
-  },
-  { command: "toggleText", description: "hide or show the text" },
+  { command: "advance", description: "next item" },
+  { command: null, plainLabel: "wheel", description: "roll back / forward" },
+  { command: "jumpToEnd", description: "jump to the end of what you read" },
+  { command: "toggleSkip", description: "skip what you have seen" },
+  { command: "toggleAutoForward", description: "auto-forward on / off" },
+  { command: "toggleText", description: "hide / show the text" },
   { command: "bookmark", description: "bookmark this moment" },
-  { command: "toggleBookmarks", description: "show or hide the bookmark list" },
+  { command: "toggleBookmarks", description: "bookmark list" },
+  { command: "toggleConfig", description: "settings" },
+  { command: "dismissOverlay", description: "this help; closes t or c" },
   {
-    command: "jumpToEnd",
-    description: "jump to the end of what you have read",
-  },
-  {
-    command: "toggleConfig",
-    description: "config: reading speed, skip-all, play-all-routes, reset",
-  },
-  {
-    command: "confirmReset",
-    description:
-      "while the reset box is open: reset (or Enter) — clears all saved progress",
-  },
-  {
-    command: "confirmCancel",
-    description: "while the reset box is open: cancel (or Escape)",
-  },
-  { command: "closeHelp", description: "close this help" },
-  {
-    command: "dismissOverlay",
-    description:
-      "open or close this help; closes the open list or config screen",
+    command: null,
+    plainLabel: "1-9 / 0",
+    description: "at a decision: pick a route / return to main route",
   },
 ];
 
@@ -213,6 +187,22 @@ export function routeIndexForKey(key: string, repeat: boolean): number | null {
   if (repeat) return null;
   if (key.length !== 1 || key < "1" || key > "9") return null;
   return key.charCodeAt(0) - "1".charCodeAt(0);
+}
+
+/**
+ * A decision key: a route digit (`routeIndexForKey`), or `0` — the
+ * "Return to main route" row's key, drawn as that row's number
+ * (docs/plan.md Phase 18, "Key help simplified"). Null for anything else.
+ */
+export type DecisionKey = number | "return";
+
+export function decisionKeyFor(
+  key: string,
+  repeat: boolean,
+): DecisionKey | null {
+  if (repeat) return null;
+  if (key === "0") return "return";
+  return routeIndexForKey(key, repeat);
 }
 
 /**
@@ -265,15 +255,15 @@ export function suspendTimeline(
  * covers every mapped key: space would otherwise scroll the document behind
  * the player, and Tab would otherwise move focus out of it.
  *
- * `onRouteDigit`, when given, receives route digits (`routeIndexForKey`)
- * for keys no mapped command claims — the decision overlay's 1..9. The
- * callback owns the context check: a digit arriving with no choice open is
- * dropped by the shell, and stays inert either way.
+ * `onDecisionKey`, when given, receives decision keys (`decisionKeyFor`)
+ * for keys no mapped command claims — the decision overlay's 1..9 and 0.
+ * The callback owns the context check: a digit arriving with no choice
+ * open is dropped by the shell, and stays inert either way.
  */
 export function installKeyMap(
   target: EventTarget,
   commands: KeyCommands,
-  onRouteDigit?: (index: number) => void,
+  onDecisionKey?: (key: DecisionKey) => void,
 ): () => void {
   const onKeyDown = (event: Event): void => {
     const keydown = event as KeyboardEvent;
@@ -285,11 +275,11 @@ export function installKeyMap(
       commands[command]();
       return;
     }
-    if (onRouteDigit === undefined) return;
-    const index = routeIndexForKey(keydown.key, repeat);
-    if (index === null) return;
+    if (onDecisionKey === undefined) return;
+    const decision = decisionKeyFor(keydown.key, repeat);
+    if (decision === null) return;
     keydown.preventDefault();
-    onRouteDigit(index);
+    onDecisionKey(decision);
   };
   target.addEventListener("keydown", onKeyDown);
   return () => target.removeEventListener("keydown", onKeyDown);

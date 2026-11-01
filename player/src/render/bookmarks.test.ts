@@ -15,6 +15,7 @@ import {
   entryLabel,
   entryThumbSrc,
   formatTimestamp,
+  keptScrollTop,
   listOrder,
 } from "./bookmarks";
 
@@ -73,6 +74,17 @@ describe("bottomScrollTop (scrolled to the newest)", () => {
   it("is 0 when the list does not overflow", () => {
     expect(bottomScrollTop(300, 500)).toBe(0);
     expect(bottomScrollTop(500, 500)).toBe(0);
+  });
+});
+
+describe("keptScrollTop (a delete keeps the reader's place, Phase 18)", () => {
+  it("keeps the previous scroll while it still fits", () => {
+    expect(keptScrollTop(200, 1200, 500)).toBe(200);
+  });
+
+  it("clamps to the shorter list's new bottom", () => {
+    expect(keptScrollTop(700, 1000, 500)).toBe(500);
+    expect(keptScrollTop(300, 400, 500)).toBe(0); // no longer overflows
   });
 });
 

@@ -1,6 +1,6 @@
 // The pure half of the `#choice` decision overlay (docs/plan.md Phase 13):
 // the row model drawn from a ChoiceView, the input-ownership precedence,
-// and the Enter rule. The DOM half in choice.ts only applies these; the
+// and the `0` return hint. The DOM half in choice.ts only applies these; the
 // end-to-end screen is walked with the branch fixture (docs/verify-player.md).
 
 import { describe, expect, it } from "vitest";
@@ -9,7 +9,6 @@ import {
   CONTINUE_LABEL,
   choiceHint,
   choiceRows,
-  enterActionFor,
   inputOwnerFor,
 } from "./choice";
 
@@ -60,7 +59,7 @@ describe("choiceRows (the overlay's row model)", () => {
     expect(last).toEqual({
       kind: "continue",
       routeIdx: -1,
-      number: null,
+      number: 0, // its key: the return row is picked with 0
       label: CONTINUE_LABEL,
       seen: false,
     });
@@ -88,33 +87,17 @@ describe("inputOwnerFor (help wins; a pending choice owns the rest)", () => {
   });
 });
 
-describe("enterActionFor (Enter, owned by the screen)", () => {
-  it("closes help when help is up — even over a pending choice", () => {
-    expect(enterActionFor("help", true)).toBe("close-help");
-    expect(enterActionFor("help", false)).toBe("close-help");
-  });
-
-  it("takes the return offer when the choice has one", () => {
-    expect(enterActionFor("choice", true)).toBe("continue");
-  });
-
-  it("is inert with no offer, or with nothing open", () => {
-    expect(enterActionFor("choice", false)).toBe("none");
-    expect(enterActionFor("story", true)).toBe("none");
-    expect(enterActionFor("story", false)).toBe("none");
-  });
-});
-
-describe("choiceHint (docs/plan.md Phase 18: the Enter hint follows the row)", () => {
-  // The user had read "Enter returns" on overlays where nothing answered
-  // Enter. The hint's Enter half now renders only when the return row —
-  // which itself requires a completed continuing route — is drawn.
-  it("mentions Enter only when the return row is drawn", () => {
+describe("choiceHint (docs/plan.md Phase 18: the 0 hint follows the row)", () => {
+  // The user had read a return hint on overlays where nothing answered
+  // it. The hint's return half renders only when the return row — which
+  // itself requires a completed continuing route — is drawn; its key is 0
+  // (Enter is no longer a key anywhere: "Key help simplified").
+  it("mentions 0 only when the return row is drawn, and never Enter", () => {
     const bare = choiceHint(choice([route(0), route(1)]));
     expect(bare).toBe("1-9 or click picks a route");
-    expect(bare).not.toContain("Enter");
+    expect(bare).not.toContain("0 returns");
     const withReturn = choiceHint(choice([route(0), route(1)], true));
-    expect(withReturn).toContain("1-9 or click picks a route");
-    expect(withReturn).toContain("Enter returns");
+    expect(withReturn).toBe("1-9 or click picks a route · 0 returns");
+    expect(withReturn).not.toContain("Enter");
   });
 });

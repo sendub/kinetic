@@ -103,6 +103,54 @@ describe("createImmediateWriter — every change writes now", () => {
     await expect(next).resolves.toBeUndefined();
   });
 
+  it("an urgent value is issued at once beside the write in flight (Phase 18)", async () => {
+    // Settings survive an immediate reload: a value parked in the pending
+    // slot has not been issued, so a reload before the running write
+    // commits loses it. Urgent issues it now.
+    const sink = gatedSink();
+    const writer = createImmediateWriter(sink.write);
+    const first = writer(1);
+    const parked = writer(2); // parked behind 1
+    const urgent = writer(3, true);
+    expect(sink.calls).toEqual([1, 3]);
+    // The parked slot now carries the urgent value, so whatever lands
+    // after 3 is never older than 3.
+    sink.gates[1].resolve();
+    await urgent;
+    sink.gates[0].resolve();
+    await first;
+    expect(sink.calls).toEqual([1, 3, 3]);
+    sink.gates[2].resolve();
+    await parked;
+  });
+
+  it("an urgent value with nothing in flight is an ordinary write", async () => {
+    const sink = gatedSink();
+    const writer = createImmediateWriter(sink.write);
+    const first = writer(1, true);
+    const second = writer(2); // parks behind it like any other change
+    expect(sink.calls).toEqual([1]);
+    sink.gates[0].resolve();
+    await first;
+    expect(sink.calls).toEqual([1, 2]);
+    sink.gates[1].resolve();
+    await second;
+  });
+
+  it("an urgent write reports its own failure", async () => {
+    const sink = gatedSink();
+    const writer = createImmediateWriter(sink.write);
+    const first = writer(1);
+    const urgent = writer(2, true).then(
+      () => "resolved",
+      () => "rejected",
+    );
+    sink.gates[1].reject(new Error("quota"));
+    expect(await urgent).toBe("rejected");
+    sink.gates[0].resolve();
+    await first;
+  });
+
   it("turns a sink that throws synchronously into a rejected promise, not a throw", async () => {
     const seen: number[] = [];
     const writer = createImmediateWriter((value: number) => {

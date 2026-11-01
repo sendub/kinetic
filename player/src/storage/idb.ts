@@ -112,6 +112,15 @@ function transactionDone(tx: IDBTransaction): Promise<void> {
   });
 }
 
+/**
+ * `IDBTransaction.commit()` where the engine has it (Chrome 76+, Firefox
+ * 74+, Safari 15+): no more requests will be made, so the backend may
+ * commit without waiting on this page. Older engines auto-commit as before.
+ */
+function commitNow(tx: IDBTransaction): void {
+  if (typeof tx.commit === "function") tx.commit();
+}
+
 function isFiniteNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value);
 }
@@ -335,6 +344,12 @@ export function createIdbStorage(contentKey: string): Storage | null {
       if (state.settings !== undefined) record.settings = { ...state.settings };
       if (state.helpSeen !== undefined) record.helpSeen = state.helpSeen;
       tx.objectStore(STATE_STORE).put(record, contentKey);
+      // Ask for the commit now instead of when the put's success event
+      // has made the round trip back to this page (docs/plan.md Phase 18,
+      // "Settings survive an immediate reload"): a reload a moment after
+      // a change can tear the page down before that round trip, and a
+      // transaction whose commit was never requested is then aborted.
+      commitNow(tx);
       await transactionDone(tx);
     },
 
@@ -358,6 +373,24 @@ export function createIdbStorage(contentKey: string): Storage | null {
     },
 
     getBookmarks,
+
+    // The `t` list's "x" (docs/plan.md Phase 18): walk this content's rows
+    // and delete the one carrying `id` (ids are not the store key — `seq`
+    // is), committed before the remaining list is read back.
+    async deleteBookmark(id: string): Promise<Bookmark[]> {
+      const db = await openDatabase();
+      const tx = db.transaction(BOOKMARKS_STORE, "readwrite");
+      const index = tx.objectStore(BOOKMARKS_STORE).index(CONTENT_INDEX);
+      const cursorRequest = index.openCursor(IDBKeyRange.only(contentKey));
+      cursorRequest.onsuccess = () => {
+        const cursor = cursorRequest.result;
+        if (cursor === null) return;
+        if ((cursor.value as BookmarkRecord).id === id) cursor.delete();
+        cursor.continue();
+      };
+      await transactionDone(tx);
+      return getBookmarks();
+    },
 
     // "Reset progress" (docs/plan.md Phase 16). Both deletes run in a
     // readwrite transaction whose promise resolves on `transactionDone`,

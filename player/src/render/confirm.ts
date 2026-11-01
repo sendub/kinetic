@@ -3,7 +3,7 @@
 // nothing is cleared until the reader confirms. Same visual family as the
 // other overlays (`#confirm`, index.html), and while it is open the
 // machine is suspended exactly like behind `h`/`t`/`c` (main.ts folds
-// `isOpen` into its screen gate). Its keys — Enter/y reset, Escape/n
+// `isOpen` into its screen gate). Its keys — y resets, Escape/n
 // cancel — arrive through the shell's key map like every other overlay's;
 // the panel itself only draws the two controls and routes clicks: a
 // button acts, any other click is backdrop and cancels.
@@ -29,7 +29,7 @@ export interface ConfirmOverlay {
 export interface ConfirmOverlayOptions {
   /** The `#app` element; the panel is a sibling of the other panels. */
   root: HTMLElement;
-  /** "Reset" pressed or Enter/y: the shell runs the reset and reloads. */
+  /** "Reset" pressed or y: the shell runs the reset and reloads. */
   onConfirm(): void;
   /** "Cancel" pressed, Escape/n, or a backdrop click: close, touch nothing. */
   onCancel(): void;
@@ -71,7 +71,7 @@ export function mountConfirmOverlay({
 
   const hint = doc.createElement("p");
   hint.className = "confirm-hint";
-  hint.textContent = "Enter / y resets · Esc / n cancels";
+  hint.textContent = "y resets · Esc / n cancels";
 
   panel.append(title, message, actions, hint);
   root.appendChild(panel);

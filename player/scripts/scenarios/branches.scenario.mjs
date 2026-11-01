@@ -6,7 +6,8 @@
 // content, `e` going to the end of the history, the wheel replaying choice
 // screens (a pick from one is real), the scroll back from the end showing
 // every screen in the order it was seen, and the ending hint.
-// The "Return to main route" row (and its Enter hint) is drawn only once
+// The "Return to main route" row (numbered 0, with its "0 returns" hint) is
+// drawn only once
 // that decision's CONTINUING route has been completed at least once.
 
 import { CHOICE_HINT, CONTINUE_HINT } from "../../src/render/choice.ts";
@@ -79,7 +80,7 @@ async function waitOn(page, id, timeout = 3000) {
 /**
  * The overlay is exactly decision `b`: its prompt, its routes numbered
  * 1..n in manifest order with `seen` marks per `seenIds`, and the return
- * row (with the Enter hint) iff `withReturn`.
+ * row (numbered 0, with the 0 hint) iff `withReturn`.
  */
 function choiceIs(c, hints, b, seenIds, withReturn) {
   if (c.hidden !== false || c.prompt !== b.prompt) return false;
@@ -98,6 +99,7 @@ function choiceIs(c, hints, b, seenIds, withReturn) {
     ? ret.length === 1 &&
       c.rows[c.rows.length - 1].isContinue &&
       ret[0].label === CONTINUE_LABEL &&
+      ret[0].number === "0" &&
       hints.choiceHint === CHOICE_HINT + CONTINUE_HINT
     : ret.length === 0 && hints.choiceHint === CHOICE_HINT;
   return routesOk && returnOk;
@@ -146,7 +148,7 @@ export default async function ({ check, open }) {
       { arrival, s34, sigSame: sig === sigHeld },
     );
     check(
-      "34. a first fire draws no Return row and no Enter hint",
+      "34. a first fire draws no Return row and no 0 hint",
       s34.choice.rows?.every((r) => !r.isContinue) &&
         s34.hints.choiceHint === CHOICE_HINT,
       s34,
@@ -262,7 +264,8 @@ export default async function ({ check, open }) {
 
     // The nested decision's continuing route is now complete: rolling back
     // to its first screen on route1-nest replays it with the Return row (the
-    // rule as it stands now), and Enter answers it onto route1-end.
+    // rule as it stands now), and 0 answers it onto route1-end (Enter is
+    // no key: pressed first, it changes nothing).
     const path = [];
     let arrivedNest = null;
     for (let i = 0; i < 6; i += 1) {
@@ -276,7 +279,7 @@ export default async function ({ check, open }) {
       }
     }
     check(
-      "36. after 1a completes, rolling back to route1-nest's choice screen shows both marks AND the Return row + Enter hint",
+      "36. after 1a completes, rolling back to route1-nest's choice screen shows both marks AND the Return row (numbered 0) + 0 hint",
       arrivedNest !== null &&
         choiceIs(
           arrivedNest.choice,
@@ -288,12 +291,28 @@ export default async function ({ check, open }) {
       { path, arrivedNest },
     );
     await pressEnter(cdp);
-    const enterBack =
+    await sleep(300);
+    const afterEnter = await snap(page);
+    check(
+      "Enter does nothing on a choice screen with the Return row: still open, same item",
+      afterEnter.id === nested.after &&
+        afterEnter.choice.hidden === false &&
+        choiceIs(
+          afterEnter.choice,
+          afterEnter.hints,
+          nested,
+          ["nest-a", "nest-b"],
+          true,
+        ),
+      afterEnter,
+    );
+    await pressDigit(cdp, "0");
+    const zeroBack =
       (await waitChoice(page, false)) &&
       (await waitOn(page, nested.continueAt));
     check(
-      "Enter on the Return row answers the nested decision onto route1-end",
-      enterBack,
+      "0 picks the Return row: the nested decision is answered onto route1-end",
+      zeroBack,
       await snap(page),
     );
 
@@ -329,7 +348,7 @@ export default async function ({ check, open }) {
     );
 
     // Scroll back from the end: exactly the screens seen going forward,
-    // newest first. Enter on the replayed nested screen forked the record
+    // newest first. 0 on the replayed nested screen forked the record
     // there, so the nested 1b/1a detour is gone; every choice screen shows
     // the current marks and the Return row (each continuing route is done).
     const back = [];
@@ -564,7 +583,7 @@ export default async function ({ check, open }) {
       (await waitChoice(page, false)) && (await waitOn(page, nestB.start));
     await pressSpace(cdp);
     const bReoffer = await waitChoice(page, true);
-    await pressEnter(cdp); // the Return row: 1a completed long ago
+    await pressDigit(cdp, "0"); // the Return row: 1a completed long ago
     const backOnRoute1 =
       (await waitChoice(page, false)) &&
       (await waitOn(page, nested.continueAt));

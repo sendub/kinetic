@@ -267,6 +267,26 @@ for (const [name, makeStorage] of ADAPTERS) {
       expect("ctx" in legacy).toBe(false);
     });
 
+    it("deletes one bookmark by id and returns the rest, order kept (Phase 18)", async () => {
+      const storage = makeStorage();
+      await storage.addBookmark(bookmark("a", 1));
+      await storage.addBookmark(bookmark("b", 2));
+      await storage.addBookmark(bookmark("c", 3));
+      const left = await storage.deleteBookmark("b");
+      expect(left.map((entry) => entry.id)).toEqual(["a", "c"]);
+      expect(await storage.getBookmarks()).toEqual(left);
+      // An unknown id (deleted twice, say) is a no-op.
+      const again = await storage.deleteBookmark("b");
+      expect(again.map((entry) => entry.id)).toEqual(["a", "c"]);
+      // The state record is untouched by a bookmark delete.
+      await storage.saveState({ frontier: 2 });
+      await storage.deleteBookmark("a");
+      expect(await storage.loadState()).toEqual({ frontier: 2 });
+      expect((await storage.getBookmarks()).map((entry) => entry.id)).toEqual([
+        "c",
+      ]);
+    });
+
     it("copies in and out: callers cannot rewrite what the store holds", async () => {
       const storage = makeStorage();
       const input = bookmark("a", 1);

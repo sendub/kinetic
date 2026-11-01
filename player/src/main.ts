@@ -32,11 +32,7 @@ import { DEFAULT_SETTINGS } from "./machine/types";
 import { mountError, mountShell } from "./render/app";
 import { bookmarkContext, mountBookmarkOverlay } from "./render/bookmarks";
 import { captureVisualThumbnail } from "./render/capture";
-import {
-  enterActionFor,
-  inputOwnerFor,
-  mountChoiceOverlay,
-} from "./render/choice";
+import { inputOwnerFor, mountChoiceOverlay } from "./render/choice";
 import { mountConfigOverlay } from "./render/config";
 import { mountConfirmOverlay, resetProgress } from "./render/confirm";
 import { installFirstGestureFullscreen } from "./render/fullscreen";
@@ -96,6 +92,10 @@ function mergeSettings(
   for (const field of Object.keys(
     DEFAULT_SETTINGS,
   ) as (keyof MachineSettings)[]) {
+    // The skip dwell is not a reader setting (there is no control for it):
+    // a stored value is a stale default from an older build, so the
+    // current default always wins (docs/plan.md Phase 18, faster skip).
+    if (field === "skipDwellMs") continue;
     const value = persisted[field];
     if (typeof value !== typeof DEFAULT_SETTINGS[field]) continue;
     if (typeof value === "number" && !Number.isFinite(value)) continue;
@@ -197,6 +197,16 @@ function start(): void {
         if (resetting) return;
         persistNow().catch(() => {});
       };
+      // The same write, issued at once even while another is in flight
+      // (storage/persist.ts, `urgent`): for the changes a reader makes
+      // and may reload straight after — a settings click, the help close
+      // — and for the page-teardown flushes below, where a value parked
+      // behind the running write would never be issued at all (docs/
+      // plan.md Phase 18, "Settings survive an immediate reload").
+      const persistUrgently = (): void => {
+        if (resetting) return;
+        writeState(stateRecord(), true).catch(() => {});
+      };
       machine.subscribe(persistQuietly);
       // Belt and braces for the microseconds one transaction is in flight:
       // these re-issue the CURRENT snapshot (so a write that failed earlier
@@ -204,9 +214,9 @@ function start(): void {
       // the middle of being torn down can do — the durability itself comes
       // from the write having been issued on the change.
       document.addEventListener("visibilitychange", () => {
-        if (document.visibilityState === "hidden") persistQuietly();
+        if (document.visibilityState === "hidden") persistUrgently();
       });
-      document.addEventListener("pagehide", persistQuietly);
+      document.addEventListener("pagehide", persistUrgently);
 
       // `b` (README bookmark bullet): the thumbnail is opportunistic — a
       // frame is captured only when it is drawable and the canvas readable
@@ -269,6 +279,20 @@ function start(): void {
           if (target.ctx !== undefined) machine.importContext(target.ctx);
           else machine.goTo(target.itemIndex);
         },
+        // The thumbnail's "x" (docs/plan.md Phase 18): delete, then draw
+        // what storage now holds. A failed delete re-reads the list, so
+        // the panel never shows a row as gone that is still stored.
+        onDelete: (bookmark) => {
+          storage.deleteBookmark(bookmark.id).then(
+            (list) => {
+              if (overlay.isOpen()) overlay.render(list);
+            },
+            (error: unknown) => {
+              console.warn("[kinetic] bookmark not deleted", error);
+              if (overlay.isOpen()) showBookmarks();
+            },
+          );
+        },
       });
       const showBookmarks = (): void => {
         // A storage outage reads as an empty list, not a dead key.
@@ -288,7 +312,7 @@ function start(): void {
         onChange: (next) => {
           currentSettings = next;
           machine.setSettings(next);
-          persistQuietly();
+          persistUrgently();
         },
         onReset: () => {
           // The box asks; nothing is touched until it confirms. It sits
@@ -340,7 +364,7 @@ function start(): void {
         machine.resume();
         if (!helpSeen) {
           helpSeen = true;
-          persistQuietly(); // the close must outlive a reload
+          persistUrgently(); // the close must outlive a reload
         }
       }
 
@@ -398,7 +422,7 @@ function start(): void {
       // machine pause/resume is inert while a decision's item is settled).
       // A pending CHOICE owns everything else: `t`/`c` cannot open over
       // it, `h`/`b`/`a` are inert, the timeline is suspended, and only
-      // its own inputs act (1..9, Enter with the offer, row clicks) —
+      // its own inputs act (1..9, 0 with the offer, row clicks) —
       // except the history moves, the wheel and `e` (see the gates
       // below). Otherwise the story reads, and `t`/`c` are the open
       // screens.
@@ -492,25 +516,8 @@ function start(): void {
             if (!storyInput()) return;
             machine.setAutoAdvance(!machine.isAutoAdvance());
           },
-          // Enter is owned by the screen (render/choice.ts's rule): the
-          // reset box first (Phase 16 — reset, synonym of `y`), else it
-          // closes help, else it takes the choice's "return to main
-          // route" when that offer is up, else it is inert.
-          closeHelp: () => {
-            if (confirm.isOpen()) {
-              runReset();
-              return;
-            }
-            const action = enterActionFor(
-              owner(),
-              machine.getState().choice?.continueOption === true,
-            );
-            if (action === "close-help") closeHelp();
-            else if (action === "continue") machine.chooseContinue();
-          },
           // `y`/`n` act only while the reset box is open (keys.ts maps
-          // them always; the box is the context, like Enter and Escape
-          // are theirs). With no box up they are inert, as the digits
+          // them always; the box is the context, like Escape is its). With no box up they are inert, as the digits
           // are with no decision.
           confirmReset: () => {
             if (confirm.isOpen()) runReset();
@@ -545,12 +552,17 @@ function start(): void {
             openHelp(); // Escape with nothing up opens help
           },
         },
-        // 1..9 answer a pending decision (render/keys.ts's route digits).
-        // The owner check lives here: with no choice open a digit is
-        // inert, and with help up help owns the screen.
-        (routeIdx) => {
+        // 1..9 answer a pending decision (render/keys.ts's route digits)
+        // and 0 takes its "Return to main route" row when that row is
+        // drawn (docs/plan.md Phase 18). The owner check lives here: with
+        // no choice open a digit is inert, and with help up help owns the
+        // screen.
+        (key) => {
           if (owner() !== "choice") return;
-          machine.choose(routeIdx);
+          if (key !== "return") machine.choose(key);
+          else if (machine.getState().choice?.continueOption === true) {
+            machine.chooseContinue();
+          }
         },
       );
       installWheelInput(document, {

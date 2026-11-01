@@ -97,6 +97,12 @@ export function createMemoryStorage(): Storage {
       return Promise.resolve(readBookmarks());
     },
 
+    deleteBookmark(id) {
+      const index = bookmarks.findIndex((bookmark) => bookmark.id === id);
+      if (index !== -1) bookmarks.splice(index, 1);
+      return Promise.resolve(readBookmarks());
+    },
+
     deleteState() {
       state = null;
       return Promise.resolve();

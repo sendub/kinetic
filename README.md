@@ -10,10 +10,10 @@ A browser player for kinetic visual novels: a simple alternative to Ren'Py. A no
 * **e**: jump to the end of what you have read.
 * **Tab**: skip through content you have already seen, showing only first frames; it stops on the last seen item. The "skip all" setting lets it run through unseen content too.
 * **h**: hide or show the text.
-* **b**: bookmark the current moment. **t**: the bookmark list (thumbnails with times, newest at the bottom); click one to continue from there.
+* **b**: bookmark the current moment. **t**: the bookmark list (thumbnails with times, newest at the bottom); click a thumbnail to continue from there; its x deletes it.
 * **c**: settings: reading speed, skip all, play all routes, reset progress.
 * **Esc**: key help (also shown on first load, before anything starts); Esc again resumes. In fullscreen the browser takes the first Esc to leave fullscreen.
-* **1-9**: pick a route at a decision (or click it).
+* **1-9**: pick a route at a decision (or click it). **0**: "Return to main route", when that row is shown.
 
 The player goes fullscreen on the first key press. Position, route history, bookmarks and settings are saved in the browser, and the next visit resumes on the screen you left.
 

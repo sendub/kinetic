@@ -17,8 +17,17 @@
 /**
  * A writer that issues `write(value)` immediately. Resolves when the write
  * carrying `value` commits; rejects with that write's error.
+ *
+ * `urgent` (docs/plan.md Phase 18, "Settings survive an immediate
+ * reload"): issue this value's write NOW even while another is in flight,
+ * instead of parking it in the pending slot until that one commits. A
+ * parked value has not been issued at all, so a reload a moment later
+ * loses it — four quick `+` clicks then a reload came back at 1.00x. The
+ * sink must apply writes in issue order (IndexedDB runs readwrite
+ * transactions on one store in creation order), and any pending value is
+ * replaced by the urgent one, so nothing older can land after it.
  */
-export type ImmediateWriter<T> = (value: T) => Promise<void>;
+export type ImmediateWriter<T> = (value: T, urgent?: boolean) => Promise<void>;
 
 interface Batch<T> {
   value: T;
@@ -75,7 +84,27 @@ export function createImmediateWriter<T>(
     else batch.reject(error);
   }
 
-  return (value: T): Promise<void> => {
+  /** An extra write beside the one in flight, outside the slot rule. */
+  function issueBeside(value: T): Promise<void> {
+    const batch = newBatch(value);
+    let committed: Promise<unknown>;
+    try {
+      committed = write(value);
+    } catch (error) {
+      committed = Promise.reject(error);
+    }
+    committed.then(batch.resolve, batch.reject);
+    return batch.promise;
+  }
+
+  return (value: T, urgent = false): Promise<void> => {
+    if (inFlight && urgent) {
+      // The pending value (if any) is older than this one: it now carries
+      // this value too, so when it is issued it rewrites the same record
+      // rather than an older one over it.
+      if (pending !== null) pending.value = value;
+      return issueBeside(value);
+    }
     if (inFlight) {
       if (pending === null) pending = newBatch(value);
       else pending.value = value; // the newest snapshot wins the one slot

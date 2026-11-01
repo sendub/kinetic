@@ -192,7 +192,7 @@ def section_intro() -> list[dict]:
         "intro-title",
         "Kinetic demo. Every line explains what you are seeing. Space shows "
         "the next item; the mouse wheel scrolls back and forth through what "
-        "you have read; Esc lists every key.",
+        "you have read; Esc shows the main keys.",
     )]
 
 

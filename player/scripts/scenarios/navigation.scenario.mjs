@@ -7,6 +7,7 @@
 // (doing nothing with nothing seen ahead); Space ends a skip; `e` goes to
 // the end of the history and is a no-op there.
 
+import { DEFAULT_SETTINGS } from "../../src/machine/types.ts";
 import {
   currentItemId,
   INSTALL_BRANCH_LOG,
@@ -31,7 +32,7 @@ import {
 export const title = "wheel, tab skip, e (history navigation)";
 
 const MS_PER_CHAR = 60; // DEFAULT_SETTINGS reading speed 1.00x
-const SKIP_DWELL_MS = 120; // DEFAULT_SETTINGS skipDwellMs
+const SKIP_DWELL_MS = DEFAULT_SETTINGS.skipDwellMs; // ~25 ms, Ren'Py-like
 
 // Like harness.sampleSignatures, but on PAINT_SIG: a video starting to play
 // is not a cursor move, so it must not count as a skip step.
@@ -186,7 +187,7 @@ async function skipScenario(check, open) {
   await pressA(cdp); // auto-forward on: "shown normally" then advances
   const tabAt = Date.now();
   await pressTab(cdp);
-  const samples = await samplePaint(page, 1200, 30);
+  const samples = await samplePaint(page, 900, 10);
   const changes = changesOf(samples);
   const deltas = changes
     .slice(1)
@@ -216,19 +217,25 @@ async function skipScenario(check, open) {
     advancedAt = Date.now();
   } catch {}
   const heldMs = stopAt > 0 && advancedAt > 0 ? advancedAt - stopAt : -1;
+  // At ~25 ms a step is faster than the sampler can resolve, so the burst
+  // is judged by its total time: N steps of dwell, well under the old
+  // 120 ms pace, and never instant.
+  const steps = lastSeen.index - item("anim-orbit").index;
+  const burstMs = stopAt > 0 ? stopAt - tabAt : -1;
   check(
-    "tab skips at ~120 ms per item and stops ON the last seen item, shown normally",
+    `tab skips at ~${SKIP_DWELL_MS} ms per item and stops ON the last seen item, shown normally`,
     reached &&
       back &&
-      changes.length - 1 >= 4 &&
-      median >= SKIP_DWELL_MS * 0.66 &&
-      median <= SKIP_DWELL_MS * 2.2 &&
+      burstMs >= steps * SKIP_DWELL_MS * 0.5 &&
+      burstMs <= steps * SKIP_DWELL_MS * 2.5 + 250 &&
       stopped &&
       heldMs >= holdMs * 0.7 &&
       heldMs <= holdMs + 2500,
     {
-      moves: changes.length - 1,
-      medianDwellMs: median,
+      steps,
+      burstMs,
+      sampledMoves: changes.length - 1,
+      medianSampledMs: median,
       lastMoveMs: changes[changes.length - 1][0] - tabAt,
       revealedUnseen: revealed,
       tailStable: new Set(tail).size === 1,
@@ -243,10 +250,12 @@ async function skipScenario(check, open) {
 // reached) and never jumps on to unseen content.
 async function skipSpaceScenario(check, open) {
   const { page, cdp } = await open("skip-space", { closeHelp: true });
-  const reached = await spaceTo(page, cdp, "chain-still-3");
-  const back = await wheelTo(page, cdp, true, "anim-orbit");
+  // A long seen run (intro to floor-3), so the burst lasts long enough at
+  // ~25 ms per item for a Space press to land in the middle of it.
+  const reached = await spaceTo(page, cdp, "floor-3");
+  const back = await wheelTo(page, cdp, true, "intro-title", 40);
   await pressTab(cdp);
-  const running = changesOf(await samplePaint(page, 320, 30));
+  const running = changesOf(await samplePaint(page, 120, 10));
   await pressSpace(cdp);
   const spaceAt = Date.now();
   const after = (await samplePaint(page, 720, 50)).filter(
@@ -259,15 +268,15 @@ async function skipSpaceScenario(check, open) {
     "space during skip exits skip mode and holds the item",
     reached &&
       back &&
-      running.length - 1 >= 2 &&
+      running.length - 1 >= 1 &&
       stillAfter &&
-      stopIndex > item("anim-orbit").index &&
-      stopIndex < item("chain-still-3").index,
+      stopIndex > item("intro-title").index &&
+      stopIndex < item("floor-3").index,
     { skipMoves: running.length - 1, stillAfter, stopId },
   );
 
   // Stopped mid-burst: the skip's steps replayed the record, so its end
-  // is still chain-still-3; `e` goes there, not on to unseen video-loops.
+  // is still floor-3; `e` goes there, not on to unseen content.
   await pressE(cdp);
   await sleep(150);
   const landed = await currentItemId(page);
@@ -276,7 +285,7 @@ async function skipSpaceScenario(check, open) {
   const again = await currentItemId(page);
   check(
     "e after a stopped skip returns to the end of the history and stays there",
-    stopIndex >= 0 && landed === "chain-still-3" && again === "chain-still-3",
+    stopIndex >= 0 && landed === "floor-3" && again === "floor-3",
     { from: stopId, landed, again },
   );
 }

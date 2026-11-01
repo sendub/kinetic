@@ -594,7 +594,7 @@ async function floor({ check, open }) {
   );
   const tabAt = Date.now();
   await pressTab(cdp);
-  const skip = await sampleUntil(page, CHAIN_PROBE, onText(exit), 4000, 25);
+  const skip = await sampleUntil(page, CHAIN_PROBE, onText(exit), 4000, 8);
   await sleep(700);
   const stayed = await page.evaluate(ON_TEXT, exit.text);
   const idx = (it) =>

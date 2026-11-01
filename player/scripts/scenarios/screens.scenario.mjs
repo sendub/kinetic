@@ -1,7 +1,8 @@
 // The screens over the stage (old driver steps 20, 22-28, 31, 42, 47): the
 // mid-flow key help, bookmarks (`b`, the `t` list, restore from a row),
-// reload resume, the `c` config screen and its settings' persistence, the
-// empty-manifest folder, and "Reset progress". Each part opens its own
+// reload resume, the `c` config screen and its settings' persistence
+// (including a reload the instant after a change), the empty-manifest
+// folder, and "Reset progress". Each part opens its own
 // fresh profile, so no part leans on another's storage.
 
 import { DEFAULT_SETTINGS } from "../../src/machine/types.ts";
@@ -54,6 +55,22 @@ export const title = "help, bookmarks, resume, config, empty folder, reset";
 // by extensionless paths node cannot resolve, so these two are restated;
 // the speed readout comes from config.ts itself.
 const HELP_TITLE = "Key help";
+const HELP_HINT = "Esc · Space · click — closes";
+// The main interaction keys, one row each (Phase 18, "Key help
+// simplified"): no Enter, no reset-box keys.
+const HELP_KEYS = [
+  "Space",
+  "wheel",
+  "E",
+  "Tab",
+  "A",
+  "H",
+  "B",
+  "T",
+  "C",
+  "Esc",
+  "1-9 / 0",
+];
 const EMPTY_MESSAGE = "No bookmarks yet — press b";
 const EMPTY_NOTICE = "No content yet — this folder has an empty manifest.";
 const MS_PER_CHAR = DEFAULT_SETTINGS.msPerChar;
@@ -142,6 +159,25 @@ async function helpMidFlow({ check, open }) {
       help.title === HELP_TITLE &&
       help.coversViewport === true,
     { s, imgBox, title: help.title, covers: help.coversViewport },
+  );
+
+  check(
+    "the help lists only the main keys, one row each, and closes by Esc / Space / click",
+    JSON.stringify(help.rows.map((r) => r.key)) === JSON.stringify(HELP_KEYS) &&
+      help.rows.every((r) => r.desc.length > 0 && r.desc.length <= 56) &&
+      help.hint === HELP_HINT,
+    { keys: help.rows.map((r) => r.key), hint: help.hint },
+  );
+
+  await pressEnter(cdp);
+  await sleep(150);
+  const afterEnter = await page.evaluate(PAGE_STATE);
+  check(
+    "Enter does nothing on the help screen: it stays open over the same item",
+    afterEnter.helpOpen === true &&
+      afterEnter.stageHidden === true &&
+      afterEnter.text === item("text-speech").text,
+    { help: afterEnter.helpOpen, text: afterEnter.text },
   );
 
   await pressC(cdp);
@@ -331,6 +367,75 @@ async function bookmarks({ check, open }) {
       windowed,
       afterT,
     },
+  );
+
+  // Phase 18, "Delete a bookmark": each thumbnail's top-right "x" deletes
+  // that row (storage included) without opening it; the list re-renders.
+  const sigBeforeDelete = await readSignature(page);
+  const idBeforeDelete = await currentItemId(page);
+  await pressT(cdp);
+  await waitFor(page, OVERLAY_OPEN);
+  const two = await page.evaluate(READ_BOOKMARK_OVERLAY);
+  const x = two.entries?.[0]?.deleteRect ?? null;
+  const box = two.entries?.[0]?.thumbBoxRect ?? null;
+  const inCorner =
+    x !== null &&
+    box !== null &&
+    x.right <= box.right + 1 &&
+    x.right >= box.right - 8 &&
+    x.top >= box.top - 1 &&
+    x.top <= box.top + 8;
+  if (x !== null) await clickCenter(cdp, x);
+  const oneLeft = await waitFor(
+    page,
+    () => document.querySelectorAll(".bookmark-entry").length === 1,
+    3000,
+  );
+  const afterDelete = await page.evaluate(READ_BOOKMARK_OVERLAY);
+  const storedAfter = await page.evaluate(READ_BOOKMARKS);
+  const sigAfterDelete = await readSignature(page);
+  const idAfterDelete = await currentItemId(page);
+  check(
+    "a thumbnail's x (top-right corner) deletes that bookmark without opening it: the list re-renders with the other row, storage agrees",
+    two.entries?.length === 2 &&
+      two.entries.every((e) => e.deleteText === "×") &&
+      inCorner &&
+      oneLeft &&
+      afterDelete.hidden === false &&
+      afterDelete.entries.length === 1 &&
+      afterDelete.entries[0].itemIndex === newer &&
+      storedAfter.length === 1 &&
+      storedAfter[0].itemIndex === newer &&
+      idAfterDelete === idBeforeDelete &&
+      sigAfterDelete === sigBeforeDelete,
+    {
+      x,
+      box,
+      inCorner,
+      rows: (afterDelete.entries ?? []).map((e) => e.itemIndex),
+      stored: storedAfter.map((b) => b.itemIndex),
+      idBeforeDelete,
+      idAfterDelete,
+    },
+  );
+  await pressT(cdp);
+  await page.reload();
+  await waitFor(
+    page,
+    () =>
+      (document.getElementById("visual-image")?.getAttribute("src") ?? "") !==
+        "" || document.getElementById("visual-video") !== null,
+  );
+  await sleep(300);
+  await pressT(cdp);
+  await waitFor(page, OVERLAY_OPEN);
+  const reloaded = await page.evaluate(READ_BOOKMARK_OVERLAY);
+  check(
+    "after a reload the deleted bookmark stays deleted: t lists only the other row",
+    reloaded.hidden === false &&
+      reloaded.entries.length === 1 &&
+      reloaded.entries[0].itemIndex === newer,
+    { rows: (reloaded.entries ?? []).map((e) => e.itemIndex) },
   );
 }
 
@@ -575,6 +680,46 @@ async function config({ check, open }) {
   );
 }
 
+// Phase 18, "Settings survive an immediate reload": a speed change then a
+// reload with NO pause (the old fire-and-forget write came back at 1.00x
+// in 4 of 6 runs). Three rounds, each reloading the instant the last click
+// lands, so one run samples the race three times.
+async function settingsImmediateReload({ check, open }) {
+  const { page, cdp } = await open("settings-reload", { closeHelp: true });
+  await spaceTo(page, cdp, "text-narration");
+  const rounds = [
+    { clicks: 4, button: "speedUpRect", expect: SPEED_2X },
+    { clicks: 4, button: "speedDownRect", expect: SPEED_1X },
+    { clicks: 4, button: "speedUpRect", expect: SPEED_2X },
+  ];
+  const results = [];
+  for (const round of rounds) {
+    await pressC(cdp);
+    await waitFor(page, CONFIG_OPEN);
+    let shown = null;
+    for (let i = 0; i < round.clicks; i += 1) {
+      const r = await page.evaluate(READ_CONFIG_OVERLAY);
+      await clickCenter(cdp, r[round.button]);
+    }
+    shown = (await page.evaluate(READ_CONFIG_OVERLAY)).speedValue;
+    const t0 = Date.now();
+    await page.reload(); // no wait: the reader reloads straight away
+    const reloadIssuedMs = Date.now() - t0;
+    await waitFor(page, () => document.getElementById("stage") !== null);
+    await sleep(300);
+    await pressC(cdp);
+    await waitFor(page, CONFIG_OPEN);
+    const after = (await page.evaluate(READ_CONFIG_OVERLAY)).speedValue;
+    await pressC(cdp);
+    results.push({ want: round.expect, shown, after, reloadIssuedMs });
+  }
+  check(
+    "a speed change survives a reload issued the instant after the last click (3 rounds)",
+    results.every((r) => r.shown === r.want && r.after === r.want),
+    results,
+  );
+}
+
 // Old step 31: the empty-manifest folder.
 async function emptyFolder({ check, open }) {
   const { page, cdp } = await open("empty", { folder: emptyDir });
@@ -592,7 +737,7 @@ async function emptyFolder({ check, open }) {
       s.stageHidden === true,
     s,
   );
-  await pressEnter(cdp);
+  await pressEscape(cdp);
   const helpClosed = await waitFor(page, HELP_CLOSED);
   const fs = await leaveFullscreen(page, cdp);
   await pressT(cdp);
@@ -646,10 +791,8 @@ async function reset({ check, open }) {
   );
 
   // Cancel kept everything: a reload resumes there with the row and speed.
-  // A reader's pause before the reload: a settings write still in flight
-  // when the page goes is lost (OBSERVED, reported separately), and this
-  // check is about Cancel, not that race.
-  await sleep(500);
+  // No pause before it: settings writes survive an immediate reload
+  // (Phase 18; settingsImmediateReload samples that race directly).
   await page.reload();
   await sleep(700);
   const resumed = await page.evaluate(PAGE_STATE);
@@ -684,7 +827,7 @@ async function reset({ check, open }) {
   await sleep(400);
   const boot = await page.evaluate(PAGE_STATE);
   const bootId = await currentItemId(page);
-  await pressEnter(cdp);
+  await pressEscape(cdp);
   await waitFor(page, HELP_CLOSED);
   await pressT(cdp);
   await waitFor(page, OVERLAY_OPEN);
@@ -722,6 +865,7 @@ export default async function (ctx) {
     bookmarks,
     resume,
     config,
+    settingsImmediateReload,
     emptyFolder,
     reset,
   ]) {

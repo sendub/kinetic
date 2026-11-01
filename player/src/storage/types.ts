@@ -89,6 +89,13 @@ export interface Storage {
   addBookmark(bookmark: Bookmark): Promise<Bookmark[]>;
   getBookmarks(): Promise<Bookmark[]>;
   /**
+   * The `t` list's "x" (docs/plan.md Phase 18, "Delete a bookmark"):
+   * remove this content's bookmark with that `id` and return the list
+   * that remains, oldest first. Resolves once the deletion is COMMITTED;
+   * an unknown id deletes nothing and returns the list unchanged.
+   */
+  deleteBookmark(id: string): Promise<Bookmark[]>;
+  /**
    * "Reset progress" (docs/plan.md Phase 16): drop this content's state
    * row / rows, as if it had never been read. `deleteState` removes the
    * one `state` record and `deleteBookmarks` every `bookmarks` row of

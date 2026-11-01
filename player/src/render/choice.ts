@@ -4,7 +4,8 @@
 // a numbered list of routes — label plus a `seen` marker for routes already
 // played — and, when the machine offers it, a final "Return to main route"
 // row. A row click or a 1..9 press answers the decision (`choose(routeIdx)`);
-// Enter answers `chooseContinue()` when the offer is up. The panel is the
+// `0` — the return row's drawn number — answers `chooseContinue()` when the
+// offer is up (docs/plan.md Phase 18, "Key help simplified"). The panel is the
 // machine's `choice` view drawn as DOM: the rows, numbers and offer all come
 // from the pure `choiceRows` below, which only applies `ChoiceView` data.
 //
@@ -18,9 +19,8 @@
 //   stack over a decision waiting for an answer — and the timeline is
 //   suspended (the machine is inert to those commands too; the gate keeps
 //   the renderer from trying).
-// - Enter is owned by the screen: help open closes help, else a choice
-//   offering the return takes it, else it is inert. Digits reach the
-//   choice only with help closed; clicks land on the top panel anyway.
+// - Digits (1..9 and 0) reach the choice only with help closed; `0` acts
+//   only when the return row is drawn. Clicks land on the top panel anyway.
 //
 // Like every panel here, the decisions are pure exports and the DOM half
 // only applies them; the verify walk proves the screen (its branch steps
@@ -34,13 +34,16 @@ export const CONTINUE_LABEL = "Return to main route";
 /** The panel's input hint, shown under the prompt. */
 export const CHOICE_HINT = "1-9 or click picks a route";
 
-/** The Enter half of the hint — only true when the return row is drawn. */
-export const CONTINUE_HINT = " · Enter returns";
+/** The return half of the hint — only shown when the return row is drawn. */
+export const CONTINUE_HINT = " · 0 returns";
+
+/** The return row's number badge: its key, `0`. */
+export const CONTINUE_NUMBER = 0;
 
 /**
- * The hint for one view: the route keys always, Enter only when a
+ * The hint for one view: the route keys always, `0` only when a
  * "Return to main route" row exists (docs/plan.md Phase 18 — the user had
- * read "Enter returns" on views where nothing could answer it).
+ * read a return hint on views where nothing could answer it).
  */
 export function choiceHint(choice: ChoiceView): string {
   return choice.continueOption === true
@@ -51,7 +54,7 @@ export function choiceHint(choice: ChoiceView): string {
 /** The marker beside a route that has already been played in this save. */
 export const SEEN_MARKER = "seen";
 
-/** One row as drawn: a numbered route, or the unnumbered return offer. */
+/** One row as drawn: a numbered route, or the return offer numbered 0. */
 export interface ChoiceRowModel {
   readonly kind: "route" | "continue";
   /** Index for `choose()`; -1 on the continue row (it takes none). */
@@ -59,10 +62,10 @@ export interface ChoiceRowModel {
   /**
    * The number shown, equal to the route's key (`1` -> route 0). Route
    * `n` keeps its number past nine — it simply has no key: nine is every
-   * key the board has, and the row stays clickable. Null on the continue
-   * row, whose key is Enter.
+   * key the board has, and the row stays clickable. The continue row
+   * shows `0`, its key (`CONTINUE_NUMBER`).
    */
-  readonly number: number | null;
+  readonly number: number;
   readonly label: string;
   readonly seen: boolean;
 }
@@ -85,7 +88,7 @@ export function choiceRows(choice: ChoiceView | undefined): ChoiceRowModel[] {
     rows.push({
       kind: "continue",
       routeIdx: -1,
-      number: null,
+      number: CONTINUE_NUMBER,
       label: CONTINUE_LABEL,
       seen: false,
     });
@@ -108,18 +111,6 @@ export function inputOwnerFor(
   if (helpOpen) return "help";
   if (choiceOpen) return "choice";
   return "story";
-}
-
-/** What Enter does, by owner: close help, take the return offer, or nothing. */
-export type EnterAction = "close-help" | "continue" | "none";
-
-export function enterActionFor(
-  owner: InputOwner,
-  continueOffered: boolean,
-): EnterAction {
-  if (owner === "help") return "close-help";
-  if (owner === "choice" && continueOffered) return "continue";
-  return "none";
 }
 
 export interface ChoiceOverlay {
@@ -189,7 +180,7 @@ export function mountChoiceOverlay({
     },
     render(choice: ChoiceView) {
       prompt.textContent = choice.prompt;
-      // The Enter hint follows the row: shown only when `continueOption`
+      // The `0` hint follows the row: shown only when `continueOption`
       // is set, so the panel never promises a return it does not offer.
       hint.textContent = choiceHint(choice);
       const rows = choiceRows(choice).map((row) => {
@@ -204,7 +195,7 @@ export function mountChoiceOverlay({
         }
         const number = doc.createElement("span");
         number.className = "choice-num";
-        number.textContent = row.number !== null ? String(row.number) : "↵";
+        number.textContent = String(row.number);
         const label = doc.createElement("span");
         label.className = "choice-label";
         label.textContent = row.label;

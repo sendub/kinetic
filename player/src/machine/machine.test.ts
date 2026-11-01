@@ -684,7 +684,7 @@ describe("short-video timing: loopCount and holdSeconds (docs/plan.md Phase 9b)"
     const m = machine(
       [video(3, undefined, { holdSeconds: 0.05 }), image(), image()],
       {
-        settings: skipSettings(true),
+        settings: { ...skipSettings(true), skipDwellMs: 120 }, // a dwell longer than the clamps
       },
     );
     m.toggleSkip();
@@ -693,7 +693,7 @@ describe("short-video timing: loopCount and holdSeconds (docs/plan.md Phase 9b)"
     vi.advanceTimersByTime(1);
     expect(m.getState().cursor).toBe(1);
     // The next item is an image: the full dwell applies again.
-    vi.advanceTimersByTime(SETTINGS.skipDwellMs);
+    vi.advanceTimersByTime(120);
     expect(m.getState().cursor).toBe(2);
     m.destroy();
   });
@@ -704,7 +704,7 @@ describe("short-video timing: loopCount and holdSeconds (docs/plan.md Phase 9b)"
     const m = machine(
       [video(0.03, undefined, { loopCount: 2 }), image(), image()],
       {
-        settings: skipSettings(true),
+        settings: { ...skipSettings(true), skipDwellMs: 120 }, // a dwell longer than the clamps
       },
     );
     m.toggleSkip();
@@ -712,7 +712,7 @@ describe("short-video timing: loopCount and holdSeconds (docs/plan.md Phase 9b)"
     expect(m.getState().cursor).toBe(0);
     vi.advanceTimersByTime(1);
     expect(m.getState().cursor).toBe(1);
-    vi.advanceTimersByTime(SETTINGS.skipDwellMs);
+    vi.advanceTimersByTime(120);
     expect(m.getState().cursor).toBe(2);
     m.destroy();
   });
@@ -885,14 +885,14 @@ describe("range-based video timing (docs/plan.md Phase 9c)", () => {
         image(),
         image(),
       ],
-      { settings: { ...SETTINGS, skipAll: true } },
+      { settings: { ...SETTINGS, skipAll: true, skipDwellMs: 120 } },
     );
     m.toggleSkip();
     vi.advanceTimersByTime(49);
     expect(m.getState().cursor).toBe(0);
     vi.advanceTimersByTime(1); // 50 ms: the range clamps the dwell
     expect(m.getState().cursor).toBe(1);
-    vi.advanceTimersByTime(SETTINGS.skipDwellMs); // image: full dwell again
+    vi.advanceTimersByTime(120); // image: full dwell again
     expect(m.getState().cursor).toBe(2);
     m.destroy();
   });
@@ -989,14 +989,14 @@ describe("loop restart point (docs/plan.md Phase 9d)", () => {
       loopCount: 2,
     };
     const m = machine([video(4, undefined, clip), image(), image()], {
-      settings: { ...SETTINGS, skipAll: true },
+      settings: { ...SETTINGS, skipAll: true, skipDwellMs: 120 },
     });
     m.toggleSkip();
     vi.advanceTimersByTime(92);
     expect(m.getState().cursor).toBe(0);
     vi.advanceTimersByTime(1); // 93 ms: the summed passes clamp the dwell
     expect(m.getState().cursor).toBe(1);
-    vi.advanceTimersByTime(SETTINGS.skipDwellMs); // image: full dwell again
+    vi.advanceTimersByTime(120); // image: full dwell again
     expect(m.getState().cursor).toBe(2);
     m.destroy();
   });

@@ -3,7 +3,10 @@
 // top down to the NEWEST at the bottom, auto-scrolled to the bottom so the
 // most recent thumbnail is the one visible. Clicking an entry closes the
 // panel and continues the novel from that time point (`machine.goTo`); a
-// click anywhere else on the panel is backdrop and only closes it.
+// click anywhere else on the panel is backdrop and only closes it. Each
+// thumbnail carries an "x" in its top-right corner (docs/plan.md Phase 18,
+// "Delete a bookmark"): clicking it deletes that bookmark — storage
+// included — without opening it, and the list re-renders in place.
 //
 // Every decision (entry order, thumbnail source, timestamp text, the
 // scroll-to-bottom target) is a pure export below; the DOM part only
@@ -17,6 +20,10 @@ import type { Bookmark } from "../storage/types";
 
 /** The panel's message when the novel has no bookmarks yet. */
 export const EMPTY_MESSAGE = "No bookmarks yet — press b";
+
+/** The delete control's glyph and its accessible name. */
+export const DELETE_GLYPH = "×";
+export const DELETE_LABEL = "Delete this bookmark";
 
 /**
  * What an entry click asks the player to do: the item to re-open, plus
@@ -114,6 +121,23 @@ export function bottomScrollTop(
   return Math.max(0, scrollHeight - clientHeight);
 }
 
+/**
+ * The scrollTop for a re-render of the OPEN list (after a delete): the
+ * reader's place is kept, clamped to the shorter list's new bottom, so the
+ * rows around the deleted one stay where the pointer is. Opening the list
+ * scrolls to the bottom instead (`bottomScrollTop`).
+ */
+export function keptScrollTop(
+  previous: number,
+  scrollHeight: number,
+  clientHeight: number,
+): number {
+  return Math.min(
+    Math.max(0, previous),
+    bottomScrollTop(scrollHeight, clientHeight),
+  );
+}
+
 /** The entry's second line: the item index plus its manifest id, if known. */
 export function entryLabel(itemIndex: number, id: string | undefined): string {
   return id === undefined
@@ -139,12 +163,18 @@ export interface BookmarkOverlayOptions {
    * itemIndex navigation.
    */
   onPick(target: BookmarkRestore): void;
+  /**
+   * A thumbnail's "x" was clicked: the caller deletes this bookmark from
+   * storage and re-renders the list (the panel stays open).
+   */
+  onDelete(bookmark: Bookmark): void;
 }
 
 export function mountBookmarkOverlay({
   root,
   items,
   onPick,
+  onDelete,
 }: BookmarkOverlayOptions): BookmarkOverlay {
   const doc = root.ownerDocument;
 
@@ -159,7 +189,8 @@ export function mountBookmarkOverlay({
 
   const hint = doc.createElement("p");
   hint.className = "bookmarks-hint";
-  hint.textContent = "click an entry to continue there · t or Esc closes";
+  hint.textContent =
+    "click an entry to continue there · its × deletes it · t or Esc closes";
 
   const list = doc.createElement("div");
   list.className = "bookmarks-list";
@@ -181,18 +212,32 @@ export function mountBookmarkOverlay({
     // record's ctx (Phase 13) rather than just its itemIndex.
     entry.setAttribute("data-entry-index", String(position));
 
+    // The thumbnail sits in a positioned box so the "x" can take its
+    // top-right corner. The "x" is a span with a button role, not a
+    // <button>: it lives inside the entry's button, which cannot nest one.
+    const thumbBox = doc.createElement("span");
+    thumbBox.className = "bookmark-thumb-box";
     const src = entryThumbSrc(bookmark, items);
     if (src !== null) {
       const thumb = doc.createElement("img");
       thumb.className = "bookmark-thumb";
       thumb.src = src; // relative to the page: the content folder's own file
       thumb.alt = "";
-      entry.appendChild(thumb);
+      thumbBox.appendChild(thumb);
     } else {
       const placeholder = doc.createElement("span");
       placeholder.className = "bookmark-thumb bookmark-thumb-empty";
-      entry.appendChild(placeholder);
+      thumbBox.appendChild(placeholder);
     }
+    const remove = doc.createElement("span");
+    remove.className = "bookmark-delete";
+    remove.setAttribute("role", "button");
+    remove.setAttribute("aria-label", DELETE_LABEL);
+    remove.setAttribute("title", DELETE_LABEL);
+    remove.setAttribute("data-bookmark-delete", "");
+    remove.textContent = DELETE_GLYPH;
+    thumbBox.appendChild(remove);
+    entry.appendChild(thumbBox);
 
     const meta = doc.createElement("span");
     meta.className = "bookmark-meta";
@@ -228,6 +273,15 @@ export function mountBookmarkOverlay({
         Number.isInteger(position) && position >= 0
           ? shown[position]
           : undefined;
+      // The "x" deletes and never opens: the panel stays up and the caller
+      // re-renders it from what storage holds after the delete.
+      if (
+        target instanceof Element &&
+        target.closest("[data-bookmark-delete]") !== null
+      ) {
+        if (record !== undefined) onDelete(record);
+        return;
+      }
       close();
       if (record !== undefined) onPick(bookmarkRestoreTarget(record));
       return;
@@ -237,6 +291,8 @@ export function mountBookmarkOverlay({
   });
 
   function render(bookmarks: readonly Bookmark[]): void {
+    const wasOpen = !panel.hidden;
+    const previousScroll = list.scrollTop;
     const ordered = listOrder(bookmarks);
     shown = ordered;
     list.replaceChildren(
@@ -246,8 +302,11 @@ export function mountBookmarkOverlay({
     empty.hidden = ordered.length !== 0;
     panel.hidden = false;
     // After the entries are in the DOM, so scrollHeight counts them: the
-    // newest entry is what the reader sees first (README `t` bullet).
-    list.scrollTop = bottomScrollTop(list.scrollHeight, list.clientHeight);
+    // newest entry is what the reader sees first (README `t` bullet). A
+    // re-render of the open list (a delete) keeps the reader's place.
+    list.scrollTop = wasOpen
+      ? keptScrollTop(previousScroll, list.scrollHeight, list.clientHeight)
+      : bottomScrollTop(list.scrollHeight, list.clientHeight);
   }
 
   function close(): void {

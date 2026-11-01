@@ -1030,11 +1030,10 @@ describe("the return row needs the CONTINUING route completed (docs/plan.md Phas
     old.destroy();
   });
 
-  it("Enter with no row is a silent no-op", () => {
-    // The key path: `enterActionFor` answers "none" without a row (pinned in
-    // render/choice.test.ts), and the machine's `chooseContinue` — what
-    // Enter would call — is inert with no offer: no move, no state change,
-    // no re-emit.
+  it("0 with no row is a silent no-op", () => {
+    // The key path: main.ts takes `0` to `chooseContinue` only when the row
+    // is drawn, and the machine's `chooseContinue` is inert with no offer
+    // anyway: no move, no state change, no re-emit.
     const m = manual(CANON);
     m.advance();
     m.advance();

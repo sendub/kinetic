@@ -1,5 +1,6 @@
 // The `#help` key help overlay (docs/plan.md Phase 13b): a black screen
-// listing every control, rendered from the keymap module's own table
+// listing the main interaction keys, one short line each (Phase 18, "Key
+// help simplified" — the reset box's own keys are not listed), rendered from the keymap module's own table
 // (`keyHelpEntries` in render/keys.ts) — the keys shown are the keys that
 // are mapped, so the screen cannot drift from the mapping (the README's
 // auto-forward bullet was the symptom; discoverability was the cause).
@@ -8,7 +9,7 @@
 // never seen it (`helpSeen`, storage/types.ts), and Escape opens it at any
 // other time when no other screen is up. While it is open the shell hides
 // the stage, pauses the machine and lets only the closing actions through
-// (Escape, space, Enter, a click anywhere — main.ts owns that mutual
+// (Escape, space, a click anywhere — main.ts owns that mutual
 // exclusion, and the future choice overlay slots into the same rule).
 //
 // FULLSCREEN CAVEAT, observed and documented (docs/verify-player.md, the
@@ -16,7 +17,7 @@
 // leaving fullscreen, and the page cannot reliably see that keydown —
 // Chrome consumed the first Escape in the headless walk too. Escape in
 // windowed mode reaches the page and opens/closes the help directly; every
-// other closing action (space, Enter, click) is unaffected by fullscreen.
+// other closing action (space, click) is unaffected by fullscreen.
 //
 // Like the config screen, the decisions are pure exports below and the DOM
 // half only applies them; the rows themselves live with the keymap
@@ -28,7 +29,7 @@ import { keyHelpEntries } from "./keys";
 export const HELP_TITLE = "Key help";
 
 /** The panel's closing hint. */
-export const HELP_HINT = "Esc · space · Enter · click — closes";
+export const HELP_HINT = "Esc · Space · click — closes";
 
 export interface HelpOverlay {
   isOpen(): boolean;

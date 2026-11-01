@@ -568,16 +568,18 @@ truthful: an unchecked box means nothing was accepted.
       (mapping table in docs/verify-player.md); the old driver is
       deleted; AGENTS.md test-speed rules updated.
       (6 scenarios / 127 checks green: reading, media, navigation, screens, branches, playall; old steps mapped in docs/verify-player.md. Found and fixed on the way: bookmark click after a wheel-back landed on the reading position; play-all + skip-all burst stopped at each interstitial. 2026-11-01)
-- [ ] Key help simplified (user, 2026-11-01): the Esc screen highlights
+- [x] Key help simplified (user, 2026-11-01): the Esc screen highlights
       the main interaction keys only, one way per action. Enter is
       removed as an alternate key everywhere (never requested): `0`
       picks "Return to main route" (the row shows 0), help closes by
       Esc/Space/click; the reset box's keys are not listed in the help.
       Tests, README, scenarios updated.
-- [ ] Delete a bookmark (user, 2026-11-01): each thumbnail in the `t`
+      (Enter removed everywhere; `0` picks the return row, badge "0", hint only with the row; help rows Space, wheel, E, Tab, A, H, B, T, C, Esc, 1-9 / 0; reset keys unlisted; scenarios press 0 and prove Enter inert. 427 tests, 2026-11-01)
+- [x] Delete a bookmark (user, 2026-11-01): each thumbnail in the `t`
       list shows an "x" in its top-right corner; clicking it removes that
       bookmark (storage included) without opening it. README feature
       line; tests + scenario.
+      (× in each thumbnail corner; storage deleteBookmark in idb + memory; list re-renders keeping scroll; screens scenario: delete one of two, survives reload. 2026-11-01)
 - [x] README tidy (user, 2026-11-01): cut wordiness and duplication
       (e.g. the `a` line repeats the manual Space mode that belongs on
       the Space line); one concise line per feature. State what IS,
@@ -587,10 +589,11 @@ truthful: an unchecked box means nothing was accepted.
       supported, one line per feature, ~1056 -> ~670 words; CREATE.md
       drops its stale copy of the controls and "later phases" hedge.
       2026-11-01)
-- [ ] Settings survive an immediate reload (found by the screens
+- [x] Settings survive an immediate reload (found by the screens
       scenario, 2026-11-01: four `+` clicks then a reload within ~100 ms
       came back at 1.00x in 4 of 6 runs; fire-and-forget settings write).
       Same durability as `b`'s commit-then-confirm.
+      (cause: a settings write queued behind a running write; urgent writes now go immediately and replace any queued older value; idb commit() on save; screens scenario: 3 rounds of clicks + immediate reload, 18/18 green and red on the old path. 2026-11-01)
 - [x] History rollback (user, 2026-11-01: "scrolling back should show
       what was originally seen going forward"; choice screens are the
       key visual waypoints of a fast roll back). The machine records
@@ -620,13 +623,14 @@ truthful: an unchecked box means nothing was accepted.
       (~20 s); AGENTS.md per-item rule points at it.
       (smoke.scenario.mjs, 6 checks in ~4 s; `--smoke` flag in run.mjs;
       AGENTS.md + docs/verify-player.md updated, 2026-11-01)
-- [ ] Faster Tab skip (user, 2026-11-01: "too slow... something more
+- [x] Faster Tab skip (user, 2026-11-01: "too slow... something more
       like Ren'Py"): Ren'Py's `config.skip_delay` defaults to 5 ms per
       statement, so its skip runs at display frame rate (~30-60 lines/s);
       ours dwells 120 ms (~8/s). Default `skipDwellMs` ~25 ms (~40/s),
       still showing each item's first frame; check media decode keeps up
       (docs/perf.md budget) and update the skip timing bounds in tests
       and the navigation/media scenarios.
+      (skipDwellMs 120 -> 25 ms; a stored dwell is ignored so saved profiles get the new pace; clamp tests pinned to an explicit 120 ms; navigation/media scenarios judge the burst by total time; green twice in a row. 2026-11-01)
 - [x] Skip-all + play-all keeps skipping across route changes (external
       conversion agent, 2026-11-01, on a025c94: after the "Back in time"
       screen the skip stopped on the next route's first item until Tab

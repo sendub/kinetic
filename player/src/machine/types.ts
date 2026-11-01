@@ -196,7 +196,9 @@ export const DEFAULT_SETTINGS: MachineSettings = {
   readingSpeed: 1.0,
   minHoldMs: 1500,
   msPerChar: 60,
-  skipDwellMs: 120,
+  // ~40 items/s: near Ren'Py's frame-rate-bound skip (config.skip_delay
+  // 5 ms per statement), still showing each item's first frame.
+  skipDwellMs: 25,
   skipAll: false,
   playAllRoutes: false,
 };
@@ -239,7 +241,7 @@ export interface ChoiceView {
    * offered — which requires the decision's CONTINUING route to have been
    * COMPLETED at least once (docs/plan.md Phase 18): entered-and-abandoned
    * does not count, and a decision with no continuing route never shows
-   * the row. The renderer draws the row and its Enter hint only when set.
+   * the row. The renderer draws the row and its `0` hint only when set.
    */
   readonly continueOption?: boolean;
 }

@@ -23,7 +23,7 @@
 //     measure nothing.
 //   - warmup excluded: the first WARMUP_NAVS navigations of the run-in are
 //     dropped from the stats (kept in the JSON), so page boot, the help
-//     screen's Enter and the first two pictures do not shape the percentiles.
+//     screen's Escape and the first two pictures do not shape the percentiles.
 // The walk is one cold pass: every measured navigation enters a file this
 // run has never fetched, which is the reader's first-read case and the one
 // the 41 ms budget (docs/stack.md) is about. A sample is a single
@@ -247,7 +247,7 @@ async function pressKey(cdp, key, code, keyCode, text) {
   });
 }
 const pressSpace = (cdp) => pressKey(cdp, " ", "Space", 32, " ");
-const pressEnter = (cdp) => pressKey(cdp, "Enter", "Enter", 13, "\r");
+const pressEscape = (cdp) => pressKey(cdp, "Escape", "Escape", 27, "");
 const pressDigit = (cdp, digit) =>
   pressKey(cdp, digit, `Digit${digit}`, 48 + Number(digit), digit);
 
@@ -267,10 +267,10 @@ async function walk(browser, folder) {
     () => document.getElementById("overlay") !== null,
     { timeout: 5000 },
   );
-  // First-ever load shows the key help; Enter closes it (verify.mjs's
-  // dismissHelp) — a closing action, not a navigation.
+  // First-ever load shows the key help; Escape closes it (the scenario
+  // harness's dismissHelp) — a closing action, not a navigation.
   if ((await page.evaluate(SNAPSHOT)).helpOpen) {
-    await pressEnter(cdp);
+    await pressEscape(cdp);
     await page.waitForFunction(
       () => {
         const help = document.getElementById("help");
@@ -298,18 +298,18 @@ async function walk(browser, folder) {
   for (let step = 0; step < MAX_KEYS; step += 1) {
     const before = await page.evaluate(SNAPSHOT);
     if (before.helpOpen) {
-      await pressEnter(cdp); // help can never re-open without Escape; guard anyway
+      await pressEscape(cdp); // help can never re-open without Escape; guard anyway
       continue;
     }
     if (before.choiceOpen) {
       // Play each route once: answer with the first UNSEEN row (seen ones
-      // re-enter the same span and the walk would never finish); Enter for
+      // re-enter the same span and the walk would never finish); 0 for
       // the return-to-main offer when everything has played; a plain digit
       // as the last fallback. Any answer enters a span: an advancing key.
       const fresh = (before.choiceRows ?? []).find((r) => !r.seen && !r.cont);
       if (fresh !== undefined) await pressDigit(cdp, String(fresh.idx + 1));
       else if ((before.choiceRows ?? []).some((r) => r.cont))
-        await pressEnter(cdp);
+        await pressDigit(cdp, "0");
       else await pressDigit(cdp, "1");
       sequence.push({ advancing: true });
       itemSettled = false; // a route entry is an unsettled arrival

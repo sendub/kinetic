@@ -2,10 +2,12 @@ import { describe, expect, it } from "vitest";
 import type { TimelineCommands } from "./keys";
 import {
   commandForKey,
+  decisionKeyFor,
   keyHelpEntries,
   mappedKeys,
   routeIndexForKey,
   suspendTimeline,
+  UNLISTED_COMMANDS,
 } from "./keys";
 
 describe("commandForKey", () => {
@@ -37,10 +39,16 @@ describe("commandForKey", () => {
     expect(commandForKey("C", false)).toBe("toggleConfig");
   });
 
-  it("maps a to auto-forward and Enter to closing help (Phase 13b)", () => {
+  it("maps a to auto-forward (Phase 13b)", () => {
     expect(commandForKey("a", false)).toBe("toggleAutoForward");
     expect(commandForKey("A", false)).toBe("toggleAutoForward");
-    expect(commandForKey("Enter", false)).toBe("closeHelp");
+  });
+
+  it("maps nothing to Enter — one key per action (Phase 18)", () => {
+    // "enter was never something I requested": help closes with Esc,
+    // Space or a click, the return row is 0, the reset box is y / click.
+    expect(commandForKey("Enter", false)).toBeNull();
+    expect(decisionKeyFor("Enter", false)).toBeNull();
   });
 
   it("ignores a held key's auto-repeat so it cannot burst through items", () => {
@@ -52,13 +60,12 @@ describe("commandForKey", () => {
     expect(commandForKey("t", true)).toBeNull();
     expect(commandForKey("c", true)).toBeNull();
     expect(commandForKey("a", true)).toBeNull();
-    expect(commandForKey("Enter", true)).toBeNull();
     expect(commandForKey("Escape", true)).toBeNull();
   });
 
   it("leaves keys owned by later phases unmapped", () => {
-    // c joined with Phase 9, a and Enter with Phase 13b's help; these
-    // stay free (the arrow keys belong to nobody yet).
+    // c joined with Phase 9, a with Phase 13b's help; these stay free
+    // (the arrow keys belong to nobody yet).
     for (const key of ["ArrowRight", "Shift"]) {
       expect(commandForKey(key, false)).toBeNull();
     }
@@ -85,6 +92,24 @@ describe("routeIndexForKey (the decision overlay's 1..9, Phase 13)", () => {
     expect(routeIndexForKey("a", false)).toBeNull();
     expect(routeIndexForKey("Enter", false)).toBeNull();
     expect(routeIndexForKey("1", true)).toBeNull();
+  });
+});
+
+describe("decisionKeyFor (1..9 pick a route, 0 returns — Phase 18)", () => {
+  it("passes the route digits through as indices", () => {
+    expect(decisionKeyFor("1", false)).toBe(0);
+    expect(decisionKeyFor("9", false)).toBe(8);
+  });
+
+  it("maps 0 to the return row", () => {
+    expect(decisionKeyFor("0", false)).toBe("return");
+  });
+
+  it("ignores repeats and every other key", () => {
+    expect(decisionKeyFor("0", true)).toBeNull();
+    expect(decisionKeyFor("1", true)).toBeNull();
+    expect(decisionKeyFor("a", false)).toBeNull();
+    expect(decisionKeyFor("Enter", false)).toBeNull();
   });
 });
 
@@ -147,9 +172,11 @@ describe("keyHelpEntries (the help lists the map itself, Phase 13b)", () => {
     return new Set(keyHelpEntries().flatMap((entry) => entry.keys));
   }
 
-  it("lists every mapped key", () => {
+  it("lists every mapped key except the reset box's own", () => {
     const listed = listedLabels();
     for (const key of mappedKeys()) {
+      const command = commandForKey(key, false);
+      if (command !== null && UNLISTED_COMMANDS.has(command)) continue;
       const label =
         key === " " ? "Space" : key.length === 1 ? key.toLowerCase() : key;
       expect(listed.has(label)).toBe(true);
@@ -166,6 +193,7 @@ describe("keyHelpEntries (the help lists the map itself, Phase 13b)", () => {
     );
     const entries = keyHelpEntries();
     for (const command of commands) {
+      if (UNLISTED_COMMANDS.has(command)) continue;
       const row = entries.find((entry) => entry.command === command);
       expect(row).toBeDefined();
       expect((row?.description ?? "").length).toBeGreaterThan(0);
@@ -177,9 +205,39 @@ describe("keyHelpEntries (the help lists the map itself, Phase 13b)", () => {
     expect(listedLabels().has("wheel")).toBe(true);
   });
 
-  it("lists the decision digits and Enter — the choice overlay's own keys", () => {
+  it("lists the decision digits and 0 — the choice overlay's own keys", () => {
     // The digits live outside KEY_TABLE (they carry a parameter and belong
     // to one context), so this row is the help's promise about them.
-    expect(listedLabels().has("1-9 / Enter")).toBe(true);
+    expect(listedLabels().has("1-9 / 0")).toBe(true);
+  });
+
+  it("shows only the main interaction keys, one line each (Phase 18)", () => {
+    // "highlight and focus on the main interaction keys ... no need to
+    // mention the keys used during the reset process."
+    expect(keyHelpEntries().map((entry) => entry.keys.join(" / "))).toEqual([
+      "Space",
+      "wheel",
+      "e",
+      "Tab",
+      "a",
+      "h",
+      "b",
+      "t",
+      "c",
+      "Escape",
+      "1-9 / 0",
+    ]);
+    const listed = listedLabels();
+    for (const gone of ["Enter", "y", "n"])
+      expect(listed.has(gone)).toBe(false);
+    for (const command of UNLISTED_COMMANDS) {
+      expect(keyHelpEntries().some((entry) => entry.command === command)).toBe(
+        false,
+      );
+    }
+    // One short line each: no row wraps into a paragraph.
+    for (const entry of keyHelpEntries()) {
+      expect(entry.description.length).toBeLessThanOrEqual(56);
+    }
   });
 });

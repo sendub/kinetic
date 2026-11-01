@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { helpKeyLabel, helpRows, helpScreenStateFor } from "./help";
+import { HELP_HINT, helpKeyLabel, helpRows, helpScreenStateFor } from "./help";
 import { keyHelpEntries } from "./keys";
 
 // The DOM half of render/help.ts has no browser here — same as the config
@@ -30,6 +30,28 @@ describe("helpRows (drawn from the keymap, Phase 13b)", () => {
       expect(row.keys.length).toBeGreaterThan(0);
       expect(row.description.length).toBeGreaterThan(0);
     }
+  });
+
+  it("closes with Esc, Space or a click — Enter is no key (Phase 18)", () => {
+    expect(HELP_HINT).toBe("Esc · Space · click — closes");
+    expect(HELP_HINT).not.toContain("Enter");
+  });
+
+  it("draws no reset-box keys and no Enter (Phase 18)", () => {
+    const labels = helpRows().flatMap((row) => row.keys);
+    expect(labels).toEqual([
+      "Space",
+      "wheel",
+      "E",
+      "Tab",
+      "A",
+      "H",
+      "B",
+      "T",
+      "C",
+      "Esc",
+      "1-9 / 0",
+    ]);
   });
 
   it("labels keys the way a keyboard legends them", () => {
