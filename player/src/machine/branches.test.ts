@@ -371,8 +371,10 @@ describe("navigation arrivals show unresolved decisions (docs/plan.md Phase 16)"
   });
 
   it("an e-jump landing on the after item shows the decision", () => {
-    const m = machine(CANON, { resumeFrontier: 2 });
-    m.jumpToUnseen(); // item 2: the first unseen, the after item
+    const m = machine(CANON, { resumeFrontier: 3 }); // reading stopped on 2
+    m.wheelBack();
+    m.wheelBack(); // scrub back to 0
+    m.jumpToUnseen(); // the resume step lands on 2, the after item
     expect(m.getState().cursor).toBe(2);
     expect(m.getState().choice?.decisionId).toBe("d1");
     expect(m.getState().choice?.arrival).toBe(true);
@@ -461,8 +463,10 @@ describe("navigation arrivals show unresolved decisions (docs/plan.md Phase 16)"
 
   it("playAllRoutes: an e-jump onto the after item resolves it too", () => {
     const auto = { ...SETTINGS, playAllRoutes: true };
-    const m = machine(CANON, { settings: auto, resumeFrontier: 2 });
-    m.jumpToUnseen(); // lands on `decide`, the first unseen item
+    const m = machine(CANON, { settings: auto, resumeFrontier: 3 });
+    m.wheelBack();
+    m.wheelBack(); // scrub back to 0
+    m.jumpToUnseen(); // the resume step lands on `decide`
     expect(m.getState().choice).toBeUndefined();
     expect(m.getState().cursor).toBe(3); // route A entered, not an arrival view
     expect(m.exportContext().playedRoutes).toEqual([
@@ -1368,10 +1372,11 @@ describe("jumpToUnseen targets (the three cases, docs/plan.md Phase 13)", () => 
     expect(m.getState().cursor).toBe(1);
     m.jumpToUnseen(); // Phase 18 resume step: back to the reading position first
     expect(m.getState().cursor).toBe(3);
-    m.jumpToUnseen(); // a: route A's own unseen item 4, not a global scan
-    expect(m.getState().cursor).toBe(4);
-    expect(m.getState().settled).toBe(false);
-    expect(m.visitedList()).toContain(4);
+    // Standing on the reading position, route A's next item is unseen but
+    // simply next: `e` is never a forward step (docs/plan.md Phase 18).
+    m.jumpToUnseen();
+    expect(m.getState().cursor).toBe(3);
+    expect(m.visitedList()).not.toContain(4);
     m.destroy();
   });
 
@@ -1424,7 +1429,9 @@ describe("jumpToUnseen targets (the three cases, docs/plan.md Phase 13)", () => 
   it("an e-jump is a fresh entry, not a settled landing", () => {
     vi.useFakeTimers();
     const m = machine(CANON);
-    m.jumpToUnseen(); // item 1 is the first unseen
+    step(m); // 0 -> 1: the reading position
+    m.wheelBack(); // scrub back to 0
+    m.jumpToUnseen(); // the resume step: a fresh entry on 1
     expect(m.getState()).toEqual({
       cursor: 1,
       frontier: 2,

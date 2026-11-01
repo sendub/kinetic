@@ -147,7 +147,11 @@ const HELP_ROWS: ReadonlyArray<{
   { command: "toggleText", description: "hide or show the text" },
   { command: "bookmark", description: "bookmark this moment" },
   { command: "toggleBookmarks", description: "show or hide the bookmark list" },
-  { command: "jumpToUnseen", description: "jump to the last item you read" },
+  {
+    command: "jumpToUnseen",
+    description:
+      "back to where you were reading; from there, to unseen content elsewhere",
+  },
   {
     command: "toggleConfig",
     description: "config: reading speed, skip-all, play-all-routes, reset",

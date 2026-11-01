@@ -540,13 +540,17 @@ truthful: an unchecked box means nothing was accepted.
       are stepped over both ways; the main.ts input gate also let the
       wheel through a FIRED choice now (item 4's machine rule was
       unreachable in the real player). (405 tests, 2026-11-01)
-- [ ] `e` never acts as a forward step (user, 2026-11-01; reproduced on
+- [x] `e` never acts as a forward step (user, 2026-11-01; reproduced on
       the demo: from a fresh start each `e` press advanced one item,
       revealing new content like Space): standing at the reading
       position with the next unseen item simply next in reading order,
       `e` does nothing. It still resumes to the last-read item, jumps to
       unseen content elsewhere (an unplayed route) and shows the ending
-      when all is seen. Help/README wording agree; tests.
+      when all is seen. Help/README wording agree; tests. (rule: at
+      the reading position a target of `cursor + 1` is a no-op - also
+      keeps `e` from entering a route's items at an unanswered
+      decision; 8 tests that pinned "repeated presses step unseen"
+      rewritten; 405 tests, 2026-11-01)
 - [ ] Demo meta pass: meta text items explaining the intent of each
       demoed feature (ranges, loopStart, minPlay, chains, the branch
       map + replay affordances); docs list demo features; driver

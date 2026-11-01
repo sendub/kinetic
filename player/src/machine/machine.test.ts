@@ -1512,7 +1512,7 @@ describe("e-jump (jumpToUnseen), docs/plan.md Phase 4", () => {
   // "Seen tracking"). Phase 18 added the resume step in front: when the
   // cursor has scrubbed away from the reading position, the first press
   // goes back there before any unseen jump (docs/plan.md Phase 18).
-  it("jumps back to the reading position first, then steps the unseen items", () => {
+  it("jumps back to the reading position first; there it never steps forward", () => {
     const m = machine([image(), image(), image(), image(), image()], {
       resumeFrontier: 3,
     });
@@ -1523,61 +1523,33 @@ describe("e-jump (jumpToUnseen), docs/plan.md Phase 4", () => {
     // the reading stopped — scrubbing did not move it), the first press
     // RESUMES there; the jump lands seen, so the frontier does not move.
     m.jumpToUnseen();
-    expect(m.getState()).toEqual({
+    const resumed = m.getState();
+    expect(resumed).toEqual({
       cursor: 2,
       frontier: 3,
       settled: false,
       skipping: false,
       transition: "nav",
     });
-    m.jumpToUnseen(); // standing on it now: the first unseen item
-    expect(m.getState()).toEqual({
-      cursor: 3,
-      frontier: 4,
-      settled: false,
-      skipping: false,
-      transition: "nav",
-    });
-    m.jumpToUnseen(); // a further press steps on to the next unseen item
-    expect(m.getState()).toEqual({
-      cursor: 4,
-      frontier: 5,
-      settled: false,
-      skipping: false,
-      transition: "nav",
-    });
-    m.jumpToUnseen(); // nothing unseen left: stay
-    expect(m.getState()).toEqual({
-      cursor: 4,
-      frontier: 5,
-      settled: false,
-      skipping: false,
-      transition: "nav",
-    });
+    // Standing on it now, the first unseen item is simply the next one:
+    // `e` is never a forward step (docs/plan.md Phase 18) — Space reads on.
+    m.jumpToUnseen();
+    expect(m.getState()).toBe(resumed);
     m.destroy();
   });
 
-  it("the jump marks seen only the item it lands on, never further ahead", () => {
+  it("at the reading position with the next item unseen, the press reveals nothing", () => {
     const m = machine([image(), image(), image()], { resumeFrontier: 1 });
-    m.jumpToUnseen(); // lands ON the first unseen item and shows it
-    expect(m.getState()).toEqual({
-      cursor: 1,
-      frontier: 2,
-      settled: false,
-      skipping: false,
-      transition: "nav",
-    });
-    // One item seen per press: the jump consumed nothing it did not show.
-    m.advance(); // the landing was a fresh entry: this press settles it
-    expect(m.getState().cursor).toBe(1);
-    m.advance(); // and the next enters item 2
-    expect(m.getState().frontier).toBe(3);
+    const before = m.getState();
+    m.jumpToUnseen();
+    expect(m.getState()).toBe(before);
+    expect(m.getState().frontier).toBe(1); // item 1 stayed unseen
     m.destroy();
   });
 });
 
 describe("`e`'s resume step (docs/plan.md Phase 18)", () => {
-  it("user repro: after wheeling back, the first press lands ON the last-shown item; the next moves on", () => {
+  it("user repro: after wheeling back, the first press lands ON the last-shown item; the next stays", () => {
     vi.useFakeTimers();
     // The reported flow on the player's own manual start: one space shows
     // the next item, the wheel scrubs back, and `e` must return to where
@@ -1598,22 +1570,9 @@ describe("`e`'s resume step (docs/plan.md Phase 18)", () => {
       skipping: false,
       transition: "nav", // a nav landing: below the edge it shows a poster
     });
-    m.jumpToUnseen(); // standing there now: the first unseen item ahead
-    expect(m.getState()).toEqual({
-      cursor: 2,
-      frontier: 3,
-      settled: false,
-      skipping: false,
-      transition: "nav",
-    });
-    m.jumpToUnseen(); // repeated presses still step unseen in array order
-    expect(m.getState()).toEqual({
-      cursor: 3,
-      frontier: 4,
-      settled: false,
-      skipping: false,
-      transition: "nav",
-    });
+    const resumed = m.getState();
+    m.jumpToUnseen(); // standing there: the next item is unseen, so `e` stays
+    expect(m.getState()).toBe(resumed); // never a forward step (Phase 18)
     m.destroy();
   });
 
@@ -1894,7 +1853,7 @@ describe("subscribe, timers, and destroy()", () => {
 });
 
 describe("resume from persisted storage (docs/plan.md Phase 8, memory fake)", () => {
-  it("the persisted value feeds resumeFrontier: lands at frontier-1, e reaches the first unseen item, one advance enters unseen", async () => {
+  it("the persisted value feeds resumeFrontier: lands at frontier-1, e stays there, one advance enters unseen", async () => {
     const storage = createMemoryStorage();
     const items = [image(), image(), image(), image(), image(), image()];
     // Session 1: the reader saw items 0..3 (three settle-and-move pairs).
@@ -1930,23 +1889,18 @@ describe("resume from persisted storage (docs/plan.md Phase 8, memory fake)", ()
       skipping: false,
       transition: "nav",
     });
-    // `e` at the resume spot reaches the first UNSEEN item (Phase 13's jump
-    // target; under the old rule the landing already was `frontier - 1`, and
-    // the press was a no-op).
+    // `e` at the resume spot stays: the landing is the reading position and
+    // the first unseen item is simply the next one (docs/plan.md Phase 18,
+    // `e` is never a forward step).
+    const landed = resumed.getState();
     resumed.jumpToUnseen();
-    expect(resumed.getState()).toEqual({
-      cursor: 4,
-      frontier: 5,
-      settled: false,
-      skipping: false,
-      transition: "nav",
-    });
+    expect(resumed.getState()).toBe(landed);
 
     // Travelling back through seen content persists nothing: a reload
     // returns to the resume spot, not wherever the wheel had stopped.
     resumed.wheelBack();
     resumed.wheelBack();
-    expect(resumed.getState().cursor).toBe(2);
+    expect(resumed.getState().cursor).toBe(1);
     const second = machine(items, {
       resumeFrontier: (await storage.loadState())?.frontier,
     });

@@ -219,8 +219,9 @@ export interface Machine {
    * the current route span at or after the cursor, else (b) in an unplayed
    * route of a decision on the stack (innermost first) or of the decision
    * that fires next along it, else (c) the first unseen item of the
-   * manifest in array order; a further press steps on to the next unseen
-   * item. Every landing is a fresh entry: the item is shown and marked
+   * manifest in array order — except that `e` is never a forward step
+   * (docs/plan.md Phase 18): when that target is simply the next item
+   * (`cursor + 1`), the press does nothing, since Space reads on. Every landing is a fresh entry: the item is shown and marked
    * seen, its own hold is armed, and skip mode ends. No-op when the cursor
    * is already on the target. Like the wheel and `goTo()`: a jump onto a
    * decision's `after` item opens its arrival view, and a jump away from one
@@ -1901,6 +1902,13 @@ export function createMachine(options: MachineOptions): Machine {
         // is already seen, and `lastShown` already names it). The next
         // press, standing on `lastShown`, takes the unseen rules below.
         target = lastShown;
+      } else if (unseen === cursor + 1) {
+        // `e` is never a forward step (docs/plan.md Phase 18): standing at
+        // the reading position with the next unseen item simply next in
+        // reading order, the reader is already where they left off — Space
+        // is how to read on. (At an unanswered decision this also keeps `e`
+        // from entering the first route's items without a pick.)
+        target = -1;
       } else {
         target = unseen;
       }
