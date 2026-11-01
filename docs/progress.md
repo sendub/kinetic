@@ -663,5 +663,13 @@ truthful: an unchecked box means nothing was accepted.
       manually from the current item (that press does not also step;
       the next Space does). Replaces "in auto-forward Space ends this
       item first". Help, README, tests, scenario.
+- [ ] Skip paces by pictures (user, 2026-11-01): during a skip burst a
+      `text` item takes zero time and the overlay text is hidden, so the
+      constant ~25 ms pace applies to pictures and video stills only.
+      Every text item is still walked: marked seen, recorded in the
+      history, and subject to every stop rule (never reveal unseen, a
+      decision hanging off a line, route ends), so skip can still stop
+      ON a particular line, which then shows normally once skip ends.
+      Tests (a 5-line chain costs one picture's dwell), scenario.
 - [ ] Phase-closer: full suite (driver, vitest, pytest, package-proof),
       rebuild BOTH demo folders, present the updated demo to the user.
