@@ -605,9 +605,11 @@ truthful: an unchecked box means nothing was accepted.
 - [ ] End card (user-approved proposal): an ending shows how many routes
       are still unseen and the one-key way to the next one, replacing
       the one-line hint.
-- [ ] Fast smoke subset of the scenario suite (user-approved proposal):
+- [x] Fast smoke subset of the scenario suite (user-approved proposal):
       `npm run verify -- --smoke` runs one quick check per scenario
       (~20 s); AGENTS.md per-item rule points at it.
+      (smoke.scenario.mjs, 6 checks in ~4 s; `--smoke` flag in run.mjs;
+      AGENTS.md + docs/verify-player.md updated, 2026-11-01)
 - [ ] Faster Tab skip (user, 2026-11-01: "too slow... something more
       like Ren'Py"): Ren'Py's `config.skip_delay` defaults to 5 ms per
       statement, so its skip runs at display frame rate (~30-60 lines/s);

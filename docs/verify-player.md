@@ -13,6 +13,8 @@ From `player/`:
 - `npm run verify -- branches` (any substring) runs only the matching
   scenario files; build first with `npm run build` when calling
   `node scripts/scenarios/run.mjs` directly.
+- `npm run verify -- --smoke` runs only `smoke.scenario.mjs`: one quick
+  check per area in about 5 s, for per-change runs.
 - `KINETIC_SCENARIO_ROOT=../.tmp/scenarios-<x>` gives a run its own folders
   and profiles, so runs can overlap.
 
@@ -27,6 +29,7 @@ demo text edit never breaks them.
 
 | Scenario | Covers |
 |---|---|
+| `smoke` | one check per area: Space, the chain video playing, a wheel step back, `b` + `t` + `c`, a decision opening |
 | `reading` | first-load key help, Space closing it (and entering fullscreen), manual default, `a` on/off, speech / thought / narration / bare picture, `h`, one press = one item, one notch = one step |
 | `media` | animation fps and loops, video under a text chain (same element, poster first), ranges of one file with a loop restart point, contain fit at two viewports and a mismatched asset, minimum play time in auto, skip through it, loop count, WebM `holdSeconds` |
 | `navigation` | wheel steps and clamps, poster on rewind, Tab inert with nothing seen ahead, skip stopping ON the last seen item, Space stopping skip, `e` resume / no-op / jump, the wheel stepping over unplayed routes |

@@ -37,9 +37,10 @@ are implementing and docs/stack.md for settled decisions.
 Per checklist item, run only what the item can break:
 
 - Always: `npm test` and `npm run check` from `player/` (seconds).
-- Browser-visible change: add `npm run build` + the matching scenario
-  file(s): `npm run verify -- <name>` (e.g. `branches`) runs only the
-  scenario files whose name matches. Scenarios live in
+- Browser-visible change: `npm run verify -- --smoke` (builds, then a
+  ~5 s check per area) plus the matching scenario file(s):
+  `npm run verify -- <name>` (e.g. `branches`) runs only the scenario
+  files whose name matches. Scenarios live in
   `player/scripts/scenarios/*.scenario.mjs`, each on a fresh browser
   profile, so one never depends on another. Set
   `KINETIC_SCENARIO_ROOT=../.tmp/scenarios-<x>` when runs may overlap.

@@ -8,6 +8,7 @@
 //
 //   node scripts/scenarios/run.mjs            every scenario
 //   node scripts/scenarios/run.mjs branches   only files whose name matches
+//   node scripts/scenarios/run.mjs --smoke    the ~20 s smoke file only
 
 import { readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -15,7 +16,10 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { assembleFolders, openScenario, recorder } from "./harness.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const filters = process.argv.slice(2);
+const args = process.argv.slice(2);
+const filters = args.includes("--smoke")
+  ? ["smoke"]
+  : args.filter((a) => !a.startsWith("--"));
 const files = readdirSync(here)
   .filter((f) => f.endsWith(".scenario.mjs"))
   .filter((f) => filters.length === 0 || filters.some((x) => f.includes(x)))
