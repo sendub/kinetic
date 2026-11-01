@@ -25,11 +25,88 @@ export interface ManifestSource {
 }
 
 /**
- * Shape check for a loaded manifest. The content folder's own validator is
- * the authority on content (docs/content-format.md, "Rules and validator
- * invariants"); this only rejects what the renderer could not use.
+ * Why a declared media path cannot resolve inside the content folder, or
+ * `null` — the clauses of `$defs/path` in docs/content-schema.json that
+ * decide WHERE a path lands (tools/validate_content.py enforces the whole
+ * rule). A path that climbs out of the folder or names the filesystem
+ * resolves to something else entirely under `file://`, so the player checks
+ * these before assigning a `src`.
+ *
+ * A SUBPATH is fully supported: `assets/ab/window-004.jpg`, a converter
+ * bucket, is as honest as the flat `window-004.jpg` (docs/plan.md Phase 17).
+ * Rejected: a leading `/`, a backslash, a drive letter or URL scheme, any
+ * `..`, an empty segment (`a//b`, a trailing `/`), a segment that does not
+ * start with a letter or digit (which is what makes `..` and a dot file
+ * impossible), and whitespace.
  */
-export function parseManifest(value: unknown): Manifest {
+export function mediaPathError(value: string): string | null {
+  if (value.startsWith("/")) return "must be relative to the content folder";
+  if (value.includes("\\")) return 'must use "/" separators';
+  if (value.includes("..")) return 'must contain no ".." segments';
+  if (value.includes(":")) return "must contain no drive letter or URL scheme";
+  if (/\s/.test(value)) return "must contain no whitespace";
+  for (const segment of value.split("/")) {
+    if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(segment)) {
+      return "has a segment that is empty or does not start with a letter or digit";
+    }
+  }
+  return null;
+}
+
+/** The folder root a content folder's own `index.html` sits in. */
+function contentRootOf(contentRoot: string): string {
+  return new URL(".", contentRoot).href; // "…/demo/index.html" → "…/demo/"
+}
+
+/**
+ * Resolve a manifest-declared media path against the content root, the way
+ * the browser resolves the `src` the renderer assigns: `new URL(path, base)`
+ * with the base being the page itself, which lives IN the content folder. So
+ * a declared path — flat or bucketed — becomes a file inside that folder, and
+ * nothing else. Throws on a path that cannot (docs/content-format.md,
+ * "Naming conventions").
+ */
+export function resolveMediaPath(value: string, contentRoot: string): string {
+  const problem = mediaPathError(value);
+  if (problem !== null) {
+    throw new Error(`media path ${JSON.stringify(value)} ${problem}`);
+  }
+  const root = contentRootOf(contentRoot);
+  const resolved = new URL(value, contentRoot).href;
+  if (!resolved.startsWith(root)) {
+    throw new Error(
+      `media path ${JSON.stringify(value)} resolves outside the content folder`,
+    );
+  }
+  return resolved;
+}
+
+/** Every media path an item declares, in the order the validator walks them. */
+function declaredPaths(item: unknown): string[] {
+  if (typeof item !== "object" || item === null) return [];
+  const record = item as Record<string, unknown>;
+  const paths: string[] = [];
+  for (const field of ["file", "poster"]) {
+    const value = record[field];
+    if (typeof value === "string") paths.push(value);
+  }
+  const frames = record.frames;
+  if (Array.isArray(frames)) {
+    for (const frame of frames)
+      if (typeof frame === "string") paths.push(frame);
+  }
+  return paths;
+}
+
+/**
+ * Shape check for a loaded manifest, and the point where every declared media
+ * path is anchored to `contentRoot` (the page's own URL, `document.baseURI`).
+ * The content folder's own validator is the authority on content
+ * (docs/content-format.md, "Rules and validator invariants"); this only
+ * rejects what the renderer could not use — a path that does not name a file
+ * inside the folder it was loaded from.
+ */
+export function parseManifest(value: unknown, contentRoot: string): Manifest {
   if (typeof value !== "object" || value === null) {
     throw new Error("manifest is not an object");
   }
@@ -51,6 +128,17 @@ export function parseManifest(value: unknown): Manifest {
   ) {
     throw new Error("manifest needs a width and height of at least 1");
   }
+  candidate.items.forEach((item, index) => {
+    for (const path of declaredPaths(item)) {
+      try {
+        // Checked, never rewritten: the renderer assigns the declared path to
+        // `src` verbatim, and the browser applies this same resolution.
+        resolveMediaPath(path, contentRoot);
+      } catch (error) {
+        throw new Error(`items[${index}]: ${(error as Error).message}`);
+      }
+    }
+  });
   return candidate as Manifest;
 }
 
@@ -58,9 +146,13 @@ export function parseManifest(value: unknown): Manifest {
  * Embedded manifest first, `manifest.json` second — the `??` of
  * `window.KINETIC_MANIFEST ?? await fetch("manifest.json")`. A `null`
  * embedded value counts as absent, so a folder whose shim failed to load
- * still gets its JSON.
+ * still gets its JSON. `contentRoot` is the page's URL: the folder every
+ * declared media path resolves against.
  */
-export async function loadManifest(source: ManifestSource): Promise<Manifest> {
+export async function loadManifest(
+  source: ManifestSource,
+  contentRoot: string,
+): Promise<Manifest> {
   const raw = source.embedded ?? (await source.fetchJson(MANIFEST_URL));
-  return parseManifest(raw);
+  return parseManifest(raw, contentRoot);
 }

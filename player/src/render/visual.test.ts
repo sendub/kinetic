@@ -494,6 +494,21 @@ describe("upcomingVisualFiles (Phase 12 decode preload)", () => {
     expect(upcomingVisualFiles(items, -1, 1)).toEqual(["v.jpg"]);
   });
 
+  it("carries a bucket subpath through unchanged — the LRU key is the src", () => {
+    // docs/plan.md Phase 17: a media file may live under `assets/<bucket>/`.
+    // The preload holds the declared path verbatim, so a warm entry and the
+    // `<img src>` the renderer later assigns are the same string.
+    const bucketVideo = vid({
+      file: "assets/cd/v.mp4",
+      poster: "assets/cd/v.jpg",
+    });
+    const items = [img("assets/ab/b.jpg"), bucketVideo];
+    expect(upcomingVisualFiles(items, -1, 2)).toEqual([
+      "assets/ab/b.jpg",
+      "assets/cd/v.jpg",
+    ]);
+  });
+
   it("stops at the array end and at `ahead` media items (v1: array order)", () => {
     const items = [img("a.jpg"), img("b.jpg"), img("c.jpg"), img("d.jpg")];
     expect(upcomingVisualFiles(items, 0, 2)).toEqual(["b.jpg", "c.jpg"]);

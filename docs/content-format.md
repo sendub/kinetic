@@ -17,6 +17,7 @@ my-novel/
   manifest.json   # source of truth for tools and validation
   manifest.js     # generated shim: window.KINETIC_MANIFEST = {...}
   *.jpg, *.mp4    # media files, named per the conventions below
+  assets/ab/…     # optional: the same files under bucket subfolders
 ```
 
 - Every file the novel needs lives inside the folder. There are no absolute
@@ -27,7 +28,8 @@ my-novel/
   classic script, so the folder works over `file://` without fetch. Both
   files encode the same JSON; the validator checks this.
 - Media paths in the manifest are relative to the manifest's own directory,
-  use POSIX separators, and contain no `..` segments.
+  use POSIX separators, contain no `..` segments, and may name a subfolder
+  of that directory (`assets/ab/window-004.jpg`).
 - The player bundle copy is the last packaging step (docs/plan.md Phase 12).
   A content folder without it is still valid input for tools.
 
@@ -384,8 +386,12 @@ content:
 
 ## Naming conventions
 
-The converter writes each generated file at the folder root, named after the
-owning item id. Since ids contain no dots, suffixes parse unambiguously:
+The converter names each generated file after the owning item id, and may
+spread the files over subfolders so no one directory holds thousands of
+files (docs/plan.md Phase 17). A manifest media path is therefore a path
+under the content folder root, not only a name. The names below are the
+last segment of that path; since ids contain no dots, its suffixes parse
+unambiguously:
 
 - `<id>.<ext>`: the item's own media file, referenced by `file`: the
   display-resolution image of an image item, or the video of a video
@@ -410,6 +416,16 @@ defaults, not a one-file-per-item rule. Multiple items may reference
 the same derivative file, the converter dedups identical sources, and a
 hand-authored folder may name its files differently.
 
+The directories in front of that name carry no meaning the manifest does not
+state. A path is POSIX-relative to the folder root, its segments separated by
+`/` and each made of `[A-Za-z0-9._-]` starting with a letter or digit, so it
+can be neither absolute (`/x.jpg`), nor escaping (`assets/../x.jpg`,
+`../x.jpg`), nor a drive letter or URL scheme, nor contain a backslash, an
+empty segment, or whitespace. `assets/ab/window-004.jpg` and
+`window-004.jpg` are equally valid, and both name a file the player resolves
+from the folder root. Subpaths are an option for the author, never a
+requirement: a small folder stays flat.
+
 The manifest stays authoritative: the player reads exactly the files
 the manifest references, never a directory scan. A folder may carry
 extra unreferenced files, such as the converter's build ledger; the
@@ -419,9 +435,13 @@ player and the validator ignore them.
 
 Format rules:
 
-- Paths are relative to the content folder. The schema pattern enforces the
-  character set: no leading `/`, no drive letters or scheme, no `..`, no
-  spaces.
+- Paths are relative to the content folder, and may name a subfolder of it
+  (`assets/ab/window-004.jpg`). The schema pattern enforces the character
+  set: every segment is `[A-Za-z0-9._-]` starting with a letter or digit, so
+  no leading `/`, no drive letters or scheme, no `..`, no empty segment, no
+  backslash, no spaces. The last segment stays a flat file name — an
+  id-shaped stem, at most one derivative suffix (`.fNNN`, `.poster`,
+  `.thumb`), then the extension.
 - Images carry the extension `.png`, `.jpg`, `.jpeg`, `.webp`, `.gif`,
   or `.jxl`; videos `.mp4`, `.webm`, `.mkv`, `.mov`, or `.m4v`. The
   schema pins these per field.

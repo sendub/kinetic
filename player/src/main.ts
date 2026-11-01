@@ -114,14 +114,20 @@ function start(): void {
   installFirstGestureFullscreen(document);
   // The manifest contract, with the sources injected so it is testable:
   //   window.KINETIC_MANIFEST ?? await fetch("manifest.json").then(r => r.json())
-  void loadManifest({ embedded: window.KINETIC_MANIFEST, fetchJson }).then(
+  // `document.baseURI` is the content folder's own `index.html`, so it is both
+  // the root every declared media path resolves against (a bucket subpath like
+  // `assets/ab/x.jpg` included) and the identity of this novel's storage.
+  const contentRoot = document.baseURI;
+  void loadManifest(
+    { embedded: window.KINETIC_MANIFEST, fetchJson },
+    contentRoot,
+  ).then(
     async (manifest) => {
       // One storage namespace per novel folder (docs/plan.md Phase 8):
       // IndexedDB when the host has it, an in-memory adapter when not, so
       // the player always runs — it just remembers nothing across a reload.
       const storage =
-        createIdbStorage(contentSignature(document.baseURI)) ??
-        createNoopStorage();
+        createIdbStorage(contentSignature(contentRoot)) ?? createNoopStorage();
       // Resume: a stored machine context is the reader's position — its
       // `lastShown` is where the load starts, the seen set and route
       // stack arrive with it. A record without ctx (written before

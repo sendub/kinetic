@@ -456,11 +456,19 @@ truthful: an unchecked box means nothing was accepted.
 
 ## Phase 17: Converter media organisation into subfolders (2025-11-02, user)
 
-- [ ] Confirm/format: a media item's `file` may carry a subfolder
+- [x] Confirm/format: a media item's `file` may carry a subfolder
       path (`assets/ab/<id>.jpg`); validator + schema accept a relative
       subpath, still forbid `..`/absolute; player resolves it from the
       folder root; the missing-file walk and package-proof follow
-      subpaths. Fix any gap; test a subpath fixture.
+      subpaths. Fix any gap; test a subpath fixture. (schema tightened
+      to segment grammar + flat-name-shape LAST segment (id stem <=64,
+      one optional .fNNN/.poster/.thumb, ext whitelists unchanged);
+      validator basename rule; player resolveMediaPath via
+      new URL(path, contentRoot) + stays-inside-root assert at
+      parse time; play-folder.mjs now path-keyed (was basename -
+      phase-closer note); proof walk of a bucketed demo copy: painted
+      + missingFiles [] + 0 console errors; 81 pytest + 376 vitest,
+      validator 0 on all three fixtures, 2025-11-02)
 - [ ] Converter: shard extracted media into 2-char hash-prefix buckets
       (`assets/<2hex>/<id>.<ext>`), deterministic (hash of the name,
       not a counter); update the extractor + golden so every referenced

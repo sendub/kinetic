@@ -107,7 +107,8 @@
     },
     "path": {
       "type": "string",
-      "pattern": "^(?!/)(?!.*\\.\\.)[A-Za-z0-9][A-Za-z0-9._/-]*$"
+      "description": "a media file's path relative to the content folder root, forward-slash separated. Every segment is [A-Za-z0-9._-] and starts with a letter or digit, so there are no empty or dot-leading segments, no \"..\", no absolute path, no backslash, no drive letter or URL scheme, and no whitespace. Subfolders (typically a deterministic bucket like `assets/ab/`) are allowed and optional; the last segment is still a flat file name — an id-shaped stem, at most one derivative suffix (`.fNNN`, `.poster`, `.thumb`), then the extension. `imagePath` and `videoPath` add the true-format extension whitelist.",
+      "pattern": "^(?!.*\\.\\.)(?:[A-Za-z0-9][A-Za-z0-9._-]*/)*[A-Za-z0-9][A-Za-z0-9_-]{0,63}(?:\\.(?:f[0-9]{3}|poster|thumb))?\\.[A-Za-z0-9]+$"
     },
     "imagePath": {
       "allOf": [

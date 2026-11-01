@@ -74,6 +74,13 @@ def problems_of(folder: Path) -> list[str]:
     return validate_content.validate_folder(folder, SCHEMA)
 
 
+def move_to_subpath(folder: Path, rel: str, subpath: str) -> None:
+    """Move a media file to `subpath` under the folder root, making dirs."""
+    target = folder / subpath
+    target.parent.mkdir(parents=True, exist_ok=True)
+    (folder / rel).rename(target)
+
+
 def test_empty_items_list_is_valid(folder: Path) -> None:
     """An empty `items` array is a valid, honestly-empty folder (docs/
     extracting.md BUG 1): a slice in which no visual resolved to a file
@@ -357,6 +364,118 @@ def test_parent_segment_in_media_path_is_rejected(folder: Path) -> None:
     assert len(problems) == 1
     assert problems[0].startswith("manifest.json: items[3].file:")
     assert '".." segments' in problems[0]
+
+
+# ---------------------------------------------------------------------------
+# Media paths below the folder root (docs/plan.md Phase 17)
+#
+# The converter spreads media over bucket subfolders so no single directory
+# holds thousands of files, so a manifest path may be a SUBPATH — while its
+# last segment keeps the flat file-name rule and the path still resolves
+# against the content folder root. Each test moves one demo image into a
+# bucket in a throwaway copy; `fixtures/demo` itself stays flat.
+# ---------------------------------------------------------------------------
+
+def test_media_file_in_a_subfolder_passes(folder: Path) -> None:
+    """`assets/ab/<id>.jpg` is a valid `file`; the folder root is the base."""
+    manifest = read_manifest(folder)
+    name = manifest["items"][3]["file"]            # window-004.jpg
+    move_to_subpath(folder, name, f"assets/ab/{name}")
+    manifest["items"][3]["file"] = f"assets/ab/{name}"
+    write_manifest(folder, manifest)
+    assert problems_of(folder) == []
+    proc = run_cli(folder)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+
+
+def test_subpath_basename_need_not_equal_the_item_id(folder: Path) -> None:
+    """The last segment keeps the flat file-name SHAPE, not the item id.
+
+    Several items may share one derivative file — the demo's `part-012` and
+    `part-013` both play `clip-012.mp4` — so an id mismatch is not a defect
+    (docs/content-format.md, "Naming conventions").
+    """
+    manifest = read_manifest(folder)
+    shared = manifest["items"][11]["file"]          # clip-012.mp4
+    assert manifest["items"][12]["file"] == shared
+    move_to_subpath(folder, shared, f"assets/cd/{shared}")
+    for index in (11, 12):
+        manifest["items"][index]["file"] = f"assets/cd/{shared}"
+    write_manifest(folder, manifest)
+    assert problems_of(folder) == []
+
+
+def test_parent_segment_below_the_root_is_rejected(folder: Path) -> None:
+    """A subpath may not climb back out: `..` stays forbidden in every segment."""
+    manifest = read_manifest(folder)
+    name = manifest["items"][3]["file"]
+    manifest["items"][3]["file"] = f"assets/../{name}"
+    write_manifest(folder, manifest)
+    problems = problems_of(folder)
+    assert len(problems) == 1
+    assert problems[0].startswith("manifest.json: items[3].file:")
+    assert '".." segments' in problems[0]
+
+
+def test_absolute_subpath_is_rejected(folder: Path) -> None:
+    """A leading "/" names the filesystem, not the content folder."""
+    manifest = read_manifest(folder)
+    name = manifest["items"][3]["file"]
+    manifest["items"][3]["file"] = f"/assets/ab/{name}"
+    write_manifest(folder, manifest)
+    problems = problems_of(folder)
+    assert len(problems) == 1
+    assert problems[0].startswith("manifest.json: items[3].file:")
+    assert "relative to the content folder" in problems[0]
+
+
+def test_missing_file_in_a_subfolder_is_reported(folder: Path) -> None:
+    """Existence is checked against the folder root, subpath included."""
+    manifest = read_manifest(folder)
+    name = manifest["items"][3]["file"]
+    manifest["items"][3]["file"] = f"assets/ab/{name}"   # never moved
+    write_manifest(folder, manifest)
+    problems = problems_of(folder)
+    assert len(problems) == 1
+    assert problems[0].startswith("manifest.json: items[3].file:")
+    assert f"'assets/ab/{name}'" in problems[0]
+    assert "does not exist" in problems[0]
+
+
+def test_subpath_basename_must_be_a_flat_file_name(folder: Path) -> None:
+    """Only the DIRECTORIES may be new: the last segment stays a flat name, so
+    the `.poster` and `.fNNN` suffixes keep parsing unambiguously."""
+    manifest = read_manifest(folder)
+    name = manifest["items"][3]["file"]                  # window-004.jpg
+    manifest["items"][3]["file"] = f"assets/ab/{name}.jpg"
+    write_manifest(folder, manifest)
+    problems = problems_of(folder)
+    assert len(problems) == 1
+    assert problems[0].startswith("manifest.json: items[3].file:")
+    assert "id-shaped name" in problems[0]
+
+
+def test_subpath_segment_must_start_with_a_letter(folder: Path) -> None:
+    """No empty segment and no dot-leading or underscore segment, root or bucket."""
+    manifest = read_manifest(folder)
+    name = manifest["items"][3]["file"]
+    manifest["items"][3]["file"] = f"assets/.ab/{name}"
+    write_manifest(folder, manifest)
+    problems = problems_of(folder)
+    assert len(problems) == 1
+    assert problems[0].startswith("manifest.json: items[3].file:")
+    assert "non-empty" in problems[0]
+
+
+def test_animation_frames_in_a_subfolder_pass(folder: Path) -> None:
+    """`frames` entries take the same rule as `file` and `poster`."""
+    manifest = read_manifest(folder)
+    frames = manifest["items"][4]["frames"]
+    for frame in frames:
+        move_to_subpath(folder, frame, f"assets/ef/{frame}")
+    manifest["items"][4]["frames"] = [f"assets/ef/{frame}" for frame in frames]
+    write_manifest(folder, manifest)
+    assert problems_of(folder) == []
 
 
 def test_frames_below_minimum(folder: Path) -> None:

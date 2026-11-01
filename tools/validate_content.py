@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from pathlib import Path
 from typing import Any, Iterator
@@ -46,6 +47,16 @@ DEFAULT_SCHEMA = REPO_ROOT / "docs" / "content-schema.json"
 MANIFEST_NAME = "manifest.json"
 SHIM_NAME = "manifest.js"
 SHIM_PREFIX = "window.KINETIC_MANIFEST = "
+
+# Folder-layout grammar, in step with $defs/path in docs/content-schema.json:
+# one path segment, and the flat file name that must be the last segment.
+# `_path_rule` re-derives the same rules one clause at a time so a failure can
+# name the clause it broke.
+_SEGMENT = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
+_BASENAME = re.compile(
+    r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}"
+    r"(?:\.(?:f[0-9]{3}|poster|thumb))?\.[A-Za-z0-9]+",
+)
 
 
 # ---------------------------------------------------------------------------
@@ -86,7 +97,20 @@ def _is_type_const(error: jsonschema.ValidationError) -> bool:
 
 
 def _path_rule(value: str) -> str | None:
-    """Return why a media path breaks the folder-layout rules, or None."""
+    """Return why a media path breaks the folder-layout rules, or None.
+
+    Mirrors `$defs/path` in docs/content-schema.json so the broken rule can be
+    named in plain words: a POSIX path relative to the content folder root —
+    subfolders allowed (a bucket like `assets/ab/`), segments of
+    `[A-Za-z0-9._-]` that each start with a letter or digit, so no empty or
+    dot-leading segment, no `..`, no absolute path, no backslash, no drive
+    letter or scheme, no whitespace — whose LAST segment is still a flat media
+    file name: an id-shaped stem, at most one derivative suffix (`.fNNN`,
+    `.poster`, `.thumb`), then an extension. Which extensions are true shipped
+    formats is per media kind, so that whitelist stays in the schema
+    (`imagePath`, `videoPath`). See docs/content-format.md, "Naming
+    conventions".
+    """
     if value.startswith("/"):
         return 'path must be relative to the content folder (no leading "/")'
     if "\\" in value:
@@ -97,8 +121,13 @@ def _path_rule(value: str) -> str | None:
         return "path must contain no drive letter or URL scheme"
     if any(ch.isspace() for ch in value):
         return "path must contain no whitespace"
-    if not value or not (value[0].isascii() and value[0].isalnum()):
-        return "path must start with an alphanumeric character"
+    segments = value.split("/")
+    if any(_SEGMENT.fullmatch(segment) is None for segment in segments):
+        return ("every path segment must be non-empty and start with a letter "
+                "or digit")
+    if _BASENAME.fullmatch(segments[-1]) is None:
+        return ("file name must be an id-shaped name plus an extension "
+                "(at most one derivative suffix: .fNNN, .poster, .thumb)")
     return None
 
 
