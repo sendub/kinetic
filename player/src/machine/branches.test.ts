@@ -279,7 +279,9 @@ describe("a decision fires on the forward settle of its after item", () => {
     m.destroy();
   });
 
-  it("every command but choose and chooseContinue is inert while a choice is open", () => {
+  it("every key command but choose and chooseContinue is inert while a choice is open", () => {
+    // The wheel is the exception (docs/plan.md Phase 18): it closes the
+    // overlay and navigates — pinned in its own describe below.
     const m = machine(CANON);
     step(m);
     step(m);
@@ -287,8 +289,6 @@ describe("a decision fires on the forward settle of its after item", () => {
     const before = m.getState();
     m.advance();
     m.advance();
-    m.wheelBack();
-    m.wheelForward();
     m.toggleSkip();
     m.jumpToUnseen();
     m.goTo(0);
@@ -758,10 +758,11 @@ describe("the seen mark means the route was PLAYED (docs/plan.md Phase 16)", () 
     fired.advance(); // 1 -> 2
     fired.advance(); // fired: no route has been played, so nothing is marked
     expect(seenFlags(fired)).toEqual([false, false, false]);
-    fired.wheelBack(); // a fired choice owns the timeline: nothing moved
-    expect(fired.getState().cursor).toBe(2);
     fired.chooseContinue(); // no offer yet, so this answers nothing
     expect(fired.getState().choice?.decisionId).toBe("d1");
+    fired.wheelBack(); // the wheel closes it and moves (Phase 18): no pick
+    expect(fired.getState().cursor).toBe(1);
+    expect(fired.exportContext().playedRoutes).toEqual([]);
     fired.destroy();
     const arrival = manual(CANON);
     arrival.advance();
@@ -1848,6 +1849,72 @@ describe("arrivals show COMPLETED decisions too (docs/plan.md Phase 18, bullet 3
       playedRoutes: [{ decision: 0, routes: [2] }],
       stack: [],
     });
+    m.destroy();
+  });
+});
+
+describe("the wheel closes any choice overlay and navigates (docs/plan.md Phase 18, bullet 4)", () => {
+  // User report: scroll wheel back did nothing on a fired choice and on a
+  // route-end re-offer. Only keys choose; a wheel notch is navigation, so it
+  // closes the view — answering nothing — and steps as usual.
+  const manual = (shape: Shape) => {
+    const m = manifest(shape);
+    return createMachine({
+      items: m.items,
+      branches: m.branches,
+      settings: SETTINGS,
+    });
+  };
+
+  it("a fired choice closes on a wheel back, which steps; forward again re-shows it", () => {
+    const m = manual(CANON);
+    m.advance(); // 0 -> 1
+    m.advance(); // 1 -> 2 (`decide`)
+    m.advance(); // fires d1
+    expect(m.getState().choice?.arrival).toBeUndefined();
+    m.wheelBack();
+    expect(m.getState().cursor).toBe(1);
+    expect(m.getState().choice).toBeUndefined();
+    expect(m.exportContext().playedRoutes).toEqual([]);
+    m.wheelForward(); // back onto `decide`: an arrival view of the same decision
+    expect(m.getState().choice).toMatchObject({
+      decisionId: "d1",
+      arrival: true,
+    });
+    m.destroy();
+  });
+
+  it("a fired choice closes on a wheel forward even when the step is blocked", () => {
+    const m = manual(CANON);
+    m.advance();
+    m.advance();
+    m.advance(); // fires d1 at the frontier: nothing seen ahead
+    m.wheelForward();
+    expect(m.getState().cursor).toBe(2);
+    expect(m.getState().choice).toBeUndefined();
+    m.advance(); // the next forward settle re-fires it
+    expect(m.getState().choice?.decisionId).toBe("d1");
+    m.destroy();
+  });
+
+  it("a route-end re-offer closes on a wheel back and the reader is back inside the route", () => {
+    const m = manual(CANON);
+    m.advance();
+    m.advance();
+    m.advance(); // fires d1
+    m.choose(0); // route A: 3..4
+    m.advance(); // 3 -> 4
+    m.advance(); // off A's end: the re-offer
+    expect(m.getState().choice?.decisionId).toBe("d1");
+    expect(m.exportContext().stack).toEqual([]);
+    m.wheelBack(); // closes it; 4 -> 3, inside route A again
+    expect(m.getState().cursor).toBe(3);
+    expect(m.getState().choice).toBeUndefined();
+    expect(m.exportContext().stack).toEqual([{ decision: 0, route: 0 }]);
+    m.advance(); // 3 -> 4
+    m.advance(); // A's end re-offers again, exactly as before
+    expect(m.getState().choice?.decisionId).toBe("d1");
+    expect(m.getState().cursor).toBe(4);
     m.destroy();
   });
 });

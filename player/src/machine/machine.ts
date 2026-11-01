@@ -481,6 +481,14 @@ interface PendingChoice {
    * view and changes no stack.
    */
   arrival?: boolean;
+  /**
+   * The route stack as it stood before a FIRED or RE-OFFERED overlay
+   * opened (`closeFramesFor`, the route-end pop): a wheel notch closes such
+   * an overlay (docs/plan.md Phase 18) and puts this back, so the reader
+   * scrolls on inside the route they were in and its end re-offers again.
+   * Absent on an arrival view, which never touched the stack.
+   */
+  restoreStack?: readonly Frame[];
 }
 
 /**
@@ -1127,12 +1135,16 @@ export function createMachine(options: MachineOptions): Machine {
    * complete (`settled`), nothing is pending but the reader's pick, and skip
    * mode ends — an overlay is not something to skip past.
    */
-  function openChoice(decisionIndex: number): void {
+  function openChoice(
+    decisionIndex: number,
+    restoreStack: readonly Frame[] = stack.slice(),
+  ): void {
     closeFramesFor(decisionIndex);
     const decision = decisions[decisionIndex];
     pendingChoice = {
       decision: decisionIndex,
       continueOption: offersContinue(decision),
+      restoreStack,
     };
     // A skip burst pauses at a decision (docs/plan.md Phase 16): the overlay
     // ends the burst, and the pick never restarts it — the reader answers in
@@ -1232,11 +1244,30 @@ export function createMachine(options: MachineOptions): Machine {
    * Navigation closes an arrival-open view — the reader is leaving, not
    * answering — and returns true when it did, so the caller can emit even
    * when the cursor cannot move. A fired choice is left untouched: it owns
-   * the timeline until answered.
+   * the timeline until answered (keys other than the wheel).
    */
   function dismissArrivalChoice(): boolean {
     if (pendingChoice?.arrival !== true) return false;
     pendingChoice = null;
+    return true;
+  }
+
+  /**
+   * The wheel is never trapped by an overlay (docs/plan.md Phase 18): a
+   * notch closes ANY open choice — arrival, fired, or route-end re-offer —
+   * and the step proceeds as usual. A fired or re-offered view gets its
+   * route stack back (`restoreStack`), so nothing is answered: the reader
+   * is where they were before it opened, and the next forward settle at
+   * that spot opens it again. Returns true when a view closed.
+   */
+  function dismissChoiceForWheel(): boolean {
+    if (pendingChoice === null) return false;
+    const restore = pendingChoice.restoreStack;
+    pendingChoice = null;
+    if (restore !== undefined) {
+      stack.length = 0;
+      stack.push(...restore.map((frame) => ({ ...frame })));
+    }
     return true;
   }
 
@@ -1365,6 +1396,7 @@ export function createMachine(options: MachineOptions): Machine {
     const route = decision.routes[frame.route];
     completedOf(decision.index).add(frame.route);
     if (closeIfPureAndComplete(decision)) return;
+    const beforePop = stack.slice();
     stack.pop();
     if (route.continuing) {
       showItem(decision.continueAt, "nav");
@@ -1376,7 +1408,7 @@ export function createMachine(options: MachineOptions): Machine {
       autoResolve(decision);
       return;
     }
-    openChoice(decision.index);
+    openChoice(decision.index, beforePop);
   }
 
   /** The last item of the current route span, or content end when none. */
@@ -1625,10 +1657,9 @@ export function createMachine(options: MachineOptions): Machine {
 
     wheelBack() {
       if (destroyed) return;
-      // An arrival-open choice closes on this step (navigation away); a
-      // fired one owns the timeline and swallows it.
-      const closedArrival = dismissArrivalChoice();
-      if (pendingChoice !== null) return;
+      // Any open choice closes on this step and the step proceeds
+      // (docs/plan.md Phase 18: only keys choose; the wheel navigates).
+      const closedArrival = dismissChoiceForWheel();
       // Decision (docs/plan.md Phase 4): a wheel step during skip exits skip
       // mode AND performs the step — the step is what the user
       // meant; merely dropping it would feel like a dead input.
@@ -1648,8 +1679,7 @@ export function createMachine(options: MachineOptions): Machine {
 
     wheelForward() {
       if (destroyed) return;
-      const closedArrival = dismissArrivalChoice();
-      if (pendingChoice !== null) return;
+      const closedArrival = dismissChoiceForWheel(); // as wheelBack()
       const wasSkipping = skipping;
       if (skipping) skipping = false; // same decision as wheelBack()
       // The ceiling is the highest item ever shown, which across routes is

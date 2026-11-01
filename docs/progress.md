@@ -508,8 +508,11 @@ truthful: an unchecked box means nothing was accepted.
       find nested decisions via ancestor route spans; closed pure
       choices re-offer on arrival; play-all passes completed arrivals
       through; 390 tests, 2026-11-01)
-- [ ] Wheel (any notch, any direction) closes the choice overlay -
+- [x] Wheel (any notch, any direction) closes the choice overlay -
       fired, arrival, or re-offer - and navigates; only keys choose.
+      (closing a fired/re-offered view restores its route stack, so
+      the reader is back inside the route and its end re-offers; 393
+      tests, 2026-11-01)
 - [ ] Skip never reveals unseen: burst advances only through seen
       items and stops ON the last seen; tab from a fresh start moves
       nothing; skipAll unchanged. README/verify wording + tests.

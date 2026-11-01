@@ -319,6 +319,11 @@ docs/plan.md Phase 13):
   route-end re-selection. `Play all routes` keeps its no-stop rule: an
   arrival at a completed decision passes through unshown, and only an
   unresolved arrival is auto-resolved.
+- The wheel is never trapped by a choice overlay: a notch in either
+  direction closes any open view - fired, arrival, or route-end
+  re-offer - answering nothing, and steps as usual. Closing a fired or
+  re-offered view restores the route context it had, so the next
+  forward settle at that spot opens it again. Only keys choose.
 - Author-written transitions need no schema mechanism: put a
   `text`-only item or a title image at a route span's start or end.
 
