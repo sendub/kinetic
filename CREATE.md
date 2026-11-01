@@ -24,6 +24,7 @@ my-novel/
   manifest.json    # source of truth, written by hand
   manifest.js      # generated shim, one command, see below
   *.jpg, *.mp4     # media, named per the conventions shown below
+                   # (optionally under a subfolder: assets/ab/window-004.jpg)
 ```
 
 `index.html` and `app.js` are the player bundle, copied in as the last
@@ -123,8 +124,16 @@ These names are the defaults the converter generates, not a
 one-file-per-item rule.
 Several items may reference the same derivative file, the converter
 dedups identical sources, and you may name hand-authored files
-differently. A folder may also carry extra unreferenced files, such as
-the converter's build ledger; the player and the validator ignore them.
+differently. The names above are the last segment of the path: a `file`,
+`poster`, or `frames` entry may sit in a subfolder of the content folder —
+`assets/ab/window-004.jpg` — which is how the converter keeps a folder of
+thousands of media files readable (docs/plan.md Phase 17). The path stays
+relative to the content folder: forward slashes, no leading `/`, no `..`,
+no drive letter, no backslash, and the last segment keeps the flat name.
+Spreading files over subfolders is the converter's choice and never a
+requirement; a folder you author by hand may stay flat. A folder may also
+carry extra unreferenced files, such as the converter's build ledger; the
+player and the validator ignore them.
 
 A video item may play a sub-range of its file: `startSeconds` (at
 least 0, default 0) and `endSeconds` (greater than `startSeconds`,

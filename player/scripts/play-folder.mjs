@@ -106,9 +106,16 @@ const SNAPSHOT = `(() => {
   const band = document.querySelector("#overlay");
   const textEl = document.querySelector("#overlay-text");
   const bandText = band && !band.hidden && textEl ? textEl.textContent.trim() : "";
-  const base = (src) => String(src || "").split("/").pop();
-  if (video && !img) return { kind: "video", key: "video:" + base(video.currentSrc || video.src), nat: video.videoWidth || 0, text: bandText };
-  if (img) return { kind: "img", key: "img:" + base(img.src), nat: img.naturalWidth, complete: img.complete, text: bandText };
+  // The declared path, recovered from the element's resolved URL. The manifest
+  // is the authority and a bucket subpath (assets/ab/x.jpg, docs/plan.md
+  // Phase 17) is part of the declaration, so the walk keys on the
+  // folder-relative PATH rather than the basename: two buckets can hold the
+  // same name, and a basename match would hide a misresolved path.
+  const root = new URL(".", location.href).pathname;
+  const rel = (src) =>
+    src ? decodeURIComponent(new URL(String(src), location.href).pathname.slice(root.length)) : "";
+  if (video && !img) return { kind: "video", key: "video:" + rel(video.currentSrc || video.src), nat: video.videoWidth || 0, text: bandText };
+  if (img) return { kind: "img", key: "img:" + rel(img.src), nat: img.naturalWidth, complete: img.complete, text: bandText };
   if (notice) return { kind: "notice", key: "notice:" + notice.id + ":" + notice.textContent, nat: 0, text: bandText };
   return { kind: "none", key: "none", nat: 0, text: bandText };
 })()`;
@@ -199,14 +206,15 @@ try {
   }
 
   const paintedFiles = [...painted].sort();
-  const missingFiles = mediaFiles
-    .map((file) => file.split("/").pop())
-    .filter(
-      (base) =>
-        !paintedFiles.some(
-          (key) => key === `img:${base}` || key === `video:${base}`,
-        ),
-    );
+  // The manifest's declared path is the key — a flat name or a bucket subpath,
+  // compared as declared (docs/plan.md Phase 17). The walk never assumes the
+  // folder root is the file's directory.
+  const missingFiles = mediaFiles.filter(
+    (file) =>
+      !paintedFiles.some(
+        (key) => key === `img:${file}` || key === `video:${file}`,
+      ),
+  );
   const decodedVisuals = paintedFiles.length;
   // Clean console is the floor. When the manifest names media, every distinct
   // file must have painted; a slice with no media (dynamic scene refs only) is
