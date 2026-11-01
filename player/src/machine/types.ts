@@ -227,6 +227,18 @@ export interface ChoiceView {
   readonly routes: readonly ChoiceRoute[];
   /** True when "return to main route" (the decision's `continueAt`) is offered. */
   readonly continueOption?: boolean;
+  /**
+   * True when the overlay shows because a navigation ARRIVAL (wheel,
+   * `goTo()`, the `e` jump) landed on the unresolved decision's `after`
+   * item (docs/plan.md Phase 16), not because a forward settle fired it:
+   * timing is paused and the decision is NOT consumed — navigating away
+   * closes the view and changes no route context. Navigation commands act
+   * through an arrival-open view (each closes it); a fired choice still
+   * owns the timeline until answered. A pick chooses exactly like a fired
+   * decision. The renderer draws both alike — only the navigation gate
+   * reads this flag.
+   */
+  readonly arrival?: boolean;
 }
 
 /** One open decision context: which route of it the reader is inside. */
@@ -266,7 +278,9 @@ export interface MachineContext {
  * only times, it cannot stop a playing element. `choice` is present while a
  * branch decision awaits the reader: it is the overlay's content, and while
  * it is set every navigation command is inert until `choose()` or
- * `chooseContinue()` answers it.
+ * `chooseContinue()` answers it — the exception being an arrival-open view
+ * (`choice.arrival`, Phase 16), which navigation closes as the reader moves
+ * away.
  */
 export interface MachineState {
   readonly cursor: number;

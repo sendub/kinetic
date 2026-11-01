@@ -375,10 +375,15 @@ truthful: an unchecked box means nothing was accepted.
       advance (advancePair's 7 uses + the manual-freeze steps), then
       the full suite close-run (44-step driver, full pytest,
       package-proof) for Phase 16.
-- [ ] Decisions surface on navigation (merges the wheel and tab
+- [x] Decisions surface on navigation (merges the wheel and tab
       points): arriving at a decision's after by wheel or tab-shows
       shows the overlay and waits; tab-skip pauses at decisions
-      (picks resume skipping); play-all remains the no-pause path.
+      (the pick stays manual, no auto-resume); play-all remains the
+      no-pause path.
+      (arrival-open state is unconsumed + timer-proven paused; digit
+      chooses like a fired decision; skip burst ENDS at the decision
+      and the pick stays manual - plan reworded accordingly; 321
+      tests, scenario real-Chrome, 2025-11-02)
 - [ ] Re-opening a decision after ANY completed route offers
       "Return to main route" whenever a continuing route exists;
       the ending-route loop gains an exit.

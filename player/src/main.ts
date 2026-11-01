@@ -319,11 +319,25 @@ function start(): void {
       // machine pause/resume is inert while a decision's item is settled).
       // A pending CHOICE owns everything else: `t`/`c` cannot open over
       // it, `h`/`b`/`a` are inert, the timeline is suspended, and only
-      // its own inputs act (1..9, Enter with the offer, row clicks).
-      // Otherwise the story reads, and `t`/`c` are the open screens.
+      // its own inputs act (1..9, Enter with the offer, row clicks) —
+      // except an arrival-open view, through which navigation acts (see
+      // the gate below). Otherwise the story reads, and `t`/`c` are the
+      // open screens.
       const owner = () => inputOwnerFor(help.isOpen(), choice.isOpen());
+      // A FIRED choice suspends the timeline (it owns the screen until
+      // answered). An ARRIVAL-open choice (`choice.arrival`, docs/plan.md
+      // Phase 16) does not: the wheel has to be able to step away — which
+      // closes the view without consuming the decision — and space has to
+      // land as the press that fires it. The machine keeps every command
+      // inert on a fired choice by itself, so letting commands through an
+      // arrival view can only ever reach arrival semantics.
+      const firedChoiceHoldsTimeline = () =>
+        machine.getState().choice?.arrival !== true;
       const anyScreenOpen = () =>
-        overlay.isOpen() || config.isOpen() || help.isOpen() || choice.isOpen();
+        overlay.isOpen() ||
+        config.isOpen() ||
+        help.isOpen() ||
+        (choice.isOpen() && firedChoiceHoldsTimeline());
 
       // While a panel is open it takes precedence: the cursor-moving
       // commands (space/tab/e/wheel) are suspended until it closes. `b`
@@ -347,8 +361,10 @@ function start(): void {
           // Space over help closes it and is consumed — no advance (and on
           // the first load it is also the first gesture, so fullscreen gets
           // its request like any other first press; render/fullscreen.ts).
-          // Over a pending choice the gate below already swallows it: the
-          // decision is answered by its own keys, never by space.
+          // Over a FIRED choice the gate below already swallows it: the
+          // decision is answered by its own keys, never by space. Over an
+          // ARRIVAL-open view space passes (Phase 16): it settles-and-moves,
+          // which fires the decision without moving off the item.
           advance: () => {
             if (help.isOpen()) {
               closeHelp();

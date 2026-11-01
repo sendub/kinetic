@@ -26,9 +26,14 @@
 // completes it, never on navigation onto it. A firing decision either pauses
 // (`MachineState.choice`, answered by `choose()` / `chooseContinue()`, and
 // inert to every other command while it is open) or, with
-// `settings.playAllRoutes` or during skip mode, resolves itself to the first
-// not-yet-played route in manifest order — the continuing route last — and past
-// the decision once every route has played. A stack of open decision contexts
+// `settings.playAllRoutes`, resolves itself to the first not-yet-played route
+// in manifest order — the continuing route last — and past the decision once
+// every route has played. Navigation onto an unresolved decision's `after`
+// item (wheel, `goTo()`, the `e` jump) SHOWS that decision instead of
+// passing it invisibly (docs/plan.md Phase 16): `MachineState.choice` appears
+// with `arrival: true`, timing pauses, and the decision is NOT consumed —
+// navigating away just closes the overlay, and a pick from it chooses exactly
+// like a fired decision. A stack of open decision contexts
 // gives nesting: a route's end pops its frame, proceeds to `continueAt`, or
 // re-opens that decision to offer the routes still unplayed. A pure-choice
 // decision (no `continuingRoute`) whose every route has played does not
@@ -39,9 +44,11 @@
 // media: with skip_all off it ends when the cursor moves onto the first
 // never-shown item (which is then shown normally); with skip_all on it marks
 // items seen as it shows them and ends when nothing unseen is left to visit.
-// Inside a branched manifest a skip visits items in PLAY order — a decision it
-// reaches resolves itself exactly as `playAllRoutes` does, so a skip burst
-// never stops for a choice.
+// Inside a branched manifest a skip visits items in PLAY order, and it PAUSES
+// at a decision (docs/plan.md Phase 16): reaching an unresolved decision's
+// `after` item opens the choice and ends the burst — `skipAll` governs only
+// unseen stops — and after the pick the reader stays in manual mode (a skip
+// burst never auto-resumes). `playAllRoutes` remains the no-stop path.
 
 import type {
   Branch,
@@ -137,21 +144,28 @@ export interface Machine {
    * the cursor — the reader meant this one — so it settles without moving.
    * Settling the item a decision hangs off is what fires that decision.
    * Inert while a choice is open: only `choose()` and `chooseContinue()`
-   * answer it.
+   * answer it. Over an ARRIVAL-open choice (`choice.arrival`) the press
+   * drops the arrival view and lands as the plain press on the same item —
+   * the settle-and-move that FIRES the decision, never a step past it.
    */
   advance(): void;
   /**
    * Wheel step back; clamps at item 0. During skip mode, exits skip mode
    * and still performs the step. Entering an item this way is pure
-   * navigation: it marks it shown but fires no decision.
+   * navigation: it marks it shown but CONSUMES no decision — landing on an
+   * unresolved decision's `after` item opens its arrival view
+   * (`choice.arrival`), and stepping away from one closes it without
+   * touching the stack.
    */
   wheelBack(): void;
   /**
    * Wheel step forward; never passes the highest item ever shown (so it can
    * reach a seen item of another route, which is where a branched novel's
    * back-and-forth stays sensible), and never enters unseen content. During
-   * skip mode, exits skip mode and steps when allowed. A step never fires a
-   * decision, and the arrival is unsettled, like `goTo()`.
+   * skip mode, exits skip mode and steps when allowed. A step never consumes
+   * a decision, and the arrival is unsettled, like `goTo()` — except that
+   * landing on an unresolved decision's `after` item opens its arrival view
+   * (`choice.arrival`), and stepping away closes it, stack unchanged.
    */
   wheelForward(): void;
   /**
@@ -161,7 +175,9 @@ export interface Machine {
    * onto the first never-shown item (shown normally afterward); with it on
    * the mode continues through unseen items, marking them seen, and ends
    * when nothing unseen is left to visit. A decision reached during a skip
-   * resolves itself in play order instead of stopping the burst.
+   * STOPS the burst: the choice opens (`skipping` ends) and the reader
+   * picks — the pick never auto-resumes skipping (docs/plan.md Phase 16).
+   * Only `settings.playAllRoutes` auto-resolves inside a skip instead.
    */
   toggleSkip(): void;
   /**
@@ -172,17 +188,21 @@ export interface Machine {
    * order. The landing is a fresh entry: the item is shown and marked seen,
    * its own hold is armed, and skip mode ends. No-op when nothing is unseen
    * or the cursor is already on the target; a further press steps on to the
-   * next unseen item.
+   * next unseen item. Like the wheel and `goTo()`: a jump onto an unresolved
+   * decision's `after` item opens its arrival view, and a jump away from one
+   * closes it, stack unchanged.
    */
   jumpToUnseen(): void;
   /**
    * Bookmark click (the `t` overlay, README `t` bullet): move the cursor to
    * `index`, clamped to `[0, highest index ever shown]`. Nothing unseen is
    * entered — unseen items are reached by `advance()`, `choose()` or
-   * `jumpToUnseen()` — and no decision fires. The arrival is UNSETTLED,
-   * unlike a resume landing: a bookmark click "continues the novel from that
-   * time point", so the item's text hold replays and auto-advance carries
-   * the reader onward.
+   * `jumpToUnseen()` — and no decision is consumed; landing on an
+   * unresolved decision's `after` item opens its arrival view
+   * (`choice.arrival`), and a jump away from one closes it. The arrival is
+   * UNSETTLED, unlike a resume landing: a bookmark click "continues the
+   * novel from that time point", so the item's text hold replays and
+   * auto-advance carries the reader onward.
    */
   goTo(index: number): void;
   /**
@@ -411,6 +431,13 @@ function regionEnd(decision: ResolvedDecision): number {
 interface PendingChoice {
   decision: number;
   continueOption: boolean;
+  /**
+   * True when a navigation ARRIVAL onto the decision's `after` item opened
+   * the overlay (docs/plan.md Phase 16) rather than a forward settle
+   * firing it: the decision is unconsumed — navigating away closes the
+   * view and changes no stack.
+   */
+  arrival?: boolean;
 }
 
 /**
@@ -609,14 +636,13 @@ export function createMachine(options: MachineOptions): Machine {
         seen: isPlayed(decision.index, index),
       }),
     );
-    const view = pending.continueOption
-      ? {
-          decisionId: decision.id,
-          prompt: decision.prompt,
-          routes,
-          continueOption: true,
-        }
-      : { decisionId: decision.id, prompt: decision.prompt, routes };
+    const view = {
+      decisionId: decision.id,
+      prompt: decision.prompt,
+      routes,
+      ...(pending.continueOption ? { continueOption: true } : {}),
+      ...(pending.arrival === true ? { arrival: true } : {}),
+    };
     return Object.freeze(view);
   }
 
@@ -806,7 +832,9 @@ export function createMachine(options: MachineOptions): Machine {
    * Skip-mode dwell elapsed. One fixed-dwell step forward: a media item
    * followed by `text`, and each `text` line of a chain, each consume
    * exactly one dwell (chains are never collapsed). A decision reached is
-   * resolved in play order rather than stopping the burst. The mode ends when
+   * NOT auto-resolved any more: its overlay opens and the burst ends
+   * (docs/plan.md Phase 16) — only `playAllRoutes` still flows through.
+   * The mode ends when
    * the step moves onto content the reader has not seen with `skipAll` off,
    * or when nothing unseen is left to visit; the ending item is then shown
    * normally, its auto-advance armed per its own hold.
@@ -883,11 +911,12 @@ export function createMachine(options: MachineOptions): Machine {
   }
 
   /**
-   * The decision that fires when the item at `index` settles, considering
-   * only the ones inside the current route span: with no open frame a
-   * top-level decision, otherwise a child of the open decision whose own
-   * route contains the item. Navigation onto an `after` item fires nothing —
-   * this runs only on a forward settle.
+   * The decision hanging off the item at `index`, considering only the ones
+   * inside the current route span: with no open frame a top-level decision,
+   * otherwise a child of the open decision whose own route contains the
+   * item. The forward settle asks it firing (it consumes the answer); a
+   * navigation arrival asks it showing (arrival view, `choice.arrival`,
+   * unconsumed) — the same condition either way.
    */
   function relevantDecision(index: number): number {
     const candidates = byAfter.get(index);
@@ -936,6 +965,9 @@ export function createMachine(options: MachineOptions): Machine {
   function openChoice(decisionIndex: number, continueOption: boolean): void {
     closeFramesFor(decisionIndex);
     pendingChoice = { decision: decisionIndex, continueOption };
+    // A skip burst pauses at a decision (docs/plan.md Phase 16): the overlay
+    // ends the burst, and the pick never restarts it — the reader answers in
+    // manual mode from here (a skip burst never auto-resumes).
     skipping = false;
     settled = true;
     cancelTimer();
@@ -943,17 +975,82 @@ export function createMachine(options: MachineOptions): Machine {
   }
 
   /**
+   * Whether a navigation arrival at the cursor should SHOW a decision
+   * (docs/plan.md Phase 16): the same condition the forward settle fires
+   * on, minus consumption — the decision must exist here and still have an
+   * offer (a pure decision whose every route has played closes on fire
+   * rather than pausing, so an arrival shows nothing for it either).
+   * `playAllRoutes` is the no-stop path: the reader asked for zero
+   * interactivity, so nothing opens and the hold keeps its old auto path.
+   */
+  function arrivalDecision(): number {
+    if (settings.playAllRoutes || pendingChoice !== null) return -1;
+    const index = relevantDecision(cursor);
+    if (index < 0) return -1;
+    const decision = decisions[index];
+    if (decision.continuingRoute < 0 && nextAutoRoute(decision) < 0) return -1;
+    return index;
+  }
+
+  /**
+   * A navigation arrival landed on an unresolved decision's `after` item:
+   * show the decision without consuming it. Pauses timing — the cursor
+   * marks the item settled and the pending timer is cancelled. The timer
+   * proof (docs/plan.md Phase 16): a manual arrival arms none at all
+   * (`armTimer` returns while `!skipping && !autoAdvance`, and every
+   * navigation command clears `skipping` before the step), so this cancel
+   * is the whole pause; and no timer that later elapses on this item can
+   * pass through it either, because leaving it goes through `moveForward`
+   * → `fireDecision`, which fires the decision instead of stepping.
+   * Navigation away closes the view (`dismissArrivalChoice`); the stack is
+   * untouched — `closeFramesFor` is deliberately NOT called here, unlike a
+   * fired `openChoice`.
+   */
+  function openArrivalChoice(decisionIndex: number): void {
+    pendingChoice = {
+      decision: decisionIndex,
+      continueOption: false,
+      arrival: true,
+    };
+    settled = true;
+    cancelTimer();
+    emit();
+  }
+
+  /**
+   * Navigation closes an arrival-open view — the reader is leaving, not
+   * answering — and returns true when it did, so the caller can emit even
+   * when the cursor cannot move. A fired choice is left untouched: it owns
+   * the timeline until answered.
+   */
+  function dismissArrivalChoice(): boolean {
+    if (pendingChoice?.arrival !== true) return false;
+    pendingChoice = null;
+    return true;
+  }
+
+  /**
+   * Navigation commands call this after `showItem`: open the arrival view
+   * for the decision hanging off the new cursor, if any.
+   */
+  function openArrivalChoiceIfDue(): void {
+    const index = arrivalDecision();
+    if (index >= 0) openArrivalChoice(index);
+  }
+
+  /**
    * The forward settle of a decision's `after` item. Returns true when a
    * decision did fire, so the caller does not move the cursor: the choice
-   * pauses, or `playAllRoutes` and skip mode resolve the decision in play
-   * order and land on the route's first item.
+   * pauses (ending any skip burst — docs/plan.md Phase 16), or
+   * `playAllRoutes` resolves the decision in play order and lands on the
+   * route's first item.
    */
   function fireDecision(): boolean {
     const index = relevantDecision(cursor);
     if (index < 0) return false;
     const decision = decisions[index];
     if (closeIfPureAndComplete(decision)) return true;
-    if (settings.playAllRoutes || skipping) {
+    if (settings.playAllRoutes) {
       autoResolve(decision);
       return true;
     }
@@ -1032,7 +1129,9 @@ export function createMachine(options: MachineOptions): Machine {
       showItem(decision.continueAt);
       return;
     }
-    if (settings.playAllRoutes || skipping) {
+    // The same pause as `fireDecision`: a skip burst stops at this re-offer
+    // too (docs/plan.md Phase 16); only `playAllRoutes` auto-resolves.
+    if (settings.playAllRoutes) {
       autoResolve(decision);
       return;
     }
@@ -1210,7 +1309,15 @@ export function createMachine(options: MachineOptions): Machine {
     },
 
     advance() {
-      if (destroyed || count === 0 || pendingChoice !== null) return;
+      if (destroyed || count === 0) return;
+      if (pendingChoice !== null) {
+        if (pendingChoice.arrival !== true) return;
+        // Space over an arrival-open view: the reader pressed on the item,
+        // so the view yields to the plain press it would have been — the
+        // settle-and-move below, which FIRES the decision (moveForward
+        // reaches fireDecision) rather than stepping into the next item.
+        pendingChoice = null;
+      }
       if (skipping) {
         // Space during skip exits skip mode AND stops on the current item:
         // exiting leaves it unset, and this press settles it in place
@@ -1242,37 +1349,41 @@ export function createMachine(options: MachineOptions): Machine {
     },
 
     wheelBack() {
-      if (destroyed || pendingChoice !== null) return;
+      if (destroyed) return;
+      // An arrival-open choice closes on this step (navigation away); a
+      // fired one owns the timeline and swallows it.
+      const closedArrival = dismissArrivalChoice();
+      if (pendingChoice !== null) return;
       // Decision (docs/plan.md Phase 4): a wheel step during skip exits skip
       // mode AND performs the step — the step is what the user
       // meant; merely dropping it would feel like a dead input.
       const wasSkipping = skipping;
       if (skipping) skipping = false; // a clamped step exits skip too
       if (cursor === 0) {
-        if (wasSkipping) {
-          beginItem(); // normal timing for the item left under the cursor
-          emit();
-        }
+        if (wasSkipping) beginItem(); // normal timing for the item left behind
+        if (wasSkipping || closedArrival) emit();
         return;
       }
-      showItem(cursor - 1); // pure nav: shown, seen, no decision fires
+      showItem(cursor - 1); // pure nav: shown, seen; no decision consumed
+      openArrivalChoiceIfDue();
     },
 
     wheelForward() {
-      if (destroyed || pendingChoice !== null) return;
+      if (destroyed) return;
+      const closedArrival = dismissArrivalChoice();
+      if (pendingChoice !== null) return;
       const wasSkipping = skipping;
       if (skipping) skipping = false; // same decision as wheelBack()
       // The ceiling is the highest item ever shown, which across routes is
       // the union of everything seen — so a forward step can reach a seen
       // item of another route, and entering it is navigation, not a choice.
       if (cursor + 1 > highestSeen) {
-        if (wasSkipping) {
-          beginItem(); // blocked step still ends skip: normal timing again
-          emit();
-        }
+        if (wasSkipping) beginItem(); // blocked step still ends skip
+        if (wasSkipping || closedArrival) emit();
         return;
       }
       showItem(cursor + 1);
+      openArrivalChoiceIfDue();
     },
 
     toggleSkip() {
@@ -1287,15 +1398,25 @@ export function createMachine(options: MachineOptions): Machine {
     },
 
     jumpToUnseen() {
-      if (destroyed || count === 0 || pendingChoice !== null) return;
+      if (destroyed || count === 0) return;
+      const closedArrival = dismissArrivalChoice();
+      if (pendingChoice !== null) return; // a fired choice owns the timeline
       const target = unseenTarget();
-      if (target < 0 || target === cursor) return; // nothing unseen: stay
+      if (target < 0 || target === cursor) {
+        if (closedArrival) emit(); // nothing to jump to: the view just closed
+        return;
+      }
       skipping = false; // a jump is manual navigation: skip mode is off
       showItem(target); // fresh entry: seen now, its own hold armed
+      openArrivalChoiceIfDue();
     },
 
     goTo(index) {
-      if (destroyed || count === 0 || pendingChoice !== null) return;
+      if (destroyed || count === 0) return;
+      dismissArrivalChoice(); // navigation away closes an arrival view
+      if (pendingChoice !== null) return; // a fired choice owns the timeline
+      // Bookmark navigation is navigation too: landing on an unresolved
+      // decision's `after` item opens its arrival view, leaving closes it.
       // A bookmark always points at content the reader had reached, but the
       // list outlives the moment it was written, so clamp defensively to
       // seen content `[0, highestSeen]`: unseen items must be entered by
@@ -1304,6 +1425,7 @@ export function createMachine(options: MachineOptions): Machine {
       // to the edge of what has been shown.)
       skipping = false; // like jumpToUnseen: manual navigation ends skip mode
       showItem(clamp(index, 0, Math.max(0, highestSeen)));
+      openArrivalChoiceIfDue();
     },
 
     choose(routeIdx) {
@@ -1312,6 +1434,13 @@ export function createMachine(options: MachineOptions): Machine {
       if (!Number.isInteger(routeIdx) || routeIdx < 0) return;
       if (routeIdx >= decision.routes.length) return;
       pendingChoice = null;
+      // From an arrival-open view this chooses exactly like a fired decision
+      // (docs/plan.md Phase 16): the answered decision's open frames close
+      // first — a no-op after a fired open, but it keeps a re-entry into the
+      // reader's own route from double-pushing the frame.
+      closeFramesFor(decision.index);
+      // A skip burst never restarts here: the pause at a decision ended it
+      // and the pick belongs to manual reading (docs/plan.md Phase 16).
       enterRoute(decision, routeIdx);
     },
 

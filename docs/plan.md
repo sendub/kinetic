@@ -638,8 +638,10 @@ Navigation:
   SHOWS the choice overlay when the decision is unresolved, instead of
   passing it invisibly.
 - Tab skip now PAUSES at a decision (shows the overlay, waits for the
-  pick, resumes skipping after) instead of auto-resolving it;
-  play-all-routes remains the no-pause path.
+  pick) instead of auto-resolving it; after a pick the player stays in
+  manual mode rather than resuming the burst, so the reader is never
+  swept past the start of a route they just chose; play-all-routes
+  remains the no-pause path.
 
 Branches:
 - Re-picking the ending route "Turn them down" currently loops the

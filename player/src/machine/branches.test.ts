@@ -250,22 +250,31 @@ describe("a decision fires on the forward settle of its after item", () => {
     m.destroy();
   });
 
-  it("navigating onto the after item fires nothing, and forward re-fires it", () => {
+  it("navigating onto the after item SHOWS it unconsumed, and forward re-fires it", () => {
+    // Adapted (docs/plan.md Phase 16): navigation onto an unresolved
+    // decision's `after` item used to pass through invisibly; it now SHOWS
+    // the decision as an arrival view and closes on the way away — still
+    // firing nothing, the decision stays unconsumed.
     const m = machine(CANON);
     step(m);
     step(m);
     m.advance(); // fires
     m.choose(0); // into route A
     expect(m.getState().cursor).toBe(3);
-    m.wheelBack(); // back onto the after item: pure navigation, no overlay
+    const stackBefore = m.exportContext().stack;
+    m.wheelBack(); // back onto the after item: the arrival view shows d1
     expect(m.getState().cursor).toBe(2);
-    expect(m.getState().choice).toBeUndefined();
-    m.wheelForward(); // and stepping forward over it is navigation too
+    expect(m.getState().choice?.decisionId).toBe("d1");
+    expect(m.getState().choice?.arrival).toBe(true);
+    m.wheelForward(); // stepping away closes it; navigation consumes nothing
     expect(m.getState().cursor).toBe(3);
     expect(m.getState().choice).toBeUndefined();
+    expect(m.exportContext().stack).toEqual(stackBefore); // no stack change
     m.wheelBack();
-    m.advance(); // back into `after` and pressing forward re-opens the overlay
+    m.advance(); // space over the arrival view: it fires the decision, no move
+    expect(m.getState().cursor).toBe(2);
     expect(m.getState().choice?.decisionId).toBe("d1");
+    expect(m.getState().choice?.arrival).toBeUndefined(); // now a fired choice
     m.destroy();
   });
 
@@ -297,6 +306,93 @@ describe("a decision fires on the forward settle of its after item", () => {
     for (let press = 0; press < 24; press += 1) m.advance();
     expect(m.getState().cursor).toBe(10); // played straight through, linearly
     expect(m.getState().choice).toBeUndefined();
+    m.destroy();
+  });
+});
+
+describe("navigation arrivals show unresolved decisions (docs/plan.md Phase 16)", () => {
+  it("a wheel arrival opens the decision; the pick enters the route like a fired choice", () => {
+    const shape = manifest(CANON);
+    const m = createMachine({
+      items: shape.items,
+      branches: shape.branches,
+      settings: SETTINGS,
+    }); // manual: the player's start
+    m.advance(); // 0 -> 1
+    m.advance(); // 1 -> 2: a forward STEP arrives quietly (firing stays on the settle)
+    expect(m.getState().choice).toBeUndefined();
+    m.wheelBack(); // 2 -> 1
+    m.wheelForward(); // 1 -> 2: a navigation arrival SHOWS d1
+    expect(m.getState().choice?.decisionId).toBe("d1");
+    expect(m.getState().choice?.arrival).toBe(true);
+    expect(m.getState().settled).toBe(true); // timing paused: the item waits
+    m.choose(1); // pick route B from the arrival view
+    expect(m.getState().cursor).toBe(5); // route B's first item
+    expect(m.getState().choice).toBeUndefined();
+    const context = m.exportContext();
+    expect(context.stack).toEqual([{ decision: 0, route: 1 }]); // route ctx pushed
+    expect(context.playedRoutes).toEqual([{ decision: 0, routes: [1] }]);
+    m.destroy();
+  });
+
+  it("goTo lands open and leaving closes it, stack and played set unchanged", () => {
+    const m = machine(CANON);
+    step(m);
+    step(m);
+    m.advance(); // fires
+    m.choose(0); // inside route A at 3
+    const context = m.exportContext();
+    m.goTo(2); // a bookmark onto the after item shows the decision
+    expect(m.getState().cursor).toBe(2);
+    expect(m.getState().choice?.decisionId).toBe("d1");
+    expect(m.getState().choice?.arrival).toBe(true);
+    m.goTo(0); // and jumping away just closes it
+    expect(m.getState().cursor).toBe(0);
+    expect(m.getState().choice).toBeUndefined();
+    const after = m.exportContext(); // nothing was consumed by the visit
+    expect(after.stack).toEqual(context.stack);
+    expect(after.playedRoutes).toEqual(context.playedRoutes);
+    m.destroy();
+  });
+
+  it("an e-jump landing on the after item shows the decision", () => {
+    const m = machine(CANON, { resumeFrontier: 2 });
+    m.jumpToUnseen(); // item 2: the first unseen, the after item
+    expect(m.getState().cursor).toBe(2);
+    expect(m.getState().choice?.decisionId).toBe("d1");
+    expect(m.getState().choice?.arrival).toBe(true);
+    m.destroy();
+  });
+
+  it("a pending auto timer cannot pass through an arrival: timing is paused", () => {
+    vi.useFakeTimers();
+    const m = machine(CANON); // auto: the arrival's own hold IS armed
+    step(m);
+    step(m); // cursor 2 with a 1500 ms hold pending
+    m.wheelBack(); // 2 -> 1
+    m.wheelForward(); // 1 -> 2: the arrival view cancels that hold
+    expect(m.getState().choice?.arrival).toBe(true);
+    vi.advanceTimersByTime(SETTINGS.minHoldMs * 10);
+    expect(m.getState().cursor).toBe(2); // the cancelled timer carried nothing past
+    expect(m.getState().choice?.decisionId).toBe("d1");
+    m.destroy();
+  });
+
+  it("playAllRoutes: an arrival shows nothing and the hold auto-resolves", () => {
+    vi.useFakeTimers();
+    const auto = { ...SETTINGS, playAllRoutes: true };
+    const m = machine(CANON, { settings: auto });
+    step(m);
+    step(m); // cursor 2 (the play-all path shows no overlay anywhere)
+    m.wheelBack();
+    m.wheelForward(); // arrival onto `decide`: still no overlay — no-stop path
+    expect(m.getState().choice).toBeUndefined();
+    vi.advanceTimersByTime(SETTINGS.minHoldMs + 10); // the hold takes it
+    expect(m.getState().choice).toBeUndefined(); // auto-resolved, no stop
+    expect(m.getState().cursor).toBe(3); // route A entered
+    expect(m.exportContext().playedRoutes).toEqual([
+      { decision: 0, routes: [0] },
+    ]);
     m.destroy();
   });
 });
@@ -611,17 +707,21 @@ describe("playAllRoutes (docs/plan.md Phase 13)", () => {
 });
 
 describe("skip mode with branches", () => {
-  it("a skip visits the routes in play order and never stops for a choice", () => {
+  it("a skip pauses at a decision even with skipAll on (was: never stops)", () => {
+    // Adapted (docs/plan.md Phase 16): the burst used to auto-resolve
+    // every decision in play order and never stop for a choice; `skipAll`
+    // governs only unseen stops now, so the decision takes the pause.
     vi.useFakeTimers();
     const m = machine(CANON, { settings: { ...SETTINGS, skipAll: true } });
     const seen: (string | undefined)[] = [];
     m.subscribe((s) => seen.push(s.choice?.decisionId));
     m.toggleSkip();
-    vi.advanceTimersByTime(SETTINGS.skipDwellMs * 13);
-    expect(seen.every((c) => c === undefined)).toBe(true);
-    expect(m.visitedList()).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
-    expect(m.getState().skipping).toBe(false);
-    expect(m.getState().cursor).toBe(10);
+    vi.advanceTimersByTime(SETTINGS.skipDwellMs * 3); // 0->1->2, dwell on `decide`
+    expect(m.getState().cursor).toBe(2);
+    expect(m.getState().choice?.decisionId).toBe("d1");
+    expect(m.getState().skipping).toBe(false); // the burst ENDED at the decision
+    expect(seen).toContain("d1");
+    expect(m.visitedList()).toEqual([0, 1, 2]);
     m.destroy();
   });
 
@@ -643,34 +743,57 @@ describe("skip mode with branches", () => {
     m.destroy();
   });
 
-  it("a decision reached during a skip resolves itself even with the setting off", () => {
+  it("a decision reached during a skip stops the burst; the pick stays manual", () => {
+    // Adapted (docs/plan.md Phase 16): a decision reached during a skip
+    // used to resolve itself without stopping. It now opens the overlay,
+    // ends the burst, and — the reader's part — the pick never restarts
+    // the burst: reading continues in manual mode.
     vi.useFakeTimers();
-    const m = machine(CANON, { resumeFrontier: 3 });
+    const shape = manifest(CANON);
+    const m = createMachine({
+      items: shape.items,
+      branches: shape.branches,
+      settings: SETTINGS,
+      resumeFrontier: 3,
+    }); // manual: the player's start
     m.toggleSkip();
     const dwell = SETTINGS.skipDwellMs;
-    vi.advanceTimersByTime(dwell); // the dwell on `decide` fires d1, answered
-    expect(m.getState().cursor).toBe(3); // route A's first item, by itself
-    expect(m.getState().choice).toBeUndefined();
-    vi.advanceTimersByTime(dwell); // then the burst ends at unseen content
-    expect(m.getState().cursor).toBe(4);
+    vi.advanceTimersByTime(dwell); // the dwell on `decide` stops the burst
+    expect(m.getState().cursor).toBe(2); // ON the after item, not past it
+    expect(m.getState().choice?.decisionId).toBe("d1");
     expect(m.getState().skipping).toBe(false);
+    m.choose(0); // the pick lands on route A's first item...
+    expect(m.getState().cursor).toBe(3);
+    expect(m.getState().skipping).toBe(false); // ...and NO burst resumes
+    vi.advanceTimersByTime(dwell * 10);
+    expect(m.getState().cursor).toBe(3); // manual: nothing moves by itself
     expect(m.exportContext().playedRoutes).toEqual([
       { decision: 0, routes: [0] },
     ]);
     m.destroy();
   });
 
-  it("a skip burst flows past a closed pure choice to the tail", () => {
-    // The single all-played rule in skip mode: the burst does not stall
-    // on the decision's last route — it flows on past the region.
+  it("a skip burst flows past a CLOSED pure choice to the tail", () => {
+    // The all-played close still flows through a burst (Phase 13 rule,
+    // unchanged); only an UNRESOLVED decision stops it now (Phase 16), so
+    // the routes are pre-played and `decide` closes past the region.
     vi.useFakeTimers();
-    const m = machine(PURE, { settings: { ...SETTINGS, skipAll: true } });
+    const context: MachineContext = {
+      lastShown: 0,
+      visited: [0],
+      stack: [],
+      playedRoutes: [{ decision: 0, routes: [0, 1] }],
+    };
+    const m = machine(PURE, {
+      settings: { ...SETTINGS, skipAll: true },
+      resumeContext: context,
+    });
     const seen: (string | undefined)[] = [];
     m.subscribe((s) => seen.push(s.choice?.decisionId));
     m.toggleSkip();
     vi.advanceTimersByTime(SETTINGS.skipDwellMs * 12);
     expect(seen.every((c) => c === undefined)).toBe(true);
-    expect(m.visitedList()).toEqual([0, 1, 2, 3, 4, 5, 6, 7]);
+    expect(m.visitedList()).toEqual([0, 1, 6, 7]); // past the whole region
     expect(m.getState().skipping).toBe(false);
     expect(m.getState().cursor).toBe(7);
     m.destroy();
@@ -718,17 +841,22 @@ describe("the visited set, the derived frontier, and the wheel", () => {
     m.destroy();
   });
 
-  it("a wheel step across a decision is navigation: it fires nothing", () => {
+  it("a wheel step onto a decision SHOWS it; across it is still navigation", () => {
+    // Adapted (docs/plan.md Phase 16): the invisible pass-through became
+    // an arrival view; crossing over the decision still consumes nothing.
     const m = machine(CANON);
     step(m);
     step(m);
     m.advance();
     m.choose(0); // inside route A at 3
-    m.wheelBack(); // onto `decide`, the after item
-    m.wheelForward(); // over it into the route again
+    m.wheelBack(); // onto `decide`, the after item: shown, not fired
+    expect(m.getState().choice?.arrival).toBe(true);
+    m.wheelForward(); // over it into the route again: closed
     expect(m.getState().choice).toBeUndefined();
+    const played = m.exportContext().playedRoutes;
     m.wheelBack();
-    expect(m.getState().choice).toBeUndefined();
+    expect(m.getState().choice?.decisionId).toBe("d1"); // shown again, unanswered
+    expect(m.exportContext().playedRoutes).toEqual(played); // consumed nothing
     m.destroy();
   });
 
