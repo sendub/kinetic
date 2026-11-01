@@ -318,6 +318,20 @@ truthful: an unchecked box means nothing was accepted.
       bookmark+state commits; 42-step verify + repro prove
       pill->reload 43 ms resume; 294 tests, 2025-11-01)
 
+## Phase 15: Minimum video play time under chains (2025-11-01, external tester)
+
+- [ ] Format/schema/validator/CREATE: optional `minPlaySeconds` on
+      video items (>0), chain-exit semantics + manual/skip-immediate
+      documented; per-item not per-file; validator type/positivity +
+      CREATE example note
+- [ ] Machine: chain-exit floor max(hold, minPlay - chainElapsed) for
+      the last item of a text chain over a video with the field,
+      machine-time bookkeeping, auto/skip-dwell/play-all paths honored,
+      manual advance unaffected; tests incl. the 8 s/5.829 s scenario
+- [ ] Demo fixture + verify: ~6 s clip + dialogue chain with
+      minPlaySeconds 4.5; step proves the wait (~4.5 s, not ~2 s) and
+      that skip stays immediate; determinism green
+
 ## Later, waiting on the user
 
 - [ ] Overlay text styling iteration (incl. thought vs dialogue look)

@@ -576,6 +576,39 @@ not a hint:
   history (back/forward), skip, and skip-unseen behave identically in
   BOTH modes. Fix any real bug found; cover gaps in tests/verify.
 
+## Phase 15: Minimum video play time under chains (2025-11-01, external tester)
+
+Observed: an 8 s video followed by dialogue changed visuals at 5.829 s
+- chain exit gated on text timing alone, because Phase 4 de-gates media
+under text chains (`nextIsText`). Add a per-video opt-in floor:
+
+- New optional field `minPlaySeconds` (number > 0) on video items.
+  Semantics: when the CURRENT item is the last of the video's dialogue
+  chain (next item is not `text`), and auto-advance governs this step
+  (normal auto mode, or the auto-advance inside skip dwell, or
+  play-all/skip-all bursts - all machine-time paths), the hold is
+  `max(holdMs, minPlaySeconds*1000 - chainElapsedMs)` where
+  `chainElapsedMs` is the machine-time since the chain's video item
+  became current (the same bookkeeping `setSettings` re-arm uses;
+  deterministic ms). The chain plays through its dialogue normally
+  while the video runs; only LEAVING the chain waits.
+- Manual advance (space/wheel/tab) and skip transitions stay
+  immediate - the floor only delays timer-driven advance.
+- `holdSeconds` interaction: `holdSeconds` remains the whole-item
+  display gate for standalone videos; `minPlaySeconds` concerns chain
+  exit. Both on one item: chain exit honors BOTH (max of requirements).
+  Outside chains `minPlaySeconds` has no effect beyond the existing
+  gate (documented; validator only checks type/positivity).
+- Renderer: no change to video playback (background play already
+  continues under chains); the wait is purely machine timing.
+  `videoEnded`-driven completion of standalone videos unchanged.
+- The field is per-video-item, not per-file: shared files may set
+  different floors.
+- Demo: extend the fixture with an item `stroll-025` (~6 s clip, cheap
+  frames) + 2 short dialogue items, `minPlaySeconds: 4.5`, and a verify
+  step: chain advances past the dialogue around 4.5 s, not ~2 s; skip
+  through it stays immediate.
+
 ## Later, waiting on the user
 
 - Overlay text styling iteration once the user can play with the demo.
@@ -583,6 +616,7 @@ not a hint:
 ## Sequencing
 
 1 -> 2 -> 2b -> 3 -> 4 -> 5 -> 6 -> 7 -> 7b -> 8 -> 9 -> 9b -> 9c -> 9d ->
-10 -> 11 -> 13 -> 12, serial. The default is serial per the single-slot
-model serving rule. Phase 12 (perf, packaging, final doc pass) runs last
-so it reflects the final feature set.
+10 -> 11 -> 13 -> 12 -> 15, serial. The default is serial per the
+single-slot model serving rule. Phase 12 (perf, packaging, final doc
+pass) had run when Phase 15 (external tester) arrived; a final README
+accuracy pass lands with Phase 15 completion.
