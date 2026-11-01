@@ -1,11 +1,10 @@
-"""Media helpers: ffprobe duration and default display resolution.
-
-Only used to fill manifest metadata; the actual asset copy/derive pass is
-the next Phase 10 task.
+"""Media helpers: ffprobe duration, default display resolution, and the
+shipped-file path rule.
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 import subprocess
 from collections import Counter
@@ -14,6 +13,33 @@ from pathlib import Path
 IMAGE_EXTS = {"png", "jpg", "jpeg", "webp", "gif", "jxl"}
 VIDEO_EXTS = {"mp4", "webm", "mkv", "mov", "m4v"}
 DEFAULT_SIZE = (1280, 720)
+
+MEDIA_ROOT = "assets"
+
+
+def media_dir(name: str) -> str:
+    """The bucket directory a shipped file lives in: ``assets/ab``.
+
+    The bucket is the first two hex digits of the sha1 of the file's
+    BASENAME - the name, never the bytes - so the same name lands in the
+    same bucket in every run (docs/plan.md Phase 17). Up to 256 shallow
+    buckets keep a big game's output out of the one huge directory macOS
+    Finder stalls on. A bucket holds many files: uniqueness comes from the
+    id-based names, not from the bucket.
+    """
+    return f"{MEDIA_ROOT}/{hashlib.sha1(name.encode('utf-8')).hexdigest()[:2]}"
+
+
+def media_ref(name: str, shard: bool = True) -> str:
+    """Where a shipped media file lives, relative to the content folder.
+
+    Every writer and every manifest/ledger media value is built here from
+    the same shipped name, so the file on disk and the path that points at
+    it cannot drift. Posters and animation frames bucket by their OWN
+    basenames, so one video's file and its poster may sit in different
+    buckets. ``shard=False`` (the CLI's ``--flat``) keeps the folder flat.
+    """
+    return name if not shard else f"{media_dir(name)}/{name}"
 
 
 def probe_duration_seconds(path: Path) -> float | None:

@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from .media import media_ext, probe_duration_seconds
+from .media import media_ext, media_ref, probe_duration_seconds
 from .parser import Event, FileParse, Report, slug as _slug
 
 _INTERPOLATION_RE = re.compile(r"\[[^][]*\]")
@@ -116,6 +116,7 @@ def build_timeline(parses: list[tuple[str, FileParse]],
                    max_items: int | None = None,
                    asset_lookup=None,
                    implicit_lookup=None,
+                   shard: bool = True,
                    ) -> TimelineResult:
     """Walk all parsed files (already in filename order) linearly.
 
@@ -133,6 +134,11 @@ def build_timeline(parses: list[tuple[str, FileParse]],
     (kinetic_extract.images.ImplicitImages.lookup): consulted when a
     scene/show name has no definition, or its defined file exists
     nowhere. Explicit definitions win over it (docs/extracting.md BUG 5).
+
+    ``shard`` is the Phase 17 bucketing switch (the CLI's ``--flat``
+    inverted). Placeholder names are bucketed by the same rule as shipped
+    files, so one folder never mixes bucketed and flat paths; cli.py
+    passes the same switch to the asset pass.
     """
     result = TimelineResult()
     pending: _Pending | None = None
@@ -194,8 +200,8 @@ def build_timeline(parses: list[tuple[str, FileParse]],
         else:
             record.notes.append("no source asset resolved; placeholder name")
         if pend.kind == "video":
-            item["file"] = f"{item_id}.{ext}"
-            item["poster"] = f"{item_id}.poster.jpg"
+            item["file"] = media_ref(f"{item_id}.{ext}", shard)
+            item["poster"] = media_ref(f"{item_id}.poster.jpg", shard)
             duration = (probe_duration_seconds(pend.asset_abs)
                         if pend.asset_abs and pend.asset_abs.exists()
                         else None)
@@ -206,7 +212,7 @@ def build_timeline(parses: list[tuple[str, FileParse]],
                     "for source video")
             item["durationSeconds"] = duration
         else:
-            item["file"] = f"{item_id}.{ext}"
+            item["file"] = media_ref(f"{item_id}.{ext}", shard)
         apply_line(item, record, speaker, text)
         result.items.append(record)
         check_limit()

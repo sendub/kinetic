@@ -1,7 +1,9 @@
-"""Asset-pass tests (docs/plan.md Phase 10): content sniffing wins over
-extensions, JXL ships only when strictly smaller, identical sources dedup,
-wrapped images carve or skip, posters land on the requested range start,
-and the validator accepts the output folder with the ledger present."""
+"""Asset-pass tests (docs/plan.md Phase 10, Phase 17): content sniffing wins
+over extensions, JXL ships only when strictly smaller, identical sources
+dedup, wrapped images carve or skip, posters land on the requested range
+start, shipped files sit in the sha1-of-basename bucket they are declared
+under, two runs are byte-identical, and the validator accepts the output
+folder with the ledger present."""
 
 from __future__ import annotations
 
@@ -12,12 +14,14 @@ import sys
 from io import BytesIO
 from pathlib import Path
 
+from helpers import bucketed, declared_media
 from kinetic_extract import assets
 from kinetic_extract.cli import main as cli_main
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 FIXTURE = REPO_ROOT / "fixtures" / "renpy_demo"
 CLIP = FIXTURE / "game" / "data" / "clip.mp4"
+FOLDER_FILES = {"manifest.json", "manifest.js", "build-ledger.json"}
 
 
 def extract(out: Path) -> tuple[dict, dict]:
@@ -26,6 +30,13 @@ def extract(out: Path) -> tuple[dict, dict]:
     manifest = json.loads((out / "manifest.json").read_text("utf-8"))
     ledger = json.loads((out / "build-ledger.json").read_text("utf-8"))
     return manifest, ledger
+
+
+def run_validator(out: Path) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [sys.executable, str(REPO_ROOT / "tools" / "validate_content.py"),
+         str(out)],
+        capture_output=True, text=True, check=False)
 
 
 def mean_luma(path: Path) -> float:
@@ -101,8 +112,9 @@ def test_identical_sources_share_one_shipped_file(tmp_path: Path) -> None:
     first = by_id["bg-room-001"]["file"]
     assert by_id["bg-room-013"]["file"] == first      # `scene bg-room` again
     assert by_id["bg-reprise-017"]["file"] == first   # same bytes, new name
-    shared = list((tmp_path / "out").glob("bg-room-*"))
-    assert [p.name for p in shared] == [first]
+    out = tmp_path / "out"
+    shared = sorted(p.relative_to(out).as_posix() for p in out.rglob("bg-room-*"))
+    assert shared == [first]
     assert ledger["items"]["bg-reprise-017"]["dedupOf"] == first
 
 
@@ -124,12 +136,71 @@ def test_poster_exists_nonblack_and_at_range_start(tmp_path: Path) -> None:
     manifest, _ = extract(tmp_path / "out")
     video = next(i for i in manifest["items"] if i["type"] == "video")
     poster = tmp_path / "out" / video["poster"]
-    assert video["poster"] == "clip-004.poster.jpg"
+    assert video["poster"] == bucketed("clip-004.poster.jpg")
     assert poster.is_file() and mean_luma(poster) > 10  # nonblack
     # The same extractor at a range start also yields a real frame.
     mid = tmp_path / "poster-0p5.jpg"
     assert assets.extract_poster(CLIP, mid, 0.5)
     assert mean_luma(mid) > 10
+
+
+# --- output layout: hash-prefix buckets (docs/plan.md Phase 17) -----------------
+
+def test_every_declared_path_is_its_basename_bucket(tmp_path: Path) -> None:
+    """Bucket == sha1(basename)[:2], and the declared file is on disk."""
+    out = tmp_path / "out"
+    manifest, ledger = extract(out)
+    declared = declared_media(manifest)
+    assert declared, "the fixture ships no media"
+    for ref in declared:
+        basename = ref.rsplit("/", 1)[-1]
+        assert ref == bucketed(basename)
+        assert (out / ref).is_file()
+    # The rule above hashes each name itself, so a video and its poster
+    # bucket separately (the fixture's two land in different buckets).
+    # Nothing shipped sits outside a bucket: the folder holds nothing but
+    # the three folder files plus assets/<xx>/<name>.
+    on_disk = [p.relative_to(out).as_posix() for p in out.rglob("*")
+               if p.is_file() and p.name not in FOLDER_FILES]
+    assert all(len(ref.split("/")) == 3 and ref.startswith("assets/")
+               for ref in on_disk), on_disk
+    assert set(on_disk) == set(declared)
+    # The ledger names the same paths the manifest does: no drift.
+    for entry in ledger["items"].values():
+        for key in ("shippedFile", "shippedPoster", "dedupOf"):
+            if entry.get(key):
+                assert entry[key] in declared
+
+
+def test_two_runs_are_byte_identical_and_same_bucket(tmp_path: Path) -> None:
+    """Same input -> identical manifest, ledger, buckets, and media bytes."""
+    left, right = tmp_path / "left", tmp_path / "right"
+    extract(left)
+    extract(right)
+    for name in ("manifest.json", "manifest.js", "build-ledger.json"):
+        assert (left / name).read_bytes() == (right / name).read_bytes(), name
+    left_files = sorted(p.relative_to(left).as_posix()
+                        for p in left.rglob("*") if p.is_file())
+    right_files = sorted(p.relative_to(right).as_posix()
+                         for p in right.rglob("*") if p.is_file())
+    assert left_files == right_files       # same files, same buckets
+    for rel in left_files:
+        assert (left / rel).read_bytes() == (right / rel).read_bytes(), rel
+
+
+def test_flat_flag_writes_media_into_the_folder_root(tmp_path: Path) -> None:
+    """--flat opts out of sharding; the folder still validates."""
+    out = tmp_path / "out"
+    assert cli_main([str(FIXTURE), str(out), "--flat"]) == 0
+    manifest = json.loads((out / "manifest.json").read_text("utf-8"))
+    declared = declared_media(manifest)
+    assert declared
+    assert all("/" not in ref for ref in declared), declared
+    for ref in declared:
+        assert (out / ref).is_file()
+    assert not (out / "assets").exists()
+    proc = run_validator(out)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
 
 
 # --- validator + ledger extra ---------------------------------------------------
@@ -138,10 +209,7 @@ def test_validator_exit_zero_with_ledger(tmp_path: Path) -> None:
     out = tmp_path / "out"
     _, ledger = extract(out)
     assert (out / "build-ledger.json").is_file()  # unreferenced extra
-    proc = subprocess.run(
-        [sys.executable, str(REPO_ROOT / "tools" / "validate_content.py"),
-         str(out)],
-        capture_output=True, text=True, check=False)
+    proc = run_validator(out)
     assert proc.returncode == 0, proc.stdout + proc.stderr
     # The ledger carries the per-item asset facts the plan requires.
     for entry in ledger["items"].values():
@@ -192,8 +260,10 @@ def test_wrapped_image_carved_and_unsupported_item_skipped(
     entry = ledger["items"][wrapped["id"]]
     assert entry["decision"] == "carved"
     assert entry["wrapped"] == 5
-    assert wrapped["file"].startswith(f"{wrapped['id']}.")
-    assert wrapped["file"].endswith((".png", ".jxl"))
+    shipped = Path(wrapped["file"]).name
+    assert shipped.startswith(f"{wrapped['id']}.")
+    assert shipped.endswith((".png", ".jxl"))
+    assert wrapped["file"] == bucketed(shipped)   # declared under its bucket
     assert (out / wrapped["file"]).is_file()
     # The junk item never reaches the manifest but is explained in the ledger.
     junk_ids = [i for i in ledger["items"] if i.startswith("junk-")]
@@ -203,8 +273,5 @@ def test_wrapped_image_carved_and_unsupported_item_skipped(
     assert junk["decision"] == "skipped"
     assert junk["sniffedFormat"] == "unknown"
     # The folder still validates: the skipped item left no dangling media.
-    proc = subprocess.run(
-        [sys.executable, str(REPO_ROOT / "tools" / "validate_content.py"),
-         str(out)],
-        capture_output=True, text=True, check=False)
+    proc = run_validator(out)
     assert proc.returncode == 0, proc.stdout + proc.stderr

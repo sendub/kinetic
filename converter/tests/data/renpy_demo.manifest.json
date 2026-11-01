@@ -6,7 +6,7 @@
     {
       "id": "bg-room-001",
       "type": "image",
-      "file": "bg-room-001.jxl",
+      "file": "assets/ef/bg-room-001.jxl",
       "speaker": "Ana",
       "text": "Welcome to the house."
     },
@@ -25,8 +25,8 @@
     {
       "id": "clip-004",
       "type": "video",
-      "file": "clip-004.mp4",
-      "poster": "clip-004.poster.jpg",
+      "file": "assets/a2/clip-004.mp4",
+      "poster": "assets/52/clip-004.poster.jpg",
       "durationSeconds": 1.0,
       "speaker": "Ana",
       "text": "The screen flickers to life."
@@ -40,7 +40,7 @@
     {
       "id": "bg-yard-006",
       "type": "image",
-      "file": "bg-yard-006.jxl",
+      "file": "assets/77/bg-yard-006.jxl",
       "text": "Тишина в саду. [wind]"
     },
     {
@@ -52,7 +52,7 @@
     {
       "id": "bg-room-008",
       "type": "image",
-      "file": "bg-room-001.jxl",
+      "file": "assets/ef/bg-room-001.jxl",
       "speaker": "Ana",
       "text": "The fire crackles as the room warms."
     },
@@ -65,7 +65,7 @@
     {
       "id": "bg-yard-010",
       "type": "image",
-      "file": "bg-yard-006.jxl",
+      "file": "assets/77/bg-yard-006.jxl",
       "speaker": "Гостья",
       "text": "The gravel sounds louder at night."
     },
@@ -82,7 +82,7 @@
     {
       "id": "bg-room-013",
       "type": "image",
-      "file": "bg-room-001.jxl",
+      "file": "assets/ef/bg-room-001.jxl",
       "speaker": "Ana",
       "text": "Back inside, where it is quiet."
     },
@@ -95,34 +95,34 @@
     {
       "id": "mislabel-bmp-015",
       "type": "image",
-      "file": "mislabel-bmp-015.jxl",
+      "file": "assets/b4/mislabel-bmp-015.jxl",
       "speaker": "Ana",
       "text": "A small painting on the wall."
     },
     {
       "id": "mislabel-png-016",
       "type": "image",
-      "file": "mislabel-png-016.jxl",
+      "file": "assets/84/mislabel-png-016.jxl",
       "text": "The frame beside it hides its true format too."
     },
     {
       "id": "bg-reprise-017",
       "type": "image",
-      "file": "bg-room-001.jxl",
+      "file": "assets/ef/bg-room-001.jxl",
       "speaker": "Dmitri",
       "text": "The same room again, seen from the hall."
     },
     {
       "id": "photo-noise-018",
       "type": "image",
-      "file": "photo-noise-018.jxl",
+      "file": "assets/1f/photo-noise-018.jxl",
       "speaker": "Ana",
       "text": "A photograph, grainy and warm."
     },
     {
       "id": "bg-gif-019",
       "type": "image",
-      "file": "bg-gif-019.gif",
+      "file": "assets/b0/bg-gif-019.gif",
       "text": "A tiny paper lantern blinks by the door."
     }
   ],

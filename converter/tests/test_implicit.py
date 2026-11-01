@@ -32,6 +32,7 @@ from pathlib import Path
 import pytest
 from PIL import Image
 
+from helpers import bucketed
 from kinetic_extract.cli import main as cli_main
 from kinetic_extract.parser import _split_image_def, parse_file
 from kinetic_extract.timeline import def_value_target
@@ -124,12 +125,12 @@ def test_movie_def_scene_ships_a_video_item(
     (item,) = manifest["items"]
     assert item["type"] == "video"
     assert item["id"] == "mv-001"
-    assert item["file"] == "mv-001.webm"
+    assert item["file"] == bucketed("mv-001.webm")
     assert item["text"] == "Playing."
     # Real duration from ffprobe on the source; no placeholder note.
     assert item["durationSeconds"] > 0.5
-    assert (out / "mv-001.webm").is_file()
-    assert (out / "mv-001.poster.jpg").is_file()
+    assert (out / bucketed("mv-001.webm")).is_file()
+    assert (out / bucketed("mv-001.poster.jpg")).is_file()
     entry = ledger_of(out)["items"]["mv-001"]
     assert entry["asset"] == "game/m.webm"
     assert not any("placeholder" in n for n in entry["notes"])

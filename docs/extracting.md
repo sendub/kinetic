@@ -67,6 +67,25 @@ parsed `.rpy` files). Smoke runs (2026-02-13):
   names are unresolved dynamic references; item slots and sources are
   recorded in the ledger).
 
+## Output layout
+
+Extracted media ships under `assets/<xx>/`, where `<xx>` is the first two
+hex digits of the sha1 of that file's basename: the name, never the bytes
+(docs/plan.md Phase 17). A bucket is therefore stable across runs whatever
+the file holds, and one game's thousands of files spread over up to 256
+shallow folders, because a single directory that large is what macOS
+Finder stalls on. Names are unchanged (still id-based), so a bucket simply
+holds many files, and a poster or animation frame is bucketed by its own
+basename, not its source's.
+
+Manifest `file`, `poster`, and `frames` values, and the ledger's
+`shippedFile`, `shippedPoster`, and `dedupOf`, carry that relative subpath
+(`assets/ef/bg-room-001.jxl`), legal since Phase 17.1 per
+docs/content-format.md, and the player resolves it from the folder root.
+`--flat` writes media into the folder root instead, for a small folder or
+one whose contents you want to eyeball; a hand-authored folder such as
+`fixtures/demo` stays flat either way.
+
 ## Results
 
 One subsection per sampled game. The first pass ran five slices

@@ -469,8 +469,13 @@ truthful: an unchecked box means nothing was accepted.
       phase-closer note); proof walk of a bucketed demo copy: painted
       + missingFiles [] + 0 console errors; 81 pytest + 376 vitest,
       validator 0 on all three fixtures, 2025-11-02)
-- [ ] Converter: shard extracted media into 2-char hash-prefix buckets
+- [x] Converter: shard extracted media into 2-char hash-prefix buckets
       (`assets/<2hex>/<id>.<ext>`), deterministic (hash of the name,
       not a counter); update the extractor + golden so every referenced
       file exists and shard placement is stable across runs; docs
-      (content-format, extracting) updated.
+      (content-format, extracting) updated. (media_ref wired into every
+      writer - manifest/ledger/posters/frames share one ref string;
+      --flat opt-out; golden regenerated (12 path lines, byte-identical
+      to a fresh run); bucket-exists + two-run byte-identity + flat
+      tests; validator green on sharded, flat and artifact; 73
+      converter tests, 2025-11-02)

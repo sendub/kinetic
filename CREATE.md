@@ -367,7 +367,11 @@ you do by hand above, dedups identical sources into shared derivative
 files, decompiles `.rpyc` (vendored unrpyc) and reads `.rpa` archives as
 sources, converts simple `menu:` blocks into branches (conservatively;
 never guessing joins), and leaves its build ledger among the folder's
-unreferenced extras. Validate and play its output the same way.
+unreferenced extras. Its media files land in `assets/<xx>/` buckets named
+by the first two hex digits of the sha1 of each file's own name, so a big
+game never puts thousands of files in one folder that macOS Finder has to
+lay out (`--flat` keeps them in the folder root; docs/extracting.md,
+"Output layout"). Validate and play its output the same way.
 
 ## Playing the folder
 

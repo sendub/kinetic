@@ -3,15 +3,18 @@
 Usage:
 
     kinetic-extract <renpy_project> <out_dir> [--width N] [--height N]
-                    [--label NAME] [--max-items N] [--files GLOB]
+                    [--label NAME] [--max-items N] [--files GLOB] [--flat]
 
 <renpy_project> may be a directory containing ``game/``, a ``game/``
 directory itself, or a macOS ``.app`` bundle (the ``game`` dir is resolved
 under ``Contents/Resources/autorun``). Writes ``manifest.json``, the
 ``manifest.js`` shim, ``build-ledger.json``, and every shipped media file
 (including posters) into ``out_dir`` and prints the skipped/notes summary.
-The output folder is playable as-is (copy the player bundle in to open it
-offline).
+Media ships under ``assets/<xx>/`` buckets of its own file name (two hex
+digits of its sha1, so the same name always lands in the same bucket and
+one directory never holds thousands of files); ``--flat`` opts out and
+keeps the folder flat. The output folder is playable as-is (copy the
+player bundle in to open it offline).
 
 Compiled-only projects (``*.rpyc`` with no ``*.rpy``) are supported: a
 ``.rpyc`` with no same-stem ``.rpy`` is decompiled in memory through the
@@ -298,6 +301,11 @@ def main(argv: list[str] | None = None) -> int:
                       help="only parse game/*.rpy (and matching *.rpyc) files "
                            "matching GLOB (filename order; default: every "
                            ".rpy and any .rpyc without a .rpy twin)")
+    argp.add_argument("--flat", action="store_true",
+                      help="write every media file directly in OUT_DIR "
+                           "instead of the default assets/<xx>/ buckets "
+                           "(bucket = first 2 hex digits of sha1 of the "
+                           "file's basename; same name, same bucket)")
     args = argp.parse_args(argv)
 
     game_dir = resolve_game_dir(args.renpy_project)
@@ -310,16 +318,18 @@ def main(argv: list[str] | None = None) -> int:
               file=sys.stderr)
         return 1
     implicit = ImplicitImages(game_dir, asset_archives)
+    shard = not args.flat
     result = build_timeline(parses, image_defs, characters, game_dir,
                             start_label=args.label, max_items=args.max_items,
                             asset_lookup=asset_archives.lookup,
-                            implicit_lookup=implicit.lookup)
+                            implicit_lookup=implicit.lookup,
+                            shard=shard)
     if asset_archives.failed:
         sources.setdefault("rpaFailed", []).extend(asset_archives.failed)
     reports: list[Report] = []
     for _rel, parsed in parses:
         reports.extend(parsed.reports)
-    skipped = run_asset_pass(result.items, args.out_dir)
+    skipped = run_asset_pass(result.items, args.out_dir, shard=shard)
     branches, branch_notes = finalize_branches(result, parses, reports)
 
     if args.width and args.height:
