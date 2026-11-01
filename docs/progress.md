@@ -648,5 +648,16 @@ truthful: an unchecked box means nothing was accepted.
       notice on resume when unseen content exists before the reader's
       position. `e` stays "go to the end". Folds into the end card item
       (the end card offers the same jump). Help, README, scenarios.
+- [ ] Skip can play videos (user, 2026-11-01): a config option ("Skip
+      plays videos", default off) makes a skip burst play each video as
+      it would play when not skipping (its loops / duration) before
+      moving on; Space during such a playback aborts that video and the
+      burst continues. Off keeps today's first-frame skip. Settings
+      screen, README, tests, scenario.
+- [ ] Space during auto-forward returns to manual (user, 2026-11-01):
+      with auto-forward on, Space turns it off and the reader continues
+      manually from the current item (that press does not also step;
+      the next Space does). Replaces "in auto-forward Space ends this
+      item first". Help, README, tests, scenario.
 - [ ] Phase-closer: full suite (driver, vitest, pytest, package-proof),
       rebuild BOTH demo folders, present the updated demo to the user.
