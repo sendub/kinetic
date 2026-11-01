@@ -17,10 +17,9 @@ from pathlib import Path
 from typing import Any
 
 from .media import media_ext, probe_duration_seconds
-from .parser import Event, FileParse, Report
+from .parser import Event, FileParse, Report, slug as _slug
 
 _INTERPOLATION_RE = re.compile(r"\[[^][]*\]")
-_SLUG_BAD_RE = re.compile(r"[^A-Za-z0-9_-]+")
 # `image X = Movie(play="f.webm", ...)` (parser stores the value verbatim
 # as an expression): the play file is the item's video (BUG 2).
 _MOVIE_PLAY_RE = re.compile(r"\bplay\s*=\s*\"((?:[^\"\\]|\\.)*)\"")
@@ -48,11 +47,6 @@ def def_value_target(defined: tuple[str, str]) -> tuple[str, str | None]:
     return "image", m.group(1) if m else None
 
 
-def _slug(name: str | None, fallback: str) -> str:
-    raw = _SLUG_BAD_RE.sub("-", (name or "").strip()).strip("-")
-    return raw[:60] if raw else fallback
-
-
 @dataclass
 class ItemRecord:
     """One manifest item plus its ledger entry.
@@ -76,6 +70,12 @@ class ItemRecord:
 class TimelineResult:
     items: list[ItemRecord] = field(default_factory=list)
     source_images: list[Path] = field(default_factory=list)  # for size probe
+    # Menu regions that passed the conservative shape check, as
+    # {"record": MenuRecord, "after_idx": int,
+    #  "route_spans": [(label, start_idx, end_idx)]}
+    # with indices into ``items`` (docs/plan.md Phase 13). The CLI turns
+    # these into manifest `branches` once the asset pass is known.
+    branch_candidates: list[dict[str, Any]] = field(default_factory=list)
 
     def _next_id(self, slug: str) -> str:
         return f"{slug}-{len(self.items) + 1:03d}"
@@ -137,6 +137,7 @@ def build_timeline(parses: list[tuple[str, FileParse]],
     result = TimelineResult()
     pending: _Pending | None = None
     started = start_label is None
+    menu_state: dict[str, Any] | None = None  # open menu region (Phase 13)
 
     def check_limit() -> None:
         if max_items is not None and len(result.items) >= max_items:
@@ -225,6 +226,48 @@ def build_timeline(parses: list[tuple[str, FileParse]],
         if count:
             record.notes.append(
                 f"kept {count} interpolation(s) literal in text")
+
+    def close_menu(parsed: FileParse, ms: dict[str, Any]) -> None:
+        """Judge an opened menu region when its `menu-close` arrives.
+
+        The region's items are exactly those emitted between the choice
+        boundaries (every boundary flushes the pending visual first), so
+        adjacency is index arithmetic: each choice block must own a
+        non-empty contiguous run of items, an item may only be an image
+        or text item, and an item must precede the menu. A failure keeps
+        the emitted items in the linear flow (as always) and records the
+        menu as unsupported; it is never fatal."""
+        record = ms["record"]
+        starts = ms["starts"]
+        ends = starts[1:] + [len(result.items)]
+        reason = None
+        if ms["after"] < 0:
+            reason = "no item precedes the menu in the walked flow"
+        elif len(starts) != len(record.choices):
+            reason = "choice count does not match the walked blocks"
+        else:
+            for k, (s, e) in enumerate(zip(starts, ends)):
+                if s >= e:
+                    reason = f"choice {k + 1} produced no item"
+                    break
+                types = {result.items[i].item["type"] for i in range(s, e)}
+                if not types <= {"image", "text"}:
+                    reason = (f"choice {k + 1} contains a "
+                              f"{sorted(types - {'image', 'text'})[0]} item")
+                    break
+        if reason is not None:
+            record.skip_reason = reason
+            parsed.reports.append(Report(
+                record.source, record.statement,
+                f"menu unsupported ({reason}): branch skipped, "
+                "linear flow kept"))
+            return
+        result.branch_candidates.append({
+            "record": record,
+            "after_idx": ms["after"],
+            "route_spans": [(record.choices[k], starts[k], ends[k] - 1)
+                            for k in range(len(starts))],
+        })
 
     try:
         for _rel, parsed in parses:
@@ -333,6 +376,24 @@ def build_timeline(parses: list[tuple[str, FileParse]],
                         apply_line(item, record, event.speaker, event.text)
                         result.items.append(record)
                         check_limit()
+                elif event.kind == "menu-open":
+                    # The lead-in ends here: a trailing visual becomes the
+                    # decision's `after` item, and the region starts empty.
+                    flush_bare()
+                    menu_state = {
+                        "record": parsed.menus[int(event.name)],
+                        "after": len(result.items) - 1,
+                        "starts": [],
+                    }
+                elif event.kind == "choice-open":
+                    if menu_state is not None:
+                        flush_bare()
+                        menu_state["starts"].append(len(result.items))
+                elif event.kind == "menu-close":
+                    if menu_state is not None:
+                        flush_bare()
+                        close_menu(parsed, menu_state)
+                        menu_state = None
             flush_bare()
     except _SliceDone:
         pass

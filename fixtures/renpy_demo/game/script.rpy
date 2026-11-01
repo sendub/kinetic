@@ -34,6 +34,19 @@ label start:
     g "It almost feels like home."
     hide bg-yard
 
+    menu "The evening is yours to spend.":
+        "Warm the room again":
+            scene bg-room
+            a "The fire crackles as the room warms."
+            d "Tea, then. The strong kind."
+        "Walk the garden path":
+            show bg-yard
+            g "The gravel sounds louder at night."
+            "Somewhere past the hedge, water runs."
+    with dissolve
+
+    "The night settles over the house."
+
     menu:
         "Go back inside":
             jump inside

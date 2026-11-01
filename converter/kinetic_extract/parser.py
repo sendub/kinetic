@@ -11,8 +11,16 @@ Design notes:
 - Comments are stripped outside quoted strings.
 - A line ending in ":" opens a block: all following lines indented deeper
   than the opening line belong to it. ``label`` blocks continue the linear
-  walk; ``menu`` and other blocks are skipped, with ``menu`` reported as an
-  unsupported branch.
+  walk; blocks other than ``label`` and ``menu`` are skipped.
+- ``menu`` is parsed structurally (docs/plan.md Phase 13): the caption and
+  the ``"label":`` choice blocks are captured into a ``MenuRecord`` and the
+  choice bodies feed the linear event stream between ``menu-open`` /
+  ``choice-open`` / ``menu-close`` marker events, so the timeline can lay a
+  branch decision over the items. A menu that fails the conservative shape
+  (a non-quoted or conditional choice, a nested menu, a flow or unknown
+  statement inside a choice block, fewer than two choices) is reported
+  with ``menu unsupported (...)`` and its whole block is skipped, as before
+  — never fatal.
 - ``jump``/``call`` targets known in the same file are noted and the walk
   continues linearly (no real control flow); unknown targets are reported as
   cross-file calls/jumps.
@@ -41,8 +49,29 @@ _QUIET_BLOCK_KEYWORDS = frozenset({"init", "python", "screen", "transform"})
 # Single-line statements skipped without a report.
 _QUIET_STATEMENT_KEYWORDS = frozenset(
     {"window", "with", "pause", "return", "default", "$"})
+# Cosmetics that may sit inside a menu choice block without disqualifying
+# it: they change no flow and no state (unlike `return` or `$`).
+_MENU_NOISE_KEYWORDS = frozenset({"window", "with", "pause"})
+
+# docs/content-format.md caps enforced by the validator.
+PROMPT_MAX = 199       # prompt "shorter than 200 characters"
+LABEL_MAX = 119        # route label "shorter than 120 characters"
+ID_MAX = 64            # docs/content-schema.json $defs/id pattern
+
+_DEFAULT_PROMPT = "What happens next?"
 
 _QUOTE_ESCAPES = {"\"": "\"", "\\": "\\", "n": "\n", "#": "#", "[": "["}
+
+
+_SLUG_BAD_RE = re.compile(r"[^A-Za-z0-9_-]+")
+
+
+def slug(text: str | None, fallback: str) -> str:
+    """Id-safe slug of a name: non-[A-Za-z0-9_-] runs become `-` (the
+    item-id scheme of kinetic_extract.timeline, reused for branch ids)."""
+    raw = _SLUG_BAD_RE.sub("-", (text or "").strip()).strip("-")
+    return raw[:60] if raw else fallback
+
 
 
 def _parse_quoted(text: str, pos: int) -> tuple[str, int] | None:
@@ -93,9 +122,17 @@ class Report:
 
 @dataclass
 class Event:
-    """A recognized statement in linear flow order."""
+    """A recognized statement in linear flow order.
 
-    kind: str            # visual | video | dialogue | stop-movie | label
+    Menu structure arrives as marker events: ``menu-open`` (name is the
+    menu's index in ``FileParse.menus``), ``choice-open`` (name is
+    ``"<menu index>:<choice index>"``), and ``menu-close`` (name is the
+    menu index again). The statements of a choice block sit between its
+    ``choice-open`` and the next boundary, so the timeline can attribute
+    items to route spans by position."""
+
+    kind: str            # visual | video | dialogue | stop-movie | label |
+                         # menu-open | choice-open | menu-close
     source: str
     text: str = ""       # dialogue text (dialogue events)
     speaker: str | None = None
@@ -104,11 +141,36 @@ class Event:
 
 
 @dataclass
+class MenuRecord:
+    """One ``menu:`` block parsed structurally, for branch detection.
+
+    The parser fills the decision shape (id, prompt, choice labels) and
+    rejects menus that fail the conservative syntactic rules by setting
+    ``skip_reason``; the timeline rejects shape problems it can only see
+    after the walk (no item precedes the menu, an empty choice span); the
+    CLI withdraws a candidate whose items the asset pass dropped. A record
+    with ``skip_reason is None`` after the CLI pass became a manifest
+    decision."""
+
+    source: str            # "game/script.rpy:38"
+    statement: str         # the `menu:` line text
+    decision_id: str       # "menu-<label slug>-<line>", unique-checked
+    prompt: str
+    prompt_defaulted: bool  # no caption in the source; prompt synthesized
+    choices: list[str] = field(default_factory=list)
+    skip_reason: str | None = None
+
+
+
+@dataclass
 class FileParse:
     """Result of parsing one .rpy file."""
 
     relname: str
     events: list[Event] = field(default_factory=list)
+    # Structural menu records, indexed by the number carried in this
+    # file's menu marker events (docs/plan.md Phase 13).
+    menus: list[MenuRecord] = field(default_factory=list)
     # name -> ("file", quoted path) | ("expr", verbatim non-quoted value,
     # e.g. `Movie(play="x.webm")` — kinetic_extract.timeline classifies it).
     image_defs: dict[str, tuple[str, str]] = field(default_factory=dict)
@@ -170,6 +232,184 @@ def _split_image_def(rest: str) -> tuple[str, tuple[str, str] | None]:
     return " ".join(name.split()), ("file", parsed[0]) if parsed else None
 
 
+def _classify_menu_statement(src: str, line: str):
+    """Classify one line inside a menu choice block.
+
+    Answers ``("event", Event)``, ``("noise", None)``, or
+    ``("reject", reason)``. Only image/text-item statements (scene/show
+    and dialogue) and pure cosmetics (window/with/pause) keep the menu
+    eligible (docs/plan.md Phase 13, conservative extraction): a nested
+    ``menu``, a flow statement (``jump``/``call``/``return``), a video
+    statement, and any unknown statement disqualify the whole menu, which
+    is then reported and skipped as before."""
+    keyword = line.split(" ", 1)[0].split(":", 1)[0]
+    rest = line[len(keyword):].strip()
+    if rest.startswith(":"):
+        rest = rest[1:].strip()
+    if keyword == "menu":
+        return "reject", "nested menu inside a choice block"
+    if keyword == "scene":
+        return "event", Event("visual", src,
+                              name=_name_tokens(rest) or "black")
+    if keyword == "show":
+        if rest.startswith("layer "):
+            return "reject", "show layer inside a choice block"
+        name = _name_tokens(rest)
+        if not name:
+            return "reject", f"show without an image: {line}"
+        return "event", Event("visual", src, name=name)
+    if keyword in {"jump", "call", "return"}:
+        return "reject", (f"{keyword} inside a choice block "
+                          "(flow does not continue in place)")
+    if keyword in _MENU_NOISE_KEYWORDS:
+        return "noise", None
+    # Video/state/control statements: recognized, but their presence in a
+    # choice block breaks the conservative shape. (`$` and `default` are
+    # caught below as unrecognized, like any unknown statement.)
+    if keyword in {"movie", "stop", "hide", "image", "define", "label",
+                   "init", "python", "screen", "transform", "if", "elif",
+                   "else"}:
+        return "reject", f"unsupported in a choice block: {line}"
+    quoted_start = line.find("\"")
+    if quoted_start == 0:
+        parsed = _parse_quoted(line, 0)
+        if parsed:
+            return "event", Event("dialogue", src, text=parsed[0])
+        return "reject", f"unrecognized statement in a choice block: {line}"
+    m = _SPEAKER_SAY_RE.match(line)
+    if m and quoted_start != -1:
+        parsed = _parse_quoted(line, quoted_start)
+        if parsed:
+            return "event", Event("dialogue", src, text=parsed[0],
+                                  speaker=m.group(1))
+    return "reject", f"unrecognized statement in a choice block: {line}"
+
+
+def _parse_menu_body(block: list[tuple[int, str, int]], relname: str,
+                     caption: str | None):
+    """Classify the interior lines of a menu block.
+
+    ``block`` holds ``(lineno, text, indent)`` for every non-blank line
+    deeper than the ``menu:`` line, in order; ``caption`` is the caption
+    taken from the ``menu "…":`` head, if any. Answers
+    ``(reject reason | None, caption, choices)`` where choices is a list
+    of ``(label, choice-line source, body events)``. Choice lines sit at
+    the base indent; every body line must classify as an event or noise,
+    so choice blocks are adjacent in file order with only skipped noise
+    between them by construction."""
+    base = block[0][2]
+    choices: list[tuple[str, str, list[Event]]] = []
+    for (lineno, text, indent) in block:
+        src = f"{relname}:{lineno}"
+        if indent <= base:
+            if indent < base:
+                return (f"unexpected indent at line {lineno}",
+                        caption, choices)
+            if text.startswith("\"") and text.endswith(":"):
+                parsed = _parse_quoted(text, 0)
+                label = parsed[0].strip() if parsed else ""
+                if not label:
+                    return "empty choice label", caption, choices
+                choices.append((label[:LABEL_MAX], src, []))
+            elif (caption is None and not choices
+                  and len(text) > 1 and text.startswith("\"")
+                  and text.endswith("\"")):
+                parsed = _parse_quoted(text, 0)
+                if parsed is None:
+                    return f"unsupported line between choices: {text}", \
+                        caption, choices
+                caption = parsed[0]
+            else:
+                return (f"unsupported line between choices: {text}",
+                        caption, choices)
+            continue
+        if not choices:
+            return ("statement before the first choice", caption, choices)
+        kind, payload = _classify_menu_statement(src, text)
+        if kind == "reject":
+            return payload, caption, choices
+        if kind == "event":
+            choices[-1][2].append(payload)
+    return None, caption, choices
+
+
+def _handle_menu(raw_lines: list[str], i: int, relname: str,
+                 menu_lineno: int, menu_line: str, menu_indent: int,
+                 result: FileParse, cur_label: str | None) -> int:
+    """Parse the menu block whose ``menu:`` line was just read.
+
+    ``i`` is the index of the line after the ``menu:`` line; the answer is
+    the index the outer scan resumes at. A menu passing the conservative
+    rules (two or more plain quoted choices, each body parsing to events
+    or noise) appends a MenuRecord plus marker events; anything else is
+    reported ``menu unsupported (reason)`` and its block contributes
+    nothing to the stream, keeping the old skip behavior. Never fatal."""
+    source = f"{relname}:{menu_lineno}"
+    head_rest = menu_line[len("menu"):].strip()
+    if head_rest.startswith(":"):
+        head_rest = head_rest[1:].strip()
+    caption = None
+    if head_rest.startswith("\""):
+        parsed = _parse_quoted(head_rest, 0)
+        caption = parsed[0] if parsed else None
+
+    block: list[tuple[int, str, int]] = []  # (lineno, text, indent)
+    j = i
+    while j < len(raw_lines):
+        content = strip_comment(raw_lines[j])
+        if not content.strip():
+            j += 1
+            continue
+        indent = len(content) - len(content.lstrip(" \t"))
+        if indent <= menu_indent:
+            break
+        block.append((j + 1, content.strip(), indent))
+        j += 1
+
+    if not block:
+        reject, caption, choices = "empty menu", caption, []
+    else:
+        reject, caption, choices = _parse_menu_body(block, relname, caption)
+    if reject is None and not choices:
+        reject = "no choices"
+    elif reject is None and len(choices) < 2:
+        reject = "fewer than two choices"
+    if reject:
+        result.reports.append(Report(
+            source, menu_line,
+            f"menu unsupported ({reject}): branch skipped, linear flow kept"))
+        result.menus.append(MenuRecord(
+            source=source, statement=menu_line,
+            decision_id=f"menu-{slug(cur_label, Path(relname).stem)}"
+                        f"-{menu_lineno}"[:ID_MAX],
+            prompt=(caption if caption is not None else _DEFAULT_PROMPT)
+                   [:PROMPT_MAX],
+            prompt_defaulted=caption is None,
+            choices=[label[:LABEL_MAX] for label, _src, _body in choices],
+            skip_reason=reject))
+        return j
+
+    record = MenuRecord(
+        source=source, statement=menu_line,
+        decision_id=f"menu-{slug(cur_label, Path(relname).stem)}"
+                    f"-{menu_lineno}"[:ID_MAX],
+        prompt=(caption if caption is not None else _DEFAULT_PROMPT)
+               [:PROMPT_MAX],
+        prompt_defaulted=caption is None,
+        choices=[label for label, _src, _body in choices])
+    menu_idx = len(result.menus)
+    result.menus.append(record)
+    result.events.append(Event("menu-open", source, name=str(menu_idx)))
+    for k, (_label, choice_src, body) in enumerate(choices):
+        result.events.append(
+            Event("choice-open", choice_src, name=f"{menu_idx}:{k}"))
+        result.events.extend(body)
+    result.events.append(
+        Event("menu-close", f"{relname}:{block[-1][0]}",
+              name=str(menu_idx)))
+    return j
+
+
 def parse_file(text: str, relname: str) -> FileParse:
     """Parse one .rpy source; never raises on unknown statements."""
     result = FileParse(relname=relname)
@@ -177,7 +417,12 @@ def parse_file(text: str, relname: str) -> FileParse:
     labels = _label_names(raw_lines)
 
     skip_indent: int | None = None  # depth of the line that opened a block
-    for lineno, raw in enumerate(raw_lines, start=1):
+    cur_label: str | None = None    # label whose body the walk is in
+    i = 0
+    while i < len(raw_lines):
+        raw = raw_lines[i]
+        lineno = i + 1
+        i += 1
         content = strip_comment(raw)
         if not content.strip():
             continue
@@ -256,16 +501,15 @@ def parse_file(text: str, relname: str) -> FileParse:
             open_block()
             continue
         if keyword == "menu":
-            result.reports.append(
-                Report(source, line, "menu unsupported: branch skipped, "
-                                     "linear flow kept"))
-            open_block()
+            i = _handle_menu(raw_lines, i, relname, lineno, line, indent,
+                             result, cur_label)
             continue
         if keyword == "label":
             # The label body is the linear flow itself: never skipped. The
             # event marks the position so a slice can start here (--label).
             m = _LABEL_HEAD_RE.match(line)
             if m:
+                cur_label = m.group(1)
                 result.events.append(Event("label", source, name=m.group(1)))
             continue
         if keyword in {"jump", "call"}:

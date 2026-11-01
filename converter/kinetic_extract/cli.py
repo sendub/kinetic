@@ -45,7 +45,7 @@ from . import __version__
 from .assets import run_asset_pass
 from .images import ImplicitImages
 from .media import DEFAULT_SIZE, most_common_image_size
-from .parser import Report, parse_project
+from .parser import ID_MAX, Report, parse_project, slug
 from .rpa import AssetArchives
 from .timeline import TimelineResult, build_timeline
 
@@ -53,7 +53,12 @@ SIMPLIFICATIONS = [
     "multiple .rpy files are processed in filename order and concatenated",
     "jump/call targets are followed linearly (no control flow); cross-file "
     "targets are reported",
-    "menu branches are unsupported: skipped, linear flow before them kept",
+    "menus become branch decisions only when conservatively detectable "
+    "(plain quoted choices whose blocks form contiguous runs of recognized "
+    "image/text items, with flow continuing in place); all routes then get "
+    "result \"ending\" and a continuingRoute is never guessed; any other "
+    "menu is reported and skipped, linear flow kept (ledger "
+    "branchDetection)",
     "first dialogue line under a visual attaches to the media item; later "
     "lines become text items over the same visual",
     "assets ship at their sniffed true format (preserve or lossless-JXL "
@@ -90,19 +95,95 @@ def resolve_game_dir(project: Path) -> Path:
 
 
 def build_manifest(result: TimelineResult, width: int, height: int,
+                   branches: list[dict[str, Any]] | None = None,
                    ) -> dict[str, Any]:
-    return {
+    manifest: dict[str, Any] = {
         "schemaVersion": 1,
         "width": width,
         "height": height,
         "items": [record.item for record in result.items
                   if not record.skipped],
     }
+    if branches:
+        manifest["branches"] = branches
+    return manifest
+
+
+def finalize_branches(result: TimelineResult,
+                      parses: list[tuple[str, object]],
+                      reports: list[Report],
+                      ) -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
+    """Turn the walked menu candidates into manifest `branches`.
+
+    A candidate is withdrawn when the asset pass dropped any item of its
+    span (or its `after` item): the route references would dangle, and
+    the ledger says so. Route ids reuse the slug scheme of item ids;
+    decision and route ids are made unique manifest-wide. Every menu
+    parsed in the run gets one ledger `branchDetection` note — detected
+    (with the conservative choices stated) or skipped (with its reason).
+    v1 never emits `continuingRoute`: after-menu joins are not provable
+    from a linear walk, and the rules forbid guessing one."""
+    manifest_ids = {record.item["id"] for record in result.items
+                    if not record.skipped}
+    branches: list[dict[str, Any]] = []
+    decision_of: dict[int, str] = {}
+    for cand in result.branch_candidates:
+        rec = cand["record"]
+        after_idx = cand["after_idx"]
+        top = max(end for _label, _start, end in cand["route_spans"])
+        if any(result.items[i].skipped for i in range(after_idx, top + 1)):
+            rec.skip_reason = "route item dropped by the asset pass"
+            reports.append(Report(
+                rec.source, rec.statement,
+                f"menu unsupported ({rec.skip_reason}): decision withdrawn, "
+                "linear flow kept"))
+            continue
+        used = manifest_ids | {b["id"] for b in branches}
+        decision_id = rec.decision_id
+        n = 2
+        while decision_id in used:
+            decision_id = f"{rec.decision_id}-{n}"[:ID_MAX]
+            n += 1
+        routes = [{
+            "id": f"{slug(label, 'route')}-{k + 1}"[:ID_MAX],
+            "label": label,
+            "start": result.items[start].item["id"],
+            "end": result.items[end].item["id"],
+            "result": "ending",
+        } for k, (label, start, end) in enumerate(cand["route_spans"])]
+        branches.append({
+            "id": decision_id,
+            "after": result.items[after_idx].item["id"],
+            "prompt": rec.prompt,
+            "routes": routes,
+        })
+        decision_of[id(rec)] = decision_id
+    notes: list[dict[str, str]] = []
+    for _rel, parsed in parses:
+        for rec in getattr(parsed, "menus", []):
+            decision_id = decision_of.get(id(rec))
+            if decision_id is not None:
+                note = (f"decision {decision_id}: {len(rec.choices)} routes, "
+                        "all result \"ending\"; continuingRoute not emitted "
+                        "(v1 never guesses a join after a menu)")
+                if rec.prompt_defaulted:
+                    note += "; prompt defaulted (menu has no caption)"
+                notes.append({"source": rec.source, "result": "detected",
+                              "note": note})
+            else:
+                if rec.skip_reason is None:
+                    rec.skip_reason = ("menu region not completed in the "
+                                       "walked flow (slice)")
+                notes.append({"source": rec.source, "result": "skipped",
+                              "reason": rec.skip_reason})
+    return branches, notes
+
 
 
 def build_ledger(result: TimelineResult, reports: list[Report],
                  inputs: list[str], slice_opts: dict[str, Any] | None = None,
                  sources: dict[str, Any] | None = None,
+                 branch_notes: list[dict[str, str]] | None = None,
                  ) -> dict[str, Any]:
     items: dict[str, Any] = {}
     for record in result.items:
@@ -124,6 +205,12 @@ def build_ledger(result: TimelineResult, reports: list[Report],
     }
     if slice_opts:
         ledger["slice"] = slice_opts
+    if branch_notes:
+        # Every menu this run saw, and what was decided about it
+        # (docs/plan.md Phase 13): "detected" entries state the
+        # conservative choices, "skipped" entries carry the reason
+        # (also present in `report`).
+        ledger["branchDetection"] = branch_notes
     if sources:
         # .rpyc handling (docs/plan.md Phase 11): which sources were
         # decompiled via the vendored unrpyc, which stale .rpyc twins were
@@ -157,7 +244,9 @@ def write_outputs(out_dir: Path, manifest: dict[str, Any],
 
 
 def print_summary(result: TimelineResult, reports: list[Report],
-                  resolution_note: str, skipped: int) -> None:
+                  resolution_note: str, skipped: int,
+                  branch_notes: list[dict[str, str]] | None = None,
+                  ) -> None:
     counts: dict[str, int] = {}
     for record in result.items:
         if record.skipped:
@@ -169,6 +258,15 @@ def print_summary(result: TimelineResult, reports: list[Report],
     print(f"items: {sum(counts.values())} ({type_summary}); "
           f"media shipped: {shipped}; items skipped: {skipped}")
     print(f"resolution: {resolution_note}")
+    notes = branch_notes or []
+    detected = sum(1 for n in notes if n["result"] == "detected")
+    skipped_menus = [n for n in notes if n["result"] == "skipped"]
+    line = (f"branches: {detected} detected, {len(skipped_menus)} "
+            "menus skipped")
+    if skipped_menus:
+        reasons = sorted({n["reason"] for n in skipped_menus})
+        line += f" ({'; '.join(reasons)})"
+    print(line)
     note_count = sum(len(r.notes) for r in result.items)
     print(f"reported statements: {len(reports)}; item notes: {note_count}")
     for report in reports:
@@ -222,6 +320,7 @@ def main(argv: list[str] | None = None) -> int:
     for _rel, parsed in parses:
         reports.extend(parsed.reports)
     skipped = run_asset_pass(result.items, args.out_dir)
+    branches, branch_notes = finalize_branches(result, parses, reports)
 
     if args.width and args.height:
         width, height, source_note = args.width, args.height, "--width/--height override"
@@ -233,7 +332,7 @@ def main(argv: list[str] | None = None) -> int:
                        else f"default {DEFAULT_SIZE[0]}x{DEFAULT_SIZE[1]}")
         if args.width or args.height:
             source_note += " with --width/--height override"
-    manifest = build_manifest(result, width, height)
+    manifest = build_manifest(result, width, height, branches=branches)
     slice_opts = {"label": args.label, "maxItems": args.max_items,
                   "files": args.files}
     ledger = build_ledger(result, reports,
@@ -241,8 +340,9 @@ def main(argv: list[str] | None = None) -> int:
                           slice_opts=slice_opts if any(
                               v is not None for v in slice_opts.values())
                           else None,
-                          sources=sources)
+                          sources=sources,
+                          branch_notes=branch_notes)
     write_outputs(args.out_dir, manifest, ledger)
     print_summary(result, reports, f"{width}x{height} ({source_note})",
-                  skipped)
+                  skipped, branch_notes)
     return 0

@@ -42,8 +42,8 @@ def mean_luma(path: Path) -> float:
 
 def test_mislabeled_assets_sniffed_to_true_format(tmp_path: Path) -> None:
     _, ledger = extract(tmp_path / "out")
-    bmp = ledger["items"]["mislabel-bmp-010"]   # source name *.png
-    png = ledger["items"]["mislabel-png-011"]   # source name *.jpg
+    bmp = ledger["items"]["mislabel-bmp-015"]   # source name *.png
+    png = ledger["items"]["mislabel-png-016"]   # source name *.jpg
     assert bmp["sniffedFormat"] == "bmp"
     assert bmp["decision"] == "decode-convert"
     assert png["sniffedFormat"] == "png"
@@ -67,8 +67,8 @@ def test_sniff_image_direct() -> None:
 
 def test_jxl_smaller_rule_recorded(tmp_path: Path) -> None:
     _, ledger = extract(tmp_path / "out")
-    noise = ledger["items"]["photo-noise-013"]
-    gif = ledger["items"]["bg-gif-014"]
+    noise = ledger["items"]["photo-noise-018"]
+    gif = ledger["items"]["bg-gif-019"]
     if assets.cjxl_available():
         assert noise["decision"] == "jxl"
         assert noise["shippedBytes"] < noise["sourceBytes"]
@@ -99,11 +99,11 @@ def test_identical_sources_share_one_shipped_file(tmp_path: Path) -> None:
     manifest, ledger = extract(tmp_path / "out")
     by_id = {i["id"]: i for i in manifest["items"]}
     first = by_id["bg-room-001"]["file"]
-    assert by_id["bg-room-008"]["file"] == first      # `scene bg-room` again
-    assert by_id["bg-reprise-012"]["file"] == first   # same bytes, new name
+    assert by_id["bg-room-013"]["file"] == first      # `scene bg-room` again
+    assert by_id["bg-reprise-017"]["file"] == first   # same bytes, new name
     shared = list((tmp_path / "out").glob("bg-room-*"))
     assert [p.name for p in shared] == [first]
-    assert ledger["items"]["bg-reprise-012"]["dedupOf"] == first
+    assert ledger["items"]["bg-reprise-017"]["dedupOf"] == first
 
 
 # --- video policy and posters --------------------------------------------------

@@ -54,46 +54,99 @@
       "type": "image",
       "file": "bg-room-001.jxl",
       "speaker": "Ana",
-      "text": "Back inside, where it is quiet."
+      "text": "The fire crackles as the room warms."
     },
     {
       "id": "line-009",
       "type": "text",
       "speaker": "Dmitri",
+      "text": "Tea, then. The strong kind."
+    },
+    {
+      "id": "bg-yard-010",
+      "type": "image",
+      "file": "bg-yard-006.jxl",
+      "speaker": "Гостья",
+      "text": "The gravel sounds louder at night."
+    },
+    {
+      "id": "line-011",
+      "type": "text",
+      "text": "Somewhere past the hedge, water runs."
+    },
+    {
+      "id": "line-012",
+      "type": "text",
+      "text": "The night settles over the house."
+    },
+    {
+      "id": "bg-room-013",
+      "type": "image",
+      "file": "bg-room-001.jxl",
+      "speaker": "Ana",
+      "text": "Back inside, where it is quiet."
+    },
+    {
+      "id": "line-014",
+      "type": "text",
+      "speaker": "Dmitri",
       "text": "Good night."
     },
     {
-      "id": "mislabel-bmp-010",
+      "id": "mislabel-bmp-015",
       "type": "image",
-      "file": "mislabel-bmp-010.jxl",
+      "file": "mislabel-bmp-015.jxl",
       "speaker": "Ana",
       "text": "A small painting on the wall."
     },
     {
-      "id": "mislabel-png-011",
+      "id": "mislabel-png-016",
       "type": "image",
-      "file": "mislabel-png-011.jxl",
+      "file": "mislabel-png-016.jxl",
       "text": "The frame beside it hides its true format too."
     },
     {
-      "id": "bg-reprise-012",
+      "id": "bg-reprise-017",
       "type": "image",
       "file": "bg-room-001.jxl",
       "speaker": "Dmitri",
       "text": "The same room again, seen from the hall."
     },
     {
-      "id": "photo-noise-013",
+      "id": "photo-noise-018",
       "type": "image",
-      "file": "photo-noise-013.jxl",
+      "file": "photo-noise-018.jxl",
       "speaker": "Ana",
       "text": "A photograph, grainy and warm."
     },
     {
-      "id": "bg-gif-014",
+      "id": "bg-gif-019",
       "type": "image",
-      "file": "bg-gif-014.gif",
+      "file": "bg-gif-019.gif",
       "text": "A tiny paper lantern blinks by the door."
+    }
+  ],
+  "branches": [
+    {
+      "id": "menu-start-37",
+      "after": "line-007",
+      "prompt": "The evening is yours to spend.",
+      "routes": [
+        {
+          "id": "Warm-the-room-again-1",
+          "label": "Warm the room again",
+          "start": "bg-room-008",
+          "end": "line-009",
+          "result": "ending"
+        },
+        {
+          "id": "Walk-the-garden-path-2",
+          "label": "Walk the garden path",
+          "start": "bg-yard-010",
+          "end": "line-011",
+          "result": "ending"
+        }
+      ]
     }
   ]
 }

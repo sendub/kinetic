@@ -252,8 +252,11 @@ truthful: an unchecked box means nothing was accepted.
       decision fire, nesting, return-row proven, play-all auto-order,
       resume ctx, e-into-unseen-route; deterministic rebuilds,
       2025-11-01)
-- [ ] Extractor: conservative `menu:` -> decision detection (contiguous
+- [x] Extractor: conservative `menu:` -> decision detection (contiguous
       runs, no guessed joins, ledger notes) with golden-style tests
+      (pure-choice all-played -> region-end+1 fall-through rule found by
+      the extracted walk and specced; game B spot: 33 menus honestly
+      skipped for jump-exit; 283 + 139 tests, 2025-11-01)
 - [x] docs/extracting.md has a per-game entry incl. what was skipped
       (6 games logged; 1 slice with real media (game F 4/4 painted), 4
       zero-media logged with root causes; 5 extractor bugs recorded for
