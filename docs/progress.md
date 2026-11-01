@@ -572,5 +572,12 @@ truthful: an unchecked box means nothing was accepted.
       picks "Return to main route" (the row shows 0), help closes by
       Esc/Space/click; the reset box's keys are not listed in the help.
       Tests, README, scenarios updated.
+- [ ] Delete a bookmark (user, 2026-11-01): each thumbnail in the `t`
+      list shows an "x" in its top-right corner; clicking it removes that
+      bookmark (storage included) without opening it. README feature
+      line; tests + scenario.
+- [ ] README tidy (user, 2026-11-01): cut wordiness and duplication
+      (e.g. the `a` line repeats the manual Space mode that belongs on
+      the Space line); one concise line per feature.
 - [ ] Phase-closer: full suite (driver, vitest, pytest, package-proof),
       rebuild BOTH demo folders, present the updated demo to the user.
