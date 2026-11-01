@@ -237,7 +237,7 @@ linearly, one cross-file `call`.
 
 ### game-d.app
 
-Done (2025-11-01, unrpyc item smoke). 12 `.rpyc` decompiled via the
+Done (2026-10-31, unrpyc item smoke). 12 `.rpyc` decompiled via the
 vendored unrpyc (no `.rpy` present). `--max-items 8` yields 8 items
 (5 image, 3 text), 0 media shipped: scene names are dynamic refs with no
 `image` defs, so assets are unresolved. Skips logged are unrecognized

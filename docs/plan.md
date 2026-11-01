@@ -69,7 +69,7 @@ validator passes on `fixtures/demo/` and fails on a deliberately broken
 manifest (add it to tests); CREATE.md names only fields the schema
 defines.
 
-## Phase 2b: Format revision from external review (2025-11-01)
+## Phase 2b: Format revision from external review (2026-10-31)
 
 Another agent building a real timeline (game I corpus) reviewed
 the format. Four changes follow; Phases 3-9 build against the revised
@@ -186,7 +186,7 @@ Goal: scroll wheel rewinds and returns through content.
 Acceptance: checklist walked end to end on the demo fixture; machine tests
 unchanged or extended; tests green.
 
-## Phase 7b: Presentation revision (2025-11-01, user requests)
+## Phase 7b: Presentation revision (2026-10-31, user requests)
 
 Two additions on top of Phase 7, plus one deferral.
 
@@ -318,7 +318,7 @@ Acceptance: harness output recorded in docs/progress.md with p95 under
 budget (or a Revisit-trigger note); a folder copied to a fresh machine
 plays by double-clicking `index.html` alone.
 
-## Phase 9b: Media revision (2025-11-01, user requests)
+## Phase 9b: Media revision (2026-10-31, user requests)
 
 Format flexibility for video and smarter image handling, plus the
 resulting converter policy.
@@ -356,7 +356,7 @@ resulting converter policy.
 - Demo fixture gains a looping short video item (loopCount 2) exercising
   the new machine and renderer paths.
 
-## Phase 9c: Video playback ranges (2025-11-01, user requests)
+## Phase 9c: Video playback ranges (2026-10-31, user requests)
 
 Allow an item to play a sub-range of a video, and let several items
 share one file at different ranges.
@@ -423,7 +423,7 @@ share one file at different ranges.
   exercised deterministically; a third item may set `holdSeconds` over a
   range. Keep the video tiny.
 
-## Phase 9d: Loop restart point (2025-11-01, user request)
+## Phase 9d: Loop restart point (2026-10-31, user request)
 
 Some videos have an intro that should not repeat on loop.
 
@@ -449,7 +449,7 @@ Some videos have an intro that should not repeat on loop.
   loopCount 2), so the verify step measures loop-back landing near 1.5
   instead of 1.0 and re-records the observed tolerance.
 
-## Phase 13: Author-defined branches (2025-11-01, user request)
+## Phase 13: Author-defined branches (2026-10-31, user request)
 
 Optional routes inside a linear story. The user's example shape (a
 `branches` table with `after`, `prompt`, `routes[] {id,label,start,end}`,
@@ -480,7 +480,7 @@ v1 model and decisions:
   there is NO implicit join - an unmarked alternate route never silently
   merges, because an alternate's later state is not the main route's.
 - Pure-choice decisions (no `continuingRoute`), all-played rule
-  (2025-11-01, found by the extracted-demo walk): when a route of a
+  (2026-10-31, found by the extracted-demo walk): when a route of a
   decision WITHOUT `continuingRoute` completes and every route of that
   decision has now been played, the decision CLOSES and the machine
   advances to the REGION END + 1 - max(end) over all routes of that
@@ -543,7 +543,7 @@ v1 model and decisions:
   `ending`. Detection is best-effort: when uncertain emit separate
   `ending` routes and log in the ledger; never guess a join.
 
-## Phase 13b: Manual/auto mode clarity + key help (2025-11-01, external-user report + user clarification)
+## Phase 13b: Manual/auto mode clarity + key help (2026-11-01, external-user report + user clarification)
 
 An external user asked for "a manual reading mode that waits for Space"
 plus an auto-forward toggle and speed slider - implying they did not
@@ -576,7 +576,7 @@ not a hint:
   history (back/forward), skip, and skip-unseen behave identically in
   BOTH modes. Fix any real bug found; cover gaps in tests/verify.
 
-## Phase 15: Minimum video play time under chains (2025-11-01, external tester)
+## Phase 15: Minimum video play time under chains (2026-11-01, external tester)
 
 Observed: an 8 s video followed by dialogue changed visuals at 5.829 s
 - chain exit gated on text timing alone, because Phase 4 de-gates media
@@ -614,7 +614,7 @@ under text chains (`nextIsText`). Add a per-video opt-in floor:
   chain at ~4.5 s, not the text sum, with the dialogue advancing under
   the video, and skip through it stays immediate.
 
-## Phase 16: Player feedback from the playable demo (2025-11-02, user)
+## Phase 16: Player feedback from the playable demo (2026-11-01, user)
 
 The user played `.tmp/pkg-demo` and filed thirteen points. Grouped into
 one checklist item per subsystem; these points also open the Phase 7b
@@ -665,7 +665,7 @@ Branches:
 Machine bugs to reproduce and fix:
 - `e` at the end of content does nothing even though route content is
   unseen; it must land on the first unseen item (routes included).
-- New `e` rule (2025-11-02, user): when everything has been seen,
+- New `e` rule (2026-11-01, user): when everything has been seen,
   `e` shows the ENDING content; with multiple endings (branches), the
   most recently seen one. Needs last-ending-touched tracking (the
   ending = the final settled item of an ending route or the array
@@ -676,7 +676,7 @@ Machine bugs to reproduce and fix:
 - `playAllRoutes` resets to off after reload; it must persist like the
   other settings.
 
-Second round of demo feedback (2025-11-02, user):
+Second round of demo feedback (2026-11-01, user):
 - Video re-watch does not replay: after passing one or more videos,
   wheeling back BEFORE them, then advancing forward again with space
   or auto, the videos no longer play (poster only). A forward
@@ -696,7 +696,7 @@ Second round of demo feedback (2025-11-02, user):
   shown.
 
 ## Phase 17: Converter media organisation into subfolders
-(2025-11-02, user)
+(2026-11-01, user)
 
 Real games have hundreds/thousands of media files; putting them all
 in one output folder is unwieldy and can choke macOS Finder. The

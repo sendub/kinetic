@@ -32,7 +32,7 @@ are implementing and docs/stack.md for settled decisions.
 - The Ren'Py corpus at /Volumes/Data/games is read-only reference data;
   never modify it.
 
-## Test speed (orchestrator directive, 2025-11-02)
+## Test speed (orchestrator directive, 2026-11-01)
 
 Per checklist item, run only what the item can break:
 
