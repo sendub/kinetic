@@ -14,6 +14,7 @@ import { createMemoryStorage } from "./memory";
 import { createNoopStorage } from "./noop";
 import {
   type Bookmark,
+  helpSeenFrom,
   legacyResumeContext,
   type PersistedState,
   resumeOptionsFor,
@@ -133,6 +134,26 @@ for (const [name, makeStorage] of ADAPTERS) {
       const later = await storage.loadState();
       expect(later?.frontier).toBe(6);
       expect(later?.ctx).toBeUndefined();
+    });
+
+    it("round-trips helpSeen; a save without it grows no field (Phase 13b)", async () => {
+      const storage = makeStorage();
+      await storage.saveState({ frontier: 4, helpSeen: true });
+      expect(await storage.loadState()).toEqual({
+        frontier: 4,
+        helpSeen: true,
+      });
+      await storage.saveState({ frontier: 5, helpSeen: false });
+      expect(await storage.loadState()).toEqual({
+        frontier: 5,
+        helpSeen: false,
+      });
+      // A record from before Phase 13b: no field at all, and none grows
+      // back — `helpSeenFrom` reads that shape as "never seen".
+      await storage.saveState({ frontier: 6 });
+      expect(Object.keys((await storage.loadState()) ?? {})).toEqual([
+        "frontier",
+      ]);
     });
 
     it("copies ctx in and out: callers cannot rewrite the stored context", async () => {
@@ -295,6 +316,22 @@ describe("route-aware resume — ctx wins, legacy frontier migrates", () => {
     // frontier 1 alone would have resumed item 0; the ctx lands on item 6.
     expect(machine.getState().cursor).toBe(6);
     expect(machine.visitedList()).toEqual([0, 2, 5, 6]);
+  });
+});
+
+describe("helpSeenFrom — the key-help migration reads absent as not-seen (Phase 13b)", () => {
+  it("absent, false and non-true values all say: show the help", () => {
+    // The whole migration rule: pre-13b records (and first-ever loads)
+    // carry nothing, and nothing means the reader has not seen it —
+    // their help shows exactly once more, then `helpSeen: true` persists.
+    expect(helpSeenFrom(null)).toBe(false);
+    expect(helpSeenFrom({ frontier: 4 })).toBe(false);
+    expect(helpSeenFrom({ frontier: 4, helpSeen: false })).toBe(false);
+    expect(helpSeenFrom({ frontier: 4, helpSeen: "yes" as never })).toBe(false);
+  });
+
+  it("a persisted true says: never show it again", () => {
+    expect(helpSeenFrom({ frontier: 4, helpSeen: true })).toBe(true);
   });
 });
 

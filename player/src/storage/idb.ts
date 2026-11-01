@@ -248,6 +248,7 @@ export function createIdbStorage(contentKey: string): Storage | null {
             frontier: number;
             ctx?: MachineContext;
             settings?: Partial<MachineSettings>;
+            helpSeen?: boolean;
           } = { frontier };
           // A pre-Phase-13 record simply has no `ctx`: the legacy
           // frontier resume covers it (storage/types.ts, "Migration").
@@ -257,6 +258,11 @@ export function createIdbStorage(contentKey: string): Storage | null {
             (stored as Partial<PersistedState>).settings,
           );
           if (settings !== undefined) state.settings = settings;
+          // The key-help flag (Phase 13b): a real boolean survives, a
+          // foreign value reads as absent — which means "not seen" and
+          // shows the help once (helpSeenFrom, storage/types.ts).
+          const helpSeen = (stored as Partial<PersistedState>).helpSeen;
+          if (typeof helpSeen === "boolean") state.helpSeen = helpSeen;
           return state;
         }
       }
@@ -270,6 +276,7 @@ export function createIdbStorage(contentKey: string): Storage | null {
       // `ctx` is JSON-safe by contract; the structured clone copies it.
       if (state.ctx !== undefined) record.ctx = state.ctx;
       if (state.settings !== undefined) record.settings = { ...state.settings };
+      if (state.helpSeen !== undefined) record.helpSeen = state.helpSeen;
       tx.objectStore(STATE_STORE).put(record, contentKey);
       await transactionDone(tx);
     },

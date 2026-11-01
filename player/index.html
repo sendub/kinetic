@@ -43,6 +43,12 @@
         inset: 0;
         display: flex;
       }
+      /* The key help's black screen hides the stage itself, media and all
+         (docs/plan.md Phase 13b); this beats `.stage`'s own display, same
+         pattern as `#bookmarks[hidden]` and `#config[hidden]` below. */
+      .stage[hidden] {
+        display: none;
+      }
       .visual {
         display: block;
         width: 100%;
@@ -290,6 +296,69 @@
       .config-toggle[aria-pressed="true"] {
         border-color: var(--accent);
         color: var(--accent);
+      }
+      /* Key help screen (docs/plan.md Phase 13b): black over everything —
+         the stage is hidden too, so the screen really is black, not just
+         covered. Opaque background, above the bookmark/config panels (z 5)
+         and still under the #flash pill (z 10); the rows are built from
+         the keymap's own table (render/keys.ts), and its keys close it.
+         Look is minimal, same as the panels above: a later iteration with
+         the user. */
+      #help {
+        position: absolute;
+        inset: 0;
+        z-index: 6;
+        display: flex;
+        flex-direction: column;
+        gap: clamp(12px, 2.4vh, 28px);
+        padding: clamp(16px, 3vh, 36px) clamp(20px, 6vw, 88px);
+        background: #000;
+        color: var(--ink);
+        font-family: var(--ui-font);
+      }
+      #help[hidden] {
+        display: none;
+      }
+      .help-title {
+        margin: 0;
+        color: var(--accent);
+        font-size: clamp(12px, 1.5vh, 17px);
+        font-weight: 600;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+      }
+      .help-hint {
+        margin: 0;
+        color: rgba(244, 239, 230, 0.55);
+        font-size: clamp(10px, 1.2vh, 13px);
+      }
+      .help-list {
+        display: flex;
+        flex-direction: column;
+        gap: clamp(5px, 1vh, 12px);
+        overflow-y: auto;
+        overscroll-behavior: contain;
+      }
+      .help-row {
+        display: flex;
+        align-items: baseline;
+        gap: clamp(10px, 2vw, 18px);
+      }
+      .help-key {
+        flex: none;
+        min-width: 14ch;
+        padding: clamp(2px, 0.5vh, 5px) clamp(8px, 1.4vw, 14px);
+        border: 1px solid rgba(244, 239, 230, 0.28);
+        border-radius: 5px;
+        background: rgba(18, 18, 22, 0.9);
+        font: inherit;
+        font-size: clamp(11px, 1.4vh, 16px);
+        letter-spacing: 0.06em;
+        text-align: center;
+      }
+      .help-desc {
+        color: rgba(244, 239, 230, 0.8);
+        font-size: clamp(12px, 1.6vh, 18px);
       }
     </style>
   </head>

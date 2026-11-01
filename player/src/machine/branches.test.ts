@@ -51,6 +51,10 @@ function machine(
     settings: opts.settings ?? SETTINGS,
     resumeFrontier: opts.resumeFrontier,
     resumeContext: opts.resumeContext,
+    // The branch tests ride the AUTO-timed path (a hold firing on the
+    // timer is half the branch flow); manual is the player's start and
+    // the machine default (Phase 13b), pinned in machine.test.ts.
+    autoAdvance: true,
   });
 }
 

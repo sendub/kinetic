@@ -48,6 +48,14 @@ export interface PersistedState {
    * startup (main.ts). Absent means "nothing changed from the defaults".
    */
   readonly settings?: Partial<MachineSettings>;
+  /**
+   * True once the reader has seen the key help screen (docs/plan.md
+   * Phase 13b). It is written when the first-load help closes, and read at
+   * startup to decide whether to show it. Absent means false — records
+   * written before Phase 13b carry no field, so their readers see the help
+   * exactly once more (their first time seeing it), and then never again.
+   */
+  readonly helpSeen?: boolean;
 }
 
 /** One entry of the `b` bookmark list (README bookmark bullet). */
@@ -97,6 +105,16 @@ export function resumeOptionsFor(state: PersistedState | null): {
   return state.ctx === undefined
     ? { resumeFrontier: state.frontier }
     : { resumeContext: state.ctx };
+}
+
+/**
+ * The Phase 13b migration rule stated as data: the key help has been seen
+ * only when a record says so. A null state (first-ever load) and any
+ * pre-13b record both read as false, so their readers see the help once.
+ * Anything not exactly `true` — absent, null, a foreign value — is false.
+ */
+export function helpSeenFrom(state: PersistedState | null): boolean {
+  return state !== null && state.helpSeen === true;
 }
 
 /**

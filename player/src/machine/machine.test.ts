@@ -73,6 +73,10 @@ function machine(
     items,
     settings: opts.settings ?? SETTINGS,
     resumeFrontier: opts.resumeFrontier,
+    // These tests ride the AUTO-timed path (holds fire on the timer), so
+    // they opt in: the player's own start — and the machine's default —
+    // is manual (Phase 13b), pinned by the explicit manual tests below.
+    autoAdvance: true,
   });
 }
 
@@ -252,6 +256,181 @@ describe("auto-advance timing", () => {
     vi.advanceTimersByTime(1);
     expect(m.getState().cursor).toBe(1);
     m.destroy();
+  });
+});
+
+describe("manual and auto modes, pause/resume (docs/plan.md Phase 13b)", () => {
+  // The player starts manual (README advance bullet): a machine built
+  // without `autoAdvance` arms no hold for plain items — only the
+  // reader's presses move it — and `setAutoAdvance` is the `a` toggle.
+  function manualMachine(items: readonly Item[]) {
+    return createMachine({ items, settings: SETTINGS });
+  }
+
+  it("manual by default: nothing fires on the timer, only presses move", () => {
+    vi.useFakeTimers();
+    const m = manualMachine([image("a".repeat(30)), image()]); // 1800 ms hold
+    vi.advanceTimersByTime(60_000);
+    expect(m.getState().cursor).toBe(0);
+    m.advance(); // immediate-complete: the item is settled in place
+    expect(m.getState().settled).toBe(true);
+    vi.advanceTimersByTime(60_000); // a settled item never auto-moves
+    expect(m.getState().cursor).toBe(0);
+    m.advance(); // the next press moves on...
+    expect(m.getState().cursor).toBe(1);
+    vi.advanceTimersByTime(60_000); // ...and the fresh item waits too
+    expect(m.getState().cursor).toBe(1);
+    m.destroy();
+  });
+
+  it("setAutoAdvance(true) arms the current item's full hold from now", () => {
+    vi.useFakeTimers();
+    const m = manualMachine([image("a".repeat(20)), image()]); // 1500 ms hold
+    vi.advanceTimersByTime(59_000); // the manual wait so far was free
+    m.setAutoAdvance(true);
+    expect(m.isAutoAdvance()).toBe(true);
+    vi.advanceTimersByTime(1499);
+    expect(m.getState().cursor).toBe(0);
+    vi.advanceTimersByTime(1);
+    expect(m.getState().cursor).toBe(1);
+    m.destroy();
+  });
+
+  it("setAutoAdvance(false) cancels the pending hold; turning on re-arms fresh", () => {
+    vi.useFakeTimers();
+    const m = createMachine({
+      items: [image("a".repeat(30)), image()], // 1800 ms hold
+      settings: SETTINGS,
+      autoAdvance: true,
+    });
+    vi.advanceTimersByTime(900);
+    m.setAutoAdvance(false);
+    vi.advanceTimersByTime(60_000);
+    expect(m.getState().cursor).toBe(0);
+    m.setAutoAdvance(true); // a fresh full hold, not the old remainder
+    vi.advanceTimersByTime(1799);
+    expect(m.getState().cursor).toBe(0);
+    vi.advanceTimersByTime(1);
+    expect(m.getState().cursor).toBe(1);
+    m.destroy();
+  });
+
+  it("manual mode still runs the skip dwell, then waits", () => {
+    vi.useFakeTimers();
+    const m = createMachine({
+      items: [image(), image(), image()],
+      settings: SETTINGS,
+      resumeFrontier: 3, // all seen; the resume lands on item 2 settled
+    }); // manual by default, as everywhere in this block
+    m.wheelBack();
+    m.wheelBack(); // back to item 0 inside seen content
+    m.toggleSkip(); // the dwell is the reader's own run: both modes
+    const dwell = SETTINGS.skipDwellMs;
+    vi.advanceTimersByTime(dwell * 2); // 0 -> 1 -> 2, one fixed dwell each
+    expect(m.getState().cursor).toBe(2);
+    expect(m.getState().skipping).toBe(false); // ends as the frontier item is current
+    vi.advanceTimersByTime(60_000); // shown normally — and manual: it waits
+    expect(m.getState().cursor).toBe(2);
+    m.destroy();
+  });
+
+  it("pause() freezes the armed hold; resume() re-arms it fresh", () => {
+    vi.useFakeTimers();
+    const m = createMachine({
+      items: [image("a".repeat(30)), image()], // 1800 ms hold
+      settings: SETTINGS,
+      autoAdvance: true,
+    });
+    vi.advanceTimersByTime(1000);
+    m.pause(); // the help screen opens over a black stage
+    vi.advanceTimersByTime(60_000); // no timers behind the help
+    expect(m.getState().cursor).toBe(0);
+    m.resume(); // closed: the same item, its hold re-armed from now
+    vi.advanceTimersByTime(1799);
+    expect(m.getState().cursor).toBe(0);
+    vi.advanceTimersByTime(1);
+    expect(m.getState().cursor).toBe(1);
+    m.destroy();
+  });
+
+  it("pause/resume in manual mode arms nothing (first-load help)", () => {
+    vi.useFakeTimers();
+    const m = manualMachine([image(), image()]);
+    m.pause();
+    m.resume();
+    vi.advanceTimersByTime(60_000);
+    expect(m.getState().cursor).toBe(0);
+    m.destroy();
+  });
+
+  it("resume on a settled item arms nothing: settled items move on presses", () => {
+    vi.useFakeTimers();
+    const m = createMachine({
+      items: [image(), image()],
+      settings: SETTINGS,
+      autoAdvance: true,
+    });
+    m.advance(); // settled in place
+    m.pause();
+    m.resume();
+    vi.advanceTimersByTime(60_000);
+    expect(m.getState()).toEqual({
+      cursor: 0,
+      frontier: 1,
+      settled: true,
+      skipping: false,
+    });
+    m.destroy();
+  });
+
+  it("mediaEnded while paused counts but never moves; resume lets the hold decide", () => {
+    vi.useFakeTimers();
+    const m = createMachine({
+      items: [video(10), image()], // media-gated: the hold waits for ended
+      settings: SETTINGS,
+      autoAdvance: true,
+    });
+    vi.advanceTimersByTime(1000);
+    m.pause();
+    m.mediaEnded(); // reported behind the help: counted, not moved
+    vi.advanceTimersByTime(60_000);
+    expect(m.getState().cursor).toBe(0);
+    m.resume(); // hold re-armed fresh
+    vi.advanceTimersByTime(11_000); // the video's full gate, then it moves
+    expect(m.getState().cursor).toBe(1);
+    m.destroy();
+  });
+
+  it("ctx restore brings the seen edge with it: forward to the frontier still works after a resume", () => {
+    // Phase 13b verification found applyContext left `highestSeen` at the
+    // landing item: a resumed reader's wheel-forward ceiling (and the
+    // derived frontier) had shrunk from the seen edge to wherever the
+    // reading sat. The seen set was restored; the seen edge was not.
+    const items = [image(), image(), image(), image(), image()];
+    const first = manualMachine(items);
+    for (let press = 0; press < 6; press += 1) first.advance(); // seen 0..3
+    expect(first.getState()).toMatchObject({ cursor: 3, frontier: 4 });
+    first.goTo(1); // a `t` click back inside seen content: lastShown moves…
+    expect(first.getState()).toMatchObject({ cursor: 1, frontier: 4 }); // the edge does not
+    const ctx = first.exportContext();
+    first.destroy();
+
+    const resumed = createMachine({
+      items,
+      settings: SETTINGS,
+      resumeContext: ctx,
+    });
+    expect(resumed.getState()).toMatchObject({
+      cursor: 1,
+      frontier: 4, // the seen edge came back with the seen set
+      settled: true,
+    });
+    resumed.wheelForward();
+    resumed.wheelForward();
+    expect(resumed.getState().cursor).toBe(3);
+    resumed.wheelForward(); // the frontier stays the ceiling: item 4 is unseen
+    expect(resumed.getState().cursor).toBe(3);
+    resumed.destroy();
   });
 });
 

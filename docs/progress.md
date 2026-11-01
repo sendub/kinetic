@@ -269,14 +269,17 @@ truthful: an unchecked box means nothing was accepted.
 
 ## Phase 13b: Manual/auto mode clarity + key help (2025-11-01, external-user report + user clarification)
 
-- [ ] Key help overlay: built from the keymap module (single source,
+- [x] Key help overlay: built from the keymap module (single source,
       test asserts coverage); first-load display with persisted
       `helpSeen`; Escape opens (machine paused, screen black), Escape
       closes and resumes the same item (hold re-arms); shares the
       suspend gate with h/t/c; fullscreen first-Esc caveat documented
-- [ ] Verify manual-by-default + `a` auto-forward toggle + live speed
+      (2025-11-01)
+- [x] Verify manual-by-default + `a` auto-forward toggle + live speed
       slider end-to-end (verify steps in BOTH modes: bookmarks,
-      history, skip, skip-unseen); fix any real bug
+      history, skip, skip-unseen); fix any real bug (33 verify steps,
+      32 pass + known partial, 266 tests, no bugs found in both-mode
+      behavior, 2025-11-01)
 
 ## Later, waiting on the user
 

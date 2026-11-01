@@ -1,13 +1,15 @@
-// The pure half of the `t` bookmark overlay (docs/plan.md Phase 8): the
-// list order, the scroll-to-bottom target, the timestamp and label text,
-// and the thumbnail source rule. The DOM panel in bookmarks.ts only applies
-// these; the end-to-end behaviour is walked by scripts/verify.mjs.
+// The pure half of the `t` bookmark overlay (docs/plan.md Phases 8, 13):
+// the list order, the scroll-to-bottom target, the timestamp and label
+// text, the thumbnail source rule, and the bookmark's restore target. The
+// DOM panel in bookmarks.ts only applies these; the end-to-end behaviour
+// is walked by scripts/verify.mjs.
 
 import { describe, expect, it } from "vitest";
 
-import type { Item } from "../machine/types";
+import type { Item, MachineContext } from "../machine/types";
 import type { Bookmark } from "../storage/types";
 import {
+  bookmarkRestoreTarget,
   bottomScrollTop,
   entryLabel,
   entryThumbSrc,
@@ -131,5 +133,30 @@ describe("entryLabel", () => {
 
   it("marks an index outside the manifest", () => {
     expect(entryLabel(7, undefined)).toBe("#7 (unknown item)");
+  });
+});
+
+describe("bookmarkRestoreTarget (ctx-aware restore, Phase 13)", () => {
+  const ctx: MachineContext = {
+    lastShown: 4,
+    visited: [0, 3, 4],
+    stack: [{ decision: 0, route: 1 }],
+    playedRoutes: [{ decision: 0, routes: [1] }],
+  };
+
+  it("hands back the itemIndex plus the recorded route context", () => {
+    const record = bookmark({ itemIndex: 4, ctx });
+    // With a ctx the restore is `machine.importContext(ctx)` inside
+    // `bookmarkRestoreTarget`'s hands: the caller re-enters the item
+    // within that route context.
+    expect(bookmarkRestoreTarget(record)).toEqual({ itemIndex: 4, ctx });
+  });
+
+  it("restores a pre-Phase-13 bookmark by itemIndex alone — no ctx key", () => {
+    const target = bookmarkRestoreTarget(bookmark({ itemIndex: 2 }));
+    expect(target).toEqual({ itemIndex: 2 });
+    // Absent, not undefined: the caller's `ctx === undefined` branch is
+    // the plain itemIndex navigation, a fresh nav with no route frames.
+    expect("ctx" in target).toBe(false);
   });
 });

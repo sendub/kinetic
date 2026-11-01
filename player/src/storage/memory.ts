@@ -1,9 +1,9 @@
 // In-memory fake of the Storage contract (docs/plan.md Phases 8-9). The
 // whole point is the seam: machine-level tests drive a real `Storage`
 // without a browser, and the behaviour matches the IndexedDB adapter —
-// frontier + optional ctx + optional settings state, append-ordered
-// bookmarks, and copies in and out so a caller can never mutate what the
-// store holds.
+// frontier + optional ctx + optional settings + optional helpSeen state,
+// append-ordered bookmarks, and copies in and out so a caller can never
+// mutate what the store holds.
 
 import type { MachineContext, MachineSettings } from "../machine/types";
 import type { Bookmark, PersistedState, Storage } from "./types";
@@ -36,9 +36,13 @@ function normalizeState(next: PersistedState): PersistedState {
     frontier: number;
     ctx?: MachineContext;
     settings?: Partial<MachineSettings>;
+    helpSeen?: boolean;
   } = { frontier: next.frontier };
   if (next.ctx !== undefined) state.ctx = copyContext(next.ctx);
   if (next.settings !== undefined) state.settings = { ...next.settings };
+  // The key-help flag (Phase 13b): a real boolean rides along; a foreign
+  // value does not, which reads back as "not seen".
+  if (typeof next.helpSeen === "boolean") state.helpSeen = next.helpSeen;
   return state;
 }
 

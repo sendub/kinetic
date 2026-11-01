@@ -84,6 +84,14 @@ export interface MachineOptions {
    * `after` item.
    */
   resumeContext?: MachineContext;
+  /**
+   * Auto-forward mode (docs/plan.md Phase 13b, README `a` bullet). ABSENT
+   * OR FALSE means manual — the documented default: no hold timer is
+   * armed, items wait for `advance()` / the wheel / skip mode, and
+   * nothing auto-advances until `setAutoAdvance(true)` (the `a` key).
+   * True starts in auto-forward immediately.
+   */
+  autoAdvance?: boolean;
   /** Defaults to the global setTimeout/clearTimeout. */
   scheduler?: Scheduler;
 }
@@ -213,6 +221,30 @@ export interface Machine {
    * After `destroy()` it is inert, like every other command.
    */
   setSettings(settings: MachineSettings): void;
+  /**
+   * `a`: the auto-forward toggle (docs/plan.md Phase 13b, README `a`
+   * bullet). Manual (off) is the player's start (main.ts constructs with
+   * `autoAdvance: false`): nothing arms a hold timer, so items wait for
+   * `advance()`, the wheel, or skip mode. Turning auto on arms the
+   * current unsettled item's full hold from now; turning it off cancels
+   * the pending hold. Skip mode is unaffected either way — its dwell is
+   * the reader's own command and runs in both modes.
+   */
+  setAutoAdvance(on: boolean): void;
+  isAutoAdvance(): boolean;
+  /**
+   * The key help's machine freeze (docs/plan.md Phase 13b): cancels the
+   * pending timer — hold or skip dwell — and arms none while paused, so
+   * the machine waits with no timers while the help screen is up.
+   */
+  pause(): void;
+  /**
+   * Ends `pause()`: the current item's hold re-arms FRESH (a skip dwell
+   * too), like the other paused overlays — the wait restarts from the
+   * moment of closing. A settled item stays settled: it advances only on
+   * the reader's press.
+   */
+  resume(): void;
   /** Cancels the pending timer and drops all subscribers. */
   destroy(): void;
 }
@@ -497,6 +529,11 @@ export function createMachine(options: MachineOptions): Machine {
   // if they had held since the item began (the interface docs). Time
   // enters only through scheduler and Date.now, both fakeable in tests.
   let timerArmedAt = 0;
+  // Auto-forward mode (Phase 13b): absent/false is manual — the documented
+  // default (README advance bullet): items wait for the reader until `a`.
+  let autoAdvance = options.autoAdvance === true;
+  // The help screen's freeze (Phase 13b): while paused nothing arms.
+  let paused = false;
   let destroyed = false;
   // Start position. A stored context is authoritative: its `lastShown` is
   // where the reader left off. Otherwise a persisted frontier marks a seen
@@ -518,7 +555,9 @@ export function createMachine(options: MachineOptions): Machine {
     }
   }
   let state: MachineState = snapshot();
-  armTimer(); // the item shown at start auto-advances too
+  // The item shown at start: auto mode arms its hold; manual mode (the
+  // player's start, Phase 13b) waits for the reader instead.
+  armTimer();
 
   function snapshot(): MachineState {
     const choice = pendingChoice === null ? null : choiceView(pendingChoice);
@@ -592,6 +631,10 @@ export function createMachine(options: MachineOptions): Machine {
   function armTimer(): void {
     cancelTimer();
     if (destroyed || count === 0) return;
+    // Manual mode arms no hold — the reader advances by pressing; skip's
+    // dwell is the reader's own command and runs in both modes, and the
+    // help screen's pause arms nothing until resume() (Phase 13b).
+    if (paused || (!skipping && !autoAdvance)) return;
     timerArmedAt = Date.now();
     timer = scheduler.schedule(onTimerElapsed, currentDelayMs());
   }
@@ -985,15 +1028,22 @@ export function createMachine(options: MachineOptions): Machine {
    * Restores a stored context: seen set, played routes, open stack, and the
    * cursor at `lastShown`. Indices outside this manifest are dropped — a save
    * made against different content must degrade to playing, not to a cursor
-   * off the end.
+   * off the end. The seen edge comes back with the seen set: `highestSeen`
+   * is the restored maximum, not the landing item — otherwise a resumed
+   * reader would find the wheel's forward ceiling (and the persisted
+   * frontier) shrunk down to wherever the reading happened to sit.
    */
   function applyContext(context: MachineContext): void {
     visited.clear();
-    highestSeen = -1;
+    let seenMax = -1;
     for (const index of context.visited ?? []) {
       const value = asIndex(index, -1);
-      if (value >= 0 && value < count) visited.add(value);
+      if (value >= 0 && value < count) {
+        visited.add(value);
+        if (value > seenMax) seenMax = value;
+      }
     }
+    highestSeen = seenMax;
     played.clear();
     for (const entry of context.playedRoutes ?? []) {
       const decisionIndex = asIndex(entry?.decision, -1);
@@ -1185,7 +1235,10 @@ export function createMachine(options: MachineOptions): Machine {
       // rather than counted.
       if (item.holdSeconds !== undefined || nextIsText(cursor)) return;
       endedCount += 1;
-      if (holdElapsed && mediaGateSatisfied()) moveForward();
+      // A pass completed while the help screen is up is counted but does
+      // not move: the machine is frozen, and resume() re-arms the wait
+      // for this item (Phase 13b).
+      if (holdElapsed && mediaGateSatisfied() && !paused) moveForward();
     },
 
     setSettings(next) {
@@ -1202,6 +1255,35 @@ export function createMachine(options: MachineOptions): Machine {
       );
       cancelTimer();
       timer = scheduler.schedule(onTimerElapsed, remainingMs);
+    },
+
+    setAutoAdvance(on) {
+      autoAdvance = on;
+      if (destroyed || count === 0 || paused) return;
+      if (on) {
+        // Arm the current item's full hold from now; skip's dwell is
+        // already running, and a settled item waits for a press in
+        // either mode.
+        if (!settled && !skipping) armTimer();
+      } else if (!skipping) {
+        cancelTimer(); // manual: no pending hold; skip's dwell keeps running
+      }
+    },
+
+    isAutoAdvance() {
+      return autoAdvance;
+    },
+
+    pause() {
+      if (destroyed) return;
+      paused = true;
+      cancelTimer();
+    },
+
+    resume() {
+      if (destroyed || !paused) return;
+      paused = false;
+      if (!settled) armTimer(); // the wait restarts fresh (interface docs)
     },
 
     destroy() {

@@ -13,6 +13,13 @@ export interface Shell {
   toggleText(): void;
   setTextVisible(visible: boolean): void;
   isTextVisible(): boolean;
+  /**
+   * The key help's black screen (docs/plan.md Phase 13b): false hides the
+   * whole stage — media included, playing elements — while the help is up;
+   * true restores it. The hidden attribute, with `.stage[hidden]` declared
+   * in index.html so the panel-level rule beats `.display` of `.stage`.
+   */
+  setStageVisible(visible: boolean): void;
   /** The visual element currently painted, for `b`-key thumbnail capture. */
   currentVisual(): HTMLImageElement | HTMLVideoElement | null;
   /**
@@ -123,6 +130,9 @@ export function mountShell({ root, manifest, machine }: ShellOptions): Shell {
     setTextVisible,
     isTextVisible() {
       return textVisible;
+    },
+    setStageVisible(visible: boolean) {
+      stage.hidden = !visible; // `.stage[hidden]` in index.html paints black
     },
     currentVisual() {
       return visuals.currentVisual();

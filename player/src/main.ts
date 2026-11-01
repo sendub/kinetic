@@ -1,5 +1,5 @@
-// Kinetic player entry point (docs/plan.md Phases 5, 8, 9, 13): load the
-// manifest, build the timeline machine — resuming from the persisted
+// Kinetic player entry point (docs/plan.md Phases 5, 8, 9, 13, 13b): load
+// the manifest, build the timeline machine — resuming from the persisted
 // route-play context, falling back to the legacy frontier for pre-ctx
 // records, and starting on the persisted settings when either exists —
 // mount the render shell, install the input map, and wire storage: the
@@ -7,6 +7,11 @@
 // reader moves, `b` appends a bookmark that captures the current context,
 // `t` opens the bookmark list, and `c` opens the config screen, whose
 // changes apply live (machine.setSettings) and persist with the context.
+// Phase 13b adds the manual/auto clarity and the `#help` key help: the
+// player STARTS manual (README advance bullet; `a` toggles auto-forward),
+// and the help screen — the keymap's own table on a black screen — shows
+// before any advance until storage says `helpSeen`; opening it pauses the
+// machine and hides the stage, closing it resumes the same item.
 // Composition only — rendering lives in src/render/, timing in
 // src/machine/, storage adapters in src/storage/.
 
@@ -18,13 +23,14 @@ import { mountBookmarkOverlay } from "./render/bookmarks";
 import { captureVisualThumbnail } from "./render/capture";
 import { mountConfigOverlay } from "./render/config";
 import { installFirstGestureFullscreen } from "./render/fullscreen";
+import { mountHelpOverlay } from "./render/help";
 import { installKeyMap, suspendTimeline } from "./render/keys";
 import { loadManifest } from "./render/manifest";
 import { installWheelInput } from "./render/wheel";
 import { contentSignature, createIdbStorage } from "./storage/idb";
 import { createNoopStorage } from "./storage/noop";
 import type { Bookmark } from "./storage/types";
-import { resumeOptionsFor } from "./storage/types";
+import { helpSeenFrom, resumeOptionsFor } from "./storage/types";
 
 /**
  * Persist-write debounce. A skip burst moves the reader ~8 times per
@@ -117,6 +123,15 @@ function start(): void {
       // reader reads at the pace they left off at. The machine learns
       // settings only here and through setSettings — never from storage.
       let currentSettings = mergeSettings(persisted?.settings);
+      // The key help flag (docs/plan.md Phase 13b): absent in a record —
+      // including every record written before 13b — reads as "not seen",
+      // so existing readers meet the help exactly once more, then never
+      // again. It rides along in every save below, so a close is durable.
+      let helpSeen = helpSeenFrom(persisted);
+      // The machine starts MANUAL (README advance bullet, docs/plan.md
+      // Phase 13b): only the reader's presses move it until `a` turns
+      // auto-forward on. The machine's own default is manual — not
+      // passing `autoAdvance` here is that default, stated.
       const machine = createMachine({
         items: manifest.items,
         settings: currentSettings,
@@ -146,6 +161,7 @@ function start(): void {
             frontier: machine.getState().frontier,
             ctx: machine.exportContext(),
             settings: currentSettings,
+            helpSeen,
           })
           .catch(() => {});
       };
@@ -222,9 +238,43 @@ function start(): void {
           schedulePersist();
         },
       });
-      // While the panel is open it takes precedence: the cursor-moving
+      // The key help screen (docs/plan.md Phase 13b): the keymap's own
+      // table on a black screen. Opening it pauses the machine and hides
+      // the stage; closing it resumes the same item, its hold re-armed
+      // from now — and the first close records `helpSeen` durably, so the
+      // screen appears exactly once per novel (render/help.ts).
+      const help = mountHelpOverlay({ root, onClose: () => closeHelp() });
+      const openHelp = (): void => {
+        if (help.isOpen()) return;
+        help.open();
+        shell.setStageVisible(false);
+        machine.pause(); // the black screen: no timers behind the help
+      };
+      function closeHelp(): void {
+        if (!help.isOpen()) return;
+        help.close();
+        shell.setStageVisible(true);
+        machine.resume();
+        if (!helpSeen) {
+          helpSeen = true;
+          persistDirty = true;
+          flushPersist(); // immediate: the close must outlive a reload
+        }
+      }
+
+      // Mutual exclusion, centralized: exactly one full-screen screen is
+      // up at a time. While help is up only its closing actions do
+      // anything (the wiring below): `t` and `c` cannot open over it, and
+      // Escape closes what is open or opens help when nothing is. The
+      // future choice overlay takes a place in this same rule.
+      const anyScreenOpen = () =>
+        overlay.isOpen() || config.isOpen() || help.isOpen();
+
+      // While a panel is open it takes precedence: the cursor-moving
       // commands (space/tab/e/wheel) are suspended until it closes. `b`
-      // still bookmarks the current item, `h` still toggles text.
+      // still bookmarks the current item and `h` still toggles text —
+      // behind the bookmark/config panels, which do not hide the screen.
+      // Behind help's black screen nothing but the closing actions acts.
       const timeline = suspendTimeline(
         {
           advance: () => machine.advance(),
@@ -233,21 +283,32 @@ function start(): void {
           wheelBack: () => machine.wheelBack(),
           wheelForward: () => machine.wheelForward(),
         },
-        () => overlay.isOpen() || config.isOpen(),
+        anyScreenOpen,
       );
 
-      // Only one full-screen screen is open at a time — opening one
-      // closes the other — so Escape and the suspension gate stay
-      // unambiguous about which panel they face.
       installKeyMap(document, {
-        advance: timeline.advance,
-        toggleText: () => shell.toggleText(),
+        // Space over help closes it and is consumed — no advance (and on
+        // the first load it is also the first gesture, so fullscreen gets
+        // its request like any other first press; render/fullscreen.ts).
+        advance: () => {
+          if (help.isOpen()) {
+            closeHelp();
+            return;
+          }
+          timeline.advance();
+        },
+        toggleText: () => {
+          if (help.isOpen()) return;
+          shell.toggleText();
+        },
         toggleSkip: timeline.toggleSkip,
         jumpToUnseen: timeline.jumpToUnseen,
         bookmark: () => {
+          if (help.isOpen()) return;
           void takeBookmark();
         },
         toggleBookmarks: () => {
+          if (help.isOpen()) return;
           if (overlay.isOpen()) overlay.close();
           else {
             config.close();
@@ -255,21 +316,45 @@ function start(): void {
           }
         },
         toggleConfig: () => {
+          if (help.isOpen()) return;
           if (config.isOpen()) config.close();
           else {
             overlay.close();
             config.open();
           }
         },
+        // `a` (README auto-forward bullet): manual is the start, and `a`
+        // toggles auto-advance. Turning it off cancels the pending hold;
+        // a skip dwell keeps running — skipping is the reader's own run.
+        toggleAutoForward: () => {
+          if (help.isOpen()) return;
+          machine.setAutoAdvance(!machine.isAutoAdvance());
+        },
+        // Enter closes help from anywhere; with help closed it is inert.
+        closeHelp: () => closeHelp(),
         dismissOverlay: () => {
-          config.close();
-          overlay.close();
+          if (help.isOpen()) {
+            closeHelp();
+            return;
+          }
+          if (config.isOpen() || overlay.isOpen()) {
+            config.close();
+            overlay.close();
+            return;
+          }
+          openHelp(); // Escape with nothing up opens help
         },
       });
       installWheelInput(document, {
         wheelBack: timeline.wheelBack,
         wheelForward: timeline.wheelForward,
       });
+
+      // The first-load help screen (docs/plan.md Phase 13b): before any
+      // advance, over a black screen, machine paused, no timers. Closing
+      // it records `helpSeen` and resumes the start the machine already
+      // took — item 0 on a first load, the restored position otherwise.
+      if (!helpSeen) openHelp();
     },
     (error: unknown) => {
       // An unreadable manifest is shown, never thrown: an uncaught rejection

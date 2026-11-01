@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type { TimelineCommands } from "./keys";
-import { commandForKey, suspendTimeline } from "./keys";
+import {
+  commandForKey,
+  keyHelpEntries,
+  mappedKeys,
+  suspendTimeline,
+} from "./keys";
 
 describe("commandForKey", () => {
   it("maps space to advance and h to the text toggle", () => {
@@ -31,6 +36,12 @@ describe("commandForKey", () => {
     expect(commandForKey("C", false)).toBe("toggleConfig");
   });
 
+  it("maps a to auto-forward and Enter to closing help (Phase 13b)", () => {
+    expect(commandForKey("a", false)).toBe("toggleAutoForward");
+    expect(commandForKey("A", false)).toBe("toggleAutoForward");
+    expect(commandForKey("Enter", false)).toBe("closeHelp");
+  });
+
   it("ignores a held key's auto-repeat so it cannot burst through items", () => {
     expect(commandForKey(" ", true)).toBeNull();
     expect(commandForKey("h", true)).toBeNull();
@@ -39,12 +50,15 @@ describe("commandForKey", () => {
     expect(commandForKey("b", true)).toBeNull();
     expect(commandForKey("t", true)).toBeNull();
     expect(commandForKey("c", true)).toBeNull();
+    expect(commandForKey("a", true)).toBeNull();
+    expect(commandForKey("Enter", true)).toBeNull();
     expect(commandForKey("Escape", true)).toBeNull();
   });
 
   it("leaves keys owned by later phases unmapped", () => {
-    // c joined the map with Phase 9's config screen; these stay free.
-    for (const key of ["Enter", "ArrowRight", "Shift"]) {
+    // c joined with Phase 9, a and Enter with Phase 13b's help; these
+    // stay free (the arrow keys belong to nobody yet).
+    for (const key of ["ArrowRight", "Shift"]) {
       expect(commandForKey(key, false)).toBeNull();
     }
   });
@@ -106,5 +120,44 @@ describe("suspendTimeline (the t overlay takes precedence, Phase 8)", () => {
     gated.advance();
     gated.wheelBack();
     expect(calls).toEqual(["advance", "wheelBack"]);
+  });
+});
+
+describe("keyHelpEntries (the help lists the map itself, Phase 13b)", () => {
+  // The drift test docs/plan.md Phase 13b asks for: the keymap module is
+  // the single source, so a key or command without a help row fails here
+  // — the README's lost `a` bullet is exactly this drift, caught in code.
+  function listedLabels(): Set<string> {
+    return new Set(keyHelpEntries().flatMap((entry) => entry.keys));
+  }
+
+  it("lists every mapped key", () => {
+    const listed = listedLabels();
+    for (const key of mappedKeys()) {
+      const label =
+        key === " " ? "Space" : key.length === 1 ? key.toLowerCase() : key;
+      expect(listed.has(label)).toBe(true);
+    }
+  });
+
+  it("lists every command the map can issue, each with a description", () => {
+    const commands = new Set(
+      mappedKeys()
+        .map((key) => commandForKey(key, false))
+        .filter(
+          (command): command is NonNullable<typeof command> => command !== null,
+        ),
+    );
+    const entries = keyHelpEntries();
+    for (const command of commands) {
+      const row = entries.find((entry) => entry.command === command);
+      expect(row).toBeDefined();
+      expect((row?.description ?? "").length).toBeGreaterThan(0);
+      expect(row?.keys.length ?? 0).toBeGreaterThan(0);
+    }
+  });
+
+  it("lists the wheel — not a key, but a control all the same", () => {
+    expect(listedLabels().has("wheel")).toBe(true);
   });
 });
