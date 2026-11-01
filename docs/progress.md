@@ -384,9 +384,12 @@ truthful: an unchecked box means nothing was accepted.
       chooses like a fired decision; skip burst ENDS at the decision
       and the pick stays manual - plan reworded accordingly; 321
       tests, scenario real-Chrome, 2025-11-02)
-- [ ] Re-opening a decision after ANY completed route offers
+- [x] Re-opening a decision after ANY completed route offers
       "Return to main route" whenever a continuing route exists;
-      the ending-route loop gains an exit.
+      the ending-route loop gains an exit. (offersContinue single
+      rule - fired/re-offer/arrival views alike; row last, Enter ->
+      continueAt once, stack popped; 324 tests, real-Chrome scenario,
+      content-format result bullet updated, 2025-11-02)
 - [ ] Route seen mark = route PLAYED (its items became current), not
       the decision firing; taking one route must not mark the other
       seen.

@@ -240,9 +240,14 @@ and items always use ids, never array positions.
   route.
 - `result`: what happens when a route's span completes. `"ending"`,
   the default, means the route's last item IS the ending: afterwards
-  the overlay offers only route reselection. `"return"` means that
+  the overlay offers route reselection. `"return"` means that
   after its end the overlay offers the still-unseen routes plus
-  "return to main route", which proceeds to `continueAt`. There is
+  "return to main route", which proceeds to `continueAt`. Once ANY
+  route of a decision has completed, every re-opening of that
+  decision offers "return to main route" whenever `continuingRoute`
+  exists — whatever result the route that just finished had, so an
+  ending is escapable rather than a loop. Before any route has
+  completed, no such offer appears. There is
   NO implicit join: an unmarked route never silently merges into the
   main line, because an alternate's later state is not the main
   route's. A continuing route's own `result` is moot — it proceeds to

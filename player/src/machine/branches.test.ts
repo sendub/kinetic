@@ -364,6 +364,50 @@ describe("navigation arrivals show unresolved decisions (docs/plan.md Phase 16)"
     m.destroy();
   });
 
+  it("an arrival view offers the return only once a route has completed", () => {
+    // The arrival-open view follows the same rule as a fired re-offer
+    // (docs/plan.md Phase 16, Branches): before any route has been played
+    // there is no "Return to main route" to show; after one has, it appears.
+    const m = machine(CANON);
+    step(m);
+    step(m); // cursor 2 (`decide`), no route played yet
+    m.wheelBack();
+    m.wheelForward(); // arrival at `decide`: no offer to show yet
+    expect(m.getState().choice?.arrival).toBe(true);
+    expect(m.getState().choice?.continueOption).toBeUndefined();
+    m.choose(1); // route B, an ending
+    m.advance();
+    m.advance();
+    m.advance();
+    m.advance(); // off B's end: the re-offer now offers the return
+    expect(m.getState().choice?.continueOption).toBe(true);
+    m.choose(2); // route C, the continuing route: rejoins the main line at 9
+    expect(m.getState().cursor).toBe(7);
+    for (let press = 0; press < 2; press += 1) step(m); // 7 -> 8, then off C's
+    expect(m.getState().cursor).toBe(9); // continuing: main line, no overlay
+    expect(m.getState().choice).toBeUndefined();
+    for (let back = 0; back < 7; back += 1) m.wheelBack(); // back to `decide`
+    expect(m.getState().cursor).toBe(2);
+    expect(m.getState().choice?.arrival).toBe(true);
+    expect(m.getState().choice?.continueOption).toBe(true);
+    m.destroy();
+  });
+
+  it("a pure-choice decision never offers a return, arrival or re-offer", () => {
+    const m = machine(PURE);
+    step(m); // 0 -> 1
+    m.wheelBack();
+    m.wheelForward(); // arrival at `decide`
+    expect(m.getState().choice?.arrival).toBe(true);
+    expect(m.getState().choice?.continueOption).toBeUndefined();
+    m.choose(0); // route P
+    step(m); // 2 -> 3
+    step(m); // P's end: Q unplayed, so the decision re-opens
+    expect(m.getState().choice?.decisionId).toBe("d1");
+    expect(m.getState().choice?.continueOption).toBeUndefined();
+    m.destroy();
+  });
+
   it("a pending auto timer cannot pass through an arrival: timing is paused", () => {
     vi.useFakeTimers();
     const m = machine(CANON); // auto: the arrival's own hold IS armed
@@ -466,7 +510,10 @@ describe("choosing a route and ending one", () => {
     m.destroy();
   });
 
-  it("an ending route re-opens the decision for reselection only", () => {
+  it("an ending route re-opens the decision with the return offer too", () => {
+    // docs/plan.md Phase 16 (Branches): once ANY route has completed, every
+    // re-opening offers "Return to main route" — whatever result the route
+    // that just finished had — so the ending loop is escapable.
     const m = machine(CANON);
     step(m);
     step(m);
@@ -478,10 +525,32 @@ describe("choosing a route and ending one", () => {
     m.advance(); // off the span's last item
     const choice = m.getState().choice;
     expect(choice?.decisionId).toBe("d1");
-    expect(choice?.continueOption).toBeUndefined(); // no implicit join
+    expect(choice?.continueOption).toBe(true);
     expect(choice?.routes.map((r) => r.seen)).toEqual([false, true, false]);
-    m.chooseContinue(); // inert: nothing is offered
-    expect(m.getState().cursor).toBe(6);
+    m.choose(1); // re-pick the ending; the offer survives another pass
+    m.advance();
+    m.advance();
+    m.advance();
+    m.advance();
+    expect(m.getState().choice?.continueOption).toBe(true);
+    m.chooseContinue(); // lands on `continueAt` exactly once, frame popped
+    expect(m.getState().cursor).toBe(9);
+    expect(m.exportContext().stack).toEqual([]);
+    expect(m.getState().choice).toBeUndefined();
+    m.destroy();
+  });
+
+  it("an ending route can also be reselected into another route", () => {
+    const m = machine(CANON);
+    step(m);
+    step(m);
+    m.advance();
+    m.choose(1); // route B, an ending
+    m.advance();
+    m.advance(); // 5 -> 6
+    m.advance();
+    m.advance(); // off the span's last item
+    expect(m.getState().choice?.decisionId).toBe("d1");
     m.choose(0); // reselect into another route
     expect(m.getState().cursor).toBe(3);
     m.destroy();
@@ -559,11 +628,16 @@ describe("nested decisions", () => {
     m.choose(0); // route X, an ending
     expect(m.getState().cursor).toBe(4);
     step(m); // 4 -> 5
-    step(m); // off X's end: back to d2, which has no continuing join for X
+    step(m); // off X's end: back to d2, whose re-offer now offers the return
     const choice = m.getState().choice;
     expect(choice?.decisionId).toBe("d2");
-    expect(choice?.continueOption).toBeUndefined();
+    // docs/plan.md Phase 16 (Branches): an inner decision follows the same
+    // rule — X completed and d2 has a continuing route, so "Return to main
+    // route" is offered and goes to d2's `continueAt` (`a-cont`, 8).
+    expect(choice?.continueOption).toBe(true);
     expect(choice?.routes.map((r) => r.seen)).toEqual([true, false]);
+    m.chooseContinue();
+    expect(m.getState().cursor).toBe(8);
     m.destroy();
   });
 
@@ -606,8 +680,11 @@ describe("nested decisions", () => {
     expect(m.getState().cursor).toBe(10);
     expect(m.exportContext().stack).toEqual([{ decision: 0, route: 1 }]);
     step(m); // 10 -> 11
-    step(m); // off B's end: an ending, reselection only
-    expect(m.getState().choice?.continueOption).toBeUndefined();
+    step(m); // off B's end: an ending, re-offer with the return (Phase 16)
+    expect(m.getState().choice?.continueOption).toBe(true);
+    expect(m.exportContext().stack).toEqual([]); // B's frame popped at its end
+    m.chooseContinue(); // leave d1 for good: joins the main line at 13
+    expect(m.getState().cursor).toBe(13);
     m.destroy();
   });
 });

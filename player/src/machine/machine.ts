@@ -214,8 +214,8 @@ export interface Machine {
    */
   choose(routeIdx: number): void;
   /**
-   * "Return to main route" on a completed `return` route: proceed to the
-   * decision's `continueAt`. Inert unless the open choice offers it
+   * "Return to main route" on a decision with a completed route: proceed to
+   * the decision's `continueAt`. Inert unless the open choice offers it
    * (`MachineState.choice.continueOption`), and it does not mark the
    * continuing route played — its items are skipped, not replayed.
    */
@@ -958,13 +958,31 @@ export function createMachine(options: MachineOptions): Machine {
   }
 
   /**
+   * Whether an open view of this decision offers "Return to main route"
+   * (docs/plan.md Phase 16, Branches): a decision with a continuing route
+   * offers it on EVERY re-opening once ANY of its routes has completed —
+   * whatever result that route had, so an ending is escapable — and never
+   * before a route has completed. A pure-choice decision (no continuing
+   * route) is never offered one.
+   */
+  function offersContinue(decision: ResolvedDecision): boolean {
+    if (decision.continuingRoute < 0) return false;
+    const routes = played.get(decision.index);
+    return routes !== undefined && routes.size > 0;
+  }
+
+  /**
    * Shows the overlay for a decision and pauses: the item under the cursor is
    * complete (`settled`), nothing is pending but the reader's pick, and skip
    * mode ends — an overlay is not something to skip past.
    */
-  function openChoice(decisionIndex: number, continueOption: boolean): void {
+  function openChoice(decisionIndex: number): void {
     closeFramesFor(decisionIndex);
-    pendingChoice = { decision: decisionIndex, continueOption };
+    const decision = decisions[decisionIndex];
+    pendingChoice = {
+      decision: decisionIndex,
+      continueOption: offersContinue(decision),
+    };
     // A skip burst pauses at a decision (docs/plan.md Phase 16): the overlay
     // ends the burst, and the pick never restarts it — the reader answers in
     // manual mode from here (a skip burst never auto-resumes).
@@ -1009,7 +1027,7 @@ export function createMachine(options: MachineOptions): Machine {
   function openArrivalChoice(decisionIndex: number): void {
     pendingChoice = {
       decision: decisionIndex,
-      continueOption: false,
+      continueOption: offersContinue(decisions[decisionIndex]),
       arrival: true,
     };
     settled = true;
@@ -1054,7 +1072,7 @@ export function createMachine(options: MachineOptions): Machine {
       autoResolve(decision);
       return true;
     }
-    openChoice(decision.index, false);
+    openChoice(decision.index);
     return true;
   }
 
@@ -1112,12 +1130,13 @@ export function createMachine(options: MachineOptions): Machine {
   /**
    * A forward advance off a route's last item (docs/content-format.md,
    * "Branches"): pop the frame, then by the route's kind — the continuing
-   * route proceeds to `continueAt`; a `return` route re-opens the decision
-   * with "return to main route" among its offers; an `ending` route re-opens
-   * it for reselection only. A pure-choice decision whose every route has
-   * now played does not re-open: it closes and flow continues past the whole
-   * menu region (docs/plan.md Phase 13), ending the story when the region
-   * runs to the last item.
+   * route proceeds to `continueAt`; any other route re-opens the decision,
+   * and because this route has just completed the re-offer includes "return
+   * to main route" whenever the decision has a continuing route (an ending
+   * is therefore escapable, not a loop). A pure-choice decision whose every
+   * route has now played does not re-open: it closes and flow continues past
+   * the whole menu region (docs/plan.md Phase 13), ending the story when the
+   * region runs to the last item.
    */
   function handleRouteEnd(): void {
     const frame = stack[stack.length - 1];
@@ -1135,10 +1154,7 @@ export function createMachine(options: MachineOptions): Machine {
       autoResolve(decision);
       return;
     }
-    openChoice(
-      decision.index,
-      route.result === "return" && decision.continuingRoute >= 0,
-    );
+    openChoice(decision.index);
   }
 
   /** The last item of the current route span, or content end when none. */
