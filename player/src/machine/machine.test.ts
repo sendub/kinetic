@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createMemoryStorage } from "../storage/memory";
 import {
   createMachine,
+  INTERSTITIAL_MS,
   itemHoldMs,
   textHoldMs,
   visualIndexFor,
@@ -2235,7 +2236,9 @@ describe("minPlaySeconds chain-exit floor (docs/plan.md Phase 15)", () => {
     // Route end waits for the floor — deadline 800 + 5000, not 4000.
     vi.advanceTimersByTime(2599); // total 5799
     expect(m.getState().cursor).toBe(4);
-    vi.advanceTimersByTime(1); // the burst proceeds into route B
+    vi.advanceTimersByTime(1); // route end: the interstitial holds first
+    expect(m.getState().interstitial?.toRouteIdx).toBe(1);
+    vi.advanceTimersByTime(INTERSTITIAL_MS); // then the burst enters route B
     expect(m.getState().cursor).toBe(5);
     m.destroy();
   });

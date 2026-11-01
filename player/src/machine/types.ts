@@ -344,6 +344,28 @@ export interface MachineState {
    * standing line inviting `e`. Absent once everything has been seen.
    */
   readonly endingHint?: true;
+  /**
+   * Present while `Play all routes` holds the back-in-time interstitial
+   * (docs/plan.md Phase 18): a route ended and the journey is about to jump
+   * back to the decision to play the next unplayed route. The render layer
+   * draws a black screen from it; the machine holds the timeline for
+   * `INTERSTITIAL_MS` (a press ends it early) and then enters the route.
+   */
+  readonly interstitial?: InterstitialView;
+}
+
+/** The play-all back-in-time interstitial's content (docs/plan.md Phase 18). */
+export interface InterstitialView {
+  readonly decisionId: string;
+  readonly prompt: string;
+  /** The text of the decision's `after` item — the context that led here. */
+  readonly context?: string;
+  /** Every route with its seen mark, in manifest order. */
+  readonly routes: readonly ChoiceRoute[];
+  /** The route that just ended. */
+  readonly fromRouteIdx: number;
+  /** The route about to start (highlighted). */
+  readonly toRouteIdx: number;
 }
 
 /** Timer seam so tests control time. Handles are opaque. */

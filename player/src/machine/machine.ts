@@ -71,6 +71,7 @@ import type {
   Branch,
   ChoiceRoute,
   ChoiceView,
+  InterstitialView,
   Item,
   MachineContext,
   MachineSettings,
@@ -173,7 +174,9 @@ export interface Machine {
    */
   advance(): void;
   /**
-   * Wheel step back; clamps at item 0. During skip mode, exits skip mode
+   * Wheel step back to the previous SEEN item (an unplayed route's span is
+   * stepped over, never revealed — docs/plan.md Phase 18); clamps at the
+   * first item. During skip mode, exits skip mode
    * and still performs the step. Entering an item this way is pure
    * navigation: it marks it shown but CONSUMES no decision — landing on a
    * decision's `after` item — unresolved or already completed — opens its
@@ -588,6 +591,12 @@ function asIndex(value: unknown, fallback: number): number {
     : fallback;
 }
 
+/**
+ * How long `Play all routes` holds the back-in-time interstitial before the
+ * next route starts (docs/plan.md Phase 18).
+ */
+export const INTERSTITIAL_MS = 2500;
+
 export function createMachine(options: MachineOptions): Machine {
   const { items } = options;
   // Copied, and copied again on every setSettings(): the caller keeps
@@ -690,6 +699,17 @@ export function createMachine(options: MachineOptions): Machine {
   let autoAdvance = options.autoAdvance === true;
   // The help screen's freeze (Phase 13b): while paused nothing arms.
   let paused = false;
+  /**
+   * The play-all back-in-time interstitial being held (docs/plan.md
+   * Phase 18): set at a route end that play-all answers with another
+   * route; its own timer enters that route when it elapses.
+   */
+  let interstitial: {
+    decision: number;
+    fromRoute: number;
+    toRoute: number;
+  } | null = null;
+  let interstitialTimer: unknown = null;
   let destroyed = false;
   // Start position. A stored context is authoritative: its `lastShown` is
   // where the reader left off. Otherwise a persisted frontier marks a seen
@@ -721,8 +741,14 @@ export function createMachine(options: MachineOptions): Machine {
   function snapshot(): MachineState {
     const choice = pendingChoice === null ? null : choiceView(pendingChoice);
     const frontier = highestSeen < 0 ? 0 : Math.min(highestSeen + 1, count);
+    // Play-all carries on from a route ending by itself, so the `e` invite
+    // there is noise; the array end still earns it.
     const endingHint =
-      choice === null && endings.has(cursor) && visited.size < count;
+      choice === null &&
+      interstitial === null &&
+      endings.has(cursor) &&
+      visited.size < count &&
+      !(settings.playAllRoutes && cursor !== count - 1);
     return Object.freeze({
       cursor,
       frontier,
@@ -731,7 +757,80 @@ export function createMachine(options: MachineOptions): Machine {
       transition,
       ...(choice === null ? {} : { choice }),
       ...(endingHint ? { endingHint: true as const } : {}),
+      ...(interstitial === null
+        ? {}
+        : { interstitial: interstitialView(interstitial) }),
     });
+  }
+
+  function interstitialView(held: {
+    decision: number;
+    fromRoute: number;
+    toRoute: number;
+  }): InterstitialView {
+    const decision = decisions[held.decision];
+    // The context that led to the decision: the `after` item's own line, or
+    // the nearest line before it when that item carries none.
+    let context: string | undefined;
+    for (let index = decision.afterIndex; index >= 0; index -= 1) {
+      const text = items[index].text;
+      if (typeof text === "string" && text !== "") {
+        context = text;
+        break;
+      }
+    }
+    return Object.freeze({
+      decisionId: decision.id,
+      prompt: decision.prompt,
+      ...(context !== undefined && context !== "" ? { context } : {}),
+      routes: decision.routes.map((route, index) =>
+        Object.freeze({
+          routeIdx: index,
+          id: route.id,
+          label: route.label,
+          seen: isPlayed(decision.index, index),
+        }),
+      ),
+      fromRouteIdx: held.fromRoute,
+      toRouteIdx: held.toRoute,
+    });
+  }
+
+  /**
+   * Play-all's route end answered by another route (docs/plan.md Phase 18):
+   * hold a black interstitial for `INTERSTITIAL_MS` before the jump back in
+   * time, so the reader can see where the journey goes. Timing is paused
+   * underneath; the interstitial's own timer (or a press) enters the route.
+   */
+  function startInterstitial(
+    decision: ResolvedDecision,
+    fromRoute: number,
+    toRoute: number,
+  ): void {
+    cancelTimer();
+    skipping = false;
+    settled = true;
+    interstitial = { decision: decision.index, fromRoute, toRoute };
+    armInterstitial();
+    emit();
+  }
+
+  function armInterstitial(): void {
+    if (interstitialTimer !== null) scheduler.cancel(interstitialTimer);
+    interstitialTimer = paused
+      ? null
+      : scheduler.schedule(finishInterstitial, INTERSTITIAL_MS);
+  }
+
+  /** Ends the held interstitial and enters its route; false when none. */
+  function finishInterstitial(): boolean {
+    if (interstitial === null) return false;
+    if (interstitialTimer !== null) scheduler.cancel(interstitialTimer);
+    interstitialTimer = null;
+    const held = interstitial;
+    interstitial = null;
+    enterRoute(decisions[held.decision], held.toRoute);
+    return true;
   }
 
   /** The overlay content for the open choice: prompt, routes, return offer. */
@@ -1446,6 +1545,11 @@ export function createMachine(options: MachineOptions): Machine {
     // The same pause as `fireDecision`: a skip burst stops at this re-offer
     // too (docs/plan.md Phase 16); only `playAllRoutes` auto-resolves.
     if (settings.playAllRoutes) {
+      const next = nextAutoRoute(decision);
+      if (next >= 0) {
+        startInterstitial(decision, frame.route, next);
+        return;
+      }
       autoResolve(decision);
       return;
     }
@@ -1457,6 +1561,22 @@ export function createMachine(options: MachineOptions): Machine {
     const frame = stack[stack.length - 1];
     if (frame === undefined) return count - 1;
     return decisions[frame.decision].routes[frame.route].endIndex;
+  }
+
+  /**
+   * The nearest SEEN item from the cursor in `direction` (-1 back, +1
+   * forward), or -1 when there is none: the wheel's step target. Unseen
+   * items — another route's span the reader never played — are skipped.
+   */
+  function seenNeighbour(direction: -1 | 1): number {
+    for (
+      let index = cursor + direction;
+      index >= 0 && index <= highestSeen;
+      index += direction
+    ) {
+      if (visited.has(index)) return index;
+    }
+    return -1;
   }
 
   /** The first item of `[from, to]` the reader has not seen; -1 for none. */
@@ -1644,6 +1764,9 @@ export function createMachine(options: MachineOptions): Machine {
 
     importContext(context) {
       if (destroyed || count === 0) return;
+      if (interstitialTimer !== null) scheduler.cancel(interstitialTimer);
+      interstitialTimer = null;
+      interstitial = null;
       applyContext(context);
       skipping = false; // a restore is manual navigation, like `goTo()`
       showItem(cursor, "nav"); // UNSETTLED arrival: the item replays under its hold
@@ -1658,6 +1781,7 @@ export function createMachine(options: MachineOptions): Machine {
 
     advance() {
       if (destroyed || count === 0) return;
+      if (finishInterstitial()) return; // a press ends the hold early
       if (pendingChoice !== null) {
         if (pendingChoice.arrival !== true) return;
         // Space over an arrival-open view: the reader pressed on the item,
@@ -1698,6 +1822,7 @@ export function createMachine(options: MachineOptions): Machine {
 
     wheelBack() {
       if (destroyed) return;
+      finishInterstitial(); // navigation is never trapped: enter, then move
       // Any open choice closes on this step and the step proceeds
       // (docs/plan.md Phase 18: only keys choose; the wheel navigates).
       const closedArrival = dismissChoiceForWheel();
@@ -1706,7 +1831,11 @@ export function createMachine(options: MachineOptions): Machine {
       // meant; merely dropping it would feel like a dead input.
       const wasSkipping = skipping;
       if (skipping) skipping = false; // a clamped step exits skip too
-      if (cursor === 0) {
+      // The wheel walks SEEN content only (docs/plan.md Phase 18): an
+      // unplayed route's span between here and the previous seen item is
+      // stepped over, never revealed — the array order interleaves routes.
+      const target = seenNeighbour(-1);
+      if (target < 0) {
         if (wasSkipping) beginItem(); // normal timing for the item left behind
         if (wasSkipping || closedArrival) emit();
         return;
@@ -1714,29 +1843,32 @@ export function createMachine(options: MachineOptions): Machine {
       // Pure nav: shown, seen; no decision consumed. A scrub step shows
       // without reading — the reading position (and the `e` resume that
       // follows) stays where the reader stopped (docs/plan.md Phase 18).
-      showItem(cursor - 1, "nav", false);
+      showItem(target, "nav", false);
       openArrivalChoiceIfDue();
     },
 
     wheelForward() {
       if (destroyed) return;
+      finishInterstitial(); // navigation is never trapped: enter, then move
       const closedArrival = dismissChoiceForWheel(); // as wheelBack()
       const wasSkipping = skipping;
       if (skipping) skipping = false; // same decision as wheelBack()
       // The ceiling is the highest item ever shown, which across routes is
       // the union of everything seen — so a forward step can reach a seen
       // item of another route, and entering it is navigation, not a choice.
-      if (cursor + 1 > highestSeen) {
+      const target = seenNeighbour(1); // seen content only, as wheelBack
+      if (target < 0) {
         if (wasSkipping) beginItem(); // blocked step still ends skip
         if (wasSkipping || closedArrival) emit();
         return;
       }
-      showItem(cursor + 1, "nav", false); // scrubbing, like wheelBack
+      showItem(target, "nav", false); // scrubbing, like wheelBack
       openArrivalChoiceIfDue();
     },
 
     toggleSkip() {
       if (destroyed || count === 0 || pendingChoice !== null) return;
+      if (interstitial !== null) return; // the hold is not skippable content
       if (skipping) {
         exitSkip(); // tab again: manual off, normal timing from here
       } else {
@@ -1751,6 +1883,7 @@ export function createMachine(options: MachineOptions): Machine {
 
     jumpToUnseen() {
       if (destroyed || count === 0) return;
+      finishInterstitial();
       const closedArrival = dismissArrivalChoice();
       if (pendingChoice !== null) return; // a fired choice owns the timeline
       const unseen = unseenTarget();
@@ -1782,6 +1915,7 @@ export function createMachine(options: MachineOptions): Machine {
 
     goTo(index) {
       if (destroyed || count === 0) return;
+      finishInterstitial();
       dismissArrivalChoice(); // navigation away closes an arrival view
       if (pendingChoice !== null) return; // a fired choice owns the timeline
       // Bookmark navigation is navigation too: landing on an unresolved
@@ -1879,17 +2013,22 @@ export function createMachine(options: MachineOptions): Machine {
       if (destroyed) return;
       paused = true;
       cancelTimer();
+      if (interstitialTimer !== null) scheduler.cancel(interstitialTimer);
+      interstitialTimer = null;
     },
 
     resume() {
       if (destroyed || !paused) return;
       paused = false;
+      if (interstitial !== null) armInterstitial(); // the hold restarts fresh
       if (!settled) armTimer(); // the wait restarts fresh (interface docs)
     },
 
     destroy() {
       destroyed = true;
       cancelTimer();
+      if (interstitialTimer !== null) scheduler.cancel(interstitialTimer);
+      interstitialTimer = null;
       listeners.clear();
     },
   };

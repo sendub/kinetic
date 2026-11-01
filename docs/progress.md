@@ -523,9 +523,30 @@ truthful: an unchecked box means nothing was accepted.
       quiet standing line invites `e`; absent when all seen. (machine
       `endingHint` state, hidden under a choice and by `h`; #ending-hint
       at the top; 397 tests, 2026-11-01)
-- [ ] Play-all: black interstitial (~2.5 s machine-held) on each
+- [x] Play-all: black interstitial (~2.5 s machine-held) on each
       back-in-time jump showing prompt, last route, seen marks,
       highlighted new route; route pills 1.6 s. Scenario proof.
+      (machine `interstitial` state + INTERSTITIAL_MS, a press ends it,
+      pause freezes it; context line falls back to the nearest earlier
+      text; the back pill is dropped after an interstitial; ending hint
+      off during the hold and at play-all route endings. Scenario run on
+      the real demo in the browser: refuse-020 -> interstitial "Offer
+      them the job NOW PLAYING / Turn them down JUST FINISHED" held
+      ~2.5 s -> hire-016 with the route pill. 405 tests, 2026-11-01)
+- [x] The wheel walks seen items only (found in Claude's demo pass,
+      2026-11-01: wheeling back from the main ending walked into the
+      unplayed "Turn them down" route, showing its ending card and
+      marking it seen; forward had the same flaw). Unplayed route spans
+      are stepped over both ways; the main.ts input gate also let the
+      wheel through a FIRED choice now (item 4's machine rule was
+      unreachable in the real player). (405 tests, 2026-11-01)
+- [ ] `e` never acts as a forward step (user, 2026-11-01; reproduced on
+      the demo: from a fresh start each `e` press advanced one item,
+      revealing new content like Space): standing at the reading
+      position with the next unseen item simply next in reading order,
+      `e` does nothing. It still resumes to the last-read item, jumps to
+      unseen content elsewhere (an unplayed route) and shows the ending
+      when all is seen. Help/README wording agree; tests.
 - [ ] Demo meta pass: meta text items explaining the intent of each
       demoed feature (ranges, loopStart, minPlay, chains, the branch
       map + replay affordances); docs list demo features; driver

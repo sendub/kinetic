@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createMachine } from "./machine";
+import { createMachine, INTERSTITIAL_MS } from "./machine";
 import type {
   Branch,
   Item,
@@ -175,6 +175,20 @@ const PURE: Shape = {
 function step(m: ReturnType<typeof machine>): void {
   m.advance();
   m.advance();
+}
+
+/**
+ * Wheel back until the cursor reaches `index`. The wheel walks SEEN items
+ * only (docs/plan.md Phase 18), so the notch count depends on which routes
+ * were played; the tests name the target instead of counting notches.
+ */
+function wheelBackTo(
+  m: { wheelBack(): void; getState(): { cursor: number } },
+  index: number,
+): void {
+  for (let notch = 0; notch < 64 && m.getState().cursor !== index; notch += 1) {
+    m.wheelBack();
+  }
 }
 
 afterEach(() => {
@@ -390,7 +404,7 @@ describe("navigation arrivals show unresolved decisions (docs/plan.md Phase 16)"
     for (let press = 0; press < 2; press += 1) step(m); // 7 -> 8, then off C's
     expect(m.getState().cursor).toBe(9); // continuing: main line, no overlay
     expect(m.getState().choice).toBeUndefined();
-    for (let back = 0; back < 7; back += 1) m.wheelBack(); // back to `decide`
+    wheelBackTo(m, 2); // back to `decide`
     expect(m.getState().cursor).toBe(2);
     expect(m.getState().choice?.arrival).toBe(true);
     expect(m.getState().choice?.continueOption).toBe(true);
@@ -625,7 +639,7 @@ describe("choosing a route and ending one", () => {
     step(m); // 7 -> 8
     step(m); // C completes: joins the aftermath, the row unlocks
     expect(m.getState().cursor).toBe(9);
-    for (let back = 0; back < 7; back += 1) m.wheelBack(); // back to `decide`
+    wheelBackTo(m, 2); // back to `decide`
     expect(m.getState().choice?.arrival).toBe(true);
     expect(m.getState().choice?.continueOption).toBe(true); // C completed once
     m.choose(0); // route A again from the arrival view
@@ -710,8 +724,8 @@ describe("the seen mark means the route was PLAYED (docs/plan.md Phase 16)", () 
 
   it("one route played to the end: the back-scroll past the others marks them nothing", () => {
     // The user's flow on the demo: take the continuing route, finish, wheel
-    // back to the branch. The back-scroll PASSES the other spans — their items
-    // become visited — and the overlay still marks only the route taken.
+    // back to the branch. The back-scroll steps over the other spans and the
+    // overlay marks only the route taken.
     const m = manual(CANON);
     m.advance(); // 0 -> 1
     m.advance(); // 1 -> 2 (`decide`)
@@ -720,13 +734,14 @@ describe("the seen mark means the route was PLAYED (docs/plan.md Phase 16)", () 
     m.advance(); // 7 -> 8
     m.advance(); // off C's end: the continuing route proceeds to `after-1`
     expect(m.getState().cursor).toBe(9);
-    for (let back = 0; back < 7; back += 1) m.wheelBack(); // onto `decide`
+    wheelBackTo(m, 2); // onto `decide`
     expect(m.getState().cursor).toBe(2);
     expect(m.getState().choice?.arrival).toBe(true);
     expect(seenFlags(m)).toEqual([false, false, true]);
-    // The pass-through did mark those ITEMS seen — route A's span (3, 4) and
-    // route B's (5, 6) — and none of it reaches the rows.
-    for (const index of [3, 4, 5, 6]) expect(m.visitedList()).toContain(index);
+    // The wheel steps OVER the unplayed spans (docs/plan.md Phase 18): route
+    // A's items (3, 4) and route B's (5, 6) stay unseen, unrevealed.
+    for (const index of [3, 4, 5, 6])
+      expect(m.visitedList()).not.toContain(index);
     expect(m.exportContext().playedRoutes).toEqual([
       { decision: 0, routes: [2] },
     ]);
@@ -741,7 +756,7 @@ describe("the seen mark means the route was PLAYED (docs/plan.md Phase 16)", () 
     m.choose(2);
     m.advance();
     m.advance(); // -> 9, `after-1`
-    for (let back = 0; back < 8; back += 1) m.wheelBack(); // 9 -> 1
+    wheelBackTo(m, 1); // 9 -> 1
     expect(m.getState().choice).toBeUndefined();
     m.advance(); // a forward step ONTO the after item arrives quietly
     expect(m.getState().cursor).toBe(2);
@@ -776,16 +791,15 @@ describe("the seen mark means the route was PLAYED (docs/plan.md Phase 16)", () 
     arrival.destroy();
   });
 
-  it("wheeling into another route's span marks it nothing; playing it marks it", () => {
+  it("wheeling back steps over another route's span; playing it marks it", () => {
     const m = manual(CANON);
     m.advance();
     m.advance();
     m.advance(); // fires d1
     m.choose(2); // route C at 7
-    m.wheelBack(); // 6: route B's last item, shown by navigation
-    expect(m.visitedList()).toContain(6);
-    m.wheelForward(); // 7: back inside the played route
-    for (let back = 0; back < 5; back += 1) m.wheelBack(); // onto `decide`
+    m.wheelBack(); // B's and A's spans are unseen: straight onto `decide`
+    expect(m.getState().cursor).toBe(2);
+    expect(m.visitedList()).not.toContain(6);
     expect(seenFlags(m)).toEqual([false, false, true]); // B stays unmarked
     m.choose(1); // now the reader plays route B for real
     expect(m.getState().cursor).toBe(5);
@@ -845,7 +859,7 @@ describe("the return row needs the CONTINUING route completed (docs/plan.md Phas
     m.advance(); // fires d1
     m.choose(2); // enter route C (the continuing route) at 7
     expect(m.getState().cursor).toBe(7);
-    for (let back = 0; back < 5; back += 1) m.wheelBack(); // 7 -> 2, abandoning it
+    wheelBackTo(m, 2); // 7 -> 2, abandoning it
     expect(m.getState().choice?.arrival).toBe(true);
     expect(m.getState().choice?.continueOption).toBeUndefined(); // entry ≠ completion
     m.advance(); // over the arrival view: the press FIRES the decision
@@ -863,7 +877,7 @@ describe("the return row needs the CONTINUING route completed (docs/plan.md Phas
     m.advance(); // 7 -> 8
     m.advance(); // C completes: joins the aftermath at 9
     expect(m.getState().cursor).toBe(9);
-    for (let back = 0; back < 7; back += 1) m.wheelBack(); // back to `decide`
+    wheelBackTo(m, 2); // back to `decide`
     expect(m.getState().choice?.arrival).toBe(true);
     expect(m.getState().choice?.continueOption).toBe(true); // arrival view
     m.choose(0); // route A from the arrival view...
@@ -937,7 +951,7 @@ describe("the return row needs the CONTINUING route completed (docs/plan.md Phas
     // The completion survives the round trip: the restored save still offers
     // the row at the decision.
     const resumed = machine(CANON, { resumeContext: stored });
-    for (let back = 0; back < 7; back += 1) resumed.wheelBack(); // 9 -> 2
+    wheelBackTo(resumed, 2); // 9 -> 2
     expect(resumed.getState().choice?.continueOption).toBe(true);
     resumed.destroy();
 
@@ -947,12 +961,12 @@ describe("the return row needs the CONTINUING route completed (docs/plan.md Phas
     const legacy = { ...stored } as MachineContext;
     delete legacy.completedRoutes;
     const old = machine(CANON, { resumeContext: legacy });
-    for (let back = 0; back < 7; back += 1) old.wheelBack(); // 9 -> 2
+    wheelBackTo(old, 2); // 9 -> 2
     expect(old.getState().choice?.continueOption).toBeUndefined();
     old.choose(2); // finish route C once, here...
     step(old); // 7 -> 8
     step(old); // ...its end joins at 9 and unlocks the row
-    for (let back = 0; back < 7; back += 1) old.wheelBack(); // 9 -> 2
+    wheelBackTo(old, 2); // 9 -> 2
     expect(old.getState().choice?.continueOption).toBe(true);
     expect(old.exportContext().completedRoutes).toEqual([
       { decision: 0, routes: [2] },
@@ -1312,24 +1326,32 @@ describe("the visited set, the derived frontier, and the wheel", () => {
     m.choose(2); // 7
     step(m); // 8
     const before = m.visitedList();
-    m.wheelBack(); // 7, then 6 — an item never played, now shown
+    m.wheelBack(); // 7, then over the unplayed spans onto 2
     m.wheelBack();
-    expect(m.visitedList()).toEqual([...before, 6].sort((a, b) => a - b));
+    expect(m.getState().cursor).toBe(2);
+    expect(m.visitedList()).toEqual(before); // nothing unseen was revealed
     m.wheelForward(); // back onto 7: still seen, still marked
     expect(m.visitedList()).toContain(7);
     m.destroy();
   });
 
-  it("marking happens on a wheel step into another route's items", () => {
+  it("the wheel never enters another route's unseen items, either direction", () => {
     const m = machine(CANON);
     step(m);
     step(m);
     m.advance();
-    m.choose(2); // route C at 7
-    m.wheelBack(); // 6: route B's last item, shown now
-    expect(m.getState().cursor).toBe(6);
-    expect(m.getState().settled).toBe(false); // an arrival replays, like goTo
-    expect(m.visitedList()).toContain(6);
+    m.choose(0); // route A at 3..4
+    step(m); // 3 -> 4
+    m.wheelBack(); // 3
+    m.wheelBack(); // 2 (`decide`)
+    m.wheelBack(); // 1
+    m.wheelForward(); // 2
+    m.wheelForward(); // 3
+    m.wheelForward(); // 4: A's end
+    m.wheelForward(); // B (5, 6) and C (7, 8) unseen: nothing seen ahead
+    expect(m.getState().cursor).toBe(4);
+    for (const index of [5, 6, 7, 8])
+      expect(m.visitedList()).not.toContain(index);
     m.destroy();
   });
 });
@@ -1697,9 +1719,10 @@ describe("arrivals show COMPLETED decisions too (docs/plan.md Phase 18, bullet 3
     m.advance(); // 7 -> 8
     m.advance(); // C completes and joins at `after-1`, 9
     expect(m.getState().cursor).toBe(9);
-    for (let back = 0; back < 6; back += 1) m.wheelBack(); // 9 -> 3, no view yet
+    m.wheelBack(); // 9 -> 8
+    m.wheelBack(); // 8 -> 7, no view yet
     expect(view(m).id).toBeUndefined();
-    m.wheelBack(); // onto `decide`: the completed decision re-offers itself
+    m.wheelBack(); // over the unplayed spans onto `decide`: it re-offers itself
     expect(view(m)).toEqual({
       cursor: 2,
       id: "d1",
@@ -1836,7 +1859,7 @@ describe("arrivals show COMPLETED decisions too (docs/plan.md Phase 18, bullet 3
     m.advance(); // 7 -> 8
     m.advance(); // joins at `after-1`, 9
     m.setSettings({ ...SETTINGS, playAllRoutes: true });
-    for (let back = 0; back < 7; back += 1) m.wheelBack(); // onto `decide`
+    wheelBackTo(m, 2); // onto `decide`
     expect(m.getState().cursor).toBe(2); // shown, and passed through
     expect(m.getState().choice).toBeUndefined();
     expect(m.exportContext()).toMatchObject({
@@ -1981,6 +2004,132 @@ describe("the ending hint (docs/plan.md Phase 18, bullet 6)", () => {
     m.advance(); // 9 -> 10, the array end; A and B are unseen
     expect(m.getState().cursor).toBe(10);
     expect(m.getState().endingHint).toBe(true);
+    m.destroy();
+  });
+});
+
+describe("play-all back-in-time interstitial (docs/plan.md Phase 18, bullet 7)", () => {
+  const playAll = (shape: Shape, items?: Item[]) => {
+    const m = manifest(shape);
+    return createMachine({
+      items: items ?? m.items,
+      branches: m.branches,
+      settings: { ...SETTINGS, playAllRoutes: true },
+    }); // manual presses: each step is explicit
+  };
+
+  it("a route end held for INTERSTITIAL_MS shows the decision, seen marks, and the next route", () => {
+    vi.useFakeTimers();
+    const m = playAll(CANON);
+    m.advance(); // 0 -> 1
+    m.advance(); // 1 -> 2 (`decide`)
+    m.advance(); // fires: play-all enters route A at 3
+    expect(m.getState().cursor).toBe(3);
+    expect(m.getState().interstitial).toBeUndefined(); // the first pick: no jump back
+    m.advance(); // 3 -> 4
+    m.advance(); // off A's end: hold the interstitial before B
+    expect(m.getState().cursor).toBe(4);
+    expect(m.getState().interstitial).toEqual({
+      decisionId: "d1",
+      prompt: CANON.branches[0].prompt,
+      routes: [
+        { routeIdx: 0, id: "r-a", label: "Route A", seen: true },
+        { routeIdx: 1, id: "r-b", label: "Route B", seen: false },
+        { routeIdx: 2, id: "r-c", label: "Route C", seen: false },
+      ],
+      fromRouteIdx: 0,
+      toRouteIdx: 1,
+    });
+    vi.advanceTimersByTime(INTERSTITIAL_MS - 1);
+    expect(m.getState().cursor).toBe(4);
+    vi.advanceTimersByTime(1);
+    expect(m.getState().interstitial).toBeUndefined();
+    expect(m.getState().cursor).toBe(5); // route B's first item
+    expect(m.exportContext().stack).toEqual([{ decision: 0, route: 1 }]);
+    m.destroy();
+  });
+
+  it("a press ends the hold early; pause freezes it and resume restarts it", () => {
+    vi.useFakeTimers();
+    const m = playAll(CANON);
+    for (let press = 0; press < 5; press += 1) m.advance(); // into the hold before B
+    expect(m.getState().interstitial?.toRouteIdx).toBe(1);
+    m.pause();
+    vi.advanceTimersByTime(INTERSTITIAL_MS * 2);
+    expect(m.getState().interstitial).toBeDefined(); // frozen behind help
+    m.resume();
+    vi.advanceTimersByTime(INTERSTITIAL_MS - 1);
+    expect(m.getState().interstitial).toBeDefined();
+    m.advance(); // the reader's press: enter now
+    expect(m.getState().interstitial).toBeUndefined();
+    expect(m.getState().cursor).toBe(5);
+    vi.advanceTimersByTime(INTERSTITIAL_MS); // the cancelled hold fires nothing
+    expect(m.getState().cursor).toBe(5);
+    m.destroy();
+  });
+
+  it("carries the `after` item's text as context when it has one", () => {
+    vi.useFakeTimers();
+    const shaped = manifest(CANON);
+    const items = shaped.items.map((item) =>
+      item.id === "decide" ? { ...item, text: "Where now?" } : item,
+    );
+    const m = playAll(CANON, items);
+    for (let press = 0; press < 5; press += 1) m.advance();
+    expect(m.getState().interstitial?.context).toBe("Where now?");
+    m.destroy();
+  });
+
+  it("the continuing route's end joins with no interstitial", () => {
+    vi.useFakeTimers();
+    const m = playAll(CANON);
+    for (let press = 0; press < 5; press += 1) m.advance(); // hold before B
+    vi.advanceTimersByTime(INTERSTITIAL_MS); // B at 5
+    m.advance(); // 5 -> 6
+    m.advance(); // off B: hold before C, the continuing route
+    expect(m.getState().interstitial?.toRouteIdx).toBe(2);
+    vi.advanceTimersByTime(INTERSTITIAL_MS); // C at 7
+    m.advance(); // 7 -> 8
+    m.advance(); // off C: joins at `after-1` directly
+    expect(m.getState().interstitial).toBeUndefined();
+    expect(m.getState().cursor).toBe(9);
+    m.destroy();
+  });
+});
+
+describe("interstitial context and play-all hint rules (docs/plan.md Phase 18)", () => {
+  it("falls back to the nearest earlier line when `after` has no text", () => {
+    vi.useFakeTimers();
+    const shaped = manifest(CANON);
+    const items = shaped.items.map((item) =>
+      item.id === "lead-1" ? { ...item, text: "Before it all." } : item,
+    );
+    const m = createMachine({
+      items,
+      branches: shaped.branches,
+      settings: { ...SETTINGS, playAllRoutes: true },
+    });
+    for (let press = 0; press < 5; press += 1) m.advance();
+    expect(m.getState().interstitial?.context).toBe("Before it all.");
+    m.destroy();
+  });
+
+  it("play-all shows no ending hint on a route ending (it carries on), nor during the hold", () => {
+    vi.useFakeTimers();
+    const shaped = manifest(PURE);
+    const m = createMachine({
+      items: shaped.items,
+      branches: shaped.branches,
+      settings: { ...SETTINGS, playAllRoutes: true },
+    });
+    m.advance(); // 0 -> 1
+    m.advance(); // fires: enters route P at 2
+    m.advance(); // 2 -> 3, P's last item: an ending
+    expect(m.getState().cursor).toBe(3);
+    expect(m.getState().endingHint).toBeUndefined();
+    m.advance(); // the hold before Q
+    expect(m.getState().interstitial).toBeDefined();
+    expect(m.getState().endingHint).toBeUndefined();
     m.destroy();
   });
 });

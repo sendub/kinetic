@@ -182,3 +182,15 @@ describe("routeAnnouncementsFor (the entry rule)", () => {
     ).toEqual([routeFlashLabel("Route A")]);
   });
 });
+
+describe("route pills after the play-all interstitial (docs/plan.md Phase 18)", () => {
+  it("an entry out of the interstitial shows only the route pill", () => {
+    expect(
+      routeAnnouncementsFor(
+        { cursor: 5, frame: null, interstitial: true },
+        { cursor: 2, frame: frame(0, 0) },
+        LABELS,
+      ),
+    ).toEqual([routeFlashLabel("Route A")]);
+  });
+});

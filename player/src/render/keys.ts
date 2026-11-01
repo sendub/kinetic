@@ -137,7 +137,8 @@ const HELP_ROWS: ReadonlyArray<{
   },
   {
     command: "toggleSkip",
-    description: "skip mode: run through read items; stops at new content",
+    description:
+      "skip mode: run through read items; stops on the last one read",
   },
   {
     command: "toggleAutoForward",

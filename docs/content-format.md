@@ -289,8 +289,12 @@ docs/plan.md Phase 13):
   a play-all auto-pick. Navigating or jumping through a route's items,
   or resuming inside one, shows those items and leaves the row unmarked;
   merely firing, viewing or dismissing a decision marks nothing
-  (docs/plan.md Phase 16, Branches). The two differ exactly where a
-  back-scroll from one route's aftermath crosses another route's span.
+  (docs/plan.md Phase 16, Branches). The two differ where a jump (`e`,
+  a bookmark) lands inside a route the reader never chose.
+- The wheel walks SEEN items only (docs/plan.md Phase 18): a back- or
+  forward-scroll steps over an unplayed route's span rather than
+  revealing it, so scrolling back from a route's aftermath goes straight
+  to the decision it came through.
 - `Play all routes` (a persisted setting, default off) is
   zero-interactivity: at a decision it auto-picks the first
   not-yet-played route in manifest order, repeats until every route has

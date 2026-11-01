@@ -8,6 +8,9 @@ import type { MachineState, Manifest } from "../machine/types";
 import { createTextOverlayLayer } from "./overlay";
 import { createVisualLayer } from "./visual";
 
+/** A route announcement pill's visible hold (docs/plan.md Phase 18). */
+export const ROUTE_PILL_MS = 1600;
+
 export interface Shell {
   /** The `h` toggle: hide or show the text overlay, visual untouched. */
   toggleText(): void;
@@ -30,8 +33,9 @@ export interface Shell {
   flash(message: string): void;
   /**
    * Show several pills in order — the route announcements' "Back to try
-   * another route" before its "Route: <label>". Each message holds for one
-   * pill's visible time (~900 ms) before the next replaces it.
+   * another route" before its "Route: <label>". Each message holds for
+   * ROUTE_PILL_MS (~1.6 s, docs/plan.md Phase 18) before the next replaces
+   * it.
    */
   flashSequence(messages: readonly string[]): void;
   unmount(): void;
@@ -157,7 +161,7 @@ export function mountShell({ root, manifest, machine }: ShellOptions): Shell {
     }
   }
 
-  function flash(message: string): void {
+  function flash(message: string, holdMs = 900): void {
     clearFlash(); // a second `b` replaces the first pill, mid-fade included
     const pill = doc.createElement("div");
     pill.id = "flash";
@@ -187,7 +191,7 @@ export function mountShell({ root, manifest, machine }: ShellOptions): Shell {
       globalThis.setTimeout(() => {
         pill.style.opacity = "0";
         flashTimers.push(globalThis.setTimeout(clearFlash, 450));
-      }, 900),
+      }, holdMs),
     );
   }
 
@@ -198,8 +202,10 @@ export function mountShell({ root, manifest, machine }: ShellOptions): Shell {
     sequenceTimers.length = 0;
     let delay = 0;
     for (const message of messages) {
-      sequenceTimers.push(globalThis.setTimeout(() => flash(message), delay));
-      delay += 900; // one pill's visible hold, from docs/plan.md Phase 16
+      sequenceTimers.push(
+        globalThis.setTimeout(() => flash(message, ROUTE_PILL_MS), delay),
+      );
+      delay += ROUTE_PILL_MS; // one route pill's visible hold (Phase 18)
     }
   }
 

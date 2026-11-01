@@ -41,6 +41,7 @@ import { mountConfigOverlay } from "./render/config";
 import { mountConfirmOverlay, resetProgress } from "./render/confirm";
 import { installFirstGestureFullscreen } from "./render/fullscreen";
 import { mountHelpOverlay } from "./render/help";
+import { mountInterstitial } from "./render/interstitial";
 import { installKeyMap, suspendTimeline } from "./render/keys";
 import { loadManifest } from "./render/manifest";
 import { mountRouteAnnouncements } from "./render/routes";
@@ -365,6 +366,11 @@ function start(): void {
       // render-side rule over state transitions (render/routes.ts reads the
       // machine's route context, mutates nothing): the branch journey the
       // user could not follow becomes three lines of pill on screen.
+      // The play-all back-in-time interstitial (docs/plan.md Phase 18,
+      // render/interstitial.ts): the machine holds it; this draws it.
+      const interstitial = mountInterstitial(root);
+      machine.subscribe((state) => interstitial.render(state.interstitial));
+
       mountRouteAnnouncements({
         machine,
         manifest,
@@ -396,28 +402,41 @@ function start(): void {
       // arrival view can only ever reach arrival semantics.
       const firedChoiceHoldsTimeline = () =>
         machine.getState().choice?.arrival !== true;
-      const anyScreenOpen = () =>
+      const anyPanelOpen = () =>
         overlay.isOpen() ||
         config.isOpen() ||
         confirm.isOpen() ||
-        help.isOpen() ||
-        (choice.isOpen() && firedChoiceHoldsTimeline());
+        help.isOpen();
+      const anyScreenOpen = () =>
+        anyPanelOpen() || (choice.isOpen() && firedChoiceHoldsTimeline());
+      // The wheel is never trapped by a choice (docs/plan.md Phase 18): a
+      // notch closes a fired or re-offered view too and steps — the machine
+      // restores the route context, so nothing is answered. Only the
+      // panels (help, `t`, `c`, the reset box) still suspend it.
+      const wheelGate = (command: () => void) => () => {
+        if (anyPanelOpen()) return;
+        command();
+      };
 
       // While a panel is open it takes precedence: the cursor-moving
       // commands (space/tab/e/wheel) are suspended until it closes. `b`
       // still bookmarks the current item and `h` still toggles text —
       // behind the bookmark/config panels, which do not hide the screen.
       // Behind help's black screen nothing but the closing actions acts.
-      const timeline = suspendTimeline(
-        {
-          advance: () => machine.advance(),
-          toggleSkip: () => machine.toggleSkip(),
-          jumpToUnseen: () => machine.jumpToUnseen(),
-          wheelBack: () => machine.wheelBack(),
-          wheelForward: () => machine.wheelForward(),
-        },
-        anyScreenOpen,
-      );
+      const timeline = {
+        ...suspendTimeline(
+          {
+            advance: () => machine.advance(),
+            toggleSkip: () => machine.toggleSkip(),
+            jumpToUnseen: () => machine.jumpToUnseen(),
+            wheelBack: () => machine.wheelBack(),
+            wheelForward: () => machine.wheelForward(),
+          },
+          anyScreenOpen,
+        ),
+        wheelBack: wheelGate(() => machine.wheelBack()),
+        wheelForward: wheelGate(() => machine.wheelForward()),
+      };
 
       installKeyMap(
         document,
