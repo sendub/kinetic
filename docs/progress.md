@@ -551,9 +551,20 @@ truthful: an unchecked box means nothing was accepted.
       keeps `e` from entering a route's items at an unanswered
       decision; 8 tests that pinned "repeated presses step unseen"
       rewritten; 405 tests, 2026-11-01)
-- [ ] Demo meta pass: meta text items explaining the intent of each
-      demoed feature (ranges, loopStart, minPlay, chains, the branch
-      map + replay affordances); docs list demo features; driver
-      strings resynced; determinism green.
+- [ ] Demo rebuild (user, 2026-11-01: "re-create a good demo and tests
+      for it" instead of patching): a fresh `fixtures/build_demo.py`
+      with one labelled section per feature and EVERY line of text
+      explanatory (no story), covering every content feature in README
+      (speech/thought/narration, bare image, animation, video chain,
+      loopCount, holdSeconds WebM, ranges + loopStart, minPlaySeconds,
+      branches: continuing route with a nested continuing/return pair,
+      an ending route, shared aftermath). Deterministic build; README
+      lists the sections; validator tests look items up by id.
+- [ ] Scenario suite replaces `player/scripts/verify.mjs`: a shared
+      harness plus independent scenario scripts, each on a fresh
+      profile (no state inherited between scenarios), one runner
+      (`npm run verify`). Every old driver step 1-47 maps to a scenario
+      (mapping table in docs/verify-player.md); the old driver is
+      deleted; AGENTS.md test-speed rules updated.
 - [ ] Phase-closer: full suite (driver, vitest, pytest, package-proof),
       rebuild BOTH demo folders, present the updated demo to the user.

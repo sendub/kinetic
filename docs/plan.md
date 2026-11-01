@@ -763,6 +763,13 @@ directory holds too many files.
   from behavior; docs list the demo's features; driver strings
   resync.
 
+- Demo and end-to-end tests rebuilt rather than patched (user,
+  2026-11-01): the old 47-step driver was one stateful sequence welded
+  to the old demo's item order and text, so every demo change cascaded
+  through it. The new demo is all-explanatory text, one section per
+  feature; the new suite is independent scenarios on fresh profiles,
+  each step of the old driver mapped to one of them.
+
 ## Later, waiting on the user
 
 - Overlay text styling iteration once the user can play with the demo.

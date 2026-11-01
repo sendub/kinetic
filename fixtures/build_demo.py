@@ -1,23 +1,32 @@
 #!/usr/bin/env python3
-"""Generate fixtures/demo: a complete, schema-valid Kinetic demo content folder.
+"""Generate fixtures/demo: the Kinetic feature demo content folder.
 
 Usage (from the repo root, Pillow lives in the repo venv):
 
     .venv/bin/python fixtures/build_demo.py
 
-External tools: ffmpeg and ffprobe must be on PATH (the video item).
+External tools: ffmpeg and ffprobe must be on PATH (the video items).
+
+The demo is a guided tour, not a story: one section per content feature,
+and every line of text explains what is on screen (docs/plan.md Phase 18).
+Sections, in order: intro card; speech / thought / narration / a bare
+picture; an animation; a video under a text chain and a chain over a
+still; loopCount (MP4) and holdSeconds (WebM); two ranges of one file with
+a loop restart point; a minimum-play-time clip; branches (an outer
+decision with a continuing route that holds a nested continuing/return
+pair, an ending route, shared aftermath).
 
 The output is deterministic: two runs with fixtures/demo deleted in between
 produce byte-identical files. Everything is drawn with integer arithmetic in
 Pillow (no fonts, no RNG, no timestamps). JPEGs use fixed quality/optimize
-settings. The mp4 is encoded from raw frames piped to ffmpeg with
--fflags +bitexact -flags +bitexact, -map_metadata -1, -threads 1, and
--movflags +faststart, so no encoder version string or timestamps are written.
+settings. Videos are encoded from raw frames piped to ffmpeg with bitexact
+flags, stripped metadata and a single thread, so no encoder version string
+or timestamps are written.
 
 After generating, the script runs an inline structural check of
-manifest.json against docs/content-schema.json (a small hand-rolled checker;
-the reusable validator is the next task) and verifies that manifest.js
-embeds the exact same JSON bytes and that every referenced file exists.
+manifest.json against docs/content-schema.json and verifies that
+manifest.js embeds the exact same JSON bytes and that every referenced file
+exists.
 """
 
 from __future__ import annotations
@@ -35,23 +44,8 @@ SCHEMA_PATH = REPO_ROOT / "docs" / "content-schema.json"
 
 WIDTH = 960
 HEIGHT = 540
-
-VIDEO_ID = "intro-006"
 VIDEO_FPS = 25
-VIDEO_SECONDS = 2
-VIDEO_FRAMES = VIDEO_FPS * VIDEO_SECONDS
-
-CLIP_ID = "clip-012"
-CLIP_SECONDS = 2.0
-CLIP_FRAMES = VIDEO_FPS * 2  # 2.0 s at the same 25 fps
-
-STROLL_ID = "stroll-025"
-STROLL_SECONDS = 6.0
-STROLL_FRAMES = VIDEO_FPS * 6  # 6.0 s at the same 25 fps
-STROLL_MIN_PLAY = 4.5
-
 JPEG_QUALITY = 82
-
 
 # --------------------------------------------------------------------------
 # Drawing helpers (pure integer arithmetic, fully deterministic)
@@ -131,96 +125,6 @@ def probe_duration(path: Path) -> float:
 # Item generators
 # --------------------------------------------------------------------------
 
-def build_image_items() -> list[dict]:
-    items: list[dict] = []
-
-    img = new_canvas((96, 158, 224), (208, 232, 250))
-    circle(img, 760, 120, 70, (255, 244, 200))
-    rect(img, 0, 430, WIDTH, HEIGHT, (86, 148, 92))
-    save_jpeg(img, DEMO_DIR / "meadow-001.jpg")
-    items.append({
-        "id": "meadow-001", "type": "image", "file": "meadow-001.jpg",
-        "speaker": "Mei", "text": "You're early today. The meadow is empty.",
-    })
-
-    img = new_canvas((14, 16, 38), (52, 30, 58))
-    for x in range(80, WIDTH, 160):
-        rect(img, x, 260, x + 56, 330, (240, 170, 70))
-        rect(img, x + 22, 240, x + 34, 262, (120, 90, 50))
-    save_jpeg(img, DEMO_DIR / "lantern-002.jpg")
-    items.append({
-        "id": "lantern-002", "type": "image", "file": "lantern-002.jpg",
-        "text": "Lanterns lined the empty street, one for each guest who never came.",
-    })
-
-    # Bare visual: no text, no speaker — nothing is drawn over it.
-    img = new_canvas((240, 128, 64), (146, 42, 62))
-    circle(img, WIDTH // 2, HEIGHT // 2, 150, (252, 226, 168))
-    circle(img, WIDTH // 2, HEIGHT // 2, 96, (240, 128, 64))
-    save_jpeg(img, DEMO_DIR / "sunset-003.jpg")
-    items.append({"id": "sunset-003", "type": "image", "file": "sunset-003.jpg"})
-
-    img = new_canvas((28, 36, 58), (60, 72, 96))
-    for i in range(64):
-        x = (i * 71) % WIDTH
-        y = (i * 137) % (HEIGHT - 120)
-        rect(img, x, y, x + 3, y + 42, (168, 190, 220))
-    save_jpeg(img, DEMO_DIR / "window-004.jpg")
-    items.append({
-        "id": "window-004", "type": "image", "file": "window-004.jpg",
-        "speaker": "Theo", "text": "Rain again. It's always rain in this town.",
-    })
-
-    return items
-
-
-def build_animation_item() -> dict:
-    frames = []
-    cx, cy, radius = WIDTH // 2, HEIGHT // 2, 170
-    for n in range(4):
-        img = new_canvas((18, 18, 30), (46, 30, 30))
-        # Integer "orbit": quarter-turn positions, no trig, no floats.
-        px = cx + [radius, 0, -radius, 0][n]
-        py = cy + [0, -radius, 0, radius][n]
-        for rr, color in ((34, (255, 200, 80)), (20, (255, 240, 180))):
-            circle(img, px, py, rr, color)
-        circle(img, cx, cy, 26, (200, 80, 60))
-        name = f"spark-005.f{n:03d}.jpg"
-        save_jpeg(img, DEMO_DIR / name)
-        frames.append(name)
-    return {
-        "id": "spark-005", "type": "animation", "frames": frames,
-        "fps": 8, "loopCount": 2,
-        "text": "Sparks circled the bonfire and went out one by one.",
-    }
-
-
-def build_video_item() -> dict:
-    """Encode VIDEO_FRAMES raw frames through ffmpeg; poster is frame 0."""
-    mp4 = DEMO_DIR / f"{VIDEO_ID}.mp4"
-    proc = start_encoder(mp4)
-    band_w = 120
-    for n in range(VIDEO_FRAMES):
-        img = new_canvas((12, 24, 40), (34, 52, 74))
-        x = (n * 11) % (WIDTH - band_w)
-        rect(img, x, 150, x + band_w, 390, (90, 200, 170))
-        proc.stdin.write(img.tobytes())
-    finish_encoder(proc)
-    duration = probe_duration(mp4)
-
-    # The poster is exactly the first encoded source frame (format doc:
-    # "the video's first frame"), saved with the same JPEG settings.
-    poster = new_canvas((12, 24, 40), (34, 52, 74))
-    rect(poster, 0, 150, band_w, 390, (90, 200, 170))
-    save_jpeg(poster, DEMO_DIR / f"{VIDEO_ID}.poster.jpg")
-
-    return {
-        "id": VIDEO_ID, "type": "video",
-        "file": f"{VIDEO_ID}.mp4", "poster": f"{VIDEO_ID}.poster.jpg",
-        "durationSeconds": duration,
-        "text": "The ferry crossed once a day, and that was enough.",
-    }
-
 
 def extract_poster(mp4: Path, seconds: float, poster: Path) -> None:
     """Extract one frame at `seconds` as the poster (deterministic encode).
@@ -239,8 +143,185 @@ def extract_poster(mp4: Path, seconds: float, poster: Path) -> None:
     )
 
 
-# Background colours, one per quarter-second — distinct enough that a pass
-# boundary landing inside the clip is visible and observable in the verifier.
+
+# --------------------------------------------------------------------------
+# Demo content: one section per feature, every line explanatory
+# --------------------------------------------------------------------------
+#
+# The demo exists to SHOW the player's features, so no line tells a story:
+# each says what is on screen and why (user, docs/plan.md Phase 18). Section
+# title cards are plain image items (a dark card plus a line of text) so they
+# never join a neighbouring text chain. Item ids name the section they belong
+# to; the scenario suite (player/scripts/scenarios/) finds items by id.
+
+
+def card(item_id: str, text: str) -> dict:
+    """A section title card: near-black canvas with a thin accent rule."""
+    img = new_canvas((14, 14, 18), (24, 22, 26))
+    rect(img, WIDTH // 2 - 90, HEIGHT // 2 - 2, WIDTH // 2 + 90,
+         HEIGHT // 2 + 2, (196, 164, 104))
+    save_jpeg(img, DEMO_DIR / f"{item_id}.jpg")
+    return {"id": item_id, "type": "image", "file": f"{item_id}.jpg",
+            "text": text}
+
+
+def encode(path: Path, frames, codec: str = "h264") -> float:
+    """Encode an iterable of canvases; returns the probed duration."""
+    if codec == "h264":
+        proc = start_encoder(path)
+    else:  # VP9 in WebM, with the same bitexact discipline
+        proc = subprocess.Popen([
+            "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+            "-f", "rawvideo", "-pix_fmt", "rgb24",
+            "-s", f"{WIDTH}x{HEIGHT}", "-r", str(VIDEO_FPS), "-i", "-",
+            "-c:v", "libvpx-vp9", "-b:v", "0", "-crf", "40",
+            "-deadline", "good", "-cpu-used", "4", "-row-mt", "0",
+            "-pix_fmt", "yuv420p", "-threads", "1",
+            "-fflags", "+bitexact", "-flags", "+bitexact",
+            "-map_metadata", "-1", "-map_chapters", "-1", str(path),
+        ], stdin=subprocess.PIPE)
+    assert proc.stdin is not None
+    for img in frames:
+        proc.stdin.write(img.tobytes())
+    finish_encoder(proc)
+    return probe_duration(path)
+
+
+def section_intro() -> list[dict]:
+    return [card(
+        "intro-title",
+        "Kinetic demo. Every line explains what you are seeing. Space shows "
+        "the next item; the mouse wheel scrolls back and forth through what "
+        "you have read; Esc lists every key.",
+    )]
+
+
+def section_text() -> list[dict]:
+    """Speech, thought, narration, a bare picture, and `h`."""
+    img = new_canvas((96, 158, 224), (208, 232, 250))
+    circle(img, 760, 120, 70, (255, 244, 200))
+    rect(img, 0, 430, WIDTH, HEIGHT, (86, 148, 92))
+    save_jpeg(img, DEMO_DIR / "text-speech.jpg")
+
+    bare = new_canvas((240, 128, 64), (146, 42, 62))
+    circle(bare, WIDTH // 2, HEIGHT // 2, 150, (252, 226, 168))
+    circle(bare, WIDTH // 2, HEIGHT // 2, 96, (240, 128, 64))
+    save_jpeg(bare, DEMO_DIR / "text-bare.jpg")
+
+    return [
+        {"id": "text-speech", "type": "image", "file": "text-speech.jpg",
+         "speaker": "Mei",
+         "text": "Spoken dialogue: the speaker's name, Mei, sits above it."},
+        {"id": "text-thought", "type": "text", "speaker": "Mei",
+         "thought": True,
+         "text": "A thought: unspoken, so it is drawn differently from speech."},
+        {"id": "text-narration", "type": "text",
+         "text": "Narration has no name. Press h to hide all text; press h "
+                 "again to bring it back."},
+        {"id": "text-bare", "type": "image", "file": "text-bare.jpg"},
+    ]
+
+
+def section_animation() -> list[dict]:
+    frames = []
+    cx, cy, radius = WIDTH // 2, HEIGHT // 2, 170
+    for n in range(4):
+        img = new_canvas((18, 18, 30), (46, 30, 30))
+        px = cx + [radius, 0, -radius, 0][n]
+        py = cy + [0, -radius, 0, radius][n]
+        for rr, color in ((34, (255, 200, 80)), (20, (255, 240, 180))):
+            circle(img, px, py, rr, color)
+        circle(img, cx, cy, 26, (200, 80, 60))
+        name = f"anim-orbit.f{n:03d}.jpg"
+        save_jpeg(img, DEMO_DIR / name)
+        frames.append(name)
+    return [{
+        "id": "anim-orbit", "type": "animation", "frames": frames,
+        "fps": 8, "loopCount": 2,
+        "text": "An animation: four pictures at 8 per second, shown twice, "
+                "then it rests on the last one.",
+    }]
+
+
+def section_video_chain() -> list[dict]:
+    """A video with a chain of text items over it, then a chain over a still."""
+    band_w = 120
+
+    def frame(n: int):
+        img = new_canvas((12, 24, 40), (34, 52, 74))
+        x = (n * 11) % (WIDTH - band_w)
+        rect(img, x, 150, x + band_w, 390, (90, 200, 170))
+        return img
+
+    mp4 = DEMO_DIR / "video-chain.mp4"
+    duration = encode(mp4, (frame(n) for n in range(VIDEO_FPS * 2)))
+    save_jpeg(frame(0), DEMO_DIR / "video-chain.poster.jpg")
+
+    still = new_canvas((42, 30, 58), (96, 70, 64))
+    rect(still, 0, 400, WIDTH, HEIGHT, (30, 24, 34))
+    circle(still, 480, 250, 40, (250, 210, 150))
+    save_jpeg(still, DEMO_DIR / "chain-still.jpg")
+
+    return [
+        {"id": "video-chain", "type": "video", "file": "video-chain.mp4",
+         "poster": "video-chain.poster.jpg", "durationSeconds": duration,
+         "text": "A video. It keeps looping while this line and the next two "
+                 "are read."},
+        {"id": "video-chain-2", "type": "text", "speaker": "Theo",
+         "text": "Second line of the chain: the same clip plays on underneath."},
+        {"id": "video-chain-3", "type": "text", "thought": True,
+         "text": "Third line, a thought. Scroll back onto the video to see its "
+                 "still poster."},
+        {"id": "chain-still", "type": "image", "file": "chain-still.jpg"},
+        {"id": "chain-still-2", "type": "text", "speaker": "Theo",
+         "text": "Lines can chain over a still picture too."},
+        {"id": "chain-still-3", "type": "text", "thought": True,
+         "text": "A thought over the same still."},
+    ]
+
+
+def section_loops() -> list[dict]:
+    """`loopCount` on a short MP4, `holdSeconds` on a WebM."""
+
+    def pulse(n: int):
+        img = new_canvas((30, 20, 44), (70, 44, 90))
+        r = 40 + (n % VIDEO_FPS) * 3
+        circle(img, WIDTH // 2, HEIGHT // 2, r, (230, 170, 220))
+        return img
+
+    loops = DEMO_DIR / "video-loops.mp4"
+    loops_duration = encode(loops, (pulse(n) for n in range(VIDEO_FPS)))
+    save_jpeg(pulse(0), DEMO_DIR / "video-loops.poster.jpg")
+
+    def kettle(n: int):
+        img = new_canvas((30, 24, 20), (92, 70, 52))
+        rise = (n * 6) % 160
+        circle(img, WIDTH // 2, 330, 90, (60, 60, 66))
+        circle(img, WIDTH // 2 - 30, 210 - rise, 18, (200, 196, 190))
+        circle(img, WIDTH // 2 + 20, 240 - rise, 14, (210, 206, 200))
+        return img
+
+    webm = DEMO_DIR / "video-hold.webm"
+    hold_duration = encode(webm, (kettle(n) for n in range(VIDEO_FPS * 2)),
+                           codec="vp9")
+    save_jpeg(kettle(0), DEMO_DIR / "video-hold.poster.jpg")
+
+    return [
+        {"id": "video-loops", "type": "video", "file": "video-loops.mp4",
+         "poster": "video-loops.poster.jpg", "durationSeconds": loops_duration,
+         "loopCount": 3,
+         "text": "A one-second clip with a loop count of 3: in auto mode "
+                 "(press a) it plays three times before moving on."},
+        {"id": "video-hold", "type": "video", "file": "video-hold.webm",
+         "poster": "video-hold.poster.jpg", "durationSeconds": hold_duration,
+         "holdSeconds": 4,
+         "text": "A WebM clip held for a set 4 seconds: it loops as a "
+                 "background for exactly that long."},
+    ]
+
+
+# One distinct background per quarter of the shared clip, so every range
+# boundary and the loop restart point are visible.
 CLIP_QUARTERS = [
     ((16, 42, 32), (74, 118, 84)),    # green
     ((42, 22, 52), (96, 58, 110)),    # violet
@@ -249,291 +330,167 @@ CLIP_QUARTERS = [
 ]
 
 
-def build_clip_video_items() -> list[dict]:
-    """The 2.0 s clip `clip-012.mp4` and the two range items over it.
-
-    Replaces Phase 9b's standalone `loop-012` (docs/plan.md Phase 9c): ONE
-    2.0 s file (25 fps, 50 frames, a distinct background per half-second so
-    every range boundary shows a visible change, plus a circle crossing the
-    frame continuously so playback position is observable), referenced by
-    two bare visual items at different ranges:
-
-    - part-012: [0.0, 1.0], `loopCount` 1, poster extracted at 0.0;
-    - part-013: [1.0, 2.0], `loopCount` 2, `loopStartSeconds` 1.5
-      (docs/plan.md Phase 9d: the first pass plays [1.0, 2.0], the
-      loop-back restarts at 1.5 — the colour change at ~1.5 s makes the
-      restart point observable), poster extracted at 1.0.
-
-    Together they exercise sharing + ranges + per-range posters; the
-    renderer loops each range itself (never `loop=true`), seeking back
-    to `startSeconds` on entry and `loopStartSeconds` on the loop-back,
-    and the machine counts pass completes per item as in Phase 9b.
-    """
+def section_ranges() -> list[dict]:
+    """Two items over ONE 2 s file: [0, 1] once, then [1, 2] twice with the
+    repeat restarting at 1.5 s. Each has its own poster from its range."""
+    frames_total = VIDEO_FPS * 2
 
     def frame(n: int):
-        quarter = (n * 4) // CLIP_FRAMES  # frames 0-12, 13-24, 25-37, 38-49
+        quarter = (n * 4) // frames_total
         top, bottom = CLIP_QUARTERS[min(quarter, 3)]
         img = new_canvas(top, bottom)
-        x = 90 + (n * (WIDTH - 180)) // (CLIP_FRAMES - 1)
+        x = 90 + (n * (WIDTH - 180)) // (frames_total - 1)
         circle(img, x, HEIGHT // 2, 44, (236, 206, 120))
         return img
 
-    mp4 = DEMO_DIR / f"{CLIP_ID}.mp4"
-    proc = start_encoder(mp4)
-    for n in range(CLIP_FRAMES):
-        proc.stdin.write(frame(n).tobytes())
-    finish_encoder(proc)
-    duration = probe_duration(mp4)
-
-    items = [
-        {
-            "id": "part-012", "type": "video",
-            "file": f"{CLIP_ID}.mp4", "poster": "part-012.poster.jpg",
-            "durationSeconds": duration,
-            "startSeconds": 0.0, "endSeconds": 1.0, "loopCount": 1,
-        },
-        {
-            "id": "part-013", "type": "video",
-            "file": f"{CLIP_ID}.mp4", "poster": "part-013.poster.jpg",
-            "durationSeconds": duration,
-            "startSeconds": 1.0, "endSeconds": 2.0, "loopCount": 2,
-            "loopStartSeconds": 1.5,
-        },
+    mp4 = DEMO_DIR / "range-clip.mp4"
+    duration = encode(mp4, (frame(n) for n in range(frames_total)))
+    extract_poster(mp4, 0.0, DEMO_DIR / "range-a.poster.jpg")
+    extract_poster(mp4, 1.0, DEMO_DIR / "range-b.poster.jpg")
+    return [
+        {"id": "range-a", "type": "video", "file": "range-clip.mp4",
+         "poster": "range-a.poster.jpg", "durationSeconds": duration,
+         "startSeconds": 0.0, "endSeconds": 1.0, "loopCount": 1,
+         "text": "One video file, first range: seconds 0 to 1 (green, then "
+                 "violet)."},
+        {"id": "range-b", "type": "video", "file": "range-clip.mp4",
+         "poster": "range-b.poster.jpg", "durationSeconds": duration,
+         "startSeconds": 1.0, "endSeconds": 2.0, "loopCount": 2,
+         "loopStartSeconds": 1.5,
+         "text": "Same file, seconds 1 to 2, shown twice. The repeat restarts "
+                 "at 1.5 s, so it skips the rust part."},
     ]
-    extract_poster(mp4, 0.0, DEMO_DIR / "part-012.poster.jpg")
-    extract_poster(mp4, 1.0, DEMO_DIR / "part-013.poster.jpg")
-    return items
 
 
-# One distinct background per second of the stroll clip: a pass boundary or
-# a chain step landing inside the clip stays visible, as with clip-012.
-STROLL_SECONDS_COLORS = [
-    ((14, 38, 30), (66, 106, 78)),     # green
-    ((38, 20, 48), (88, 52, 102)),     # violet
-    ((40, 18, 20), (104, 52, 46)),     # rust
-    ((16, 32, 54), (54, 84, 126)),     # blue
-    ((46, 40, 14), (112, 100, 40)),    # ochre
-    ((22, 20, 44), (64, 62, 112)),     # dusk
+FLOOR_SECONDS_COLORS = [
+    ((14, 38, 30), (66, 106, 78)),
+    ((38, 20, 48), (88, 52, 102)),
+    ((40, 18, 20), (104, 52, 46)),
+    ((16, 32, 54), (54, 84, 126)),
+    ((46, 40, 14), (112, 100, 40)),
+    ((22, 20, 44), (64, 62, 112)),
 ]
+FLOOR_MIN_PLAY = 4.5
 
 
-def build_stroll_chain_items() -> list[dict]:
-    """The Phase 15 chain: a ~6 s clip with a floor and two dialogue lines.
-
-    docs/plan.md Phase 15: the external tester saw an 8 s video's chain exit
-    gate on the text holds alone. `stroll-025` (25 fps, 150 frames, one
-    distinct background per second and one circle drifting slowly across the
-    whole clip, so playback position is observable) carries
-    `minPlaySeconds: 4.5` and the chain's FIRST spoken line; `line-026` and
-    `line-027` follow it as bare `text` items — a classic chain, entered
-    and left in array order. The lines are deliberately short (each hold is
-    the minHold, so the text sum cannot stand in for the floor). The chain
-    sits between the range items and the branch lead-in, so the branch
-    walk's auto-advance plays through it and verify re-enters it by
-    navigation (the floor measures from the re-entry).
-    """
+def section_floor() -> list[dict]:
+    """`minPlaySeconds` under a chain of deliberately short lines (each hold
+    is the minimum, so only the floor can explain the wait in auto mode)."""
+    frames_total = VIDEO_FPS * 6
 
     def frame(n: int):
-        second = min((n * 6) // STROLL_FRAMES, 5)
-        top, bottom = STROLL_SECONDS_COLORS[second]
+        second = min((n * 6) // frames_total, 5)
+        top, bottom = FLOOR_SECONDS_COLORS[second]
         img = new_canvas(top, bottom)
-        x = 100 + (n * (WIDTH - 200)) // (STROLL_FRAMES - 1)
+        x = 100 + (n * (WIDTH - 200)) // (frames_total - 1)
         circle(img, x, HEIGHT // 2 + 60, 36, (232, 200, 120))
         return img
 
-    mp4 = DEMO_DIR / f"{STROLL_ID}.mp4"
-    proc = start_encoder(mp4)
-    for n in range(STROLL_FRAMES):
-        proc.stdin.write(frame(n).tobytes())
-    finish_encoder(proc)
-    duration = probe_duration(mp4)
-
-    # The poster is exactly the first encoded source frame, as with intro-006.
-    save_jpeg(frame(0), DEMO_DIR / f"{STROLL_ID}.poster.jpg")
-
+    mp4 = DEMO_DIR / "floor-clip.mp4"
+    duration = encode(mp4, (frame(n) for n in range(frames_total)))
+    save_jpeg(frame(0), DEMO_DIR / "floor-clip.poster.jpg")
     return [
-        {
-            "id": STROLL_ID, "type": "video",
-            "file": f"{STROLL_ID}.mp4", "poster": f"{STROLL_ID}.poster.jpg",
-            "durationSeconds": duration,
-            "minPlaySeconds": STROLL_MIN_PLAY,
-            "speaker": "Mei", "text": "The light went long.",
-        },
-        {"id": "line-026", "type": "text", "text": "We did not hurry."},
-        {
-            "id": "line-027", "type": "text", "thought": True,
-            "text": "The path turned soon.",
-        },
+        card("floor-title",
+             "Next: a clip with a minimum play time of 4.5 s. In auto mode "
+             "its three short lines read fast, then the last waits for the "
+             "clip. Space and tab never wait."),
+        {"id": "floor-clip", "type": "video", "file": "floor-clip.mp4",
+         "poster": "floor-clip.poster.jpg", "durationSeconds": duration,
+         "minPlaySeconds": FLOOR_MIN_PLAY, "text": "Short line one."},
+        {"id": "floor-2", "type": "text", "text": "Short line two."},
+        {"id": "floor-3", "type": "text", "text": "Line three waits."},
     ]
 
 
-def build_text_chain_items() -> list[dict]:
-    """Items that exercise the `text` type (docs/content-format.md §Text items).
+def section_branches() -> tuple[list[dict], list[dict]]:
+    """Two decisions: an outer one with a continuing route (containing a
+    nested continuing/return pair) and an ending route, then aftermath."""
 
-    A `text` item carries no media fields; it shows the visual of the nearest
-    earlier media-bearing item, which keeps playing/looping beneath a chain of
-    them. Returned in manifest order to append after the video item:
+    def scene(name: str, top, bottom, *shapes) -> None:
+        img = new_canvas(top, bottom)
+        for kind, args, color in shapes:
+            (circle if kind == "c" else rect)(img, *args, color)
+        save_jpeg(img, DEMO_DIR / f"{name}.jpg")
 
-    - two lines over the looping video (intro-006);
-    - a still (pier-009) followed by two lines.
+    scene("branch-lead", (70, 58, 96), (196, 178, 150),
+          ("r", (320, 170, 640, 390), (250, 236, 208)),
+          ("r", (452, 260, 508, 390), (120, 96, 70)))
+    scene("branch-decide", (40, 52, 82), (150, 130, 92),
+          ("c", (WIDTH // 2, 280, 120), (232, 204, 150)),
+          ("r", (380, 280, 580, 430), (90, 70, 56)))
+    scene("route1-start", (58, 70, 48), (178, 190, 150),
+          ("r", (250, 240, 710, 300), (226, 214, 190)),
+          ("r", (430, 210, 530, 240), (250, 244, 226)))
+    scene("route2-start", (52, 40, 40), (158, 120, 108),
+          ("r", (0, 380, WIDTH, HEIGHT), (60, 46, 44)),
+          ("c", (480, 200, 60), (244, 226, 198)))
+    scene("after-start", (90, 96, 130), (210, 204, 178),
+          ("c", (700, 130, 64), (254, 246, 214)),
+          ("r", (0, 420, WIDTH, HEIGHT), (96, 108, 92)))
 
-    One line in each chain is marked `thought: true` (docs/plan.md Phase 7b),
-    so the demo shows both presentation modes over both kinds of visual. Only
-    the flag differs: ids, order and the text strings are unchanged, and a
-    `thought` changes no timing, so the output stays deterministic.
-    """
-    # Chain over the video: a spoken line with a speaker, then Mei's unspoken
-    # thought, with no media fields of its own.
-    items: list[dict] = [
-        {"id": "line-007", "type": "text", "speaker": "Mei",
-         "text": "The street glowed under the awning."},
-        {"id": "line-008", "type": "text", "thought": True,
-         "text": "Neither of us spoke for a while."},
+    items = [
+        card("branch-title",
+             "Next: a decision. Route 1 continues the story and holds a "
+             "nested decision; Route 2 is an ending. After a route ends you "
+             "can pick another."),
+        {"id": "branch-lead", "type": "image", "file": "branch-lead.jpg",
+         "text": "Shared lead-in: every route starts after this. The decision "
+                 "opens when you press Space here."},
+        {"id": "branch-decide", "type": "image", "file": "branch-decide.jpg"},
+        {"id": "route1-start", "type": "image", "file": "route1-start.jpg",
+         "speaker": "Mei",
+         "text": "Route 1, first line. A nested decision opens after the next "
+                 "line."},
+        {"id": "route1-nest", "type": "text", "speaker": "Theo",
+         "text": "Route 1, second line: the nested decision hangs off this "
+                 "one."},
+        {"id": "nest-continue", "type": "text",
+         "text": "Nested 1a: when it ends, Route 1 carries on."},
+        {"id": "nest-return", "type": "text",
+         "text": "Nested 1b: when it ends, the nested decision is offered "
+                 "again."},
+        {"id": "route1-end", "type": "text",
+         "text": "Route 1 again, after the nested decision. Its end leads to "
+                 "the shared ending section."},
+        {"id": "route2-start", "type": "image", "file": "route2-start.jpg",
+         "speaker": "Mei",
+         "text": "Route 2: a separate path that does not rejoin the story."},
+        {"id": "route2-end", "type": "text",
+         "text": "Route 2 ends here: this is an ending. Space offers the "
+                 "routes again."},
+        {"id": "after-start", "type": "image", "file": "after-start.jpg",
+         "text": "Shared aftermath: reached by finishing Route 1. Return to "
+                 "main route jumps here once Route 1 is done."},
+        {"id": "after-end", "type": "text",
+         "text": "The end. Also try: b bookmarks, t lists bookmarks, e finds "
+                 "unseen content, c opens settings, a auto-plays, tab skips "
+                 "what you have read."},
     ]
-
-    # Chain over one still: a bare image (no overlaid text), then Theo's
-    # spoken line drawn over it, then a thought over the same still.
-    img = new_canvas((42, 30, 58), (96, 70, 64))
-    rect(img, 0, 400, WIDTH, HEIGHT, (30, 24, 34))
-    circle(img, 480, 250, 40, (250, 210, 150))
-    save_jpeg(img, DEMO_DIR / "pier-009.jpg")
-    items.append({"id": "pier-009", "type": "image", "file": "pier-009.jpg"})
-    items.append({
-        "id": "line-010", "type": "text", "speaker": "Theo",
-        "text": "The tide took the last of the crates by morning.",
-    })
-    items.append({
-        "id": "line-011", "type": "text", "thought": True,
-        "text": "We stacked the rest ourselves, and called it enough.",
-    })
-
-    return items
-
-
-def build_branch_items() -> tuple[list[dict], list[dict]]:
-    """Phase 13's real branch demo, appended after the linear items.
-
-    The item array stays the single source of order; ids only name
-    positions (docs/content-format.md § Branches). Array layout:
-
-        13 bridge-014  14 bridge-015          lead-in; bridge-015 is the
-                                              decision's `after` item
-        15 hire-016    16 hire-017            route "hire" (continuing)
-        17 late-021    18 early-022           nested decision's routes
-        19 hire-018                           the nested continueAt rejoin
-        20 refuse-019 21 refuse-020           route "refuse" (ending)
-        22 main-023   23 main-024             aftermath (continueAt)
-
-    `outer-hire` fires on the settle of bridge-015: `hire` is the
-    continuing route (it proceeds to main-023), `refuse` is an explicit
-    `ending`. Inside the hire span, `inner-time` hangs off hire-017 with
-    `late` (continuing, rejoining at hire-018) and `early` (`return` — the
-    only route that offers "Return to main route") — exactly the nesting
-    the format doc promises. Every new image is drawn with the same
-    deterministic helpers as the rest of the fixture.
-    """
-    items: list[dict] = []
-
-    img = new_canvas((70, 58, 96), (196, 178, 150))
-    rect(img, 320, 170, 640, 390, (250, 236, 208))
-    rect(img, 452, 260, 508, 390, (120, 96, 70))
-    save_jpeg(img, DEMO_DIR / "bridge-014.jpg")
-    items.append({
-        "id": "bridge-014", "type": "image", "file": "bridge-014.jpg",
-        "speaker": "Mei",
-        "text": "The studio waited on an answer about the temp.",
-    })
-
-    # The decision's `after` item: its own bare image, no text — the
-    # prompt lives in the branch table, not on the item.
-    img = new_canvas((40, 52, 82), (150, 130, 92))
-    circle(img, WIDTH // 2, 280, 120, (232, 204, 150))
-    rect(img, 380, 280, 580, 430, (90, 70, 56))
-    save_jpeg(img, DEMO_DIR / "bridge-015.jpg")
-    items.append({"id": "bridge-015", "type": "image", "file": "bridge-015.jpg"})
-
-    img = new_canvas((58, 70, 48), (178, 190, 150))
-    rect(img, 250, 240, 710, 300, (226, 214, 190))
-    rect(img, 430, 210, 530, 240, (250, 244, 226))
-    save_jpeg(img, DEMO_DIR / "hire-016.jpg")
-    items.append({
-        "id": "hire-016", "type": "image", "file": "hire-016.jpg",
-        "speaker": "Mei",
-        "text": "Mei slid the contract over before the coffee cooled.",
-    })
-    items.append({
-        "id": "hire-017", "type": "text", "speaker": "Theo",
-        "text": "Start Monday, if that works for you.",
-    })
-    # The nested decision's two one-line routes, laid out inside the
-    # hire span, before its continueAt (hire-018).
-    items.append({
-        "id": "late-021", "type": "text",
-        "text": "They showed at ten, late and grinning.",
-    })
-    items.append({
-        "id": "early-022", "type": "text",
-        "text": "They were at the door before the sun was up, so the kettle "
-                "went on.",
-    })
-    items.append({
-        "id": "hire-018", "type": "text",
-        "text": "Either way, the studio had its week back.",
-    })
-
-    img = new_canvas((52, 40, 40), (158, 120, 108))
-    rect(img, 0, 380, WIDTH, HEIGHT, (60, 46, 44))
-    circle(img, 480, 200, 60, (244, 226, 198))
-    save_jpeg(img, DEMO_DIR / "refuse-019.jpg")
-    items.append({
-        "id": "refuse-019", "type": "image", "file": "refuse-019.jpg",
-        "speaker": "Mei",
-        "text": "We'll pass this time, Mei said, and she meant it.",
-    })
-    items.append({
-        "id": "refuse-020", "type": "text",
-        "text": "An ending card: the studio kept its quiet.",
-    })
-
-    img = new_canvas((90, 96, 130), (210, 204, 178))
-    circle(img, 700, 130, 64, (254, 246, 214))
-    rect(img, 0, 420, WIDTH, HEIGHT, (96, 108, 92))
-    save_jpeg(img, DEMO_DIR / "main-023.jpg")
-    items.append({
-        "id": "main-023", "type": "image", "file": "main-023.jpg",
-        "speaker": "Mei",
-        "text": "Whatever was decided, the morning moved on.",
-    })
-    items.append({
-        "id": "main-024", "type": "text",
-        "text": "And the tape rolled on without an answer.",
-    })
-
     branches = [
         {
-            "id": "inner-time", "after": "hire-017",
-            "prompt": "When do they meet?",
+            "id": "nested", "after": "route1-nest",
+            "prompt": "Nested decision inside Route 1:",
             "routes": [
-                {"id": "late", "label": "Late, over coffee",
-                 "start": "late-021", "end": "late-021"},
-                {"id": "early", "label": "Early, before the sun",
-                 "start": "early-022", "end": "early-022",
+                {"id": "nest-a", "label": "1a: carries on with Route 1",
+                 "start": "nest-continue", "end": "nest-continue"},
+                {"id": "nest-b", "label": "1b: comes back to this decision",
+                 "start": "nest-return", "end": "nest-return",
                  "result": "return"},
             ],
-            "continuingRoute": "late", "continueAt": "hire-018",
+            "continuingRoute": "nest-a", "continueAt": "route1-end",
         },
         {
-            "id": "outer-hire", "after": "bridge-015",
-            "prompt": "What does the studio decide?",
+            "id": "outer", "after": "branch-decide",
+            "prompt": "Demo decision: which route?",
             "routes": [
-                {"id": "hire", "label": "Offer them the job",
-                 "start": "hire-016", "end": "hire-018",
+                {"id": "route1", "label": "Route 1: continues the story",
+                 "start": "route1-start", "end": "route1-end",
                  "result": "return"},
-                {"id": "refuse", "label": "Turn them down",
-                 "start": "refuse-019", "end": "refuse-020",
+                {"id": "route2", "label": "Route 2: an ending",
+                 "start": "route2-start", "end": "route2-end",
                  "result": "ending"},
             ],
-            "continuingRoute": "hire", "continueAt": "main-023",
+            "continuingRoute": "route1", "continueAt": "after-start",
         },
     ]
     return items, branches
@@ -695,25 +652,22 @@ def check_manifest_js(manifest_text: str, manifest: dict) -> list[str]:
 # Main
 # --------------------------------------------------------------------------
 
+
 def main() -> None:
     if DEMO_DIR.is_dir():
         shutil.rmtree(DEMO_DIR)
     DEMO_DIR.mkdir(parents=True)
 
-    items = build_image_items()
-    items.append(build_animation_item())
-    items.append(build_video_item())
-    items.extend(build_text_chain_items())
-    # The two range items sharing one clip (Phase 9c), after every chain.
-    items.extend(build_clip_video_items())
-    # The Phase 15 floor chain (~6 s video + two short lines), before the
-    # branch demo: the auto walk plays through it, and verify steps 43-44
-    # re-enter it to time the floor (auto) and the immediate skip-through.
-    items.extend(build_stroll_chain_items())
-    # Last: the Phase 13 branch demo — lead-in, decision, nested decision,
-    # ending route, aftermath. The `branches` table rides with it.
-    branch_items, branches = build_branch_items()
-    items.extend(branch_items)
+    items: list[dict] = []
+    items += section_intro()
+    items += section_text()
+    items += section_animation()
+    items += section_video_chain()
+    items += section_loops()
+    items += section_ranges()
+    items += section_floor()
+    branch_items, branches = section_branches()
+    items += branch_items
     manifest = {
         "schemaVersion": 1,
         "width": WIDTH,

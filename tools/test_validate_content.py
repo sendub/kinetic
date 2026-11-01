@@ -58,6 +58,19 @@ def folder(demo: Path, tmp_path: Path) -> Path:
     return copy
 
 
+# Demo items the tests edit, by role; `test_demo_roles_match_ids` keeps these
+# indices honest against fixtures/build_demo.py.
+IMAGE = 4  # text-bare: a plain image item with a file
+ANIM = 5   # anim-orbit
+VIDEO = 6  # video-chain: an MP4 with no range, loop or floor fields
+
+
+def test_demo_roles_match_ids(demo: Path) -> None:
+    ids = [item["id"] for item in read_manifest(demo)["items"]]
+    assert (ids[IMAGE], ids[ANIM], ids[VIDEO]) == (
+        "text-bare", "anim-orbit", "video-chain")
+
+
 def read_manifest(folder: Path) -> dict[str, Any]:
     return json.loads((folder / "manifest.json").read_text(encoding="utf-8"))
 
@@ -123,7 +136,7 @@ def test_player_bundle_is_optional(folder: Path) -> None:
 def test_video_webm_with_loop_count_passes(folder: Path) -> None:
     """A `.webm` video file and `loopCount` are valid (plan Phase 9b)."""
     manifest = read_manifest(folder)
-    video = manifest["items"][5]
+    video = manifest["items"][VIDEO]
     assert video["type"] == "video"
     new = video["file"].rsplit(".", 1)[0] + ".webm"
     (folder / video["file"]).rename(folder / new)
@@ -138,7 +151,7 @@ def test_video_webm_with_loop_count_passes(folder: Path) -> None:
 def test_video_playback_range_passes(folder: Path) -> None:
     """startSeconds/endSeconds within durationSeconds are valid (Phase 9c)."""
     manifest = read_manifest(folder)
-    video = manifest["items"][5]
+    video = manifest["items"][VIDEO]
     assert video["type"] == "video"
     video["durationSeconds"] = 4.0  # the validator trusts this, never probes
     video["startSeconds"] = 1.5
@@ -153,7 +166,7 @@ def test_same_video_file_at_two_ranges_passes(folder: Path) -> None:
     """Several items may share one file at different ranges; no dedup,
     no sharing ban."""
     manifest = read_manifest(folder)
-    video = manifest["items"][5]
+    video = manifest["items"][VIDEO]
     duration = video["durationSeconds"]
     video["startSeconds"] = 0.0
     video["endSeconds"] = duration / 2
@@ -170,13 +183,13 @@ def test_fractional_seconds_are_not_rounded(folder: Path) -> None:
     """Exact fractional seconds validate, and validation leaves the
     stored values verbatim."""
     manifest = read_manifest(folder)
-    video = manifest["items"][5]
+    video = manifest["items"][VIDEO]
     video["durationSeconds"] = 12.345
     video["startSeconds"] = 4.567
     video["endSeconds"] = 12.345
     write_manifest(folder, manifest)
     assert problems_of(folder) == []
-    stored = read_manifest(folder)["items"][5]
+    stored = read_manifest(folder)["items"][VIDEO]
     assert stored["durationSeconds"] == 12.345
     assert stored["startSeconds"] == 4.567
     assert stored["endSeconds"] == 12.345
@@ -186,7 +199,7 @@ def test_video_mkv_with_hold_seconds_passes(folder: Path) -> None:
     """A `.mkv` video file and `holdSeconds` are valid; any playable
     container the browser accepts is allowed."""
     manifest = read_manifest(folder)
-    video = manifest["items"][5]
+    video = manifest["items"][VIDEO]
     new = video["file"].rsplit(".", 1)[0] + ".mkv"
     (folder / video["file"]).rename(folder / new)
     video["file"] = new
@@ -215,43 +228,43 @@ def test_video_min_play_seconds_with_text_passes(folder: Path) -> None:
     """An exact fractional `minPlaySeconds` on a video carrying dialogue
     is valid (plan Phase 15) and stored verbatim."""
     manifest = read_manifest(folder)
-    video = manifest["items"][5]
+    video = manifest["items"][VIDEO]
     assert video["type"] == "video" and "text" in video
     video["minPlaySeconds"] = 4.5
     write_manifest(folder, manifest)
     assert problems_of(folder) == []
     proc = run_cli(folder)
     assert proc.returncode == 0, proc.stdout + proc.stderr
-    assert read_manifest(folder)["items"][5]["minPlaySeconds"] == 4.5
+    assert read_manifest(folder)["items"][VIDEO]["minPlaySeconds"] == 4.5
 
 
 def test_video_zero_min_play_seconds_is_rejected(folder: Path) -> None:
     """The schema `exclusiveMinimum` rejects a zero floor; the validator
     adds no rule of its own, since the field stands alone."""
     manifest = read_manifest(folder)
-    manifest["items"][5]["minPlaySeconds"] = 0
+    manifest["items"][VIDEO]["minPlaySeconds"] = 0
     write_manifest(folder, manifest)
     problems = problems_of(folder)
     assert len(problems) == 1
-    assert problems[0].startswith("manifest.json: items[5].minPlaySeconds:")
+    assert problems[0].startswith(f"manifest.json: items[{VIDEO}].minPlaySeconds:")
     assert "must be greater than 0" in problems[0]
 
 
 def test_video_negative_min_play_seconds_is_rejected(folder: Path) -> None:
     """A negative floor describes no wait; the schema rejects it."""
     manifest = read_manifest(folder)
-    manifest["items"][5]["minPlaySeconds"] = -1.5
+    manifest["items"][VIDEO]["minPlaySeconds"] = -1.5
     write_manifest(folder, manifest)
     problems = problems_of(folder)
     assert len(problems) == 1
-    assert problems[0].startswith("manifest.json: items[5].minPlaySeconds:")
+    assert problems[0].startswith(f"manifest.json: items[{VIDEO}].minPlaySeconds:")
     assert "must be greater than 0" in problems[0]
 
 
 def test_video_absent_min_play_seconds_stays_valid(folder: Path) -> None:
     """`minPlaySeconds` is optional; an item without it is unchanged."""
     manifest = read_manifest(folder)
-    assert "minPlaySeconds" not in manifest["items"][5]
+    assert "minPlaySeconds" not in manifest["items"][VIDEO]
     write_manifest(folder, manifest)
     assert problems_of(folder) == []
 
@@ -280,11 +293,11 @@ def test_missing_media_file(folder: Path) -> None:
 
 
 def test_missing_animation_frame(folder: Path) -> None:
-    frames = read_manifest(folder)["items"][4]["frames"]
+    frames = read_manifest(folder)["items"][ANIM]["frames"]
     (folder / frames[2]).unlink()
     problems = problems_of(folder)
     assert len(problems) == 1
-    assert problems[0].startswith("manifest.json: items[4].frames[2]:")
+    assert problems[0].startswith(f"manifest.json: items[{ANIM}].frames[2]:")
 
 
 def test_duplicate_item_id(folder: Path) -> None:
@@ -356,13 +369,13 @@ def test_absolute_path_in_media_field(folder: Path) -> None:
 
 def test_parent_segment_in_media_path_is_rejected(folder: Path) -> None:
     manifest = read_manifest(folder)
-    name = manifest["items"][3]["file"]
+    name = manifest["items"][IMAGE]["file"]
     (folder / name).rename(folder / f"sub-{name}")
-    manifest["items"][3]["file"] = f"sub/../sub-{name}"
+    manifest["items"][IMAGE]["file"] = f"sub/../sub-{name}"
     write_manifest(folder, manifest)
     problems = problems_of(folder)
     assert len(problems) == 1
-    assert problems[0].startswith("manifest.json: items[3].file:")
+    assert problems[0].startswith(f"manifest.json: items[{IMAGE}].file:")
     assert '".." segments' in problems[0]
 
 
@@ -379,9 +392,9 @@ def test_parent_segment_in_media_path_is_rejected(folder: Path) -> None:
 def test_media_file_in_a_subfolder_passes(folder: Path) -> None:
     """`assets/ab/<id>.jpg` is a valid `file`; the folder root is the base."""
     manifest = read_manifest(folder)
-    name = manifest["items"][3]["file"]            # window-004.jpg
+    name = manifest["items"][IMAGE]["file"]            # text-bare.jpg
     move_to_subpath(folder, name, f"assets/ab/{name}")
-    manifest["items"][3]["file"] = f"assets/ab/{name}"
+    manifest["items"][IMAGE]["file"] = f"assets/ab/{name}"
     write_manifest(folder, manifest)
     assert problems_of(folder) == []
     proc = run_cli(folder)
@@ -396,10 +409,12 @@ def test_subpath_basename_need_not_equal_the_item_id(folder: Path) -> None:
     (docs/content-format.md, "Naming conventions").
     """
     manifest = read_manifest(folder)
-    shared = manifest["items"][11]["file"]          # clip-012.mp4
-    assert manifest["items"][12]["file"] == shared
+    ids = [item["id"] for item in manifest["items"]]
+    parts = (ids.index("range-a"), ids.index("range-b"))
+    shared = manifest["items"][parts[0]]["file"]    # range-clip.mp4
+    assert manifest["items"][parts[1]]["file"] == shared
     move_to_subpath(folder, shared, f"assets/cd/{shared}")
-    for index in (11, 12):
+    for index in parts:
         manifest["items"][index]["file"] = f"assets/cd/{shared}"
     write_manifest(folder, manifest)
     assert problems_of(folder) == []
@@ -408,36 +423,36 @@ def test_subpath_basename_need_not_equal_the_item_id(folder: Path) -> None:
 def test_parent_segment_below_the_root_is_rejected(folder: Path) -> None:
     """A subpath may not climb back out: `..` stays forbidden in every segment."""
     manifest = read_manifest(folder)
-    name = manifest["items"][3]["file"]
-    manifest["items"][3]["file"] = f"assets/../{name}"
+    name = manifest["items"][IMAGE]["file"]
+    manifest["items"][IMAGE]["file"] = f"assets/../{name}"
     write_manifest(folder, manifest)
     problems = problems_of(folder)
     assert len(problems) == 1
-    assert problems[0].startswith("manifest.json: items[3].file:")
+    assert problems[0].startswith(f"manifest.json: items[{IMAGE}].file:")
     assert '".." segments' in problems[0]
 
 
 def test_absolute_subpath_is_rejected(folder: Path) -> None:
     """A leading "/" names the filesystem, not the content folder."""
     manifest = read_manifest(folder)
-    name = manifest["items"][3]["file"]
-    manifest["items"][3]["file"] = f"/assets/ab/{name}"
+    name = manifest["items"][IMAGE]["file"]
+    manifest["items"][IMAGE]["file"] = f"/assets/ab/{name}"
     write_manifest(folder, manifest)
     problems = problems_of(folder)
     assert len(problems) == 1
-    assert problems[0].startswith("manifest.json: items[3].file:")
+    assert problems[0].startswith(f"manifest.json: items[{IMAGE}].file:")
     assert "relative to the content folder" in problems[0]
 
 
 def test_missing_file_in_a_subfolder_is_reported(folder: Path) -> None:
     """Existence is checked against the folder root, subpath included."""
     manifest = read_manifest(folder)
-    name = manifest["items"][3]["file"]
-    manifest["items"][3]["file"] = f"assets/ab/{name}"   # never moved
+    name = manifest["items"][IMAGE]["file"]
+    manifest["items"][IMAGE]["file"] = f"assets/ab/{name}"   # never moved
     write_manifest(folder, manifest)
     problems = problems_of(folder)
     assert len(problems) == 1
-    assert problems[0].startswith("manifest.json: items[3].file:")
+    assert problems[0].startswith(f"manifest.json: items[{IMAGE}].file:")
     assert f"'assets/ab/{name}'" in problems[0]
     assert "does not exist" in problems[0]
 
@@ -446,46 +461,46 @@ def test_subpath_basename_must_be_a_flat_file_name(folder: Path) -> None:
     """Only the DIRECTORIES may be new: the last segment stays a flat name, so
     the `.poster` and `.fNNN` suffixes keep parsing unambiguously."""
     manifest = read_manifest(folder)
-    name = manifest["items"][3]["file"]                  # window-004.jpg
-    manifest["items"][3]["file"] = f"assets/ab/{name}.jpg"
+    name = manifest["items"][IMAGE]["file"]                  # text-bare.jpg
+    manifest["items"][IMAGE]["file"] = f"assets/ab/{name}.jpg"
     write_manifest(folder, manifest)
     problems = problems_of(folder)
     assert len(problems) == 1
-    assert problems[0].startswith("manifest.json: items[3].file:")
+    assert problems[0].startswith(f"manifest.json: items[{IMAGE}].file:")
     assert "id-shaped name" in problems[0]
 
 
 def test_subpath_segment_must_start_with_a_letter(folder: Path) -> None:
     """No empty segment and no dot-leading or underscore segment, root or bucket."""
     manifest = read_manifest(folder)
-    name = manifest["items"][3]["file"]
-    manifest["items"][3]["file"] = f"assets/.ab/{name}"
+    name = manifest["items"][IMAGE]["file"]
+    manifest["items"][IMAGE]["file"] = f"assets/.ab/{name}"
     write_manifest(folder, manifest)
     problems = problems_of(folder)
     assert len(problems) == 1
-    assert problems[0].startswith("manifest.json: items[3].file:")
+    assert problems[0].startswith(f"manifest.json: items[{IMAGE}].file:")
     assert "non-empty" in problems[0]
 
 
 def test_animation_frames_in_a_subfolder_pass(folder: Path) -> None:
     """`frames` entries take the same rule as `file` and `poster`."""
     manifest = read_manifest(folder)
-    frames = manifest["items"][4]["frames"]
+    frames = manifest["items"][ANIM]["frames"]
     for frame in frames:
         move_to_subpath(folder, frame, f"assets/ef/{frame}")
-    manifest["items"][4]["frames"] = [f"assets/ef/{frame}" for frame in frames]
+    manifest["items"][ANIM]["frames"] = [f"assets/ef/{frame}" for frame in frames]
     write_manifest(folder, manifest)
     assert problems_of(folder) == []
 
 
 def test_frames_below_minimum(folder: Path) -> None:
     manifest = read_manifest(folder)
-    frames = manifest["items"][4]["frames"]
-    manifest["items"][4]["frames"] = frames[:1]
+    frames = manifest["items"][ANIM]["frames"]
+    manifest["items"][ANIM]["frames"] = frames[:1]
     write_manifest(folder, manifest)
     problems = problems_of(folder)
     assert len(problems) == 1
-    assert problems[0].startswith("manifest.json: items[4].frames:")
+    assert problems[0].startswith(f"manifest.json: items[{ANIM}].frames:")
     assert "at least 2 entries" in problems[0]
 
 
@@ -515,39 +530,39 @@ def test_wrong_media_extension(folder: Path) -> None:
 def test_video_missing_duration_seconds_is_rejected(folder: Path) -> None:
     """`durationSeconds` stays required even when `holdSeconds` is set."""
     manifest = read_manifest(folder)
-    video = manifest["items"][5]
+    video = manifest["items"][VIDEO]
     assert video["type"] == "video"
     del video["durationSeconds"]
     video["holdSeconds"] = 3.0
     write_manifest(folder, manifest)
     problems = problems_of(folder)
     assert len(problems) == 1
-    assert problems[0].startswith("manifest.json: items[5]:")
+    assert problems[0].startswith(f"manifest.json: items[{VIDEO}]:")
     assert "durationSeconds" in problems[0]
 
 
 def test_video_range_end_not_after_start_is_rejected(folder: Path) -> None:
     """`endSeconds` must exceed `startSeconds`; equal is too (Phase 9c)."""
     manifest = read_manifest(folder)
-    video = manifest["items"][5]
+    video = manifest["items"][VIDEO]
     video["startSeconds"] = 1.5
     video["endSeconds"] = 1.5
     write_manifest(folder, manifest)
     problems = problems_of(folder)
     assert len(problems) == 1
-    assert problems[0].startswith("manifest.json: items[5].endSeconds:")
+    assert problems[0].startswith(f"manifest.json: items[{VIDEO}].endSeconds:")
     assert "startSeconds" in problems[0]
 
 
 def test_video_negative_start_seconds_is_rejected(folder: Path) -> None:
     """`startSeconds` may not be negative, even fractionally."""
     manifest = read_manifest(folder)
-    video = manifest["items"][5]
+    video = manifest["items"][VIDEO]
     video["startSeconds"] = -0.5
     write_manifest(folder, manifest)
     problems = problems_of(folder)
     assert len(problems) == 1
-    assert problems[0].startswith("manifest.json: items[5].startSeconds:")
+    assert problems[0].startswith(f"manifest.json: items[{VIDEO}].startSeconds:")
 
 
 def test_video_negative_start_seconds_reported_without_schema() -> None:
@@ -563,12 +578,12 @@ def test_video_negative_start_seconds_reported_without_schema() -> None:
 def test_video_range_beyond_duration_is_rejected(folder: Path) -> None:
     """`endSeconds` may not exceed the file's `durationSeconds`."""
     manifest = read_manifest(folder)
-    video = manifest["items"][5]
+    video = manifest["items"][VIDEO]
     video["endSeconds"] = video["durationSeconds"] + 10.0
     write_manifest(folder, manifest)
     problems = problems_of(folder)
     assert len(problems) == 1
-    assert problems[0].startswith("manifest.json: items[5].endSeconds:")
+    assert problems[0].startswith(f"manifest.json: items[{VIDEO}].endSeconds:")
     assert "durationSeconds" in problems[0]
 
 
@@ -576,7 +591,7 @@ def test_video_loop_start_within_range_passes(folder: Path) -> None:
     """`loopStartSeconds` below the range end is valid (Phase 9d), the
     common case of skipping an intro on the loop-back."""
     manifest = read_manifest(folder)
-    video = manifest["items"][5]
+    video = manifest["items"][VIDEO]
     video["durationSeconds"] = 4.0
     video["startSeconds"] = 1.0
     video["endSeconds"] = 2.0
@@ -592,7 +607,7 @@ def test_video_loop_start_before_start_seconds_passes(folder: Path) -> None:
     """`loopStartSeconds` may sit before `startSeconds`: a loop may
     include pre-roll the first pass skipped."""
     manifest = read_manifest(folder)
-    video = manifest["items"][5]
+    video = manifest["items"][VIDEO]
     video["durationSeconds"] = 4.0
     video["startSeconds"] = 1.0
     video["endSeconds"] = 2.0
@@ -605,7 +620,7 @@ def test_video_loop_start_at_effective_end_is_rejected(folder: Path) -> None:
     """A loop pass must have length, so a `loopStartSeconds` equal to
     `endSeconds` leaves it none."""
     manifest = read_manifest(folder)
-    video = manifest["items"][5]
+    video = manifest["items"][VIDEO]
     video["durationSeconds"] = 4.0
     video["startSeconds"] = 1.0
     video["endSeconds"] = 2.0
@@ -613,7 +628,7 @@ def test_video_loop_start_at_effective_end_is_rejected(folder: Path) -> None:
     write_manifest(folder, manifest)
     problems = problems_of(folder)
     assert len(problems) == 1
-    assert problems[0].startswith("manifest.json: items[5].loopStartSeconds:")
+    assert problems[0].startswith(f"manifest.json: items[{VIDEO}].loopStartSeconds:")
     assert "must be less than the effective end 2.0 (found 2.0)" in problems[0]
 
 
@@ -621,7 +636,7 @@ def test_video_loop_start_past_end_is_rejected(folder: Path) -> None:
     """A `loopStartSeconds` past `endSeconds` describes a pass of
     negative length."""
     manifest = read_manifest(folder)
-    video = manifest["items"][5]
+    video = manifest["items"][VIDEO]
     video["durationSeconds"] = 4.0
     video["startSeconds"] = 1.0
     video["endSeconds"] = 2.0
@@ -629,7 +644,7 @@ def test_video_loop_start_past_end_is_rejected(folder: Path) -> None:
     write_manifest(folder, manifest)
     problems = problems_of(folder)
     assert len(problems) == 1
-    assert problems[0].startswith("manifest.json: items[5].loopStartSeconds:")
+    assert problems[0].startswith(f"manifest.json: items[{VIDEO}].loopStartSeconds:")
     assert "must be less than the effective end 2.0 (found 2.5)" in problems[0]
 
 
@@ -637,7 +652,7 @@ def test_video_loop_start_uses_duration_when_end_absent(folder: Path) -> None:
     """With no `endSeconds` the effective end is `durationSeconds`, so
     that is the bound that rejects."""
     manifest = read_manifest(folder)
-    video = manifest["items"][5]
+    video = manifest["items"][VIDEO]
     video["durationSeconds"] = 2.0
     video["startSeconds"] = 0.5
     video.pop("endSeconds", None)
@@ -646,11 +661,11 @@ def test_video_loop_start_uses_duration_when_end_absent(folder: Path) -> None:
     assert problems_of(folder) == []
 
     manifest = read_manifest(folder)
-    manifest["items"][5]["loopStartSeconds"] = 2.0
+    manifest["items"][VIDEO]["loopStartSeconds"] = 2.0
     write_manifest(folder, manifest)
     problems = problems_of(folder)
     assert len(problems) == 1
-    assert problems[0].startswith("manifest.json: items[5].loopStartSeconds:")
+    assert problems[0].startswith(f"manifest.json: items[{VIDEO}].loopStartSeconds:")
     assert "must be less than the effective end 2.0 (found 2.0)" in problems[0]
 
 
@@ -658,14 +673,14 @@ def test_video_loop_start_seconds_are_not_rounded(folder: Path) -> None:
     """Exact fractional `loopStartSeconds` validate and are stored
     verbatim."""
     manifest = read_manifest(folder)
-    video = manifest["items"][5]
+    video = manifest["items"][VIDEO]
     video["durationSeconds"] = 12.345
     video["startSeconds"] = 4.567
     video["endSeconds"] = 12.345
     video["loopStartSeconds"] = 8.901
     write_manifest(folder, manifest)
     assert problems_of(folder) == []
-    stored = read_manifest(folder)["items"][5]
+    stored = read_manifest(folder)["items"][VIDEO]
     assert stored["loopStartSeconds"] == 8.901
     assert stored["startSeconds"] == 4.567
 
@@ -744,24 +759,24 @@ def test_text_item_after_media_passes(folder: Path) -> None:
 def test_thought_without_text_is_rejected(folder: Path) -> None:
     """`thought: true` with no `text` marks nothing; the validator rejects it."""
     manifest = read_manifest(folder)
-    assert "text" not in manifest["items"][2]
-    manifest["items"][2]["thought"] = True
+    assert "text" not in manifest["items"][IMAGE]
+    manifest["items"][IMAGE]["thought"] = True
     write_manifest(folder, manifest)
     problems = problems_of(folder)
     assert len(problems) == 1
-    assert problems[0].startswith("manifest.json: items[2].thought:")
+    assert problems[0].startswith(f"manifest.json: items[{IMAGE}].thought:")
     assert "non-empty" in problems[0] and '"text"' in problems[0]
 
 
 def test_thought_with_empty_text_is_rejected(folder: Path) -> None:
     """An empty `text` is a bare visual, so a `thought` on it is meaningless."""
     manifest = read_manifest(folder)
-    manifest["items"][2]["text"] = ""
-    manifest["items"][2]["thought"] = True
+    manifest["items"][IMAGE]["text"] = ""
+    manifest["items"][IMAGE]["thought"] = True
     write_manifest(folder, manifest)
     problems = problems_of(folder)
     assert len(problems) == 1
-    assert problems[0].startswith("manifest.json: items[2].thought:")
+    assert problems[0].startswith(f"manifest.json: items[{IMAGE}].thought:")
 
 
 def test_text_item_thought_with_text_passes(folder: Path) -> None:

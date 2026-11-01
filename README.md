@@ -22,6 +22,15 @@ Other features:
 * Fast to load: either not needing to be verified by macOS gatekeeper, or the core part that needs checking is tiny and the content doesn't need checking.
 * Fast to view content and scroll back and forth, bookmark and jump to bookmarked timepoints. Never a delay to view content longer than 1/24th of a second.
 
+The demo (`fixtures/demo`, built by `fixtures/build_demo.py`) is a guided tour: every line of its text explains what is on screen. Its sections, in order:
+* Spoken dialogue, a thought, narration, and a bare picture (try `h`).
+* An animation: four pictures at 8 per second, shown twice.
+* A video under a chain of text lines (the clip plays on), then a chain over a still picture.
+* A one-second clip with a loop count of 3, then a WebM clip held for a set 4 seconds.
+* Two ranges of one video file, the second repeating from a later restart point.
+* A clip with a minimum play time that holds its short dialogue chain in auto mode.
+* A decision: Route 1 continues the story and holds a nested decision (1a carries on, 1b comes back to the choice); Route 2 is an ending; both lead back to the choice, and finishing Route 1 reaches the shared aftermath.
+
 Non-features:
 * Audio support.
 * Splash screens, title screens, menu screens other than the key-help, bookmark, and config screens; apart from the first-load key summary, starting the game jumps straight to content.
