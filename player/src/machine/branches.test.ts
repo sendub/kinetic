@@ -2140,3 +2140,32 @@ describe("interstitial context and play-all hint rules (docs/plan.md Phase 18)",
     m.destroy();
   });
 });
+
+describe("play-all + skip-all: the interstitial does not end the burst (Phase 18)", () => {
+  it("an elapsed hold resumes skipping; a press during it leaves skip off", () => {
+    vi.useFakeTimers();
+    const shaped = manifest(CANON);
+    const make = () =>
+      createMachine({
+        items: shaped.items,
+        branches: shaped.branches,
+        settings: { ...SETTINGS, playAllRoutes: true, skipAll: true },
+      });
+    const run = (m: ReturnType<typeof make>) => {
+      m.toggleSkip(); // skip-all: the burst may reveal
+      for (let n = 0; n < 40 && m.getState().interstitial === undefined; n += 1)
+        vi.advanceTimersByTime(SETTINGS.skipDwellMs);
+      expect(m.getState().interstitial).toBeDefined();
+    };
+    const elapsed = make();
+    run(elapsed);
+    vi.advanceTimersByTime(INTERSTITIAL_MS);
+    expect(elapsed.getState().skipping).toBe(true); // the burst carries on
+    elapsed.destroy();
+    const pressed = make();
+    run(pressed);
+    pressed.advance(); // the reader's press ends it early: stop here
+    expect(pressed.getState().skipping).toBe(false);
+    pressed.destroy();
+  });
+});

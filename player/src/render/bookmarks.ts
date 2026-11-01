@@ -32,9 +32,16 @@ export interface BookmarkRestore {
 }
 
 export function bookmarkRestoreTarget(record: Bookmark): BookmarkRestore {
+  // The bookmarked ITEM is the time point. Wheel scrubbing does not move the
+  // reading position (docs/plan.md Phase 18), so a bookmark taken after
+  // scrolling back has a ctx whose `lastShown` is further on; the restore
+  // lands on `itemIndex` (and makes it the reading position).
   return record.ctx === undefined
     ? { itemIndex: record.itemIndex }
-    : { itemIndex: record.itemIndex, ctx: record.ctx };
+    : {
+        itemIndex: record.itemIndex,
+        ctx: { ...record.ctx, lastShown: record.itemIndex },
+      };
 }
 
 /**

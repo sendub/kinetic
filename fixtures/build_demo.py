@@ -310,13 +310,14 @@ def section_loops() -> list[dict]:
         {"id": "video-loops", "type": "video", "file": "video-loops.mp4",
          "poster": "video-loops.poster.jpg", "durationSeconds": loops_duration,
          "loopCount": 3,
-         "text": "A one-second clip with a loop count of 3: in auto mode "
-                 "(press a) it plays three times before moving on."},
+         # Short on purpose: its reading time (1.5 s minimum) must stay
+         # under the 3 passes, so the passes are what hold it in auto mode.
+         "text": "Loop count 3: three passes."},
         {"id": "video-hold", "type": "video", "file": "video-hold.webm",
          "poster": "video-hold.poster.jpg", "durationSeconds": hold_duration,
          "holdSeconds": 4,
-         "text": "A WebM clip held for a set 4 seconds: it loops as a "
-                 "background for exactly that long."},
+         # Under 4 s of reading time, so holdSeconds is what governs.
+         "text": "A WebM clip held 4 s, looping in the background."},
     ]
 
 

@@ -101,42 +101,42 @@ const chromePath =
 // Expected strings copied from fixtures/demo/manifest.js, so a change to the
 // fixture fails a step here rather than silently re-defining correctness.
 const EXPECTED = {
-  meadowText: "You're early today. The meadow is empty.",
+  meadowText: "Mei speaks: a named line of dialogue.",
   // Phase 13's branch fixture: strings copied from fixtures/demo, so a
   // change to the branch content fails a step rather than silently
   // re-defining correctness.
-  outerPrompt: "What does the studio decide?",
-  innerPrompt: "When do they meet?",
-  hireLabel: "Offer them the job",
-  refuseLabel: "Turn them down",
-  lateLabel: "Late, over coffee",
-  earlyLabel: "Early, before the sun",
-  bridge014Text: "The studio waited on an answer about the temp.",
-  hire016Text: "Mei slid the contract over before the coffee cooled.",
-  hire017Text: "Start Monday, if that works for you.",
-  late021Text: "They showed at ten, late and grinning.",
-  early022Text:
-    "They were at the door before the sun was up, so the kettle went on.",
-  hire018Text: "Either way, the studio had its week back.",
-  refuse019Text: "We'll pass this time, Mei said, and she meant it.",
-  refuse020Text: "An ending card: the studio kept its quiet.",
-  main023Text: "Whatever was decided, the morning moved on.",
-  main024Text: "And the tape rolled on without an answer.",
+  outerPrompt: "Demo decision: which route?",
+  innerPrompt: "Nested decision inside route 1:",
+  hireLabel: "Route 1: continues, nested choice inside",
+  refuseLabel: "Route 2: an ending",
+  lateLabel: "1a: continues",
+  earlyLabel: "1b: returns to this choice",
+  bridge014Text: "Shared lead-in. Next, a choice; after a route, pick another.",
+  hire016Text: "Route 1 continues the story. A nested choice is next.",
+  hire017Text: "Route 1: the nested choice is here.",
+  late021Text: "Nested 1a continues: it rejoins route 1.",
+  early022Text: "Nested 1b returns: its end offers the nested choice again.",
+  hire018Text: "Back in route 1; its end joins the aftermath.",
+  refuse019Text: "Route 2 is an ending: it does not rejoin.",
+  refuse020Text: "Route 2 ends here. Press e for unseen parts.",
+  main023Text: "Aftermath, shared by the continuing route.",
+  main024Text: "The demo's end. Scroll back to any choice.",
   // The Phase 15 floor chain (steps 43-44): a short line on the video and
   // two short dialogue lines, all under the minHold so the floor, not the
   // text sum, must be what holds the chain's exit.
-  strollText: "The light went long.",
-  line026Text: "We did not hurry.",
-  line027Text: "The path turned soon.",
+  strollText: "A minimum-play clip.",
+  line026Text: "Short line two.",
+  line027Text: "Auto waits here.",
   lanternText:
-    "Lanterns lined the empty street, one for each guest who never came.",
-  windowText: "Rain again. It's always rain in this town.",
-  ferryText: "The ferry crossed once a day, and that was enough.",
-  line007Text: "The street glowed under the awning.",
-  line008Text: "Neither of us spoke for a while.",
-  sparkText: "Sparks circled the bonfire and went out one by one.",
-  line010Text: "The tide took the last of the crates by morning.",
-  line011Text: "We stacked the rest ourselves, and called it enough.",
+    "Narration has no name. Space reads on; the wheel scrolls back again.",
+  windowText: "Theo speaks. Press h to hide all the text.",
+  ferryText: "A video; the next two lines play over it as it runs.",
+  line007Text: "Mei again, the clip still running.",
+  line008Text: "A thought: drawn unlike speech.",
+  sparkText: "An animation: four frames, looped twice, then held.",
+  line010Text: "Lines can also chain over a still image, like this.",
+  line011Text:
+    "Next: two clips cut from one file; the second loops back partway.",
   emptyNotice: "No content yet — this folder has an empty manifest.",
 };
 
@@ -1473,6 +1473,19 @@ async function main() {
     } catch {
       resumedNormalHold = false;
     }
+    // Ride one more auto hold onto line-010 so the walk's seen set ends
+    // where the later steps expect it (items 0..9 shown, line-011 next).
+    try {
+      await page.waitForFunction(
+        (expected) =>
+          (document.getElementById("overlay-text")?.textContent ?? "") ===
+          expected,
+        { timeout: 4000 },
+        EXPECTED.line010Text,
+      );
+    } catch {
+      resumedNormalHold = false;
+    }
     record(
       "17. tab skips at ~120 ms per item and stops ON the last seen item, shown normally",
       s17Moves >= 3 &&
@@ -1516,8 +1529,15 @@ async function main() {
     // The walk has shown items 0..9, so from item 5 the target is item 10,
     // line-011, painted over item 8's still. Step 21 reads its thought
     // styling from that same landing.
+    // Phase 18: away from the reading position the first press RESUMES
+    // there (line-007, where step 18's space stopped the skip); pressed
+    // there, `e` jumps to the first unseen item — line-011, three items
+    // on, so not a mere forward step (that case is a no-op, Phase 18).
     await wheel(cdp, true, 2);
     const s19before = await readSignature(page);
+    await pressE(cdp);
+    await sleep(80);
+    const s19resume = await page.evaluate(PAGE_STATE);
     await pressE(cdp);
     await sleep(80);
     const s19 = await page.evaluate(PAGE_STATE);
@@ -1525,14 +1545,15 @@ async function main() {
     await sleep(WHEEL_GAP_MS);
     const s19after = await page.evaluate(PAGE_STATE);
     const s19Ok =
+      s19resume.text === EXPECTED.line007Text &&
       s19.text === EXPECTED.line011Text &&
       s19.imgSrc === "pier-009.jpg" &&
       s19after.text === EXPECTED.line011Text &&
       s19after.imgSrc === "pier-009.jpg";
     record(
-      "19. e steps onto the first unseen item (where the reading stopped); wheel cannot pass it",
+      "19. e resumes at the reading position, then jumps to the first unseen item; wheel cannot pass it",
       s19Ok ? "PASS" : "FAIL",
-      `after 2 wheel-back notches=${JSON.stringify(s19before.split("|").pop())}; after e=${JSON.stringify(s19.imgSrc)} text=${JSON.stringify(s19.text)} mode=${String(s19.overlayMode)}/${String(s19.textMode)} fontStyle=${String(s19.textFontStyle)} — the jump entered item 10, the first never-shown item of the path (shown now, so the frontier moved with it); one wheel-down after e left it at ${JSON.stringify(s19after.imgSrc)} (frontier edge: the next item is unseen and the wheel does not enter unseen content)`,
+      `after 2 wheel-back notches=${JSON.stringify(s19before.split("|").pop())}; first e resumed on ${JSON.stringify(s19resume.text)}; second e=${JSON.stringify(s19.imgSrc)} text=${JSON.stringify(s19.text)} mode=${String(s19.overlayMode)}/${String(s19.textMode)} fontStyle=${String(s19.textFontStyle)} — the jump entered item 10, the first never-shown item of the path (shown now, so the frontier moved with it); one wheel-down after e left it at ${JSON.stringify(s19after.imgSrc)} (frontier edge: the next item is unseen and the wheel does not enter unseen content)`,
     );
 
     // 20. Escape opens the key help MID-FLOW (docs/plan.md Phase 13b),

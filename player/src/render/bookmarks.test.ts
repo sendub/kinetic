@@ -152,6 +152,13 @@ describe("bookmarkRestoreTarget (ctx-aware restore, Phase 13)", () => {
     expect(bookmarkRestoreTarget(record)).toEqual({ itemIndex: 4, ctx });
   });
 
+  it("lands on the bookmarked item even when reading had gone further (Phase 18)", () => {
+    // Taken after scrolling back: the ctx's reading position (4) is past
+    // the bookmarked item (3); the click continues from item 3.
+    const target = bookmarkRestoreTarget(bookmark({ itemIndex: 3, ctx }));
+    expect(target).toEqual({ itemIndex: 3, ctx: { ...ctx, lastShown: 3 } });
+  });
+
   it("restores a pre-Phase-13 bookmark by itemIndex alone — no ctx key", () => {
     const target = bookmarkRestoreTarget(bookmark({ itemIndex: 2 }));
     expect(target).toEqual({ itemIndex: 2 });

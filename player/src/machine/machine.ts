@@ -709,6 +709,8 @@ export function createMachine(options: MachineOptions): Machine {
     decision: number;
     fromRoute: number;
     toRoute: number;
+    /** A skip burst was running: the elapsed hold resumes it. */
+    resumeSkip: boolean;
   } | null = null;
   let interstitialTimer: unknown = null;
   let destroyed = false;
@@ -809,9 +811,10 @@ export function createMachine(options: MachineOptions): Machine {
     toRoute: number,
   ): void {
     cancelTimer();
+    const resumeSkip = skipping;
     skipping = false;
     settled = true;
-    interstitial = { decision: decision.index, fromRoute, toRoute };
+    interstitial = { decision: decision.index, fromRoute, toRoute, resumeSkip };
     armInterstitial();
     emit();
   }
@@ -820,16 +823,22 @@ export function createMachine(options: MachineOptions): Machine {
     if (interstitialTimer !== null) scheduler.cancel(interstitialTimer);
     interstitialTimer = paused
       ? null
-      : scheduler.schedule(finishInterstitial, INTERSTITIAL_MS);
+      : scheduler.schedule(() => finishInterstitial(true), INTERSTITIAL_MS);
   }
 
-  /** Ends the held interstitial and enters its route; false when none. */
-  function finishInterstitial(): boolean {
+  /**
+   * Ends the held interstitial and enters its route; false when none. When
+   * the hold ELAPSED (`elapsed`) over a skip burst, the burst carries on:
+   * play-all with skip-all is the no-interaction path. Any reader command
+   * that ends it early leaves skip off — a press means "stop here".
+   */
+  function finishInterstitial(elapsed = false): boolean {
     if (interstitial === null) return false;
     if (interstitialTimer !== null) scheduler.cancel(interstitialTimer);
     interstitialTimer = null;
     const held = interstitial;
     interstitial = null;
+    if (elapsed && held.resumeSkip) skipping = true;
     enterRoute(decisions[held.decision], held.toRoute);
     return true;
   }

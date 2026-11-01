@@ -581,5 +581,9 @@ truthful: an unchecked box means nothing was accepted.
       the Space line); one concise line per feature. State what IS,
       not hedged plans (e.g. "if we use a browser" -> it is a browser
       player); same reality pass over the other user-facing docs.
+- [ ] Settings survive an immediate reload (found by the screens
+      scenario, 2026-11-01: four `+` clicks then a reload within ~100 ms
+      came back at 1.00x in 4 of 6 runs; fire-and-forget settings write).
+      Same durability as `b`'s commit-then-confirm.
 - [ ] Phase-closer: full suite (driver, vitest, pytest, package-proof),
       rebuild BOTH demo folders, present the updated demo to the user.
