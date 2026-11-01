@@ -315,19 +315,19 @@ content:
   the chain's visual plays throughout it, looping in place.
 - A video's `minPlaySeconds` is a floor on leaving its chain. When
   the current item is the last of that chain (the next item is not
-  `text`) and auto-advance governs the step - normal auto mode, the
-  auto-advance inside skip dwell, and play-all or skip-all bursts,
-  all machine-time paths - the hold is `max(holdMs,
-  minPlaySeconds * 1000 - chainElapsedMs)`, where `chainElapsedMs`
-  is the machine time since the chain's video item became current.
-  The chain plays through its dialogue normally while the video
-  runs; only leaving the chain waits. Manual advance and skip
-  transitions stay immediate: the floor delays only timer-driven
-  advance. `holdSeconds` remains the whole-item display gate for
-  standalone videos; with both on one item, chain exit honors both,
-  the max of the requirements. Outside a chain the field has no
-  effect beyond the media gate. The floor is per video item, not
-  per file: items sharing one file may set different floors.
+  `text`) and auto-advance governs the step - normal auto mode, or a
+  play-all-routes burst (the zero-interactivity experience is auto) -
+  the hold is `max(holdMs, minPlaySeconds * 1000 - chainElapsedMs)`,
+  where `chainElapsedMs` is the machine time since the chain's video
+  item became current. The chain plays through its dialogue normally
+  while the video runs; only leaving the chain waits. Manual advance
+  and skip stay immediate - skip's dwell never waits on the floor;
+  the floor exists so viewers see the video in auto, and the reader
+  who presses tab chose speed. `holdSeconds` remains the whole-item
+  display gate for standalone videos; with both on one item, chain
+  exit honors both, the max of the requirements. Outside a chain the
+  field has no effect beyond the media gate. The floor is per video
+  item, not per file: items sharing one file may set different floors.
 - Skip mode shows each item for a fixed player dwell. An animation
   contributes `frames[0]` and a video its `poster`; both show that
   still and never play. A video holds for `min(skipDwell, gate)`, the

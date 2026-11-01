@@ -694,8 +694,10 @@ tolerances below. Walked 2026-10-31, headless Chrome 156.0.8078.76:
 
 - Action: step 27's machine advance enters item 12 automatically —
   part-013, the same `clip-012.mp4` at [1.0, 2.0] with `loopCount: 2`
-  and `loopStartSeconds: 1.5` (docs/plan.md Phase 9d). Watch until the
-  item settles.
+  and `loopStartSeconds: 1.5` (docs/plan.md Phase 9d). Since Phase 15
+  auto is turned OFF on entry for the measurement (what follows is the
+  `stroll-025` VIDEO chain, and its play through the same reused element
+  would blur the hold), and restored at the step's end.
 - Expected: the renderer re-enters the SAME `<video>` element on a new
   item (same file): poster flips to part-013.poster.jpg, playback seeks
   to `startSeconds` 1.0, passes count from zero. Because `endSeconds`
@@ -706,12 +708,13 @@ tolerances below. Walked 2026-10-31, headless Chrome 156.0.8078.76:
   them the element seeks back to `loopStartSeconds` — 1.5, NOT the range
   start 1.0: the pre-roll [1.0, 1.5) plays once — and plays on; after
   the second it holds near 2.0 (`loop=false` throughout, so no third
-  pass). The machine moves on only after BOTH reports plus its time
-  bound, now firstPass 1.0 + loopPass 0.5 = 1.5 s; mid-story since
-  Phase 13, that advance is a real item change into the branch
-  fixture's lead-in (step 32 picks the walk up there; the gate
-  arithmetic is pinned by `machine.test.ts`). OBSERVED start offset and
-  loop-back landing (vs 1.5) are recorded.
+  pass). With auto off the reports alone never move the cursor (the
+  ended count without a timed hold completes nothing); the gate that
+  does move it — both reports plus firstPass 1.0 + loopPass 0.5 = 1.5 s
+  — is pinned by `machine.test.ts`, and when the step restores auto the
+  armed hold carries the walk on, through the Phase 15 chain and into
+  the branch fixture's lead-in. OBSERVED start offset and loop-back
+  landing (vs 1.5) are recorded.
 - RESULT (PASS, 2026-11-01): driver step 30: 37 presented frames
   recorded while part-013 was on screen, all inside [1, 2]; entered at
   OBSERVED `mediaTime=1.000` (+0.000 s from `startSeconds` 1.0); exactly
@@ -720,16 +723,13 @@ tolerances below. Walked 2026-10-31, headless Chrome 156.0.8078.76:
   1.5 itself is not a 25 fps frame time; NOT 1.0, so the pre-roll
   played once); pass reports = 2 of 2 (native `ended` from clip-012,
   the boundary source this range selects) counted while part-013 was
-  the current item. OBSERVED since the fixture made this item
-  mid-story: the last pass report carries the machine into the next
-  item inside the same event, `hideVideo()` zeroes the renderer's pass
-  counter under that handler's own follow-up check, and the now-hidden
-  element replays [1.5, 2.0] once (12 further frames, one stray native
-  `ended`) before resting — a hidden re-loop artefact, dated and
-  excluded by the reused `<img>`'s src, which flips to the new item's
-  image at the change. The second report left the element OBSERVED
-  `paused=true, currentTime=2.000, loop=false` near 2.0. Console
-  contributed nothing.
+  the current item — and, auto off across the measurement, the cursor
+  never moved on the reports alone; the last one left the element
+  OBSERVED `paused=true, currentTime=2.000, loop=false` near 2.0 with
+  no hidden re-loop this run (that Phase 13 artefact appears only when
+  the machine moves inside the report's own event — the step now
+  restores auto after reading the hold, and the armed walk carries on
+  through the Phase 15 chain). Console contributed nothing.
 
 ### 29. Empty folder shows the empty state; `t` there says no bookmarks yet
 
@@ -943,6 +943,43 @@ tolerances below. Walked 2026-10-31, headless Chrome 156.0.8078.76:
   Theo's line, help stayed closed, IndexedDB held 1 bookmark at item 3, and
   clicking that newest row left the screen on the same item and line; the
   console stayed empty through the writes, the reload and the click.
+
+### 40. `minPlaySeconds`: auto leaves the chain at the floor, not the text sum
+
+- Action: on the step-39 page, press `e` until it lands on `stroll-025`
+  (each press walks the unseen frontier one item — navigation fires no
+  decision); one `space` settles the video item in place; then `a` (auto
+  ON) and `space`, letting auto drive the chain `stroll-025 → line-026 →
+  line-027`; sample until the visual changes past the chain, then `a`
+  off.
+- Expected (Phase 15): the dialogue advances at reading speed UNDER the
+  playing video (`line-026`, then `line-027`, video still running); the
+  step LEAVING the chain waits out the video's `minPlaySeconds: 4.5`
+  floor, measured from when the video item became current — the visual
+  changes no earlier than ~4.5 s, where the two dialogue holds alone sum
+  to ~3 s. The floor never stalls the media under the chain.
+- RESULT (PASS, 2026-11-01): driver step 43: the frontier walk landed on
+  the chain head; `line-026` was current at +4 ms and `line-027` at
+  +1563 ms after auto took the chain, both with `stroll-025.mp4` still
+  PLAYING beneath them, and the visual past the chain changed at
+  +4548 ms from the video becoming current — the floor, ≥4.4 s asserted,
+  where the two dialogue holds alone come to ~3 s.
+
+### 41. `skip` through the floor chain stays immediate
+
+- Action: wheel back before the chain (to `part-013`), press `tab`, and
+  sample through the whole chain: the video poster, both dialogue lines,
+  and the exit past `line-027`; then `tab` again.
+- Expected: skip walks the three items in plain dwells and LEAVES the
+  chain on the next dwell too — total well under 1.5 s. The floor is an
+  auto-advance rule only; skip stays immediate (README), even though
+  this re-entry re-bases the chain head fresh and auto would wait 4.5 s
+  from it again. The video never plays in skip — posters only.
+- RESULT (PASS, 2026-11-01): driver step 44: `line-026` at +259 ms and
+  `line-027` at +386 ms after the tab press, the chain's exit visual at
+  +516 ms (from the chain's head: 386 ms) — four 120 ms dwells, posters
+  only, nothing playing; the same re-entry under auto (step 40 above)
+  waited 4.5 s. Console empty throughout.
 
 ## Not covered yet
 

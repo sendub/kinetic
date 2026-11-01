@@ -86,13 +86,14 @@ export interface VideoItem extends OverlayFields {
    * Chain-exit floor in seconds, greater than 0 (docs/plan.md Phase 15,
    * docs/content-format.md "Timing"). When the CURRENT item is the last of
    * this video's text chain and an auto-advance path governs the step
-   * (normal auto, the auto-advance inside skip dwell, play-all or
-   * skip-all), the hold is `max(holdMs, minPlaySeconds * 1000 -
+   * (normal auto mode, or a play-all-routes burst — the zero-interactivity
+   * experience is auto), the hold is `max(holdMs, minPlaySeconds * 1000 -
    * chainElapsedMs)`, `chainElapsedMs` being machine time since this video
    * became current. The chain plays through its dialogue normally; only
-   * LEAVING the chain waits. Manual advance and navigation stay immediate;
-   * outside a chain the field has no effect beyond the media gate. Per
-   * video item, not per file: items sharing one file may differ.
+   * LEAVING the chain waits. Manual advance, navigation, and skip dwell
+   * stay immediate — the reader who presses tab chose speed. Outside a
+   * chain the field has no effect beyond the media gate. Per video item,
+   * not per file: items sharing one file may differ.
    */
   minPlaySeconds?: number;
 }

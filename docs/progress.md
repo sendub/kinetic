@@ -330,9 +330,12 @@ truthful: an unchecked box means nothing was accepted.
       manual advance unaffected; tests incl. the 8 s/5.829 s scenario
       (chainHeadAt anchored to timer-arm; 302 tests, zero adaptations,
       2025-11-01)
-- [ ] Demo fixture + verify: ~6 s clip + dialogue chain with
+- [x] Demo fixture + verify: ~6 s clip + dialogue chain with
       minPlaySeconds 4.5; step proves the wait (~4.5 s, not ~2 s) and
-      that skip stays immediate; determinism green
+      that skip stays immediate; determinism green (auto exit +4548 ms
+      wall vs skip-through 516 ms; skip-exclusion resolved per the
+      tester's ask - plan corrected; 44-step driver 43+1 known, 302
+      tests, byte-identical rebuilds, 2025-11-01)
 
 ## Later, waiting on the user
 

@@ -585,15 +585,18 @@ under text chains (`nextIsText`). Add a per-video opt-in floor:
 - New optional field `minPlaySeconds` (number > 0) on video items.
   Semantics: when the CURRENT item is the last of the video's dialogue
   chain (next item is not `text`), and auto-advance governs this step
-  (normal auto mode, or the auto-advance inside skip dwell, or
-  play-all/skip-all bursts - all machine-time paths), the hold is
+  (normal auto mode, or a play-all-routes burst - the zero-interactivity
+  experience is auto), the hold is
   `max(holdMs, minPlaySeconds*1000 - chainElapsedMs)` where
   `chainElapsedMs` is the machine-time since the chain's video item
   became current (the same bookkeeping `setSettings` re-arm uses;
   deterministic ms). The chain plays through its dialogue normally
   while the video runs; only LEAVING the chain waits.
-- Manual advance (space/wheel/tab) and skip transitions stay
-  immediate - the floor only delays timer-driven advance.
+- Manual advance (space/wheel) and skip stay immediate - the floor
+  exists so viewers SEE the video in auto; a reader pressing tab chose
+  speed. (The first implementation also gated skip's leaving step on
+  the floor; corrected - the README's "manual advance and skip stay
+  immediate" is the rule.)
 - `holdSeconds` interaction: `holdSeconds` remains the whole-item
   display gate for standalone videos; `minPlaySeconds` concerns chain
   exit. Both on one item: chain exit honors BOTH (max of requirements).
@@ -605,9 +608,11 @@ under text chains (`nextIsText`). Add a per-video opt-in floor:
 - The field is per-video-item, not per-file: shared files may set
   different floors.
 - Demo: extend the fixture with an item `stroll-025` (~6 s clip, cheap
-  frames) + 2 short dialogue items, `minPlaySeconds: 4.5`, and a verify
-  step: chain advances past the dialogue around 4.5 s, not ~2 s; skip
-  through it stays immediate.
+  frames) carrying the chain's first line + 2 short dialogue items,
+  `minPlaySeconds: 4.5`, placed before the branch demo so the story's
+  auto-advance plays through it; verify steps 43-44: auto leaves the
+  chain at ~4.5 s, not the text sum, with the dialogue advancing under
+  the video, and skip through it stays immediate.
 
 ## Later, waiting on the user
 

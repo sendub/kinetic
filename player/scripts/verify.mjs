@@ -30,6 +30,9 @@
 // re-fire, the seen-aware `e`-jump into the never-taken route, and
 // `Play all routes` through a skip-all burst that surfaces no choice and
 // plays every route (continuing last) before the aftermath —
+// and Phase 15's `minPlaySeconds` chain (steps 43-44): auto advance leaving
+// the fixture's floor chain only at the video's floor while the dialogue
+// plays under it, and skip walking the same chain in plain dwells —
 // and prints PASS / PARTIAL / FAIL per step.
 // Run from player/:  node scripts/verify.mjs
 // Exit code: 0 when every step is PASS or PARTIAL, 1 on any FAIL or crash.
@@ -112,6 +115,12 @@ const EXPECTED = {
   refuse020Text: "An ending card: the studio kept its quiet.",
   main023Text: "Whatever was decided, the morning moved on.",
   main024Text: "And the tape rolled on without an answer.",
+  // The Phase 15 floor chain (steps 43-44): a short line on the video and
+  // two short dialogue lines, all under the minHold so the floor, not the
+  // text sum, must be what holds the chain's exit.
+  strollText: "The light went long.",
+  line026Text: "We did not hurry.",
+  line027Text: "The path turned soon.",
   lanternText:
     "Lanterns lined the empty street, one for each guest who never came.",
   windowText: "Rain again. It's always rain in this town.",
@@ -499,6 +508,30 @@ const SKIP_PROBE = () => {
     videoShown ? (video.getAttribute("poster") ?? "") : "no-video",
     overlay && !overlay.hidden ? (textEl?.textContent ?? "") : "text-off",
     choice !== null && !choice.hidden ? "choice-open" : "choice-shut",
+  ].join("|");
+};
+
+// One sample of the screen for the Phase 15 floor steps: which video is
+// current and whether it plays or sits on its poster, which image is
+// painted, and the overlay line. The chain step tells auto (playing, then
+// a timed exit) from skip (paused poster, immediate steps) from the
+// DOM alone.
+const CHAIN_PROBE = () => {
+  const img = document.getElementById("visual-image");
+  const video = document.getElementById("visual-video");
+  const textEl = document.getElementById("overlay-text");
+  const videoShown =
+    video !== null &&
+    !video.hidden &&
+    getComputedStyle(video).display !== "none";
+  return [
+    videoShown ? (video.getAttribute("src") ?? "") : "no-video",
+    videoShown ? (video.paused ? "paused" : "playing") : "-",
+    videoShown ? (video.getAttribute("poster") ?? "") : "-",
+    img !== null && getComputedStyle(img).display !== "none"
+      ? (img.getAttribute("src") ?? "")
+      : "no-img",
+    textEl?.textContent ?? "",
   ].join("|");
 };
 
@@ -2210,9 +2243,13 @@ async function main() {
     // 1.0 + 0.5 = 1.5 s (machine-tested arithmetic), so the wait below
     // lands ~1.5 s after entry plus the reports; the 6 s timeout covers
     // it generously. Since the Phase 13 fixture this item is NOT the
-    // story's end: after the gate the machine steps on into bridge-014,
-    // the branch lead-in (the steps below take up the walk from there);
-    // loop stays off throughout (a range must never loop=true).
+    // story's end; since Phase 15 what follows is a VIDEO chain (stroll-
+    // 025), so the reused <video> element would keep playing if the
+    // machine advanced mid-measurement: auto is turned OFF on entry (the
+    // ended reports still count, but with no timer nothing moves) and
+    // restored at the step's end, after which the armed hold carries the
+    // walk on (loop stays off throughout — a range must never loop=true).
+    await pressA(cdp); // auto OFF: measure part-013's hold on a frozen cursor
     let s30settled = true;
     try {
       await page.waitForFunction(
@@ -2234,12 +2271,13 @@ async function main() {
     const s30recFrames = s30rec.frames.filter((f) =>
       f.poster.includes("part-013.poster.jpg"),
     );
-    // Only frames presented while part-013 was on screen: after its last
-    // pass report the machine moves straight into bridge-014, and (an
-    // OBSERVED renderer artefact of that synchronous item change) the
-    // element plays one further hidden pass before settling. Frames from
-    // that hidden re-loop carry img=bridge-014.jpg and are excluded from
-    // the pass arithmetic; their count is reported.
+    // Only frames presented while part-013 was on screen: the poster
+    // attribute flips the instant the element is retargeted, so frames of
+    // anything after part-013 are already filtered out by the poster. The
+    // img gate below stays from the Phase 13 walk, when the next item was
+    // the bridge-014 image and a synchronous item change let the element
+    // play one hidden re-loop first — with auto off across this
+    // measurement there is normally nothing to exclude.
     const s30frames = s30recFrames.filter((f) => f.img !== "bridge-014.jpg");
     const s30hiddenFrames = s30recFrames.length - s30frames.length;
     const s30first = s30frames[0] ?? null;
@@ -2259,10 +2297,9 @@ async function main() {
       s30frames.length > 0 &&
       s30frames.every((f) => f.mediaTime >= 0.95 && f.mediaTime <= 2.05);
     const s30ended = s30rec.ended.filter((e) => e.src.includes("clip-012.mp4"));
-    // Since the Phase 13 fixture, part-013 is NOT the story's end: past
-    // its gate the machine moves on into bridge-014 (the branch lead-in),
-    // and the element transition is observed to fire one further native
-    // `ended` — an event of the NEXT item's screen, not a part-013 pass
+    // The ended filter below stays from the Phase 13 walk: an `ended`
+    // fired by the item-change transition (reused element, image already
+    // painted) is an event of the NEXT item's screen, not a part-013 pass
     // report. The pass-report count is therefore read while part-013 is
     // still what's on screen (the reused <img> still shows pier-009).
     const s30pass = s30ended.filter((e) => e.img !== "bridge-014.jpg");
@@ -2298,8 +2335,10 @@ async function main() {
     record(
       "30. part-013 plays [1,2] twice, looping back at loopStartSeconds 1.5",
       s30Ok ? "PASS" : "FAIL",
-      `${String(s30frames.length)} presented frames, all inside [1-0.05, 2+0.05]=${String(s30inside)}; entered at OBSERVED mediaTime ${s30first ? s30first.mediaTime.toFixed(3) : "n/a"} (start offset ${s30startOffset >= 0 ? "+" : ""}${s30startOffset.toFixed(3)}s from startSeconds 1.0); pass-1 loop-back observed=${String(s30wraps === 1)} landing OBSERVED ${s30wrapLand === null ? "n/a" : s30wrapLand.toFixed(3)} (offset ${s30wrapLand === null ? "n/a" : `${s30wrapLand - 1.5 >= 0 ? "+" : ""}${(s30wrapLand - 1.5).toFixed(3)}s`} from loopStartSeconds 1.5, not 1.0); pass reports (native ended from clip-012, endSeconds == duration)=${String(s30pass.length)} of 2 while part-013 was on screen${s30endedExtra > 0 ? ` (OBSERVED since the Phase 13 fixture made part-013 mid-story: the last pass report carries the machine straight into bridge-014 in the same event, and the element then played ${String(s30hiddenFrames)} further hidden pass${s30hiddenFrames === 1 ? "" : "es"} + ${String(s30endedExtra)} stray native ended — a renderer re-loop artefact of the synchronous item change, excluded from the arithmetic above and reported)` : ""} — the machine moved on only after both reports plus the 1.5 s time bound (firstPass 1.0 + loopPass 0.5), and the 2nd left the element holding OBSERVED ${JSON.stringify(s30last)} near 2.0, paused, loop=${String(s30last?.loop)}; its gate arithmetic is pinned by machine tests`,
+      `${String(s30frames.length)} presented frames, all inside [1-0.05, 2+0.05]=${String(s30inside)}; entered at OBSERVED mediaTime ${s30first ? s30first.mediaTime.toFixed(3) : "n/a"} (start offset ${s30startOffset >= 0 ? "+" : ""}${s30startOffset.toFixed(3)}s from startSeconds 1.0); pass-1 loop-back observed=${String(s30wraps === 1)} landing OBSERVED ${s30wrapLand === null ? "n/a" : s30wrapLand.toFixed(3)} (offset ${s30wrapLand === null ? "n/a" : `${s30wrapLand - 1.5 >= 0 ? "+" : ""}${(s30wrapLand - 1.5).toFixed(3)}s`} from loopStartSeconds 1.5, not 1.0); pass reports (native ended from clip-012, endSeconds == duration)=${String(s30pass.length)} of 2 while part-013 was on screen${s30endedExtra > 0 ? ` (+${String(s30endedExtra)} stray native ended and ${String(s30hiddenFrames)} hidden-pass frame${s30hiddenFrames === 1 ? "" : "s"} from the item-change element re-loop — an OBSERVED artefact when the machine moves in the same event, excluded from the arithmetic above and reported)` : ""} — auto was OFF across this measurement (Phase 15: the next item is now the stroll-025 VIDEO chain, whose play through the same reused element would blur the hold), the reports alone never moved the cursor, and the last one left the element holding OBSERVED ${JSON.stringify(s30last)} near 2.0, paused, loop=${String(s30last?.loop)}; its gate arithmetic (both reports + the 1.5 s time bound) is pinned by machine tests, and the a-toggle now restores auto for the walk below`,
     );
+    await pressA(cdp); // auto back ON: the armed hold carries part-013's
+    // settled gate on into the Phase 15 chain and the branch walk below
 
     // 31. A folder with the empty stub manifest shows the empty state —
     // and `t` there opens the same panel, saying the novel has no
@@ -2481,7 +2520,8 @@ async function main() {
     // ---- Phase 13: the branch fixture, walked for real (docs/plan.md
     // Phase 13). Steps 29-30 left auto-forward ON with part-013's gate
     // done — and part-013 is no longer the story's end, so the story has
-    // been walking ITSELF on through the lead-in while steps 31-33 ran on
+    // been walking ITSELF on through the Phase 15 floor chain (auto exits
+    // it at the 4.5 s floor) and the lead-in while steps 31-33 ran on
     // other pages. The fixture's branch table: `outer-hire` hangs off
     // bridge-015 (routes hire [continuing, result return] / refuse
     // [ending], continueAt main-023), and inside the hire span
@@ -2546,7 +2586,7 @@ async function main() {
         s34still.prompt === EXPECTED.outerPrompt
         ? "PASS"
         : "FAIL",
-      `the decision ${s34autoFired && !s34driven ? "OPENED PURELY ON THE AUTO-ADVANCE — no key press between part-013 and the overlay: part-013 is mid-story now, and the auto-advance's settle of bridge-015 fires it" : `came only after ${String(s34driven ? "drive presses" : "nothing")} (auto-fired=${String(s34autoFired)})`}: #choice up=${String(s34choice.hidden === false)} current=${JSON.stringify(s34.imgSrc)} overlayHidden=${String(s34.overlayHidden)} prompt=${JSON.stringify(s34choice.prompt)} rows=${JSON.stringify(s34choice.rows)} (numbered 1..2, manifest order, no seen markers, no return row); the settled decision's item holds: 2000 ms of sampling with auto-forward ON changed nothing (${String(s34sig === s34sigHeld)}) and the overlay stayed up=${String(s34still.hidden === false)} — a pending decision owns the screen`,
+      `the decision ${s34autoFired && !s34driven ? "OPENED PURELY ON THE AUTO-ADVANCE — no advance key between part-013 and the overlay (step 30 toggled only the a key around its hold measurement): part-013 is mid-story, the auto-advance walked the Phase 15 floor chain's exit and the lead-in on its own, and the settle of bridge-015 fires it" : `came only after ${String(s34driven ? "drive presses" : "nothing")} (auto-fired=${String(s34autoFired)})`}: #choice up=${String(s34choice.hidden === false)} current=${JSON.stringify(s34.imgSrc)} overlayHidden=${String(s34.overlayHidden)} prompt=${JSON.stringify(s34choice.prompt)} rows=${JSON.stringify(s34choice.rows)} (numbered 1..2, manifest order, no seen markers, no return row); the settled decision's item holds: 2000 ms of sampling with auto-forward ON changed nothing (${String(s34sig === s34sigHeld)}) and the overlay stayed up=${String(s34still.hidden === false)} — a pending decision owns the screen`,
     );
 
     // 35. Digit 2 picks `refuse` — the ENDING route. The refuse span plays
@@ -3077,6 +3117,133 @@ async function main() {
       "42. b then an immediate reload: the resume is the bookmarked item, and its t row agrees (Phase 14)",
       s42Ok ? "PASS" : "FAIL",
       `clean slate (help dismissed=${String(s42HelpDismissed)}), walked to item 3 ${JSON.stringify(s42at.imgSrc)}=${String(s42atOk)}, b -> the "Bookmarked" pill (the commit of the bookmark AND the state write) -> reload with NOTHING in between (pill -> new document load took ${String(s42flashToLoadMs)} ms — the window the old 250 ms debounce lost): the page came back on ${JSON.stringify(s42resumed.imgSrc)} / ${JSON.stringify(s42resumed.text)}=${String(s42resumeOk)}, the position being committed before the pill appeared, and the help stayed closed=${String(s42resumed.helpOpen === false)}; IndexedDB holds ${String(s42stored.length)} bookmark at item ${String(s42stored[0]?.itemIndex)}, and clicking that newest row in the t list=${String(s42clicked)} left the screen on ${JSON.stringify(s42after.imgSrc)} / ${JSON.stringify(s42after.text)} (the ctx restore re-enters the same item); console still empty=${String(s42ConsoleClean)}`,
+    );
+
+    // ---- Phase 15: the minPlaySeconds chain-exit floor (docs/plan.md
+    // Phase 15). The fixture's chain — `stroll-025` (a ~6 s video carrying
+    // the first line, `minPlaySeconds: 4.5`), then `line-026`, `line-027` —
+    // sits between the range items and the branch lead-in, so the next
+    // unseen item past the step-42 walk's frontier is a plain forward step
+    // away in array order and `e`, which walks the frontier one unseen item
+    // per press (the landing marks its item seen), is the robust route to
+    // the chain head. Navigation fires no decision along the way.
+
+    // 43. auto advance honors the floor: the visual past the chain changes
+    // no earlier than 4.5 s after the video item became current — the
+    // dialogue advancing at reading speed UNDER the video the whole time —
+    // where the two dialogue holds alone come to ~3 s.
+    let s43ChainStart = null;
+    for (let i = 0; i < 30 && s43ChainStart === null; i += 1) {
+      await pressE(cdp);
+      const tArrive = Date.now(); // after the handler ran: the machine's
+      // chain-head instant is this or a hair earlier, never later
+      if (await page.evaluate(ON_TEXT, EXPECTED.strollText)) {
+        s43ChainStart = tArrive;
+      } else {
+        await sleep(40);
+      }
+    }
+    const s43Arrived = await page.evaluate(CHAIN_PROBE);
+    await pressSpace(cdp); // settle the video item in place (auto is OFF)
+    const s43Settled = await page.evaluate(CHAIN_PROBE);
+    await pressA(cdp); // auto ON — the floor governs auto advance
+    await pressSpace(cdp); // the settled item steps on; auto takes the chain
+    const s43MovedAt = Date.now();
+    const s43sigs = [];
+    let s43BridgeAt = null;
+    const s43Until = Date.now() + 9000;
+    while (Date.now() < s43Until) {
+      const sig = await page.evaluate(CHAIN_PROBE);
+      s43sigs.push([Date.now(), sig]);
+      if (sig.includes("bridge-014.jpg")) {
+        s43BridgeAt = Date.now();
+        break;
+      }
+      await sleep(60);
+    }
+    const s43Idx = (needle) =>
+      s43sigs.findIndex(([, sig]) => sig.includes(needle));
+    const s43Line26At = s43Idx(EXPECTED.line026Text);
+    const s43Line27At = s43Idx(EXPECTED.line027Text);
+    const s43Wall = s43BridgeAt === null ? -1 : s43BridgeAt - s43ChainStart;
+    const s43TextWall = s43BridgeAt === null ? -1 : s43BridgeAt - s43MovedAt;
+    const s43PlayingUnderText =
+      s43Line26At >= 0 &&
+      s43sigs[s43Line26At][1].includes("stroll-025.mp4|playing") &&
+      s43Line27At >= 0 &&
+      s43sigs[s43Line27At][1].includes("stroll-025.mp4|playing");
+    const s43Ok =
+      s43ChainStart !== null &&
+      s43Arrived.includes("stroll-025.mp4") &&
+      s43Settled.includes(EXPECTED.strollText) &&
+      s43Line26At >= 0 &&
+      s43Line27At > s43Line26At && // the dialogue advanced during the video
+      s43PlayingUnderText &&
+      s43BridgeAt !== null && // the visual left the chain at all
+      s43Wall >= 4400; // not the ~3 s two-line text sum
+    await pressA(cdp); // auto back OFF for the step below
+    record(
+      "43. minPlaySeconds floor: auto exits the chain at ~4.5 s, not the text sum; dialogue plays under the video",
+      s43Ok ? "PASS" : "FAIL",
+      `e walked the unseen frontier to the chain head (stroll-025.mp4=${String(s43Arrived.includes("stroll-025.mp4"))}), one space settled the video item in place (still its line=${String(s43Settled.includes(EXPECTED.strollText))}), then a + space let AUTO drive the chain: ${JSON.stringify(EXPECTED.line026Text)} came at +${String(s43Line26At >= 0 ? s43sigs[s43Line26At][0] - s43ChainStart : -1)}ms and ${JSON.stringify(EXPECTED.line027Text)} at +${String(s43Line27At >= 0 ? s43sigs[s43Line27At][0] - s43ChainStart : -1)}ms, both with the video still PLAYING beneath them=${String(s43PlayingUnderText)} (the chain does not stall the media); the visual then changed past the chain at +${String(s43Wall)}ms from the video becoming current=${String(s43Wall >= 4400)} — the floor, not the two dialogue holds (~${String(s43TextWall)}ms from the chain's first auto step, and even less without the settle) — and the machine landed on bridge-014=${String(s43BridgeAt !== null)}; auto turned back off after`,
+    );
+
+    // 44. skip stays immediate THROUGH the chain: wheel back before it, one
+    // tab burst walks the video poster and both lines and leaves the chain
+    // in plain dwells — no floor re-entry wait anywhere (the corrected
+    // machine never applies the floor to skip; the re-based chain head from
+    // the wheel re-entry would otherwise cost ~4.5 s AGAIN).
+    const s44BeforeChain = await wheelUntil(page, cdp, true, ON_PART_013);
+    const s44TabAt = Date.now();
+    await pressTab(cdp);
+    const s44sigs = [];
+    let s44BridgeAt = null;
+    const s44Until = Date.now() + 4000;
+    while (Date.now() < s44Until) {
+      const sig = await page.evaluate(CHAIN_PROBE);
+      s44sigs.push([Date.now(), sig]);
+      if (sig.includes("bridge-014.jpg")) {
+        s44BridgeAt = Date.now();
+        break;
+      }
+      await sleep(30);
+    }
+    await pressTab(cdp); // leave skip: the item left under the cursor holds
+    const s44Idx = (needle) =>
+      s44sigs.findIndex(([, sig]) => sig.includes(needle));
+    const s44StrollAt = s44Idx(EXPECTED.strollText);
+    const s44Line26At = s44Idx(EXPECTED.line026Text);
+    const s44Line27At = s44Idx(EXPECTED.line027Text);
+    const s44ChainEnd =
+      s44BridgeAt === null ? s44sigs.length : s44Idx("bridge-014.jpg");
+    const s44PosterOnly =
+      s44StrollAt >= 0 &&
+      s44Line26At > s44StrollAt &&
+      s44Line27At > s44Line26At &&
+      s44sigs
+        .slice(s44StrollAt, s44ChainEnd)
+        .every(([, sig]) => !sig.includes("playing")); // skip shows posters, never plays
+    const s44Wall = s44BridgeAt === null ? -1 : s44BridgeAt - s44TabAt;
+    const s44HeadWall =
+      s44BridgeAt === null || s44StrollAt < 0
+        ? -1
+        : s44BridgeAt - s44sigs[s44StrollAt][0];
+    const s44ConsoleClean =
+      consoleMessages.length === 0 && pageErrors.length === 0;
+    const s44Ok =
+      s44BeforeChain &&
+      s44StrollAt >= 0 &&
+      s44Line26At > s44StrollAt &&
+      s44Line27At > s44Line26At &&
+      s44PosterOnly &&
+      s44BridgeAt !== null &&
+      s44Wall < 1500 && // three dwells + one, not the floor's 4.5 s
+      s44HeadWall < 1200 && // from the chain head: leaving waited nothing
+      s44ConsoleClean;
+    record(
+      "44. skip through the floor chain stays immediate: poster + both lines + exit in a few dwells",
+      s44Ok ? "PASS" : "FAIL",
+      `wheeled back to part-013=${String(s44BeforeChain)} (before the chain), one tab walked the whole chain: ${JSON.stringify(EXPECTED.strollText)} at +${String(s44StrollAt >= 0 ? s44sigs[s44StrollAt][0] - s44TabAt : -1)}ms, ${JSON.stringify(EXPECTED.line026Text)} at +${String(s44Line26At >= 0 ? s44sigs[s44Line26At][0] - s44TabAt : -1)}ms, ${JSON.stringify(EXPECTED.line027Text)} at +${String(s44Line27At >= 0 ? s44sigs[s44Line27At][0] - s44TabAt : -1)}ms — all on the poster still, nothing playing=${String(s44PosterOnly)} — and bridge-014 followed at +${String(s44Wall)}ms from the tab press (from the chain's head: ${String(s44HeadWall)}ms)=${String(s44Wall >= 0 && s44Wall < 1500)}: ${String(120)}ms dwells only, the chain-exit floor (4.5 s from this fresh re-entry, which step 43's auto exit honored) applies to NO skip step; tab again left skip; the console stayed empty through both steps=${String(s44ConsoleClean)}`,
     );
   } finally {
     await browser.close();

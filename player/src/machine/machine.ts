@@ -628,26 +628,23 @@ export function createMachine(options: MachineOptions): Machine {
 
   /** The delay the current timer must cover, under the present settings. */
   function currentDelayMs(): number {
-    const floor = chainExitFloorMs();
     if (skipping) {
       // Skip mode: one fixed `settings.skipDwellMs` per item whatever its
       // type. Media never gates and never plays to completion; the machine
       // only times (docs/content-format.md, "Timing"). A video's dwell is
       // clamped to its own gate, so a short clip is not shown longer than
-      // the content describes. The dwell stays fast INSIDE a video's text
-      // chain; only the step LEAVING the chain waits out the floor.
+      // the content describes. The `minPlaySeconds` floor NEVER enters here:
+      // a reader in skip mode chose speed, and manual advance and skip stay
+      // immediate — the floor exists so AUTO play sees the video (Phase 15).
       const item = items[cursor];
       if (item.type === "video") {
-        return Math.max(
-          Math.min(settings.skipDwellMs, videoGateMs(item)),
-          floor,
-        );
+        return Math.min(settings.skipDwellMs, videoGateMs(item));
       }
-      return Math.max(settings.skipDwellMs, floor);
+      return settings.skipDwellMs;
     }
     return Math.max(
       itemHoldMs(items[cursor], settings, nextIsText(cursor)),
-      floor,
+      chainExitFloorMs(),
     );
   }
 

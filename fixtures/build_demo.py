@@ -45,6 +45,11 @@ CLIP_ID = "clip-012"
 CLIP_SECONDS = 2.0
 CLIP_FRAMES = VIDEO_FPS * 2  # 2.0 s at the same 25 fps
 
+STROLL_ID = "stroll-025"
+STROLL_SECONDS = 6.0
+STROLL_FRAMES = VIDEO_FPS * 6  # 6.0 s at the same 25 fps
+STROLL_MIN_PLAY = 4.5
+
 JPEG_QUALITY = 82
 
 
@@ -298,6 +303,68 @@ def build_clip_video_items() -> list[dict]:
     extract_poster(mp4, 0.0, DEMO_DIR / "part-012.poster.jpg")
     extract_poster(mp4, 1.0, DEMO_DIR / "part-013.poster.jpg")
     return items
+
+
+# One distinct background per second of the stroll clip: a pass boundary or
+# a chain step landing inside the clip stays visible, as with clip-012.
+STROLL_SECONDS_COLORS = [
+    ((14, 38, 30), (66, 106, 78)),     # green
+    ((38, 20, 48), (88, 52, 102)),     # violet
+    ((40, 18, 20), (104, 52, 46)),     # rust
+    ((16, 32, 54), (54, 84, 126)),     # blue
+    ((46, 40, 14), (112, 100, 40)),    # ochre
+    ((22, 20, 44), (64, 62, 112)),     # dusk
+]
+
+
+def build_stroll_chain_items() -> list[dict]:
+    """The Phase 15 chain: a ~6 s clip with a floor and two dialogue lines.
+
+    docs/plan.md Phase 15: the external tester saw an 8 s video's chain exit
+    gate on the text holds alone. `stroll-025` (25 fps, 150 frames, one
+    distinct background per second and one circle drifting slowly across the
+    whole clip, so playback position is observable) carries
+    `minPlaySeconds: 4.5` and the chain's FIRST spoken line; `line-026` and
+    `line-027` follow it as bare `text` items — a classic chain, entered
+    and left in array order. The lines are deliberately short (each hold is
+    the minHold, so the text sum cannot stand in for the floor). The chain
+    sits between the range items and the branch lead-in, so the branch
+    walk's auto-advance plays through it and verify re-enters it by
+    navigation (the floor measures from the re-entry).
+    """
+
+    def frame(n: int):
+        second = min((n * 6) // STROLL_FRAMES, 5)
+        top, bottom = STROLL_SECONDS_COLORS[second]
+        img = new_canvas(top, bottom)
+        x = 100 + (n * (WIDTH - 200)) // (STROLL_FRAMES - 1)
+        circle(img, x, HEIGHT // 2 + 60, 36, (232, 200, 120))
+        return img
+
+    mp4 = DEMO_DIR / f"{STROLL_ID}.mp4"
+    proc = start_encoder(mp4)
+    for n in range(STROLL_FRAMES):
+        proc.stdin.write(frame(n).tobytes())
+    finish_encoder(proc)
+    duration = probe_duration(mp4)
+
+    # The poster is exactly the first encoded source frame, as with intro-006.
+    save_jpeg(frame(0), DEMO_DIR / f"{STROLL_ID}.poster.jpg")
+
+    return [
+        {
+            "id": STROLL_ID, "type": "video",
+            "file": f"{STROLL_ID}.mp4", "poster": f"{STROLL_ID}.poster.jpg",
+            "durationSeconds": duration,
+            "minPlaySeconds": STROLL_MIN_PLAY,
+            "speaker": "Mei", "text": "The light went long.",
+        },
+        {"id": "line-026", "type": "text", "text": "We did not hurry."},
+        {
+            "id": "line-027", "type": "text", "thought": True,
+            "text": "The path turned soon.",
+        },
+    ]
 
 
 def build_text_chain_items() -> list[dict]:
@@ -601,6 +668,15 @@ def check_manifest(manifest: dict, schema: dict) -> list[str]:
                 bad(f"{where}.loopStartSeconds: must be >= 0")
             elif isinstance(end, (int, float)) and not loop_start < end:
                 bad(f"{where}.loopStartSeconds: must be < the effective end")
+            # Chain-exit floor (Phase 15): optional, and when present a
+            # number greater than 0 (docs/content-format.md, "Timing").
+            floor = item.get("minPlaySeconds")
+            if floor is not None and (
+                isinstance(floor, bool)
+                or not isinstance(floor, (int, float))
+                or floor <= 0
+            ):
+                bad(f"{where}.minPlaySeconds: must be > 0")
     return errors
 
 
@@ -630,6 +706,10 @@ def main() -> None:
     items.extend(build_text_chain_items())
     # The two range items sharing one clip (Phase 9c), after every chain.
     items.extend(build_clip_video_items())
+    # The Phase 15 floor chain (~6 s video + two short lines), before the
+    # branch demo: the auto walk plays through it, and verify steps 43-44
+    # re-enter it to time the floor (auto) and the immediate skip-through.
+    items.extend(build_stroll_chain_items())
     # Last: the Phase 13 branch demo — lead-in, decision, nested decision,
     # ending route, aftermath. The `branches` table rides with it.
     branch_items, branches = build_branch_items()

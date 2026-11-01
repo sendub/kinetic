@@ -1888,27 +1888,26 @@ describe("minPlaySeconds chain-exit floor (docs/plan.md Phase 15)", () => {
     m.destroy();
   });
 
-  it("skip dwell stays fast inside the chain; the leaving step waits for the floor", () => {
+  it("skip stays immediate through the whole chain: the floor never delays a dwell", () => {
     vi.useFakeTimers();
-    // skipAll so the burst walks the unseen chain rather than ending at it:
-    // the skip-all auto path must honor the floor at the chain exit.
+    // skipAll so the burst walks the unseen chain rather than ending at it.
+    // Phase 15 correction (README: "manual advance and skip stay
+    // immediate"): the floor exists so AUTO play sees the video; a reader
+    // in skip mode chose speed, so even the step LEAVING an unmet chain is
+    // a plain dwell.
     const m = machine(chained(5), {
       settings: { ...floorSettings, skipAll: true },
     });
     m.toggleSkip();
     const dwell = SETTINGS.skipDwellMs;
-    vi.advanceTimersByTime(dwell); // video -> text one: a plain dwell
-    expect(m.getState().cursor).toBe(1);
-    vi.advanceTimersByTime(dwell);
-    expect(m.getState().cursor).toBe(2);
-    vi.advanceTimersByTime(dwell); // last item of the chain, machine time 360
-    expect(m.getState().cursor).toBe(3);
-    expect(m.getState().skipping).toBe(true);
-    // The step LEAVING the chain waits out the floor: 5000, not 480.
-    vi.advanceTimersByTime(4639); // total 4999
-    expect(m.getState().cursor).toBe(3);
-    expect(m.getState().skipping).toBe(true);
-    vi.advanceTimersByTime(1);
+    for (let steps = 1; steps <= 3; steps += 1) {
+      vi.advanceTimersByTime(dwell); // a plain dwell per chain item
+      expect(m.getState().cursor).toBe(steps);
+      expect(m.getState().skipping).toBe(true);
+    }
+    // The leaving step at machine time 360 — with the floor it waited
+    // until 5000. Immediate.
+    vi.advanceTimersByTime(dwell); // total 4 x dwell, far below the 5 s floor
     expect(m.getState()).toEqual({
       cursor: 4,
       frontier: 5,
