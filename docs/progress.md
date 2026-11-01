@@ -578,11 +578,15 @@ truthful: an unchecked box means nothing was accepted.
       list shows an "x" in its top-right corner; clicking it removes that
       bookmark (storage included) without opening it. README feature
       line; tests + scenario.
-- [ ] README tidy (user, 2026-11-01): cut wordiness and duplication
+- [x] README tidy (user, 2026-11-01): cut wordiness and duplication
       (e.g. the `a` line repeats the manual Space mode that belongs on
       the Space line); one concise line per feature. State what IS,
       not hedged plans (e.g. "if we use a browser" -> it is a browser
       player); same reality pass over the other user-facing docs.
+      (README rewritten: Playing / Content / Tools / The demo / Not
+      supported, one line per feature, ~1056 -> ~670 words; CREATE.md
+      drops its stale copy of the controls and "later phases" hedge.
+      2026-11-01)
 - [ ] Settings survive an immediate reload (found by the screens
       scenario, 2026-11-01: four `+` clicks then a reload within ~100 ms
       came back at 1.00x in 4 of 6 runs; fire-and-forget settings write).
