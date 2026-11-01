@@ -205,6 +205,35 @@ describe("a decision fires on the forward settle of its after item", () => {
     m.destroy();
   });
 
+  it("a manual press on the after item fires it in the same press", () => {
+    // Manual is the player's start, and docs/plan.md Phase 16 makes one
+    // press one step: the forward settle a decision hangs off IS that
+    // press, so the reader gets the choice with no settle-only press first.
+    const shape = manifest(CANON);
+    const m = createMachine({
+      items: shape.items,
+      branches: shape.branches,
+      settings: SETTINGS,
+    }); // manual: the machine's own default
+    m.advance(); // 0 -> 1
+    expect(m.getState().cursor).toBe(1);
+    m.advance(); // 1 -> 2, the after item: entering it fires nothing
+    expect(m.getState().cursor).toBe(2);
+    expect(m.getState().choice).toBeUndefined();
+    m.advance(); // the press that would step on fires the decision instead
+    const state = m.getState();
+    expect(state.cursor).toBe(2);
+    expect(state.settled).toBe(true);
+    expect(state.choice).toEqual(
+      expect.objectContaining({ decisionId: "d1", prompt: "Which road?" }),
+    );
+    m.advance(); // inert while a choice is open
+    expect(m.getState().cursor).toBe(2);
+    m.choose(0);
+    expect(m.getState().cursor).toBe(3);
+    m.destroy();
+  });
+
   it("an auto-advance off the after item opens the choice instead of moving", () => {
     vi.useFakeTimers();
     const m = machine(CANON);

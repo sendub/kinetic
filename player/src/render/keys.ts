@@ -110,7 +110,7 @@ const HELP_ROWS: ReadonlyArray<{
 }> = [
   {
     command: "advance",
-    description: "finish this item; the next press moves on",
+    description: "one step on; in auto-forward it ends this item first",
   },
   {
     command: null,

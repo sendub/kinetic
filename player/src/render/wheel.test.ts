@@ -4,6 +4,7 @@ import {
   initialWheelTracker,
   WHEEL_RATE_CAP_MS,
   WHEEL_STEP_PX,
+  WHEEL_TICK_MIN_PX,
   type WheelTracker,
   wheelPlan,
 } from "./wheel";
@@ -30,26 +31,57 @@ describe("wheelPlan threshold", () => {
     expect(one.tracker.lastStepAt).toBe(0);
   });
 
-  it("holds a short flick and pays it out when the next notch arrives", () => {
-    const short = wheelPlan(-WHEEL_STEP_PX + 10, 0, initialWheelTracker);
-    expect(short).toMatchObject({ direction: null, steps: 0 });
-    expect(short.tracker.pending).toBe(-90);
-    expect(short.tracker.lastStepAt).toBeNull(); // nothing was stepped
-    const next = wheelPlan(-20, SPACING, short.tracker);
-    expect(next).toMatchObject({ direction: "back", steps: 1 });
-    expect(next.tracker.pending).toBe(-10);
-  });
-
-  it("pays several steps for one big delta and keeps the remainder", () => {
-    const big = wheelPlan(-WHEEL_STEP_PX * 2 - 40, 0, initialWheelTracker);
-    expect(big).toMatchObject({ direction: "back", steps: 2 });
-    expect(big.tracker.pending).toBe(-40);
-  });
-
   it("maps a positive delta to wheelForward", () => {
     const down = wheelPlan(WHEEL_STEP_PX, 0, initialWheelTracker);
     expect(down).toMatchObject({ direction: "forward", steps: 1 });
     expect(down.tracker.pending).toBe(0);
+  });
+});
+
+describe("wheelPlan one tick = one step (docs/plan.md Phase 16)", () => {
+  it("moves exactly one step for one notch-class event, both directions", () => {
+    for (const delta of [-WHEEL_STEP_PX, WHEEL_STEP_PX, -50, 50, -15, 15]) {
+      const outcome = wheelPlan(delta, 0, initialWheelTracker);
+      expect(outcome, String(delta)).toMatchObject({
+        direction: delta < 0 ? "back" : "forward",
+        steps: 1,
+      });
+    }
+  });
+
+  it("pays a notch for every tick, so half-notches never need pairing", () => {
+    const { steps, tracker } = feed([
+      [-50, 0],
+      [-50, SPACING],
+      [50, SPACING * 2],
+      [50, SPACING * 3],
+    ]);
+    expect(steps.map((s) => [s.direction, s.steps])).toEqual([
+      ["back", 1],
+      ["back", 1],
+      ["forward", 1],
+      ["forward", 1],
+    ]);
+    // Nothing was carried: each tick spent its own pixels.
+    expect(tracker.pending).toBe(0);
+  });
+
+  it("keeps a below-tick event in the accumulator until it adds up", () => {
+    const held = wheelPlan(-WHEEL_TICK_MIN_PX + 1, 0, initialWheelTracker);
+    expect(held).toMatchObject({ direction: null, steps: 0 });
+    expect(held.tracker.pending).toBe(-7);
+    const paid = wheelPlan(-1, SPACING, held.tracker);
+    expect(paid).toMatchObject({ direction: "back", steps: 1 });
+    expect(paid.tracker.pending).toBe(0);
+  });
+
+  it("prices a fast flick at one step per WHEEL_STEP_PX, remainder kept", () => {
+    const fling = wheelPlan(-WHEEL_STEP_PX * 5, 0, initialWheelTracker);
+    expect(fling).toMatchObject({ direction: "back", steps: 5 });
+    expect(fling.tracker.pending).toBe(0);
+    const half = wheelPlan(-WHEEL_STEP_PX * 2 - 40, 0, initialWheelTracker);
+    expect(half).toMatchObject({ direction: "back", steps: 2 });
+    expect(half.tracker.pending).toBe(-40);
   });
 });
 
@@ -83,15 +115,16 @@ describe("wheelPlan rate cap", () => {
 
 describe("wheelPlan direction flip", () => {
   it("drops the stale accumulator when the wheel reverses", () => {
-    const held = wheelPlan(-WHEEL_STEP_PX + 10, 0, initialWheelTracker);
-    expect(held.tracker.pending).toBe(-90);
-    const flipped = wheelPlan(WHEEL_STEP_PX - 30, SPACING, held.tracker);
-    // 70 px forward, not -20 px: the -90 that never reached a step is gone.
+    const held = wheelPlan(-(WHEEL_TICK_MIN_PX - 3), 0, initialWheelTracker);
+    expect(held.tracker.pending).toBe(-5);
+    const flipped = wheelPlan(WHEEL_TICK_MIN_PX - 2, SPACING, held.tracker);
+    // +6 px forward on its own, not +1 px: the -5 that never reached a step
+    // is gone, so a reversal starts from the new gesture.
     expect(flipped).toMatchObject({ direction: null, steps: 0 });
-    expect(flipped.tracker.pending).toBe(70);
-    const paid = wheelPlan(40, SPACING * 2, flipped.tracker);
+    expect(flipped.tracker.pending).toBe(6);
+    const paid = wheelPlan(4, SPACING * 2, flipped.tracker);
     expect(paid).toMatchObject({ direction: "forward", steps: 1 });
-    expect(paid.tracker.pending).toBe(10);
+    expect(paid.tracker.pending).toBe(0);
   });
 
   it("keeps walking one step per notch in each direction", () => {

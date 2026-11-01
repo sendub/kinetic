@@ -128,10 +128,16 @@ export interface Machine {
   /** Receives every state change; returns an unsubscribe function. */
   subscribe(listener: (state: MachineState) => void): () => void;
   /**
-   * Space press: during skip mode, exits skip mode and then behaves
-   * normally — settles an unsettled item, else moves the cursor. Settling
-   * the item a decision hangs off is what fires that decision. Inert while
-   * a choice is open: only `choose()` and `chooseContinue()` answer it.
+   * Space press. In MANUAL mode — the player's start — one press is one
+   * step: the current item's wait ends AND the cursor moves on the same
+   * press (docs/plan.md Phase 16, "one action means one step"). In
+   * AUTO-forward the press ends the current item's wait where it stands and
+   * the next press moves on; auto's own hold-then-advance timer path is
+   * untouched. During skip mode the press stops the burst ON the item under
+   * the cursor — the reader meant this one — so it settles without moving.
+   * Settling the item a decision hangs off is what fires that decision.
+   * Inert while a choice is open: only `choose()` and `chooseContinue()`
+   * answer it.
    */
   advance(): void;
   /**
@@ -1206,19 +1212,31 @@ export function createMachine(options: MachineOptions): Machine {
     advance() {
       if (destroyed || count === 0 || pendingChoice !== null) return;
       if (skipping) {
-        // Space during skip exits skip mode, then behaves normally: the
-        // current item has not met its own hold, so this press settles it.
+        // Space during skip exits skip mode AND stops on the current item:
+        // exiting leaves it unset, and this press settles it in place
+        // (the reader meant "stop here", not "step past this one").
         exitSkip();
-      }
-      if (!settled) {
-        // Immediate-complete: the item's wait ends now, but the cursor
-        // stays; the next advance() moves on. Settling is exactly the
-        // forward settle a decision hangs off (docs/plan.md Phase 13).
         settled = true;
         cancelTimer();
         if (fireDecision()) return;
         emit();
         return;
+      }
+      if (!settled) {
+        // Immediate-complete: the item's wait ends now. AUTO mode keeps the
+        // two-stage press — settle here, move on the next advance() — and
+        // this settle is exactly the forward settle a decision hangs off
+        // (docs/plan.md Phase 13). MANUAL mode folds the settle into the
+        // move (docs/plan.md Phase 16): one press = one step, so the same
+        // press marks the item done and falls through to moveForward(),
+        // which fires any decision before stepping.
+        settled = true;
+        cancelTimer();
+        if (autoAdvance) {
+          if (fireDecision()) return;
+          emit();
+          return;
+        }
       }
       moveForward();
     },

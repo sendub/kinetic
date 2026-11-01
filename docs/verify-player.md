@@ -108,12 +108,15 @@ every step is PASS or PARTIAL, 1 on any FAIL.
 To walk it by hand instead: run `node scripts/verify.mjs` once (or
 assemble the folder yourself per CREATE.md § Playing the folder), open
 `.tmp/verify-demo/index.html` in Chrome with DevTools' console open, and
-press keys. One machine fact keeps the manual walk predictable: the
-first space press on a freshly shown item completes it in place
-(immediate-complete, machine Phase 3) and the next press moves on, so
-advance two presses per item. For the wheel, one mouse notch is 100 px of
-delta and steps exactly one item; steps are capped at ~12 per second, so
-a fast flick cannot outrun the eye. For step 29, drag the window to a
+press keys. One machine fact keeps the manual walk predictable: in
+manual mode one space press is one step — the press ends the current
+item's wait and moves on the same press (docs/plan.md Phase 16) — while
+in auto-forward a press only ends that wait where it stands and the next
+press moves on. For the wheel, one notch — any event of ~8 px and up —
+steps exactly one item, and a fast flick is priced at 100 px per step;
+steps are capped at ~12 per second, so a flick cannot outrun the eye.
+(The driver `scripts/verify.mjs` still walks with the old two-press pair;
+its manual-mode steps need a pass for this rule.) For step 29, drag the window to a
 shape that matches nothing — tall and narrow, or wide and short — and the
 media should stay flush with one pair of edges, centred on the other
 axis, with black only where the asset's aspect and the window's differ.

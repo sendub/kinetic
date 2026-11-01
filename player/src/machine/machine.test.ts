@@ -275,19 +275,61 @@ describe("manual and auto modes, pause/resume (docs/plan.md Phase 13b)", () => {
     return createMachine({ items, settings: SETTINGS });
   }
 
-  it("manual by default: nothing fires on the timer, only presses move", () => {
+  it("manual by default: nothing on the timer, and one press is one step", () => {
     vi.useFakeTimers();
-    const m = manualMachine([image("a".repeat(30)), image()]); // 1800 ms hold
+    // 1800 ms hold, which manual mode never waits for.
+    const m = manualMachine([image("a".repeat(30)), image(), image()]);
     vi.advanceTimersByTime(60_000);
     expect(m.getState().cursor).toBe(0);
-    m.advance(); // immediate-complete: the item is settled in place
-    expect(m.getState().settled).toBe(true);
-    vi.advanceTimersByTime(60_000); // a settled item never auto-moves
-    expect(m.getState().cursor).toBe(0);
-    m.advance(); // the next press moves on...
+    // docs/plan.md Phase 16: the press ends the item's wait AND moves the
+    // cursor — no settle-only press in front of every step.
+    m.advance();
+    expect(m.getState()).toEqual({
+      cursor: 1,
+      frontier: 2,
+      settled: false,
+      skipping: false,
+    });
+    vi.advanceTimersByTime(60_000); // the fresh item waits for the reader too
     expect(m.getState().cursor).toBe(1);
-    vi.advanceTimersByTime(60_000); // ...and the fresh item waits too
+    m.advance(); // the next press steps one further
+    expect(m.getState()).toEqual({
+      cursor: 2,
+      frontier: 3,
+      settled: false,
+      skipping: false,
+    });
+    m.advance(); // at the last item there is nowhere to go: it settles
+    expect(m.getState()).toEqual({
+      cursor: 2,
+      frontier: 3,
+      settled: true,
+      skipping: false,
+    });
+    m.destroy();
+  });
+
+  it("manual space during skip stops the burst on the item under the cursor", () => {
+    vi.useFakeTimers();
+    const m = createMachine({
+      items: [image(), image(), image(), image()],
+      settings: SETTINGS,
+      resumeFrontier: 4, // all seen, so the burst runs past item 1
+    }); // manual by default
+    m.goTo(0);
+    m.toggleSkip();
+    vi.advanceTimersByTime(SETTINGS.skipDwellMs); // 0 -> 1
     expect(m.getState().cursor).toBe(1);
+    expect(m.getState().skipping).toBe(true);
+    m.advance(); // stops skipping HERE: the reader meant this item
+    expect(m.getState()).toEqual({
+      cursor: 1,
+      frontier: 4,
+      settled: true,
+      skipping: false,
+    });
+    m.advance(); // and only the next press moves on
+    expect(m.getState().cursor).toBe(2);
     m.destroy();
   });
 
@@ -416,7 +458,7 @@ describe("manual and auto modes, pause/resume (docs/plan.md Phase 13b)", () => {
     // reading sat. The seen set was restored; the seen edge was not.
     const items = [image(), image(), image(), image(), image()];
     const first = manualMachine(items);
-    for (let press = 0; press < 6; press += 1) first.advance(); // seen 0..3
+    for (let press = 0; press < 3; press += 1) first.advance(); // seen 0..3
     expect(first.getState()).toMatchObject({ cursor: 3, frontier: 4 });
     first.goTo(1); // a `t` click back inside seen content: lastShown moves…
     expect(first.getState()).toMatchObject({ cursor: 1, frontier: 4 }); // the edge does not

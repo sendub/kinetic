@@ -10,8 +10,15 @@
 //
 // Deltas are read as pixels, the `deltaMode === 0` Chrome reports on macOS.
 
-/** Accumulated wheel pixels needed for one machine step. */
+/** Wheel pixels one machine step costs a LARGE delta (a fast flick). */
 export const WHEEL_STEP_PX = 100;
+
+/**
+ * Wheel pixels below which an event is not a tick at all: trackpad inertia
+ * tails and pointer jitter. Events at or above it are a deliberate notch,
+ * however small, and move one item (docs/plan.md Phase 16).
+ */
+export const WHEEL_TICK_MIN_PX = 8;
 
 /** Minimum spacing between two emitted steps, in ms. */
 export const WHEEL_RATE_CAP_MS = 80;
@@ -55,9 +62,15 @@ function noop(tracker: WheelTracker): WheelOutcome {
  *   browser oddity, not a cap, so it never wedges the wheel.)
  * - Direction flip: the accumulator resets first, so a reversal starts from
  *   the new gesture instead of cancelling stale pixels.
- * - Threshold: one step per `WHEEL_STEP_PX` accumulated, the remainder kept
- *   with its sign so a 90 px flick is not thrown away but counted toward the
- *   next notch.
+ * - Steps: one event at or above `WHEEL_TICK_MIN_PX` moves at least one item
+ *   (docs/plan.md Phase 16 — "one tick of the wheel is one step", so a
+ *   half-notch 50 px event, or a trackpad notch under 100 px, no longer needs
+ *   a second event to land anywhere). Past one step's worth the delta is
+ *   priced as it always was, `WHEEL_STEP_PX` per step with the remainder kept
+ *   toward the next notch, so a 500 px fling is five items and a 250 px fling
+ *   is two with 50 px still to spend. Below `WHEEL_TICK_MIN_PX` an event is
+ *   not a tick and accumulates instead — that is what stops an inertia tail
+ *   from walking the timeline after the finger has left the trackpad.
  */
 export function wheelPlan(
   deltaY: number,
@@ -75,8 +88,8 @@ export function wheelPlan(
   const reversed =
     tracker.pending !== 0 && Math.sign(deltaY) !== Math.sign(tracker.pending);
   const accumulated = (reversed ? 0 : tracker.pending) + deltaY;
-  const steps = Math.floor(Math.abs(accumulated) / WHEEL_STEP_PX);
-  if (steps === 0) {
+  const magnitude = Math.abs(accumulated);
+  if (magnitude < WHEEL_TICK_MIN_PX) {
     return {
       tracker: { ...tracker, pending: accumulated },
       direction: null,
@@ -84,12 +97,15 @@ export function wheelPlan(
     };
   }
   const direction: WheelDirection = accumulated < 0 ? "back" : "forward";
-  const notch = steps * WHEEL_STEP_PX;
+  const steps = Math.max(1, Math.floor(magnitude / WHEEL_STEP_PX));
+  // A sub-notch tick spends every pixel it brought (nothing is carried), so
+  // the next tick is worth a whole step on its own; a flick spends the steps
+  // it was priced at and keeps the change. The remainder keeps the
+  // accumulated sign, so it is never a signed zero.
+  const spend = Math.min(magnitude, steps * WHEEL_STEP_PX);
   return {
     tracker: {
-      // Spend the pixels with the accumulated sign, so the remainder keeps
-      // its direction and is never a signed zero.
-      pending: accumulated - (direction === "back" ? -notch : notch),
+      pending: accumulated - (direction === "back" ? -spend : spend),
       lastStepAt: now,
     },
     direction,

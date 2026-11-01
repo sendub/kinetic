@@ -364,10 +364,17 @@ truthful: an unchecked box means nothing was accepted.
       labels; native range 0.25-3.0 step 0.25 matching the repo's
       multiplier model; live setSettings proof: 5523 ms hold at 1x vs
       3004 ms at 3x; survives reload; +6 tests, 312 green, 2025-11-02)
-- [ ] Single-action navigation: reproduce what needs more than one
+- [x] Single-action navigation: reproduce what needs more than one
       action, then one space = one step and one wheel tick = one step
       both directions, manual and as space-in-auto; auto's own
-      hold-then-advance unchanged.
+      hold-then-advance unchanged. (repro at HEAD: 2 presses/item +
+      50px tick dead; fixed via manual-press settles-and-moves +
+      wheelPlan >=8px notch rule; 500px=5 steps kept; 316 tests,
+      scenario strict 1:1 presses->moves, 2025-11-02)
+- [ ] Phase-closer: rework verify.mjs press helpers for one-press
+      advance (advancePair's 7 uses + the manual-freeze steps), then
+      the full suite close-run (44-step driver, full pytest,
+      package-proof) for Phase 16.
 - [ ] Decisions surface on navigation (merges the wheel and tab
       points): arriving at a decision's after by wheel or tab-shows
       shows the overlay and waits; tab-skip pauses at decisions
