@@ -484,3 +484,32 @@ truthful: an unchecked box means nothing was accepted.
       to a fresh run); bucket-exists + two-run byte-identity + flat
       tests; validator green on sharded, flat and artifact; 73
       converter tests, 2026-11-01)
+
+## Phase 18: Second demo-feedback round (2026-11-01, user)
+
+- [ ] `e` resume-first: with unseen content remaining, pressing `e`
+      away from the last-shown item lands ON the last-shown item
+      (resume); from there it keeps the first-unseen stepping; all-seen
+      keeps the most-recent-ending rule. Tests + docs.
+- [ ] "Return to main route" only after the CONTINUING route has
+      completed at least once; "Enter returns" hint renders only when
+      the row exists. content-format + CREATE reword; tests.
+- [ ] Navigation arrival re-opens COMPLETED decisions (re-offer with
+      seen marks; return row per the new rule) so every decision point
+      surfaces when scrolling back, nested included.
+- [ ] Wheel (any notch, any direction) closes the choice overlay -
+      fired, arrival, or re-offer - and navigates; only keys choose.
+- [ ] Skip never reveals unseen: burst advances only through seen
+      items and stops ON the last seen; tab from a fresh start moves
+      nothing; skipAll unchanged. README/verify wording + tests.
+- [ ] Ending hint: when an ending shows and unseen content remains, a
+      quiet standing line invites `e`; absent when all seen.
+- [ ] Play-all: black interstitial (~2.5 s machine-held) on each
+      back-in-time jump showing prompt, last route, seen marks,
+      highlighted new route; route pills 1.6 s. Scenario proof.
+- [ ] Demo meta pass: meta text items explaining the intent of each
+      demoed feature (ranges, loopStart, minPlay, chains, the branch
+      map + replay affordances); docs list demo features; driver
+      strings resynced; determinism green.
+- [ ] Phase-closer: full suite (driver, vitest, pytest, package-proof),
+      rebuild BOTH demo folders, present the updated demo to the user.

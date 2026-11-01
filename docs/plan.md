@@ -723,6 +723,46 @@ directory holds too many files.
 - Update docs (content-format, extracting) and add a converter test
   asserting shard placement is stable + all referenced files exist.
 
+## Phase 18: Second demo-feedback round (2026-11-01, user, after config reset)
+
+- `e` gains a resume step (user point: after wheeling back, `e`
+  jumped past where they had stopped reading): when the cursor is not
+  at the LAST-SHOWN item, `e` goes there first (resume reading where
+  you left off). From the last-shown position, `e` keeps the existing
+  behavior: jump to first unseen (route-aware), repeated presses step
+  unseen; all-seen still shows the most recently seen ending.
+- "Return to main route" rule refined (user points: offered at a
+  branch start; jumped past an unplayed continuing route; "Enter
+  returns" hint shown when invalid): the option exists only once the
+  decision's CONTINUING route has been completed at least once - a
+  continuation you have not seen is not a place to "return" to;
+  picking the continuing route is the way forward. The Enter hint
+  renders only when the row exists.
+- Arriving at a decision's after by navigation re-opens COMPLETED
+  decisions too (seen marks, plus return row per the rule above), not
+  only unresolved ones - scrolling back from the end must surface
+  every decision point, nested included.
+- Navigation is never trapped by a choice overlay: a wheel notch
+  (either direction) closes the overlay - fired, arrival, or
+  re-offer - and moves as usual. Only keys choose or dismiss.
+- Skip never reveals unseen content: the skip burst advances only
+  through seen items and stops ON the last seen one; from a fresh
+  start tab does nothing at all. `skipAll` unchanged (it may reveal).
+- Endings offer the way onward: when an ending displays and unseen
+  content remains, a quiet standing hint appears ("Some content is
+  still unseen - press e."); gone when everything has been seen.
+- Play-all legibility: the back-in-time jump gets a dedicated
+  interstitial (black screen) held ~2.5 s before the new route
+  starts: the decision prompt, the route just completed, seen marks
+  for every route, and the route now starting highlighted. Route
+  entry pills lengthen to ~1.6 s.
+- Demo meta pass: the fixture gains short meta text items explaining
+  the intent at each demo feature (ranges, loopStart, minPlay,
+  chains, the branch map - what continues, what ends, what nests,
+  how to replay routes) so a first-time player can tell demo intent
+  from behavior; docs list the demo's features; driver strings
+  resync.
+
 ## Later, waiting on the user
 
 - Overlay text styling iteration once the user can play with the demo.
