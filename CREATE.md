@@ -373,57 +373,431 @@ present `manifest.js` embeds JSON equal to `manifest.json`.
 
 ## Converting a Ren'Py project
 
-The extractor turns a Ren'Py project directory (loose dir, `.app`
-bundle, or slice with `--label/--max-items/--files`) into exactly this
-folder format:
+The extractor, `kinetic-extract`, turns a Ren'Py project (a folder
+holding `game/`, the `game/` folder itself, or a macOS `.app`) into
+exactly the folder format above. It reads `.rpy` scripts, decompiles
+`.rpyc` (vendored unrpyc) and reads `.rpa` archives, converts simple
+`menu:` blocks into branches (conservatively, never guessing joins),
+and does the media work you do by hand above: it sniffs true formats,
+keeps browser-compatible originals byte-identical or ships them as
+lossless JPEG XL when that is smaller, transcodes only video no target
+browser plays, and makes the posters. Every media file it ships,
+posters included, is named by the sha256 of its bytes,
+`media/<h[:2]>/<h>.<ext>` (docs/extracting.md, "Output layout").
+
+The conversion is reproducible: the same game gives the same bytes and
+paths on any machine whose pinned tools pass the self-test, and the
+folder's build ledger records how to make every media file again from
+the original game files, so anyone holding the game can check a folder
+with `kinetic-media rebuild`.
+
+The steps below use one example game throughout: Rainy Day, released
+in two episodes at `~/games/RainyDay/Ep1` and `~/games/RainyDay/Ep2`,
+converted into `~/games/RainyDay-Kinetic`. Replace those with your
+paths. Run every command from the root of your Kinetic checkout unless
+a step says otherwise.
+
+### Setting up the tools
+
+Once per checkout (create the venv first if `.venv/` is missing:
+`python3 -m venv .venv`):
 
 ```sh
-.venv/bin/pip install -r requirements.txt   # once per venv
-.venv/bin/pip install -e ./converter        # once per venv
-.venv/bin/python tools/setup_media_tools.py # once per checkout
-.venv/bin/kinetic-extract <renpy_project> <out_dir>
+.venv/bin/pip install -r requirements.txt --cache .tmp/pip-cache
+.venv/bin/pip install -e ./converter --cache .tmp/pip-cache
+.venv/bin/python tools/setup_media_tools.py
 ```
 
-The setup script downloads the pinned static ffmpeg and ffprobe for your
-OS and architecture into `.media-tools/` (checksum-verified) and checks
-that every media tool gives byte-identical results on a set of samples.
-The extractor uses only those tools, never whatever ffmpeg is on your
-PATH, so the same game converts to the same bytes on any machine; it
-refuses to run until the setup has passed (converter/README.md, "Pinned
-media tools").
+The pip lines install the pinned Pillow, imagecodecs (libjxl) and
+numpy, and the converter. The setup script downloads the pinned static
+ffmpeg and ffprobe for your OS and architecture into `.media-tools/`,
+checks their sha256, and runs a self-test: every media tool path runs
+on committed samples and each output's sha256 must equal the pinned
+"golden" value. A good run ends:
 
-It sniffs true formats and keeps browser-compatible originals
-byte-identical, re-encoding only what it must: images become lossless
-JPEG XL when that is smaller, video becomes H.264 MP4 when no target
-browser plays it. It emits posters, which is the work
-you do by hand above, stores identical output once, decompiles `.rpyc` (vendored unrpyc) and reads `.rpa` archives as
-sources, converts simple `menu:` blocks into branches (conservatively;
-never guessing joins), and leaves its build ledger among the folder's
-unreferenced extras. Every media file it ships, posters included, is
-named by the sha256 of its bytes, `media/<h[:2]>/<h>.<ext>`, so the same
-game gives the same paths on any machine and a big game never puts
-thousands of files in one folder that macOS Finder has to lay out
-(docs/extracting.md, "Output layout"). Validate and play its output the same way.
+```text
+setup_media_tools: self-test passed (15 cases)
+setup_media_tools: media tools ready in .../.media-tools/macos-arm64
+```
 
-If a game wraps or obfuscates its images or videos in its own way, pass
-a decoder for it: `--decoder path/to/unwrap.py:decode`, a Python function
-that gets each media file's bytes and returns them unwrapped (or `None`
-to leave them alone). Kinetic ships no game-specific decoders; see
-docs/extracting.md, "Decoder hooks".
+The converter uses only these tools, never the ffmpeg on your PATH,
+and refuses to run until this self-test has passed. Run all three
+commands again after a `git pull` that changes `requirements.txt` or
+`converter/media-tools.json`.
 
-The extractor names the game and the story for you: the `title` is the
+Two flags change the pins in `converter/media-tools.json`; commit the
+file after either:
+
+- `--pin`: the first setup on a platform whose archive checksums are
+  still null (the pin file lists `macos-arm64`, `macos-x86_64`,
+  `linux-x86_64` and `linux-arm64`; only `macos-arm64` is pinned so
+  far). It records the archives' sha256s. The golden values are shared
+  by every platform and must still match, so `--pin` cannot hide a
+  platform whose tools give different bytes.
+- `--repin CASE`: only after a deliberate change to a media recipe in
+  the converter changes one self-test case's output. It re-records that
+  case (repeatable) and prints old and new values; every other case
+  must still match.
+
+Reference: converter/README.md, "Pinned media tools".
+
+### Converting, checking and playing one game
+
+```sh
+.venv/bin/kinetic-extract ~/games/RainyDay/Ep1 ~/games/RainyDay-Kinetic
+.venv/bin/python tools/validate_content.py ~/games/RainyDay-Kinetic
+cp player/dist/index.html player/dist/app.js ~/games/RainyDay-Kinetic/
+.venv/bin/kinetic-media rebuild ~/games/RainyDay/Ep1 ~/games/RainyDay-Kinetic
+```
+
+1. `kinetic-extract` prints a summary: item and media counts, the
+   display size, the story id and title with where each came from, and
+   one line per statement it skipped and per item note (`jxl 131 <
+   original 602`, `shares shipped file ...`). Read the
+   `items skipped` count and any `warning:` lines (When something
+   fails, below).
+2. The validator prints nothing and exits 0 on a good folder.
+3. The `cp` adds the player (run `npm run build` in `player/` first if
+   `player/dist/` is missing or stale). Double-click `index.html` to
+   play (Playing the folder, below).
+4. `rebuild` makes every media file again from the original game and
+   compares hashes; it ends `rebuild OK` (Checking a folder with
+   rebuild, below).
+
+To try a big game on part of its story first, add `--label NAME`,
+`--max-items N` or `--files GLOB` (converter/README.md, "Usage").
+
+When you convert again after a change that drops media (a different
+game version, other options), use a new or empty folder: the extractor
+never deletes files, so media left over from the earlier run stays in
+`media/` and `rebuild` reports it as `not in the ledger`.
+
+The extractor names the game and the story: the `title` is the
 project's `config.name` (else its folder name, with `_` and `-` read as
 spaces), and the `storyId` is derived from `config.save_directory`,
-`config.name` or the folder name. Set either yourself with
-`--title "Rainy Day"` and `--story-id rainy-day-1` (the id must already
-be a valid `storyId`), or edit `manifest.json` afterwards and regenerate
-`manifest.js` (Generating manifest.js).
+`config.name` or the folder name. Set either with `--title "Rainy Day"`
+and `--story-id rainy-day` (the id must already be a valid `storyId`),
+or edit `manifest.json` afterwards and regenerate `manifest.js`
+(Generating manifest.js). Keep the `storyId` when you convert an
+updated game, so readers' progress follows it.
+
+### Several episodes, one game
 
 A game released in episodes becomes one game: list the episodes in
-story order before the output folder,
-`kinetic-extract <episode1> <episode2> <out_dir>`. Episode 2 follows
-episode 1 in one story, with one media folder that stores identical
-files once (docs/extracting.md, "Several episodes, one game").
+story order before the output folder.
+
+```sh
+.venv/bin/kinetic-extract ~/games/RainyDay/Ep1 ~/games/RainyDay/Ep2 \
+    ~/games/RainyDay-Kinetic --title "Rainy Day" --story-id rainy-day
+```
+
+Episode 2 follows episode 1 in one story, item ids gain an `ep1-`/
+`ep2-` prefix, and one `media/` folder stores identical files once.
+Give `--title` and `--story-id`: without them both come from the first
+episode (here its folder name, `Ep1`). Keep the episode order when you
+add an episode later (append it), so existing ids and readers'
+progress stay. In the example, episode 2 wraps its yard image, so this
+run reports two `ep2-bg-yard-…` items dropped (`items skipped: 2`); the
+next section fixes that. Rebuild with every episode, in the same order:
+
+```sh
+.venv/bin/kinetic-media rebuild ~/games/RainyDay/Ep1 ~/games/RainyDay/Ep2 \
+    ~/games/RainyDay-Kinetic
+```
+
+Reference: docs/extracting.md, "Several episodes, one game".
+
+### A game that wraps its media: decoder hooks
+
+Some games wrap or obfuscate their image or video files. The
+extractor reports such a file as an `unsupported image format (...):
+item dropped from manifest` note and counts it under `items skipped`.
+Kinetic ships no game-specific decoders; you write one as a Python
+function, a decoder hook, and pass it with `--decoder MODULE:FUNC`.
+
+The hook gets the complete bytes of every media source the conversion
+reads, loose file or `.rpa` member, before format detection:
+
+- `def decode(data: bytes, source: dict) -> bytes | None`. `source` is
+  `{"path": "game/images/a.png"}` for a loose file or
+  `{"archive": "game/images.rpa", "member": "images/a.png"}` for an
+  archive member.
+- Return `None` for data that is not yours; it passes through
+  unchanged.
+- Return the decoded bytes for data you unwrapped.
+- Raise for data you recognise but cannot decode (truncated,
+  malformed). The run stops with exit 1, naming the hook and the
+  source, and writes no manifest; nothing is silently skipped.
+
+The worked example below unwraps an "EXTRA" wrapper: `EXTRA` plus three
+bytes at the start, and ten junk bytes inserted at an offset that
+depends on the file's length.
+
+> **Illustrative only.** This formula shows the shape of a hook. It is
+> modelled on a wrapper seen in game I but is NOT a correct
+> decoder for that game: its episodes 4-5 use an activation-dependent
+> offset that this formula does not handle. A real game's hook is
+> written for, tested on and shipped with that game's conversion
+> package, never with Kinetic.
+
+Save it as `~/games/rainy-kinetic/rainy_unwrap.py`, in the folder that
+holds your conversion package for the game:
+
+```python
+"""Decoder hook for Rainy Day's "EXTRA" wrapper.
+
+ILLUSTRATIVE ONLY: this formula shows the hook shape; it is not a
+correct decoder for any real game.
+"""
+
+PREFIX = b"EXTRA"
+HEAD = 8          # the prefix plus three bytes the wrapper adds
+JUNK = 10         # bytes inserted at a length-dependent offset
+STRIDE = 30477
+
+
+def decode(data: bytes, source: dict) -> bytes | None:
+    if not data.startswith(PREFIX):
+        return None                       # not ours: leave it alone
+    offset = max(20, ((len(data) - 18) // STRIDE) * STRIDE)
+    if len(data) < offset + JUNK:
+        raise ValueError(f"truncated EXTRA wrapper ({len(data)} bytes)")
+    return data[HEAD:offset] + data[offset + JUNK:]
+```
+
+Pass it by module name, with its folder on `PYTHONPATH`, to both the
+conversion and the rebuild:
+
+```sh
+PYTHONPATH=~/games/rainy-kinetic .venv/bin/kinetic-extract \
+    ~/games/RainyDay/Ep1 ~/games/RainyDay/Ep2 ~/games/RainyDay-Kinetic \
+    --title "Rainy Day" --story-id rainy-day --decoder rainy_unwrap:decode
+PYTHONPATH=~/games/rainy-kinetic .venv/bin/kinetic-media rebuild \
+    ~/games/RainyDay/Ep1 ~/games/RainyDay/Ep2 ~/games/RainyDay-Kinetic \
+    --decoder rainy_unwrap:decode
+```
+
+Packaging rules:
+
+- Keep the hook in one self-contained `.py` file next to your helper or
+  conversion notes, and ship it with them. The ledger records the hook
+  as given (`rainy_unwrap:decode`) and the sha256 of that one file, so
+  code it imports from elsewhere is not covered.
+- Name it by module name (as above) or by a path relative to where you
+  run, never an absolute path: the ledger then reads the same on every
+  machine. A rebuild matches a hook by function name and code hash, so
+  it still finds a hook spelled differently, but a changed file is a
+  mismatch.
+- The hook runs inside the converter with its full trust: use only code
+  you have read.
+- Several `--decoder` hooks chain in the order given.
+
+Reference: docs/extracting.md, "Decoder hooks".
+
+### Writing your own converter: kinetic-media ship
+
+A game the extractor cannot read well (its own story format, screens
+instead of `say` statements) gets a game-specific helper: your own
+code builds the story, and `kinetic-media ship` does all the media
+work, with the same tools, policies, decoder hooks and
+content-addressed `media/` layout as `kinetic-extract`. The helper
+writes `manifest.json` itself. It replaces `kinetic-extract` for that
+game, so ship into a folder of its own: below, an empty
+`~/games/RainyDay-Kinetic` (delete the one the extractor made above).
+
+Use the folder that holds every episode (`~/games/RainyDay`) as the
+game root for every ship, and name sources relative to it, so one
+media ledger covers all episodes and one root rebuilds them. Ids must
+be unique across episodes. A request list per episode,
+`~/games/rainy-kinetic/requests-ep1.json`:
+
+```json
+[
+  {"id": "ep1-room", "kind": "image",
+   "source": {"path": "Ep1/game/data/bg-room.png"}},
+  {"id": "ep1-clip", "kind": "video", "startSeconds": 0.5,
+   "source": {"path": "Ep1/game/data/clip.mp4"}}
+]
+```
+
+A source inside an `.rpa` archive is
+`{"archive": "Ep1/game/images.rpa", "member": "bg/room.jpg"}`. A
+video's poster is the frame at `startSeconds` (default 0).
+`requests-ep2.json` lists episode 2's sources the same way. Ship each
+episode into the same folder, from the helper's folder:
+
+```sh
+cd ~/games/rainy-kinetic
+KINETIC=~/src/kinetic        # your Kinetic checkout
+PYTHONPATH=. $KINETIC/.venv/bin/kinetic-media ship ~/games/RainyDay \
+    ~/games/RainyDay-Kinetic --list requests-ep1.json \
+    --decoder rainy_unwrap:decode
+PYTHONPATH=. $KINETIC/.venv/bin/kinetic-media ship ~/games/RainyDay \
+    ~/games/RainyDay-Kinetic --list requests-ep2.json \
+    --decoder rainy_unwrap:decode
+```
+
+Each run prints `requests: 2; shipped: 2; skipped: 0` and merges into
+`~/games/RainyDay-Kinetic/media-ledger.json`; shipping the same list
+again changes nothing. That ledger's `requests` pair each request with
+its `result`. A result with a `file` gives the manifest item's media
+fields; one without a `file` was skipped, and its `decision` and
+`notes` say why. Your helper drops a skipped item. A sketch of reading
+it (`media_items.py`):
+
+```python
+import json
+
+
+def media_items(folder):
+    """Request id -> the media fields of its manifest item."""
+    with open(f"{folder}/media-ledger.json", encoding="utf-8") as f:
+        ledger = json.load(f)
+    items = {}
+    for entry in ledger["requests"]:
+        request, result = entry["request"], entry["result"]
+        if "file" not in result:      # skipped: drop the item, say why
+            print("skipped", request.get("id"), result["decision"],
+                  result["notes"])
+            continue
+        if request["kind"] == "image":
+            items[request["id"]] = {"type": "image", "file": result["file"]}
+        else:
+            items[request["id"]] = {
+                "type": "video", "file": result["file"],
+                "poster": result["poster"],
+                "durationSeconds": result["durationSeconds"],
+                "startSeconds": request.get("startSeconds", 0)}
+    return items
+```
+
+The result's `width` and `height` give the display size. The helper
+then writes `manifest.json` with these items in story order, generates
+`manifest.js` (Generating manifest.js), and the folder is validated,
+played and rebuilt like any other:
+
+```sh
+cd ~/src/kinetic
+.venv/bin/python tools/validate_content.py ~/games/RainyDay-Kinetic
+PYTHONPATH=~/games/rainy-kinetic .venv/bin/kinetic-media rebuild \
+    ~/games/RainyDay ~/games/RainyDay-Kinetic --decoder rainy_unwrap:decode
+```
+
+A media ledger rebuilds from its one game root (the folder holding the
+episodes). Share the finished folder, and keep the helper folder
+(hook, request lists, helper code) with it, so anyone holding the game
+can rebuild it.
+
+Reference: docs/extracting.md, "kinetic-media ship".
+
+### Checking a folder with rebuild
+
+`kinetic-media rebuild` reads the folder's `build-ledger.json` and/or
+`media-ledger.json`, finds every original source under the game
+root(s), checks its sha256, runs the recorded steps again, and checks
+each output's sha256 and the folder's `media/` (no file missing, extra
+or altered). It never uses the reuse cache. Exit 0 and `rebuild OK`
+mean every media file is exactly what this game and these tools make.
+
+To verify a folder on another machine, that machine needs:
+
+- the same OS and architecture: the ledger records the ffmpeg binary's
+  sha256, and a rebuild refuses tools that differ (exit 2);
+- a Kinetic checkout at the commit that made the folder, set up as in
+  Setting up the tools (note the commit when you share a folder);
+- the original game files, and the same decoder hooks.
+
+Then run the same rebuild command with that machine's paths. Add
+`--out DIR` to also write the rebuilt `media/` tree into `DIR`, which
+reproduces a folder's media from its ledger and the game alone.
+
+Reference: docs/extracting.md, "kinetic-media rebuild".
+
+### The reuse cache
+
+Encoding (lossless JPEG XL at effort 9, transcodes, posters) is the
+slow part of a conversion. `kinetic-extract` and `kinetic-media ship`
+remember each encode in `.tmp/kinetic-media-cache/` in your checkout,
+keyed by the bytes being encoded (after decoder hooks), the recipe and
+the exact tools, so a re-run or a later episode encodes nothing it has
+made before and writes the same folder byte for byte.
+
+- `KINETIC_MEDIA_CACHE=DIR` puts the cache elsewhere, for example on a
+  bigger disk; `KINETIC_MEDIA_CACHE=off` turns it off for one run.
+- Deleting it is always safe (`rm -rf .tmp/kinetic-media-cache`); the
+  next run encodes again. Do so to reclaim disk space; the cache only
+  grows. Stored outputs are hash-checked when read, so a damaged cache
+  never damages a folder.
+- `rebuild` never reads it.
+
+Reference: docs/extracting.md, "Reuse cache".
+
+### When something fails
+
+**`media self-test mismatch: the tools would not reproduce the pinned
+output, refusing to convert`**, with one line per case such as
+`imagecodecs (imagecodecs.jxl-lossless): expected …, got …`. The tools
+on this machine do not make the pinned bytes, so a folder made here
+would not match one made elsewhere. Re-run
+`.venv/bin/pip install -r requirements.txt --cache .tmp/pip-cache` and
+`.venv/bin/python tools/setup_media_tools.py --force` (a fresh ffmpeg
+download). If it still fails, the platform really differs (a different
+build of a wheel or of ffmpeg): report it with the case lines, and do
+not `--repin` to make it pass, since that would change the reference
+bytes for every machine. The related refusals name their own fix: a
+missing install or a changed binary (`run .venv/bin/python
+tools/setup_media_tools.py`), codec versions that differ from the pins
+(`run .venv/bin/pip install -r requirements.txt ...`), or a platform or
+case not pinned yet (`... --pin`).
+
+**`decoder hook rainy_unwrap:decode failed on game/data/bg-room.png:
+ValueError: truncated EXTRA wrapper (13 bytes)`** (exit 1). Your hook
+raised on that source. Either the file is damaged in this copy of the
+game, or the hook does not cover this variant of the wrapper: fix the
+hook, never make it return `None` for data it recognises. A hook that
+cannot be loaded (`has no function 'decode'`, `cannot import`) is a
+usage error (exit 2) before any work.
+
+**`unsupported image format (...): item dropped from manifest`.** The
+file is not an image Pillow reads and no plain wrapper was found in its
+first 64 bytes. Usually a game-specific wrapper: write a decoder hook.
+
+**`warning: ... poster failed for <video>: ffmpeg: <error>: item
+dropped from manifest`.** No poster frame could be made, for example a
+`startSeconds` past the end of the video, or a video ffmpeg cannot
+decode. The item is dropped (a video never stands in as its own
+poster). Fix the start time or the source.
+
+**`warning: ... MKV codec mpeg4: no target browser plays it`.** MKV
+files ship unchanged whatever their codec, and this one will not play.
+Make a playable copy of the source (H.264 MP4 or VP9 WebM, as in
+Preparing the media) and convert from a copy of the game that uses it,
+or ship it through a helper whose request names the playable file; keep
+that file with the game files so the folder still rebuilds.
+
+**`rebuild` exit 2.** It could not start: no ledger in the folder, a
+bad game root, tools not ready, or `the ledger was made with other
+media tools`, followed by each difference
+(`mediaTools Pillow: ledger "12.0.0", now "13.0.0"`). Rebuild with the
+Kinetic commit that made the folder, on the same OS and architecture,
+or convert the game again with the current tools.
+
+**`rebuild` exit 1.** Each problem is one `FAIL <output path>:
+<problem>` line, then `rebuild FAILED: N problem(s)`:
+
+| Problem | What to do |
+| --- | --- |
+| `missing source …` | Give the right game root(s), episodes in conversion order; a ship ledger takes the folder holding all episodes. |
+| `source hash mismatch for …` | This copy of the game differs from the one converted (another release, a patch, a damaged file); use the same release. |
+| `decoder hook missing: …` | Pass the hooks the conversion used, with `--decoder`. |
+| `decoder hook mismatch: …` or `decode steps differ from the ledger …` | The hook's code changed since the conversion; use the version shipped with the folder. |
+| `unsupported step '…'` | This Kinetic cannot run a recorded step; use the commit that made the folder. |
+| `step … failed: …` | ffmpeg, Pillow or libjxl failed on the source; check the setup self-test passes. |
+| `output mismatch: …` | The tools made other bytes; re-run setup, and rebuild with the commit that made the folder. |
+| `not in the ledger` | A file in `media/` no ledger lists, often left by converting into a non-empty folder; convert into an empty folder. |
+| `absent from the folder` or `folder file differs from the ledger: …` | The folder's `media/` lost or altered a file. Copy the folder again, or rebuild with `--out DIR` (a new folder) and copy `DIR/media/.` over the folder's `media/`. |
+
+Reference: docs/extracting.md, "kinetic-media rebuild".
 
 ## Playing the folder
 
@@ -483,10 +857,14 @@ and the first open carries that progress over to it.
 Re-extract instead when the fix is in the converter (`kinetic-extract`)
 rather than the player, or when the validator rejects a folder the
 older Kinetic accepted, such as a manifest whose `schemaVersion` the
-newer tools no longer take. Extract into a new folder with the same
-`storyId` (the extractor derives the same one from the same project;
-otherwise pass `--story-id`), copy the player in, validate, and replace
-the old folder. Progress is saved by item id, so items that keep their
+newer tools no longer take. Run `.venv/bin/python
+tools/setup_media_tools.py` first (the pull may have changed the pinned
+tools), then extract into a new folder with the same `storyId` (the
+extractor derives the same one from the same project; otherwise pass
+`--story-id`, and for episodes keep their order), copy the player in,
+validate, and replace the old folder. A folder converted with other
+pinned tools rebuilds only with the Kinetic commit that made it
+(Checking a folder with rebuild). Progress is saved by item id, so items that keep their
 ids keep their seen marks and the reading position; ids that no longer
 exist drop out of it. A hand-authored folder follows
 docs/content-format.md for the new `schemaVersion` instead.

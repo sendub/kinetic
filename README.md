@@ -28,7 +28,8 @@ The player goes fullscreen on the first key press or click. Position, route hist
 
 ## Tools
 
-* `converter/`: turns a Ren'Py project into this format. It reads `.rpy` scripts, decompiles `.rpyc` when no `.rpy` exists, and reads `.rpa` archives directly. Menus become branches only where their shape is clear.
+* Making a game: CREATE.md covers writing a content folder by hand and converting a Ren'Py game (setup, converting, episodes, decoder hooks, your own converter, checking a folder with `rebuild`, and what to do when something fails).
+* `converter/`: turns a Ren'Py project into this format. It reads `.rpy` scripts, decompiles `.rpyc` when no `.rpy` exists, and reads `.rpa` archives directly. Menus become branches only where their shape is clear. Media files are named by their content, and the same game converts to the same bytes on any machine whose pinned tools pass the self-test.
 * Updating an existing game to a newer Kinetic replaces only its `index.html` and `app.js`; readers keep their progress (CREATE.md, "Upgrading to a newer Kinetic").
 * Runs on macOS with nothing to install beyond a browser. Navigation shows content within 1/24 s (measured in `docs/perf.md`).
 

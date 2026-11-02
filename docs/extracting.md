@@ -321,16 +321,27 @@ and passes it with `--decoder MODULE:FUNC` (docs/plan.md Phase 25):
   have read. The ledger records it (Build ledger: the `decode` step and
   `decoders`); give MODULE as a module name or a path relative to where
   you run if ledgers from different machines should match byte for
-  byte.
+  byte. A module name resolves through `PYTHONPATH`, e.g.
+  `PYTHONPATH=~/games/rainy-kinetic ... --decoder rainy_unwrap:decode`,
+  which records `rainy_unwrap:decode` on every machine.
+- `hookSha256` hashes only the file that defines MODULE, not modules it
+  imports: keep a hook in one self-contained file so the hash covers
+  all of its code.
 
-The repo's test hook (`converter/tests/extra_hook.py`) applies an
-"EXTRA" wrapper formula to synthetic files only. It is not a decoder for
-any game; game I's real hook lives in that game's package.
+CREATE.md ("A game that wraps its media: decoder hooks") walks through
+writing, packaging and passing a hook. Its EXTRA example, like the
+repo's test hook (`converter/tests/extra_hook.py`, applied to synthetic
+files only), is illustrative: it is not a correct decoder for any game,
+game I included (its episodes 4-5 use an activation-dependent
+offset), and that game's real hook lives in its own conversion
+package.
 
 ## kinetic-media ship
 
 A game-specific helper that builds the story itself can hand all media
-work to Kinetic without a story parse (docs/plan.md Phase 25):
+work to Kinetic without a story parse (docs/plan.md Phase 25; a worked
+example is in CREATE.md, "Writing your own converter: kinetic-media
+ship"):
 
 ```sh
 .venv/bin/kinetic-media ship <game_root> <out> --list requests.json \
@@ -460,14 +471,19 @@ files, and checks every hash (docs/plan.md Phase 25):
   moved; its code may not change.
 - `--out DIR`: also write the rebuilt `media/` tree into `DIR`. Only
   the ledger is needed, so this reproduces a game's media from the
-  original files. Without `--out` the rebuild only verifies: outputs go
-  to a temporary dir that is deleted afterwards, and the folder is not
-  written.
+  original files. A file already present in `DIR` is kept, never
+  overwritten, so to repair a folder's altered file rebuild into a new
+  `DIR` and copy its `media/` over. Without `--out` the rebuild only
+  verifies: outputs go to a temporary dir that is deleted afterwards,
+  and the folder is not written.
 
 The pinned tools' self-test runs first. The ledger's `mediaTools` must
 equal this run's tools exactly, or the rebuild refuses (exit 2) and
 names each difference (`mediaTools Pillow: ledger "13.0.0", now
-"13.1.0"`). With the same pinned tools every output must come out
+"13.1.0"`). `mediaTools` includes the ffmpeg and ffprobe binaries'
+sha256, which differ per platform, so a folder rebuilds on the OS and
+architecture that made it, with a Kinetic checkout whose pins match
+(the commit that made it is the safe choice). With the same pinned tools every output must come out
 byte-identical, so there is no tolerance for drift. The rebuild never
 reads the reuse cache (below): it runs every step again, because
 verifying means encoding.

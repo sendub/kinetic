@@ -1120,7 +1120,7 @@ truthful: an unchecked box means nothing was accepted.
       `project`; rebuild takes the roots in order; ship per episode from
       the common parent. 15 tests; pytest converter+tools 400; real
       3-project run validated, rebuilt OK and played. 2026-11-02)
-- [ ] 25.12 How-to docs (user, 2026-11-02): a practical guide to using
+- [x] 25.12 How-to docs (user, 2026-11-02): a practical guide to using
       all of this effectively — setting up and pinning the tools, the
       everyday convert command, writing and packaging a decoder hook
       (EXTRA as the worked example), a game-specific helper delegating
@@ -1129,6 +1129,16 @@ truthful: an unchecked box means nothing was accepted.
       the self-test or a rebuild fails. In CREATE.md (game makers) with
       reference detail in docs/extracting.md and converter/README.md;
       every command in it run once to prove it.
+      (CREATE.md "Converting a Ren'Py project" rewritten as a task guide:
+      setup, convert/check/play, episodes, decoder hooks (EXTRA marked
+      illustrative only), helper + kinetic-media ship, rebuild on another
+      machine, cache, troubleshooting incl. every rebuild FAIL kind.
+      Reference updates in extracting.md, converter README (stale MVP
+      intro and "menu unsupported" fixed), README, AGENTS.md. Every
+      command run in .tmp/howto (episodes, hook, ships, other-machine
+      rebuild --out, cache, each quoted failure). pytest tools 130,
+      vitest 555. Known: rebuild --out into the folder itself does not
+      replace an altered file (documented workaround). 2026-11-02)
 - [ ] 25.13 Phase-closer: corpus slices re-run (extract, validate,
       play, rebuild), full suite, rebuild demo folders.
 

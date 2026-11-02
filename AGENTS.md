@@ -27,6 +27,9 @@ are implementing and docs/stack.md for settled decisions.
   files: `.venv/bin/kinetic-media rebuild <game_root> <folder>
   [--decoder MODULE:FUNC ...] [--out DIR]` (exit 0 only when every hash
   matches).
+- Step-by-step use of all of this (decoder hooks, a game-specific helper
+  shipping per episode, rebuild on another machine, troubleshooting):
+  CREATE.md, "Converting a Ren'Py project".
 - Encodes are cached in `.tmp/kinetic-media-cache/` (re-runs encode
   nothing); `KINETIC_MEDIA_CACHE=DIR` moves it, `=off` disables it.
   Tests get a fresh one per test (`converter/tests/conftest.py`).

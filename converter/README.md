@@ -1,9 +1,12 @@
 # kinetic-extract
 
-Ren'Py extractor MVP (docs/plan.md Phase 10): reads a Ren'Py project's
-`game/*.rpy` sources with a statement-subset parser and writes a playable
-Kinetic content folder: `manifest.json`, `manifest.js`,
-`build-ledger.json`, and every media file (posters included).
+Ren'Py extractor (docs/plan.md Phase 10 onwards): reads a Ren'Py
+project's `game/*.rpy` sources (decompiling `.rpyc` when no `.rpy`
+exists, reading `.rpa` archives) with a statement-subset parser and
+writes a playable Kinetic content folder: `manifest.json`,
+`manifest.js`, `build-ledger.json`, and every media file (posters
+included). The step-by-step guide for game makers and helper authors is
+CREATE.md, "Converting a Ren'Py project"; this file is the reference.
 
 Every shipped file, posters included, lands at `media/<h[:2]>/<h>.<ext>`:
 `h` is the sha256 of the bytes shipped and `ext` the TRUE shipped format
@@ -213,7 +216,11 @@ docs/extracting.md, "Reuse cache".
   into one linear flow.
 - `jump`/`call` targets inside the same file are noted and the walk
   continues linearly; unknown (cross-file) targets are noted as well.
-- `menu:` branches are unsupported: the block is skipped, the linear flow
-  before it is kept, and the branch is reported in the ledger.
+- A `menu:` block becomes a decision only when it is conservatively
+  detectable (plain quoted choices whose blocks are contiguous runs of
+  recognized image/text items, flow continuing in place); its routes are
+  endings and no `continuingRoute` is guessed. Any other menu is skipped,
+  the linear flow is kept, and `branchDetection` in the ledger says
+  why.
 - The first dialogue line under a `scene`/`show`/`movie` attaches to the
   media item; later lines become `text` items over the same visual.
