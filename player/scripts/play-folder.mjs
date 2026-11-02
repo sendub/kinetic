@@ -107,8 +107,8 @@ const SNAPSHOT = `(() => {
   const textEl = document.querySelector("#overlay-text");
   const bandText = band && !band.hidden && textEl ? textEl.textContent.trim() : "";
   // The declared path, recovered from the element's resolved URL. The manifest
-  // is the authority and a bucket subpath (assets/ab/x.jpg, docs/plan.md
-  // Phase 17) is part of the declaration, so the walk keys on the
+  // is the authority and a bucket subpath (media/ab/x.jpg, docs/plan.md
+  // Phases 17, 25) is part of the declaration, so the walk keys on the
   // folder-relative PATH rather than the basename: two buckets can hold the
   // same name, and a basename match would hide a misresolved path.
   const root = new URL(".", location.href).pathname;

@@ -997,10 +997,17 @@ truthful: an unchecked box means nothing was accepted.
       converter+tools 250. OPEN: user runs `.venv/bin/python
       tools/setup_media_tools.py --pin` to record archive sha256s and
       goldens; tick after that run passes.)
-- [ ] 25.2 Content-addressed layout: fixed folder `media/` (was
+- [x] 25.2 Content-addressed layout: fixed folder `media/` (was
       `assets/`; user, 2026-11-02), `media/<h[:2]>/<h>.<ext>` by sha256
       of shipped bytes, posters too; remove name buckets, `--flat`, id
       pre-fill; streamed hashing. Docs replace Phase 17 wording.
+      (media.py content_ref/sha256_file; assets.py _Placed writes each
+      output once at media/<h[:2]>/<h>.<ext>; --flat and id pre-fill
+      gone; a media item with a missing source is now dropped (skipped,
+      noted). Golden regenerated (its poster hash follows the system
+      ffmpeg until tests use the pinned one). 9 tests red before;
+      pytest converter+tools 253, vitest 555, smoke 6/6; renpy_demo
+      converted, validated and played. 2026-11-02)
 - [ ] 25.3 Source identity and ledger `media` section: loose path or
       archive + member, source sha256/size, steps with parameters, tool
       versions, output sha256; sorted, byte-stable.

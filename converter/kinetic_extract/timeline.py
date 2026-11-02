@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from .media import media_ext, media_ref, probe_duration_seconds
+from .media import probe_duration_seconds
 from .parser import Event, FileParse, Report, slug as _slug
 
 _INTERPOLATION_RE = re.compile(r"\[[^][]*\]")
@@ -51,9 +51,10 @@ def def_value_target(defined: tuple[str, str]) -> tuple[str, str | None]:
 class ItemRecord:
     """One manifest item plus its ledger entry.
 
-    The asset pass (assets.py) later fills ``asset_meta`` (sniffed format,
-    ship decision, sizes, shipped file) and sets ``skipped`` for items whose
-    asset is unsupported; skipped items are kept in the ledger but dropped
+    The asset pass (assets.py) later sets the item's ``file`` (and a video's
+    ``poster``) to the content-addressed shipped path, fills ``asset_meta``
+    (sniffed format, ship decision, sizes, shipped file) and sets
+    ``skipped`` for items whose asset is missing or unsupported; skipped items are kept in the ledger but dropped
     from the manifest.
     """
 
@@ -116,7 +117,6 @@ def build_timeline(parses: list[tuple[str, FileParse]],
                    max_items: int | None = None,
                    asset_lookup=None,
                    implicit_lookup=None,
-                   shard: bool = True,
                    ) -> TimelineResult:
     """Walk all parsed files (already in filename order) linearly.
 
@@ -135,10 +135,9 @@ def build_timeline(parses: list[tuple[str, FileParse]],
     scene/show name has no definition, or its defined file exists
     nowhere. Explicit definitions win over it (docs/extracting.md BUG 5).
 
-    ``shard`` is the Phase 17 bucketing switch (the CLI's ``--flat``
-    inverted). Placeholder names are bucketed by the same rule as shipped
-    files, so one folder never mixes bucketed and flat paths; cli.py
-    passes the same switch to the asset pass.
+    Media items carry no ``file``/``poster`` yet: the shipped path is the
+    hash of the shipped bytes, known only once the asset pass has made
+    them (docs/plan.md Phase 25).
     """
     result = TimelineResult()
     pending: _Pending | None = None
@@ -176,7 +175,6 @@ def build_timeline(parses: list[tuple[str, FileParse]],
         item_id = result._next_id(_slug(pend.name or pend.asset_rel,
                                         "scene" if pend.kind == "image"
                                         else "movie"))
-        ext = media_ext(pend.asset_rel, pend.kind)
         item: dict[str, Any] = {"id": item_id, "type": pend.kind}
         record = ItemRecord(item=item, source=pend.source,
                             asset=pend.asset_rel, asset_abs=pend.asset_abs)
@@ -198,10 +196,8 @@ def build_timeline(parses: list[tuple[str, FileParse]],
             elif pend.kind == "image":
                 result.source_images.append(pend.asset_abs)
         else:
-            record.notes.append("no source asset resolved; placeholder name")
+            record.notes.append("no source asset resolved")
         if pend.kind == "video":
-            item["file"] = media_ref(f"{item_id}.{ext}", shard)
-            item["poster"] = media_ref(f"{item_id}.poster.jpg", shard)
             duration = (probe_duration_seconds(pend.asset_abs)
                         if pend.asset_abs and pend.asset_abs.exists()
                         else None)
@@ -211,8 +207,6 @@ def build_timeline(parses: list[tuple[str, FileParse]],
                     "durationSeconds placeholder 1.0: ffprobe unavailable "
                     "for source video")
             item["durationSeconds"] = duration
-        else:
-            item["file"] = media_ref(f"{item_id}.{ext}", shard)
         apply_line(item, record, speaker, text)
         result.items.append(record)
         check_limit()

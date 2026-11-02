@@ -7,7 +7,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from helpers import bucketed
+from helpers import is_content_addressed
 from kinetic_extract.cli import main as cli_main
 from kinetic_extract.parser import parse_file
 
@@ -38,8 +38,10 @@ def test_movie_item_gets_duration_via_ffprobe(tmp_path: Path) -> None:
     video = videos[0]
     # The fixture clip is 1 s; allow a little slack for ffprobe rounding.
     assert 0.9 < video["durationSeconds"] <= 1.1
-    assert video["file"] == bucketed(f"{video['id']}.mp4")
-    assert video["poster"] == bucketed(f"{video['id']}.poster.jpg")
+    assert video["file"].endswith(".mp4")
+    assert video["poster"].endswith(".jpg")
+    assert is_content_addressed(tmp_path, video["file"])
+    assert is_content_addressed(tmp_path, video["poster"])
 
 
 def test_skipped_report_contents(tmp_path: Path) -> None:

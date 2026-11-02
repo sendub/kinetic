@@ -390,15 +390,30 @@ def test_parent_segment_in_media_path_is_rejected(folder: Path) -> None:
 # ---------------------------------------------------------------------------
 
 def test_media_file_in_a_subfolder_passes(folder: Path) -> None:
-    """`assets/ab/<id>.jpg` is a valid `file`; the folder root is the base."""
+    """`media/ab/<id>.jpg` is a valid `file`; the folder root is the base."""
     manifest = read_manifest(folder)
     name = manifest["items"][IMAGE]["file"]            # text-bare.jpg
-    move_to_subpath(folder, name, f"assets/ab/{name}")
-    manifest["items"][IMAGE]["file"] = f"assets/ab/{name}"
+    move_to_subpath(folder, name, f"media/ab/{name}")
+    manifest["items"][IMAGE]["file"] = f"media/ab/{name}"
     write_manifest(folder, manifest)
     assert problems_of(folder) == []
     proc = run_cli(folder)
     assert proc.returncode == 0, proc.stdout + proc.stderr
+
+
+def test_content_addressed_path_passes(folder: Path) -> None:
+    """The converter's layout (docs/plan.md Phase 25): a 64-hex sha256 stem
+    under `media/<h[:2]>/` fits the file-name rule."""
+    import hashlib
+
+    manifest = read_manifest(folder)
+    name = manifest["items"][IMAGE]["file"]            # text-bare.jpg
+    digest = hashlib.sha256((folder / name).read_bytes()).hexdigest()
+    ref = f"media/{digest[:2]}/{digest}.jpg"
+    move_to_subpath(folder, name, ref)
+    manifest["items"][IMAGE]["file"] = ref
+    write_manifest(folder, manifest)
+    assert problems_of(folder) == []
 
 
 def test_subpath_basename_need_not_equal_the_item_id(folder: Path) -> None:
@@ -413,9 +428,9 @@ def test_subpath_basename_need_not_equal_the_item_id(folder: Path) -> None:
     parts = (ids.index("range-a"), ids.index("range-b"))
     shared = manifest["items"][parts[0]]["file"]    # range-clip.mp4
     assert manifest["items"][parts[1]]["file"] == shared
-    move_to_subpath(folder, shared, f"assets/cd/{shared}")
+    move_to_subpath(folder, shared, f"media/cd/{shared}")
     for index in parts:
-        manifest["items"][index]["file"] = f"assets/cd/{shared}"
+        manifest["items"][index]["file"] = f"media/cd/{shared}"
     write_manifest(folder, manifest)
     assert problems_of(folder) == []
 
@@ -424,7 +439,7 @@ def test_parent_segment_below_the_root_is_rejected(folder: Path) -> None:
     """A subpath may not climb back out: `..` stays forbidden in every segment."""
     manifest = read_manifest(folder)
     name = manifest["items"][IMAGE]["file"]
-    manifest["items"][IMAGE]["file"] = f"assets/../{name}"
+    manifest["items"][IMAGE]["file"] = f"media/../{name}"
     write_manifest(folder, manifest)
     problems = problems_of(folder)
     assert len(problems) == 1
@@ -436,7 +451,7 @@ def test_absolute_subpath_is_rejected(folder: Path) -> None:
     """A leading "/" names the filesystem, not the content folder."""
     manifest = read_manifest(folder)
     name = manifest["items"][IMAGE]["file"]
-    manifest["items"][IMAGE]["file"] = f"/assets/ab/{name}"
+    manifest["items"][IMAGE]["file"] = f"/media/ab/{name}"
     write_manifest(folder, manifest)
     problems = problems_of(folder)
     assert len(problems) == 1
@@ -448,12 +463,12 @@ def test_missing_file_in_a_subfolder_is_reported(folder: Path) -> None:
     """Existence is checked against the folder root, subpath included."""
     manifest = read_manifest(folder)
     name = manifest["items"][IMAGE]["file"]
-    manifest["items"][IMAGE]["file"] = f"assets/ab/{name}"   # never moved
+    manifest["items"][IMAGE]["file"] = f"media/ab/{name}"   # never moved
     write_manifest(folder, manifest)
     problems = problems_of(folder)
     assert len(problems) == 1
     assert problems[0].startswith(f"manifest.json: items[{IMAGE}].file:")
-    assert f"'assets/ab/{name}'" in problems[0]
+    assert f"'media/ab/{name}'" in problems[0]
     assert "does not exist" in problems[0]
 
 
@@ -462,7 +477,7 @@ def test_subpath_basename_must_be_a_flat_file_name(folder: Path) -> None:
     the `.poster` and `.fNNN` suffixes keep parsing unambiguously."""
     manifest = read_manifest(folder)
     name = manifest["items"][IMAGE]["file"]                  # text-bare.jpg
-    manifest["items"][IMAGE]["file"] = f"assets/ab/{name}.jpg"
+    manifest["items"][IMAGE]["file"] = f"media/ab/{name}.jpg"
     write_manifest(folder, manifest)
     problems = problems_of(folder)
     assert len(problems) == 1
@@ -474,7 +489,7 @@ def test_subpath_segment_must_start_with_a_letter(folder: Path) -> None:
     """No empty segment and no dot-leading or underscore segment, root or bucket."""
     manifest = read_manifest(folder)
     name = manifest["items"][IMAGE]["file"]
-    manifest["items"][IMAGE]["file"] = f"assets/.ab/{name}"
+    manifest["items"][IMAGE]["file"] = f"media/.ab/{name}"
     write_manifest(folder, manifest)
     problems = problems_of(folder)
     assert len(problems) == 1
@@ -487,8 +502,8 @@ def test_animation_frames_in_a_subfolder_pass(folder: Path) -> None:
     manifest = read_manifest(folder)
     frames = manifest["items"][ANIM]["frames"]
     for frame in frames:
-        move_to_subpath(folder, frame, f"assets/ef/{frame}")
-    manifest["items"][ANIM]["frames"] = [f"assets/ef/{frame}" for frame in frames]
+        move_to_subpath(folder, frame, f"media/ef/{frame}")
+    manifest["items"][ANIM]["frames"] = [f"media/ef/{frame}" for frame in frames]
     write_manifest(folder, manifest)
     assert problems_of(folder) == []
 

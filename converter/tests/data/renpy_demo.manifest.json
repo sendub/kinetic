@@ -8,7 +8,7 @@
     {
       "id": "bg-room-001",
       "type": "image",
-      "file": "assets/ef/bg-room-001.jxl",
+      "file": "media/4e/4e31ed53f4e9c99c989189f6b0bcda70e59e3f22b3b16151cc53db95142f882e.jxl",
       "speaker": "Ana",
       "text": "Welcome to the house."
     },
@@ -27,8 +27,8 @@
     {
       "id": "clip-004",
       "type": "video",
-      "file": "assets/a2/clip-004.mp4",
-      "poster": "assets/52/clip-004.poster.jpg",
+      "file": "media/f3/f3f95674ec5ca4acac14de72647a1e926e99f11f852633d46e1b9073a8fd4e3f.mp4",
+      "poster": "media/12/123c4c18b5c2c87093de6cf3103b79ecc3c7bfdaed0ab8a616dfd0f93f381293.jpg",
       "durationSeconds": 1.0,
       "speaker": "Ana",
       "text": "The screen flickers to life."
@@ -42,7 +42,7 @@
     {
       "id": "bg-yard-006",
       "type": "image",
-      "file": "assets/77/bg-yard-006.jxl",
+      "file": "media/d2/d20230e78d6ef5fc7c196b9a2b29c126dc0567e474a7b621c9a001b83cc1b44e.jxl",
       "text": "Тишина в саду. [wind]"
     },
     {
@@ -54,7 +54,7 @@
     {
       "id": "bg-room-008",
       "type": "image",
-      "file": "assets/ef/bg-room-001.jxl",
+      "file": "media/4e/4e31ed53f4e9c99c989189f6b0bcda70e59e3f22b3b16151cc53db95142f882e.jxl",
       "speaker": "Ana",
       "text": "The fire crackles as the room warms."
     },
@@ -67,7 +67,7 @@
     {
       "id": "bg-yard-010",
       "type": "image",
-      "file": "assets/77/bg-yard-006.jxl",
+      "file": "media/d2/d20230e78d6ef5fc7c196b9a2b29c126dc0567e474a7b621c9a001b83cc1b44e.jxl",
       "speaker": "Гостья",
       "text": "The gravel sounds louder at night."
     },
@@ -84,7 +84,7 @@
     {
       "id": "bg-room-013",
       "type": "image",
-      "file": "assets/ef/bg-room-001.jxl",
+      "file": "media/4e/4e31ed53f4e9c99c989189f6b0bcda70e59e3f22b3b16151cc53db95142f882e.jxl",
       "speaker": "Ana",
       "text": "Back inside, where it is quiet."
     },
@@ -97,34 +97,34 @@
     {
       "id": "mislabel-bmp-015",
       "type": "image",
-      "file": "assets/b4/mislabel-bmp-015.jxl",
+      "file": "media/76/766061c78f173b2148c2b73008b3807be584b2c7d3303271a74e6dd6fb05ebff.jxl",
       "speaker": "Ana",
       "text": "A small painting on the wall."
     },
     {
       "id": "mislabel-png-016",
       "type": "image",
-      "file": "assets/84/mislabel-png-016.jxl",
+      "file": "media/a0/a036d597c7e05081cefdce07aae1b742b412828d1a057122550198beebed306c.jxl",
       "text": "The frame beside it hides its true format too."
     },
     {
       "id": "bg-reprise-017",
       "type": "image",
-      "file": "assets/ef/bg-room-001.jxl",
+      "file": "media/4e/4e31ed53f4e9c99c989189f6b0bcda70e59e3f22b3b16151cc53db95142f882e.jxl",
       "speaker": "Dmitri",
       "text": "The same room again, seen from the hall."
     },
     {
       "id": "photo-noise-018",
       "type": "image",
-      "file": "assets/1f/photo-noise-018.jxl",
+      "file": "media/ef/ef6b0278107596046cd6e0f11016e1492ecc56a5039e47b82d89ad76a54a4806.jxl",
       "speaker": "Ana",
       "text": "A photograph, grainy and warm."
     },
     {
       "id": "bg-gif-019",
       "type": "image",
-      "file": "assets/b0/bg-gif-019.gif",
+      "file": "media/fd/fd849da0b478645ebd5dcf09a7f259ba2ec932ab90163b5c9fc376e6908f5ce9.gif",
       "text": "A tiny paper lantern blinks by the door."
     }
   ],

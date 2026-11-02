@@ -5,7 +5,7 @@ Formats are sniffed from content (Pillow, magic bytes, ffprobe), never from
 file extensions - corpus extensions lie. Policies:
 
 - Images in a browser-compatible format (png/jpeg/webp/gif) ship
-  byte-identical under ``<id>.<ext>`` (true ext), unless a verified
+  byte-identical at their true ext, unless a verified
   lossless JPEG XL encode (libjxl via imagecodecs, effort 9, one thread;
   PNG/GIF pixels encode losslessly, JPEG uses JPEG XL recompression; the
   result is decoded back and pixel-compared) is strictly smaller, in which
@@ -28,14 +28,16 @@ file extensions - corpus extensions lie. Policies:
   ``.media-tools/<platform>/``, single-threaded and bitexact; Pillow save
   parameters are spelled out in full.
 - Posters are the frame AT ``startSeconds`` (``-ss`` after ``-i``, exact
-  output seek) rendered to bitexact PNG, then JPEG, as ``<id>.poster.jpg``.
-- Identical source bytes (sha256) referenced by several items ship ONE
-  file named after the first item; later items reference it. Posters dedup
-  by (source bytes, startSeconds).
-- A shipped file is written to ``media_ref(name)``: the ``assets/<xx>/``
-  bucket of its own basename by default, or the output folder itself when
-  ``shard`` is false (``--flat``). Manifest and ledger paths are that same
-  ref, so no path drift is possible (docs/plan.md Phase 17).
+  output seek) rendered to bitexact PNG, then JPEG.
+- Every shipped file, posters included, is content-addressed:
+  ``media/<h[:2]>/<h>.<ext>`` with ``h`` the sha256 of the bytes shipped
+  (``media.content_ref``, docs/plan.md Phase 25). Identical outputs,
+  whatever their sources, are one path written once (``dedupOf`` in the
+  ledger). Files are hashed in chunks; a transcode or poster is made in a
+  scratch dir inside the output folder, hashed, then moved into place.
+  Identical source bytes are also remembered per run so they are encoded
+  once. The asset pass sets the item's ``file``/``poster``; manifest and
+  ledger paths are that same ref, so no path drift is possible.
 
 Every decision, size, and sniffed format lands in the build ledger.
 """
@@ -44,6 +46,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import shutil
 import subprocess
 import tempfile
@@ -52,7 +55,7 @@ from pathlib import Path
 from typing import Any
 
 from . import media_tools
-from .media import media_ref
+from .media import content_ref, sha256_file
 from .timeline import ItemRecord
 
 COMPATIBLE_EXTS = {"png", "jpeg", "jpg", "webp", "gif"}
@@ -384,50 +387,101 @@ def extract_poster(source: Path, out_jpg: Path, start_seconds: float) -> bool:
                 and poster_jpeg(png, out_jpg))
 
 
-def _media_path(out_dir: Path, ref: str) -> Path:
-    """Destination for a shipped ref, with its bucket directory created."""
-    path = out_dir / ref
-    path.parent.mkdir(parents=True, exist_ok=True)
-    return path
+class _Placed:
+    """Per-run record of the content-addressed files already written."""
+
+    def __init__(self, out_dir: Path) -> None:
+        self.out_dir = out_dir
+        self.written: set[str] = set()
+
+    def _target(self, ref: str) -> Path:
+        path = self.out_dir / ref
+        path.parent.mkdir(parents=True, exist_ok=True)
+        return path
+
+    def put_bytes(self, data: bytes, ext: str) -> tuple[str, bool]:
+        """Ship in-memory bytes; returns (ref, already written this run)."""
+        ref = content_ref(hashlib.sha256(data).hexdigest(), ext)
+        if ref in self.written:
+            return ref, True
+        self._target(ref).write_bytes(data)
+        self.written.add(ref)
+        return ref, False
+
+    def copy_file(self, source: Path, digest: str, ext: str
+                  ) -> tuple[str, bool]:
+        """Ship a source file unchanged; ``digest`` is its streamed sha256."""
+        ref = content_ref(digest, ext)
+        if ref in self.written:
+            return ref, True
+        shutil.copyfile(source, self._target(ref))
+        self.written.add(ref)
+        return ref, False
+
+    def move_file(self, made: Path, ext: str) -> tuple[str, bool]:
+        """Ship a file made in scratch space: hash it streamed, move it."""
+        ref = content_ref(sha256_file(made), ext)
+        if ref in self.written:
+            made.unlink()
+            return ref, True
+        os.replace(made, self._target(ref))
+        self.written.add(ref)
+        return ref, False
 
 
-def run_asset_pass(records: list[ItemRecord], out_dir: Path,
-                   shard: bool = True) -> int:
-    """Ship every referenced asset at its TRUE format (docs/plan.md Phase 10).
+def _set_media(item: dict[str, Any], file: str,
+               poster: str | None = None) -> None:
+    """Set ``file`` (and ``poster``) right after ``id``/``type``, so the
+    manifest's key order stays id, type, file, poster, then the rest."""
+    rest = {k: v for k, v in item.items()
+            if k not in ("id", "type", "file", "poster")}
+    head = {"id": item["id"], "type": item["type"], "file": file}
+    if poster is not None:
+        head["poster"] = poster
+    item.clear()
+    item.update(head | rest)
+
+
+def run_asset_pass(records: list[ItemRecord], out_dir: Path) -> int:
+    """Ship every referenced asset at its TRUE format (docs/plan.md Phase 10)
+    under its content-addressed path (Phase 25).
 
     Mutates each record: item file/poster fields point at shipped files,
     ``record.asset_meta`` carries the decision (and ``record.skipped``
-    marks items dropped from the manifest). ``shard`` places shipped files
-    in ``assets/<xx>/`` buckets (docs/plan.md Phase 17); false keeps the
-    output folder flat. Returns the skipped count.
+    marks items dropped from the manifest). Returns the skipped count.
     """
     out_dir.mkdir(parents=True, exist_ok=True)
+    placed = _Placed(out_dir)
     skipped = 0
-    # sha256 -> shipped ref, so identical sources share one file.
-    image_share: dict[str, str] = {}
+    # source sha256 -> (shipped ref, decision): identical sources encode once.
+    image_share: dict[str, tuple[str, str]] = {}
     video_share: dict[str, tuple[str, str]] = {}
     poster_share: dict[str, str] = {}
-    for record in records:
-        item = record.item
-        kind = item.get("type")
-        if kind not in ("image", "video"):
-            continue
-        source = record.asset_abs
-        if source is None or not source.is_file():
-            record.asset_meta["decision"] = "missing-source"
-            continue
-        if kind == "image":
-            skipped += _ship_image(record, source, out_dir, image_share,
-                                   shard)
-        else:
-            skipped += _ship_video(record, source, out_dir, video_share,
-                                   poster_share, shard)
+    with tempfile.TemporaryDirectory(prefix=".kinetic-tmp-",
+                                     dir=out_dir) as scratch:
+        for record in records:
+            item = record.item
+            kind = item.get("type")
+            if kind not in ("image", "video"):
+                continue
+            source = record.asset_abs
+            if source is None or not source.is_file():
+                record.asset_meta["decision"] = "missing-source"
+                record.notes.append(
+                    "source asset missing: item dropped from manifest")
+                record.skipped = True
+                skipped += 1
+                continue
+            if kind == "image":
+                skipped += _ship_image(record, source, placed, image_share)
+            else:
+                skipped += _ship_video(record, source, placed, video_share,
+                                       poster_share, Path(scratch))
     return skipped
 
 
-def _ship_image(record: ItemRecord, source: Path, out_dir: Path,
-                share: dict[str, tuple[str, str]], shard: bool) -> int:
-    item_id = record.item["id"]
+def _ship_image(record: ItemRecord, source: Path, placed: _Placed,
+                share: dict[str, tuple[str, str]]) -> int:
     data = source.read_bytes()
     fmt, offset = sniff_image(data)
     meta: dict[str, Any] = record.asset_meta
@@ -443,35 +497,30 @@ def _ship_image(record: ItemRecord, source: Path, out_dir: Path,
     if offset:
         meta["wrapped"] = offset
     digest = hashlib.sha256(effective).hexdigest()
+    meta["sourceBytes"] = len(data)
     if digest in share:
         shipped, decision = share[digest]
-        record.item["file"] = shipped
-        meta["decision"] = decision
-        meta["shippedFile"] = shipped
-        meta["dedupOf"] = shipped
-        meta["sourceBytes"] = len(data)
-        meta["shippedBytes"] = (out_dir / shipped).stat().st_size
-        record.notes.append(f"shares shipped file {shipped!r} (identical "
-                            "source)")
-        return 0
-    ext, out_bytes, decision, notes = decide_image_ship(effective, fmt,
-                                                        offset > 0)
-    shipped = media_ref(f"{item_id}.{ext}", shard)
-    _media_path(out_dir, shipped).write_bytes(out_bytes)
-    share[digest] = (shipped, decision)
-    record.item["file"] = shipped
+        already = True
+    else:
+        ext, out_bytes, decision, notes = decide_image_ship(effective, fmt,
+                                                            offset > 0)
+        shipped, already = placed.put_bytes(out_bytes, ext)
+        share[digest] = (shipped, decision)
+        record.notes.extend(notes)
+    _set_media(record.item, shipped)
     meta["decision"] = decision
     meta["shippedFile"] = shipped
-    meta["sourceBytes"] = len(data)
-    meta["shippedBytes"] = len(out_bytes)
-    record.notes.extend(notes)
+    meta["shippedBytes"] = (placed.out_dir / shipped).stat().st_size
+    if already:
+        meta["dedupOf"] = shipped
+        record.notes.append(f"shares shipped file {shipped!r} (identical "
+                            "output)")
     return 0
 
 
-def _ship_video(record: ItemRecord, source: Path, out_dir: Path,
+def _ship_video(record: ItemRecord, source: Path, placed: _Placed,
                 video_share: dict[str, tuple[str, str]],
-                poster_share: dict[str, str], shard: bool) -> int:
-    item_id = record.item["id"]
+                poster_share: dict[str, str], scratch: Path) -> int:
     meta: dict[str, Any] = record.asset_meta
     container, codec = probe_video(source)
     meta["sniffedFormat"] = container or "unknown"
@@ -482,50 +531,55 @@ def _ship_video(record: ItemRecord, source: Path, out_dir: Path,
             f"unprobeable video {source.name}: item dropped from manifest")
         record.skipped = True
         return 1
-    digest = hashlib.sha256(source.read_bytes()).hexdigest()
-    meta["sourceBytes"] = len(source.read_bytes())
+    digest = sha256_file(source)
+    meta["sourceBytes"] = source.stat().st_size
     if digest in video_share:
         shipped, decision = video_share[digest]
-        meta["dedupOf"] = shipped
-        record.notes.append(f"shares shipped file {shipped!r} (identical "
-                            "source)")
+        already = True
     else:
         native, ext, _ = video_is_native(source)
-        shipped = media_ref(f"{item_id}.{ext}", shard)
-        shipped_file = _media_path(out_dir, shipped)
         if native:
-            shutil.copyfile(source, shipped_file)
+            shipped, already = placed.copy_file(source, digest, ext)
             decision = "copy"
             if ext == "mkv":
                 record.notes.append("mkv kept native: Chromium-class; "
                                     "convert to mp4 for Safari")
         else:
-            if not transcode_video(source, shipped_file):
+            made = scratch / "transcode.mp4"
+            if not transcode_video(source, made):
+                made.unlink(missing_ok=True)
                 meta["decision"] = "skipped"
                 record.notes.append(
                     f"transcode failed for {source.name}: item dropped")
                 record.skipped = True
                 return 1
+            shipped, already = placed.move_file(made, "mp4")
             decision = "transcode"
             record.notes.append(
                 f"transcoded {codec}/{container} to h264 mp4 (faststart)")
         video_share[digest] = (shipped, decision)
-    record.item["file"] = shipped
+    if already:
+        meta["dedupOf"] = shipped
+        record.notes.append(f"shares shipped file {shipped!r} (identical "
+                            "output)")
     meta["decision"] = decision
     meta["shippedFile"] = shipped
-    meta["shippedBytes"] = (out_dir / shipped).stat().st_size
+    meta["shippedBytes"] = (placed.out_dir / shipped).stat().st_size
 
     start = float(record.item.get("startSeconds") or 0.0)
     poster_key = f"{digest}@{start:.6f}"
     if poster_key in poster_share:
         poster = poster_share[poster_key]
     else:
-        poster = media_ref(f"{item_id}.poster.jpg", shard)
-        if not extract_poster(source, _media_path(out_dir, poster), start):
+        made = scratch / "poster.jpg"
+        if extract_poster(source, made, start):
+            poster, _ = placed.move_file(made, "jpg")
+        else:
+            made.unlink(missing_ok=True)
             record.notes.append(
                 "poster extraction failed; falling back to source ext")
             poster = shipped  # last resort: first-frame still = the file
         poster_share[poster_key] = poster
-    record.item["poster"] = poster
+    _set_media(record.item, shipped, poster)
     meta["shippedPoster"] = poster
     return 0

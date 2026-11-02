@@ -32,8 +32,8 @@ export interface ManifestSource {
  * resolves to something else entirely under `file://`, so the player checks
  * these before assigning a `src`.
  *
- * A SUBPATH is fully supported: `assets/ab/window-004.jpg`, a converter
- * bucket, is as honest as the flat `window-004.jpg` (docs/plan.md Phase 17).
+ * A SUBPATH is fully supported: `media/ab/window-004.jpg`, a converter
+ * bucket, is as honest as the flat `window-004.jpg` (docs/plan.md Phases 17, 25).
  * Rejected: a leading `/`, a backslash, a drive letter or URL scheme, any
  * `..`, an empty segment (`a//b`, a trailing `/`), a segment that does not
  * start with a letter or digit (which is what makes `..` and a dot file

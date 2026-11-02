@@ -704,6 +704,11 @@ in one output folder is unwieldy and can choke macOS Finder. The
 converter should spread extracted media across subfolders so no single
 directory holds too many files.
 
+Superseded by Phase 25: converter media now lands at
+`media/<h[:2]>/<h>.<ext>`, named by the sha256 of the shipped bytes;
+the `assets/` name-based buckets and `--flat` below are gone. The
+subpath support (schema, validator, player, package-proof) stays.
+
 - Bucketing by a deterministic prefix of the file name - a short hash
   prefix (or the leading chars of the file's basename) chosen so the
   same input always maps to the same subfolder. Keep it shallow

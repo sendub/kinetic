@@ -78,7 +78,7 @@ describe("parseManifest", () => {
 });
 
 /**
- * Media paths below the folder root (docs/plan.md Phase 17): the converter
+ * Media paths below the folder root (docs/plan.md Phases 17, 25): the converter
  * buckets media into subfolders, so `file` / `poster` / `frames[]` may name a
  * path. The declared value is what reaches the DOM (the LRU key and the
  * decoded-image bookkeeping ride on it); what the parse step guarantees is
@@ -91,21 +91,18 @@ describe("media path resolution", () => {
     height: 540,
     items: [
       { id: "meadow-001", type: "image", file: "meadow-001.jpg" },
-      { id: "window-004", type: "image", file: "assets/ab/window-004.jpg" },
+      { id: "window-004", type: "image", file: "media/ab/window-004.jpg" },
       {
         id: "intro-006",
         type: "video",
-        file: "assets/cd/intro-006.mp4",
-        poster: "assets/cd/intro-006.poster.jpg",
+        file: "media/cd/intro-006.mp4",
+        poster: "media/cd/intro-006.poster.jpg",
         durationSeconds: 2,
       },
       {
         id: "spark-005",
         type: "animation",
-        frames: [
-          "assets/ef/spark-005.f000.jpg",
-          "assets/ef/spark-005.f001.jpg",
-        ],
+        frames: ["media/ef/spark-005.f000.jpg", "media/ef/spark-005.f001.jpg"],
         fps: 8,
         loopCount: 2,
       },
@@ -120,11 +117,11 @@ describe("media path resolution", () => {
     parseManifest(bucketed, ROOT);
     const declared = [
       "meadow-001.jpg",
-      "assets/ab/window-004.jpg",
-      "assets/cd/intro-006.mp4",
-      "assets/cd/intro-006.poster.jpg",
-      "assets/ef/spark-005.f000.jpg",
-      "assets/ef/spark-005.f001.jpg",
+      "media/ab/window-004.jpg",
+      "media/cd/intro-006.mp4",
+      "media/cd/intro-006.poster.jpg",
+      "media/ef/spark-005.f000.jpg",
+      "media/ef/spark-005.f001.jpg",
     ];
     for (const path of declared) {
       // Same answer the browser gives the `src` the renderer assigns.
@@ -134,20 +131,20 @@ describe("media path resolution", () => {
   });
 
   it("resolves against the folder root when the page URL is the directory", () => {
-    expect(resolveMediaPath("assets/ab/window-004.jpg", FOLDER)).toBe(
-      `${FOLDER}assets/ab/window-004.jpg`,
+    expect(resolveMediaPath("media/ab/window-004.jpg", FOLDER)).toBe(
+      `${FOLDER}media/ab/window-004.jpg`,
     );
   });
 
   it.each([
     ["an absolute path", "/window-004.jpg"],
     ["a parent segment", "../window-004.jpg"],
-    ["a parent segment in a subpath", "assets/../window-004.jpg"],
+    ["a parent segment in a subpath", "media/../window-004.jpg"],
     ["a backslash path", "assets\\ab\\window-004.jpg"],
     ["a drive letter", "C:/novels/demo/window-004.jpg"],
-    ["an empty segment", "assets//window-004.jpg"],
+    ["an empty segment", "media//window-004.jpg"],
     ["a dot-leading segment", "./window-004.jpg"],
-    ["whitespace", "assets/ab/window 004.jpg"],
+    ["whitespace", "media/ab/window 004.jpg"],
   ])("rejects %s as an item file", (_label, file) => {
     const manifest = {
       schemaVersion: 1,

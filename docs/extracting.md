@@ -69,22 +69,23 @@ parsed `.rpy` files). Smoke runs (2026-02-13):
 
 ## Output layout
 
-Extracted media ships under `assets/<xx>/`, where `<xx>` is the first two
-hex digits of the sha1 of that file's basename: the name, never the bytes
-(docs/plan.md Phase 17). A bucket is therefore stable across runs whatever
-the file holds, and one game's thousands of files spread over up to 256
-shallow folders, because a single directory that large is what macOS
-Finder stalls on. Names are unchanged (still id-based), so a bucket simply
-holds many files, and a poster or animation frame is bucketed by its own
-basename, not its source's.
+Every shipped media file, posters included, is content-addressed
+(docs/plan.md Phase 25): it lands at `media/<h[:2]>/<h>.<ext>`, where
+`<h>` is the sha256 of the bytes actually shipped and `<ext>` their true
+format. `media/` is the one fixed folder name; there is no flat or
+name-based option. The same bytes get the same path on every run and
+machine, and identical outputs, whatever their sources, are one file
+written once (the ledger marks later users `dedupOf`). The two-hex-digit
+bucket spreads a big game over up to 256 shallow folders, because a
+single huge directory is what macOS Finder stalls on.
 
 Manifest `file`, `poster`, and `frames` values, and the ledger's
 `shippedFile`, `shippedPoster`, and `dedupOf`, carry that relative subpath
-(`assets/ef/bg-room-001.jxl`), legal since Phase 17.1 per
-docs/content-format.md, and the player resolves it from the folder root.
-`--flat` writes media into the folder root instead, for a small folder or
-one whose contents you want to eyeball; a hand-authored folder such as
-`fixtures/demo` stays flat either way.
+(`media/4e/4e31ed53…882e.jxl`, a 64-hex stem), which the content format's
+file-name rule allows; the player resolves it from the folder root and
+never reads meaning into the name. Item ids no longer name files, so find
+an item's file through the manifest or the ledger. A hand-authored folder
+such as `fixtures/demo` may use any legal layout and stays flat.
 
 ## Story ID and title
 

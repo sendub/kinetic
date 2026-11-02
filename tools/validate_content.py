@@ -101,7 +101,7 @@ def _path_rule(value: str) -> str | None:
 
     Mirrors `$defs/path` in docs/content-schema.json so the broken rule can be
     named in plain words: a POSIX path relative to the content folder root —
-    subfolders allowed (a bucket like `assets/ab/`), segments of
+    subfolders allowed (a bucket like `media/ab/`), segments of
     `[A-Za-z0-9._-]` that each start with a letter or digit, so no empty or
     dot-leading segment, no `..`, no absolute path, no backslash, no drive
     letter or scheme, no whitespace — whose LAST segment is still a flat media

@@ -1,19 +1,21 @@
 """Asset-pass tests (docs/plan.md Phase 10, Phase 17): content sniffing wins
 over extensions, JXL ships only when strictly smaller, identical sources
 dedup, wrapped images carve or skip, posters land on the requested range
-start, shipped files sit in the sha1-of-basename bucket they are declared
-under, two runs are byte-identical, and the validator accepts the output
-folder with the ledger present."""
+start, every shipped file is named by the sha256 of its own bytes under
+``media/<h[:2]>/`` (Phase 25), two runs are byte-identical, and the
+validator accepts the output folder with the ledger present."""
 
 from __future__ import annotations
 
+import hashlib
 import json
 import subprocess
 import sys
 from io import BytesIO
 from pathlib import Path
 
-from helpers import bucketed, declared_media
+import pytest
+from helpers import content_ref, declared_media, is_content_addressed
 from kinetic_extract import assets, media_tools
 from kinetic_extract.cli import main as cli_main
 
@@ -121,8 +123,10 @@ def test_identical_sources_share_one_shipped_file(tmp_path: Path) -> None:
     assert by_id["bg-room-013"]["file"] == first      # `scene bg-room` again
     assert by_id["bg-reprise-017"]["file"] == first   # same bytes, new name
     out = tmp_path / "out"
-    shared = sorted(p.relative_to(out).as_posix() for p in out.rglob("bg-room-*"))
-    assert shared == [first]
+    data = (out / first).read_bytes()
+    copies = [p.relative_to(out).as_posix() for p in out.rglob("*")
+              if p.is_file() and p.read_bytes() == data]
+    assert copies == [first]                          # written once
     assert ledger["items"]["bg-reprise-017"]["dedupOf"] == first
 
 
@@ -138,13 +142,15 @@ def test_native_video_copied_with_codec_recorded(tmp_path: Path) -> None:
     assert entry["shippedBytes"] == entry["sourceBytes"]
     shipped = tmp_path / "out" / video["file"]
     assert shipped.read_bytes() == CLIP.read_bytes()
+    assert video["file"] == content_ref(CLIP.read_bytes(), "mp4")
 
 
 def test_poster_exists_nonblack_and_at_range_start(tmp_path: Path) -> None:
     manifest, _ = extract(tmp_path / "out")
     video = next(i for i in manifest["items"] if i["type"] == "video")
     poster = tmp_path / "out" / video["poster"]
-    assert video["poster"] == bucketed("clip-004.poster.jpg")
+    assert is_content_addressed(tmp_path / "out", video["poster"])
+    assert video["poster"].endswith(".jpg")
     assert poster.is_file() and mean_luma(poster) > 10  # nonblack
     # The same extractor at a range start also yields a real frame.
     mid = tmp_path / "poster-0p5.jpg"
@@ -152,27 +158,26 @@ def test_poster_exists_nonblack_and_at_range_start(tmp_path: Path) -> None:
     assert mean_luma(mid) > 10
 
 
-# --- output layout: hash-prefix buckets (docs/plan.md Phase 17) -----------------
+# --- output layout: content-addressed media (docs/plan.md Phase 25) -----------
 
-def test_every_declared_path_is_its_basename_bucket(tmp_path: Path) -> None:
-    """Bucket == sha1(basename)[:2], and the declared file is on disk."""
+def test_every_declared_path_is_the_sha256_of_its_bytes(tmp_path: Path) -> None:
+    """Each media path == media/<h[:2]>/<h>.<ext>, h = sha256(shipped bytes)."""
     out = tmp_path / "out"
     manifest, ledger = extract(out)
     declared = declared_media(manifest)
     assert declared, "the fixture ships no media"
     for ref in declared:
-        basename = ref.rsplit("/", 1)[-1]
-        assert ref == bucketed(basename)
-        assert (out / ref).is_file()
-    # The rule above hashes each name itself, so a video and its poster
-    # bucket separately (the fixture's two land in different buckets).
-    # Nothing shipped sits outside a bucket: the folder holds nothing but
-    # the three folder files plus assets/<xx>/<name>.
+        assert is_content_addressed(out, ref), ref
+    # Nothing shipped sits outside media/: the folder holds nothing but the
+    # three folder files plus media/<xx>/<sha256>.<ext>, and no assets/.
     on_disk = [p.relative_to(out).as_posix() for p in out.rglob("*")
                if p.is_file() and p.name not in FOLDER_FILES]
-    assert all(len(ref.split("/")) == 3 and ref.startswith("assets/")
+    assert all(len(ref.split("/")) == 3 and ref.startswith("media/")
                for ref in on_disk), on_disk
     assert set(on_disk) == set(declared)
+    assert not (out / "assets").exists()
+    assert "assets/" not in (out / "manifest.json").read_text("utf-8")
+    assert "assets/" not in (out / "build-ledger.json").read_text("utf-8")
     # The ledger names the same paths the manifest does: no drift.
     for entry in ledger["items"].values():
         for key in ("shippedFile", "shippedPoster", "dedupOf"):
@@ -180,8 +185,44 @@ def test_every_declared_path_is_its_basename_bucket(tmp_path: Path) -> None:
                 assert entry[key] in declared
 
 
-def test_two_runs_are_byte_identical_and_same_bucket(tmp_path: Path) -> None:
-    """Same input -> identical manifest, ledger, buckets, and media bytes."""
+def test_identical_shipped_bytes_share_one_path(tmp_path: Path) -> None:
+    """Different SOURCES that ship the same bytes land on one path, written
+    once: a plain PNG and the same PNG carved out of a wrapped file."""
+    from PIL import Image
+
+    buf = BytesIO()
+    Image.new("RGB", (24, 16), (9, 200, 40)).save(buf, "PNG")
+    project = _make_project(tmp_path, buf.getvalue(), buf.getvalue())
+    out = tmp_path / "out"
+    assert cli_main([str(project), str(out)]) == 0
+    manifest = json.loads((out / "manifest.json").read_text("utf-8"))
+    by_prefix = {i["id"].split("-")[0]: i for i in manifest["items"]}
+    good, wrapped = by_prefix["good"]["file"], by_prefix["wrapped"]["file"]
+    assert good == wrapped
+    assert is_content_addressed(out, good)
+    shipped = [p for p in out.rglob("*")
+               if p.is_file() and p.name not in FOLDER_FILES]
+    assert [p.relative_to(out).as_posix() for p in shipped] == [good]
+
+
+def test_sha256_file_streams_in_chunks(tmp_path: Path) -> None:
+    """The file hash matches hashlib over the whole bytes, read in chunks
+    (a big video is never read whole just to name it)."""
+    big = tmp_path / "big.bin"
+    data = bytes(range(256)) * 9000          # > one chunk
+    big.write_bytes(data)
+    assert assets.sha256_file(big, chunk=4096) == hashlib.sha256(data).hexdigest()
+
+
+def test_flat_option_is_gone(tmp_path: Path) -> None:
+    """One fixed layout: --flat no longer exists."""
+    with pytest.raises(SystemExit) as exc:
+        cli_main([str(FIXTURE), str(tmp_path / "out"), "--flat"])
+    assert exc.value.code == 2
+
+
+def test_two_runs_are_byte_identical(tmp_path: Path) -> None:
+    """Same input -> identical manifest, ledger, paths, and media bytes."""
     left, right = tmp_path / "left", tmp_path / "right"
     extract(left)
     extract(right)
@@ -191,24 +232,9 @@ def test_two_runs_are_byte_identical_and_same_bucket(tmp_path: Path) -> None:
                         for p in left.rglob("*") if p.is_file())
     right_files = sorted(p.relative_to(right).as_posix()
                          for p in right.rglob("*") if p.is_file())
-    assert left_files == right_files       # same files, same buckets
+    assert left_files == right_files       # same files, same paths
     for rel in left_files:
         assert (left / rel).read_bytes() == (right / rel).read_bytes(), rel
-
-
-def test_flat_flag_writes_media_into_the_folder_root(tmp_path: Path) -> None:
-    """--flat opts out of sharding; the folder still validates."""
-    out = tmp_path / "out"
-    assert cli_main([str(FIXTURE), str(out), "--flat"]) == 0
-    manifest = json.loads((out / "manifest.json").read_text("utf-8"))
-    declared = declared_media(manifest)
-    assert declared
-    assert all("/" not in ref for ref in declared), declared
-    for ref in declared:
-        assert (out / ref).is_file()
-    assert not (out / "assets").exists()
-    proc = run_validator(out)
-    assert proc.returncode == 0, proc.stdout + proc.stderr
 
 
 # --- validator + ledger extra ---------------------------------------------------
@@ -268,11 +294,8 @@ def test_wrapped_image_carved_and_unsupported_item_skipped(
     entry = ledger["items"][wrapped["id"]]
     assert entry["decision"] == "carved"
     assert entry["wrapped"] == 5
-    shipped = Path(wrapped["file"]).name
-    assert shipped.startswith(f"{wrapped['id']}.")
-    assert shipped.endswith((".png", ".jxl"))
-    assert wrapped["file"] == bucketed(shipped)   # declared under its bucket
-    assert (out / wrapped["file"]).is_file()
+    assert wrapped["file"].endswith((".png", ".jxl"))
+    assert is_content_addressed(out, wrapped["file"])
     # The junk item never reaches the manifest but is explained in the ledger.
     junk_ids = [i for i in ledger["items"] if i.startswith("junk-")]
     assert junk_ids

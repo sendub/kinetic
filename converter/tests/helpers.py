@@ -3,18 +3,27 @@
 from __future__ import annotations
 
 import hashlib
+from pathlib import Path
 from typing import Any
 
 
-def bucketed(name: str) -> str:
-    """The path a shipped media file name must be declared by (Phase 17).
+def content_ref(data: bytes, ext: str) -> str:
+    """The path shipped bytes must be declared by (docs/plan.md Phase 25).
 
     Recomputed here rather than imported from ``kinetic_extract``: the
-    bucket is the first two hex digits of the sha1 of the BASENAME, so a
-    test comparing against this helper catches a changed rule instead of
-    just echoing the production constant back.
+    name is the sha256 of the SHIPPED bytes, under a bucket of its first
+    two hex digits, so a test comparing against this helper catches a
+    changed rule instead of just echoing the production constant back.
     """
-    return f"assets/{hashlib.sha1(name.encode('utf-8')).hexdigest()[:2]}/{name}"
+    digest = hashlib.sha256(data).hexdigest()
+    return f"media/{digest[:2]}/{digest}.{ext}"
+
+
+def is_content_addressed(out: Path, ref: str) -> bool:
+    """True when ``ref`` names ``out/ref`` by the hash of its own bytes."""
+    path = out / ref
+    ext = ref.rsplit(".", 1)[-1]
+    return path.is_file() and ref == content_ref(path.read_bytes(), ext)
 
 
 def declared_media(manifest: dict[str, Any]) -> list[str]:

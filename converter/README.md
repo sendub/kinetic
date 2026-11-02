@@ -5,14 +5,15 @@ Ren'Py extractor MVP (docs/plan.md Phase 10): reads a Ren'Py project's
 Kinetic content folder: `manifest.json`, `manifest.js`,
 `build-ledger.json`, and every media file (posters included).
 
-Media references follow the `<id>.<ext>` naming convention with `ext` the
-TRUE shipped format: assets are sniffed by content (never by extension),
+Every shipped file, posters included, lands at `media/<h[:2]>/<h>.<ext>`:
+`h` is the sha256 of the bytes shipped and `ext` the TRUE shipped format
+(docs/extracting.md, "Output layout"). Sources are sniffed by content (never by extension),
 compatible images ship byte-identical or as lossless JPEG XL when
 strictly smaller (libjxl through the pinned imagecodecs), incompatible ones
 are converted to the smallest of PNG/JPEG q92/JXL, wrapped PNG/JPEG data
 is carved, native browser videos are copied and others are transcoded to
 H.264 faststart MP4, and posters are the frame at `startSeconds`.
-Identical sources dedup into one shared file. Every decision lands in
+Identical outputs are one file, written once. Every decision lands in
 `build-ledger.json`.
 
 When an image is neither recognizable nor trivially carvable, its item

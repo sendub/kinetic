@@ -142,7 +142,7 @@ function start(): void {
   //   window.KINETIC_MANIFEST ?? await fetch("manifest.json").then(r => r.json())
   // `document.baseURI` is the content folder's own `index.html`, so it is both
   // the root every declared media path resolves against (a bucket subpath like
-  // `assets/ab/x.jpg` included) and the identity of this novel's storage.
+  // `media/ab/x.jpg` included) and the identity of this novel's storage.
   const contentRoot = document.baseURI;
   void loadManifest(
     { embedded: window.KINETIC_MANIFEST, fetchJson },

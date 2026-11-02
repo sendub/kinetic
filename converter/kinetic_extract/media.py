@@ -1,5 +1,5 @@
-"""Media helpers: ffprobe duration, default display resolution, and the
-shipped-file path rule.
+"""Media helpers: ffprobe duration, default display resolution, streamed
+hashing, and the content-addressed shipped-file path rule.
 """
 
 from __future__ import annotations
@@ -16,32 +16,33 @@ IMAGE_EXTS = {"png", "jpg", "jpeg", "webp", "gif", "jxl"}
 VIDEO_EXTS = {"mp4", "webm", "mkv", "mov", "m4v"}
 DEFAULT_SIZE = (1280, 720)
 
-MEDIA_ROOT = "assets"
+MEDIA_DIR = "media"
+HASH_CHUNK = 1 << 20
 
 
-def media_dir(name: str) -> str:
-    """The bucket directory a shipped file lives in: ``assets/ab``.
+def content_ref(digest: str, ext: str) -> str:
+    """Where shipped bytes with this sha256 live, relative to the content
+    folder: ``media/<h[:2]>/<h>.<ext>`` (docs/plan.md Phase 25).
 
-    The bucket is the first two hex digits of the sha1 of the file's
-    BASENAME - the name, never the bytes - so the same name lands in the
-    same bucket in every run (docs/plan.md Phase 17). Up to 256 shallow
-    buckets keep a big game's output out of the one huge directory macOS
-    Finder stalls on. A bucket holds many files: uniqueness comes from the
-    id-based names, not from the bucket.
+    The name is the hash of the bytes actually shipped, so the same bytes
+    get the same path on every run and machine, and identical outputs
+    (whatever their source) are one file. ``ext`` is the true shipped
+    format. The two-hex-digit bucket keeps a big game's output out of one
+    huge directory. Every writer and every manifest/ledger media value is
+    built here, so the file on disk and the path pointing at it cannot
+    drift.
     """
-    return f"{MEDIA_ROOT}/{hashlib.sha1(name.encode('utf-8')).hexdigest()[:2]}"
+    return f"{MEDIA_DIR}/{digest[:2]}/{digest}.{ext}"
 
 
-def media_ref(name: str, shard: bool = True) -> str:
-    """Where a shipped media file lives, relative to the content folder.
-
-    Every writer and every manifest/ledger media value is built here from
-    the same shipped name, so the file on disk and the path that points at
-    it cannot drift. Posters and animation frames bucket by their OWN
-    basenames, so one video's file and its poster may sit in different
-    buckets. ``shard=False`` (the CLI's ``--flat``) keeps the folder flat.
-    """
-    return name if not shard else f"{media_dir(name)}/{name}"
+def sha256_file(path: Path, chunk: int = HASH_CHUNK) -> str:
+    """The sha256 hex digest of a file, read in chunks (big videos are
+    never held whole in memory just to be named)."""
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        while block := handle.read(chunk):
+            digest.update(block)
+    return digest.hexdigest()
 
 
 def probe_duration_seconds(path: Path) -> float | None:
@@ -78,18 +79,3 @@ def most_common_image_size(paths: list[Path]) -> tuple[int, int] | None:
     if not sizes:
         return None
     return sizes.most_common(1)[0][0]
-
-
-def media_ext(source: str | None, kind: str) -> str:
-    """The manifest extension for an item's media reference.
-
-    Derived from the source file's extension when it is one the content
-    format allows; otherwise the fallback for the item kind (the asset pass
-    will ship that true format).
-    """
-    fallback = "mp4" if kind == "video" else "png"
-    if not source or "." not in Path(source).name:
-        return fallback
-    ext = Path(source).suffix.lower().lstrip(".")
-    allowed = VIDEO_EXTS if kind == "video" else IMAGE_EXTS
-    return ext if ext in allowed else fallback

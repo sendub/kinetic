@@ -24,7 +24,7 @@ my-novel/
   manifest.json    # source of truth, written by hand
   manifest.js      # generated shim, one command, see below
   *.jpg, *.mp4     # media, named per the conventions shown below
-                   # (optionally under a subfolder: assets/ab/window-004.jpg)
+                   # (optionally under a subfolder: media/ab/window-004.jpg)
 ```
 
 `index.html` and `app.js` are the player bundle, copied in as the last
@@ -134,18 +134,16 @@ video, where `ext` is the true shipped format (`jpg`, `png`, `webp`,
 video), `<id>.fNNN.jpg` for animation frames numbered from `f000`,
 and `<id>.poster.jpg` for a video poster. Browser-compatible
 originals are preserved byte-identical, with no forced re-encode.
-These names are the defaults the converter generates, not a
-one-file-per-item rule.
-Several items may reference the same derivative file, the converter
-dedups identical sources, and you may name hand-authored files
-differently. The names above are the last segment of the path: a `file`,
-`poster`, or `frames` entry may sit in a subfolder of the content folder —
-`assets/ab/window-004.jpg` — which is how the converter keeps a folder of
-thousands of media files readable (docs/plan.md Phase 17). The path stays
-relative to the content folder: forward slashes, no leading `/`, no `..`,
-no drive letter, no backslash, and the last segment keeps the flat name.
-Spreading files over subfolders is the converter's choice and never a
-requirement; a folder you author by hand may stay flat. A folder may also
+These names are defaults for a folder you write by hand, not a
+one-file-per-item rule: several items may reference the same file, and
+you may name your files differently. (The converter names its files by
+content instead; see "Converting a Ren'Py project" below.) The names above
+are the last segment of the path: a `file`, `poster`, or `frames` entry
+may sit in a subfolder of the content folder, such as
+`media/ab/window-004.jpg`. The path stays relative to the content
+folder: forward slashes, no leading `/`, no `..`, no drive letter, no
+backslash, and the last segment keeps the flat name. Subfolders are
+never a requirement; a folder you author by hand may stay flat. A folder may also
 carry extra unreferenced files, such as the converter's build ledger; the
 player and the validator ignore them.
 
@@ -398,15 +396,14 @@ It sniffs true formats and keeps browser-compatible originals
 byte-identical, re-encoding only what it must: images become lossless
 JPEG XL when that is smaller, video becomes H.264 MP4 when no target
 browser plays it. It emits posters, which is the work
-you do by hand above, dedups identical sources into shared derivative
-files, decompiles `.rpyc` (vendored unrpyc) and reads `.rpa` archives as
+you do by hand above, stores identical output once, decompiles `.rpyc` (vendored unrpyc) and reads `.rpa` archives as
 sources, converts simple `menu:` blocks into branches (conservatively;
 never guessing joins), and leaves its build ledger among the folder's
-unreferenced extras. Its media files land in `assets/<xx>/` buckets named
-by the first two hex digits of the sha1 of each file's own name, so a big
-game never puts thousands of files in one folder that macOS Finder has to
-lay out (`--flat` keeps them in the folder root; docs/extracting.md,
-"Output layout"). Validate and play its output the same way.
+unreferenced extras. Every media file it ships, posters included, is
+named by the sha256 of its bytes, `media/<h[:2]>/<h>.<ext>`, so the same
+game gives the same paths on any machine and a big game never puts
+thousands of files in one folder that macOS Finder has to lay out
+(docs/extracting.md, "Output layout"). Validate and play its output the same way.
 
 The extractor names the game and the story for you: the `title` is the
 project's `config.name` (else its folder name, with `_` and `-` read as
