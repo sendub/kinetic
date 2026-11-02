@@ -787,5 +787,8 @@ truthful: an unchecked box means nothing was accepted.
       disabled). vitest 501, reading 17/17, playall 21/21, branches
       39/39, navigation 19/19, screens 41 + 2 headless-fullscreen
       partials, smoke 6/6. 2026-11-02)
-- [ ] Phase-closer: full suite (scenarios, vitest, pytest,
+- [x] Phase-closer: full suite (scenarios, vitest, pytest,
       package-proof), rebuild both demo folders.
+      (2026-11-02: vitest 501, biome+tsc clean, scenario suite 8 files /
+      175 checks: 173 pass + 2 PARTIAL (headless fullscreen), pytest 155,
+      package-proof 18/18; .tmp/pkg-demo and .tmp/pkg-extract rebuilt.)
