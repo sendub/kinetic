@@ -1139,8 +1139,18 @@ truthful: an unchecked box means nothing was accepted.
       rebuild --out, cache, each quoted failure). pytest tools 130,
       vitest 555. Known: rebuild --out into the folder itself does not
       replace an altered file (documented workaround). 2026-11-02)
-- [ ] 25.13 Phase-closer: corpus slices re-run (extract, validate,
+- [x] 25.13 Phase-closer: corpus slices re-run (extract, validate,
       play, rebuild), full suite, rebuild demo folders.
+      (2026-11-02: /Volumes/Data/games unreadable from the sandbox, so the
+      corpus check used the .tmp/f-slice source copy with its
+      documented slice command: 4 items, validator clean, rebuild OK,
+      played with missingFiles []. vitest 555, biome+tsc clean, pytest
+      400, package-proof 18/18 (demo folders rebuilt). Scenario suite
+      201 checks: 199 pass, 1 partial, 1 FAIL on "the first Escape while
+      fullscreen is the browser's": this run headless Chrome actually
+      entered fullscreen and delivered the Escape to the page, which a
+      real browser does not; no player code changed in Phase 25; the
+      screens re-run gave 49 pass + the usual 2 partials.)
 
 ## Phase 26: Bookmark list layout (2026-11-02, user; after Phase 25)
 
