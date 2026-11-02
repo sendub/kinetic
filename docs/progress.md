@@ -704,7 +704,7 @@ truthful: an unchecked box means nothing was accepted.
       (11031db: closeIfPureAndComplete hands off to handleRouteEnd; two
       branches tests red before, green after; branches scenario 39/39.
       2026-11-02)
-- [ ] Play all routes shows the choice (user, 2026-11-02): with play-all
+- [x] Play all routes shows the choice (user, 2026-11-02): with play-all
       on, every decision (first fire and each re-offer) shows the real
       #choice with a status line and draining bar counting down for the
       screen's reading time at the reader's speed (never under 2.5 s);
@@ -718,6 +718,11 @@ truthful: an unchecked box means nothing was accepted.
       reader's; a replayed one waits. Turning play-all on over a live
       choice starts its countdown; off cancels it. Unit tests, playall
       scenario, README/docs.
+      (6075ab3: machine autoPick on the open choice, countdown max(2.5 s,
+      reading time of prompt + labels + ended route), 0.7 s highlight;
+      reload onto a live choice re-arms it (subagent review fix);
+      interstitial removed. vitest 475, playall scenario 19/19, branches
+      39/39. 2026-11-02)
 - [ ] `c` works everywhere (user, 2026-11-02): the settings screen opens
       over a choice (the choice waits underneath, digits inert, a
       play-all countdown frozen and restarted on close) and over the Esc
