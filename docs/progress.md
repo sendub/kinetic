@@ -918,3 +918,13 @@ truthful: an unchecked box means nothing was accepted.
       pkg-demo with a Phase-22 player: validator clean, no console
       errors, progress and bookmark survived the swap. vitest 550,
       pytest tools 109. 2026-11-02)
+
+## Phase 24: Play-all pick without a text flash (2026-11-02, user)
+
+- [ ] No text change at the pick (user, 2026-11-02): in play-all, a text
+      change flashes just as the route is picked and the branch starts.
+      Identify exactly what changes (likely the status line switching to
+      "Play all routes picked “…”" for the ~0.7 s picked phase, or a
+      seconds/hint change) and make nothing but the row highlight change
+      in that moment. Tests, playall scenario (text frozen across the
+      picked phase), docs.
