@@ -747,3 +747,25 @@ truthful: an unchecked box means nothing was accepted.
       (2026-11-02: vitest 477, biome+tsc clean, scenario suite 8 files /
       169 checks: 167 pass + 2 PARTIAL (headless fullscreen), pytest 155,
       package-proof 18/18; .tmp/pkg-demo and .tmp/pkg-extract rebuilt.)
+
+## Phase 20: Fourth demo-feedback round (2026-11-02, user)
+
+- [ ] `a` counts time already shown (user option a, 2026-11-02): `a`
+      looked dead on the demo's opening screen because turning auto on
+      restarts the screen's whole wait (10.4 s there). Turning auto on now
+      waits only for what is left of the screen's reading time, measured
+      from when the screen first appeared (time under help or settings
+      counts as shown). Machine test red before, green after; playall
+      scenario check (`a` on intro-title moves on promptly after the
+      screen has been up past its wait).
+- [ ] Play-all choice: highlight and reading time (user, 2026-11-02): the
+      route play-all will pick is highlighted from the start of the
+      countdown, not only in the final ~0.7 s. Check that the countdown
+      really counts every word on the screen (prompt, every label,
+      "Back in time" line) and give choice screens extra comprehension
+      time on top of plain reading time. Tests, playall scenario, docs.
+- [ ] Auto-forward on/off pill (user, 2026-11-02): "Auto-forward on" when
+      it starts, "Auto-forward off" whenever it stops by any route in the
+      code, using the route-entry pill mechanism. Tests, scenario, README.
+- [ ] Phase-closer: full suite (scenarios, vitest, pytest,
+      package-proof), rebuild both demo folders.

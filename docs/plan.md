@@ -838,6 +838,22 @@ directory holds too many files.
   control stays in one column. Play all routes gets a one-line note:
   "choices pick themselves after a countdown".
 
+## Phase 20: Fourth demo-feedback round (2026-11-02, user)
+
+- `a` counts time already shown (user option a): turning auto-forward on
+  waits only for the rest of the screen's reading time, measured from
+  when the screen first appeared (time under help or settings counts),
+  so `a` on a screen already read moves on at once.
+- Play-all choice highlight and reading time: the route play-all will
+  pick is highlighted from the start of the countdown. The countdown
+  counts every word on the screen and adds extra comprehension time for
+  choice screens.
+- Auto-forward on/off message: turning auto-forward on shows a brief
+  pill ("Auto-forward on"), using the same pill mechanism that shows a
+  route's name on entry. Every way it turns off (`a` again, a click or
+  key that stops it, Tab, a choice or the end, a panel, anything else
+  in the code) shows "Auto-forward off". No pill when nothing changed.
+
 ## Later, waiting on the user
 
 - Overlay text styling iteration once the user can play with the demo.
