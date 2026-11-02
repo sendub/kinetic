@@ -928,3 +928,8 @@ truthful: an unchecked box means nothing was accepted.
       seconds/hint change) and make nothing but the row highlight change
       in that moment. Tests, playall scenario (text frozen across the
       picked phase), docs.
+- [ ] Play all routes on by default (user, 2026-11-02): Kinetic is an
+      interaction-free kinetic game, so `playAllRoutes` defaults to on.
+      A reader who saved Off keeps Off; Reset progress restores On.
+      Tests and scenarios that need manual choices set Off explicitly.
+      README / docs / CREATE.md wording.
