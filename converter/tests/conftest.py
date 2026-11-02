@@ -19,6 +19,7 @@ from pathlib import Path
 
 import pytest
 
+from kinetic_extract.media_cache import CACHE_ENV
 from kinetic_extract.media_tools import TEST_DIR_ENV, TOOL_NAMES
 
 
@@ -38,3 +39,25 @@ def system_media_tools(tmp_path_factory: pytest.TempPathFactory,
         os.environ.pop(TEST_DIR_ENV, None)
     else:
         os.environ[TEST_DIR_ENV] = previous
+
+
+@pytest.fixture(scope="session", autouse=True)
+def media_cache_off() -> Iterator[None]:
+    """No reuse cache outside a test (module fixtures run cold), and
+    never the repo's own ``.tmp/kinetic-media-cache``."""
+    previous = os.environ.get(CACHE_ENV)
+    os.environ[CACHE_ENV] = "off"
+    yield
+    if previous is None:
+        os.environ.pop(CACHE_ENV, None)
+    else:
+        os.environ[CACHE_ENV] = previous
+
+
+@pytest.fixture(autouse=True)
+def media_cache(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """A fresh reuse cache per test: each test starts cold, and a second
+    conversion inside one test exercises the warm path."""
+    root = tmp_path / "media-cache"
+    monkeypatch.setenv(CACHE_ENV, str(root))
+    return root

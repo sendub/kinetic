@@ -44,6 +44,7 @@ from . import __version__
 from .assets import run_asset_pass
 from .cli import decoder_option, sorted_keys
 from .decoders import DecoderError
+from .media_cache import open_cache
 from .media_tools import MediaToolsError, run_tools
 from .rebuild import RebuildError, load_ledgers, rebuild, tool_differences
 from .selftest import ensure_ready
@@ -82,7 +83,8 @@ def ship(args: argparse.Namespace) -> int:
     try:
         skipped, media = run_asset_pass(records, out_dir, tools,
                                         args.decoder,
-                                        media=existing.get("media"))
+                                        media=existing.get("media"),
+                                        cache=open_cache(tools))
     except DecoderError as exc:
         return _fail(str(exc), 1)
     entries = [{"request": request, "result": request_result(record,

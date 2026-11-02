@@ -172,7 +172,20 @@ rebuild refuses (exit 2). By default it only verifies; `--out DIR` also
 writes the rebuilt `media/` tree. Exit 0 means everything matched.
 Exit 1 means something is missing, unsupported or mismatched, and each
 problem is named by its output path. The details are in
-docs/extracting.md, "kinetic-media rebuild".
+docs/extracting.md, "kinetic-media rebuild". It never reads the reuse
+cache: every step is encoded again.
+
+### Reuse cache
+
+`kinetic-extract` and `kinetic-media ship` remember each image decision,
+transcode and poster in `.tmp/kinetic-media-cache/` at the repo root,
+keyed by the sha256 of the bytes being encoded (after decoder hooks),
+the recipe and the run's `mediaTools`. A re-run with the same inputs
+and tools encodes nothing and writes the same folder byte for byte.
+Stored outputs are hash-checked when read; a corrupt one is encoded
+again. `KINETIC_MEDIA_CACHE=DIR` moves the cache, `KINETIC_MEDIA_CACHE=off`
+disables it, and deleting the directory is always safe. Details in
+docs/extracting.md, "Reuse cache".
 
 ## Tests
 

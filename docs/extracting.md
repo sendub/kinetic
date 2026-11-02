@@ -406,7 +406,9 @@ The pinned tools' self-test runs first. The ledger's `mediaTools` must
 equal this run's tools exactly, or the rebuild refuses (exit 2) and
 names each difference (`mediaTools Pillow: ledger "13.0.0", now
 "13.1.0"`). With the same pinned tools every output must come out
-byte-identical, so there is no tolerance for drift.
+byte-identical, so there is no tolerance for drift. The rebuild never
+reads the reuse cache (below): it runs every step again, because
+verifying means encoding.
 
 For each `media` entry, and separately for each of its `alsoFrom`
 sources:
@@ -456,6 +458,58 @@ Exit codes:
 - 2: the rebuild cannot start: no ledger in the folder, a ledger with
   no `media` section, other media tools, a bad game root, or tools that
   are not ready.
+
+## Reuse cache
+
+Encoding is the slow part of a conversion: lossless JPEG XL at effort 9
+on one thread, ffmpeg transcodes and posters. `kinetic-extract` and
+`kinetic-media ship` keep what they encode in a reuse cache
+(`converter/kinetic_extract/media_cache.py`, docs/plan.md Phase 25), so
+a re-run, or a later episode shipped into the same folder, encodes
+nothing already made from the same bytes, recipe and tools.
+
+- Location: `.tmp/kinetic-media-cache/` at the repo root (gitignored),
+  shared by every run from this checkout. `KINETIC_MEDIA_CACHE=DIR`
+  puts it elsewhere; `KINETIC_MEDIA_CACHE=off` turns it off. Deleting
+  the directory is always safe: the next run encodes again.
+- What is remembered: one record per decision. For an image that is the
+  whole choice: ext, decision, notes, ledger steps and output sha256,
+  so the JPEG XL attempt and the "is it smaller?" comparison are both
+  skipped. For a transcode or a poster it is the output sha256. Output
+  bytes are stored once by sha256 (`objects/<h[:2]>/<h>`); a kept
+  original stores none. A failed transcode or poster is not remembered.
+- Key: the sha256 of the bytes entering the encode (after any decoder
+  hook and carve), the recipe (every step dict and parameter the encode
+  can use: PNG and JPEG convert params, JPEG XL effort, the transcode
+  and poster ffmpeg args, the poster's start time and JPEG params), the
+  run's whole `mediaTools` (tool versions and binary sha256s, extractor
+  version), and a cache format number that is bumped when the choosing
+  code changes. Any difference is a miss.
+- Decoder hooks always run, and the ledger's `decode` steps come from
+  this run's hooks. The key is the decoded bytes, not the hook's
+  identity: a changed hook that decodes differently misses, and one
+  that gives the same bytes rightly reuses the encode.
+- Integrity: every stored output is hashed when read. A missing, corrupt
+  or truncated object is a miss; the corrupt one is deleted and the
+  fresh encode stores it again. A record that does not parse is a miss.
+  Writes go to a temp file and `os.replace`, so overlapping runs never
+  read half a file.
+- A warm run gives the same folder as a cold one, byte for byte, ledger
+  included (`converter/tests/test_media_cache.py`). It still reads,
+  hashes, sniffs and probes every source, and runs the hooks.
+
+Measured on macos-arm64 with the pinned tools (2026-11-02):
+
+| Run | Cold | Warm |
+| --- | --- | --- |
+| `kinetic-extract fixtures/renpy_demo` | 0.81 s | 0.34 s |
+| `kinetic-media ship`, 417-image sample (226 MB) | 300.2 s | 14.6 s |
+
+Both warm folders were `diff -r` identical to the cold ones (the demo's
+also to a `KINETIC_MEDIA_CACHE=off` run). The sample's cache held 107 MB
+for a 175 MB output folder: only JPEG XL outputs are stored, kept
+originals are not. What a warm run still spends is reading, hashing and
+sniffing every source.
 
 ## Story ID and title
 

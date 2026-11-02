@@ -1101,8 +1101,15 @@ truthful: an unchecked box means nothing was accepted.
       altered files; --out reproduces media/ byte-identical. 17 tests red
       before; pytest converter+tools 374; real pinned renpy_demo rebuild
       OK. 2026-11-02)
-- [ ] 25.10 Reuse cache keyed by source hash + recipe + tool versions;
+- [x] 25.10 Reuse cache keyed by source hash + recipe + tool versions;
       re-runs encode nothing.
+      (media_cache.py under .tmp/kinetic-media-cache/ (KINETIC_MEDIA_CACHE
+      =DIR|off): memo by sha256 of {op, post-hook input sha256, recipe,
+      mediaTools} -> decision + output sha256; objects verified on read;
+      atomic writes; rebuild never reads it. Warm runs make zero encoder
+      calls and give identical folders: renpy_demo 0.81 -> 0.34 s; 417
+      images via ship 300 -> 14.6 s. 11 tests (7 red before); pytest
+      converter+tools 385. 2026-11-02)
 - [ ] 25.11 Several episodes into one game: kinetic-extract (and ship)
       take several projects in order -> one continuous story, ids kept
       unique, one media folder.

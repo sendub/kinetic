@@ -52,7 +52,9 @@ file extensions - corpus extensions lie. Policies:
   ``media`` entry, other sources under ``alsoFrom``). Files are hashed in chunks; a transcode or poster is made in a
   scratch dir inside the output folder, hashed, then moved into place.
   Identical source bytes are also remembered per run so they are encoded
-  once. The asset pass sets the item's ``file``/``poster``; manifest and
+  once, and across runs by the reuse cache (``media_cache``): an image
+  decision, transcode or poster made before from the same bytes, recipe
+  and tools is not made again. The asset pass sets the item's ``file``/``poster``; manifest and
   ledger paths are that same ref, so no path drift is possible.
 
 Every decision and sniffed format lands in the build ledger's item
@@ -80,6 +82,7 @@ from typing import Any
 
 from . import decoders as decoder_hooks
 from . import media_tools
+from .media_cache import MediaCache
 from .media import (content_ref, image_size, probe_duration_seconds,
                     sha256_file)
 from .timeline import ItemRecord
@@ -578,6 +581,62 @@ def decide_image_ship(data: bytes, fmt: str, wrapped: bool,
             steps)
 
 
+def image_recipe() -> dict[str, Any]:
+    """Every parameter ``decide_image_ship`` can encode with: the reuse
+    cache's recipe for an image decision (``media_cache``)."""
+    return {"png": PNG_STEP, "jpeg": jpeg_step(),
+            "jxlEffort": media_tools.JXL_EFFORT}
+
+
+def decide_image_cached(cache: MediaCache | None, data: bytes, digest: str,
+                        fmt: str, wrapped: bool,
+                        ) -> tuple[str, bytes, str, list[str], list[dict]]:
+    """``decide_image_ship`` through the reuse cache: a hit returns the
+    remembered decision and its verified output bytes without encoding or
+    comparing anything. `digest` is the sha256 of `data`."""
+    if cache is None:
+        return decide_image_ship(data, fmt, wrapped)
+    key = cache.key("image", digest, {"format": fmt, "wrapped": wrapped,
+                                      **image_recipe()})
+    memo = cache.get(key)
+    if memo is not None:
+        try:
+            out_sha = memo["sha256"]
+            out = data if out_sha == digest else cache.get_bytes(out_sha)
+            if out is not None:
+                return (memo["ext"], out, memo["decision"],
+                        list(memo["notes"]), memo["steps"])
+        except (KeyError, TypeError):
+            pass  # a memo of another shape: decide again
+    ext, out, decision, notes, steps = decide_image_ship(data, fmt, wrapped)
+    out_sha = hashlib.sha256(out).hexdigest()
+    if out_sha != digest:
+        cache.put_bytes(out, out_sha)
+    cache.put(key, {"ext": ext, "sha256": out_sha, "decision": decision,
+                    "notes": notes, "steps": steps})
+    return ext, out, decision, notes, steps
+
+
+def file_step_cached(cache: MediaCache | None, step: dict[str, Any],
+                     source: Path, digest: str, out: Path) -> str | None:
+    """``run_file_step`` (transcode, poster) through the reuse cache:
+    a hit copies the verified remembered output to `out`. `digest` is
+    the sha256 of `source`. Failures are not remembered."""
+    if cache is None:
+        return run_file_step(step, source, out)
+    key = cache.key(step["step"], digest, step)
+    memo = cache.get(key)
+    if memo is not None and isinstance(memo.get("sha256"), str) \
+            and cache.copy_to(memo["sha256"], out):
+        return None
+    error = run_file_step(step, source, out)
+    if error is None:
+        made = sha256_file(out)
+        cache.put_file(out, made)
+        cache.put(key, {"sha256": made})
+    return error
+
+
 # ffmpeg argument lists after the binary, with "{input}"/"{output}" where
 # the paths go: exactly what runs and what the ledger records.
 INPUT, OUTPUT = "{input}", "{output}"
@@ -1010,6 +1069,7 @@ def run_asset_pass(records: list[ItemRecord], out_dir: Path,
                    decoders: list[decoder_hooks.Decoder] | None = None,
                    decoded_sizes: list[tuple[int, int]] | None = None,
                    media: dict[str, dict[str, Any]] | None = None,
+                   cache: MediaCache | None = None,
                    ) -> tuple[int, dict[str, dict[str, Any]]]:
     """Ship every referenced asset at its TRUE format (docs/plan.md Phase 10)
     under its content-addressed path (Phase 25).
@@ -1025,7 +1085,10 @@ def run_asset_pass(records: list[ItemRecord], out_dir: Path,
     is an earlier ledger's ``media`` section to build on (``kinetic-media
     ship`` into an existing folder): its entries are kept, and a source
     making one of its outputs again joins that entry (``alsoFrom``) or,
-    when it is the entry's own source, changes nothing. Returns the
+    when it is the entry's own source, changes nothing. ``cache`` is the
+    reuse cache (``media_cache.open_cache``): image decisions,
+    transcodes and posters it remembers for the same input bytes, recipe
+    and tools are not made again. Returns the
     skipped count and the ledger's ``media`` section: output path ->
     entry.
 
@@ -1062,13 +1125,14 @@ def run_asset_pass(records: list[ItemRecord], out_dir: Path,
             found = _read_input(record, source, list(decoders or ()),
                                 Path(scratch), inputs)
             if kind == "image":
-                skipped += _ship_image(record, found, placed, image_share)
+                skipped += _ship_image(record, found, placed, image_share,
+                                       cache)
                 if found.steps and decoded_sizes is not None \
                         and not record.skipped:
                     _add_size(found.path, decoded_sizes)
             else:
                 skipped += _ship_video(record, found, placed, video_share,
-                                       poster_share, Path(scratch))
+                                       poster_share, Path(scratch), cache)
     return skipped, dict(sorted(placed.media.items()))
 
 
@@ -1078,7 +1142,8 @@ def _shared_note(record: ItemRecord, shipped: str) -> None:
 
 
 def _ship_image(record: ItemRecord, found: _Input, placed: _Placed,
-                share: dict[str, tuple[str, str, list[dict]]]) -> int:
+                share: dict[str, tuple[str, str, list[dict]]],
+                cache: MediaCache | None) -> int:
     source = found.path
     data = source.read_bytes()
     fmt, offset = sniff_image(data)
@@ -1099,8 +1164,8 @@ def _ship_image(record: ItemRecord, found: _Input, placed: _Placed,
         shipped, decision, steps = share[digest]
         already = True
     else:
-        ext, out_bytes, decision, notes, steps = decide_image_ship(
-            effective, fmt, offset > 0)
+        ext, out_bytes, decision, notes, steps = decide_image_cached(
+            cache, effective, digest, fmt, offset > 0)
         shipped, already = placed.put_bytes(out_bytes, ext)
         share[digest] = (shipped, decision, steps)
         record.notes.extend(notes)
@@ -1118,7 +1183,7 @@ def _ship_image(record: ItemRecord, found: _Input, placed: _Placed,
 def _ship_video(record: ItemRecord, found: _Input, placed: _Placed,
                 video_share: dict[str, tuple[str, str, list[dict]]],
                 poster_share: dict[str, tuple[str | None, str | None]],
-                scratch: Path) -> int:
+                scratch: Path, cache: MediaCache | None) -> int:
     source = found.path
     meta: dict[str, Any] = record.asset_meta
     container, codec = probe_video(source)
@@ -1142,7 +1207,8 @@ def _ship_video(record: ItemRecord, found: _Input, placed: _Placed,
     cached = poster_share.get(poster_key)
     if cached is None:
         made_poster = scratch / "poster.jpg"
-        error = extract_poster(source, made_poster, start)
+        error = file_step_cached(cache, poster_step(start), source, digest,
+                                 made_poster)
         if error is not None:
             made_poster.unlink(missing_ok=True)
             poster_share[poster_key] = (None, error)
@@ -1167,7 +1233,8 @@ def _ship_video(record: ItemRecord, found: _Input, placed: _Placed,
             steps = [{**PRESERVE_STEP, "codec": codec or "unknown"}]
         else:
             made = scratch / "transcode.mp4"
-            if not transcode_video(source, made):
+            if file_step_cached(cache, transcode_step(), source, digest,
+                                made) is not None:
                 made.unlink(missing_ok=True)
                 if made_poster is not None:
                     made_poster.unlink(missing_ok=True)
