@@ -1,5 +1,10 @@
-# Pinned dependencies for the Python tooling (fixtures/, later converter/).
-# Install with: .venv/bin/pip install -r requirements.txt
+# Pinned dependencies for the Python tooling (fixtures/, converter/, tools/).
+# Install with: .venv/bin/pip install -r requirements.txt --cache .tmp/pip-cache
+# Pillow, imagecodecs (bundles libjxl) and numpy are the converter's media
+# codecs: their versions must equal converter/media-tools.json "python",
+# or kinetic-extract refuses to run (docs/plan.md Phase 25).
+imagecodecs==2026.10.10
 jsonschema==4.26.0
+numpy==2.5.4
 Pillow==13.0.0
 pytest==9.2.0

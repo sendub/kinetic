@@ -12,10 +12,21 @@ are implementing and docs/stack.md for settled decisions.
   `python3 -m venv .venv && .venv/bin/pip install -r requirements.txt` if
   missing.
 - Converter: editable install once per venv:
-  `.venv/bin/pip install -e ./converter --cache .tmp/pip-cache`; run
-  `.venv/bin/kinetic-extract <renpy_project> <out>`; tests
-  `.venv/bin/pytest converter/ -q`.
-- ffmpeg and macOS `sips` are on PATH; there is no Rust toolchain.
+  `.venv/bin/pip install -e ./converter --cache .tmp/pip-cache`; then
+  the pinned media tools once per checkout:
+  `.venv/bin/python tools/setup_media_tools.py` (downloads the static
+  ffmpeg/ffprobe named in `converter/media-tools.json` into the
+  gitignored `.media-tools/<platform>/` and runs the golden-hash
+  self-test; `--pin` records null checksums and goldens, which the user
+  runs, not agents). Run `.venv/bin/kinetic-extract <renpy_project>
+  <out>`; it refuses to start until that setup has passed. Tests
+  `.venv/bin/pytest converter/ tools/ -q`.
+- Converter tests point `KINETIC_MEDIA_TOOLS_DIR` (test-only, set by
+  `converter/tests/conftest.py`) at the system ffmpeg; never set it for a
+  real conversion. The converter never uses PATH's ffmpeg, `cjxl` or
+  `djxl`.
+- ffmpeg and macOS `sips` are on PATH (fixture builders use them); there
+  is no Rust toolchain.
 
 ## Sandbox gotchas
 

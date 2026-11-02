@@ -989,6 +989,14 @@ truthful: an unchecked box means nothing was accepted.
       converter uses only these; single-threaded bitexact settings;
       golden-hash self-test at setup and converter start, refusing on a
       mismatch. Docs (AGENTS.md commands, converter README, CREATE.md).
+      (Code done 2026-11-02: media_tools.py + selftest.py, pin file
+      converter/media-tools.json (ffmpeg 9.0.2 martin-riedl static builds,
+      Pillow 13.0.0, imagecodecs 2026.10.10 / libjxl 0.12.0), install dir
+      .media-tools/<platform>/, cjxl/djxl replaced by imagecodecs, 14
+      self-test cases, kinetic-extract refuses until pinned. pytest
+      converter+tools 250. OPEN: user runs `.venv/bin/python
+      tools/setup_media_tools.py --pin` to record archive sha256s and
+      goldens; tick after that run passes.)
 - [ ] 25.2 Content-addressed layout: fixed folder `media/` (was
       `assets/`; user, 2026-11-02), `media/<h[:2]>/<h>.<ext>` by sha256
       of shipped bytes, posters too; remove name buckets, `--flat`, id

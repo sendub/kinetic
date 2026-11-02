@@ -8,14 +8,13 @@ folder with the ledger present."""
 from __future__ import annotations
 
 import json
-import shutil
 import subprocess
 import sys
 from io import BytesIO
 from pathlib import Path
 
 from helpers import bucketed, declared_media
-from kinetic_extract import assets
+from kinetic_extract import assets, media_tools
 from kinetic_extract.cli import main as cli_main
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -80,28 +79,37 @@ def test_jxl_smaller_rule_recorded(tmp_path: Path) -> None:
     _, ledger = extract(tmp_path / "out")
     noise = ledger["items"]["photo-noise-018"]
     gif = ledger["items"]["bg-gif-019"]
-    if assets.cjxl_available():
-        assert noise["decision"] == "jxl"
-        assert noise["shippedBytes"] < noise["sourceBytes"]
-    else:  # no encoder on this machine: original must be kept
-        assert noise["decision"] == "preserve"
-        assert noise["shippedBytes"] == noise["sourceBytes"]
+    # libjxl is a pinned dependency (imagecodecs): always available.
+    assert assets.jxl_available()
+    assert noise["decision"] == "jxl"
+    assert noise["shippedBytes"] < noise["sourceBytes"]
     # Animated images are never re-encoded, JXL or not.
     assert gif["decision"] == "preserve"
 
 
-def test_fixture_photo_noise_jxl_smaller_when_cjxl_present(tmp_path: Path) -> None:
-    """The fixture asset is chosen so lossless JXL genuinely wins."""
-    if not shutil.which("cjxl") or not shutil.which("djxl"):
-        return  # machine without JXL tools: nothing to assert
+def test_fixture_photo_noise_jxl_smaller() -> None:
+    """The fixture asset is chosen so lossless JXL genuinely wins, and the
+    shipped JXL decodes back to the source pixels."""
+    from PIL import Image
+
     png = (FIXTURE / "game" / "data" / "photo-noise.png").read_bytes()
-    src = tmp_path / "photo-noise.png"
-    src.write_bytes(png)
-    r = subprocess.run(["cjxl", "-d", "0", "-e", "9", str(src),
-                        str(tmp_path / "p.jxl")],
-                       capture_output=True, check=False)
-    assert r.returncode == 0
-    assert (tmp_path / "p.jxl").stat().st_size < len(png)
+    jxl = assets._encode_jxl_lossless(png, "png")
+    assert jxl is not None and len(jxl) < len(png)
+    with Image.open(BytesIO(png)) as orig:
+        back = Image.fromarray(media_tools.jxl_decode(jxl))
+        assert back.convert("RGBA").tobytes() == orig.convert("RGBA").tobytes()
+
+
+def test_webp_never_becomes_jxl_yet() -> None:
+    """WebP waits for docs/plan.md 25.5 (cjxl never read it either)."""
+    from PIL import Image
+
+    buf = BytesIO()
+    Image.new("RGB", (32, 32), (10, 200, 30)).save(buf, "WEBP", lossless=True)
+    ext, out, decision, _ = assets.decide_image_ship(buf.getvalue(), "webp",
+                                                     False)
+    assert (ext, decision) == ("webp", "preserve")
+    assert out == buf.getvalue()
 
 
 # --- dedup --------------------------------------------------------------------

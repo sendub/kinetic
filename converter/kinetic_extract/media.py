@@ -10,6 +10,8 @@ import subprocess
 from collections import Counter
 from pathlib import Path
 
+from . import media_tools
+
 IMAGE_EXTS = {"png", "jpg", "jpeg", "webp", "gif", "jxl"}
 VIDEO_EXTS = {"mp4", "webm", "mkv", "mov", "m4v"}
 DEFAULT_SIZE = (1280, 720)
@@ -43,10 +45,11 @@ def media_ref(name: str, shard: bool = True) -> str:
 
 
 def probe_duration_seconds(path: Path) -> float | None:
-    """The file's duration via ffprobe, or None when it cannot be probed."""
+    """The file's duration via the pinned ffprobe, or None when it cannot be
+    probed."""
     try:
         proc = subprocess.run(
-            ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+            [*media_tools.ffprobe_cmd(), "-show_entries", "format=duration",
              "-of", "json", str(path)],
             capture_output=True, text=True, check=False)
     except OSError:

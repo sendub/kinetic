@@ -8,7 +8,7 @@ Kinetic content folder: `manifest.json`, `manifest.js`,
 Media references follow the `<id>.<ext>` naming convention with `ext` the
 TRUE shipped format: assets are sniffed by content (never by extension),
 compatible images ship byte-identical or as lossless JPEG XL when
-strictly smaller (`cjxl`/`djxl`, probed at runtime), incompatible ones
+strictly smaller (libjxl through the pinned imagecodecs), incompatible ones
 are converted to the smallest of PNG/JPEG q92/JXL, wrapped PNG/JPEG data
 is carved, native browser videos are copied and others are transcoded to
 H.264 faststart MP4, and posters are the frame at `startSeconds`.
@@ -24,8 +24,61 @@ ledger — no placeholder is invented.
 From the repo root:
 
 ```sh
+.venv/bin/pip install -r requirements.txt --cache .tmp/pip-cache
 .venv/bin/pip install -e ./converter --cache .tmp/pip-cache
+.venv/bin/python tools/setup_media_tools.py
 ```
+
+### Pinned media tools (docs/plan.md Phase 25)
+
+The same game must give the same bytes on any machine, so the converter
+encodes and decodes only with pinned tools, listed in
+`converter/media-tools.json`:
+
+- Pillow, imagecodecs (bundling libjxl) and numpy at the versions in
+  `requirements.txt` (the pin file's `python` section must agree);
+- ffmpeg and ffprobe from a static release build (Martin Riedl's builds,
+  one timestamped URL per platform: `macos-arm64`, `macos-x86_64`,
+  `linux-x86_64`, `linux-arm64`), each archive with its sha256.
+
+`tools/setup_media_tools.py` downloads this platform's two archives,
+refuses on a sha256 mismatch, extracts the binaries into
+`.media-tools/<platform>/` at the repo root (gitignored, like `.venv/`;
+not under `.tmp/`, which holds disposable scratch), checks their
+reported version, then runs the golden-hash self-test. Nothing is
+downloaded again while the pinned archive is installed (`--force`
+re-downloads). PATH's ffmpeg, `cjxl` and `djxl` are never used.
+
+A null `sha256` or null `selftest.golden` means "not pinned yet":
+`--pin` records them (the archive checksum cross-checked against the
+publisher's `<url>.sha256`), and the updated pin file is committed.
+Pinned values are only ever verified, never overwritten; to move to a
+new ffmpeg, change the version and URLs, null the checksums and goldens,
+and re-run `--pin`.
+
+Encoders run single-threaded and bitexact: every ffmpeg command carries
+`-filter_threads 1`, `-threads 1` for the decoder and the encoder,
+`-fflags +bitexact -flags:v +bitexact -flags:a +bitexact` and
+`-map_metadata -1`; JPEG XL encodes and decodes with one thread at effort
+9; Pillow saves spell out every parameter.
+
+The self-test runs the committed samples in `tests/data/selftest/`
+(PNG, JPEG, WebP, GIF, a short H.264/AAC MP4; `make_samples.py` made
+them) through each converter tool path (Pillow decode and encode,
+JXL lossless and JPEG recompression, ffprobe, the poster frame, the
+H.264 transcode) and compares each output's sha256 with
+`selftest.golden`. `kinetic-extract` repeats the check at start and
+refuses to run on a missing install, a version or binary that differs
+from the pins, unpinned goldens, or any mismatch, naming the tool with
+expected and actual hashes. A pass is cached in
+`.media-tools/<platform>/selftest-cache.json` under a key built from the
+tool versions and the hashes of the binaries, samples, recipe sources
+and goldens, so a normal start only re-hashes files.
+
+`KINETIC_MEDIA_TOOLS_DIR` is a test-only override (set by
+`tests/conftest.py`) pointing the lookup at the system ffmpeg and
+skipping the pin checks with a warning. Never set it for a real
+conversion: the output is not reproducible.
 
 ## Usage
 
@@ -59,7 +112,7 @@ under `slice` in `build-ledger.json`.
 ## Tests
 
 ```sh
-.venv/bin/pytest converter/ -q
+.venv/bin/pytest converter/ tools/ -q
 ```
 
 ## Simplifications (MVP, per docs/plan.md Phase 10)

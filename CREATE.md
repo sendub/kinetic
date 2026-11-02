@@ -380,9 +380,19 @@ bundle, or slice with `--label/--max-items/--files`) into exactly this
 folder format:
 
 ```sh
-.venv/bin/pip install -e ./converter   # once per venv
+.venv/bin/pip install -r requirements.txt   # once per venv
+.venv/bin/pip install -e ./converter        # once per venv
+.venv/bin/python tools/setup_media_tools.py # once per checkout
 .venv/bin/kinetic-extract <renpy_project> <out_dir>
 ```
+
+The setup script downloads the pinned static ffmpeg and ffprobe for your
+OS and architecture into `.media-tools/` (checksum-verified) and checks
+that every media tool gives byte-identical results on a set of samples.
+The extractor uses only those tools, never whatever ffmpeg is on your
+PATH, so the same game converts to the same bytes on any machine; it
+refuses to run until the setup has passed (converter/README.md, "Pinned
+media tools").
 
 It sniffs true formats and keeps browser-compatible originals
 byte-identical, re-encoding only what it must: images become lossless

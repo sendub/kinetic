@@ -98,6 +98,17 @@ that is not a valid `storyId` is a usage error), and the run summary
 prints both with their sources. Keep the `storyId` the same when you
 re-extract an updated game, or readers' progress will not follow it.
 
+## Media tools
+
+Since docs/plan.md Phase 25 every extraction runs with the pinned media
+tools: run `.venv/bin/python tools/setup_media_tools.py` once per
+checkout before extracting, and `kinetic-extract` refuses to start
+until its golden-hash self-test passes (converter/README.md, "Pinned
+media tools"). Lossless JPEG XL now comes from libjxl inside imagecodecs
+instead of a system `cjxl`. The Results below predate this: they ran
+with the system ffmpeg 6.1.1 and `cjxl` 0.10.2, so their shipped bytes
+are not the pinned tools' bytes.
+
 ## Results
 
 One subsection per sampled game. The first pass ran five slices

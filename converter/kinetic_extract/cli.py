@@ -52,8 +52,10 @@ from . import __version__
 from .assets import run_asset_pass
 from .images import ImplicitImages
 from .media import DEFAULT_SIZE, most_common_image_size
+from .media_tools import MediaToolsError
 from .parser import ID_MAX, Report, parse_project, slug
 from .rpa import AssetArchives
+from .selftest import ensure_ready
 from .timeline import TimelineResult, build_timeline
 
 SIMPLIFICATIONS = [
@@ -425,6 +427,11 @@ def main(argv: list[str] | None = None) -> int:
                            "config.name or the folder name)")
     args = argp.parse_args(argv)
 
+    try:
+        ensure_ready()
+    except MediaToolsError as exc:
+        print(f"kinetic-extract: {exc}", file=sys.stderr)
+        return 2
     game_dir = resolve_game_dir(args.renpy_project)
     asset_archives = AssetArchives(game_dir)
     parses, image_defs, characters, sources = parse_project(game_dir,

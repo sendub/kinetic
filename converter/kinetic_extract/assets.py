@@ -6,11 +6,13 @@ file extensions - corpus extensions lie. Policies:
 
 - Images in a browser-compatible format (png/jpeg/webp/gif) ship
   byte-identical under ``<id>.<ext>`` (true ext), unless a verified
-  lossless JPEG XL encode (``cjxl -d 0 -e 9``, round-tripped through
-  ``djxl`` and pixel-compared) is strictly smaller, in which case ``.jxl``
-  ships. Animated images are never re-encoded.
+  lossless JPEG XL encode (libjxl via imagecodecs, effort 9, one thread;
+  PNG/GIF pixels encode losslessly, JPEG uses JPEG XL recompression; the
+  result is decoded back and pixel-compared) is strictly smaller, in which
+  case ``.jxl`` ships. WebP never becomes JXL (yet: docs/plan.md Phase 25).
+  Animated images are never re-encoded.
 - Other image formats (bmp, tiff, ...) are decoded with Pillow; the smallest
-  of (PNG, JPEG q92, JXL-if-available) ships, lossless-first when the image
+  of (PNG, JPEG q92, JXL) ships, lossless-first when the image
   has alpha (PNG or JXL only).
 - Wrapped/obfuscated images (a PNG/JPEG signature inside the first 64
   bytes, none at offset 0) are carved from the signature and follow the
@@ -22,6 +24,9 @@ file extensions - corpus extensions lie. Policies:
   transcodes to bitexact H.264 faststart MP4. MKV is Chromium-class; the
   copy decision is recorded for a Safari-targeting rebuild (docs
   content-format).
+- Every tool is the pinned one (``media_tools``): ffmpeg/ffprobe from
+  ``.media-tools/<platform>/``, single-threaded and bitexact; Pillow save
+  parameters are spelled out in full.
 - Posters are the frame AT ``startSeconds`` (``-ss`` after ``-i``, exact
   output seek) rendered to bitexact PNG, then JPEG, as ``<id>.poster.jpg``.
 - Identical source bytes (sha256) referenced by several items ship ONE
@@ -46,6 +51,7 @@ from io import BytesIO
 from pathlib import Path
 from typing import Any
 
+from . import media_tools
 from .media import media_ref
 from .timeline import ItemRecord
 
@@ -85,6 +91,13 @@ _EXT_TO_PIL = {"png": "PNG", "jpeg": "JPEG", "jpg": "JPEG", "webp": "WEBP",
                "gif": "GIF", "bmp": "BMP", "tiff": "TIFF"}
 
 
+# Formats whose JXL candidate is tried today (what the earlier cjxl path
+# accepted; WebP waits for docs/plan.md Phase 25 item 25.5).
+_JXL_SOURCE_FORMATS = {"png", "gif", "jpeg"}
+# Pillow modes imagecodecs encodes directly (8-bit L, LA, RGB, RGBA).
+_JXL_MODES = {"L", "LA", "RGB", "RGBA"}
+
+
 def _run(cmd: list[str]) -> subprocess.CompletedProcess[str] | None:
     try:
         return subprocess.run(cmd, capture_output=True, text=True,
@@ -93,18 +106,9 @@ def _run(cmd: list[str]) -> subprocess.CompletedProcess[str] | None:
         return None
 
 
-def cjxl_available() -> bool:
-    """Whether cjxl and djxl are both on PATH (probed once per process)."""
-    global _CJXL_OK
-    if _CJXL_OK is None:
-        probe = _run(["cjxl", "--version"])
-        probe2 = _run(["djxl", "--version"])
-        _CJXL_OK = bool(probe and probe.returncode == 0
-                        and probe2 and probe2.returncode == 0)
-    return _CJXL_OK
-
-
-_CJXL_OK: bool | None = None
+def jxl_available() -> bool:
+    """Whether the pinned imagecodecs build carries libjxl."""
+    return media_tools.jxl_available()
 
 
 def sniff_magic(data: bytes) -> str | None:
@@ -166,7 +170,7 @@ def is_animated(data: bytes, fmt: str) -> bool:
 
 def probe_video(path: Path) -> tuple[str | None, str | None]:
     """(container ext, video codec) via ffprobe, or (None, None)."""
-    proc = _run(["ffprobe", "-v", "error",
+    proc = _run([*media_tools.ffprobe_cmd(),
                  "-show_entries", "format=format_name",
                  "-show_entries", "stream=codec_type,codec_name",
                  "-of", "json", str(path)])
@@ -206,30 +210,42 @@ def video_is_native(source: Path) -> tuple[bool, str | None, str | None]:
     return native, ext, codec
 
 
-def _encode_jxl_lossless(data: bytes, src_ext: str, tmp: Path) -> bytes | None:
-    """Verified lossless JXL bytes for `data`, or None (fail/mismatch/bigger).
+def _jxl_pixels(img: Any) -> Any | None:
+    """The uint8 array imagecodecs encodes for `img`, or None (mode not
+    representable losslessly: 16-bit, float, CMYK, ...)."""
+    import numpy
 
-    cjxl needs an input file whose extension it can read, and its output
-    must decode pixel-identically to the source (djxl round-trip check).
+    if img.mode == "P":
+        img = img.convert("RGBA" if _has_alpha(img) else "RGB")
+    elif img.mode == "1":
+        img = img.convert("L")
+    if img.mode not in _JXL_MODES:
+        return None
+    return numpy.asarray(img)
+
+
+def _encode_jxl_lossless(data: bytes, fmt: str) -> bytes | None:
+    """Verified lossless JXL bytes for `data`, or None (fail/mismatch).
+
+    PNG/GIF pixels encode losslessly; JPEG uses JPEG XL recompression.
+    Either way the JXL is decoded back and must show pixels identical to
+    the source (as the browser renders them, compared in RGBA).
     """
     from PIL import Image
 
-    src = tmp / f"src.{src_ext}"
-    src.write_bytes(data)
-    out = tmp / "out.jxl"
-    # -d 0 is mathematically lossless everywhere; -q 100 names it on
-    # builds without -d, which then rejects the combination.
-    proc = _run(["cjxl", "-d", "0", "-e", "9", str(src), str(out)])
-    if proc is None or proc.returncode != 0 or not out.exists():
-        return None
-    check = tmp / "check.png"
-    proc = _run(["djxl", str(out), str(check)])
-    if proc is None or proc.returncode != 0 or not check.exists():
+    if fmt not in _JXL_SOURCE_FORMATS or not jxl_available():
         return None
     try:
-        with Image.open(BytesIO(data)) as orig, Image.open(check) as back:
+        with Image.open(BytesIO(data)) as orig:
             orig.load()
-            back.load()
+            if fmt == "jpeg":
+                out = media_tools.jxl_recompress_jpeg(data)
+            else:
+                pixels = _jxl_pixels(orig)
+                if pixels is None:
+                    return None
+                out = media_tools.jxl_encode_lossless(pixels)
+            back = Image.fromarray(media_tools.jxl_decode(out))
             if orig.size != back.size:
                 return None
             # Compare what the browser would render: a palette PNG decodes
@@ -237,21 +253,27 @@ def _encode_jxl_lossless(data: bytes, src_ext: str, tmp: Path) -> bytes | None:
             # pixels for the encode to count as lossless.
             if orig.convert("RGBA").tobytes() != back.convert("RGBA").tobytes():
                 return None
-    except (OSError, ValueError):
+    except Exception:  # noqa: BLE001 - any codec failure keeps the original
         return None
-    return out.read_bytes()
+    return out
 
 
 def _encode_png(img: Any) -> bytes:
     buf = BytesIO()
-    img.save(buf, "PNG", optimize=True)
+    img.save(buf, "PNG", optimize=True)  # zlib level 9, no time chunks
     return buf.getvalue()
 
 
 def _encode_jpeg(img: Any) -> bytes:
     buf = BytesIO()
-    img.convert("RGB").save(buf, "JPEG", quality=JPEG_QUALITY)
+    img.convert("RGB").save(buf, "JPEG", **_jpeg_params(JPEG_QUALITY))
     return buf.getvalue()
+
+
+def _jpeg_params(quality: int) -> dict[str, Any]:
+    """Every Pillow JPEG save knob, fixed (4:2:0, baseline, no optimize)."""
+    return {"quality": quality, "subsampling": 2, "optimize": False,
+            "progressive": False}
 
 
 def _has_alpha(img: Any) -> bool:
@@ -261,8 +283,7 @@ def _has_alpha(img: Any) -> bool:
     return img.mode == "P" and "transparency" in img.info
 
 
-def convert_incompatible(data: bytes, tmp: Path,
-                         ) -> tuple[str, bytes, list[str]]:
+def convert_incompatible(data: bytes) -> tuple[str, bytes, list[str]]:
     """Decode a non-browser image and pick the smallest ship candidate.
 
     Lossless-first for transparency: alpha images consider PNG and JXL
@@ -281,9 +302,9 @@ def convert_incompatible(data: bytes, tmp: Path,
         if not alpha:
             jpeg_bytes = _encode_jpeg(img)
             candidates.append((len(jpeg_bytes), "jpg", jpeg_bytes))
-        if cjxl_available():
+        if jxl_available():
             lossless_src = _encode_png(img)
-            jxl = _encode_jxl_lossless(lossless_src, "png", tmp)
+            jxl = _encode_jxl_lossless(lossless_src, "png")
             if jxl is not None:
                 candidates.append((len(jxl), "jxl", jxl))
             else:
@@ -295,7 +316,7 @@ def convert_incompatible(data: bytes, tmp: Path,
         return ext, out, notes
 
 
-def decide_image_ship(data: bytes, fmt: str, wrapped: bool, tmp: Path,
+def decide_image_ship(data: bytes, fmt: str, wrapped: bool,
                       ) -> tuple[str, bytes, str, list[str]]:
     """(ext, bytes, decision, notes) for effective image `data`."""
     notes: list[str] = []
@@ -304,9 +325,11 @@ def decide_image_ship(data: bytes, fmt: str, wrapped: bool, tmp: Path,
         if is_animated(data, fmt):
             notes.append("animated: always preserved byte-identical")
             return ext, data, ("carved" if wrapped else "preserve"), notes
-        jxl = _encode_jxl_lossless(data, fmt, tmp)
+        jxl = _encode_jxl_lossless(data, fmt)
         if jxl is None:
-            if cjxl_available():
+            if fmt not in _JXL_SOURCE_FORMATS:
+                notes.append(f"jxl not tried for {fmt}: kept original")
+            elif jxl_available():
                 notes.append("jxl round-trip failed: kept original")
         elif len(jxl) < len(data):
             notes.append(f"jxl {len(jxl)} < original {len(data)}")
@@ -314,42 +337,51 @@ def decide_image_ship(data: bytes, fmt: str, wrapped: bool, tmp: Path,
         else:
             notes.append(f"jxl {len(jxl)} >= original {len(data)}: kept")
         return ext, data, ("carved" if wrapped else "preserve"), notes
-    ext, out, conv_notes = convert_incompatible(data, tmp)
+    ext, out, conv_notes = convert_incompatible(data)
     notes += conv_notes
     return ext, out, ("carved" if wrapped else "decode-convert"), notes
 
 
 def transcode_video(source: Path, out: Path) -> bool:
     """Bitexact H.264 faststart MP4 transcode; True on success."""
-    proc = _run(["ffmpeg", "-y", "-v", "error", "-i", str(source),
+    proc = _run([*media_tools.ffmpeg_cmd(), "-y",
+                 *media_tools.FFMPEG_DECODE, "-i", str(source),
                  "-c:v", "libx264", "-preset", "veryfast",
                  "-pix_fmt", "yuv420p", "-c:a", "aac",
-                 "-fflags", "+bitexact", "-flags", "+bitexact",
-                 "-map_metadata", "-1", "-threads", "1",
+                 *media_tools.FFMPEG_ENCODE,
                  "-movflags", "+faststart", str(out)])
     return proc is not None and proc.returncode == 0 and out.exists()
+
+
+def extract_frame_png(source: Path, png: Path, start_seconds: float) -> bool:
+    """The frame at start_seconds (exact output seek) as bitexact PNG."""
+    proc = _run([*media_tools.ffmpeg_cmd(), "-y",
+                 *media_tools.FFMPEG_DECODE, "-i", str(source),
+                 "-ss", f"{start_seconds:.6f}", "-frames:v", "1", "-an",
+                 *media_tools.FFMPEG_ENCODE, str(png)])
+    return proc is not None and proc.returncode == 0 and png.exists()
+
+
+def poster_jpeg(png: Path, out_jpg: Path) -> bool:
+    """A poster JPEG (q90, fixed Pillow params) from a frame PNG."""
+    from PIL import Image
+
+    try:
+        with Image.open(png) as img:
+            img.load()
+            img.convert("RGB").save(out_jpg, "JPEG",
+                                    **_jpeg_params(POSTER_JPEG_QUALITY))
+    except (OSError, ValueError):
+        return False
+    return True
 
 
 def extract_poster(source: Path, out_jpg: Path, start_seconds: float) -> bool:
     """Write the frame at start_seconds (exact output seek) as poster JPEG."""
     with tempfile.TemporaryDirectory() as td:
         png = Path(td) / "frame.png"
-        proc = _run(["ffmpeg", "-v", "error", "-i", str(source),
-                     "-ss", f"{start_seconds:.6f}", "-frames:v", "1",
-                     "-fflags", "+bitexact", "-flags:v", "+bitexact",
-                     "-map_metadata", "-1", "-an", str(png)])
-        if proc is None or proc.returncode != 0 or not png.exists():
-            return False
-        from PIL import Image
-
-        try:
-            with Image.open(png) as img:
-                img.load()
-                img.convert("RGB").save(out_jpg, "JPEG",
-                                        quality=POSTER_JPEG_QUALITY)
-        except (OSError, ValueError):
-            return False
-    return True
+        return (extract_frame_png(source, png, start_seconds)
+                and poster_jpeg(png, out_jpg))
 
 
 def _media_path(out_dir: Path, ref: str) -> Path:
@@ -375,27 +407,25 @@ def run_asset_pass(records: list[ItemRecord], out_dir: Path,
     image_share: dict[str, str] = {}
     video_share: dict[str, tuple[str, str]] = {}
     poster_share: dict[str, str] = {}
-    with tempfile.TemporaryDirectory() as td:
-        tmp = Path(td)
-        for record in records:
-            item = record.item
-            kind = item.get("type")
-            if kind not in ("image", "video"):
-                continue
-            source = record.asset_abs
-            if source is None or not source.is_file():
-                record.asset_meta["decision"] = "missing-source"
-                continue
-            if kind == "image":
-                skipped += _ship_image(record, source, out_dir, tmp,
-                                       image_share, shard)
-            else:
-                skipped += _ship_video(record, source, out_dir, tmp,
-                                       video_share, poster_share, shard)
+    for record in records:
+        item = record.item
+        kind = item.get("type")
+        if kind not in ("image", "video"):
+            continue
+        source = record.asset_abs
+        if source is None or not source.is_file():
+            record.asset_meta["decision"] = "missing-source"
+            continue
+        if kind == "image":
+            skipped += _ship_image(record, source, out_dir, image_share,
+                                   shard)
+        else:
+            skipped += _ship_video(record, source, out_dir, video_share,
+                                   poster_share, shard)
     return skipped
 
 
-def _ship_image(record: ItemRecord, source: Path, out_dir: Path, tmp: Path,
+def _ship_image(record: ItemRecord, source: Path, out_dir: Path,
                 share: dict[str, tuple[str, str]], shard: bool) -> int:
     item_id = record.item["id"]
     data = source.read_bytes()
@@ -425,7 +455,7 @@ def _ship_image(record: ItemRecord, source: Path, out_dir: Path, tmp: Path,
                             "source)")
         return 0
     ext, out_bytes, decision, notes = decide_image_ship(effective, fmt,
-                                                        offset > 0, tmp)
+                                                        offset > 0)
     shipped = media_ref(f"{item_id}.{ext}", shard)
     _media_path(out_dir, shipped).write_bytes(out_bytes)
     share[digest] = (shipped, decision)
@@ -438,7 +468,7 @@ def _ship_image(record: ItemRecord, source: Path, out_dir: Path, tmp: Path,
     return 0
 
 
-def _ship_video(record: ItemRecord, source: Path, out_dir: Path, tmp: Path,
+def _ship_video(record: ItemRecord, source: Path, out_dir: Path,
                 video_share: dict[str, tuple[str, str]],
                 poster_share: dict[str, str], shard: bool) -> int:
     item_id = record.item["id"]

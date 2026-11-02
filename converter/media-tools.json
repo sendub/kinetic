@@ -1,0 +1,58 @@
+{
+  "_comment": "Pinned media tools (docs/plan.md Phase 25). ffmpeg/ffprobe: Martin Riedl's static release builds (https://ffmpeg.martin-riedl.de/, build script https://git.martin-riedl.de/ffmpeg/build-script); URLs are the timestamped per-build links read from the site's release listing on 2026-11-02. A null sha256 is recorded by `.venv/bin/python tools/setup_media_tools.py --pin`, which cross-checks the publisher's <url>.sha256. python: must equal requirements.txt. selftest.golden: case -> sha256 of the self-test outputs, recorded by the first --pin run; null it (and re-run --pin) only when a tool or recipe change is meant to change output bytes.",
+  "ffmpeg": {
+    "version": "9.0.2",
+    "source": "https://ffmpeg.martin-riedl.de/",
+    "platforms": {
+      "macos-arm64": {
+        "ffmpeg": {
+          "url": "https://ffmpeg.martin-riedl.de/download/macos/arm64/1789931890_9.0.2/ffmpeg.zip",
+          "sha256": null
+        },
+        "ffprobe": {
+          "url": "https://ffmpeg.martin-riedl.de/download/macos/arm64/1789931890_9.0.2/ffprobe.zip",
+          "sha256": null
+        }
+      },
+      "macos-x86_64": {
+        "ffmpeg": {
+          "url": "https://ffmpeg.martin-riedl.de/download/macos/amd64/1789931006_9.0.2/ffmpeg.zip",
+          "sha256": null
+        },
+        "ffprobe": {
+          "url": "https://ffmpeg.martin-riedl.de/download/macos/amd64/1789931006_9.0.2/ffprobe.zip",
+          "sha256": null
+        }
+      },
+      "linux-x86_64": {
+        "ffmpeg": {
+          "url": "https://ffmpeg.martin-riedl.de/download/linux/amd64/1789931100_9.0.2/ffmpeg.zip",
+          "sha256": null
+        },
+        "ffprobe": {
+          "url": "https://ffmpeg.martin-riedl.de/download/linux/amd64/1789931100_9.0.2/ffprobe.zip",
+          "sha256": null
+        }
+      },
+      "linux-arm64": {
+        "ffmpeg": {
+          "url": "https://ffmpeg.martin-riedl.de/download/linux/arm64/1789931697_9.0.2/ffmpeg.zip",
+          "sha256": null
+        },
+        "ffprobe": {
+          "url": "https://ffmpeg.martin-riedl.de/download/linux/arm64/1789931697_9.0.2/ffprobe.zip",
+          "sha256": null
+        }
+      }
+    }
+  },
+  "python": {
+    "Pillow": "13.0.0",
+    "imagecodecs": "2026.10.10",
+    "numpy": "2.5.4",
+    "libjxl": "0.12.0"
+  },
+  "selftest": {
+    "golden": null
+  }
+}

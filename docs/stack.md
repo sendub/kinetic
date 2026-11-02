@@ -24,7 +24,8 @@ From README.md:
 ## Environment facts (verified 2025-10-31)
 
 - Node v24.13.1, npm 11.8.0: present.
-- Python 3.12.2, ffmpeg 6.1.1, macOS `sips`: present.
+- Python 3.12.2, ffmpeg 6.1.1, macOS `sips`: present (the converter uses
+  the pinned ffmpeg instead since Phase 25).
 - No Rust toolchain (`cargo`/`rustc` absent). Agent conduct forbids
   installing system packages, so anything Rust-based needs a user install
   step first.
@@ -104,6 +105,18 @@ docs/content-format.md.
   plays it - MP4/WebM/MKV VP9/AV1 - transcoded to H.264 MP4 only
   otherwise; posters and first frames). ffmpeg is a converter-only tool,
   never a runtime dependency.
+- Reproducible media (docs/plan.md Phase 25, 2026-11-02): the converter
+  uses only pinned tools, listed in `converter/media-tools.json`.
+  Pillow, imagecodecs (libjxl, replacing a system `cjxl`/`djxl`) and
+  numpy are pinned in requirements.txt; ffmpeg/ffprobe are Martin
+  Riedl's static release builds (one version, a timestamped URL and
+  archive sha256 per platform: macOS and Linux, arm64 and x86_64),
+  installed by `tools/setup_media_tools.py` into the gitignored
+  `.media-tools/<platform>/`, never looked up on PATH. Encoders run
+  single-threaded and bitexact. A golden-hash self-test over committed
+  samples runs at setup and (cached) at converter start; any missing
+  install, version or binary drift, unpinned golden or mismatch makes
+  the converter refuse to run.
 - Packaged assets: most released games keep all media inside `.rpa`
   archives; read those directly (a pickle index plus concatenated data,
   pure Python). Handle `.rpak` with an unrpak-style tool only when real
