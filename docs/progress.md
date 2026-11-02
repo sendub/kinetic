@@ -1204,4 +1204,12 @@ truthful: an unchecked box means nothing was accepted.
       is an error naming the path, never silently overwritten. Applies
       to kinetic-extract, ship and rebuild --out. Also fix the stale
       "`c` config screen" comment at machine.ts ~347.
+- [ ] One video rule (user, 2026-11-02; supersedes 25.6's "MKV copied
+      whatever the codec"): a video a target browser can play ships
+      byte-identical whatever its container or extension (MP4, WebM,
+      MOV, M4V, MKV, ...); anything no target browser can display is
+      transcoded to H.264 MP4. One playability table (container + video
+      codec) drives it; the MKV-only warning goes (nothing unplayable
+      ships). Ledger, rebuild and docs (plan Phase 25 note, stack.md,
+      content-format, extracting, CREATE) follow.
 - [ ] Phase-closer: full suite, rebuild demo folders.
