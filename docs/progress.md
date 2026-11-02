@@ -1197,4 +1197,11 @@ truthful: an unchecked box means nothing was accepted.
       progress 6/6, reading 17/17, menus 8/8, media 22/22, smoke 6/6;
       screenshots checked. Includes the bookmark-e screens check.
       2026-11-02)
+- [ ] Reuse an existing content-addressed file (converting agent,
+      2026-11-02): when `media/<h[:2]>/<h>.<ext>` already exists, verify
+      its sha256 and leave it untouched (it may be hard-linked into
+      another game or test) instead of replacing it; a mismatching file
+      is an error naming the path, never silently overwritten. Applies
+      to kinetic-extract, ship and rebuild --out. Also fix the stale
+      "`c` config screen" comment at machine.ts ~347.
 - [ ] Phase-closer: full suite, rebuild demo folders.
