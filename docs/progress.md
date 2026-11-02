@@ -685,5 +685,12 @@ truthful: an unchecked box means nothing was accepted.
       A bookmark click that jumps away does not resume the old burst.
       Tests, scenario.
       (c, t and the reset box pause the machine (skip kept, nothing armed) and hold a playing video in place; closing resumes with a fresh hold or dwell; a bookmark jump ends the burst. menus.scenario.mjs, 4 checks. Full suite 166 pass + 2 headless-fullscreen partials. 2026-11-02)
-- [ ] Phase-closer: full suite (driver, vitest, pytest, package-proof),
+- [x] Phase-closer: full suite (driver, vitest, pytest, package-proof),
       rebuild BOTH demo folders, present the updated demo to the user.
+      (2026-11-02: vitest 465, biome+tsc clean, pytest 155, scenario suite
+      8 files / 168 checks: 166 pass + 2 PARTIAL (headless Chrome does not
+      enter fullscreen, so the first-Escape-leaves-fullscreen checks cannot
+      fully pass headless), package-proof 18/18; .tmp/pkg-demo and
+      .tmp/pkg-extract rebuilt; demo hand-checked in the browser: help,
+      branch walk, return-row rule, end card + u, history roll back with
+      choice screens, bookmarks with x, settings.)

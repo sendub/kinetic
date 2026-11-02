@@ -66,10 +66,11 @@ generated files carry no quarantine flag, so nothing prompts
 
 ## Size expectations
 
-The bundle is just under 100 KB (`app.js` about 83 KB, `index.html`
-about 15 KB); everything else is media, so a novel's size is its media's
-size. Measured proof folders: the demo fixture assembles to 23 files,
-about 275 KB; the extracted one-video slice to 13 files, about 230 KB.
+The bundle is about 155 KB (`app.js` about 130 KB, `index.html` about
+24 KB); everything else is media, so a novel's size is its media's size.
+Measured proof folders (2026-11-02): the demo fixture assembles to 30
+files, about 440 KB; the extracted one-video slice to 13 files, about
+290 KB.
 
 ## Honest caveats
 
