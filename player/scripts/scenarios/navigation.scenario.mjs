@@ -6,23 +6,31 @@
 // through seen items at the skip dwell per picture (lines take zero time,
 // caption hidden) and stops ON the last seen one
 // (doing nothing with nothing seen ahead); Space ends a skip; `e` goes to
-// the end of the history and is a no-op there.
+// the end of the history and is a no-op there; after continuing from a
+// bookmark (video or image), `e` goes to the furthest point read (Phase 26).
 
 import { DEFAULT_SETTINGS } from "../../src/machine/types.ts";
 import {
+  clickCenter,
   currentItemId,
   INSTALL_BRANCH_LOG,
   item,
   manifest,
   ON_TEXT,
+  OVERLAY_CLOSED,
+  OVERLAY_OPEN,
   PAGE_STATE,
   PAINT_SIG,
   pressA,
+  pressB,
   pressDigit,
   pressE,
   pressSpace,
+  pressT,
   pressTab,
+  READ_BOOKMARK_OVERLAY,
   READ_CHOICE,
+  readBookmarks,
   readBranchLog,
   sleep,
   spaceTo,
@@ -77,7 +85,80 @@ export default async function ({ check, open }) {
   await skipScenario(check, open);
   await skipSpaceScenario(check, open);
   await resumeScenario(check, open);
+  await bookmarkEndScenario(check, open);
   await routesScenario(check, open);
+}
+
+// Phase 26 (user repro): bookmark earlier items, read on, continue from a
+// bookmark, press `e`. It did nothing (the landing was the history's end);
+// now the landing carries the screens recorded after it, so `e` reaches the
+// furthest point read — straight from a video bookmark, and from an image
+// bookmark after reading on linearly.
+async function waitUntil(page, fn, timeout = 5000) {
+  try {
+    await page.waitForFunction(fn, { timeout });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function continueFrom(page, cdp, row) {
+  await pressT(cdp);
+  const opened = await waitUntil(page, OVERLAY_OPEN);
+  const list = await page.evaluate(READ_BOOKMARK_OVERLAY);
+  const entry = (list.entries ?? []).find((e) => e.itemIndex === row);
+  if (!opened || entry === undefined) return false;
+  await clickCenter(cdp, entry.rect);
+  return waitUntil(page, OVERLAY_CLOSED);
+}
+
+async function bookmarkEndScenario(check, open) {
+  const { page, cdp } = await open("bookmark-e", { closeHelp: true });
+  const atImage = await spaceTo(page, cdp, "text-bare");
+  await pressB(cdp);
+  const atVideo = await spaceTo(page, cdp, "video-chain");
+  await pressB(cdp);
+  const furthest = await spaceTo(page, cdp, "chain-still-3");
+  await sleep(300); // both bookmark writes commit
+  const stored = await readBookmarks(page);
+
+  const toVideo = await continueFrom(page, cdp, item("video-chain").index);
+  const landedVideo = await currentItemId(page);
+  await pressE(cdp);
+  await sleep(150);
+  const fromVideo = await currentItemId(page);
+
+  const toImage = await continueFrom(page, cdp, item("text-bare").index);
+  const landedImage = await currentItemId(page);
+  await pressSpace(cdp); // read on: the same screen as before
+  await sleep(150);
+  const readOn = await currentItemId(page);
+  await pressE(cdp);
+  await sleep(150);
+  const fromImage = await currentItemId(page);
+  check(
+    "after continuing from a video bookmark, e goes to the furthest point read; from an image bookmark too, after reading on",
+    atImage &&
+      atVideo &&
+      furthest &&
+      stored.length === 2 &&
+      toVideo &&
+      landedVideo === "video-chain" &&
+      fromVideo === "chain-still-3" &&
+      toImage &&
+      landedImage === "text-bare" &&
+      readOn === "anim-orbit" &&
+      fromImage === "chain-still-3",
+    {
+      stored: stored.length,
+      landedVideo,
+      fromVideo,
+      landedImage,
+      readOn,
+      fromImage,
+    },
+  );
 }
 
 // Old steps 14-16.

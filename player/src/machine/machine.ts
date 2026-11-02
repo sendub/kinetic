@@ -23,7 +23,9 @@
 // a reading step whose screen equals the next recorded entry just moves `pos`
 // along (replay), and one that differs drops the recorded future first (the
 // Ren'Py fork). Jumps that are not reading (`goTo()`, a bookmark restore)
-// append their landing at the end. The wheel moves `pos` only and shows the
+// append their landing at the end; a landing on a screen already on record
+// brings the screens recorded after it along as its future (Phase 26), so
+// reading on replays and `e` still reaches the furthest point read. The wheel moves `pos` only and shows the
 // entry exactly — the item with its frames restored, or the choice screen in
 // full — answering nothing and marking nothing played; `e` shows the last
 // entry. The record is capped (`HISTORY_CAP`, oldest first) and persists in
@@ -194,7 +196,9 @@ export interface Machine {
    * (an absent `passRoutes` reads as its `playedRoutes`) and shows its
    * `lastShown` item. The arrival is UNSETTLED, like `goTo()`, fires no
    * decision, and is a jump: the landing is appended to THIS session's
-   * history (the stored context's history, if any, is ignored). Like
+   * history (the stored context's history, if any, is ignored), followed
+   * by the screens recorded after that screen's latest showing as its
+   * future, so `e` reaches the furthest point read (docs/plan.md Phase 26). Like
    * `exportContext()` it takes positions: a bookmark's id-keyed context is
    * converted by `storage/ids.ts` first.
    */
@@ -1331,6 +1335,11 @@ export function createMachine(options: MachineOptions): Machine {
   /**
    * A jump that is not reading (`goTo()`, a bookmark restore): its landing
    * is appended at the END of the record, keeping every recorded screen.
+   * When the record already holds that screen, the screens recorded after
+   * its latest showing (preferring one under the same played-this-pass
+   * record) are appended after the landing as its recorded future
+   * (docs/plan.md Phase 26): reading on replays them and `e` reaches the
+   * furthest point read, instead of the landing becoming the record's end.
    */
   function recordJump(entry: Entry): void {
     pos = history.length - 1;
@@ -1338,7 +1347,19 @@ export function createMachine(options: MachineOptions): Machine {
       keepPass(entry);
       return;
     }
+    let from = -1;
+    for (let at = pos - 1; at >= 0; at -= 1) {
+      if (!sameEntry(history[at], entry)) continue;
+      if (from < 0) from = at;
+      if (sameRouteSets(history[at].pass, entry.pass)) {
+        from = at;
+        break;
+      }
+    }
+    const future = from < 0 ? [] : history.slice(from + 1);
     pushEntry(entry);
+    for (const recorded of future) pushEntry({ ...recorded });
+    pos = history.length - 1 - future.length;
   }
 
   /** The screen on record stays: it takes the pass record it now has. */

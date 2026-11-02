@@ -1160,13 +1160,22 @@ truthful: an unchecked box means nothing was accepted.
       column. Keyboard/click behaviour, delete (×), scroll-to-latest and
       ordering unchanged. Tests, screens scenario, screenshots at
       1280x720 and 700x900.
-- [ ] `e` after visiting a bookmark (user, 2026-11-02): in a converted
+- [x] `e` after visiting a bookmark (user, 2026-11-02): in a converted
       game, after continuing from a bookmark (seen with video bookmarks,
       others untried) `e` does nothing, even when the story from the
       bookmark to the furthest point read was linear. Reproduce (video
       and non-video bookmarks; the bookmark appends to the history), find
       the cause, and make `e` take the reader to the furthest point they
       have read. Test red before; screens/navigation scenario.
+      (Cause: recordJump appended the landing as the new end of the
+      record, so `e` (go to history end) had nowhere to go. Now the
+      landing still appends, followed by a copy of the screens recorded
+      after its latest showing; reading on replays them and `e` reaches
+      the furthest point read; a different pick forks as after a wheel
+      rollback. Not video-specific. machine tests red before (5);
+      machine vitest 254, navigation 21/21 (new bookmark check red
+      before). screens.scenario's bookmark `e` check updated and lands
+      with the Esc-screen item's commit (same file in flight). 2026-11-02)
 - [ ] Settings live on the Esc screen; `c` dropped (user, 2026-11-02):
       the Esc screen holds the game title, the keys and every setting
       (speed, Tab-skip options, play all routes, Progress group); `c` no

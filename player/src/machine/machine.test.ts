@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { mergeProgress } from "../render/bookmarks";
 import { createContextCodec, resumeOptionsFor } from "../storage/ids";
 import { createMemoryStorage } from "../storage/memory";
 import {
@@ -1923,6 +1924,61 @@ describe("`e` after rolling back (docs/plan.md, History rollback spec)", () => {
   });
 });
 
+describe("`e` after continuing from a bookmark (docs/plan.md Phase 26)", () => {
+  // User repro: bookmark an earlier item, read on, continue from the
+  // bookmark, press `e` — it did nothing, because the landing was appended
+  // as the record's new end. The landing still appends (History rollback
+  // spec), and it carries the screens recorded after the same screen
+  // earlier, so `e` reaches the furthest point read.
+  const items = () => [image(), video(), image(), text("a"), image(), image()];
+
+  it("right after the restore, `e` goes to where the reading had got to", () => {
+    const m = machine(items(), { auto: false });
+    readTo(m, 1); // the video
+    const mark = m.exportContext(); // `b` on the video
+    readTo(m, 4); // read on: item 4 is the furthest point
+    m.importContext(mergeProgress(mark, m.exportContext())); // `t`, click the bookmark
+    expect(m.getState().cursor).toBe(1);
+    m.jumpToEnd();
+    expect(m.getState()).toMatchObject({ cursor: 4, transition: "nav" });
+    m.destroy();
+  });
+
+  it("reading on linearly from the bookmark replays the record; `e` still reaches the end", () => {
+    const m = machine(items(), { auto: false });
+    readTo(m, 2); // an image bookmark this time
+    const mark = m.exportContext();
+    readTo(m, 5);
+    m.importContext(mergeProgress(mark, m.exportContext()));
+    m.advance(); // item 3: the same screen the record holds next
+    expect(m.getState().cursor).toBe(3);
+    m.jumpToEnd();
+    expect(m.getState().cursor).toBe(5);
+    m.destroy();
+  });
+
+  it("the landing is still appended: the wheel goes back to the screen the click left", () => {
+    const m = machine(items(), { auto: false });
+    readTo(m, 1);
+    const mark = m.exportContext();
+    readTo(m, 4);
+    m.importContext(mergeProgress(mark, m.exportContext()));
+    m.wheelBack(); // the screen on show when the bookmark was clicked
+    expect(m.getState().cursor).toBe(4);
+    m.wheelBack();
+    expect(m.getState().cursor).toBe(3);
+    m.destroy();
+  });
+
+  it("a landing not on record, or already the end, appends as before", () => {
+    const m = machine(items(), { resumeFrontier: 5, auto: false });
+    m.goTo(2); // the one-entry resume record never showed item 2
+    m.jumpToEnd();
+    expect(m.getState().cursor).toBe(2);
+    m.destroy();
+  });
+});
+
 describe("goTo (t-overlay bookmark click), docs/plan.md Phase 8", () => {
   it("moves the cursor to any seen index from any position, frontier unmoved", () => {
     const m = machine([image(), image(), image(), image(), image()], {
@@ -2792,8 +2848,8 @@ describe("transition kind: which mover made the item current", () => {
     expect(m.getState()).toMatchObject({ cursor: 0, transition: "nav" });
     m.wheelBack(); // the screen before the jump: item 3
     expect(m.getState()).toMatchObject({ cursor: 3, transition: "nav" });
-    m.jumpToEnd(); // the history's end: the bookmark landing
-    expect(m.getState()).toMatchObject({ cursor: 0, transition: "nav" });
+    m.jumpToEnd(); // the history's end: item 0's recorded future, item 3
+    expect(m.getState()).toMatchObject({ cursor: 3, transition: "nav" });
     m.destroy();
   });
 

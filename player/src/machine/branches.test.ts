@@ -1936,7 +1936,10 @@ describe("the reading history persists and jumps append (docs/plan.md, History r
       historyPos: 0,
     });
     expect(m.getState().cursor).toBe(1);
-    expect(screens(m)).toEqual([...before, "1"]);
+    // Item 1 is on record: what followed it rides along as the landing's
+    // recorded future (docs/plan.md Phase 26), so `e` reaches the end.
+    expect(screens(m)).toEqual([...before, "1", ...before.slice(2)]);
+    expect(m.exportContext().historyPos).toBe(before.length);
     m.wheelBack(); // the screen before the jump
     expect(m.getState().cursor).toBe(4);
     m.destroy();
@@ -1950,7 +1953,9 @@ describe("the reading history persists and jumps append (docs/plan.md, History r
     m.wheelBack();
     m.wheelBack(); // `decide`
     m.goTo(0);
-    expect(screens(m)).toEqual([...before, "0"]); // under the frames it left
+    // Under the frames it left, followed by item 0's recorded future
+    // (docs/plan.md Phase 26).
+    expect(screens(m)).toEqual([...before, "0", ...before.slice(1)]);
     expect(m.exportContext().historyPos).toBe(before.length);
     m.destroy();
   });

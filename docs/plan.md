@@ -795,7 +795,11 @@ subpath support (schema, validator, player, package-proof) stays.
   the return row, a continuing route's join, play-all auto-picks) and
   every overlay open. Navigation that is not reading (`e`, a bookmark
   click, a resume landing) appends its landing too, so the record stays
-  what was on screen.
+  what was on screen. Phase 26 (user, 2026-11-02): when the landing's
+  screen is already on record, the screens recorded after its latest
+  showing are appended after the landing as its future (`pos` stays on
+  the landing), so reading on replays them and `e` reaches the furthest
+  point read rather than doing nothing.
 - The wheel moves `pos` only: back/forward one entry, clamped to the
   record; it shows the entry exactly - an item with its stack restored,
   or the choice screen in full (the same panel, current seen marks and
