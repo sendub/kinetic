@@ -1233,7 +1233,7 @@ truthful: an unchecked box means nothing was accepted.
       (were skipped); Ogg transcodes (.ogv not an allowed format). MKV
       warning removed; cache FORMAT 2. 32 tests red before; pytest
       converter+tools 439. 2026-11-02)
-- [ ] Video playability measured, not assumed (user, 2026-11-02): no
+- [x] Video playability measured, not assumed (user, 2026-11-02): no
       format restrictions of our own; a video is kept as-is unless it
       will not play, and files must play in Safari. Safari 26 plays MKV
       (user's game), so the earlier "Safari plays no MKV" was wrong.
@@ -1252,4 +1252,13 @@ truthful: an unchecked box means nothing was accepted.
       in either (AV1, MPEG-4 Part 2, MPEG-2, MJPEG, ProRes, H.263,
       Theora, FFV1, VP8 in Ogg). Audio ignored (the player mutes video).
       No extension list of our own: whatever the rule keeps is allowed.
+      (Implemented: keep / remux (stream copy into MP4, hvc1 tag, video
+      only) / transcode, detected from bytes; `remux` ledger step
+      re-runnable by rebuild; video extension list lifted from the
+      schema; cache FORMAT 3. 78 probe samples converted: 29 kept, 18
+      remuxed, 31 transcoded; all play in headless Chrome with GPU;
+      user confirmed every converted tile PLAYS in Safari 26.6.2 and
+      their desktop Chrome (PLAYS* = audio not decoded, irrelevant as
+      the player mutes video). pytest converter+tools 478; renpy_demo
+      validator clean, rebuild OK. 2026-11-02)
 - [ ] Phase-closer: full suite, rebuild demo folders.
