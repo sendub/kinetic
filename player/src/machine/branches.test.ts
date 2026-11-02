@@ -1246,6 +1246,32 @@ describe("skip mode with branches", () => {
     m.destroy();
   });
 
+  it("a decision hanging off a zero-time line stops the burst ON that line", () => {
+    // docs/plan.md Phase 18, skip paces by pictures: `lead-2` and `decide`
+    // are lines of `lead-1`'s chain, so the burst walks them in zero time —
+    // yet the decision on `decide` still fires and the burst stops there.
+    vi.useFakeTimers();
+    const shape = manifest(CANON);
+    const items: Item[] = shape.items.map((item, index) =>
+      index === 1 || index === 2
+        ? { id: item.id, type: "text", text: `line ${item.id}` }
+        : item,
+    );
+    const m = createMachine({
+      items,
+      branches: shape.branches,
+      settings: { ...SETTINGS, skipAll: true },
+    });
+    m.toggleSkip();
+    vi.advanceTimersByTime(SETTINGS.skipDwellMs - 1);
+    expect(m.getState().cursor).toBe(0);
+    vi.advanceTimersByTime(1); // one picture's dwell, then the lines at once
+    expect(m.getState()).toMatchObject({ cursor: 2, skipping: false });
+    expect(m.getState().choice?.decisionId).toBe("d1");
+    expect(m.visitedList()).toEqual([0, 1, 2]);
+    m.destroy();
+  });
+
   it("skipAll off: tab on the last seen item does nothing; the reader's own hold fires the decision", () => {
     // docs/plan.md Phase 18: skip never reveals unseen content.
     vi.useFakeTimers();
@@ -1460,7 +1486,7 @@ describe("`e` goes to the end of the history (docs/plan.md, History rollback spe
     step(m); // the route end proceeds to after-1 (9)
     step(m); // 9 -> 10, the content end
     expect(m.getState().cursor).toBe(10);
-    expect(m.getState().endingHint).toBe(true);
+    expect(m.getState().endCard?.unseenRoutes).toBe(2);
     const before = m.getState();
     m.jumpToEnd();
     expect(m.getState()).toBe(before);
@@ -2087,7 +2113,7 @@ describe("skip never reveals across a route end (docs/plan.md Phase 18, bullet 5
   });
 });
 
-describe("the ending hint (docs/plan.md Phase 18, bullet 6)", () => {
+describe("the end card (docs/plan.md Phase 18, End card)", () => {
   const manual = (shape: Shape) => {
     const m = manifest(shape);
     return createMachine({
@@ -2097,28 +2123,41 @@ describe("the ending hint (docs/plan.md Phase 18, bullet 6)", () => {
     });
   };
 
-  it("shows on an ending while content is unseen, hides under a choice, and is gone once all is seen", () => {
+  it("shows the unseen counts on an ending, hides under a choice, and says all seen at the end", () => {
     const m = manual(PURE);
     m.advance(); // 0 -> 1
     m.advance(); // fires d1
     m.choose(1); // route Q: 4..5, an ending route
-    expect(m.getState().endingHint).toBeUndefined(); // not an ending item
+    expect(m.getState().endCard).toBeUndefined(); // not an ending item
     m.advance(); // 4 -> 5: Q's last item, an ending
-    expect(m.getState().endingHint).toBe(true); // P and the tail are unseen
+    // P unplayed; the tail is main-line content behind the decision.
+    expect(m.getState().endCard).toEqual({
+      unseenRoutes: 1,
+      otherUnseen: true,
+      nextUnseen: true,
+    });
     m.advance(); // the re-offer opens: the overlay owns the screen
     expect(m.getState().choice).toBeDefined();
-    expect(m.getState().endingHint).toBeUndefined();
+    expect(m.getState().endCard).toBeUndefined();
     m.choose(0); // route P: 2..3
     m.advance(); // 2 -> 3: P's end, also an ending; the tail is unseen
-    expect(m.getState().endingHint).toBe(true);
+    expect(m.getState().endCard).toEqual({
+      unseenRoutes: 0,
+      otherUnseen: true,
+      nextUnseen: true,
+    });
     m.advance(); // all routes played: closes past the region, onto 6
     m.advance(); // 6 -> 7, the array end: now everything has been seen
     expect(m.getState().cursor).toBe(7);
-    expect(m.getState().endingHint).toBeUndefined();
+    expect(m.getState().endCard).toEqual({
+      unseenRoutes: 0,
+      otherUnseen: false,
+      nextUnseen: false,
+    });
     m.destroy();
   });
 
-  it("the array end with an unplayed route behind it shows the hint", () => {
+  it("the array end with unplayed routes behind it counts them", () => {
     const m = manual(CANON);
     m.advance();
     m.advance();
@@ -2128,7 +2167,11 @@ describe("the ending hint (docs/plan.md Phase 18, bullet 6)", () => {
     m.advance(); // joins at 9
     m.advance(); // 9 -> 10, the array end; A and B are unseen
     expect(m.getState().cursor).toBe(10);
-    expect(m.getState().endingHint).toBe(true);
+    expect(m.getState().endCard).toEqual({
+      unseenRoutes: 2,
+      otherUnseen: false,
+      nextUnseen: true,
+    });
     m.destroy();
   });
 });
@@ -2251,10 +2294,10 @@ describe("interstitial context and play-all hint rules (docs/plan.md Phase 18)",
     m.advance(); // fires: enters route P at 2
     m.advance(); // 2 -> 3, P's last item: an ending
     expect(m.getState().cursor).toBe(3);
-    expect(m.getState().endingHint).toBeUndefined();
+    expect(m.getState().endCard).toBeUndefined();
     m.advance(); // the hold before Q
     expect(m.getState().interstitial).toBeDefined();
-    expect(m.getState().endingHint).toBeUndefined();
+    expect(m.getState().endCard).toBeUndefined();
     m.destroy();
   });
 });
@@ -2285,5 +2328,175 @@ describe("play-all + skip-all: the interstitial does not end the burst (Phase 18
     pressed.advance(); // the reader's press ends it early: stop here
     expect(pressed.getState().skipping).toBe(false);
     pressed.destroy();
+  });
+});
+
+describe("`u` reaches the next unseen content (docs/plan.md Phase 18)", () => {
+  /** Press until the cursor reaches `index` (manual, one item per press). */
+  const pressTo = (m: ReturnType<typeof machine>, index: number) => {
+    for (let n = 0; n < 40 && m.getState().cursor !== index; n += 1) {
+      m.advance();
+    }
+  };
+
+  it("from an ending route's end, lands in the next unplayed route as if picked", () => {
+    const m = machine(CANON);
+    pressTo(m, 2);
+    m.advance(); // fires d1
+    m.choose(1); // route B: 5..6, an ending
+    m.advance(); // 5 -> 6: B's end
+    expect(m.getState().endCard).toEqual({
+      unseenRoutes: 2, // A and C
+      otherUnseen: true, // the aftermath
+      nextUnseen: true,
+    });
+    m.jumpToUnseen();
+    const state = m.getState();
+    expect(state.cursor).toBe(7); // C's first item: the next unseen in order
+    expect(state.transition).toBe("advance");
+    expect(state.settled).toBe(false);
+    expect(m.exportContext().stack).toEqual([{ decision: 0, route: 2 }]);
+    expect(m.exportContext().playedRoutes).toEqual([
+      { decision: 0, routes: [1, 2] },
+    ]);
+    expect(screens(m).slice(-1)).toEqual(["7 [0/2]"]); // the jump is appended
+    m.advance(); // carries on inside C
+    m.advance(); // C's end joins the aftermath
+    expect(m.getState().cursor).toBe(9);
+    m.destroy();
+  });
+
+  it("wraps to earlier content: the content end goes back to an unplayed route", () => {
+    const m = machine(CANON);
+    pressTo(m, 2);
+    m.advance();
+    m.choose(2); // C, continuing
+    pressTo(m, 10); // joins at 9, then the content end
+    m.jumpToUnseen();
+    expect(m.getState().cursor).toBe(3); // route A, before the cursor
+    expect(m.exportContext().stack).toEqual([{ decision: 0, route: 0 }]);
+    m.advance(); // 3 -> 4
+    m.advance(); // A's end re-offers d1, its route rows now marked
+    expect(m.getState().choice?.routes.map((route) => route.seen)).toEqual([
+      true,
+      false,
+      true,
+    ]);
+    m.destroy();
+  });
+
+  it("opens every enclosing frame for a nested route", () => {
+    const m = machine(NESTED);
+    m.advance(); // 0 -> 1
+    m.advance(); // fires d1
+    m.choose(0); // A at 2
+    m.advance(); // 2 -> 3, a-decide
+    m.advance(); // fires d2
+    m.choose(1); // Y, continuing, at 6
+    pressTo(m, 9); // joins a-cont (8), then a-2
+    m.advance(); // A's end re-offers d1
+    m.choose(2); // C at 12, continuing
+    m.advance(); // joins after-1 (13), the content end
+    expect(m.getState().cursor).toBe(13);
+    expect(m.getState().endCard).toEqual({
+      unseenRoutes: 2, // B, X
+      otherUnseen: false,
+      nextUnseen: true,
+    });
+    m.jumpToUnseen();
+    expect(m.getState().cursor).toBe(4); // X, inside A
+    expect(m.exportContext().stack).toEqual([
+      { decision: 0, route: 0 },
+      { decision: 1, route: 0 },
+    ]);
+    m.advance(); // 4 -> 5
+    m.advance(); // X's end re-offers d2 (X is an ending route)
+    expect(m.getState().choice?.decisionId).toBe("d2");
+    m.destroy();
+  });
+
+  it("leaves the reader's own continuation to Space: a fresh start and an unanswered decision do nothing", () => {
+    const m = machine(CANON);
+    let before = m.getState();
+    m.jumpToUnseen(); // 1, 2 are the continuation; routes wait on `decide`
+    expect(m.getState()).toBe(before);
+    pressTo(m, 2); // standing on `decide`, nothing picked yet
+    before = m.getState();
+    m.jumpToUnseen(); // its routes are the reader's pick; after-1 is behind it
+    expect(m.getState()).toBe(before);
+    m.destroy();
+  });
+
+  it("never jumps behind an unpassed decision: a pure choice's tail waits for its routes", () => {
+    const m = machine(PURE);
+    pressTo(m, 1);
+    m.advance(); // fires d1
+    m.choose(1); // Q: 4..5
+    m.advance(); // Q's end
+    m.jumpToUnseen();
+    expect(m.getState().cursor).toBe(2); // P, not the tail at 6
+    m.destroy();
+  });
+
+  it("leaves an open choice for the target", () => {
+    const m = machine(CANON);
+    pressTo(m, 2);
+    m.advance();
+    m.choose(1); // B
+    m.advance(); // B's end
+    m.advance(); // the re-offer opens
+    expect(m.getState().choice).toBeDefined();
+    m.jumpToUnseen();
+    expect(m.getState().choice).toBeUndefined();
+    expect(m.getState().cursor).toBe(7);
+    m.destroy();
+  });
+
+  it("is a no-op when everything has been seen", () => {
+    const m = machine(PURE);
+    pressTo(m, 1);
+    m.advance();
+    m.choose(0);
+    m.advance(); // P's end
+    m.advance(); // re-offer
+    m.choose(1);
+    m.advance(); // Q's end: all played, the tail follows
+    pressTo(m, 7);
+    expect(m.visitedList()).toHaveLength(8);
+    const before = m.getState();
+    m.jumpToUnseen();
+    expect(m.getState()).toBe(before);
+    m.destroy();
+  });
+
+  it("hasEarlierUnseen: passed-over content before the cursor counts, declined routes do not", () => {
+    // A save that read the continuing route and the aftermath but whose
+    // manifest gained `lead-1`/`lead-2` (a prequel, say).
+    const withPrequel = machine(CANON, {
+      resumeContext: {
+        lastShown: 10,
+        visited: [2, 7, 8, 9, 10],
+        stack: [],
+        playedRoutes: [{ decision: 0, routes: [2] }],
+        completedRoutes: [{ decision: 0, routes: [2] }],
+      },
+    });
+    expect(withPrequel.hasEarlierUnseen()).toBe(true);
+    withPrequel.jumpToUnseen();
+    expect(withPrequel.getState().cursor).toBe(0); // the prequel first
+    withPrequel.destroy();
+    const declinedOnly = machine(CANON, {
+      resumeContext: {
+        lastShown: 10,
+        visited: [0, 1, 2, 7, 8, 9, 10],
+        stack: [],
+        playedRoutes: [{ decision: 0, routes: [2] }],
+        completedRoutes: [{ decision: 0, routes: [2] }],
+      },
+    });
+    expect(declinedOnly.hasEarlierUnseen()).toBe(false); // A, B were declined
+    declinedOnly.jumpToUnseen(); // `u` still reaches them
+    expect(declinedOnly.getState().cursor).toBe(3);
+    declinedOnly.destroy();
   });
 });

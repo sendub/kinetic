@@ -43,6 +43,7 @@ describe("helpRows (drawn from the keymap, Phase 13b)", () => {
       "Space",
       "wheel",
       "E",
+      "U",
       "Tab",
       "A",
       "H",

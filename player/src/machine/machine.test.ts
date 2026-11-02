@@ -447,6 +447,48 @@ describe("manual and auto modes, pause/resume (docs/plan.md Phase 13b)", () => {
     m.destroy();
   });
 
+  it("pause() freezes a skip burst; resume() continues it (menus, Phase 18)", () => {
+    vi.useFakeTimers();
+    const m = createMachine({
+      items: [image(), image(), image(), image(), image()],
+      settings: { ...SETTINGS, skipAll: true },
+    }); // manual: the burst is the reader's own run
+    m.toggleSkip();
+    vi.advanceTimersByTime(SETTINGS.skipDwellMs); // 0 -> 1
+    vi.advanceTimersByTime(SETTINGS.skipDwellMs - 5);
+    m.pause(); // the `c` screen opens
+    vi.advanceTimersByTime(60_000); // nothing advances behind it
+    expect(m.getState()).toMatchObject({ cursor: 1, skipping: true });
+    m.resume(); // closed: the burst carries on, a fresh dwell first
+    vi.advanceTimersByTime(SETTINGS.skipDwellMs - 1);
+    expect(m.getState().cursor).toBe(1);
+    vi.advanceTimersByTime(1);
+    expect(m.getState()).toMatchObject({ cursor: 2, skipping: true });
+    m.destroy();
+  });
+
+  it("a bookmark restore while paused ends the burst; resume arms only the hold", () => {
+    vi.useFakeTimers();
+    const m = createMachine({
+      items: [image(), image(), image(), image(), image()],
+      settings: { ...SETTINGS, skipAll: true },
+      autoAdvance: true,
+    });
+    const mark = m.exportContext(); // a bookmark on item 0
+    m.toggleSkip();
+    vi.advanceTimersByTime(SETTINGS.skipDwellMs * 2); // 0 -> 2
+    m.pause(); // `t` opens
+    m.importContext(mark); // an entry click jumps back to item 0
+    vi.advanceTimersByTime(60_000);
+    expect(m.getState()).toMatchObject({ cursor: 0, skipping: false });
+    m.resume(); // the screen closed: auto-forward stays on, no burst
+    vi.advanceTimersByTime(1499);
+    expect(m.getState().cursor).toBe(0);
+    vi.advanceTimersByTime(1); // the landing's own 1500 ms hold
+    expect(m.getState()).toMatchObject({ cursor: 1, skipping: false });
+    m.destroy();
+  });
+
   it("pause/resume in manual mode arms nothing (first-load help)", () => {
     vi.useFakeTimers();
     const m = manualMachine([image(), image()]);
@@ -1346,14 +1388,14 @@ describe("skip mode (tab), docs/plan.md Phase 4", () => {
     return { ...SETTINGS, skipAll };
   }
 
-  it("advances every item after the fixed dwell; media never gates", () => {
+  it("advances every picture after the fixed dwell; media never gates", () => {
     vi.useFakeTimers();
     const m = machine(
       [
         image(), // plain image
         animation(10, 5, 2), // 4000 ms loop time
         video(600), // 10-minute video
-        text("a".repeat(40)), // 2400 ms text hold when not skipping
+        image(),
         image(),
       ],
       { settings: skipSettings(true) },
@@ -1361,7 +1403,7 @@ describe("skip mode (tab), docs/plan.md Phase 4", () => {
     m.toggleSkip();
     expect(m.getState().skipping).toBe(true);
     const dwell = SETTINGS.skipDwellMs;
-    // Each item — image, animation, video, text — takes exactly one dwell.
+    // Each picture — image, animation, video — takes exactly one dwell.
     for (let steps = 1; steps <= 4; steps += 1) {
       vi.advanceTimersByTime(dwell - 1);
       expect(m.getState().cursor).toBe(steps - 1);
@@ -1370,8 +1412,79 @@ describe("skip mode (tab), docs/plan.md Phase 4", () => {
       expect(m.getState().cursor).toBe(steps);
       expect(m.getState().skipping).toBe(steps < 4);
     }
-    // The chain (video + text line) consumed one dwell per item, 4 x dwell
-    // total, where normal timing would have taken 1500 + 4000 + 1500 + 2400.
+    m.destroy();
+  });
+
+  it("paces by pictures: a 5-line chain over one picture costs one dwell", () => {
+    // docs/plan.md Phase 18, skip paces by pictures.
+    vi.useFakeTimers();
+    const m = machine(
+      [
+        image(),
+        image(),
+        text("one"),
+        text("two"),
+        text("three"),
+        text("four"),
+        text("five"),
+        image(),
+        image(),
+      ],
+      { settings: skipSettings(true) },
+    );
+    const states: number[] = [];
+    m.subscribe((state) => states.push(state.cursor));
+    m.toggleSkip();
+    const dwell = SETTINGS.skipDwellMs;
+    vi.advanceTimersByTime(dwell); // 0 -> 1, the chain's picture
+    expect(m.getState()).toMatchObject({ cursor: 1, skipping: true });
+    vi.advanceTimersByTime(dwell - 1);
+    expect(m.getState().cursor).toBe(1);
+    vi.advanceTimersByTime(1); // one dwell walks the whole chain
+    expect(m.getState()).toMatchObject({ cursor: 7, skipping: true });
+    // Every line was still walked: shown, seen, recorded in the history.
+    expect(states).toEqual([0, 1, 2, 3, 4, 5, 6, 7]);
+    expect(m.visitedList()).toEqual([0, 1, 2, 3, 4, 5, 6, 7]);
+    expect(m.exportContext().history?.map((entry) => entry.index)).toEqual([
+      0, 1, 2, 3, 4, 5, 6, 7,
+    ]);
+    m.destroy();
+  });
+
+  it("a skip starting on a line leaves it at once, in zero time", () => {
+    vi.useFakeTimers();
+    const m = machine([image(), text("one"), text("two"), image(), image()], {
+      settings: skipSettings(true),
+      auto: false,
+    });
+    m.advance(); // onto line 1
+    m.toggleSkip();
+    vi.advanceTimersByTime(0);
+    expect(m.getState()).toMatchObject({ cursor: 3, skipping: true });
+    m.destroy();
+  });
+
+  it("stops ON the last seen line of a chain, which then reads normally", () => {
+    vi.useFakeTimers();
+    const m = machine(
+      [image(), image(), text("one"), text("two"), text("three"), image()],
+      { settings: skipSettings(false) },
+    );
+    readTo(m, 3); // items 0..3 seen; "three" unseen
+    m.wheelBack();
+    m.wheelBack();
+    m.wheelBack(); // back to 0
+    m.toggleSkip();
+    vi.advanceTimersByTime(SETTINGS.skipDwellMs); // 0 -> 1
+    expect(m.getState().cursor).toBe(1);
+    vi.advanceTimersByTime(SETTINGS.skipDwellMs); // the chain, at once
+    // The burst ends ON line "two", the last seen item: it is shown under
+    // its normal text hold, not a zero-time skip step.
+    expect(m.getState()).toMatchObject({ cursor: 3, skipping: false });
+    vi.advanceTimersByTime(1000);
+    expect(m.getState().cursor).toBe(3);
+    vi.advanceTimersByTime(1000);
+    expect(m.getState().cursor).toBe(4); // its 1500 ms floor elapsed
     m.destroy();
   });
 
@@ -1427,7 +1540,8 @@ describe("skip mode (tab), docs/plan.md Phase 4", () => {
       settings: skipSettings(true),
     });
     m.toggleSkip();
-    const total = SETTINGS.skipDwellMs * 3;
+    // Two pictures' dwells: the line between them takes zero time.
+    const total = SETTINGS.skipDwellMs * 2;
     vi.advanceTimersByTime(total - 1);
     expect(m.getState().cursor).toBe(3); // mid-skip, still skipping
     expect(m.getState().skipping).toBe(true);
@@ -1581,21 +1695,22 @@ describe("skip plays videos (docs/plan.md Phase 18)", () => {
     m.destroy();
   });
 
-  it("a chain head plays its plan; its lines dwell with the video playing beneath", () => {
+  it("a chain head plays its plan; its lines then take zero time", () => {
     vi.useFakeTimers();
     const m = machine(
       [image(), video(2), text("one"), text("two"), image(), image()],
       { settings: playing },
     );
+    const cursors: number[] = [];
+    m.subscribe((state) => cursors.push(state.cursor));
     m.toggleSkip();
     vi.advanceTimersByTime(SETTINGS.skipDwellMs);
     expect(m.getState()).toMatchObject({ cursor: 1, skipVideo: true });
-    vi.advanceTimersByTime(2000); // the head: the video's 2 s plan
-    expect(m.getState()).toMatchObject({ cursor: 2, skipVideo: true });
-    vi.advanceTimersByTime(SETTINGS.skipDwellMs); // a line: one dwell
-    expect(m.getState()).toMatchObject({ cursor: 3, skipVideo: true });
-    vi.advanceTimersByTime(SETTINGS.skipDwellMs);
+    vi.advanceTimersByTime(1999);
+    expect(m.getState().cursor).toBe(1);
+    vi.advanceTimersByTime(1); // the head's 2 s plan, then the lines at once
     expect(m.getState()).toMatchObject({ cursor: 4, skipping: true });
+    expect(cursors).toEqual([0, 1, 2, 3, 4]); // each line still shown
     expect(m.getState().skipVideo).toBeUndefined(); // an image again
     m.destroy();
   });
@@ -1615,10 +1730,9 @@ describe("skip plays videos (docs/plan.md Phase 18)", () => {
     expect(m.isAutoAdvance()).toBe(true); // auto untouched by the abort
     vi.advanceTimersByTime(SETTINGS.skipDwellMs); // the burst goes on
     expect(m.getState()).toMatchObject({ cursor: 3, skipVideo: true });
-    m.advance(); // a chain head aborts the same way, onto its line
-    expect(m.getState()).toMatchObject({ cursor: 4, skipping: true });
-    vi.advanceTimersByTime(SETTINGS.skipDwellMs);
-    expect(m.getState().cursor).toBe(5);
+    m.advance(); // a chain head aborts the same way, through its line
+    expect(m.getState()).toMatchObject({ cursor: 5, skipping: true });
+    expect(m.visitedList()).toContain(4);
     // Space on a non-video still stops the burst on the item.
     m.advance();
     expect(m.getState()).toMatchObject({
@@ -2269,14 +2383,12 @@ describe("minPlaySeconds chain-exit floor (docs/plan.md Phase 15)", () => {
     });
     m.toggleSkip();
     const dwell = SETTINGS.skipDwellMs;
-    for (let steps = 1; steps <= 3; steps += 1) {
-      vi.advanceTimersByTime(dwell); // a plain dwell per chain item
-      expect(m.getState().cursor).toBe(steps);
-      expect(m.getState().skipping).toBe(true);
-    }
-    // The leaving step at machine time 360 — with the floor it waited
+    // The head's one dwell; the chain's lines take zero time (docs/plan.md
+    // Phase 18), the leaving line included — with the floor it waited
     // until 5000. Immediate.
-    vi.advanceTimersByTime(dwell); // total 4 x dwell, far below the 5 s floor
+    vi.advanceTimersByTime(dwell - 1);
+    expect(m.getState()).toMatchObject({ cursor: 0, skipping: true });
+    vi.advanceTimersByTime(1);
     expect(m.getState()).toEqual({
       cursor: 4,
       frontier: 5,
@@ -2394,13 +2506,10 @@ describe("minPlaySeconds chain-exit floor (docs/plan.md Phase 15)", () => {
     // Skip started on the video item itself — the reported repro path.
     m.toggleSkip();
     expect(m.getState().skipping).toBe(true);
-    const dwell = SETTINGS.skipDwellMs; // 120
-    for (let steps = 1; steps <= 3; steps += 1) {
-      vi.advanceTimersByTime(dwell); // one plain dwell per item, floor ignored
-      expect(m.getState().cursor).toBe(steps);
-    }
-    // The chain is left at machine time 3 x 120 = 360 ms — a few dwells,
-    // nowhere near the 8 s floor (the old bug waited ~7.9 s here).
+    // One dwell for the head; its lines take zero time (docs/plan.md Phase
+    // 18), the floor ignored. The chain is left after one dwell — nowhere
+    // near the 8 s floor (the old bug waited ~7.9 s here).
+    vi.advanceTimersByTime(SETTINGS.skipDwellMs);
     expect(m.getState()).toEqual({
       cursor: 3,
       frontier: 4,

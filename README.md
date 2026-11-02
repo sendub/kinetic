@@ -8,6 +8,7 @@ A browser player for kinetic visual novels: a simple alternative to Ren'Py. A no
 * **a**: auto-forward on/off (Space also turns it off). Items advance at the reading speed; animations play a few times, videos play out (or follow their loop count or display duration).
 * **Mouse wheel**: roll back through exactly what you saw, in the order you saw it, choice screens included; roll forward again to where you were.
 * **e**: jump to the end of what you have read.
+* **u**: go to the next unseen content wherever it is: an unplayed route (entered as if picked) or content earlier in the story, such as a prequel added by an update. A resume shows a quiet notice when such earlier content exists.
 * **Tab**: skip through content you have already seen, showing only first frames; it stops on the last seen item, and Space stops it on the current one. The "skip all" setting lets it run through unseen content too; with "skip plays videos" on, videos play out during a skip and Space cuts one short.
 * **h**: hide or show the text.
 * **b**: bookmark the current moment. **t**: the bookmark list (thumbnails with times, newest at the bottom); click a thumbnail to continue from there; its x deletes it.
@@ -23,7 +24,7 @@ The player goes fullscreen on the first key press. Position, route history, book
 * Videos can set a loop count, a display duration, a start/end range (with that range's own poster), a loop restart point, and a minimum play time (in auto mode the dialogue over it waits for the clip). Several items can share one video file.
 * Text over the picture: dialogue with the speaker's name, thoughts (drawn differently), and narration. A run of text items keeps the previous picture or video on screen, a video playing on.
 * Branches: a decision shows a prompt and its routes; shared lead-in and aftermath play once. A route continues the story, comes back to the decision, or ends. After a route ends you can pick another, and "Return to main route" appears once the continuing route has been finished. Decisions can nest. The "play all routes" setting plays every route with no interaction.
-* Seen tracking is per item and per route; skip, resume and the ending hint respect it.
+* Seen tracking is per item and per route; skip, resume and `u` respect it. An ending shows a small end card: how many routes are still unseen, with `u` for the next one, or "You have seen everything.".
 
 ## Tools
 

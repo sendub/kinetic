@@ -799,8 +799,8 @@ directory holds too many files.
   is dropped and the new screen appended (Ren'Py-style fork).
 - `e` = go to the end of the history (`pos = last`), showing that entry;
   a no-op when already there. No unseen-content jumping, no ending
-  lookup (the end card takes over finding unseen routes; until then the
-  ending hint reads "Some content is still unseen.").
+  lookup (the end card and `u` find unseen content; see
+  docs/content-format.md).
 - Persistence: the record and `pos` ride in the machine context (capped,
   oldest entries dropped first, e.g. 5000); a save without one restores
   a one-entry history at its landing.

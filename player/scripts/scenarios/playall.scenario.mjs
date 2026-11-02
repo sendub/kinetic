@@ -40,10 +40,29 @@ const INSTALL_TIMELINE = () => {
   window.__timeline = [];
   if (window.__timelineObs) window.__timelineObs.disconnect();
   let last = "";
-  const probe = () => {
+  let lastSnap = null;
+  // Skip paces by pictures (docs/plan.md Phase 18): a burst walks its
+  // `text` lines in zero time inside one task, so the observer's callback
+  // sees only the final DOM. Each line the renderer wrote is still in the
+  // mutation records (the Text node it put in #overlay-text keeps its
+  // data), so those are logged first, as hidden-caption entries.
+  const lines = (records) => {
+    for (const record of records ?? []) {
+      if (record.target?.id !== "overlay-text") continue;
+      for (const node of record.addedNodes) {
+        if (node.nodeType !== Node.TEXT_NODE || lastSnap === null) continue;
+        if (node.data === lastSnap.text) continue;
+        lastSnap = { ...lastSnap, text: node.data };
+        last = JSON.stringify(lastSnap);
+        window.__timeline.push({ t: performance.now(), ...lastSnap });
+      }
+    }
+  };
+  const probe = (records) => {
+    lines(records);
     const inter = document.getElementById("interstitial");
     const flash = document.getElementById("flash");
-    const hint = document.getElementById("ending-hint");
+    const hint = document.getElementById("end-card");
     const choice = document.getElementById("choice");
     const img = document.getElementById("visual-image");
     const snap = {
@@ -59,6 +78,7 @@ const INSTALL_TIMELINE = () => {
     const key = JSON.stringify(snap);
     if (key === last) return;
     last = key;
+    lastSnap = snap;
     window.__timeline.push({ t: performance.now(), ...snap });
   };
   window.__timelineObs = new MutationObserver(probe);
@@ -95,7 +115,7 @@ const READ_INTERSTITIAL = () => {
       return c !== null && !c.hidden;
     })(),
     hint: (() => {
-      const h = document.getElementById("ending-hint");
+      const h = document.getElementById("end-card");
       return h !== null && !h.hidden;
     })(),
   };

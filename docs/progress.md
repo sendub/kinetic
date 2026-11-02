@@ -615,9 +615,10 @@ truthful: an unchecked box means nothing was accepted.
       removed; route pills quiet on replays. 416 tests; scenarios 138/138
       incl. "Route 2 then Route 1, scroll back shows Route 1, re-offer
       screen, Route 2, first choice screen, decision picture". 2026-11-01)
-- [ ] End card (user-approved proposal): an ending shows how many routes
+- [x] End card (user-approved proposal): an ending shows how many routes
       are still unseen and the one-key way to the next one, replacing
       the one-line hint.
+      (#end-card replaces the one-line hint: 'N routes [and other content] still unseen.' + 'Press u for the next one.' when u has a target; 'You have seen everything.' in branching manifests once all is seen; not at play-all route endings or the interstitial; h hides it. branches scenario checks route2-end, after-end, all-seen. 465 tests, 2026-11-02)
 - [x] Fast smoke subset of the scenario suite (user-approved proposal):
       `npm run verify -- --smoke` runs one quick check per scenario
       (~20 s); AGENTS.md per-item rule points at it.
@@ -647,12 +648,13 @@ truthful: an unchecked box means nothing was accepted.
       simply dropped. Tests: a save made against one manifest restores
       correctly against a manifest with items inserted before it.
       (storage/ids.ts codec converts at the storage boundary: item/decision/route ids for seen set, position, stack, played/completed, history; unknown ids dropped individually; old index saves resume as first boot; bookmarks store itemId. Also fixed: a bookmark restore REPLACED the seen set - now unions seen/played/completed. ids.test.ts: prequel + mid-route insert + deletion; screens scenario swaps in a prequel manifest. 447 tests, 2026-11-01)
-- [ ] Reach unseen content from anywhere (user, 2026-11-01): a key (e.g.
+- [x] Reach unseen content from anywhere (user, 2026-11-01): a key (e.g.
       `u`) goes to the next unseen content wherever it is, earlier
       content included (a prequel, a new mid-story route); a quiet
       notice on resume when unseen content exists before the reader's
       position. `e` stays "go to the end". Folds into the end card item
       (the end card offers the same jump). Help, README, scenarios.
+      (u: first unseen item after the cursor in array order, wrapping to earlier content; never what Space reads next, never routes behind an unreached decision; an unplayed route is entered as if picked (frames open, marked played); appends to history. Resume notice 'Earlier content you haven't seen - press u.' when content was passed over before the position (a prequel), not for declined routes. screens content-update scenario: notice + u lands on the prequel. 2026-11-02)
 - [x] Skip can play videos (user, 2026-11-01): a config option ("Skip
       plays videos", default off) makes a skip burst play each video as
       it would play when not skipping (its loops / duration) before
@@ -666,7 +668,7 @@ truthful: an unchecked box means nothing was accepted.
       the next Space does). Replaces "in auto-forward Space ends this
       item first". Help, README, tests, scenario.
       (Space with auto on turns it off, no move; next Space steps. Space that stops a skip also turns auto off, so the next press steps. reading scenario check. 2026-11-01)
-- [ ] Skip paces by pictures (user, 2026-11-01): during a skip burst a
+- [x] Skip paces by pictures (user, 2026-11-01): during a skip burst a
       `text` item takes zero time and the overlay text is hidden, so the
       constant ~25 ms pace applies to pictures and video stills only.
       Every text item is still walked: marked seen, recorded in the
@@ -674,12 +676,14 @@ truthful: an unchecked box means nothing was accepted.
       decision hanging off a line, route ends), so skip can still stop
       ON a particular line, which then shows normally once skip ends.
       Tests (a 5-line chain costs one picture's dwell), scenario.
-- [ ] Menus pause the timeline (user, 2026-11-01): opening the config
+      (text items take zero time in skip, walked in a loop (runSkip) so each is still shown, marked seen, recorded and stop-checked; captions hidden while skipping, shown on the stop line; with Skip plays videos the chain lines also take zero time. Unit: a 5-line chain costs one dwell. navigation/media scenarios. 2026-11-02)
+- [x] Menus pause the timeline (user, 2026-11-01): opening the config
       (`c`) or bookmark (`t`) screen pauses a running auto-forward or
       skip burst (no item advances behind it, a playing video pauses as
       under the Esc help), and closing the screen resumes exactly what
       was running (auto-forward with a fresh hold, or the skip burst).
       A bookmark click that jumps away does not resume the old burst.
       Tests, scenario.
+      (c, t and the reset box pause the machine (skip kept, nothing armed) and hold a playing video in place; closing resumes with a fresh hold or dwell; a bookmark jump ends the burst. menus.scenario.mjs, 4 checks. Full suite 166 pass + 2 headless-fullscreen partials. 2026-11-02)
 - [ ] Phase-closer: full suite (driver, vitest, pytest, package-proof),
       rebuild BOTH demo folders, present the updated demo to the user.

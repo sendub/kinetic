@@ -312,6 +312,26 @@ docs/plan.md Phase 13):
   path, and a different path (another pick at a replayed choice screen)
   drops the recorded future, as in Ren'Py rollback. `e` goes to the end
   of the record (a no-op there); it does not look for unseen content.
+  `u` does (docs/plan.md Phase 18, "Reach unseen content from
+  anywhere"): it lands on the next unseen item in array order after the
+  cursor, wrapping to earlier content, skipping the reader's own
+  continuation (what Space shows next, including the routes of a
+  decision none of whose routes has been played), items inside a route
+  whose enclosing decision was never reached, and content past a
+  decision flow has not passed yet (its continuing route not completed,
+  or a pure choice with a route unplayed). Landing inside routes opens
+  their frames and marks them PLAYED, exactly as picking them would, so
+  Space reads on inside the route. Like a bookmark jump it is appended
+  to the record.
+- End card: on an ending (the array end or an ending route's last item,
+  no choice open, not a play-all route ending) a small card counts the
+  unplayed routes that still hold unseen items, across every decision,
+  mentions other unseen content (main line, an aftermath, the rest of
+  an abandoned route), and offers `u`. With everything seen it reads
+  "You have seen everything." in a manifest with branches; a linear one
+  shows nothing. A resume with passed-over unseen content before the
+  landing (not counting routes declined at an answered decision) shows
+  a quiet notice pointing at `u` until the next key.
   A bookmark jump appends its landing to the record. The record is
   capped (5000 screens, oldest dropped first) and persists in the save,
   so a reload lands on the screen that was showing and can roll back.
@@ -392,10 +412,16 @@ content:
   exit honors both, the max of the requirements. Outside a chain the
   field has no effect beyond the media gate. The floor is per video
   item, not per file: items sharing one file may set different floors.
-- Skip mode shows each item for a fixed player dwell. An animation
-  contributes `frames[0]` and a video its `poster`; both show that
-  still and never play. A video holds for `min(skipDwell, gate)`, the
-  media gate above standing in for the file's duration.
+- Skip mode paces by pictures: each media item shows for a fixed
+  player dwell, and a `text` item takes zero time with its line
+  hidden. Every line is still stepped onto, marked seen and recorded
+  in the reading history, so skip can stop on a line (a decision
+  hanging off it, the last seen item) and that line then shows
+  normally. An animation contributes `frames[0]` and a video its
+  `poster`; both show that still and never play. A video holds for
+  `min(skipDwell, gate)`, the media gate above standing in for the
+  file's duration. With "skip plays videos" on, a video plays its
+  whole gate instead and its chain's lines still take zero time.
 - Rewind and skip show `frames[0]` and the poster too, with the one
   exception stated next. A `nav` arrival below the seen edge - a wheel
   step, a bookmark jump, an `e` landing - shows a `text` item as the

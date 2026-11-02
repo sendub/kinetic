@@ -39,6 +39,7 @@ import { captureVisualThumbnail } from "./render/capture";
 import { inputOwnerFor, mountChoiceOverlay } from "./render/choice";
 import { mountConfigOverlay } from "./render/config";
 import { mountConfirmOverlay, resetProgress } from "./render/confirm";
+import { EARLIER_UNSEEN_NOTICE } from "./render/endcard";
 import { installFirstGestureFullscreen } from "./render/fullscreen";
 import { mountHelpOverlay } from "./render/help";
 import { mountInterstitial } from "./render/interstitial";
@@ -303,12 +304,18 @@ function start(): void {
           );
         },
       });
+      // The list read is async: `t` counts as an open screen from the
+      // press (`syncMenuPause`), so nothing advances while it loads.
+      let bookmarksOpening = false;
       const showBookmarks = (): void => {
+        bookmarksOpening = true;
+        const shown = (list: readonly Bookmark[]): void => {
+          bookmarksOpening = false;
+          overlay.render(list);
+          syncMenuPause();
+        };
         // A storage outage reads as an empty list, not a dead key.
-        storage.getBookmarks().then(
-          (list) => overlay.render(list),
-          () => overlay.render([]),
-        );
+        storage.getBookmarks().then(shown, () => shown([]));
       };
       // `c` (README `c` bullet): the config screen. A control click
       // applies the full next settings live — machine.setSettings re-arms
@@ -498,6 +505,10 @@ function start(): void {
           },
           toggleSkip: timeline.toggleSkip,
           jumpToEnd: timeline.jumpToEnd,
+          // `u` (docs/plan.md Phase 18): a jump, like `e` never trapped by
+          // a choice and suspended behind the panels; entering a route this
+          // way is a pick, so its route pill shows.
+          nextUnseen: historyGate(() => machine.jumpToUnseen()),
           bookmark: () => {
             if (!storyInput()) return;
             void takeBookmark();
@@ -581,11 +592,47 @@ function start(): void {
         wheelForward: timeline.wheelForward,
       });
 
+      // Menus pause the timeline (docs/plan.md Phase 18): while the `c` or
+      // `t` screen (or the reset box over `c`) is up, a running
+      // auto-forward hold or skip burst is frozen — machine.pause(), as
+      // under help, keeps `skipping` and arms nothing — and a playing
+      // video holds in place. Closing the screen resumes exactly what was
+      // running: machine.resume() re-arms a fresh hold or skip dwell. A
+      // bookmark click that jumps away restores through importContext
+      // while still paused, which ends any skip burst (a jump is manual
+      // navigation), so the resume re-arms only the landing's own hold in
+      // whatever auto mode was on. Every way a screen opens or closes is a
+      // key press (handled above) or a click on its panel, so these
+      // listeners — registered after the keymap and bubbling after the
+      // panels' own — re-sync after each.
+      let menuPaused = false;
+      function syncMenuPause(): void {
+        const open =
+          bookmarksOpening ||
+          overlay.isOpen() ||
+          config.isOpen() ||
+          confirm.isOpen();
+        if (open === menuPaused) return;
+        menuPaused = open;
+        shell.setMediaPaused(open);
+        if (open) machine.pause();
+        else if (!help.isOpen()) machine.resume();
+      }
+      document.addEventListener("keydown", syncMenuPause);
+      document.addEventListener("click", syncMenuPause);
+
       // The first-load help screen (docs/plan.md Phase 13b): before any
       // advance, over a black screen, machine paused, no timers. Closing
       // it records `helpSeen` and resumes the start the machine already
       // took — item 0 on a first load, the restored position otherwise.
       if (!helpSeen) openHelp();
+      // The resume notice (docs/plan.md Phase 18): a restored position with
+      // passed-over unseen content before it (a prequel a content update
+      // added, say) gets one quiet line pointing at `u`. A first load sits
+      // on item 0, where nothing is earlier.
+      else if (machine.hasEarlierUnseen()) {
+        shell.showNotice(EARLIER_UNSEEN_NOTICE);
+      }
     },
     (error: unknown) => {
       // An unreadable manifest is shown, never thrown: an uncaught rejection

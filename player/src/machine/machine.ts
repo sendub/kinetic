@@ -64,8 +64,12 @@
 // re-open: it CLOSES and flow continues past the whole menu region — max
 // route end + 1, the Ren'Py fall-through (docs/plan.md Phase 13).
 //
-// Skip mode (tab) advances one item per settings.skipDwellMs regardless of
-// media: with skip_all off it ends when the cursor moves onto the first
+// Skip mode (tab) paces by pictures (docs/plan.md Phase 18): a `text` item
+// takes ZERO time — the renderer hides the caption while skipping — so one
+// settings.skipDwellMs passes per picture or video still, regardless of
+// media. Every line is still walked (shown, marked seen, recorded in the
+// history, checked against every stop rule), so a burst can stop ON a line,
+// which then shows normally. With skip_all off it ends when the cursor moves onto the first
 // never-shown item (which is then shown normally); with skip_all on it marks
 // items seen as it shows them and ends when nothing unseen is left to visit.
 // Inside a branched manifest a skip visits items in PLAY order, and it PAUSES
@@ -82,6 +86,7 @@ import type {
   ChoiceRoute,
   ChoiceView,
   ContextFrame,
+  EndCard,
   HistoryEntry,
   InterstitialView,
   Item,
@@ -215,11 +220,13 @@ export interface Machine {
    */
   wheelForward(): void;
   /**
-   * Tab press: toggles skip mode. While on, every item advances after
-   * `settings.skipDwellMs` regardless of text/animation/video; media never
-   * gates. With `settings.skipPlaysVideos` on, a video instead plays its
-   * whole plan (its time bound, `videoGateMs`) before the burst moves on,
-   * playing on beneath its text chain's dwelling lines. With `settings.skipAll` off skip never reveals unseen content
+   * Tab press: toggles skip mode. While on, every picture or video still
+   * advances after `settings.skipDwellMs` regardless of animation/video,
+   * and a `text` item after zero time (its caption hidden; docs/plan.md
+   * Phase 18) — still shown, marked seen and recorded, so the burst can
+   * stop ON a line; media never gates. With `settings.skipPlaysVideos` on,
+   * a video instead plays its whole plan (its time bound, `videoGateMs`)
+   * before the burst moves on through its chain's zero-time lines. With `settings.skipAll` off skip never reveals unseen content
    * (docs/plan.md Phase 18): the burst steps only onto seen items and ends
    * ON the last seen one before the frontier, which is then shown normally;
    * a press with nothing seen ahead does nothing at all. With it on
@@ -237,6 +244,38 @@ export interface Machine {
    * ending.
    */
   jumpToEnd(): void;
+  /**
+   * `u` press: go to the NEXT UNSEEN content wherever it is (docs/plan.md
+   * Phase 18, "Reach unseen content from anywhere"). The target is the
+   * first unseen item in array (reading) order after the cursor, wrapping
+   * round to earlier content, among the items a reader could reach there:
+   *
+   * - Not the reader's own continuation: the unseen run a plain forward
+   *   step would show next (Space reads it), nor the routes of an
+   *   untouched decision the next step opens (the reader picks there).
+   * - An item inside routes only when every enclosing decision's `after`
+   *   item has been seen (the reader got to that decision).
+   * - Not content behind an unpassed decision: past a decision's menu
+   *   region (in the same enclosing route) while its continuing route has
+   *   not been completed, or for a pure choice, while a route is unplayed —
+   *   the machine itself only flows there after that.
+   *
+   * The landing opens the target's enclosing route frames and marks those
+   * routes PLAYED, exactly as if each had been picked, so a forward press
+   * carries on inside the route and the route rows' seen marks agree. Skip
+   * ends, any open choice is left (it stays in the history), and the
+   * landing is a jump appended to the history, arriving unsettled as a
+   * forward read (its media plays). A no-op when there is nowhere to go.
+   */
+  jumpToUnseen(): void;
+  /**
+   * Whether unseen content the reader passed over lies BEFORE the cursor
+   * (the resume notice, docs/plan.md Phase 18): an item `jumpToUnseen()`
+   * could reach, earlier in the array, and not inside a route the reader
+   * declined (an unplayed route of a decision with another route played —
+   * the end card counts those).
+   */
+  hasEarlierUnseen(): boolean;
   /**
    * Bookmark click (the `t` overlay, README `t` bullet): move the cursor to
    * `index`, clamped to `[0, highest index ever shown]`. Nothing unseen is
@@ -654,6 +693,19 @@ export function createMachine(options: MachineOptions): Machine {
         endings.add(route.endIndex);
     }
   }
+  /**
+   * Every route's first and last item, and every decision's menu-region
+   * end (`regionEnd`), for the unseen-content rules (`unseenTarget`).
+   */
+  const routeStarts = new Set<number>();
+  const routeEnds = new Set<number>();
+  for (const decision of decisions) {
+    for (const route of decision.routes) {
+      routeStarts.add(route.startIndex);
+      routeEnds.add(route.endIndex);
+    }
+  }
+  const regionEnds = decisions.map(regionEnd);
 
   const listeners = new Set<Listener>();
   let cursor = 0;
@@ -716,6 +768,12 @@ export function createMachine(options: MachineOptions): Machine {
   let autoAdvance = options.autoAdvance === true;
   // The help screen's freeze (Phase 13b): while paused nothing arms.
   let paused = false;
+  // Skip's zero-time text steps (docs/plan.md Phase 18) run as a loop inside
+  // `runSkip()` rather than as 0 ms timers: `skipStepping` marks that loop,
+  // and `zeroStepDue` is set by `armTimer()` when the item just shown wants
+  // a zero dwell, so the loop takes the next step at once.
+  let skipStepping = false;
+  let zeroStepDue = false;
   /**
    * The play-all back-in-time interstitial being held (docs/plan.md
    * Phase 18): set at a route end that play-all answers with another
@@ -764,14 +822,17 @@ export function createMachine(options: MachineOptions): Machine {
   function snapshot(): MachineState {
     const choice = pendingChoice === null ? null : choiceView(pendingChoice);
     const frontier = highestSeen < 0 ? 0 : Math.min(highestSeen + 1, count);
-    // Play-all carries on from a route ending by itself, so the hint there
-    // is noise; the array end still earns it.
-    const endingHint =
+    // Play-all carries on from a route ending by itself, so the card there
+    // is noise; the array end still earns it. A linear manifest has nothing
+    // to find, so its all-seen card would only repeat "the end".
+    const endCard =
       choice === null &&
       interstitial === null &&
       endings.has(cursor) &&
-      visited.size < count &&
-      !(settings.playAllRoutes && cursor !== count - 1);
+      (visited.size < count || decisions.length > 0) &&
+      !(settings.playAllRoutes && cursor !== count - 1)
+        ? endCardView()
+        : null;
     return Object.freeze({
       cursor,
       frontier,
@@ -779,7 +840,7 @@ export function createMachine(options: MachineOptions): Machine {
       skipping,
       transition,
       ...(choice === null ? {} : { choice }),
-      ...(endingHint ? { endingHint: true as const } : {}),
+      ...(endCard === null ? {} : { endCard }),
       ...(skipPlaysVideo() ? { skipVideo: true as const } : {}),
       ...(interstitial === null
         ? {}
@@ -899,8 +960,10 @@ export function createMachine(options: MachineOptions): Machine {
   /** The delay the current timer must cover, under the present settings. */
   function currentDelayMs(): number {
     if (skipping) {
-      // Skip mode: one fixed `settings.skipDwellMs` per item whatever its
-      // type. Media never gates and never plays to completion; the machine
+      // Skip mode paces by pictures (docs/plan.md Phase 18): a `text` item
+      // takes zero time (its caption is hidden while skipping), so a chain of
+      // lines over one picture costs that picture's dwell alone. A media
+      // item takes one fixed `settings.skipDwellMs`. Media never gates and never plays to completion; the machine
       // only times (docs/content-format.md, "Timing"). A video's dwell is
       // clamped to its own gate, so a short clip is not shown longer than
       // the content describes. The `minPlaySeconds` floor NEVER enters here:
@@ -910,9 +973,11 @@ export function createMachine(options: MachineOptions): Machine {
       // video: it plays its whole plan — range, passes or `holdSeconds` —
       // timed by the same bound forward play below the edge uses, so a clip
       // that cannot play never stalls the burst. A chain head plays its plan
-      // on the head; the chain's lines then take one dwell each while the
-      // video plays on beneath them (`skipPlaysVideo`).
+      // on the head; the chain's lines then take zero time like any other
+      // line, so the burst moves on as soon as the plan has played (the
+      // lines' captions were hidden under it anyway).
       const item = items[cursor];
+      if (item.type === "text") return 0;
       if (item.type === "video") {
         if (settings.skipPlaysVideos) return videoGateMs(item);
         return Math.min(settings.skipDwellMs, videoGateMs(item));
@@ -941,8 +1006,27 @@ export function createMachine(options: MachineOptions): Machine {
     timer = null;
     // `skipping` can only have changed through a re-arm, so dispatching
     // here matches the mode the timer was armed under.
-    if (skipping) skipTick();
+    if (skipping) runSkip();
     else onHoldElapsed();
+  }
+
+  /**
+   * One skip step, then at once every further step that a zero-time `text`
+   * item asks for (`zeroStepDue`), until the burst reaches an item with a
+   * real dwell, stops, or is paused. A loop, not recursion or 0 ms timers:
+   * a long chain costs no stack and no timer clamping.
+   */
+  function runSkip(): void {
+    skipStepping = true;
+    try {
+      do {
+        zeroStepDue = false;
+        skipTick();
+      } while (zeroStepDue && skipping && !paused && !destroyed);
+    } finally {
+      skipStepping = false;
+      zeroStepDue = false;
+    }
   }
 
   function armTimer(): void {
@@ -953,7 +1037,12 @@ export function createMachine(options: MachineOptions): Machine {
     // help screen's pause arms nothing until resume() (Phase 13b).
     if (paused || (!skipping && !autoAdvance)) return;
     timerArmedAt = Date.now();
-    timer = scheduler.schedule(onTimerElapsed, currentDelayMs());
+    const delay = currentDelayMs();
+    if (skipping && delay === 0 && skipStepping) {
+      zeroStepDue = true; // `runSkip()` takes the next step at once
+      return;
+    }
+    timer = scheduler.schedule(onTimerElapsed, delay);
   }
 
   /**
@@ -1203,9 +1292,10 @@ export function createMachine(options: MachineOptions): Machine {
   }
 
   /**
-   * Skip-mode dwell elapsed. One fixed-dwell step forward: a media item
-   * followed by `text`, and each `text` line of a chain, each consume
-   * exactly one dwell (chains are never collapsed). A decision reached is
+   * Skip-mode dwell elapsed. One step forward: a media item consumes one
+   * dwell, a `text` line none (`currentDelayMs`), but every line is still
+   * stepped onto here, one at a time, so each is shown, marked seen and
+   * recorded, and every stop rule below applies to it. A decision reached is
    * NOT auto-resolved any more: its overlay opens and the burst ends
    * (docs/plan.md Phase 16) — only `playAllRoutes` still flows through.
    * The mode ends when
@@ -1497,6 +1587,158 @@ export function createMachine(options: MachineOptions): Machine {
     return cursor === decisions[frame.decision].routes[frame.route].endIndex;
   }
 
+  /** Nesting depth of a decision: 0 at the top level. */
+  function depthOf(decision: ResolvedDecision): number {
+    let depth = 0;
+    for (let at = decision.parent; at >= 0; at = decisions[at].parent) {
+      depth += 1;
+    }
+    return depth;
+  }
+
+  /** The route frames enclosing item `index`, outermost first. */
+  function framesAround(index: number): Frame[] {
+    const found: { frame: Frame; depth: number }[] = [];
+    for (const decision of decisions) {
+      decision.routes.forEach((route, routeIdx) => {
+        if (index >= route.startIndex && index <= route.endIndex) {
+          found.push({
+            frame: { decision: decision.index, route: routeIdx },
+            depth: depthOf(decision),
+          });
+        }
+      });
+    }
+    found.sort((a, b) => a.depth - b.depth);
+    return found.map((entry) => entry.frame);
+  }
+
+  /**
+   * Whether flow has gone past a decision's menu region: its continuing
+   * route completed (the join), or — a pure choice — every route played
+   * (the all-played close).
+   */
+  function decisionPassed(decision: ResolvedDecision): boolean {
+    if (decision.continuingRoute >= 0) {
+      return (
+        completed.get(decision.index)?.has(decision.continuingRoute) === true
+      );
+    }
+    return nextAutoRoute(decision) < 0;
+  }
+
+  /**
+   * Whether item `index` lies behind an unpassed decision: after its menu
+   * region, within the route that holds the decision (anywhere after, for a
+   * top-level one).
+   */
+  function behindDecision(index: number): boolean {
+    for (const decision of decisions) {
+      if (index <= regionEnds[decision.index]) continue;
+      if (decisionPassed(decision)) continue;
+      if (decision.parent < 0) return true;
+      const holder = decisions[decision.parent].routes.find(
+        (route) =>
+          decision.afterIndex >= route.startIndex &&
+          decision.afterIndex <= route.endIndex,
+      );
+      if (holder !== undefined && index <= holder.endIndex) return true;
+    }
+    return false;
+  }
+
+  /**
+   * What the reader's next forward step reads, which `u` leaves to Space
+   * (`jumpToUnseen`): the unseen run a plain step would show — from the next
+   * item, or a continuing route's join — up to a route boundary, and the
+   * decision the step would open when none of its routes has been played
+   * yet (its routes are the reader's pick). A re-offered decision is not
+   * excluded: its unplayed routes are what the end card points `u` at.
+   */
+  function continuation(): { run: Set<number>; decision: number } {
+    const run = new Set<number>();
+    let decision = -1;
+    let start = -1;
+    if (pendingChoice !== null) {
+      decision = pendingChoice.decision;
+    } else if (relevantDecision(cursor) >= 0) {
+      decision = relevantDecision(cursor);
+    } else if (atRouteEnd()) {
+      const frame = stack[stack.length - 1];
+      const owner = decisions[frame.decision];
+      if (owner.routes[frame.route].continuing) start = owner.continueAt;
+    } else {
+      start = cursor + 1;
+    }
+    if (decision >= 0 && (played.get(decision)?.size ?? 0) > 0) decision = -1;
+    for (let index = start; index >= 0 && index < count; index += 1) {
+      if (visited.has(index)) break;
+      run.add(index);
+      if (routeEnds.has(index) || routeStarts.has(index + 1)) break;
+    }
+    return { run, decision };
+  }
+
+  /** Whether `u` may land on unseen item `index` (`jumpToUnseen` rules). */
+  function reachableUnseen(
+    index: number,
+    ahead: { run: Set<number>; decision: number },
+  ): boolean {
+    if (visited.has(index) || ahead.run.has(index)) return false;
+    for (const frame of framesAround(index)) {
+      if (frame.decision === ahead.decision) return false;
+      if (!visited.has(decisions[frame.decision].afterIndex)) return false;
+    }
+    return !behindDecision(index);
+  }
+
+  /** `u`'s landing: the next reachable unseen item, wrapping; -1 if none. */
+  function unseenTarget(): number {
+    if (visited.size >= count) return -1;
+    const ahead = continuation();
+    for (let step = 1; step < count; step += 1) {
+      const index = (cursor + step) % count;
+      if (reachableUnseen(index, ahead)) return index;
+    }
+    return -1;
+  }
+
+  /** An unplayed route of a decision the reader answered otherwise. */
+  function declined(frame: Frame): boolean {
+    return (
+      !isPlayed(frame.decision, frame.route) &&
+      (played.get(frame.decision)?.size ?? 0) > 0
+    );
+  }
+
+  /** The end card's counts (`EndCard`). */
+  function endCardView(): EndCard {
+    let unseenRoutes = 0;
+    for (const decision of decisions) {
+      decision.routes.forEach((route, routeIdx) => {
+        if (isPlayed(decision.index, routeIdx)) return;
+        for (let i = route.startIndex; i <= route.endIndex; i += 1) {
+          if (!visited.has(i)) {
+            unseenRoutes += 1;
+            return;
+          }
+        }
+      });
+    }
+    let otherUnseen = false;
+    for (let i = 0; i < count && !otherUnseen; i += 1) {
+      if (visited.has(i)) continue;
+      otherUnseen = framesAround(i).every((frame) =>
+        isPlayed(frame.decision, frame.route),
+      );
+    }
+    return Object.freeze({
+      unseenRoutes,
+      otherUnseen,
+      nextUnseen: unseenTarget() >= 0,
+    });
+  }
+
   /**
    * A forward advance off a route's last item (docs/content-format.md,
    * "Branches"): the route is COMPLETED — recorded in the `completed` set —
@@ -1760,7 +2002,7 @@ export function createMachine(options: MachineOptions): Machine {
         // Phase 18) aborts the video and the burst carries on: the dwell
         // elapses now, so the step is skip's own (never-reveal included).
         cancelTimer();
-        skipTick();
+        runSkip();
         return;
       }
       if (skipping) {
@@ -1829,6 +2071,35 @@ export function createMachine(options: MachineOptions): Machine {
       const last = history.length - 1;
       if (pos >= last) return; // already at the end: nothing to do
       showEntry(last);
+    },
+
+    jumpToUnseen() {
+      if (destroyed || count === 0) return;
+      finishInterstitial();
+      const target = unseenTarget();
+      if (target < 0) return;
+      skipping = false;
+      pendingChoice = null;
+      // Entering as if each enclosing route were picked: frames open, routes
+      // played, so a forward press carries on inside the route.
+      stack.length = 0;
+      for (const frame of framesAround(target)) {
+        playedOf(frame.decision).add(frame.route);
+        stack.push(frame);
+      }
+      // A read of new content, so its media plays wherever the edge is; a
+      // jump, so the landing is appended to the history.
+      showItem(target, "advance", true);
+    },
+
+    hasEarlierUnseen() {
+      if (destroyed || count === 0 || visited.size >= count) return false;
+      const ahead = continuation();
+      for (let index = 0; index < cursor; index += 1) {
+        if (!reachableUnseen(index, ahead)) continue;
+        if (!framesAround(index).some(declined)) return true;
+      }
+      return false;
     },
 
     goTo(index) {

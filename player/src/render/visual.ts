@@ -273,6 +273,13 @@ export interface VisualLayer {
    * drawable then, and the caller falls back or skips.
    */
   currentVisual(): HTMLImageElement | HTMLVideoElement | null;
+  /**
+   * Hold (true) or release (false) a playing video in place — the `c`/`t`
+   * screens pause the timeline (docs/plan.md Phase 18). While held a video
+   * never starts; release resumes it from where it stopped, if its mode
+   * still plays. Idempotent.
+   */
+  setPaused(paused: boolean): void;
   /** Stop all playback and drop the video element. Idempotent. */
   destroy(): void;
 }
@@ -339,6 +346,8 @@ export function createVisualLayer(
   let videoEndedCount = 0;
   let videoGeneration = 0;
   let rangeFallbackNoted = false;
+  // `setPaused(true)`: the menus' timeline pause (docs/plan.md Phase 18).
+  let held = false;
 
   let animation: AnimationRun | null = null;
   let animationTimer: ReturnType<typeof setTimeout> | null = null;
@@ -686,6 +695,7 @@ export function createVisualLayer(
    * unplayable video.
    */
   function playVideo(element: HTMLVideoElement, plan: VideoPlan): void {
+    if (held) return; // `setPaused(false)` starts it
     const generation = videoGeneration;
     element.play().catch(() => {
       if (generation !== videoGeneration || videoPlan !== plan) return;
@@ -833,6 +843,16 @@ export function createVisualLayer(
         return image;
       }
       return null;
+    },
+
+    setPaused(paused) {
+      if (held === paused) return;
+      held = paused;
+      if (video === null || videoPlan === null || videoMode === "still") {
+        return;
+      }
+      if (paused) video.pause();
+      else playVideo(video, videoPlan);
     },
 
     destroy() {

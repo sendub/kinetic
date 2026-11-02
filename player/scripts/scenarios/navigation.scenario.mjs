@@ -3,7 +3,8 @@
 // history per notch, shows a rewound video's poster as a still, clamps at
 // the first and last entries, and replays a route path exactly as read —
 // choice screens included, unplayed routes never shown; Tab skip runs
-// through seen items at the skip dwell and stops ON the last seen one
+// through seen items at the skip dwell per picture (lines take zero time,
+// caption hidden) and stops ON the last seen one
 // (doing nothing with nothing seen ahead); Space ends a skip; `e` goes to
 // the end of the history and is a no-op there.
 
@@ -12,6 +13,7 @@ import {
   currentItemId,
   INSTALL_BRANCH_LOG,
   item,
+  manifest,
   ON_TEXT,
   PAGE_STATE,
   PAINT_SIG,
@@ -218,22 +220,37 @@ async function skipScenario(check, open) {
   } catch {}
   const heldMs = stopAt > 0 && advancedAt > 0 ? advancedAt - stopAt : -1;
   // At ~25 ms a step is faster than the sampler can resolve, so the burst
-  // is judged by its total time: N steps of dwell, well under the old
-  // 120 ms pace, and never instant.
-  const steps = lastSeen.index - item("anim-orbit").index;
+  // is judged by its total time. Skip paces by pictures (docs/plan.md Phase
+  // 18): only the media items on the way cost a dwell (anim-orbit,
+  // video-chain, chain-still), the five text lines take zero time — so the
+  // burst is ~3 dwells, not 6, and never instant.
+  const steps = manifest.items
+    .slice(item("anim-orbit").index, lastSeen.index)
+    .filter((it) => it.type !== "text").length;
   const burstMs = stopAt > 0 ? stopAt - tabAt : -1;
+  // The caption is hidden while the burst runs and drawn on the stop line.
+  const during = changes.filter(([t]) => stopAt > 0 && t < stopAt).slice(1);
+  const hiddenDuring = during.every(([, sig]) => sig.includes("|text-off|"));
+  const stopShown =
+    changes
+      .find(([, sig]) => textOf(sig) === lastSeen.text)?.[1]
+      ?.includes("|text-on|") === true;
   check(
-    `tab skips at ~${SKIP_DWELL_MS} ms per item and stops ON the last seen item, shown normally`,
+    `tab skips at ~${SKIP_DWELL_MS} ms per picture (lines take zero time, caption hidden) and stops ON the last seen line, shown normally`,
     reached &&
       back &&
       burstMs >= steps * SKIP_DWELL_MS * 0.5 &&
       burstMs <= steps * SKIP_DWELL_MS * 2.5 + 250 &&
+      hiddenDuring &&
+      stopShown &&
       stopped &&
       heldMs >= holdMs * 0.7 &&
       heldMs <= holdMs + 2500,
     {
       steps,
       burstMs,
+      hiddenDuring,
+      stopShown,
       sampledMoves: changes.length - 1,
       medianSampledMs: median,
       lastMoveMs: changes[changes.length - 1][0] - tabAt,

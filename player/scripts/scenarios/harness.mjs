@@ -575,6 +575,7 @@ const pressSpace = (cdp) => pressKey(cdp, " ", "Space", 32, " ");
 const pressH = (cdp) => pressKey(cdp, "h", "KeyH", 72, "h");
 const pressTab = (cdp) => pressKey(cdp, "Tab", "Tab", 9, "");
 const pressE = (cdp) => pressKey(cdp, "e", "KeyE", 69, "e");
+const pressU = (cdp) => pressKey(cdp, "u", "KeyU", 85, "u");
 const pressB = (cdp) => pressKey(cdp, "b", "KeyB", 66, "b");
 const pressT = (cdp) => pressKey(cdp, "t", "KeyT", 84, "t");
 const pressC = (cdp) => pressKey(cdp, "c", "KeyC", 67, "c");
@@ -978,6 +979,7 @@ export {
   pressSpace,
   pressT,
   pressTab,
+  pressU,
   READ_BOOKMARK_OVERLAY,
   READ_BOOKMARKS,
   READ_CHOICE,

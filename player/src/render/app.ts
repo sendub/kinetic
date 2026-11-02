@@ -5,6 +5,7 @@
 
 import type { Machine } from "../machine/machine";
 import type { MachineState, Manifest } from "../machine/types";
+import { endCardText } from "./endcard";
 import { createTextOverlayLayer } from "./overlay";
 import { createVisualLayer } from "./visual";
 
@@ -23,6 +24,11 @@ export interface Shell {
    * in index.html so the panel-level rule beats `.display` of `.stage`.
    */
   setStageVisible(visible: boolean): void;
+  /**
+   * The `c`/`t` screens' timeline pause (docs/plan.md Phase 18): true
+   * holds a playing video in place, false lets it play on.
+   */
+  setMediaPaused(paused: boolean): void;
   /** The visual element currently painted, for `b`-key thumbnail capture. */
   currentVisual(): HTMLImageElement | HTMLVideoElement | null;
   /**
@@ -38,6 +44,12 @@ export interface Shell {
    * it.
    */
   flashSequence(messages: readonly string[]): void;
+  /**
+   * A quiet standing notice (`#notice`, the resume notice of docs/plan.md
+   * Phase 18): it stays until the reader's next key, click or wheel notch,
+   * and yields to the end card, which already offers the same key.
+   */
+  showNotice(message: string): void;
   unmount(): void;
 }
 
@@ -56,27 +68,54 @@ export function mountShell({ root, manifest, machine }: ShellOptions): Shell {
   const overlay = doc.createElement("div");
   overlay.id = "overlay";
   overlay.className = "overlay";
-  // The ending hint (docs/plan.md Phase 18): a quiet standing line while an
-  // ending shows and content is still unseen. Outside `#overlay` so the
-  // caption layer never repaints it; `h` hides it with the captions.
-  const endingHint = doc.createElement("div");
-  endingHint.id = "ending-hint";
-  endingHint.textContent = "Some content is still unseen.";
-  endingHint.hidden = true;
-  Object.assign(endingHint.style, {
+  // The end card (docs/plan.md Phase 18, "End card"): a small quiet panel
+  // while an ending shows — how many routes (and other content) are still
+  // unseen and the `u` key to the next, or that everything has been seen.
+  // Outside `#overlay` so the caption layer never repaints it; `h` hides it
+  // with the captions.
+  const quietStyle = {
     position: "fixed",
     top: "3%",
     left: "50%",
     transform: "translateX(-50%)",
-    color: "rgba(244, 239, 230, 0.78)",
+    maxWidth: "min(90vw, 36em)",
+    textAlign: "center",
+    color: "rgba(244, 239, 230, 0.86)",
     textShadow: "0 1px 3px rgba(0, 0, 0, 0.9)",
-    font: "italic 400 clamp(12px, 1.5vh, 16px)/1.3 ui-sans-serif, system-ui, sans-serif",
+    font: "400 clamp(12px, 1.5vh, 16px)/1.35 ui-sans-serif, system-ui, sans-serif",
     letterSpacing: "0.03em",
     pointerEvents: "none",
     userSelect: "none",
     zIndex: "5",
+  };
+  const endCard = doc.createElement("div");
+  endCard.id = "end-card";
+  endCard.hidden = true;
+  Object.assign(endCard.style, quietStyle, {
+    padding: "8px 16px",
+    borderRadius: "8px",
+    background: "rgba(10, 10, 12, 0.5)",
+    border: "1px solid rgba(244, 239, 230, 0.14)",
   });
-  root.replaceChildren(stage, overlay, endingHint);
+  const endCardTitle = doc.createElement("div");
+  endCardTitle.className = "end-card-title";
+  const endCardHint = doc.createElement("div");
+  endCardHint.className = "end-card-hint";
+  Object.assign(endCardHint.style, {
+    marginTop: "2px",
+    fontStyle: "italic",
+    color: "rgba(244, 239, 230, 0.66)",
+  });
+  endCard.append(endCardTitle, endCardHint);
+  // The resume notice (`showNotice`): one quiet italic line, no panel.
+  const notice = doc.createElement("div");
+  notice.id = "notice";
+  notice.hidden = true;
+  Object.assign(notice.style, quietStyle, {
+    fontStyle: "italic",
+    color: "rgba(244, 239, 230, 0.78)",
+  });
+  root.replaceChildren(stage, overlay, endCard, notice);
 
   const visuals = createVisualLayer(stage, manifest, {
     // A standalone video's `ended` (or an autoplay rejection, see
@@ -90,11 +129,35 @@ export function mountShell({ root, manifest, machine }: ShellOptions): Shell {
   // the item the decision hangs off, not anything the reader can act on.
   // `h` keeps its own state underneath — closing the choice restores it.
   let choiceOpen = false;
-  let endingHintDue = false;
+  // A skip burst paces by pictures (docs/plan.md Phase 18): its lines take
+  // zero time, so the caption hides while `skipping` and the line the burst
+  // stops on shows the moment it ends.
+  let skipping = false;
+  let endCardDue = false;
+  let noticeDue = false;
 
   function applyCaptions(): void {
-    captions.setHidden(!textVisible || choiceOpen);
-    endingHint.hidden = !textVisible || !endingHintDue;
+    captions.setHidden(!textVisible || choiceOpen || skipping);
+    endCard.hidden = !textVisible || !endCardDue;
+    notice.hidden = !textVisible || !noticeDue || endCardDue;
+  }
+
+  function dismissNotice(): void {
+    if (!noticeDue) return;
+    noticeDue = false;
+    for (const type of ["keydown", "pointerdown", "wheel"]) {
+      doc.removeEventListener(type, dismissNotice, true);
+    }
+    applyCaptions();
+  }
+
+  function showNotice(message: string): void {
+    notice.textContent = message;
+    noticeDue = true;
+    for (const type of ["keydown", "pointerdown", "wheel"]) {
+      doc.addEventListener(type, dismissNotice, true);
+    }
+    applyCaptions();
   }
 
   function render(state: MachineState): void {
@@ -104,7 +167,14 @@ export function mountShell({ root, manifest, machine }: ShellOptions): Shell {
     visuals.update(manifest.items[machine.visualIndex()], state);
     captions.update(manifest.items[state.cursor]);
     choiceOpen = state.choice !== undefined;
-    endingHintDue = state.endingHint === true;
+    skipping = state.skipping;
+    endCardDue = state.endCard !== undefined;
+    if (state.endCard !== undefined) {
+      const text = endCardText(state.endCard);
+      endCardTitle.textContent = text.title;
+      endCardHint.textContent = text.hint ?? "";
+      endCardHint.hidden = text.hint === undefined;
+    }
     applyCaptions();
     schedulePreload(state);
   }
@@ -223,12 +293,17 @@ export function mountShell({ root, manifest, machine }: ShellOptions): Shell {
     setStageVisible(visible: boolean) {
       stage.hidden = !visible; // `.stage[hidden]` in index.html paints black
     },
+    setMediaPaused(paused: boolean) {
+      visuals.setPaused(paused);
+    },
     currentVisual() {
       return visuals.currentVisual();
     },
     flash,
     flashSequence,
+    showNotice,
     unmount() {
+      dismissNotice();
       unsubscribe();
       machine.destroy();
       visuals.destroy();

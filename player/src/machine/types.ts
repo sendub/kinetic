@@ -174,10 +174,11 @@ export interface MachineSettings {
   /** Base per-code-point allowance, in milliseconds; default 60. */
   msPerChar: number;
   /**
-   * Skip-mode dwell per item, in milliseconds; default 120. A fixed, fast
-   * rate (~8 items per second): fast enough to re-traverse read content in
-   * a burst, slow enough that the surface never lags a frame the player
-   * cannot register.
+   * Skip-mode dwell per picture or video still, in milliseconds (see
+   * `DEFAULT_SETTINGS`). A fixed, fast rate: fast enough to re-traverse
+   * read content in a burst, slow enough that the surface never lags a
+   * frame the player cannot register. A `text` item takes no dwell during
+   * skip (docs/plan.md Phase 18, skip paces by pictures).
    */
   skipDwellMs: number;
   /** Skip past unseen content too; default false. */
@@ -188,7 +189,7 @@ export interface MachineSettings {
    * range, loop passes or `holdSeconds`, timed by `videoGateMs` — instead of
    * a `skipDwellMs` poster, then the burst carries on. A video heading a
    * text chain plays its plan on the head item, then the chain's lines take
-   * one dwell each with the video playing on beneath them. Space during
+   * zero time like every line during skip. Space during
    * such a playback aborts the video and the burst continues.
    */
   skipPlaysVideos: boolean;
@@ -341,8 +342,9 @@ export type TransitionKind = "advance" | "nav";
  * satisfied (via its auto-advance condition, a manual `advance()`, or a
  * resume landing on an item that was read before), so the next
  * `advance()` moves on. `skipping` means skip mode (tab) is active: the
- * machine advances every item after `settings.skipDwellMs` regardless of
- * media. While it is true the renderer must show an animation's first
+ * machine advances every picture after `settings.skipDwellMs` regardless
+ * of media and every `text` item after zero time. While it is true the
+ * renderer hides the caption (docs/plan.md Phase 18) and must show an animation's first
  * frame and a video's poster as stills and never play media (unless
  * `skipVideo` says skip is playing the video) — the machine
  * only times, it cannot stop a playing element. `choice` is present while a
@@ -362,13 +364,15 @@ export interface MachineState {
   readonly transition: TransitionKind;
   readonly choice?: ChoiceView;
   /**
-   * Present (true) while the cursor stands on an ENDING — the array end or
-   * an ending route's last item — and some content is still unseen, with
-   * no choice open (docs/plan.md Phase 18): the render layer shows a quiet
-   * standing line saying content is still unseen. Absent once everything
-   * has been seen.
+   * Present while the cursor stands on an ENDING — the array end or an
+   * ending route's last item — with no choice open and no play-all
+   * interstitial (docs/plan.md Phase 18, "End card"): the render layer
+   * draws the small end card from it. Present when content is still
+   * unseen, and — in a manifest with branches — when everything has been
+   * seen (all counts zero), so the card can say so. Absent otherwise, and
+   * at a play-all route ending (the journey carries on by itself).
    */
-  readonly endingHint?: true;
+  readonly endCard?: EndCard;
   /**
    * Present (true) while skip mode is PLAYING the video on screen (the
    * `skipPlaysVideos` setting): the cursor item is a video, or a text line
@@ -385,6 +389,27 @@ export interface MachineState {
    * `INTERSTITIAL_MS` (a press ends it early) and then enters the route.
    */
   readonly interstitial?: InterstitialView;
+}
+
+/**
+ * The end card's content (docs/plan.md Phase 18, "End card"): what is still
+ * unseen when an ending shows. All zero / false means everything has been
+ * seen.
+ */
+export interface EndCard {
+  /**
+   * Routes never played (across every decision, nested ones included) that
+   * still hold an unseen item.
+   */
+  readonly unseenRoutes: number;
+  /**
+   * Some unseen item lies outside every unplayed route: main-line content
+   * (a prequel, an aftermath reached through a route) or the rest of a
+   * route that was entered and left.
+   */
+  readonly otherUnseen: boolean;
+  /** `jumpToUnseen()` (`u`) has somewhere to go from here. */
+  readonly nextUnseen: boolean;
 }
 
 /** The play-all back-in-time interstitial's content (docs/plan.md Phase 18). */

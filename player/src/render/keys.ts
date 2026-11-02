@@ -11,6 +11,11 @@ export interface KeyCommands {
   toggleText(): void;
   toggleSkip(): void;
   jumpToEnd(): void;
+  /**
+   * `u`: go to the next unseen content, wherever it is (docs/plan.md Phase
+   * 18, "Reach unseen content from anywhere"; machine `jumpToUnseen`).
+   */
+  nextUnseen(): void;
   /** `b`: append a bookmark at the current item (Phase 8). */
   bookmark(): void;
   /** `t`: open or close the bookmark thumbnail overlay (Phase 8). */
@@ -54,6 +59,8 @@ const KEY_TABLE = new Map<string, KeyCommand>([
   ["Tab", "toggleSkip"],
   ["e", "jumpToEnd"],
   ["E", "jumpToEnd"],
+  ["u", "nextUnseen"],
+  ["U", "nextUnseen"],
   ["b", "bookmark"],
   ["B", "bookmark"],
   ["t", "toggleBookmarks"],
@@ -118,7 +125,7 @@ export interface KeyHelpEntry {
 
 /**
  * The rows, one short line per main interaction key (docs/plan.md Phase
- * 18, "Key help simplified"): the cursor first (space, wheel, e, tab),
+ * 18, "Key help simplified"): the cursor first (space, wheel, e, u, tab),
  * then the modes, then the screens, then the decision keys. Every command
  * the table maps has a row unless it is in `UNLISTED_COMMANDS` —
  * `keys.test.ts` asserts both directions, so adding a key or command
@@ -133,6 +140,7 @@ const HELP_ROWS: ReadonlyArray<{
   { command: "advance", description: "next item; stops auto-forward" },
   { command: null, plainLabel: "wheel", description: "roll back / forward" },
   { command: "jumpToEnd", description: "jump to the end of what you read" },
+  { command: "nextUnseen", description: "next unseen content" },
   { command: "toggleSkip", description: "skip what you have seen" },
   { command: "toggleAutoForward", description: "auto-forward on / off" },
   { command: "toggleText", description: "hide / show the text" },

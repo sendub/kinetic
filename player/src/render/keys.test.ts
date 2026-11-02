@@ -218,6 +218,7 @@ describe("keyHelpEntries (the help lists the map itself, Phase 13b)", () => {
       "Space",
       "wheel",
       "e",
+      "u",
       "Tab",
       "a",
       "h",

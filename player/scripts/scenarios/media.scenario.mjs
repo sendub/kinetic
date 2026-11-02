@@ -132,6 +132,30 @@ async function sampleUntil(page, probe, done, timeoutMs, gapMs = 40) {
 }
 
 const onText = (it) => (sig) => sig.includes(`|${it.text}`) || sig === it.text;
+
+// CHAIN_PROBE plus whether the caption band is drawn ("text-on"/"text-off")
+// just before the line: skip paces by pictures and hides the caption while
+// it runs (docs/plan.md Phase 18), so a skip check needs both.
+const CAPTION_PROBE = () => {
+  const img = document.getElementById("visual-image");
+  const video = document.getElementById("visual-video");
+  const overlay = document.getElementById("overlay");
+  const textEl = document.getElementById("overlay-text");
+  const videoShown =
+    video !== null &&
+    !video.hidden &&
+    getComputedStyle(video).display !== "none";
+  return [
+    videoShown ? (video.getAttribute("src") ?? "") : "no-video",
+    videoShown ? (video.paused ? "paused" : "playing") : "-",
+    videoShown ? (video.getAttribute("poster") ?? "") : "-",
+    img !== null && getComputedStyle(img).display !== "none"
+      ? (img.getAttribute("src") ?? "")
+      : "no-img",
+    overlay?.hidden ? "text-off" : "text-on",
+    textEl?.textContent ?? "",
+  ].join("|");
+};
 const r3 = (n) => Math.round(n * 1000) / 1000;
 
 async function animationAndChain({ check, open }) {
@@ -588,8 +612,10 @@ async function floor({ check, open }) {
   );
 
   // 44. Skip through the (now seen) floor chain stays immediate: wheel back
-  // before it, one tab runs poster + lines in dwells, never playing, and
-  // stops on the last seen item without waiting on the floor.
+  // before it, one tab shows the clip's poster for one dwell, never playing,
+  // walks its lines in zero time with the caption hidden (docs/plan.md
+  // Phase 18, skip paces by pictures), and stops on the last seen item —
+  // its caption drawn again — without waiting on the floor.
   const before = await wheelUntil(
     page,
     cdp,
@@ -599,9 +625,12 @@ async function floor({ check, open }) {
   );
   const tabAt = Date.now();
   await pressTab(cdp);
-  const skip = await sampleUntil(page, CHAIN_PROBE, onText(exit), 4000, 8);
+  const skip = await sampleUntil(page, CAPTION_PROBE, onText(exit), 4000, 8);
   await sleep(700);
   const stayed = await page.evaluate(ON_TEXT, exit.text);
+  const shownAfter = await page.evaluate(
+    () => document.getElementById("overlay")?.hidden === false,
+  );
   const idx = (it) =>
     skip.samples.findIndex(([, sig]) => sig.endsWith(`|${it.text}`));
   const iClip = idx(clip);
@@ -611,31 +640,36 @@ async function floor({ check, open }) {
     iClip >= 0 ? skip.samples.slice(iClip, skip.samples.length - 1) : [];
   const postersOnly =
     chain.length > 0 && chain.every(([, sig]) => !sig.includes("|playing|"));
+  // While the burst runs no caption is drawn.
+  const captionsHidden =
+    chain.length > 0 && chain.every(([, sig]) => sig.includes("|text-off|"));
   const wall = skip.doneAt === null ? -1 : skip.doneAt - tabAt;
   const headWall =
     skip.doneAt === null || iClip < 0
       ? -1
       : skip.doneAt - skip.samples[iClip][0];
   check(
-    "skip through the seen floor chain stays immediate: poster and lines in dwells, then stops on the last seen item",
+    "skip through the seen floor chain paces by pictures: one poster dwell, lines in zero time with the caption hidden, then stops on the last seen item, caption shown",
     before &&
       iClip >= 0 &&
-      i2 > iClip &&
-      i3 > i2 &&
       postersOnly &&
+      captionsHidden &&
       skip.doneAt !== null &&
       wall < 1500 &&
-      headWall < 1200 &&
-      stayed,
+      headWall < 400 &&
+      stayed &&
+      shownAfter,
     {
       before,
       clipAtMs: iClip >= 0 ? skip.samples[iClip][0] - tabAt : -1,
       line2AtMs: i2 >= 0 ? skip.samples[i2][0] - tabAt : -1,
       line3AtMs: i3 >= 0 ? skip.samples[i3][0] - tabAt : -1,
       postersOnly,
+      captionsHidden,
       exitFromTabMs: wall,
       exitFromChainHeadMs: headWall,
       stayedOnLastSeen: stayed,
+      shownAfter,
     },
   );
 }
@@ -644,7 +678,8 @@ async function skipVideos({ check, open }) {
   // docs/plan.md Phase 18, "Skip can play videos": with the setting on, a
   // skip burst plays a video as forward reading would (the floor clip: its
   // 6 s file, no loop count) and then carries on through its chain's lines
-  // at the dwell; Space during the playback aborts it and the burst goes on.
+  // in zero time, as skip takes every line (Phase 18, skip paces by
+  // pictures); Space during the playback aborts it and the burst goes on.
   const { page, cdp } = await open("skipvideos", { closeHelp: true });
   const clip = item("floor-clip");
   const l2 = item("floor-2");
@@ -668,8 +703,9 @@ async function skipVideos({ check, open }) {
   const idx = (samples, it) =>
     samples.findIndex(([, sig]) => sig.endsWith(`|${it.text}`));
 
-  // Played: the clip is PLAYING under skip for its plan, then the lines
-  // dwell and the burst stops on the last seen item.
+  // Played: the clip is PLAYING under skip for its plan, caption hidden,
+  // then the lines pass in zero time and the burst stops on the last seen
+  // item.
   const back = await wheelUntil(
     page,
     cdp,
@@ -680,7 +716,7 @@ async function skipVideos({ check, open }) {
   await pressTab(cdp);
   const run = await sampleUntil(
     page,
-    CHAIN_PROBE,
+    CAPTION_PROBE,
     onText(exit),
     planMs + 4000,
     15,
@@ -690,8 +726,8 @@ async function skipVideos({ check, open }) {
   const iClip = idx(run.samples, clip);
   const i2 = idx(run.samples, l2);
   const i3 = idx(run.samples, l3);
-  // The clip ends at the first later sample showing another line: each
-  // line holds one ~25 ms dwell, so even a 15 ms sampler may miss one.
+  // The clip ends at the first later sample showing another line: the
+  // lines take zero time, so the sampler normally sees none of them.
   const iOff =
     iClip < 0
       ? -1
@@ -702,27 +738,30 @@ async function skipVideos({ check, open }) {
   const playedOnClip = onClip.some(([, sig]) =>
     sig.startsWith(`${clip.file}|playing|`),
   );
+  const hiddenOnClip =
+    onClip.length > 0 && onClip.every(([, sig]) => sig.includes("|text-off|"));
   const clipMs = onClip.length > 0 ? run.samples[iOff][0] - onClip[0][0] : -1;
   const linesMs =
     iOff >= 0 && run.doneAt !== null ? run.doneAt - run.samples[iOff][0] : -1;
   check(
-    "skip plays videos: the burst plays the floor clip out, then dwells through its lines and stops on the last seen item",
+    "skip plays videos: the burst plays the floor clip out (caption hidden), passes its lines in zero time and stops on the last seen item",
     walked &&
       pressed === "true" &&
       back &&
       iClip >= 0 &&
-      (i2 > iClip || i3 > iClip) &&
       playedOnClip &&
+      hiddenOnClip &&
       clipMs >= planMs - 150 &&
       clipMs <= planMs + 700 &&
       linesMs >= 0 &&
-      linesMs < 600 &&
+      linesMs < 300 &&
       stayed,
     {
       walked,
       pressed,
       back,
       playedOnClip,
+      hiddenOnClip,
       clipMs,
       planMs,
       linesMs,

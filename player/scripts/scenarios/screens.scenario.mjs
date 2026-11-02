@@ -10,6 +10,7 @@ import { cpSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { DEFAULT_SETTINGS } from "../../src/machine/types.ts";
 import { speedLabel } from "../../src/render/config.ts";
+import { EARLIER_UNSEEN_NOTICE } from "../../src/render/endcard.ts";
 import {
   CONFIG_OPEN,
   CONFIRM_OPEN,
@@ -37,6 +38,7 @@ import {
   pressSpace,
   pressT,
   pressTab,
+  pressU,
   READ_BOOKMARK_OVERLAY,
   READ_CONFIG_OVERLAY,
   READ_CONFIRM_OVERLAY,
@@ -66,6 +68,7 @@ const HELP_KEYS = [
   "Space",
   "wheel",
   "E",
+  "U",
   "Tab",
   "A",
   "H",
@@ -968,6 +971,16 @@ async function contentUpdate({ check, open }) {
     resumedId === "chain-still-3" && resumed.helpOpen === false,
     { resumedId, help: resumed.helpOpen, nowAt: newIndex("chain-still-3") },
   );
+  const READ_NOTICE = () => {
+    const n = document.getElementById("notice");
+    return { shown: n !== null && !n.hidden, text: n?.textContent ?? null };
+  };
+  const notice = await page.evaluate(READ_NOTICE);
+  check(
+    "the resume shows the quiet earlier-unseen notice (the prequel is unseen)",
+    notice.shown && notice.text === EARLIER_UNSEEN_NOTICE,
+    notice,
+  );
 
   // The seen set moved with the ids: rolled back three screens, Tab runs
   // through the seen items and stops ON chain-still-3, the last seen one —
@@ -1011,6 +1024,33 @@ async function contentUpdate({ check, open }) {
       expected: newIndex("video-chain-3"),
       restoredId,
     },
+  );
+
+  // `u` from the reading position goes back to the unseen prequel (the
+  // story's own continuation is Space's), and reading on joins the story.
+  const noticeGone = !(await page.evaluate(READ_NOTICE)).shown;
+  await spaceTo(page, cdp, "chain-still-3");
+  // The prequel ids are not in the harness's demo manifest: match by text.
+  const prequelId = async () => {
+    const text = (await page.evaluate(PAGE_STATE)).text;
+    return prequel.find((it) => it.text === text)?.id ?? null;
+  };
+  await pressU(cdp);
+  await sleep(300);
+  const uId = await prequelId();
+  await pressSpace(cdp);
+  await sleep(200);
+  const next1 = await prequelId();
+  await pressSpace(cdp);
+  await sleep(200);
+  const next2 = await currentItemId(page);
+  check(
+    "u from chain-still-3 lands on the unseen prequel-1; Space reads prequel-2 then the old start (the notice went at the first key)",
+    noticeGone &&
+      uId === "prequel-1" &&
+      next1 === "prequel-2" &&
+      next2 === updated.items[2].id,
+    { noticeGone, uId, next1, next2 },
   );
 }
 

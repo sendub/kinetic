@@ -5,12 +5,14 @@
 // route's end running straight into the aftermath, reload inside branch
 // content, `e` going to the end of the history, the wheel replaying choice
 // screens (a pick from one is real), the scroll back from the end showing
-// every screen in the order it was seen, and the ending hint.
+// every screen in the order it was seen, the end card, and `u` reaching
+// the next unseen content (an unplayed route, the nested 1b).
 // The "Return to main route" row (numbered 0, with its "0 returns" hint) is
 // drawn only once
 // that decision's CONTINUING route has been completed at least once.
 
 import { CHOICE_HINT, CONTINUE_HINT } from "../../src/render/choice.ts";
+import { ALL_SEEN_TEXT } from "../../src/render/endcard.ts";
 import {
   branch,
   CHOICE_OPEN,
@@ -25,6 +27,7 @@ import {
   pressEnter,
   pressSpace,
   pressTab,
+  pressU,
   READ_CHOICE,
   readBranchLog,
   sleep,
@@ -33,7 +36,7 @@ import {
 } from "./harness.mjs";
 
 export const title =
-  "decisions, routes, return rows, e, wheel and the ending hint";
+  "decisions, routes, return rows, e, wheel, the end card and u";
 
 const outer = branch("outer");
 const nested = branch("nested");
@@ -43,15 +46,21 @@ const route2 = routeOf(outer, "route2");
 const nestA = routeOf(nested, "nest-a");
 const nestB = routeOf(nested, "nest-b");
 
-// The choice panel's hint line and the standing ending hint, as drawn.
+// The choice panel's hint line, the end card and the resume notice, as
+// drawn.
 const READ_HINTS = () => {
-  const hint = document.getElementById("ending-hint");
+  const card = document.getElementById("end-card");
+  const hint = card?.querySelector(".end-card-hint");
+  const notice = document.getElementById("notice");
   return {
     choiceHint: document.querySelector(".choice-hint")?.textContent ?? null,
-    endingShown: hint !== null && !hint.hidden,
-    endingText: hint?.textContent ?? null,
+    endingShown: card !== null && !card.hidden,
+    endingText: card?.querySelector(".end-card-title")?.textContent ?? null,
+    endingKey: hint && !hint.hidden ? hint.textContent : null,
+    noticeShown: notice !== null && !notice.hidden,
   };
 };
+const U_HINT = "Press u for the next one.";
 
 const readChoice = (page) => page.evaluate(READ_CHOICE);
 const readHints = (page) => page.evaluate(READ_HINTS);
@@ -196,9 +205,11 @@ export default async function ({ check, open }) {
       s35,
     );
     check(
-      "ending hint shows on route2-end while content is still unseen",
+      "end card on route2-end counts Route 1 + nested 1a/1b and the aftermath, offering u",
       end2.id === route2.end &&
         end2.hints.endingShown === true &&
+        end2.hints.endingText === "3 routes and other content still unseen." &&
+        end2.hints.endingKey === U_HINT &&
         start2.hints.endingShown === false,
       { start2: start2.hints, end2: end2.hints },
     );
@@ -336,14 +347,17 @@ export default async function ({ check, open }) {
       { after, log37 },
     );
 
-    // Everything has been seen now: no hint on the final ending.
+    // Everything has been seen now: the card says so, with no u line.
     await pressSpace(cdp);
     const onEnd = await waitOn(page, "after-end");
     await sleep(200);
     const end = await snap(page);
     check(
-      "ending hint is absent on after-end once every item has been seen",
-      onEnd && end.hints.endingShown === false,
+      "end card on after-end says everything has been seen once every item has been",
+      onEnd &&
+        end.hints.endingShown === true &&
+        end.hints.endingText === ALL_SEEN_TEXT &&
+        end.hints.endingKey === null,
       end,
     );
 
@@ -421,8 +435,11 @@ export default async function ({ check, open }) {
     await sleep(200);
     const end = await snap(page);
     check(
-      "ending hint shows on after-end while 1b is still unseen",
-      atEnd && end.hints.endingShown === true,
+      "end card on after-end counts the one unseen route (1b) and offers u",
+      atEnd &&
+        end.hints.endingShown === true &&
+        end.hints.endingText === "1 route still unseen." &&
+        end.hints.endingKey === U_HINT,
       end,
     );
 
@@ -535,8 +552,10 @@ export default async function ({ check, open }) {
       { rSnap, sig, sigResumed, sigHeld },
     );
     check(
-      "ending hint is restored with the reload while 1b is still unseen",
-      rSnap.hints.endingShown === true,
+      "end card is restored with the reload; no resume notice (the only unseen route was declined)",
+      rSnap.hints.endingShown === true &&
+        rSnap.hints.endingText === "1 route still unseen." &&
+        rSnap.hints.noticeShown === false,
       rSnap.hints,
     );
 
@@ -561,11 +580,11 @@ export default async function ({ check, open }) {
     const endSigHeld = await page.evaluate(PAINT_SIG);
     const stayed = await snap(page);
     check(
-      "39. e at the end of the history stays put (no jump to the unseen 1b), the hint still showing",
+      "39. e at the end of the history stays put (no jump to the unseen 1b), the end card still showing",
       stayed.id === "after-end" &&
         endSig === endSigHeld &&
         stayed.hints.endingShown === true &&
-        stayed.hints.endingText === "Some content is still unseen.",
+        stayed.hints.endingText === "1 route still unseen.",
       { stayed, endSig, endSigHeld },
     );
 
@@ -599,9 +618,90 @@ export default async function ({ check, open }) {
       { nestScreen, onB, bReoffer, backOnRoute1, ending },
     );
     check(
-      "ending hint is gone on after-end once everything has been seen",
-      onEnding && ending.hints.endingShown === false,
+      "end card on after-end says everything has been seen",
+      onEnding && ending.hints.endingText === ALL_SEEN_TEXT,
       ending.hints,
+    );
+  }
+
+  // ------------------------------------------------------------------
+  // Session "unseen": `u` (docs/plan.md Phase 18). From Route 2's ending it
+  // enters the unplayed Route 1 as if picked (a forward press continues
+  // inside it, firing the nested decision); from the aftermath it enters
+  // the nested 1b with both frames open; once all is seen the card says
+  // so and `u` does nothing.
+  // ------------------------------------------------------------------
+  {
+    const { page, cdp } = await open("unseen", { closeHelp: true });
+    await spaceTo(page, cdp, outer.after);
+    await pressSpace(cdp);
+    await waitChoice(page, true);
+    await pressDigit(cdp, "2");
+    await waitOn(page, route2.start);
+    await pressSpace(cdp);
+    await waitOn(page, route2.end);
+    await pressU(cdp);
+    const inRoute1 = await waitOn(page, route1.start);
+    const r1 = await snap(page);
+    await pressSpace(cdp);
+    await waitOn(page, nested.after);
+    await pressSpace(cdp);
+    const nestFired = await waitChoice(page, true);
+    const nest = await snap(page);
+    check(
+      "u on route2-end lands on route1-start as if picked: Space reads on and fires the nested decision",
+      inRoute1 &&
+        r1.choice.hidden === true &&
+        r1.hints.endingShown === false &&
+        nestFired &&
+        choiceIs(nest.choice, nest.hints, nested, [], false),
+      { r1, nest },
+    );
+
+    await pressDigit(cdp, "1"); // 1a
+    await waitOn(page, nestA.start);
+    await pressSpace(cdp);
+    await waitOn(page, nested.continueAt);
+    await pressSpace(cdp);
+    await waitOn(page, outer.continueAt);
+    await pressSpace(cdp);
+    const atEnd = await waitOn(page, "after-end");
+    await sleep(200);
+    const end = await snap(page);
+    await pressU(cdp);
+    const inB = await waitOn(page, nestB.start);
+    await pressSpace(cdp);
+    const reoffer = await waitChoice(page, true);
+    const re = await snap(page);
+    check(
+      "u on after-end lands on the nested 1b inside Route 1; its end re-offers the nested decision (1a, 1b seen, Return row)",
+      atEnd &&
+        end.hints.endingText === "1 route still unseen." &&
+        inB &&
+        reoffer &&
+        choiceIs(re.choice, re.hints, nested, ["nest-a", "nest-b"], true),
+      { end, re },
+    );
+
+    await pressDigit(cdp, "0");
+    await waitOn(page, nested.continueAt);
+    await pressSpace(cdp);
+    await waitOn(page, outer.continueAt);
+    await pressSpace(cdp);
+    const final = (await waitOn(page, "after-end")) && (await snap(page));
+    await sleep(200);
+    const sig = await page.evaluate(PAINT_SIG);
+    await pressU(cdp);
+    await sleep(400);
+    const stayed = await snap(page);
+    check(
+      "with everything seen the end card says so (no u line) and u does nothing",
+      final !== false &&
+        final.hints.endingText === ALL_SEEN_TEXT &&
+        final.hints.endingKey === null &&
+        stayed.id === "after-end" &&
+        (await page.evaluate(PAINT_SIG)) === sig,
+      { final, stayed },
     );
   }
 
