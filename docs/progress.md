@@ -1243,4 +1243,13 @@ truthful: an unchecked box means nothing was accepted.
       the results, lift the extension restrictions (schema, validator,
       player), and use lossless remux before re-encode where only the
       container fails.
+      Measured 2026-11-02 (Safari 26.6.2 on an M2, headless Chrome 156)
+      and agreed by the user: keep as-is when both play (H.264 in
+      MP4/MOV/M4V/3GP; HEVC hvc1 in MP4/MOV/M4V; VP9 in MP4/WebM/MKV;
+      VP8 in WebM/MKV); remux without re-encoding when only the
+      container or HEVC tag fails (H.264/HEVC in MKV/AVI/TS -> MP4;
+      hev1 -> hvc1); re-encode to H.264 MP4 only when the codec fails
+      in either (AV1, MPEG-4 Part 2, MPEG-2, MJPEG, ProRes, H.263,
+      Theora, FFV1, VP8 in Ogg). Audio ignored (the player mutes video).
+      No extension list of our own: whatever the rule keeps is allowed.
 - [ ] Phase-closer: full suite, rebuild demo folders.
