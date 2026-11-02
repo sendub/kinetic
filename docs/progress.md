@@ -946,10 +946,15 @@ truthful: an unchecked box means nothing was accepted.
       branches.test manual baseline. config test red before; full
       scenario suite 196: 194 pass + 2 headless-fullscreen partials;
       vitest 551. 2026-11-02)
-- [ ] Reading speed named for auto-forward (user, 2026-11-02): the `c`
+- [x] Reading speed named for auto-forward (user, 2026-11-02): the `c`
       screen's "Reading speed" becomes "Auto-forward speed" (or similar),
       with a short note that it also paces play-all's choice countdown.
       Help text, README, docs; tests and scenarios that read the label.
+      ("Auto-forward speed" + note "also times play-all's choice
+      countdown" on its own line under the row; stored key readingSpeed
+      unchanged. config.test 3 red before; vitest 552, screens 45 + 2
+      headless-fullscreen partials, reading 17/17, smoke 6/6; screenshot
+      checked. 2026-11-02)
 - [ ] Clicks don't close settings or help (user, 2026-11-02): a mouse
       click (backdrop or anywhere) no longer closes the `c` screen or the
       Esc help; their keys still do (c / Esc; Esc / Space for help).
@@ -959,6 +964,8 @@ truthful: an unchecked box means nothing was accepted.
       alternatives read "or" in words ("Esc or n cancels", "1-9 or click
       picks a route") and separate clauses use "; " instead of " · "
       (help, confirm, bookmarks, config, choice hints, progress note).
+      Also: the speed readout "1.00x — ~60 ms/char" wraps at 700x900;
+      keep it on one line.
       Tests, screens scenario, README.
 - [ ] Phase-closer: full suite (scenarios, vitest, pytest,
       package-proof), rebuild both demo folders.

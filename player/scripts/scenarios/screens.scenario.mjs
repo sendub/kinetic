@@ -614,7 +614,7 @@ async function config({ check, open }) {
     "the config screen groups the skip options under When Tab skips and export, import, reset under Progress, indented, controls in one column, with a note on play all routes",
     JSON.stringify(first.lines) ===
       JSON.stringify([
-        "Reading speed",
+        "Auto-forward speed",
         "# When Tab skips",
         "  Skip unseen content too",
         "  Play videos in full",
@@ -643,6 +643,32 @@ async function config({ check, open }) {
       Math.round(noteRect.left) === first.labelLefts[4] &&
       noteRect.bottom <= first.exportRect.top,
     { noteRect, fontPx: first.progressNoteFontPx, lefts: first.labelLefts },
+  );
+
+  // The speed row is named for auto-forward (Phase 24), and a note under
+  // it says it also times play-all's choice countdown: one line, indented
+  // with the options, between the speed row and the When Tab skips heading.
+  const speedNote = first.speedNoteRect;
+  check(
+    "the speed row reads Auto-forward speed with a one-line note under it, indented with the options",
+    first.lines[0] === "Auto-forward speed" &&
+      first.speedNote === "also times play-all's choice countdown" &&
+      speedNote !== null &&
+      speedNote.bottom - speedNote.top < 2 * first.speedNoteFontPx &&
+      Math.round(speedNote.left) === first.labelLefts[1] &&
+      speedNote.top >= first.speedValueRect.bottom &&
+      speedNote.bottom <= first.skipHeadingRect.top &&
+      first.speedValueRect.bottom - first.speedValueRect.top <
+        2 * first.speedNoteFontPx &&
+      speedNote.right <= first.viewportWidth,
+    {
+      speedNote,
+      fontPx: first.speedNoteFontPx,
+      value: first.speedValueRect,
+      heading: first.skipHeadingRect,
+      lefts: first.labelLefts,
+      vw: first.viewportWidth,
+    },
   );
 
   const sigBefore = await page.evaluate(SIGNATURE);

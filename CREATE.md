@@ -426,7 +426,8 @@ keypress can simply be space, the advance key.
 
 The controls are listed in README.md ("Playing").
 
-In auto mode (`a`) the player advances at the configured reading speed:
+In auto mode (`a`) the player advances at the configured auto-forward
+speed ("Auto-forward speed" in the `c` settings):
 images hold for their text, animations complete their loops, and videos
 play through once. A media item followed by `text` items holds for its
 text alone while its animation or video loops underneath, and each

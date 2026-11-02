@@ -18,8 +18,10 @@ import {
   SKIP_ALL_TEXT,
   SKIP_SECTION,
   SKIP_VIDEOS_TEXT,
+  SPEED_LABEL,
   SPEED_MAX,
   SPEED_MIN,
+  SPEED_NOTE,
   SPEED_STEP,
   skipAllLabel,
   skipVideosLabel,
@@ -293,6 +295,29 @@ describe("config panel (the reading-speed row: - slider + readout)", () => {
     ]);
   });
 
+  it("names the speed for auto-forward and notes it also times play-all's countdown", () => {
+    const { root } = mount(defaults);
+    const row = byClass(root, "config-row");
+    expect(row.children[0].textContent).toBe(SPEED_LABEL);
+    expect(SPEED_LABEL).toBe("Auto-forward speed");
+    expect(byAction(root, "speed-slider").getAttribute("aria-label")).toBe(
+      "Auto-forward speed",
+    );
+    expect(byAction(root, "speed-down").getAttribute("aria-label")).toBe(
+      "Decrease auto-forward speed",
+    );
+    expect(byAction(root, "speed-up").getAttribute("aria-label")).toBe(
+      "Increase auto-forward speed",
+    );
+    // The note is its own indented line straight under the speed row.
+    const note = byClass(root, "config-speed-note");
+    expect(note.className).toBe("config-note config-option config-speed-note");
+    const siblings = root.children[0].children;
+    expect(siblings[siblings.indexOf(row) + 1]).toBe(note);
+    expect(note.textContent).toBe(SPEED_NOTE);
+    expect(SPEED_NOTE).toBe("also times play-all's choice countdown");
+  });
+
   it("applies a drag live and refreshes the readout", () => {
     const { root, changes } = mount(defaults);
     const slider = byAction(root, "speed-slider");
@@ -383,7 +408,7 @@ describe("the panel layout: the skip settings read as options of Tab", () => {
             : null,
     );
     expect(lines.filter((l) => l !== null)).toEqual([
-      "Reading speed",
+      "Auto-forward speed",
       `# ${SKIP_SECTION}`,
       `  ${SKIP_ALL_TEXT}`,
       `  ${SKIP_VIDEOS_TEXT}`,
@@ -415,7 +440,7 @@ describe("the panel layout: the skip settings read as options of Tab", () => {
       "config-toggle config-play-all",
       "config-note",
     ]);
-    expect(byClass(root, "config-note").textContent).toBe(PLAY_ALL_NOTE);
+    expect(row?.children[2].textContent).toBe(PLAY_ALL_NOTE);
     // Says what turning it On does, so it is true in the Off position too.
     expect(PLAY_ALL_NOTE).toBe(
       "when on, choices pick themselves after a countdown",

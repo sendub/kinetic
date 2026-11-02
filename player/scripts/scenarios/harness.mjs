@@ -259,7 +259,28 @@ const READ_CONFIG_OVERLAY = () => {
         row.querySelector("button, input")?.getBoundingClientRect().left ?? -1,
       ),
     ),
-    playNote: document.querySelector(".config-note")?.textContent ?? null,
+    playNote:
+      document.querySelector(".config-play-all ~ .config-note")?.textContent ??
+      null,
+    // The Phase 24 speed note under the speed row: its text box, its font
+    // size, the readout's and the next heading's boxes, and the viewport
+    // width it must fit in.
+    speedNote:
+      document.querySelector(".config-speed-note")?.textContent ?? null,
+    speedNoteRect: (() => {
+      const el = document.querySelector(".config-speed-note");
+      if (el === null) return null;
+      const range = document.createRange();
+      range.selectNodeContents(el);
+      return rectOf(range);
+    })(),
+    speedNoteFontPx: (() => {
+      const el = document.querySelector(".config-speed-note");
+      return el === null ? null : parseFloat(getComputedStyle(el).fontSize);
+    })(),
+    speedValueRect: rectOf(document.querySelector(".config-speed-value")),
+    skipHeadingRect: rectOf(document.querySelector(".config-section")),
+    viewportWidth: window.innerWidth,
     // The Phase 22 Progress note: its rect, to check it is one line that
     // fits the panel: the text's own box, past the indent padding.
     progressNoteRect: (() => {

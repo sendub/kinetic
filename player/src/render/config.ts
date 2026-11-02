@@ -77,6 +77,14 @@ export const PROGRESS_NOTE =
 export const PLAY_ALL_NOTE =
   "when on, choices pick themselves after a countdown";
 
+/**
+ * The speed row's label (Phase 24): the speed paces auto-forward (`a`), so
+ * it is named for it. The stored setting keeps its `readingSpeed` key.
+ */
+export const SPEED_LABEL = "Auto-forward speed";
+/** The note under the speed row: the other thing the speed paces. */
+export const SPEED_NOTE = "also times play-all's choice countdown";
+
 /** The skip-all switch's text state, mirroring its aria-pressed value. */
 export function skipAllLabel(skipAll: boolean): string {
   return skipAll ? "On" : "Off";
@@ -153,12 +161,12 @@ export function mountConfigOverlay({
   speedRow.className = "config-row";
   const speedLabelEl = doc.createElement("span");
   speedLabelEl.className = "config-label";
-  speedLabelEl.textContent = "Reading speed";
+  speedLabelEl.textContent = SPEED_LABEL;
   const speedDown = doc.createElement("button");
   speedDown.className = "config-step";
   speedDown.type = "button";
   speedDown.textContent = "−";
-  speedDown.setAttribute("aria-label", "Decrease reading speed");
+  speedDown.setAttribute("aria-label", "Decrease auto-forward speed");
   speedDown.setAttribute("data-config-action", "speed-down");
   // The slider between the two buttons (docs/plan.md Phase 16): a native
   // range input, so the arrow keys and a drag both fire `input` and need no
@@ -171,7 +179,7 @@ export function mountConfigOverlay({
   speedSlider.min = String(SPEED_MIN);
   speedSlider.max = String(SPEED_MAX);
   speedSlider.step = String(SPEED_STEP);
-  speedSlider.setAttribute("aria-label", "Reading speed");
+  speedSlider.setAttribute("aria-label", SPEED_LABEL);
   speedSlider.setAttribute("data-config-action", "speed-slider");
   const speedValue = doc.createElement("span");
   speedValue.className = "config-value config-speed-value";
@@ -179,9 +187,14 @@ export function mountConfigOverlay({
   speedUp.className = "config-step";
   speedUp.type = "button";
   speedUp.textContent = "+";
-  speedUp.setAttribute("aria-label", "Increase reading speed");
+  speedUp.setAttribute("aria-label", "Increase auto-forward speed");
   speedUp.setAttribute("data-config-action", "speed-up");
   speedRow.append(speedLabelEl, speedDown, speedSlider, speedUp, speedValue);
+  // Its note (Phase 24) is its own indented line under the row: beside the
+  // readout it wraps on a narrow window.
+  const speedNote = doc.createElement("p");
+  speedNote.className = "config-note config-option config-speed-note";
+  speedNote.textContent = SPEED_NOTE;
 
   const skipHeading = doc.createElement("p");
   skipHeading.className = "config-section";
@@ -310,6 +323,7 @@ export function mountConfigOverlay({
     title,
     hint,
     speedRow,
+    speedNote,
     skipHeading,
     skipRow,
     skipVideoRow,

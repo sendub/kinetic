@@ -253,7 +253,7 @@
         letter-spacing: 0.02em;
       }
       /* c config screen (docs/plan.md Phase 9, README c bullet): one
-         panel, the player's settings — the reading-speed slider with its
+         panel, the player's settings — the auto-forward speed slider with its
          step buttons, the "When Tab skips" options (skip unseen content
          too, play videos in full), the play-all-routes switch and the
          Progress group (export, import, reset; Phase 21) — and nothing else. Over the bookmark
@@ -311,6 +311,11 @@
       .config-note {
         color: rgba(244, 239, 230, 0.55);
         font-size: clamp(10px, 1.2vh, 13px);
+      }
+      /* The speed row's note line (Phase 24), drawn up under its row as
+         a heading draws up its first option. */
+      .config-speed-note {
+        margin: calc(-1 * clamp(4px, 1.2vh, 14px)) 0 0;
       }
       /* A group's own note line (Phase 22), under its heading. */
       .config-group-note {
