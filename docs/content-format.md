@@ -378,9 +378,12 @@ docs/plan.md Phase 13):
   A bookmark jump appends its landing to the record. The record is
   capped (5000 screens, oldest dropped first) and persists in the save,
   so a reload lands on the screen that was showing and can roll back.
-- `Play all routes` (a persisted setting, default off) is
-  zero-interactivity: every decision still shows its choice screen
-  (first fire and each re-offer), with a status line and a draining bar
+- `Play all routes` (a persisted setting, default on since Phase 24:
+  Kinetic is interaction-free; a saved Off is kept, and Reset progress
+  restores On) is zero-interactivity, with or without auto-forward
+  (manual reading still needs Space for each item, but no decision
+  waits): every decision still shows its choice screen (first fire and
+  each re-offer), with a status line and a draining bar
   counting down. The countdown is the reading time of every word the
   screen draws (prompt, status line with its "Back in time" lead, each
   route label with its `seen` marker, the return row when drawn; not the

@@ -205,7 +205,8 @@ export interface MachineSettings {
   skipPlaysVideos: boolean;
   /**
    * Zero-interactivity route playback (docs/plan.md Phase 13, reworked in
-   * Phase 18); default false. While on, each decision's choice still shows,
+   * Phase 18); default true since Phase 24 — Kinetic is an interaction-free
+   * kinetic game, so a reader opts out of it, not in. While on, each decision's choice still shows,
    * with a countdown sized to its words and rows (`choiceCountdownMs`), then the
    * machine picks the shortest not-yet-played route — the continuing route
    * last — highlights it briefly and enters it (`ChoiceView.autoPick`).
@@ -224,7 +225,7 @@ export const DEFAULT_SETTINGS: MachineSettings = {
   skipDwellMs: 25,
   skipAll: false,
   skipPlaysVideos: false,
-  playAllRoutes: false,
+  playAllRoutes: true,
 };
 
 /**

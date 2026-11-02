@@ -132,7 +132,10 @@ export default async function ({ check, open }) {
   // back from the end with everything seen.
   // ------------------------------------------------------------------
   {
-    const { page, cdp } = await open("walk", { closeHelp: true });
+    const { page, cdp } = await open("walk", {
+      closeHelp: true,
+      manualChoices: true,
+    });
 
     // 34. The forward press ONTO branch-decide shows it; the next forward
     // press fires the decision instead of moving.
@@ -408,7 +411,10 @@ export default async function ({ check, open }) {
   // unplayed span, e resuming, reload inside branch content, and `e`.
   // ------------------------------------------------------------------
   {
-    const { page, cdp } = await open("resume", { closeHelp: true });
+    const { page, cdp } = await open("resume", {
+      closeHelp: true,
+      manualChoices: true,
+    });
     await spaceTo(page, cdp, outer.after);
     await pressSpace(cdp);
     await waitChoice(page, true);
@@ -632,7 +638,10 @@ export default async function ({ check, open }) {
   // so and `u` does nothing.
   // ------------------------------------------------------------------
   {
-    const { page, cdp } = await open("unseen", { closeHelp: true });
+    const { page, cdp } = await open("unseen", {
+      closeHelp: true,
+      manualChoices: true,
+    });
     await spaceTo(page, cdp, outer.after);
     await pressSpace(cdp);
     await waitChoice(page, true);
@@ -712,7 +721,10 @@ export default async function ({ check, open }) {
   // route's last item, and Space from there replays the re-offer.
   // ------------------------------------------------------------------
   {
-    const { page, cdp } = await open("wheel", { closeHelp: true });
+    const { page, cdp } = await open("wheel", {
+      closeHelp: true,
+      manualChoices: true,
+    });
     await spaceTo(page, cdp, outer.after);
     await pressSpace(cdp);
     const fired = await waitChoice(page, true);
@@ -778,7 +790,10 @@ export default async function ({ check, open }) {
   // next press fires the decision, and the pick resumes MANUAL reading.
   // ------------------------------------------------------------------
   {
-    const { page, cdp } = await open("skip", { closeHelp: true });
+    const { page, cdp } = await open("skip", {
+      closeHelp: true,
+      manualChoices: true,
+    });
     await spaceTo(page, cdp, "branch-decide");
     await wheel(cdp, true, 3); // back into seen content before the lead-in
     await sleep(80);
@@ -814,7 +829,10 @@ export default async function ({ check, open }) {
   // reading on fires the choice again with Route 2 still marked seen, and
   // the unseen Route 1 can be picked.
   {
-    const { page, cdp } = await open("rewind-manual", { closeHelp: true });
+    const { page, cdp } = await open("rewind-manual", {
+      closeHelp: true,
+      manualChoices: true,
+    });
     await spaceTo(page, cdp, "branch-decide");
     await pressSpace(cdp); // fires the outer decision
     await page.waitForFunction(CHOICE_OPEN, { timeout: 2000 });

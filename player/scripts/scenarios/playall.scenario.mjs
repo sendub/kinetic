@@ -183,13 +183,17 @@ const READ_AUTO = () => {
 const readTimeline = (page) => page.evaluate(() => window.__timeline);
 const pageNow = (page) => page.evaluate(() => performance.now());
 
-/** Turn the `c` switches on (play-all always; skip-all when asked). */
+/**
+ * Turn the `c` switches on (play-all always; skip-all when asked). Play all
+ * routes is on by default (docs/plan.md Phase 24), so its switch is only
+ * clicked if a fresh profile somehow shows it off.
+ */
 async function configure(page, cdp, { skipAll }) {
   await pressC(cdp);
   await page.waitForFunction(CONFIG_OPEN, { timeout: 5000 });
   const cfg = await page.evaluate(READ_CONFIG_OVERLAY);
   if (skipAll) await clickCenter(cdp, cfg.skipRect);
-  await clickCenter(cdp, cfg.playRect);
+  if (cfg.playPressed !== "true") await clickCenter(cdp, cfg.playRect);
   const after = await page.evaluate(READ_CONFIG_OVERLAY);
   await clickCenter(cdp, after.titleRect); // the backdrop closes the screen
   await sleep(150);

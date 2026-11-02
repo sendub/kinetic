@@ -943,9 +943,40 @@ export function assembleFolders() {
 }
 
 /**
+ * Set `Play all routes` through the `c` screen as a reader would: open it,
+ * click the switch only when it is not already `on`, close it by its
+ * backdrop. Returns the screen as it read after the switch (`after`) and
+ * whether it closed. Play all routes is on by default (docs/plan.md
+ * Phase 24); a walk that makes its own choices turns it off with this.
+ */
+async function setPlayAll(page, cdp, on) {
+  await pressC(cdp);
+  await page.waitForFunction(CONFIG_OPEN, { timeout: 5000 });
+  const before = await page.evaluate(READ_CONFIG_OVERLAY);
+  if (before.playPressed !== String(on))
+    await clickCenter(cdp, before.playRect);
+  const after = await page.evaluate(READ_CONFIG_OVERLAY);
+  await clickCenter(cdp, after.titleRect); // the backdrop closes the screen
+  await page
+    .waitForFunction(
+      () => {
+        const p = document.getElementById("config");
+        return p === null || p.hidden;
+      },
+      { timeout: 5000 },
+    )
+    .catch(() => {});
+  const closed = !(await page.evaluate(CONFIG_OPEN));
+  return { after, closed };
+}
+
+/**
  * One scenario's browser: a FRESH profile (first-ever load), console and
  * page errors captured, the INSTRUMENT shim installed, and the demo opened
  * with the key help up (pass `closeHelp: true` to dismiss it by keyboard).
+ * `manualChoices: true` (with `closeHelp`) then turns Play all routes off
+ * in `c`, so the walk answers every decision itself; it throws if the
+ * switch did not end Off with the screen closed.
  */
 export async function openScenario(name, options = {}) {
   const profile = join(scenarioRoot, "profiles", name);
@@ -978,6 +1009,14 @@ export async function openScenario(name, options = {}) {
   if (options.closeHelp) {
     await pressEscape(cdp);
     await page.waitForFunction(HELP_CLOSED, { timeout: 5000 });
+  }
+  if (options.manualChoices) {
+    const { after, closed } = await setPlayAll(page, cdp, false);
+    if (after.playPressed !== "false" || !closed) {
+      throw new Error(
+        `manualChoices: play all routes not off (${after.playLabel}, closed ${closed})`,
+      );
+    }
   }
   return { browser, page, cdp, errors, url: page.url() };
 }
@@ -1051,6 +1090,7 @@ export {
   SIGNATURE,
   SKIP_PROBE,
   sampleSignatures,
+  setPlayAll,
   sleep,
   stepForward,
   transitions,

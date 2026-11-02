@@ -88,9 +88,12 @@ describe("skipVideosLabel (the Phase 18 skip-plays-videos switch)", () => {
 });
 
 describe("playAllLabel (the Phase 13 play-all-routes switch)", () => {
-  it("names the two states, off being the default", () => {
+  // Kinetic is interaction-free (docs/plan.md Phase 24): play all routes
+  // is on until the reader turns it off.
+  it("names the two states, on being the default", () => {
     expect(playAllLabel(true)).toBe("On");
     expect(playAllLabel(false)).toBe("Off");
+    expect(DEFAULT_SETTINGS.playAllRoutes).toBe(true);
   });
 });
 

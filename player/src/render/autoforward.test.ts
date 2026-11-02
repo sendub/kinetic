@@ -54,7 +54,9 @@ function setup(
   const machine = createMachine({
     items: ITEMS,
     branches: opts.branches,
-    settings: opts.settings ?? DEFAULT_SETTINGS,
+    // Manual choices unless a test says otherwise: play all routes is on
+    // by default (docs/plan.md Phase 24).
+    settings: opts.settings ?? { ...DEFAULT_SETTINGS, playAllRoutes: false },
     autoAdvance: opts.auto === true,
   });
   const shown: string[][] = [];

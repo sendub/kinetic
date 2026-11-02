@@ -181,7 +181,10 @@ mark needs only ENTERING that route, while the "Return to main route"
 row appears only once the reader has played the `continuingRoute`
 through to its end at least once - a route entered and abandoned opens
 nothing, and until the continuing route is finished, re-openings offer
-routes only. Full semantics
+routes only. Readers do not have to answer: "Play all routes" is on by
+default, so each choice counts down and the player plays every route,
+shortest first, then `continueAt`; a reader who turns it off in `c`
+picks routes themselves. Full semantics
 are in docs/content-format.md § Branches; the validator checks every
 id, reference, and span.
 

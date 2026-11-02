@@ -600,8 +600,9 @@ async function config({ check, open }) {
       first.speedValue === SPEED_1X &&
       first.skipPressed === "false" &&
       first.skipLabel === "Off" &&
-      first.playPressed === "false" &&
-      first.playLabel === "Off",
+      // Play all routes is on by default (docs/plan.md Phase 24).
+      first.playPressed === "true" &&
+      first.playLabel === "On",
     first,
   );
 
@@ -665,25 +666,32 @@ async function config({ check, open }) {
   await pressC(cdp);
   await waitFor(page, CONFIG_OPEN);
   const again = await page.evaluate(READ_CONFIG_OVERLAY);
-  await clickCenter(cdp, again.playRect); // play-all back to its default
+  // Play-all flips both ways, then stays Off: the reload below proves a
+  // saved Off outlives the On default.
+  await clickCenter(cdp, again.playRect);
+  const playOn = await page.evaluate(READ_CONFIG_OVERLAY);
+  await clickCenter(cdp, again.playRect);
   const playOff = await page.evaluate(READ_CONFIG_OVERLAY);
   await pressC(cdp);
   const closedByC = (await configOpen(page)) === false;
   check(
-    "the switches flip skip-all and play-all on; backdrop closes, c reopens with them on, c closes",
+    "the switches flip skip-all on and play-all off; backdrop closes, c reopens with them so, play-all flips back and forth, c closes",
     toggled.skipPressed === "true" &&
       toggled.skipLabel === "On" &&
-      toggled.playPressed === "true" &&
-      toggled.playLabel === "On" &&
+      toggled.playPressed === "false" &&
+      toggled.playLabel === "Off" &&
       closedByBackdrop &&
       again.skipPressed === "true" &&
-      again.playPressed === "true" &&
+      again.playPressed === "false" &&
+      playOn.playPressed === "true" &&
+      playOn.playLabel === "On" &&
       playOff.playPressed === "false" &&
       closedByC,
     {
       toggled,
       closedByBackdrop,
       again,
+      playOn: playOn.playPressed,
       playOff: playOff.playPressed,
       closedByC,
     },
@@ -754,7 +762,7 @@ async function config({ check, open }) {
   await waitFor(page, CONFIG_OPEN);
   const persisted = await page.evaluate(READ_CONFIG_OVERLAY);
   check(
-    "2.00x and skip-all survive a reload, which resumes on the same item",
+    "2.00x, skip-all on and play-all off survive a reload, which resumes on the same item",
     sigResumed === sig &&
       persisted.speedValue === SPEED_2X &&
       persisted.skipPressed === "true" &&
@@ -857,13 +865,15 @@ async function reset({ check, open }) {
   const walked = await spaceTo(page, cdp, target.id);
   await pressB(cdp);
   const flashed = await waitFor(page, FLASH_SHOWN);
-  // A non-default speed, so the reset has a setting to put back.
+  // A non-default speed and play-all off, so the reset has settings to
+  // put back.
   await pressC(cdp);
   await waitFor(page, CONFIG_OPEN);
   for (let i = 0; i < 4; i += 1) {
     const r = await page.evaluate(READ_CONFIG_OVERLAY);
     await clickCenter(cdp, r.speedUpRect);
   }
+  await clickCenter(cdp, (await page.evaluate(READ_CONFIG_OVERLAY)).playRect);
   const cfg = await page.evaluate(READ_CONFIG_OVERLAY);
   await clickCenter(cdp, cfg.resetRect);
   const box = await page.evaluate(READ_CONFIRM_OVERLAY);
@@ -874,6 +884,7 @@ async function reset({ check, open }) {
     walked &&
       flashed &&
       cfg.speedValue === SPEED_2X &&
+      cfg.playPressed === "false" &&
       box.hidden === false &&
       box.title === "Reset progress" &&
       box.resetLabel === "Reset" &&
@@ -897,17 +908,19 @@ async function reset({ check, open }) {
   await waitFor(page, CONFIG_OPEN);
   const keptCfg = await page.evaluate(READ_CONFIG_OVERLAY);
   check(
-    "cancel kept everything: the reload resumes on the item, the row and 2.00x are still there",
+    "cancel kept everything: the reload resumes on the item, the row, 2.00x and play-all off are still there",
     resumedId === target.id &&
       resumed.helpOpen === false &&
       (kept.entries ?? []).length === 1 &&
       kept.entries[0].itemIndex === target.index &&
-      keptCfg.speedValue === SPEED_2X,
+      keptCfg.speedValue === SPEED_2X &&
+      keptCfg.playPressed === "false",
     {
       resumedId,
       help: resumed.helpOpen,
       rows: (kept.entries ?? []).map((e) => e.itemIndex),
       speed: keptCfg.speedValue,
+      play: keptCfg.playPressed,
     },
   );
 
@@ -930,7 +943,7 @@ async function reset({ check, open }) {
   const fresh = await page.evaluate(READ_CONFIG_OVERLAY);
   await pressC(cdp);
   check(
-    "confirming is a true first-ever boot: help up, first item, empty list, 1.00x and switches off",
+    "confirming is a true first-ever boot: help up, first item, empty list, 1.00x, skip-all off and play-all back on",
     box2.hidden === false &&
       bootHelp &&
       boot.helpOpen === true &&
@@ -940,13 +953,14 @@ async function reset({ check, open }) {
       list.emptyText === EMPTY_MESSAGE &&
       fresh.speedValue === SPEED_1X &&
       fresh.skipPressed === "false" &&
-      fresh.playPressed === "false",
+      fresh.playPressed === "true",
     {
       bootHelp,
       bootId,
       stage: boot.stageHidden,
       emptyText: list.emptyText,
       speed: fresh.speedValue,
+      play: fresh.playPressed,
     },
   );
 }

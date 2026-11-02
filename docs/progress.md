@@ -934,11 +934,18 @@ truthful: an unchecked box means nothing was accepted.
       .choice-picked. Probe confirmed. choice test + 2 playall checks red
       before; vitest 551, playall 27/27, branches 41/41, smoke 6/6.
       2026-11-02)
-- [ ] Play all routes on by default (user, 2026-11-02): Kinetic is an
+- [x] Play all routes on by default (user, 2026-11-02): Kinetic is an
       interaction-free kinetic game, so `playAllRoutes` defaults to on.
       A reader who saved Off keeps Off; Reset progress restores On.
       Tests and scenarios that need manual choices set Off explicitly.
       README / docs / CREATE.md wording.
+      (DEFAULT_SETTINGS.playAllRoutes true. Stored settings are the full
+      merged set, so a browser with saved progress keeps whatever it saved
+      (Off for earlier readers); fresh profile, Reset or import without
+      the field gives On. Harness setPlayAll / manualChoices for branches;
+      branches.test manual baseline. config test red before; full
+      scenario suite 196: 194 pass + 2 headless-fullscreen partials;
+      vitest 551. 2026-11-02)
 - [ ] Reading speed named for auto-forward (user, 2026-11-02): the `c`
       screen's "Reading speed" becomes "Auto-forward speed" (or similar),
       with a short note that it also paces play-all's choice countdown.

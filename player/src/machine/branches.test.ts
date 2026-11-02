@@ -21,7 +21,9 @@ import { DEFAULT_SETTINGS } from "./types";
 // on. Linear behaviour is guarded by machine.test.ts, which these manifests
 // must not change.
 
-const SETTINGS: MachineSettings = { ...DEFAULT_SETTINGS };
+// Manual choices: play all routes is on by default (docs/plan.md Phase 24),
+// so the baseline turns it off and the play-all tests turn it back on.
+const SETTINGS: MachineSettings = { ...DEFAULT_SETTINGS, playAllRoutes: false };
 
 function image(id: string): Item {
   return { id, type: "image", file: `${id}.jpg` };
