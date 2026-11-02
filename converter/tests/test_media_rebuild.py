@@ -67,6 +67,18 @@ def _mpeg4(tmp: Path) -> bytes:
     return out.read_bytes()
 
 
+def _h264_mkv(tmp: Path) -> bytes:
+    """A short H.264 MKV: only the container fails, so it remuxes."""
+    out = tmp / "r.mkv"
+    proc = subprocess.run(
+        [*media_tools.ffmpeg_cmd(), "-y", "-f", "lavfi",
+         "-i", "testsrc=size=64x36:rate=10:duration=1",
+         "-c:v", "libx264", "-pix_fmt", "yuv420p", str(out)],
+        capture_output=True, text=True, check=False)
+    assert proc.returncode == 0 and out.is_file(), proc.stderr
+    return out.read_bytes()
+
+
 SCRIPT = """\
 image flat "pics/flat.png"
 image photo "pics/photo.jpg"
@@ -100,6 +112,9 @@ label start:
     movie "m.mp4"
     "transcoded"
     stop movie
+    movie "r.mkv"
+    "remuxed"
+    stop movie
 """
 
 
@@ -118,6 +133,7 @@ def _build_project(root: Path, tmp: Path) -> Path:
         "pics/hooked.png": extra_hook.wrap(tiny_png_bytes((1, 2, 3))),
         "clip.mp4": (DEMO / "clip.mp4").read_bytes(),
         "m.mp4": _mpeg4(tmp),
+        "r.mkv": _h264_mkv(tmp),
     }
     for rel, data in files.items():
         (game / rel).write_bytes(data)
@@ -193,7 +209,7 @@ def test_extract_output_rebuilds(
     project, out = built
     ledger = ledger_of(out)
     assert {"preserve", "carve", "convert:png", "jxl:lossless",
-            "jxl:jpeg-recompression", "transcode", "poster",
+            "jxl:jpeg-recompression", "transcode", "remux", "poster",
             "decode"} <= _step_kinds(ledger)
     before = media_tree(out)
     capsys.readouterr()

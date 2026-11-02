@@ -106,10 +106,10 @@ def _path_rule(value: str) -> str | None:
     dot-leading segment, no `..`, no absolute path, no backslash, no drive
     letter or scheme, no whitespace — whose LAST segment is still a flat media
     file name: an id-shaped stem, at most one derivative suffix (`.fNNN`,
-    `.poster`, `.thumb`), then an extension. Which extensions are true shipped
-    formats is per media kind, so that whitelist stays in the schema
-    (`imagePath`, `videoPath`). See docs/content-format.md, "Naming
-    conventions".
+    `.poster`, `.thumb`), then an extension. Image extensions are limited
+    to browser image formats in the schema (`imagePath`); a video file
+    takes any extension (`videoPath`, docs/plan.md Phase 26). See
+    docs/content-format.md, "Naming conventions".
     """
     if value.startswith("/"):
         return 'path must be relative to the content folder (no leading "/")'

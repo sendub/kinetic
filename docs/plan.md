@@ -1019,13 +1019,28 @@ its answers on):
 
 ## Phase 26: One video rule, reused media files (2026-11-02, user + converting agent)
 
-- One video rule (user, superseding Phase 25's MKV bullet): a video some
-  target browser can play ships byte-identical whatever its container
-  or file name (MP4, WebM, MOV, M4V, MKV, ...), at its true container's
-  extension; anything no target browser can display transcodes to H.264
-  MP4. One playability table (probed container + video codec) decides;
-  audio codecs do not (videos play muted). Nothing unplayable ships, so
-  the MKV warning is gone.
+- One video rule (user, superseding Phase 25's MKV bullet; itself
+  superseded by the measured rule below): a video some target browser
+  could play shipped byte-identical, anything else transcoded.
+- Video playability measured, not assumed (user, 2026-11-02): files
+  must play in Safari and Chrome, and there is no format restriction
+  of our own. A probe page of container x codec samples
+  (`.tmp/video-probe/`, decoded frames counted) ran in Safari 26.6.2 on
+  an M2 and headless Chrome 156; the user agreed the rule from it.
+  Video track only (the player plays videos muted). Keep byte-identical
+  when both play it: H.264 in MP4/MOV/M4V/3GP; HEVC tagged `hvc1` in
+  MP4/MOV/M4V; VP9 in MP4/WebM/MKV; VP8 in WebM/MKV. Remux without
+  re-encoding (stream copy of the video stream into bitexact faststart
+  MP4, ledger step `remux` with its `reason`, re-run by `rebuild`) when
+  only the container or the HEVC tag fails: H.264, HEVC or VP9 in MKV,
+  AVI, MPEG-TS, MPEG-PS, ...; `hev1` becomes `hvc1`. Re-encode to H.264
+  MP4 only when the codec fails in either: AV1, MPEG-4 Part 2, MPEG-2,
+  MJPEG, ProRes, H.263, Theora, FFV1, VP8 in Ogg, anything unknown. The
+  container is probed (MP4 brand incl. 3GP brands, EBML DocType,
+  ffprobe format), never taken from the name; the shipped extension is
+  the true container's (`mp4`, `mov`, `m4v`, `3gp`, `webm`, `mkv`). The
+  schema and validator accept any video extension (images keep their
+  browser format list); the player never checked one.
 - An existing `media/<h[:2]>/<h>.<ext>` in the output folder is verified
   and left untouched (it may be hard-linked elsewhere); one whose bytes
   do not match its name is an error naming it, never overwritten

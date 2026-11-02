@@ -17,10 +17,13 @@ and WebP pixels must decode back identical, a JPEG's recompression must
 rebuild the original JPEG bytes exactly; animated images and `.jxl`
 sources ship unchanged), incompatible ones
 are converted to the smallest of PNG/JPEG q92/JXL, wrapped PNG/JPEG data
-is carved, videos some target browser plays are copied unchanged
-whatever their container or name (one table of probed container and
-video codec, shipped at the true container's extension) and the rest
-are transcoded to H.264 faststart MP4, and posters are the frame at `startSeconds`
+is carved, videos go by the measured rule (docs/extracting.md, Video
+policy; probed container, video codec and HEVC tag, never the name):
+what Safari and Chrome both play is copied unchanged at the true
+container's extension, H.264/HEVC/VP9 in a container one of them
+refuses (MKV, AVI, MPEG-TS, HEVC `hev1`) is remuxed into MP4 without
+re-encoding (video stream only), and every other codec is transcoded
+to H.264 faststart MP4, and posters are the frame at `startSeconds`
 (a video whose poster cannot be made is dropped and reported with
 ffmpeg's error, with a `warning:` summary line).
 Identical outputs are one file, written once; a file already at its
@@ -198,7 +201,7 @@ cache: every step is encoded again.
 ### Reuse cache
 
 `kinetic-extract` and `kinetic-media ship` remember each image decision,
-transcode and poster in `.tmp/kinetic-media-cache/` at the repo root,
+transcode, remux and poster in `.tmp/kinetic-media-cache/` at the repo root,
 keyed by the sha256 of the bytes being encoded (after decoder hooks),
 the recipe and the run's `mediaTools`. A re-run with the same inputs
 and tools encodes nothing and writes the same folder byte for byte.

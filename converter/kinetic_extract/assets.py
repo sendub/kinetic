@@ -27,12 +27,15 @@ file extensions - corpus extensions lie. Policies:
   bytes, before any sniffing; their ``decode`` steps lead the ledger
   entry. Anything else is
   ``skipped``: the item is dropped from the manifest and reported.
-- Videos: one rule (docs/plan.md Phase 26). ffprobe gives the true
-  container (ISO-BMFF major brand: mp4/m4v/mov; EBML DocType: webm/mkv;
-  never the file name) and video codec; a pair some target browser
-  displays (``PLAYABLE_VIDEO``) ships byte-identical at the container's
-  extension, everything else transcodes to bitexact H.264 faststart MP4.
-  Audio codecs never decide (videos play muted). A copied video's
+- Videos: the measured rule (docs/plan.md Phase 26). ffprobe gives the
+  true container (ISO-BMFF major brand: mp4/m4v/mov/3gp; EBML DocType:
+  webm/mkv; never the file name), video codec and codec tag; a stream
+  Safari and Chrome both play there (``KEEP_VIDEO``, HEVC only as
+  ``hvc1``) ships byte-identical at the container's extension, an
+  H.264/HEVC/VP9 stream anywhere else (``REMUX_VIDEO``) is copied
+  unchanged into bitexact faststart MP4 (``remux``, video stream only),
+  and every other codec transcodes to bitexact H.264 faststart MP4.
+  Audio never decides (videos play muted). A copied video's
   ``preserve`` step records its ``codec``.
 - Every tool is the pinned one (``media_tools``): ffmpeg/ffprobe from
   ``.media-tools/<platform>/``, single-threaded and bitexact; Pillow save
@@ -107,25 +110,45 @@ _CARVE_MAGICS = [(b"\x89PNG\r\n\x1a\n", "png"), (b"\xff\xd8\xff", "jpeg")]
 _PIL_FORMATS = {"PNG": "png", "JPEG": "jpeg", "GIF": "gif", "WEBP": "webp",
                 "BMP": "bmp", "TIFF": "tiff"}
 
-# The one video rule (docs/plan.md Phase 26): container -> the video
-# codecs some target browser (Chrome/Edge, Safari, Firefox) displays in
-# it. A source whose probed container and video codec are listed ships
-# byte-identical at that container's extension; anything else transcodes
-# to H.264 MP4. Headless Chrome 156 probes (2026-11-02, items 25.6 and
-# "One video rule"; docs/content-format.md) played every listed pair
-# except HEVC, which plays through the platform decoder only (Safari
-# always); they failed MPEG-4 Part 2, MPEG-2, MJPEG, ProRes, FFV1 and
-# Theora in MP4/MOV/MKV, and AVI and MPEG-TS outright. Audio codecs are
-# not listed: the player plays videos muted and the picture played next
-# to every audio codec probed (AAC, AC-3, E-AC-3, MP3, Opus, FLAC, ALAC,
-# PCM, Vorbis).
-PLAYABLE_VIDEO = {
-    "mp4": {"h264", "hevc", "vp9", "av1"},
-    "m4v": {"h264", "hevc", "vp9", "av1"},
+# The measured video rule (docs/plan.md Phase 26, "Video playability
+# measured, not assumed"): Safari 26.6.2 on an M2 and headless Chrome 156,
+# 2026-11-02, agreed by the user. Video track only: the player plays
+# videos muted, so audio never decides (the picture played next to every
+# audio codec probed).
+#
+# KEEP_VIDEO: container -> video codecs BOTH browsers play in it; such a
+# file ships byte-identical at that container's extension. HEVC counts
+# only when tagged ``hvc1`` (Safari plays no ``hev1``).
+KEEP_VIDEO = {
+    "mp4": {"h264", "hevc", "vp9"},
     "mov": {"h264", "hevc"},
-    "webm": {"vp8", "vp9", "av1"},
-    "mkv": {"h264", "hevc", "vp8", "vp9", "av1"},
+    "m4v": {"h264", "hevc"},
+    "3gp": {"h264"},
+    "webm": {"vp8", "vp9"},
+    "mkv": {"vp8", "vp9"},
 }
+# Codecs both browsers play in MP4: anywhere else (MKV, AVI, MPEG-TS,
+# MPEG-PS, ...) or as HEVC ``hev1``, only the container or tag fails, so
+# the stream is copied into MP4 (``remux``), never re-encoded. Every
+# other codec (AV1, MPEG-4 Part 2, MPEG-2, MJPEG, ProRes, H.263, Theora,
+# FFV1, VP8 outside WebM/MKV, unknown) transcodes to H.264 MP4.
+REMUX_VIDEO = {"h264", "hevc", "vp9"}
+HEVC_TAG = "hvc1"
+# ISO-BMFF major brands of 3GPP files (3gp4/3gp5/3gp6/3ge6/3gg6...).
+_3GP_BRANDS = ("3gp", "3ge", "3gg", "3gr", "3gs")
+
+KEEP, REMUX, TRANSCODE = "keep", "remux", "transcode"
+
+
+@dataclass(frozen=True)
+class VideoProbe:
+    """What ffprobe found: the true container, the first video stream's
+    codec and its codec tag (``hvc1``/``hev1`` for HEVC in ISO-BMFF)."""
+
+    container: str
+    codec: str | None
+    tag: str | None
+
 
 _EBML_MAGIC = b"\x1a\x45\xdf\xa3"
 _EBML_DOCTYPE_ID = b"\x42\x82"
@@ -235,31 +258,29 @@ def is_animated(data: bytes, fmt: str) -> bool:
         return False
 
 
-def probe_video(path: Path) -> tuple[str | None, str | None]:
-    """(container, video codec) via ffprobe, or (None, None) when ffprobe
-    finds no video stream. The container comes from the bytes, never the
-    file name: ``mp4``, ``m4v`` or ``mov`` by the ISO-BMFF major brand,
-    ``webm`` or ``mkv`` by the EBML DocType, else ffprobe's first format
-    name (``avi``, ``mpegts``, ...)."""
+def probe_video(path: Path) -> VideoProbe | None:
+    """The true container, video codec and codec tag via ffprobe, or None
+    when ffprobe finds no video stream. The container comes from the
+    bytes, never the file name: ``mp4``, ``m4v``, ``3gp`` or ``mov`` by
+    the ISO-BMFF major brand, ``webm`` or ``mkv`` by the EBML DocType,
+    else ffprobe's first format name (``avi``, ``mpegts``, ...)."""
     proc = _run([*media_tools.ffprobe_cmd(),
                  "-show_entries", "format=format_name:format_tags=major_brand",
-                 "-show_entries", "stream=codec_type,codec_name",
+                 "-show_entries", "stream=codec_type,codec_name,"
+                 "codec_tag_string",
                  "-of", "json", str(path)])
     if proc is None or proc.returncode != 0:
-        return None, None
+        return None
     try:
         info = json.loads(proc.stdout)
     except json.JSONDecodeError:
-        return None, None
-    codec = None
-    has_video = False
-    for stream in info.get("streams", []):
-        if stream.get("codec_type") == "video":
-            has_video = True
-            codec = stream.get("codec_name")
-            break
-    if not has_video:
-        return None, None
+        return None
+    stream = next((s for s in info.get("streams", [])
+                   if s.get("codec_type") == "video"), None)
+    if stream is None:
+        return None
+    codec = stream.get("codec_name")
+    tag = stream.get("codec_tag_string")
     fmt = info.get("format", {})
     names = (fmt.get("format_name") or "").split(",")
     tokens = set(names)
@@ -268,17 +289,18 @@ def probe_video(path: Path) -> tuple[str | None, str | None]:
         # A QuickTime file has brand "qt" or no ftyp box at all.
         container = ("mov" if brand in {"", "qt"}
                      else "m4v" if brand.upper().startswith("M4V")
+                     else "3gp" if brand.lower().startswith(_3GP_BRANDS)
                      else "mp4")
     elif tokens & {"matroska", "webm"}:
         # ffprobe names every Matroska file "matroska,webm"; the EBML
         # DocType tells WebM from MKV. A WebM DocType around a codec WebM
         # does not allow is plain Matroska to a browser: call it MKV.
         webm = matroska_doctype(path) == "webm" \
-            and codec in PLAYABLE_VIDEO["webm"]
+            and codec in {"vp8", "vp9", "av1"}
         container = "webm" if webm else "mkv"
     else:
         container = names[0] or "unknown"
-    return container, codec
+    return VideoProbe(container, codec, tag)
 
 
 def matroska_doctype(path: Path) -> str | None:
@@ -305,11 +327,26 @@ def matroska_doctype(path: Path) -> str | None:
     return raw.rstrip(b"\x00").decode("ascii", "replace") or None
 
 
-def video_decision(container: str | None, codec: str | None) -> bool:
-    """The one video rule: True when some target browser displays this
-    container + video codec (ship it byte-identical as ``.<container>``),
-    False when it must transcode to H.264 MP4."""
-    return codec in PLAYABLE_VIDEO.get(container or "", ())
+def video_decision(container: str | None, codec: str | None,
+                   tag: str | None = None) -> str:
+    """The measured video rule: ``keep`` when both Safari and Chrome play
+    this container + video codec (+ HEVC tag), ``remux`` when only the
+    container or the HEVC tag fails (copy the stream into MP4),
+    ``transcode`` when the codec fails in either browser."""
+    if codec in KEEP_VIDEO.get(container or "", ()) \
+            and (codec != "hevc" or tag == HEVC_TAG):
+        return KEEP
+    return REMUX if codec in REMUX_VIDEO else TRANSCODE
+
+
+def remux_reason(container: str, codec: str, tag: str | None) -> str:
+    """Why a stream is copied into MP4 (the ledger ``remux`` step's
+    ``reason``)."""
+    if codec == "hevc" and container in KEEP_VIDEO \
+            and "hevc" in KEEP_VIDEO[container]:
+        return f"hevc tagged {tag or 'unknown'}: Safari plays only hvc1"
+    return (f"{codec} in {container}: Safari or Chrome plays no {codec} in "
+            f"{container}; MP4 carries the same stream")
 
 
 def _jxl_input_mode(img: Any) -> str | None:
@@ -610,7 +647,7 @@ def decide_image_cached(cache: MediaCache | None, data: bytes, digest: str,
 
 def file_step_cached(cache: MediaCache | None, step: dict[str, Any],
                      source: Path, digest: str, out: Path) -> str | None:
-    """``run_file_step`` (transcode, poster) through the reuse cache:
+    """``run_file_step`` (transcode, remux, poster) through the reuse cache:
     a hit copies the verified remembered output to `out`. `digest` is
     the sha256 of `source`. Failures are not remembered."""
     if cache is None:
@@ -641,6 +678,20 @@ def transcode_args() -> list[str]:
             "-pix_fmt", "yuv420p", "-c:a", "aac",
             *media_tools.FFMPEG_ENCODE,
             "-movflags", "+faststart", OUTPUT]
+
+
+def remux_args(codec: str) -> list[str]:
+    """Copy the first video stream, unchanged, into bitexact faststart
+    MP4 (HEVC tagged hvc1). Audio, subtitle, data and attachment streams
+    are dropped: the player plays videos muted, and one recipe with no
+    per-audio-codec table cannot fail on a track MP4 cannot hold."""
+    tag = ["-tag:v", HEVC_TAG] if codec == "hevc" else []
+    return [*media_tools.FFMPEG_GLOBAL, "-y",
+            *media_tools.FFMPEG_DECODE, "-i", INPUT,
+            "-map", "0:v:0", "-c:v", "copy", *tag,
+            "-an", "-sn", "-dn",
+            *media_tools.FFMPEG_ENCODE,
+            "-movflags", "+faststart", "-f", "mp4", OUTPUT]
 
 
 def frame_args(start_seconds: float) -> list[str]:
@@ -678,6 +729,13 @@ def run_ffmpeg(args: list[str], source: Path, out: Path) -> bool:
 def transcode_step() -> dict[str, Any]:
     """The ledger recipe of a transcode (``run_file_step`` runs it)."""
     return {"step": "transcode", "args": transcode_args()}
+
+
+def remux_step(probe: VideoProbe) -> dict[str, Any]:
+    """The ledger recipe of a remux (``run_file_step`` runs it)."""
+    codec = probe.codec or "unknown"
+    return {"step": "remux", "args": remux_args(codec),
+            "reason": remux_reason(probe.container, codec, probe.tag)}
 
 
 def transcode_video(source: Path, out: Path) -> bool:
@@ -742,7 +800,7 @@ def run_poster_step(step: dict[str, Any], source: Path,
 # ``run_steps``. A recipe and the code that ran it cannot drift apart.
 
 IMAGE_STEPS = ("carve", "preserve", "convert", "jxl")
-FILE_STEPS = ("transcode", "poster")
+FILE_STEPS = ("transcode", "remux", "poster")
 _PIL_SAVE = {"png": "PNG", "jpeg": "JPEG"}
 
 
@@ -797,10 +855,11 @@ def run_image_step(step: dict[str, Any], data: bytes) -> bytes:
 
 def run_file_step(step: dict[str, Any], source: Path,
                   out: Path) -> str | None:
-    """One file ledger step (transcode, poster) from `source` to `out`:
-    None on success, else what failed. StepError when unsupported."""
+    """One file ledger step (transcode, remux, poster) from `source` to
+    `out`: None on success, else what failed. StepError when
+    unsupported."""
     name = step.get("step")
-    if name == "transcode":
+    if name in ("transcode", "remux"):
         error = ffmpeg_error(step["args"], source, out)
         return None if error is None else f"ffmpeg: {error}"
     if name == "poster":
@@ -868,7 +927,7 @@ def run_steps(steps: list[dict[str, Any]], source: Path,
             current = work / f"step-{n}"
             current.write_bytes(out)
         elif name in FILE_STEPS:
-            ext = "mp4" if name == "transcode" else "jpg"
+            ext = "jpg" if name == "poster" else "mp4"
             made_file = work / f"step-{n}.{ext}"
             error = run_file_step(step, current, made_file)
             if error is not None:
@@ -887,6 +946,7 @@ def _step_tools(step: dict[str, Any]) -> tuple[str, ...]:
                 if step["mode"] == "jpeg-recompression"
                 else ("Pillow", "numpy", "imagecodecs", "libjxl"))
     return {"convert": ("Pillow",), "transcode": ("ffmpeg",),
+            "remux": ("ffmpeg",),
             "poster": ("ffmpeg", "Pillow")}.get(name, ())
 
 
@@ -1198,10 +1258,12 @@ def _ship_video(record: ItemRecord, found: _Input, placed: _Placed,
                 scratch: Path, cache: MediaCache | None) -> int:
     source = found.path
     meta: dict[str, Any] = record.asset_meta
-    container, codec = probe_video(source)
+    probe = probe_video(source)
+    container = probe.container if probe else None
+    codec = probe.codec if probe else None
     meta["sniffedFormat"] = container or "unknown"
     meta["codec"] = codec or "unknown"
-    if container is None:
+    if probe is None:
         meta["decision"] = "skipped"
         record.notes.append(
             f"unprobeable video {source.name}: item dropped from manifest")
@@ -1238,26 +1300,30 @@ def _ship_video(record: ItemRecord, found: _Input, placed: _Placed,
         shipped, decision, steps = video_share[digest]
         already = True
     else:
-        if video_decision(container, codec):
+        rule = video_decision(container, codec, probe.tag)
+        if rule == KEEP:
             shipped, already = placed.copy_file(source, digest, container)
             decision = "copy"
             steps = [{**PRESERVE_STEP, "codec": codec or "unknown"}]
         else:
-            made = scratch / "transcode.mp4"
-            if file_step_cached(cache, transcode_step(), source, digest,
+            step = remux_step(probe) if rule == REMUX else transcode_step()
+            made = scratch / f"{rule}.mp4"
+            if file_step_cached(cache, step, source, digest,
                                 made) is not None:
                 made.unlink(missing_ok=True)
                 if made_poster is not None:
                     made_poster.unlink(missing_ok=True)
                 meta["decision"] = "skipped"
                 record.notes.append(
-                    f"transcode failed for {source.name}: item dropped")
+                    f"{rule} failed for {source.name}: item dropped")
                 record.skipped = True
                 return 1
             shipped, already = placed.move_file(made, "mp4")
-            decision = "transcode"
-            steps = [transcode_step()]
+            decision = rule
+            steps = [step]
             record.notes.append(
+                f"remuxed {codec}/{container} to mp4 (stream copy, video "
+                "only)" if rule == REMUX else
                 f"transcoded {codec}/{container} to h264 mp4 (faststart)")
         video_share[digest] = (shipped, decision, steps)
     placed.record(shipped, "video", src, found.steps + steps)

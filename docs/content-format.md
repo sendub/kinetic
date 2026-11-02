@@ -126,9 +126,10 @@ Per type:
 - `animation` with `frames` (ordered display-resolution frames, at least
   two), `fps` (frames per second, greater than 0), and `loopCount` (how
   many times the sequence plays before auto-advance, at least 1).
-- `video` with `file` (any browser-playable video file: `.mp4`,
-  `.webm`, `.mkv`, `.mov`, and `.m4v` are allowed, and
-  playability is the browser's call), `poster` (still image shown
+- `video` with `file` (a video file with any extension: there is no
+  video extension list, and playability is the browser's call; the
+  converter ships `.mp4`, `.mov`, `.m4v`, `.3gp`, `.webm` or `.mkv`),
+  `poster` (still image shown
   for instant first paint), and the required `durationSeconds`
   (runtime of the encoded video, greater than 0; the converter fills
   it via ffprobe, and skip-mode timing needs it). Optional
@@ -141,20 +142,27 @@ Per type:
   `durationSeconds`) play a sub-range of the file; optional
   `loopStartSeconds` (number, at least 0, default
   `startSeconds`) sets where a loop restarts. Video playback ranges
-  below covers all three. Safari plays no MKV; Firefox was not
-  probed. Headless Chrome 156 probes (2026-11-02, items 25.6 and "One
-  video rule") played H.264 in MP4, M4V, MOV and MKV; VP9 and AV1 in
-  MP4, WebM and MKV; VP8 in WebM and MKV; HEVC in MP4, MOV and MKV only
-  through the platform decoder (not with `--disable-gpu`). The picture
-  played next to every audio codec tried (AAC, AC-3, E-AC-3, MP3, Opus,
-  FLAC, ALAC, PCM, Vorbis). MPEG-4 Part 2, MPEG-2, MJPEG, ProRes, FFV1
-  and Theora video did not play in any container: alone it fails with
-  `MEDIA_ERR_SRC_NOT_SUPPORTED`, and next to a playable audio track the
-  audio plays with no picture. AVI and MPEG-TS files did not open at
-  all. The converter keeps every video some target browser plays,
-  byte-identical at its true container's extension, and transcodes the
-  rest to H.264 MP4 (docs/extracting.md, Video policy), so no
-  unplayable video ships.
+  below covers all three. Measured 2026-11-02 (Safari 26.6.2 on an
+  M2, headless Chrome 156; a probe page of container x codec samples
+  counting decoded frames), video track only, since the player plays
+  videos muted:
+
+  | Video codec | Both play it in | Fails in at least one |
+  | --- | --- | --- |
+  | H.264 | MP4, MOV, M4V, 3GP | MKV, AVI, MPEG-TS |
+  | HEVC (`hvc1`) | MP4, MOV, M4V | MKV, MPEG-TS; any `hev1` |
+  | VP9 | MP4, WebM, MKV | |
+  | VP8 | WebM, MKV | Ogg |
+  | AV1, MPEG-4 Part 2, MPEG-2, MJPEG, ProRes, H.263, Theora, FFV1 | none | every container |
+
+  Chrome plays HEVC only through the platform decoder (not with
+  `--disable-gpu`); Safari on an M2 decodes no AV1; Firefox was not
+  probed. The picture played next to every audio codec tried. The
+  converter keeps what both play byte-identical, remuxes H.264/HEVC/
+  VP9 from a refused container (or `hev1`) into MP4 without
+  re-encoding, and transcodes every other codec to H.264 MP4
+  (docs/extracting.md, Video policy), so no video ships that either
+  browser cannot play.
 - `text` takes no media fields. `id` and `type` are required, `speaker`,
   `text`, and `thought` are optional, and no other fields are accepted.
   On a `text` item `thought` behaves as elsewhere: a thought line in a
@@ -544,8 +552,9 @@ unambiguously:
 - `<id>.<ext>`: the item's own media file, referenced by `file`: the
   display-resolution image of an image item, or the video of a video
   item. `ext` is the true shipped format, `jpg`, `png`, `webp`,
-  `jxl`, or `gif` for images and `mp4`, `webm`, `mkv`, `mov`, or
-  `m4v` for video. Browser-compatible originals are preserved
+  `jxl`, or `gif` for images and, for video, the true container's
+  usual extension (the converter writes `mp4`, `mov`, `m4v`, `3gp`,
+  `webm` or `mkv`; any extension validates). Browser-compatible originals are preserved
   byte-identical, with no forced re-encode.
 - `<id>.fNNN.jpg`: animation frame N, zero-based and zero-padded to three
   digits, referenced in `frames`.
@@ -590,8 +599,8 @@ Format rules:
   id-shaped stem (a converter sha256 stem fits), at most one derivative suffix (`.fNNN`, `.poster`,
   `.thumb`), then the extension.
 - Images carry the extension `.png`, `.jpg`, `.jpeg`, `.webp`, `.gif`,
-  or `.jxl`; videos `.mp4`, `.webm`, `.mkv`, `.mov`, or `.m4v`. The
-  schema pins these per field.
+  or `.jxl` (the schema pins these on image fields); a video file may
+  carry any extension.
 - Every media value matches the path pattern.
 
 The validator checks the schema plus these invariants:

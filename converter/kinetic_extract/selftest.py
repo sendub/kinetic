@@ -89,8 +89,9 @@ def run_cases(samples_dir: Path = SAMPLES_DIR) -> dict[str, str]:
         media_tools.jxl_reconstruct_jpeg(recompressed))
 
     video = samples_dir / "sample.mp4"
-    container, codec = assets.probe_video(video)
-    probe = {"container": container, "codec": codec,
+    found = assets.probe_video(video)
+    probe = {"container": found.container if found else None,
+             "codec": found.codec if found else None,
              "durationSeconds": media.probe_duration_seconds(video)}
     out["ffprobe.probe"] = _sha(json.dumps(probe, sort_keys=True).encode())
     with tempfile.TemporaryDirectory() as td:

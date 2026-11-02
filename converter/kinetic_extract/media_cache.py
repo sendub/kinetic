@@ -52,7 +52,8 @@ from typing import Any
 CACHE_ENV = "KINETIC_MEDIA_CACHE"
 OFF = "off"
 # 2: the one video rule (docs/plan.md Phase 26) chooses copy or transcode.
-FORMAT = 2
+# 3: the measured video rule (Phase 26) adds remux (stream copy to MP4).
+FORMAT = 3
 _CHUNK = 1 << 20
 
 

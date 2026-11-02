@@ -198,6 +198,9 @@ files (docs/plan.md Phase 25), which `kinetic-media rebuild` reads:
     - `{"step": "transcode", "args": [...]}`: the full ffmpeg argument
       list after the binary, `{input}` and `{output}` standing for the
       paths;
+    - `{"step": "remux", "args": [...], "reason": "..."}`: a stream
+      copy into MP4 (Video policy below), `args` as for `transcode`,
+      `reason` why the source container or tag could not ship;
     - `{"step": "poster", "startSeconds": S, "args": [...],
       "frameFormat": "png", "mode": "RGB", "jpeg": {...}}`: the complete
       poster recipe. ffmpeg runs `args` (`{input}` the video, `{output}`
@@ -263,37 +266,55 @@ route now reads lossless WebP.
 
 ## Video policy
 
-docs/plan.md Phase 26 (one video rule, superseding Phase 25's "MKV
-copied whatever the codec"). A video some target browser (Chrome/Edge,
-Safari, Firefox) can play ships byte-identical, whatever its container
-or file name; anything no target browser displays is transcoded. One
-table, `PLAYABLE_VIDEO` in `kinetic_extract/assets.py`, keyed by the
-probed container and video codec, decides. The container comes from
-the bytes, never the name: for ISO-BMFF files (ffprobe's
-`mov,mp4,m4a,3gp,3g2,mj2`) the `ftyp` major brand gives `mov` (brand
-`qt`, or no `ftyp`), `m4v` (brand `M4V…`) or `mp4` (any other); for
-Matroska files (ffprobe names every one `matroska,webm`) the EBML
-header's DocType gives `webm` (DocType `webm` with VP8, VP9 or AV1) or
-`mkv` (anything else); other files get ffprobe's first format name
-(`avi`, `mpegts`, ...).
+docs/plan.md Phase 26 ("Video playability measured, not assumed",
+superseding the earlier one video rule). Files must play in Safari and
+Chrome. A local probe page of container x codec samples
+(`.tmp/video-probe/`, decoded frames counted, not just audio) was run
+on 2026-11-02 in Safari 26.6.2 on an M2 and in headless Chrome 156, and
+the user agreed the rule below. Only the video track decides: the
+player plays videos muted. Two tables in `kinetic_extract/assets.py`
+hold it: `KEEP_VIDEO` (container -> codecs both browsers play there)
+and `REMUX_VIDEO` (codecs both play in MP4).
 
-| Container | Video codecs kept | Shipped | Ledger |
+The container comes from the bytes, never the name: for ISO-BMFF files
+(ffprobe's `mov,mp4,m4a,3gp,3g2,mj2`) the `ftyp` major brand gives
+`mov` (brand `qt`, or no `ftyp`), `m4v` (brand `M4V…`), `3gp` (a 3GPP
+brand: `3gp…`, `3ge…`, `3gg…`, ...) or `mp4` (any other); for Matroska
+files (ffprobe names every one `matroska,webm`) the EBML header's
+DocType gives `webm` (DocType `webm` with VP8, VP9 or AV1) or `mkv`
+(anything else); other files get ffprobe's first format name (`avi`,
+`mpegts`, `mpeg`, `ogg`, ...). ffprobe also gives the first video
+stream's codec and codec tag (`hvc1` or `hev1` for HEVC).
+
+| Decision | When | Shipped | Ledger |
 | --- | --- | --- | --- |
-| `mp4`, `m4v` | H.264, HEVC, VP9, AV1 | byte-identical, as `.mp4` / `.m4v` | `{"step": "preserve", "codec": …}` |
-| `mov` | H.264, HEVC | byte-identical, as `.mov` | `{"step": "preserve", "codec": …}` |
-| `webm` | VP8, VP9, AV1 | byte-identical, as `.webm` | `{"step": "preserve", "codec": …}` |
-| `mkv` | H.264, HEVC, VP8, VP9, AV1 | byte-identical, as `.mkv` | `{"step": "preserve", "codec": …}` |
-| any other pair ffprobe reads (MPEG-4 Part 2, MPEG-2, MJPEG, ProRes, FFV1, Theora; AVI, MPEG-TS, Ogg, ...) | none | bitexact H.264 faststart MP4 | `{"step": "transcode", "args": […]}` |
+| keep (`copy`) | H.264 in MP4/MOV/M4V/3GP; HEVC tagged `hvc1` in MP4/MOV/M4V; VP9 in MP4/WebM/MKV; VP8 in WebM/MKV | byte-identical, at the true container's extension (`.mp4`, `.mov`, `.m4v`, `.3gp`, `.webm`, `.mkv`) | `{"step": "preserve", "codec": …}` |
+| `remux` | H.264, HEVC or VP9 anywhere else (MKV, AVI, MPEG-TS, MPEG-PS, ...), or HEVC tagged `hev1` | the video stream copied unchanged into bitexact faststart `.mp4` (HEVC tagged `hvc1`) | `{"step": "remux", "args": […], "reason": …}` |
+| `transcode` | any other codec: AV1, MPEG-4 Part 2, MPEG-2, MJPEG, ProRes, H.263, Theora, FFV1, VP8 outside WebM/MKV (Ogg), unknown | bitexact H.264 faststart `.mp4` | `{"step": "transcode", "args": […]}` |
 
-The extension is always the true container's: Matroska bytes named
-`.mp4` ship as `.mkv`, MP4 bytes named `.webm` as `.mp4`. Audio codecs
-never decide: the player plays videos muted, and in the headless Chrome
-probes (docs/content-format.md) the picture played next to every audio
-codec tried. HEVC plays in Safari and, through the platform decoder, in
-Chrome and Edge. Safari plays no MKV and Firefox was not probed; the
-rule asks only that some target browser plays the file. Nothing
-unplayable ships, so there is no playability warning. A file ffprobe
-finds no video stream in is skipped (`unprobeable video`).
+AV1 is re-encoded because Safari on an M2 (no AV1 hardware decoder)
+does not play it, though Chrome does. A remux keeps only the first
+video stream (`-map 0:v:0 -c:v copy -an -sn -dn`): audio is dropped
+because the player plays videos muted, and one recipe with no
+per-audio-codec table cannot fail on an audio, subtitle or attachment
+track MP4 cannot hold (an MKV's fonts, a TS file's ADTS AAC). The same
+video stream with different audio tracks therefore remuxes to one
+shared file. The packets are those of the source (MKV and MP4 both use
+length-prefixed H.264/HEVC, so their bytes are identical; MPEG-TS and
+AVI carry Annex B start codes that the MP4 muxer rewrites, and the
+decoded frames are identical). Kept files keep their audio untouched.
+
+The probe results the rule rests on: both browsers played H.264 in
+MP4, MOV, M4V and 3GP; HEVC (`hvc1`) in MP4, MOV and M4V (Chrome only
+through the platform decoder, not with `--disable-gpu`); VP9 in MP4,
+WebM and MKV; VP8 in WebM and MKV. H.264 and HEVC in MKV, AVI or
+MPEG-TS, and HEVC tagged `hev1`, failed in at least one browser; so did
+AV1, MPEG-4 Part 2, MPEG-2, MJPEG, ProRes, H.263, Theora and FFV1 in
+every container, and VP8 in Ogg. Firefox was not probed. Every
+converted probe sample (`.tmp/video-probe/converted/`, 78 clips: 29
+kept, 18 remuxed, 31 transcoded) played in headless Chrome with the
+GPU. A file ffprobe finds no video stream in is skipped (`unprobeable
+video`); a failed remux or transcode drops the item.
 
 Every shipped video has a poster: the frame at the item's `startSeconds`
 (0 when unset), made by the ledger `poster` step above. The poster is
@@ -565,7 +586,7 @@ Exit codes:
 ## Reuse cache
 
 Encoding is the slow part of a conversion: lossless JPEG XL at effort 9
-on one thread, ffmpeg transcodes and posters. `kinetic-extract` and
+on one thread, ffmpeg transcodes, remuxes and posters. `kinetic-extract` and
 `kinetic-media ship` keep what they encode in a reuse cache
 (`converter/kinetic_extract/media_cache.py`, docs/plan.md Phase 25), so
 a re-run, or a later episode shipped into the same folder, encodes
@@ -578,13 +599,14 @@ nothing already made from the same bytes, recipe and tools.
 - What is remembered: one record per decision. For an image that is the
   whole choice: ext, decision, notes, ledger steps and output sha256,
   so the JPEG XL attempt and the "is it smaller?" comparison are both
-  skipped. For a transcode or a poster it is the output sha256. Output
-  bytes are stored once by sha256 (`objects/<h[:2]>/<h>`); a kept
-  original stores none. A failed transcode or poster is not remembered.
+  skipped. For a transcode, remux or poster it is the output sha256.
+  Output bytes are stored once by sha256 (`objects/<h[:2]>/<h>`); a
+  kept original stores none. A failed transcode, remux or poster is not
+  remembered.
 - Key: the sha256 of the bytes entering the encode (after any decoder
   hook and carve), the recipe (every step dict and parameter the encode
-  can use: PNG and JPEG convert params, JPEG XL effort, the transcode
-  and poster ffmpeg args, the poster's start time and JPEG params), the
+  can use: PNG and JPEG convert params, JPEG XL effort, the transcode,
+  remux and poster ffmpeg args, the poster's start time and JPEG params), the
   run's whole `mediaTools` (tool versions and binary sha256s, extractor
   version), and a cache format number that is bumped when the choosing
   code changes. Any difference is a miss.

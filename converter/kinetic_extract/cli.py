@@ -95,7 +95,7 @@ SIMPLIFICATIONS = [
     "first dialogue line under a visual attaches to the media item; later "
     "lines become text items over the same visual",
     "assets ship at their sniffed true format (preserve or lossless-JXL "
-    "for images, native copy or h264 transcode for video); unsupported "
+    "for images; copy, mp4 remux or h264 transcode for video); unsupported "
     "wrapped images drop their item, recorded in the ledger",
     "compiled-only .rpyc sources (no .rpy twin) are decompiled in memory "
     "via the vendored unrpyc; a .rpy twin always wins over a stale .rpyc",

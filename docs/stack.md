@@ -101,11 +101,12 @@ docs/content-format.md.
   decompiler by deceleration; take the current maintained repo at vendor
   time, pin the version) to decompile `*.rpyc` when no `.rpy` exists.
 - Assets: Pillow to validate, resize when bytes demand it, and derive
-  thumbnails; ffmpeg CLI for video (one rule, docs/plan.md Phase 26: a
-  video some target browser plays ships byte-identical whatever its
-  container or name (MP4, M4V, MOV, WebM or MKV, by probed container and
-  video codec), anything else is transcoded to H.264 MP4; posters and
-  first frames). ffmpeg is a converter-only tool, never a runtime
+  thumbnails; ffmpeg CLI for video (the measured rule, docs/plan.md
+  Phase 26: by probed container, video codec and HEVC tag, never the
+  name, a video Safari and Chrome both play ships byte-identical; H.264,
+  HEVC or VP9 in a container one of them refuses is remuxed into MP4
+  without re-encoding; any other codec is transcoded to H.264 MP4;
+  posters and first frames). ffmpeg is a converter-only tool, never a runtime
   dependency.
 - Reproducible media (docs/plan.md Phase 25, 2026-11-02): the converter
   uses only pinned tools, listed in `converter/media-tools.json`.

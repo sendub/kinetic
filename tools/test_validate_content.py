@@ -210,6 +210,20 @@ def test_video_mkv_with_hold_seconds_passes(folder: Path) -> None:
     assert proc.returncode == 0, proc.stdout + proc.stderr
 
 
+@pytest.mark.parametrize("ext", ["3gp", "mkv", "mov", "m4v", "ogv", "avi"])
+def test_any_video_extension_passes(folder: Path, ext: str) -> None:
+    """The schema keeps no video extension list of its own: whatever the
+    converter's measured rule ships (docs/plan.md Phase 26, `.3gp`
+    included) is a valid video file."""
+    manifest = read_manifest(folder)
+    video = manifest["items"][VIDEO]
+    new = video["file"].rsplit(".", 1)[0] + "." + ext
+    (folder / video["file"]).rename(folder / new)
+    video["file"] = new
+    write_manifest(folder, manifest)
+    assert problems_of(folder) == []
+
+
 def test_image_jxl_passes(folder: Path) -> None:
     """A `.jxl` image file is valid; browsers decode JXL since Chrome/Edge
     117, Safari 17, and Firefox 133."""

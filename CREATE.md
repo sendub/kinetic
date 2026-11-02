@@ -55,9 +55,12 @@ one the help screen has no heading and the tab reads `Kinetic`. Each item has a 
   117+, Safari 17+, or Firefox 133+.
 - `animation`: `frames` (at least two, at display resolution, in play
   order), `fps` greater than 0, `loopCount` of at least 1.
-- `video`: `file` (any browser-playable file; `.mp4`, `.webm`,
-  `.mkv`, `.mov`, and `.m4v` are allowed, and playability is the
-  browser's call), `poster` (a display-resolution still, the frame
+- `video`: `file` (any video file, any extension; playability is
+  the browser's call, so pick a format Safari and Chrome both play:
+  H.264 in `.mp4`/`.mov`/`.m4v`/`.3gp`, HEVC tagged `hvc1` in
+  `.mp4`/`.mov`/`.m4v`, VP9 in `.mp4`/`.webm`/`.mkv`, VP8 in
+  `.webm`/`.mkv`; docs/content-format.md has the measured table),
+  `poster` (a display-resolution still, the frame
   at `startSeconds` and the first frame without a range, also shown
   in skip and rewind), and `durationSeconds` greater than 0, the
   file's total duration. Optionally set `loopCount` (at least 1,
@@ -130,9 +133,10 @@ Neither the video's end nor its loops gate an advance while the chain of
 
 The item ids drive the file names: `<id>.<ext>` for an image or a
 video, where `ext` is the true shipped format (`jpg`, `png`, `webp`,
-`jxl`, or `gif` for images; `mp4`, `webm`, `mkv`, `mov`, or `m4v` for
-video), `<id>.fNNN.jpg` for animation frames numbered from `f000`,
-and `<id>.poster.jpg` for a video poster. Browser-compatible
+`jxl`, or `gif` for images; the container's usual extension, such as
+`mp4`, `mov`, `m4v`, `3gp`, `webm` or `mkv`, for video),
+`<id>.fNNN.jpg` for animation frames numbered from `f000`, and
+`<id>.poster.jpg` for a video poster. Browser-compatible
 originals are preserved byte-identical, with no forced re-encode.
 These names are defaults for a folder you write by hand, not a
 one-file-per-item rule: several items may reference the same file, and
@@ -380,8 +384,10 @@ exactly the folder format above. It reads `.rpy` scripts, decompiles
 `menu:` blocks into branches (conservatively, never guessing joins),
 and does the media work you do by hand above: it sniffs true formats,
 keeps browser-compatible originals byte-identical or ships them as
-lossless JPEG XL when that is smaller, transcodes only video no target
-browser plays, and makes the posters. Every media file it ships,
+lossless JPEG XL when that is smaller, keeps video Safari and Chrome
+both play, remuxes H.264/HEVC/VP9 from a container one of them refuses
+(MKV, AVI, MPEG-TS) into MP4 without re-encoding, transcodes only other
+codecs, and makes the posters. Every media file it ships,
 posters included, is named by the sha256 of its bytes,
 `media/<h[:2]>/<h>.<ext>` (docs/extracting.md, "Output layout").
 
@@ -767,6 +773,13 @@ dropped from manifest`.** No poster frame could be made, for example a
 `startSeconds` past the end of the video, or a video ffmpeg cannot
 decode. The item is dropped (a video never stands in as its own
 poster). Fix the start time or the source.
+
+**`remux failed for <video>: item dropped`** or **`transcode failed for
+<video>: item dropped`**. The pinned ffmpeg could not copy the video
+stream into MP4 (remux: H.264, HEVC or VP9 in a container Safari or
+Chrome refuses) or re-encode it to H.264 (any other codec). Usually the
+file is damaged; check that it plays in a desktop player, then replace
+it. A remuxed video has no audio track: the player plays video muted.
 
 **`kinetic-extract: <folder>/media/ab/ab12….png: existing file's sha256
 is …, not the one its name gives; not replaced (remove it, or use
