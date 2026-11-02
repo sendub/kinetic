@@ -1133,4 +1133,14 @@ truthful: an unchecked box means nothing was accepted.
       and non-video bookmarks; the bookmark appends to the history), find
       the cause, and make `e` take the reader to the furthest point they
       have read. Test red before; screens/navigation scenario.
+- [ ] Settings live on the Esc screen; `c` dropped (user, 2026-11-02):
+      the Esc screen holds the game title, the keys and every setting
+      (speed, Tab-skip options, play all routes, Progress group); `c` no
+      longer does anything and is removed from help, docs and hints.
+      Esc opens and closes it everywhere settings could open before
+      (over a choice: countdown frozen; reset box still blocks). The
+      keys are laid out in a grid that fills across before going down.
+      First-load screen is the same screen. Tests, screens/playall/
+      progress scenarios, README/CREATE/docs; screenshots at 1280x720
+      and 700x900.
 - [ ] Phase-closer: full suite, rebuild demo folders.
