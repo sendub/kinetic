@@ -2,7 +2,8 @@
 
 Usage:
 
-    kinetic-extract <renpy_project> <out_dir> [--width N] [--height N]
+    kinetic-extract <renpy_project> [<renpy_project> ...] <out_dir>
+                    [--width N] [--height N]
                     [--label NAME] [--max-items N] [--files GLOB]
                     [--title TEXT] [--story-id ID]
                     [--decoder MODULE:FUNC ...]
@@ -44,6 +45,16 @@ Slice options (docs/plan.md Phase 11) extract part of a big game:
 after N manifest items, and ``--files GLOB`` restricts which ``.rpy``
 files feed the walk (matched in ``game/``, parsed in filename order).
 With none of them the whole project is extracted, as before.
+
+Several projects (episodes, docs/plan.md Phase 25) become one game: each
+is parsed and walked on its own, in the order given, and episode N's
+items follow episode N-1's in one manifest. Every item, decision and
+route reference from project N gets the id prefix ``epN-`` (stable across
+re-runs, unique by construction); ledger sources say which project they
+came from (``project``: N, 1-based) and one ``media/`` holds identical
+media once. The story id and title come from the first project unless
+given; the display size is the most common across all. The slice options
+work only with one project. A single project's output is unchanged.
 """
 
 from __future__ import annotations
@@ -54,6 +65,7 @@ import json
 import re
 import sys
 import unicodedata
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -64,7 +76,7 @@ from .images import ImplicitImages
 from .media import DEFAULT_SIZE, most_common_image_size
 from .media_cache import open_cache
 from .media_tools import MediaToolsError, run_tools
-from .parser import ID_MAX, Report, parse_project, slug
+from .parser import ID_MAX, FileParse, Report, parse_project, slug
 from .rpa import AssetArchives
 from .selftest import ensure_ready
 from .timeline import TimelineResult, build_timeline
@@ -322,6 +334,7 @@ def build_ledger(result: TimelineResult, reports: list[Report],
                  media: dict[str, Any] | None = None,
                  media_tools: dict[str, Any] | None = None,
                  decoders: list[Decoder] | None = None,
+                 projects: list[str] | None = None,
                  ) -> dict[str, Any]:
     items: dict[str, Any] = {}
     for record in result.items:
@@ -334,8 +347,13 @@ def build_ledger(result: TimelineResult, reports: list[Report],
         # extra: the player and validator ignore it.
         entry.update(record.asset_meta)
         items[record.item["id"]] = entry
-    ledger = {
-        "generatedBy": f"kinetic-extract {__version__}",
+    ledger: dict[str, Any] = {
+        "generatedBy": f"kinetic-extract {__version__}"}
+    if projects:
+        # Several episodes in one game: the projects' folder names in the
+        # order given; `project` N in a media source is the Nth.
+        ledger["projects"] = projects
+    ledger |= {
         "inputs": inputs,
         "simplifications": SIMPLIFICATIONS,
         "items": items,
@@ -441,8 +459,11 @@ def main(argv: list[str] | None = None) -> int:
     argp = argparse.ArgumentParser(
         prog="kinetic-extract",
         description="Extract a Ren'Py project into a Kinetic content folder.")
-    argp.add_argument("renpy_project", type=Path,
-                      help="project dir, game/ dir, or macOS .app bundle")
+    argp.add_argument("renpy_project", type=Path, nargs="+",
+                      metavar="renpy_project",
+                      help="project dir, game/ dir, or macOS .app bundle; "
+                           "several (episodes, in story order) make one "
+                           "game")
     argp.add_argument("out_dir", type=Path,
                       help="Kinetic content folder to write")
     argp.add_argument("--width", type=int, default=None,
@@ -477,28 +498,29 @@ def main(argv: list[str] | None = None) -> int:
                            "detection; returns bytes, or None for "
                            "unchanged; repeatable, chained in order")
     args = argp.parse_args(argv)
+    projects: list[Path] = args.renpy_project
+    several = len(projects) > 1
+    if several and (args.label is not None or args.max_items is not None
+                     or args.files is not None):
+        argp.error("--label, --max-items and --files work only with one "
+                   "project")
 
     try:
         ensure_ready()
     except MediaToolsError as exc:
         print(f"kinetic-extract: {exc}", file=sys.stderr)
         return 2
-    game_dir = resolve_game_dir(args.renpy_project)
-    asset_archives = AssetArchives(game_dir)
-    parses, image_defs, characters, sources = parse_project(game_dir,
-                                                            args.files)
-    if not parses:
-        print(f"kinetic-extract: {game_dir}: no .rpy or .rpyc source files"
-              + (f" matching {args.files!r}" if args.files else ""),
-              file=sys.stderr)
-        return 1
-    implicit = ImplicitImages(game_dir, asset_archives)
-    result = build_timeline(parses, image_defs, characters, game_dir,
-                            start_label=args.label, max_items=args.max_items,
-                            asset_lookup=asset_archives.lookup,
-                            implicit_lookup=implicit.lookup)
-    if asset_archives.failed:
-        sources.setdefault("rpaFailed", []).extend(asset_archives.failed)
+    episodes: list[_Episode] = []
+    for n, project in enumerate(projects, start=1):
+        episode = _walk_project(project, args)
+        if episode is None:
+            return 1
+        if several:
+            _mark_episode(n, episode)
+        episodes.append(episode)
+    result = _join_results([e.result for e in episodes])
+    parses = [entry for e in episodes for entry in e.parses]
+    sources = _join_sources([e.sources for e in episodes], several)
     reports: list[Report] = []
     for _rel, parsed in parses:
         reports.extend(parsed.reports)
@@ -523,25 +545,29 @@ def main(argv: list[str] | None = None) -> int:
                        else f"default {DEFAULT_SIZE[0]}x{DEFAULT_SIZE[1]}")
         if args.width or args.height:
             source_note += " with --width/--height override"
-    configs = [parsed.config for _rel, parsed in parses]
-    if args.files and not all(any(setting in c for c in configs)
-                              for setting in ("save_directory", "name")):
-        # A slice's identity and name are the whole game's: read the
-        # settings file the --files glob left out.
-        options, _i, _c, _s = parse_project(game_dir, "options.rpy")
-        configs += [parsed.config for _rel, parsed in options]
+    first = episodes[0]
+    configs = _identity_configs(first, args.files)
+    derived_ids = [derive_story_id(configs, first.project)[0]]
     if args.story_id:
         story_id, story_source = args.story_id, "--story-id"
     else:
-        story_id, story_source = derive_story_id(configs, args.renpy_project)
+        story_id, story_source = derive_story_id(configs, first.project)
+        if several:
+            story_source += " of the first project"
+            derived_ids = list(dict.fromkeys(
+                derive_story_id(_identity_configs(e, None), e.project)[0]
+                for e in episodes))
     if args.title:
         title, title_source = args.title, "--title"
     else:
-        title, title_source = derive_title(configs, args.renpy_project)
+        title, title_source = derive_title(configs, first.project)
+        if several:
+            title_source += " of the first project"
     manifest = build_manifest(result, width, height, branches=branches,
                               story_id=story_id, title=title)
     slice_opts = {"label": args.label, "maxItems": args.max_items,
                   "files": args.files}
+    folders = [project_folder_name(e.project) for e in episodes]
     ledger = build_ledger(result, reports,
                           [rel for rel, _ in parses],
                           slice_opts=slice_opts if any(
@@ -550,9 +576,132 @@ def main(argv: list[str] | None = None) -> int:
                           sources=sources,
                           branch_notes=branch_notes,
                           media=media, media_tools=tools,
-                          decoders=args.decoder)
+                          decoders=args.decoder,
+                          projects=folders if several else None)
     write_outputs(args.out_dir, manifest, ledger)
+    if several:
+        print(f"projects: {len(folders)} ({', '.join(folders)})")
     print_summary(result, reports, f"{width}x{height} ({source_note})",
                   skipped, branch_notes, (story_id, story_source),
                   (title, title_source))
+    if len(derived_ids) > 1:
+        print("note: the projects derive different story ids ("
+              + ", ".join(derived_ids) + "); using the first; --story-id "
+              "sets one")
     return 0
+
+
+@dataclass
+class _Episode:
+    """One project parsed and walked (docs/plan.md Phase 25, several
+    episodes into one game)."""
+
+    project: Path
+    game_dir: Path
+    parses: list[tuple[str, FileParse]]
+    sources: dict[str, Any]
+    result: TimelineResult
+
+
+def _walk_project(project: Path, args: argparse.Namespace
+                  ) -> _Episode | None:
+    """Parse and walk one project; None (after saying why) when it has no
+    script sources."""
+    game_dir = resolve_game_dir(project)
+    asset_archives = AssetArchives(game_dir)
+    parses, image_defs, characters, sources = parse_project(game_dir,
+                                                            args.files)
+    if not parses:
+        print(f"kinetic-extract: {game_dir}: no .rpy or .rpyc source files"
+              + (f" matching {args.files!r}" if args.files else ""),
+              file=sys.stderr)
+        return None
+    implicit = ImplicitImages(game_dir, asset_archives)
+    result = build_timeline(parses, image_defs, characters, game_dir,
+                            start_label=args.label, max_items=args.max_items,
+                            asset_lookup=asset_archives.lookup,
+                            implicit_lookup=implicit.lookup)
+    if asset_archives.failed:
+        sources.setdefault("rpaFailed", []).extend(asset_archives.failed)
+    return _Episode(project, game_dir, parses, sources, result)
+
+
+def _identity_configs(episode: _Episode,
+                      files: str | None) -> list[dict[str, str]]:
+    """The config settings a project's story id and title derive from."""
+    configs = [parsed.config for _rel, parsed in episode.parses]
+    if files and not all(any(setting in c for c in configs)
+                         for setting in ("save_directory", "name")):
+        # A slice's identity and name are the whole game's: read the
+        # settings file the --files glob left out.
+        options, _i, _c, _s = parse_project(episode.game_dir, "options.rpy")
+        configs += [parsed.config for _rel, parsed in options]
+    return configs
+
+
+def prefix_id(prefix: str, value: str) -> str:
+    """`value` with `prefix`, within the 64-character id limit: a long id
+    loses characters from before its last `-` part (the item counter or
+    menu line), so ids unique within an episode stay unique."""
+    full = prefix + value
+    if len(full) <= ID_MAX:
+        return full
+    head, sep, tail = value.rpartition("-")
+    if not sep or len(tail) + 1 >= ID_MAX - len(prefix):
+        return full[:ID_MAX]
+    return (prefix + head)[:ID_MAX - len(tail) - 1] + "-" + tail
+
+
+def _mark_episode(n: int, episode: _Episode) -> None:
+    """Make project `n`'s walk its own part of a several-project game:
+    ids get ``epN-``, source names ``epN:``, media sources ``project``."""
+    tag = f"ep{n}"
+    for record in episode.result.items:
+        record.item["id"] = prefix_id(f"{tag}-", record.item["id"])
+        record.source = f"{tag}:{record.source}"
+        if record.source_ref is not None:
+            record.source_ref = {**record.source_ref, "project": n}
+    for _rel, parsed in episode.parses:
+        for report in parsed.reports:
+            report.source = f"{tag}:{report.source}"
+        for menu in parsed.menus:
+            menu.source = f"{tag}:{menu.source}"
+            menu.decision_id = prefix_id(f"{tag}-", menu.decision_id)
+    episode.parses = [(f"{tag}:{rel}", parsed)
+                      for rel, parsed in episode.parses]
+    episode.sources = {
+        key: [f"{tag}:{v}" if isinstance(v, str) else {**v, "project": n}
+              for v in values]
+        for key, values in episode.sources.items()}
+
+
+def _join_results(results: list[TimelineResult]) -> TimelineResult:
+    """The walks of several projects as one, in order (one result is
+    returned as it is)."""
+    if len(results) == 1:
+        return results[0]
+    joined = TimelineResult()
+    for result in results:
+        offset = len(joined.items)
+        joined.items += result.items
+        joined.source_images += result.source_images
+        joined.decoded_sizes += result.decoded_sizes
+        joined.branch_candidates += [{
+            **cand,
+            "after_idx": cand["after_idx"] + offset,
+            "route_spans": [(label, start + offset, end + offset)
+                            for label, start, end in cand["route_spans"]],
+        } for cand in result.branch_candidates]
+    return joined
+
+
+def _join_sources(all_sources: list[dict[str, Any]],
+                  several: bool) -> dict[str, Any]:
+    """The projects' script-source provenance lists, concatenated."""
+    if not several:
+        return all_sources[0]
+    joined: dict[str, Any] = {}
+    for sources in all_sources:
+        for key, values in sources.items():
+            joined.setdefault(key, []).extend(values)
+    return joined

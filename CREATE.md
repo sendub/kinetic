@@ -419,6 +419,12 @@ spaces), and the `storyId` is derived from `config.save_directory`,
 be a valid `storyId`), or edit `manifest.json` afterwards and regenerate
 `manifest.js` (Generating manifest.js).
 
+A game released in episodes becomes one game: list the episodes in
+story order before the output folder,
+`kinetic-extract <episode1> <episode2> <out_dir>`. Episode 2 follows
+episode 1 in one story, with one media folder that stores identical
+files once (docs/extracting.md, "Several episodes, one game").
+
 ## Playing the folder
 
 Copy the built player bundle from this repo into the content folder:

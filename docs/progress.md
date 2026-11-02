@@ -1110,9 +1110,16 @@ truthful: an unchecked box means nothing was accepted.
       calls and give identical folders: renpy_demo 0.81 -> 0.34 s; 417
       images via ship 300 -> 14.6 s. 11 tests (7 red before); pytest
       converter+tools 385. 2026-11-02)
-- [ ] 25.11 Several episodes into one game: kinetic-extract (and ship)
+- [x] 25.11 Several episodes into one game: kinetic-extract (and ship)
       take several projects in order -> one continuous story, ids kept
       unique, one media folder.
+      (kinetic-extract EP1 EP2 ... OUT; ids prefixed epN- only with
+      several projects (single-project output byte-identical, proved by
+      golden + diffs); slicing options refused with several; storyId/
+      title from the first unless given; ledger `projects` + source
+      `project`; rebuild takes the roots in order; ship per episode from
+      the common parent. 15 tests; pytest converter+tools 400; real
+      3-project run validated, rebuilt OK and played. 2026-11-02)
 - [ ] 25.12 How-to docs (user, 2026-11-02): a practical guide to using
       all of this effectively — setting up and pinning the tools, the
       everyday convert command, writing and packaging a decoder hook

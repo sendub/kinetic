@@ -67,6 +67,52 @@ parsed `.rpy` files). Smoke runs (2026-02-13):
   names are unresolved dynamic references; item slots and sources are
   recorded in the ledger).
 
+## Several episodes, one game
+
+A game released as several Ren'Py projects (episodes) becomes one
+Kinetic game (docs/plan.md Phase 25): list the projects in story order,
+then the output folder.
+
+```sh
+.venv/bin/kinetic-extract <episode1> <episode2> [...] <out> \
+    [--decoder MODULE:FUNC ...] [--story-id ID] [--title TEXT]
+```
+
+- One continuous story: each project is parsed and walked on its own,
+  and episode 2's items follow episode 1's in one manifest. Each
+  episode's decisions stay within it.
+- Ids: every item, decision and route reference from project N gets
+  the prefix `epN-` (`ep2-bg-room-008`, `ep2-menu-start-37`), so ids
+  are unique and the same on every re-run with the same order. Saved
+  progress is keyed by item id, so keep the order (adding an episode at
+  the end changes no earlier id). An id that would pass 64 characters
+  loses characters from its name part, never from its trailing number.
+  A single project gets no prefix: its output is exactly as before.
+- One `media/` folder: identical media across episodes is one file (one
+  ledger `media` entry, the later episodes' sources under `alsoFrom`).
+- `storyId` and `title` come from the first project unless
+  `--story-id`/`--title` are given; the summary notes when the projects
+  derive different story ids. The display size is the most common image
+  size across all episodes; `--width`/`--height` and `--decoder` apply
+  to every episode.
+- `--label`, `--max-items` and `--files` work only with one project (a
+  usage error otherwise).
+- Ledger: `projects` lists the projects' folder names in order; every
+  `media` source (and `alsoFrom` source) carries `"project": N`
+  (1-based, in that order); `inputs`, item `source`s and `report`
+  sources read `epN:game/script.rpy:12`; the `rpyc*`/`rpa*` lists
+  prefix strings the same way and give objects a `project`. Decoder
+  hooks are still called with the bare source (`path`, or `archive` +
+  `member`), without `project`.
+- Rebuild with every project, in the same order:
+  `kinetic-media rebuild <episode1> <episode2> [...] <out>`.
+
+A helper that writes its own story ships each episode's media into the
+same folder with `kinetic-media ship`, using the episodes' common parent
+folder as `<game_root>` (sources such as `Ep1/game/images/a.png`), so the
+merged media ledger rebuilds from that one root (kinetic-media ship,
+below).
+
 ## Output layout
 
 Every shipped media file, posters included, is content-addressed
@@ -109,7 +155,9 @@ files (docs/plan.md Phase 25), which `kinetic-media rebuild` reads:
     the game): `{"path": "game/images/a.png"}` for a loose file, or
     `{"archive": "game/images.rpa", "member": "images/a.png"}` for an
     archive member; plus `sha256` and `bytes` of the raw source, before
-    any carve. A poster's source is its video.
+    any carve, and, when several projects made one game, `project` (N,
+    1-based: Several episodes, one game, above). A poster's source is
+    its video.
   - `steps`: what was done to the source, in order. Each carries every
     parameter that decides the output bytes:
     - `{"step": "decode", "hook": "MODULE:FUNC", "hookSha256": "…",
@@ -373,13 +421,22 @@ into it, so a helper can ship once per episode into one folder:
 - Files are never deleted. An output that only a replaced request used
   stays in `media/`.
 
+Ship every episode from the same `<game_root>`, the folder holding all of
+them, with sources naming the episode folder
+(`{"path": "Ep2/game/images/a.png"}`) and ids unique across episodes
+(`ep2-room`). The merged ledger then names every source against that
+one root, and `kinetic-media rebuild <that folder> <out>` checks them
+all. Shipping each episode from its own root instead gives a ledger whose
+sources rebuild only against that root: rebuild reports the other
+episodes' sources missing or mismatched.
+
 ## kinetic-media rebuild
 
 Makes a folder's media again from its ledger and the original game
 files, and checks every hash (docs/plan.md Phase 25):
 
 ```sh
-.venv/bin/kinetic-media rebuild <game_root> <folder> \
+.venv/bin/kinetic-media rebuild <game_root> [<game_root> ...] <folder> \
     [--decoder MODULE:FUNC ...] [--out DIR]
 ```
 
@@ -392,6 +449,11 @@ files, and checks every hash (docs/plan.md Phase 25):
   project dir, `game/` itself, or a macOS `.app`). A media ledger's
   sources resolve against `<game_root>` as given, the same root the
   ship ran with.
+- Several game roots: for a game kinetic-extract made from several
+  projects, give each project, in the same order; a source with
+  `"project": N` resolves against the Nth (a missing one fails, naming
+  the project). A source without `project` uses the first, as does a
+  media ledger (ship each episode from their common parent folder).
 - `--decoder`: the hooks the conversion ran, in the same order. A hook
   matches a ledger hook by function name and code sha256. The module
   path may be spelled differently, for example after the hook package

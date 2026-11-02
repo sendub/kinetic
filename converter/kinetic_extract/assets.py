@@ -994,9 +994,19 @@ class _Placed:
 
 
 def _source_identity(source: dict[str, Any]) -> tuple[str, ...]:
+    """Which source file this is: its path (or archive + member) and, in
+    a several-project game, the project it is under."""
+    project = (str(source["project"]),) if "project" in source else ()
     if "archive" in source:
-        return ("archive", source["archive"], source["member"])
-    return ("path", source["path"])
+        return ("archive", source["archive"], source["member"], *project)
+    return ("path", source["path"], *project)
+
+
+def bare_source(source: dict[str, Any]) -> dict[str, Any]:
+    """A source ref as one project names it, without the several-project
+    ``project`` index: what decoder hooks are given, here and in a
+    rebuild."""
+    return {k: v for k, v in source.items() if k != "project"}
 
 
 def _source(record: ItemRecord, digest: str, size: int) -> dict[str, Any]:
@@ -1050,7 +1060,8 @@ def _read_input(record: ItemRecord, source: Path,
                        [])
     else:
         data = source.read_bytes()
-        out, steps = decoder_hooks.apply(decoders, data, ref)
+        out, steps = decoder_hooks.apply(decoders, data,
+                                         bare_source(ref))
         path = source
         if steps:
             # Same file name, so extension-based choices (a video's

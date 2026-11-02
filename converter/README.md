@@ -135,6 +135,16 @@ files matching GLOB (filename order). With none of them the whole
 project is extracted, as before. Requested slice options are recorded
 under `slice` in `build-ledger.json`.
 
+Several projects (a game's episodes, in story order) make one game:
+`kinetic-extract <episode1> <episode2> [...] <out_dir>`. Episode 2's
+items follow episode 1's in one manifest, every id from project N gets
+the prefix `epN-` (unique, and stable across re-runs in the same order),
+and one `media/` holds identical media once. The `storyId` and `title`
+come from the first project unless given. Ledger media sources carry
+`"project": N`. The slice options need a single project. A single
+project's output is unchanged. Details: docs/extracting.md, "Several
+episodes, one game".
+
 ### kinetic-media ship
 
 ```sh
@@ -152,18 +162,22 @@ kinetic-extract. `<out_dir>/media-ledger.json` holds `mediaTools`,
 `file`/`poster`/`width`/`height`/`durationSeconds`, decision and notes.
 Requests with a missing or unusable source come back without a `file`,
 and the run still exits 0. A hook failure exits 1, and a bad list exits
-2. Shipping into the same folder again merges into its ledger. The
-format and merge rules are in docs/extracting.md, "kinetic-media ship".
+2. Shipping into the same folder again merges into its ledger; to ship
+several episodes into one folder, use the folder holding all of them as
+`<game_root>` every time, so one root rebuilds them all. The format and
+merge rules are in docs/extracting.md, "kinetic-media ship".
 
 ### kinetic-media rebuild
 
 ```sh
-.venv/bin/kinetic-media rebuild <game_root> <folder> \
+.venv/bin/kinetic-media rebuild <game_root> [<game_root> ...] <folder> \
     [--decoder MODULE:FUNC ...] [--out DIR]
 ```
 
 This makes every output in `<folder>`'s `build-ledger.json` and/or
-`media-ledger.json` again from the original files under `<game_root>`.
+`media-ledger.json` again from the original files under `<game_root>`
+(for a game kinetic-extract made from several projects, every project in
+the same order).
 It runs the recorded steps through the same step code the converter
 uses, and checks source sha256s, output sha256s and the folder's
 `media/`. Give the same `--decoder` hooks the conversion ran. The

@@ -8,7 +8,9 @@ their ``media`` sections together describe the folder's ``media/``. Each
 entry, and each of its ``alsoFrom`` sources, is rebuilt independently:
 
 1. the source (loose path, or archive + member) is found under the game
-   root and its sha256 and size checked against the ledger;
+   root (for a several-project build ledger, the root its ``project``
+   index names, in the order kinetic-extract took them) and its sha256
+   and size checked against the ledger;
 2. its recorded steps run through ``assets.run_steps``, the same step
    code the converter makes outputs with (decoder hooks included);
 3. the output's sha256 must equal the entry's, exactly: the tools are
@@ -143,18 +145,37 @@ def project_base(game_root: Path) -> Path:
 
 
 class _Sources:
-    """Resolves ledger sources under a base dir, hashing each file once."""
+    """Resolves ledger sources under the base dirs (one per game root, a
+    source's 1-based ``project`` picking one), hashing each file once."""
 
-    def __init__(self, base: Path) -> None:
-        self.base = base
+    def __init__(self, bases: list[Path]) -> None:
+        self.bases = bases
         self.hashes: dict[Path, tuple[str, int]] = {}
 
-    def find(self, source: dict[str, Any]) -> tuple[Path | None, str]:
+    def base(self, project: Any) -> tuple[Path | None, str]:
+        """The base dir for a source's ``project`` (absent: the first),
+        or None and why."""
+        if project is None:
+            project = 1
+        if isinstance(project, bool) or not isinstance(project, int) \
+                or project < 1:
+            return None, f" (bad project index {project!r})"
+        if project > len(self.bases):
+            roots = len(self.bases)
+            return None, (f": it names project {project} but only {roots} "
+                          f"game root{'' if roots == 1 else 's'} given")
+        return self.bases[project - 1], ""
+
+    def find(self, source: dict[str, Any],
+             project: Any = None) -> tuple[Path | None, str]:
         """(file holding the source bytes, or None) and why it is None."""
+        base, why = self.base(project)
+        if base is None:
+            return None, why
         if "path" in source:
-            path = self.base / source["path"]
+            path = base / source["path"]
             return (path, "") if path.is_file() else (None, "")
-        archive = self.base / source["archive"]
+        archive = base / source["archive"]
         if not archive.is_file():
             return None, " (archive not found)"
         try:
@@ -196,7 +217,7 @@ def rebuild_one(entry: dict[str, Any], made: dict[str, Any],
         fail(f"unsupported source {json.dumps(source, sort_keys=True)}")
         return None
     name = describe(bare)
-    path, why = sources.find(bare)
+    path, why = sources.find(bare, source.get("project"))
     if path is None:
         fail(f"missing source {name}{why}")
         return None
@@ -228,20 +249,20 @@ def rebuild_one(entry: dict[str, Any], made: dict[str, Any],
     return out
 
 
-def rebuild(folder: Path, game_root: Path, decoders: list[Decoder],
+def rebuild(folder: Path, game_roots: list[Path], decoders: list[Decoder],
             ledgers: list[tuple[str, dict[str, Any]]],
             out_dir: Path | None = None) -> Report:
-    """Rebuild every ``media`` entry of `ledgers`; write matching outputs
-    under `out_dir` when given; check the folder's ``media/`` (always
-    without `out_dir`, else when the folder has a ``media/``)."""
+    """Rebuild every ``media`` entry of `ledgers` from the original files
+    under `game_roots` (one per project, in order); write matching
+    outputs under `out_dir` when given; check the folder's ``media/``
+    (always without `out_dir`, else when the folder has a ``media/``)."""
     report = Report()
     for line in decoder_differences(ledgers, decoders):
         report.fail("decoders", line)
     entries: dict[str, dict[str, Any]] = {}
     for name, ledger in ledgers:
-        base = project_base(game_root) if name == BUILD_LEDGER \
-            else game_root
-        sources = _Sources(base)
+        sources = _Sources([project_base(root) if name == BUILD_LEDGER
+                            else root for root in game_roots])
         for ref, entry in sorted(ledger["media"].items()):
             entries[ref] = entry
             report.outputs += 1

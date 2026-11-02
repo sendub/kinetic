@@ -5,8 +5,8 @@ Usage:
 
     kinetic-media ship <game_root> <out_dir> --list FILE
                        [--decoder MODULE:FUNC ...]
-    kinetic-media rebuild <game_root> <folder> [--decoder MODULE:FUNC ...]
-                          [--out DIR]
+    kinetic-media rebuild <game_root> [<game_root> ...] <folder>
+                          [--decoder MODULE:FUNC ...] [--out DIR]
 
 ``FILE`` is a JSON array of requests; each names a source relative to
 ``<game_root>`` (a loose path, or an ``.rpa`` archive plus member) and a
@@ -24,9 +24,11 @@ game root, or media tools that are not ready.
 
 ``rebuild`` makes every output listed in ``<folder>``'s
 ``build-ledger.json`` and/or ``media-ledger.json`` again from the
-original files under ``<game_root>`` (``rebuild.py``) and checks source
-and output sha256s and the folder's ``media/``. Verify-only by default;
-``--out DIR`` also writes the rebuilt ``media/`` tree there. Exit 0 when
+original files under ``<game_root>`` (several, in kinetic-extract's
+order, for a game made from several projects; ``rebuild.py``) and
+checks source and output sha256s and the folder's ``media/``.
+Verify-only by default; ``--out DIR`` also writes the rebuilt ``media/``
+tree there. Exit 0 when
 everything matches, 1 when anything is missing, unsupported or
 mismatched (each named), 2 when it cannot start (no ledger, other media
 tools, tools not ready).
@@ -122,9 +124,10 @@ def _print_summary(records, entries, skipped: int) -> None:
 
 
 def rebuild_cmd(args: argparse.Namespace) -> int:
-    root: Path = args.game_root.expanduser()
-    if not root.is_dir():
-        return _fail(f"{root}: game root is not a directory", 2)
+    roots: list[Path] = [root.expanduser() for root in args.game_root]
+    for root in roots:
+        if not root.is_dir():
+            return _fail(f"{root}: game root is not a directory", 2)
     folder: Path = args.folder
     try:
         ledgers = load_ledgers(folder)
@@ -135,8 +138,8 @@ def rebuild_cmd(args: argparse.Namespace) -> int:
         return _fail("the ledger was made with other media tools; with "
                      "these the outputs cannot match:\n"
                      + "\n".join(differ), 2)
-    report = rebuild(folder, root.resolve(), args.decoder, ledgers,
-                     args.out)
+    report = rebuild(folder, [root.resolve() for root in roots],
+                     args.decoder, ledgers, args.out)
     names = " + ".join(name for name, _ in ledgers)
     for line in report.failures:
         print(f"FAIL {line}")
@@ -177,10 +180,13 @@ def main(argv: list[str] | None = None) -> int:
     rebuildp = sub.add_parser(
         "rebuild", help="make a folder's media again from its ledger and "
                         "the original files, checking every hash")
-    rebuildp.add_argument("game_root", type=Path,
+    rebuildp.add_argument("game_root", type=Path, nargs="+",
+                          metavar="game_root",
                           help="the original game: ledger source paths "
                                "are relative to it (for a build ledger, "
-                               "the project as kinetic-extract took it)")
+                               "the project as kinetic-extract took it; "
+                               "for one made from several projects, each "
+                               "of them in the same order)")
     rebuildp.add_argument("folder", type=Path,
                           help="the Kinetic folder holding "
                                "build-ledger.json and/or media-ledger.json")
