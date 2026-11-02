@@ -941,7 +941,11 @@ truthful: an unchecked box means nothing was accepted.
       click (backdrop or anywhere) no longer closes the `c` screen or the
       Esc help; their keys still do (c / Esc; Esc / Space for help).
       Clicks on their controls still work. Hint lines updated (e.g. help
-      "Esc · Space — closes"). The `t` bookmark list is unchanged.
+      "Esc or Space closes"). The `t` bookmark list is unchanged.
+      Separators (user, 2026-11-02, dislikes "·" as "or"): in every hint,
+      alternatives read "or" in words ("Esc or n cancels", "1-9 or click
+      picks a route") and separate clauses use "; " instead of " · "
+      (help, confirm, bookmarks, config, choice hints, progress note).
       Tests, screens scenario, README.
 - [ ] Phase-closer: full suite (scenarios, vitest, pytest,
       package-proof), rebuild both demo folders.
