@@ -8,6 +8,7 @@ import hashlib
 import json
 import subprocess
 from collections import Counter
+from collections.abc import Iterable
 from pathlib import Path
 
 from . import media_tools
@@ -65,11 +66,14 @@ def probe_duration_seconds(path: Path) -> float | None:
     return round(value, 6) if value > 0 else None
 
 
-def most_common_image_size(paths: list[Path]) -> tuple[int, int] | None:
-    """The size shared by most of the given image files, or None."""
+def most_common_image_size(paths: list[Path],
+                           extra: Iterable[tuple[int, int]] = (),
+                           ) -> tuple[int, int] | None:
+    """The size shared by most of the given image files plus the `extra`
+    sizes (decoded images), or None."""
     from PIL import Image
 
-    sizes: Counter[tuple[int, int]] = Counter()
+    sizes: Counter[tuple[int, int]] = Counter(extra)
     for path in paths:
         try:
             with Image.open(path) as img:

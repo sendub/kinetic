@@ -5,6 +5,7 @@ Usage:
     kinetic-extract <renpy_project> <out_dir> [--width N] [--height N]
                     [--label NAME] [--max-items N] [--files GLOB]
                     [--title TEXT] [--story-id ID]
+                    [--decoder MODULE:FUNC ...]
 
 <renpy_project> may be a directory containing ``game/``, a ``game/``
 directory itself, or a macOS ``.app`` bundle (the ``game`` dir is resolved
@@ -32,6 +33,12 @@ single members into ``.tmp/kinetic-extract-cache/`` (the item's ledger
 asset reads ``game/<archive>!<key>`` and its ``media`` source names the
 archive and member; see kinetic_extract.rpa).
 
+``--decoder MODULE:FUNC`` (repeatable; docs/extracting.md, "Decoder
+hooks") runs a game's own unwrapping hook over the complete bytes of every
+media source, loose file or archive member, before format detection;
+hooks chain in the order given. A hook that raises stops the run with a
+non-zero exit naming the hook, the source and the error.
+
 Slice options (docs/plan.md Phase 11) extract part of a big game:
 ``--label NAME`` starts the walk at that label, ``--max-items N`` stops
 after N manifest items, and ``--files GLOB`` restricts which ``.rpy``
@@ -52,6 +59,7 @@ from typing import Any
 
 from . import __version__
 from .assets import run_asset_pass
+from .decoders import Decoder, DecoderError, load_decoder
 from .images import ImplicitImages
 from .media import DEFAULT_SIZE, most_common_image_size
 from .media_tools import MediaToolsError, run_tools
@@ -194,6 +202,14 @@ def story_id_option(text: str) -> str:
     return text
 
 
+def decoder_option(text: str) -> Decoder:
+    """argparse type for `--decoder`: the loaded hook, or a usage error."""
+    try:
+        return load_decoder(text)
+    except DecoderError as exc:
+        raise argparse.ArgumentTypeError(str(exc)) from exc
+
+
 def build_manifest(result: TimelineResult, width: int, height: int,
                    branches: list[dict[str, Any]] | None = None,
                    story_id: str | None = None,
@@ -304,6 +320,7 @@ def build_ledger(result: TimelineResult, reports: list[Report],
                  branch_notes: list[dict[str, str]] | None = None,
                  media: dict[str, Any] | None = None,
                  media_tools: dict[str, Any] | None = None,
+                 decoders: list[Decoder] | None = None,
                  ) -> dict[str, Any]:
     items: dict[str, Any] = {}
     for record in result.items:
@@ -350,6 +367,10 @@ def build_ledger(result: TimelineResult, reports: list[Report],
             ledger["rpaFailed"] = sources["rpaFailed"]
     if media_tools is not None:
         ledger["mediaTools"] = sorted_keys(media_tools)
+    if decoders:
+        # The --decoder hooks in the order they ran, each with the sha256
+        # of its source file: a rebuild must run the same code.
+        ledger["decoders"] = [sorted_keys(d.record()) for d in decoders]
     if media is not None:
         # Output path -> how to make it again from the original game
         # files (docs/extracting.md, "Build ledger"); keys sorted at every
@@ -442,6 +463,13 @@ def main(argv: list[str] | None = None) -> int:
                       help="the manifest storyId progress is saved under "
                            "(default: derived from config.save_directory, "
                            "config.name or the folder name)")
+    argp.add_argument("--decoder", type=decoder_option, action="append",
+                      default=[], metavar="MODULE:FUNC",
+                      help="run this hook (an importable module or a .py "
+                           "path, then the function) over the complete "
+                           "bytes of every media source before format "
+                           "detection; returns bytes, or None for "
+                           "unchanged; repeatable, chained in order")
     args = argp.parse_args(argv)
 
     try:
@@ -469,13 +497,19 @@ def main(argv: list[str] | None = None) -> int:
     for _rel, parsed in parses:
         reports.extend(parsed.reports)
     tools = run_tools(__version__)
-    skipped, media = run_asset_pass(result.items, args.out_dir, tools)
+    try:
+        skipped, media = run_asset_pass(result.items, args.out_dir, tools,
+                                        args.decoder, result.decoded_sizes)
+    except DecoderError as exc:
+        print(f"kinetic-extract: {exc}", file=sys.stderr)
+        return 1
     branches, branch_notes = finalize_branches(result, parses, reports)
 
     if args.width and args.height:
         width, height, source_note = args.width, args.height, "--width/--height override"
     else:
-        size = most_common_image_size(result.source_images)
+        size = most_common_image_size(result.source_images,
+                                      result.decoded_sizes)
         width = args.width or (size[0] if size else DEFAULT_SIZE[0])
         height = args.height or (size[1] if size else DEFAULT_SIZE[1])
         source_note = ("most common source image size" if size
@@ -508,7 +542,8 @@ def main(argv: list[str] | None = None) -> int:
                           else None,
                           sources=sources,
                           branch_notes=branch_notes,
-                          media=media, media_tools=tools)
+                          media=media, media_tools=tools,
+                          decoders=args.decoder)
     write_outputs(args.out_dir, manifest, ledger)
     print_summary(result, reports, f"{width}x{height} ({source_note})",
                   skipped, branch_notes, (story_id, story_source),

@@ -76,6 +76,9 @@ class ItemRecord:
 class TimelineResult:
     items: list[ItemRecord] = field(default_factory=list)
     source_images: list[Path] = field(default_factory=list)  # for size probe
+    # Sizes of images a --decoder hook unwrapped (the raw files above do
+    # not open); the asset pass adds them, the size probe counts them.
+    decoded_sizes: list[tuple[int, int]] = field(default_factory=list)
     # Menu regions that passed the conservative shape check, as
     # {"record": MenuRecord, "after_idx": int,
     #  "route_spans": [(label, start_idx, end_idx)]}

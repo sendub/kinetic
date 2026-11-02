@@ -16,7 +16,11 @@ file extensions - corpus extensions lie. Policies:
   has alpha (PNG or JXL only).
 - Wrapped/obfuscated images (a PNG/JPEG signature inside the first 64
   bytes, none at offset 0) are carved from the signature and follow the
-  same preserve-or-JXL rule, recorded as ``carved``. Anything else is
+  same preserve-or-JXL rule, recorded as ``carved``, provided the carved
+  bytes decode as a whole image. Game-specific wrappers are undone first
+  by ``--decoder`` hooks (``decoders``), over the complete source
+  bytes, before any sniffing; their ``decode`` steps lead the ledger
+  entry. Anything else is
   ``skipped``: the item is dropped from the manifest and reported.
 - Videos: ffprobe container + codec decide. Browser-native combinations
   (mp4/mov + h264/hevc, webm/m4v + vp8/vp9/av1, mkv/webm + vp9/av1) copy
@@ -54,12 +58,14 @@ import os
 import shutil
 import subprocess
 import tempfile
+from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
 from typing import Any
 
+from . import decoders as decoder_hooks
 from . import media_tools
-from .media import content_ref, sha256_file
+from .media import content_ref, probe_duration_seconds, sha256_file
 from .timeline import ItemRecord
 
 COMPATIBLE_EXTS = {"png", "jpeg", "jpg", "webp", "gif"}
@@ -141,7 +147,8 @@ def sniff_image(data: bytes) -> tuple[str | None, int]:
 
     Pillow answers when the data opens as a recognized image at offset 0.
     Otherwise the first 64 bytes are scanned for a PNG/JPEG signature
-    (wrapped image): the returned offset is where the real image starts.
+    (wrapped image): the returned offset is where the real image starts,
+    provided the bytes from there decode as a whole image.
     """
     from PIL import Image
 
@@ -157,9 +164,24 @@ def sniff_image(data: bytes) -> tuple[str | None, int]:
     head = data[:64]
     for magic, fmt in _CARVE_MAGICS:
         at = head.find(magic)
-        if at > 0:
+        if at > 0 and _decodes(data[at:]):
             return fmt, at
     return None, 0
+
+
+def _decodes(data: bytes) -> bool:
+    """Whether Pillow fully decodes `data`: a carve counts only when the
+    bytes after the signature are a whole image, so a wrapper that also
+    alters the body (one a decoder hook must undo) is skipped, never
+    shipped as a broken image."""
+    from PIL import Image
+
+    try:
+        with Image.open(BytesIO(data)) as img:
+            img.load()
+    except Exception:  # noqa: BLE001 - any decode failure: not an image
+        return False
+    return True
 
 
 def is_animated(data: bytes, fmt: str) -> bool:
@@ -581,8 +603,56 @@ def _set_media(item: dict[str, Any], file: str,
     item.update(head | rest)
 
 
+@dataclass
+class _Input:
+    """One media source as the asset pass sees it: ``path`` holds the
+    bytes to sniff and ship (a scratch copy when a decoder hook changed
+    them), ``sha256``/``size`` are the RAW source's, ``steps`` the decode
+    steps (empty without hooks)."""
+
+    path: Path
+    sha256: str
+    size: int
+    steps: list[dict[str, Any]]
+
+    @property
+    def digest(self) -> str:
+        """sha256 of the bytes at ``path`` (the decoded ones, if any)."""
+        return self.steps[-1]["outputSha256"] if self.steps else self.sha256
+
+
+def _read_input(record: ItemRecord, source: Path,
+                decoders: list[decoder_hooks.Decoder], scratch: Path,
+                memo: dict[tuple[str, ...], _Input]) -> _Input:
+    """The item's source, run through the decoder hooks (complete bytes,
+    before any format detection); once per distinct source."""
+    ref = record.source_ref or {"path": str(record.asset)}
+    key = _source_identity(ref)
+    if key in memo:
+        return memo[key]
+    if not decoders:
+        found = _Input(source, sha256_file(source), source.stat().st_size,
+                       [])
+    else:
+        data = source.read_bytes()
+        out, steps = decoder_hooks.apply(decoders, data, ref)
+        path = source
+        if steps:
+            # Same file name, so extension-based choices (a video's
+            # container ext) see what they would without the wrapper.
+            path = scratch / "decoded" / str(len(memo)) / source.name
+            path.parent.mkdir(parents=True)
+            path.write_bytes(out)
+        found = _Input(path, hashlib.sha256(data).hexdigest(), len(data),
+                       steps)
+    memo[key] = found
+    return found
+
+
 def run_asset_pass(records: list[ItemRecord], out_dir: Path,
                    tools: dict[str, Any],
+                   decoders: list[decoder_hooks.Decoder] | None = None,
+                   decoded_sizes: list[tuple[int, int]] | None = None,
                    ) -> tuple[int, dict[str, dict[str, Any]]]:
     """Ship every referenced asset at its TRUE format (docs/plan.md Phase 10)
     under its content-addressed path (Phase 25).
@@ -590,8 +660,12 @@ def run_asset_pass(records: list[ItemRecord], out_dir: Path,
     Mutates each record: item file/poster fields point at shipped files,
     ``record.asset_meta`` carries the decision and the output paths (and
     ``record.skipped`` marks items dropped from the manifest). ``tools``
-    is the run's ``mediaTools`` (media_tools.run_tools). Returns the
-    skipped count and the ledger's ``media`` section: output path ->
+    is the run's ``mediaTools`` (media_tools.run_tools). ``decoders``
+    are the ``--decoder`` hooks, run over every source first; a hook's
+    failure raises ``decoders.DecoderError`` and ends the pass; the size
+    of each image a hook decoded is appended to ``decoded_sizes`` (for
+    the display-size probe, which saw only the wrapped file). Returns
+    the skipped count and the ledger's ``media`` section: output path ->
     entry.
     """
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -602,6 +676,7 @@ def run_asset_pass(records: list[ItemRecord], out_dir: Path,
     image_share: dict[str, tuple[str, str, list[dict]]] = {}
     video_share: dict[str, tuple[str, str, list[dict]]] = {}
     poster_share: dict[str, str] = {}
+    inputs: dict[tuple[str, ...], _Input] = {}
     with tempfile.TemporaryDirectory(prefix=".kinetic-tmp-",
                                      dir=out_dir) as scratch:
         for record in records:
@@ -617,10 +692,15 @@ def run_asset_pass(records: list[ItemRecord], out_dir: Path,
                 record.skipped = True
                 skipped += 1
                 continue
+            found = _read_input(record, source, list(decoders or ()),
+                                Path(scratch), inputs)
             if kind == "image":
-                skipped += _ship_image(record, source, placed, image_share)
+                skipped += _ship_image(record, found, placed, image_share)
+                if found.steps and decoded_sizes is not None \
+                        and not record.skipped:
+                    _add_size(found.path, decoded_sizes)
             else:
-                skipped += _ship_video(record, source, placed, video_share,
+                skipped += _ship_video(record, found, placed, video_share,
                                        poster_share, Path(scratch))
     return skipped, dict(sorted(placed.media.items()))
 
@@ -630,8 +710,9 @@ def _shared_note(record: ItemRecord, shipped: str) -> None:
                         "output)")
 
 
-def _ship_image(record: ItemRecord, source: Path, placed: _Placed,
+def _ship_image(record: ItemRecord, found: _Input, placed: _Placed,
                 share: dict[str, tuple[str, str, list[dict]]]) -> int:
+    source = found.path
     data = source.read_bytes()
     fmt, offset = sniff_image(data)
     meta: dict[str, Any] = record.asset_meta
@@ -643,9 +724,9 @@ def _ship_image(record: ItemRecord, source: Path, placed: _Placed,
             f"{source.name}): item dropped from manifest")
         record.skipped = True
         return 1
-    raw_digest = hashlib.sha256(data).hexdigest()
     effective = data[offset:]
-    digest = hashlib.sha256(effective).hexdigest() if offset else raw_digest
+    digest = (hashlib.sha256(effective).hexdigest() if offset
+              else found.digest)
     if digest in share:
         shipped, decision, steps = share[digest]
         already = True
@@ -656,8 +737,8 @@ def _ship_image(record: ItemRecord, source: Path, placed: _Placed,
         share[digest] = (shipped, decision, steps)
         record.notes.extend(notes)
     carve = [{"step": "carve", "offset": offset}] if offset else []
-    placed.record(shipped, "image", _source(record, raw_digest, len(data)),
-                  carve + steps)
+    placed.record(shipped, "image", _source(record, found.sha256, found.size),
+                  found.steps + carve + steps)
     _set_media(record.item, shipped)
     meta["decision"] = decision
     meta["file"] = shipped
@@ -666,9 +747,10 @@ def _ship_image(record: ItemRecord, source: Path, placed: _Placed,
     return 0
 
 
-def _ship_video(record: ItemRecord, source: Path, placed: _Placed,
+def _ship_video(record: ItemRecord, found: _Input, placed: _Placed,
                 video_share: dict[str, tuple[str, str, list[dict]]],
                 poster_share: dict[str, str], scratch: Path) -> int:
+    source = found.path
     meta: dict[str, Any] = record.asset_meta
     container, codec = probe_video(source)
     meta["sniffedFormat"] = container or "unknown"
@@ -679,8 +761,10 @@ def _ship_video(record: ItemRecord, source: Path, placed: _Placed,
             f"unprobeable video {source.name}: item dropped from manifest")
         record.skipped = True
         return 1
-    digest = sha256_file(source)
-    src = _source(record, digest, source.stat().st_size)
+    if found.steps:
+        _reprobe_duration(record, source)
+    digest = found.digest
+    src = _source(record, found.sha256, found.size)
     if digest in video_share:
         shipped, decision, steps = video_share[digest]
         already = True
@@ -707,7 +791,7 @@ def _ship_video(record: ItemRecord, source: Path, placed: _Placed,
             record.notes.append(
                 f"transcoded {codec}/{container} to h264 mp4 (faststart)")
         video_share[digest] = (shipped, decision, steps)
-    placed.record(shipped, "video", src, steps)
+    placed.record(shipped, "video", src, found.steps + steps)
     if already:
         _shared_note(record, shipped)
     meta["decision"] = decision
@@ -728,7 +812,32 @@ def _ship_video(record: ItemRecord, source: Path, placed: _Placed,
             poster = shipped  # last resort: first-frame still = the file
         poster_share[poster_key] = poster
     if poster != shipped:
-        placed.record(poster, "poster", src, [poster_step(start)])
+        placed.record(poster, "poster", src,
+                      found.steps + [poster_step(start)])
     _set_media(record.item, shipped, poster)
     meta["poster"] = poster
     return 0
+
+
+_DURATION_PLACEHOLDER = "durationSeconds placeholder 1.0"
+
+
+def _reprobe_duration(record: ItemRecord, decoded: Path) -> None:
+    """The timeline probed the raw (still wrapped) file; a decoded video's
+    real duration replaces the placeholder it got there."""
+    duration = probe_duration_seconds(decoded)
+    if duration is None:
+        return
+    record.item["durationSeconds"] = duration
+    record.notes[:] = [n for n in record.notes
+                       if not n.startswith(_DURATION_PLACEHOLDER)]
+
+
+def _add_size(path: Path, sizes: list[tuple[int, int]]) -> None:
+    from PIL import Image
+
+    try:
+        with Image.open(path) as img:
+            sizes.append(img.size)
+    except (OSError, ValueError):
+        pass

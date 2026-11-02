@@ -112,6 +112,14 @@ files (docs/plan.md Phase 25), which `kinetic-media rebuild` reads:
     any carve. A poster's source is its video.
   - `steps`: what was done to the source, in order. Each carries every
     parameter that decides the output bytes:
+    - `{"step": "decode", "hook": "MODULE:FUNC", "hookSha256": "…",
+      "inputSha256": "…", "outputSha256": "…"}`: a `--decoder` hook
+      changed the bytes (Decoder hooks, below); always first, one per
+      hook that changed them, in the order they ran. `hook` is the
+      `--decoder` value as given, `hookSha256` the sha256 of the hook's
+      source file, `inputSha256` the bytes it was given (the raw source
+      for the first) and `outputSha256` what it returned.
+      `source.sha256` stays the raw original's;
     - `{"step": "carve", "offset": N}`: drop the first N bytes (a
       wrapped image);
     - `{"step": "preserve"}`: ship the bytes unchanged;
@@ -132,6 +140,10 @@ files (docs/plan.md Phase 25), which `kinetic-media rebuild` reads:
     `mediaTools`); absent when nothing was encoded (`preserve`, `carve`).
   - `alsoFrom`: other sources that made the same bytes, each with its own
     `source`, `steps` and `tools`; `source` is the first in item order.
+
+- `decoders`: present when the run had `--decoder` hooks: each as
+  `{"hook", "hookSha256"}`, in the order given, so a rebuild can require
+  the same hooks with the same code.
 
 Each item entry names its outputs with `file` and `poster` (keys into
 `media`), its `asset` as a display string (`game/images/a.png`, or
@@ -154,6 +166,50 @@ example:
             "libjxl": "0.12.0", "numpy": "2.5.4"}
 }
 ```
+
+## Decoder hooks
+
+Some games wrap or obfuscate their media. Kinetic carves a plain wrapper
+(a PNG/JPEG signature within the first 64 bytes, after which the bytes
+must decode as a whole image), but it does not ship game-specific
+decoders. A game's conversion package provides one as a Python function
+and passes it with `--decoder MODULE:FUNC` (docs/plan.md Phase 25):
+
+```sh
+.venv/bin/kinetic-extract <game> <out> --decoder ./my_game/unwrap.py:decode
+```
+
+- MODULE is an importable module name (`my_package.unwrap`) or a path to
+  a `.py` file; FUNC follows the last `:`. A module that cannot be
+  imported, or no such function, is a usage error (exit 2) before any
+  work.
+- `FUNC(data: bytes, source: dict) -> bytes | None` is called once per
+  media source the asset pass reads (images and videos), loose file or
+  `.rpa` member, with the source's COMPLETE bytes (a wrapper's layout may
+  depend on the file length), before format detection and carving.
+  `source` is a copy of the ledger source ref: `{"path":
+  "game/images/a.png"}` or `{"archive": "game/images.rpa", "member":
+  "images/a.png"}`.
+- Return `None` for data that is not yours (unchanged), or the decoded
+  bytes. Returning anything else stops the run.
+- Data you recognise but cannot decode (malformed, truncated): raise.
+  The run stops with exit 1 and `kinetic-extract: decoder hook
+  MODULE:FUNC failed on <source>: <ErrorType>: <message>`, before the
+  manifest and ledger are written. A recognised source is never silently
+  skipped.
+- `--decoder` repeats; the hooks chain in the order given, each getting
+  the previous one's output, so one hook can unwrap what another exposed
+  and hooks for unrelated wrappers coexist by returning `None`.
+- A decoded video's `durationSeconds` is probed from the decoded bytes.
+- The hook runs in-process with the converter's trust: use only code you
+  have read. The ledger records it (Build ledger: the `decode` step and
+  `decoders`); give MODULE as a module name or a path relative to where
+  you run if ledgers from different machines should match byte for
+  byte.
+
+The repo's test hook (`converter/tests/extra_hook.py`) applies an
+"EXTRA" wrapper formula to synthetic files only. It is not a decoder for
+any game; game I's real hook lives in that game's package.
 
 ## Story ID and title
 

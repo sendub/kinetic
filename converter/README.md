@@ -106,6 +106,14 @@ runs read as spaces. `--title TEXT` and `--story-id ID` override them
 (an ID that is not a valid `storyId` is a usage error). The summary
 prints both and their sources.
 
+`--decoder MODULE:FUNC` (repeatable, chained in order) runs a game's
+own unwrapping hook over the complete bytes of every media source, loose
+file or `.rpa` member, before format detection. MODULE is a module name
+or a `.py` path; the function returns the decoded bytes or `None` for
+unchanged, and raises on data it recognises but cannot decode, which
+stops the run naming the source. Each change is a `decode` step in the
+ledger with the hook's code hash (docs/extracting.md, "Decoder hooks").
+
 Slice options (docs/plan.md Phase 11) extract part of a big game:
 `--label NAME` starts the walk at that label, `--max-items N` stops
 after N manifest items, and `--files GLOB` parses only the `game/*.rpy`

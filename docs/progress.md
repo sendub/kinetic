@@ -1023,7 +1023,7 @@ truthful: an unchecked box means nothing was accepted.
       red before; pytest converter+tools 263. With the pinned tools:
       renpy_demo twice identical, mediaTools.pinned true, ffmpeg 9.0.2,
       validator clean. 2026-11-02)
-- [ ] 25.4 Decoder hook `--decoder MODULE:FUNC` per the Phase 25 spec
+- [x] 25.4 Decoder hook `--decoder MODULE:FUNC` per the Phase 25 spec
       (loose files and archive members, full bytes, None = unchanged,
       raise = loud failure; ledger hashes + hook identity + code hash).
       Test hook uses the converting agent's EXTRA formula on a synthetic
@@ -1031,6 +1031,14 @@ truthful: an unchecked box means nothing was accepted.
       game (episodes 4-5 use an activation-dependent offset); the real
       hook lives in the game I package. 25.12's worked example
       must say so too.
+      (decoders.py; hooks chain in order, None/identical = unchanged; a
+      raise or non-bytes return stops the run (exit 1) naming hook and
+      source; bad spec = usage error. Ledger: leading `decode` step with
+      hook, hookSha256, input/output sha256; top-level `decoders`.
+      Duration and display size measured on decoded bytes; a carve now
+      counts only if Pillow decodes it. 12 tests red before; pytest
+      converter+tools 280; real run with pinned tools shipped the
+      wrapped PNG and a malformed one failed loudly. 2026-11-02)
 - [ ] 25.5 Image policy: lossless JXL via imagecodecs when smaller;
       WebP decode-encode with pixel check; JPEG recompression with exact
       byte reconstruction; animation kept; `.jxl` sources ship. Measure

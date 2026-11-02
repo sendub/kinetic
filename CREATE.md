@@ -405,6 +405,12 @@ game gives the same paths on any machine and a big game never puts
 thousands of files in one folder that macOS Finder has to lay out
 (docs/extracting.md, "Output layout"). Validate and play its output the same way.
 
+If a game wraps or obfuscates its images or videos in its own way, pass
+a decoder for it: `--decoder path/to/unwrap.py:decode`, a Python function
+that gets each media file's bytes and returns them unwrapped (or `None`
+to leave them alone). Kinetic ships no game-specific decoders; see
+docs/extracting.md, "Decoder hooks".
+
 The extractor names the game and the story for you: the `title` is the
 project's `config.name` (else its folder name, with `_` and `-` read as
 spaces), and the `storyId` is derived from `config.save_directory`,
