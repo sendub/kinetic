@@ -1197,14 +1197,20 @@ truthful: an unchecked box means nothing was accepted.
       progress 6/6, reading 17/17, menus 8/8, media 22/22, smoke 6/6;
       screenshots checked. Includes the bookmark-e screens check.
       2026-11-02)
-- [ ] Reuse an existing content-addressed file (converting agent,
+- [x] Reuse an existing content-addressed file (converting agent,
       2026-11-02): when `media/<h[:2]>/<h>.<ext>` already exists, verify
       its sha256 and leave it untouched (it may be hard-linked into
       another game or test) instead of replacing it; a mismatching file
       is an error naming the path, never silently overwritten. Applies
       to kinetic-extract, ship and rebuild --out. Also fix the stale
       "`c` config screen" comment at machine.ts ~347.
-- [ ] One video rule (user, 2026-11-02; supersedes 25.6's "MKV copied
+      (media.reuse_existing: a correct existing file is left untouched
+      (inode kept, hard links intact); a wrong one is an error naming it,
+      exit 1, file unchanged; rebuild --out verifies existing files (FAIL
+      line on mismatch). 6 tests red before; re-extract into the same
+      demo folder kept every inode; machine.ts comment fixed. vitest
+      561. 2026-11-02)
+- [x] One video rule (user, 2026-11-02; supersedes 25.6's "MKV copied
       whatever the codec"): a video a target browser can play ships
       byte-identical whatever its container or extension (MP4, WebM,
       MOV, M4V, MKV, ...); anything no target browser can display is
@@ -1212,4 +1218,12 @@ truthful: an unchecked box means nothing was accepted.
       codec) drives it; the MKV-only warning goes (nothing unplayable
       ships). Ledger, rebuild and docs (plan Phase 25 note, stack.md,
       content-format, extracting, CREATE) follow.
+      (PLAYABLE_VIDEO keyed by probed container (MP4 brand, EBML
+      DocType, ffprobe format; never the name): mp4/m4v h264 hevc vp9
+      av1; mov h264 hevc; webm vp8 vp9 av1; mkv h264 hevc vp8 vp9 av1;
+      anything else -> H.264 MP4. Headless Chrome probe: audio codec
+      never blocked playback, so no audio rule. AVI/TS now transcode
+      (were skipped); Ogg transcodes (.ogv not an allowed format). MKV
+      warning removed; cache FORMAT 2. 32 tests red before; pytest
+      converter+tools 439. 2026-11-02)
 - [ ] Phase-closer: full suite, rebuild demo folders.

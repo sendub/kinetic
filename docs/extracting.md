@@ -125,6 +125,16 @@ written once (one ledger `media` entry). The two-hex-digit
 bucket spreads a big game over up to 256 shallow folders, because a
 single huge directory is what macOS Finder stalls on.
 
+A file already at its content path in the output folder (a re-run, a
+ship into an existing folder, or a file hard-linked in from another
+game or a test) is verified, not replaced (docs/plan.md Phase 26): when
+its sha256 is the `<h>` in its name it is left untouched, keeping its
+inode and any hard links; when it is not, the run stops with an error
+naming the path, `<path>: existing file's sha256 is <got>, not the one
+its name gives; not replaced (remove it, or use another output
+folder)`, exit 1, and the file is not overwritten. This applies to
+kinetic-extract, `kinetic-media ship` and `kinetic-media rebuild --out`.
+
 Manifest `file`, `poster`, and `frames` values, and the ledger's item
 `file`/`poster` and `media` keys, carry that relative subpath
 (`media/4e/4e31ed53…882e.jxl`, a 64-hex stem), which the content format's
@@ -208,8 +218,7 @@ files (docs/plan.md Phase 25), which `kinetic-media rebuild` reads:
 Each item entry names its outputs with `file` and `poster` (keys into
 `media`), its `asset` as a display string (`game/images/a.png`, or
 `game/images.rpa!images/a.png` for an archive member), plus
-`sniffedFormat`, `decision` and, for video, `codec`, plus `warning`
-for an MKV whose video codec no target browser plays. Every dict in
+`sniffedFormat`, `decision` and, for video, `codec`. Every dict in
 `mediaTools` and `media` has sorted keys (step and argument lists keep
 their order), so the same input gives the same ledger bytes. A shortened
 example:
@@ -254,23 +263,37 @@ route now reads lossless WebP.
 
 ## Video policy
 
-docs/plan.md Phase 25. ffprobe gives the container and video codec;
-ffprobe names every Matroska file `matroska,webm`, so the EBML header's
-DocType tells MKV (`matroska`) from WebM (`webm`).
+docs/plan.md Phase 26 (one video rule, superseding Phase 25's "MKV
+copied whatever the codec"). A video some target browser (Chrome/Edge,
+Safari, Firefox) can play ships byte-identical, whatever its container
+or file name; anything no target browser displays is transcoded. One
+table, `PLAYABLE_VIDEO` in `kinetic_extract/assets.py`, keyed by the
+probed container and video codec, decides. The container comes from
+the bytes, never the name: for ISO-BMFF files (ffprobe's
+`mov,mp4,m4a,3gp,3g2,mj2`) the `ftyp` major brand gives `mov` (brand
+`qt`, or no `ftyp`), `m4v` (brand `M4V…`) or `mp4` (any other); for
+Matroska files (ffprobe names every one `matroska,webm`) the EBML
+header's DocType gives `webm` (DocType `webm` with VP8, VP9 or AV1) or
+`mkv` (anything else); other files get ffprobe's first format name
+(`avi`, `mpegts`, ...).
 
-| Source | Shipped | Ledger |
-| --- | --- | --- |
-| MKV (DocType `matroska`, whatever its name, or any Matroska file named `.mkv`), any codec | byte-identical, as `.mkv` | `{"step": "preserve", "codec": …}` |
-| MP4/MOV with H.264 or HEVC | byte-identical, keeping `.mp4`/`.mov` | `{"step": "preserve", "codec": …}` |
-| WebM/M4V with VP8, VP9 or AV1 | byte-identical, keeping `.webm`/`.m4v` | `{"step": "preserve", "codec": …}` |
-| anything else ffprobe reads | bitexact H.264 faststart MP4 | `{"step": "transcode", "args": […]}` |
+| Container | Video codecs kept | Shipped | Ledger |
+| --- | --- | --- | --- |
+| `mp4`, `m4v` | H.264, HEVC, VP9, AV1 | byte-identical, as `.mp4` / `.m4v` | `{"step": "preserve", "codec": …}` |
+| `mov` | H.264, HEVC | byte-identical, as `.mov` | `{"step": "preserve", "codec": …}` |
+| `webm` | VP8, VP9, AV1 | byte-identical, as `.webm` | `{"step": "preserve", "codec": …}` |
+| `mkv` | H.264, HEVC, VP8, VP9, AV1 | byte-identical, as `.mkv` | `{"step": "preserve", "codec": …}` |
+| any other pair ffprobe reads (MPEG-4 Part 2, MPEG-2, MJPEG, ProRes, FFV1, Theora; AVI, MPEG-TS, Ogg, ...) | none | bitexact H.264 faststart MP4 | `{"step": "transcode", "args": […]}` |
 
-An MKV is never transcoded. When its video codec is not one that some
-target browser plays in MKV (H.264, HEVC, VP8, VP9, AV1: the headless
-Chrome probe in docs/content-format.md), the item gets the note
-`MKV codec <codec>: no target browser plays it`, the same text as its
-ledger entry's `warning`, and the summary prints a `warning:` line, so
-the game maker can supply a playable file. Safari plays no MKV at all.
+The extension is always the true container's: Matroska bytes named
+`.mp4` ship as `.mkv`, MP4 bytes named `.webm` as `.mp4`. Audio codecs
+never decide: the player plays videos muted, and in the headless Chrome
+probes (docs/content-format.md) the picture played next to every audio
+codec tried. HEVC plays in Safari and, through the platform decoder, in
+Chrome and Edge. Safari plays no MKV and Firefox was not probed; the
+rule asks only that some target browser plays the file. Nothing
+unplayable ships, so there is no playability warning. A file ffprobe
+finds no video stream in is skipped (`unprobeable video`).
 
 Every shipped video has a poster: the frame at the item's `startSeconds`
 (0 when unset), made by the ledger `poster` step above. The poster is
@@ -471,9 +494,11 @@ files, and checks every hash (docs/plan.md Phase 25):
   moved; its code may not change.
 - `--out DIR`: also write the rebuilt `media/` tree into `DIR`. Only
   the ledger is needed, so this reproduces a game's media from the
-  original files. A file already present in `DIR` is kept, never
-  overwritten, so to repair a folder's altered file rebuild into a new
-  `DIR` and copy its `media/` over. Without `--out` the rebuild only
+  original files. A file already present in `DIR` is verified and left
+  untouched (Output layout, above); one whose bytes do not match its
+  name is a `FAIL <output path>: <path>: existing file's sha256 is …`
+  line, never overwritten. To repair a folder's altered file, rebuild
+  into a new `DIR` and copy its `media/` over. Without `--out` the rebuild only
   verifies: outputs go to a temporary dir that is deleted afterwards,
   and the folder is not written.
 

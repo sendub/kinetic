@@ -993,7 +993,9 @@ its answers on):
   bytes exactly. Animated images keep their animation (animated JXL only
   when verified, else the original). `.jxl` sources ship (today they are
   skipped).
-- MKV videos are copied unchanged, whatever the codec.
+- MKV videos are copied unchanged, whatever the codec. (Superseded by
+  Phase 26's one video rule: an MKV no target browser plays now
+  transcodes.)
 - A ledger records, per output: source (loose path, or archive plus
   member), source sha256, each step with parameters, tool versions,
   output sha256. Poster recipes are recorded; a failed poster drops the
@@ -1014,6 +1016,20 @@ its answers on):
 - Several episodes become one Kinetic game: one continuous story
   (episode 2 follows episode 1) with one media folder; identical media
   is stored once.
+
+## Phase 26: One video rule, reused media files (2026-11-02, user + converting agent)
+
+- One video rule (user, superseding Phase 25's MKV bullet): a video some
+  target browser can play ships byte-identical whatever its container
+  or file name (MP4, WebM, MOV, M4V, MKV, ...), at its true container's
+  extension; anything no target browser can display transcodes to H.264
+  MP4. One playability table (probed container + video codec) decides;
+  audio codecs do not (videos play muted). Nothing unplayable ships, so
+  the MKV warning is gone.
+- An existing `media/<h[:2]>/<h>.<ext>` in the output folder is verified
+  and left untouched (it may be hard-linked elsewhere); one whose bytes
+  do not match its name is an error naming it, never overwritten
+  (kinetic-extract, `kinetic-media ship`, `kinetic-media rebuild --out`).
 
 ## Later, waiting on the user
 

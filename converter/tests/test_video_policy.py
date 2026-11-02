@@ -1,10 +1,14 @@
-"""Video policy (docs/plan.md Phase 25, item 25.6): any MKV source ships
-byte-identical, whatever its codecs, with a ledger `preserve` step that
-records the codec. An MKV whose video codec no target browser plays is
-still copied, never transcoded, but the converter warns in the summary
-and adds an item note. Other containers keep their policy: MP4/MOV with
-H.264/HEVC and WebM with VP8/VP9/AV1 copy, anything else transcodes to
-H.264 MP4.
+"""Video policy: one rule (docs/plan.md Phase 26, "One video rule",
+superseding Phase 25 item 25.6's "MKV copied whatever the codec").
+
+A video some target browser can display ships byte-identical, whatever
+its container or file name, at its true container's extension; anything
+no target browser displays transcodes to H.264 MP4. One table, keyed by
+the probed container (ISO-BMFF major brand, EBML DocType; never the file
+name) and video codec, decides. Audio codecs do not matter: the player
+plays videos muted, and the 2026-11-02 headless Chrome probe showed the
+picture plays next to any audio track. Nothing unplayable ships, so
+there is no "no target browser plays it" warning any more.
 """
 
 from __future__ import annotations
@@ -17,6 +21,7 @@ from pathlib import Path
 import pytest
 
 from kinetic_extract import media_tools
+from kinetic_extract.assets import video_decision
 from kinetic_extract.cli import main as cli_main
 
 
@@ -37,20 +42,28 @@ def _encode(out: Path, *args: str) -> Path:
     return out
 
 
+H264 = ("-c:v", "libx264", "-pix_fmt", "yuv420p")
+
+
 @pytest.fixture(scope="module")
 def clips(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Path]:
     d = tmp_path_factory.mktemp("clips")
     return {
-        "h264.mkv": _encode(d / "h264.mkv", "-c:v", "libx264",
-                            "-pix_fmt", "yuv420p", "-c:a", "aac"),
+        "h264.mkv": _encode(d / "h264.mkv", *H264, "-c:a", "aac"),
         "mpeg4.mkv": _encode(d / "mpeg4.mkv", "-c:v", "mpeg4",
                              "-c:a", "aac"),
         "vp9.webm": _encode(d / "vp9.webm", "-c:v", "libvpx-vp9",
                             "-c:a", "libopus"),
-        "h264.mp4": _encode(d / "h264.mp4", "-c:v", "libx264",
-                            "-pix_fmt", "yuv420p", "-c:a", "aac"),
+        "h264.mp4": _encode(d / "h264.mp4", *H264, "-c:a", "aac"),
+        "h264-ac3.mp4": _encode(d / "h264-ac3.mp4", *H264, "-c:a", "ac3"),
         "mpeg4.mp4": _encode(d / "mpeg4.mp4", "-c:v", "mpeg4",
                              "-c:a", "aac"),
+        "h264-pcm.mov": _encode(d / "h264-pcm.mov", *H264,
+                                "-c:a", "pcm_s16le"),
+        "prores.mov": _encode(d / "prores.mov", "-c:v", "prores_ks",
+                              "-an"),
+        "h264.m4v": _encode(d / "h264.m4v", *H264, "-c:a", "aac"),
+        "h264.avi": _encode(d / "h264.avi", *H264, "-an"),
     }
 
 
@@ -81,76 +94,87 @@ def _shipped(tmp_path: Path, video: dict) -> bytes:
     return (tmp_path / "out" / video["file"]).read_bytes()
 
 
-def test_mkv_h264_ships_byte_identical_with_preserve_step(
-        tmp_path: Path, clips: dict[str, Path],
-        capsys: pytest.CaptureFixture[str]) -> None:
-    data = clips["h264.mkv"].read_bytes()
-    video, item, entry, summary = convert_one(tmp_path, "m.mkv", data,
-                                              capsys)
+def _assert_kept(tmp_path: Path, data: bytes, video: dict, item: dict,
+                 entry: dict, summary: str, ext: str, codec: str) -> None:
     assert _shipped(tmp_path, video) == data
     digest = hashlib.sha256(data).hexdigest()
-    assert video["file"] == f"media/{digest[:2]}/{digest}.mkv"
-    assert entry["steps"] == [{"step": "preserve", "codec": "h264"}]
+    assert video["file"] == f"media/{digest[:2]}/{digest}.{ext}"
+    assert entry["steps"] == [{"step": "preserve", "codec": codec}]
     assert "tools" not in entry
     assert item["decision"] == "copy"
-    assert item["sniffedFormat"] == "mkv"
-    assert item["codec"] == "h264"
+    assert item["sniffedFormat"] == ext
+    assert item["codec"] == codec
     assert "warning" not in item
-    assert "no target browser" not in summary
-
-
-def test_mkv_unplayable_codec_ships_byte_identical_with_warning(
-        tmp_path: Path, clips: dict[str, Path],
-        capsys: pytest.CaptureFixture[str]) -> None:
-    data = clips["mpeg4.mkv"].read_bytes()
-    video, item, entry, summary = convert_one(tmp_path, "m.mkv", data,
-                                              capsys)
-    assert _shipped(tmp_path, video) == data
-    assert video["file"].endswith(".mkv")
-    assert entry["steps"] == [{"step": "preserve", "codec": "mpeg4"}]
-    assert item["decision"] == "copy"
-    note = "MKV codec mpeg4: no target browser plays it"
-    assert note in item["notes"]
-    assert item["warning"] == note
-    warning_lines = [ln for ln in summary.splitlines()
-                     if ln.startswith("warning:")]
-    assert len(warning_lines) == 1 and note in warning_lines[0]
-    assert video["id"] in warning_lines[0]
-
-
-def test_matroska_named_otherwise_is_still_mkv(
-        tmp_path: Path, clips: dict[str, Path],
-        capsys: pytest.CaptureFixture[str]) -> None:
-    """Content decides, not the extension: Matroska bytes named .mp4
-    are an MKV source (copied unchanged, shipped as .mkv)."""
-    data = clips["mpeg4.mkv"].read_bytes()
-    video, item, entry, _ = convert_one(tmp_path, "m.mp4", data, capsys)
-    assert _shipped(tmp_path, video) == data
-    assert video["file"].endswith(".mkv")
-    assert item["sniffedFormat"] == "mkv"
-    assert entry["steps"] == [{"step": "preserve", "codec": "mpeg4"}]
-
-
-@pytest.mark.parametrize("name", ["vp9.webm", "h264.mp4"])
-def test_native_webm_and_mp4_still_copy(
-        tmp_path: Path, clips: dict[str, Path], name: str,
-        capsys: pytest.CaptureFixture[str]) -> None:
-    data = clips[name].read_bytes()
-    video, item, entry, summary = convert_one(tmp_path, name, data, capsys)
-    assert _shipped(tmp_path, video) == data
-    assert video["file"].endswith("." + name.rsplit(".", 1)[1])
-    assert entry["steps"][0]["step"] == "preserve"
-    assert item["decision"] == "copy"
     assert "warning:" not in summary
 
 
-def test_mp4_unplayable_codec_still_transcodes(
-        tmp_path: Path, clips: dict[str, Path],
-        capsys: pytest.CaptureFixture[str]) -> None:
-    data = clips["mpeg4.mp4"].read_bytes()
-    video, item, entry, _ = convert_one(tmp_path, "m.mp4", data, capsys)
+def _assert_transcoded(tmp_path: Path, data: bytes, video: dict,
+                       item: dict, entry: dict, summary: str) -> None:
     assert video["file"].endswith(".mp4")
-    assert _shipped(tmp_path, video) != data
+    shipped = tmp_path / "out" / video["file"]
+    assert shipped.read_bytes() != data
     (step,) = entry["steps"]
     assert step["step"] == "transcode"
     assert item["decision"] == "transcode"
+    assert "warning" not in item
+    assert "warning:" not in summary
+    assert "no target browser" not in summary
+    proc = subprocess.run(
+        [*media_tools.ffprobe_cmd(), "-v", "error", "-select_streams",
+         "v:0", "-show_entries", "stream=codec_name", "-of", "csv=p=0",
+         str(shipped)], capture_output=True, text=True, check=True)
+    assert proc.stdout.strip() == "h264"
+
+
+@pytest.mark.parametrize(("clip", "name", "ext", "codec"), [
+    ("h264.mkv", "m.mkv", "mkv", "h264"),
+    ("h264.mp4", "m.mp4", "mp4", "h264"),
+    ("vp9.webm", "m.webm", "webm", "vp9"),
+    ("h264-pcm.mov", "m.mov", "mov", "h264"),
+    ("h264.m4v", "m.m4v", "m4v", "h264"),
+    # Audio never decides: AC-3 next to H.264 still plays (muted player).
+    ("h264-ac3.mp4", "m.mp4", "mp4", "h264"),
+    # The container decides, not the name; it ships at its true ext.
+    ("h264.mkv", "m.mp4", "mkv", "h264"),
+    ("h264.mp4", "m.webm", "mp4", "h264"),
+    ("h264-pcm.mov", "m.mp4", "mov", "h264"),
+])
+def test_playable_video_ships_byte_identical(
+        tmp_path: Path, clips: dict[str, Path], clip: str, name: str,
+        ext: str, codec: str, capsys: pytest.CaptureFixture[str]) -> None:
+    data = clips[clip].read_bytes()
+    video, item, entry, summary = convert_one(tmp_path, name, data, capsys)
+    _assert_kept(tmp_path, data, video, item, entry, summary, ext, codec)
+
+
+@pytest.mark.parametrize(("clip", "name"), [
+    ("mpeg4.mkv", "m.mkv"),     # was copied with a warning (25.6)
+    ("mpeg4.mkv", "m.mp4"),
+    ("mpeg4.mp4", "m.mp4"),
+    ("prores.mov", "m.mov"),
+    ("h264.avi", "m.avi"),      # no target browser opens AVI at all
+])
+def test_unplayable_video_transcodes_to_h264_mp4(
+        tmp_path: Path, clips: dict[str, Path], clip: str, name: str,
+        capsys: pytest.CaptureFixture[str]) -> None:
+    data = clips[clip].read_bytes()
+    video, item, entry, summary = convert_one(tmp_path, name, data, capsys)
+    _assert_transcoded(tmp_path, data, video, item, entry, summary)
+
+
+@pytest.mark.parametrize(("container", "codec", "keep"), [
+    ("mp4", "h264", True), ("mp4", "hevc", True), ("mp4", "vp9", True),
+    ("mp4", "av1", True), ("mp4", "mpeg4", False), ("mp4", "mjpeg", False),
+    ("mov", "h264", True), ("mov", "hevc", True), ("mov", "prores", False),
+    ("m4v", "h264", True),
+    ("webm", "vp8", True), ("webm", "vp9", True), ("webm", "av1", True),
+    ("mkv", "h264", True), ("mkv", "hevc", True), ("mkv", "vp8", True),
+    ("mkv", "av1", True), ("mkv", "mpeg4", False), ("mkv", "mpeg2video",
+                                                    False),
+    ("mkv", "theora", False), ("mkv", "ffv1", False),
+    ("avi", "h264", False), ("ogg", "theora", False),
+    ("mpegts", "h264", False), (None, "h264", False),
+])
+def test_one_playability_table(container: str | None, codec: str,
+                               keep: bool) -> None:
+    assert video_decision(container, codec) is keep

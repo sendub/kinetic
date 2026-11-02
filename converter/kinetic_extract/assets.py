@@ -27,15 +27,13 @@ file extensions - corpus extensions lie. Policies:
   bytes, before any sniffing; their ``decode`` steps lead the ledger
   entry. Anything else is
   ``skipped``: the item is dropped from the manifest and reported.
-- Videos: ffprobe container + codec decide. Any MKV source (Matroska
-  DocType ``matroska`` in the EBML header, or a Matroska-family file
-  named ``.mkv``) ships byte-identical as ``.mkv`` whatever its codecs
-  (docs/plan.md Phase 25); when no target browser plays its video codec
-  the item gets a warning and a note, never a transcode. Other
-  browser-native combinations (mp4/mov + h264/hevc, webm/m4v +
-  vp8/vp9/av1) copy byte-identical keeping the container extension;
-  everything else transcodes to bitexact H.264 faststart MP4. A copied
-  video's ``preserve`` step records its ``codec``.
+- Videos: one rule (docs/plan.md Phase 26). ffprobe gives the true
+  container (ISO-BMFF major brand: mp4/m4v/mov; EBML DocType: webm/mkv;
+  never the file name) and video codec; a pair some target browser
+  displays (``PLAYABLE_VIDEO``) ships byte-identical at the container's
+  extension, everything else transcodes to bitexact H.264 faststart MP4.
+  Audio codecs never decide (videos play muted). A copied video's
+  ``preserve`` step records its ``codec``.
 - Every tool is the pinned one (``media_tools``): ffmpeg/ffprobe from
   ``.media-tools/<platform>/``, single-threaded and bitexact; Pillow save
   parameters are spelled out in full.
@@ -84,7 +82,7 @@ from . import decoders as decoder_hooks
 from . import media_tools
 from .media_cache import MediaCache
 from .media import (content_ref, image_size, probe_duration_seconds,
-                    sha256_file)
+                    reuse_existing, sha256_file)
 from .timeline import ItemRecord
 
 COMPATIBLE_EXTS = {"png", "jpeg", "jpg", "webp", "gif"}
@@ -109,22 +107,25 @@ _CARVE_MAGICS = [(b"\x89PNG\r\n\x1a\n", "png"), (b"\xff\xd8\xff", "jpeg")]
 _PIL_FORMATS = {"PNG": "png", "JPEG": "jpeg", "GIF": "gif", "WEBP": "webp",
                 "BMP": "bmp", "TIFF": "tiff"}
 
-# h264/hevc want an MP4-family container; VP/AV1 want webm/m4v
-# (docs/content-format.md, Phase 9b). MKV is not listed: it is copied
-# whatever the codec (Phase 25).
-_NATIVE_CODEC_EXTS = {
-    "h264": {"mp4", "mov"},
-    "hevc": {"mp4", "mov"},
-    "vp8": {"webm", "m4v"},
-    "vp9": {"webm", "m4v"},
-    "av1": {"webm", "m4v"},
+# The one video rule (docs/plan.md Phase 26): container -> the video
+# codecs some target browser (Chrome/Edge, Safari, Firefox) displays in
+# it. A source whose probed container and video codec are listed ships
+# byte-identical at that container's extension; anything else transcodes
+# to H.264 MP4. Headless Chrome 156 probes (2026-11-02, items 25.6 and
+# "One video rule"; docs/content-format.md) played every listed pair
+# except HEVC, which plays through the platform decoder only (Safari
+# always); they failed MPEG-4 Part 2, MPEG-2, MJPEG, ProRes, FFV1 and
+# Theora in MP4/MOV/MKV, and AVI and MPEG-TS outright. Audio codecs are
+# not listed: the player plays videos muted and the picture played next
+# to every audio codec probed (AAC, AC-3, E-AC-3, MP3, Opus, FLAC, ALAC,
+# PCM, Vorbis).
+PLAYABLE_VIDEO = {
+    "mp4": {"h264", "hevc", "vp9", "av1"},
+    "m4v": {"h264", "hevc", "vp9", "av1"},
+    "mov": {"h264", "hevc"},
+    "webm": {"vp8", "vp9", "av1"},
+    "mkv": {"h264", "hevc", "vp8", "vp9", "av1"},
 }
-
-# Video codecs some target browser decodes inside MKV: Chrome 156 played
-# each of these in a headless probe (HEVC through the platform decoder,
-# so not with --disable-gpu); MPEG-4 Part 2, MPEG-2, Theora, MJPEG,
-# ProRes and FFV1 failed (docs/content-format.md). Safari plays no MKV.
-_MKV_PLAYABLE_CODECS = {"h264", "hevc", "vp8", "vp9", "av1"}
 
 _EBML_MAGIC = b"\x1a\x45\xdf\xa3"
 _EBML_DOCTYPE_ID = b"\x42\x82"
@@ -235,9 +236,13 @@ def is_animated(data: bytes, fmt: str) -> bool:
 
 
 def probe_video(path: Path) -> tuple[str | None, str | None]:
-    """(container ext, video codec) via ffprobe, or (None, None)."""
+    """(container, video codec) via ffprobe, or (None, None) when ffprobe
+    finds no video stream. The container comes from the bytes, never the
+    file name: ``mp4``, ``m4v`` or ``mov`` by the ISO-BMFF major brand,
+    ``webm`` or ``mkv`` by the EBML DocType, else ffprobe's first format
+    name (``avi``, ``mpegts``, ...)."""
     proc = _run([*media_tools.ffprobe_cmd(),
-                 "-show_entries", "format=format_name",
+                 "-show_entries", "format=format_name:format_tags=major_brand",
                  "-show_entries", "stream=codec_type,codec_name",
                  "-of", "json", str(path)])
     if proc is None or proc.returncode != 0:
@@ -255,16 +260,24 @@ def probe_video(path: Path) -> tuple[str | None, str | None]:
             break
     if not has_video:
         return None, None
-    tokens = set((info.get("format", {}).get("format_name") or "").split(","))
+    fmt = info.get("format", {})
+    names = (fmt.get("format_name") or "").split(",")
+    tokens = set(names)
     if tokens & {"mp4", "mov", "m4a", "3gp", "mj2"}:
-        container = "mp4"
+        brand = ((fmt.get("tags") or {}).get("major_brand") or "").strip()
+        # A QuickTime file has brand "qt" or no ftyp box at all.
+        container = ("mov" if brand in {"", "qt"}
+                     else "m4v" if brand.upper().startswith("M4V")
+                     else "mp4")
     elif tokens & {"matroska", "webm"}:
         # ffprobe names every Matroska file "matroska,webm"; the EBML
-        # DocType tells MKV from WebM.
-        container = "mkv" if matroska_doctype(path) == "matroska" \
-            else "webm"
+        # DocType tells WebM from MKV. A WebM DocType around a codec WebM
+        # does not allow is plain Matroska to a browser: call it MKV.
+        webm = matroska_doctype(path) == "webm" \
+            and codec in PLAYABLE_VIDEO["webm"]
+        container = "webm" if webm else "mkv"
     else:
-        container = None
+        container = names[0] or "unknown"
     return container, codec
 
 
@@ -292,33 +305,11 @@ def matroska_doctype(path: Path) -> str | None:
     return raw.rstrip(b"\x00").decode("ascii", "replace") or None
 
 
-def is_mkv(source: Path, container: str | None) -> bool:
-    """An MKV source: Matroska DocType, or a Matroska-family file named
-    ``.mkv`` (copied unchanged whatever the codec, Phase 25)."""
-    return container == "mkv" or (
-        container == "webm" and source.suffix.lower() == ".mkv")
-
-
-def video_is_native(source: Path) -> tuple[bool, str | None, str | None]:
-    """(keep as-is, shipped ext, codec) for a source video. MKV sources
-    are always kept, as ``.mkv``."""
-    container, codec = probe_video(source)
-    if is_mkv(source, container):
-        return True, "mkv", codec
-    src_ext = source.suffix.lower().lstrip(".")
-    ext = src_ext if src_ext in {"mp4", "mov", "m4v", "webm"} \
-        else (container or "mp4")
-    allowed = _NATIVE_CODEC_EXTS.get(codec or "")
-    native = bool(allowed and ext in allowed)
-    return native, ext, codec
-
-
-def mkv_unplayable_note(codec: str | None) -> str | None:
-    """The warning for an MKV whose video codec no target browser plays,
-    else None."""
-    if codec in _MKV_PLAYABLE_CODECS:
-        return None
-    return f"MKV codec {codec or 'unknown'}: no target browser plays it"
+def video_decision(container: str | None, codec: str | None) -> bool:
+    """The one video rule: True when some target browser displays this
+    container + video codec (ship it byte-identical as ``.<container>``),
+    False when it must transcode to H.264 MP4."""
+    return codec in PLAYABLE_VIDEO.get(container or "", ())
 
 
 def _jxl_input_mode(img: Any) -> str | None:
@@ -922,7 +913,9 @@ def extract_poster(source: Path, out_jpg: Path,
 class _Placed:
     """Per-run record of the content-addressed files already written, and
     the ledger's ``media`` entry for each (docs/extracting.md, "Build
-    ledger")."""
+    ledger"). A file already at its content path with the right sha256
+    is left untouched (it may be hard-linked elsewhere); one with other
+    bytes raises ``media.ExistingFileError`` and is never overwritten."""
 
     def __init__(self, out_dir: Path, tools: dict[str, Any]) -> None:
         self.out_dir = out_dir
@@ -940,7 +933,9 @@ class _Placed:
         ref = content_ref(hashlib.sha256(data).hexdigest(), ext)
         if ref in self.written:
             return ref, True
-        self._target(ref).write_bytes(data)
+        target = self._target(ref)
+        if not reuse_existing(target):
+            target.write_bytes(data)
         self.written.add(ref)
         return ref, False
 
@@ -950,7 +945,9 @@ class _Placed:
         ref = content_ref(digest, ext)
         if ref in self.written:
             return ref, True
-        shutil.copyfile(source, self._target(ref))
+        target = self._target(ref)
+        if not reuse_existing(target):
+            shutil.copyfile(source, target)
         self.written.add(ref)
         return ref, False
 
@@ -960,7 +957,11 @@ class _Placed:
         if ref in self.written:
             made.unlink()
             return ref, True
-        os.replace(made, self._target(ref))
+        target = self._target(ref)
+        if reuse_existing(target):
+            made.unlink()
+        else:
+            os.replace(made, target)
         self.written.add(ref)
         return ref, False
 
@@ -1237,9 +1238,8 @@ def _ship_video(record: ItemRecord, found: _Input, placed: _Placed,
         shipped, decision, steps = video_share[digest]
         already = True
     else:
-        native, ext, _ = video_is_native(source)
-        if native:
-            shipped, already = placed.copy_file(source, digest, ext)
+        if video_decision(container, codec):
+            shipped, already = placed.copy_file(source, digest, container)
             decision = "copy"
             steps = [{**PRESERVE_STEP, "codec": codec or "unknown"}]
         else:
@@ -1265,11 +1265,6 @@ def _ship_video(record: ItemRecord, found: _Input, placed: _Placed,
         _shared_note(record, shipped)
     meta["decision"] = decision
     meta["file"] = shipped
-    if shipped.endswith(".mkv"):  # only MKV sources ship as .mkv
-        warning = mkv_unplayable_note(codec)
-        if warning:
-            meta["warning"] = warning
-            record.notes.append(warning)
 
     if made_poster is not None:
         poster, _ = placed.move_file(made_poster, "jpg")

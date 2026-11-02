@@ -51,7 +51,8 @@ from typing import Any
 
 CACHE_ENV = "KINETIC_MEDIA_CACHE"
 OFF = "off"
-FORMAT = 1
+# 2: the one video rule (docs/plan.md Phase 26) chooses copy or transcode.
+FORMAT = 2
 _CHUNK = 1 << 20
 
 

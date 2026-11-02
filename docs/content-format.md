@@ -142,14 +142,19 @@ Per type:
   `loopStartSeconds` (number, at least 0, default
   `startSeconds`) sets where a loop restarts. Video playback ranges
   below covers all three. Safari plays no MKV; Firefox was not
-  probed. In a headless Chrome 156 probe (2026-11-02, item 25.6), MKV with
-  H.264, VP8, VP9 or AV1 video played (HEVC too, through the platform
-  decoder, so not with `--disable-gpu`), with AAC, Opus, MP3, AC-3,
-  FLAC or Vorbis audio; MPEG-4 Part 2, MPEG-2, Theora, MJPEG, ProRes
-  and FFV1 video did not: alone it fails with `MEDIA_ERR_SRC_NOT_SUPPORTED`,
-  and next to a playable audio track the audio plays with no picture.
-  The converter copies MKV unchanged whatever the codec and warns when
-  no target browser plays its video codec.
+  probed. Headless Chrome 156 probes (2026-11-02, items 25.6 and "One
+  video rule") played H.264 in MP4, M4V, MOV and MKV; VP9 and AV1 in
+  MP4, WebM and MKV; VP8 in WebM and MKV; HEVC in MP4, MOV and MKV only
+  through the platform decoder (not with `--disable-gpu`). The picture
+  played next to every audio codec tried (AAC, AC-3, E-AC-3, MP3, Opus,
+  FLAC, ALAC, PCM, Vorbis). MPEG-4 Part 2, MPEG-2, MJPEG, ProRes, FFV1
+  and Theora video did not play in any container: alone it fails with
+  `MEDIA_ERR_SRC_NOT_SUPPORTED`, and next to a playable audio track the
+  audio plays with no picture. AVI and MPEG-TS files did not open at
+  all. The converter keeps every video some target browser plays,
+  byte-identical at its true container's extension, and transcodes the
+  rest to H.264 MP4 (docs/extracting.md, Video policy), so no
+  unplayable video ships.
 - `text` takes no media fields. `id` and `type` are required, `speaker`,
   `text`, and `thought` are optional, and no other fields are accepted.
   On a `text` item `thought` behaves as elsewhere: a thought line in a

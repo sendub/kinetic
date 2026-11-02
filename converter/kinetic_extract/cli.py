@@ -73,7 +73,8 @@ from . import __version__
 from .assets import run_asset_pass
 from .decoders import Decoder, DecoderError, load_decoder
 from .images import ImplicitImages
-from .media import DEFAULT_SIZE, most_common_image_size
+from .media import (DEFAULT_SIZE, ExistingFileError,
+                    most_common_image_size)
 from .media_cache import open_cache
 from .media_tools import MediaToolsError, run_tools
 from .parser import ID_MAX, FileParse, Report, parse_project, slug
@@ -529,7 +530,7 @@ def main(argv: list[str] | None = None) -> int:
         skipped, media = run_asset_pass(result.items, args.out_dir, tools,
                                         args.decoder, result.decoded_sizes,
                                         cache=open_cache(tools))
-    except DecoderError as exc:
+    except (DecoderError, ExistingFileError) as exc:
         print(f"kinetic-extract: {exc}", file=sys.stderr)
         return 1
     branches, branch_notes = finalize_branches(result, parses, reports)

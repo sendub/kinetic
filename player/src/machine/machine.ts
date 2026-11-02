@@ -344,8 +344,9 @@ export interface Machine {
    */
   mediaEnded(): void;
   /**
-   * `c` config screen (docs/plan.md Phase 9): replace the pacing settings
-   * with a full snapshot; the machine copies it and never reads storage.
+   * Settings on the Esc screen (docs/plan.md Phase 9; `c` is retired):
+   * replace the pacing settings with a full snapshot; the machine copies
+   * it and never reads storage.
    * Changes apply live, each where its setting takes effect:
    *
    * - `readingSpeed` (and `skipDwellMs`): a pending auto-advance is

@@ -46,6 +46,35 @@ def sha256_file(path: Path, chunk: int = HASH_CHUNK) -> str:
     return digest.hexdigest()
 
 
+class ExistingFileError(Exception):
+    """A content-addressed path already holds bytes whose sha256 is not
+    the one its name gives (docs/plan.md Phase 26)."""
+
+
+def existing_problem(path: Path) -> str | None:
+    """What is wrong with an existing ``media/<h[:2]>/<h>.<ext>``: None
+    when its sha256 is ``h`` (reuse it untouched: it may be hard-linked
+    elsewhere), else a message naming the path."""
+    got = sha256_file(path)
+    if got == path.stem:
+        return None
+    return (f"{path}: existing file's sha256 is {got}, not the one its "
+            "name gives; not replaced (remove it, or use another output "
+            "folder)")
+
+
+def reuse_existing(path: Path) -> bool:
+    """True when content-addressed `path` already exists with the right
+    bytes (leave it untouched), False when absent; ExistingFileError,
+    naming it, when it exists with other bytes (never overwritten)."""
+    if not path.exists():
+        return False
+    problem = existing_problem(path)
+    if problem is not None:
+        raise ExistingFileError(problem)
+    return True
+
+
 def probe_duration_seconds(path: Path) -> float | None:
     """The file's duration via the pinned ffprobe, or None when it cannot be
     probed."""

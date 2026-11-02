@@ -19,7 +19,10 @@ entry, and each of its ``alsoFrom`` sources, is rebuilt independently:
 
 The folder's own ``media/`` is checked too: a file the ledgers do not
 list, an entry whose file is absent, or a file whose bytes differ from
-its entry are failures.
+its entry are failures. With ``--out``, a matching output is written
+there unless its content-addressed file already exists: that file is
+verified and left untouched (it may be hard-linked elsewhere), and one
+with other bytes is a failure naming it, never overwritten.
 """
 
 from __future__ import annotations
@@ -35,7 +38,7 @@ from typing import Any
 from . import assets
 from .assets import hook_func
 from .decoders import Decoder, describe
-from .media import MEDIA_DIR, sha256_file
+from .media import MEDIA_DIR, existing_problem, sha256_file
 from .rpa import RpaError, extract_cached, open_archive
 
 BUILD_LEDGER = "build-ledger.json"
@@ -260,6 +263,10 @@ def rebuild(folder: Path, game_roots: list[Path], decoders: list[Decoder],
     for line in decoder_differences(ledgers, decoders):
         report.fail("decoders", line)
     entries: dict[str, dict[str, Any]] = {}
+    # --out into the folder itself: the folder check below already names
+    # a wrong file there, once.
+    checked = out_dir is not None and (folder / MEDIA_DIR).is_dir() \
+        and out_dir.resolve() == folder.resolve()
     for name, ledger in ledgers:
         sources = _Sources([project_base(root) if name == BUILD_LEDGER
                             else root for root in game_roots])
@@ -267,7 +274,7 @@ def rebuild(folder: Path, game_roots: list[Path], decoders: list[Decoder],
             entries[ref] = entry
             report.outputs += 1
             ok = _rebuild_entry(ref, entry, sources, decoders, report,
-                                out_dir)
+                                out_dir, checked)
             report.matched += ok
     if out_dir is None or (folder / MEDIA_DIR).is_dir():
         _check_folder(folder, entries, report)
@@ -276,12 +283,23 @@ def rebuild(folder: Path, game_roots: list[Path], decoders: list[Decoder],
 
 def _rebuild_entry(ref: str, entry: dict[str, Any], sources: _Sources,
                    decoders: list[Decoder], report: Report,
-                   out_dir: Path | None) -> bool:
+                   out_dir: Path | None, checked: bool = False) -> bool:
     """Rebuild `ref` from its source and every ``alsoFrom`` source; True
-    when all of them make the entry's bytes."""
+    when all of them make the entry's bytes. A matching output goes to
+    `out_dir` unless a file is already there: that one is verified and
+    left untouched, and other bytes are a failure (unless `checked`: the
+    folder check reports it)."""
     if not isinstance(entry, dict) or Path(ref).stem != entry.get("sha256"):
         report.fail(ref, "ledger entry's sha256 does not name its path")
         return False
+    target = out_dir / ref if out_dir is not None else None
+    if target is not None and target.exists():
+        # Verified and left untouched (it may be hard-linked elsewhere);
+        # other bytes under this name are a failure, never overwritten.
+        problem = existing_problem(target)
+        if problem is not None and not checked:
+            report.fail(ref, problem)
+        target = None
     ok = True
     for n, made in enumerate([entry, *entry.get("alsoFrom", [])]):
         label = ref
@@ -297,9 +315,9 @@ def _rebuild_entry(ref: str, entry: dict[str, Any], sources: _Sources,
                               fail)
             if out is None:
                 ok = False
-            elif out_dir is not None and not (out_dir / ref).exists():
-                (out_dir / ref).parent.mkdir(parents=True, exist_ok=True)
-                shutil.copyfile(out, out_dir / ref)
+            elif target is not None and not target.exists():
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(out, target)
     return ok
 
 

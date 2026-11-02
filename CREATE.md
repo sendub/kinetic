@@ -768,12 +768,15 @@ dropped from manifest`.** No poster frame could be made, for example a
 decode. The item is dropped (a video never stands in as its own
 poster). Fix the start time or the source.
 
-**`warning: ... MKV codec mpeg4: no target browser plays it`.** MKV
-files ship unchanged whatever their codec, and this one will not play.
-Make a playable copy of the source (H.264 MP4 or VP9 WebM, as in
-Preparing the media) and convert from a copy of the game that uses it,
-or ship it through a helper whose request names the playable file; keep
-that file with the game files so the folder still rebuilds.
+**`kinetic-extract: <folder>/media/ab/ab12….png: existing file's sha256
+is …, not the one its name gives; not replaced (remove it, or use
+another output folder)`** (exit 1; `kinetic-media ship` prints the same
+line). The output folder already had a file under that content name,
+and its bytes are not the ones the name promises: something altered
+it. A correct existing file is reused untouched (it may be hard-linked
+into another game), but a wrong one is never overwritten. Delete that
+file if nothing else needs it, or convert into an empty folder, then
+run again. `rebuild --out` reports the same problem as a `FAIL` line.
 
 **`rebuild` exit 2.** It could not start: no ledger in the folder, a
 bad game root, tools not ready, or `the ledger was made with other
@@ -796,6 +799,7 @@ or convert the game again with the current tools.
 | `output mismatch: …` | The tools made other bytes; re-run setup, and rebuild with the commit that made the folder. |
 | `not in the ledger` | A file in `media/` no ledger lists, often left by converting into a non-empty folder; convert into an empty folder. |
 | `absent from the folder` or `folder file differs from the ledger: …` | The folder's `media/` lost or altered a file. Copy the folder again, or rebuild with `--out DIR` (a new folder) and copy `DIR/media/.` over the folder's `media/`. |
+| `…: existing file's sha256 is …, not the one its name gives; not replaced …` | With `--out DIR`, a file already in `DIR` under that content name holds other bytes; it is never overwritten. Delete it, or rebuild into a new `DIR`. |
 
 Reference: docs/extracting.md, "kinetic-media rebuild".
 

@@ -17,13 +17,16 @@ and WebP pixels must decode back identical, a JPEG's recompression must
 rebuild the original JPEG bytes exactly; animated images and `.jxl`
 sources ship unchanged), incompatible ones
 are converted to the smallest of PNG/JPEG q92/JXL, wrapped PNG/JPEG data
-is carved, MKV videos are copied unchanged whatever the codec (with a
-`warning:` summary line and item note when no target browser plays the
-codec), other native browser videos are copied and the rest are
-transcoded to H.264 faststart MP4, and posters are the frame at `startSeconds`
+is carved, videos some target browser plays are copied unchanged
+whatever their container or name (one table of probed container and
+video codec, shipped at the true container's extension) and the rest
+are transcoded to H.264 faststart MP4, and posters are the frame at `startSeconds`
 (a video whose poster cannot be made is dropped and reported with
 ffmpeg's error, with a `warning:` summary line).
-Identical outputs are one file, written once. Every decision lands in
+Identical outputs are one file, written once; a file already at its
+content path is verified and left untouched, and one whose bytes do not
+match its name stops the run with an error naming it (never
+overwritten). Every decision lands in
 `build-ledger.json`, whose `media` section records, per shipped file,
 its source (loose path, or archive plus member) with the source's
 sha256, each step with its parameters, the tool versions, and the
