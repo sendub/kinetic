@@ -428,3 +428,42 @@ images hold for their text, animations complete their loops, and videos
 play through once. A media item followed by `text` items holds for its
 text alone while its animation or video loops underneath, and each
 `text` item holds for the length of its text.
+
+## Upgrading to a newer Kinetic
+
+A game folder's player is two files, `index.html` and `app.js`; every
+other file (`manifest.json`, `manifest.js`, media, extras) is your
+content. To take a newer player's bug fixes, replace just those two:
+
+```sh
+git pull
+cd player && npm ci --cache ../.tmp/npm-cache && npm run build && cd ..
+cp player/dist/index.html player/dist/app.js my-novel/
+.venv/bin/python tools/validate_content.py my-novel
+```
+
+Copy only those two files: `player/dist/manifest.js` is an empty
+placeholder that would overwrite your game's own `manifest.js` (the
+validator then reports that it does not equal `manifest.json`), and
+`app.js.map` is a debugging aid the folder does not need. `manifest.js`
+stays as it is, since it is generated from your `manifest.json`, not
+from the player; regenerate it only when you edit `manifest.json`
+(Generating manifest.js). The validator checks the folder against
+the newer rules; a clean run prints nothing.
+
+Readers keep their progress. The player saves it in each reader's
+browser under the manifest's `storyId`, not inside the folder, so the
+new player picks it up on the next open. A manifest without a `storyId`
+keys progress by the folder's location instead; add one (see Manifest)
+and the first open carries that progress over to it.
+
+Re-extract instead when the fix is in the converter (`kinetic-extract`)
+rather than the player, or when the validator rejects a folder the
+older Kinetic accepted, such as a manifest whose `schemaVersion` the
+newer tools no longer take. Extract into a new folder with the same
+`storyId` (the extractor derives the same one from the same project;
+otherwise pass `--story-id`), copy the player in, validate, and replace
+the old folder. Progress is saved by item id, so items that keep their
+ids keep their seen marks and the reading position; ids that no longer
+exist drop out of it. A hand-authored folder follows
+docs/content-format.md for the new `schemaVersion` instead.

@@ -29,6 +29,7 @@ The player goes fullscreen on the first key press. Position, route history, book
 ## Tools
 
 * `converter/`: turns a Ren'Py project into this format. It reads `.rpy` scripts, decompiles `.rpyc` when no `.rpy` exists, and reads `.rpa` archives directly. Menus become branches only where their shape is clear.
+* Updating an existing game to a newer Kinetic replaces only its `index.html` and `app.js`; readers keep their progress (CREATE.md, "Upgrading to a newer Kinetic").
 * Runs on macOS with nothing to install beyond a browser. Navigation shows content within 1/24 s (measured in `docs/perf.md`).
 
 ## The demo

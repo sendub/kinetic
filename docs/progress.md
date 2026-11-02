@@ -905,10 +905,16 @@ truthful: an unchecked box means nothing was accepted.
 
 ## Phase 23: Upgrade guide (2026-11-02, user)
 
-- [ ] Upgrading a game to a newer Kinetic (user, 2026-11-02): document
+- [x] Upgrading a game to a newer Kinetic (user, 2026-11-02): document
       how an existing Kinetic game folder takes a newer player for bug
       fixes (pull, build, replace only the player files, keep content
       and manifest, validate, when to re-extract or regenerate
       manifest.js, what happens to readers' saved progress). No notes
       about transferring saves from before Phase 21. Prove the steps on
       a copy of a demo folder.
+      (CREATE.md "Upgrading to a newer Kinetic" + README Tools pointer.
+      Only index.html + app.js are the player (dist/manifest.js is a
+      placeholder that would clobber the game's). Proved on a copy of
+      pkg-demo with a Phase-22 player: validator clean, no console
+      errors, progress and bookmark survived the swap. vitest 550,
+      pytest tools 109. 2026-11-02)
