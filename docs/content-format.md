@@ -127,7 +127,7 @@ Per type:
   two), `fps` (frames per second, greater than 0), and `loopCount` (how
   many times the sequence plays before auto-advance, at least 1).
 - `video` with `file` (any browser-playable video file: `.mp4`,
-  `.webm`, `.mkv` (VP9/AV1), `.mov`, and `.m4v` are allowed, and
+  `.webm`, `.mkv`, `.mov`, and `.m4v` are allowed, and
   playability is the browser's call), `poster` (still image shown
   for instant first paint), and the required `durationSeconds`
   (runtime of the encoded video, greater than 0; the converter fills
@@ -141,9 +141,15 @@ Per type:
   `durationSeconds`) play a sub-range of the file; optional
   `loopStartSeconds` (number, at least 0, default
   `startSeconds`) sets where a loop restarts. Video playback ranges
-  below covers all three. MKV is reliably Chromium-class and Safari
-  may refuse it, so a converter targeting Safari should emit MP4 and
-  record the choice in the build ledger.
+  below covers all three. Safari plays no MKV; Firefox was not
+  probed. In a headless Chrome 156 probe (2026-11-02, item 25.6), MKV with
+  H.264, VP8, VP9 or AV1 video played (HEVC too, through the platform
+  decoder, so not with `--disable-gpu`), with AAC, Opus, MP3, AC-3,
+  FLAC or Vorbis audio; MPEG-4 Part 2, MPEG-2, Theora, MJPEG, ProRes
+  and FFV1 video did not: alone it fails with `MEDIA_ERR_SRC_NOT_SUPPORTED`,
+  and next to a playable audio track the audio plays with no picture.
+  The converter copies MKV unchanged whatever the codec and warns when
+  no target browser plays its video codec.
 - `text` takes no media fields. `id` and `type` are required, `speaker`,
   `text`, and `thought` are optional, and no other fields are accepted.
   On a `text` item `thought` behaves as elsewhere: a thought line in a

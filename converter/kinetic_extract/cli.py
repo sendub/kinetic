@@ -422,6 +422,11 @@ def print_summary(result: TimelineResult, reports: list[Report],
         reasons = sorted({n["reason"] for n in skipped_menus})
         line += f" ({'; '.join(reasons)})"
     print(line)
+    for record in result.items:
+        warning = record.asset_meta.get("warning")
+        if warning:
+            print(f"warning: {record.source}: {record.item['id']}: "
+                  f"{warning}")
     note_count = sum(len(r.notes) for r in result.items)
     print(f"reported statements: {len(reports)}; item notes: {note_count}")
     for report in reports:

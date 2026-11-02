@@ -27,12 +27,15 @@ file extensions - corpus extensions lie. Policies:
   bytes, before any sniffing; their ``decode`` steps lead the ledger
   entry. Anything else is
   ``skipped``: the item is dropped from the manifest and reported.
-- Videos: ffprobe container + codec decide. Browser-native combinations
-  (mp4/mov + h264/hevc, webm/m4v + vp8/vp9/av1, mkv/webm + vp9/av1) copy
-  byte-identical keeping the container extension; everything else
-  transcodes to bitexact H.264 faststart MP4. MKV is Chromium-class; the
-  copy decision is recorded for a Safari-targeting rebuild (docs
-  content-format).
+- Videos: ffprobe container + codec decide. Any MKV source (Matroska
+  DocType ``matroska`` in the EBML header, or a Matroska-family file
+  named ``.mkv``) ships byte-identical as ``.mkv`` whatever its codecs
+  (docs/plan.md Phase 25); when no target browser plays its video codec
+  the item gets a warning and a note, never a transcode. Other
+  browser-native combinations (mp4/mov + h264/hevc, webm/m4v +
+  vp8/vp9/av1) copy byte-identical keeping the container extension;
+  everything else transcodes to bitexact H.264 faststart MP4. A copied
+  video's ``preserve`` step records its ``codec``.
 - Every tool is the pinned one (``media_tools``): ffmpeg/ffprobe from
   ``.media-tools/<platform>/``, single-threaded and bitexact; Pillow save
   parameters are spelled out in full.
@@ -96,15 +99,25 @@ _CARVE_MAGICS = [(b"\x89PNG\r\n\x1a\n", "png"), (b"\xff\xd8\xff", "jpeg")]
 _PIL_FORMATS = {"PNG": "png", "JPEG": "jpeg", "GIF": "gif", "WEBP": "webp",
                 "BMP": "bmp", "TIFF": "tiff"}
 
-# h264/hevc want an MP4-family container; VP/AV1 want webm/m4v/mkv
-# (docs/content-format.md, Phase 9b; MKV playback is Chromium-class).
+# h264/hevc want an MP4-family container; VP/AV1 want webm/m4v
+# (docs/content-format.md, Phase 9b). MKV is not listed: it is copied
+# whatever the codec (Phase 25).
 _NATIVE_CODEC_EXTS = {
     "h264": {"mp4", "mov"},
     "hevc": {"mp4", "mov"},
     "vp8": {"webm", "m4v"},
-    "vp9": {"webm", "m4v", "mkv"},
-    "av1": {"webm", "m4v", "mkv"},
+    "vp9": {"webm", "m4v"},
+    "av1": {"webm", "m4v"},
 }
+
+# Video codecs some target browser decodes inside MKV: Chrome 156 played
+# each of these in a headless probe (HEVC through the platform decoder,
+# so not with --disable-gpu); MPEG-4 Part 2, MPEG-2, Theora, MJPEG,
+# ProRes and FFV1 failed (docs/content-format.md). Safari plays no MKV.
+_MKV_PLAYABLE_CODECS = {"h264", "hevc", "vp8", "vp9", "av1"}
+
+_EBML_MAGIC = b"\x1a\x45\xdf\xa3"
+_EBML_DOCTYPE_ID = b"\x42\x82"
 
 _EXT_TO_PIL = {"png": "PNG", "jpeg": "JPEG", "jpg": "JPEG", "webp": "WEBP",
                "gif": "GIF", "bmp": "BMP", "tiff": "TIFF"}
@@ -236,21 +249,66 @@ def probe_video(path: Path) -> tuple[str | None, str | None]:
     if tokens & {"mp4", "mov", "m4a", "3gp", "mj2"}:
         container = "mp4"
     elif tokens & {"matroska", "webm"}:
-        container = "webm" if "webm" in tokens else "mkv"
+        # ffprobe names every Matroska file "matroska,webm"; the EBML
+        # DocType tells MKV from WebM.
+        container = "mkv" if matroska_doctype(path) == "matroska" \
+            else "webm"
     else:
         container = None
     return container, codec
 
 
+def matroska_doctype(path: Path) -> str | None:
+    """The EBML header's DocType ("matroska", "webm"), or None."""
+    try:
+        with path.open("rb") as fh:
+            head = fh.read(4096)
+    except OSError:
+        return None
+    if not head.startswith(_EBML_MAGIC):
+        return None
+    at = head.find(_EBML_DOCTYPE_ID, len(_EBML_MAGIC))
+    if at < 0 or at + 3 > len(head):
+        return None
+    first = head[at + 2]
+    width = next((n for n in range(1, 9) if first & (0x80 >> (n - 1))), 0)
+    if not width:
+        return None
+    size = first & (0xFF >> width)
+    for b in head[at + 3:at + 2 + width]:
+        size = (size << 8) | b
+    start = at + 2 + width
+    raw = head[start:start + size]
+    return raw.rstrip(b"\x00").decode("ascii", "replace") or None
+
+
+def is_mkv(source: Path, container: str | None) -> bool:
+    """An MKV source: Matroska DocType, or a Matroska-family file named
+    ``.mkv`` (copied unchanged whatever the codec, Phase 25)."""
+    return container == "mkv" or (
+        container == "webm" and source.suffix.lower() == ".mkv")
+
+
 def video_is_native(source: Path) -> tuple[bool, str | None, str | None]:
-    """(keep as-is, shipped ext, codec) for a source video."""
+    """(keep as-is, shipped ext, codec) for a source video. MKV sources
+    are always kept, as ``.mkv``."""
     container, codec = probe_video(source)
+    if is_mkv(source, container):
+        return True, "mkv", codec
     src_ext = source.suffix.lower().lstrip(".")
-    ext = src_ext if src_ext in {"mp4", "mov", "m4v", "webm", "mkv"} \
+    ext = src_ext if src_ext in {"mp4", "mov", "m4v", "webm"} \
         else (container or "mp4")
     allowed = _NATIVE_CODEC_EXTS.get(codec or "")
     native = bool(allowed and ext in allowed)
     return native, ext, codec
+
+
+def mkv_unplayable_note(codec: str | None) -> str | None:
+    """The warning for an MKV whose video codec no target browser plays,
+    else None."""
+    if codec in _MKV_PLAYABLE_CODECS:
+        return None
+    return f"MKV codec {codec or 'unknown'}: no target browser plays it"
 
 
 def _jxl_input_mode(img: Any) -> str | None:
@@ -892,10 +950,8 @@ def _ship_video(record: ItemRecord, found: _Input, placed: _Placed,
         native, ext, _ = video_is_native(source)
         if native:
             shipped, already = placed.copy_file(source, digest, ext)
-            decision, steps = "copy", [PRESERVE_STEP]
-            if ext == "mkv":
-                record.notes.append("mkv kept native: Chromium-class; "
-                                    "convert to mp4 for Safari")
+            decision = "copy"
+            steps = [{**PRESERVE_STEP, "codec": codec or "unknown"}]
         else:
             made = scratch / "transcode.mp4"
             if not transcode_video(source, made):
@@ -916,6 +972,11 @@ def _ship_video(record: ItemRecord, found: _Input, placed: _Placed,
         _shared_note(record, shipped)
     meta["decision"] = decision
     meta["file"] = shipped
+    if shipped.endswith(".mkv"):  # only MKV sources ship as .mkv
+        warning = mkv_unplayable_note(codec)
+        if warning:
+            meta["warning"] = warning
+            record.notes.append(warning)
 
     start = float(record.item.get("startSeconds") or 0.0)
     poster_key = f"{digest}@{start:.6f}"

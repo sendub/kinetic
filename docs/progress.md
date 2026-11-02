@@ -1062,8 +1062,15 @@ truthful: an unchecked box means nothing was accepted.
       frame) without decoding; ledger preserve reason as above. 4 tests
       red before; pytest converter+tools 317; pinned renpy_demo run
       validator clean. 2026-11-02)
-- [ ] 25.6 MKV copied unchanged whatever the codec; headless-Chrome
+- [x] 25.6 MKV copied unchanged whatever the codec; headless-Chrome
       probe of an MKV+H.264 fixture; content-format / stack.md wording.
+      (Any MKV (by EBML DocType, not name) ships byte-identical with a
+      preserve step recording codec; a codec no target browser plays
+      (MPEG-4 Part 2, MPEG-2, Theora, MJPEG, ProRes, FFV1) still copies
+      but gets an item note, ledger warning and summary warning line.
+      Chrome 156 headless probe: H.264/VP8/VP9/AV1 MKV play; HEVC only
+      with GPU. 3 tests red before; pytest converter+tools 323; real run
+      validated and played. 2026-11-02)
 - [ ] 25.7 Poster recipes recorded; a failed poster drops the item and
       reports it.
 - [ ] 25.8 `kinetic-media ship`: list of sources -> outputs + ledger, no

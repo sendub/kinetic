@@ -125,6 +125,8 @@ files (docs/plan.md Phase 25), which `kinetic-media rebuild` reads:
     - `{"step": "preserve"}`: ship the bytes unchanged. For an image
       that could have become JPEG XL, `reason` says why it did not
       (Image policy, below), e.g. `"jxl 10048 >= original 1306 bytes"`;
+      a copied video's `codec` is its ffprobe video codec name (Video
+      policy, below);
     - `{"step": "convert", "format": "png"|"jpeg", "params": {...}}`:
       decode with Pillow and save with these save parameters (`jpeg`
       also names the `mode` it converts to first);
@@ -153,7 +155,8 @@ files (docs/plan.md Phase 25), which `kinetic-media rebuild` reads:
 Each item entry names its outputs with `file` and `poster` (keys into
 `media`), its `asset` as a display string (`game/images/a.png`, or
 `game/images.rpa!images/a.png` for an archive member), plus
-`sniffedFormat`, `decision` and, for video, `codec`. Every dict in
+`sniffedFormat`, `decision` and, for video, `codec`, plus `warning`
+for an MKV whose video codec no target browser plays. Every dict in
 `mediaTools` and `media` has sorted keys (step and argument lists keep
 their order), so the same input gives the same ledger bytes. A shortened
 example:
@@ -195,6 +198,26 @@ original bytes. (The 25.1 imagecodecs route before 25.5 fed a 16-bit RGB
 PNG's 8-bit Pillow decode to libjxl and passed its own pixel check, a
 silent precision loss now refused.) `cjxl` never read WebP; the pixel
 route now reads lossless WebP.
+
+## Video policy
+
+docs/plan.md Phase 25. ffprobe gives the container and video codec;
+ffprobe names every Matroska file `matroska,webm`, so the EBML header's
+DocType tells MKV (`matroska`) from WebM (`webm`).
+
+| Source | Shipped | Ledger |
+| --- | --- | --- |
+| MKV (DocType `matroska`, whatever its name, or any Matroska file named `.mkv`), any codec | byte-identical, as `.mkv` | `{"step": "preserve", "codec": …}` |
+| MP4/MOV with H.264 or HEVC | byte-identical, keeping `.mp4`/`.mov` | `{"step": "preserve", "codec": …}` |
+| WebM/M4V with VP8, VP9 or AV1 | byte-identical, keeping `.webm`/`.m4v` | `{"step": "preserve", "codec": …}` |
+| anything else ffprobe reads | bitexact H.264 faststart MP4 | `{"step": "transcode", "args": […]}` |
+
+An MKV is never transcoded. When its video codec is not one that some
+target browser plays in MKV (H.264, HEVC, VP8, VP9, AV1: the headless
+Chrome probe in docs/content-format.md), the item gets the note
+`MKV codec <codec>: no target browser plays it`, the same text as its
+ledger entry's `warning`, and the summary prints a `warning:` line, so
+the game maker can supply a playable file. Safari plays no MKV at all.
 
 ## Decoder hooks
 

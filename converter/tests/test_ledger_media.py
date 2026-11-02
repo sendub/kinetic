@@ -173,7 +173,7 @@ def test_poster_entry_records_recipe_and_video_source(demo) -> None:
     # The video's own entry is a plain copy.
     video_entry = ledger["media"][video["file"]]
     assert video_entry["kind"] == "video"
-    assert video_entry["steps"] == [{"step": "preserve"}]
+    assert video_entry["steps"] == [{"step": "preserve", "codec": "h264"}]
 
 
 def test_two_runs_give_byte_identical_ledgers(tmp_path: Path) -> None:
@@ -222,9 +222,10 @@ def test_carved_output_from_two_sources(tmp_path: Path) -> None:
 
 
 @pytest.fixture(scope="module")
-def mkv(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    """A short MPEG-4 Part 2 MKV (never browser-native: it transcodes)."""
-    out = tmp_path_factory.mktemp("mkv") / "m.mkv"
+def mpeg4_mp4(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """A short MPEG-4 Part 2 MP4 (never browser-native: it transcodes;
+    an MKV would be copied whatever the codec)."""
+    out = tmp_path_factory.mktemp("mpeg4") / "m.mp4"
     proc = subprocess.run(
         [*media_tools.ffmpeg_cmd(), "-y", "-f", "lavfi",
          "-i", "testsrc=size=64x36:rate=10:duration=1",
@@ -235,12 +236,12 @@ def mkv(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
 
 def test_transcode_entry_records_ffmpeg_version_and_args(
-        tmp_path: Path, mkv: Path) -> None:
+        tmp_path: Path, mpeg4_mp4: Path) -> None:
     game = tmp_path / "proj" / "game"
     game.mkdir(parents=True)
-    (game / "m.mkv").write_bytes(mkv.read_bytes())
+    (game / "m.mp4").write_bytes(mpeg4_mp4.read_bytes())
     (game / "script.rpy").write_text(
-        'label start:\n    movie "m.mkv"\n    "Playing."\n',
+        'label start:\n    movie "m.mp4"\n    "Playing."\n',
         encoding="utf-8")
     manifest, ledger = convert(game.parent, tmp_path / "out")
     (video,) = [i for i in manifest["items"] if i["type"] == "video"]
@@ -255,4 +256,4 @@ def test_transcode_entry_records_ffmpeg_version_and_args(
     assert not any("/" in a for a in args)
     assert entry["tools"] == {
         "ffmpeg": ledger["mediaTools"]["ffmpeg"]["version"]}
-    assert entry["source"]["path"] == "game/m.mkv"
+    assert entry["source"]["path"] == "game/m.mp4"
