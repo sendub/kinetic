@@ -157,7 +157,7 @@ describe("the play-all auto-pick on the choice screen (docs/plan.md Phase 18)", 
       "Play all routes picks in 3 s",
     );
     expect(autoPickStatus({ ...base, picked: true }, "Route 2", 0)).toBe(
-      "Play all routes picked Route 2",
+      "Play all routes picked “Route 2”",
     );
   });
 
@@ -168,7 +168,7 @@ describe("the play-all auto-pick on the choice screen (docs/plan.md Phase 18)", 
         "Route 2",
         2,
       ),
-    ).toBe("Back in time: Route 1 done. Play all routes picks in 2 s");
+    ).toBe("Back in time: “Route 1” is done. Play all routes picks in 2 s");
   });
 
   it("the hint offers Space only while counting down", () => {

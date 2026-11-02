@@ -50,7 +50,7 @@ const countdownMs = (b, backFrom) => {
   const back =
     backFrom === undefined
       ? ""
-      : `Back in time: ${routeLabel(b, backFrom)} done. `;
+      : `Back in time: “${routeLabel(b, backFrom)}” is done. `;
   const rows = b.routes.map((r) =>
     r.id === backFrom ? `${r.label} seen` : r.label,
   );
@@ -432,7 +432,7 @@ export default async function ({ check, open }) {
       "the re-offer leads with the jump back, Route 2 marked seen, Route 1 marked as the next pick",
       re.open &&
         re.status.startsWith(
-          `Back in time: ${r2} done. Play all routes picks in`,
+          `Back in time: “${r2}” is done. Play all routes picks in`,
         ) &&
         re.seen[0] === false &&
         re.seen[1] === true &&
@@ -492,7 +492,7 @@ export default async function ({ check, open }) {
       "the nested re-offer names 1b; a digit picks 1a at once",
       nre.open &&
         nre.status.startsWith(
-          `Back in time: ${routeLabel(nested, "nest-b")} done.`,
+          `Back in time: “${routeLabel(nested, "nest-b")}” is done.`,
         ) &&
         onContinue,
       nre,

@@ -859,10 +859,24 @@ truthful: an unchecked box means nothing was accepted.
       text test red before; config.test 28/28, vitest 538, screens 44 +
       2 headless-fullscreen partials, smoke 6/6; screenshot checked.
       2026-11-02)
-- [ ] Back-in-time line quotes the route (user, 2026-11-02): "Back in
+- [x] Back-in-time line quotes the route (user, 2026-11-02): "Back in
       time: Route 2: an ending done." blurs the route's label into the
       message; quote the label (e.g. Back in time: "Route 2: an ending"
       is done.) so "done" clearly belongs to the message. Countdown text
       follows. Tests, playall scenario.
+      (Back in time: “<route>” is done. … / Play all routes picked
+      “<route>”; choicetext.ts; 3 tests red before; vitest 538, playall
+      21/21, branches 39/39, smoke 6/6; screenshot checked. 2026-11-02)
+- [ ] Rolling back restores the routes (user, 2026-11-02): after play-all
+      finished every route, rolling back to before the first decision and
+      going forward again skipped the choices and all branch content (the
+      Phase 13 all-played rule closes a decision once every route has
+      played, and the played record was not rewound). Moving the reading
+      position back to before a decision (wheel, e, goTo, bookmark) now
+      restores the route-play state as of that point, like Ren'Py
+      rollback, so the repeat run is identical to the first: choices
+      shown, every route played again (play-all: shortest first). In-story
+      re-arrival (hub loops) keeps the all-played rule. Seen markers stay.
+      Reproduce first; tests red before; branches + playall scenarios.
 - [ ] Phase-closer: full suite (scenarios, vitest, pytest,
       package-proof), rebuild both demo folders.

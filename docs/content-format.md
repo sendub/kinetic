@@ -384,7 +384,7 @@ docs/plan.md Phase 13):
   (fewest items), the continuing route last, repeats until every route
   has played once, then continues via `continueAt` (a pure choice: past
   the region end, per the rule above). A re-offer's status line leads
-  with "Back in time: <route> done.". Space takes the pick at once; a
+  with "Back in time: “<route>” is done.". Space takes the pick at once; a
   digit or click picks another route. Inside a skip-all burst there is
   no countdown, only the highlight, and the burst carries on. These
   choice screens are recorded in the history like a reader's; a

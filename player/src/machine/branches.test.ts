@@ -2353,7 +2353,7 @@ describe("play all routes shows the choice and picks on screen (docs/plan.md Pha
       picked: false,
       backFromLabel: "Route A",
       ms: countdown(
-        "Which road? Back in time: Route A done. Play all routes picks in 0 s" +
+        "Which road? Back in time: “Route A” is done. Play all routes picks in 0 s" +
           " Route A seen Route B Route C",
         3,
       ),

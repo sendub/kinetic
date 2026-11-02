@@ -13,7 +13,8 @@ export const SEEN_MARKER = "seen";
 
 /**
  * The auto-pick status line: the jump back (on a re-offer), then the
- * countdown's whole seconds left, or the route just picked.
+ * countdown's whole seconds left, or the route just picked. Route labels
+ * are quoted so their words read apart from the line's own.
  */
 export function autoPickStatus(
   auto: Pick<AutoPickView, "picked" | "backFromLabel">,
@@ -23,9 +24,9 @@ export function autoPickStatus(
   const back =
     auto.backFromLabel === undefined
       ? ""
-      : `Back in time: ${auto.backFromLabel} done. `;
+      : `Back in time: “${auto.backFromLabel}” is done. `;
   return auto.picked
-    ? `${back}Play all routes picked ${routeLabel}`
+    ? `${back}Play all routes picked “${routeLabel}”`
     : `${back}Play all routes picks in ${secondsLeft} s`;
 }
 
