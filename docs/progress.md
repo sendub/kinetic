@@ -742,5 +742,8 @@ truthful: an unchecked box means nothing was accepted.
       1280x720 and 700x900, screenshot checked); config.test layout tests;
       screens scenario check. vitest 477, screens 41 pass + 2 headless
       fullscreen partials, media 22/22, playall 19/19. 2026-11-02)
-- [ ] Phase-closer: full suite (scenarios, vitest, pytest,
+- [x] Phase-closer: full suite (scenarios, vitest, pytest,
       package-proof), rebuild both demo folders.
+      (2026-11-02: vitest 477, biome+tsc clean, scenario suite 8 files /
+      169 checks: 167 pass + 2 PARTIAL (headless fullscreen), pytest 155,
+      package-proof 18/18; .tmp/pkg-demo and .tmp/pkg-extract rebuilt.)
