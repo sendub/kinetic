@@ -937,3 +937,11 @@ truthful: an unchecked box means nothing was accepted.
       screen's "Reading speed" becomes "Auto-forward speed" (or similar),
       with a short note that it also paces play-all's choice countdown.
       Help text, README, docs; tests and scenarios that read the label.
+- [ ] Clicks don't close settings or help (user, 2026-11-02): a mouse
+      click (backdrop or anywhere) no longer closes the `c` screen or the
+      Esc help; their keys still do (c / Esc; Esc / Space for help).
+      Clicks on their controls still work. Hint lines updated (e.g. help
+      "Esc · Space — closes"). The `t` bookmark list is unchanged.
+      Tests, screens scenario, README.
+- [ ] Phase-closer: full suite (scenarios, vitest, pytest,
+      package-proof), rebuild both demo folders.
