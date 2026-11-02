@@ -117,7 +117,10 @@ export function createContextCodec(
   ): readonly SavedHistoryEntry[] => {
     if (history === historySource) return historySaved;
     const out: SavedHistoryEntry[] = [];
+    // A pass record on an entry left out moves to the next one kept.
+    let pass: HistoryEntry["passRoutes"];
     for (const entry of history) {
+      if (entry.passRoutes !== undefined) pass = entry.passRoutes;
       const item = itemId(entry.index);
       if (item === undefined) continue;
       const stack = entry.stack.map(savedFrame);
@@ -131,7 +134,9 @@ export function createContextCodec(
         item,
         stack: stack as SavedFrame[],
         ...(decision === undefined ? {} : { decision }),
+        ...(pass === undefined ? {} : { passRoutes: savedSets(pass) }),
       });
+      pass = undefined;
     }
     historySource = history;
     historySaved = Object.freeze(out);
@@ -151,6 +156,9 @@ export function createContextCodec(
         stack,
         playedRoutes: savedSets(context.playedRoutes),
         completedRoutes: savedSets(context.completedRoutes ?? []),
+        ...(context.passRoutes === undefined
+          ? {}
+          : { passRoutes: savedSets(context.passRoutes) }),
         ...(context.history === undefined
           ? {}
           : { history: savedHistory(context.history) }),
@@ -180,7 +188,10 @@ export function createContextCodec(
               stored.length - 1,
             );
       let historyPos = -1;
+      // A pass record on a dropped entry moves to the next one kept.
+      let pass: SavedHistoryEntry["passRoutes"];
       stored.forEach((entry, position) => {
+        if (entry.passRoutes !== undefined) pass = entry.passRoutes;
         const index = itemById.get(entry.item);
         if (index === undefined) return;
         const stack: ContextFrame[] = [];
@@ -198,7 +209,9 @@ export function createContextCodec(
           index,
           stack,
           ...(decision === undefined ? {} : { decision }),
+          ...(pass === undefined ? {} : { passRoutes: indexSets(pass) }),
         });
+        pass = undefined;
         if (position <= onScreen) historyPos = history.length - 1;
       });
       if (history.length > 0 && historyPos < 0) historyPos = 0;
@@ -218,6 +231,9 @@ export function createContextCodec(
           .filter((frame): frame is ContextFrame => frame !== undefined),
         playedRoutes: indexSets(saved.playedRoutes),
         completedRoutes: indexSets(saved.completedRoutes),
+        ...(saved.passRoutes === undefined
+          ? {}
+          : { passRoutes: indexSets(saved.passRoutes) }),
         ...(history.length === 0 ? {} : { history, historyPos }),
       };
     },

@@ -362,9 +362,12 @@ export function sanitizeContext(raw: unknown): SavedContext | undefined {
       ...(candidate.decision === undefined
         ? {}
         : { decision: candidate.decision }),
+      ...(Array.isArray(candidate.passRoutes)
+        ? { passRoutes: routeSets(candidate.passRoutes) }
+        : {}),
     });
   }
-  const routeSets = (raw: unknown): SavedRouteSet[] => {
+  function routeSets(raw: unknown): SavedRouteSet[] {
     const out: SavedRouteSet[] = [];
     for (const entry of Array.isArray(raw) ? raw : []) {
       if (typeof entry !== "object" || entry === null) continue;
@@ -381,7 +384,7 @@ export function sanitizeContext(raw: unknown): SavedContext | undefined {
       }
     }
     return out;
-  };
+  }
   return {
     lastShown: source.lastShown,
     visited: [...source.visited],
@@ -390,6 +393,10 @@ export function sanitizeContext(raw: unknown): SavedContext | undefined {
     // Which routes were played THROUGH to their end (docs/plan.md Phase
     // 18): the "Return to main route" row depends on it.
     completedRoutes: routeSets(source.completedRoutes),
+    // Played this pass (docs/plan.md Phase 22); absent in older saves.
+    ...(Array.isArray(source.passRoutes)
+      ? { passRoutes: routeSets(source.passRoutes) }
+      : {}),
     ...(history.length > 0 ? { history } : {}),
     ...(history.length > 0 && isFiniteNumber(source.historyPos)
       ? { historyPos: source.historyPos }

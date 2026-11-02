@@ -303,11 +303,25 @@ export interface ContextFrame {
  * screen instead: that decision's overlay as it opened over item `index` —
  * the decision's `after` item on a first fire, a route's last item on a
  * route-end re-offer — with the frames open under the overlay.
+ *
+ * `passRoutes` is the played-this-pass record as of the screen (docs/
+ * plan.md Phase 22, "Rolling back restores the routes"): the wheel, `e` and
+ * a resume put it back with the screen. Present only where it differs from
+ * the entry before (always on the first); an entry without it has the
+ * record of the entry before it, and a history with none at all (a save
+ * from before this field) has the context's `passRoutes` throughout.
  */
 export interface HistoryEntry {
   readonly index: number;
   readonly stack: readonly ContextFrame[];
   readonly decision?: number;
+  readonly passRoutes?: readonly RouteSet[];
+}
+
+/** The routes of one decision, by position (a played or completed set). */
+export interface RouteSet {
+  readonly decision: number;
+  readonly routes: readonly number[];
 }
 
 /**
@@ -339,6 +353,14 @@ export interface MachineContext {
    * simply stays hidden until the reader finishes the continuing route once.
    */
   completedRoutes?: readonly { decision: number; routes: readonly number[] }[];
+  /**
+   * The routes PLAYED THIS PASS (docs/plan.md Phase 22): unlike the
+   * cumulative `playedRoutes` (the rows' seen marks), this record rewinds
+   * with the reading position and drives only the route flow — play-all's
+   * next pick, re-offer or close at a route end, the all-played rule.
+   * Absent (an older save) reads as `playedRoutes`.
+   */
+  passRoutes?: readonly { decision: number; routes: readonly number[] }[];
   /**
    * The reading history (docs/plan.md, "History rollback spec"): every
    * screen shown while reading, oldest first, capped (`HISTORY_CAP`, oldest

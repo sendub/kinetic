@@ -41,6 +41,8 @@ export interface SavedHistoryEntry {
   readonly item: string;
   readonly stack: readonly SavedFrame[];
   readonly decision?: string;
+  /** Played this pass as of the screen, where it changed (`HistoryEntry`). */
+  readonly passRoutes?: readonly SavedRouteSet[];
 }
 
 /** The routes of one decision, by ids. */
@@ -63,6 +65,11 @@ export interface SavedContext {
   readonly stack: readonly SavedFrame[];
   readonly playedRoutes: readonly SavedRouteSet[];
   readonly completedRoutes: readonly SavedRouteSet[];
+  /**
+   * The routes played this pass (docs/plan.md Phase 22); absent in older
+   * saves, which then read as `playedRoutes`.
+   */
+  readonly passRoutes?: readonly SavedRouteSet[];
   readonly history?: readonly SavedHistoryEntry[];
   readonly historyPos?: number;
 }

@@ -794,7 +794,8 @@ directory holds too many files.
 - The wheel moves `pos` only: back/forward one entry, clamped to the
   record; it shows the entry exactly - an item with its stack restored,
   or the choice screen in full (the same panel, current seen marks and
-  return-row rule) - and marks nothing played. A pick from a replayed
+  return-row rule) - and marks nothing played (Phase 22: it does put
+  back that screen's played-this-pass record). A pick from a replayed
   choice screen is a real pick.
 - Reading from `pos < last`: if the next screen equals the record's next
   entry, `pos` just advances (replay); otherwise the record after `pos`
@@ -809,7 +810,9 @@ directory holds too many files.
 - What stays: the seen set, played/completed routes, the return-row
   rule, skip-never-reveals (skip walks forward reading, not history),
   and bookmarks (a bookmark click is a jump that appends to the
-  record).
+  record). Phase 22 adds one record that does move with `pos`: the
+  routes played this pass, which each entry stores and showing it puts
+  back.
 
 ## Phase 19: Third demo-feedback round (2026-11-02, user)
 
@@ -899,6 +902,42 @@ and machines (user chose a and b).
 - The `c` screen's Progress group gets a short note saying progress
   saves in this browser automatically, and Export / Import are only for
   moving to another browser or machine.
+
+- Rolling back restores the routes (user, 2026-11-02, option 2 "split"):
+  after play-all had finished every route, wheeling back before the first
+  decision and going forward skipped the choice and every route, because
+  the played record never rewound and the all-played rule closed the
+  decision. There are now two route records:
+  - Seen routes (`played` / `completed`, cumulative, never rewound) drive
+    the rows' seen marks, the return-row rule, the end card and `u`,
+    exactly as Phase 18 specifies. Ren'Py also keeps chosen-menu marks
+    across rollback.
+  - Played this pass (`passRoutes`) rewinds with the reading position.
+    Every history entry records it where it changed. The wheel, `e`, a
+    resume and a bookmark restore it as of that screen; the bookmark's
+    own record is used, not merged. It drives only the route flow:
+    play-all's next pick (shortest not played this pass first, the
+    continuing route last, never the return row), whether a route end
+    re-offers, and whether a pure menu closes (the all-played rule).
+  - It only grows during forward play, so within a pass play-all enters
+    each route of a decision at most once and always terminates.
+  - Going forward from a rolled-back position is live play. Each screen
+    that matches the next recorded entry, pass record included, just
+    advances the position, so a repeat run keeps the record intact. A
+    wheel step forward only replays the record, and a replayed choice
+    waits as before.
+  - So after a rollback the repeat run is the first one again: the
+    choice shows (with its countdown under play-all) and every route
+    plays again. The rows keep their seen marks, and the return row
+    shows once the continuing route has ever been completed. Under
+    play-all the countdown counts that row like any drawn word. A
+    manual reader sees which routes are seen and can pick an unseen one,
+    even on a pure menu whose routes have all been seen.
+  - In-story re-arrival (a route end re-offering its decision, `goTo`)
+    keeps the all-played rule: only moving the reading position resets
+    the pass.
+  - Saves from before this record read it as their played routes, the
+    old behaviour.
 
 ## Later, waiting on the user
 

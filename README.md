@@ -6,7 +6,7 @@ A browser player for kinetic visual novels: a simple alternative to Ren'Py. A no
 
 * **Space**: next item. Manual is the default: one press, one item. In auto-forward, Space turns auto-forward off and stays on the item.
 * **a**: auto-forward on/off (Space also turns it off). A brief pill says "Auto-forward on" or "Auto-forward off" each time the mode changes, whichever key changed it. Turning it on counts the time the item has already been on screen, so an item already read moves on at once. Items advance at the reading speed; animations play a few times, videos play out (or follow their loop count or display duration).
-* **Mouse wheel**: roll back through exactly what you saw, in the order you saw it, choice screens included; roll forward again to where you were.
+* **Mouse wheel**: roll back through exactly what you saw, in the order you saw it, choice screens included; roll forward again to where you were. Reading on from before a choice plays it again as the first time (routes already seen stay marked), so with play all routes every route plays again.
 * **e**: jump to the end of what you have read.
 * **u**: go to the next unseen content wherever it is: an unplayed route (entered as if picked) or content earlier in the story, such as a prequel added by an update. A resume shows a quiet notice when such earlier content exists.
 * **Tab**: skip through content you have already seen, showing only first frames; it stops on the last seen item, and Space stops it on the current one. Two settings under "When Tab skips" change how it skips: "Skip unseen content too" lets it run through unseen content, and with "Play videos in full" on, videos play out during a skip and Space cuts one short.

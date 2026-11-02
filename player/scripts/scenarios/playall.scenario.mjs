@@ -17,6 +17,7 @@ import {
   currentItemId,
   HELP_OPEN,
   item,
+  pressA,
   pressC,
   pressDigit,
   pressEscape,
@@ -24,6 +25,7 @@ import {
   pressTab,
   READ_CONFIG_OVERLAY,
   sleep,
+  wheel,
 } from "./harness.mjs";
 
 export const title = "play all routes: on-screen auto-picks, countdown, skip";
@@ -573,6 +575,90 @@ export default async function ({ check, open }) {
       "c on the help screen replaces it with the settings screen",
       helpUp && cfgFromHelp && helpGone,
       { helpUp, cfgFromHelp, helpGone },
+    );
+  }
+
+  // ---- 4. Rolling back restores the routes (docs/plan.md Phase 22) -----
+  // The user's steps: play-all on, every route played to the end, the
+  // wheel back to before the first decision, then forward again — with
+  // Space, and with auto-forward. The repeat shows the choice with its
+  // countdown and plays every route again in the same order; the rows keep
+  // their seen marks.
+  {
+    const { page, cdp } = await open("rewind", { closeHelp: true });
+    await configure(page, cdp, { skipAll: false });
+    const where = async () => {
+      const c = await page.evaluate(READ_AUTO);
+      const id = await currentItemId(page);
+      return c.open ? `${id}?` : id;
+    };
+    /** Space (taking each pick at once) to after-end, logging each screen. */
+    const spaceToEnd = async () => {
+      const path = [];
+      for (let press = 0; press < 80; press += 1) {
+        const at = await where();
+        if (path[path.length - 1] !== at) path.push(at);
+        if (at === "after-end") break;
+        await pressSpace(cdp);
+        await sleep(150);
+      }
+      return path;
+    };
+    /** Wheel back until branch-lead, the item before the decision's own. */
+    const rollBack = async () => {
+      for (let notch = 0; notch < 20; notch += 1) {
+        await wheel(cdp, true, 1);
+        if ((await where()) === "branch-lead") return true;
+      }
+      return false;
+    };
+    const first = await spaceToEnd();
+    const fromDecide = (path) => path.slice(path.indexOf("branch-decide"));
+    const back = await rollBack();
+    await pressSpace(cdp); // branch-lead -> branch-decide
+    await sleep(150);
+    await pressSpace(cdp); // fires the outer decision
+    await sleep(300);
+    const fired = await page.evaluate(READ_AUTO);
+    check(
+      "rolled back before the first decision after play-all finished: Space fires the choice again, counting down, routes still marked seen",
+      back &&
+        fired.open &&
+        fired.prompt === outer.prompt &&
+        fired.autoShown &&
+        /Play all routes picks in \d+ s$/.test(fired.status) &&
+        fired.next === routeLabel(outer, "route2") &&
+        fired.seen[0] === true &&
+        fired.seen[1] === true,
+      { back, fired },
+    );
+    const again = await spaceToEnd();
+    check(
+      "the repeat plays every route again, exactly as the first run did",
+      JSON.stringify(fromDecide(["branch-decide", ...again])) ===
+        JSON.stringify(fromDecide(first)),
+      { first: fromDecide(first), again },
+    );
+
+    // The same with auto-forward instead of Space.
+    const backAgain = await rollBack();
+    await pressA(cdp);
+    let counting = false;
+    let pickedRoute2 = false;
+    const start = Date.now();
+    while (Date.now() - start < 40000) {
+      const c = await page.evaluate(READ_AUTO);
+      if (c.open && c.autoShown && c.prompt === outer.prompt) counting = true;
+      if ((await currentItemId(page)) === "route2-start") {
+        pickedRoute2 = true;
+        break;
+      }
+      await sleep(100);
+    }
+    check(
+      "with auto-forward instead: the choice counts down again and play-all enters Route 2 first",
+      backAgain && counting && pickedRoute2,
+      { backAgain, counting, pickedRoute2 },
     );
   }
 }

@@ -426,6 +426,39 @@ describe("sanitizeContext — the context the shipped adapter reads back", () =>
     });
   });
 
+  it("keeps the played-this-pass record, top level and per entry (docs/plan.md Phase 22)", () => {
+    expect(
+      sanitizeContext({
+        ...base,
+        passRoutes: [
+          { decision: "d0", routes: ["r1"] },
+          { decision: "d1", routes: [0] },
+        ],
+        history: [
+          { item: "x-0", stack: [], passRoutes: [] },
+          {
+            item: "x-3",
+            stack: [{ decision: "d0", route: "r1" }],
+            passRoutes: [{ decision: "d0", routes: ["r1"] }],
+          },
+          { item: "x-3", stack: [], passRoutes: "bad" },
+        ],
+      }),
+    ).toEqual({
+      ...base,
+      passRoutes: [{ decision: "d0", routes: ["r1"] }],
+      history: [
+        { item: "x-0", stack: [], passRoutes: [] },
+        {
+          item: "x-3",
+          stack: [{ decision: "d0", route: "r1" }],
+          passRoutes: [{ decision: "d0", routes: ["r1"] }],
+        },
+        { item: "x-3", stack: [] },
+      ],
+    });
+  });
+
   it("drops an old index-based context whole: no migration, a first boot", () => {
     // Saves before Phase 18 named items by array position. There are no
     // released games to stay compatible with (user, 2026-11-01), so such

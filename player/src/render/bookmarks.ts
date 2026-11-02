@@ -69,7 +69,10 @@ export function bookmarkContext<T extends MachineContext | SavedContext>(
  * landing and route frames come from the bookmark, but the seen set and the
  * played / completed routes are the UNION of the bookmark's and the
  * reader's current ones, so opening an old bookmark cannot make content
- * read since then count as unseen again.
+ * read since then count as unseen again. The played-this-pass record is
+ * NOT merged: it is the bookmark's own, so the route flow (play-all's next
+ * pick, re-offer or close) continues as of the bookmark (docs/plan.md
+ * Phase 22).
  */
 export function mergeProgress(
   bookmark: MachineContext,
@@ -102,6 +105,10 @@ export function mergeProgress(
       bookmark.completedRoutes,
       current.completedRoutes,
     ),
+    // The route FLOW is the bookmark's own (docs/plan.md Phase 22): its
+    // played-this-pass record — for a bookmark from before that record, the
+    // routes it had played — so continuing from it plays on as it did then.
+    passRoutes: bookmark.passRoutes ?? bookmark.playedRoutes,
   };
 }
 

@@ -346,7 +346,14 @@ docs/plan.md Phase 13):
   never appear, because they were never shown. Reading on from a
   rolled-back point replays the record while the reader takes the same
   path, and a different path (another pick at a replayed choice screen)
-  drops the recorded future, as in Ren'Py rollback. `e` goes to the end
+  drops the recorded future, as in Ren'Py rollback. Route flow rolls
+  back with the reading position (docs/plan.md Phase 22): each screen
+  also records which routes had been played THIS PASS, and moving to a
+  screen (wheel, `e`, a reload, a bookmark) puts that back. Reading on
+  from before a decision therefore fires it again and plays its routes
+  again as the first time did (under `Play all routes`: the countdown,
+  shortest first, the continuing route last), while the rows' seen marks
+  and the return row, which are cumulative, stay. `e` goes to the end
   of the record (a no-op there); it does not look for unseen content.
   `u` does (docs/plan.md Phase 18, "Reach unseen content from
   anywhere"): it lands on the next unseen item in array order after the
@@ -380,9 +387,10 @@ docs/plan.md Phase 13):
   key hint or row numbers) plus comprehension time of 1.5 s and 1 s per
   row, all at the reader's speed and never under 2.5 s. The row it will
   pick is marked from the countdown's start; then it is highlighted as
-  picked for about 0.7 s and the route starts. It picks the shortest not-yet-played route
-  (fewest items), the continuing route last, repeats until every route
-  has played once, then continues via `continueAt` (a pure choice: past
+  picked for about 0.7 s and the route starts. It picks the shortest route not yet played this
+  pass (fewest items; see the reading history on rollback), the
+  continuing route last, never the return row, repeats until every route
+  has played once this pass, then continues via `continueAt` (a pure choice: past
   the region end, per the rule above). A re-offer's status line leads
   with "Back in time: “<route>” is done.". Space takes the pick at once; a
   digit or click picks another route. Inside a skip-all burst there is

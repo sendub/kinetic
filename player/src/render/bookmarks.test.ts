@@ -248,6 +248,30 @@ describe("mergeProgress (a bookmark restore never forgets progress, Phase 18)", 
       stack: [{ decision: 0, route: 0 }],
       playedRoutes: [{ decision: 0, routes: [0, 1] }],
       completedRoutes: [{ decision: 0, routes: [1] }],
+      // An older bookmark without a pass record: its own played routes.
+      passRoutes: [{ decision: 0, routes: [0] }],
     });
+  });
+
+  it("restores the bookmark's own played-this-pass record, unmerged (docs/plan.md Phase 22)", () => {
+    const bookmark = {
+      lastShown: 2,
+      visited: [0, 1, 2],
+      stack: [],
+      playedRoutes: [{ decision: 0, routes: [0, 1] }],
+      completedRoutes: [],
+      passRoutes: [],
+    };
+    const current = {
+      lastShown: 9,
+      visited: [0, 1, 2, 3, 7, 8, 9],
+      stack: [],
+      playedRoutes: [{ decision: 0, routes: [0, 1, 2] }],
+      completedRoutes: [{ decision: 0, routes: [0, 1, 2] }],
+      passRoutes: [{ decision: 0, routes: [0, 1, 2] }],
+    };
+    const merged = mergeProgress(bookmark, current);
+    expect(merged.passRoutes).toEqual([]);
+    expect(merged.playedRoutes).toEqual([{ decision: 0, routes: [0, 1, 2] }]);
   });
 });

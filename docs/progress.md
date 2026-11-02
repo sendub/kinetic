@@ -867,7 +867,7 @@ truthful: an unchecked box means nothing was accepted.
       (Back in time: “<route>” is done. … / Play all routes picked
       “<route>”; choicetext.ts; 3 tests red before; vitest 538, playall
       21/21, branches 39/39, smoke 6/6; screenshot checked. 2026-11-02)
-- [ ] Rolling back restores the routes (user, 2026-11-02): after play-all
+- [x] Rolling back restores the routes (user, 2026-11-02): after play-all
       finished every route, rolling back to before the first decision and
       going forward again skipped the choices and all branch content (the
       Phase 13 all-played rule closes a decision once every route has
@@ -878,5 +878,14 @@ truthful: an unchecked box means nothing was accepted.
       shown, every route played again (play-all: shortest first). In-story
       re-arrival (hub loops) keeps the all-played rule. Seen markers stay.
       Reproduce first; tests red before; branches + playall scenarios.
+      (User chose option 2, split: seen routes stay cumulative (marks,
+      return row, end card, u, Phase 18 unchanged); new passPlayed
+      record rewinds with wheel/e/resume/bookmark and drives only the
+      flow (play-all pick, re-offer vs close, all-played close). Stored
+      per history entry as delta passRoutes; old saves read played.
+      10 new machine tests red before; playall user-steps checks red on
+      old build. vitest 550, playall 25/25, branches 41/41, navigation
+      19/19, screens 44 + 2 headless-fullscreen partials, smoke 6/6.
+      2026-11-02)
 - [ ] Phase-closer: full suite (scenarios, vitest, pytest,
       package-proof), rebuild both demo folders.

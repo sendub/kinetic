@@ -31,12 +31,18 @@ function copyContext(context: SavedContext): SavedContext {
     stack: context.stack.map((frame) => ({ ...frame })),
     playedRoutes: routeSets(context.playedRoutes),
     completedRoutes: routeSets(context.completedRoutes),
+    ...(context.passRoutes === undefined
+      ? {}
+      : { passRoutes: routeSets(context.passRoutes) }),
     ...(context.history === undefined
       ? {}
       : {
           history: context.history.map((entry) => ({
             ...entry,
             stack: entry.stack.map((frame) => ({ ...frame })),
+            ...(entry.passRoutes === undefined
+              ? {}
+              : { passRoutes: routeSets(entry.passRoutes) }),
           })),
         }),
     ...(context.historyPos === undefined

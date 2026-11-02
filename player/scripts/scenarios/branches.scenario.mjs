@@ -808,4 +808,50 @@ export default async function ({ check, open }) {
       { from, stopped, choiceDuringSkip, fired, picked, still },
     );
   }
+
+  // ---- Rolling back restores the routes (docs/plan.md Phase 22), manual ----
+  // One route read (Route 2), then the wheel back to before the decision:
+  // reading on fires the choice again with Route 2 still marked seen, and
+  // the unseen Route 1 can be picked.
+  {
+    const { page, cdp } = await open("rewind-manual", { closeHelp: true });
+    await spaceTo(page, cdp, "branch-decide");
+    await pressSpace(cdp); // fires the outer decision
+    await page.waitForFunction(CHOICE_OPEN, { timeout: 2000 });
+    await pressDigit(cdp, "2"); // Route 2
+    await spaceTo(page, cdp, "route2-end");
+    await pressSpace(cdp); // off its end: the re-offer
+    await page.waitForFunction(CHOICE_OPEN, { timeout: 2000 });
+    let back = null;
+    for (let notch = 0; notch < 10; notch += 1) {
+      await wheel(cdp, true, 1);
+      back = await currentItemId(page);
+      if (back === "branch-lead") break;
+    }
+    await spaceTo(page, cdp, "branch-decide");
+    await pressSpace(cdp); // the decision fires again
+    let fired = true;
+    try {
+      await page.waitForFunction(CHOICE_OPEN, { timeout: 2000 });
+    } catch {
+      fired = false;
+    }
+    const choice = await page.evaluate(READ_CHOICE);
+    const marks = (choice.rows ?? [])
+      .filter((row) => !row.isContinue)
+      .map((row) => row.seen !== null);
+    await pressDigit(cdp, "1"); // the unseen route
+    await sleep(200);
+    const picked = await currentItemId(page);
+    check(
+      "manual rewind before the decision: it fires again, Route 2 still marked seen, Route 1 unseen and pickable",
+      back === "branch-lead" &&
+        fired &&
+        marks.length === 2 &&
+        marks[0] === false &&
+        marks[1] === true &&
+        picked === "route1-start",
+      { back, fired, marks, picked },
+    );
+  }
 }

@@ -27,7 +27,11 @@
 // entry exactly — the item with its frames restored, or the choice screen in
 // full — answering nothing and marking nothing played; `e` shows the last
 // entry. The record is capped (`HISTORY_CAP`, oldest first) and persists in
-// the context. A play-all auto-pick's choice screen is recorded like any
+// the context. Each entry also records the routes PLAYED THIS PASS
+// (`passPlayed`, docs/plan.md Phase 22), and showing an entry puts that
+// record back: rolling back before a decision and reading on plays its
+// routes again, exactly as the first time. The cumulative `played` /
+// `completed` records (seen marks, return row) never rewind. A play-all auto-pick's choice screen is recorded like any
 // other, its countdown is not.
 //
 // Transition kind (`MachineState.transition`): the same funnel that marks an
@@ -102,6 +106,7 @@ import type {
   MachineSettings,
   MachineState,
   RouteResult,
+  RouteSet,
   Scheduler,
   TransitionKind,
   VideoItem,
@@ -130,9 +135,10 @@ export interface MachineOptions {
   resumeFrontier?: number;
   /**
    * Restored route-play context (`exportContext()`), the Phase 13 form of a
-   * resume: the seen set, the open decision stack, the routes played and
-   * completed per decision, and the reading history — the load starts on
-   * the entry at `historyPos` (a choice screen shows its overlay). A
+   * resume: the seen set, the open decision stack, the routes played,
+   * completed and played this pass per decision, and the reading history —
+   * the load starts on the entry at `historyPos` (a choice screen shows its
+   * overlay), with that entry's played-this-pass record. A
    * context without a history lands on `lastShown` and starts a one-entry
    * history there. A context predating `completedRoutes`
    * restores with nothing completed (see `MachineContext`): the conservative
@@ -171,8 +177,9 @@ export interface Machine {
   visitedList(): number[];
   /**
    * Route-play context for persistence: `lastShown` (the item on screen),
-   * `visitedList()`, the open decision stack, the routes played and
-   * completed per decision, and the reading history with the entry on
+   * `visitedList()`, the open decision stack, the routes played, completed
+   * and played this pass per decision, and the reading history (each entry
+   * with its played-this-pass record where it changed) with the entry on
    * screen — all JSON-safe. `MachineOptions.resumeContext` restores all of
    * it; `importContext()` restores all but the history. It is in array
    * POSITIONS (item, resolved-decision and route indices); storage never
@@ -183,7 +190,8 @@ export interface Machine {
   exportContext(): MachineContext;
   /**
    * The bookmark-restore move: replaces the seen set, decision stack,
-   * played routes and completed routes with a stored context and shows its
+   * played, completed and played-this-pass routes with a stored context
+   * (an absent `passRoutes` reads as its `playedRoutes`) and shows its
    * `lastShown` item. The arrival is UNSETTLED, like `goTo()`, fires no
    * decision, and is a jump: the landing is appended to THIS session's
    * history (the stored context's history, if any, is ignored). Like
@@ -218,7 +226,9 @@ export interface Machine {
    * item with the route frames it showed under, or a choice screen in full
    * (the overlay, the current seen marks and return-row rule). A step
    * answers nothing, marks nothing played, and leaves any open choice (it
-   * stays in the history). An item arrival is unsettled, like `goTo()`.
+   * stays in the history). It does put back the entry's played-this-pass
+   * record (docs/plan.md Phase 22), so reading on from there takes the
+   * routes as the first time did. An item arrival is unsettled, like `goTo()`.
    * During skip mode, exits skip mode and still performs the step.
    */
   wheelBack(): void;
@@ -654,11 +664,46 @@ export {
  */
 export const HISTORY_CAP = 5000;
 
+/** Route sets by decision as sorted, frozen `RouteSet`s (empty sets left out). */
+function routeSets(
+  map: ReadonlyMap<number, ReadonlySet<number>>,
+): readonly RouteSet[] {
+  return Object.freeze(
+    [...map.entries()]
+      .filter(([, routes]) => routes.size > 0)
+      .sort((a, b) => a[0] - b[0])
+      .map(([decision, routes]) =>
+        Object.freeze({
+          decision,
+          routes: Object.freeze([...routes].sort((a, b) => a - b)),
+        }),
+      ),
+  );
+}
+
+function sameRouteSets(
+  a: readonly RouteSet[],
+  b: readonly RouteSet[],
+): boolean {
+  return (
+    a === b ||
+    (a.length === b.length &&
+      a.every(
+        (set, at) =>
+          set.decision === b[at].decision &&
+          set.routes.length === b[at].routes.length &&
+          set.routes.every((route, k) => route === b[at].routes[k]),
+      ))
+  );
+}
+
 /** One reading-history entry (see `HistoryEntry`), owned by the machine. */
 interface Entry {
   index: number;
   stack: Frame[];
   decision?: number;
+  /** The played-this-pass record as of this screen, restored with it. */
+  pass: readonly RouteSet[];
 }
 
 function sameStack(a: readonly Frame[], b: readonly Frame[]): boolean {
@@ -765,6 +810,20 @@ export function createMachine(options: MachineOptions): Machine {
    * picking the continuing route is the way forward there.
    */
   const completed = new Map<number, Set<number>>();
+  /**
+   * The routes PLAYED THIS PASS, by decision (docs/plan.md Phase 22). `played`
+   * and `completed` are cumulative — the rows' seen marks, the return row,
+   * the end card and `u` — and never rewind. This record drives only the
+   * route FLOW: play-all's next pick, whether a route end re-offers or a
+   * pure menu closes (the all-played rule). It grows during forward play,
+   * so a pass enters each route of a decision at most once under play-all,
+   * and every history entry records it, so moving the reading position
+   * back (wheel, `e`, a resume, a bookmark) puts it back as of that screen:
+   * the repeat run plays every route again, like the first.
+   */
+  const passPlayed = new Map<number, Set<number>>();
+  /** `passPlayed` as frozen `RouteSet`s, kept until it changes. */
+  let passExport: readonly RouteSet[] | null = null;
   let pendingChoice: PendingChoice | null = null;
   let skipping = false;
   let holdElapsed = false;
@@ -1204,7 +1263,35 @@ export function createMachine(options: MachineOptions): Machine {
       index: cursor,
       stack: stack.map((frame) => ({ ...frame })),
       ...(decision === undefined ? {} : { decision }),
+      pass: passNow(),
     };
+  }
+
+  /** The played-this-pass record now, frozen. */
+  function passNow(): readonly RouteSet[] {
+    if (passExport === null) passExport = routeSets(passPlayed);
+    return passExport;
+  }
+
+  /** Puts a recorded played-this-pass record back (docs/plan.md Phase 22). */
+  function restorePass(sets: readonly RouteSet[]): void {
+    passPlayed.clear();
+    for (const set of sets) passPlayed.set(set.decision, new Set(set.routes));
+    passExport = sets;
+  }
+
+  /** Marks a route played: cumulatively and in this pass. */
+  function markPlayed(decisionIndex: number, routeIdx: number): void {
+    playedOf(decisionIndex).add(routeIdx);
+    let set = passPlayed.get(decisionIndex);
+    if (set === undefined) {
+      set = new Set<number>();
+      passPlayed.set(decisionIndex, set);
+    }
+    if (!set.has(routeIdx)) {
+      set.add(routeIdx);
+      passExport = null;
+    }
   }
 
   /** Appends an entry as the last one, dropping the oldest past the cap. */
@@ -1224,9 +1311,15 @@ export function createMachine(options: MachineOptions): Machine {
    * the recorded future before it is appended (fork).
    */
   function recordRead(entry: Entry): void {
-    if (pos >= 0 && sameEntry(history[pos], entry)) return;
+    if (pos >= 0 && sameEntry(history[pos], entry)) {
+      keepPass(entry);
+      return;
+    }
     if (pos < history.length - 1) {
-      if (sameEntry(history[pos + 1], entry)) {
+      // A replay matches only under the same pass record: the record after
+      // `pos` is the future of the pass it was read in.
+      const next = history[pos + 1];
+      if (sameEntry(next, entry) && sameRouteSets(next.pass, entry.pass)) {
         pos += 1;
         return;
       }
@@ -1241,8 +1334,18 @@ export function createMachine(options: MachineOptions): Machine {
    */
   function recordJump(entry: Entry): void {
     pos = history.length - 1;
-    if (pos >= 0 && sameEntry(history[pos], entry)) return;
+    if (pos >= 0 && sameEntry(history[pos], entry)) {
+      keepPass(entry);
+      return;
+    }
     pushEntry(entry);
+  }
+
+  /** The screen on record stays: it takes the pass record it now has. */
+  function keepPass(entry: Entry): void {
+    if (sameRouteSets(history[pos].pass, entry.pass)) return;
+    history[pos].pass = entry.pass;
+    historyExport = null;
   }
 
   /**
@@ -1277,6 +1380,7 @@ export function createMachine(options: MachineOptions): Machine {
   function placeEntry(at: number): void {
     pos = at;
     const entry = history[at];
+    restorePass(entry.pass);
     stack.length = 0;
     stack.push(...entry.stack.map((frame) => ({ ...frame })));
     cursor = entry.index;
@@ -1479,6 +1583,11 @@ export function createMachine(options: MachineOptions): Machine {
     return played.get(decisionIndex)?.has(routeIdx) === true;
   }
 
+  /** Whether the route has been entered in this pass (`passPlayed`). */
+  function isPassPlayed(decisionIndex: number, routeIdx: number): boolean {
+    return passPlayed.get(decisionIndex)?.has(routeIdx) === true;
+  }
+
   /** Routes completed so far of one decision, creating the set on demand. */
   function completedOf(decisionIndex: number): Set<number> {
     let set = completed.get(decisionIndex);
@@ -1490,15 +1599,20 @@ export function createMachine(options: MachineOptions): Machine {
   }
 
   /**
-   * The route `playAllRoutes` picks next: the shortest not-yet-played route
-   * (fewest items, manifest order on a tie), with the continuing route held
-   * last so the alternates each get their play before the story leaves the
-   * decision (docs/plan.md Phase 18). -1 when every route has played.
+   * The route `playAllRoutes` picks next: the shortest route not yet
+   * played THIS PASS (fewest items, manifest order on a tie), with the
+   * continuing route held last so the alternates each get their play before
+   * the story leaves the decision (docs/plan.md Phase 18). -1 when every
+   * route has played this pass — which is also the all-played rule's test
+   * (`closeIfPureAndComplete`). Never the return row.
    */
   function nextAutoRoute(decision: ResolvedDecision): number {
     let best = -1;
     decision.routes.forEach((route, index) => {
-      if (index === decision.continuingRoute || isPlayed(decision.index, index))
+      if (
+        index === decision.continuingRoute ||
+        isPassPlayed(decision.index, index)
+      )
         return;
       const span = route.endIndex - route.startIndex;
       const bestRoute = decision.routes[best];
@@ -1508,7 +1622,7 @@ export function createMachine(options: MachineOptions): Machine {
     if (best >= 0) return best;
     if (
       decision.continuingRoute >= 0 &&
-      !isPlayed(decision.index, decision.continuingRoute)
+      !isPassPlayed(decision.index, decision.continuingRoute)
     ) {
       return decision.continuingRoute;
     }
@@ -1517,7 +1631,7 @@ export function createMachine(options: MachineOptions): Machine {
 
   /** Marks the route played, pushes its frame, and enters its first item. */
   function enterRoute(decision: ResolvedDecision, routeIdx: number): void {
-    playedOf(decision.index).add(routeIdx);
+    markPlayed(decision.index, routeIdx);
     stack.push({ decision: decision.index, route: routeIdx });
     showItem(decision.routes[routeIdx].startIndex, "nav");
   }
@@ -1732,7 +1846,10 @@ export function createMachine(options: MachineOptions): Machine {
         completed.get(decision.index)?.has(decision.continuingRoute) === true
       );
     }
-    return nextAutoRoute(decision) < 0;
+    // `u` reads the cumulative record (seen routes), not this pass's.
+    return decision.routes.every((_, routeIdx) =>
+      isPlayed(decision.index, routeIdx),
+    );
   }
 
   /**
@@ -1953,6 +2070,9 @@ export function createMachine(options: MachineOptions): Machine {
         }
       }
     }
+    // The played-this-pass record; an older save without one reads as its
+    // cumulative played routes (the flow it had then).
+    restorePass(validRouteSets(context.passRoutes ?? context.playedRoutes));
     stack.length = 0;
     for (const frame of context.stack ?? []) {
       const decisionIndex = asIndex(frame?.decision, -1);
@@ -1969,8 +2089,34 @@ export function createMachine(options: MachineOptions): Machine {
     markShown(cursor);
   }
 
+  /**
+   * Stored route sets checked against this manifest — unknown decisions and
+   * routes dropped — sorted and frozen.
+   */
+  function validRouteSets(
+    raw: readonly RouteSet[] | undefined,
+  ): readonly RouteSet[] {
+    const map = new Map<number, Set<number>>();
+    for (const entry of Array.isArray(raw) ? raw : []) {
+      const decisionIndex = asIndex(entry?.decision, -1);
+      if (decisionIndex < 0 || decisionIndex >= decisions.length) continue;
+      for (const routeIdx of Array.isArray(entry.routes) ? entry.routes : []) {
+        const value = asIndex(routeIdx, -1);
+        if (value >= 0 && value < decisions[decisionIndex].routes.length) {
+          const set = map.get(decisionIndex) ?? new Set<number>();
+          set.add(value);
+          map.set(decisionIndex, set);
+        }
+      }
+    }
+    return routeSets(map);
+  }
+
   /** A stored history entry checked against this manifest; null if foreign. */
-  function validEntry(raw: HistoryEntry | undefined): Entry | null {
+  function validEntry(
+    raw: HistoryEntry | undefined,
+    pass: readonly RouteSet[],
+  ): Entry | null {
     if (typeof raw !== "object" || raw === null) return null;
     const index = asIndex(raw.index, -1);
     if (index < 0 || index >= count) return null;
@@ -1982,10 +2128,10 @@ export function createMachine(options: MachineOptions): Machine {
       if (route < 0 || route >= decisions[decision].routes.length) return null;
       entryStack.push({ decision, route });
     }
-    if (raw.decision === undefined) return { index, stack: entryStack };
+    if (raw.decision === undefined) return { index, stack: entryStack, pass };
     const decision = asIndex(raw.decision, -1);
     if (decision < 0 || decision >= decisions.length) return null;
-    return { index, stack: entryStack, decision };
+    return { index, stack: entryStack, decision, pass };
   }
 
   /**
@@ -2001,8 +2147,18 @@ export function createMachine(options: MachineOptions): Machine {
     history.length = 0;
     pos = -1;
     const stored = Array.isArray(context.history) ? context.history : [];
+    // Each entry's pass record: its own when stored, else the one before
+    // it — a dropped entry's too — and before any, the context's (a save
+    // from before entries carried one never rewinds).
+    let pass = passNow();
     for (const raw of stored.slice(-HISTORY_CAP)) {
-      const entry = validEntry(raw);
+      if (
+        typeof raw === "object" &&
+        raw !== null &&
+        raw.passRoutes !== undefined
+      )
+        pass = validRouteSets(raw.passRoutes);
+      const entry = validEntry(raw, pass);
       if (entry !== null) history.push(entry);
     }
     if (history.length === 0) {
@@ -2017,7 +2173,7 @@ export function createMachine(options: MachineOptions): Machine {
   function exportHistory(): readonly HistoryEntry[] {
     if (historyExport !== null) return historyExport;
     historyExport = Object.freeze(
-      history.map((entry) =>
+      history.map((entry, at) =>
         Object.freeze({
           index: entry.index,
           stack: Object.freeze(
@@ -2027,6 +2183,10 @@ export function createMachine(options: MachineOptions): Machine {
             ),
           ),
           ...(entry.decision === undefined ? {} : { decision: entry.decision }),
+          // The pass record only where it changed (`HistoryEntry`).
+          ...(at > 0 && sameRouteSets(history[at - 1].pass, entry.pass)
+            ? {}
+            : { passRoutes: entry.pass }),
         }),
       ),
     );
@@ -2047,15 +2207,6 @@ export function createMachine(options: MachineOptions): Machine {
     },
 
     exportContext() {
-      const routeSets = (map: Map<number, Set<number>>) =>
-        [...map.entries()]
-          .sort((a, b) => a[0] - b[0])
-          .map(([decision, routes]) =>
-            Object.freeze({
-              decision,
-              routes: Object.freeze([...routes].sort((a, b) => a - b)),
-            }),
-          );
       return Object.freeze({
         lastShown: cursor,
         visited: visitedSorted(),
@@ -2064,14 +2215,16 @@ export function createMachine(options: MachineOptions): Machine {
             Object.freeze({ decision: frame.decision, route: frame.route }),
           ),
         ),
-        playedRoutes: Object.freeze(routeSets(played)),
+        playedRoutes: routeSets(played),
         // The Phase 18 completion tracking: which routes were played through
         // to their end. Exported alongside `playedRoutes` even when empty —
         // an ABSENT field (a save written before this shape) restores
         // conservatively: nothing reads as completed, so the return row stays
         // hidden until the continuing route is finished once in the new
         // session.
-        completedRoutes: Object.freeze(routeSets(completed)),
+        completedRoutes: routeSets(completed),
+        // Played this pass (docs/plan.md Phase 22): the flow's record.
+        passRoutes: passNow(),
         history: exportHistory(),
         historyPos: pos,
       });
@@ -2185,7 +2338,7 @@ export function createMachine(options: MachineOptions): Machine {
       // played, so a forward press carries on inside the route.
       stack.length = 0;
       for (const frame of framesAround(target)) {
-        playedOf(frame.decision).add(frame.route);
+        markPlayed(frame.decision, frame.route);
         stack.push(frame);
       }
       // A read of new content, so its media plays wherever the edge is; a

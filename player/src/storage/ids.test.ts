@@ -204,10 +204,16 @@ describe("a save survives a content update (prequel, new route, deleted item)", 
       item: "after-1",
       stack: [],
     });
+    // Entering C changed the pass record (docs/plan.md Phase 22), so the
+    // entry carries it, by ids too.
     expect(saved.history).toContainEqual({
       item: "cont-1",
       stack: [{ decision: "d1", route: "r-c" }],
+      passRoutes: [{ decision: "d1", routes: ["r-a", "r-c"] }],
     });
+    expect(saved.passRoutes).toEqual([
+      { decision: "d1", routes: ["r-a", "r-c"] },
+    ]);
     expect(saved.history).toContainEqual({
       item: "a-2",
       stack: [],
@@ -248,6 +254,7 @@ describe("a save survives a content update (prequel, new route, deleted item)", 
     const context = resumed.exportContext();
     expect(context.playedRoutes).toEqual([{ decision: 1, routes: [0, 3] }]);
     expect(context.completedRoutes).toEqual([{ decision: 1, routes: [0, 3] }]);
+    expect(context.passRoutes).toEqual([{ decision: 1, routes: [0, 3] }]);
     // History: the same screens, minus the deleted item's.
     expect(historyIds(V2, context)).toEqual(
       before.filter((id) => id !== "aside"),
@@ -257,6 +264,14 @@ describe("a save survives a content update (prequel, new route, deleted item)", 
     expect(again.visited).toEqual(saved.visited.filter((id) => id !== "aside"));
     expect(again.playedRoutes).toEqual(saved.playedRoutes);
     expect(again.completedRoutes).toEqual(saved.completedRoutes);
+    // Each screen's pass record survives the update too (docs/plan.md
+    // Phase 22): back on `decide`, nothing was played this pass yet.
+    while (V2.items[resumed.getState().cursor].id !== "decide")
+      resumed.wheelBack();
+    expect(resumed.exportContext().passRoutes).toEqual([]);
+    expect(resumed.exportContext().playedRoutes).toEqual([
+      { decision: 1, routes: [0, 3] },
+    ]);
     resumed.destroy();
   });
 
