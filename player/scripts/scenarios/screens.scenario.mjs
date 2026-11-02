@@ -590,6 +590,29 @@ async function config({ check, open }) {
     first,
   );
 
+  // The skip settings read as options of how Tab skips, not switches that
+  // start a skip: indented under their own heading, every control in one
+  // column (Phase 19, "Settings screen clarity").
+  const [outerLeft, optionLeft] = [first.labelLefts[0], first.labelLefts[1]];
+  check(
+    "the config screen groups the skip options under When Tab skips, indented, controls in one column, with a note on play all routes",
+    JSON.stringify(first.lines) ===
+      JSON.stringify([
+        "Reading speed",
+        "# When Tab skips",
+        "  Skip unseen content too",
+        "  Play videos in full",
+        "Play all routes",
+        "Reset progress",
+      ]) &&
+      optionLeft > outerLeft &&
+      first.labelLefts[2] === optionLeft &&
+      first.labelLefts[3] === outerLeft &&
+      new Set(first.controlLefts).size === 1 &&
+      first.playNote === "choices pick themselves after a countdown",
+    first,
+  );
+
   const sigBefore = await page.evaluate(SIGNATURE);
   await pressSpace(cdp);
   await pressTab(cdp);

@@ -11,7 +11,11 @@ import { DEFAULT_SETTINGS } from "../machine/types";
 import { createMemoryStorage } from "../storage/memory";
 import {
   mountConfigOverlay,
+  PLAY_ALL_NOTE,
   playAllLabel,
+  SKIP_ALL_TEXT,
+  SKIP_SECTION,
+  SKIP_VIDEOS_TEXT,
   SPEED_MAX,
   SPEED_MIN,
   SPEED_STEP,
@@ -331,7 +335,53 @@ const byConfirm = (root: FakeElement, action: string): FakeElement =>
     (el) => el.getAttribute("data-confirm-action") === action,
   );
 
-describe("the config row: Skip plays videos (docs/plan.md Phase 18)", () => {
+describe("the panel layout: the skip settings read as options of Tab", () => {
+  it("puts both skip options, indented, under a When Tab skips heading", () => {
+    const { root } = mount(defaults);
+    const panel = root.children[0];
+    // Panel order IS the visual order: one text per heading or row label.
+    const lines = panel.children.map((el) =>
+      el.className === "config-section"
+        ? `# ${el.textContent}`
+        : el.className.includes("config-row")
+          ? `${el.className.includes("config-option") ? "  " : ""}${
+              el.children[0].textContent
+            }`
+          : null,
+    );
+    expect(lines.filter((l) => l !== null)).toEqual([
+      "Reading speed",
+      `# ${SKIP_SECTION}`,
+      `  ${SKIP_ALL_TEXT}`,
+      `  ${SKIP_VIDEOS_TEXT}`,
+      "Play all routes",
+      "Reset progress",
+    ]);
+    expect(SKIP_SECTION).toBe("When Tab skips");
+    expect(SKIP_ALL_TEXT).toBe("Skip unseen content too");
+    expect(SKIP_VIDEOS_TEXT).toBe("Play videos in full");
+    // Each option's switch sits in its own labelled row.
+    expect(byAction(root, "skip-all").parent?.children[0].textContent).toBe(
+      SKIP_ALL_TEXT,
+    );
+    expect(byAction(root, "skip-videos").parent?.children[0].textContent).toBe(
+      SKIP_VIDEOS_TEXT,
+    );
+  });
+
+  it("notes beside Play all routes what it does", () => {
+    const { root } = mount(defaults);
+    const row = byAction(root, "play-all").parent;
+    expect(row?.children.map((el) => el.className)).toEqual([
+      "config-label",
+      "config-toggle config-play-all",
+      "config-note",
+    ]);
+    expect(byClass(root, "config-note").textContent).toBe(PLAY_ALL_NOTE);
+  });
+});
+
+describe("the config row: Play videos in full (docs/plan.md Phase 18)", () => {
   it("shows Off by default and toggles the setting live, keeping the rest", () => {
     const { root, changes } = mount(defaults);
     const toggle = byAction(root, "skip-videos");

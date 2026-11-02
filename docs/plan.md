@@ -831,6 +831,12 @@ directory holds too many files.
   a play-all countdown freezes and restarts when the screen closes)
   and over the key help (`c` replaces it). Only the reset box blocks
   `c`; `t` still cannot open over a choice or the help.
+- Settings screen clarity: "Skip all" with an On/Off switch read as
+  if turning it on starts skipping. The two skip settings now sit
+  indented under a "When Tab skips" heading, as "Skip unseen content
+  too" (`skipAll`) and "Play videos in full" (`skipPlaysVideos`); every
+  control stays in one column. Play all routes gets a one-line note:
+  "choices pick themselves after a countdown".
 
 ## Later, waiting on the user
 

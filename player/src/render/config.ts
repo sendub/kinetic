@@ -4,9 +4,11 @@
 // button and the current speed in smaller text at the row's right; the
 // slider's own range is the stepper's 0.25-3.0 in 0.25 steps, and the
 // readout shows the multiplier and the per-character allowance it gives),
-// the `tab` bullet's "skip all" config option (the `skipAll` boolean),
-// Phase 18's "skip plays videos" (`skipPlaysVideos`), and
-// Phase 13's `playAllRoutes` zero-interactivity route playback, plus
+// two options of how Tab skips, under their own "When Tab skips" heading
+// so neither reads as a switch that starts skipping (docs/plan.md Phase
+// 18): "Skip unseen content too" (the `skipAll` boolean) and "Play videos
+// in full" (`skipPlaysVideos`); then Phase 13's `playAllRoutes`
+// zero-interactivity route playback with a one-line note, plus
 // Phase 16's "Reset progress" action row, which opens the confirmation box
 // (render/confirm.ts) and changes no setting itself. No other UI.
 //
@@ -47,6 +49,16 @@ export function speedLabel(readingSpeed: number, msPerChar: number): string {
   const perChar = Math.round(msPerChar / readingSpeed);
   return `${readingSpeed.toFixed(2)}x — ~${String(perChar)} ms/char`;
 }
+
+/**
+ * The skip options' heading and labels (docs/plan.md Phase 18): two options
+ * of how Tab skips, not switches that start a skip.
+ */
+export const SKIP_SECTION = "When Tab skips";
+export const SKIP_ALL_TEXT = "Skip unseen content too";
+export const SKIP_VIDEOS_TEXT = "Play videos in full";
+/** The line beside Play all routes saying what it does. */
+export const PLAY_ALL_NOTE = "choices pick themselves after a countdown";
 
 /** The skip-all switch's text state, mirroring its aria-pressed value. */
 export function skipAllLabel(skipAll: boolean): string {
@@ -140,11 +152,15 @@ export function mountConfigOverlay({
   speedUp.setAttribute("data-config-action", "speed-up");
   speedRow.append(speedLabelEl, speedDown, speedSlider, speedUp, speedValue);
 
+  const skipHeading = doc.createElement("p");
+  skipHeading.className = "config-section";
+  skipHeading.textContent = SKIP_SECTION;
+
   const skipRow = doc.createElement("div");
-  skipRow.className = "config-row";
+  skipRow.className = "config-row config-option";
   const skipLabelEl = doc.createElement("span");
   skipLabelEl.className = "config-label";
-  skipLabelEl.textContent = "Skip all";
+  skipLabelEl.textContent = SKIP_ALL_TEXT;
   const skipToggle = doc.createElement("button");
   skipToggle.className = "config-toggle config-skip-all";
   skipToggle.type = "button";
@@ -152,13 +168,13 @@ export function mountConfigOverlay({
   skipToggle.setAttribute("data-config-action", "skip-all");
   skipRow.append(skipLabelEl, skipToggle);
 
-  // `Skip plays videos` (docs/plan.md Phase 18): a skip burst plays each
+  // "Play videos in full" (`skipPlaysVideos`, docs/plan.md Phase 18): a skip burst plays each
   // video it reaches as forward reading would; Space aborts one.
   const skipVideoRow = doc.createElement("div");
-  skipVideoRow.className = "config-row";
+  skipVideoRow.className = "config-row config-option";
   const skipVideoLabelEl = doc.createElement("span");
   skipVideoLabelEl.className = "config-label";
-  skipVideoLabelEl.textContent = "Skip plays videos";
+  skipVideoLabelEl.textContent = SKIP_VIDEOS_TEXT;
   const skipVideoToggle = doc.createElement("button");
   skipVideoToggle.className = "config-toggle config-skip-videos";
   skipVideoToggle.type = "button";
@@ -178,7 +194,10 @@ export function mountConfigOverlay({
   playToggle.type = "button";
   playToggle.setAttribute("role", "switch");
   playToggle.setAttribute("data-config-action", "play-all");
-  playRow.append(playLabelEl, playToggle);
+  const playNote = doc.createElement("span");
+  playNote.className = "config-note";
+  playNote.textContent = PLAY_ALL_NOTE;
+  playRow.append(playLabelEl, playToggle, playNote);
 
   // `Reset progress` (docs/plan.md Phase 16): an action row, not a switch.
   // It shows on every open — fresh state included, because "you have
@@ -198,7 +217,16 @@ export function mountConfigOverlay({
   resetButton.setAttribute("data-config-action", "reset-progress");
   resetRow.append(resetLabelEl, resetButton);
 
-  panel.append(title, hint, speedRow, skipRow, skipVideoRow, playRow, resetRow);
+  panel.append(
+    title,
+    hint,
+    speedRow,
+    skipHeading,
+    skipRow,
+    skipVideoRow,
+    playRow,
+    resetRow,
+  );
   root.appendChild(panel);
 
   // The values on show, kept so the next control click edits the whole

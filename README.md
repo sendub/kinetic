@@ -9,10 +9,10 @@ A browser player for kinetic visual novels: a simple alternative to Ren'Py. A no
 * **Mouse wheel**: roll back through exactly what you saw, in the order you saw it, choice screens included; roll forward again to where you were.
 * **e**: jump to the end of what you have read.
 * **u**: go to the next unseen content wherever it is: an unplayed route (entered as if picked) or content earlier in the story, such as a prequel added by an update. A resume shows a quiet notice when such earlier content exists.
-* **Tab**: skip through content you have already seen, showing only first frames; it stops on the last seen item, and Space stops it on the current one. The "skip all" setting lets it run through unseen content too; with "skip plays videos" on, videos play out during a skip and Space cuts one short.
+* **Tab**: skip through content you have already seen, showing only first frames; it stops on the last seen item, and Space stops it on the current one. Two settings under "When Tab skips" change how it skips: "Skip unseen content too" lets it run through unseen content, and with "Play videos in full" on, videos play out during a skip and Space cuts one short.
 * **h**: hide or show the text.
 * **b**: bookmark the current moment. **t**: the bookmark list (thumbnails with times, newest at the bottom); click a thumbnail to continue from there; its x deletes it.
-* **c**: settings: reading speed, skip all, skip plays videos, play all routes, reset progress. Works anywhere, including over a choice (which waits underneath; a play-all countdown pauses until you close it) and over the key help (which it replaces). **c** or Esc closes it.
+* **c**: settings: reading speed, the two "When Tab skips" options (skip unseen content too, play videos in full), play all routes, reset progress. Works anywhere, including over a choice (which waits underneath; a play-all countdown pauses until you close it) and over the key help (which it replaces). **c** or Esc closes it.
 * **Esc**: key help (also shown on first load, before anything starts); Esc again resumes. In fullscreen the browser takes the first Esc to leave fullscreen.
 * **1-9**: pick a route at a decision (or click it). **0**: "Return to main route", when that row is shown.
 

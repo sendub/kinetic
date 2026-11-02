@@ -184,8 +184,10 @@ const OVERLAY_CLOSED = () => {
 const panelOpen = (page) => page.evaluate(OVERLAY_OPEN);
 
 // The `c` config screen as the reader sees it: the speed readout, the
-// skip-all and play-all-routes switches' aria state, and the rects the
-// driver clicks.
+// skip-all and play-all-routes switches' aria state, the rects the driver
+// clicks, and the layout in reading order (each heading and row label, an
+// indented option marked by two leading spaces) with each row's first
+// control's left edge.
 const READ_CONFIG_OVERLAY = () => {
   const panel = document.getElementById("config");
   if (panel === null) return { present: false };
@@ -219,6 +221,23 @@ const READ_CONFIG_OVERLAY = () => {
     // The Phase 16 "Reset progress" row: a control, so it has a rect too.
     resetLabel: document.querySelector(".config-reset")?.textContent ?? null,
     resetRect: rectOf(document.querySelector(".config-reset")),
+    lines: [...panel.querySelectorAll(".config-section, .config-row")].map(
+      (el) =>
+        el.classList.contains("config-section")
+          ? `# ${el.textContent}`
+          : `${el.classList.contains("config-option") ? "  " : ""}${
+              el.querySelector(".config-label")?.textContent ?? ""
+            }`,
+    ),
+    labelLefts: [...panel.querySelectorAll(".config-row .config-label")].map(
+      (el) => Math.round(el.getBoundingClientRect().left),
+    ),
+    controlLefts: [...panel.querySelectorAll(".config-row")].map((row) =>
+      Math.round(
+        row.querySelector("button, input")?.getBoundingClientRect().left ?? -1,
+      ),
+    ),
+    playNote: document.querySelector(".config-note")?.textContent ?? null,
   };
 };
 

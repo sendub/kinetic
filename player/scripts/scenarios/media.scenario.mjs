@@ -2,7 +2,7 @@
 // held-WebM videos): the animation's frame timing, the video chain on one
 // reused <video>, playback ranges measured frame by frame, the contain fit,
 // the minPlaySeconds chain-exit floor in auto and skip, a loopCount video and
-// a holdSeconds WebM, and the "skip plays videos" setting (a burst plays the
+// a holdSeconds WebM, and the "Play videos in full" skip option (a burst plays the
 // floor clip out; Space cuts it short and the burst goes on). Each part
 // starts from its own fresh browser.
 
@@ -744,7 +744,7 @@ async function skipVideos({ check, open }) {
   const linesMs =
     iOff >= 0 && run.doneAt !== null ? run.doneAt - run.samples[iOff][0] : -1;
   check(
-    "skip plays videos: the burst plays the floor clip out (caption hidden), passes its lines in zero time and stops on the last seen item",
+    "play videos in full (skip option): the burst plays the floor clip out (caption hidden), passes its lines in zero time and stops on the last seen item",
     walked &&
       pressed === "true" &&
       back &&
