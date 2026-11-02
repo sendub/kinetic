@@ -887,5 +887,10 @@ truthful: an unchecked box means nothing was accepted.
       old build. vitest 550, playall 25/25, branches 41/41, navigation
       19/19, screens 44 + 2 headless-fullscreen partials, smoke 6/6.
       2026-11-02)
+- [ ] Docs audit (user, 2026-11-02): every doc a reader, game maker or
+      agent uses reflects Phases 20-22 (title, storyId and the converter
+      options, export/import, auto-forward pill and timing, play-all
+      countdown and highlight, rollback pass rule), e.g.
+      docs/extracting.md has no --title / --story-id yet.
 - [ ] Phase-closer: full suite (scenarios, vitest, pytest,
       package-proof), rebuild both demo folders.
