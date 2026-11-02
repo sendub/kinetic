@@ -9,8 +9,13 @@
 // 18): "Skip unseen content too" (the `skipAll` boolean) and "Play videos
 // in full" (`skipPlaysVideos`); then Phase 13's `playAllRoutes`
 // zero-interactivity route playback with a one-line note, plus
-// Phase 16's "Reset progress" action row, which opens the confirmation box
-// (render/confirm.ts) and changes no setting itself. No other UI.
+// the "Progress" group (docs/plan.md Phase 21): "Export progress" (the
+// shell downloads `<storyId>-progress.json`), "Import progress" (a file
+// picker; the shell checks the file and either shows its refusal in this
+// panel's message line or asks the confirmation box) and Phase 16's
+// "Reset progress", which opens the confirmation box
+// (render/confirm.ts). The three are actions and change no setting
+// themselves. No other UI.
 //
 // Every control click produces the full next settings through `onChange`,
 // so the shell applies it live (machine.setSettings) and persists it from
@@ -57,6 +62,8 @@ export function speedLabel(readingSpeed: number, msPerChar: number): string {
 export const SKIP_SECTION = "When Tab skips";
 export const SKIP_ALL_TEXT = "Skip unseen content too";
 export const SKIP_VIDEOS_TEXT = "Play videos in full";
+/** The heading over Export / Import / Reset progress (Phase 21). */
+export const PROGRESS_SECTION = "Progress";
 /** The line beside Play all routes saying what it does. */
 export const PLAY_ALL_NOTE = "choices pick themselves after a countdown";
 
@@ -77,9 +84,14 @@ export function playAllLabel(playAllRoutes: boolean): string {
 
 export interface ConfigOverlay {
   isOpen(): boolean;
-  /** Shows the panel, filled with the current settings. */
+  /** Shows the panel, filled with the current settings, no message. */
   open(): void;
   close(): void;
+  /**
+   * The Progress group's message line (Phase 21): an import refusal or an
+   * export's confirmation, in the panel itself. Empty text hides it.
+   */
+  showMessage(text: string): void;
 }
 
 export interface ConfigOverlayOptions {
@@ -95,6 +107,13 @@ export interface ConfigOverlayOptions {
    * row is an action, not an option (docs/plan.md Phase 16).
    */
   onReset(): void;
+  /** "Export progress" (Phase 21): the shell builds and downloads the file. */
+  onExport(): void;
+  /**
+   * "Import progress" (Phase 21): the file the reader picked. The shell
+   * checks it, then shows a refusal (`showMessage`) or asks to confirm.
+   */
+  onImport(file: File): void;
 }
 
 export function mountConfigOverlay({
@@ -102,6 +121,8 @@ export function mountConfigOverlay({
   settings,
   onChange,
   onReset,
+  onExport,
+  onImport,
 }: ConfigOverlayOptions): ConfigOverlay {
   const doc = root.ownerDocument;
 
@@ -199,13 +220,61 @@ export function mountConfigOverlay({
   playNote.textContent = PLAY_ALL_NOTE;
   playRow.append(playLabelEl, playToggle, playNote);
 
+  // The Progress group (docs/plan.md Phase 21): Export, Import and Reset,
+  // indented under their heading like the skip options, every control in
+  // the same column.
+  const progressHeading = doc.createElement("p");
+  progressHeading.className = "config-section";
+  progressHeading.textContent = PROGRESS_SECTION;
+
+  const actionRow = (
+    label: string,
+    text: string,
+    aria: string,
+    action: string,
+  ): HTMLElement => {
+    const row = doc.createElement("div");
+    row.className = "config-row config-option";
+    const labelEl = doc.createElement("span");
+    labelEl.className = "config-label";
+    labelEl.textContent = label;
+    const button = doc.createElement("button");
+    button.className = `config-toggle config-${action}`;
+    button.type = "button";
+    button.textContent = text;
+    button.setAttribute("aria-label", aria);
+    button.setAttribute("data-config-action", action);
+    row.append(labelEl, button);
+    return row;
+  };
+  const exportRow = actionRow(
+    "Export progress",
+    "Export",
+    "Export this story's progress to a file",
+    "export-progress",
+  );
+  const importRow = actionRow(
+    "Import progress",
+    "Import…",
+    "Import progress from a file, replacing this browser's",
+    "import-progress",
+  );
+  // The picker: a hidden file input the Import button clicks. Its own
+  // (bubbling) click is marked a control, so it never reads as backdrop.
+  const importFile = doc.createElement("input");
+  importFile.type = "file";
+  importFile.accept = ".json,application/json";
+  importFile.hidden = true;
+  importFile.setAttribute("data-config-action", "import-file");
+  importRow.append(importFile);
+
   // `Reset progress` (docs/plan.md Phase 16): an action row, not a switch.
   // It shows on every open — fresh state included, because "you have
   // nothing to clear" is simple and honest. Its control opens the
   // confirmation box (render/confirm.ts); the panel itself changes no
   // setting and clears nothing until the box confirms.
   const resetRow = doc.createElement("div");
-  resetRow.className = "config-row";
+  resetRow.className = "config-row config-option";
   const resetLabelEl = doc.createElement("span");
   resetLabelEl.className = "config-label";
   resetLabelEl.textContent = "Reset progress";
@@ -217,6 +286,13 @@ export function mountConfigOverlay({
   resetButton.setAttribute("data-config-action", "reset-progress");
   resetRow.append(resetLabelEl, resetButton);
 
+  // The Progress group's message line: a refusal or a confirmation, read
+  // out as a status, hidden while empty.
+  const message = doc.createElement("p");
+  message.className = "config-message";
+  message.setAttribute("role", "status");
+  message.hidden = true;
+
   panel.append(
     title,
     hint,
@@ -225,7 +301,11 @@ export function mountConfigOverlay({
     skipRow,
     skipVideoRow,
     playRow,
+    progressHeading,
+    exportRow,
+    importRow,
     resetRow,
+    message,
   );
   root.appendChild(panel);
 
@@ -275,8 +355,24 @@ export function mountConfigOverlay({
       // An action, not a settings move: the box confirms, the reset
       // reloads — the panel simply asks.
       onReset();
+    } else if (action === "export-progress") {
+      onExport();
+    } else if (action === "import-progress") {
+      importFile.click(); // opens the picker; `change` below has the file
     }
   });
+
+  importFile.addEventListener("change", () => {
+    const file = importFile.files?.[0];
+    // Re-arm: choosing the same file again must fire `change` again.
+    importFile.value = "";
+    if (file !== undefined) onImport(file);
+  });
+
+  function showMessage(text: string): void {
+    message.textContent = text;
+    message.hidden = text === "";
+  }
 
   // A drag or an arrow key: the slider's own `input` event carries the new
   // value, and `stepSpeed(_, 0)` snaps it onto the grid and clamps it to the
@@ -300,8 +396,10 @@ export function mountConfigOverlay({
     },
     open() {
       paint(settings()); // always the values now in force, never a stale copy
+      showMessage("");
       panel.hidden = false;
     },
     close,
+    showMessage,
   };
 }

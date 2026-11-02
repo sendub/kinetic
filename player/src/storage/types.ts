@@ -143,6 +143,17 @@ export interface Storage {
    */
   deleteState(): Promise<void>;
   deleteBookmarks(): Promise<void>;
+  /**
+   * "Import progress" (docs/plan.md Phase 21): make this content's
+   * progress exactly `state` and `bookmarks` (in that order) — the state
+   * record is overwritten and every existing bookmark row removed — in one
+   * transaction where the adapter has them, resolving once COMMITTED, so
+   * the reload that follows reads the import whole or not at all.
+   */
+  replaceProgress(
+    state: PersistedState,
+    bookmarks: readonly Bookmark[],
+  ): Promise<void>;
 }
 
 /**

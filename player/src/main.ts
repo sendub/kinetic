@@ -22,7 +22,12 @@
 // a bookmark restore re-enters the recorded route context. Phase 16's
 // "Reset progress" adds the `c` row and its confirmation box: on confirm
 // the content's state and bookmark rows are deleted (each committed) and
-// the page RELOADS — a true fresh boot, help screen included.
+// the page RELOADS — a true fresh boot, help screen included. Phase 21's
+// "Export progress" / "Import progress" rows move that progress between
+// browsers: export downloads it as a file (storage/transfer.ts); import
+// checks a picked file, confirms in the same box, replaces this story's
+// state and bookmarks (committed), and reloads — saving is automatic again
+// from there.
 // Composition only — rendering lives in src/render/, timing in
 // src/machine/, storage adapters in src/storage/.
 
@@ -39,18 +44,32 @@ import {
 import { captureVisualThumbnail } from "./render/capture";
 import { inputOwnerFor, mountChoiceOverlay } from "./render/choice";
 import { mountConfigOverlay } from "./render/config";
-import { mountConfirmOverlay, resetProgress } from "./render/confirm";
+import {
+  importRequest,
+  mountConfirmOverlay,
+  resetProgress,
+  resetRequest,
+} from "./render/confirm";
+import { downloadText } from "./render/download";
 import { EARLIER_UNSEEN_NOTICE } from "./render/endcard";
 import { installFirstGestureFullscreen } from "./render/fullscreen";
-import { mountHelpOverlay, pageTitleFor } from "./render/help";
+import { gameTitleOf, mountHelpOverlay, pageTitleFor } from "./render/help";
 import { installKeyMap, suspendTimeline } from "./render/keys";
 import { loadManifest } from "./render/manifest";
 import { mountRouteAnnouncements } from "./render/routes";
 import { installWheelInput } from "./render/wheel";
-import { createIdbStorage, storageKeys } from "./storage/idb";
+import { createIdbStorage, storageKeys, storyIdOf } from "./storage/idb";
 import { createContextCodec, resumeOptionsFor } from "./storage/ids";
 import { createNoopStorage } from "./storage/noop";
 import { createImmediateWriter } from "./storage/persist";
+import {
+  buildProgressFile,
+  type ImportedProgress,
+  importProgress,
+  parseProgressFile,
+  progressFileName,
+  type StoryIdentity,
+} from "./storage/transfer";
 import type { Bookmark, PersistedState } from "./storage/types";
 import { helpSeenFrom } from "./storage/types";
 
@@ -140,6 +159,12 @@ function start(): void {
       // has it, an in-memory adapter when not, so the player always runs —
       // it just remembers nothing across a reload.
       const keys = storageKeys(manifest.storyId, contentRoot);
+      // The story as export and import name it (Phase 21).
+      const gameTitle = gameTitleOf(manifest.title) ?? undefined;
+      const story: StoryIdentity = {
+        storyId: storyIdOf(manifest.storyId),
+        ...(gameTitle === undefined ? {} : { title: gameTitle }),
+      };
       const storage =
         createIdbStorage(keys.key, keys.legacyKey) ?? createNoopStorage();
       // Resume: a stored context is the reader's position — its history
@@ -340,7 +365,42 @@ function start(): void {
         onReset: () => {
           // The box asks; nothing is touched until it confirms. It sits
           // over the config panel — same screen family, same suspension.
-          confirm.open();
+          confirm.open(resetRequest(runReset));
+        },
+        // Export (docs/plan.md Phase 21): the state as it stands this
+        // moment — the same record the next write would save — and the
+        // stored bookmarks, downloaded as `<storyId>-progress.json`.
+        onExport: () => {
+          void storage
+            .getBookmarks()
+            .catch(() => [])
+            .then((bookmarks) => {
+              const name = progressFileName(story.storyId);
+              const file = buildProgressFile({
+                ...story,
+                state: stateRecord(),
+                bookmarks,
+                now: new Date(),
+              });
+              downloadText(document, name, JSON.stringify(file, null, 2));
+              config.showMessage(`Exported ${name}.`);
+            });
+        },
+        // Import: the file is checked before anything is touched; a
+        // refusal is said in the panel, a good file asks the box.
+        onImport: (file) => {
+          file.text().then(
+            (text) => {
+              const parsed = parseProgressFile(text, story);
+              if (!parsed.ok) {
+                config.showMessage(parsed.message);
+                return;
+              }
+              config.showMessage("");
+              confirm.open(importRequest(gameTitle, () => runImport(parsed)));
+            },
+            () => config.showMessage("That file could not be read."),
+          );
         },
       });
       // The reset confirmation box (docs/plan.md Phase 16). Confirming
@@ -355,17 +415,34 @@ function start(): void {
       // from re-saving the deleted row.
       const confirm = mountConfirmOverlay({
         root,
-        onConfirm: () => runReset(),
         // Cancel: close, and nothing else was ever touched.
         onCancel: () => {},
       });
       function runReset(): void {
-        confirm.close();
         resetting = true;
         void resetProgress({
           flush: persistNow,
           storage,
           reload: () => globalThis.location.reload(),
+        });
+      }
+      // A confirmed import (docs/plan.md Phase 21): writes stop as for a
+      // reset (the reload's pagehide flush must not overwrite the import),
+      // the replace commits, then the page reloads onto it. A failed
+      // replace changed nothing: writes resume and the panel says so.
+      function runImport(progress: ImportedProgress): void {
+        resetting = true;
+        void importProgress({
+          flush: persistNow,
+          storage,
+          reload: () => globalThis.location.reload(),
+          progress,
+        }).then((ok) => {
+          if (ok) return;
+          resetting = false;
+          config.showMessage(
+            "The import failed: this browser's storage refused it. Nothing was changed.",
+          );
         });
       }
       // The key help screen (docs/plan.md Phase 13b): the keymap's own
@@ -569,7 +646,7 @@ function start(): void {
           // them always; the box is the context, like Escape is its). With no box up they are inert, as the digits
           // are with no decision.
           confirmReset: () => {
-            if (confirm.isOpen()) runReset();
+            if (confirm.isOpen()) confirm.accept(); // reset or import
           },
           confirmCancel: () => {
             if (confirm.isOpen()) confirm.close();

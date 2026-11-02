@@ -111,5 +111,12 @@ export function createMemoryStorage(): Storage {
       bookmarks.length = 0;
       return Promise.resolve();
     },
+
+    replaceProgress(next, imported) {
+      state = normalizeState(next);
+      bookmarks.length = 0;
+      bookmarks.push(...imported.map(copyBookmark));
+      return Promise.resolve();
+    },
   };
 }

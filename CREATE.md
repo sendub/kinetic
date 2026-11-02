@@ -39,8 +39,9 @@ optional `title`, the display `width` and `height` in pixels, and
 letters, digits, `-`, `_`, starting with a letter or digit, at most 64
 characters, such as `rainy-day-1`): the player saves the reader's
 progress and bookmarks under it, so they survive moving or renaming the
-folder. Pick one per story and keep it across updates; without one,
-progress is tied to the folder's location. The `title` is the game's
+folder, and a progress file a reader exports from the `c` screen imports
+only into the story with the same ID. Pick one per story and keep it
+across updates; without one, progress is tied to the folder's location. The `title` is the game's
 name as readers see it (any text up to 200 characters, such as
 `"Rainy Day"`): the player shows it as a heading at the top of the Esc
 help screen and as the browser tab's title. Without one the help screen

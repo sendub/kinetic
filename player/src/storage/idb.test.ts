@@ -387,3 +387,51 @@ describe("IndexedDB adapter — carry-over from the folder URL (Phase 21)", () =
     ]);
   });
 });
+
+describe("IndexedDB adapter — replaceProgress (Import progress, Phase 21)", () => {
+  it("replaces this story's state and bookmarks, leaving other stories alone", async () => {
+    installFakeIndexedDb();
+    const story = await open(STORY);
+    await story.saveState({ ctx: context("x-1"), helpSeen: false });
+    await story.addBookmark(bookmark("old-1", "x-1"));
+    await story.addBookmark(bookmark("old-2", "x-2"));
+    const other = await open("story:night");
+    await other.saveState({ ctx: context("n-4") });
+    await other.addBookmark(bookmark("n-1", "n-4"));
+
+    await story.replaceProgress(
+      { ctx: context("x-9"), settings: { readingSpeed: 2 }, helpSeen: true },
+      [bookmark("new-1", "x-5"), bookmark("new-2", "x-8")],
+    );
+
+    // What the next page load reads.
+    const reloaded = await open(STORY);
+    expect(await reloaded.loadState()).toEqual({
+      ctx: context("x-9"),
+      settings: { readingSpeed: 2 },
+      helpSeen: true,
+    });
+    expect((await reloaded.getBookmarks()).map((b) => b.id)).toEqual([
+      "new-1",
+      "new-2",
+    ]);
+    // Bookmarks keep working after the replace: a new one appends.
+    const after = await reloaded.addBookmark(bookmark("new-3", "x-9"));
+    expect(after.map((b) => b.id)).toEqual(["new-1", "new-2", "new-3"]);
+    // Another story's progress is untouched.
+    const night = await open("story:night");
+    expect((await night.loadState())?.ctx?.lastShown).toBe("n-4");
+    expect((await night.getBookmarks()).map((b) => b.id)).toEqual(["n-1"]);
+  });
+
+  it("an empty import leaves an empty record and no bookmarks", async () => {
+    installFakeIndexedDb();
+    const story = await open(STORY);
+    await story.saveState({ ctx: context("x-1") });
+    await story.addBookmark(bookmark("old-1", "x-1"));
+    await story.replaceProgress({}, []);
+    const reloaded = await open(STORY);
+    expect(await reloaded.loadState()).toEqual({});
+    expect(await reloaded.getBookmarks()).toEqual([]);
+  });
+});

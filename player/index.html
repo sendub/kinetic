@@ -255,7 +255,8 @@
       /* c config screen (docs/plan.md Phase 9, README c bullet): one
          panel, the player's settings — the reading-speed slider with its
          step buttons, the "When Tab skips" options (skip unseen content
-         too, play videos in full) and the play-all-routes switch — and nothing else. Over the bookmark
+         too, play videos in full), the play-all-routes switch and the
+         Progress group (export, import, reset; Phase 21) — and nothing else. Over the bookmark
          panel and a pending choice (z 5; `c` opens over a choice), under
          the #flash pill (z 10, so a `b` still confirms on top),
          and the cursor-moving keys are suspended behind it
@@ -310,6 +311,15 @@
       .config-note {
         color: rgba(244, 239, 230, 0.55);
         font-size: clamp(10px, 1.2vh, 13px);
+      }
+      /* The Progress group's message line (Phase 21): an import refusal
+         or an export's confirmation, under the group, in the accent. */
+      .config-message {
+        margin: 0;
+        max-width: 64ch;
+        padding-left: clamp(12px, 2vw, 24px);
+        color: var(--accent);
+        font-size: clamp(11px, 1.4vh, 15px);
       }
       .config-label {
         /* The longest label, "Skip unseen content too", keeps the

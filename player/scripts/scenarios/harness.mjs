@@ -227,6 +227,17 @@ const READ_CONFIG_OVERLAY = () => {
     // The Phase 16 "Reset progress" row: a control, so it has a rect too.
     resetLabel: document.querySelector(".config-reset")?.textContent ?? null,
     resetRect: rectOf(document.querySelector(".config-reset")),
+    // The Phase 21 Progress group: Export / Import and the message line.
+    exportRect: rectOf(
+      document.querySelector('[data-config-action="export-progress"]'),
+    ),
+    importRect: rectOf(
+      document.querySelector('[data-config-action="import-progress"]'),
+    ),
+    message: (() => {
+      const el = document.querySelector(".config-message");
+      return el === null || el.hidden ? null : el.textContent;
+    })(),
     lines: [...panel.querySelectorAll(".config-section, .config-row")].map(
       (el) =>
         el.classList.contains("config-section")
@@ -264,9 +275,11 @@ const READ_CONFIRM_OVERLAY = () => {
     title: document.querySelector(".confirm-title")?.textContent ?? null,
     message: document.querySelector(".confirm-message")?.textContent ?? null,
     resetLabel:
-      document.querySelector('[data-confirm-action="reset"]')?.textContent ??
+      document.querySelector('[data-confirm-action="confirm"]')?.textContent ??
       null,
-    resetRect: rectOf(document.querySelector('[data-confirm-action="reset"]')),
+    resetRect: rectOf(
+      document.querySelector('[data-confirm-action="confirm"]'),
+    ),
     cancelLabel:
       document.querySelector('[data-confirm-action="cancel"]')?.textContent ??
       null,

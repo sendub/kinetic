@@ -1,10 +1,14 @@
-// The reset-confirmation box (docs/plan.md Phase 16, "Reset progress"):
-// the `c` screen's "Reset progress" row opens this centered panel, and
-// nothing is cleared until the reader confirms. Same visual family as the
+// The confirmation box (docs/plan.md Phase 16, "Reset progress"; Phase
+// 21, "Import progress"): the `c` screen's "Reset progress" row — or an
+// import file that passed its checks — opens this centered panel, and
+// nothing is changed until the reader confirms. Each opening brings its
+// own request (title, message, button, hint and the action), so one box
+// serves both. Same visual family as the
 // other overlays (`#confirm`, index.html), and while it is open the
 // machine is suspended exactly like behind `h`/`t`/`c` (main.ts folds
 // `isOpen` into its screen gate). Its keys — y resets, Escape/n
-// cancel — arrive through the shell's key map like every other overlay's;
+// cancel (y imports, for an import) — arrive through the shell's key map
+// like every other overlay's;
 // the panel itself only draws the two controls and routes clicks: a
 // button acts, any other click is backdrop and cancels.
 //
@@ -19,25 +23,66 @@ export const RESET_MESSAGE =
   "Reset all progress for this content? This clears resume position, " +
   "seen items, routes, bookmarks and settings.";
 
+/** What one opening of the box asks, and what confirming does. */
+export interface ConfirmRequest {
+  readonly title: string;
+  readonly message: string;
+  /** The confirm button's text. */
+  readonly confirmLabel: string;
+  /** The key line under the buttons. */
+  readonly hint: string;
+  /** The confirm button or y: the shell's action (it may reload). */
+  onConfirm(): void;
+}
+
+/** The Phase 16 reset, asked in its own words. */
+export function resetRequest(onConfirm: () => void): ConfirmRequest {
+  return {
+    title: "Reset progress",
+    message: RESET_MESSAGE,
+    confirmLabel: "Reset",
+    hint: "y resets · Esc / n cancels",
+    onConfirm,
+  };
+}
+
+/**
+ * The Phase 21 import, asked once the file passed its checks; `title` is
+ * the manifest's game name (absent: "this story").
+ */
+export function importRequest(
+  title: string | undefined,
+  onConfirm: () => void,
+): ConfirmRequest {
+  return {
+    title: "Import progress",
+    message: `Replace this browser's progress for ${
+      title ?? "this story"
+    } with the imported file?`,
+    confirmLabel: "Import",
+    hint: "y imports · Esc / n cancels",
+    onConfirm,
+  };
+}
+
 export interface ConfirmOverlay {
   isOpen(): boolean;
-  /** Shows the panel over the config screen. */
-  open(): void;
+  /** Shows the panel over the config screen, asking `request`. */
+  open(request: ConfirmRequest): void;
+  /** The y key: closes the box and runs the open request's action. */
+  accept(): void;
   close(): void;
 }
 
 export interface ConfirmOverlayOptions {
   /** The `#app` element; the panel is a sibling of the other panels. */
   root: HTMLElement;
-  /** "Reset" pressed or y: the shell runs the reset and reloads. */
-  onConfirm(): void;
   /** "Cancel" pressed, Escape/n, or a backdrop click: close, touch nothing. */
   onCancel(): void;
 }
 
 export function mountConfirmOverlay({
   root,
-  onConfirm,
   onCancel,
 }: ConfirmOverlayOptions): ConfirmOverlay {
   const doc = root.ownerDocument;
@@ -49,32 +94,43 @@ export function mountConfirmOverlay({
 
   const title = doc.createElement("h2");
   title.className = "confirm-title";
-  title.textContent = "Reset progress";
 
   const message = doc.createElement("p");
   message.className = "confirm-message";
-  message.textContent = RESET_MESSAGE;
 
   const actions = doc.createElement("div");
   actions.className = "confirm-actions";
-  const resetButton = doc.createElement("button");
-  resetButton.className = "confirm-button confirm-reset";
-  resetButton.type = "button";
-  resetButton.textContent = "Reset";
-  resetButton.setAttribute("data-confirm-action", "reset");
+  const confirmButton = doc.createElement("button");
+  confirmButton.className = "confirm-button confirm-reset";
+  confirmButton.type = "button";
+  confirmButton.setAttribute("data-confirm-action", "confirm");
   const cancelButton = doc.createElement("button");
   cancelButton.className = "confirm-button confirm-cancel";
   cancelButton.type = "button";
   cancelButton.textContent = "Cancel";
   cancelButton.setAttribute("data-confirm-action", "cancel");
-  actions.append(resetButton, cancelButton);
+  actions.append(confirmButton, cancelButton);
 
   const hint = doc.createElement("p");
   hint.className = "confirm-hint";
-  hint.textContent = "y resets · Esc / n cancels";
 
   panel.append(title, message, actions, hint);
   root.appendChild(panel);
+
+  // The request on show; null while the box is closed, so a stray `y`
+  // can never run an action twice.
+  let asked: ConfirmRequest | null = null;
+
+  function close(): void {
+    panel.hidden = true;
+    asked = null;
+  }
+
+  function accept(): void {
+    const request = asked;
+    close();
+    request?.onConfirm();
+  }
 
   // One listener, as in config.ts: a control acts, any other click is
   // backdrop and cancels. The panel closes first, so a callback that
@@ -86,25 +142,28 @@ export function mountConfirmOverlay({
       target instanceof Element
         ? target.closest("[data-confirm-action]")
         : null;
-    panel.hidden = true;
-    if (control === null) {
-      onCancel();
+    if (control?.getAttribute("data-confirm-action") === "confirm") {
+      accept();
       return;
     }
-    if (control.getAttribute("data-confirm-action") === "reset") onConfirm();
-    else onCancel();
+    close();
+    onCancel();
   });
 
   return {
     isOpen() {
       return !panel.hidden;
     },
-    open() {
+    open(request) {
+      asked = request;
+      title.textContent = request.title;
+      message.textContent = request.message;
+      confirmButton.textContent = request.confirmLabel;
+      hint.textContent = request.hint;
       panel.hidden = false;
     },
-    close() {
-      panel.hidden = true;
-    },
+    accept,
+    close,
   };
 }
 

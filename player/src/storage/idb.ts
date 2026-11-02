@@ -77,6 +77,17 @@ export function contentSignature(pageUri: string): string {
 const STORY_ID_PATTERN = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 
 /**
+ * The story ID progress is keyed by: the manifest's `storyId` when it is a
+ * valid story slug, else null (the folder URL keys it instead). Export and
+ * import (storage/transfer.ts) name the story by the same rule.
+ */
+export function storyIdOf(storyId: unknown): string | null {
+  return typeof storyId === "string" && STORY_ID_PATTERN.test(storyId)
+    ? storyId
+    : null;
+}
+
+/**
  * Where a novel's progress lives: `key` is `story:<storyId>` when the
  * manifest's `storyId` is a valid story slug, with `legacyKey` the folder
  * URL its progress may have been saved under before; otherwise (absent or
@@ -87,9 +98,8 @@ export function storageKeys(
   pageUri: string,
 ): { key: string; legacyKey?: string } {
   const folder = contentSignature(pageUri);
-  if (typeof storyId === "string" && STORY_ID_PATTERN.test(storyId)) {
-    return { key: `story:${storyId}`, legacyKey: folder };
-  }
+  const story = storyIdOf(storyId);
+  if (story !== null) return { key: `story:${story}`, legacyKey: folder };
   return { key: folder };
 }
 
@@ -173,20 +183,90 @@ function isString(value: unknown): value is string {
 }
 
 /**
- * A stored bookmark row as a `Bookmark`, or null for a row without a
- * string `itemId` and a readable id-keyed `ctx` — an index-based row
- * written before saves were keyed by id, or a foreign one. Such a row is
- * left in place (Reset progress clears it) but never listed.
+ * A stored bookmark row — or an imported one (storage/transfer.ts) — as a
+ * `Bookmark`, or null for one without a string `id`, a finite
+ * `timestampMs`, a string `itemId` and a readable id-keyed `ctx`: an
+ * index-based row written before saves were keyed by id, or a foreign
+ * one. Such a row is left in place (Reset progress clears it) but never
+ * listed. A thumbnail survives only as an inline `data:image/` URL — the
+ * player only ever writes those, and anything else (a remote URL from a
+ * hand-edited file) would be fetched by the list's <img>. Never throws.
  */
-function toBookmark(record: BookmarkRecord): Bookmark | null {
+export function sanitizeBookmark(raw: unknown): Bookmark | null {
+  if (typeof raw !== "object" || raw === null) return null;
+  const record = raw as Record<string, unknown>;
   const ctx = sanitizeContext(record.ctx);
-  if (!isString(record.itemId) || ctx === undefined) return null;
+  if (
+    !isString(record.id) ||
+    !isFiniteNumber(record.timestampMs) ||
+    !isString(record.itemId) ||
+    ctx === undefined
+  ) {
+    return null;
+  }
+  const thumb = record.thumbDataUrl;
   return {
     id: record.id,
     timestampMs: record.timestampMs,
     itemId: record.itemId,
     ctx,
-    thumbDataUrl: record.thumbDataUrl ?? null,
+    thumbDataUrl:
+      isString(thumb) && thumb.startsWith("data:image/") ? thumb : null,
+  };
+}
+
+/**
+ * A stored — or imported — state record read defensively: a foreign or
+ * half-written value is null (a first-ever load); otherwise each field
+ * survives only in its well-formed shape (`sanitizeContext`,
+ * `sanitizeSettings`, a real boolean help flag). Never throws.
+ */
+export function sanitizeState(raw: unknown): PersistedState | null {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
+    return null;
+  }
+  const source = raw as Record<string, unknown>;
+  const state: {
+    ctx?: SavedContext;
+    settings?: Partial<MachineSettings>;
+    helpSeen?: boolean;
+  } = {};
+  // An index-based ctx (written before saves were keyed by id) reads
+  // as absent: that progress is a first boot (storage/types.ts).
+  const ctx = sanitizeContext(source.ctx);
+  if (ctx !== undefined) state.ctx = ctx;
+  const settings = sanitizeSettings(source.settings);
+  if (settings !== undefined) state.settings = settings;
+  // The key-help flag (Phase 13b): a real boolean survives, a foreign
+  // value reads as absent — which means "not seen" and shows the help
+  // once (helpSeenFrom, storage/types.ts).
+  if (typeof source.helpSeen === "boolean") state.helpSeen = source.helpSeen;
+  return state;
+}
+
+/** The value a `state` record stores for `state`. */
+function stateValue(state: PersistedState): Record<string, unknown> {
+  const record: Record<string, unknown> = {};
+  // `ctx` is JSON-safe by contract; the structured clone copies it.
+  if (state.ctx !== undefined) record.ctx = state.ctx;
+  if (state.settings !== undefined) record.settings = { ...state.settings };
+  if (state.helpSeen !== undefined) record.helpSeen = state.helpSeen;
+  return record;
+}
+
+/** The value a `bookmarks` row stores for `bookmark` under `content`. */
+function bookmarkValue(
+  content: string,
+  bookmark: Bookmark,
+): Record<string, unknown> {
+  // `seq` is absent so autoIncrement assigns it; its value orders the list.
+  return {
+    content,
+    id: bookmark.id,
+    timestampMs: bookmark.timestampMs,
+    itemId: bookmark.itemId,
+    ctx: bookmark.ctx,
+    thumbDataUrl: bookmark.thumbDataUrl ?? null,
   };
 }
 
@@ -384,7 +464,7 @@ export function createIdbStorage(
       index.getAll(IDBKeyRange.only(contentKey)),
     );
     return records
-      .map(toBookmark)
+      .map((record) => sanitizeBookmark(record))
       .filter((bookmark): bookmark is Bookmark => bookmark !== null);
   }
 
@@ -397,36 +477,13 @@ export function createIdbStorage(
       );
       // Read defensively: a foreign or half-written record reads as no
       // persisted state (a first-ever load), never as a broken resume.
-      if (typeof stored !== "object" || stored === null) return null;
-      const source = stored as Record<string, unknown>;
-      const state: {
-        ctx?: SavedContext;
-        settings?: Partial<MachineSettings>;
-        helpSeen?: boolean;
-      } = {};
-      // An index-based ctx (written before saves were keyed by id) reads
-      // as absent: that progress is a first boot (storage/types.ts).
-      const ctx = sanitizeContext(source.ctx);
-      if (ctx !== undefined) state.ctx = ctx;
-      const settings = sanitizeSettings(source.settings);
-      if (settings !== undefined) state.settings = settings;
-      // The key-help flag (Phase 13b): a real boolean survives, a
-      // foreign value reads as absent — which means "not seen" and
-      // shows the help once (helpSeenFrom, storage/types.ts).
-      if (typeof source.helpSeen === "boolean")
-        state.helpSeen = source.helpSeen;
-      return state;
+      return sanitizeState(stored);
     },
 
     async saveState(state: PersistedState): Promise<void> {
       const db = await database();
       const tx = db.transaction(STATE_STORE, "readwrite");
-      const record: Record<string, unknown> = {};
-      // `ctx` is JSON-safe by contract; the structured clone copies it.
-      if (state.ctx !== undefined) record.ctx = state.ctx;
-      if (state.settings !== undefined) record.settings = { ...state.settings };
-      if (state.helpSeen !== undefined) record.helpSeen = state.helpSeen;
-      tx.objectStore(STATE_STORE).put(record, contentKey);
+      tx.objectStore(STATE_STORE).put(stateValue(state), contentKey);
       // Ask for the commit now instead of when the put's success event
       // has made the round trip back to this page (docs/plan.md Phase 18,
       // "Settings survive an immediate reload"): a reload a moment after
@@ -439,16 +496,7 @@ export function createIdbStorage(
     async addBookmark(bookmark: Bookmark): Promise<Bookmark[]> {
       const db = await database();
       const tx = db.transaction(BOOKMARKS_STORE, "readwrite");
-      // `seq` is absent so autoIncrement assigns it; its value orders the list.
-      const record: Record<string, unknown> = {
-        content: contentKey,
-        id: bookmark.id,
-        timestampMs: bookmark.timestampMs,
-        itemId: bookmark.itemId,
-        ctx: bookmark.ctx,
-        thumbDataUrl: bookmark.thumbDataUrl ?? null,
-      };
-      tx.objectStore(BOOKMARKS_STORE).add(record);
+      tx.objectStore(BOOKMARKS_STORE).add(bookmarkValue(contentKey, bookmark));
       await transactionDone(tx); // durable before the list is read back
       return getBookmarks();
     },
@@ -502,6 +550,37 @@ export function createIdbStorage(
       };
       // A failed cursor request bubbles and aborts the transaction,
       // which `transactionDone` below reports as a rejection.
+      await transactionDone(tx);
+    },
+
+    // "Import progress" (docs/plan.md Phase 21): one readwrite transaction
+    // over both stores — the state record overwritten, this content's
+    // bookmark rows deleted through the cursor, the imported rows added
+    // once the cursor is done (in file order, so `seq` keeps that order).
+    // All or nothing: a failure aborts the transaction and the old
+    // progress stands; success resolves on commit, before any reload.
+    async replaceProgress(
+      state: PersistedState,
+      bookmarks: readonly Bookmark[],
+    ): Promise<void> {
+      const db = await database();
+      const tx = db.transaction([STATE_STORE, BOOKMARKS_STORE], "readwrite");
+      tx.objectStore(STATE_STORE).put(stateValue(state), contentKey);
+      const store = tx.objectStore(BOOKMARKS_STORE);
+      const cursorRequest = store
+        .index(CONTENT_INDEX)
+        .openCursor(IDBKeyRange.only(contentKey));
+      cursorRequest.onsuccess = () => {
+        const cursor = cursorRequest.result;
+        if (cursor !== null) {
+          cursor.delete();
+          cursor.continue();
+          return;
+        }
+        for (const bookmark of bookmarks) {
+          store.add(bookmarkValue(contentKey, bookmark));
+        }
+      };
       await transactionDone(tx);
     },
   };

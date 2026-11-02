@@ -821,9 +821,17 @@ truthful: an unchecked box means nothing was accepted.
       "Kinetic demo". pytest touched 165, vitest 513 (4 red before),
       screens 43 + 2 headless-fullscreen partials (heading check red on
       old player), smoke 6/6; screenshot checked. 2026-11-02)
-- [ ] Export / import progress (user option b, 2026-11-02): `c` screen
+- [x] Export / import progress (user option b, 2026-11-02): `c` screen
       buttons; export downloads `<storyId>-progress.json`; import checks
       the story, confirms, replaces this browser's state, reloads; then
       saving stays automatic. Tests, scenario, README.
+      (storage/transfer.ts payload {kind kinetic-progress, version 1,
+      storyId, title, state, bookmarks}; refusals in the panel's message
+      line (not JSON, wrong kind/version, damaged, other story); confirm
+      then one-transaction replaceProgress and reload. Thumbnails only
+      data:image URLs. vitest 537 (red before), progress scenario 6/6
+      (real download + file chooser; red on old build), screens 43 + 2
+      headless-fullscreen partials, storyid 4/4, smoke 6/6; screenshots
+      checked. 2026-11-02)
 - [ ] Phase-closer: full suite (scenarios, vitest, pytest,
       package-proof), rebuild both demo folders.

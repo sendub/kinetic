@@ -610,7 +610,7 @@ async function config({ check, open }) {
   // column (Phase 19, "Settings screen clarity").
   const [outerLeft, optionLeft] = [first.labelLefts[0], first.labelLefts[1]];
   check(
-    "the config screen groups the skip options under When Tab skips, indented, controls in one column, with a note on play all routes",
+    "the config screen groups the skip options under When Tab skips and export, import, reset under Progress, indented, controls in one column, with a note on play all routes",
     JSON.stringify(first.lines) ===
       JSON.stringify([
         "Reading speed",
@@ -618,7 +618,10 @@ async function config({ check, open }) {
         "  Skip unseen content too",
         "  Play videos in full",
         "Play all routes",
-        "Reset progress",
+        "# Progress",
+        "  Export progress",
+        "  Import progress",
+        "  Reset progress",
       ]) &&
       optionLeft > outerLeft &&
       first.labelLefts[2] === optionLeft &&

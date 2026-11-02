@@ -12,6 +12,7 @@ import { createMemoryStorage } from "../storage/memory";
 import {
   mountConfigOverlay,
   PLAY_ALL_NOTE,
+  PROGRESS_SECTION,
   playAllLabel,
   SKIP_ALL_TEXT,
   SKIP_SECTION,
@@ -24,7 +25,12 @@ import {
   speedLabel,
   stepSpeed,
 } from "./config";
-import { mountConfirmOverlay, resetProgress } from "./confirm";
+import {
+  importRequest,
+  mountConfirmOverlay,
+  resetProgress,
+  resetRequest,
+} from "./confirm";
 
 describe("stepSpeed (README: configurable reading speed)", () => {
   it("walks the 0.25 grid in both directions", () => {
@@ -107,6 +113,11 @@ class FakeElement {
   min = "";
   max = "";
   step = "";
+  accept = "";
+  /** A file input's chosen files (the picker's answer, set by a test). */
+  files: unknown[] | null = null;
+  /** How many times `click()` ran: a file input's picker opening. */
+  clicks = 0;
   readonly ownerDocument: FakeDocument;
   private readonly attributes = new Map<string, string>();
   private readonly handlers = new Map<string, ((event: FakeEvent) => void)[]>();
@@ -142,6 +153,12 @@ class FakeElement {
       if (el.getAttribute(name) !== null) return el;
     }
     return null;
+  }
+
+  /** Like a real `click()`: counts, then dispatches a bubbling click. */
+  click(): void {
+    this.clicks += 1;
+    this.fire("click");
   }
 
   addEventListener(type: string, handler: (event: FakeEvent) => void): void {
@@ -211,6 +228,8 @@ function mount(initial: MachineSettings) {
   let inForce = initial;
   const changes: MachineSettings[] = [];
   const resets: number[] = [];
+  const exports: number[] = [];
+  const imports: unknown[] = [];
   const overlay = mountConfigOverlay({
     root: root as unknown as HTMLElement,
     settings: () => inForce,
@@ -221,11 +240,19 @@ function mount(initial: MachineSettings) {
     onReset: () => {
       resets.push(resets.length);
     },
+    onExport: () => {
+      exports.push(exports.length);
+    },
+    onImport: (file) => {
+      imports.push(file);
+    },
   });
   return {
     root,
     changes,
     resets,
+    exports,
+    imports,
     overlay,
     setInForce: (next: MachineSettings): void => {
       inForce = next;
@@ -355,8 +382,12 @@ describe("the panel layout: the skip settings read as options of Tab", () => {
       `  ${SKIP_ALL_TEXT}`,
       `  ${SKIP_VIDEOS_TEXT}`,
       "Play all routes",
-      "Reset progress",
+      `# ${PROGRESS_SECTION}`,
+      "  Export progress",
+      "  Import progress",
+      "  Reset progress",
     ]);
+    expect(PROGRESS_SECTION).toBe("Progress");
     expect(SKIP_SECTION).toBe("When Tab skips");
     expect(SKIP_ALL_TEXT).toBe("Skip unseen content too");
     expect(SKIP_VIDEOS_TEXT).toBe("Play videos in full");
@@ -450,10 +481,9 @@ describe("the confirm box: cancel is a no-op, reset deletes and reloads", () => 
     const root = new FakeDocument().createElement("div");
     const confirm = mountConfirmOverlay({
       root: root as unknown as HTMLElement,
-      onConfirm: () => resets.push(1), // never runs on this path
       onCancel: () => {}, // like main.ts: closing is all cancel does
     });
-    confirm.open();
+    confirm.open(resetRequest(() => resets.push(1))); // never runs here
     byConfirm(root, "cancel").fire("click");
     expect(confirm.isOpen()).toBe(false);
     expect(resets).toHaveLength(0);
@@ -464,7 +494,7 @@ describe("the confirm box: cancel is a no-op, reset deletes and reloads", () => 
     });
     expect((await storage.getBookmarks()).map((b) => b.id)).toEqual(["b1"]);
     // A backdrop click is the same cancel.
-    confirm.open();
+    confirm.open(resetRequest(() => resets.push(1)));
     byClass(root, "confirm-title").fire("click");
     expect(confirm.isOpen()).toBe(false);
     expect(await storage.loadState()).not.toBeNull();
@@ -477,9 +507,11 @@ describe("the confirm box: cancel is a no-op, reset deletes and reloads", () => 
     let pending: Promise<void> | null = null;
     const confirm = mountConfirmOverlay({
       root: root as unknown as HTMLElement,
+      onCancel: () => {},
+    });
+    confirm.open(
       // main.ts's wiring: the box's answer is the whole reset.
-      onConfirm: () => {
-        confirm.close();
+      resetRequest(() => {
         pending = resetProgress({
           flush: async () => {
             events.push("flush"); // the writer drains BEFORE any delete
@@ -500,16 +532,16 @@ describe("the confirm box: cancel is a no-op, reset deletes and reloads", () => 
               events.push("bookmarks");
               await storage.deleteBookmarks();
             },
+            replaceProgress: (state, bookmarks) =>
+              storage.replaceProgress(state, bookmarks),
           },
           reload: () => {
             events.push("reload"); // the stubbed location.reload
           },
         });
-      },
-      onCancel: () => {},
-    });
-    confirm.open();
-    byConfirm(root, "reset").fire("click");
+      }),
+    );
+    byConfirm(root, "confirm").fire("click");
     expect(confirm.isOpen()).toBe(false);
     await pending;
     expect(events[0]).toBe("flush");
@@ -518,5 +550,112 @@ describe("the confirm box: cancel is a no-op, reset deletes and reloads", () => 
     // Gone for good: the fresh boot's load finds nothing.
     expect(await storage.loadState()).toBeNull();
     expect(await storage.getBookmarks()).toEqual([]);
+  });
+});
+
+// --- the Progress group's Export / Import rows (docs/plan.md Phase 21):
+// Export asks the shell for the download; Import opens the file picker
+// (a hidden file input), hands the chosen file to the shell, and shows the
+// shell's refusal in the panel itself. Neither changes a setting. ---
+
+describe("the Progress rows: Export and Import progress (Phase 21)", () => {
+  it("Export asks the shell for the download and touches no setting", () => {
+    const { root, overlay, changes, exports } = mount(defaults);
+    overlay.open();
+    const button = byAction(root, "export-progress");
+    expect(button.tag).toBe("button");
+    expect(button.textContent).toBe("Export");
+    button.fire("click");
+    expect(exports).toHaveLength(1);
+    expect(changes).toHaveLength(0);
+    expect(overlay.isOpen()).toBe(true);
+  });
+
+  it("Import opens a JSON file picker without closing the panel", () => {
+    const { root, overlay, imports } = mount(defaults);
+    overlay.open();
+    const input = byAction(root, "import-file");
+    expect(input.tag).toBe("input");
+    expect(input.type).toBe("file");
+    expect(input.accept).toBe(".json,application/json");
+    expect(input.hidden).toBe(true);
+    const button = byAction(root, "import-progress");
+    expect(button.textContent).toBe("Import…");
+    button.fire("click");
+    expect(input.clicks).toBe(1); // the picker opened
+    expect(overlay.isOpen()).toBe(true); // its bubbling click is no backdrop
+    expect(imports).toHaveLength(0); // nothing chosen yet
+  });
+
+  it("hands the chosen file to the shell, once, and re-arms the picker", () => {
+    const { root, imports } = mount(defaults);
+    const input = byAction(root, "import-file");
+    const file = { name: "dawn-progress.json" };
+    input.files = [file];
+    input.value = "C:\\fakepath\\dawn-progress.json";
+    input.fire("change");
+    expect(imports).toEqual([file]);
+    expect(input.value).toBe(""); // the same file can be chosen again
+    input.files = []; // a cancelled picker
+    input.fire("change");
+    expect(imports).toHaveLength(1);
+  });
+
+  it("shows a refusal in the panel; reopening clears it", () => {
+    const { root, overlay } = mount(defaults);
+    overlay.open();
+    const message = byClass(root, "config-message");
+    expect(message.hidden).toBe(true);
+    expect(message.getAttribute("role")).toBe("status");
+    overlay.showMessage("That file is not a Kinetic progress file.");
+    expect(message.hidden).toBe(false);
+    expect(message.textContent).toBe(
+      "That file is not a Kinetic progress file.",
+    );
+    overlay.close();
+    overlay.open();
+    expect(message.hidden).toBe(true);
+    expect(message.textContent).toBe("");
+  });
+});
+
+describe("the confirm box asks about an import in its own words", () => {
+  it("names the story, the action and its keys; y/accept runs it once", () => {
+    const root = new FakeDocument().createElement("div");
+    const confirm = mountConfirmOverlay({
+      root: root as unknown as HTMLElement,
+      onCancel: () => {},
+    });
+    const runs: number[] = [];
+    confirm.open(importRequest("Dawn Tale", () => runs.push(1)));
+    expect(byClass(root, "confirm-title").textContent).toBe("Import progress");
+    expect(byClass(root, "confirm-message").textContent).toBe(
+      "Replace this browser's progress for Dawn Tale with the imported file?",
+    );
+    expect(byConfirm(root, "confirm").textContent).toBe("Import");
+    expect(byClass(root, "confirm-hint").textContent).toBe(
+      "y imports · Esc / n cancels",
+    );
+    confirm.accept(); // the y key
+    expect(confirm.isOpen()).toBe(false);
+    expect(runs).toEqual([1]);
+    confirm.accept(); // closed: inert
+    expect(runs).toEqual([1]);
+    // The reset wording comes back with its own request.
+    confirm.open(resetRequest(() => {}));
+    expect(byClass(root, "confirm-title").textContent).toBe("Reset progress");
+    expect(byConfirm(root, "confirm").textContent).toBe("Reset");
+  });
+
+  it("a story without a title reads as this story", () => {
+    const root = new FakeDocument().createElement("div");
+    const confirm = mountConfirmOverlay({
+      root: root as unknown as HTMLElement,
+      onCancel: () => {},
+    });
+    confirm.open(importRequest(undefined, () => {}));
+    expect(byClass(root, "confirm-message").textContent).toBe(
+      "Replace this browser's progress for this story with the imported file?",
+    );
   });
 });
