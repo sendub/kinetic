@@ -1126,4 +1126,11 @@ truthful: an unchecked box means nothing was accepted.
       column. Keyboard/click behaviour, delete (×), scroll-to-latest and
       ordering unchanged. Tests, screens scenario, screenshots at
       1280x720 and 700x900.
+- [ ] `e` after visiting a bookmark (user, 2026-11-02): in a converted
+      game, after continuing from a bookmark (seen with video bookmarks,
+      others untried) `e` does nothing, even when the story from the
+      bookmark to the furthest point read was linear. Reproduce (video
+      and non-video bookmarks; the bookmark appends to the history), find
+      the cause, and make `e` take the reader to the furthest point they
+      have read. Test red before; screens/navigation scenario.
 - [ ] Phase-closer: full suite, rebuild demo folders.
