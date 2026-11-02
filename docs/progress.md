@@ -1015,7 +1015,10 @@ truthful: an unchecked box means nothing was accepted.
       (loose files and archive members, full bytes, None = unchanged,
       raise = loud failure; ledger hashes + hook identity + code hash).
       Test hook uses the converting agent's EXTRA formula on a synthetic
-      file.
+      file, purely as a hook test: it is NOT a correct decoder for the
+      game (episodes 4-5 use an activation-dependent offset); the real
+      hook lives in the game I package. 25.12's worked example
+      must say so too.
 - [ ] 25.5 Image policy: lossless JXL via imagecodecs when smaller;
       WebP decode-encode with pixel check; JPEG recompression with exact
       byte reconstruction; animation kept; `.jxl` sources ship. Measure
