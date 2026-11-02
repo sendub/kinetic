@@ -933,3 +933,7 @@ truthful: an unchecked box means nothing was accepted.
       A reader who saved Off keeps Off; Reset progress restores On.
       Tests and scenarios that need manual choices set Off explicitly.
       README / docs / CREATE.md wording.
+- [ ] Reading speed named for auto-forward (user, 2026-11-02): the `c`
+      screen's "Reading speed" becomes "Auto-forward speed" (or similar),
+      with a short note that it also paces play-all's choice countdown.
+      Help text, README, docs; tests and scenarios that read the label.
