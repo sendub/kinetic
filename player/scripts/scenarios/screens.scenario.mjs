@@ -24,6 +24,7 @@ import {
   HELP_OPEN,
   helpOpen,
   item,
+  manifest,
   OVERLAY_CLOSED,
   OVERLAY_OPEN,
   PAGE_STATE,
@@ -166,6 +167,20 @@ async function helpMidFlow({ check, open }) {
       help.title === HELP_TITLE &&
       help.coversViewport === true,
     { s, imgBox, title: help.title, covers: help.coversViewport },
+  );
+
+  check(
+    "the help is headed by the game's name (the manifest title), which also names the page",
+    typeof manifest.title === "string" &&
+      help.game === manifest.title &&
+      help.gameFirst === true &&
+      help.pageTitle === manifest.title,
+    {
+      game: help.game,
+      first: help.gameFirst,
+      pageTitle: help.pageTitle,
+      expected: manifest.title,
+    },
   );
 
   check(
@@ -788,6 +803,15 @@ async function emptyFolder({ check, open }) {
       s.helpOpen === true &&
       s.stageHidden === true,
     s,
+  );
+  const untitled = await page.evaluate(READ_HELP);
+  check(
+    "a manifest without a title: the help has no heading and the page keeps its own title",
+    untitled.hidden === false &&
+      untitled.game === null &&
+      untitled.title === HELP_TITLE &&
+      untitled.pageTitle === "Kinetic",
+    { game: untitled.game, title: untitled.title, page: untitled.pageTitle },
   );
   await pressEscape(cdp);
   const helpClosed = await waitFor(page, HELP_CLOSED);

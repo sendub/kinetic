@@ -1,6 +1,7 @@
 {
   "schemaVersion": 1,
   "storyId": "renpy_demo",
+  "title": "renpy demo",
   "width": 320,
   "height": 180,
   "items": [

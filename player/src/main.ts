@@ -42,7 +42,7 @@ import { mountConfigOverlay } from "./render/config";
 import { mountConfirmOverlay, resetProgress } from "./render/confirm";
 import { EARLIER_UNSEEN_NOTICE } from "./render/endcard";
 import { installFirstGestureFullscreen } from "./render/fullscreen";
-import { mountHelpOverlay } from "./render/help";
+import { mountHelpOverlay, pageTitleFor } from "./render/help";
 import { installKeyMap, suspendTimeline } from "./render/keys";
 import { loadManifest } from "./render/manifest";
 import { mountRouteAnnouncements } from "./render/routes";
@@ -130,6 +130,9 @@ function start(): void {
     contentRoot,
   ).then(
     async (manifest) => {
+      // The game's name names the page (docs/plan.md Phase 21), else the
+      // player's own title stays.
+      document.title = pageTitleFor(manifest.title);
       // One storage namespace per novel (docs/plan.md Phases 8, 21): its
       // manifest `storyId` when it has one, so moving or renaming the
       // folder keeps progress (and progress saved under the folder URL is
@@ -370,7 +373,12 @@ function start(): void {
       // the stage; closing it resumes the same item, its hold re-armed
       // from now — and the first close records `helpSeen` durably, so the
       // screen appears exactly once per novel (render/help.ts).
-      const help = mountHelpOverlay({ root, onClose: () => closeHelp() });
+      // The game's name heads it (docs/plan.md Phase 21).
+      const help = mountHelpOverlay({
+        root,
+        onClose: () => closeHelp(),
+        gameTitle: manifest.title,
+      });
       const openHelp = (): void => {
         if (help.isOpen()) return;
         help.open();

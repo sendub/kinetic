@@ -505,6 +505,17 @@
       #help[hidden] {
         display: none;
       }
+      /* The game's name (docs/plan.md Phase 21), from the manifest
+         `title`: the screen's first line, above "Key help"; absent when
+         the manifest names no game. */
+      .help-game {
+        margin: 0;
+        color: var(--ink);
+        font-size: clamp(20px, 3.4vh, 38px);
+        font-weight: 600;
+        line-height: 1.2;
+        overflow-wrap: anywhere;
+      }
       .help-title {
         margin: 0;
         color: var(--accent);

@@ -305,6 +305,11 @@ const READ_HELP = () => {
   return {
     present: true,
     hidden: false,
+    // The game's name heading (docs/plan.md Phase 21): its text, whether
+    // it is the panel's first line, and the page title beside it.
+    game: document.querySelector(".help-game")?.textContent ?? null,
+    gameFirst: panel.firstElementChild?.className === "help-game",
+    pageTitle: document.title,
     title: document.querySelector(".help-title")?.textContent ?? null,
     hint: document.querySelector(".help-hint")?.textContent ?? null,
     rows: Array.from(document.querySelectorAll(".help-row")).map((el) => ({

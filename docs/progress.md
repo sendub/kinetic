@@ -808,13 +808,19 @@ truthful: an unchecked box means nothing was accepted.
       gains optional storyId, schemaVersion unchanged. pytest touched
       130, vitest 508, storyid scenario 4/4 (2 red on old player),
       screens+menus green, smoke 6/6. 2026-11-02)
-- [ ] Game name on the Esc screen (user, 2026-11-02): manifest `title`,
+- [x] Game name on the Esc screen (user, 2026-11-02): manifest `title`,
       shown at the top of the Esc help screen (and as the page title).
       Default from the Ren'Py project (`config.name`, else the project
       folder name); the game maker sets it with a converter option
       (`--title`) or by editing the manifest; the same option family
       lets them set `--story-id`. Fallback when absent: no heading.
       Tests, scenario, README, docs/content-format.md.
+      (--title / config.name / folder name; --story-id override with
+      slug check. Esc help h1 + document.title; untitled keeps "Kinetic"
+      and no heading. game F -> "The Lantern at Low Tide", demo
+      "Kinetic demo". pytest touched 165, vitest 513 (4 red before),
+      screens 43 + 2 headless-fullscreen partials (heading check red on
+      old player), smoke 6/6; screenshot checked. 2026-11-02)
 - [ ] Export / import progress (user option b, 2026-11-02): `c` screen
       buttons; export downloads `<storyId>-progress.json`; import checks
       the story, confirms, replaces this browser's state, reloads; then

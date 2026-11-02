@@ -39,6 +39,7 @@ my-novel/
 {
   "schemaVersion": 1,
   "storyId": "the-lantern-at-low-tide",
+  "title": "The Lantern at Low Tide",
   "width": 1920,
   "height": 1080,
   "items": []
@@ -65,6 +66,21 @@ my-novel/
   of characters one `-`, trimmed of leading/trailing `-`/`_`, cut to 64;
   a name with no ASCII letter or digit becomes `story-` plus 12 hex
   digits of its sha1).
+  `kinetic-extract --story-id ID` sets it instead (ID must already match
+  the pattern; anything else is a usage error).
+- `title` (optional): the game's name as readers see it, plain text with
+  at least one non-space character and at most 200 characters. The
+  player shows it as a heading at the top of the Esc help screen and as
+  the page (browser tab) title; it is set as text, so markup in it shows
+  literally. Without it the help screen has no heading and the page
+  title stays `Kinetic`. Like `storyId` it is optional, so
+  `schemaVersion` did not change. kinetic-extract takes the Ren'Py
+  project's `config.name` string literal (`_()` unwrapped, escaped
+  quotes undone), else the project folder name (a `game/` input's
+  parent, a macOS bundle without `.app`) with each run of `_`, `-` and
+  spaces read as one space (`My_Game-1.0` becomes `My Game 1.0`);
+  `--title TEXT` sets it instead, and the game maker may edit it in the
+  manifest at any time.
 - `width`, `height`: display resolution in pixels. Every generated image is
   exactly this size, and the player scales its surface to the screen.
 - `items`: the ordered sequence. Position in the array is position in the
@@ -551,6 +567,7 @@ The validator checks the schema plus these invariants:
 2. Every path in the manifest resolves to an existing file in the folder.
 3. Item ids are unique.
 4. `schemaVersion` is 1; `storyId`, when present, is a slug as above;
+   `title`, when present, is non-blank text of at most 200 characters;
    `items` is an array (an empty one is valid — an
    honestly-empty folder, see Manifest); `frames` has at least two
    entries; `loopCount` is at least 1; `fps` and `durationSeconds` are

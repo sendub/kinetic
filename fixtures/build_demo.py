@@ -553,6 +553,11 @@ def check_manifest(manifest: dict, schema: dict) -> list[str]:
     if not isinstance(story, str) or not re.fullmatch(
             props["storyId"]["pattern"], story):
         bad(f"storyId {story!r} must match {props['storyId']['pattern']}")
+    title = manifest.get("title")
+    if not isinstance(title, str) or not title.strip() or \
+            len(title) > props["title"]["maxLength"]:
+        bad(f"title {title!r} must be non-blank text of at most "
+            f"{props['title']['maxLength']} characters")
     for key in ("width", "height"):
         if not isinstance(manifest.get(key), int) or manifest.get(key, 0) < 1:
             bad(f"{key} must be an integer >= 1")
@@ -678,6 +683,9 @@ def main() -> None:
         # The demo's identity for saved progress (docs/plan.md Phase 21):
         # moving or renaming the folder keeps the reader's place.
         "storyId": "kinetic-demo",
+        # The game's name atop the Esc help screen and as the page title
+        # (docs/plan.md Phase 21, Game name on the Esc screen).
+        "title": "Kinetic demo",
         "width": WIDTH,
         "height": HEIGHT,
         "items": items,

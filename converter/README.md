@@ -43,7 +43,11 @@ referenced source images (Pillow), falling back to 1280x720.
 The manifest's `storyId` (docs/content-format.md) comes from the
 project: `config.save_directory`, else `config.name`, else the project
 folder name (without `.app`), slugified; a slice still reads it from
-`options.rpy`. The summary prints it and its source.
+`options.rpy`. Its `title` (shown atop the player's Esc screen and as
+the page title) is `config.name`, else the folder name with `_`/`-`
+runs read as spaces. `--title TEXT` and `--story-id ID` override them
+(an ID that is not a valid `storyId` is a usage error). The summary
+prints both and their sources.
 
 Slice options (docs/plan.md Phase 11) extract part of a big game:
 `--label NAME` starts the walk at that label, `--max-items N` stops

@@ -4,6 +4,7 @@ Usage:
 
     kinetic-extract <renpy_project> <out_dir> [--width N] [--height N]
                     [--label NAME] [--max-items N] [--files GLOB] [--flat]
+                    [--title TEXT] [--story-id ID]
 
 <renpy_project> may be a directory containing ``game/``, a ``game/``
 directory itself, or a macOS ``.app`` bundle (the ``game`` dir is resolved
@@ -146,15 +147,61 @@ def derive_story_id(configs: list[dict[str, str]],
     return story_slug(project_folder_name(project)) or "story", "folder name"
 
 
+TITLE_MAX = 200        # docs/content-schema.json title maxLength
+STORY_ID_RE = re.compile(r"[a-z0-9][a-z0-9_-]{0,63}")
+_ESCAPED_QUOTE_RE = re.compile(r"""\\(["'\\])""")
+
+
+def folder_title(name: str) -> str:
+    """A folder name as a readable title: every run of `_`, `-` and
+    whitespace one space, trimmed (`My_Game-1.0-pc` -> `My Game 1.0 pc`)."""
+    return re.sub(r"[\s_-]+", " ", name).strip()
+
+
+def derive_title(configs: list[dict[str, str]],
+                 project: Path) -> tuple[str, str]:
+    """(title, where it came from), docs/plan.md Phase 21: the first
+    non-blank `config.name` string literal as written (its escaped quotes
+    undone), else the project folder name made readable."""
+    for config in configs:
+        name = _ESCAPED_QUOTE_RE.sub(r"\1", config.get("name", "")).strip()
+        if name:
+            return name[:TITLE_MAX].rstrip(), "config.name"
+    # A folder name of only `_`/`-` gives "": no title, no heading.
+    return folder_title(project_folder_name(project)), "folder name"
+
+
+def title_option(text: str) -> str:
+    """argparse type for `--title`: trimmed, non-empty, at most 200."""
+    title = text.strip()
+    if not title or len(title) > TITLE_MAX:
+        raise argparse.ArgumentTypeError(
+            f"must be 1-{TITLE_MAX} characters after trimming spaces")
+    return title
+
+
+def story_id_option(text: str) -> str:
+    """argparse type for `--story-id`: already a manifest storyId slug."""
+    if not STORY_ID_RE.fullmatch(text):
+        raise argparse.ArgumentTypeError(
+            f"{text!r} must match [a-z0-9][a-z0-9_-]{{0,63}} (lowercase "
+            "letters, digits, '-' and '_', starting with a letter or digit, "
+            "at most 64 characters)")
+    return text
+
+
 def build_manifest(result: TimelineResult, width: int, height: int,
                    branches: list[dict[str, Any]] | None = None,
                    story_id: str | None = None,
+                   title: str | None = None,
                    ) -> dict[str, Any]:
     manifest: dict[str, Any] = {
         "schemaVersion": 1,
     }
     if story_id:
         manifest["storyId"] = story_id
+    if title:
+        manifest["title"] = title
     manifest |= {
         "width": width,
         "height": height,
@@ -304,6 +351,7 @@ def print_summary(result: TimelineResult, reports: list[Report],
                   resolution_note: str, skipped: int,
                   branch_notes: list[dict[str, str]] | None = None,
                   story: tuple[str, str] | None = None,
+                  title: tuple[str, str] | None = None,
                   ) -> None:
     counts: dict[str, int] = {}
     for record in result.items:
@@ -318,6 +366,8 @@ def print_summary(result: TimelineResult, reports: list[Report],
     print(f"resolution: {resolution_note}")
     if story is not None:
         print(f"story id: {story[0]} (from {story[1]})")
+    if title is not None:
+        print(f"title: {title[0] or '(none)'} (from {title[1]})")
     notes = branch_notes or []
     detected = sum(1 for n in notes if n["result"] == "detected")
     skipped_menus = [n for n in notes if n["result"] == "skipped"]
@@ -363,6 +413,16 @@ def main(argv: list[str] | None = None) -> int:
                            "instead of the default assets/<xx>/ buckets "
                            "(bucket = first 2 hex digits of sha1 of the "
                            "file's basename; same name, same bucket)")
+    argp.add_argument("--title", type=title_option, default=None,
+                      metavar="TEXT",
+                      help="the game's name, shown atop the player's Esc "
+                           "screen and as the page title (default: "
+                           "config.name, else the project folder name)")
+    argp.add_argument("--story-id", type=story_id_option, default=None,
+                      metavar="ID",
+                      help="the manifest storyId progress is saved under "
+                           "(default: derived from config.save_directory, "
+                           "config.name or the folder name)")
     args = argp.parse_args(argv)
 
     game_dir = resolve_game_dir(args.renpy_project)
@@ -400,15 +460,22 @@ def main(argv: list[str] | None = None) -> int:
         if args.width or args.height:
             source_note += " with --width/--height override"
     configs = [parsed.config for _rel, parsed in parses]
-    if args.files and not any(c.keys() & {"save_directory", "name"}
-                              for c in configs):
-        # A slice's identity is the whole game's: read the settings file
-        # the --files glob left out.
+    if args.files and not all(any(setting in c for c in configs)
+                              for setting in ("save_directory", "name")):
+        # A slice's identity and name are the whole game's: read the
+        # settings file the --files glob left out.
         options, _i, _c, _s = parse_project(game_dir, "options.rpy")
         configs += [parsed.config for _rel, parsed in options]
-    story_id, story_source = derive_story_id(configs, args.renpy_project)
+    if args.story_id:
+        story_id, story_source = args.story_id, "--story-id"
+    else:
+        story_id, story_source = derive_story_id(configs, args.renpy_project)
+    if args.title:
+        title, title_source = args.title, "--title"
+    else:
+        title, title_source = derive_title(configs, args.renpy_project)
     manifest = build_manifest(result, width, height, branches=branches,
-                              story_id=story_id)
+                              story_id=story_id, title=title)
     slice_opts = {"label": args.label, "maxItems": args.max_items,
                   "files": args.files}
     ledger = build_ledger(result, reports,
@@ -420,5 +487,6 @@ def main(argv: list[str] | None = None) -> int:
                           branch_notes=branch_notes)
     write_outputs(args.out_dir, manifest, ledger)
     print_summary(result, reports, f"{width}x{height} ({source_note})",
-                  skipped, branch_notes, (story_id, story_source))
+                  skipped, branch_notes, (story_id, story_source),
+                  (title, title_source))
     return 0

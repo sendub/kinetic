@@ -1,6 +1,7 @@
 window.KINETIC_MANIFEST = {
   "schemaVersion": 1,
   "storyId": "branches-example",
+  "title": "Branches example",
   "width": 1280,
   "height": 720,
   "items": [

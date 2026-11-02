@@ -1126,3 +1126,40 @@ def test_bad_story_id_is_rejected(folder: Path, story: object) -> None:
     problems = problems_of(folder)
     assert len(problems) == 1, problems
     assert problems[0].startswith("manifest.json: storyId:"), problems
+
+
+# ---------------------------------------------------------------------------
+# title (docs/plan.md Phase 21, Game name on the Esc screen): optional, a
+# non-blank string of at most 200 characters when present
+# ---------------------------------------------------------------------------
+
+def test_demo_carries_a_title(demo: Path) -> None:
+    assert read_manifest(demo)["title"] == "Kinetic demo"
+
+
+def test_absent_title_stays_valid(folder: Path) -> None:
+    """No title, no heading: the player shows the help without one."""
+    manifest = read_manifest(folder)
+    manifest.pop("title", None)
+    write_manifest(folder, manifest)
+    assert problems_of(folder) == []
+
+
+@pytest.mark.parametrize("title", [
+    "The Lantern at Low Tide", "game-d College: Part 'Two'!", "夏の終わり",
+    "<b>not html</b>", "x", "x" * 200])
+def test_titles_pass(folder: Path, title: str) -> None:
+    manifest = read_manifest(folder)
+    manifest["title"] = title
+    write_manifest(folder, manifest)
+    assert problems_of(folder) == []
+
+
+@pytest.mark.parametrize("title", ["", "   ", "x" * 201, 7, None])
+def test_bad_title_is_rejected(folder: Path, title: object) -> None:
+    manifest = read_manifest(folder)
+    manifest["title"] = title
+    write_manifest(folder, manifest)
+    problems = problems_of(folder)
+    assert len(problems) == 1, problems
+    assert problems[0].startswith("manifest.json: title:"), problems

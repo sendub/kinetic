@@ -33,14 +33,18 @@ them is still valid input for the validator.
 
 ### Manifest
 
-`manifest.json` carries `schemaVersion` (1), an optional `storyId`, the
-display `width` and `height` in pixels, and `items` in play order. The
-`storyId` names the story itself (lowercase letters, digits, `-`, `_`,
-starting with a letter or digit, at most 64 characters, such as
-`rainy-day-1`): the player saves the reader's progress and bookmarks
-under it, so they survive moving or renaming the folder. Pick one per
-story and keep it across updates; without one, progress is tied to the
-folder's location. Each item has a unique
+`manifest.json` carries `schemaVersion` (1), an optional `storyId`, an
+optional `title`, the display `width` and `height` in pixels, and
+`items` in play order. The `storyId` names the story itself (lowercase
+letters, digits, `-`, `_`, starting with a letter or digit, at most 64
+characters, such as `rainy-day-1`): the player saves the reader's
+progress and bookmarks under it, so they survive moving or renaming the
+folder. Pick one per story and keep it across updates; without one,
+progress is tied to the folder's location. The `title` is the game's
+name as readers see it (any text up to 200 characters, such as
+`"Rainy Day"`): the player shows it as a heading at the top of the Esc
+help screen and as the browser tab's title. Without one the help screen
+has no heading. Each item has a unique
 `id` (letters, digits, `-`, `_`, starting with a letter or digit), a
 `type`, and the fields its type requires:
 
@@ -86,6 +90,7 @@ two `text` lines that run over the looping video:
 {
   "schemaVersion": 1,
   "storyId": "rainy-day",
+  "title": "Rainy Day",
   "width": 1280,
   "height": 720,
   "items": [
@@ -198,6 +203,7 @@ intro-001 -> line-002 -> meet-003 --[afternoon: fires on settle of meet-003]
 {
   "schemaVersion": 1,
   "storyId": "branches-example",
+  "title": "Branches example",
   "width": 1280,
   "height": 720,
   "items": [
@@ -386,6 +392,14 @@ by the first two hex digits of the sha1 of each file's own name, so a big
 game never puts thousands of files in one folder that macOS Finder has to
 lay out (`--flat` keeps them in the folder root; docs/extracting.md,
 "Output layout"). Validate and play its output the same way.
+
+The extractor names the game and the story for you: the `title` is the
+project's `config.name` (else its folder name, with `_` and `-` read as
+spaces), and the `storyId` is derived from `config.save_directory`,
+`config.name` or the folder name. Set either yourself with
+`--title "Rainy Day"` and `--story-id rainy-day-1` (the id must already
+be a valid `storyId`), or edit `manifest.json` afterwards and regenerate
+`manifest.js` (Generating manifest.js).
 
 ## Playing the folder
 

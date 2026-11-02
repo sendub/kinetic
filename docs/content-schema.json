@@ -15,6 +15,12 @@
       "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$",
       "description": "optional stable identity of the story, independent of where its folder lives; the player keys saved progress and bookmarks by it (absent: by the folder URL); see docs/content-format.md § Manifest"
     },
+    "title": {
+      "type": "string",
+      "maxLength": 200,
+      "pattern": "\\S",
+      "description": "optional name of the game, shown as a heading at the top of the player's Esc help screen and as the page title (absent: no heading); plain text, never HTML; see docs/content-format.md § Manifest"
+    },
     "width": {
       "type": "integer",
       "minimum": 1

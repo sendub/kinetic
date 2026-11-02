@@ -31,6 +31,25 @@ export const HELP_TITLE = "Key help";
 /** The panel's closing hint. */
 export const HELP_HINT = "Esc · Space · click — closes";
 
+/** The page title when the manifest names no game (index.html's own). */
+export const PAGE_TITLE_DEFAULT = "Kinetic";
+
+/**
+ * The game's name from the manifest `title` (docs/plan.md Phase 21, Game
+ * name on the Esc screen), trimmed; anything blank or not text is no name.
+ * Pure.
+ */
+export function gameTitleOf(title: unknown): string | null {
+  if (typeof title !== "string") return null;
+  const trimmed = title.trim();
+  return trimmed === "" ? null : trimmed;
+}
+
+/** The page (tab) title: the game's name, else the player's own. Pure. */
+export function pageTitleFor(title: unknown): string {
+  return gameTitleOf(title) ?? PAGE_TITLE_DEFAULT;
+}
+
 export interface HelpOverlay {
   isOpen(): boolean;
   /** Shows the screen. The shell pauses the machine and hides the stage. */
@@ -43,6 +62,11 @@ export interface HelpOverlayOptions {
   root: HTMLElement;
   /** A click anywhere on the screen: the shell closes help and resumes. */
   onClose(): void;
+  /**
+   * The manifest `title`: drawn as a heading at the top of the screen when
+   * it is non-blank text (gameTitleOf), else no heading at all.
+   */
+  gameTitle?: unknown;
 }
 
 /**
@@ -78,6 +102,7 @@ export function helpRows(): { keys: string[]; description: string }[] {
 export function mountHelpOverlay({
   root,
   onClose,
+  gameTitle,
 }: HelpOverlayOptions): HelpOverlay {
   const doc = root.ownerDocument;
 
@@ -109,6 +134,15 @@ export function mountHelpOverlay({
     list.appendChild(line);
   }
 
+  // The game's name heads the screen (Phase 21), set as text so a title
+  // carrying markup shows literally; no name, no heading.
+  const name = gameTitleOf(gameTitle);
+  if (name !== null) {
+    const heading = doc.createElement("h1");
+    heading.className = "help-game";
+    heading.textContent = name;
+    panel.append(heading);
+  }
   panel.append(title, hint, list);
   root.appendChild(panel);
 

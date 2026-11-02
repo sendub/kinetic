@@ -162,6 +162,11 @@ export interface Manifest {
    * player keys saved progress by it instead of the folder URL.
    */
   storyId?: string;
+  /**
+   * Optional name of the game (docs/content-format.md): the heading of the
+   * Esc help screen and the page title. Absent: no heading.
+   */
+  title?: string;
   width: number;
   height: number;
   /** Position in the array is position in the novel. */
