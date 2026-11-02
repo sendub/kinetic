@@ -1261,4 +1261,18 @@ truthful: an unchecked box means nothing was accepted.
       their desktop Chrome (PLAYS* = audio not decoded, irrelevant as
       the player mutes video). pytest converter+tools 478; renpy_demo
       validator clean, rebuild OK. 2026-11-02)
-- [ ] Phase-closer: full suite, rebuild demo folders.
+- [x] Phase-closer: full suite, rebuild demo folders.
+      (2026-11-02: vitest 569, biome+tsc clean, pytest 478, package-proof
+      18/18 (demo folders rebuilt). Scenario suite 209 checks: 206 pass,
+      2 PARTIAL (headless fullscreen), 1 FAIL: playall "scenario
+      completed" with clickCenter reading an undefined rect in
+      configure (harness.mjs:389) under full-suite load; playall re-run
+      3x alone: 27/27 each. Same flake class seen once in screens
+      (settingsImmediateReload). Follow-up item below.)
+
+## Follow-ups
+
+- [ ] Harness flake (2026-11-02): clickCenter (harness.mjs ~389) can read
+      an element's rect before it exists/lays out under full-suite load
+      (playall configure, screens settingsImmediateReload). Wait for the
+      element and a non-empty rect before clicking.
