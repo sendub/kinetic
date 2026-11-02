@@ -71,7 +71,12 @@ Known constraints of the browser host, both accepted:
   phase).
 - Persistence: IndexedDB in both modes (settings, bookmark list, reading
   progress, all keyed by item / decision / route id so content updates
-  keep saves valid). No server, no files-from-browser problem.
+  keep saves valid). Each story's record is stored under the manifest's
+  `storyId` (`story:<id>`; the folder URL when a manifest has none, carried
+  over once one is added), so moving or renaming the folder keeps
+  progress. Moving to another browser is an explicit Export / Import of
+  a per-story JSON file on the `c` screen. No server, no
+  files-from-browser problem.
 
 ## Content format decision
 

@@ -86,6 +86,18 @@ docs/content-format.md, and the player resolves it from the folder root.
 one whose contents you want to eyeball; a hand-authored folder such as
 `fixtures/demo` stays flat either way.
 
+## Story ID and title
+
+Every extraction writes the manifest's `storyId` and `title`
+(docs/content-format.md, Manifest; docs/plan.md Phase 21). The `storyId`
+comes from `config.save_directory`, else `config.name`, else the project
+folder name, slugified; the `title` from `config.name`, else the folder
+name with `_`/`-` runs read as spaces. A slice still reads both from
+`options.rpy`. `--story-id ID` and `--title TEXT` override them (an ID
+that is not a valid `storyId` is a usage error), and the run summary
+prints both with their sources. Keep the `storyId` the same when you
+re-extract an updated game, or readers' progress will not follow it.
+
 ## Results
 
 One subsection per sampled game. The first pass ran five slices

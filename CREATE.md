@@ -41,11 +41,12 @@ characters, such as `rainy-day-1`): the player saves the reader's
 progress and bookmarks under it, so they survive moving or renaming the
 folder, and a progress file a reader exports from the `c` screen imports
 only into the story with the same ID. Pick one per story and keep it
-across updates; without one, progress is tied to the folder's location. The `title` is the game's
-name as readers see it (any text up to 200 characters, such as
-`"Rainy Day"`): the player shows it as a heading at the top of the Esc
-help screen and as the browser tab's title. Without one the help screen
-has no heading. Each item has a unique
+across updates; without one, progress is tied to the folder's location,
+and adding one later carries that progress over on the next load. The
+`title` is the game's name as readers see it (any text up to 200
+characters, such as `"Rainy Day"`): the player shows it as a heading at
+the top of the Esc help screen and as the browser tab's title. Without
+one the help screen has no heading and the tab reads `Kinetic`. Each item has a unique
 `id` (letters, digits, `-`, `_`, starting with a letter or digit), a
 `type`, and the fields its type requires:
 

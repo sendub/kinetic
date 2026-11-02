@@ -887,10 +887,18 @@ truthful: an unchecked box means nothing was accepted.
       old build. vitest 550, playall 25/25, branches 41/41, navigation
       19/19, screens 44 + 2 headless-fullscreen partials, smoke 6/6.
       2026-11-02)
-- [ ] Docs audit (user, 2026-11-02): every doc a reader, game maker or
+- [x] Docs audit (user, 2026-11-02): every doc a reader, game maker or
       agent uses reflects Phases 20-22 (title, storyId and the converter
       options, export/import, auto-forward pill and timing, play-all
       countdown and highlight, rollback pass rule), e.g.
       docs/extracting.md has no --title / --story-id yet.
-- [ ] Phase-closer: full suite (scenarios, vitest, pytest,
+      (README c line, persistence, play-all; stack.md persistence
+      keying; CREATE.md manifest; extracting.md "Story ID and title";
+      verify-player.md Phase 22 checks. vitest 550, pytest 216.
+      2026-11-02)
+- [x] Phase-closer: full suite (scenarios, vitest, pytest,
       package-proof), rebuild both demo folders.
+      (2026-11-02, after the last code commit; docs-only since: vitest
+      550, biome+tsc clean, scenario suite 10 files / 194 checks: 192
+      pass + 2 PARTIAL (headless fullscreen), pytest 216, package-proof
+      18/18; .tmp/pkg-demo and .tmp/pkg-extract rebuilt.)
