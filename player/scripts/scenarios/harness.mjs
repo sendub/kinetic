@@ -363,7 +363,11 @@ const configOpen = (page) => page.evaluate(CONFIG_OPEN);
 // (Phase 26), so Escape opens and closes them. While the page is
 // fullscreen Chrome keeps the first Escape to leave fullscreen, so that
 // case sends one more. Returns whether the predicate held.
+// A predicate that already holds sends nothing: Escape toggles the screen,
+// so pressing it then would undo the state the caller asked for and leave
+// every later open/close one step out of phase.
 async function escapeUntil(page, cdp, predicate) {
+  if (await page.evaluate(predicate)) return true;
   const fullscreen = await page.evaluate(
     () => document.fullscreenElement !== null,
   );
@@ -373,7 +377,7 @@ async function escapeUntil(page, cdp, predicate) {
   }
   await pressEscape(cdp);
   try {
-    await page.waitForFunction(predicate, { timeout: 3000 });
+    await page.waitForFunction(predicate, { timeout: CLICK_WAIT_MS });
     return true;
   } catch {
     return false;
@@ -383,7 +387,81 @@ async function escapeUntil(page, cdp, predicate) {
 const openSettings = (page, cdp) => escapeUntil(page, cdp, CONFIG_OPEN);
 /** Closes the Esc screen with its own key. */
 const closeSettings = (page, cdp) => escapeUntil(page, cdp, CONFIG_CLOSED);
-const clickCenter = async (cdp, rect) => {
+// The bounded wait for a control (or a screen) to be there before the
+// driver acts on it: a loaded machine running the whole suite can take
+// seconds to lay a panel out.
+const CLICK_WAIT_MS = 5000;
+// The Esc screen's settings controls and the reset box's buttons, as
+// clickCenter takes them: a selector is resolved when the click happens,
+// after waiting for the control, not from a rect read before it was drawn.
+const CONFIG_CONTROL = {
+  title: ".config-title",
+  skip: ".config-skip-all",
+  play: ".config-play-all",
+  speedUp: '[data-config-action="speed-up"]',
+  speedDown: '[data-config-action="speed-down"]',
+  reset: ".config-reset",
+  exportProgress: '[data-config-action="export-progress"]',
+  importProgress: '[data-config-action="import-progress"]',
+};
+const CONFIRM_CONTROL = {
+  confirm: '[data-confirm-action="confirm"]',
+  cancel: '[data-confirm-action="cancel"]',
+};
+// The rect of the first element matching `selector` once it exists, is
+// visible (no hidden ancestor, no display:none or visibility:hidden) and
+// has a non-zero box; null until then.
+const visibleRect = async (cdp, selector) => {
+  const { result, exceptionDetails } = await cdp.send("Runtime.evaluate", {
+    expression: `(() => {
+      const el = document.querySelector(${JSON.stringify(selector)});
+      if (el === null || !el.checkVisibility({ visibilityProperty: true }))
+        return null;
+      const r = el.getBoundingClientRect();
+      if (r.width <= 0 || r.height <= 0) return null;
+      return { top: r.top, bottom: r.bottom, left: r.left, right: r.right };
+    })()`,
+    returnByValue: true,
+  });
+  if (exceptionDetails !== undefined) {
+    throw new Error(
+      `clickCenter: cannot query "${selector}": ${exceptionDetails.text}`,
+    );
+  }
+  return result.value ?? null;
+};
+const isRect = (r) =>
+  r !== null &&
+  typeof r === "object" &&
+  [r.left, r.right, r.top, r.bottom].every(Number.isFinite) &&
+  r.right > r.left &&
+  r.bottom > r.top;
+/**
+ * A trusted click at the centre of `target`: a CSS selector (preferred) is
+ * waited for — present, visible, with a non-zero box — for up to
+ * CLICK_WAIT_MS and then clicked where it is; a rect read earlier is
+ * clicked as given. Either throws a clear error, naming the selector,
+ * instead of clicking nowhere when the control is not there.
+ */
+const clickCenter = async (cdp, target) => {
+  let rect = target;
+  if (typeof target === "string") {
+    const deadline = Date.now() + CLICK_WAIT_MS;
+    rect = await visibleRect(cdp, target);
+    while (rect === null && Date.now() < deadline) {
+      await sleep(50);
+      rect = await visibleRect(cdp, target);
+    }
+    if (rect === null) {
+      throw new Error(
+        `clickCenter: "${target}" not present, visible and laid out after ${CLICK_WAIT_MS} ms`,
+      );
+    }
+  } else if (!isRect(target)) {
+    throw new Error(
+      `clickCenter: no laid-out rect to click (got ${JSON.stringify(target)}); pass the control's selector so the click waits for it`,
+    );
+  }
   await clickAt(
     cdp,
     Math.round((rect.left + rect.right) / 2),
@@ -1050,7 +1128,7 @@ async function setPlayAll(page, cdp, on) {
   await openSettings(page, cdp);
   const before = await page.evaluate(READ_CONFIG_OVERLAY);
   if (before.playPressed !== String(on))
-    await clickCenter(cdp, before.playRect);
+    await clickCenter(cdp, CONFIG_CONTROL.play);
   const after = await page.evaluate(READ_CONFIG_OVERLAY);
   await closeSettings(page, cdp); // its key closes it (a click never does)
   const closed = !(await page.evaluate(CONFIG_OPEN));
@@ -1130,7 +1208,9 @@ export {
   CHOICE_CLOSED,
   CHOICE_OPEN,
   CONFIG_CLOSED,
+  CONFIG_CONTROL,
   CONFIG_OPEN,
+  CONFIRM_CONTROL,
   CONFIRM_OPEN,
   CONTINUE_LABEL,
   choiceOpen,

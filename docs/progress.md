@@ -1272,7 +1272,17 @@ truthful: an unchecked box means nothing was accepted.
 
 ## Follow-ups
 
-- [ ] Harness flake (2026-11-02): clickCenter (harness.mjs ~389) can read
+- [x] Harness flake (2026-11-02): clickCenter (harness.mjs ~389) can read
       an element's rect before it exists/lays out under full-suite load
       (playall configure, screens settingsImmediateReload). Wait for the
       element and a non-empty rect before clicking.
+      (Cause: escapeUntil pressed Escape even when its condition already
+      held and gave up silently after 3 s, so a slow open left later
+      opens out of phase and the stored rect undefined. Now escapeUntil
+      skips the press when already satisfied (5 s wait); clickCenter
+      takes a selector and waits up to 5 s for a visible laid-out
+      element, with a clear error; settings/reset call sites use
+      selectors. playall 3x 27/27, screens 3x 57 + 2 partials, full
+      suite 211: 209 pass + 2 headless-fullscreen partials. One unrelated
+      media check flaked once (video currentTime 0) and passed on rerun.
+      2026-11-02)

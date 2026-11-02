@@ -18,6 +18,8 @@ import { dirname, join, resolve } from "node:path";
 import { DEFAULT_SETTINGS } from "../../src/machine/types.ts";
 import { speedLabel } from "../../src/render/config.ts";
 import {
+  CONFIG_CONTROL,
+  CONFIRM_CONTROL,
   CONFIRM_OPEN,
   clickCenter,
   closeSettings,
@@ -69,10 +71,9 @@ async function waitForFile(path, timeout = 8000) {
 
 /** Click Import in the open Esc screen's settings and answer the picker with `path`. */
 async function importFile(page, cdp, path) {
-  const cfg = await page.evaluate(READ_CONFIG_OVERLAY);
   const [chooser] = await Promise.all([
     page.waitForFileChooser({ timeout: 5000 }),
-    clickCenter(cdp, cfg.importRect),
+    clickCenter(cdp, CONFIG_CONTROL.importProgress),
   ]);
   await chooser.accept([path]);
 }
@@ -102,11 +103,10 @@ export default async function ({ check, open }) {
   const walked2 = await spaceTo(a.page, a.cdp, reached.id);
   await openSettings(a.page, a.cdp);
   for (let i = 0; i < 4; i += 1) {
-    const r = await a.page.evaluate(READ_CONFIG_OVERLAY);
-    await clickCenter(a.cdp, r.speedUpRect);
+    await clickCenter(a.cdp, CONFIG_CONTROL.speedUp);
   }
   const cfgA = await a.page.evaluate(READ_CONFIG_OVERLAY);
-  await clickCenter(a.cdp, cfgA.exportRect);
+  await clickCenter(a.cdp, CONFIG_CONTROL.exportProgress);
   const exportedPath = join(downloads, fileName);
   const downloaded = await waitForFile(exportedPath);
   await sleep(200);
@@ -183,7 +183,7 @@ export default async function ({ check, open }) {
       .waitForNavigation({ waitUntil: "load", timeout: 8000 })
       .then(() => true)
       .catch(() => false),
-    clickCenter(b.cdp, box.resetRect),
+    clickCenter(b.cdp, CONFIRM_CONTROL.confirm),
   ]);
   const painted = await waitFor(b.page, PAINTED);
   await sleep(400);

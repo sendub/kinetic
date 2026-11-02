@@ -18,6 +18,8 @@ import { DEFAULT_SETTINGS } from "../../src/machine/types.ts";
 import { speedLabel } from "../../src/render/config.ts";
 import { EARLIER_UNSEEN_NOTICE } from "../../src/render/endcard.ts";
 import {
+  CONFIG_CONTROL,
+  CONFIRM_CONTROL,
   CONFIRM_OPEN,
   clickAt,
   clickCenter,
@@ -283,7 +285,7 @@ async function helpMidFlow({ check, open }) {
 
   // Space closes the screen even with a settings button focused (a click
   // focuses it): the keymap's Space wins, the button does not flip.
-  await clickCenter(cdp, onScreen.skipRect);
+  await clickCenter(cdp, CONFIG_CONTROL.skip);
   const flipped = await page.evaluate(READ_CONFIG_OVERLAY);
   const focused = await page.evaluate(
     () => document.activeElement?.className ?? "",
@@ -293,7 +295,7 @@ async function helpMidFlow({ check, open }) {
   const afterSpace = await page.evaluate(PAGE_STATE);
   const reopened = await openSettings(page, cdp);
   const kept = await page.evaluate(READ_CONFIG_OVERLAY);
-  await clickCenter(cdp, kept.skipRect); // back to Off for the rest
+  await clickCenter(cdp, CONFIG_CONTROL.skip); // back to Off for the rest
   check(
     "Space with a settings button focused closes the screen without pressing it (no advance)",
     flipped.skipPressed === "true" &&
@@ -948,12 +950,12 @@ async function config({ check, open }) {
     { sigBefore, sigAfter },
   );
 
-  await clickCenter(cdp, first.skipRect);
-  await clickCenter(cdp, first.playRect);
+  await clickCenter(cdp, CONFIG_CONTROL.skip);
+  await clickCenter(cdp, CONFIG_CONTROL.play);
   const toggled = await page.evaluate(READ_CONFIG_OVERLAY);
   // A click outside the controls (backdrop) leaves it open (Phase 24);
   // only Escape or Space close it.
-  await clickCenter(cdp, toggled.titleRect);
+  await clickCenter(cdp, CONFIG_CONTROL.title);
   await clickAt(cdp, 10, 10);
   await sleep(150);
   const openAfterBackdrop = await configOpen(page);
@@ -963,9 +965,9 @@ async function config({ check, open }) {
   const again = await page.evaluate(READ_CONFIG_OVERLAY);
   // Play-all flips both ways, then stays Off: the reload below proves a
   // saved Off outlives the On default.
-  await clickCenter(cdp, again.playRect);
+  await clickCenter(cdp, CONFIG_CONTROL.play);
   const playOn = await page.evaluate(READ_CONFIG_OVERLAY);
-  await clickCenter(cdp, again.playRect);
+  await clickCenter(cdp, CONFIG_CONTROL.play);
   const playOff = await page.evaluate(READ_CONFIG_OVERLAY);
   const closedByC = await closeSettings(page, cdp);
   check(
@@ -998,8 +1000,7 @@ async function config({ check, open }) {
   // Four + clicks: 1.00x -> 2.00x, shown live in the open panel.
   await openSettings(page, cdp);
   for (let i = 0; i < 4; i += 1) {
-    const r = await page.evaluate(READ_CONFIG_OVERLAY);
-    await clickCenter(cdp, r.speedUpRect);
+    await clickCenter(cdp, CONFIG_CONTROL.speedUp);
   }
   const fast = await page.evaluate(READ_CONFIG_OVERLAY);
   // The page went fullscreen on the first gesture: Chrome keeps the first
@@ -1075,17 +1076,16 @@ async function settingsImmediateReload({ check, open }) {
   const { page, cdp } = await open("settings-reload", { closeHelp: true });
   await spaceTo(page, cdp, "text-narration");
   const rounds = [
-    { clicks: 4, button: "speedUpRect", expect: SPEED_2X },
-    { clicks: 4, button: "speedDownRect", expect: SPEED_1X },
-    { clicks: 4, button: "speedUpRect", expect: SPEED_2X },
+    { clicks: 4, button: "speedUp", expect: SPEED_2X },
+    { clicks: 4, button: "speedDown", expect: SPEED_1X },
+    { clicks: 4, button: "speedUp", expect: SPEED_2X },
   ];
   const results = [];
   for (const round of rounds) {
     await openSettings(page, cdp);
     let shown = null;
     for (let i = 0; i < round.clicks; i += 1) {
-      const r = await page.evaluate(READ_CONFIG_OVERLAY);
-      await clickCenter(cdp, r[round.button]);
+      await clickCenter(cdp, CONFIG_CONTROL[round.button]);
     }
     shown = (await page.evaluate(READ_CONFIG_OVERLAY)).speedValue;
     const t0 = Date.now();
@@ -1163,12 +1163,11 @@ async function reset({ check, open }) {
   // put back.
   await openSettings(page, cdp);
   for (let i = 0; i < 4; i += 1) {
-    const r = await page.evaluate(READ_CONFIG_OVERLAY);
-    await clickCenter(cdp, r.speedUpRect);
+    await clickCenter(cdp, CONFIG_CONTROL.speedUp);
   }
-  await clickCenter(cdp, (await page.evaluate(READ_CONFIG_OVERLAY)).playRect);
+  await clickCenter(cdp, CONFIG_CONTROL.play);
   const cfg = await page.evaluate(READ_CONFIG_OVERLAY);
-  await clickCenter(cdp, cfg.resetRect);
+  await clickCenter(cdp, CONFIG_CONTROL.reset);
   const box = await page.evaluate(READ_CONFIRM_OVERLAY);
   // The box blocks the screen's keys (Phase 26): Space does nothing under
   // it, and Escape cancels the box alone, leaving the Esc screen up.
@@ -1192,9 +1191,9 @@ async function reset({ check, open }) {
       underEscape.screen === true,
     { underSpace, underEscape },
   );
-  await clickCenter(cdp, cfg.resetRect);
+  await clickCenter(cdp, CONFIG_CONTROL.reset);
   await waitFor(page, CONFIRM_OPEN);
-  await clickCenter(cdp, box.cancelRect);
+  await clickCenter(cdp, CONFIRM_CONTROL.cancel);
   const boxClosed = (await page.evaluate(CONFIRM_OPEN)) === false;
   check(
     "the Reset progress row opens a confirm box; Cancel closes it",
@@ -1241,9 +1240,10 @@ async function reset({ check, open }) {
   );
 
   // Confirm: the app's own wipe + reload is a first-ever boot.
-  await clickCenter(cdp, keptCfg.resetRect);
+  await clickCenter(cdp, CONFIG_CONTROL.reset);
+  await waitFor(page, CONFIRM_OPEN);
   const box2 = await page.evaluate(READ_CONFIRM_OVERLAY);
-  await clickCenter(cdp, box2.resetRect);
+  await clickCenter(cdp, CONFIRM_CONTROL.confirm);
   const bootHelp = await waitFor(page, HELP_OPEN, 6000);
   await sleep(400);
   const boot = await page.evaluate(PAGE_STATE);

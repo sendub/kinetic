@@ -12,6 +12,7 @@
 
 import {
   branch,
+  CONFIG_CONTROL,
   CONFIG_OPEN,
   clickCenter,
   closeSettings,
@@ -192,8 +193,8 @@ const pageNow = (page) => page.evaluate(() => performance.now());
 async function configure(page, cdp, { skipAll }) {
   await openSettings(page, cdp);
   const cfg = await page.evaluate(READ_CONFIG_OVERLAY);
-  if (skipAll) await clickCenter(cdp, cfg.skipRect);
-  if (cfg.playPressed !== "true") await clickCenter(cdp, cfg.playRect);
+  if (skipAll) await clickCenter(cdp, CONFIG_CONTROL.skip);
+  if (cfg.playPressed !== "true") await clickCenter(cdp, CONFIG_CONTROL.play);
   const after = await page.evaluate(READ_CONFIG_OVERLAY);
   await closeSettings(page, cdp); // its key closes it (a click never does)
   const closed = !(await page.evaluate(CONFIG_OPEN));
