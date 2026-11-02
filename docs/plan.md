@@ -894,6 +894,12 @@ and machines (user chose a and b).
   state for the story, and reloads. From then on state is saved
   automatically in the browser as usual.
 
+## Phase 22: Progress note on the settings screen (2026-11-02, user)
+
+- The `c` screen's Progress group gets a short note saying progress
+  saves in this browser automatically, and Export / Import are only for
+  moving to another browser or machine.
+
 ## Later, waiting on the user
 
 - Overlay text styling iteration once the user can play with the demo.

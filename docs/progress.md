@@ -839,3 +839,12 @@ truthful: an unchecked box means nothing was accepted.
       187 checks: 185 pass + 2 PARTIAL (headless fullscreen), pytest 216,
       package-proof 18/18; .tmp/pkg-demo (storyId kinetic-demo, title
       "Kinetic demo") and .tmp/pkg-extract rebuilt.)
+
+## Phase 22: Progress note on the settings screen (2026-11-02, user)
+
+- [ ] Progress note (user, 2026-11-02): a minimal-word note in the `c`
+      screen's Progress group: progress saves in this browser
+      automatically; Export / Import only to change browser. Tests,
+      scenario check, screenshot.
+- [ ] Phase-closer: full suite (scenarios, vitest, pytest,
+      package-proof), rebuild both demo folders.
