@@ -939,6 +939,25 @@ and machines (user chose a and b).
   - Saves from before this record read it as their played routes, the
     old behaviour.
 
+## Phase 23: Upgrade guide (2026-11-02, user)
+
+- CREATE.md "Upgrading to a newer Kinetic": replace only `index.html`
+  and `app.js`, validate; re-extract (same `storyId`) only for converter
+  fixes or a rejected folder.
+
+## Phase 24: Interaction-free polish (2026-11-02, user)
+
+- No text change at the play-all pick: the status line ("picks in 1 s",
+  never 0) and hint stay as at the countdown's end; only the row
+  highlight changes, then the route starts.
+- Play all routes on by default (an interaction-free kinetic game); a
+  saved Off stays Off; Reset restores On.
+- "Reading speed" is named for auto-forward ("Auto-forward speed"),
+  noting it also paces play-all's countdown.
+- Clicks no longer close the settings screen or the Esc help (keys do);
+  `t` unchanged. Hints say "or" in words for alternatives and use "; "
+  between clauses, never "·".
+
 ## Later, waiting on the user
 
 - Overlay text styling iteration once the user can play with the demo.

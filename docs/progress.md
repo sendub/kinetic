@@ -921,13 +921,19 @@ truthful: an unchecked box means nothing was accepted.
 
 ## Phase 24: Play-all pick without a text flash (2026-11-02, user)
 
-- [ ] No text change at the pick (user, 2026-11-02): in play-all, a text
+- [x] No text change at the pick (user, 2026-11-02): in play-all, a text
       change flashes just as the route is picked and the branch starts.
       Identify exactly what changes (likely the status line switching to
       "Play all routes picked “…”" for the ~0.7 s picked phase, or a
       seconds/hint change) and make nothing but the row highlight change
       in that moment. Tests, playall scenario (text frozen across the
       picked phase), docs.
+      (Cause: picked-form status "Play all routes picked “…”" and the
+      hint dropping " · Space picks now" at the pick. Now text frozen at
+      "picks in 1 s" (never 0) through the 0.7 s; only .choice-next ->
+      .choice-picked. Probe confirmed. choice test + 2 playall checks red
+      before; vitest 551, playall 27/27, branches 41/41, smoke 6/6.
+      2026-11-02)
 - [ ] Play all routes on by default (user, 2026-11-02): Kinetic is an
       interaction-free kinetic game, so `playAllRoutes` defaults to on.
       A reader who saved Off keeps Off; Reset progress restores On.

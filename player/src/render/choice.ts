@@ -29,9 +29,11 @@
 // (`ChoiceView.autoPick`, docs/plan.md Phase 18): a status line under the
 // prompt says so — after a jump back, which route just ended — with a
 // draining bar and the seconds left; then the picked row lights up until
-// the route starts. The row it will pick is marked from the countdown's
-// first moment (`.choice-next`, docs/plan.md Phase 20), then lights up as
-// `.choice-picked`. Space takes the pick at once; a digit or click picks
+// the route starts — the only change at the pick: the status line, its
+// seconds and the hint stay as the countdown's last frame left them
+// (docs/progress.md Phase 24). The row it will pick is marked from the
+// countdown's first moment (`.choice-next`, docs/plan.md Phase 20), then
+// lights up as `.choice-picked`. Space takes the pick at once; a digit or click picks
 // another route instead.
 //
 // Like every panel here, the decisions are pure exports and the DOM half
@@ -68,13 +70,25 @@ export const CONTINUE_NUMBER = 0;
 export function choiceHint(choice: ChoiceView): string {
   const base =
     choice.continueOption === true ? CHOICE_HINT + CONTINUE_HINT : CHOICE_HINT;
-  return choice.autoPick !== undefined && !choice.autoPick.picked
-    ? base + AUTO_PICK_HINT
-    : base;
+  return choice.autoPick !== undefined ? base + AUTO_PICK_HINT : base;
 }
 
-/** The hint's extra while play-all counts down: Space takes the pick now. */
+/**
+ * The hint's extra while play-all is about to answer: Space takes the pick
+ * now. It stays through the picked phase, where Space still enters the
+ * route at once, so the pick changes no word (docs/progress.md Phase 24).
+ */
 export const AUTO_PICK_HINT = " · Space picks now";
+
+/**
+ * The whole seconds the status line shows, `leftMs` before the pick: the
+ * countdown rounded up, never under 1 — the `1 s` the bar empties on is
+ * what the picked phase keeps showing, so the number never jumps to 0 at
+ * the pick (docs/progress.md Phase 24).
+ */
+export function autoPickSeconds(picked: boolean, leftMs: number): number {
+  return picked ? 1 : Math.max(1, Math.ceil(leftMs / 1000));
+}
 
 /** One row as drawn: a numbered route, or the return offer numbered 0. */
 export interface ChoiceRowModel {
@@ -236,9 +250,6 @@ export function mountChoiceOverlay({
       auto.hidden = true;
       return;
     }
-    const label =
-      choice.routes.find((route) => route.routeIdx === pick.routeIdx)?.label ??
-      "";
     auto.hidden = false; // before the bar restarts (see render below)
     if (pick.armId !== shownArm) {
       shownArm = pick.armId;
@@ -257,8 +268,7 @@ export function mountChoiceOverlay({
       const left = Math.max(0, pick.ms - (performance.now() - armedAt));
       autoText.textContent = autoPickStatus(
         pick,
-        label,
-        Math.ceil(left / 1000),
+        autoPickSeconds(pick.picked, left),
       );
     };
     update();

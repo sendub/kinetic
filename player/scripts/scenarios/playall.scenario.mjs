@@ -121,6 +121,9 @@ const INSTALL_TIMELINE = () => {
       next:
         choice?.querySelector("[data-choice-next] .choice-label")
           ?.textContent ?? null,
+      // every word #choice draws (prompt, status with its seconds, hint,
+      // rows), so the pick can be shown to change none of them (Phase 24)
+      words: choice !== null && !choice.hidden ? choice.textContent : null,
     };
     const key = JSON.stringify(snap);
     if (key === last) return;
@@ -236,6 +239,27 @@ function choiceSpans(timeline) {
 const pickedAt = (span) =>
   span.entries.find((e) => e.picked !== null)?.t ?? null;
 
+/**
+ * The words #choice drew across a span's picked phase (Phase 24): the
+ * countdown's last frame, then every frame from the pick until the choice
+ * hid. A clean pick has one distinct text there.
+ */
+function pickedPhaseWords(span) {
+  const lit = span === undefined ? null : pickedAt(span);
+  if (lit === null) return null;
+  const last = span.entries.filter((e) => e.t < lit).at(-1);
+  const during = span.entries.filter((e) => e.t >= lit);
+  return {
+    last: last?.words ?? null,
+    during: [...new Set(during.map((e) => e.words))],
+  };
+}
+const wordsFrozen = (w) =>
+  w !== null &&
+  w.last !== null &&
+  w.during.length === 1 &&
+  w.during[0] === w.last;
+
 /** Each #flash pill: its text, when it showed and when its fade began. */
 function pillSpans(timeline) {
   const spans = [];
@@ -327,7 +351,7 @@ export default async function ({ check, open }) {
             sp.ms !== null &&
             Math.abs(sp.ms - AUTO_PICK_SHOW_MS) <= TOLERANCE_MS &&
             sp.entries.every((e) => e.picked !== null) &&
-            !sp.entries.some((e) => e.status?.includes("picks in")),
+            new Set(sp.entries.map((e) => e.words)).size === 1,
         ),
       spans.map(({ prompt, ms, entries }) => ({
         prompt,
@@ -406,6 +430,12 @@ export default async function ({ check, open }) {
         show: lit1 === null ? null : span1.hiddenAt - lit1,
       },
     );
+    const frozen1 = pickedPhaseWords(span1);
+    check(
+      "the pick changes only the row highlight: #choice's words (status, seconds, hint, rows) stay as the countdown's last frame left them until the choice hides",
+      wordsFrozen(frozen1),
+      frozen1,
+    );
     const firstPills = pillSpans(tl);
     check(
       "the pick shows only the route pill",
@@ -451,6 +481,12 @@ export default async function ({ check, open }) {
     tl = await readTimeline(page);
     spans = choiceSpans(tl.filter((e) => e.t >= tReoffer));
     const lit2 = spans[0] ? pickedAt(spans[0]) : null;
+    const frozen2 = pickedPhaseWords(spans[0]);
+    check(
+      "on the re-offer too, the pick changes no word on #choice (the Back-in-time line and seconds stay)",
+      wordsFrozen(frozen2),
+      frozen2,
+    );
     check(
       "its countdown includes the Back-in-time line and the seen marker; then Route 1 starts with only its route pill",
       onRoute1 &&

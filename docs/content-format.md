@@ -387,7 +387,9 @@ docs/plan.md Phase 13):
   key hint or row numbers) plus comprehension time of 1.5 s and 1 s per
   row, all at the reader's speed and never under 2.5 s. The row it will
   pick is marked from the countdown's start; then it is highlighted as
-  picked for about 0.7 s and the route starts. It picks the shortest route not yet played this
+  picked for about 0.7 s and the route starts. The highlight is the only
+  change at the pick: the status line keeps its last "picks in 1 s" (the
+  seconds never show 0) and the hint keeps "Space picks now". It picks the shortest route not yet played this
   pass (fewest items; see the reading history on rollback), the
   continuing route last, never the return row, repeats until every route
   has played once this pass, then continues via `continueAt` (a pure choice: past

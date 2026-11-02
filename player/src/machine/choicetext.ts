@@ -12,22 +12,21 @@ export const CONTINUE_LABEL = "Return to main route";
 export const SEEN_MARKER = "seen";
 
 /**
- * The auto-pick status line: the jump back (on a re-offer), then the
- * countdown's whole seconds left, or the route just picked. Route labels
- * are quoted so their words read apart from the line's own.
+ * The auto-pick status line: the jump back (on a re-offer, its route label
+ * quoted so its words read apart from the line's own), then the
+ * countdown's whole seconds left. The picked phase shows the same line as
+ * the countdown's last frame (docs/progress.md Phase 24: the pick changes
+ * only the row highlight), so there is no picked wording.
  */
 export function autoPickStatus(
-  auto: Pick<AutoPickView, "picked" | "backFromLabel">,
-  routeLabel: string,
+  auto: Pick<AutoPickView, "backFromLabel">,
   secondsLeft: number,
 ): string {
   const back =
     auto.backFromLabel === undefined
       ? ""
       : `Back in time: “${auto.backFromLabel}” is done. `;
-  return auto.picked
-    ? `${back}Play all routes picked “${routeLabel}”`
-    : `${back}Play all routes picks in ${secondsLeft} s`;
+  return `${back}Play all routes picks in ${secondsLeft} s`;
 }
 
 /**
@@ -42,11 +41,8 @@ export function choiceScreenText(
   backFromLabel?: string,
 ): string {
   const status = autoPickStatus(
-    backFromLabel === undefined
-      ? { picked: false }
-      : { picked: false, backFromLabel },
-    "",
-    0,
+    backFromLabel === undefined ? {} : { backFromLabel },
+    1,
   );
   const rows = view.routes.map((route) =>
     route.seen ? `${route.label} ${SEEN_MARKER}` : route.label,

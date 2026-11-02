@@ -7,6 +7,7 @@ import { describe, expect, it } from "vitest";
 import type { ChoiceRoute, ChoiceView } from "../machine/types";
 import {
   AUTO_PICK_HINT,
+  autoPickSeconds,
   autoPickStatus,
   CHOICE_HINT,
   CONTINUE_LABEL,
@@ -152,26 +153,39 @@ describe("choiceHint (docs/plan.md Phase 18: the 0 hint follows the row)", () =>
 
 describe("the play-all auto-pick on the choice screen (docs/plan.md Phase 18)", () => {
   const base = { routeIdx: 1, ms: 3000, armId: 1 };
-  it("counts down in whole seconds, then names the pick", () => {
-    expect(autoPickStatus({ ...base, picked: false }, "Route 2", 3)).toBe(
-      "Play all routes picks in 3 s",
-    );
-    expect(autoPickStatus({ ...base, picked: true }, "Route 2", 0)).toBe(
-      "Play all routes picked “Route 2”",
-    );
+  it("counts down in whole seconds, rounded up and never under 1", () => {
+    expect(autoPickStatus({}, 3)).toBe("Play all routes picks in 3 s");
+    expect(autoPickSeconds(false, 2001)).toBe(3);
+    expect(autoPickSeconds(false, 2000)).toBe(2);
+    expect(autoPickSeconds(false, 1)).toBe(1);
+    expect(autoPickSeconds(false, 0)).toBe(1); // no "0 s" as the bar empties
+  });
+
+  // Phase 24: the pick changes nothing but the row highlight — the status
+  // line (seconds included) and the hint stay as the countdown's last frame
+  // left them.
+  it("the picked phase shows the same status and hint as the countdown's last frame", () => {
+    for (const backFromLabel of [undefined, "Route 1"]) {
+      const lead = backFromLabel === undefined ? {} : { backFromLabel };
+      const counting = { ...base, ...lead, picked: false };
+      const picked = { ...base, ...lead, picked: true, ms: 700, armId: 2 };
+      const lastFrame = autoPickStatus(counting, autoPickSeconds(false, 1));
+      expect(autoPickStatus(picked, autoPickSeconds(true, 0))).toBe(lastFrame);
+      expect(lastFrame).not.toContain("picked");
+      const view = { decisionId: "d", prompt: "?", routes: [] };
+      expect(choiceHint({ ...view, autoPick: picked })).toBe(
+        choiceHint({ ...view, autoPick: counting }),
+      );
+    }
   });
 
   it("leads with the jump back on a re-offer", () => {
-    expect(
-      autoPickStatus(
-        { ...base, picked: false, backFromLabel: "Route 1" },
-        "Route 2",
-        2,
-      ),
-    ).toBe("Back in time: “Route 1” is done. Play all routes picks in 2 s");
+    expect(autoPickStatus({ backFromLabel: "Route 1" }, 2)).toBe(
+      "Back in time: “Route 1” is done. Play all routes picks in 2 s",
+    );
   });
 
-  it("the hint offers Space only while counting down", () => {
+  it("the hint offers Space while play-all is about to answer, picked phase included", () => {
     const view = {
       decisionId: "d",
       prompt: "?",
@@ -181,7 +195,8 @@ describe("the play-all auto-pick on the choice screen (docs/plan.md Phase 18)", 
       CHOICE_HINT + AUTO_PICK_HINT,
     );
     expect(choiceHint({ ...view, autoPick: { ...base, picked: true } })).toBe(
-      CHOICE_HINT,
+      CHOICE_HINT + AUTO_PICK_HINT,
     );
+    expect(choiceHint(view)).toBe(CHOICE_HINT);
   });
 });
