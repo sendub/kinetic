@@ -723,11 +723,16 @@ truthful: an unchecked box means nothing was accepted.
       reload onto a live choice re-arms it (subagent review fix);
       interstitial removed. vitest 475, playall scenario 19/19, branches
       39/39. 2026-11-02)
-- [ ] `c` works everywhere (user, 2026-11-02): the settings screen opens
+- [x] `c` works everywhere (user, 2026-11-02): the settings screen opens
       over a choice (the choice waits underneath, digits inert, a
       play-all countdown frozen and restarted on close) and over the Esc
       help (replacing it). Only the reset box blocks it. Tests, scenario,
       README/help text.
+      (087163b: toggleConfig gated only by the reset box, closes help first;
+      digits inert under a panel; #config z 6 over #choice. playall
+      scenario 3 new checks, screens check rewritten (t still inert behind
+      help). vitest 475, playall+screens 59 pass + 2 headless-fullscreen
+      partials, smoke 6/6. 2026-11-02)
 - [ ] Settings screen clarity (user, 2026-11-02): the two skip settings
       read as options of how Tab skips, not switches that start skipping:
       a "When Tab skips" heading over "Skip unseen content too" and "Play
