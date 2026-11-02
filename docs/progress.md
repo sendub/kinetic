@@ -833,5 +833,9 @@ truthful: an unchecked box means nothing was accepted.
       (real download + file chooser; red on old build), screens 43 + 2
       headless-fullscreen partials, storyid 4/4, smoke 6/6; screenshots
       checked. 2026-11-02)
-- [ ] Phase-closer: full suite (scenarios, vitest, pytest,
+- [x] Phase-closer: full suite (scenarios, vitest, pytest,
       package-proof), rebuild both demo folders.
+      (2026-11-02: vitest 537, biome+tsc clean, scenario suite 10 files /
+      187 checks: 185 pass + 2 PARTIAL (headless fullscreen), pytest 216,
+      package-proof 18/18; .tmp/pkg-demo (storyId kinetic-demo, title
+      "Kinetic demo") and .tmp/pkg-extract rebuilt.)
