@@ -7,11 +7,11 @@
       "macos-arm64": {
         "ffmpeg": {
           "url": "https://ffmpeg.martin-riedl.de/download/macos/arm64/1789931890_9.0.2/ffmpeg.zip",
-          "sha256": null
+          "sha256": "c8ed4c4e6978a03c485edbfe4e0a5dc2380f8a30bba5150531b31b094492d924"
         },
         "ffprobe": {
           "url": "https://ffmpeg.martin-riedl.de/download/macos/arm64/1789931890_9.0.2/ffprobe.zip",
-          "sha256": null
+          "sha256": "fcbe839537485eaee7a7a8bc5cbc0f90d53617e80943e8a5b2e31cb851197ea6"
         }
       },
       "macos-x86_64": {
@@ -53,6 +53,21 @@
     "libjxl": "0.12.0"
   },
   "selftest": {
-    "golden": null
+    "golden": {
+      "ffmpeg.poster-frame": "301bbb348d0f775e8bb569e30b3fa2aec76d3362d64d52e2e072f4edd5ed10e8",
+      "ffmpeg.transcode-mp4": "ea67152ecb98746b73136111917e5435063e0ba1fde2fe471f411cb40d1f4a41",
+      "ffprobe.probe": "275aa1491b5cb3b47cc2f339472b3a1e1a1a8099b9f2d38a98a753100e6c75e6",
+      "imagecodecs.jxl-decode": "26c3d9e47cb08e81ce11a4f5db48e2f91d5c90bf7c798a8cc88f8c8d8d2b4ce3",
+      "imagecodecs.jxl-lossless": "d4d5b5006179889c26a17805eb7ffec0421f7c7416ee485f7294f6532a058852",
+      "imagecodecs.jxl-recompress-jpeg": "64ad0f8e4534c25d94a8c954e5328429da067775c92a2ee6d1cc67cc39030790",
+      "imagecodecs.jxl-reconstruct-jpeg": "88c12cea35e99e2b8c00a1aa59e9ad4beba82b36499bca53a8e53f8024a4aead",
+      "pillow.decode-gif": "df2b72ea533001545ed851bc02a51f7b1875824543c1ccb2ca1512bd25728809",
+      "pillow.decode-jpg": "bc7978b31c62bb4ff9a6152e380ec5674b00366e0799292836d638f836b8961c",
+      "pillow.decode-png": "804b1be23a9bdea0d0d8550d5557c3e6339d6426019d5fbe988b068dc53935d4",
+      "pillow.decode-webp": "c306460c9bf90ed509a8eb178f5217cc8f65564f14799c1ca4d20620473841f8",
+      "pillow.encode-jpeg": "7bf099041db071a8e2b50bf28dbacbb1dc4a4f575b582879f73cc6b12b6e2eef",
+      "pillow.encode-png": "d4fdc547b1c8d4615f52dd025a5bedf2bbfb8ed7c42d328b0cc2b50fd03b09b6",
+      "pillow.poster-jpeg": "3c945c1679420b7f26215481374cc735cb178a62e95c350bdd2220aa2e760114"
+    }
   }
 }

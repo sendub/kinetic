@@ -983,7 +983,7 @@ truthful: an unchecked box means nothing was accepted.
 
 ## Phase 25: Reproducible, content-addressed media (2026-11-02, user + converting agent)
 
-- [ ] 25.1 Pinned media tools: Pillow + imagecodecs pinned in
+- [x] 25.1 Pinned media tools: Pillow + imagecodecs pinned in
       requirements.txt; tools/setup_media_tools.py fetches a pinned
       static ffmpeg per OS/arch with checksum into a local tools dir; the
       converter uses only these; single-threaded bitexact settings;
@@ -997,6 +997,10 @@ truthful: an unchecked box means nothing was accepted.
       converter+tools 250. OPEN: user runs `.venv/bin/python
       tools/setup_media_tools.py --pin` to record archive sha256s and
       goldens; tick after that run passes.)
+      (Pinned 2026-11-02 by the user on macos-arm64: archive sha256s and
+      14 goldens recorded. Verified: setup without --pin passes the
+      self-test; kinetic-extract on renpy_demo twice gives identical
+      folders; validator clean. Other platforms pin on first setup.)
 - [x] 25.2 Content-addressed layout: fixed folder `media/` (was
       `assets/`; user, 2026-11-02), `media/<h[:2]>/<h>.<ext>` by sha256
       of shipped bytes, posters too; remove name buckets, `--flat`, id
