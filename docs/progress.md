@@ -902,3 +902,13 @@ truthful: an unchecked box means nothing was accepted.
       550, biome+tsc clean, scenario suite 10 files / 194 checks: 192
       pass + 2 PARTIAL (headless fullscreen), pytest 216, package-proof
       18/18; .tmp/pkg-demo and .tmp/pkg-extract rebuilt.)
+
+## Phase 23: Upgrade guide (2026-11-02, user)
+
+- [ ] Upgrading a game to a newer Kinetic (user, 2026-11-02): document
+      how an existing Kinetic game folder takes a newer player for bug
+      fixes (pull, build, replace only the player files, keep content
+      and manifest, validate, when to re-extract or regenerate
+      manifest.js, what happens to readers' saved progress). No notes
+      about transferring saves from before Phase 21. Prove the steps on
+      a copy of a demo folder.
