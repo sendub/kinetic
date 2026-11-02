@@ -975,5 +975,8 @@ truthful: an unchecked box means nothing was accepted.
       27/27, branches 41/41, menus 8/8, reading 17/17, smoke 6/6;
       screenshots checked. 2026-11-02)
       Tests, screens scenario, README.
-- [ ] Phase-closer: full suite (scenarios, vitest, pytest,
+- [x] Phase-closer: full suite (scenarios, vitest, pytest,
       package-proof), rebuild both demo folders.
+      (2026-11-02: vitest 555, biome+tsc clean, scenario suite 10 files /
+      201 checks: 199 pass + 2 PARTIAL (headless fullscreen), pytest 216,
+      package-proof 18/18; .tmp/pkg-demo and .tmp/pkg-extract rebuilt.)
