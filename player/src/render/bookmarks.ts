@@ -1,7 +1,9 @@
 // The `t` bookmark overlay (docs/plan.md Phase 8, README `t` bullet): a
-// full-screen panel holding the bookmark list, rendered OLDEST-first at the
-// top down to the NEWEST at the bottom, auto-scrolled to the bottom so the
-// most recent thumbnail is the one visible. Clicking an entry closes the
+// full-screen panel holding the bookmarks as a grid of large cards (Phase
+// 26: thumbnail over time and label, filling across, then down — the CSS
+// in index.html), rendered OLDEST-first at the top left through to the
+// NEWEST last, auto-scrolled to the bottom so the most recent card is in
+// view. Clicking an entry closes the
 // panel and continues the novel from that time point (`machine.importContext`); a
 // click anywhere else on the panel is backdrop and only closes it. Each
 // thumbnail carries an "x" in its top-right corner (docs/plan.md Phase 18,
@@ -11,8 +13,8 @@
 // Every decision (entry order, thumbnail source, timestamp text, the
 // scroll-to-bottom target) is a pure export below; the DOM part only
 // applies them. Entries render in the order the Storage contract gives —
-// oldest first (insertion order, `storage/types.ts`) — so "top to bottom,
-// newest at the bottom" IS that order, and the list scrolls to its bottom.
+// oldest first (insertion order, `storage/types.ts`) — so "reading order,
+// newest last" IS that order, and the list scrolls to its bottom.
 //
 // A bookmark names its item by id (docs/plan.md Phase 18, "Saves keyed by
 // id, not position"): the row resolves it to wherever that item sits in
@@ -129,7 +131,7 @@ export function bookmarkItemIndex(
  * later mutation of the caller's array cannot restyle the open panel —
  * minus every bookmark whose item `items` no longer holds. This function
  * is where the storage contract ("oldest first, never re-sorted by
- * clock") becomes the visual contract ("oldest at the top").
+ * clock") becomes the visual contract ("oldest first in reading order").
  */
 export function listOrder(
   bookmarks: readonly Bookmark[],

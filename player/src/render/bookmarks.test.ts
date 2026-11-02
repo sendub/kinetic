@@ -4,6 +4,9 @@
 // DOM panel in bookmarks.ts only applies these; the end-to-end behaviour
 // is walked by scripts/verify.mjs.
 
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import type { Item } from "../machine/types";
@@ -20,6 +23,7 @@ import {
   keptScrollTop,
   listOrder,
   mergeProgress,
+  mountBookmarkOverlay,
 } from "./bookmarks";
 
 const items: readonly Item[] = [
@@ -282,5 +286,165 @@ describe("BOOKMARKS_HINT (separators in words, Phase 24)", () => {
     expect(BOOKMARKS_HINT).toBe(
       "click an entry to continue there; its × deletes it; t or Esc closes",
     );
+  });
+});
+
+// Phase 26, "Bigger bookmark thumbnails in a grid": the list is a grid of
+// cards filling across, then down, each a large thumbnail with its time
+// and label under it. The layout lives in CSS, so the durable assertion is
+// about the shipped CSS (the same kind of guard as fit.test.ts); the DOM
+// half is pinned against a minimal fake document, as help.test.ts does.
+const here = dirname(fileURLToPath(import.meta.url));
+const html = readFileSync(join(here, "..", "..", "index.html"), "utf8");
+const cssRule = (selector: string): string => {
+  const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return (
+    new RegExp(`(?:^|\\n)\\s*${escaped}\\s*\\{[^}]*\\}`).exec(html)?.[0] ?? ""
+  );
+};
+
+describe("the t list is a grid of large cards (docs/plan.md Phase 26)", () => {
+  it("lays the cards out across, then down: an auto-fill grid like the Esc keys", () => {
+    const list = cssRule(".bookmarks-list");
+    expect(list).toContain("display: grid");
+    expect(list).toMatch(
+      /grid-template-columns:\s*repeat\(\s*auto-fill,\s*minmax\(min\(100%,\s*\d+px\),\s*1fr\)\s*\)/,
+    );
+    const min = Number(
+      /minmax\(min\(100%,\s*(\d+)px\)/.exec(list)?.[1] ?? Number.NaN,
+    );
+    expect(min).toBeGreaterThanOrEqual(240);
+    expect(min).toBeLessThanOrEqual(340);
+  });
+
+  it("stacks each card: the thumbnail on top, its time and label under it", () => {
+    expect(cssRule(".bookmark-entry")).toContain("flex-direction: column");
+  });
+
+  it("draws the thumbnail the card's full width at its own aspect ratio", () => {
+    const thumb = cssRule(".bookmark-thumb");
+    expect(thumb).toContain("width: 100%");
+    expect(thumb).toContain("height: auto");
+    expect(thumb).toContain("object-fit: contain");
+    expect(thumb).not.toMatch(/(?:^|[^-])height:\s*clamp/);
+  });
+});
+
+class FakeElement {
+  children: FakeElement[] = [];
+  className = "";
+  id = "";
+  hidden = false;
+  textContent = "";
+  type = "";
+  src = "";
+  alt = "";
+  scrollTop = 0;
+  scrollHeight = 0;
+  clientHeight = 0;
+  readonly attributes = new Map<string, string>();
+  constructor(
+    readonly tagName: string,
+    readonly ownerDocument: FakeDocument,
+  ) {}
+  setAttribute(name: string, value: string): void {
+    this.attributes.set(name, value);
+  }
+  getAttribute(name: string): string | null {
+    return this.attributes.get(name) ?? null;
+  }
+  append(...nodes: FakeElement[]): void {
+    this.children.push(...nodes);
+  }
+  appendChild(node: FakeElement): FakeElement {
+    this.children.push(node);
+    return node;
+  }
+  replaceChildren(...nodes: FakeElement[]): void {
+    this.children = [...nodes];
+  }
+  addEventListener(): void {}
+}
+
+class FakeDocument {
+  createElement(tag: string): FakeElement {
+    return new FakeElement(tag.toUpperCase(), this);
+  }
+}
+
+function mountList() {
+  const root = new FakeDocument().createElement("div");
+  const overlay = mountBookmarkOverlay({
+    root: root as unknown as HTMLElement,
+    items,
+    onPick: () => {},
+    onDelete: () => {},
+  });
+  const [panel] = root.children;
+  const list = panel?.children.find((el) => el.className === "bookmarks-list");
+  if (panel === undefined || list === undefined) throw new Error("no list");
+  return { overlay, panel, list };
+}
+
+describe("mountBookmarkOverlay cards (Phase 26: order and scroll unchanged)", () => {
+  const records = [
+    bookmark({ id: "bk-1", itemId: "c-003", timestampMs: 3 }),
+    bookmark({ id: "bk-2", itemId: "a-001", timestampMs: 1 }),
+    bookmark({ id: "bk-3", itemId: "b-002", timestampMs: 2 }),
+  ];
+
+  it("draws one card per bookmark in the storage order, oldest first", () => {
+    const { overlay, list } = mountList();
+    overlay.render(records);
+    expect(list.children.map((el) => el.getAttribute("data-item-id"))).toEqual([
+      "c-003",
+      "a-001",
+      "b-002",
+    ]);
+    expect(
+      list.children.map((el) => el.getAttribute("data-entry-index")),
+    ).toEqual(["0", "1", "2"]);
+  });
+
+  it("each card is a button: the thumbnail box (still and ×) over the time and label", () => {
+    const { overlay, list } = mountList();
+    overlay.render(records);
+    for (const card of list.children) {
+      expect(card.tagName).toBe("BUTTON");
+      expect(card.className).toBe("bookmark-entry");
+      expect(card.children.map((el) => el.className)).toEqual([
+        "bookmark-thumb-box",
+        "bookmark-meta",
+      ]);
+      const [box, meta] = card.children;
+      expect(box?.children.map((el) => el.className)).toEqual([
+        "bookmark-thumb",
+        "bookmark-delete",
+      ]);
+      expect(box?.children[1]?.textContent).toBe("×");
+      expect(meta?.children.map((el) => el.className)).toEqual([
+        "bookmark-time",
+        "bookmark-label",
+      ]);
+    }
+  });
+
+  it("opens scrolled to the bottom, so the newest (last) card is in view", () => {
+    const { overlay, list } = mountList();
+    list.scrollHeight = 1400;
+    list.clientHeight = 600;
+    overlay.render(records);
+    expect(list.scrollTop).toBe(800);
+  });
+
+  it("shows the empty message, and no grid, with no bookmarks", () => {
+    const { overlay, panel, list } = mountList();
+    overlay.render([]);
+    const empty = panel.children.find(
+      (el) => el.className === "bookmarks-empty",
+    );
+    expect(list.hidden).toBe(true);
+    expect(empty?.hidden).toBe(false);
+    expect(empty?.textContent).toBe("No bookmarks yet — press b");
   });
 });

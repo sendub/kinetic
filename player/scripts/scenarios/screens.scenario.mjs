@@ -6,7 +6,13 @@
 // prequel inserted before everything, an item deleted). Each part opens
 // its own fresh profile, so no part leans on another's storage.
 
-import { cpSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  cpSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { dirname, join } from "node:path";
 import { DEFAULT_SETTINGS } from "../../src/machine/types.ts";
 import { speedLabel } from "../../src/render/config.ts";
@@ -387,8 +393,9 @@ async function bookmarks({ check, open }) {
     { atOlder, atNewer, flash1, flash2, stored, flashGone },
   );
 
-  // A short viewport so two rows genuinely overflow the list.
-  await page.setViewport({ width: 800, height: 180, deviceScaleFactor: 1 });
+  // A narrow, short viewport: one grid column (Phase 26), so the two
+  // cards stack and genuinely overflow the list.
+  await page.setViewport({ width: 400, height: 420, deviceScaleFactor: 1 });
   await pressT(cdp);
   const listOpened = await waitFor(page, OVERLAY_OPEN);
   const list = await page.evaluate(READ_BOOKMARK_OVERLAY);
@@ -581,6 +588,155 @@ async function bookmarks({ check, open }) {
       reloaded.entries[0].itemIndex === newer,
     { rows: (reloaded.entries ?? []).map((e) => e.itemIndex) },
   );
+}
+
+// Phase 26, "Bigger bookmark thumbnails in a grid": eight bookmarks fill
+// a grid of large cards across, then down (oldest top-left, newest last),
+// opened scrolled so the newest card is in view; × and a click still
+// delete and continue. KINETIC_BMGRID_SHOTS names a folder for screenshots
+// at 1280x720 and 700x900.
+const GRID_THUMB_MIN_WIDTH = 240; // the old one-column rows drew ~102 px
+
+const gridLayout = (list) => {
+  const entries = list.entries ?? [];
+  const rects = entries.map((e) => e.rect);
+  const lefts = new Set(rects.map((r) => Math.round(r.left)));
+  const readingOrder = rects
+    .map((r, i) => ({ i, top: Math.round(r.top), left: Math.round(r.left) }))
+    .sort((a, b) => a.top - b.top || a.left - b.left)
+    .map((r) => r.i);
+  const thumbs = entries.map((e) => e.thumbRect);
+  const newest = rects[rects.length - 1];
+  return {
+    columns: lefts.size,
+    acrossFirst:
+      rects.length > 1 &&
+      Math.round(rects[1].top) === Math.round(rects[0].top) &&
+      rects[1].left > rects[0].left,
+    readingOrderIsDomOrder: readingOrder.every((v, i) => v === i),
+    thumbWidths: thumbs.map((t) => Math.round(t.right - t.left)),
+    thumbAspects: thumbs.map(
+      (t) => Math.round(((t.right - t.left) / (t.bottom - t.top)) * 100) / 100,
+    ),
+    scrolledToNewest:
+      list.scrollTop >=
+        Math.max(0, list.scrollHeight - list.clientHeight) - 1 &&
+      newest !== undefined &&
+      newest.top >= list.listRect.top - 1 &&
+      newest.bottom <= list.listRect.bottom + 1,
+    noSideScroll: list.scrollWidth <= list.clientWidth,
+  };
+};
+
+async function bookmarkGrid({ check, open }) {
+  const { page, cdp } = await open("bookmark-grid", { closeHelp: true });
+  await leaveFullscreen(page, cdp);
+  const shots = process.env.KINETIC_BMGRID_SHOTS;
+  if (shots) mkdirSync(shots, { recursive: true });
+
+  // Eight bookmarks, newest-read first: chain-still-3 then one notch back
+  // each time, so storage (oldest first) runs item 11 down to item 4.
+  await spaceTo(page, cdp, "chain-still-3");
+  const taken = [];
+  for (let n = 1; n <= 8; n += 1) {
+    taken.push(await currentItemId(page));
+    await pressB(cdp);
+    for (let tries = 0; tries < 40; tries += 1) {
+      if ((await readBookmarks(page)).length === n) break;
+      await sleep(50);
+    }
+    if (n < 8) await wheel(cdp, true, 1);
+  }
+  const stored = await readBookmarks(page);
+  const storedOrder = stored.map((b) => b.itemIndex);
+  await waitFor(page, () => document.getElementById("flash") === null); // a clean screenshot
+
+  await page.setViewport({ width: 1280, height: 720, deviceScaleFactor: 1 });
+  await sleep(100);
+  await pressT(cdp);
+  await waitFor(page, OVERLAY_OPEN);
+  await waitFor(page, () =>
+    [...document.querySelectorAll("img.bookmark-thumb")].every(
+      (img) => img.complete && img.naturalWidth > 0,
+    ),
+  );
+  const wide = await page.evaluate(READ_BOOKMARK_OVERLAY);
+  const wideGrid = gridLayout(wide);
+  if (shots) {
+    await page.screenshot({ path: join(shots, "bookmarks-1280x720.png") });
+  }
+  check(
+    "t at 1280x720 lays eight bookmarks out as a grid of large cards: several columns, across before down, oldest first, scrolled to show the newest, no sideways scroll",
+    stored.length === 8 &&
+      wide.entries?.length === 8 &&
+      wide.entries.every((e, i) => e.itemIndex === storedOrder[i]) &&
+      wideGrid.columns >= 3 &&
+      wideGrid.acrossFirst &&
+      wideGrid.readingOrderIsDomOrder &&
+      wideGrid.thumbWidths.every((w) => w >= GRID_THUMB_MIN_WIDTH) &&
+      wideGrid.thumbAspects.every((a) => Math.abs(a - 16 / 9) < 0.05) &&
+      wideGrid.scrolledToNewest &&
+      wideGrid.noSideScroll,
+    { taken, storedOrder, ...wideGrid },
+  );
+
+  // The × still deletes without continuing; a card click still continues.
+  // The newest card's × — the one in view, the list being scrolled to it.
+  const sigBefore = await readSignature(page);
+  await clickCenter(cdp, wide.entries[7].deleteRect);
+  const sevenLeft = await waitFor(
+    page,
+    () => document.querySelectorAll(".bookmark-entry").length === 7,
+    3000,
+  );
+  const afterDelete = await page.evaluate(READ_BOOKMARK_OVERLAY);
+  const storedAfter = await readBookmarks(page);
+  const sigAfter = await readSignature(page);
+  const pick = afterDelete.entries?.[afterDelete.entries.length - 1];
+  if (pick !== undefined) await clickCenter(cdp, pick.thumbRect);
+  const closed = await waitFor(page, OVERLAY_CLOSED);
+  const landed = await currentItemId(page);
+  check(
+    "in the grid a card's × deletes it, panel open and reading untouched; clicking a card closes the list on its item",
+    sevenLeft &&
+      afterDelete.hidden === false &&
+      afterDelete.entries.map((e) => e.itemIndex).join() ===
+        storedOrder.slice(0, 7).join() &&
+      storedAfter.length === 7 &&
+      sigAfter === sigBefore &&
+      closed &&
+      landed === stored[6].itemId,
+    {
+      rows: (afterDelete.entries ?? []).map((e) => e.itemIndex),
+      stored: storedAfter.length,
+      landed,
+      want: stored[6].itemId,
+    },
+  );
+
+  await page.setViewport({ width: 700, height: 900, deviceScaleFactor: 1 });
+  await sleep(100);
+  await pressT(cdp);
+  await waitFor(page, OVERLAY_OPEN);
+  await sleep(100);
+  const tall = await page.evaluate(READ_BOOKMARK_OVERLAY);
+  const tallGrid = gridLayout(tall);
+  if (shots) {
+    await page.screenshot({ path: join(shots, "bookmarks-700x900.png") });
+  }
+  check(
+    "t at 700x900 still fills across first (two columns), large thumbnails, scrolled to the newest, no sideways scroll",
+    tall.entries?.length === 7 &&
+      tallGrid.columns >= 2 &&
+      tallGrid.acrossFirst &&
+      tallGrid.readingOrderIsDomOrder &&
+      tallGrid.thumbWidths.every((w) => w >= GRID_THUMB_MIN_WIDTH) &&
+      tallGrid.scrolledToNewest &&
+      tallGrid.noSideScroll,
+    tallGrid,
+  );
+  await pressT(cdp);
+  await page.setViewport({ width: 800, height: 600, deviceScaleFactor: 1 });
 }
 
 // Old steps 42 and 26: durable bookmark + reload, then resume where read.
@@ -1323,6 +1479,7 @@ export default async function (ctx) {
     helpFirstLoadClick,
     helpMidFlow,
     bookmarks,
+    bookmarkGrid,
     resume,
     config,
     settingsImmediateReload,

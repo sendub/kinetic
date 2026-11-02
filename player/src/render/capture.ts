@@ -2,15 +2,24 @@
 // README bookmark bullet). The `b` binding will pass the visual layer's
 // current element to `captureVisualThumbnail`, which paints its CURRENT
 // pixels — a decoded video frame, the on-screen animation frame, or an
-// image — into an offscreen canvas scaled per `thumbSize` (docs/content-
-// format.md: previews are no wider than 320 pixels) and returns a JPEG blob.
+// image — into an offscreen canvas scaled per `thumbSize` (no wider than
+// 480 pixels, Phase 26) and returns a JPEG blob.
 //
 // The module never throws: when nothing is drawable (no element, undecoded
 // video with no poster, failed poster load, tainted or unsupported canvas)
 // it resolves null so the caller can skip or fall back to `<id>.thumb.jpg`.
 
-/** Previews are no wider than this (docs/content-format.md, generated files). */
-export const THUMB_MAX_WIDTH = 320;
+/**
+ * Bookmark captures are no wider than this. Wider than the converter's
+ * 320px `<id>.thumb.jpg` previews (docs/content-format.md) because the `t`
+ * grid (docs/plan.md Phase 26) draws each thumbnail some 300-400 CSS px
+ * wide; at JPEG quality `THUMB_QUALITY` a 480x270 capture is a few tens
+ * of KB per bookmark.
+ */
+export const THUMB_MAX_WIDTH = 480;
+
+/** The JPEG encoder quality for captures (Chrome's own default is 0.92). */
+export const THUMB_QUALITY = 0.8;
 
 export interface ThumbSize {
   width: number;
@@ -19,7 +28,7 @@ export interface ThumbSize {
 
 /**
  * Pure scaling math: the thumbnail box for an asset of `assetWidth` x
- * `assetHeight`, no wider than 320px with the aspect ratio preserved
+ * `assetHeight`, no wider than 480px with the aspect ratio preserved
  * (height rounded, at least 1). Non-positive or non-finite input yields
  * zero size, which callers treat as "not drawable".
  */
@@ -61,7 +70,7 @@ export interface CaptureOptions {
   createImage?: () => HTMLImageElement;
   /** Blob MIME type. Defaults to JPEG, the format of every generated preview. */
   type?: string;
-  /** Encoder quality for lossy types. */
+  /** Encoder quality for lossy types. Defaults to `THUMB_QUALITY`. */
   quality?: number;
 }
 
@@ -195,5 +204,9 @@ export async function captureVisualThumbnail(
   } catch {
     return null; // e.g. a video frame the decoder cannot paint yet
   }
-  return canvasToBlob(canvas, options.type ?? "image/jpeg", options.quality);
+  return canvasToBlob(
+    canvas,
+    options.type ?? "image/jpeg",
+    options.quality ?? THUMB_QUALITY,
+  );
 }

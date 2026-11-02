@@ -121,11 +121,12 @@
       }
       /* t bookmark overlay (docs/plan.md Phase 8, README t bullet): one
          panel owns the screen while open, and the cursor-moving keys are
-         suspended behind it (render/keys.ts). The list runs oldest at the
-         top down to newest at the bottom and scrolls, so opening lands at
-         the bottom — the most recent thumbnail visible. The z-index keeps
-         it over stage and overlay but under the #flash pill (z 10), so a
-         `b` taken while browsing still confirms on screen. Sizes stay
+         suspended behind it (render/keys.ts). Phase 26 made the list a
+         grid of large cards that fills across, then down — oldest at the
+         top left, newest last — and it scrolls, so opening lands at the
+         bottom with the most recent card visible. The z-index keeps it
+         over stage and overlay but under the #flash pill (z 10), so a `b`
+         taken while browsing still confirms on screen. Sizes stay
          proportional to the viewport; nothing here takes the manifest's
          display size, same as the stage above. */
       #bookmarks {
@@ -156,12 +157,18 @@
         color: rgba(244, 239, 230, 0.55);
         font-size: clamp(10px, 1.2vh, 13px);
       }
+      /* The same auto-fill rule as the Esc screen's key grid (.help-list):
+         as many ~280 px columns as fit, sharing the spare width, one column
+         when the window is narrower; cards in reading order. */
       .bookmarks-list {
         flex: 1 1 auto;
         min-height: 0;
-        display: flex;
-        flex-direction: column;
-        gap: clamp(8px, 1.5vh, 16px);
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr));
+        align-content: start;
+        align-items: start;
+        gap: clamp(10px, 2vh, 24px) clamp(10px, 1.6vw, 24px);
+        overflow-x: hidden;
         overflow-y: auto;
         overscroll-behavior: contain;
         padding-right: 4px;
@@ -170,12 +177,12 @@
         display: none;
       }
       .bookmark-entry {
-        flex: none;
         display: flex;
-        align-items: center;
-        gap: clamp(10px, 2vw, 18px);
-        min-height: clamp(56px, 12vh, 120px);
-        padding: clamp(6px, 1vh, 12px) clamp(10px, 2vw, 18px);
+        flex-direction: column;
+        align-items: stretch;
+        gap: clamp(6px, 1vh, 10px);
+        min-width: 0;
+        padding: clamp(6px, 1vh, 10px);
         border: 1px solid rgba(244, 239, 230, 0.16);
         border-radius: 6px;
         background: rgba(18, 18, 22, 0.9);
@@ -190,30 +197,31 @@
         background: rgba(30, 30, 36, 0.95);
         outline: none;
       }
-      /* The thumbnail keeps the asset's aspect at a list-row height;
-         `contain` so an oddly shaped still letterboxes inside its box. */
+      /* The thumbnail is the card's full width at the still's own aspect
+         ratio; `contain` and the height cap so a portrait still letterboxes
+         instead of towering over the row. */
       .bookmark-thumb {
         display: block;
-        height: clamp(32px, 8vh, 72px);
-        width: auto;
+        width: 100%;
+        height: auto;
+        max-height: 60vh;
         object-fit: contain;
         border-radius: 3px;
         background: #000;
       }
       .bookmark-thumb-empty {
-        width: clamp(56px, 14vw, 128px);
+        aspect-ratio: 16 / 9;
       }
       /* The thumbnail's box positions its delete "x" (docs/plan.md Phase
          18, "Delete a bookmark") on the thumbnail's top-right corner. */
       .bookmark-thumb-box {
         position: relative;
-        flex: none;
         display: block;
       }
       .bookmark-delete {
         position: absolute;
-        top: 2px;
-        right: 2px;
+        top: 4px;
+        right: 4px;
         display: flex;
         align-items: center;
         justify-content: center;
@@ -242,6 +250,9 @@
         font-size: clamp(12px, 1.6vh, 18px);
       }
       .bookmark-label {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
         color: rgba(244, 239, 230, 0.62);
         font-size: clamp(10px, 1.3vh, 14px);
         letter-spacing: 0.04em;

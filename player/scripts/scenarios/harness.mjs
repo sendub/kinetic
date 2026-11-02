@@ -153,6 +153,8 @@ const READ_BOOKMARK_OVERLAY = () => {
     scrollHeight: list.scrollHeight,
     clientHeight: list.clientHeight,
     scrollTop: list.scrollTop,
+    scrollWidth: list.scrollWidth,
+    clientWidth: list.clientWidth,
     listRect: rectOf(list),
     emptyText: panel.querySelector(".bookmarks-empty")?.textContent ?? null,
     entries: Array.from(document.querySelectorAll(".bookmark-entry")).map(
@@ -172,6 +174,8 @@ const READ_BOOKMARK_OVERLAY = () => {
           deleteRect: rectOf(el.querySelector(".bookmark-delete")),
           deleteText: el.querySelector(".bookmark-delete")?.textContent ?? null,
           thumbBoxRect: rectOf(el.querySelector(".bookmark-thumb-box")),
+          // The thumbnail as drawn (Phase 26: large, in a grid of cards).
+          thumbRect: rectOf(el.querySelector(".bookmark-thumb")),
         };
       },
     ),

@@ -1154,12 +1154,19 @@ truthful: an unchecked box means nothing was accepted.
 
 ## Phase 26: Bookmark list layout (2026-11-02, user; after Phase 25)
 
-- [ ] Bigger bookmark thumbnails in a grid (user, 2026-11-02): the `t`
+- [x] Bigger bookmark thumbnails in a grid (user, 2026-11-02): the `t`
       list's thumbnails become much larger, and entries fill the screen
       across first, then down (a responsive grid), instead of one
       column. Keyboard/click behaviour, delete (×), scroll-to-latest and
       ordering unchanged. Tests, screens scenario, screenshots at
       1280x720 and 700x900.
+      (Grid repeat(auto-fill, minmax(min(100%, 280px), 1fr)): 3 columns
+      at 1280x720, 2 at 700x900; thumbnails ~344px / ~280px wide (were
+      102 / 128); newest last, list opens scrolled to it; behaviour
+      unchanged. Capture cap 320 -> 480px at JPEG 0.8 (~25 KB per
+      bookmark, was ~21 KB). 8 unit + 3 scenario checks red before;
+      vitest 569, screens 57 + 2 headless-fullscreen partials,
+      navigation 21/21, smoke 6/6; screenshots checked. 2026-11-02)
 - [x] `e` after visiting a bookmark (user, 2026-11-02): in a converted
       game, after continuing from a bookmark (seen with video bookmarks,
       others untried) `e` does nothing, even when the story from the
