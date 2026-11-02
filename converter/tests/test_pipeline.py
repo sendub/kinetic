@@ -148,7 +148,7 @@ def test_poster_exists_nonblack_and_at_range_start(tmp_path: Path) -> None:
     assert poster.is_file() and mean_luma(poster) > 10  # nonblack
     # The same extractor at a range start also yields a real frame.
     mid = tmp_path / "poster-0p5.jpg"
-    assert assets.extract_poster(CLIP, mid, 0.5)
+    assert assets.extract_poster(CLIP, mid, 0.5) is None
     assert mean_luma(mid) > 10
 
 

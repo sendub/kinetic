@@ -17,7 +17,9 @@ are converted to the smallest of PNG/JPEG q92/JXL, wrapped PNG/JPEG data
 is carved, MKV videos are copied unchanged whatever the codec (with a
 `warning:` summary line and item note when no target browser plays the
 codec), other native browser videos are copied and the rest are
-transcoded to H.264 faststart MP4, and posters are the frame at `startSeconds`.
+transcoded to H.264 faststart MP4, and posters are the frame at `startSeconds`
+(a video whose poster cannot be made is dropped and reported with
+ffmpeg's error, with a `warning:` summary line).
 Identical outputs are one file, written once. Every decision lands in
 `build-ledger.json`, whose `media` section records, per shipped file,
 its source (loose path, or archive plus member) with the source's

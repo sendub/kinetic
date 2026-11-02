@@ -1071,8 +1071,15 @@ truthful: an unchecked box means nothing was accepted.
       Chrome 156 headless probe: H.264/VP8/VP9/AV1 MKV play; HEVC only
       with GPU. 3 tests red before; pytest converter+tools 323; real run
       validated and played. 2026-11-02)
-- [ ] 25.7 Poster recipes recorded; a failed poster drops the item and
+- [x] 25.7 Poster recipes recorded; a failed poster drops the item and
       reports it.
+      (Poster made first into scratch; failure -> item skipped with note
+      + warning naming source and ffmpeg error, nothing shipped, branch
+      withdrawal as for other skips; no video-as-poster fallback. Recipe
+      gains mode RGB; run_poster_step re-runs a ledger step and the demo
+      posters reproduce byte-identical. 6 tests red before; pytest
+      converter+tools 329; pinned renpy_demo validator clean.
+      2026-11-02)
 - [ ] 25.8 `kinetic-media ship`: list of sources -> outputs + ledger, no
       story parse; kinetic-extract uses the same media code.
 - [ ] 25.9 `kinetic-media rebuild`: from a folder's ledger and the

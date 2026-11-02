@@ -40,7 +40,11 @@ file extensions - corpus extensions lie. Policies:
   ``.media-tools/<platform>/``, single-threaded and bitexact; Pillow save
   parameters are spelled out in full.
 - Posters are the frame AT ``startSeconds`` (``-ss`` after ``-i``, exact
-  output seek) rendered to bitexact PNG, then JPEG.
+  output seek) rendered to bitexact PNG, then RGB JPEG; the ledger's
+  ``poster`` step is the complete recipe (``run_poster_step`` runs it).
+  The poster is made before the video ships: when it fails, the video
+  item is dropped (nothing ships for it) and reported with ffmpeg's
+  error, never given the video as its poster.
 - Every shipped file, posters included, is content-addressed:
   ``media/<h[:2]>/<h>.<ext>`` with ``h`` the sha256 of the bytes shipped
   (``media.content_ref``, docs/plan.md Phase 25). Identical outputs,
@@ -609,12 +613,28 @@ def frame_args(start_seconds: float) -> list[str]:
             *media_tools.FFMPEG_ENCODE, OUTPUT]
 
 
-def run_ffmpeg(args: list[str], source: Path, out: Path) -> bool:
-    """Run the pinned ffmpeg with `args`, paths filled in."""
+def ffmpeg_error(args: list[str], source: Path, out: Path) -> str | None:
+    """Run the pinned ffmpeg with `args`, paths filled in: None when it
+    wrote `out`, else what went wrong (ffmpeg's last stderr line, with
+    the two paths shortened to their file names)."""
     fill = {INPUT: str(source), OUTPUT: str(out)}
     proc = _run([str(media_tools.tool_path("ffmpeg")),
                  *(fill.get(a, a) for a in args)])
-    return proc is not None and proc.returncode == 0 and out.exists()
+    if proc is None:
+        return "ffmpeg could not be run"
+    if proc.returncode == 0 and out.exists():
+        return None
+    lines = [ln.strip() for ln in proc.stderr.splitlines() if ln.strip()]
+    if not lines:
+        return (f"exit {proc.returncode}, no output written"
+                if proc.returncode else "no output written (no frame?)")
+    return (lines[-1].replace(str(source), source.name)
+            .replace(str(out), out.name))
+
+
+def run_ffmpeg(args: list[str], source: Path, out: Path) -> bool:
+    """Run the pinned ffmpeg with `args`, paths filled in."""
+    return ffmpeg_error(args, source, out) is None
 
 
 def transcode_video(source: Path, out: Path) -> bool:
@@ -627,26 +647,48 @@ def extract_frame_png(source: Path, png: Path, start_seconds: float) -> bool:
     return run_ffmpeg(frame_args(start_seconds), source, png)
 
 
-def poster_jpeg(png: Path, out_jpg: Path) -> bool:
-    """A poster JPEG (q90, fixed Pillow params) from a frame PNG."""
+def _save_poster_jpeg(frame: Path, out_jpg: Path, mode: str,
+                      params: dict[str, Any]) -> str | None:
+    """Pillow: frame -> `mode` -> JPEG with `params`; None or the error."""
     from PIL import Image
 
     try:
-        with Image.open(png) as img:
+        with Image.open(frame) as img:
             img.load()
-            img.convert("RGB").save(out_jpg, "JPEG",
-                                    **_jpeg_params(POSTER_JPEG_QUALITY))
-    except (OSError, ValueError):
-        return False
-    return True
+            img.convert(mode).save(out_jpg, "JPEG", **params)
+    except (OSError, ValueError) as exc:
+        return f"Pillow: {type(exc).__name__}: {exc}"
+    return None
+
+
+def poster_jpeg(png: Path, out_jpg: Path) -> bool:
+    """A poster JPEG (q90, fixed Pillow params) from a frame PNG."""
+    step = poster_step(0.0)
+    return _save_poster_jpeg(png, out_jpg, step["mode"],
+                             step["jpeg"]) is None
 
 
 def poster_step(start_seconds: float) -> dict[str, Any]:
-    """The ledger recipe of `extract_poster`: ffmpeg frame to PNG, then
-    Pillow JPEG (RGB) with these params."""
+    """The ledger recipe of a poster, complete: ffmpeg runs ``args``
+    (frame selection is ``-ss startSeconds`` after ``-i``, one frame, no
+    scaling) writing a ``frameFormat`` file, then Pillow converts it to
+    ``mode`` and saves JPEG with the ``jpeg`` params. `run_poster_step`
+    runs exactly this dict."""
     return {"step": "poster", "startSeconds": start_seconds,
             "args": frame_args(start_seconds), "frameFormat": "png",
-            "jpeg": _jpeg_params(POSTER_JPEG_QUALITY)}
+            "mode": "RGB", "jpeg": _jpeg_params(POSTER_JPEG_QUALITY)}
+
+
+def run_poster_step(step: dict[str, Any], source: Path,
+                    out_jpg: Path) -> str | None:
+    """Make a poster from a ledger ``poster`` step: None on success, else
+    what failed (ffmpeg's or Pillow's error)."""
+    with tempfile.TemporaryDirectory() as td:
+        frame = Path(td) / f"frame.{step['frameFormat']}"
+        error = ffmpeg_error(step["args"], source, frame)
+        if error is not None:
+            return f"ffmpeg: {error}"
+        return _save_poster_jpeg(frame, out_jpg, step["mode"], step["jpeg"])
 
 
 def _step_tools(step: dict[str, Any]) -> tuple[str, ...]:
@@ -673,12 +715,11 @@ def steps_tools(steps: list[dict[str, Any]],
     return used
 
 
-def extract_poster(source: Path, out_jpg: Path, start_seconds: float) -> bool:
-    """Write the frame at start_seconds (exact output seek) as poster JPEG."""
-    with tempfile.TemporaryDirectory() as td:
-        png = Path(td) / "frame.png"
-        return (extract_frame_png(source, png, start_seconds)
-                and poster_jpeg(png, out_jpg))
+def extract_poster(source: Path, out_jpg: Path,
+                   start_seconds: float) -> str | None:
+    """Write the frame at start_seconds (exact output seek) as poster
+    JPEG; None on success, else the error."""
+    return run_poster_step(poster_step(start_seconds), source, out_jpg)
 
 
 class _Placed:
@@ -852,7 +893,8 @@ def run_asset_pass(records: list[ItemRecord], out_dir: Path,
     # sources encode once.
     image_share: dict[str, tuple[str, str, list[dict]]] = {}
     video_share: dict[str, tuple[str, str, list[dict]]] = {}
-    poster_share: dict[str, str] = {}
+    # video sha256 @ startSeconds -> (poster ref, None) or (None, error)
+    poster_share: dict[str, tuple[str | None, str | None]] = {}
     inputs: dict[tuple[str, ...], _Input] = {}
     with tempfile.TemporaryDirectory(prefix=".kinetic-tmp-",
                                      dir=out_dir) as scratch:
@@ -927,7 +969,8 @@ def _ship_image(record: ItemRecord, found: _Input, placed: _Placed,
 
 def _ship_video(record: ItemRecord, found: _Input, placed: _Placed,
                 video_share: dict[str, tuple[str, str, list[dict]]],
-                poster_share: dict[str, str], scratch: Path) -> int:
+                poster_share: dict[str, tuple[str | None, str | None]],
+                scratch: Path) -> int:
     source = found.path
     meta: dict[str, Any] = record.asset_meta
     container, codec = probe_video(source)
@@ -943,6 +986,28 @@ def _ship_video(record: ItemRecord, found: _Input, placed: _Placed,
         _reprobe_duration(record, source)
     digest = found.digest
     src = _source(record, found.sha256, found.size)
+
+    # The poster first, into scratch: a video without one ships nothing.
+    start = float(record.item.get("startSeconds") or 0.0)
+    poster_key = f"{digest}@{start:.6f}"
+    made_poster: Path | None = None
+    cached = poster_share.get(poster_key)
+    if cached is None:
+        made_poster = scratch / "poster.jpg"
+        error = extract_poster(source, made_poster, start)
+        if error is not None:
+            made_poster.unlink(missing_ok=True)
+            poster_share[poster_key] = (None, error)
+            cached = (None, error)
+    if cached is not None and cached[0] is None:
+        note = (f"poster failed for {record.asset}: {cached[1]}: item "
+                "dropped from manifest")
+        meta["decision"] = "skipped"
+        meta["warning"] = note
+        record.notes.append(note)
+        record.skipped = True
+        return 1
+
     if digest in video_share:
         shipped, decision, steps = video_share[digest]
         already = True
@@ -956,6 +1021,8 @@ def _ship_video(record: ItemRecord, found: _Input, placed: _Placed,
             made = scratch / "transcode.mp4"
             if not transcode_video(source, made):
                 made.unlink(missing_ok=True)
+                if made_poster is not None:
+                    made_poster.unlink(missing_ok=True)
                 meta["decision"] = "skipped"
                 record.notes.append(
                     f"transcode failed for {source.name}: item dropped")
@@ -978,23 +1045,12 @@ def _ship_video(record: ItemRecord, found: _Input, placed: _Placed,
             meta["warning"] = warning
             record.notes.append(warning)
 
-    start = float(record.item.get("startSeconds") or 0.0)
-    poster_key = f"{digest}@{start:.6f}"
-    if poster_key in poster_share:
-        poster = poster_share[poster_key]
+    if made_poster is not None:
+        poster, _ = placed.move_file(made_poster, "jpg")
+        poster_share[poster_key] = (poster, None)
     else:
-        made = scratch / "poster.jpg"
-        if extract_poster(source, made, start):
-            poster, _ = placed.move_file(made, "jpg")
-        else:
-            made.unlink(missing_ok=True)
-            record.notes.append(
-                "poster extraction failed; falling back to source ext")
-            poster = shipped  # last resort: first-frame still = the file
-        poster_share[poster_key] = poster
-    if poster != shipped:
-        placed.record(poster, "poster", src,
-                      found.steps + [poster_step(start)])
+        poster = cached[0]
+    placed.record(poster, "poster", src, found.steps + [poster_step(start)])
     _set_media(record.item, shipped, poster)
     meta["poster"] = poster
     return 0

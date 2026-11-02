@@ -141,8 +141,13 @@ files (docs/plan.md Phase 25), which `kinetic-media rebuild` reads:
       list after the binary, `{input}` and `{output}` standing for the
       paths;
     - `{"step": "poster", "startSeconds": S, "args": [...],
-      "frameFormat": "png", "jpeg": {...}}`: ffmpeg writes the frame at S
-      as PNG, then Pillow saves it as RGB JPEG with these parameters.
+      "frameFormat": "png", "mode": "RGB", "jpeg": {...}}`: the complete
+      poster recipe. ffmpeg runs `args` (`{input}` the video, `{output}`
+      a `frameFormat` file; the frame is selected by `-ss S` after `-i`,
+      an exact output seek, one frame, no scaling), then Pillow converts
+      that frame to `mode` and saves it as JPEG with the `jpeg` save
+      parameters. Running the step again on the source gives the same
+      bytes (Video policy, below).
   - `tools`: name to version for the tools the steps ran (from
     `mediaTools`); absent when nothing was encoded (`preserve`, `carve`).
   - `alsoFrom`: other sources that made the same bytes, each with its own
@@ -218,6 +223,17 @@ Chrome probe in docs/content-format.md), the item gets the note
 `MKV codec <codec>: no target browser plays it`, the same text as its
 ledger entry's `warning`, and the summary prints a `warning:` line, so
 the game maker can supply a playable file. Safari plays no MKV at all.
+
+Every shipped video has a poster: the frame at the item's `startSeconds`
+(0 when unset), made by the ledger `poster` step above. The poster is
+made before the video ships. When ffmpeg or Pillow cannot make it, the
+video item is dropped: nothing ships for it (no video, no poster),
+`decision` is `skipped`, and the item note, the same text as its ledger
+`warning`, reads `poster failed for <asset>: ffmpeg: <ffmpeg's error>:
+item dropped from manifest`; the summary prints it as a `warning:` line
+and counts it under `items skipped`. A dropped item is handled like any
+other skipped one (a decision with a route item dropped is withdrawn).
+The video never stands in as its own poster.
 
 ## Decoder hooks
 
