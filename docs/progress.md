@@ -955,7 +955,7 @@ truthful: an unchecked box means nothing was accepted.
       unchanged. config.test 3 red before; vitest 552, screens 45 + 2
       headless-fullscreen partials, reading 17/17, smoke 6/6; screenshot
       checked. 2026-11-02)
-- [ ] Clicks don't close settings or help (user, 2026-11-02): a mouse
+- [x] Clicks don't close settings or help (user, 2026-11-02): a mouse
       click (backdrop or anywhere) no longer closes the `c` screen or the
       Esc help; their keys still do (c / Esc; Esc / Space for help).
       Clicks on their controls still work. Hint lines updated (e.g. help
@@ -966,6 +966,14 @@ truthful: an unchecked box means nothing was accepted.
       (help, confirm, bookmarks, config, choice hints, progress note).
       Also: the speed readout "1.00x — ~60 ms/char" wraps at 700x900;
       keep it on one line.
+      (help click listener removed; config backdrop click inert; first
+      click still enters fullscreen, help stays, Space closes. All "·"
+      gone from hints ("; " between clauses, "or" for alternatives,
+      incl. "Esc or n cancels", "pick a route or return"). Readout
+      nowrap + slider shrinks. 9 unit + 7 screens checks red before;
+      vitest 555, screens 49 + 2 headless-fullscreen partials, playall
+      27/27, branches 41/41, menus 8/8, reading 17/17, smoke 6/6;
+      screenshots checked. 2026-11-02)
       Tests, screens scenario, README.
 - [ ] Phase-closer: full suite (scenarios, vitest, pytest,
       package-proof), rebuild both demo folders.

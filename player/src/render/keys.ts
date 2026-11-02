@@ -151,7 +151,7 @@ const HELP_ROWS: ReadonlyArray<{
   {
     command: null,
     plainLabel: "1-9 / 0",
-    description: "at a decision: pick a route / return to main route",
+    description: "at a decision: pick a route or return to main route",
   },
 ];
 

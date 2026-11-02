@@ -42,9 +42,11 @@ describe("helpRows (drawn from the keymap, Phase 13b)", () => {
     }
   });
 
-  it("closes with Esc, Space or a click — Enter is no key (Phase 18)", () => {
-    expect(HELP_HINT).toBe("Esc · Space · click — closes");
+  it("closes with Esc or Space — no click, no Enter (Phases 18, 24)", () => {
+    expect(HELP_HINT).toBe("Esc or Space closes");
     expect(HELP_HINT).not.toContain("Enter");
+    expect(HELP_HINT).not.toContain("click");
+    expect(HELP_HINT).not.toContain("·");
   });
 
   it("draws no reset-box keys and no Enter (Phase 18)", () => {
@@ -112,7 +114,13 @@ class FakeElement {
     this.children.push(node);
     return node;
   }
-  addEventListener(): void {}
+  listeners = new Map<string, (() => void)[]>();
+  addEventListener(type: string, fn: () => void): void {
+    this.listeners.set(type, [...(this.listeners.get(type) ?? []), fn]);
+  }
+  fire(type: string): void {
+    for (const fn of this.listeners.get(type) ?? []) fn();
+  }
 }
 
 class FakeDocument {
@@ -125,7 +133,6 @@ function mountWith(gameTitle?: unknown): FakeElement {
   const root = new FakeDocument().createElement("div");
   mountHelpOverlay({
     root: root as unknown as HTMLElement,
-    onClose: () => {},
     gameTitle,
   });
   const [panel] = root.children;
@@ -160,5 +167,21 @@ describe("mountHelpOverlay heading (Phase 21)", () => {
         "help-list",
       ]);
     }
+  });
+});
+
+describe("a click does not close the help (docs/plan.md Phase 24)", () => {
+  it("a click anywhere on the open screen leaves it open", () => {
+    const root = new FakeDocument().createElement("div");
+    const help = mountHelpOverlay({ root: root as unknown as HTMLElement });
+    help.open();
+    const [panel] = root.children;
+    if (panel === undefined) throw new Error("no #help panel");
+    panel.fire("click");
+    for (const child of panel.children) child.fire("click");
+    expect(help.isOpen()).toBe(true);
+    expect(panel.hidden).toBe(false);
+    help.close(); // its keys (main.ts) close it through close()
+    expect(help.isOpen()).toBe(false);
   });
 });

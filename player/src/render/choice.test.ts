@@ -146,7 +146,7 @@ describe("choiceHint (docs/plan.md Phase 18: the 0 hint follows the row)", () =>
     expect(bare).toBe("1-9 or click picks a route");
     expect(bare).not.toContain("0 returns");
     const withReturn = choiceHint(choice([route(0), route(1)], true));
-    expect(withReturn).toBe("1-9 or click picks a route · 0 returns");
+    expect(withReturn).toBe("1-9 or click picks a route; 0 returns");
     expect(withReturn).not.toContain("Enter");
   });
 });
@@ -198,5 +198,8 @@ describe("the play-all auto-pick on the choice screen (docs/plan.md Phase 18)", 
       CHOICE_HINT + AUTO_PICK_HINT,
     );
     expect(choiceHint(view)).toBe(CHOICE_HINT);
+    expect(choiceHint({ ...view, autoPick: { ...base, picked: false } })).toBe(
+      "1-9 or click picks a route; Space picks now",
+    );
   });
 });

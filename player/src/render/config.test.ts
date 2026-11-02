@@ -363,8 +363,20 @@ describe("config panel (the reading-speed row: - slider + readout)", () => {
     byAction(root, "speed-slider").fire("click");
     expect(overlay.isOpen()).toBe(true); // grabbing it must not close the panel
     expect(changes).toHaveLength(0); // and the click alone is not a change
-    byClass(root, "config-title").fire("click"); // any other click is backdrop
+    byClass(root, "config-title").fire("click"); // backdrop: inert (Phase 24)
+    expect(overlay.isOpen()).toBe(true);
+    root.children[0].fire("click"); // the panel itself, outside every control
+    expect(overlay.isOpen()).toBe(true);
+    expect(changes).toHaveLength(0);
+    overlay.close(); // `c` or Escape (main.ts) close it through close()
     expect(overlay.isOpen()).toBe(false);
+  });
+
+  it('hints in words, clauses split by "; " (Phase 24)', () => {
+    const { root } = mount(defaults);
+    expect(byClass(root, "config-hint").textContent).toBe(
+      "click a control to change it; c or Esc closes",
+    );
   });
 
   it("reopens on the settings in force, slider thumb included", () => {
@@ -457,7 +469,7 @@ describe("the panel layout: the skip settings read as options of Tab", () => {
     expect(siblings[at - 1].textContent).toBe(PROGRESS_SECTION);
     expect(siblings[at + 1].children[0].textContent).toBe("Export progress");
     expect(PROGRESS_NOTE).toBe(
-      "saved in this browser automatically · export/import only to switch browser",
+      "saved in this browser automatically; export or import only to switch browser",
     );
   });
 });
@@ -684,7 +696,7 @@ describe("the confirm box asks about an import in its own words", () => {
     );
     expect(byConfirm(root, "confirm").textContent).toBe("Import");
     expect(byClass(root, "confirm-hint").textContent).toBe(
-      "y imports · Esc / n cancels",
+      "y imports; Esc or n cancels",
     );
     confirm.accept(); // the y key
     expect(confirm.isOpen()).toBe(false);
@@ -695,6 +707,9 @@ describe("the confirm box asks about an import in its own words", () => {
     confirm.open(resetRequest(() => {}));
     expect(byClass(root, "confirm-title").textContent).toBe("Reset progress");
     expect(byConfirm(root, "confirm").textContent).toBe("Reset");
+    expect(byClass(root, "confirm-hint").textContent).toBe(
+      "y resets; Esc or n cancels",
+    );
   });
 
   it("a story without a title reads as this story", () => {

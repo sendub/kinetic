@@ -42,6 +42,10 @@ export interface BookmarkRestore {
   readonly ctx: SavedContext;
 }
 
+/** The panel's hint: separate clauses split by "; " (Phase 24). */
+export const BOOKMARKS_HINT =
+  "click an entry to continue there; its × deletes it; t or Esc closes";
+
 export function bookmarkRestoreTarget(record: Bookmark): BookmarkRestore {
   // The bookmarked ITEM is the time point: the restore lands on it, not on
   // any other `lastShown` a stored context might carry.
@@ -254,8 +258,7 @@ export function mountBookmarkOverlay({
 
   const hint = doc.createElement("p");
   hint.className = "bookmarks-hint";
-  hint.textContent =
-    "click an entry to continue there · its × deletes it · t or Esc closes";
+  hint.textContent = BOOKMARKS_HINT;
 
   const list = doc.createElement("div");
   list.className = "bookmarks-list";

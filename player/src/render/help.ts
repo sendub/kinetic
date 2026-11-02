@@ -8,16 +8,17 @@
 // It shows FIRST, before any advance, when storage says the reader has
 // never seen it (`helpSeen`, storage/types.ts), and Escape opens it at any
 // other time when no other screen is up. While it is open the shell hides
-// the stage, pauses the machine and lets only the closing actions through
-// (Escape, space, a click anywhere — main.ts owns that mutual
-// exclusion, and the future choice overlay slots into the same rule).
+// the stage, pauses the machine and lets only the closing keys through
+// (Escape, space — main.ts owns that mutual exclusion, and the choice
+// overlay slots into the same rule). A mouse click does not close it
+// (docs/plan.md Phase 24, "Clicks don't close settings or help").
 //
 // FULLSCREEN CAVEAT, observed and documented (docs/verify-player.md, the
 // help steps): while the page is fullscreen the browser reserves Escape for
 // leaving fullscreen, and the page cannot reliably see that keydown —
 // Chrome consumed the first Escape in the headless walk too. Escape in
 // windowed mode reaches the page and opens/closes the help directly; every
-// other closing action (space, click) is unaffected by fullscreen.
+// closing key (space) is unaffected by fullscreen.
 //
 // Like the config screen, the decisions are pure exports below and the DOM
 // half only applies them; the rows themselves live with the keymap
@@ -29,7 +30,7 @@ import { keyHelpEntries } from "./keys";
 export const HELP_TITLE = "Key help";
 
 /** The panel's closing hint. */
-export const HELP_HINT = "Esc · Space · click — closes";
+export const HELP_HINT = "Esc or Space closes";
 
 /** The page title when the manifest names no game (index.html's own). */
 export const PAGE_TITLE_DEFAULT = "Kinetic";
@@ -60,8 +61,6 @@ export interface HelpOverlay {
 export interface HelpOverlayOptions {
   /** The `#app` element; the panel is a sibling of the other panels. */
   root: HTMLElement;
-  /** A click anywhere on the screen: the shell closes help and resumes. */
-  onClose(): void;
   /**
    * The manifest `title`: drawn as a heading at the top of the screen when
    * it is non-blank text (gameTitleOf), else no heading at all.
@@ -101,7 +100,6 @@ export function helpRows(): { keys: string[]; description: string }[] {
 
 export function mountHelpOverlay({
   root,
-  onClose,
   gameTitle,
 }: HelpOverlayOptions): HelpOverlay {
   const doc = root.ownerDocument;
@@ -146,10 +144,9 @@ export function mountHelpOverlay({
   panel.append(title, hint, list);
   root.appendChild(panel);
 
-  // A click anywhere on the screen closes it (docs/plan.md Phase 13b);
-  // the panel covers the viewport, so any click lands here. The shell's
-  // onClose resumes the machine and persists `helpSeen`.
-  panel.addEventListener("click", () => onClose());
+  // No click handler: only its keys close it (Esc or Space, main.ts),
+  // so a stray click — the first-load one included — leaves it up
+  // (docs/plan.md Phase 24).
 
   function close(): void {
     panel.hidden = true;

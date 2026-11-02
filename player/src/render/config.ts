@@ -22,9 +22,9 @@
 // one place; the panel never reads storage. Like the bookmark panel, the
 // pure rules are exported and tested below, and the DOM half only applies
 // them. While the panel is open the timeline is suspended (keys.ts
-// suspendTimeline); `c` or Escape closes it, as does a click outside the
-// controls (backdrop) — the slider counts as a control, so grabbing it
-// never closes the panel.
+// suspendTimeline); `c` or Escape closes it. A click never closes it
+// (docs/plan.md Phase 24): one outside the controls (backdrop) is inert,
+// and the slider and the file picker count as controls.
 
 import type { MachineSettings } from "../machine/types";
 
@@ -69,7 +69,7 @@ export const PROGRESS_SECTION = "Progress";
  * Export / Import only carry progress to another browser.
  */
 export const PROGRESS_NOTE =
-  "saved in this browser automatically · export/import only to switch browser";
+  "saved in this browser automatically; export or import only to switch browser";
 /**
  * The line beside Play all routes: what turning it On does, so it reads true
  * in either position (Phase 22).
@@ -147,7 +147,7 @@ export function mountConfigOverlay({
   const panel = doc.createElement("div");
   panel.id = "config";
   panel.className = "config";
-  panel.hidden = true; // `c` opens; `c`, Escape or a backdrop click closes
+  panel.hidden = true; // `c` opens; `c` or Escape closes (a click never does)
 
   const title = doc.createElement("h2");
   title.className = "config-title";
@@ -155,7 +155,7 @@ export function mountConfigOverlay({
 
   const hint = doc.createElement("p");
   hint.className = "config-hint";
-  hint.textContent = "click a control to change it · c or Esc closes";
+  hint.textContent = "click a control to change it; c or Esc closes";
 
   const speedRow = doc.createElement("div");
   speedRow.className = "config-row";
@@ -358,16 +358,13 @@ export function mountConfigOverlay({
     onChange(next);
   }
 
-  // One listener for the whole panel, as in bookmarks.ts: a control acts,
-  // any other click is backdrop and closes.
+  // One listener for the whole panel: a control acts, any other click is
+  // backdrop and inert — only `c` or Escape closes (Phase 24).
   panel.addEventListener("click", (event) => {
     const target = event.target;
     const control =
       target instanceof Element ? target.closest("[data-config-action]") : null;
-    if (control === null) {
-      close();
-      return;
-    }
+    if (control === null) return;
     const action = control.getAttribute("data-config-action");
     if (action === "speed-down") {
       move({ ...current, readingSpeed: stepSpeed(current.readingSpeed, -1) });

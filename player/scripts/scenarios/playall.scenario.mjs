@@ -195,7 +195,7 @@ async function configure(page, cdp, { skipAll }) {
   if (skipAll) await clickCenter(cdp, cfg.skipRect);
   if (cfg.playPressed !== "true") await clickCenter(cdp, cfg.playRect);
   const after = await page.evaluate(READ_CONFIG_OVERLAY);
-  await clickCenter(cdp, after.titleRect); // the backdrop closes the screen
+  await pressC(cdp); // its key closes the screen (a click never does)
   await sleep(150);
   const closed = !(await page.evaluate(CONFIG_OPEN));
   return { after, closed };

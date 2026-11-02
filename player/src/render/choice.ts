@@ -57,7 +57,7 @@ export { autoPickStatus, CONTINUE_LABEL, SEEN_MARKER };
 export const CHOICE_HINT = "1-9 or click picks a route";
 
 /** The return half of the hint — only shown when the return row is drawn. */
-export const CONTINUE_HINT = " · 0 returns";
+export const CONTINUE_HINT = "; 0 returns";
 
 /** The return row's number badge: its key, `0`. */
 export const CONTINUE_NUMBER = 0;
@@ -78,7 +78,7 @@ export function choiceHint(choice: ChoiceView): string {
  * now. It stays through the picked phase, where Space still enters the
  * route at once, so the pick changes no word (docs/progress.md Phase 24).
  */
-export const AUTO_PICK_HINT = " · Space picks now";
+export const AUTO_PICK_HINT = "; Space picks now";
 
 /**
  * The whole seconds the status line shows, `leftMs` before the pick: the

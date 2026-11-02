@@ -9,6 +9,7 @@ import { describe, expect, it } from "vitest";
 import type { Item } from "../machine/types";
 import type { Bookmark, SavedContext } from "../storage/types";
 import {
+  BOOKMARKS_HINT,
   bookmarkContext,
   bookmarkItemIndex,
   bookmarkRestoreTarget,
@@ -273,5 +274,13 @@ describe("mergeProgress (a bookmark restore never forgets progress, Phase 18)", 
     const merged = mergeProgress(bookmark, current);
     expect(merged.passRoutes).toEqual([]);
     expect(merged.playedRoutes).toEqual([{ decision: 0, routes: [0, 1, 2] }]);
+  });
+});
+
+describe("BOOKMARKS_HINT (separators in words, Phase 24)", () => {
+  it('splits its clauses with "; ", never "·"', () => {
+    expect(BOOKMARKS_HINT).toBe(
+      "click an entry to continue there; its × deletes it; t or Esc closes",
+    );
   });
 });

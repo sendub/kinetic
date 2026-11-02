@@ -453,7 +453,6 @@ function start(): void {
       // The game's name heads it (docs/plan.md Phase 21).
       const help = mountHelpOverlay({
         root,
-        onClose: () => closeHelp(),
         gameTitle: manifest.title,
       });
       const openHelp = (): void => {

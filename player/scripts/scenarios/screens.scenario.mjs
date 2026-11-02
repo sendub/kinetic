@@ -62,7 +62,7 @@ export const title = "help, bookmarks, resume, config, empty folder, reset";
 // by extensionless paths node cannot resolve, so these two are restated;
 // the speed readout comes from config.ts itself.
 const HELP_TITLE = "Key help";
-const HELP_HINT = "Esc · Space · click — closes";
+const HELP_HINT = "Esc or Space closes";
 // The main interaction keys, one row each (Phase 18, "Key help
 // simplified"): no Enter, no reset-box keys.
 const HELP_KEYS = [
@@ -134,6 +134,37 @@ async function leaveFullscreen(page, cdp) {
   };
 }
 
+// Phase 24: on the first load a click does not close the help (its
+// keys do). The click is still the page's first gesture, so it makes the
+// one fullscreen request; Space then closes the help, consumed, no advance.
+async function helpFirstLoadClick({ check, open }) {
+  const { page, cdp } = await open("help-first-click");
+  const start = await page.evaluate(PAGE_STATE);
+  await clickAt(cdp, 400, 400);
+  await sleep(300);
+  const clicked = await page.evaluate(PAGE_STATE);
+  check(
+    "first load: a click leaves the key help up over the first item (it only makes the fullscreen request)",
+    start.helpOpen === true &&
+      clicked.helpOpen === true &&
+      clicked.stageHidden === true &&
+      clicked.text === start.text &&
+      clicked.fsAttempts === 1,
+    { start, clicked },
+  );
+  await pressSpace(cdp);
+  await sleep(150);
+  const closed = await page.evaluate(PAGE_STATE);
+  check(
+    "first load: Space then closes the help without advancing, no second fullscreen request",
+    closed.helpOpen === false &&
+      closed.stageHidden === false &&
+      closed.text === start.text &&
+      closed.fsAttempts === 1,
+    closed,
+  );
+}
+
 // Old step 20: Escape opens the key help mid-flow.
 async function helpMidFlow({ check, open }) {
   const { page, cdp } = await open("help", { closeHelp: true });
@@ -184,7 +215,7 @@ async function helpMidFlow({ check, open }) {
   );
 
   check(
-    "the help lists only the main keys, one row each, and closes by Esc / Space / click",
+    "the help lists only the main keys, one row each, and its hint reads Esc or Space closes",
     JSON.stringify(help.rows.map((r) => r.key)) === JSON.stringify(HELP_KEYS) &&
       help.rows.every((r) => r.desc.length > 0 && r.desc.length <= 56) &&
       help.hint === HELP_HINT,
@@ -245,13 +276,27 @@ async function helpMidFlow({ check, open }) {
     samples.map(([, sig]) => sig),
   );
 
-  await clickAt(cdp, 400, 40); // a click anywhere closes
+  // A click never closes the help (docs/plan.md Phase 24): one on the
+  // panel's top edge and one mid-screen both leave it up, nothing moving.
+  await clickAt(cdp, 400, 40);
+  await clickAt(cdp, 400, 400);
+  await sleep(300);
+  const clicked = await page.evaluate(PAGE_STATE);
+  check(
+    "a click does not close the help: it stays up over the same item",
+    clicked.helpOpen === true &&
+      clicked.stageHidden === true &&
+      clicked.text === item("text-speech").text,
+    { help: clicked.helpOpen, text: clicked.text },
+  );
+
+  await pressSpace(cdp); // its key closes it
   const closedAt = Date.now();
   const closed = await page.evaluate(PAGE_STATE);
   const advanced = await waitForItem(page, "text-thought", hold + 1500);
   const advancedMs = Date.now() - closedAt;
   check(
-    "a click closes the help on the same item, and its hold re-arms fresh from the close",
+    "Space closes the help on the same item, and its hold re-arms fresh from the close",
     closed.helpOpen === false &&
       closed.stageHidden === false &&
       closed.text === item("text-speech").text &&
@@ -620,7 +665,7 @@ async function config({ check, open }) {
         "  Play videos in full",
         "Play all routes",
         "# Progress",
-        "  ~ saved in this browser automatically · export/import only to switch browser",
+        "  ~ saved in this browser automatically; export or import only to switch browser",
         "  Export progress",
         "  Import progress",
         "  Reset progress",
@@ -629,7 +674,8 @@ async function config({ check, open }) {
       first.labelLefts[2] === optionLeft &&
       first.labelLefts[3] === outerLeft &&
       new Set(first.controlLefts).size === 1 &&
-      first.playNote === "when on, choices pick themselves after a countdown",
+      first.playNote === "when on, choices pick themselves after a countdown" &&
+      first.hint === "click a control to change it; c or Esc closes",
     first,
   );
 
@@ -687,8 +733,15 @@ async function config({ check, open }) {
   await clickCenter(cdp, first.skipRect);
   await clickCenter(cdp, first.playRect);
   const toggled = await page.evaluate(READ_CONFIG_OVERLAY);
+  // A click outside the controls (backdrop) leaves it open (Phase 24);
+  // only `c` or Escape close it.
   await clickCenter(cdp, toggled.titleRect);
-  const closedByBackdrop = (await configOpen(page)) === false;
+  await clickAt(cdp, 10, 10);
+  await sleep(150);
+  const openAfterBackdrop = await configOpen(page);
+  const afterBackdrop = await page.evaluate(READ_CONFIG_OVERLAY);
+  await pressC(cdp);
+  const closedByFirstC = (await configOpen(page)) === false;
   await pressC(cdp);
   await waitFor(page, CONFIG_OPEN);
   const again = await page.evaluate(READ_CONFIG_OVERLAY);
@@ -701,12 +754,15 @@ async function config({ check, open }) {
   await pressC(cdp);
   const closedByC = (await configOpen(page)) === false;
   check(
-    "the switches flip skip-all on and play-all off; backdrop closes, c reopens with them so, play-all flips back and forth, c closes",
+    "the switches flip skip-all on and play-all off; a backdrop click leaves it open and changes nothing, c closes and reopens with them so, play-all flips back and forth, c closes",
     toggled.skipPressed === "true" &&
       toggled.skipLabel === "On" &&
       toggled.playPressed === "false" &&
       toggled.playLabel === "Off" &&
-      closedByBackdrop &&
+      openAfterBackdrop &&
+      afterBackdrop.skipPressed === "true" &&
+      afterBackdrop.playPressed === "false" &&
+      closedByFirstC &&
       again.skipPressed === "true" &&
       again.playPressed === "false" &&
       playOn.playPressed === "true" &&
@@ -715,7 +771,8 @@ async function config({ check, open }) {
       closedByC,
     {
       toggled,
-      closedByBackdrop,
+      openAfterBackdrop,
+      closedByFirstC,
       again,
       playOn: playOn.playPressed,
       playOff: playOff.playPressed,
@@ -1187,6 +1244,7 @@ async function contentUpdate({ check, open }) {
 
 export default async function (ctx) {
   for (const part of [
+    helpFirstLoadClick,
     helpMidFlow,
     bookmarks,
     resume,

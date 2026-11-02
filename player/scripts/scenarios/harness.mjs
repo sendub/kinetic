@@ -210,6 +210,7 @@ const READ_CONFIG_OVERLAY = () => {
     hidden: false,
     title: document.querySelector(".config-title")?.textContent ?? null,
     titleRect: rectOf(document.querySelector(".config-title")),
+    hint: document.querySelector(".config-hint")?.textContent ?? null,
     speedValue:
       document.querySelector(".config-speed-value")?.textContent ?? null,
     speedDownRect: rectOf(
@@ -965,8 +966,8 @@ export function assembleFolders() {
 
 /**
  * Set `Play all routes` through the `c` screen as a reader would: open it,
- * click the switch only when it is not already `on`, close it by its
- * backdrop. Returns the screen as it read after the switch (`after`) and
+ * click the switch only when it is not already `on`, close it with `c`
+ * (a click never closes it, docs/plan.md Phase 24). Returns the screen as it read after the switch (`after`) and
  * whether it closed. Play all routes is on by default (docs/plan.md
  * Phase 24); a walk that makes its own choices turns it off with this.
  */
@@ -977,7 +978,7 @@ async function setPlayAll(page, cdp, on) {
   if (before.playPressed !== String(on))
     await clickCenter(cdp, before.playRect);
   const after = await page.evaluate(READ_CONFIG_OVERLAY);
-  await clickCenter(cdp, after.titleRect); // the backdrop closes the screen
+  await pressC(cdp); // its key closes the screen (a click never does)
   await page
     .waitForFunction(
       () => {

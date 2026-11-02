@@ -45,8 +45,8 @@ describe("commandForKey", () => {
   });
 
   it("maps nothing to Enter — one key per action (Phase 18)", () => {
-    // "enter was never something I requested": help closes with Esc,
-    // Space or a click, the return row is 0, the reset box is y / click.
+    // "enter was never something I requested": help closes with Esc or
+    // Space, the return row is 0, the reset box is y or a click.
     expect(commandForKey("Enter", false)).toBeNull();
     expect(decisionKeyFor("Enter", false)).toBeNull();
   });

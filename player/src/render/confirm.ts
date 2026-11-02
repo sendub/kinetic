@@ -41,7 +41,7 @@ export function resetRequest(onConfirm: () => void): ConfirmRequest {
     title: "Reset progress",
     message: RESET_MESSAGE,
     confirmLabel: "Reset",
-    hint: "y resets · Esc / n cancels",
+    hint: "y resets; Esc or n cancels",
     onConfirm,
   };
 }
@@ -60,7 +60,7 @@ export function importRequest(
       title ?? "this story"
     } with the imported file?`,
     confirmLabel: "Import",
-    hint: "y imports · Esc / n cancels",
+    hint: "y imports; Esc or n cancels",
     onConfirm,
   };
 }
