@@ -72,6 +72,22 @@ class ItemRecord:
     skipped: bool = False
 
 
+def set_video_duration(record: ItemRecord) -> None:
+    """A video item's ``durationSeconds``, probed from its source file, or
+    the placeholder 1.0 with a note when it cannot be probed (the asset
+    pass re-probes a source a decoder hook changed). kinetic-extract's
+    timeline and ``kinetic-media ship`` both set it here."""
+    path = record.asset_abs
+    duration = (probe_duration_seconds(path)
+                if path is not None and path.exists() else None)
+    if duration is None:
+        duration = 1.0
+        record.notes.append(
+            "durationSeconds placeholder 1.0: ffprobe unavailable "
+            "for source video")
+    record.item["durationSeconds"] = duration
+
+
 @dataclass
 class TimelineResult:
     items: list[ItemRecord] = field(default_factory=list)
@@ -210,15 +226,7 @@ def build_timeline(parses: list[tuple[str, FileParse]],
         else:
             record.notes.append("no source asset resolved")
         if pend.kind == "video":
-            duration = (probe_duration_seconds(pend.asset_abs)
-                        if pend.asset_abs and pend.asset_abs.exists()
-                        else None)
-            if duration is None:
-                duration = 1.0
-                record.notes.append(
-                    "durationSeconds placeholder 1.0: ffprobe unavailable "
-                    "for source video")
-            item["durationSeconds"] = duration
+            set_video_duration(record)
         apply_line(item, record, speaker, text)
         result.items.append(record)
         check_limit()

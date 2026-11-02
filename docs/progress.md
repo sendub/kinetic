@@ -1080,8 +1080,16 @@ truthful: an unchecked box means nothing was accepted.
       posters reproduce byte-identical. 6 tests red before; pytest
       converter+tools 329; pinned renpy_demo validator clean.
       2026-11-02)
-- [ ] 25.8 `kinetic-media ship`: list of sources -> outputs + ledger, no
+- [x] 25.8 `kinetic-media ship`: list of sources -> outputs + ledger, no
       story parse; kinetic-extract uses the same media code.
+      (media_cli.py + ship.py; JSON array of requests {source, kind,
+      startSeconds?, id?}; media-ledger.json = build-ledger sections +
+      requests/results (file, poster, size, duration, decision, notes).
+      Exit 0 with skips listed, 1 hook raise / unmergeable ledger, 2 bad
+      list or tools. Ships merge into one folder (id replaces; same list
+      twice = no change). Shares run_asset_pass; kinetic-extract output
+      byte-identical before/after on renpy_demo and an rpa project.
+      28 tests; pytest converter+tools 357. 2026-11-02)
 - [ ] 25.9 `kinetic-media rebuild`: from a folder's ledger and the
       original files, verify source/output hashes, non-zero on missing,
       unsupported or mismatched.

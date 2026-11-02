@@ -871,6 +871,7 @@ def run_asset_pass(records: list[ItemRecord], out_dir: Path,
                    tools: dict[str, Any],
                    decoders: list[decoder_hooks.Decoder] | None = None,
                    decoded_sizes: list[tuple[int, int]] | None = None,
+                   media: dict[str, dict[str, Any]] | None = None,
                    ) -> tuple[int, dict[str, dict[str, Any]]]:
     """Ship every referenced asset at its TRUE format (docs/plan.md Phase 10)
     under its content-addressed path (Phase 25).
@@ -882,12 +883,21 @@ def run_asset_pass(records: list[ItemRecord], out_dir: Path,
     are the ``--decoder`` hooks, run over every source first; a hook's
     failure raises ``decoders.DecoderError`` and ends the pass; the size
     of each image a hook decoded is appended to ``decoded_sizes`` (for
-    the display-size probe, which saw only the wrapped file). Returns
-    the skipped count and the ledger's ``media`` section: output path ->
+    the display-size probe, which saw only the wrapped file). ``media``
+    is an earlier ledger's ``media`` section to build on (``kinetic-media
+    ship`` into an existing folder): its entries are kept, and a source
+    making one of its outputs again joins that entry (``alsoFrom``) or,
+    when it is the entry's own source, changes nothing. Returns the
+    skipped count and the ledger's ``media`` section: output path ->
     entry.
+
+    This is the one media function: kinetic-extract passes the items its
+    story walk made, ``kinetic-media ship`` one record per list request.
     """
     out_dir.mkdir(parents=True, exist_ok=True)
     placed = _Placed(out_dir, tools)
+    if media:
+        placed.media.update(json.loads(json.dumps(media)))
     skipped = 0
     # effective-source sha256 -> (shipped ref, decision, steps): identical
     # sources encode once.

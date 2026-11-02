@@ -279,6 +279,100 @@ The repo's test hook (`converter/tests/extra_hook.py`) applies an
 "EXTRA" wrapper formula to synthetic files only. It is not a decoder for
 any game; game I's real hook lives in that game's package.
 
+## kinetic-media ship
+
+A game-specific helper that builds the story itself can hand all media
+work to Kinetic without a story parse (docs/plan.md Phase 25):
+
+```sh
+.venv/bin/kinetic-media ship <game_root> <out> --list requests.json \
+    [--decoder MODULE:FUNC ...]
+```
+
+Each request goes through the same asset pass as kinetic-extract: the
+decoder hooks, the Image and Video policies, posters, and
+content-addressed placement under `<out>/media/`. The same sources give
+the same paths and `media` entries as kinetic-extract. The pinned tools'
+self-test runs first, as for kinetic-extract.
+
+The list is one JSON array. Source paths are relative to `<game_root>`,
+in POSIX form, and may not be absolute or contain `..`:
+
+```json
+[
+  {"source": {"path": "game/images/a.png"}, "kind": "image", "id": "q1-a"},
+  {"source": {"archive": "game/images.rpa", "member": "bg/room.jpg"},
+   "kind": "image"},
+  {"source": {"path": "areas/intro.webm"}, "kind": "video",
+   "startSeconds": 2.5}
+]
+```
+
+- `source`: `{"path"}` for a loose file, or `{"archive", "member"}` for
+  an `.rpa` member (the archive path, and the member key exactly as the
+  archive stores it).
+- `kind`: `"image"` or `"video"`.
+- `startSeconds` (videos only, a number >= 0): the poster is the frame
+  at that time. The default is 0.
+- `id` (optional, a non-empty string): the helper's own key. It must be
+  unique within one list.
+
+A malformed list is refused before any work. The run exits 2 and
+names each bad entry by its position, e.g. `request 2: kind must be
+"image" or "video", got 'audio'`.
+
+`<out>/media-ledger.json` holds `generatedBy`, then `mediaTools`,
+`decoders` and `media` exactly as in the build ledger (Build ledger,
+above), then `requests`. Each request is echoed as given, with paths
+normalized, and paired with its result:
+
+```json
+{"request": {"kind": "video", "source": {"path": "areas/intro.webm"},
+             "startSeconds": 2.5},
+ "result": {"codec": "vp9", "decision": "copy", "durationSeconds": 12.0,
+            "file": "media/3f/3f…e1.webm", "height": 720,
+            "notes": [], "poster": "media/9a/9a…07.jpg",
+            "sniffedFormat": "webm", "width": 1280}}
+```
+
+- `file`, plus `poster` and `durationSeconds` for a video: the values
+  for the manifest item.
+- `width`/`height`: the display size, read from the shipped image or
+  from the poster frame.
+- `decision`, `sniffedFormat`, `codec`, `notes` and `warning`: as in a
+  build-ledger item entry.
+- A request with no `file` was skipped. Its `decision` is
+  `missing-source` (no such file, `archive not found`, `member not in
+  archive`) or `skipped` (not a usable image or video, or a failed
+  poster), and its notes say why. The helper drops that item.
+
+Exit codes:
+
+- 0: every request ran. Skipped requests do not fail the run; the
+  summary line `requests: N; shipped: M; skipped: K` lists each one
+  with its reason.
+- 1: a decoder hook raised (the ledger is not written), or the folder's
+  existing ledger cannot be merged into.
+- 2: a bad list or game root, or media tools that are not ready.
+
+Shipping into a folder that already has a `media-ledger.json` merges
+into it, so a helper can ship once per episode into one folder:
+
+- Its `media` entries are kept. An output made again by its own source
+  changes nothing; one made by a new source adds that source under
+  `alsoFrom`.
+- A request with an `id` replaces the earlier request with that `id`,
+  in place. A request without one replaces an identical earlier request.
+  Any other request is appended. Shipping the same list twice therefore
+  changes nothing, and shipping list A and then list B gives the same
+  folder as shipping A followed by B in one list.
+- `decoders` gains any hook not already listed.
+- A ledger made with different `mediaTools` is refused (exit 1): one
+  folder's media must rebuild with one tool set, so ship into a new
+  folder.
+- Files are never deleted. An output that only a replaced request used
+  stays in `media/`.
+
 ## Story ID and title
 
 Every extraction writes the manifest's `storyId` and `title`

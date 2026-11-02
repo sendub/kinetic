@@ -135,6 +135,26 @@ files matching GLOB (filename order). With none of them the whole
 project is extracted, as before. Requested slice options are recorded
 under `slice` in `build-ledger.json`.
 
+### kinetic-media ship
+
+```sh
+.venv/bin/kinetic-media ship <game_root> <out_dir> --list requests.json \
+    [--decoder MODULE:FUNC ...]
+```
+
+This runs the media work without a story parse, for helpers that build
+the story themselves. The list is a JSON array of `{"source": {"path":
+...} | {"archive": ..., "member": ...}, "kind": "image"|"video",
+"startSeconds"?: N, "id"?: "..."}`, with paths relative to
+`<game_root>`. Outputs land in `<out_dir>/media/` by the same code as
+kinetic-extract. `<out_dir>/media-ledger.json` holds `mediaTools`,
+`decoders`, `media` and a `requests` list giving each request's
+`file`/`poster`/`width`/`height`/`durationSeconds`, decision and notes.
+Requests with a missing or unusable source come back without a `file`,
+and the run still exits 0. A hook failure exits 1, and a bad list exits
+2. Shipping into the same folder again merges into its ledger. The
+format and merge rules are in docs/extracting.md, "kinetic-media ship".
+
 ## Tests
 
 ```sh

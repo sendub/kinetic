@@ -21,6 +21,8 @@ are implementing and docs/stack.md for settled decisions.
   runs, not agents). Run `.venv/bin/kinetic-extract <renpy_project>
   <out>`; it refuses to start until that setup has passed. Tests
   `.venv/bin/pytest converter/ tools/ -q`.
+- Media only, no story parse: `.venv/bin/kinetic-media ship <game_root>
+  <out> --list requests.json` (format: docs/extracting.md).
 - Converter tests point `KINETIC_MEDIA_TOOLS_DIR` (test-only, set by
   `converter/tests/conftest.py`) at the system ffmpeg; never set it for a
   real conversion. The converter never uses PATH's ffmpeg, `cjxl` or
