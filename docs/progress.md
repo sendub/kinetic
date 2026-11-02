@@ -1233,4 +1233,14 @@ truthful: an unchecked box means nothing was accepted.
       (were skipped); Ogg transcodes (.ogv not an allowed format). MKV
       warning removed; cache FORMAT 2. 32 tests red before; pytest
       converter+tools 439. 2026-11-02)
+- [ ] Video playability measured, not assumed (user, 2026-11-02): no
+      format restrictions of our own; a video is kept as-is unless it
+      will not play, and files must play in Safari. Safari 26 plays MKV
+      (user's game), so the earlier "Safari plays no MKV" was wrong.
+      Build a local probe page of container x codec samples that reports
+      plays/fails (decoded frames, not just audio); run it in Chrome
+      here and have the user open it in Safari; then set the rule from
+      the results, lift the extension restrictions (schema, validator,
+      player), and use lossless remux before re-encode where only the
+      container fails.
 - [ ] Phase-closer: full suite, rebuild demo folders.
