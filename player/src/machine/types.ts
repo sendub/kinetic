@@ -157,6 +157,11 @@ export interface Branch {
 
 export interface Manifest {
   schemaVersion: 1;
+  /**
+   * Optional stable identity of the story (docs/content-format.md): the
+   * player keys saved progress by it instead of the folder URL.
+   */
+  storyId?: string;
   width: number;
   height: number;
   /** Position in the array is position in the novel. */

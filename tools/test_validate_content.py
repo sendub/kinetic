@@ -1089,3 +1089,40 @@ def test_branch_rules_reported_without_schema() -> None:
     assert any("must not come after its end" in p for p in problems)
     assert any("allowed only with continuingRoute" in p for p in problems)
     assert len(problems) == 3
+
+
+# ---------------------------------------------------------------------------
+# storyId (docs/plan.md Phase 21): optional, a lowercase slug when present
+# ---------------------------------------------------------------------------
+
+def test_demo_carries_a_story_id(demo: Path) -> None:
+    assert read_manifest(demo)["storyId"] == "kinetic-demo"
+
+
+def test_absent_story_id_stays_valid(folder: Path) -> None:
+    """Manifests written before Phase 21 have none; the player then keys
+    progress by the folder URL."""
+    manifest = read_manifest(folder)
+    del manifest["storyId"]
+    write_manifest(folder, manifest)
+    assert problems_of(folder) == []
+
+
+@pytest.mark.parametrize("story", [
+    "gamename-1234567890", "renpy_demo", "a", "0" * 64])
+def test_story_id_slugs_pass(folder: Path, story: str) -> None:
+    manifest = read_manifest(folder)
+    manifest["storyId"] = story
+    write_manifest(folder, manifest)
+    assert problems_of(folder) == []
+
+
+@pytest.mark.parametrize("story", [
+    "GameName", "two words", "-lead", "_lead", "", "a" * 65, "café", 7])
+def test_bad_story_id_is_rejected(folder: Path, story: object) -> None:
+    manifest = read_manifest(folder)
+    manifest["storyId"] = story
+    write_manifest(folder, manifest)
+    problems = problems_of(folder)
+    assert len(problems) == 1, problems
+    assert problems[0].startswith("manifest.json: storyId:"), problems

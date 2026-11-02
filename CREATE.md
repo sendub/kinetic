@@ -33,8 +33,14 @@ them is still valid input for the validator.
 
 ### Manifest
 
-`manifest.json` carries `schemaVersion` (1), the display `width` and
-`height` in pixels, and `items` in play order. Each item has a unique
+`manifest.json` carries `schemaVersion` (1), an optional `storyId`, the
+display `width` and `height` in pixels, and `items` in play order. The
+`storyId` names the story itself (lowercase letters, digits, `-`, `_`,
+starting with a letter or digit, at most 64 characters, such as
+`rainy-day-1`): the player saves the reader's progress and bookmarks
+under it, so they survive moving or renaming the folder. Pick one per
+story and keep it across updates; without one, progress is tied to the
+folder's location. Each item has a unique
 `id` (letters, digits, `-`, `_`, starting with a letter or digit), a
 `type`, and the fields its type requires:
 
@@ -79,6 +85,7 @@ two `text` lines that run over the looping video:
 ```json
 {
   "schemaVersion": 1,
+  "storyId": "rainy-day",
   "width": 1280,
   "height": 720,
   "items": [
@@ -190,6 +197,7 @@ intro-001 -> line-002 -> meet-003 --[afternoon: fires on settle of meet-003]
 ```json
 {
   "schemaVersion": 1,
+  "storyId": "branches-example",
   "width": 1280,
   "height": 720,
   "items": [

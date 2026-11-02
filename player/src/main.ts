@@ -47,7 +47,7 @@ import { installKeyMap, suspendTimeline } from "./render/keys";
 import { loadManifest } from "./render/manifest";
 import { mountRouteAnnouncements } from "./render/routes";
 import { installWheelInput } from "./render/wheel";
-import { contentSignature, createIdbStorage } from "./storage/idb";
+import { createIdbStorage, storageKeys } from "./storage/idb";
 import { createContextCodec, resumeOptionsFor } from "./storage/ids";
 import { createNoopStorage } from "./storage/noop";
 import { createImmediateWriter } from "./storage/persist";
@@ -130,11 +130,15 @@ function start(): void {
     contentRoot,
   ).then(
     async (manifest) => {
-      // One storage namespace per novel folder (docs/plan.md Phase 8):
-      // IndexedDB when the host has it, an in-memory adapter when not, so
-      // the player always runs — it just remembers nothing across a reload.
+      // One storage namespace per novel (docs/plan.md Phases 8, 21): its
+      // manifest `storyId` when it has one, so moving or renaming the
+      // folder keeps progress (and progress saved under the folder URL is
+      // carried over once), else the folder URL. IndexedDB when the host
+      // has it, an in-memory adapter when not, so the player always runs —
+      // it just remembers nothing across a reload.
+      const keys = storageKeys(manifest.storyId, contentRoot);
       const storage =
-        createIdbStorage(contentSignature(contentRoot)) ?? createNoopStorage();
+        createIdbStorage(keys.key, keys.legacyKey) ?? createNoopStorage();
       // Resume: a stored context is the reader's position — its history
       // entry on screen (or `lastShown`) is where the load starts, the
       // seen set and route stack arrive with it. Storage holds it keyed

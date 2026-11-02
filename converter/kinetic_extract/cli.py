@@ -39,8 +39,11 @@ With none of them the whole project is extracted, as before.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
+import re
 import sys
+import unicodedata
 from pathlib import Path
 from typing import Any
 
@@ -97,11 +100,62 @@ def resolve_game_dir(project: Path) -> Path:
         "game/, Contents/Resources/autorun/game, Contents/Resources/game)")
 
 
+STORY_ID_MAX = 64      # docs/content-schema.json storyId pattern
+_STORY_BAD_RE = re.compile(r"[^a-z0-9_]+")
+
+
+def story_slug(text: str) -> str:
+    """The manifest `storyId` form of a name (docs/content-format.md):
+    accents folded to ASCII, lowercased, every run of other characters
+    one `-`, no leading/trailing `-`/`_`, at most 64 characters. A name
+    with no ASCII letter or digit at all (a Japanese title) becomes
+    `story-` plus 12 hex digits of its sha1, still stable and distinct;
+    empty text gives "" (the caller falls back to the next source)."""
+    folded = unicodedata.normalize("NFKD", text).encode(
+        "ascii", "ignore").decode("ascii").lower()
+    slugged = _STORY_BAD_RE.sub("-", folded).strip("-_")
+    slugged = slugged[:STORY_ID_MAX].rstrip("-_")
+    if slugged or not text.strip():
+        return slugged
+    return "story-" + hashlib.sha1(text.strip().encode("utf-8")).hexdigest()[:12]
+
+
+def project_folder_name(project: Path) -> str:
+    """The game's own folder name: the parent of a `game/` input, a
+    macOS bundle without its `.app` suffix."""
+    project = project.expanduser().resolve()
+    if project.name == "game":
+        project = project.parent
+    name = project.name
+    return name[:-len(".app")] if name.endswith(".app") else name
+
+
+def derive_story_id(configs: list[dict[str, str]],
+                    project: Path) -> tuple[str, str]:
+    """(storyId, where it came from), docs/plan.md Phase 21. Ren'Py's
+    own per-game save id `config.save_directory` first (it is what the
+    game's saves are keyed by), then `config.name`, then the project
+    folder name; the first that slugs to something non-empty wins.
+    `configs` are the per-file settings in filename order."""
+    for setting in ("save_directory", "name"):
+        for config in configs:
+            if setting in config:
+                story = story_slug(config[setting])
+                if story:
+                    return story, f"config.{setting}"
+    return story_slug(project_folder_name(project)) or "story", "folder name"
+
+
 def build_manifest(result: TimelineResult, width: int, height: int,
                    branches: list[dict[str, Any]] | None = None,
+                   story_id: str | None = None,
                    ) -> dict[str, Any]:
     manifest: dict[str, Any] = {
         "schemaVersion": 1,
+    }
+    if story_id:
+        manifest["storyId"] = story_id
+    manifest |= {
         "width": width,
         "height": height,
         "items": [record.item for record in result.items
@@ -249,6 +303,7 @@ def write_outputs(out_dir: Path, manifest: dict[str, Any],
 def print_summary(result: TimelineResult, reports: list[Report],
                   resolution_note: str, skipped: int,
                   branch_notes: list[dict[str, str]] | None = None,
+                  story: tuple[str, str] | None = None,
                   ) -> None:
     counts: dict[str, int] = {}
     for record in result.items:
@@ -261,6 +316,8 @@ def print_summary(result: TimelineResult, reports: list[Report],
     print(f"items: {sum(counts.values())} ({type_summary}); "
           f"media shipped: {shipped}; items skipped: {skipped}")
     print(f"resolution: {resolution_note}")
+    if story is not None:
+        print(f"story id: {story[0]} (from {story[1]})")
     notes = branch_notes or []
     detected = sum(1 for n in notes if n["result"] == "detected")
     skipped_menus = [n for n in notes if n["result"] == "skipped"]
@@ -342,7 +399,16 @@ def main(argv: list[str] | None = None) -> int:
                        else f"default {DEFAULT_SIZE[0]}x{DEFAULT_SIZE[1]}")
         if args.width or args.height:
             source_note += " with --width/--height override"
-    manifest = build_manifest(result, width, height, branches=branches)
+    configs = [parsed.config for _rel, parsed in parses]
+    if args.files and not any(c.keys() & {"save_directory", "name"}
+                              for c in configs):
+        # A slice's identity is the whole game's: read the settings file
+        # the --files glob left out.
+        options, _i, _c, _s = parse_project(game_dir, "options.rpy")
+        configs += [parsed.config for _rel, parsed in options]
+    story_id, story_source = derive_story_id(configs, args.renpy_project)
+    manifest = build_manifest(result, width, height, branches=branches,
+                              story_id=story_id)
     slice_opts = {"label": args.label, "maxItems": args.max_items,
                   "files": args.files}
     ledger = build_ledger(result, reports,
@@ -354,5 +420,5 @@ def main(argv: list[str] | None = None) -> int:
                           branch_notes=branch_notes)
     write_outputs(args.out_dir, manifest, ledger)
     print_summary(result, reports, f"{width}x{height} ({source_note})",
-                  skipped, branch_notes)
+                  skipped, branch_notes, (story_id, story_source))
     return 0

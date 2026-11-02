@@ -795,12 +795,26 @@ truthful: an unchecked box means nothing was accepted.
 
 ## Phase 21: Progress that survives moving the game (2026-11-02, user)
 
-- [ ] Story ID (user option a, 2026-11-02): manifest `storyId` from the
+- [x] Story ID (user option a, 2026-11-02): manifest `storyId` from the
       converter (Ren'Py save_directory / name / folder), demo assembler
       and fixtures; validator and docs/content-format.md; player keys
       state and bookmarks by it (folder URL fallback), carrying over
       progress saved under the folder URL. pytest on touched files,
       vitest, scenario (move/rename the folder: progress kept).
+      (storyId from save_directory, else config.name, else folder,
+      slugged; e.g. game F -> the-lantern-at-low-tide, demo
+      kinetic-demo. Player key story:<id>, folder-URL record moved over
+      once (with bookmarks) then deleted so Reset stays reset. schema
+      gains optional storyId, schemaVersion unchanged. pytest touched
+      130, vitest 508, storyid scenario 4/4 (2 red on old player),
+      screens+menus green, smoke 6/6. 2026-11-02)
+- [ ] Game name on the Esc screen (user, 2026-11-02): manifest `title`,
+      shown at the top of the Esc help screen (and as the page title).
+      Default from the Ren'Py project (`config.name`, else the project
+      folder name); the game maker sets it with a converter option
+      (`--title`) or by editing the manifest; the same option family
+      lets them set `--story-id`. Fallback when absent: no heading.
+      Tests, scenario, README, docs/content-format.md.
 - [ ] Export / import progress (user option b, 2026-11-02): `c` screen
       buttons; export downloads `<storyId>-progress.json`; import checks
       the story, confirms, replaces this browser's state, reloads; then

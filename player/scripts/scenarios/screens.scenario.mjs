@@ -913,7 +913,13 @@ async function reset({ check, open }) {
 
 // The reading-state record as IndexedDB holds it (src/storage/idb.ts).
 const READ_STATE = async () => {
-  const content = new URL(".", document.baseURI).href;
+  // The player's storage key (src/storage/idb.ts storageKeys): the
+  // manifest's story ID when it has a valid one, else the folder URL.
+  const story = window.KINETIC_MANIFEST?.storyId;
+  const content =
+    typeof story === "string" && /^[a-z0-9][a-z0-9_-]{0,63}$/.test(story)
+      ? `story:${story}`
+      : new URL(".", document.baseURI).href;
   const db = await new Promise((resolve, reject) => {
     const open = indexedDB.open("kinetic", 1);
     open.onsuccess = () => resolve(open.result);
@@ -940,7 +946,7 @@ const READ_STATE = async () => {
 // bookmark and the seen set still point at the same content.
 async function contentUpdate({ check, open }) {
   // A private copy of the demo: the update rewrites its manifest, and the
-  // save is keyed by the folder, so the copy is reloaded in place.
+  // save is keyed by its story ID, so the copy is reloaded in place.
   const folder = join(dirname(demoDir), "demo-update");
   rmSync(folder, { recursive: true, force: true });
   cpSync(demoDir, folder, { recursive: true });

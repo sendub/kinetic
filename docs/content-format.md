@@ -38,6 +38,7 @@ my-novel/
 ```jsonc
 {
   "schemaVersion": 1,
+  "storyId": "the-lantern-at-low-tide",
   "width": 1920,
   "height": 1080,
   "items": []
@@ -45,6 +46,25 @@ my-novel/
 ```
 
 - `schemaVersion`: integer, currently 1. Tools reject any other value.
+- `storyId` (optional): the story's stable identity, independent of where
+  its folder lives: lowercase ASCII letters, digits, `-` and `_`, starting
+  with a letter or digit, at most 64 characters
+  (`[a-z0-9][a-z0-9_-]{0,63}`). The player keys the saved reading
+  position, settings, help-seen flag and bookmarks by it, so moving,
+  renaming or copying the folder keeps progress in that browser. Two
+  folders with one `storyId` share progress; keep it the same across
+  content updates. Without it (manifests from before it existed) the
+  player keys progress by the folder's URL as before; the first load of
+  a manifest that has one carries progress saved under that folder's URL
+  over to the story. Adding the field did not change `schemaVersion`: it
+  is optional, and a reader that ignores it loses nothing but the
+  portability. kinetic-extract derives it from the Ren'Py project:
+  `config.save_directory` (Ren'Py's own per-game save id, e.g.
+  `"GameName-1234567890"`), else `config.name`, else the project folder
+  name, slugified (accents folded to ASCII, lowercased, every other run
+  of characters one `-`, trimmed of leading/trailing `-`/`_`, cut to 64;
+  a name with no ASCII letter or digit becomes `story-` plus 12 hex
+  digits of its sha1).
 - `width`, `height`: display resolution in pixels. Every generated image is
   exactly this size, and the player scales its surface to the screen.
 - `items`: the ordered sequence. Position in the array is position in the
@@ -530,7 +550,8 @@ The validator checks the schema plus these invariants:
 1. `manifest.json` validates against `docs/content-schema.json`.
 2. Every path in the manifest resolves to an existing file in the folder.
 3. Item ids are unique.
-4. `schemaVersion` is 1; `items` is an array (an empty one is valid — an
+4. `schemaVersion` is 1; `storyId`, when present, is a slug as above;
+   `items` is an array (an empty one is valid — an
    honestly-empty folder, see Manifest); `frames` has at least two
    entries; `loopCount` is at least 1; `fps` and `durationSeconds` are
    greater than 0; `minPlaySeconds`, when present, is greater than 0;

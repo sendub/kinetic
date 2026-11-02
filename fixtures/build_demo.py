@@ -549,6 +549,10 @@ def check_manifest(manifest: dict, schema: dict) -> list[str]:
             bad(f"top level: missing required key {key!r}")
     if manifest.get("schemaVersion") != props["schemaVersion"]["const"]:
         bad(f"schemaVersion must be {props['schemaVersion']['const']}")
+    story = manifest.get("storyId")
+    if not isinstance(story, str) or not re.fullmatch(
+            props["storyId"]["pattern"], story):
+        bad(f"storyId {story!r} must match {props['storyId']['pattern']}")
     for key in ("width", "height"):
         if not isinstance(manifest.get(key), int) or manifest.get(key, 0) < 1:
             bad(f"{key} must be an integer >= 1")
@@ -671,6 +675,9 @@ def main() -> None:
     items += branch_items
     manifest = {
         "schemaVersion": 1,
+        # The demo's identity for saved progress (docs/plan.md Phase 21):
+        # moving or renaming the folder keeps the reader's place.
+        "storyId": "kinetic-demo",
         "width": WIDTH,
         "height": HEIGHT,
         "items": items,

@@ -4,7 +4,7 @@
 //
 // Schema — one database for the whole app, `kinetic` (version 1):
 //   - store `state`: no keyPath; one record per novel, stored under the
-//     novel's content signature, value `{ ctx?, settings?, helpSeen? }`
+//     novel's storage key (below), value `{ ctx?, settings?, helpSeen? }`
 //     (`ctx` is the id-keyed route-play context, `SavedContext`;
 //     `settings` is the partial the `c` screen changed; absent or
 //     malformed fields simply fall back at load — a malformed or
@@ -21,9 +21,24 @@
 // so the database stays at version 1 with no upgrade step; old-shape
 // values are dropped at read (`storage/types.ts`, "No migration").
 //
-// Content signature = the novel folder's absolute URL (`contentSignature`).
+// Storage key (`storageKeys`, docs/plan.md Phase 21): `story:<storyId>`
+// when the manifest names its story, so moving, renaming or copying the
+// folder keeps progress; otherwise the content signature = the novel
+// folder's absolute URL (`contentSignature`), as before Phase 21.
 // IndexedDB already isolates by origin, but a path distinguishes novels on
 // one origin (several folders on the dev server) and on `file://` alike.
+// The two forms cannot collide: a folder URL never has the `story:` scheme.
+//
+// Carry-over (one-time, idempotent): a novel keyed by story ID whose key
+// has no `state` record yet takes over what its current folder URL holds
+// — the state record is MOVED to the story key (the folder-URL record is
+// deleted) and that folder's bookmarks are retagged to it, all in one
+// readwrite transaction before the adapter's first read or write. Moved
+// rather than copied: a leftover folder-URL record would be carried over
+// again after "Reset progress" deletes the story's record, resurrecting
+// the progress the reader just cleared. Once a story key has a record the
+// carry-over never runs again for it (a second old folder's progress of
+// the same story stays where it was).
 
 import type { MachineSettings } from "../machine/types";
 import { DEFAULT_SETTINGS } from "../machine/types";
@@ -56,6 +71,26 @@ export function contentSignature(pageUri: string): string {
   } catch {
     return pageUri;
   }
+}
+
+/** A manifest `storyId` the player keys progress by (docs/content-format.md). */
+const STORY_ID_PATTERN = /^[a-z0-9][a-z0-9_-]{0,63}$/;
+
+/**
+ * Where a novel's progress lives: `key` is `story:<storyId>` when the
+ * manifest's `storyId` is a valid story slug, with `legacyKey` the folder
+ * URL its progress may have been saved under before; otherwise (absent or
+ * malformed) `key` is the folder URL, as before story IDs existed.
+ */
+export function storageKeys(
+  storyId: unknown,
+  pageUri: string,
+): { key: string; legacyKey?: string } {
+  const folder = contentSignature(pageUri);
+  if (typeof storyId === "string" && STORY_ID_PATTERN.test(storyId)) {
+    return { key: `story:${storyId}`, legacyKey: folder };
+  }
+  return { key: folder };
 }
 
 interface BookmarkRecord {
@@ -283,16 +318,66 @@ export function sanitizeContext(raw: unknown): SavedContext | undefined {
 }
 
 /**
- * A Storage scoped to one novel, or null when this host has no IndexedDB at
+ * A Storage scoped to one novel (`contentKey`, from `storageKeys`), or null
+ * when this host has no IndexedDB at all. With a `legacyKey`, progress saved
+ * under it is carried over once before the first read or write (header
+ * comment). Null means no IndexedDB at
  * all — the caller falls back to `createNoopStorage()` so the player runs.
  * Methods reject on real adapter failure; they never run against a half-open
  * database.
  */
-export function createIdbStorage(contentKey: string): Storage | null {
+export function createIdbStorage(
+  contentKey: string,
+  legacyKey?: string,
+): Storage | null {
   if (globalThis.indexedDB === undefined) return null;
 
+  let carried: Promise<IDBDatabase> | null = null;
+  /**
+   * The open database, after the one-time carry-over from `legacyKey`
+   * (header comment) has committed. A failed carry-over is not fatal:
+   * the novel then simply starts from its own key.
+   */
+  function database(): Promise<IDBDatabase> {
+    if (carried !== null) return carried;
+    carried = openDatabase().then(async (db) => {
+      if (legacyKey === undefined || legacyKey === contentKey) return db;
+      await carryOver(db, legacyKey).catch(() => undefined);
+      return db;
+    });
+    return carried;
+  }
+
+  /** Move `from`'s state record and bookmarks to this novel's key. */
+  function carryOver(db: IDBDatabase, from: string): Promise<void> {
+    const tx = db.transaction([STATE_STORE, BOOKMARKS_STORE], "readwrite");
+    const states = tx.objectStore(STATE_STORE);
+    const own = states.getKey(contentKey);
+    own.onsuccess = () => {
+      if (own.result !== undefined) return; // already has its own record
+      const old = states.get(from);
+      old.onsuccess = () => {
+        if (old.result === undefined) return;
+        states.put(old.result, contentKey);
+        states.delete(from);
+      };
+      const index = tx.objectStore(BOOKMARKS_STORE).index(CONTENT_INDEX);
+      const cursorRequest = index.openCursor(IDBKeyRange.only(from));
+      cursorRequest.onsuccess = () => {
+        const cursor = cursorRequest.result;
+        if (cursor === null) return;
+        cursor.update({
+          ...(cursor.value as BookmarkRecord),
+          content: contentKey,
+        });
+        cursor.continue();
+      };
+    };
+    return transactionDone(tx);
+  }
+
   async function getBookmarks(): Promise<Bookmark[]> {
-    const db = await openDatabase();
+    const db = await database();
     const tx = db.transaction(BOOKMARKS_STORE, "readonly");
     const index = tx.objectStore(BOOKMARKS_STORE).index(CONTENT_INDEX);
     const records = await requestPromise(
@@ -305,7 +390,7 @@ export function createIdbStorage(contentKey: string): Storage | null {
 
   return {
     async loadState(): Promise<PersistedState | null> {
-      const db = await openDatabase();
+      const db = await database();
       const tx = db.transaction(STATE_STORE, "readonly");
       const stored = await requestPromise(
         tx.objectStore(STATE_STORE).get(contentKey),
@@ -334,7 +419,7 @@ export function createIdbStorage(contentKey: string): Storage | null {
     },
 
     async saveState(state: PersistedState): Promise<void> {
-      const db = await openDatabase();
+      const db = await database();
       const tx = db.transaction(STATE_STORE, "readwrite");
       const record: Record<string, unknown> = {};
       // `ctx` is JSON-safe by contract; the structured clone copies it.
@@ -352,7 +437,7 @@ export function createIdbStorage(contentKey: string): Storage | null {
     },
 
     async addBookmark(bookmark: Bookmark): Promise<Bookmark[]> {
-      const db = await openDatabase();
+      const db = await database();
       const tx = db.transaction(BOOKMARKS_STORE, "readwrite");
       // `seq` is absent so autoIncrement assigns it; its value orders the list.
       const record: Record<string, unknown> = {
@@ -374,7 +459,7 @@ export function createIdbStorage(contentKey: string): Storage | null {
     // and delete the one carrying `id` (ids are not the store key — `seq`
     // is), committed before the remaining list is read back.
     async deleteBookmark(id: string): Promise<Bookmark[]> {
-      const db = await openDatabase();
+      const db = await database();
       const tx = db.transaction(BOOKMARKS_STORE, "readwrite");
       const index = tx.objectStore(BOOKMARKS_STORE).index(CONTENT_INDEX);
       const cursorRequest = index.openCursor(IDBKeyRange.only(contentKey));
@@ -396,14 +481,14 @@ export function createIdbStorage(contentKey: string): Storage | null {
     // record delete, not `deleteDatabase`, so the app's own open
     // connection is no obstacle; it closes harmlessly with the page.
     async deleteState(): Promise<void> {
-      const db = await openDatabase();
+      const db = await database();
       const tx = db.transaction(STATE_STORE, "readwrite");
       tx.objectStore(STATE_STORE).delete(contentKey);
       await transactionDone(tx);
     },
 
     async deleteBookmarks(): Promise<void> {
-      const db = await openDatabase();
+      const db = await database();
       const tx = db.transaction(BOOKMARKS_STORE, "readwrite");
       // An index cannot delete directly; walk this content's cursor and
       // delete each row through it, then let the transaction commit.

@@ -95,7 +95,13 @@ const PAGE_STATE = () => {
 // store `bookmarks`, auto-increment `seq`, per-novel `content` index keyed
 // by the novel folder URL). Steps assert the stored record, not a DOM echo.
 const READ_BOOKMARKS = async () => {
-  const content = new URL(".", document.baseURI).href;
+  // The player's storage key (src/storage/idb.ts storageKeys): the
+  // manifest's story ID when it has a valid one, else the folder URL.
+  const story = window.KINETIC_MANIFEST?.storyId;
+  const content =
+    typeof story === "string" && /^[a-z0-9][a-z0-9_-]{0,63}$/.test(story)
+      ? `story:${story}`
+      : new URL(".", document.baseURI).href;
   const db = await new Promise((resolve, reject) => {
     const open = indexedDB.open("kinetic", 1);
     open.onsuccess = () => resolve(open.result);

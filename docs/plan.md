@@ -880,6 +880,12 @@ and machines (user chose a and b).
   manifest has none. Progress already saved under the folder URL is
   carried over to the story ID on first load, so nobody loses it.
   Moving or renaming the folder keeps progress in that browser.
+- Game name on the Esc screen: the manifest gains an optional `title`,
+  shown at the top of the Esc help screen and as the page title.
+  Default from the Ren'Py project (`config.name`, else the project
+  folder name); the game maker overrides it with the converter option
+  `--title` or by editing the manifest, and likewise the story ID with
+  `--story-id`. No title, no heading.
 - Export / import progress: the `c` screen gains "Export progress"
   (downloads `<storyId>-progress.json`: reading position, settings,
   help-seen, bookmarks) and "Import progress" (file picker). Import is

@@ -40,6 +40,11 @@ directory itself, or a macOS `.app` bundle (resolves
 display resolution; the default is the most common image size among
 referenced source images (Pillow), falling back to 1280x720.
 
+The manifest's `storyId` (docs/content-format.md) comes from the
+project: `config.save_directory`, else `config.name`, else the project
+folder name (without `.app`), slugified; a slice still reads it from
+`options.rpy`. The summary prints it and its source.
+
 Slice options (docs/plan.md Phase 11) extract part of a big game:
 `--label NAME` starts the walk at that label, `--max-items N` stops
 after N manifest items, and `--files GLOB` parses only the `game/*.rpy`

@@ -40,6 +40,14 @@ _DEFINE_CHAR_RE = re.compile(
 # `em "..."` and `em"..."` (docs/extracting.md BUG 3), and the keywords
 # the walker knows (`image`, `scene`, ...) are matched before this runs,
 # so the looser form cannot capture them.
+# The project settings that name the story (docs/plan.md Phase 21, Story
+# ID): `define config.save_directory = "..."` (or the older
+# `config.save_directory = "..."` inside an `init python` block), and
+# `config.name`, plain or `_()`-wrapped. Only a string literal counts:
+# `None` or an expression names nothing. Single or double quotes.
+_CONFIG_STRING_RE = re.compile(
+    r"""\s*(?:define\s+)?config\.(save_directory|name)\s*=\s*"""
+    r"""(?:_\(\s*)?(?:"((?:[^"\\]|\\.)*)"|'((?:[^'\\]|\\.)*)')""")
 _SPEAKER_SAY_RE = re.compile(r"([A-Za-z_]\w*)\s*\"")
 _LABEL_HEAD_RE = re.compile(r"^label\s+([A-Za-z_]\w*)")
 
@@ -176,6 +184,9 @@ class FileParse:
     image_defs: dict[str, tuple[str, str]] = field(default_factory=dict)
     characters: dict[str, str] = field(default_factory=dict)   # var -> display
     reports: list[Report] = field(default_factory=list)
+    # First string literal assigned to `config.save_directory` /
+    # `config.name` in this file, by setting name (the manifest storyId).
+    config: dict[str, str] = field(default_factory=dict)
 
 
 def _label_names(lines: list[str]) -> set[str]:
@@ -415,6 +426,13 @@ def parse_file(text: str, relname: str) -> FileParse:
     result = FileParse(relname=relname)
     raw_lines = text.lstrip("\ufeff").splitlines()
     labels = _label_names(raw_lines)
+    # Scanned on every line, block or not: the settings live in `init`
+    # and `python` blocks the statement walk below skips.
+    for raw in raw_lines:
+        m = _CONFIG_STRING_RE.match(strip_comment(raw))
+        if m and m.group(1) not in result.config:
+            value = m.group(2) if m.group(2) is not None else m.group(3)
+            result.config[m.group(1)] = value
 
     skip_indent: int | None = None  # depth of the line that opened a block
     cur_label: str | None = None    # label whose body the walk is in
