@@ -1,5 +1,5 @@
 // Timeline state machine core (docs/plan.md Phases 3-4, 13). Pure TypeScript:
-// no DOM, no imports beyond ./types. Commands in, state out; time enters
+// no DOM, no imports beyond ./types and ./choicetext. Commands in, state out; time enters
 // through an injected Scheduler so tests are deterministic.
 //
 // Seen set (Phase 13): `visited` is the set of item indices that have been
@@ -83,6 +83,12 @@
 // the video's own time bound instead of one dwell; Space aborts it and the
 // burst goes on.
 
+import {
+  AUTO_PICK_SHOW_MS,
+  choiceCountdownMs,
+  choiceRowCount,
+  choiceScreenText,
+} from "./choicetext";
 import type {
   AutoPickView,
   Branch,
@@ -625,13 +631,13 @@ function asIndex(value: unknown, fallback: number): number {
     : fallback;
 }
 
-/**
- * `Play all routes` (docs/plan.md Phase 18): the shortest countdown before
- * a choice is answered — longer when its words need more reading time — and
- * how long the picked row stays highlighted before the route starts.
- */
-export const AUTO_PICK_MIN_MS = 2500;
-export const AUTO_PICK_SHOW_MS = 700;
+export {
+  AUTO_PICK_MIN_MS,
+  AUTO_PICK_SHOW_MS,
+  CHOICE_BASE_MS,
+  CHOICE_PER_ROW_MS,
+  choiceCountdownMs,
+} from "./choicetext";
 
 /**
  * The reading history's cap, in entries (docs/plan.md, "History rollback
@@ -863,19 +869,25 @@ export function createMachine(options: MachineOptions): Machine {
 
   /**
    * The countdown before play-all answers the open choice: the reading time
-   * of everything on the screen at the reader's speed, never under
-   * `AUTO_PICK_MIN_MS`. Inside a skip burst there is none.
+   * of every word the screen draws plus comprehension time per row
+   * (`choiceCountdownMs`, docs/plan.md Phase 20). Inside a skip burst there
+   * is none.
    */
   function autoPickCountdownMs(held: {
     decision: number;
     fromRoute: number;
     resumeSkip: boolean;
   }): number {
-    if (held.resumeSkip) return 0;
+    if (held.resumeSkip || pendingChoice === null) return 0;
+    const view = choiceView(pendingChoice);
     const decision = decisions[held.decision];
-    const words = [decision.prompt, ...decision.routes.map((r) => r.label)];
-    if (held.fromRoute >= 0) words.push(decision.routes[held.fromRoute].label);
-    return Math.max(AUTO_PICK_MIN_MS, textHoldMs(words.join(" "), settings));
+    const back =
+      held.fromRoute >= 0 ? decision.routes[held.fromRoute].label : undefined;
+    return choiceCountdownMs(
+      choiceScreenText(view, back),
+      choiceRowCount(view),
+      settings,
+    );
   }
 
   /**

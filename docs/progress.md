@@ -763,12 +763,19 @@ truthful: an unchecked box means nothing was accepted.
       time shown. 5 new machine tests red before, green after; reading
       scenario check (intro-title moves within 1.5 s) red on old code.
       vitest 481, reading 13/13, playall 19/19, smoke 6/6. 2026-11-02)
-- [ ] Play-all choice: highlight and reading time (user, 2026-11-02): the
+- [x] Play-all choice: highlight and reading time (user, 2026-11-02): the
       route play-all will pick is highlighted from the start of the
       countdown, not only in the final ~0.7 s. Check that the countdown
       really counts every word on the screen (prompt, every label,
       "Back in time" line) and give choice screens extra comprehension
       time on top of plain reading time. Tests, playall scenario, docs.
+      (choicetext.ts: one home for the screen strings; countdown =
+      max(2.5 s, (chars of prompt + status line + labels + seen markers +
+      return row) x ms/char + 1.5 s + 1 s per row) / speed. Demo at 1.00x:
+      outer 4.5 -> 9.7 s, re-offer 5.6 -> 12.4 s, nested 5.5 -> 10.7 s,
+      re-offer 7.4 -> 14.1 s. `.choice-next` marks the pick row from the
+      countdown's first frame (screenshot checked). Tests red before.
+      vitest 487, playall 21/21, branches 39/39, smoke 6/6. 2026-11-02)
 - [ ] Auto-forward on/off pill (user, 2026-11-02): "Auto-forward on" when
       it starts, "Auto-forward off" whenever it stops by any route in the
       code, using the route-entry pill mechanism. Tests, scenario, README.

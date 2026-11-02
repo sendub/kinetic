@@ -2487,7 +2487,9 @@ describe("minPlaySeconds chain-exit floor (docs/plan.md Phase 15)", () => {
     const m = createMachine({
       items,
       branches: [branch],
-      settings: { ...floorSettings, playAllRoutes: true },
+      // A fast reader: the choice countdown sits at its 2.5 s floor
+      // (texts here hold the 800 ms minimum at any speed).
+      settings: { ...floorSettings, readingSpeed: 10, playAllRoutes: true },
       autoAdvance: true,
     });
     vi.advanceTimersByTime(800); // "a" settles: the choice opens, counting down

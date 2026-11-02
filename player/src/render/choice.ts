@@ -29,17 +29,27 @@
 // (`ChoiceView.autoPick`, docs/plan.md Phase 18): a status line under the
 // prompt says so — after a jump back, which route just ended — with a
 // draining bar and the seconds left; then the picked row lights up until
-// the route starts. Space takes the pick at once; a digit or click picks
+// the route starts. The row it will pick is marked from the countdown's
+// first moment (`.choice-next`, docs/plan.md Phase 20), then lights up as
+// `.choice-picked`. Space takes the pick at once; a digit or click picks
 // another route instead.
 //
 // Like every panel here, the decisions are pure exports and the DOM half
 // only applies them; the verify walk proves the screen (its branch steps
 // arrive with the branch fixture, docs/plan.md Phase 13).
 
-import type { AutoPickView, ChoiceView } from "../machine/types";
+// `.ts` on purpose: the verify scenarios load this file under plain node,
+// which resolves no extensionless relative import.
+import {
+  autoPickStatus,
+  CONTINUE_LABEL,
+  SEEN_MARKER,
+} from "../machine/choicetext.ts";
+import type { ChoiceView } from "../machine/types";
 
-/** The label of the `continueAt` offer row. */
-export const CONTINUE_LABEL = "Return to main route";
+// The screen's strings live with the machine, which counts them for the
+// play-all countdown (docs/plan.md Phase 20).
+export { autoPickStatus, CONTINUE_LABEL, SEEN_MARKER };
 
 /** The panel's input hint, shown under the prompt. */
 export const CHOICE_HINT = "1-9 or click picks a route";
@@ -66,27 +76,6 @@ export function choiceHint(choice: ChoiceView): string {
 /** The hint's extra while play-all counts down: Space takes the pick now. */
 export const AUTO_PICK_HINT = " · Space picks now";
 
-/**
- * The auto-pick status line: the jump back (on a re-offer), then the
- * countdown's whole seconds left, or the route just picked.
- */
-export function autoPickStatus(
-  auto: AutoPickView,
-  routeLabel: string,
-  secondsLeft: number,
-): string {
-  const back =
-    auto.backFromLabel === undefined
-      ? ""
-      : `Back in time: ${auto.backFromLabel} done. `;
-  return auto.picked
-    ? `${back}Play all routes picked ${routeLabel}`
-    : `${back}Play all routes picks in ${secondsLeft} s`;
-}
-
-/** The marker beside a route that has already been played in this save. */
-export const SEEN_MARKER = "seen";
-
 /** One row as drawn: a numbered route, or the return offer numbered 0. */
 export interface ChoiceRowModel {
   readonly kind: "route" | "continue";
@@ -101,6 +90,11 @@ export interface ChoiceRowModel {
   readonly number: number;
   readonly label: string;
   readonly seen: boolean;
+  /**
+   * The play-all pick on this row: `next` while the countdown runs (the
+   * row it will take), `picked` once it has run out, `none` otherwise.
+   */
+  readonly pick: "none" | "next" | "picked";
 }
 
 /**
@@ -110,12 +104,19 @@ export interface ChoiceRowModel {
  */
 export function choiceRows(choice: ChoiceView | undefined): ChoiceRowModel[] {
   if (choice === undefined) return [];
+  const auto = choice.autoPick;
   const rows: ChoiceRowModel[] = choice.routes.map((route) => ({
     kind: "route",
     routeIdx: route.routeIdx,
     number: route.routeIdx + 1,
     label: route.label,
     seen: route.seen,
+    pick:
+      auto?.routeIdx !== route.routeIdx
+        ? "none"
+        : auto.picked
+          ? "picked"
+          : "next",
   }));
   if (choice.continueOption === true) {
     rows.push({
@@ -124,6 +125,7 @@ export function choiceRows(choice: ChoiceView | undefined): ChoiceRowModel[] {
       number: CONTINUE_NUMBER,
       label: CONTINUE_LABEL,
       seen: false,
+      pick: "none",
     });
   }
   return rows;
@@ -283,10 +285,10 @@ export function mountChoiceOverlay({
         const line = doc.createElement("button");
         line.className = "choice-row";
         line.type = "button";
-        if (
-          choice.autoPick?.picked === true &&
-          row.routeIdx === choice.autoPick.routeIdx
-        ) {
+        if (row.pick === "next") {
+          line.classList.add("choice-next");
+          line.setAttribute("data-choice-next", "");
+        } else if (row.pick === "picked") {
           line.classList.add("choice-picked");
           line.setAttribute("data-choice-picked", "");
         }

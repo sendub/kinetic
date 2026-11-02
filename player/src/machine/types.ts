@@ -196,7 +196,7 @@ export interface MachineSettings {
   /**
    * Zero-interactivity route playback (docs/plan.md Phase 13, reworked in
    * Phase 18); default false. While on, each decision's choice still shows,
-   * with a countdown sized to its words at the reading speed, then the
+   * with a countdown sized to its words and rows (`choiceCountdownMs`), then the
    * machine picks the shortest not-yet-played route — the continuing route
    * last — highlights it briefly and enters it (`ChoiceView.autoPick`).
    * After every route has played once it proceeds to `continueAt`. Inside a

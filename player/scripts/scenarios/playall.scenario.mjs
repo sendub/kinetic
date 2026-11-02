@@ -1,8 +1,10 @@
 // Play all routes (docs/plan.md Phase 18, "Play all routes shows the
 // choice"): with `Play all routes` on, every decision's #choice still shows,
 // with a status line and a draining bar counting down for the screen's
-// reading time (never under AUTO_PICK_MIN_MS); then the picked row lights
-// up for AUTO_PICK_SHOW_MS and the route starts. The shortest unplayed
+// reading time plus comprehension time per row (never under
+// AUTO_PICK_MIN_MS, docs/plan.md Phase 20). The row it will pick is marked
+// from the countdown's start; then it lights up as picked for
+// AUTO_PICK_SHOW_MS and the route starts. The shortest unplayed
 // route goes first, the continuing route last. A re-offer says which route
 // just ended. Space takes the pick at once; a digit picks another route;
 // `c` over the choice freezes the countdown. Inside a skip-all burst there
@@ -29,17 +31,36 @@ export const title = "play all routes: on-screen auto-picks, countdown, skip";
 const AUTO_PICK_MIN_MS = 2500; // machine.ts
 const AUTO_PICK_SHOW_MS = 700; // machine.ts
 const MS_PER_CHAR = 60; // DEFAULT_SETTINGS at reading speed 1.00x
+const CHOICE_BASE_MS = 1500; // machine/choicetext.ts
+const CHOICE_PER_ROW_MS = 1000; // machine/choicetext.ts
 const ROUTE_PILL_MS = 1600; // render/app.ts
 const TOLERANCE_MS = 500;
 
 const outer = branch("outer");
 const nested = branch("nested");
 const routeLabel = (b, id) => b.routes.find((r) => r.id === id).label;
-/** The countdown the machine sizes for a choice screen's words. */
+/**
+ * The countdown for a choice screen, written out longhand: every word it
+ * draws (prompt, status line with its "Back in time" lead, each route label
+ * and the `seen` marker on the route that just ended) at MS_PER_CHAR, plus
+ * the comprehension time for its rows. Neither demo decision draws the
+ * return row under play-all (the continuing route goes last).
+ */
 const countdownMs = (b, backFrom) => {
-  const words = [b.prompt, ...b.routes.map((r) => r.label)];
-  if (backFrom !== undefined) words.push(routeLabel(b, backFrom));
-  return Math.max(AUTO_PICK_MIN_MS, [...words.join(" ")].length * MS_PER_CHAR);
+  const back =
+    backFrom === undefined
+      ? ""
+      : `Back in time: ${routeLabel(b, backFrom)} done. `;
+  const rows = b.routes.map((r) =>
+    r.id === backFrom ? `${r.label} seen` : r.label,
+  );
+  const screen = [b.prompt, `${back}Play all routes picks in 0 s`, ...rows];
+  return Math.max(
+    AUTO_PICK_MIN_MS,
+    [...screen.join(" ")].length * MS_PER_CHAR +
+      CHOICE_BASE_MS +
+      CHOICE_PER_ROW_MS * rows.length,
+  );
 };
 
 // A page-side timeline: every visible change (#choice up/down and its
@@ -95,6 +116,9 @@ const INSTALL_TIMELINE = () => {
       picked:
         choice?.querySelector("[data-choice-picked] .choice-label")
           ?.textContent ?? null,
+      next:
+        choice?.querySelector("[data-choice-next] .choice-label")
+          ?.textContent ?? null,
     };
     const key = JSON.stringify(snap);
     if (key === last) return;
@@ -128,6 +152,23 @@ const READ_AUTO = () => {
     picked:
       c.querySelector("[data-choice-picked] .choice-label")?.textContent ??
       null,
+    next:
+      c.querySelector("[data-choice-next] .choice-label")?.textContent ?? null,
+    nextLook: (() => {
+      const row = c.querySelector("[data-choice-next]");
+      const plain = c.querySelector(
+        ".choice-row:not([data-choice-next]):not([data-choice-picked])",
+      );
+      if (row === null || plain === null) return null;
+      const a = getComputedStyle(row);
+      const b = getComputedStyle(plain);
+      return {
+        differs:
+          a.borderColor !== b.borderColor ||
+          a.backgroundColor !== b.backgroundColor ||
+          a.boxShadow !== b.boxShadow,
+      };
+    })(),
     seen: Array.from(c.querySelectorAll(".choice-row")).map(
       (row) => row.querySelector(".choice-seen") !== null,
     ),
@@ -326,6 +367,11 @@ export default async function ({ check, open }) {
         first.picked === null,
       first,
     );
+    check(
+      "from the countdown's start the row play-all will pick (Route 2) is marked, and looks different from the others",
+      first.next === r2 && first.nextLook?.differs === true,
+      { next: first.next, nextLook: first.nextLook },
+    );
     const onRoute2 = await waitFor(
       page,
       "route2-start",
@@ -336,8 +382,16 @@ export default async function ({ check, open }) {
     let spans = choiceSpans(tl);
     const span1 = spans[0];
     const lit1 = span1 ? pickedAt(span1) : null;
+    const beforeLit1 = span1
+      ? span1.entries.filter((e) => lit1 === null || e.t < lit1)
+      : [];
     check(
-      "it counts down for the screen's reading time, lights up the shortest route (Route 2), then enters it",
+      "the next-pick mark is on Route 2 from the choice's first frame until it lights up as picked",
+      beforeLit1.length > 0 && beforeLit1.every((e) => e.next === r2),
+      beforeLit1.map(({ t, next, picked }) => ({ t, next, picked })),
+    );
+    check(
+      "it counts down for every word on the screen plus comprehension time, lights up the shortest route (Route 2), then enters it",
       onRoute2 &&
         spans.length === 1 &&
         lit1 !== null &&
@@ -375,13 +429,15 @@ export default async function ({ check, open }) {
     await sleep(400);
     const re = await page.evaluate(READ_AUTO);
     check(
-      "the re-offer leads with the jump back, Route 2 marked seen",
+      "the re-offer leads with the jump back, Route 2 marked seen, Route 1 marked as the next pick",
       re.open &&
         re.status.startsWith(
           `Back in time: ${r2} done. Play all routes picks in`,
         ) &&
         re.seen[0] === false &&
-        re.seen[1] === true,
+        re.seen[1] === true &&
+        re.next === r1 &&
+        re.picked === null,
       re,
     );
     const onRoute1 = await waitFor(
@@ -394,7 +450,7 @@ export default async function ({ check, open }) {
     spans = choiceSpans(tl.filter((e) => e.t >= tReoffer));
     const lit2 = spans[0] ? pickedAt(spans[0]) : null;
     check(
-      "its countdown includes the ended route's name; then Route 1 starts with only its route pill",
+      "its countdown includes the Back-in-time line and the seen marker; then Route 1 starts with only its route pill",
       onRoute1 &&
         lit2 !== null &&
         Math.abs(lit2 - spans[0].shownAt - countdownMs(outer, "route2")) <=
@@ -402,7 +458,10 @@ export default async function ({ check, open }) {
         pillSpans(tl.filter((e) => e.t >= spans[0].hiddenAt))
           .map((p) => p.text)
           .join("|") === `Route: ${r1}`,
-      { lit: lit2 === null ? null : lit2 - spans[0].shownAt },
+      {
+        lit: lit2 === null ? null : lit2 - spans[0].shownAt,
+        expected: countdownMs(outer, "route2"),
+      },
     );
 
     // Nested decision: Space takes the pick at once, without also stepping.

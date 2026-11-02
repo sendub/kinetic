@@ -549,7 +549,8 @@ describe("the reading history replays decisions (docs/plan.md, History rollback 
     step(m);
     step(m); // cursor 2
     m.advance(); // fires: the choice opens, counting down
-    vi.advanceTimersByTime(AUTO_PICK_MIN_MS + AUTO_PICK_SHOW_MS); // route A
+    const countdown = m.getState().choice?.autoPick?.ms ?? 0;
+    vi.advanceTimersByTime(countdown + AUTO_PICK_SHOW_MS); // route A
     expect(m.getState().cursor).toBe(3);
     step(m); // 3 -> 4, A's end
     step(m); // off A's end: the re-offer
@@ -2272,11 +2273,15 @@ describe("play all routes shows the choice and picks on screen (docs/plan.md Pha
     const m = manifest(shape);
     return createMachine({ items: m.items, branches: m.branches, settings });
   }; // manual presses: each step is explicit
-  const countdown = (shape: Shape, decision = 0, extra = "") => {
-    const b = shape.branches[decision];
-    const words = [b.prompt, ...b.routes.map((r) => r.label)].join(" ") + extra;
-    return Math.max(AUTO_PICK_MIN_MS, [...words].length * SETTINGS.msPerChar);
-  };
+  // Every word on the screen at 60 ms/char, plus 1.5 s + 1 s per row to
+  // take the choice in (docs/plan.md Phase 20), written out longhand.
+  const countdown = (screen: string, rows: number) =>
+    Math.max(
+      AUTO_PICK_MIN_MS,
+      [...screen].length * SETTINGS.msPerChar + 1500 + 1000 * rows,
+    );
+  const FIRST =
+    "Which road? Play all routes picks in 0 s Route A Route B Route C";
 
   it("a fired decision counts down, highlights the pick, then enters it", () => {
     vi.useFakeTimers();
@@ -2284,7 +2289,8 @@ describe("play all routes shows the choice and picks on screen (docs/plan.md Pha
     m.advance(); // 0 -> 1
     m.advance(); // 1 -> 2 (`decide`)
     m.advance(); // fires: the choice opens with the auto-pick counting down
-    const ms = countdown(CANON);
+    const ms = countdown(FIRST, 3);
+    expect(ms).toBe(64 * 60 + 4500); // 8340 ms, not the old 2500 floor
     expect(m.getState().cursor).toBe(2);
     expect(m.getState().choice?.autoPick).toMatchObject({
       routeIdx: 0,
@@ -2307,7 +2313,7 @@ describe("play all routes shows the choice and picks on screen (docs/plan.md Pha
     m.destroy();
   });
 
-  it("the countdown is the screen's reading time at the reader's speed", () => {
+  it("the countdown is the screen's reading and comprehension time at the reader's speed", () => {
     vi.useFakeTimers();
     const long: Shape = {
       ...CANON,
@@ -2324,10 +2330,9 @@ describe("play all routes shows the choice and picks on screen (docs/plan.md Pha
     m.advance();
     m.advance();
     const b = long.branches[0];
-    const chars = [...[b.prompt, ...b.routes.map((r) => r.label)].join(" ")]
-      .length;
+    const screen = `${b.prompt} Play all routes picks in 0 s Route A Route B Route C`;
     expect(m.getState().choice?.autoPick?.ms).toBe(
-      (chars * SETTINGS.msPerChar) / 0.5,
+      ([...screen].length * SETTINGS.msPerChar + 1500 + 3000) / 0.5,
     );
     m.destroy();
   });
@@ -2347,8 +2352,36 @@ describe("play all routes shows the choice and picks on screen (docs/plan.md Pha
       routeIdx: 1,
       picked: false,
       backFromLabel: "Route A",
-      ms: countdown(CANON, 0, " Route A"),
+      ms: countdown(
+        "Which road? Back in time: Route A done. Play all routes picks in 0 s" +
+          " Route A seen Route B Route C",
+        3,
+      ),
     });
+    m.destroy();
+  });
+
+  it("the countdown counts the seen markers and the return row", () => {
+    vi.useFakeTimers();
+    const m = machine(CANON);
+    for (let press = 0; press < 3; press += 1) m.advance(); // the choice
+    m.choose(2); // route C, the continuing route
+    m.advance(); // 7 -> 8
+    m.advance(); // C completes: joins at 9, the return row unlocks
+    for (let n = 0; n < 20 && m.getState().cursor !== 2; n += 1) m.wheelBack();
+    m.choose(0); // route A from the replayed screen
+    m.advance(); // 3 -> 4
+    m.advance(); // A's end: the live re-offer, with the return row
+    expect(m.getState().choice?.continueOption).toBe(true);
+    m.setSettings(ALL); // play-all takes over the live choice
+    expect(m.getState().choice?.autoPick).toMatchObject({ routeIdx: 1 });
+    expect(m.getState().choice?.autoPick?.ms).toBe(
+      countdown(
+        "Which road? Play all routes picks in 0 s" +
+          " Route A seen Route B Route C seen Return to main route",
+        4,
+      ),
+    );
     m.destroy();
   });
 

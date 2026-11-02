@@ -65,6 +65,7 @@ describe("choiceRows (the overlay's row model)", () => {
       number: 0, // its key: the return row is picked with 0
       label: CONTINUE_LABEL,
       seen: false,
+      pick: "none",
     });
     // The routes keep their numbers under the offer.
     expect(rows.slice(0, 2).map((row) => row.number)).toEqual([1, 2]);
@@ -72,6 +73,50 @@ describe("choiceRows (the overlay's row model)", () => {
 
   it("draws nothing without a pending decision", () => {
     expect(choiceRows(undefined)).toEqual([]);
+  });
+});
+
+describe("the row play-all will pick is marked from the start (docs/plan.md Phase 20)", () => {
+  const routes = [route(0, true), route(1), route(2)];
+  const auto = { routeIdx: 1, ms: 9000, armId: 1 };
+  it("marks the pick 'next' through the whole countdown, the rest 'none'", () => {
+    const rows = choiceRows({
+      ...choice(routes, true),
+      autoPick: { ...auto, picked: false },
+    });
+    expect(rows.map((row) => row.pick)).toEqual([
+      "none",
+      "next",
+      "none",
+      "none",
+    ]);
+  });
+
+  it("marks it 'picked' once the countdown has run out", () => {
+    const rows = choiceRows({
+      ...choice(routes),
+      autoPick: { ...auto, picked: true },
+    });
+    expect(rows.map((row) => row.pick)).toEqual(["none", "picked", "none"]);
+  });
+
+  it("follows the route on a re-offer", () => {
+    const rows = choiceRows({
+      ...choice([route(0, true), route(1, true), route(2)]),
+      autoPick: {
+        ...auto,
+        routeIdx: 2,
+        picked: false,
+        backFromLabel: "Route 1",
+      },
+    });
+    expect(rows.map((row) => row.pick)).toEqual(["none", "none", "next"]);
+  });
+
+  it("marks nothing without play-all", () => {
+    expect(choiceRows(choice(routes)).every((row) => row.pick === "none")).toBe(
+      true,
+    );
   });
 });
 

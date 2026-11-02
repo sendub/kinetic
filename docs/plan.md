@@ -845,9 +845,21 @@ directory holds too many files.
   when the screen first appeared (time under help or settings counts),
   so `a` on a screen already read moves on at once.
 - Play-all choice highlight and reading time: the route play-all will
-  pick is highlighted from the start of the countdown. The countdown
-  counts every word on the screen and adds extra comprehension time for
-  choice screens.
+  pick is highlighted from the start of the countdown (`.choice-next`, a
+  softer form of the `.choice-picked` look that takes over for the last
+  0.7 s). The countdown counts every word on the screen and adds extra
+  comprehension time for choice screens:
+  `max(AUTO_PICK_MIN_MS, (chars * msPerChar + CHOICE_BASE_MS +
+  CHOICE_PER_ROW_MS * rows) / readingSpeed)`, with `CHOICE_BASE_MS`
+  1500, `CHOICE_PER_ROW_MS` 1000 and `AUTO_PICK_MIN_MS` 2500
+  (`player/src/machine/choicetext.ts`). The words are the prompt, the
+  status line with its "Back in time: <route> done." lead, each route
+  label with its `seen` marker and the return row when drawn; the key
+  hint and row numbers are left out. The audit found the old countdown
+  missed the "Back in time"/"done." words, the status line and the
+  `seen` markers: the demo's outer choice went from 4.5 s to 9.7 s
+  (re-offer 5.6 s to 12.4 s), the nested one from 5.5 s to 10.7 s
+  (re-offer 7.4 s to 14.1 s) at 1.00x.
 - Auto-forward on/off message: turning auto-forward on shows a brief
   pill ("Auto-forward on"), using the same pill mechanism that shows a
   route's name on entry. Every way it turns off (`a` again, a click or

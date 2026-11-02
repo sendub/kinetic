@@ -338,9 +338,13 @@ docs/plan.md Phase 13):
 - `Play all routes` (a persisted setting, default off) is
   zero-interactivity: every decision still shows its choice screen
   (first fire and each re-offer), with a status line and a draining bar
-  counting down for the screen's reading time at the reader's speed
-  (never under 2.5 s); then the picked row is highlighted for about
-  0.7 s and the route starts. It picks the shortest not-yet-played route
+  counting down. The countdown is the reading time of every word the
+  screen draws (prompt, status line with its "Back in time" lead, each
+  route label with its `seen` marker, the return row when drawn; not the
+  key hint or row numbers) plus comprehension time of 1.5 s and 1 s per
+  row, all at the reader's speed and never under 2.5 s. The row it will
+  pick is marked from the countdown's start; then it is highlighted as
+  picked for about 0.7 s and the route starts. It picks the shortest not-yet-played route
   (fewest items), the continuing route last, repeats until every route
   has played once, then continues via `continueAt` (a pure choice: past
   the region end, per the rule above). A re-offer's status line leads
