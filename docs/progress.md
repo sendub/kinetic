@@ -776,8 +776,16 @@ truthful: an unchecked box means nothing was accepted.
       re-offer 7.4 -> 14.1 s. `.choice-next` marks the pick row from the
       countdown's first frame (screenshot checked). Tests red before.
       vitest 487, playall 21/21, branches 39/39, smoke 6/6. 2026-11-02)
-- [ ] Auto-forward on/off pill (user, 2026-11-02): "Auto-forward on" when
+- [x] Auto-forward on/off pill (user, 2026-11-02): "Auto-forward on" when
       it starts, "Auto-forward off" whenever it stops by any route in the
       code, using the route-entry pill mechanism. Tests, scenario, README.
+      (machine setAutoFlag is the only writer, onAutoAdvanceChange fires on
+      real flips; render/autoforward.ts flashes via the route pill. Only
+      `a` and Space (in auto, or ending a skip burst) ever turn auto off;
+      Tab, choices, the end and panels leave it on, so no pill. 13 new
+      tests red before; reading scenario 4 pill checks (red with mount
+      disabled). vitest 501, reading 17/17, playall 21/21, branches
+      39/39, navigation 19/19, screens 41 + 2 headless-fullscreen
+      partials, smoke 6/6. 2026-11-02)
 - [ ] Phase-closer: full suite (scenarios, vitest, pytest,
       package-proof), rebuild both demo folders.

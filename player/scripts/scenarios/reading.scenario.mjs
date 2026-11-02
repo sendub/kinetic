@@ -21,8 +21,30 @@ export const title = "boot, manual reading, text kinds, h";
 
 const MS_PER_CHAR = 60; // DEFAULT_SETTINGS reading speed 1.00x
 
+// Every `#flash` pill that appears, in order (docs/plan.md Phase 20, the
+// auto-forward pill): a MutationObserver logs each new pill's text, so a
+// pill that has already faded is still counted.
+const INSTALL_PILL_LOG = () => {
+  window.__pills = [];
+  const seen = new WeakSet();
+  const scan = () => {
+    const pill = document.getElementById("flash");
+    if (pill !== null && !seen.has(pill)) {
+      seen.add(pill);
+      window.__pills.push(pill.textContent);
+    }
+  };
+  new MutationObserver(scan).observe(document.body, {
+    childList: true,
+    subtree: true,
+  });
+  scan();
+};
+const READ_PILLS = () => [...(window.__pills ?? [])];
+
 export default async function ({ check, open }) {
   const { page, cdp } = await open("main");
+  await page.evaluate(INSTALL_PILL_LOG);
   const first = item("intro-title");
 
   // Fresh load: the help is up over a black stage; item 0 waits behind it.
@@ -64,6 +86,12 @@ export default async function ({ check, open }) {
     (await currentItemId(page)) === "intro-title",
   );
 
+  check(
+    "a load shows no auto-forward pill",
+    (await page.evaluate(READ_PILLS)).length === 0,
+    await page.evaluate(READ_PILLS),
+  );
+
   // `a` turns auto-forward on: the item advances by itself. It counts the
   // time already shown (docs/plan.md Phase 20): intro-title has been up
   // past its hold, so it moves on promptly rather than re-waiting ~10 s.
@@ -84,6 +112,12 @@ export default async function ({ check, open }) {
     autoOk,
     { waitedMs: Date.now() - pressedAt, holdMs },
   );
+  const pillsOn = await page.evaluate(READ_PILLS);
+  check(
+    'a turning auto-forward on shows the "Auto-forward on" pill',
+    pillsOn.join("|") === "Auto-forward on",
+    pillsOn,
+  );
 
   // `a` again turns it off mid-item: the armed hold is cancelled.
   await pressA(cdp);
@@ -91,6 +125,12 @@ export default async function ({ check, open }) {
   check(
     "a again turns auto-forward off: the next hold never fires",
     (await currentItemId(page)) === "text-speech",
+  );
+  const pillsOff = await page.evaluate(READ_PILLS);
+  check(
+    'a again shows the "Auto-forward off" pill',
+    pillsOff.join("|") === "Auto-forward on|Auto-forward off",
+    pillsOff,
   );
 
   // Space during auto-forward returns to manual (docs/plan.md Phase 18):
@@ -112,6 +152,13 @@ export default async function ({ check, open }) {
     "Space during auto-forward turns it off in place: nothing advances afterwards",
     pressedOn === "text-speech" && afterHold === "text-speech",
     { pressedOn, afterHold },
+  );
+  // The implicit turn-off: Space stops auto, and says so with the pill.
+  const pillsSpace = (await page.evaluate(READ_PILLS)).slice(2);
+  check(
+    'Space stopping auto-forward shows "Auto-forward on" then "Auto-forward off"',
+    pillsSpace.join("|") === "Auto-forward on|Auto-forward off",
+    pillsSpace,
   );
 
   // Text kinds: speech has a speaker, the thought is italic, narration has

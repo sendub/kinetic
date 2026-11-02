@@ -2136,6 +2136,85 @@ describe("goTo (t-overlay bookmark click), docs/plan.md Phase 8", () => {
   });
 });
 
+describe("onAutoAdvanceChange: every real flip of the mode (docs/plan.md Phase 20)", () => {
+  function watch(m: ReturnType<typeof createMachine>): boolean[] {
+    const flips: boolean[] = [];
+    m.onAutoAdvanceChange((on) => flips.push(on));
+    return flips;
+  }
+
+  it("setAutoAdvance reports a flip, never a repeat of the current mode", () => {
+    const m = machine([image(), image()], { auto: false });
+    const flips = watch(m);
+    m.setAutoAdvance(false);
+    m.setAutoAdvance(true);
+    m.setAutoAdvance(true);
+    m.setAutoAdvance(false);
+    expect(flips).toEqual([true, false]);
+    m.destroy();
+  });
+
+  it("Space in auto turns it off and reports it; Space in manual reports nothing", () => {
+    vi.useFakeTimers();
+    const m = machine([image(), image(), image()]);
+    const flips = watch(m);
+    m.advance();
+    expect(flips).toEqual([false]);
+    m.advance();
+    expect(flips).toEqual([false]);
+    m.destroy();
+  });
+
+  it("Space ending a skip burst in auto reports the turn-off", () => {
+    vi.useFakeTimers();
+    const m = machine([image(), image(), image(), image()]);
+    readTo(m, 3);
+    m.wheelBack();
+    m.wheelBack();
+    m.wheelBack();
+    const flips = watch(m);
+    m.toggleSkip();
+    expect(m.getState().skipping).toBe(true);
+    m.toggleSkip(); // Tab on and off: the mode is untouched
+    m.toggleSkip();
+    expect(flips).toEqual([]);
+    m.advance();
+    expect(m.getState().skipping).toBe(false);
+    expect(flips).toEqual([false]);
+    m.destroy();
+  });
+
+  it("pause, resume, the wheel, a jump and the end leave the mode alone", () => {
+    vi.useFakeTimers();
+    const m = machine([image(), image(), image()]);
+    const flips = watch(m);
+    m.pause();
+    m.resume();
+    vi.advanceTimersByTime(60_000); // auto reads on to the end
+    expect(m.getState().cursor).toBe(2);
+    m.wheelBack();
+    m.wheelForward();
+    m.goTo(0);
+    m.jumpToEnd();
+    expect(m.isAutoAdvance()).toBe(true);
+    expect(flips).toEqual([]);
+    m.destroy();
+  });
+
+  it("an unsubscribed or destroyed machine reports nothing", () => {
+    const m = machine([image(), image()], { auto: false });
+    const flips: boolean[] = [];
+    const stop = m.onAutoAdvanceChange((on) => flips.push(on));
+    stop();
+    m.setAutoAdvance(true);
+    const flips2 = watch(m);
+    m.destroy();
+    m.setAutoAdvance(false);
+    expect(flips).toEqual([]);
+    expect(flips2).toEqual([]);
+  });
+});
+
 describe("subscribe, timers, and destroy()", () => {
   it("notifies subscribers on every state change until unsubscribe", () => {
     const m = machine([image(), image(), image()], { auto: false });

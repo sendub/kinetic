@@ -367,6 +367,15 @@ export interface Machine {
   setAutoAdvance(on: boolean): void;
   isAutoAdvance(): boolean;
   /**
+   * Reports every real flip of the auto-forward mode (docs/plan.md Phase
+   * 20): `a` either way, and the Space that stops auto (alone or ending a
+   * skip burst). A repeat of the current mode reports nothing, and so do
+   * construction (a load or resume), Tab, pause/resume, a choice and the
+   * end — none of them changes the mode. Not a state change: subscribers
+   * see nothing. Returns the unsubscribe; destroy() drops every listener.
+   */
+  onAutoAdvanceChange(listener: (on: boolean) => void): () => void;
+  /**
    * The key help's machine freeze (docs/plan.md Phase 13b): cancels the
    * pending timer — hold or skip dwell — and arms none while paused, so
    * the machine waits with no timers while the help screen is up.
@@ -782,6 +791,15 @@ export function createMachine(options: MachineOptions): Machine {
   // Auto-forward mode (Phase 13b): absent/false is manual — the documented
   // default (README advance bullet): items wait for the reader until `a`.
   let autoAdvance = options.autoAdvance === true;
+  const autoListeners = new Set<(on: boolean) => void>();
+  // The one writer of `autoAdvance` after construction: a real flip tells
+  // the `onAutoAdvanceChange` listeners (the auto-forward pill).
+  function setAutoFlag(on: boolean): void {
+    if (autoAdvance === on) return;
+    autoAdvance = on;
+    if (destroyed) return;
+    for (const listener of [...autoListeners]) listener(on);
+  }
   // The help screen's freeze (Phase 13b): while paused nothing arms.
   let paused = false;
   // Skip's zero-time text steps (docs/plan.md Phase 18) run as a loop inside
@@ -2098,7 +2116,7 @@ export function createMachine(options: MachineOptions): Machine {
         // (the reader meant "stop here", not "step past this one"). In
         // auto-forward the stop also returns to manual (docs/plan.md Phase
         // 18), so the next press steps instead of only turning auto off.
-        autoAdvance = false;
+        setAutoFlag(false);
         exitSkip();
         settled = true;
         cancelTimer();
@@ -2111,9 +2129,9 @@ export function createMachine(options: MachineOptions): Machine {
         // 18): auto turns off and the reader stays on this item — the press
         // does not also step, the next one does (the manual rule below).
         // The item keeps its settled state; only the pending hold goes.
-        autoAdvance = false;
+        setAutoFlag(false);
         cancelTimer();
-        return; // nothing observable moved: no emit
+        return; // no state moved: no emit (the flip has its own report)
       }
       // Immediate-complete (docs/plan.md Phase 16): one press = one step.
       // The press marks the item done and falls through to moveForward(),
@@ -2274,7 +2292,7 @@ export function createMachine(options: MachineOptions): Machine {
     },
 
     setAutoAdvance(on) {
-      autoAdvance = on;
+      setAutoFlag(on);
       if (destroyed || count === 0 || paused) return;
       if (on) {
         // Arm what is left of the current item's hold, measured from when
@@ -2289,6 +2307,13 @@ export function createMachine(options: MachineOptions): Machine {
 
     isAutoAdvance() {
       return autoAdvance;
+    },
+
+    onAutoAdvanceChange(listener) {
+      autoListeners.add(listener);
+      return () => {
+        autoListeners.delete(listener);
+      };
     },
 
     pause() {
@@ -2314,6 +2339,7 @@ export function createMachine(options: MachineOptions): Machine {
       cancelTimer();
       cancelAutoPick();
       listeners.clear();
+      autoListeners.clear();
     },
   };
 }

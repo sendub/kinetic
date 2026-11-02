@@ -30,6 +30,7 @@ import { createMachine } from "./machine/machine";
 import type { MachineSettings } from "./machine/types";
 import { DEFAULT_SETTINGS } from "./machine/types";
 import { mountError, mountShell } from "./render/app";
+import { mountAutoForwardAnnouncements } from "./render/autoforward";
 import {
   bookmarkContext,
   mergeProgress,
@@ -424,6 +425,14 @@ function start(): void {
         flash: (messages) => shell.flashSequence(messages),
         quiet: () => replaying,
       });
+      // The auto-forward pill (docs/plan.md Phase 20): "Auto-forward on" /
+      // "Auto-forward off" on every real flip of the mode — `a`, or the
+      // Space that stops it — through the same route pill, newest wins.
+      // The machine reports the flips; a load is no flip, so no pill.
+      mountAutoForwardAnnouncements({
+        machine,
+        flash: (messages) => shell.flashSequence(messages),
+      });
 
       // Mutual exclusion, centralized (the rule is stated pure in
       // render/choice.ts as `inputOwnerFor`): the key HELP wins over
@@ -537,8 +546,9 @@ function start(): void {
           // `a` (README auto-forward bullet): manual is the start, and `a`
           // toggles auto-advance. Turning it off cancels the pending hold;
           // a skip dwell keeps running — skipping is the reader's own run.
-          // Space also turns it off (machine `advance()`, Phase 18); no
-          // on-screen indicator mirrors the mode, so nothing else syncs.
+          // Space also turns it off (machine `advance()`, Phase 18). Every
+          // flip shows its pill (render/autoforward.ts, Phase 20), from
+          // the machine's own report, so nothing here syncs it.
           toggleAutoForward: () => {
             if (!storyInput()) return;
             machine.setAutoAdvance(!machine.isAutoAdvance());
