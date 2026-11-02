@@ -851,10 +851,14 @@ truthful: an unchecked box means nothing was accepted.
       one line at 1280x720 and 700x900 (screenshots checked). vitest 538
       (2 red before), screens 44 + 2 headless-fullscreen partials,
       progress 6/6, smoke 6/6. 2026-11-02)
-- [ ] Play all routes note (user, 2026-11-02): "choices pick themselves
+- [x] Play all routes note (user, 2026-11-02): "choices pick themselves
       after a countdown" reads as what the setting does now, wrong when
       Off. Reword so it explains what turning it On does, e.g. "On:
       choices pick themselves after a countdown". Tests, scenario check.
+      ("when on, choices pick themselves after a countdown"; literal
+      text test red before; config.test 28/28, vitest 538, screens 44 +
+      2 headless-fullscreen partials, smoke 6/6; screenshot checked.
+      2026-11-02)
 - [ ] Back-in-time line quotes the route (user, 2026-11-02): "Back in
       time: Route 2: an ending done." blurs the route's label into the
       message; quote the label (e.g. Back in time: "Route 2: an ending"

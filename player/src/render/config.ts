@@ -70,8 +70,12 @@ export const PROGRESS_SECTION = "Progress";
  */
 export const PROGRESS_NOTE =
   "saved in this browser automatically · export/import only to switch browser";
-/** The line beside Play all routes saying what it does. */
-export const PLAY_ALL_NOTE = "choices pick themselves after a countdown";
+/**
+ * The line beside Play all routes: what turning it On does, so it reads true
+ * in either position (Phase 22).
+ */
+export const PLAY_ALL_NOTE =
+  "when on, choices pick themselves after a countdown";
 
 /** The skip-all switch's text state, mirroring its aria-pressed value. */
 export function skipAllLabel(skipAll: boolean): string {

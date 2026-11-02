@@ -628,7 +628,7 @@ async function config({ check, open }) {
       first.labelLefts[2] === optionLeft &&
       first.labelLefts[3] === outerLeft &&
       new Set(first.controlLefts).size === 1 &&
-      first.playNote === "choices pick themselves after a countdown",
+      first.playNote === "when on, choices pick themselves after a countdown",
     first,
   );
 

@@ -404,7 +404,7 @@ describe("the panel layout: the skip settings read as options of Tab", () => {
     );
   });
 
-  it("notes beside Play all routes what it does", () => {
+  it("notes beside Play all routes what turning it on does", () => {
     const { root } = mount(defaults);
     const row = byAction(root, "play-all").parent;
     expect(row?.children.map((el) => el.className)).toEqual([
@@ -413,6 +413,10 @@ describe("the panel layout: the skip settings read as options of Tab", () => {
       "config-note",
     ]);
     expect(byClass(root, "config-note").textContent).toBe(PLAY_ALL_NOTE);
+    // Says what turning it On does, so it is true in the Off position too.
+    expect(PLAY_ALL_NOTE).toBe(
+      "when on, choices pick themselves after a countdown",
+    );
   });
 
   it("notes under the Progress heading that saving is automatic", () => {
