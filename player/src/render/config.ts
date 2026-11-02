@@ -64,6 +64,12 @@ export const SKIP_ALL_TEXT = "Skip unseen content too";
 export const SKIP_VIDEOS_TEXT = "Play videos in full";
 /** The heading over Export / Import / Reset progress (Phase 21). */
 export const PROGRESS_SECTION = "Progress";
+/**
+ * The line under the Progress heading (Phase 22): saving needs no action;
+ * Export / Import only carry progress to another browser.
+ */
+export const PROGRESS_NOTE =
+  "saved in this browser automatically · export/import only to switch browser";
 /** The line beside Play all routes saying what it does. */
 export const PLAY_ALL_NOTE = "choices pick themselves after a countdown";
 
@@ -226,6 +232,9 @@ export function mountConfigOverlay({
   const progressHeading = doc.createElement("p");
   progressHeading.className = "config-section";
   progressHeading.textContent = PROGRESS_SECTION;
+  const progressNote = doc.createElement("p");
+  progressNote.className = "config-note config-option config-group-note";
+  progressNote.textContent = PROGRESS_NOTE;
 
   const actionRow = (
     label: string,
@@ -302,6 +311,7 @@ export function mountConfigOverlay({
     skipVideoRow,
     playRow,
     progressHeading,
+    progressNote,
     exportRow,
     importRow,
     resetRow,

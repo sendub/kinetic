@@ -619,6 +619,7 @@ async function config({ check, open }) {
         "  Play videos in full",
         "Play all routes",
         "# Progress",
+        "  ~ saved in this browser automatically · export/import only to switch browser",
         "  Export progress",
         "  Import progress",
         "  Reset progress",
@@ -629,6 +630,18 @@ async function config({ check, open }) {
       new Set(first.controlLefts).size === 1 &&
       first.playNote === "choices pick themselves after a countdown",
     first,
+  );
+
+  // The Progress note (Phase 22): one line, indented with the options,
+  // between the heading and Export.
+  const noteRect = first.progressNoteRect;
+  check(
+    "the Progress note sits on one line under its heading, aligned with the Progress options, above Export",
+    noteRect !== null &&
+      noteRect.bottom - noteRect.top < 2 * first.progressNoteFontPx &&
+      Math.round(noteRect.left) === first.labelLefts[4] &&
+      noteRect.bottom <= first.exportRect.top,
+    { noteRect, fontPx: first.progressNoteFontPx, lefts: first.labelLefts },
   );
 
   const sigBefore = await page.evaluate(SIGNATURE);

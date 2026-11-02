@@ -842,9 +842,23 @@ truthful: an unchecked box means nothing was accepted.
 
 ## Phase 22: Progress note on the settings screen (2026-11-02, user)
 
-- [ ] Progress note (user, 2026-11-02): a minimal-word note in the `c`
+- [x] Progress note (user, 2026-11-02): a minimal-word note in the `c`
       screen's Progress group: progress saves in this browser
       automatically; Export / Import only to change browser. Tests,
       scenario check, screenshot.
+      (PROGRESS_NOTE "saved in this browser automatically ·
+      export/import only to switch browser" under the PROGRESS heading,
+      one line at 1280x720 and 700x900 (screenshots checked). vitest 538
+      (2 red before), screens 44 + 2 headless-fullscreen partials,
+      progress 6/6, smoke 6/6. 2026-11-02)
+- [ ] Play all routes note (user, 2026-11-02): "choices pick themselves
+      after a countdown" reads as what the setting does now, wrong when
+      Off. Reword so it explains what turning it On does, e.g. "On:
+      choices pick themselves after a countdown". Tests, scenario check.
+- [ ] Back-in-time line quotes the route (user, 2026-11-02): "Back in
+      time: Route 2: an ending done." blurs the route's label into the
+      message; quote the label (e.g. Back in time: "Route 2: an ending"
+      is done.) so "done" clearly belongs to the message. Countdown text
+      follows. Tests, playall scenario.
 - [ ] Phase-closer: full suite (scenarios, vitest, pytest,
       package-proof), rebuild both demo folders.

@@ -12,6 +12,7 @@ import { createMemoryStorage } from "../storage/memory";
 import {
   mountConfigOverlay,
   PLAY_ALL_NOTE,
+  PROGRESS_NOTE,
   PROGRESS_SECTION,
   playAllLabel,
   SKIP_ALL_TEXT,
@@ -370,11 +371,13 @@ describe("the panel layout: the skip settings read as options of Tab", () => {
     const lines = panel.children.map((el) =>
       el.className === "config-section"
         ? `# ${el.textContent}`
-        : el.className.includes("config-row")
-          ? `${el.className.includes("config-option") ? "  " : ""}${
-              el.children[0].textContent
-            }`
-          : null,
+        : el.className.includes("config-group-note")
+          ? `  ~ ${el.textContent}`
+          : el.className.includes("config-row")
+            ? `${el.className.includes("config-option") ? "  " : ""}${
+                el.children[0].textContent
+              }`
+            : null,
     );
     expect(lines.filter((l) => l !== null)).toEqual([
       "Reading speed",
@@ -383,6 +386,7 @@ describe("the panel layout: the skip settings read as options of Tab", () => {
       `  ${SKIP_VIDEOS_TEXT}`,
       "Play all routes",
       `# ${PROGRESS_SECTION}`,
+      `  ~ ${PROGRESS_NOTE}`,
       "  Export progress",
       "  Import progress",
       "  Reset progress",
@@ -409,6 +413,20 @@ describe("the panel layout: the skip settings read as options of Tab", () => {
       "config-note",
     ]);
     expect(byClass(root, "config-note").textContent).toBe(PLAY_ALL_NOTE);
+  });
+
+  it("notes under the Progress heading that saving is automatic", () => {
+    const { root } = mount(defaults);
+    const note = byClass(root, "config-group-note");
+    // Its own indented line straight under the heading, in the note style.
+    expect(note.className).toBe("config-note config-option config-group-note");
+    const siblings = root.children[0].children;
+    const at = siblings.indexOf(note);
+    expect(siblings[at - 1].textContent).toBe(PROGRESS_SECTION);
+    expect(siblings[at + 1].children[0].textContent).toBe("Export progress");
+    expect(PROGRESS_NOTE).toBe(
+      "saved in this browser automatically · export/import only to switch browser",
+    );
   });
 });
 

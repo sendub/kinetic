@@ -238,10 +238,15 @@ const READ_CONFIG_OVERLAY = () => {
       const el = document.querySelector(".config-message");
       return el === null || el.hidden ? null : el.textContent;
     })(),
-    lines: [...panel.querySelectorAll(".config-section, .config-row")].map(
-      (el) =>
-        el.classList.contains("config-section")
-          ? `# ${el.textContent}`
+    lines: [
+      ...panel.querySelectorAll(
+        ".config-section, .config-group-note, .config-row",
+      ),
+    ].map((el) =>
+      el.classList.contains("config-section")
+        ? `# ${el.textContent}`
+        : el.classList.contains("config-group-note")
+          ? `  ~ ${el.textContent}`
           : `${el.classList.contains("config-option") ? "  " : ""}${
               el.querySelector(".config-label")?.textContent ?? ""
             }`,
@@ -255,6 +260,19 @@ const READ_CONFIG_OVERLAY = () => {
       ),
     ),
     playNote: document.querySelector(".config-note")?.textContent ?? null,
+    // The Phase 22 Progress note: its rect, to check it is one line that
+    // fits the panel: the text's own box, past the indent padding.
+    progressNoteRect: (() => {
+      const el = document.querySelector(".config-group-note");
+      if (el === null) return null;
+      const range = document.createRange();
+      range.selectNodeContents(el);
+      return rectOf(range);
+    })(),
+    progressNoteFontPx: (() => {
+      const el = document.querySelector(".config-group-note");
+      return el === null ? null : parseFloat(getComputedStyle(el).fontSize);
+    })(),
   };
 };
 
