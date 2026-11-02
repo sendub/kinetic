@@ -70,12 +70,10 @@ def run_cases(samples_dir: Path = SAMPLES_DIR) -> dict[str, str]:
     out: dict[str, str] = {}
     for name in ("sample.png", "sample.jpg", "sample.webp", "sample.gif"):
         out[f"pillow.decode-{name.split('.')[1]}"] = _decode_hash(data[name])
-    with Image.open(BytesIO(data["sample.png"])) as img:
-        img.load()
-        out["pillow.encode-png"] = _sha(assets._encode_png(img))
-    with Image.open(BytesIO(data["sample.jpg"])) as img:
-        img.load()
-        out["pillow.encode-jpeg"] = _sha(assets._encode_jpeg(img))
+    out["pillow.encode-png"] = _sha(
+        assets.run_image_step(assets.PNG_STEP, data["sample.png"]))
+    out["pillow.encode-jpeg"] = _sha(
+        assets.run_image_step(assets.jpeg_step(), data["sample.jpg"]))
 
     jxl = assets.jxl_candidate(data["sample.png"], "png").out
     out["imagecodecs.jxl-lossless"] = _sha(jxl) if jxl else FAILED

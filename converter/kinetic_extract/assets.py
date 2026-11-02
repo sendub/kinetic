@@ -60,6 +60,9 @@ entry; every output gets a ``media`` entry (source identity and hash,
 ordered steps with their parameters, tool versions, output hash) built
 from the same argument lists and parameter dicts the encoders run with,
 so recipe and record cannot drift (docs/extracting.md, "Build ledger").
+Every candidate is made by running its step dict through
+``run_image_step``/``run_file_step``, and ``run_steps`` replays a whole
+recorded list for ``kinetic-media rebuild`` with those same functions.
 """
 
 from __future__ import annotations
@@ -384,8 +387,10 @@ def _jpeg_candidate(data: bytes) -> JxlCandidate:
     """JPEG XL recompression, kept only if it reconstructs `data` byte for
     byte (no pixel comparison: libjxl's and Pillow's JPEG decoders round
     differently, and the reconstruction proves nothing was lost)."""
+    step = {"step": "jxl", "mode": "jpeg-recompression", "threads": 1,
+            "verify": "jpeg-bytes-identical"}
     try:
-        out = media_tools.jxl_recompress_jpeg(data)
+        out = run_image_step(step, data)
     except Exception as exc:  # noqa: BLE001 - libjxl refuses some JPEGs
         return _codec_error("jpeg recompression", exc)
     try:
@@ -395,15 +400,12 @@ def _jpeg_candidate(data: bytes) -> JxlCandidate:
     if back != data:
         return JxlCandidate(
             reason="jpeg reconstruction differs from the original bytes")
-    return JxlCandidate(out, {"step": "jxl", "mode": "jpeg-recompression",
-                              "threads": 1,
-                              "verify": "jpeg-bytes-identical"})
+    return JxlCandidate(out, step)
 
 
 def _pixel_candidate(data: bytes, fmt: str) -> JxlCandidate:
     """Decode `data` to pixels, encode lossless JPEG XL, decode that back:
     kept only if every pixel (compared in RGBA) is identical."""
-    import numpy
     from PIL import Image
 
     try:
@@ -413,11 +415,12 @@ def _pixel_candidate(data: bytes, fmt: str) -> JxlCandidate:
             why = _pixels_not_exact(data, fmt, orig)
             if why is not None:
                 return JxlCandidate(reason=why)
-            mode = _jxl_input_mode(orig)
-            pixels = numpy.asarray(orig if orig.mode == mode
-                                   else orig.convert(mode))
+            step = {"step": "jxl", "mode": "lossless",
+                    "pixels": _jxl_input_mode(orig),
+                    "effort": media_tools.JXL_EFFORT, "threads": 1,
+                    "verify": "pixels-identical"}
             try:
-                out = media_tools.jxl_encode_lossless(pixels)
+                out = run_image_step(step, data)
                 back = Image.fromarray(media_tools.jxl_decode(out))
             except Exception as exc:  # noqa: BLE001
                 return _codec_error("jxl encode", exc)
@@ -427,9 +430,6 @@ def _pixel_candidate(data: bytes, fmt: str) -> JxlCandidate:
                 return JxlCandidate(reason="decoded JXL pixels differ")
     except (OSError, ValueError) as exc:
         return _codec_error("pixel decode", exc)
-    step = {"step": "jxl", "mode": "lossless", "pixels": mode,
-            "effort": media_tools.JXL_EFFORT, "threads": 1,
-            "verify": "pixels-identical"}
     if icc:
         step["iccProfile"] = "dropped: maps these pixels to sRGB unchanged"
     return JxlCandidate(out, step)
@@ -479,18 +479,6 @@ _PNG_PARAMS = {"optimize": True}  # zlib level 9, no time chunks
 PNG_STEP = {"step": "convert", "format": "png", "params": _PNG_PARAMS}
 
 
-def _encode_png(img: Any) -> bytes:
-    buf = BytesIO()
-    img.save(buf, "PNG", **_PNG_PARAMS)
-    return buf.getvalue()
-
-
-def _encode_jpeg(img: Any) -> bytes:
-    buf = BytesIO()
-    img.convert("RGB").save(buf, "JPEG", **_jpeg_params(JPEG_QUALITY))
-    return buf.getvalue()
-
-
 def jpeg_step() -> dict[str, Any]:
     return {"step": "convert", "format": "jpeg", "mode": "RGB",
             "params": _jpeg_params(JPEG_QUALITY)}
@@ -523,24 +511,24 @@ def convert_incompatible(data: bytes,
     with Image.open(BytesIO(data)) as img:
         img.load()
         alpha = _has_alpha(img)
-        png_bytes = _encode_png(img)
-        candidates: list[tuple[int, str, bytes, list[dict]]] = [
-            (len(png_bytes), "png", png_bytes, [PNG_STEP])]
-        if not alpha:
-            jpeg_bytes = _encode_jpeg(img)
-            candidates.append((len(jpeg_bytes), "jpg", jpeg_bytes,
-                               [jpeg_step()]))
-        jxl = jxl_candidate(png_bytes, "png")
-        if jxl.out is not None:
-            candidates.append((len(jxl.out), "jxl", jxl.out,
-                               [PNG_STEP, jxl.step]))
-        else:
-            notes.append(f"no jxl candidate: {jxl.reason}")
-        candidates.sort(key=lambda c: c[0])
-        _, ext, out, steps = candidates[0]
-        notes.append("converted to " + ext +
-                     (" (alpha kept lossless)" if alpha else ""))
-        return ext, out, notes, steps
+    png_bytes = run_image_step(PNG_STEP, data)
+    candidates: list[tuple[int, str, bytes, list[dict]]] = [
+        (len(png_bytes), "png", png_bytes, [PNG_STEP])]
+    if not alpha:
+        jpeg = jpeg_step()
+        jpeg_bytes = run_image_step(jpeg, data)
+        candidates.append((len(jpeg_bytes), "jpg", jpeg_bytes, [jpeg]))
+    jxl = jxl_candidate(png_bytes, "png")
+    if jxl.out is not None:
+        candidates.append((len(jxl.out), "jxl", jxl.out,
+                           [PNG_STEP, jxl.step]))
+    else:
+        notes.append(f"no jxl candidate: {jxl.reason}")
+    candidates.sort(key=lambda c: c[0])
+    _, ext, out, steps = candidates[0]
+    notes.append("converted to " + ext +
+                 (" (alpha kept lossless)" if alpha else ""))
+    return ext, out, notes, steps
 
 
 PRESERVE_STEP = {"step": "preserve"}
@@ -637,9 +625,14 @@ def run_ffmpeg(args: list[str], source: Path, out: Path) -> bool:
     return ffmpeg_error(args, source, out) is None
 
 
+def transcode_step() -> dict[str, Any]:
+    """The ledger recipe of a transcode (``run_file_step`` runs it)."""
+    return {"step": "transcode", "args": transcode_args()}
+
+
 def transcode_video(source: Path, out: Path) -> bool:
     """Bitexact H.264 faststart MP4 transcode; True on success."""
-    return run_ffmpeg(transcode_args(), source, out)
+    return run_file_step(transcode_step(), source, out) is None
 
 
 def extract_frame_png(source: Path, png: Path, start_seconds: float) -> bool:
@@ -689,6 +682,151 @@ def run_poster_step(step: dict[str, Any], source: Path,
         if error is not None:
             return f"ffmpeg: {error}"
         return _save_poster_jpeg(frame, out_jpg, step["mode"], step["jpeg"])
+
+
+# --- step runner -------------------------------------------------------------
+#
+# A ledger ``steps`` list is executed by these functions and nothing else:
+# the converter makes each candidate by running the step dict it then
+# records, and ``kinetic-media rebuild`` runs the recorded dicts through
+# ``run_steps``. A recipe and the code that ran it cannot drift apart.
+
+IMAGE_STEPS = ("carve", "preserve", "convert", "jxl")
+FILE_STEPS = ("transcode", "poster")
+_PIL_SAVE = {"png": "PNG", "jpeg": "JPEG"}
+
+
+class StepError(Exception):
+    """A ledger step cannot be run: unsupported, or it failed."""
+
+
+def _unsupported(step: dict[str, Any]) -> StepError:
+    detail = f" mode {step.get('mode')!r}" if step.get("step") == "jxl" \
+        else f" format {step.get('format')!r}" \
+        if step.get("step") == "convert" else ""
+    return StepError(f"unsupported step {step.get('step')!r}{detail}")
+
+
+def _jxl_pixels(data: bytes, mode: str) -> Any:
+    """`data` decoded by Pillow as an (H, W[, C]) uint8 array in `mode`."""
+    import numpy
+    from PIL import Image
+
+    with Image.open(BytesIO(data)) as img:
+        img.load()
+        return numpy.asarray(img if img.mode == mode else img.convert(mode))
+
+
+def run_image_step(step: dict[str, Any], data: bytes) -> bytes:
+    """One image ledger step (carve, preserve, convert, jxl) over `data`.
+
+    Raises StepError for a step this code does not know; codec errors
+    propagate (the converter turns them into a kept original)."""
+    name = step.get("step")
+    if name == "carve":
+        return data[int(step["offset"]):]
+    if name == "preserve":
+        return data
+    if name == "convert" and step.get("format") in _PIL_SAVE:
+        from PIL import Image
+
+        with Image.open(BytesIO(data)) as img:
+            img.load()
+            out = img.convert(step["mode"]) if "mode" in step else img
+            buf = BytesIO()
+            out.save(buf, _PIL_SAVE[step["format"]], **step["params"])
+            return buf.getvalue()
+    if name == "jxl" and step.get("mode") == "jpeg-recompression":
+        return media_tools.jxl_recompress_jpeg(data)
+    if name == "jxl" and step.get("mode") == "lossless" \
+            and step.get("pixels") in _JXL_MODES:
+        return media_tools.jxl_encode_lossless(
+            _jxl_pixels(data, step["pixels"]), effort=int(step["effort"]))
+    raise _unsupported(step)
+
+
+def run_file_step(step: dict[str, Any], source: Path,
+                  out: Path) -> str | None:
+    """One file ledger step (transcode, poster) from `source` to `out`:
+    None on success, else what failed. StepError when unsupported."""
+    name = step.get("step")
+    if name == "transcode":
+        error = ffmpeg_error(step["args"], source, out)
+        return None if error is None else f"ffmpeg: {error}"
+    if name == "poster":
+        return run_poster_step(step, source, out)
+    raise _unsupported(step)
+
+
+def hook_func(spec: str) -> str:
+    return spec.rpartition(":")[2]
+
+
+def decode_identity(step: dict[str, Any]) -> tuple[str, ...]:
+    """What a ``decode`` step must reproduce: the hook's function name
+    and code sha256, input and output sha256. The module spelling may
+    differ (a hook package moved), the code may not."""
+    return (hook_func(step.get("hook", "")), step.get("hookSha256", ""),
+            step.get("inputSha256", ""), step.get("outputSha256", ""))
+
+
+def run_steps(steps: list[dict[str, Any]], source: Path,
+              source_ref: dict[str, Any],
+              decoders: list[decoder_hooks.Decoder], work: Path) -> Path:
+    """Make a ledger entry's output again: `source` (the raw source file)
+    through every step, in order, inside the empty directory `work`.
+    Returns the output file (`source` itself when nothing changes it).
+
+    The decoder hooks run first exactly as the asset pass runs them
+    (``decoders.apply`` over the complete bytes, the given hooks in
+    order); the ``decode`` steps that makes must equal the recorded ones.
+    Raises StepError naming what is unsupported, differs or failed."""
+    recorded = [s for s in steps if s.get("step") == "decode"]
+    rest = steps[len(recorded):]
+    if any(s.get("step") == "decode" for s in rest):
+        raise StepError("decode steps must lead the entry")
+    current = source
+    if decoders or recorded:
+        data = source.read_bytes()
+        try:
+            out, made = decoder_hooks.apply(decoders, data, source_ref)
+        except decoder_hooks.DecoderError as exc:
+            raise StepError(str(exc)) from exc
+        if [decode_identity(s) for s in made] != \
+                [decode_identity(s) for s in recorded]:
+            raise StepError(
+                f"decode steps differ from the ledger (hooks now change "
+                f"the source {len(made)} time(s), recorded "
+                f"{len(recorded)})")
+        if made:
+            # Same file name as the asset pass's decoded copy.
+            current = work / "decoded" / source.name
+            current.parent.mkdir(parents=True)
+            current.write_bytes(out)
+    for n, step in enumerate(rest):
+        name = step.get("step")
+        if name in IMAGE_STEPS:
+            if name == "preserve":
+                continue
+            try:
+                out = run_image_step(step, current.read_bytes())
+            except StepError:
+                raise
+            except Exception as exc:  # noqa: BLE001 - reported per entry
+                raise StepError(f"step {name} failed: "
+                                f"{type(exc).__name__}: {exc}") from exc
+            current = work / f"step-{n}"
+            current.write_bytes(out)
+        elif name in FILE_STEPS:
+            ext = "mp4" if name == "transcode" else "jpg"
+            made_file = work / f"step-{n}.{ext}"
+            error = run_file_step(step, current, made_file)
+            if error is not None:
+                raise StepError(f"step {name} failed: {error}")
+            current = made_file
+        else:
+            raise _unsupported(step)
+    return current
 
 
 def _step_tools(step: dict[str, Any]) -> tuple[str, ...]:
@@ -1040,7 +1178,7 @@ def _ship_video(record: ItemRecord, found: _Input, placed: _Placed,
                 return 1
             shipped, already = placed.move_file(made, "mp4")
             decision = "transcode"
-            steps = [{"step": "transcode", "args": transcode_args()}]
+            steps = [transcode_step()]
             record.notes.append(
                 f"transcoded {codec}/{container} to h264 mp4 (faststart)")
         video_share[digest] = (shipped, decision, steps)

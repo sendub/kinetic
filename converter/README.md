@@ -155,6 +155,25 @@ and the run still exits 0. A hook failure exits 1, and a bad list exits
 2. Shipping into the same folder again merges into its ledger. The
 format and merge rules are in docs/extracting.md, "kinetic-media ship".
 
+### kinetic-media rebuild
+
+```sh
+.venv/bin/kinetic-media rebuild <game_root> <folder> \
+    [--decoder MODULE:FUNC ...] [--out DIR]
+```
+
+This makes every output in `<folder>`'s `build-ledger.json` and/or
+`media-ledger.json` again from the original files under `<game_root>`.
+It runs the recorded steps through the same step code the converter
+uses, and checks source sha256s, output sha256s and the folder's
+`media/`. Give the same `--decoder` hooks the conversion ran. The
+ledger's `mediaTools` must equal the current pinned tools, or the
+rebuild refuses (exit 2). By default it only verifies; `--out DIR` also
+writes the rebuilt `media/` tree. Exit 0 means everything matched.
+Exit 1 means something is missing, unsupported or mismatched, and each
+problem is named by its output path. The details are in
+docs/extracting.md, "kinetic-media rebuild".
+
 ## Tests
 
 ```sh

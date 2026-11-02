@@ -23,6 +23,10 @@ are implementing and docs/stack.md for settled decisions.
   `.venv/bin/pytest converter/ tools/ -q`.
 - Media only, no story parse: `.venv/bin/kinetic-media ship <game_root>
   <out> --list requests.json` (format: docs/extracting.md).
+- Verify or reproduce a folder's media from its ledger and the original
+  files: `.venv/bin/kinetic-media rebuild <game_root> <folder>
+  [--decoder MODULE:FUNC ...] [--out DIR]` (exit 0 only when every hash
+  matches).
 - Converter tests point `KINETIC_MEDIA_TOOLS_DIR` (test-only, set by
   `converter/tests/conftest.py`) at the system ffmpeg; never set it for a
   real conversion. The converter never uses PATH's ffmpeg, `cjxl` or

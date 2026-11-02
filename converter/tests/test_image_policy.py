@@ -307,7 +307,7 @@ def test_equal_size_jxl_keeps_original(
     with Image.open(NOISE_PNG) as img:
         pixels = numpy.asarray(img.convert("RGB"))
     monkeypatch.setattr(media_tools, "jxl_encode_lossless",
-                        lambda _px: b"J" * len(data))
+                        lambda _px, **_k: b"J" * len(data))
     monkeypatch.setattr(media_tools, "jxl_decode", lambda _d: pixels)
     kept(ship(data, "png"), data, "png",
          f"jxl {len(data)} >= original {len(data)}")

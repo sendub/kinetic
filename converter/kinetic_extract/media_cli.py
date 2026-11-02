@@ -1,10 +1,12 @@
 """kinetic-media CLI: Kinetic's media work without a story parse
-(docs/extracting.md, "kinetic-media ship").
+(docs/extracting.md, "kinetic-media ship" and "kinetic-media rebuild").
 
 Usage:
 
     kinetic-media ship <game_root> <out_dir> --list FILE
                        [--decoder MODULE:FUNC ...]
+    kinetic-media rebuild <game_root> <folder> [--decoder MODULE:FUNC ...]
+                          [--out DIR]
 
 ``FILE`` is a JSON array of requests; each names a source relative to
 ``<game_root>`` (a loose path, or an ``.rpa`` archive plus member) and a
@@ -19,6 +21,15 @@ Exit codes: 0 when every request ran (missing or unusable sources are
 reported as skipped results and in the summary), 1 when a decoder hook
 fails or the existing ledger cannot be merged into, 2 for a bad list or
 game root, or media tools that are not ready.
+
+``rebuild`` makes every output listed in ``<folder>``'s
+``build-ledger.json`` and/or ``media-ledger.json`` again from the
+original files under ``<game_root>`` (``rebuild.py``) and checks source
+and output sha256s and the folder's ``media/``. Verify-only by default;
+``--out DIR`` also writes the rebuilt ``media/`` tree there. Exit 0 when
+everything matches, 1 when anything is missing, unsupported or
+mismatched (each named), 2 when it cannot start (no ledger, other media
+tools, tools not ready).
 """
 
 from __future__ import annotations
@@ -34,6 +45,7 @@ from .assets import run_asset_pass
 from .cli import decoder_option, sorted_keys
 from .decoders import DecoderError
 from .media_tools import MediaToolsError, run_tools
+from .rebuild import RebuildError, load_ledgers, rebuild, tool_differences
 from .selftest import ensure_ready
 from .ship import (LEDGER_NAME, LedgerError, ListError, check_same_tools,
                    load_ledger, merge_decoders, merge_requests, read_list,
@@ -107,6 +119,36 @@ def _print_summary(records, entries, skipped: int) -> None:
                   f"{result['warning']}")
 
 
+def rebuild_cmd(args: argparse.Namespace) -> int:
+    root: Path = args.game_root.expanduser()
+    if not root.is_dir():
+        return _fail(f"{root}: game root is not a directory", 2)
+    folder: Path = args.folder
+    try:
+        ledgers = load_ledgers(folder)
+    except RebuildError as exc:
+        return _fail(str(exc), 2)
+    differ = tool_differences(ledgers, run_tools(__version__))
+    if differ:
+        return _fail("the ledger was made with other media tools; with "
+                     "these the outputs cannot match:\n"
+                     + "\n".join(differ), 2)
+    report = rebuild(folder, root.resolve(), args.decoder, ledgers,
+                     args.out)
+    names = " + ".join(name for name, _ in ledgers)
+    for line in report.failures:
+        print(f"FAIL {line}")
+    failed = report.outputs - report.matched
+    print(f"{names}: {report.outputs} outputs from {report.sources} "
+          f"sources: {report.matched} matched, {failed} failed")
+    if report.failures:
+        print(f"rebuild FAILED: {len(report.failures)} problem(s)")
+        return 1
+    print("rebuild OK" + (f": media written to {args.out}" if args.out
+                          else ""))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     argp = argparse.ArgumentParser(
         prog=PROG, description="Kinetic media work without a story parse.")
@@ -130,9 +172,26 @@ def main(argv: list[str] | None = None) -> int:
                        help="run this hook over the complete bytes of "
                             "every source before format detection, as "
                             "kinetic-extract --decoder; repeatable")
+    rebuildp = sub.add_parser(
+        "rebuild", help="make a folder's media again from its ledger and "
+                        "the original files, checking every hash")
+    rebuildp.add_argument("game_root", type=Path,
+                          help="the original game: ledger source paths "
+                               "are relative to it (for a build ledger, "
+                               "the project as kinetic-extract took it)")
+    rebuildp.add_argument("folder", type=Path,
+                          help="the Kinetic folder holding "
+                               "build-ledger.json and/or media-ledger.json")
+    rebuildp.add_argument("--decoder", type=decoder_option, action="append",
+                          default=[], metavar="MODULE:FUNC",
+                          help="the decoder hooks the conversion ran, in "
+                               "the same order; repeatable")
+    rebuildp.add_argument("--out", type=Path, default=None, metavar="DIR",
+                          help="also write the rebuilt media/ tree into "
+                               "DIR (default: verify only)")
     args = argp.parse_args(argv)
     try:
         ensure_ready()
     except MediaToolsError as exc:
         return _fail(str(exc), 2)
-    return ship(args)
+    return ship(args) if args.command == "ship" else rebuild_cmd(args)

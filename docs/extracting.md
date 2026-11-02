@@ -373,6 +373,90 @@ into it, so a helper can ship once per episode into one folder:
 - Files are never deleted. An output that only a replaced request used
   stays in `media/`.
 
+## kinetic-media rebuild
+
+Makes a folder's media again from its ledger and the original game
+files, and checks every hash (docs/plan.md Phase 25):
+
+```sh
+.venv/bin/kinetic-media rebuild <game_root> <folder> \
+    [--decoder MODULE:FUNC ...] [--out DIR]
+```
+
+- `<folder>` holds `build-ledger.json` (kinetic-extract),
+  `media-ledger.json` (kinetic-media ship), or both. With both, both
+  `media` sections are rebuilt, and together they must account for the
+  folder's `media/`.
+- `<game_root>` is the original game. A build ledger's `game/...`
+  sources resolve against the project as kinetic-extract takes it (the
+  project dir, `game/` itself, or a macOS `.app`). A media ledger's
+  sources resolve against `<game_root>` as given, the same root the
+  ship ran with.
+- `--decoder`: the hooks the conversion ran, in the same order. A hook
+  matches a ledger hook by function name and code sha256. The module
+  path may be spelled differently, for example after the hook package
+  moved; its code may not change.
+- `--out DIR`: also write the rebuilt `media/` tree into `DIR`. Only
+  the ledger is needed, so this reproduces a game's media from the
+  original files. Without `--out` the rebuild only verifies: outputs go
+  to a temporary dir that is deleted afterwards, and the folder is not
+  written.
+
+The pinned tools' self-test runs first. The ledger's `mediaTools` must
+equal this run's tools exactly, or the rebuild refuses (exit 2) and
+names each difference (`mediaTools Pillow: ledger "13.0.0", now
+"13.1.0"`). With the same pinned tools every output must come out
+byte-identical, so there is no tolerance for drift.
+
+For each `media` entry, and separately for each of its `alsoFrom`
+sources:
+
+1. Find the source under the game root and check its `sha256` and
+   `bytes`.
+2. Run its recorded `steps` in order through `assets.run_steps`. This
+   is the same step code the converter makes its outputs with: each
+   candidate is made by running the step dict that is then recorded,
+   so recipe and code cannot drift. The decoder hooks run first, as in
+   the asset pass, and the `decode` steps they make must equal the
+   recorded ones.
+3. Check the output's sha256 against the entry's.
+
+The folder's `media/` is then checked against all entries. It is
+always checked without `--out`, and with `--out` only when the folder
+has a `media/`.
+
+Every failure is one line, `FAIL <output path>: <problem>`; an
+`alsoFrom` source reads `<output path> (also from <source>)`:
+
+| Problem | Meaning |
+| --- | --- |
+| `missing source game/a.png` | no such file; for an archive member, `(archive not found)` or `(member not in archive)` is added |
+| `source hash mismatch for …: expected …, got …` | the original file changed |
+| `decoder hook missing: MODULE:FUNC` | no `--decoder` with that function and code |
+| `decoder hook mismatch: FUNC (given …, ledger …)` | a hook of that name was given with other code |
+| `decode steps differ from the ledger …` | the given hooks change the source differently |
+| `unsupported step 'NAME'` | a step (or a `jxl` mode, or a `convert` format) this converter cannot run |
+| `step NAME failed: …` | ffmpeg, Pillow or libjxl failed |
+| `output mismatch: expected <sha256>, got <sha256>` | the rebuilt bytes differ |
+| `not in the ledger` | a file in the folder's `media/` that no entry lists |
+| `absent from the folder` | an entry whose file is missing from `media/` |
+| `folder file differs from the ledger: …` | the folder's file is not the entry's bytes |
+
+Hook problems against the ledger's `decoders` list are also reported
+under `decoders:`. A given hook that no ledger lists counts too.
+
+The summary reads `build-ledger.json: 8 outputs from 8 sources: 8
+matched, 0 failed`, then `rebuild OK`, or `rebuild FAILED: N
+problem(s)`.
+
+Exit codes:
+
+- 0: everything matched.
+- 1: anything missing, unsupported or mismatched, each named.
+- 2: the rebuild cannot start: no ledger in the folder, a ledger with
+  no `media` section, other media tools, a bad game root, or tools that
+  are not ready.
+
 ## Story ID and title
 
 Every extraction writes the manifest's `storyId` and `title`

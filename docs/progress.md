@@ -1090,9 +1090,17 @@ truthful: an unchecked box means nothing was accepted.
       twice = no change). Shares run_asset_pass; kinetic-extract output
       byte-identical before/after on renpy_demo and an rpa project.
       28 tests; pytest converter+tools 357. 2026-11-02)
-- [ ] 25.9 `kinetic-media rebuild`: from a folder's ledger and the
+- [x] 25.9 `kinetic-media rebuild`: from a folder's ledger and the
       original files, verify source/output hashes, non-zero on missing,
       unsupported or mismatched.
+      (rebuild.py; exit 0 all match, 1 problems listed as FAIL lines,
+      2 cannot start (no ledger, tools differ, bad root). Every source and
+      alsoFrom source re-run through one step runner (assets.run_steps,
+      shared with conversion; refactor byte-neutral). Hooks matched by
+      name + code sha256 per entry; folder checks for extra/missing/
+      altered files; --out reproduces media/ byte-identical. 17 tests red
+      before; pytest converter+tools 374; real pinned renpy_demo rebuild
+      OK. 2026-11-02)
 - [ ] 25.10 Reuse cache keyed by source hash + recipe + tool versions;
       re-runs encode nothing.
 - [ ] 25.11 Several episodes into one game: kinetic-extract (and ship)

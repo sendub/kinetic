@@ -228,12 +228,13 @@ def jxl_available() -> bool:
     return bool(imagecodecs.JPEGXL.available)
 
 
-def jxl_encode_lossless(pixels: Any) -> bytes:
-    """Mathematically lossless JXL of an (H, W[, C]) uint8 array."""
+def jxl_encode_lossless(pixels: Any, effort: int = JXL_EFFORT) -> bytes:
+    """Mathematically lossless JXL of an (H, W[, C]) uint8 array (the
+    ledger records `effort`; the converter always uses JXL_EFFORT)."""
     import imagecodecs
 
     return bytes(imagecodecs.jpegxl_encode(pixels, lossless=True,
-                                           effort=JXL_EFFORT, numthreads=1))
+                                           effort=effort, numthreads=1))
 
 
 def jxl_decode(data: bytes) -> Any:
