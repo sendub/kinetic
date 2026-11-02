@@ -958,6 +958,53 @@ and machines (user chose a and b).
   `t` unchanged. Hints say "or" in words for alternatives and use "; "
   between clauses, never "·".
 
+## Phase 25: Reproducible, content-addressed media (2026-11-02, user + converting agent)
+
+Source: feedback from an agent converting games (game I),
+forwarded by the user; survey of today's converter in that phase's
+items. Decisions (user, and the converting agent where the user passed
+its answers on):
+
+- Every shipped media file is named by the sha256 of its shipped bytes,
+  `assets/<h[:2]>/<h>.<ext>`, posters included. This replaces Phase 17's
+  name-based buckets and `--flat`. Not a mode or option; no backward
+  compatibility or migration for old folders.
+- Reproducibility is the requirement: the same game gives the same bytes
+  and paths on any machine. Encoder tools are pinned: Pillow and
+  imagecodecs (libjxl, replacing a system `cjxl`) in requirements.txt; a
+  setup script fetches a pinned static ffmpeg per OS/arch with checksum;
+  encoders run single-threaded with bitexact settings. A golden-hash
+  self-test runs at setup and at converter start; on any mismatch the
+  converter refuses to run, naming it.
+- Images: lossless JPEG XL when it is smaller and the player shows it,
+  else the original. WebP (and other pixel formats) decode to pixels,
+  encode lossless, and must decode back to identical pixels. JPEG uses
+  JPEG XL's JPEG recompression and must reconstruct the original JPEG
+  bytes exactly. Animated images keep their animation (animated JXL only
+  when verified, else the original). `.jxl` sources ship (today they are
+  skipped).
+- MKV videos are copied unchanged, whatever the codec.
+- A ledger records, per output: source (loose path, or archive plus
+  member), source sha256, each step with parameters, tool versions,
+  output sha256. Poster recipes are recorded; a failed poster drops the
+  item instead of silently using the video as its poster.
+- Decoder hook `--decoder MODULE:FUNC` (shipped with the game's
+  conversion package, not built into Kinetic): called with the complete
+  bytes of every loose file and archive member before format detection;
+  returns bytes, or `None` for unchanged; raising on recognised but
+  malformed data fails loudly, never a silent skip. The ledger records
+  original and decoded hashes, hook identity and its code hash.
+- `kinetic-media` (separate entry point, same package): `ship` converts
+  a list of sources without parsing the story, so game-specific helpers
+  can delegate media; `rebuild` reproduces a folder's media from its
+  ledger and the original files, verifying hashes, and exits non-zero
+  on anything missing, unsupported or mismatched.
+- A converter-side cache (source hash + recipe + tool versions) makes
+  re-runs skip encoding.
+- Several episodes become one Kinetic game: one continuous story
+  (episode 2 follows episode 1) with one media folder; identical media
+  is stored once.
+
 ## Later, waiting on the user
 
 - Overlay text styling iteration once the user can play with the demo.

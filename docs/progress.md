@@ -980,3 +980,43 @@ truthful: an unchecked box means nothing was accepted.
       (2026-11-02: vitest 555, biome+tsc clean, scenario suite 10 files /
       201 checks: 199 pass + 2 PARTIAL (headless fullscreen), pytest 216,
       package-proof 18/18; .tmp/pkg-demo and .tmp/pkg-extract rebuilt.)
+
+## Phase 25: Reproducible, content-addressed media (2026-11-02, user + converting agent)
+
+- [ ] 25.1 Pinned media tools: Pillow + imagecodecs pinned in
+      requirements.txt; tools/setup_media_tools.py fetches a pinned
+      static ffmpeg per OS/arch with checksum into a local tools dir; the
+      converter uses only these; single-threaded bitexact settings;
+      golden-hash self-test at setup and converter start, refusing on a
+      mismatch. Docs (AGENTS.md commands, converter README, CREATE.md).
+- [ ] 25.2 Content-addressed layout: `assets/<h[:2]>/<h>.<ext>` by sha256
+      of shipped bytes, posters too; remove name buckets, `--flat`, id
+      pre-fill; streamed hashing. Docs replace Phase 17 wording.
+- [ ] 25.3 Source identity and ledger `media` section: loose path or
+      archive + member, source sha256/size, steps with parameters, tool
+      versions, output sha256; sorted, byte-stable.
+- [ ] 25.4 Decoder hook `--decoder MODULE:FUNC` per the Phase 25 spec
+      (loose files and archive members, full bytes, None = unchanged,
+      raise = loud failure; ledger hashes + hook identity + code hash).
+      Test hook uses the converting agent's EXTRA formula on a synthetic
+      file.
+- [ ] 25.5 Image policy: lossless JXL via imagecodecs when smaller;
+      WebP decode-encode with pixel check; JPEG recompression with exact
+      byte reconstruction; animation kept; `.jxl` sources ship. Measure
+      savings on a sample (incl. WebP-heavy) and record them.
+- [ ] 25.6 MKV copied unchanged whatever the codec; headless-Chrome
+      probe of an MKV+H.264 fixture; content-format / stack.md wording.
+- [ ] 25.7 Poster recipes recorded; a failed poster drops the item and
+      reports it.
+- [ ] 25.8 `kinetic-media ship`: list of sources -> outputs + ledger, no
+      story parse; kinetic-extract uses the same media code.
+- [ ] 25.9 `kinetic-media rebuild`: from a folder's ledger and the
+      original files, verify source/output hashes, non-zero on missing,
+      unsupported or mismatched.
+- [ ] 25.10 Reuse cache keyed by source hash + recipe + tool versions;
+      re-runs encode nothing.
+- [ ] 25.11 Several episodes into one game: kinetic-extract (and ship)
+      take several projects in order -> one continuous story, ids kept
+      unique, one media folder.
+- [ ] 25.12 Phase-closer: corpus slices re-run (extract, validate,
+      play, rebuild), full suite, rebuild demo folders.
