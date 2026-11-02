@@ -53,7 +53,7 @@ class ItemRecord:
 
     The asset pass (assets.py) later sets the item's ``file`` (and a video's
     ``poster``) to the content-addressed shipped path, fills ``asset_meta``
-    (sniffed format, ship decision, sizes, shipped file) and sets
+    (sniffed format, ship decision, output ``file``/``poster``) and sets
     ``skipped`` for items whose asset is missing or unsupported; skipped items are kept in the ledger but dropped
     from the manifest.
     """
@@ -62,6 +62,11 @@ class ItemRecord:
     source: str
     asset: str | None
     asset_abs: Path | None = None
+    # Where the asset's bytes come from, relative to the project root:
+    # {"path": "game/<rel>"} for a loose file or {"archive":
+    # "game/<name>.rpa", "member": "<key>"} for an archive member (the
+    # ledger's `media` source, docs/extracting.md "Build ledger").
+    source_ref: dict[str, str] | None = None
     notes: list[str] = field(default_factory=list)
     asset_meta: dict[str, Any] = field(default_factory=dict)
     skipped: bool = False
@@ -86,16 +91,18 @@ class _Pending:
     """The current visual, before lines attach to it."""
 
     def __init__(self, kind: str, name: str | None, asset_rel: str | None,
-                 asset_abs: Path | None, source: str, from_archive: bool
-                 = False):
+                 asset_abs: Path | None, source: str,
+                 source_ref: dict[str, str] | None = None):
         self.kind = kind          # image | video
         self.name = name
         self.asset_rel = asset_rel   # project-root-relative, for the ledger
         self.asset_abs = asset_abs   # on-disk path (may not exist)
         self.source = source
+        self.source_ref = source_ref
         # True when the asset was resolved from an .rpa archive (asset_rel
-        # is then "rpa!<key>" and asset_abs the extracted cache file).
-        self.from_archive = from_archive
+        # is then "game/<archive>!<key>" and asset_abs the extracted
+        # cache file).
+        self.from_archive = bool(source_ref and "archive" in source_ref)
         self.consumed = False    # a dialogue line already formed the item
         # True when no file answers this visual: it and the lines under it
         # are dropped, never shipped as a placeholder (BUG 1).
@@ -124,12 +131,13 @@ def build_timeline(parses: list[tuple[str, FileParse]],
     before that label is defined; ``max_items`` stops the walk after that
     many items. Both unset (default) means the whole project.
 
-    ``asset_lookup(rel, kind) -> ("rpa!<key>", extracted_path) | None`` is
+    ``asset_lookup(rel, kind) -> ("game/<archive>!<key>", extracted_path,
+    source_ref) | None`` is
     the .rpa archive fallback (kinetic_extract.rpa.AssetArchives.lookup):
     consulted only when a referenced asset is not on disk next to the
     script; a hit ships the extracted member instead.
 
-    ``implicit_lookup(name, kind) -> (ledger_rel, path, from_archive,
+    ``implicit_lookup(name, kind) -> (ledger_rel, path, source_ref,
     candidate_count) | None`` is the implicit image index
     (kinetic_extract.images.ImplicitImages.lookup): consulted when a
     scene/show name has no definition, or its defined file exists
@@ -148,17 +156,20 @@ def build_timeline(parses: list[tuple[str, FileParse]],
         if max_items is not None and len(result.items) >= max_items:
             raise _SliceDone()
 
-    def asset_paths(rel: str | None,
-                    kind: str) -> tuple[str | None, Path | None, bool]:
+    def asset_paths(rel: str | None, kind: str,
+                    ) -> tuple[str | None, Path | None,
+                               dict[str, str] | None]:
+        """(ledger rel, file path, source ref) for a script reference:
+        the loose file under game/, else an archive member."""
         if rel is None:
-            return None, None, False
+            return None, None, None
         target = game_dir / rel
         ledger_rel = f"game/{Path(rel).as_posix()}"
         if not target.exists() and asset_lookup is not None:
             hit = asset_lookup(rel, kind)
             if hit is not None:
-                return hit[0], hit[1], True
-        return ledger_rel, target, False
+                return hit
+        return ledger_rel, target, {"path": ledger_rel}
 
     def flush_bare() -> None:
         """Emit an unconsumed visual (replaced or at end of flow) bare.
@@ -177,16 +188,14 @@ def build_timeline(parses: list[tuple[str, FileParse]],
                                         else "movie"))
         item: dict[str, Any] = {"id": item_id, "type": pend.kind}
         record = ItemRecord(item=item, source=pend.source,
-                            asset=pend.asset_rel, asset_abs=pend.asset_abs)
+                            asset=pend.asset_rel, asset_abs=pend.asset_abs,
+                            source_ref=pend.source_ref)
         record.notes.extend(pend.notes)
         if pend.from_archive:
             # Provenance for assets resolved out of an .rpa archive
             # (kinetic_extract.rpa.AssetArchives): the ledger asset reads
-            # "rpa!<key>" and the extracted member's byte size is recorded.
-            record.asset_meta["rpaSource"] = pend.asset_rel
-            if pend.asset_abs is not None and pend.asset_abs.is_file():
-                record.asset_meta["rpaExtractedBytes"] = (
-                    pend.asset_abs.stat().st_size)
+            # "game/<archive>!<key>"; the `media` entry's source names the
+            # archive and member with the member's sha256 and size.
             record.notes.append(
                 f"asset extracted from .rpa archive ({pend.asset_rel})")
         if pend.asset_abs is not None:
@@ -294,21 +303,22 @@ def build_timeline(parses: list[tuple[str, FileParse]],
                     defined = image_defs.get(name)
                     kind, ref = def_value_target(defined) if defined \
                         else ("image", None)
-                    resolved = None  # (kind, ledger_rel, abs, from_arc, n)
+                    resolved = None  # (kind, ledger_rel, abs, src_ref, n)
                     if ref is not None:
-                        ledger_rel, abs_path, from_arc = asset_paths(
+                        ledger_rel, abs_path, src_ref = asset_paths(
                             ref, kind)
-                        if from_arc or (abs_path is not None
-                                        and abs_path.exists()):
+                        if (src_ref is not None and "archive" in src_ref) \
+                                or (abs_path is not None
+                                    and abs_path.exists()):
                             resolved = (kind, ledger_rel, abs_path,
-                                        from_arc, 1)
+                                        src_ref, 1)
                     if resolved is None and implicit_lookup is not None:
                         hit = implicit_lookup(
                             name, "video" if kind == "video" else "image")
                         if hit is not None:
-                            ledger_rel, abs_path, from_arc, n = hit
+                            ledger_rel, abs_path, src_ref, n = hit
                             resolved = (kind, ledger_rel, abs_path,
-                                        from_arc, n)
+                                        src_ref, n)
                     flush_bare()
                     if resolved is None:
                         # BUG 1: an item whose visual never resolves is
@@ -325,9 +335,9 @@ def build_timeline(parses: list[tuple[str, FileParse]],
                                            event.source)
                         pending.unresolved = True
                         continue
-                    kind, ledger_rel, abs_path, from_arc, n = resolved
+                    kind, ledger_rel, abs_path, src_ref, n = resolved
                     pending = _Pending(kind, name, ledger_rel, abs_path,
-                                       event.source, from_arc)
+                                       event.source, src_ref)
                     if n > 1:
                         chosen = ledger_rel.rsplit("!", 1)[-1]
                         pending.notes.append(
@@ -335,13 +345,13 @@ def build_timeline(parses: list[tuple[str, FileParse]],
                             f"answer it; using the first in sorted order "
                             f"({chosen})")
                 elif event.kind == "video":
-                    ledger_rel, abs_path, from_arc = asset_paths(
+                    ledger_rel, abs_path, src_ref = asset_paths(
                         event.asset, "video")
                     flush_bare()
                     pending = _Pending(
                         "video", Path(event.asset or "movie").stem,
-                        ledger_rel, abs_path, event.source, from_arc)
-                    if not from_arc and (abs_path is None
+                        ledger_rel, abs_path, event.source, src_ref)
+                    if not pending.from_archive and (abs_path is None
                                          or not abs_path.exists()):
                         # Same rule as scene refs (BUG 1): the video file
                         # must exist for the item to ship.

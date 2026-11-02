@@ -1012,9 +1012,17 @@ truthful: an unchecked box means nothing was accepted.
       ffmpeg until tests use the pinned one). 9 tests red before;
       pytest converter+tools 253, vitest 555, smoke 6/6; renpy_demo
       converted, validated and played. 2026-11-02)
-- [ ] 25.3 Source identity and ledger `media` section: loose path or
+- [x] 25.3 Source identity and ledger `media` section: loose path or
       archive + member, source sha256/size, steps with parameters, tool
       versions, output sha256; sorted, byte-stable.
+      (ledger `mediaTools` + `media` keyed by output path: source {path}
+      or {archive, member} + raw sha256/bytes, ordered steps (carve,
+      preserve, convert, jxl, transcode, poster) with full params and
+      ffmpeg args ({input}/{output} placeholders), tools per entry,
+      alsoFrom for extra sources; items reference file/poster. 10 tests
+      red before; pytest converter+tools 263. With the pinned tools:
+      renpy_demo twice identical, mediaTools.pinned true, ffmpeg 9.0.2,
+      validator clean. 2026-11-02)
 - [ ] 25.4 Decoder hook `--decoder MODULE:FUNC` per the Phase 25 spec
       (loose files and archive members, full bytes, None = unchanged,
       raise = loud failure; ledger hashes + hook identity + code hash).

@@ -139,6 +139,40 @@ def check_python_pins(pins: dict[str, Any],
               "--cache .tmp/pip-cache")
 
 
+def binary_version(name: str) -> str | None:
+    """The version token ``<name> -version`` reports (``9.0.2``), or None."""
+    import subprocess
+
+    try:
+        proc = subprocess.run([str(tool_path(name)), "-version"],
+                              capture_output=True, text=True, check=False)
+    except (OSError, MediaToolsError):
+        return None
+    words = proc.stdout.split()
+    if proc.returncode != 0 or len(words) < 3 or words[1] != "version":
+        return None
+    return words[2]
+
+
+def run_tools(extractor_version: str) -> dict[str, Any]:
+    """The tools this run converts with, for the ledger's ``mediaTools``:
+    ffmpeg/ffprobe version and binary sha256, the Python codec stack, the
+    extractor version, and whether the pinned install is in use (False
+    under the test-only override)."""
+    out: dict[str, Any] = {"kinetic-extract": extractor_version,
+                           "pinned": override_dir() is None}
+    for name in TOOL_NAMES:
+        try:
+            binary = tool_path(name)
+        except MediaToolsError:
+            out[name] = None
+            continue
+        out[name] = {"version": binary_version(name),
+                     "sha256": sha256_file(binary)}
+    out.update(python_versions())
+    return out
+
+
 # --- installed ffmpeg/ffprobe ------------------------------------------------
 
 def check_installed(pins: dict[str, Any], plat_dir: Path,

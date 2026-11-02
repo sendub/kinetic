@@ -41,7 +41,7 @@ _ASSET_EXTS = IMAGE_EXTS | VIDEO_EXTS
 class ImplicitImages:
     """Name -> file index over the game directory and (lazily) its .rpa
     archives. ``lookup`` answers the tuple the timeline needs:
-    ``(ledger_rel, file_path, from_archive, candidate_count)``."""
+    ``(ledger_rel, file_path, source_ref, candidate_count)``."""
 
     def __init__(self, game_dir: Path, archives=None) -> None:
         self._game_dir = Path(game_dir)
@@ -80,11 +80,12 @@ class ImplicitImages:
             Path(r).suffix.lower().lstrip(".") not in want, r))
         return ranked[0]
 
-    def lookup(self, name: str,
-               kind: str) -> tuple[str, Path, bool, int] | None:
+    def lookup(self, name: str, kind: str,
+               ) -> tuple[str, Path, dict[str, str], int] | None:
         """Resolve a bare image name (no `image` definition produced a
         file for it). Returns ``(ledger rel ``game/<path>``, on-disk or
-        extracted file path, from_archive, candidate count)``, or None
+        extracted file path, source ref (``{"path": ...}`` or
+        ``{"archive": ..., "member": ...}``), candidate count)``, or None
         when no file or archive member answers the name. Candidate count
         > 1 means the name is ambiguous: the first candidate in sorted
         order is used."""
@@ -100,11 +101,12 @@ class ImplicitImages:
         if keys:
             rel = self._pick(self._by_key[keys[0]], kind)
             n = sum(len(self._by_key[k]) for k in keys)
-            return f"game/{rel}", self._game_dir / rel, False, n
+            return (f"game/{rel}", self._game_dir / rel,
+                    {"path": f"game/{rel}"}, n)
         if self._archives is not None:
             found = self._archives.candidates(name, kind)
             if found:
                 arc, key = found[0]
-                ledger, path = self._archives._hit(arc, key)
-                return ledger, path, True, len(found)
+                ledger, path, ref = self._archives.hit(arc, key)
+                return ledger, path, ref, len(found)
         return None

@@ -394,15 +394,24 @@ class AssetArchives:
             add(arc, key)
         return out
 
-    def lookup(self, rel: str, kind: str) -> tuple[str, Path] | None:
-        """(ledger name ``rpa!<key>``, extracted file path) for a script
-        reference ``rel`` (relative to game/), or None when no archive has
-        it. The pick is the first of ``candidates``."""
+    def lookup(self, rel: str,
+               kind: str) -> tuple[str, Path, dict[str, str]] | None:
+        """(ledger name ``game/<archive>!<key>``, extracted file path,
+        source ref) for a script reference ``rel`` (relative to game/), or
+        None when no archive has it. The pick is the first of
+        ``candidates``."""
         found = self.candidates(rel, kind)
         if not found:
             return None
         arc, key = found[0]
-        return self._hit(arc, key)
+        return self.hit(arc, key)
 
-    def _hit(self, arc: RpaArchive, key: str) -> tuple[str, Path]:
-        return f"rpa!{key}", extract_cached(arc, key)
+    def hit(self, arc: RpaArchive,
+            key: str) -> tuple[str, Path, dict[str, str]]:
+        """Extract member ``key`` of ``arc``; return its ledger name, the
+        extracted file and its source ref ``{"archive": "game/<name>.rpa",
+        "member": key}`` (project-root relative, docs/extracting.md,
+        "Build ledger"). Archives sit directly in ``game/``."""
+        archive = f"game/{arc.path.name}"
+        return (f"{archive}!{key}", extract_cached(arc, key),
+                {"archive": archive, "member": key})

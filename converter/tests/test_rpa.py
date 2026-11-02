@@ -201,10 +201,12 @@ def test_ledger_records_rpa_asset_provenance(tmp_path: Path) -> None:
     assert cli_main([str(game.parent), str(out)]) == 0
     ledger = json.loads((out / "build-ledger.json").read_text())
     entry = next(e for e in ledger["items"].values()
-                 if str(e["asset"]).startswith("rpa!"))
-    assert entry["asset"] == "rpa!bg/room.png"
-    assert entry["rpaSource"] == "rpa!bg/room.png"
-    assert entry["rpaExtractedBytes"] == len(tiny_png_bytes())
+                 if "!" in str(e["asset"]))
+    assert entry["asset"] == "game/images.rpa!bg/room.png"
+    source = ledger["media"][entry["file"]]["source"]
+    assert source["archive"] == "game/images.rpa"
+    assert source["member"] == "bg/room.png"
+    assert source["bytes"] == len(tiny_png_bytes())
 
 
 def test_archive_asset_basename_match_across_dirs(tmp_path: Path) -> None:
@@ -221,8 +223,8 @@ def test_archive_asset_basename_match_across_dirs(tmp_path: Path) -> None:
     assert cli_main([str(game.parent), str(out)]) == 0
     ledger = json.loads((out / "build-ledger.json").read_text())
     entry = next(e for e in ledger["items"].values()
-                 if str(e["asset"]).startswith("rpa!"))
-    assert entry["asset"] == "rpa!gui/phone/room.png"
+                 if "!" in str(e["asset"]))
+    assert entry["asset"] == "game/images.rpa!gui/phone/room.png"
 
 
 def test_loose_asset_wins_over_archive(tmp_path: Path) -> None:
@@ -233,6 +235,6 @@ def test_loose_asset_wins_over_archive(tmp_path: Path) -> None:
     out = tmp_path / "out"
     assert cli_main([str(game.parent), str(out)]) == 0
     ledger = json.loads((out / "build-ledger.json").read_text())
-    assert not any(str(e["asset"]).startswith("rpa!")
+    assert not any("!" in str(e["asset"])
                    for e in ledger["items"].values())
     assert not (tmp_path / "extract-cache").exists()

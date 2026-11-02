@@ -28,8 +28,9 @@ Archive games (game-e and the other surveyed releases) keep
 their scripts and media inside ``game/*.rpa``: script members feed the
 parse stream (ledger source ``game/<archive>!<key>``) and asset
 references that are not on disk fall back to the archives, extracting
-single members into ``.tmp/kinetic-extract-cache/`` (provenance recorded
-as ``rpa!<key>``; see kinetic_extract.rpa).
+single members into ``.tmp/kinetic-extract-cache/`` (the item's ledger
+asset reads ``game/<archive>!<key>`` and its ``media`` source names the
+archive and member; see kinetic_extract.rpa).
 
 Slice options (docs/plan.md Phase 11) extract part of a big game:
 ``--label NAME`` starts the walk at that label, ``--max-items N`` stops
@@ -53,7 +54,7 @@ from . import __version__
 from .assets import run_asset_pass
 from .images import ImplicitImages
 from .media import DEFAULT_SIZE, most_common_image_size
-from .media_tools import MediaToolsError
+from .media_tools import MediaToolsError, run_tools
 from .parser import ID_MAX, Report, parse_project, slug
 from .rpa import AssetArchives
 from .selftest import ensure_ready
@@ -287,10 +288,22 @@ def finalize_branches(result: TimelineResult,
 
 
 
+def sorted_keys(value: Any) -> Any:
+    """`value` with every dict's keys sorted, recursively (list order is
+    kept: steps and ffmpeg args are ordered)."""
+    if isinstance(value, dict):
+        return {k: sorted_keys(value[k]) for k in sorted(value)}
+    if isinstance(value, list):
+        return [sorted_keys(v) for v in value]
+    return value
+
+
 def build_ledger(result: TimelineResult, reports: list[Report],
                  inputs: list[str], slice_opts: dict[str, Any] | None = None,
                  sources: dict[str, Any] | None = None,
                  branch_notes: list[dict[str, str]] | None = None,
+                 media: dict[str, Any] | None = None,
+                 media_tools: dict[str, Any] | None = None,
                  ) -> dict[str, Any]:
     items: dict[str, Any] = {}
     for record in result.items:
@@ -298,8 +311,9 @@ def build_ledger(result: TimelineResult, reports: list[Report],
         entry["asset"] = record.asset
         entry["notes"] = record.notes
         # Per-item asset facts from the asset pass: sniffed format,
-        # decision, byte sizes, codec, shipped file. The ledger stays the
-        # unreferenced extra: the player and validator ignore it.
+        # decision, codec, and the output paths (`file`, `poster`) that
+        # key the `media` section. The ledger stays the unreferenced
+        # extra: the player and validator ignore it.
         entry.update(record.asset_meta)
         items[record.item["id"]] = entry
     ledger = {
@@ -334,6 +348,13 @@ def build_ledger(result: TimelineResult, reports: list[Report],
             ledger["rpaIgnoredTwins"] = sources["rpaIgnoredTwins"]
         if sources.get("rpaFailed"):
             ledger["rpaFailed"] = sources["rpaFailed"]
+    if media_tools is not None:
+        ledger["mediaTools"] = sorted_keys(media_tools)
+    if media is not None:
+        # Output path -> how to make it again from the original game
+        # files (docs/extracting.md, "Build ledger"); keys sorted at every
+        # level so the same input gives the same ledger bytes.
+        ledger["media"] = sorted_keys(media)
     return ledger
 
 
@@ -363,7 +384,7 @@ def print_summary(result: TimelineResult, reports: list[Report],
         item_type = record.item["type"]
         counts[item_type] = counts.get(item_type, 0) + 1
     type_summary = ", ".join(f"{t} {counts[t]}" for t in sorted(counts))
-    shipped = sum(1 for r in result.items if r.asset_meta.get("shippedFile"))
+    shipped = sum(1 for r in result.items if r.asset_meta.get("file"))
     print(f"items: {sum(counts.values())} ({type_summary}); "
           f"media shipped: {shipped}; items skipped: {skipped}")
     print(f"resolution: {resolution_note}")
@@ -447,7 +468,8 @@ def main(argv: list[str] | None = None) -> int:
     reports: list[Report] = []
     for _rel, parsed in parses:
         reports.extend(parsed.reports)
-    skipped = run_asset_pass(result.items, args.out_dir)
+    tools = run_tools(__version__)
+    skipped, media = run_asset_pass(result.items, args.out_dir, tools)
     branches, branch_notes = finalize_branches(result, parses, reports)
 
     if args.width and args.height:
@@ -485,7 +507,8 @@ def main(argv: list[str] | None = None) -> int:
                               v is not None for v in slice_opts.values())
                           else None,
                           sources=sources,
-                          branch_notes=branch_notes)
+                          branch_notes=branch_notes,
+                          media=media, media_tools=tools)
     write_outputs(args.out_dir, manifest, ledger)
     print_summary(result, reports, f"{width}x{height} ({source_note})",
                   skipped, branch_notes, (story_id, story_source),

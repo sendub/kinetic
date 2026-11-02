@@ -232,7 +232,7 @@ def test_implicit_resolves_ambiguous_basename_in_archives(
     (item,) = manifest_of(out)["items"]
     entry = ledger_of(out)["items"][item["id"]]
     # First in sorted order (shortest key first), provenance recorded.
-    assert entry["asset"] == "rpa!images/EP2/streets owen 1.jpg"
+    assert entry["asset"] == "game/images.rpa!images/EP2/streets owen 1.jpg"
     assert any("ambiguous" in n for n in entry["notes"])
     assert any(".rpa archive" in n for n in entry["notes"])
     assert (out / item["file"]).is_file()

@@ -32,14 +32,18 @@ file extensions - corpus extensions lie. Policies:
 - Every shipped file, posters included, is content-addressed:
   ``media/<h[:2]>/<h>.<ext>`` with ``h`` the sha256 of the bytes shipped
   (``media.content_ref``, docs/plan.md Phase 25). Identical outputs,
-  whatever their sources, are one path written once (``dedupOf`` in the
-  ledger). Files are hashed in chunks; a transcode or poster is made in a
+  whatever their sources, are one path written once (one ledger
+  ``media`` entry, other sources under ``alsoFrom``). Files are hashed in chunks; a transcode or poster is made in a
   scratch dir inside the output folder, hashed, then moved into place.
   Identical source bytes are also remembered per run so they are encoded
   once. The asset pass sets the item's ``file``/``poster``; manifest and
   ledger paths are that same ref, so no path drift is possible.
 
-Every decision, size, and sniffed format lands in the build ledger.
+Every decision and sniffed format lands in the build ledger's item
+entry; every output gets a ``media`` entry (source identity and hash,
+ordered steps with their parameters, tool versions, output hash) built
+from the same argument lists and parameter dicts the encoders run with,
+so recipe and record cannot drift (docs/extracting.md, "Build ledger").
 """
 
 from __future__ import annotations
@@ -213,18 +217,38 @@ def video_is_native(source: Path) -> tuple[bool, str | None, str | None]:
     return native, ext, codec
 
 
+def _jxl_input_mode(img: Any) -> str | None:
+    """The Pillow mode whose pixels go to libjxl for `img` (palette ->
+    RGB/RGBA, bilevel -> L), or None (16-bit, float, CMYK, ...)."""
+    mode = img.mode
+    if mode == "P":
+        mode = "RGBA" if _has_alpha(img) else "RGB"
+    elif mode == "1":
+        mode = "L"
+    return mode if mode in _JXL_MODES else None
+
+
 def _jxl_pixels(img: Any) -> Any | None:
     """The uint8 array imagecodecs encodes for `img`, or None (mode not
-    representable losslessly: 16-bit, float, CMYK, ...)."""
+    representable losslessly)."""
     import numpy
 
-    if img.mode == "P":
-        img = img.convert("RGBA" if _has_alpha(img) else "RGB")
-    elif img.mode == "1":
-        img = img.convert("L")
-    if img.mode not in _JXL_MODES:
+    mode = _jxl_input_mode(img)
+    if mode is None:
         return None
-    return numpy.asarray(img)
+    return numpy.asarray(img if img.mode == mode else img.convert(mode))
+
+
+def jxl_step(data: bytes, fmt: str) -> dict[str, Any]:
+    """The ledger step for `_encode_jxl_lossless(data, fmt)`'s output."""
+    if fmt == "jpeg":
+        return {"step": "jxl", "mode": "jpeg-recompression", "threads": 1}
+    from PIL import Image
+
+    with Image.open(BytesIO(data)) as img:
+        pixels = _jxl_input_mode(img)
+    return {"step": "jxl", "mode": "lossless", "pixels": pixels,
+            "effort": media_tools.JXL_EFFORT, "threads": 1}
 
 
 def _encode_jxl_lossless(data: bytes, fmt: str) -> bytes | None:
@@ -261,9 +285,13 @@ def _encode_jxl_lossless(data: bytes, fmt: str) -> bytes | None:
     return out
 
 
+_PNG_PARAMS = {"optimize": True}  # zlib level 9, no time chunks
+PNG_STEP = {"step": "convert", "format": "png", "params": _PNG_PARAMS}
+
+
 def _encode_png(img: Any) -> bytes:
     buf = BytesIO()
-    img.save(buf, "PNG", optimize=True)  # zlib level 9, no time chunks
+    img.save(buf, "PNG", **_PNG_PARAMS)
     return buf.getvalue()
 
 
@@ -271,6 +299,11 @@ def _encode_jpeg(img: Any) -> bytes:
     buf = BytesIO()
     img.convert("RGB").save(buf, "JPEG", **_jpeg_params(JPEG_QUALITY))
     return buf.getvalue()
+
+
+def jpeg_step() -> dict[str, Any]:
+    return {"step": "convert", "format": "jpeg", "mode": "RGB",
+            "params": _jpeg_params(JPEG_QUALITY)}
 
 
 def _jpeg_params(quality: int) -> dict[str, Any]:
@@ -286,12 +319,13 @@ def _has_alpha(img: Any) -> bool:
     return img.mode == "P" and "transparency" in img.info
 
 
-def convert_incompatible(data: bytes) -> tuple[str, bytes, list[str]]:
+def convert_incompatible(data: bytes,
+                         ) -> tuple[str, bytes, list[str], list[dict]]:
     """Decode a non-browser image and pick the smallest ship candidate.
 
     Lossless-first for transparency: alpha images consider PNG and JXL
-    only; opaque images consider PNG, JPEG q92, and JXL.
-    Returns (ext, bytes, notes).
+    only; opaque images consider PNG, JPEG q92, and JXL (of the PNG).
+    Returns (ext, bytes, notes, ledger steps).
     """
     from PIL import Image
 
@@ -300,34 +334,40 @@ def convert_incompatible(data: bytes) -> tuple[str, bytes, list[str]]:
         img.load()
         alpha = _has_alpha(img)
         png_bytes = _encode_png(img)
-        candidates: list[tuple[int, str, bytes]] = [(len(png_bytes), "png",
-                                                     png_bytes)]
+        candidates: list[tuple[int, str, bytes, list[dict]]] = [
+            (len(png_bytes), "png", png_bytes, [PNG_STEP])]
         if not alpha:
             jpeg_bytes = _encode_jpeg(img)
-            candidates.append((len(jpeg_bytes), "jpg", jpeg_bytes))
+            candidates.append((len(jpeg_bytes), "jpg", jpeg_bytes,
+                               [jpeg_step()]))
         if jxl_available():
-            lossless_src = _encode_png(img)
-            jxl = _encode_jxl_lossless(lossless_src, "png")
+            jxl = _encode_jxl_lossless(png_bytes, "png")
             if jxl is not None:
-                candidates.append((len(jxl), "jxl", jxl))
+                candidates.append((len(jxl), "jxl", jxl,
+                                   [PNG_STEP, jxl_step(png_bytes, "png")]))
             else:
                 notes.append("jxl unavailable for converted image")
         candidates.sort(key=lambda c: c[0])
-        _, ext, out = candidates[0]
+        _, ext, out, steps = candidates[0]
         notes.append("converted to " + ext +
                      (" (alpha kept lossless)" if alpha else ""))
-        return ext, out, notes
+        return ext, out, notes, steps
+
+
+PRESERVE_STEP = {"step": "preserve"}
 
 
 def decide_image_ship(data: bytes, fmt: str, wrapped: bool,
-                      ) -> tuple[str, bytes, str, list[str]]:
-    """(ext, bytes, decision, notes) for effective image `data`."""
+                      ) -> tuple[str, bytes, str, list[str], list[dict]]:
+    """(ext, bytes, decision, notes, ledger steps) for effective image
+    `data` (after any carve, which the caller records)."""
     notes: list[str] = []
+    keep = "carved" if wrapped else "preserve"
     if fmt in COMPATIBLE_EXTS:
         ext = "jpg" if fmt == "jpeg" else fmt
         if is_animated(data, fmt):
             notes.append("animated: always preserved byte-identical")
-            return ext, data, ("carved" if wrapped else "preserve"), notes
+            return ext, data, keep, notes, [PRESERVE_STEP]
         jxl = _encode_jxl_lossless(data, fmt)
         if jxl is None:
             if fmt not in _JXL_SOURCE_FORMATS:
@@ -336,33 +376,56 @@ def decide_image_ship(data: bytes, fmt: str, wrapped: bool,
                 notes.append("jxl round-trip failed: kept original")
         elif len(jxl) < len(data):
             notes.append(f"jxl {len(jxl)} < original {len(data)}")
-            return "jxl", jxl, ("carved" if wrapped else "jxl"), notes
+            return ("jxl", jxl, ("carved" if wrapped else "jxl"), notes,
+                    [jxl_step(data, fmt)])
         else:
             notes.append(f"jxl {len(jxl)} >= original {len(data)}: kept")
-        return ext, data, ("carved" if wrapped else "preserve"), notes
-    ext, out, conv_notes = convert_incompatible(data)
+        return ext, data, keep, notes, [PRESERVE_STEP]
+    ext, out, conv_notes, steps = convert_incompatible(data)
     notes += conv_notes
-    return ext, out, ("carved" if wrapped else "decode-convert"), notes
+    return (ext, out, ("carved" if wrapped else "decode-convert"), notes,
+            steps)
+
+
+# ffmpeg argument lists after the binary, with "{input}"/"{output}" where
+# the paths go: exactly what runs and what the ledger records.
+INPUT, OUTPUT = "{input}", "{output}"
+
+
+def transcode_args() -> list[str]:
+    """Bitexact H.264 faststart MP4 transcode."""
+    return [*media_tools.FFMPEG_GLOBAL, "-y",
+            *media_tools.FFMPEG_DECODE, "-i", INPUT,
+            "-c:v", "libx264", "-preset", "veryfast",
+            "-pix_fmt", "yuv420p", "-c:a", "aac",
+            *media_tools.FFMPEG_ENCODE,
+            "-movflags", "+faststart", OUTPUT]
+
+
+def frame_args(start_seconds: float) -> list[str]:
+    """The frame at start_seconds (exact output seek) as bitexact PNG."""
+    return [*media_tools.FFMPEG_GLOBAL, "-y",
+            *media_tools.FFMPEG_DECODE, "-i", INPUT,
+            "-ss", f"{start_seconds:.6f}", "-frames:v", "1", "-an",
+            *media_tools.FFMPEG_ENCODE, OUTPUT]
+
+
+def run_ffmpeg(args: list[str], source: Path, out: Path) -> bool:
+    """Run the pinned ffmpeg with `args`, paths filled in."""
+    fill = {INPUT: str(source), OUTPUT: str(out)}
+    proc = _run([str(media_tools.tool_path("ffmpeg")),
+                 *(fill.get(a, a) for a in args)])
+    return proc is not None and proc.returncode == 0 and out.exists()
 
 
 def transcode_video(source: Path, out: Path) -> bool:
     """Bitexact H.264 faststart MP4 transcode; True on success."""
-    proc = _run([*media_tools.ffmpeg_cmd(), "-y",
-                 *media_tools.FFMPEG_DECODE, "-i", str(source),
-                 "-c:v", "libx264", "-preset", "veryfast",
-                 "-pix_fmt", "yuv420p", "-c:a", "aac",
-                 *media_tools.FFMPEG_ENCODE,
-                 "-movflags", "+faststart", str(out)])
-    return proc is not None and proc.returncode == 0 and out.exists()
+    return run_ffmpeg(transcode_args(), source, out)
 
 
 def extract_frame_png(source: Path, png: Path, start_seconds: float) -> bool:
     """The frame at start_seconds (exact output seek) as bitexact PNG."""
-    proc = _run([*media_tools.ffmpeg_cmd(), "-y",
-                 *media_tools.FFMPEG_DECODE, "-i", str(source),
-                 "-ss", f"{start_seconds:.6f}", "-frames:v", "1", "-an",
-                 *media_tools.FFMPEG_ENCODE, str(png)])
-    return proc is not None and proc.returncode == 0 and png.exists()
+    return run_ffmpeg(frame_args(start_seconds), source, png)
 
 
 def poster_jpeg(png: Path, out_jpg: Path) -> bool:
@@ -379,6 +442,38 @@ def poster_jpeg(png: Path, out_jpg: Path) -> bool:
     return True
 
 
+def poster_step(start_seconds: float) -> dict[str, Any]:
+    """The ledger recipe of `extract_poster`: ffmpeg frame to PNG, then
+    Pillow JPEG (RGB) with these params."""
+    return {"step": "poster", "startSeconds": start_seconds,
+            "args": frame_args(start_seconds), "frameFormat": "png",
+            "jpeg": _jpeg_params(POSTER_JPEG_QUALITY)}
+
+
+def _step_tools(step: dict[str, Any]) -> tuple[str, ...]:
+    """The tools whose version decides a step's output bytes."""
+    name = step["step"]
+    if name == "jxl":
+        return (("imagecodecs", "libjxl")
+                if step["mode"] == "jpeg-recompression"
+                else ("Pillow", "numpy", "imagecodecs", "libjxl"))
+    return {"convert": ("Pillow",), "transcode": ("ffmpeg",),
+            "poster": ("ffmpeg", "Pillow")}.get(name, ())
+
+
+def steps_tools(steps: list[dict[str, Any]],
+                tools: dict[str, Any]) -> dict[str, str | None]:
+    """name -> version of every tool `steps` used (none for preserve or
+    carve), read from the run's ``mediaTools``."""
+    used: dict[str, str | None] = {}
+    for step in steps:
+        for name in _step_tools(step):
+            value = tools.get(name)
+            used[name] = value.get("version") if isinstance(value, dict) \
+                else value
+    return used
+
+
 def extract_poster(source: Path, out_jpg: Path, start_seconds: float) -> bool:
     """Write the frame at start_seconds (exact output seek) as poster JPEG."""
     with tempfile.TemporaryDirectory() as td:
@@ -388,11 +483,15 @@ def extract_poster(source: Path, out_jpg: Path, start_seconds: float) -> bool:
 
 
 class _Placed:
-    """Per-run record of the content-addressed files already written."""
+    """Per-run record of the content-addressed files already written, and
+    the ledger's ``media`` entry for each (docs/extracting.md, "Build
+    ledger")."""
 
-    def __init__(self, out_dir: Path) -> None:
+    def __init__(self, out_dir: Path, tools: dict[str, Any]) -> None:
         self.out_dir = out_dir
+        self.tools = tools
         self.written: set[str] = set()
+        self.media: dict[str, dict[str, Any]] = {}
 
     def _target(self, ref: str) -> Path:
         path = self.out_dir / ref
@@ -428,6 +527,46 @@ class _Placed:
         self.written.add(ref)
         return ref, False
 
+    def record(self, ref: str, kind: str, source: dict[str, Any],
+               steps: list[dict[str, Any]]) -> None:
+        """Note that `source` through `steps` makes output `ref`.
+
+        The first source (in item order) is the entry's ``source``; any
+        other source that makes the same bytes is listed once under
+        ``alsoFrom`` with its own steps (a carved copy, say)."""
+        made = {"source": source, "steps": steps}
+        tools = steps_tools(steps, self.tools)
+        if tools:
+            made["tools"] = tools
+        entry = self.media.get(ref)
+        if entry is None:
+            self.media[ref] = {
+                "kind": kind,
+                "sha256": Path(ref).stem,
+                "bytes": (self.out_dir / ref).stat().st_size,
+                **made,
+            }
+            return
+        identity = _source_identity(source)
+        others = entry.get("alsoFrom", [])
+        if identity == _source_identity(entry["source"]) or any(
+                identity == _source_identity(o["source"]) for o in others):
+            return
+        entry["alsoFrom"] = sorted(
+            [*others, made], key=lambda o: json.dumps(o, sort_keys=True))
+
+
+def _source_identity(source: dict[str, Any]) -> tuple[str, ...]:
+    if "archive" in source:
+        return ("archive", source["archive"], source["member"])
+    return ("path", source["path"])
+
+
+def _source(record: ItemRecord, digest: str, size: int) -> dict[str, Any]:
+    """The item's source ref plus the raw source bytes' sha256 and size."""
+    ref = record.source_ref or {"path": str(record.asset)}
+    return {**ref, "sha256": digest, "bytes": size}
+
 
 def _set_media(item: dict[str, Any], file: str,
                poster: str | None = None) -> None:
@@ -442,20 +581,26 @@ def _set_media(item: dict[str, Any], file: str,
     item.update(head | rest)
 
 
-def run_asset_pass(records: list[ItemRecord], out_dir: Path) -> int:
+def run_asset_pass(records: list[ItemRecord], out_dir: Path,
+                   tools: dict[str, Any],
+                   ) -> tuple[int, dict[str, dict[str, Any]]]:
     """Ship every referenced asset at its TRUE format (docs/plan.md Phase 10)
     under its content-addressed path (Phase 25).
 
     Mutates each record: item file/poster fields point at shipped files,
-    ``record.asset_meta`` carries the decision (and ``record.skipped``
-    marks items dropped from the manifest). Returns the skipped count.
+    ``record.asset_meta`` carries the decision and the output paths (and
+    ``record.skipped`` marks items dropped from the manifest). ``tools``
+    is the run's ``mediaTools`` (media_tools.run_tools). Returns the
+    skipped count and the ledger's ``media`` section: output path ->
+    entry.
     """
     out_dir.mkdir(parents=True, exist_ok=True)
-    placed = _Placed(out_dir)
+    placed = _Placed(out_dir, tools)
     skipped = 0
-    # source sha256 -> (shipped ref, decision): identical sources encode once.
-    image_share: dict[str, tuple[str, str]] = {}
-    video_share: dict[str, tuple[str, str]] = {}
+    # effective-source sha256 -> (shipped ref, decision, steps): identical
+    # sources encode once.
+    image_share: dict[str, tuple[str, str, list[dict]]] = {}
+    video_share: dict[str, tuple[str, str, list[dict]]] = {}
     poster_share: dict[str, str] = {}
     with tempfile.TemporaryDirectory(prefix=".kinetic-tmp-",
                                      dir=out_dir) as scratch:
@@ -477,11 +622,16 @@ def run_asset_pass(records: list[ItemRecord], out_dir: Path) -> int:
             else:
                 skipped += _ship_video(record, source, placed, video_share,
                                        poster_share, Path(scratch))
-    return skipped
+    return skipped, dict(sorted(placed.media.items()))
+
+
+def _shared_note(record: ItemRecord, shipped: str) -> None:
+    record.notes.append(f"shares shipped file {shipped!r} (identical "
+                        "output)")
 
 
 def _ship_image(record: ItemRecord, source: Path, placed: _Placed,
-                share: dict[str, tuple[str, str]]) -> int:
+                share: dict[str, tuple[str, str, list[dict]]]) -> int:
     data = source.read_bytes()
     fmt, offset = sniff_image(data)
     meta: dict[str, Any] = record.asset_meta
@@ -493,33 +643,31 @@ def _ship_image(record: ItemRecord, source: Path, placed: _Placed,
             f"{source.name}): item dropped from manifest")
         record.skipped = True
         return 1
+    raw_digest = hashlib.sha256(data).hexdigest()
     effective = data[offset:]
-    if offset:
-        meta["wrapped"] = offset
-    digest = hashlib.sha256(effective).hexdigest()
-    meta["sourceBytes"] = len(data)
+    digest = hashlib.sha256(effective).hexdigest() if offset else raw_digest
     if digest in share:
-        shipped, decision = share[digest]
+        shipped, decision, steps = share[digest]
         already = True
     else:
-        ext, out_bytes, decision, notes = decide_image_ship(effective, fmt,
-                                                            offset > 0)
+        ext, out_bytes, decision, notes, steps = decide_image_ship(
+            effective, fmt, offset > 0)
         shipped, already = placed.put_bytes(out_bytes, ext)
-        share[digest] = (shipped, decision)
+        share[digest] = (shipped, decision, steps)
         record.notes.extend(notes)
+    carve = [{"step": "carve", "offset": offset}] if offset else []
+    placed.record(shipped, "image", _source(record, raw_digest, len(data)),
+                  carve + steps)
     _set_media(record.item, shipped)
     meta["decision"] = decision
-    meta["shippedFile"] = shipped
-    meta["shippedBytes"] = (placed.out_dir / shipped).stat().st_size
+    meta["file"] = shipped
     if already:
-        meta["dedupOf"] = shipped
-        record.notes.append(f"shares shipped file {shipped!r} (identical "
-                            "output)")
+        _shared_note(record, shipped)
     return 0
 
 
 def _ship_video(record: ItemRecord, source: Path, placed: _Placed,
-                video_share: dict[str, tuple[str, str]],
+                video_share: dict[str, tuple[str, str, list[dict]]],
                 poster_share: dict[str, str], scratch: Path) -> int:
     meta: dict[str, Any] = record.asset_meta
     container, codec = probe_video(source)
@@ -532,15 +680,15 @@ def _ship_video(record: ItemRecord, source: Path, placed: _Placed,
         record.skipped = True
         return 1
     digest = sha256_file(source)
-    meta["sourceBytes"] = source.stat().st_size
+    src = _source(record, digest, source.stat().st_size)
     if digest in video_share:
-        shipped, decision = video_share[digest]
+        shipped, decision, steps = video_share[digest]
         already = True
     else:
         native, ext, _ = video_is_native(source)
         if native:
             shipped, already = placed.copy_file(source, digest, ext)
-            decision = "copy"
+            decision, steps = "copy", [PRESERVE_STEP]
             if ext == "mkv":
                 record.notes.append("mkv kept native: Chromium-class; "
                                     "convert to mp4 for Safari")
@@ -555,16 +703,15 @@ def _ship_video(record: ItemRecord, source: Path, placed: _Placed,
                 return 1
             shipped, already = placed.move_file(made, "mp4")
             decision = "transcode"
+            steps = [{"step": "transcode", "args": transcode_args()}]
             record.notes.append(
                 f"transcoded {codec}/{container} to h264 mp4 (faststart)")
-        video_share[digest] = (shipped, decision)
+        video_share[digest] = (shipped, decision, steps)
+    placed.record(shipped, "video", src, steps)
     if already:
-        meta["dedupOf"] = shipped
-        record.notes.append(f"shares shipped file {shipped!r} (identical "
-                            "output)")
+        _shared_note(record, shipped)
     meta["decision"] = decision
-    meta["shippedFile"] = shipped
-    meta["shippedBytes"] = (placed.out_dir / shipped).stat().st_size
+    meta["file"] = shipped
 
     start = float(record.item.get("startSeconds") or 0.0)
     poster_key = f"{digest}@{start:.6f}"
@@ -580,6 +727,8 @@ def _ship_video(record: ItemRecord, source: Path, placed: _Placed,
                 "poster extraction failed; falling back to source ext")
             poster = shipped  # last resort: first-frame still = the file
         poster_share[poster_key] = poster
+    if poster != shipped:
+        placed.record(poster, "poster", src, [poster_step(start)])
     _set_media(record.item, shipped, poster)
-    meta["shippedPoster"] = poster
+    meta["poster"] = poster
     return 0

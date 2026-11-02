@@ -14,7 +14,10 @@ are converted to the smallest of PNG/JPEG q92/JXL, wrapped PNG/JPEG data
 is carved, native browser videos are copied and others are transcoded to
 H.264 faststart MP4, and posters are the frame at `startSeconds`.
 Identical outputs are one file, written once. Every decision lands in
-`build-ledger.json`.
+`build-ledger.json`, whose `media` section records, per shipped file,
+its source (loose path, or archive plus member) with the source's
+sha256, each step with its parameters, the tool versions, and the
+output's sha256 (docs/extracting.md, "Build ledger").
 
 When an image is neither recognizable nor trivially carvable, its item
 is dropped from the manifest and recorded (`decision: skipped`) in the

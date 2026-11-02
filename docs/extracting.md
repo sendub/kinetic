@@ -75,17 +75,85 @@ Every shipped media file, posters included, is content-addressed
 format. `media/` is the one fixed folder name; there is no flat or
 name-based option. The same bytes get the same path on every run and
 machine, and identical outputs, whatever their sources, are one file
-written once (the ledger marks later users `dedupOf`). The two-hex-digit
+written once (one ledger `media` entry). The two-hex-digit
 bucket spreads a big game over up to 256 shallow folders, because a
 single huge directory is what macOS Finder stalls on.
 
-Manifest `file`, `poster`, and `frames` values, and the ledger's
-`shippedFile`, `shippedPoster`, and `dedupOf`, carry that relative subpath
+Manifest `file`, `poster`, and `frames` values, and the ledger's item
+`file`/`poster` and `media` keys, carry that relative subpath
 (`media/4e/4e31ed53…882e.jxl`, a 64-hex stem), which the content format's
 file-name rule allows; the player resolves it from the folder root and
 never reads meaning into the name. Item ids no longer name files, so find
 an item's file through the manifest or the ledger. A hand-authored folder
 such as `fixtures/demo` may use any legal layout and stays flat.
+
+## Build ledger
+
+`build-ledger.json` sits beside the manifest; the player and validator
+ignore it. Besides the walk's record (`inputs`, `items`, `report`,
+`branchDetection`, the `rpyc*`/`rpa*` source lists, `slice`), it holds
+enough to make every shipped media file again from the original game
+files (docs/plan.md Phase 25), which `kinetic-media rebuild` reads:
+
+- `mediaTools`: the tools this run used. `ffmpeg` and `ffprobe` as
+  `{version, sha256}` (the version `-version` reports and the binary's
+  hash), `Pillow`, `imagecodecs`, `libjxl`, `numpy`, `kinetic-extract`,
+  and `pinned` (false only under the test-only `KINETIC_MEDIA_TOOLS_DIR`
+  override, whose output is not reproducible).
+- `media`: one entry per shipped file, keyed by its path
+  (`media/<h[:2]>/<h>.<ext>`), posters included:
+  - `kind`: `image`, `video` or `poster`; `sha256` and `bytes` of the
+    shipped file.
+  - `source`: where the bytes come from, relative to the project root
+    (the folder holding `game/`, so a ledger works against any copy of
+    the game): `{"path": "game/images/a.png"}` for a loose file, or
+    `{"archive": "game/images.rpa", "member": "images/a.png"}` for an
+    archive member; plus `sha256` and `bytes` of the raw source, before
+    any carve. A poster's source is its video.
+  - `steps`: what was done to the source, in order. Each carries every
+    parameter that decides the output bytes:
+    - `{"step": "carve", "offset": N}`: drop the first N bytes (a
+      wrapped image);
+    - `{"step": "preserve"}`: ship the bytes unchanged;
+    - `{"step": "convert", "format": "png"|"jpeg", "params": {...}}`:
+      decode with Pillow and save with these save parameters (`jpeg`
+      also names the `mode` it converts to first);
+    - `{"step": "jxl", "mode": "lossless", "pixels": "RGB", "effort": 9,
+      "threads": 1}`: libjxl lossless encode of the decoded pixels in
+      that Pillow mode, or `"mode": "jpeg-recompression"` for a JPEG's
+      reconstructible JPEG XL;
+    - `{"step": "transcode", "args": [...]}`: the full ffmpeg argument
+      list after the binary, `{input}` and `{output}` standing for the
+      paths;
+    - `{"step": "poster", "startSeconds": S, "args": [...],
+      "frameFormat": "png", "jpeg": {...}}`: ffmpeg writes the frame at S
+      as PNG, then Pillow saves it as RGB JPEG with these parameters.
+  - `tools`: name to version for the tools the steps ran (from
+    `mediaTools`); absent when nothing was encoded (`preserve`, `carve`).
+  - `alsoFrom`: other sources that made the same bytes, each with its own
+    `source`, `steps` and `tools`; `source` is the first in item order.
+
+Each item entry names its outputs with `file` and `poster` (keys into
+`media`), its `asset` as a display string (`game/images/a.png`, or
+`game/images.rpa!images/a.png` for an archive member), plus
+`sniffedFormat`, `decision` and, for video, `codec`. Every dict in
+`mediaTools` and `media` has sorted keys (step and argument lists keep
+their order), so the same input gives the same ledger bytes. A shortened
+example:
+
+```json
+"media/ef/ef6b02…4806.jxl": {
+  "bytes": 102678,
+  "kind": "image",
+  "sha256": "ef6b02…4806",
+  "source": {"bytes": 121094, "path": "game/data/photo-noise.png",
+             "sha256": "…"},
+  "steps": [{"effort": 9, "mode": "lossless", "pixels": "RGB",
+             "step": "jxl", "threads": 1}],
+  "tools": {"Pillow": "13.0.0", "imagecodecs": "2026.10.10",
+            "libjxl": "0.12.0", "numpy": "2.5.4"}
+}
+```
 
 ## Story ID and title
 

@@ -60,9 +60,9 @@ def test_mislabeled_assets_sniffed_to_true_format(tmp_path: Path) -> None:
     assert bmp["decision"] == "decode-convert"
     assert png["sniffedFormat"] == "png"
     # Shipped names carry the TRUE format, never the lying source ext.
-    assert not png["shippedFile"].endswith(".jpg")
-    assert (tmp_path / "out" / png["shippedFile"]).read_bytes()[:8] \
-        == b"\x89PNG\r\n\x1a\n" or png["shippedFile"].endswith(".jxl")
+    assert not png["file"].endswith(".jpg")
+    assert (tmp_path / "out" / png["file"]).read_bytes()[:8] \
+        == b"\x89PNG\r\n\x1a\n" or png["file"].endswith(".jxl")
 
 
 def test_sniff_image_direct() -> None:
@@ -84,7 +84,8 @@ def test_jxl_smaller_rule_recorded(tmp_path: Path) -> None:
     # libjxl is a pinned dependency (imagecodecs): always available.
     assert assets.jxl_available()
     assert noise["decision"] == "jxl"
-    assert noise["shippedBytes"] < noise["sourceBytes"]
+    shipped = ledger["media"][noise["file"]]
+    assert shipped["bytes"] < shipped["source"]["bytes"]
     # Animated images are never re-encoded, JXL or not.
     assert gif["decision"] == "preserve"
 
@@ -108,9 +109,10 @@ def test_webp_never_becomes_jxl_yet() -> None:
 
     buf = BytesIO()
     Image.new("RGB", (32, 32), (10, 200, 30)).save(buf, "WEBP", lossless=True)
-    ext, out, decision, _ = assets.decide_image_ship(buf.getvalue(), "webp",
+    ext, out, decision, _, steps = assets.decide_image_ship(buf.getvalue(), "webp",
                                                      False)
     assert (ext, decision) == ("webp", "preserve")
+    assert steps == [{"step": "preserve"}]
     assert out == buf.getvalue()
 
 
@@ -127,7 +129,11 @@ def test_identical_sources_share_one_shipped_file(tmp_path: Path) -> None:
     copies = [p.relative_to(out).as_posix() for p in out.rglob("*")
               if p.is_file() and p.read_bytes() == data]
     assert copies == [first]                          # written once
-    assert ledger["items"]["bg-reprise-017"]["dedupOf"] == first
+    assert ledger["items"]["bg-reprise-017"]["file"] == first
+    # One media entry, one source: bg-reprise names the same file.
+    media = ledger["media"][first]
+    assert media["source"]["path"] == "game/data/bg-room.png"
+    assert "alsoFrom" not in media
 
 
 # --- video policy and posters --------------------------------------------------
@@ -139,7 +145,8 @@ def test_native_video_copied_with_codec_recorded(tmp_path: Path) -> None:
     assert entry["decision"] == "copy"
     assert entry["codec"] == "h264"
     assert entry["sniffedFormat"] == "mp4"
-    assert entry["shippedBytes"] == entry["sourceBytes"]
+    media = ledger["media"][entry["file"]]
+    assert media["bytes"] == media["source"]["bytes"]
     shipped = tmp_path / "out" / video["file"]
     assert shipped.read_bytes() == CLIP.read_bytes()
     assert video["file"] == content_ref(CLIP.read_bytes(), "mp4")
@@ -180,7 +187,7 @@ def test_every_declared_path_is_the_sha256_of_its_bytes(tmp_path: Path) -> None:
     assert "assets/" not in (out / "build-ledger.json").read_text("utf-8")
     # The ledger names the same paths the manifest does: no drift.
     for entry in ledger["items"].values():
-        for key in ("shippedFile", "shippedPoster", "dedupOf"):
+        for key in ("file", "poster"):
             if entry.get(key):
                 assert entry[key] in declared
 
@@ -248,7 +255,7 @@ def test_validator_exit_zero_with_ledger(tmp_path: Path) -> None:
     # The ledger carries the per-item asset facts the plan requires.
     for entry in ledger["items"].values():
         if entry.get("asset"):
-            assert {"sniffedFormat", "decision", "sourceBytes"} <= set(entry)
+            assert {"sniffedFormat", "decision"} <= set(entry)
 
 
 # --- wrapped / unsupported images -----------------------------------------------
@@ -293,7 +300,8 @@ def test_wrapped_image_carved_and_unsupported_item_skipped(
                    .startswith("wrapped-"))
     entry = ledger["items"][wrapped["id"]]
     assert entry["decision"] == "carved"
-    assert entry["wrapped"] == 5
+    assert ledger["media"][wrapped["file"]]["steps"][0] \
+        == {"step": "carve", "offset": 5}
     assert wrapped["file"].endswith((".png", ".jxl"))
     assert is_content_addressed(out, wrapped["file"])
     # The junk item never reaches the manifest but is explained in the ledger.
