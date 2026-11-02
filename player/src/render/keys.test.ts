@@ -34,9 +34,14 @@ describe("commandForKey", () => {
     expect(commandForKey("Escape", false)).toBe("dismissOverlay");
   });
 
-  it("maps c to the config screen (Phase 9)", () => {
-    expect(commandForKey("c", false)).toBe("toggleConfig");
-    expect(commandForKey("C", false)).toBe("toggleConfig");
+  it("maps nothing to c: the settings live on the Esc screen (Phase 26)", () => {
+    expect(commandForKey("c", false)).toBeNull();
+    expect(commandForKey("C", false)).toBeNull();
+    const esc = keyHelpEntries().find((e) => e.command === "dismissOverlay");
+    expect(esc?.description).toBe("this screen: keys and settings; closes t");
+    for (const entry of keyHelpEntries()) {
+      expect(entry.description).not.toMatch(/\bc\b/);
+    }
   });
 
   it("maps a to auto-forward (Phase 13b)", () => {
@@ -224,7 +229,6 @@ describe("keyHelpEntries (the help lists the map itself, Phase 13b)", () => {
       "h",
       "b",
       "t",
-      "c",
       "Escape",
       "1-9 / 0",
     ]);

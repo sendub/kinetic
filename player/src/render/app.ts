@@ -25,7 +25,7 @@ export interface Shell {
    */
   setStageVisible(visible: boolean): void;
   /**
-   * The `c`/`t` screens' timeline pause (docs/plan.md Phase 18): true
+   * The Esc screen's and `t` list's timeline pause (docs/plan.md Phase 18): true
    * holds a playing video in place, false lets it play on.
    */
   setMediaPaused(paused: boolean): void;

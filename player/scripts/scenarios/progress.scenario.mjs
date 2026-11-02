@@ -1,6 +1,6 @@
 // Export / import progress (docs/plan.md Phase 21): progress read in one
 // browser moves to another. The first browser reads a few items, bookmarks
-// one, sets 2.00x, and exports from the `c` screen: a real download of
+// one, sets 2.00x, and exports from the Esc screen's settings: a real download of
 // `<storyId>-progress.json`. A second, fresh browser profile opens the same
 // folder: another story's file is refused in the panel and changes
 // nothing; the real file asks to confirm, replaces this browser's progress
@@ -18,17 +18,17 @@ import { dirname, join, resolve } from "node:path";
 import { DEFAULT_SETTINGS } from "../../src/machine/types.ts";
 import { speedLabel } from "../../src/render/config.ts";
 import {
-  CONFIG_OPEN,
   CONFIRM_OPEN,
   clickCenter,
+  closeSettings,
   currentItemId,
   demoDir,
   item,
   manifest,
   OVERLAY_OPEN,
+  openSettings,
   PAGE_STATE,
   pressB,
-  pressC,
   pressSpace,
   pressT,
   READ_BOOKMARK_OVERLAY,
@@ -67,7 +67,7 @@ async function waitForFile(path, timeout = 8000) {
   return false;
 }
 
-/** Click Import in the open `c` panel and answer the picker with `path`. */
+/** Click Import in the open Esc screen's settings and answer the picker with `path`. */
 async function importFile(page, cdp, path) {
   const cfg = await page.evaluate(READ_CONFIG_OVERLAY);
   const [chooser] = await Promise.all([
@@ -100,8 +100,7 @@ export default async function ({ check, open }) {
   await pressB(a.cdp);
   const flashed = await waitFor(a.page, FLASH_SHOWN);
   const walked2 = await spaceTo(a.page, a.cdp, reached.id);
-  await pressC(a.cdp);
-  await waitFor(a.page, CONFIG_OPEN);
+  await openSettings(a.page, a.cdp);
   for (let i = 0; i < 4; i += 1) {
     const r = await a.page.evaluate(READ_CONFIG_OVERLAY);
     await clickCenter(a.cdp, r.speedUpRect);
@@ -148,8 +147,7 @@ export default async function ({ check, open }) {
   // 2. A fresh browser on the same folder, at the first item.
   const b = await open("target", { closeHelp: true });
   const startId = await currentItemId(b.page);
-  await pressC(b.cdp);
-  await waitFor(b.page, CONFIG_OPEN);
+  await openSettings(b.page, b.cdp);
 
   // Another story's file is refused in the panel; nothing changes.
   const wrongPath = join(downloads, "other-tale-progress.json");
@@ -195,10 +193,9 @@ export default async function ({ check, open }) {
   await waitFor(b.page, OVERLAY_OPEN);
   const list = await b.page.evaluate(READ_BOOKMARK_OVERLAY);
   await pressT(b.cdp);
-  await pressC(b.cdp);
-  await waitFor(b.page, CONFIG_OPEN);
+  await openSettings(b.page, b.cdp);
   const cfgB = await b.page.evaluate(READ_CONFIG_OVERLAY);
-  await pressC(b.cdp);
+  await closeSettings(b.page, b.cdp);
   const rows = list.entries ?? [];
   check(
     "the real file asks to confirm, then reloads onto the same item with the bookmark and 2.00x, help closed",

@@ -1,5 +1,6 @@
-// The `c` config screen (docs/plan.md Phase 9, README `c` bullet): a
-// minimal panel holding the player's settings — the configurable reading
+// The settings section of the Esc screen (docs/plan.md Phase 9; Phase 26
+// "Settings live on the Esc screen; `c` dropped": main.ts mounts it into
+// the `#help` panel, under the key grid): the player's settings — the configurable reading
 // speed (docs/plan.md Phase 16: a minus button, a draggable slider, a plus
 // button and the current speed in smaller text at the row's right; the
 // slider's own range is the stepper's 0.25-3.0 in 0.25 steps, and the
@@ -21,10 +22,10 @@
 // so the shell applies it live (machine.setSettings) and persists it from
 // one place; the panel never reads storage. Like the bookmark panel, the
 // pure rules are exported and tested below, and the DOM half only applies
-// them. While the panel is open the timeline is suspended (keys.ts
-// suspendTimeline); `c` or Escape closes it. A click never closes it
-// (docs/plan.md Phase 24): one outside the controls (backdrop) is inert,
-// and the slider and the file picker count as controls.
+// them. While the screen is open the timeline is suspended (keys.ts
+// suspendTimeline); Escape or Space closes it (main.ts). A click never
+// closes it (docs/plan.md Phase 24): one outside the controls (backdrop) is
+// inert, and the slider and the file picker count as controls.
 
 import type { MachineSettings } from "../machine/types";
 
@@ -77,6 +78,9 @@ export const PROGRESS_NOTE =
 export const PLAY_ALL_NOTE =
   "when on, choices pick themselves after a countdown";
 
+/** The section's heading on the Esc screen (Phase 26). */
+export const SETTINGS_TITLE = "Settings";
+
 /**
  * The speed row's label (Phase 24): the speed paces auto-forward (`a`), so
  * it is named for it. The stored setting keeps its `readingSpeed` key.
@@ -113,7 +117,7 @@ export interface ConfigOverlay {
 }
 
 export interface ConfigOverlayOptions {
-  /** The `#app` element; the panel is its sibling, as the bookmark panel's. */
+  /** The Esc screen's panel (`#help`); the section is its last child. */
   root: HTMLElement;
   /** The settings in force, read fresh whenever the panel opens. */
   settings(): MachineSettings;
@@ -147,15 +151,11 @@ export function mountConfigOverlay({
   const panel = doc.createElement("div");
   panel.id = "config";
   panel.className = "config";
-  panel.hidden = true; // `c` opens; `c` or Escape closes (a click never does)
+  panel.hidden = true; // shown and hidden with the Esc screen (main.ts)
 
   const title = doc.createElement("h2");
   title.className = "config-title";
-  title.textContent = "Config";
-
-  const hint = doc.createElement("p");
-  hint.className = "config-hint";
-  hint.textContent = "click a control to change it; c or Esc closes";
+  title.textContent = SETTINGS_TITLE;
 
   const speedRow = doc.createElement("div");
   speedRow.className = "config-row";
@@ -321,7 +321,6 @@ export function mountConfigOverlay({
 
   panel.append(
     title,
-    hint,
     speedRow,
     speedNote,
     skipHeading,
@@ -359,7 +358,7 @@ export function mountConfigOverlay({
   }
 
   // One listener for the whole panel: a control acts, any other click is
-  // backdrop and inert — only `c` or Escape closes (Phase 24).
+  // backdrop and inert — only Escape or Space closes (Phase 24).
   panel.addEventListener("click", (event) => {
     const target = event.target;
     const control =

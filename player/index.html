@@ -252,28 +252,18 @@
         font-size: clamp(14px, 1.8vh, 20px);
         letter-spacing: 0.02em;
       }
-      /* c config screen (docs/plan.md Phase 9, README c bullet): one
-         panel, the player's settings — the auto-forward speed slider with its
-         step buttons, the "When Tab skips" options (skip unseen content
-         too, play videos in full), the play-all-routes switch and the
-         Progress group (export, import, reset; Phase 21) — and nothing else. Over the bookmark
-         panel and a pending choice (z 5; `c` opens over a choice), under
-         the #flash pill (z 10, so a `b` still confirms on top),
-         and the cursor-moving keys are suspended behind it
-         (render/keys.ts). Sizes stay viewport-proportional, as above.
-         The look is deliberately minimal: like the overlay band, the
-         final styling is a later iteration with the user. */
+      /* The settings section of the Esc screen (docs/plan.md Phase 9;
+         Phase 26 moved it into #help, under the key grid, and dropped
+         `c`): the auto-forward speed slider with its step buttons, the
+         "When Tab skips" options (skip unseen content too, play videos in
+         full), the play-all-routes switch and the Progress group (export,
+         import, reset; Phase 21) — and nothing else. It flows inside the
+         #help panel, which owns the z-order, the black background and the
+         vertical scroll. Sizes stay viewport-proportional, as above. */
       #config {
-        position: absolute;
-        inset: 0;
-        z-index: 6; /* over a choice (z 5); the reset box (z 7) over it */
         display: flex;
         flex-direction: column;
-        gap: clamp(12px, 2.4vh, 28px);
-        padding: clamp(16px, 3vh, 36px) clamp(20px, 6vw, 88px);
-        background: rgba(8, 8, 10, 0.94);
-        color: var(--ink);
-        font-family: var(--ui-font);
+        gap: clamp(4px, 1.2vh, 16px);
       }
       #config[hidden] {
         display: none;
@@ -299,7 +289,7 @@
       /* The skip options sit under their own heading, indented, so they
          read as options of Tab rather than switches that start a skip. */
       .config-section {
-        margin: 0 0 calc(-1 * clamp(4px, 1.2vh, 14px));
+        margin: 0 0 calc(-1 * clamp(2px, 0.8vh, 10px));
         color: rgba(244, 239, 230, 0.7);
         font-size: clamp(11px, 1.4vh, 15px);
         letter-spacing: 0.08em;
@@ -315,7 +305,7 @@
       /* The speed row's note line (Phase 24), drawn up under its row as
          a heading draws up its first option. */
       .config-speed-note {
-        margin: calc(-1 * clamp(4px, 1.2vh, 14px)) 0 0;
+        margin: calc(-1 * clamp(2px, 0.8vh, 10px)) 0 0;
       }
       /* A group's own note line (Phase 22), under its heading. */
       .config-group-note {
@@ -438,9 +428,9 @@
         border-color: var(--accent);
         color: var(--accent);
       }
-      /* Reset-confirmation box (docs/plan.md Phase 16): the `c` panel's
+      /* Reset-confirmation box (docs/plan.md Phase 16): the Esc screen's
          "Reset progress" row opens it, centered over everything — above
-         the config panel (z 5) and help (z 6), still under the #flash
+         the Esc screen (#help, z 6), still under the #flash
          pill (z 10). Same dark family as the panels; the reader's own
          buttons decide, and Escape/n simply cancels. */
       #confirm {
@@ -484,7 +474,7 @@
         display: flex;
         gap: clamp(10px, 2vw, 18px);
       }
-      /* The buttons share the config panel's control skin: same border,
+      /* The buttons share the settings' control skin: same border,
          hover and focus ring; the destructive one carries the accent. */
       .confirm-button {
         padding: clamp(4px, 1vh, 10px) clamp(14px, 2.4vw, 26px);
@@ -506,30 +496,39 @@
         border-color: var(--accent);
         color: var(--accent);
       }
-      /* Key help screen (docs/plan.md Phase 13b): black over everything —
-         the stage is hidden too, so the screen really is black, not just
-         covered. Opaque background, above the bookmark/config panels (z 5)
-         and still under the #flash pill (z 10); the rows are built from
-         the keymap's own table (render/keys.ts), and its keys close it.
-         Look is minimal, same as the panels above: a later iteration with
-         the user. */
+      /* The Esc screen (docs/plan.md Phase 13b; Phase 26): black over
+         everything — the stage is hidden too, so the screen really is
+         black, not just covered. Opaque background, above the bookmark
+         panel and a pending choice (z 5) and still under the reset box
+         (z 7) and the #flash pill (z 10); the game's name, the key grid
+         built from the keymap's own table (render/keys.ts), then the
+         settings section (#config). Its keys close it. A window too short
+         for it all scrolls vertically inside the screen, never across. */
       #help {
         position: absolute;
         inset: 0;
         z-index: 6;
         display: flex;
         flex-direction: column;
-        gap: clamp(12px, 2.4vh, 28px);
-        padding: clamp(16px, 3vh, 36px) clamp(20px, 6vw, 88px);
+        gap: clamp(6px, 1.4vh, 20px);
+        padding: clamp(10px, 2vh, 32px) clamp(16px, 6vw, 88px);
+        overflow-x: hidden;
+        overflow-y: auto;
+        overscroll-behavior: contain;
         background: #000;
         color: var(--ink);
         font-family: var(--ui-font);
+      }
+      /* Flex children keep their height: the panel scrolls rather than
+         squashing a section. */
+      #help > * {
+        flex: none;
       }
       #help[hidden] {
         display: none;
       }
       /* The game's name (docs/plan.md Phase 21), from the manifest
-         `title`: the screen's first line, above "Key help"; absent when
+         `title`: the screen's first line, above the keys; absent when
          the manifest names no game. */
       .help-game {
         margin: 0;
@@ -552,22 +551,26 @@
         color: rgba(244, 239, 230, 0.55);
         font-size: clamp(10px, 1.2vh, 13px);
       }
+      /* The keys fill across before going down (Phase 26): as many
+         columns as fit, each at least 26ch (or the full width when the
+         window is narrower), rows in reading order. */
       .help-list {
-        display: flex;
-        flex-direction: column;
-        gap: clamp(5px, 1vh, 12px);
-        overflow-y: auto;
-        overscroll-behavior: contain;
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(min(100%, 26ch), 1fr));
+        gap: clamp(4px, 0.8vh, 12px) clamp(12px, 2.4vw, 32px);
       }
       .help-row {
         display: flex;
         align-items: baseline;
         gap: clamp(10px, 2vw, 18px);
       }
+      /* One chip width for every key, so the descriptions line up in each
+         column; wide enough for "1-9 / 0". */
       .help-key {
         flex: none;
-        min-width: 14ch;
-        padding: clamp(2px, 0.5vh, 5px) clamp(8px, 1.4vw, 14px);
+        box-sizing: border-box;
+        width: 7em;
+        padding: clamp(2px, 0.5vh, 5px) 0;
         border: 1px solid rgba(244, 239, 230, 0.28);
         border-radius: 5px;
         background: rgba(18, 18, 22, 0.9);
@@ -582,8 +585,8 @@
       }
       /* Decision overlay (docs/plan.md Phase 13): the machine's open
          choice drawn as a prompt over its numbered routes. z 5: it never
-         coexists with the bookmark/config panels (one screen at a time),
-         and the key help — the one screen that may open OVER a pending
+         coexists with the bookmark panel (one screen at a time),
+         and the Esc screen — the one screen that may open OVER a pending
          choice — stays above it at z 6; #flash (z 10) is unaffected.
          Rows are buttons so a pointer click is the row's own; the seen
          marker rides at the row's end. Look is minimal like the panels

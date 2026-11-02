@@ -189,7 +189,9 @@ const OVERLAY_CLOSED = () => {
 };
 const panelOpen = (page) => page.evaluate(OVERLAY_OPEN);
 
-// The `c` config screen as the reader sees it: the speed readout, the
+// The settings section of the Esc screen (Phase 26: Escape opens the one
+// screen holding the keys and every setting; `c` is gone) as the reader
+// sees it: the speed readout, the
 // skip-all and play-all-routes switches' aria state, the rects the driver
 // clicks, and the layout in reading order (each heading and row label, an
 // indented option marked by two leading spaces) with each row's first
@@ -210,7 +212,17 @@ const READ_CONFIG_OVERLAY = () => {
     hidden: false,
     title: document.querySelector(".config-title")?.textContent ?? null,
     titleRect: rectOf(document.querySelector(".config-title")),
-    hint: document.querySelector(".config-hint")?.textContent ?? null,
+    // The screen's one hint, shared by the keys and the settings.
+    hint: document.querySelector(".help-hint")?.textContent ?? null,
+    // The settings sit under the key grid on the same screen.
+    belowKeys: (() => {
+      const grid = document.querySelector("#help .help-list");
+      return (
+        grid !== null &&
+        panel.parentElement?.id === "help" &&
+        panel.getBoundingClientRect().top >= grid.getBoundingClientRect().bottom
+      );
+    })(),
     speedValue:
       document.querySelector(".config-speed-value")?.textContent ?? null,
     speedDownRect: rectOf(
@@ -337,7 +349,36 @@ const CONFIG_OPEN = () => {
   const p = document.getElementById("config");
   return p !== null && !p.hidden;
 };
+const CONFIG_CLOSED = () => {
+  const p = document.getElementById("config");
+  return p === null || p.hidden;
+};
 const configOpen = (page) => page.evaluate(CONFIG_OPEN);
+
+// Escape until `predicate` holds: the settings live on the Esc screen
+// (Phase 26), so Escape opens and closes them. While the page is
+// fullscreen Chrome keeps the first Escape to leave fullscreen, so that
+// case sends one more. Returns whether the predicate held.
+async function escapeUntil(page, cdp, predicate) {
+  const fullscreen = await page.evaluate(
+    () => document.fullscreenElement !== null,
+  );
+  if (fullscreen) {
+    await pressEscape(cdp);
+    await sleep(150);
+  }
+  await pressEscape(cdp);
+  try {
+    await page.waitForFunction(predicate, { timeout: 3000 });
+    return true;
+  } catch {
+    return false;
+  }
+}
+/** Opens the Esc screen's settings (Phase 26). */
+const openSettings = (page, cdp) => escapeUntil(page, cdp, CONFIG_OPEN);
+/** Closes the Esc screen with its own key. */
+const closeSettings = (page, cdp) => escapeUntil(page, cdp, CONFIG_CLOSED);
 const clickCenter = async (cdp, rect) => {
   await clickAt(
     cdp,
@@ -372,6 +413,33 @@ const READ_HELP = () => {
     coversViewport:
       Math.abs(r.width - window.innerWidth) <= 1 &&
       Math.abs(r.height - window.innerHeight) <= 1,
+  };
+};
+// The Esc screen's key grid (Phase 26): how many columns its rows fall
+// into, whether the second row sits beside the first (across before
+// down), the grid's rect, and the screen's scroll width against its box
+// (no horizontal scroll).
+const READ_KEY_GRID = () => {
+  const panel = document.getElementById("help");
+  const grid = document.querySelector("#help .help-list");
+  if (panel === null || grid === null) return { present: false };
+  const rows = [...grid.querySelectorAll(".help-row")].map((el) =>
+    el.getBoundingClientRect(),
+  );
+  const r = grid.getBoundingClientRect();
+  return {
+    present: true,
+    rows: rows.length,
+    columns: new Set(rows.map((b) => Math.round(b.left))).size,
+    acrossFirst:
+      rows.length > 1 &&
+      Math.round(rows[1].top) === Math.round(rows[0].top) &&
+      rows[1].left > rows[0].left,
+    rect: { top: r.top, bottom: r.bottom, left: r.left, right: r.right },
+    scrollWidth: panel.scrollWidth,
+    clientWidth: panel.clientWidth,
+    scrollHeight: panel.scrollHeight,
+    clientHeight: panel.clientHeight,
   };
 };
 const HELP_OPEN = () => {
@@ -660,6 +728,8 @@ const pressE = (cdp) => pressKey(cdp, "e", "KeyE", 69, "e");
 const pressU = (cdp) => pressKey(cdp, "u", "KeyU", 85, "u");
 const pressB = (cdp) => pressKey(cdp, "b", "KeyB", 66, "b");
 const pressT = (cdp) => pressKey(cdp, "t", "KeyT", 84, "t");
+// `c` opens nothing since Phase 26 (the settings live on the Esc screen);
+// the key stays here so a scenario can prove it inert.
 const pressC = (cdp) => pressKey(cdp, "c", "KeyC", 67, "c");
 const pressA = (cdp) => pressKey(cdp, "a", "KeyA", 65, "a");
 const pressEnter = (cdp) => pressKey(cdp, "Enter", "Enter", 13, "\r");
@@ -965,29 +1035,20 @@ export function assembleFolders() {
 }
 
 /**
- * Set `Play all routes` through the `c` screen as a reader would: open it,
- * click the switch only when it is not already `on`, close it with `c`
- * (a click never closes it, docs/plan.md Phase 24). Returns the screen as it read after the switch (`after`) and
+ * Set `Play all routes` through the Esc screen as a reader would (Phase
+ * 26): open it with Escape, click the switch only when it is not already
+ * `on`, close it with Escape (a click never closes it, docs/plan.md Phase
+ * 24). Returns the screen as it read after the switch (`after`) and
  * whether it closed. Play all routes is on by default (docs/plan.md
  * Phase 24); a walk that makes its own choices turns it off with this.
  */
 async function setPlayAll(page, cdp, on) {
-  await pressC(cdp);
-  await page.waitForFunction(CONFIG_OPEN, { timeout: 5000 });
+  await openSettings(page, cdp);
   const before = await page.evaluate(READ_CONFIG_OVERLAY);
   if (before.playPressed !== String(on))
     await clickCenter(cdp, before.playRect);
   const after = await page.evaluate(READ_CONFIG_OVERLAY);
-  await pressC(cdp); // its key closes the screen (a click never does)
-  await page
-    .waitForFunction(
-      () => {
-        const p = document.getElementById("config");
-        return p === null || p.hidden;
-      },
-      { timeout: 5000 },
-    )
-    .catch(() => {});
+  await closeSettings(page, cdp); // its key closes it (a click never does)
   const closed = !(await page.evaluate(CONFIG_OPEN));
   return { after, closed };
 }
@@ -997,7 +1058,7 @@ async function setPlayAll(page, cdp, on) {
  * page errors captured, the INSTRUMENT shim installed, and the demo opened
  * with the key help up (pass `closeHelp: true` to dismiss it by keyboard).
  * `manualChoices: true` (with `closeHelp`) then turns Play all routes off
- * in `c`, so the walk answers every decision itself; it throws if the
+ * on the Esc screen, so the walk answers every decision itself; it throws if the
  * switch did not end Off with the screen closed.
  */
 export async function openScenario(name, options = {}) {
@@ -1064,12 +1125,14 @@ export {
   CHAIN_PROBE,
   CHOICE_CLOSED,
   CHOICE_OPEN,
+  CONFIG_CLOSED,
   CONFIG_OPEN,
   CONFIRM_OPEN,
   CONTINUE_LABEL,
   choiceOpen,
   clickAt,
   clickCenter,
+  closeSettings,
   configOpen,
   containFit,
   dismissHelp,
@@ -1085,6 +1148,7 @@ export {
   OVERLAY_CLOSED,
   OVERLAY_OPEN,
   openAtViewport,
+  openSettings,
   PAGE_STATE,
   PAINT_SIG,
   panelOpen,
@@ -1107,6 +1171,7 @@ export {
   READ_CONFIG_OVERLAY,
   READ_CONFIRM_OVERLAY,
   READ_HELP,
+  READ_KEY_GRID,
   readBranchLog,
   readSignature,
   SIGNATURE,

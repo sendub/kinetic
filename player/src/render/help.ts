@@ -1,6 +1,10 @@
-// The `#help` key help overlay (docs/plan.md Phase 13b): a black screen
-// listing the main interaction keys, one short line each (Phase 18, "Key
-// help simplified" — the reset box's own keys are not listed), rendered from the keymap module's own table
+// The `#help` Esc screen (docs/plan.md Phase 13b; Phase 26 "Settings live
+// on the Esc screen"): a black screen headed by the game's name, listing
+// the main interaction keys, one short line each, in a grid that fills
+// across before going down (Phase 18, "Key help simplified" — the reset
+// box's own keys are not listed), and below them every setting: main.ts
+// mounts the settings section (render/config.ts) into this panel, so the
+// keys and the settings are one screen. The rows render from the keymap module's own table
 // (`keyHelpEntries` in render/keys.ts) — the keys shown are the keys that
 // are mapped, so the screen cannot drift from the mapping (the README's
 // auto-forward bullet was the symptom; discoverability was the cause).
@@ -26,11 +30,14 @@
 
 import { keyHelpEntries } from "./keys";
 
-/** The panel's title, shown above the rows. */
-export const HELP_TITLE = "Key help";
+/** The keys' heading, shown above the key grid. */
+export const HELP_TITLE = "Keys";
 
-/** The panel's closing hint. */
-export const HELP_HINT = "Esc or Space closes";
+/**
+ * The screen's one hint (Phase 26): its keys close it, and a click changes
+ * a setting (a click never closes it, Phase 24).
+ */
+export const HELP_HINT = "Esc or Space closes; click a setting to change it";
 
 /** The page title when the manifest names no game (index.html's own). */
 export const PAGE_TITLE_DEFAULT = "Kinetic";
@@ -52,6 +59,8 @@ export function pageTitleFor(title: unknown): string {
 }
 
 export interface HelpOverlay {
+  /** The screen's element: the settings section mounts into it (Phase 26). */
+  readonly panel: HTMLElement;
   isOpen(): boolean;
   /** Shows the screen. The shell pauses the machine and hides the stage. */
   open(): void;
@@ -117,6 +126,8 @@ export function mountHelpOverlay({
   hint.className = "help-hint";
   hint.textContent = HELP_HINT;
 
+  // A grid that fills across before it goes down (Phase 26): index.html's
+  // `.help-list` sizes its columns with auto-fill.
   const list = doc.createElement("div");
   list.className = "help-list";
   for (const row of helpRows()) {
@@ -141,7 +152,7 @@ export function mountHelpOverlay({
     heading.textContent = name;
     panel.append(heading);
   }
-  panel.append(title, hint, list);
+  panel.append(hint, title, list);
   root.appendChild(panel);
 
   // No click handler: only its keys close it (Esc or Space, main.ts),
@@ -153,6 +164,7 @@ export function mountHelpOverlay({
   }
 
   return {
+    panel,
     isOpen() {
       return !panel.hidden;
     },

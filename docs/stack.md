@@ -76,7 +76,7 @@ Known constraints of the browser host, both accepted:
   `storyId` (`story:<id>`; the folder URL when a manifest has none, carried
   over once one is added), so moving or renaming the folder keeps
   progress. Moving to another browser is an explicit Export / Import of
-  a per-story JSON file on the `c` screen. No server, no
+  a per-story JSON file on the Esc screen. No server, no
   files-from-browser problem.
 
 ## Content format decision

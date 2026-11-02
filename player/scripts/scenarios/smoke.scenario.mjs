@@ -4,13 +4,13 @@
 
 import {
   CHOICE_OPEN,
-  CONFIG_OPEN,
+  closeSettings,
   currentItemId,
   item,
   OVERLAY_OPEN,
+  openSettings,
   PAGE_STATE,
   pressB,
-  pressC,
   pressSpace,
   pressT,
   sleep,
@@ -64,15 +64,12 @@ export default async function ({ check, open }) {
     listed = false;
   }
   await pressT(cdp);
-  await pressC(cdp);
-  let config = true;
-  try {
-    await page.waitForFunction(CONFIG_OPEN, { timeout: 2000 });
-  } catch {
-    config = false;
-  }
-  await pressC(cdp);
-  check("screens: b + t lists a bookmark; c opens settings", listed && config);
+  const config = await openSettings(page, cdp);
+  await closeSettings(page, cdp);
+  check(
+    "screens: b + t lists a bookmark; Esc opens the settings",
+    listed && config,
+  );
 
   // branches
   await wheel(cdp, false, 1);

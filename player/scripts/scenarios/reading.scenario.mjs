@@ -11,6 +11,7 @@ import {
   pressA,
   pressH,
   pressSpace,
+  READ_CONFIG_OVERLAY,
   READ_HELP,
   sleep,
   wheel,
@@ -50,18 +51,23 @@ export default async function ({ check, open }) {
   // Fresh load: the help is up over a black stage; item 0 waits behind it.
   const s1 = await page.evaluate(PAGE_STATE);
   const help = await page.evaluate(READ_HELP);
+  const settings = await page.evaluate(READ_CONFIG_OVERLAY);
   const keys = new Set((help.rows ?? []).map((row) => row.key));
   check(
-    "fresh load shows the key help over a black stage, listing the keymap",
+    "fresh load shows the Esc screen over a black stage: the keymap (no c) and the settings under it",
     s1.helpOpen === true &&
       s1.stageHidden === true &&
       help.coversViewport === true &&
-      ["Space", "wheel", "Tab", "A", "H", "B", "T", "E", "C", "Esc"].every(
-        (k) => keys.has(k),
+      ["Space", "wheel", "Tab", "A", "H", "B", "T", "E", "Esc"].every((k) =>
+        keys.has(k),
       ) &&
+      !keys.has("C") &&
+      settings.hidden === false &&
+      settings.belowKeys === true &&
+      settings.title === "Settings" &&
       s1.text === first.text &&
       s1.fsAttempts === 0,
-    { s1, keys: [...keys] },
+    { s1, keys: [...keys], settings: settings.title },
   );
 
   // Space closes the help and is consumed; it is the first gesture, so it

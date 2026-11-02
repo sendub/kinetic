@@ -1,19 +1,20 @@
-// Menus pause the timeline (docs/plan.md Phase 18): opening `c` or `t`
+// Menus pause the timeline (docs/plan.md Phase 18): opening the Esc
+// screen (keys and settings, Phase 26) or `t`
 // freezes a running auto-forward hold or skip burst and holds a playing
 // video in place; closing the screen resumes exactly what was running (a
 // fresh auto hold, or the burst carrying on). A bookmark click that jumps
 // away does not resume the old burst. Each part starts a fresh browser.
 
 import {
-  CONFIG_OPEN,
   clickCenter,
+  closeSettings,
   currentItemId,
   item,
   ON_TEXT,
   OVERLAY_OPEN,
+  openSettings,
   pressA,
   pressB,
-  pressC,
   pressSpace,
   pressT,
   pressTab,
@@ -47,11 +48,10 @@ async function autoForward({ check, open }) {
   const on = (await currentItemId(page)) === here.id;
   await pressA(cdp); // auto on: the hold is armed from now
   await sleep(500);
-  await pressC(cdp);
-  await page.waitForFunction(CONFIG_OPEN, { timeout: 2000 });
+  await openSettings(page, cdp);
   await sleep(holdMs + 800); // the hold would have fired behind the screen
   const heldBehind = (await currentItemId(page)) === here.id;
-  await pressC(cdp); // close: a FRESH hold starts now
+  await closeSettings(page, cdp); // close: a FRESH hold starts now
   const closedAt = Date.now();
   let advancedAt = -1;
   try {
@@ -60,7 +60,7 @@ async function autoForward({ check, open }) {
   } catch {}
   const afterClose = advancedAt < 0 ? -1 : advancedAt - closedAt;
   check(
-    "c pauses auto-forward; closing it re-arms a fresh hold, then auto goes on",
+    "the Esc screen pauses auto-forward; closing it re-arms a fresh hold, then auto goes on",
     on &&
       heldBehind &&
       afterClose >= holdMs * 0.8 &&
@@ -120,17 +120,16 @@ async function videoHold({ check, open }) {
       const v = document.getElementById("visual-video");
       return v === null ? null : { paused: v.paused, t: v.currentTime };
     });
-  await pressC(cdp);
-  await page.waitForFunction(CONFIG_OPEN, { timeout: 2000 });
+  await openSettings(page, cdp);
   await sleep(150);
   const a = await readVideo();
   await sleep(600);
   const b = await readVideo();
-  await pressC(cdp);
+  await closeSettings(page, cdp);
   await sleep(500);
   const c = await readVideo();
   check(
-    "c holds a playing video in place; closing it plays on",
+    "the Esc screen holds a playing video in place; closing it plays on",
     reached &&
       playing &&
       a?.paused === true &&

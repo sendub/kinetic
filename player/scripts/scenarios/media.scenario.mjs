@@ -8,15 +8,15 @@
 
 import {
   CHAIN_PROBE,
-  CONFIG_OPEN,
   clickCenter,
+  closeSettings,
   FIT_STATE,
   item,
   judgeFit,
   ON_TEXT,
+  openSettings,
   PAGE_STATE,
   pressA,
-  pressC,
   pressH,
   pressSpace,
   pressTab,
@@ -687,8 +687,7 @@ async function skipVideos({ check, open }) {
   const exit = item("branch-title");
   const planMs = clip.durationSeconds * 1000;
   const walked = await spaceTo(page, cdp, "branch-title"); // all seen
-  await pressC(cdp);
-  await page.waitForFunction(CONFIG_OPEN, { timeout: 2000 });
+  await openSettings(page, cdp);
   const rect = await page.evaluate(() => {
     const r = document
       .querySelector(".config-skip-videos")
@@ -699,7 +698,7 @@ async function skipVideos({ check, open }) {
   const pressed = await page.evaluate(() =>
     document.querySelector(".config-skip-videos").getAttribute("aria-pressed"),
   );
-  await pressC(cdp); // close: the timeline resumes
+  await closeSettings(page, cdp); // close: the timeline resumes
   const idx = (samples, it) =>
     samples.findIndex(([, sig]) => sig.endsWith(`|${it.text}`));
 

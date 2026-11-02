@@ -1,7 +1,7 @@
 // Export / import progress (docs/plan.md Phase 21): moving a reader's
 // progress to another browser or machine. Progress stays saved
 // automatically in the browser; this file is only the carrier — "Export
-// progress" on the `c` screen downloads it, "Import progress" on the
+// progress" on the Esc screen downloads it, "Import progress" on the
 // other browser checks it, confirms, replaces that browser's progress for
 // the story with it and reloads, after which saving is automatic again.
 //
@@ -88,7 +88,7 @@ function storyName(story: StoryIdentity, fallback: string): string {
 
 /**
  * "Import progress", the checks: `text` is the chosen file, `here` the
- * story this page plays. Refuses (with the message the `c` panel shows)
+ * story this page plays. Refuses (with the message the settings show)
  * a file that is not JSON, not a progress file, of another version,
  * malformed, or of another story; otherwise returns its progress, every
  * field sanitized and every malformed bookmark dropped — the load rules.

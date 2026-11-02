@@ -1,4 +1,4 @@
-// The `c` config screen (docs/plan.md Phase 9): the speed stepper's step and
+// The settings section of the Esc screen (docs/plan.md Phases 9, 26): the speed stepper's step and
 // clamps and the readout text are pure, so they are tested as functions; the
 // panel's DOM half is exercised below on a minimal element (docs/plan.md
 // Phase 16 gave the reading speed a slider between the step buttons), and
@@ -15,6 +15,7 @@ import {
   PROGRESS_NOTE,
   PROGRESS_SECTION,
   playAllLabel,
+  SETTINGS_TITLE,
   SKIP_ALL_TEXT,
   SKIP_SECTION,
   SKIP_VIDEOS_TEXT,
@@ -368,15 +369,20 @@ describe("config panel (the reading-speed row: - slider + readout)", () => {
     root.children[0].fire("click"); // the panel itself, outside every control
     expect(overlay.isOpen()).toBe(true);
     expect(changes).toHaveLength(0);
-    overlay.close(); // `c` or Escape (main.ts) close it through close()
+    overlay.close(); // Escape or Space (main.ts) close it through close()
     expect(overlay.isOpen()).toBe(false);
   });
 
-  it('hints in words, clauses split by "; " (Phase 24)', () => {
+  it("is the Settings section of the Esc screen: no hint of its own, no c (Phase 26)", () => {
     const { root } = mount(defaults);
-    expect(byClass(root, "config-hint").textContent).toBe(
-      "click a control to change it; c or Esc closes",
-    );
+    const [panel] = root.children;
+    expect(panel?.children[0]?.className).toBe("config-title");
+    expect(byClass(root, "config-title").textContent).toBe(SETTINGS_TITLE);
+    expect(SETTINGS_TITLE).toBe("Settings");
+    expect(walk(root).some((el) => el.className === "config-hint")).toBe(false);
+    expect(
+      walk(root).some((el) => /\bc or\b|\bc closes\b/.test(el.textContent)),
+    ).toBe(false);
   });
 
   it("reopens on the settings in force, slider thumb included", () => {

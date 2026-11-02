@@ -8,8 +8,9 @@
 // change is the only one a reload a moment later can find —, `b` appends a
 // bookmark that captures the current context and confirms only once both
 // writes commit,
-// `t` opens the bookmark list, and `c` opens the config screen, whose
-// changes apply live (machine.setSettings) and persist with the context.
+// `t` opens the bookmark list, and the Esc screen holds every setting
+// (Phase 26: `c` is gone), whose changes apply live (machine.setSettings)
+// and persist with the context.
 // Phase 13b adds the manual/auto clarity and the `#help` key help: the
 // player STARTS manual (README advance bullet; `a` toggles auto-forward),
 // and the help screen — the keymap's own table on a black screen — shows
@@ -20,7 +21,7 @@
 // (prompt, numbered routes, return-to-main offer; help can open over it,
 // everything else yields to it), the story text hides while it waits, and
 // a bookmark restore re-enters the recorded route context. Phase 16's
-// "Reset progress" adds the `c` row and its confirmation box: on confirm
+// "Reset progress" adds the settings row and its confirmation box: on confirm
 // the content's state and bookmark rows are deleted (each committed) and
 // the page RELOADS — a true fresh boot, help screen included. Phase 21's
 // "Export progress" / "Import progress" rows move that progress between
@@ -177,7 +178,7 @@ function start(): void {
       // first-ever load: item 0.
       const codec = createContextCodec(manifest.items, manifest.branches);
       const persisted = await storage.loadState().catch(() => null);
-      // Settings persist through the `c` screen (docs/plan.md Phase 9):
+      // Settings persist through the Esc screen (docs/plan.md Phases 9, 26):
       // merged over the defaults at machine construction, so a resumed
       // reader reads at the pace they left off at. The machine learns
       // settings only here and through setSettings — never from storage.
@@ -205,7 +206,7 @@ function start(): void {
 
       // Persistence: every machine move can change the resume point —
       // the ctx carries the seen set, the open route, and the last shown
-      // item — and so does every settings change from the `c` screen. A
+      // item — and so does every settings change on the Esc screen. A
       // change ISSUES its write at once (docs/plan.md Phase 14): the old
       // 250 ms debounce left the newest position simply unwritten when a
       // reload came a moment after an advance, and the flushes below could
@@ -349,13 +350,20 @@ function start(): void {
         // A storage outage reads as an empty list, not a dead key.
         storage.getBookmarks().then(shown, () => shown([]));
       };
-      // `c` (README `c` bullet): the config screen. A control click
-      // applies the full next settings live — machine.setSettings re-arms
+      // The key help screen (docs/plan.md Phase 13b), mounted first: the
+      // settings section below lives inside it (Phase 26).
+      // The game's name heads it (docs/plan.md Phase 21).
+      const help = mountHelpOverlay({
+        root,
+        gameTitle: manifest.title,
+      });
+      // The settings (Phase 26: on the Esc screen, under the keys; `c` is
+      // gone). A control click applies the full next settings live — machine.setSettings re-arms
       // the pending auto-advance with them (docs/plan.md Phase 9) — and
       // writes them, like every other change in the record. setSettings
       // is not a state change, so this is the write's trigger.
       const config = mountConfigOverlay({
-        root,
+        root: help.panel,
         settings: () => currentSettings,
         onChange: (next) => {
           currentSettings = next;
@@ -364,7 +372,7 @@ function start(): void {
         },
         onReset: () => {
           // The box asks; nothing is touched until it confirms. It sits
-          // over the config panel — same screen family, same suspension.
+          // over the Esc screen — same screen family, same suspension.
           confirm.open(resetRequest(runReset));
         },
         // Export (docs/plan.md Phase 21): the state as it stands this
@@ -445,27 +453,26 @@ function start(): void {
           );
         });
       }
-      // The key help screen (docs/plan.md Phase 13b): the keymap's own
-      // table on a black screen. Opening it pauses the machine and hides
-      // the stage; closing it resumes the same item, its hold re-armed
-      // from now — and the first close records `helpSeen` durably, so the
-      // screen appears exactly once per novel (render/help.ts).
-      // The game's name heads it (docs/plan.md Phase 21).
-      const help = mountHelpOverlay({
-        root,
-        gameTitle: manifest.title,
-      });
+      // The Esc screen (docs/plan.md Phase 13b; Phase 26): the keymap's
+      // own table and the settings on a black screen. Opening it pauses
+      // the machine (a play-all countdown included) and any video, and
+      // hides the stage; closing it resumes the same item, its hold
+      // re-armed from now — and the first close records `helpSeen`
+      // durably, so the first-load screen appears exactly once per novel
+      // (render/help.ts).
       const openHelp = (): void => {
         if (help.isOpen()) return;
         help.open();
+        config.open(); // the values in force, no stale message
         shell.setStageVisible(false);
-        machine.pause(); // the black screen: no timers behind the help
+        syncMenuPause(); // the black screen: no timers behind it
       };
       function closeHelp(): void {
         if (!help.isOpen()) return;
         help.close();
+        config.close();
         shell.setStageVisible(true);
-        machine.resume();
+        syncMenuPause();
         if (!helpSeen) {
           helpSeen = true;
           persistUrgently(); // the close must outlive a reload
@@ -530,26 +537,20 @@ function start(): void {
       // A pending CHOICE owns everything else: `t` cannot open over it,
       // `h`/`b`/`a` are inert, the timeline is suspended, and only its
       // own inputs act (1..9, 0 with the offer, row clicks) — except the
-      // history moves, the wheel and `e` (see the gates below), and `c`,
-      // whose panel covers the choice and makes its digits inert until
-      // it closes. Otherwise the story reads, and `t`/`c` are the open
-      // screens.
+      // history moves, the wheel and `e` (see the gates below). Otherwise
+      // the story reads, and `t` and Escape open the screens.
       const owner = () => inputOwnerFor(help.isOpen(), choice.isOpen());
-      // The reset box owns the screen too, the way its parent `c` panel
-      // does: while it is open only its own controls act (its keys ride
-      // the map below), like the suspension behind `h`/`t`/`c`.
+      // The reset box owns the screen too, over the Esc screen: while it
+      // is open only its own controls act (its keys ride the map below).
       const storyInput = () => owner() === "story" && !confirm.isOpen();
       const anyPanelOpen = () =>
-        overlay.isOpen() ||
-        config.isOpen() ||
-        confirm.isOpen() ||
-        help.isOpen();
+        overlay.isOpen() || confirm.isOpen() || help.isOpen();
       const anyScreenOpen = () => anyPanelOpen() || choice.isOpen();
       // The history moves are never trapped by a choice (docs/plan.md,
       // "History rollback spec"): a wheel notch or `e` leaves a choice
       // screen for the neighbouring / last history entry — the screen stays
-      // in the history and nothing is answered. Only the panels (help,
-      // `t`, `c`, the reset box) still suspend them.
+      // in the history and nothing is answered. Only the panels (the Esc
+      // screen, `t`, the reset box) still suspend them.
       const historyGate = (command: () => void) => () => {
         if (anyPanelOpen()) return;
         command();
@@ -558,8 +559,8 @@ function start(): void {
       // While a panel is open it takes precedence: the cursor-moving
       // commands (space/tab/e/wheel) are suspended until it closes. `b`
       // still bookmarks the current item and `h` still toggles text —
-      // behind the bookmark/config panels, which do not hide the screen.
-      // Behind help's black screen nothing but the closing actions acts.
+      // behind the bookmark panel, which does not hide the screen.
+      // Behind the Esc screen nothing but the closing actions acts.
       const timeline = {
         ...suspendTimeline(
           {
@@ -579,13 +580,19 @@ function start(): void {
       installKeyMap(
         document,
         {
-          // Space over help closes it and is consumed — no advance (and on
-          // the first load it is also the first gesture, so fullscreen gets
-          // its request like any other first press; render/fullscreen.ts).
+          // Space over the Esc screen closes it and is consumed — no
+          // advance (and on the first load it is also the first gesture,
+          // so fullscreen gets its request like any other first press;
+          // render/fullscreen.ts). It closes even with a settings button
+          // focused: the keymap's preventDefault stops the browser's own
+          // Space activation of that button (Phase 26), so Space always
+          // means one thing; Enter, unmapped, still activates a focused
+          // control. Under the reset box it does nothing.
           // Over a choice the gate below already swallows it: the
           // decision is answered by its own keys, never by space — except
           // that Space takes a play-all auto-pick at once (Phase 18).
           advance: () => {
+            if (confirm.isOpen()) return;
             if (help.isOpen()) {
               closeHelp();
               return;
@@ -613,23 +620,7 @@ function start(): void {
           toggleBookmarks: () => {
             if (!storyInput()) return;
             if (overlay.isOpen()) overlay.close();
-            else {
-              config.close();
-              showBookmarks();
-            }
-          },
-          // `c` works everywhere but under the reset box (docs/plan.md
-          // Phase 19): over a choice the panel covers it and the choice
-          // waits underneath (a play-all countdown pauses with the
-          // menu); over help it replaces the help screen.
-          toggleConfig: () => {
-            if (confirm.isOpen()) return;
-            closeHelp();
-            if (config.isOpen()) config.close();
-            else {
-              overlay.close();
-              config.open();
-            }
+            else showBookmarks();
           },
           // `a` (README auto-forward bullet): manual is the start, and `a`
           // toggles auto-advance. Turning it off cancels the pending hold;
@@ -650,16 +641,16 @@ function start(): void {
           confirmCancel: () => {
             if (confirm.isOpen()) confirm.close();
           },
-          // Escape (docs/plan.md Phase 13b, extended by 13): closes help,
-          // else closes the open `t`/`c` panel, else opens help — and
-          // "else" includes OVER a pending choice: help wins over
-          // everything (the declared exception to choice ownership), the
-          // decision waits underneath and is still open when help closes.
-          // A choice is never closed by Escape: only its own answer ends
-          // it; a `c` panel over one closes first (`t` cannot open over
-          // one). The reset box (Phase 16) is checked FIRST: it sits over
-          // the `c` panel, and Escape cancels the box without disturbing
-          // the panel under it.
+          // Escape (docs/plan.md Phase 13b, extended by 13 and 26): closes
+          // the Esc screen, else closes the open `t` list, else opens the
+          // Esc screen — and "else" includes OVER a pending choice: the
+          // screen wins over everything (the declared exception to choice
+          // ownership), the decision waits underneath, its play-all
+          // countdown frozen, and is still open when the screen closes. A
+          // choice is never closed by Escape: only its own answer ends it
+          // (`t` cannot open over one). The reset box (Phase 16) is
+          // checked FIRST: it sits over the Esc screen, and Escape cancels
+          // the box without disturbing the screen under it.
           dismissOverlay: () => {
             if (confirm.isOpen()) {
               confirm.close();
@@ -669,12 +660,11 @@ function start(): void {
               closeHelp();
               return;
             }
-            if (config.isOpen() || overlay.isOpen()) {
-              config.close();
+            if (overlay.isOpen()) {
               overlay.close();
               return;
             }
-            openHelp(); // Escape with nothing up opens help
+            openHelp(); // Escape with nothing up opens the Esc screen
           },
         },
         // 1..9 answer a pending decision (render/keys.ts's route digits)
@@ -695,8 +685,8 @@ function start(): void {
         wheelForward: timeline.wheelForward,
       });
 
-      // Menus pause the timeline (docs/plan.md Phase 18): while the `c` or
-      // `t` screen (or the reset box over `c`) is up, a running
+      // Menus pause the timeline (docs/plan.md Phase 18): while the Esc
+      // screen, the `t` list or the reset box is up, a running
       // auto-forward hold or skip burst is frozen — machine.pause(), as
       // under help, keeps `skipping` and arms nothing — and a playing
       // video holds in place. Closing the screen resumes exactly what was
@@ -713,13 +703,13 @@ function start(): void {
         const open =
           bookmarksOpening ||
           overlay.isOpen() ||
-          config.isOpen() ||
-          confirm.isOpen();
+          confirm.isOpen() ||
+          help.isOpen();
         if (open === menuPaused) return;
         menuPaused = open;
         shell.setMediaPaused(open);
         if (open) machine.pause();
-        else if (!help.isOpen()) machine.resume();
+        else machine.resume();
       }
       document.addEventListener("keydown", syncMenuPause);
       document.addEventListener("click", syncMenuPause);

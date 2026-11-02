@@ -1176,7 +1176,7 @@ truthful: an unchecked box means nothing was accepted.
       machine vitest 254, navigation 21/21 (new bookmark check red
       before). screens.scenario's bookmark `e` check updated and lands
       with the Esc-screen item's commit (same file in flight). 2026-11-02)
-- [ ] Settings live on the Esc screen; `c` dropped (user, 2026-11-02):
+- [x] Settings live on the Esc screen; `c` dropped (user, 2026-11-02):
       the Esc screen holds the game title, the keys and every setting
       (speed, Tab-skip options, play all routes, Progress group); `c` no
       longer does anything and is removed from help, docs and hints.
@@ -1186,4 +1186,15 @@ truthful: an unchecked box means nothing was accepted.
       First-load screen is the same screen. Tests, screens/playall/
       progress scenarios, README/CREATE/docs; screenshots at 1280x720
       and 700x900.
+      (Settings mounted inside #help: title, one hint, Keys grid
+      (auto-fill, across first: 3 columns at 1280, 2 at 700/800), then
+      Settings; fits 1280x720, 700x900, 800x600 without scrolling. `c`
+      unmapped. Esc order: reset box, then this screen, then t list,
+      else open (incl. over a choice, countdown frozen). Space always
+      closes (no button flip); Enter activates a focused control. Demo
+      hints updated. 8 unit + scenario checks red before; vitest 561,
+      screens 53 + 2 headless-fullscreen partials, playall 27/27,
+      progress 6/6, reading 17/17, menus 8/8, media 22/22, smoke 6/6;
+      screenshots checked. Includes the bookmark-e screens check.
+      2026-11-02)
 - [ ] Phase-closer: full suite, rebuild demo folders.

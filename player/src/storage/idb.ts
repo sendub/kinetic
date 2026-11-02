@@ -1,12 +1,12 @@
 // IndexedDB adapter (docs/plan.md Phases 8-9): bookmarks, the reading
-// position, and the `c` screen's settings survive a reload. Raw IndexedDB
+// position, and the Esc screen's settings survive a reload. Raw IndexedDB
 // API, no dependency.
 //
 // Schema — one database for the whole app, `kinetic` (version 1):
 //   - store `state`: no keyPath; one record per novel, stored under the
 //     novel's storage key (below), value `{ ctx?, settings?, helpSeen? }`
 //     (`ctx` is the id-keyed route-play context, `SavedContext`;
-//     `settings` is the partial the `c` screen changed; absent or
+//     `settings` is the partial the Esc screen's settings changed; absent or
 //     malformed fields simply fall back at load — a malformed or
 //     index-based `ctx` reads as no progress (a first boot), a malformed
 //     settings field as its default).

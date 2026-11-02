@@ -1,11 +1,11 @@
 // The confirmation box (docs/plan.md Phase 16, "Reset progress"; Phase
-// 21, "Import progress"): the `c` screen's "Reset progress" row — or an
+// 21, "Import progress"): the Esc screen's "Reset progress" row — or an
 // import file that passed its checks — opens this centered panel, and
 // nothing is changed until the reader confirms. Each opening brings its
 // own request (title, message, button, hint and the action), so one box
 // serves both. Same visual family as the
 // other overlays (`#confirm`, index.html), and while it is open the
-// machine is suspended exactly like behind `h`/`t`/`c` (main.ts folds
+// machine is suspended exactly like behind `t` and the Esc screen (main.ts folds
 // `isOpen` into its screen gate). Its keys — y resets, Escape/n
 // cancel (y imports, for an import) — arrive through the shell's key map
 // like every other overlay's;
@@ -67,7 +67,7 @@ export function importRequest(
 
 export interface ConfirmOverlay {
   isOpen(): boolean;
-  /** Shows the panel over the config screen, asking `request`. */
+  /** Shows the panel over the Esc screen, asking `request`. */
   open(request: ConfirmRequest): void;
   /** The y key: closes the box and runs the open request's action. */
   accept(): void;

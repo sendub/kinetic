@@ -1,6 +1,6 @@
 // The screens over the stage (old driver steps 20, 22-28, 31, 42, 47): the
 // mid-flow key help, bookmarks (`b`, the `t` list, restore from a row),
-// reload resume, the `c` config screen and its settings' persistence
+// reload resume, the settings on the Esc screen and their persistence
 // (including a reload the instant after a change), the empty-manifest
 // folder, "Reset progress", and a save surviving a content update (a
 // prequel inserted before everything, an item deleted). Each part opens
@@ -12,10 +12,10 @@ import { DEFAULT_SETTINGS } from "../../src/machine/types.ts";
 import { speedLabel } from "../../src/render/config.ts";
 import { EARLIER_UNSEEN_NOTICE } from "../../src/render/endcard.ts";
 import {
-  CONFIG_OPEN,
   CONFIRM_OPEN,
   clickAt,
   clickCenter,
+  closeSettings,
   configOpen,
   currentItemId,
   demoDir,
@@ -27,6 +27,7 @@ import {
   manifest,
   OVERLAY_CLOSED,
   OVERLAY_OPEN,
+  openSettings,
   PAGE_STATE,
   PAINT_SIG,
   panelOpen,
@@ -44,6 +45,7 @@ import {
   READ_CONFIG_OVERLAY,
   READ_CONFIRM_OVERLAY,
   READ_HELP,
+  READ_KEY_GRID,
   readBookmarks,
   readSignature,
   SIGNATURE,
@@ -61,8 +63,8 @@ export const title = "help, bookmarks, resume, config, empty folder, reset";
 // Player UI strings. render/help.ts and render/bookmarks.ts import modules
 // by extensionless paths node cannot resolve, so these two are restated;
 // the speed readout comes from config.ts itself.
-const HELP_TITLE = "Key help";
-const HELP_HINT = "Esc or Space closes";
+const HELP_TITLE = "Keys";
+const HELP_HINT = "Esc or Space closes; click a setting to change it";
 // The main interaction keys, one row each (Phase 18, "Key help
 // simplified"): no Enter, no reset-box keys.
 const HELP_KEYS = [
@@ -75,7 +77,6 @@ const HELP_KEYS = [
   "H",
   "B",
   "T",
-  "C",
   "Esc",
   "1-9 / 0",
 ];
@@ -215,7 +216,7 @@ async function helpMidFlow({ check, open }) {
   );
 
   check(
-    "the help lists only the main keys, one row each, and its hint reads Esc or Space closes",
+    "the help lists only the main keys, one row each (no c), and its hint reads Esc or Space closes; click a setting to change it",
     JSON.stringify(help.rows.map((r) => r.key)) === JSON.stringify(HELP_KEYS) &&
       help.rows.every((r) => r.desc.length > 0 && r.desc.length <= 56) &&
       help.hint === HELP_HINT,
@@ -233,9 +234,20 @@ async function helpMidFlow({ check, open }) {
     { help: afterEnter.helpOpen, text: afterEnter.text },
   );
 
-  // `t` opens nothing behind the help; `c` replaces it with the settings
-  // screen (docs/plan.md Phase 19). Closing `c` and pressing Escape brings
-  // the help back over the same item for the checks below.
+  // The Esc screen holds the settings too (Phase 26): under the key grid,
+  // shown with it. `t` opens nothing behind it, and `c` is no key: it
+  // changes nothing, on the screen or (below) behind it.
+  const onScreen = await page.evaluate(READ_CONFIG_OVERLAY);
+  const grid = await page.evaluate(READ_KEY_GRID);
+  check(
+    "the Esc screen shows the settings under the keys, and the keys fill across before going down",
+    onScreen.hidden === false &&
+      onScreen.belowKeys === true &&
+      grid.columns >= 2 &&
+      grid.acrossFirst === true &&
+      grid.scrollWidth <= grid.clientWidth,
+    { belowKeys: onScreen.belowKeys, grid },
+  );
   await pressT(cdp);
   await sleep(150);
   const afterT = {
@@ -244,28 +256,59 @@ async function helpMidFlow({ check, open }) {
     list: await panelOpen(page),
   };
   await pressC(cdp);
-  const cfgUp = await waitFor(page, CONFIG_OPEN, 2000);
+  await sleep(150);
   const afterC = {
     help: await helpOpen(page),
+    config: await configOpen(page),
     list: await panelOpen(page),
     text: (await page.evaluate(PAGE_STATE)).text,
   };
-  await pressC(cdp);
-  await pressEscape(cdp);
-  const helpBack = await waitFor(page, HELP_OPEN, 2000);
+  check(
+    "t opens nothing behind the Esc screen, and c changes nothing on it",
+    afterT.help === true &&
+      afterT.config === true &&
+      afterT.list === false &&
+      afterC.help === true &&
+      afterC.config === true &&
+      afterC.list === false &&
+      afterC.text === item("text-speech").text,
+    { afterT, afterC },
+  );
+
+  // Space closes the screen even with a settings button focused (a click
+  // focuses it): the keymap's Space wins, the button does not flip.
+  await clickCenter(cdp, onScreen.skipRect);
+  const flipped = await page.evaluate(READ_CONFIG_OVERLAY);
+  const focused = await page.evaluate(
+    () => document.activeElement?.className ?? "",
+  );
+  await pressSpace(cdp);
+  const spaceClosed = await waitFor(page, HELP_CLOSED, 2000);
+  const afterSpace = await page.evaluate(PAGE_STATE);
+  const reopened = await openSettings(page, cdp);
+  const kept = await page.evaluate(READ_CONFIG_OVERLAY);
+  await clickCenter(cdp, kept.skipRect); // back to Off for the rest
+  check(
+    "Space with a settings button focused closes the screen without pressing it (no advance)",
+    flipped.skipPressed === "true" &&
+      focused.includes("config-skip-all") &&
+      spaceClosed &&
+      afterSpace.text === item("text-speech").text &&
+      reopened &&
+      kept.skipPressed === "true",
+    {
+      flipped: flipped.skipPressed,
+      focused,
+      spaceClosed,
+      kept: kept.skipPressed,
+    },
+  );
+  const helpBack = await helpOpen(page);
   const back = await page.evaluate(PAGE_STATE);
   check(
-    "t opens nothing behind the help; c replaces the help with the settings screen",
-    afterT.help === true &&
-      afterT.config === false &&
-      afterT.list === false &&
-      cfgUp &&
-      afterC.help === false &&
-      afterC.list === false &&
-      afterC.text === item("text-speech").text &&
-      helpBack &&
-      back.text === item("text-speech").text,
-    { afterT, cfgUp, afterC, helpBack, text: back.text },
+    "Escape reopens the Esc screen over the same item",
+    helpBack && back.text === item("text-speech").text,
+    { helpBack, text: back.text },
   );
 
   // Auto-forward is on; 3.2 s behind the help must show no move.
@@ -278,8 +321,9 @@ async function helpMidFlow({ check, open }) {
 
   // A click never closes the help (docs/plan.md Phase 24): one on the
   // panel's top edge and one mid-screen both leave it up, nothing moving.
+  // (Mid-screen is the key grid: the settings below it are controls.)
   await clickAt(cdp, 400, 40);
-  await clickAt(cdp, 400, 400);
+  await clickCenter(cdp, (await page.evaluate(READ_KEY_GRID)).rect);
   await sleep(300);
   const clicked = await page.evaluate(PAGE_STATE);
   check(
@@ -399,8 +443,9 @@ async function bookmarks({ check, open }) {
 
   // Click the OLDER row: the list closes on that item. The jump is
   // appended to the reading history (docs/plan.md, History rollback spec):
-  // a wheel notch back shows the screen before it (chain-still-3), and `e`
-  // returns to the landing, the history's end.
+  // a wheel notch back shows the screen before it (chain-still-3). The
+  // landing brings its recorded future along (Phase 26), so `e` goes to
+  // the furthest point read, chain-still-3, not back to the landing.
   const reread = await page.evaluate(READ_BOOKMARK_OVERLAY);
   await rowCenterClick(cdp, reread.entries[0]);
   const listClosed = await waitFor(page, OVERLAY_CLOSED);
@@ -409,17 +454,27 @@ async function bookmarks({ check, open }) {
   await wheelNotch(cdp, true);
   await sleep(WHEEL_GAP_MS);
   const beforeJump = await currentItemId(page);
+  await wheelNotch(cdp, false); // forward: the landing again
+  await sleep(WHEEL_GAP_MS);
+  const backOnLanding = await currentItemId(page);
   await pressE(cdp);
-  const backOnLanding = await waitForItem(page, "video-chain-3", 3000);
+  const atFurthest = await waitForItem(page, "chain-still-3", 3000);
   check(
-    "clicking the older row continues from that item; the jump is appended to the history (wheel back: chain-still-3; e: back on it)",
+    "clicking the older row continues from that item; the jump is appended to the history (wheel back: chain-still-3); e from the landing goes to the furthest read, chain-still-3",
     listClosed &&
       landedId === "video-chain-3" &&
       landed.video?.visible === true &&
       landed.imgVisible === false &&
       beforeJump === "chain-still-3" &&
+      backOnLanding === "video-chain-3" &&
+      atFurthest,
+    {
+      landedId,
+      video: landed.video?.visible,
+      beforeJump,
       backOnLanding,
-    { landedId, video: landed.video?.visible, beforeJump, backOnLanding },
+      atFurthest,
+    },
   );
 
   // Ways out: backdrop click, a windowed Escape, and t again.
@@ -630,18 +685,25 @@ async function resume({ check, open }) {
   );
 }
 
-// Old steps 27-28: the config screen, live settings, persistence.
+// Old steps 27-28: the settings (on the Esc screen since Phase 26), live
+// settings, persistence.
 async function config({ check, open }) {
   const { page, cdp } = await open("config", { closeHelp: true });
   await spaceTo(page, cdp, "text-narration");
 
+  // `c` is no key (Phase 26): behind the story it opens nothing.
   await pressC(cdp);
-  const opened = await waitFor(page, CONFIG_OPEN);
+  await sleep(150);
+  const cInert = !(await configOpen(page)) && !(await helpOpen(page));
+  const opened = await openSettings(page, cdp);
   const first = await page.evaluate(READ_CONFIG_OVERLAY);
   check(
-    "c opens the config screen showing the defaults",
-    opened &&
-      first.title === "Config" &&
+    "c opens nothing; Escape opens the Esc screen with the settings showing the defaults",
+    cInert &&
+      opened &&
+      (await helpOpen(page)) &&
+      first.belowKeys === true &&
+      first.title === "Settings" &&
       first.speedValue === SPEED_1X &&
       first.skipPressed === "false" &&
       first.skipLabel === "Off" &&
@@ -675,7 +737,7 @@ async function config({ check, open }) {
       first.labelLefts[3] === outerLeft &&
       new Set(first.controlLefts).size === 1 &&
       first.playNote === "when on, choices pick themselves after a countdown" &&
-      first.hint === "click a control to change it; c or Esc closes",
+      first.hint === HELP_HINT,
     first,
   );
 
@@ -717,15 +779,15 @@ async function config({ check, open }) {
     },
   );
 
+  // (Space is the screen's closing key, checked in helpMidFlow.)
   const sigBefore = await page.evaluate(SIGNATURE);
-  await pressSpace(cdp);
   await pressTab(cdp);
   await pressE(cdp);
   await wheelNotch(cdp, true);
   await sleep(WHEEL_GAP_MS);
   const sigAfter = await page.evaluate(SIGNATURE);
   check(
-    "while config is open the timeline is suspended: space, tab, e and the wheel move nothing",
+    "while the settings are open the timeline is suspended: tab, e and the wheel move nothing",
     sigAfter === sigBefore && (await configOpen(page)),
     { sigBefore, sigAfter },
   );
@@ -734,16 +796,14 @@ async function config({ check, open }) {
   await clickCenter(cdp, first.playRect);
   const toggled = await page.evaluate(READ_CONFIG_OVERLAY);
   // A click outside the controls (backdrop) leaves it open (Phase 24);
-  // only `c` or Escape close it.
+  // only Escape or Space close it.
   await clickCenter(cdp, toggled.titleRect);
   await clickAt(cdp, 10, 10);
   await sleep(150);
   const openAfterBackdrop = await configOpen(page);
   const afterBackdrop = await page.evaluate(READ_CONFIG_OVERLAY);
-  await pressC(cdp);
-  const closedByFirstC = (await configOpen(page)) === false;
-  await pressC(cdp);
-  await waitFor(page, CONFIG_OPEN);
+  const closedByFirstC = await closeSettings(page, cdp);
+  await openSettings(page, cdp);
   const again = await page.evaluate(READ_CONFIG_OVERLAY);
   // Play-all flips both ways, then stays Off: the reload below proves a
   // saved Off outlives the On default.
@@ -751,10 +811,9 @@ async function config({ check, open }) {
   const playOn = await page.evaluate(READ_CONFIG_OVERLAY);
   await clickCenter(cdp, again.playRect);
   const playOff = await page.evaluate(READ_CONFIG_OVERLAY);
-  await pressC(cdp);
-  const closedByC = (await configOpen(page)) === false;
+  const closedByC = await closeSettings(page, cdp);
   check(
-    "the switches flip skip-all on and play-all off; a backdrop click leaves it open and changes nothing, c closes and reopens with them so, play-all flips back and forth, c closes",
+    "the switches flip skip-all on and play-all off; a backdrop click leaves it open and changes nothing, Escape closes and reopens with them so, play-all flips back and forth, Escape closes",
     toggled.skipPressed === "true" &&
       toggled.skipLabel === "On" &&
       toggled.playPressed === "false" &&
@@ -781,8 +840,7 @@ async function config({ check, open }) {
   );
 
   // Four + clicks: 1.00x -> 2.00x, shown live in the open panel.
-  await pressC(cdp);
-  await waitFor(page, CONFIG_OPEN);
+  await openSettings(page, cdp);
   for (let i = 0; i < 4; i += 1) {
     const r = await page.evaluate(READ_CONFIG_OVERLAY);
     await clickCenter(cdp, r.speedUpRect);
@@ -841,8 +899,7 @@ async function config({ check, open }) {
   await page.reload();
   await sleep(700);
   const sigResumed = await page.evaluate(PAINT_SIG);
-  await pressC(cdp);
-  await waitFor(page, CONFIG_OPEN);
+  await openSettings(page, cdp);
   const persisted = await page.evaluate(READ_CONFIG_OVERLAY);
   check(
     "2.00x, skip-all on and play-all off survive a reload, which resumes on the same item",
@@ -868,8 +925,7 @@ async function settingsImmediateReload({ check, open }) {
   ];
   const results = [];
   for (const round of rounds) {
-    await pressC(cdp);
-    await waitFor(page, CONFIG_OPEN);
+    await openSettings(page, cdp);
     let shown = null;
     for (let i = 0; i < round.clicks; i += 1) {
       const r = await page.evaluate(READ_CONFIG_OVERLAY);
@@ -881,10 +937,9 @@ async function settingsImmediateReload({ check, open }) {
     const reloadIssuedMs = Date.now() - t0;
     await waitFor(page, () => document.getElementById("stage") !== null);
     await sleep(300);
-    await pressC(cdp);
-    await waitFor(page, CONFIG_OPEN);
+    await openSettings(page, cdp);
     const after = (await page.evaluate(READ_CONFIG_OVERLAY)).speedValue;
-    await pressC(cdp);
+    await closeSettings(page, cdp);
     results.push({ want: round.expect, shown, after, reloadIssuedMs });
   }
   check(
@@ -950,8 +1005,7 @@ async function reset({ check, open }) {
   const flashed = await waitFor(page, FLASH_SHOWN);
   // A non-default speed and play-all off, so the reset has settings to
   // put back.
-  await pressC(cdp);
-  await waitFor(page, CONFIG_OPEN);
+  await openSettings(page, cdp);
   for (let i = 0; i < 4; i += 1) {
     const r = await page.evaluate(READ_CONFIG_OVERLAY);
     await clickCenter(cdp, r.speedUpRect);
@@ -960,6 +1014,30 @@ async function reset({ check, open }) {
   const cfg = await page.evaluate(READ_CONFIG_OVERLAY);
   await clickCenter(cdp, cfg.resetRect);
   const box = await page.evaluate(READ_CONFIRM_OVERLAY);
+  // The box blocks the screen's keys (Phase 26): Space does nothing under
+  // it, and Escape cancels the box alone, leaving the Esc screen up.
+  await pressSpace(cdp);
+  await sleep(150);
+  const underSpace = {
+    box: await page.evaluate(CONFIRM_OPEN),
+    screen: await configOpen(page),
+  };
+  await pressEscape(cdp);
+  await sleep(150);
+  const underEscape = {
+    box: await page.evaluate(CONFIRM_OPEN),
+    screen: await configOpen(page),
+  };
+  check(
+    "the reset box blocks the Esc screen's keys: Space does nothing, Escape cancels the box alone",
+    underSpace.box === true &&
+      underSpace.screen === true &&
+      underEscape.box === false &&
+      underEscape.screen === true,
+    { underSpace, underEscape },
+  );
+  await clickCenter(cdp, cfg.resetRect);
+  await waitFor(page, CONFIRM_OPEN);
   await clickCenter(cdp, box.cancelRect);
   const boxClosed = (await page.evaluate(CONFIRM_OPEN)) === false;
   check(
@@ -987,8 +1065,7 @@ async function reset({ check, open }) {
   await waitFor(page, OVERLAY_OPEN);
   const kept = await page.evaluate(READ_BOOKMARK_OVERLAY);
   await pressT(cdp);
-  await pressC(cdp);
-  await waitFor(page, CONFIG_OPEN);
+  await openSettings(page, cdp);
   const keptCfg = await page.evaluate(READ_CONFIG_OVERLAY);
   check(
     "cancel kept everything: the reload resumes on the item, the row, 2.00x and play-all off are still there",
@@ -1021,10 +1098,9 @@ async function reset({ check, open }) {
   await waitFor(page, OVERLAY_OPEN);
   const list = await page.evaluate(READ_BOOKMARK_OVERLAY);
   await pressT(cdp);
-  await pressC(cdp);
-  await waitFor(page, CONFIG_OPEN);
+  await openSettings(page, cdp);
   const fresh = await page.evaluate(READ_CONFIG_OVERLAY);
-  await pressC(cdp);
+  await closeSettings(page, cdp);
   check(
     "confirming is a true first-ever boot: help up, first item, empty list, 1.00x, skip-all off and play-all back on",
     box2.hidden === false &&

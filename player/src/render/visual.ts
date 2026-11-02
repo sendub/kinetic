@@ -274,8 +274,8 @@ export interface VisualLayer {
    */
   currentVisual(): HTMLImageElement | HTMLVideoElement | null;
   /**
-   * Hold (true) or release (false) a playing video in place — the `c`/`t`
-   * screens pause the timeline (docs/plan.md Phase 18). While held a video
+   * Hold (true) or release (false) a playing video in place — the Esc
+   * screen and the `t` list pause the timeline (docs/plan.md Phase 18). While held a video
    * never starts; release resumes it from where it stopped, if its mode
    * still plays. Idempotent.
    */

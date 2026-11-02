@@ -10,7 +10,7 @@
 // everything, a new mid-story route, a reorder, an extension — never
 // re-points a save. `storage/ids.ts` converts to and from the machine's
 // index form against the manifest being played. Settings ride in the same
-// record because the `c` screen persists them (docs/plan.md Phase 9); they
+// record because the Esc screen's settings persist them (docs/plan.md Phase 9); they
 // are data for main.ts to merge over the defaults — the machine reads no
 // storage.
 //
@@ -84,7 +84,7 @@ export interface PersistedState {
    */
   readonly ctx?: SavedContext;
   /**
-   * The reader's settings (README `c` bullet). A partial: a record may
+   * The reader's settings (README Esc bullet). A partial: a record may
    * carry any subset, and the player merges it over `DEFAULT_SETTINGS` at
    * startup (main.ts). Absent means "nothing changed from the defaults".
    */

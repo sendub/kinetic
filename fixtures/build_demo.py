@@ -192,7 +192,7 @@ def section_intro() -> list[dict]:
         "intro-title",
         "Kinetic demo. Every line explains what you are seeing. Space shows "
         "the next item; the mouse wheel scrolls back and forth through what "
-        "you have read; Esc shows the main keys.",
+        "you have read; Esc shows the keys and settings.",
     )]
 
 
@@ -464,8 +464,9 @@ def section_branches() -> tuple[list[dict], list[dict]]:
                  "main route jumps here once Route 1 is done."},
         {"id": "after-end", "type": "text",
          "text": "The end. Also try: u for unseen content, e for the end of "
-                 "what you have read, b and t for bookmarks, c for settings, "
-                 "a for auto-play, tab to skip what you have read."},
+                 "what you have read, b and t for bookmarks, Esc for the keys "
+                 "and settings, a for auto-play, tab to skip what you have "
+                 "read."},
     ]
     branches = [
         {

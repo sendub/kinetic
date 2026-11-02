@@ -394,7 +394,7 @@ docs/plan.md Phase 13):
   screen draws (prompt, status line with its "Back in time" lead, each
   route label with its `seen` marker, the return row when drawn; not the
   key hint or row numbers) plus comprehension time of 1.5 s and 1 s per
-  row, all at the reader's speed (the `c` screen's "Auto-forward speed")
+  row, all at the reader's speed (the Esc screen's "Auto-forward speed")
   and never under 2.5 s. The row it will
   pick is marked from the countdown's start; then it is highlighted as
   picked for about 0.7 s and the route starts. The highlight is the only
@@ -433,7 +433,7 @@ docs/plan.md Phase 13):
 ## Timing
 
 The manifest describes content; pacing belongs to the player. Reading speed
-("Auto-forward speed" on the `c` screen), skip dwell, and skip-all live in
+("Auto-forward speed" on the Esc screen), skip dwell, and skip-all live in
 the player's settings (IndexedDB), never in the manifest. The format defines how the player derives per-item timing from
 content:
 

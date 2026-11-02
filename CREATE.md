@@ -39,7 +39,7 @@ optional `title`, the display `width` and `height` in pixels, and
 letters, digits, `-`, `_`, starting with a letter or digit, at most 64
 characters, such as `rainy-day-1`): the player saves the reader's
 progress and bookmarks under it, so they survive moving or renaming the
-folder, and a progress file a reader exports from the `c` screen imports
+folder, and a progress file a reader exports from the Esc screen imports
 only into the story with the same ID. Pick one per story and keep it
 across updates; without one, progress is tied to the folder's location,
 and adding one later carries that progress over on the next load. The
@@ -181,8 +181,8 @@ through to its end at least once - a route entered and abandoned opens
 nothing, and until the continuing route is finished, re-openings offer
 routes only. Readers do not have to answer: "Play all routes" is on by
 default, so each choice counts down and the player plays every route,
-shortest first, then `continueAt`; a reader who turns it off in `c`
-picks routes themselves. Full semantics
+shortest first, then `continueAt`; a reader who turns it off on the Esc
+screen picks routes themselves. Full semantics
 are in docs/content-format.md § Branches; the validator checks every
 id, reference, and span.
 
@@ -820,7 +820,7 @@ keypress can simply be space, the advance key.
 The controls are listed in README.md ("Playing").
 
 In auto mode (`a`) the player advances at the configured auto-forward
-speed ("Auto-forward speed" in the `c` settings):
+speed ("Auto-forward speed" in the Esc screen's settings):
 images hold for their text, animations complete their loops, and videos
 play through once. A media item followed by `text` items holds for its
 text alone while its animation or video loops underneath, and each

@@ -20,12 +20,10 @@ export interface KeyCommands {
   bookmark(): void;
   /** `t`: open or close the bookmark thumbnail overlay (Phase 8). */
   toggleBookmarks(): void;
-  /** `c`: open or close the config screen (Phase 9). */
-  toggleConfig(): void;
   /**
-   * Escape: with an overlay up, close it; otherwise open the key help
-   * overlay (Phase 13b — "ESC opens only when no overlay is open; ESC
-   * closes the help overlay").
+   * Escape: with an overlay up, close it; otherwise open the Esc screen —
+   * the keys and every setting (Phase 13b; Phase 26 moved the settings
+   * there and dropped `c`).
    */
   dismissOverlay(): void;
   /**
@@ -65,8 +63,6 @@ const KEY_TABLE = new Map<string, KeyCommand>([
   ["B", "bookmark"],
   ["t", "toggleBookmarks"],
   ["T", "toggleBookmarks"],
-  ["c", "toggleConfig"],
-  ["C", "toggleConfig"],
   ["a", "toggleAutoForward"],
   ["A", "toggleAutoForward"],
   ["Escape", "dismissOverlay"],
@@ -146,8 +142,10 @@ const HELP_ROWS: ReadonlyArray<{
   { command: "toggleText", description: "hide / show the text" },
   { command: "bookmark", description: "bookmark this moment" },
   { command: "toggleBookmarks", description: "bookmark list" },
-  { command: "toggleConfig", description: "settings" },
-  { command: "dismissOverlay", description: "this help; closes t or c" },
+  {
+    command: "dismissOverlay",
+    description: "this screen: keys and settings; closes t",
+  },
   {
     command: null,
     plainLabel: "1-9 / 0",
@@ -216,15 +214,14 @@ export function decisionKeyFor(
 /**
  * The cursor-moving commands: the key map's advance/toggleSkip/jumpToEnd
  * plus the wheel's two steps. While a full-screen screen (the `t` bookmark
- * overlay, the `c` config screen, its reset confirmation box (Phase 16),
- * or the `#help` key help — Phase 13b) is open these are suspended — the
+ * overlay, the `#help` Esc screen with its settings — Phase 13b, Phase 26 —
+ * or the reset confirmation box over it, Phase 16) is open these are suspended — the
  * overlay takes precedence, so no key or
  * wheel notch slides the timeline underneath it (`e` is included for the
  * same reason: jumping behind the panel would move the cursor out of
  * sight). `b` and `h` are not timeline commands and keep working behind
- * the `t`/`c` panels; behind the help screen the shell suspends them too,
- * since nothing behind it is visible. `t`, `c` and Escape drive the
- * overlays.
+ * the `t` panel; behind the Esc screen the shell suspends them too,
+ * since nothing behind it is visible. `t` and Escape drive the overlays.
  */
 export interface TimelineCommands {
   advance(): void;

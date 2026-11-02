@@ -14,13 +14,14 @@ import {
   branch,
   CONFIG_OPEN,
   clickCenter,
+  closeSettings,
   currentItemId,
   HELP_OPEN,
   item,
+  openSettings,
   pressA,
   pressC,
   pressDigit,
-  pressEscape,
   pressSpace,
   pressTab,
   READ_CONFIG_OVERLAY,
@@ -184,19 +185,17 @@ const readTimeline = (page) => page.evaluate(() => window.__timeline);
 const pageNow = (page) => page.evaluate(() => performance.now());
 
 /**
- * Turn the `c` switches on (play-all always; skip-all when asked). Play all
+ * Turn the Esc screen's switches on (Phase 26) (play-all always; skip-all when asked). Play all
  * routes is on by default (docs/plan.md Phase 24), so its switch is only
  * clicked if a fresh profile somehow shows it off.
  */
 async function configure(page, cdp, { skipAll }) {
-  await pressC(cdp);
-  await page.waitForFunction(CONFIG_OPEN, { timeout: 5000 });
+  await openSettings(page, cdp);
   const cfg = await page.evaluate(READ_CONFIG_OVERLAY);
   if (skipAll) await clickCenter(cdp, cfg.skipRect);
   if (cfg.playPressed !== "true") await clickCenter(cdp, cfg.playRect);
   const after = await page.evaluate(READ_CONFIG_OVERLAY);
-  await pressC(cdp); // its key closes the screen (a click never does)
-  await sleep(150);
+  await closeSettings(page, cdp); // its key closes it (a click never does)
   const closed = !(await page.evaluate(CONFIG_OPEN));
   return { after, closed };
 }
@@ -558,26 +557,20 @@ export default async function ({ check, open }) {
     );
   }
 
-  // ---- 3. `c` works over a choice and over help ------------------------
+  // ---- 3. The Esc screen's settings work over a choice; `c` is gone -----
   {
     const { page, cdp } = await open("menu", { closeHelp: true });
     await configure(page, cdp, { skipAll: false });
     await walkTo(page, cdp, "branch-decide");
     await pressSpace(cdp); // the choice, counting down
     await sleep(300);
-    await pressC(cdp);
-    let cfgUp = true;
-    try {
-      await page.waitForFunction(CONFIG_OPEN, { timeout: 2000 });
-    } catch {
-      cfgUp = false;
-    }
+    const cfgUp = await openSettings(page, cdp);
     await sleep(countdownMs(outer) + AUTO_PICK_SHOW_MS + 500);
     const frozen = await page.evaluate(READ_AUTO);
-    await pressDigit(cdp, "2"); // inert behind the panel
+    await pressDigit(cdp, "2"); // inert behind the screen
     await sleep(200);
     const stillChoice = (await page.evaluate(READ_AUTO)).open;
-    await pressC(cdp);
+    await closeSettings(page, cdp);
     await sleep(200);
     const resumed = await page.evaluate(READ_AUTO);
     const entered = await waitFor(
@@ -586,35 +579,26 @@ export default async function ({ check, open }) {
       countdownMs(outer) + 3000,
     );
     check(
-      "c opens over a counting-down choice; the countdown waits behind it and digits are inert",
+      "Esc opens the settings over a counting-down choice; the countdown is frozen behind it and digits are inert",
       cfgUp && frozen.open && frozen.picked === null && stillChoice,
       { cfgUp, frozen },
     );
     check(
-      "closing c restarts the countdown, which then picks",
+      "closing the Esc screen restarts the countdown, which then picks",
       resumed.open && resumed.picked === null && entered,
       { resumed, entered },
     );
 
-    await pressEscape(cdp);
-    let helpUp = true;
-    try {
-      await page.waitForFunction(HELP_OPEN, { timeout: 2000 });
-    } catch {
-      helpUp = false;
-    }
+    // `c` is no key (Phase 26): on the Esc screen it changes nothing.
+    const helpUp = await openSettings(page, cdp);
     await pressC(cdp);
-    let cfgFromHelp = true;
-    try {
-      await page.waitForFunction(CONFIG_OPEN, { timeout: 2000 });
-    } catch {
-      cfgFromHelp = false;
-    }
-    const helpGone = !(await page.evaluate(HELP_OPEN));
+    await sleep(200);
+    const stillUp =
+      (await page.evaluate(HELP_OPEN)) && (await page.evaluate(CONFIG_OPEN));
     check(
-      "c on the help screen replaces it with the settings screen",
-      helpUp && cfgFromHelp && helpGone,
-      { helpUp, cfgFromHelp, helpGone },
+      "c does nothing on the Esc screen: keys and settings stay up",
+      helpUp && stillUp,
+      { helpUp, stillUp },
     );
   }
 

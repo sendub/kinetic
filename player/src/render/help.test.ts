@@ -42,11 +42,11 @@ describe("helpRows (drawn from the keymap, Phase 13b)", () => {
     }
   });
 
-  it("closes with Esc or Space — no click, no Enter (Phases 18, 24)", () => {
-    expect(HELP_HINT).toBe("Esc or Space closes");
+  it("closes with Esc or Space; a click changes a setting (Phases 18, 24, 26)", () => {
+    expect(HELP_HINT).toBe("Esc or Space closes; click a setting to change it");
     expect(HELP_HINT).not.toContain("Enter");
-    expect(HELP_HINT).not.toContain("click");
     expect(HELP_HINT).not.toContain("·");
+    expect(HELP_HINT).not.toMatch(/\bc\b/);
   });
 
   it("draws no reset-box keys and no Enter (Phase 18)", () => {
@@ -61,7 +61,6 @@ describe("helpRows (drawn from the keymap, Phase 13b)", () => {
       "H",
       "B",
       "T",
-      "C",
       "Esc",
       "1-9 / 0",
     ]);
@@ -141,14 +140,16 @@ function mountWith(gameTitle?: unknown): FakeElement {
 }
 
 describe("mountHelpOverlay heading (Phase 21)", () => {
-  it("draws the game's name as the first line, above the key help title", () => {
+  it("draws the game's name as the first line, then the hint and the keys", () => {
     const panel = mountWith("Kinetic demo");
-    const [heading, title] = panel.children;
+    const [heading, hint, title] = panel.children;
     expect(heading?.tagName).toBe("H1");
     expect(heading?.className).toBe("help-game");
     expect(heading?.textContent).toBe("Kinetic demo");
+    expect(hint?.className).toBe("help-hint");
     expect(title?.className).toBe("help-title");
     expect(title?.textContent).toBe(HELP_TITLE);
+    expect(HELP_TITLE).toBe("Keys");
   });
 
   it("sets the name as text, never as markup", () => {
@@ -158,15 +159,32 @@ describe("mountHelpOverlay heading (Phase 21)", () => {
     expect(heading?.innerHTML).toBe("");
   });
 
-  it("no title, no heading: the key help title comes first", () => {
+  it("no title, no heading: the hint comes first", () => {
     for (const absent of [undefined, "", "   "]) {
       const panel = mountWith(absent);
       expect(panel.children.map((el) => el.className)).toEqual([
-        "help-title",
         "help-hint",
+        "help-title",
         "help-list",
       ]);
     }
+  });
+});
+
+describe("the Esc screen holds the settings (docs/plan.md Phase 26)", () => {
+  it("exposes its panel, the element the settings section mounts into", () => {
+    const root = new FakeDocument().createElement("div");
+    const help = mountHelpOverlay({ root: root as unknown as HTMLElement });
+    const [panel] = root.children;
+    expect(help.panel).toBe(panel as unknown as HTMLElement);
+  });
+
+  it("lays the keys out in one grid of rows, one row per key", () => {
+    const panel = mountWith("Kinetic demo");
+    const list = panel.children.find((el) => el.className === "help-list");
+    expect(list?.children.map((el) => el.className)).toEqual(
+      helpRows().map(() => "help-row"),
+    );
   });
 });
 
