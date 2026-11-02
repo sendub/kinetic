@@ -1039,10 +1039,20 @@ truthful: an unchecked box means nothing was accepted.
       counts only if Pillow decodes it. 12 tests red before; pytest
       converter+tools 280; real run with pinned tools shipped the
       wrapped PNG and a malformed one failed loudly. 2026-11-02)
-- [ ] 25.5 Image policy: lossless JXL via imagecodecs when smaller;
+- [x] 25.5 Image policy: lossless JXL via imagecodecs when smaller;
       WebP decode-encode with pixel check; JPEG recompression with exact
       byte reconstruction; animation kept; `.jxl` sources ship. Measure
       savings on a sample (incl. WebP-heavy) and record them.
+      (JPEG: recompression, accepted only if the original bytes are
+      reconstructed exactly. PNG/GIF/WebP: 8-bit pixels -> lossless JXL,
+      pixel-identical round trip. Smaller-only. Animated kept (no frame
+      durations in the encoder); 16-bit and odd modes kept; sRGB ICC
+      dropped when pixel-neutral; .jxl sources ship; JXL magic fixed.
+      Sample of 417 corpus images: JPEG -23.2%, PNG -46.2%, lossy WebP
+      0% (all 202 bigger as exact JXL, 2.0-6.7x), total -23.0%. New
+      self-test case pinned (15 goldens); setup gains --repin CASE.
+      46 failing before; pytest converter+tools 314; pinned renpy_demo
+      twice identical, validator clean. 2026-11-02)
 - [ ] 25.6 MKV copied unchanged whatever the codec; headless-Chrome
       probe of an MKV+H.264 fixture; content-format / stack.md wording.
 - [ ] 25.7 Poster recipes recorded; a failed poster drops the item and

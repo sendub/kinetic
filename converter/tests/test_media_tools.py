@@ -208,6 +208,18 @@ def test_unpinned_golden_refuses_with_instruction(no_override: Path) -> None:
     assert runner.calls == 0
 
 
+def test_one_unpinned_case_refuses_naming_it(no_override: Path) -> None:
+    """A new self-test case lands with a null golden; the converter refuses
+    until --pin records it, naming the case."""
+    pins = make_pins({"ffmpeg.x": "aa", "imagecodecs.new-case": None})
+    install(no_override, pins)
+    runner = Runner({"ffmpeg.x": "aa", "imagecodecs.new-case": "cc"})
+    with pytest.raises(MediaToolsError, match="imagecodecs.new-case.*not "
+                                              "pinned yet.*--pin"):
+        ready(no_override, pins, runner)
+    assert runner.calls == 0
+
+
 def test_unpinned_archive_refuses_with_instruction(no_override: Path) -> None:
     pins = make_pins({"a.b": "c"})
     install(no_override, pins)
@@ -285,3 +297,20 @@ def test_real_cases_are_stable_and_compare_names_tools() -> None:
     tampered = {**first, "ffprobe.probe": "0" * 64}
     (line,) = selftest.compare(tampered, first)
     assert line.startswith("ffprobe (ffprobe.probe): expected 000")
+
+
+def test_webp_jxl_case_runs_the_converter_recipe() -> None:
+    """25.5: WebP pixels -> lossless JXL is a self-test case, hashing what
+    the converter's own candidate encode makes."""
+    cases = selftest.run_cases()
+    webp = (selftest.SAMPLES_DIR / "sample.webp").read_bytes()
+    made = assets.jxl_candidate(webp, "webp").out
+    assert made is not None
+    assert cases["imagecodecs.jxl-lossless-webp"] == selftest._sha(made)
+
+
+def test_pin_file_lists_every_case() -> None:
+    """Every case the self-test runs has a golden entry (null until
+    pinned), so a new case cannot pass unnoticed."""
+    golden = media_tools.load_pins()["selftest"]["golden"]
+    assert sorted(golden) == sorted(selftest.run_cases())

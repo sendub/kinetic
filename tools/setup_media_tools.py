@@ -11,12 +11,17 @@ reported version, then runs the golden-hash self-test.
 
     .venv/bin/python tools/setup_media_tools.py          # install + verify
     .venv/bin/python tools/setup_media_tools.py --pin    # also record pins
+    .venv/bin/python tools/setup_media_tools.py --repin CASE  # re-record
 
 ``--pin`` fills in what ``media-tools.json`` leaves null and verifies the
 rest: a null archive ``sha256`` for this platform is recorded from the
 download (cross-checked against the publisher's ``<url>.sha256`` when it
-is reachable), and null ``selftest.golden`` is recorded from this run's
-self-test. Commit the updated ``converter/media-tools.json`` afterwards.
+is reachable), and null ``selftest.golden`` (or any single case that is
+null or missing, such as a newly added case) is recorded from this run's
+self-test while every pinned case must still match. ``--repin CASE``
+(repeatable) is for a deliberate recipe change: it re-records exactly the
+named cases, printing old and new values, and every other case must still
+match. Commit the updated ``converter/media-tools.json`` afterwards.
 """
 
 from __future__ import annotations
@@ -183,27 +188,42 @@ def version_matches(reported: str | None, pinned: str) -> bool:
 def run_selftest(pins: dict[str, Any], *, pin: bool, pin_path: Path,
                  plat_dir: Path, versions: dict[str, str],
                  binaries: dict[str, str], runner: selftest.Runner,
-                 log: Log) -> None:
+                 log: Log, repin: tuple[str, ...] = ()) -> None:
     actual = runner(selftest.SAMPLES_DIR)
-    golden = pins["selftest"]["golden"]
-    if not golden:
-        if not pin:
-            raise SetupError(
-                "media self-test not pinned yet (selftest.golden is null): "
-                f"run {media_tools.SETUP_CMD} --pin")
-        failed = [case for case, value in actual.items()
-                  if value == selftest.FAILED]
+    golden = pins["selftest"]["golden"] or {}
+    unknown = [case for case in repin if case not in actual]
+    if unknown:
+        raise SetupError(f"no self-test case {unknown[0]!r}; cases: "
+                         + ", ".join(sorted(actual)))
+    old = {case: golden.get(case) for case in repin}
+    golden = {**golden, **{case: None for case in repin}}
+    # Cases to record: null or missing goldens (new, or cleared by --repin).
+    record = sorted(case for case in actual if golden.get(case) is None)
+    if record and not (pin or repin):
+        raise SetupError(
+            f"media self-test case(s) {', '.join(record)} not pinned yet "
+            f"(null in converter/media-tools.json): run "
+            f"{media_tools.SETUP_CMD} --pin")
+    checked = {case: value for case, value in golden.items()
+               if value is not None}
+    lines = selftest.compare(checked, {case: actual.get(case)
+                                       for case in actual
+                                       if case not in record})
+    if lines:
+        raise SetupError(str(selftest.mismatch_error(lines)))
+    if record:
+        failed = [case for case in record if actual[case] == selftest.FAILED]
         if failed:
             raise SetupError("self-test cases failed, nothing pinned: "
                              + ", ".join(failed))
-        pins["selftest"]["golden"] = actual
+        pins["selftest"]["golden"] = dict(sorted(
+            {**checked, **{case: actual[case] for case in record}}.items()))
         save_pins(pins, pin_path)
-        log(f"recorded {len(actual)} self-test golden hashes into "
+        for case in repin:
+            log(f"re-pinned {case}: {old[case]} -> {actual[case]}")
+        noun = "hash" if len(record) == 1 else "hashes"
+        log(f"recorded {len(record)} self-test golden {noun} into "
             "converter/media-tools.json")
-    else:
-        lines = selftest.compare(golden, actual)
-        if lines:
-            raise SetupError(str(selftest.mismatch_error(lines)))
     selftest.write_cache(plat_dir, selftest.cache_key(
         pins, versions, binaries, selftest.SAMPLES_DIR))
     log(f"self-test passed ({len(actual)} cases)")
@@ -211,7 +231,8 @@ def run_selftest(pins: dict[str, Any], *, pin: bool, pin_path: Path,
 
 def setup(*, pin: bool, force: bool, fetch: Fetch, pin_path: Path,
           root: Path, plat: str, versions: dict[str, str],
-          runner: selftest.Runner, check_versions: bool, log: Log) -> None:
+          runner: selftest.Runner, check_versions: bool, log: Log,
+          repin: tuple[str, ...] = ()) -> None:
     pins = media_tools.load_pins(pin_path)
     media_tools.check_python_pins(pins, versions)
     ff = pins["ffmpeg"]
@@ -254,23 +275,32 @@ def setup(*, pin: bool, force: bool, fetch: Fetch, pin_path: Path,
         indent=2) + "\n", "utf-8")
     binaries = {name: rec["binarySha256"] for name, rec in records.items()}
     run_selftest(pins, pin=pin, pin_path=pin_path, plat_dir=plat_dir,
-                 versions=versions, binaries=binaries, runner=runner, log=log)
+                 versions=versions, binaries=binaries, runner=runner, log=log,
+                 repin=tuple(repin))
     log(f"media tools ready in {plat_dir}")
 
 
-def main(argv: list[str] | None = None) -> int:
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     argp = argparse.ArgumentParser(
         prog="setup_media_tools.py",
         description="Install the pinned ffmpeg/ffprobe into .media-tools/ "
                     "and run the golden-hash media self-test.")
     argp.add_argument("--pin", action="store_true",
                       help="record null archive sha256s (this platform) and "
-                           "null self-test goldens into "
+                           "null or missing self-test goldens into "
                            "converter/media-tools.json")
+    argp.add_argument("--repin", action="append", default=[], metavar="CASE",
+                      help="re-record this self-test case's golden after a "
+                           "deliberate recipe change (repeatable); every "
+                           "other case must still match")
     argp.add_argument("--force", action="store_true",
                       help="re-download even when the pinned archives are "
                            "already installed")
-    args = argp.parse_args(argv)
+    return argp.parse_args(argv)
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = parse_args(argv)
     if media_tools.override_dir() is not None:
         print(f"setup_media_tools: unset {media_tools.TEST_DIR_ENV} (test-only)"
               " first", file=sys.stderr)
@@ -281,7 +311,8 @@ def main(argv: list[str] | None = None) -> int:
               plat=media_tools.platform_key(),
               versions=media_tools.python_versions(),
               runner=selftest.run_cases, check_versions=True,
-              log=lambda msg: print(f"setup_media_tools: {msg}"))
+              log=lambda msg: print(f"setup_media_tools: {msg}"),
+              repin=tuple(args.repin))
     except (SetupError, MediaToolsError, urllib.error.URLError) as exc:
         print(f"setup_media_tools: {exc}", file=sys.stderr)
         return 1

@@ -1,5 +1,5 @@
 {
-  "_comment": "Pinned media tools (docs/plan.md Phase 25). ffmpeg/ffprobe: Martin Riedl's static release builds (https://ffmpeg.martin-riedl.de/, build script https://git.martin-riedl.de/ffmpeg/build-script); URLs are the timestamped per-build links read from the site's release listing on 2026-11-02. A null sha256 is recorded by `.venv/bin/python tools/setup_media_tools.py --pin`, which cross-checks the publisher's <url>.sha256. python: must equal requirements.txt. selftest.golden: case -> sha256 of the self-test outputs, recorded by the first --pin run; null it (and re-run --pin) only when a tool or recipe change is meant to change output bytes.",
+  "_comment": "Pinned media tools (docs/plan.md Phase 25). ffmpeg/ffprobe: Martin Riedl's static release builds (https://ffmpeg.martin-riedl.de/, build script https://git.martin-riedl.de/ffmpeg/build-script); URLs are the timestamped per-build links read from the site's release listing on 2026-11-02. A null sha256 is recorded by `.venv/bin/python tools/setup_media_tools.py --pin`, which cross-checks the publisher's <url>.sha256. python: must equal requirements.txt. selftest.golden: case -> sha256 of the self-test outputs; a null case (new, or never pinned) is recorded by --pin, which still checks every pinned case; after a tool or recipe change meant to change a case's bytes, re-record just that case with --repin CASE.",
   "ffmpeg": {
     "version": "9.0.2",
     "source": "https://ffmpeg.martin-riedl.de/",
@@ -59,6 +59,7 @@
       "ffprobe.probe": "275aa1491b5cb3b47cc2f339472b3a1e1a1a8099b9f2d38a98a753100e6c75e6",
       "imagecodecs.jxl-decode": "26c3d9e47cb08e81ce11a4f5db48e2f91d5c90bf7c798a8cc88f8c8d8d2b4ce3",
       "imagecodecs.jxl-lossless": "d4d5b5006179889c26a17805eb7ffec0421f7c7416ee485f7294f6532a058852",
+      "imagecodecs.jxl-lossless-webp": "eceaf13adca629cad82e7e0a897a2ed9f326a70adc848bcddd23ab3f3ebc438f",
       "imagecodecs.jxl-recompress-jpeg": "64ad0f8e4534c25d94a8c954e5328429da067775c92a2ee6d1cc67cc39030790",
       "imagecodecs.jxl-reconstruct-jpeg": "88c12cea35e99e2b8c00a1aa59e9ad4beba82b36499bca53a8e53f8024a4aead",
       "pillow.decode-gif": "df2b72ea533001545ed851bc02a51f7b1875824543c1ccb2ca1512bd25728809",

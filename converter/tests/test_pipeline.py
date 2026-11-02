@@ -96,24 +96,11 @@ def test_fixture_photo_noise_jxl_smaller() -> None:
     from PIL import Image
 
     png = (FIXTURE / "game" / "data" / "photo-noise.png").read_bytes()
-    jxl = assets._encode_jxl_lossless(png, "png")
+    jxl = assets.jxl_candidate(png, "png").out
     assert jxl is not None and len(jxl) < len(png)
     with Image.open(BytesIO(png)) as orig:
         back = Image.fromarray(media_tools.jxl_decode(jxl))
         assert back.convert("RGBA").tobytes() == orig.convert("RGBA").tobytes()
-
-
-def test_webp_never_becomes_jxl_yet() -> None:
-    """WebP waits for docs/plan.md 25.5 (cjxl never read it either)."""
-    from PIL import Image
-
-    buf = BytesIO()
-    Image.new("RGB", (32, 32), (10, 200, 30)).save(buf, "WEBP", lossless=True)
-    ext, out, decision, _, steps = assets.decide_image_ship(buf.getvalue(), "webp",
-                                                     False)
-    assert (ext, decision) == ("webp", "preserve")
-    assert steps == [{"step": "preserve"}]
-    assert out == buf.getvalue()
 
 
 # --- dedup --------------------------------------------------------------------

@@ -122,14 +122,19 @@ files (docs/plan.md Phase 25), which `kinetic-media rebuild` reads:
       `source.sha256` stays the raw original's;
     - `{"step": "carve", "offset": N}`: drop the first N bytes (a
       wrapped image);
-    - `{"step": "preserve"}`: ship the bytes unchanged;
+    - `{"step": "preserve"}`: ship the bytes unchanged. For an image
+      that could have become JPEG XL, `reason` says why it did not
+      (Image policy, below), e.g. `"jxl 10048 >= original 1306 bytes"`;
     - `{"step": "convert", "format": "png"|"jpeg", "params": {...}}`:
       decode with Pillow and save with these save parameters (`jpeg`
       also names the `mode` it converts to first);
     - `{"step": "jxl", "mode": "lossless", "pixels": "RGB", "effort": 9,
-      "threads": 1}`: libjxl lossless encode of the decoded pixels in
-      that Pillow mode, or `"mode": "jpeg-recompression"` for a JPEG's
-      reconstructible JPEG XL;
+      "threads": 1, "verify": "pixels-identical"}`: libjxl lossless
+      encode of the decoded pixels in that Pillow mode, decoded back and
+      found identical; or `{"step": "jxl", "mode": "jpeg-recompression",
+      "threads": 1, "verify": "jpeg-bytes-identical"}` for a JPEG's
+      JPEG XL recompression, whose reconstruction gave back the original
+      JPEG bytes exactly;
     - `{"step": "transcode", "args": [...]}`: the full ffmpeg argument
       list after the binary, `{input}` and `{output}` standing for the
       paths;
@@ -161,11 +166,34 @@ example:
   "source": {"bytes": 121094, "path": "game/data/photo-noise.png",
              "sha256": "…"},
   "steps": [{"effort": 9, "mode": "lossless", "pixels": "RGB",
-             "step": "jxl", "threads": 1}],
+             "step": "jxl", "threads": 1, "verify": "pixels-identical"}],
   "tools": {"Pillow": "13.0.0", "imagecodecs": "2026.10.10",
             "libjxl": "0.12.0", "numpy": "2.5.4"}
 }
 ```
+
+## Image policy
+
+docs/plan.md Phase 25. A browser-compatible still image (PNG, JPEG,
+WebP, GIF) ships as lossless JPEG XL only when a verified JXL is
+strictly smaller than the original; otherwise the original bytes ship
+and the `preserve` step's `reason` says why.
+
+| Source | JXL route | Verification | Kept original when |
+| --- | --- | --- | --- |
+| JPEG | JPEG XL recompression | reconstruction gives back the original JPEG bytes exactly (no pixel comparison) | libjxl refuses it (CMYK, for one: `jpeg recompression failed: JpegxlError`), the reconstruction differs, or the JXL is not smaller |
+| PNG, GIF, WebP (lossless or lossy) | decode to 8-bit pixels (palette to RGB/RGBA, bilevel to L), libjxl lossless, effort 9, one thread | decoded JXL identical to the source pixels, compared in RGBA | 16-bit PNG, a pixel mode other than L/LA/RGB/RGBA/P/1, an embedded ICC profile that is not sRGB for these pixels (converting them to sRGB changes any; an sRGB one is dropped and the `jxl` step records `iccProfile`), an EXIF orientation other than 1, a pixel mismatch, or the JXL is not smaller (the usual outcome for lossy WebP) |
+| Animated GIF, WebP, PNG | none | - | always: the libjxl binding takes no frame durations or loop count, so an animated JXL could not be verified to keep the timing |
+| `.jxl` | shipped as is | libjxl decodes the whole file (else the item is skipped) | - |
+
+Other formats (BMP, TIFF, ...) are converted to the smallest of PNG,
+JPEG q92 and JXL of the PNG, as before. Compared with the system `cjxl`
+this replaced: `cjxl` read 16-bit PNGs and carried any ICC profile, so
+16-bit and non-sRGB-profile images could become JXL; now they keep their
+original bytes. (The 25.1 imagecodecs route before 25.5 fed a 16-bit RGB
+PNG's 8-bit Pillow decode to libjxl and passed its own pixel check, a
+silent precision loss now refused.) `cjxl` never read WebP; the pixel
+route now does.
 
 ## Decoder hooks
 
@@ -295,6 +323,51 @@ machine/render tests for the empty state):
   raised `ValueError` there), with `os.path.realpath` on both sides as
   the fallback. The game C run below re-ran through a corpus symlink
   with the same clean result.
+
+### Image policy sample (Phase 25 item 25.5)
+
+Done (2026-11-02). The converter's own image decision
+(`assets.decide_image_ship`, the 25.5 policy, pinned Pillow 13.0.0 and
+imagecodecs 2026.10.10 / libjxl 0.12.0, effort 9, one thread) ran over
+417 images copied from the corpus into `.tmp/25.5/sample/`: every Nth
+file in sorted order, gui folders left out. game-d.app supplied 200 of
+its 1441 `.webp` (WebP-heavy: 1440 of the 1441 are lossy VP8, none
+animated, 4 with alpha), game-b.app 60 of 481 `.png` and all
+37 `.jpg`, game-a.app 60 of 1006 `.jpg`, game-e.app
+60 of the 13 436 images in `images.rpa`.
+
+| Source format | Images | JXL shipped | Before | After | Saved |
+| --- | --- | --- | --- | --- | --- |
+| JPEG (recompression) | 149 | 149 | 93.84 MB | 72.03 MB | 23.2 % |
+| PNG (lossless pixels) | 66 | 66 | 70.29 MB | 37.80 MB | 46.2 % |
+| WebP, lossy (lossless pixels) | 202 | 0 | 71.92 MB | 71.92 MB | 0 % |
+| All | 417 | 215 | 236.05 MB | 181.75 MB | 23.0 % |
+
+Per game: game-b PNG 46.3 %, JPEG 14.4 %; game-a
+JPEG 23.0 %; game-e JPEG 25.4 %, PNG 43.1 %; game-d 0 %.
+
+Fallbacks, all 202 of them lossy WebP kept because the exact JXL was
+bigger: the lossless JXL of a lossy WebP's decoded pixels is 2.0 to 6.7
+times the WebP (median 4.6). The four `.tmp/f-slice` WebPs
+(game-f) went the same way (2.5 to 2.6 times). Every
+JPEG's recompression rebuilt the original bytes exactly, so none fell
+back. No lossless WebP turned up in the corpus; the lossless route is
+covered by the converter tests.
+
+ICC profiles: 147 sampled images embed one (101 JPEG, 43 PNG, 3 WebP),
+all sRGB (`GIMP built-in sRGB` in game-b's PNGs, `sRGB
+IEC61966-2.1` in the JPEGs) except one Adobe RGB JPEG. A JPEG keeps its
+profile through recompression. For the pixel route the converter
+converts the image's own pixels from the profile to sRGB, and when
+nothing changes (true for all 46 PNG/WebP here) it drops the profile and
+records `iccProfile` on the `jxl` step. A first run that kept every
+profile-carrying original saved 21.6 % on PNG instead of 46.2 %.
+
+Cost: the lossy-WebP attempts are the expensive part, about 27 s per
+2560x1440 image single-threaded, 5452 s of CPU for 202 images that all
+fell back, against 31 s for the 149 JPEGs. A full game-d run would spend
+about 11 hours trying JXL on its 1441 lossy WebPs before keeping them
+all.
 
 ### game-a.app
 

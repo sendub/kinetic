@@ -5,12 +5,16 @@ Formats are sniffed from content (Pillow, magic bytes, ffprobe), never from
 file extensions - corpus extensions lie. Policies:
 
 - Images in a browser-compatible format (png/jpeg/webp/gif) ship
-  byte-identical at their true ext, unless a verified
-  lossless JPEG XL encode (libjxl via imagecodecs, effort 9, one thread;
-  PNG/GIF pixels encode losslessly, JPEG uses JPEG XL recompression; the
-  result is decoded back and pixel-compared) is strictly smaller, in which
-  case ``.jxl`` ships. WebP never becomes JXL (yet: docs/plan.md Phase 25).
-  Animated images are never re-encoded.
+  byte-identical at their true ext, unless a verified lossless JPEG XL
+  (libjxl via imagecodecs, effort 9, one thread) is strictly smaller, in
+  which case ``.jxl`` ships (docs/plan.md Phase 25). PNG/GIF/WebP decode
+  to 8-bit pixels, encode lossless and must decode back to identical
+  pixels; 16-bit PNGs, a non-sRGB ICC profile or EXIF orientation keep
+  the original. JPEG uses JPEG XL recompression and must reconstruct the
+  original JPEG bytes exactly. Animated images are never re-encoded (the
+  libjxl binding takes no frame durations). ``.jxl`` sources that libjxl
+  decodes ship unchanged. A kept original's ``preserve`` step carries the
+  ``reason`` no JXL replaced it.
 - Other image formats (bmp, tiff, ...) are decoded with Pillow; the smallest
   of (PNG, JPEG q92, JXL) ships, lossless-first when the image
   has alpha (PNG or JXL only).
@@ -65,7 +69,8 @@ from typing import Any
 
 from . import decoders as decoder_hooks
 from . import media_tools
-from .media import content_ref, probe_duration_seconds, sha256_file
+from .media import (content_ref, image_size, probe_duration_seconds,
+                    sha256_file)
 from .timeline import ItemRecord
 
 COMPATIBLE_EXTS = {"png", "jpeg", "jpg", "webp", "gif"}
@@ -104,9 +109,9 @@ _EXT_TO_PIL = {"png": "PNG", "jpeg": "JPEG", "jpg": "JPEG", "webp": "WEBP",
                "gif": "GIF", "bmp": "BMP", "tiff": "TIFF"}
 
 
-# Formats whose JXL candidate is tried today (what the earlier cjxl path
-# accepted; WebP waits for docs/plan.md Phase 25 item 25.5).
-_JXL_SOURCE_FORMATS = {"png", "gif", "jpeg"}
+# Pixel formats whose decoded pixels may become lossless JPEG XL (JPEG
+# takes JPEG XL recompression instead; docs/plan.md Phase 25).
+_JXL_PIXEL_FORMATS = {"png", "gif", "webp"}
 # Pillow modes imagecodecs encodes directly (8-bit L, LA, RGB, RGBA).
 _JXL_MODES = {"L", "LA", "RGB", "RGBA"}
 
@@ -132,12 +137,8 @@ def sniff_magic(data: bytes) -> str | None:
         return "jxl"
     for magic, fmt in _IMAGE_MAGICS:
         if data.startswith(magic):
-            # The bare JXL codestream magic is 2 bytes and collides with
-            # nothing realistic; require a plausible 3rd byte.
-            if fmt == "jxl" and magic == b"\xff\x0a" and len(data) > 2 \
-                    and data[2] not in (0x00, 0x01, 0x02, 0x03, 0x04, 0x05,
-                                        0x06, 0x07, 0x0a):
-                continue
+            # The bare JXL codestream magic is only 2 bytes: sniff_image
+            # accepts "jxl" only when libjxl decodes the whole file.
             return fmt
     return None
 
@@ -161,12 +162,24 @@ def sniff_image(data: bytes) -> tuple[str | None, int]:
                 return fmt, 0
     except (OSError, ValueError):
         pass
+    if sniff_magic(data) == "jxl" and _jxl_decodes(data):
+        return "jxl", 0  # Pillow reads no JPEG XL; libjxl must decode it
     head = data[:64]
     for magic, fmt in _CARVE_MAGICS:
         at = head.find(magic)
         if at > 0 and _decodes(data[at:]):
             return fmt, at
     return None, 0
+
+
+def _jxl_decodes(data: bytes) -> bool:
+    """Whether the pinned libjxl decodes `data` (a ``.jxl`` source ships
+    only when it is a whole image)."""
+    try:
+        media_tools.jxl_decode(data)
+    except Exception:  # noqa: BLE001 - any decode failure: not an image
+        return False
+    return True
 
 
 def _decodes(data: bytes) -> bool:
@@ -250,61 +263,125 @@ def _jxl_input_mode(img: Any) -> str | None:
     return mode if mode in _JXL_MODES else None
 
 
-def _jxl_pixels(img: Any) -> Any | None:
-    """The uint8 array imagecodecs encodes for `img`, or None (mode not
-    representable losslessly)."""
-    import numpy
+_EXIF_ORIENTATION = 0x0112
 
+
+def _pixels_not_exact(data: bytes, fmt: str, img: Any) -> str | None:
+    """Why `img`'s 8-bit pixels would not show what the browser shows for
+    `data`, or None when they do."""
+    if fmt == "png" and data[12:16] == b"IHDR" and data[24] == 16:
+        # Pillow reads 16-bit RGB(A) as 8-bit RGB(A): never lossless.
+        return "16-bit PNG"
     mode = _jxl_input_mode(img)
     if mode is None:
-        return None
-    return numpy.asarray(img if img.mode == mode else img.convert(mode))
+        return f"pixel mode {img.mode} not encodable losslessly"
+    icc = img.info.get("icc_profile")
+    if icc and not _icc_is_srgb_for(img, icc):
+        # The pixel encode carries no profile (sRGB is assumed), so a
+        # colour-managed browser would show different colours.
+        return "embedded ICC profile is not sRGB for these pixels"
+    orientation = img.getexif().get(_EXIF_ORIENTATION, 1)
+    if orientation != 1:
+        return f"EXIF orientation {orientation}"
+    return None
 
 
-def jxl_step(data: bytes, fmt: str) -> dict[str, Any]:
-    """The ledger step for `_encode_jxl_lossless(data, fmt)`'s output."""
-    if fmt == "jpeg":
-        return {"step": "jxl", "mode": "jpeg-recompression", "threads": 1}
+def _icc_is_srgb_for(img: Any, icc: bytes) -> bool:
+    """Whether converting `img`'s own pixels from its embedded profile to
+    sRGB (the pinned Pillow's LittleCMS) changes none of them: then the
+    untagged JXL, which browsers read as sRGB, shows the same colours.
+    Games often embed an sRGB profile (GIMP's built-in sRGB, say)."""
+    from PIL import ImageCms
+
+    rgb = img.convert("RGB")
+    try:
+        src = ImageCms.ImageCmsProfile(BytesIO(icc))
+        out = ImageCms.profileToProfile(rgb, src, ImageCms.createProfile("sRGB"),
+                                        outputMode="RGB")
+    except (ImageCms.PyCMSError, OSError, ValueError):
+        return False
+    return out is not None and out.tobytes() == rgb.tobytes()
+
+
+@dataclass
+class JxlCandidate:
+    """A verified JPEG XL of an image (``out`` and its ledger ``step``), or
+    why there is none (``reason``)."""
+
+    out: bytes | None = None
+    step: dict[str, Any] | None = None
+    reason: str | None = None
+
+
+def _codec_error(what: str, exc: Exception) -> JxlCandidate:
+    return JxlCandidate(reason=f"{what} failed: {type(exc).__name__}")
+
+
+def _jpeg_candidate(data: bytes) -> JxlCandidate:
+    """JPEG XL recompression, kept only if it reconstructs `data` byte for
+    byte (no pixel comparison: libjxl's and Pillow's JPEG decoders round
+    differently, and the reconstruction proves nothing was lost)."""
+    try:
+        out = media_tools.jxl_recompress_jpeg(data)
+    except Exception as exc:  # noqa: BLE001 - libjxl refuses some JPEGs
+        return _codec_error("jpeg recompression", exc)
+    try:
+        back = media_tools.jxl_reconstruct_jpeg(out)
+    except Exception as exc:  # noqa: BLE001
+        return _codec_error("jpeg reconstruction", exc)
+    if back != data:
+        return JxlCandidate(
+            reason="jpeg reconstruction differs from the original bytes")
+    return JxlCandidate(out, {"step": "jxl", "mode": "jpeg-recompression",
+                              "threads": 1,
+                              "verify": "jpeg-bytes-identical"})
+
+
+def _pixel_candidate(data: bytes, fmt: str) -> JxlCandidate:
+    """Decode `data` to pixels, encode lossless JPEG XL, decode that back:
+    kept only if every pixel (compared in RGBA) is identical."""
+    import numpy
     from PIL import Image
 
-    with Image.open(BytesIO(data)) as img:
-        pixels = _jxl_input_mode(img)
-    return {"step": "jxl", "mode": "lossless", "pixels": pixels,
-            "effort": media_tools.JXL_EFFORT, "threads": 1}
-
-
-def _encode_jxl_lossless(data: bytes, fmt: str) -> bytes | None:
-    """Verified lossless JXL bytes for `data`, or None (fail/mismatch).
-
-    PNG/GIF pixels encode losslessly; JPEG uses JPEG XL recompression.
-    Either way the JXL is decoded back and must show pixels identical to
-    the source (as the browser renders them, compared in RGBA).
-    """
-    from PIL import Image
-
-    if fmt not in _JXL_SOURCE_FORMATS or not jxl_available():
-        return None
     try:
         with Image.open(BytesIO(data)) as orig:
             orig.load()
-            if fmt == "jpeg":
-                out = media_tools.jxl_recompress_jpeg(data)
-            else:
-                pixels = _jxl_pixels(orig)
-                if pixels is None:
-                    return None
+            icc = orig.info.get("icc_profile")
+            why = _pixels_not_exact(data, fmt, orig)
+            if why is not None:
+                return JxlCandidate(reason=why)
+            mode = _jxl_input_mode(orig)
+            pixels = numpy.asarray(orig if orig.mode == mode
+                                   else orig.convert(mode))
+            try:
                 out = media_tools.jxl_encode_lossless(pixels)
-            back = Image.fromarray(media_tools.jxl_decode(out))
-            if orig.size != back.size:
-                return None
-            # Compare what the browser would render: a palette PNG decodes
-            # to RGB through a different mode but must show identical
-            # pixels for the encode to count as lossless.
-            if orig.convert("RGBA").tobytes() != back.convert("RGBA").tobytes():
-                return None
-    except Exception:  # noqa: BLE001 - any codec failure keeps the original
-        return None
-    return out
+                back = Image.fromarray(media_tools.jxl_decode(out))
+            except Exception as exc:  # noqa: BLE001
+                return _codec_error("jxl encode", exc)
+            if orig.size != back.size or \
+                    orig.convert("RGBA").tobytes() \
+                    != back.convert("RGBA").tobytes():
+                return JxlCandidate(reason="decoded JXL pixels differ")
+    except (OSError, ValueError) as exc:
+        return _codec_error("pixel decode", exc)
+    step = {"step": "jxl", "mode": "lossless", "pixels": mode,
+            "effort": media_tools.JXL_EFFORT, "threads": 1,
+            "verify": "pixels-identical"}
+    if icc:
+        step["iccProfile"] = "dropped: maps these pixels to sRGB unchanged"
+    return JxlCandidate(out, step)
+
+
+def jxl_candidate(data: bytes, fmt: str) -> JxlCandidate:
+    """The verified lossless JPEG XL for a still image in `fmt`, whatever
+    its size (the caller applies the smaller-only rule)."""
+    if not jxl_available():
+        return JxlCandidate(reason="jxl unavailable")
+    if fmt == "jpeg":
+        return _jpeg_candidate(data)
+    if fmt in _JXL_PIXEL_FORMATS:
+        return _pixel_candidate(data, fmt)
+    return JxlCandidate(reason=f"jxl not tried for {fmt}")
 
 
 _PNG_PARAMS = {"optimize": True}  # zlib level 9, no time chunks
@@ -362,13 +439,12 @@ def convert_incompatible(data: bytes,
             jpeg_bytes = _encode_jpeg(img)
             candidates.append((len(jpeg_bytes), "jpg", jpeg_bytes,
                                [jpeg_step()]))
-        if jxl_available():
-            jxl = _encode_jxl_lossless(png_bytes, "png")
-            if jxl is not None:
-                candidates.append((len(jxl), "jxl", jxl,
-                                   [PNG_STEP, jxl_step(png_bytes, "png")]))
-            else:
-                notes.append("jxl unavailable for converted image")
+        jxl = jxl_candidate(png_bytes, "png")
+        if jxl.out is not None:
+            candidates.append((len(jxl.out), "jxl", jxl.out,
+                               [PNG_STEP, jxl.step]))
+        else:
+            notes.append(f"no jxl candidate: {jxl.reason}")
         candidates.sort(key=lambda c: c[0])
         _, ext, out, steps = candidates[0]
         notes.append("converted to " + ext +
@@ -377,32 +453,46 @@ def convert_incompatible(data: bytes,
 
 
 PRESERVE_STEP = {"step": "preserve"}
+ANIMATED_REASON = ("animated (the pinned libjxl encode takes no "
+                   "frame durations or loop count)")
+
+
+def _keep(data: bytes, ext: str, decision: str, reason: str | None,
+          notes: list[str]) -> tuple[str, bytes, str, list[str], list[dict]]:
+    """Ship the original bytes; the ledger's preserve step says why no
+    JPEG XL replaced them."""
+    if reason is None:
+        return ext, data, decision, notes, [PRESERVE_STEP]
+    notes.append(f"{reason}: kept original")
+    return ext, data, decision, notes, [{**PRESERVE_STEP, "reason": reason}]
 
 
 def decide_image_ship(data: bytes, fmt: str, wrapped: bool,
                       ) -> tuple[str, bytes, str, list[str], list[dict]]:
     """(ext, bytes, decision, notes, ledger steps) for effective image
-    `data` (after any carve, which the caller records)."""
+    `data` (after any carve, which the caller records).
+
+    A browser-compatible still image ships as verified lossless JPEG XL
+    when that is strictly smaller, else unchanged; animated images and
+    ``.jxl`` sources ship unchanged; anything else is converted."""
     notes: list[str] = []
     keep = "carved" if wrapped else "preserve"
+    if fmt == "jxl":
+        return _keep(data, "jxl", keep, None, notes)
     if fmt in COMPATIBLE_EXTS:
         ext = "jpg" if fmt == "jpeg" else fmt
         if is_animated(data, fmt):
-            notes.append("animated: always preserved byte-identical")
-            return ext, data, keep, notes, [PRESERVE_STEP]
-        jxl = _encode_jxl_lossless(data, fmt)
-        if jxl is None:
-            if fmt not in _JXL_SOURCE_FORMATS:
-                notes.append(f"jxl not tried for {fmt}: kept original")
-            elif jxl_available():
-                notes.append("jxl round-trip failed: kept original")
-        elif len(jxl) < len(data):
-            notes.append(f"jxl {len(jxl)} < original {len(data)}")
-            return ("jxl", jxl, ("carved" if wrapped else "jxl"), notes,
-                    [jxl_step(data, fmt)])
-        else:
-            notes.append(f"jxl {len(jxl)} >= original {len(data)}: kept")
-        return ext, data, keep, notes, [PRESERVE_STEP]
+            return _keep(data, ext, keep, ANIMATED_REASON, notes)
+        jxl = jxl_candidate(data, fmt)
+        if jxl.out is None:
+            return _keep(data, ext, keep, jxl.reason, notes)
+        if len(jxl.out) >= len(data):
+            return _keep(data, ext, keep,
+                         f"jxl {len(jxl.out)} >= original {len(data)} bytes",
+                         notes)
+        notes.append(f"jxl {len(jxl.out)} < original {len(data)}")
+        return ("jxl", jxl.out, ("carved" if wrapped else "jxl"), notes,
+                [jxl.step])
     ext, out, conv_notes, steps = convert_incompatible(data)
     notes += conv_notes
     return (ext, out, ("carved" if wrapped else "decode-convert"), notes,
@@ -720,8 +810,9 @@ def _ship_image(record: ItemRecord, found: _Input, placed: _Placed,
     if fmt is None:
         meta["decision"] = "skipped"
         record.notes.append(
-            f"unsupported image format (no PNG/JPEG signature in head of "
-            f"{source.name}): item dropped from manifest")
+            f"unsupported image format (not a decodable image, no PNG/JPEG "
+            f"signature in head of {source.name}): item dropped from "
+            "manifest")
         record.skipped = True
         return 1
     effective = data[offset:]
@@ -834,10 +925,6 @@ def _reprobe_duration(record: ItemRecord, decoded: Path) -> None:
 
 
 def _add_size(path: Path, sizes: list[tuple[int, int]]) -> None:
-    from PIL import Image
-
-    try:
-        with Image.open(path) as img:
-            sizes.append(img.size)
-    except (OSError, ValueError):
-        pass
+    size = image_size(path)
+    if size is not None:
+        sizes.append(size)

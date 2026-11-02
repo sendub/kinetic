@@ -77,8 +77,11 @@ def run_cases(samples_dir: Path = SAMPLES_DIR) -> dict[str, str]:
         img.load()
         out["pillow.encode-jpeg"] = _sha(assets._encode_jpeg(img))
 
-    jxl = assets._encode_jxl_lossless(data["sample.png"], "png")
+    jxl = assets.jxl_candidate(data["sample.png"], "png").out
     out["imagecodecs.jxl-lossless"] = _sha(jxl) if jxl else FAILED
+    webp_jxl = assets.jxl_candidate(data["sample.webp"], "webp").out
+    out["imagecodecs.jxl-lossless-webp"] = (_sha(webp_jxl) if webp_jxl
+                                            else FAILED)
     out["imagecodecs.jxl-decode"] = (
         _pixel_hash(Image.fromarray(media_tools.jxl_decode(jxl)))
         if jxl else FAILED)
@@ -104,6 +107,12 @@ def run_cases(samples_dir: Path = SAMPLES_DIR) -> dict[str, str]:
         ok = assets.transcode_video(video, mp4)
         out["ffmpeg.transcode-mp4"] = _file_hash(mp4) if ok else FAILED
     return dict(sorted(out.items()))
+
+
+def unpinned_cases(golden: dict[str, str | None]) -> list[str]:
+    """Cases listed with a null golden: a new case waiting for --pin, or
+    one --repin cleared."""
+    return sorted(case for case, value in golden.items() if value is None)
 
 
 def compare(golden: dict[str, str], actual: dict[str, str]) -> list[str]:
@@ -177,6 +186,12 @@ def ensure_ready(*, pins: dict[str, Any] | None = None,
         raise MediaToolsError(
             "media self-test not pinned yet (selftest.golden is null in "
             f"converter/media-tools.json): run {media_tools.SETUP_CMD} --pin")
+    unpinned = unpinned_cases(golden)
+    if unpinned:
+        raise MediaToolsError(
+            f"media self-test case(s) {', '.join(unpinned)} not pinned yet "
+            "(null in converter/media-tools.json): run "
+            f"{media_tools.SETUP_CMD} --pin")
     key = cache_key(pins, versions, binaries, samples_dir)
     if read_cache(plat_dir) == key:
         return

@@ -66,20 +66,38 @@ def probe_duration_seconds(path: Path) -> float | None:
     return round(value, 6) if value > 0 else None
 
 
+def image_size(path: Path) -> tuple[int, int] | None:
+    """(width, height) of an image file Pillow or libjxl decodes, or None.
+    Pillow reads no JPEG XL, so a ``.jxl`` file is decoded with the
+    pinned libjxl."""
+    from PIL import Image
+
+    try:
+        with Image.open(path) as img:
+            return img.size
+    except (OSError, ValueError):
+        pass
+    try:
+        with path.open("rb") as fh:
+            head = fh.read(12)
+        if head[:2] != b"\xff\x0a" and head[4:12] != b"JXL \r\n\x87\n":
+            return None
+        pixels = media_tools.jxl_decode(path.read_bytes())
+    except Exception:  # noqa: BLE001 - not a decodable image
+        return None
+    return int(pixels.shape[1]), int(pixels.shape[0])
+
+
 def most_common_image_size(paths: list[Path],
                            extra: Iterable[tuple[int, int]] = (),
                            ) -> tuple[int, int] | None:
     """The size shared by most of the given image files plus the `extra`
     sizes (decoded images), or None."""
-    from PIL import Image
-
     sizes: Counter[tuple[int, int]] = Counter(extra)
     for path in paths:
-        try:
-            with Image.open(path) as img:
-                sizes[img.size] += 1
-        except (OSError, ValueError):
-            continue
+        size = image_size(path)
+        if size is not None:
+            sizes[size] += 1
     if not sizes:
         return None
     return sizes.most_common(1)[0][0]

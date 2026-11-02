@@ -135,7 +135,8 @@ def test_jxl_entry_records_parameters_and_codec_versions(demo) -> None:
     ((_, entry),) = by_source_path(ledger, "game/data/photo-noise.png")
     (step,) = entry["steps"]
     assert step == {"step": "jxl", "mode": "lossless", "pixels": "RGB",
-                    "effort": media_tools.JXL_EFFORT, "threads": 1}
+                    "effort": media_tools.JXL_EFFORT, "threads": 1,
+                    "verify": "pixels-identical"}
     versions = media_tools.python_versions()
     assert entry["tools"]["libjxl"] == versions["libjxl"]
     assert entry["tools"]["imagecodecs"] == versions["imagecodecs"]

@@ -93,9 +93,10 @@ class Runner:
 
 def run(tmp_path: Path, fetch: FakeFetch, *, pin: bool = False,
         runner: Runner | None = None, force: bool = False,
-        check_versions: bool = False) -> list[str]:
+        check_versions: bool = False,
+        repin: tuple[str, ...] = ()) -> list[str]:
     log: list[str] = []
-    setup_mod.setup(pin=pin, force=force, fetch=fetch,
+    setup_mod.setup(pin=pin, force=force, fetch=fetch, repin=repin,
                     pin_path=tmp_path / "media-tools.json",
                     root=tmp_path / "tools", plat=PLAT, versions=VERSIONS,
                     runner=runner or Runner(GOLDEN),
@@ -277,3 +278,66 @@ def test_main_refuses_with_test_override(
         monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("KINETIC_MEDIA_TOOLS_DIR", "/nonexistent")
     assert setup_mod.main([]) == 1
+
+
+def test_pin_records_only_null_cases_and_verifies_the_rest(
+        tmp_path: Path) -> None:
+    """A new case lands as null: --pin records it and still checks every
+    pinned case."""
+    write_pins(tmp_path / "media-tools.json", archive_sha=PINNED,
+               golden={**GOLDEN, "imagecodecs.new": None})
+    actual = {**GOLDEN, "imagecodecs.new": "cc"}
+    with pytest.raises(setup_mod.SetupError, match="imagecodecs.new.*--pin"):
+        run(tmp_path, served(), runner=Runner(actual))
+    log = run(tmp_path, served(), pin=True, runner=Runner(actual))
+    assert pins_of(tmp_path)["selftest"]["golden"] == actual
+    assert any("recorded 1 self-test golden hash" in line for line in log)
+    write_pins(tmp_path / "media-tools.json", archive_sha=PINNED,
+               golden={**GOLDEN, "imagecodecs.new": None})
+    with pytest.raises(setup_mod.SetupError, match="expected aa, got zz"):
+        run(tmp_path, served(), pin=True, runner=Runner(
+            {**actual, "ffmpeg.transcode-mp4": "zz"}))
+    assert pins_of(tmp_path)["selftest"]["golden"]["imagecodecs.new"] is None
+
+
+def test_case_missing_from_pin_file_needs_pin(tmp_path: Path) -> None:
+    write_pins(tmp_path / "media-tools.json", archive_sha=PINNED,
+               golden=GOLDEN)
+    actual = {**GOLDEN, "imagecodecs.new": "cc"}
+    with pytest.raises(setup_mod.SetupError, match="imagecodecs.new.*--pin"):
+        run(tmp_path, served(), runner=Runner(actual))
+    run(tmp_path, served(), pin=True, runner=Runner(actual))
+    assert pins_of(tmp_path)["selftest"]["golden"] == actual
+
+
+def test_repin_replaces_only_the_named_case(tmp_path: Path) -> None:
+    """A deliberate recipe change: --repin CASE re-records that one case;
+    every other case must still match."""
+    write_pins(tmp_path / "media-tools.json", archive_sha=PINNED,
+               golden=GOLDEN)
+    changed = {**GOLDEN, "pillow.encode-png": "b2"}
+    with pytest.raises(setup_mod.SetupError, match="expected bb, got b2"):
+        run(tmp_path, served(), pin=True, runner=Runner(changed))
+    log = run(tmp_path, served(), repin=("pillow.encode-png",),
+              runner=Runner(changed))
+    assert pins_of(tmp_path)["selftest"]["golden"] == changed
+    assert any("pillow.encode-png" in line and "bb" in line and "b2" in line
+               for line in log)
+    with pytest.raises(setup_mod.SetupError, match="expected aa, got zz"):
+        run(tmp_path, served(), repin=("pillow.encode-png",),
+            runner=Runner({**changed, "ffmpeg.transcode-mp4": "zz"}))
+
+
+def test_repin_unknown_case_refuses(tmp_path: Path) -> None:
+    pin_file = write_pins(tmp_path / "media-tools.json", archive_sha=PINNED,
+                          golden=GOLDEN)
+    before = pin_file.read_text()
+    with pytest.raises(setup_mod.SetupError, match="no self-test case "
+                                                   "'nope.case'"):
+        run(tmp_path, served(), repin=("nope.case",))
+    assert pin_file.read_text() == before
+
+
+def test_repin_flag_parses() -> None:
+    args = setup_mod.parse_args(["--repin", "a.b", "--repin", "c.d"])
+    assert args.repin == ["a.b", "c.d"]

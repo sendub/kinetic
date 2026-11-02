@@ -8,8 +8,11 @@ Kinetic content folder: `manifest.json`, `manifest.js`,
 Every shipped file, posters included, lands at `media/<h[:2]>/<h>.<ext>`:
 `h` is the sha256 of the bytes shipped and `ext` the TRUE shipped format
 (docs/extracting.md, "Output layout"). Sources are sniffed by content (never by extension),
-compatible images ship byte-identical or as lossless JPEG XL when
-strictly smaller (libjxl through the pinned imagecodecs), incompatible ones
+compatible images ship byte-identical or as verified lossless JPEG XL
+when strictly smaller (libjxl through the pinned imagecodecs: PNG, GIF
+and WebP pixels must decode back identical, a JPEG's recompression must
+rebuild the original JPEG bytes exactly; animated images and `.jxl`
+sources ship unchanged), incompatible ones
 are converted to the smallest of PNG/JPEG q92/JXL, wrapped PNG/JPEG data
 is carved, native browser videos are copied and others are transcoded to
 H.264 faststart MP4, and posters are the frame at `startSeconds`.
@@ -53,11 +56,17 @@ reported version, then runs the golden-hash self-test. Nothing is
 downloaded again while the pinned archive is installed (`--force`
 re-downloads). PATH's ffmpeg, `cjxl` and `djxl` are never used.
 
-A null `sha256` or null `selftest.golden` means "not pinned yet":
-`--pin` records them (the archive checksum cross-checked against the
-publisher's `<url>.sha256`), and the updated pin file is committed.
-Pinned values are only ever verified, never overwritten; to move to a
-new ffmpeg, change the version and URLs, null the checksums and goldens,
+A null `sha256`, a null `selftest.golden`, or a single null (or
+missing) golden case means "not pinned yet": `--pin` records them (the
+archive checksum cross-checked against the publisher's `<url>.sha256`)
+while every pinned case must still match, and the updated pin file is
+committed. A newly added self-test case lands as a null golden, and
+`kinetic-extract` refuses, naming the case, until `--pin` records it.
+Pinned values are only ever verified, never overwritten by `--pin`. When
+a deliberate recipe change alters one case's bytes, re-record exactly
+that case with `--repin CASE` (repeatable; it prints old and new
+values, and every other case must still match). To move to a new
+ffmpeg, change the version and URLs, null the checksums and goldens,
 and re-run `--pin`.
 
 Encoders run single-threaded and bitexact: every ffmpeg command carries
@@ -69,7 +78,8 @@ Encoders run single-threaded and bitexact: every ffmpeg command carries
 The self-test runs the committed samples in `tests/data/selftest/`
 (PNG, JPEG, WebP, GIF, a short H.264/AAC MP4; `make_samples.py` made
 them) through each converter tool path (Pillow decode and encode,
-JXL lossless and JPEG recompression, ffprobe, the poster frame, the
+JXL lossless of PNG and of WebP pixels, JPEG recompression and
+reconstruction, ffprobe, the poster frame, the
 H.264 transcode) and compares each output's sha256 with
 `selftest.golden`. `kinetic-extract` repeats the check at start and
 refuses to run on a missing install, a version or binary that differs
