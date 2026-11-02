@@ -733,8 +733,14 @@ truthful: an unchecked box means nothing was accepted.
       scenario 3 new checks, screens check rewritten (t still inert behind
       help). vitest 475, playall+screens 59 pass + 2 headless-fullscreen
       partials, smoke 6/6. 2026-11-02)
-- [ ] Settings screen clarity (user, 2026-11-02): the two skip settings
+- [x] Settings screen clarity (user, 2026-11-02): the two skip settings
       read as options of how Tab skips, not switches that start skipping:
       a "When Tab skips" heading over "Skip unseen content too" and "Play
       videos in full"; Play all routes gets a one-line note. Tests,
       scenario, README.
+      (25b6ced: heading + indented options, controls in one column (measured
+      1280x720 and 700x900, screenshot checked); config.test layout tests;
+      screens scenario check. vitest 477, screens 41 pass + 2 headless
+      fullscreen partials, media 22/22, playall 19/19. 2026-11-02)
+- [ ] Phase-closer: full suite (scenarios, vitest, pytest,
+      package-proof), rebuild both demo folders.
