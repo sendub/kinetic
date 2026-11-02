@@ -694,3 +694,37 @@ truthful: an unchecked box means nothing was accepted.
       .tmp/pkg-extract rebuilt; demo hand-checked in the browser: help,
       branch walk, return-row rule, end card + u, history roll back with
       choice screens, bookmarks with x, settings.)
+
+## Phase 19: Third demo-feedback round (2026-11-02, user)
+
+- [x] Nested pure choice ending its enclosing route (external agent
+      report, 2026-11-02): when a nested pure choice's region runs to the
+      end of its enclosing route, closing it ends that route (re-offer,
+      join or close), never falling into the parent's next route.
+      (11031db: closeIfPureAndComplete hands off to handleRouteEnd; two
+      branches tests red before, green after; branches scenario 39/39.
+      2026-11-02)
+- [ ] Play all routes shows the choice (user, 2026-11-02): with play-all
+      on, every decision (first fire and each re-offer) shows the real
+      #choice with a status line and draining bar counting down for the
+      screen's reading time at the reader's speed (never under 2.5 s);
+      then the picked row is highlighted ~0.7 s and the route starts.
+      Routes go shortest first (fewest items), the continuing route last.
+      A re-offer leads with "Back in time: <route> done." (replaces the
+      black back-in-time interstitial, user option 3). Space takes the
+      pick at once; a digit or click picks another route. Inside a
+      skip-all burst there is no countdown, only the highlight, and the
+      burst carries on. Choice screens are recorded in the history like a
+      reader's; a replayed one waits. Turning play-all on over a live
+      choice starts its countdown; off cancels it. Unit tests, playall
+      scenario, README/docs.
+- [ ] `c` works everywhere (user, 2026-11-02): the settings screen opens
+      over a choice (the choice waits underneath, digits inert, a
+      play-all countdown frozen and restarted on close) and over the Esc
+      help (replacing it). Only the reset box blocks it. Tests, scenario,
+      README/help text.
+- [ ] Settings screen clarity (user, 2026-11-02): the two skip settings
+      read as options of how Tab skips, not switches that start skipping:
+      a "When Tab skips" heading over "Skip unseen content too" and "Play
+      videos in full"; Play all routes gets a one-line note. Tests,
+      scenario, README.

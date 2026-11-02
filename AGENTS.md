@@ -49,7 +49,16 @@ Per checklist item, run only what the item can break:
   `package-proof`) runs ONCE when the current phase is believed
   complete, before its closing commit.
 
+## Workflow
+
+Every user request for a fix or feature becomes a checklist item in
+docs/progress.md, implemented by a fresh-context subagent. The
+orchestrator writes the item, briefs the subagent, verifies the result
+itself (the test-speed rules above), ticks the item with an evidence
+note, then commits and pushes before starting the next item. The
+orchestrator does not implement items inline.
+
 ## Git
 
 Subagents do not run git add/commit/push and never edit docs/progress.md;
-the orchestrator verifies each checklist item and commits.
+the orchestrator verifies each checklist item, commits and pushes.
