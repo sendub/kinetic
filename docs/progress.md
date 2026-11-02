@@ -989,7 +989,8 @@ truthful: an unchecked box means nothing was accepted.
       converter uses only these; single-threaded bitexact settings;
       golden-hash self-test at setup and converter start, refusing on a
       mismatch. Docs (AGENTS.md commands, converter README, CREATE.md).
-- [ ] 25.2 Content-addressed layout: `assets/<h[:2]>/<h>.<ext>` by sha256
+- [ ] 25.2 Content-addressed layout: fixed folder `media/` (was
+      `assets/`; user, 2026-11-02), `media/<h[:2]>/<h>.<ext>` by sha256
       of shipped bytes, posters too; remove name buckets, `--flat`, id
       pre-fill; streamed hashing. Docs replace Phase 17 wording.
 - [ ] 25.3 Source identity and ledger `media` section: loose path or

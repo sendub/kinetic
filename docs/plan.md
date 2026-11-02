@@ -966,8 +966,9 @@ items. Decisions (user, and the converting agent where the user passed
 its answers on):
 
 - Every shipped media file is named by the sha256 of its shipped bytes,
-  `assets/<h[:2]>/<h>.<ext>`, posters included. This replaces Phase 17's
-  name-based buckets and `--flat`. Not a mode or option; no backward
+  `media/<h[:2]>/<h>.<ext>`, posters included. `media/` is the one
+  fixed folder name (user, matching the converting agent's layout).
+  This replaces Phase 17's `assets/` name-based buckets and `--flat`. Not a mode or option; no backward
   compatibility or migration for old folders.
 - Reproducibility is the requirement: the same game gives the same bytes
   and paths on any machine. Encoder tools are pinned: Pillow and
