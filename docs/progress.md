@@ -1117,3 +1117,13 @@ truthful: an unchecked box means nothing was accepted.
       every command in it run once to prove it.
 - [ ] 25.13 Phase-closer: corpus slices re-run (extract, validate,
       play, rebuild), full suite, rebuild demo folders.
+
+## Phase 26: Bookmark list layout (2026-11-02, user; after Phase 25)
+
+- [ ] Bigger bookmark thumbnails in a grid (user, 2026-11-02): the `t`
+      list's thumbnails become much larger, and entries fill the screen
+      across first, then down (a responsive grid), instead of one
+      column. Keyboard/click behaviour, delete (×), scroll-to-latest and
+      ordering unchanged. Tests, screens scenario, screenshots at
+      1280x720 and 700x900.
+- [ ] Phase-closer: full suite, rebuild demo folders.
