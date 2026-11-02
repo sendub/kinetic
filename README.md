@@ -23,7 +23,7 @@ The player goes fullscreen on the first key press. Position, route history, book
 * Images, animations (a few images looped) and videos in any format the browser plays (MP4, WebM, or MKV with VP9/AV1). Media fills the screen without stretching.
 * Videos can set a loop count, a display duration, a start/end range (with that range's own poster), a loop restart point, and a minimum play time (in auto mode the dialogue over it waits for the clip). Several items can share one video file.
 * Text over the picture: dialogue with the speaker's name, thoughts (drawn differently), and narration. A run of text items keeps the previous picture or video on screen, a video playing on.
-* Branches: a decision shows a prompt and its routes; shared lead-in and aftermath play once. A route continues the story, comes back to the decision, or ends. After a route ends you can pick another, and "Return to main route" appears once the continuing route has been finished. Decisions can nest. The "play all routes" setting plays every route with no interaction.
+* Branches: a decision shows a prompt and its routes; shared lead-in and aftermath play once. A route continues the story, comes back to the decision, or ends. After a route ends you can pick another, and "Return to main route" appears once the continuing route has been finished. Decisions can nest. The "play all routes" setting plays every route, shortest first, with no interaction: each choice still shows, counts down, then picks for you. Space picks at once; a number picks another route.
 * Seen tracking is per item and per route; skip, resume and `u` respect it. An ending shows a small end card: how many routes are still unseen, with `u` for the next one, or "You have seen everything.".
 
 ## Tools

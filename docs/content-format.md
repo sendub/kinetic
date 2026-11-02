@@ -335,16 +335,25 @@ docs/plan.md Phase 13):
   A bookmark jump appends its landing to the record. The record is
   capped (5000 screens, oldest dropped first) and persists in the save,
   so a reload lands on the screen that was showing and can roll back.
-  The play-all interstitial is not recorded.
 - `Play all routes` (a persisted setting, default off) is
-  zero-interactivity: at a decision it auto-picks the first
-  not-yet-played route in manifest order, repeats until every route has
-  played once, then continues via `continueAt` (a pure choice: past the
-  region end, per the rule above). Play-all answers decisions that FIRE;
-  a choice screen recorded before it was switched on still replays under
-  the wheel like any other entry. The journey is announced by the render layer: entering a route
-  flashes a "Route: <label>" pill — manual pick or auto-pick alike — led
-  by "Back to try another route" when the entry jumped back in time.
+  zero-interactivity: every decision still shows its choice screen
+  (first fire and each re-offer), with a status line and a draining bar
+  counting down for the screen's reading time at the reader's speed
+  (never under 2.5 s); then the picked row is highlighted for about
+  0.7 s and the route starts. It picks the shortest not-yet-played route
+  (fewest items), the continuing route last, repeats until every route
+  has played once, then continues via `continueAt` (a pure choice: past
+  the region end, per the rule above). A re-offer's status line leads
+  with "Back in time: <route> done.". Space takes the pick at once; a
+  digit or click picks another route. Inside a skip-all burst there is
+  no countdown, only the highlight, and the burst carries on. These
+  choice screens are recorded in the history like a reader's; a
+  replayed one (wheel, `e`) waits for a pick, while a reload onto the
+  live one counts down again. Turning the setting on over a live choice
+  starts its countdown; turning it off cancels it. The journey is
+  announced by the render layer: entering a route flashes a "Route:
+  <label>" pill — manual pick or auto-pick alike — led by "Back to try
+  another route" when a manual pick jumped back in time.
 - Decisions fire only on a forward settle of `after`: a wheel step or
   a bookmark jump onto `after` fires nothing. Rolling back to `after`
   and pressing forward again re-opens the overlay (which, matching the

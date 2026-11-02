@@ -184,11 +184,11 @@ describe("routeAnnouncementsFor (the entry rule)", () => {
   });
 });
 
-describe("route pills after the play-all interstitial (docs/plan.md Phase 18)", () => {
-  it("an entry out of the interstitial shows only the route pill", () => {
+describe("route pills after a play-all auto-pick (docs/plan.md Phase 18)", () => {
+  it("an entry out of an auto-picked choice shows only the route pill", () => {
     expect(
       routeAnnouncementsFor(
-        { cursor: 5, frame: null, interstitial: true },
+        { cursor: 5, frame: null, autoPick: true },
         { cursor: 2, frame: frame(0, 0) },
         LABELS,
       ),

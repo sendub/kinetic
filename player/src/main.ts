@@ -42,7 +42,6 @@ import { mountConfirmOverlay, resetProgress } from "./render/confirm";
 import { EARLIER_UNSEEN_NOTICE } from "./render/endcard";
 import { installFirstGestureFullscreen } from "./render/fullscreen";
 import { mountHelpOverlay } from "./render/help";
-import { mountInterstitial } from "./render/interstitial";
 import { installKeyMap, suspendTimeline } from "./render/keys";
 import { loadManifest } from "./render/manifest";
 import { mountRouteAnnouncements } from "./render/routes";
@@ -407,11 +406,6 @@ function start(): void {
       // render-side rule over state transitions (render/routes.ts reads the
       // machine's route context, mutates nothing): the branch journey the
       // user could not follow becomes three lines of pill on screen.
-      // The play-all back-in-time interstitial (docs/plan.md Phase 18,
-      // render/interstitial.ts): the machine holds it; this draws it.
-      const interstitial = mountInterstitial(root);
-      machine.subscribe((state) => interstitial.render(state.interstitial));
-
       // The wheel and `e` replay the reading history, restoring each
       // entry's route frames; a replayed route entry is not a pick, so its
       // state changes announce no route pill (render/routes.ts).
@@ -491,10 +485,15 @@ function start(): void {
           // the first load it is also the first gesture, so fullscreen gets
           // its request like any other first press; render/fullscreen.ts).
           // Over a choice the gate below already swallows it: the
-          // decision is answered by its own keys, never by space.
+          // decision is answered by its own keys, never by space — except
+          // that Space takes a play-all auto-pick at once (Phase 18).
           advance: () => {
             if (help.isOpen()) {
               closeHelp();
+              return;
+            }
+            if (machine.getState().choice?.autoPick !== undefined) {
+              if (!anyPanelOpen()) machine.advance();
               return;
             }
             timeline.advance();

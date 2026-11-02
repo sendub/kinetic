@@ -194,11 +194,13 @@ export interface MachineSettings {
    */
   skipPlaysVideos: boolean;
   /**
-   * Zero-interactivity route playback (docs/plan.md Phase 13); default false.
-   * While on, a decision never surfaces its overlay: the machine auto-picks
-   * the first not-yet-played route in manifest order — the continuing route
-   * last — and after every route has played once it proceeds to `continueAt`.
-   * Works inside skip mode too.
+   * Zero-interactivity route playback (docs/plan.md Phase 13, reworked in
+   * Phase 18); default false. While on, each decision's choice still shows,
+   * with a countdown sized to its words at the reading speed, then the
+   * machine picks the shortest not-yet-played route — the continuing route
+   * last — highlights it briefly and enters it (`ChoiceView.autoPick`).
+   * After every route has played once it proceeds to `continueAt`. Inside a
+   * skip burst the countdown is dropped; only the highlight shows.
    */
   playAllRoutes: boolean;
 }
@@ -256,6 +258,26 @@ export interface ChoiceView {
    * the row. The renderer draws the row and its `0` hint only when set.
    */
   readonly continueOption?: boolean;
+  /**
+   * Present while `Play all routes` is about to answer this choice itself
+   * (docs/plan.md Phase 18, "Play all routes shows the choice"): a
+   * countdown, then the picked row highlighted, then the route starts.
+   */
+  readonly autoPick?: AutoPickView;
+}
+
+/** The play-all auto-pick on an open choice (`ChoiceView.autoPick`). */
+export interface AutoPickView {
+  /** The route play-all takes: the shortest unplayed, the continuing last. */
+  readonly routeIdx: number;
+  /** False while counting down; true while the picked row is highlighted. */
+  readonly picked: boolean;
+  /** How long the current phase lasts from when it was armed, in ms. */
+  readonly ms: number;
+  /** Changes every time a phase is (re)armed, e.g. after a pause. */
+  readonly armId: number;
+  /** On a re-offer: the label of the route that just ended. */
+  readonly backFromLabel?: string;
 }
 
 /** One open decision context: which route of it the reader is inside. */
@@ -365,8 +387,8 @@ export interface MachineState {
   readonly choice?: ChoiceView;
   /**
    * Present while the cursor stands on an ENDING — the array end or an
-   * ending route's last item — with no choice open and no play-all
-   * interstitial (docs/plan.md Phase 18, "End card"): the render layer
+   * ending route's last item — with no choice open (docs/plan.md Phase
+   * 18, "End card"): the render layer
    * draws the small end card from it. Present when content is still
    * unseen, and — in a manifest with branches — when everything has been
    * seen (all counts zero), so the card can say so. Absent otherwise, and
@@ -381,14 +403,6 @@ export interface MachineState {
    * true (docs/plan.md Phase 18, "Skip can play videos").
    */
   readonly skipVideo?: true;
-  /**
-   * Present while `Play all routes` holds the back-in-time interstitial
-   * (docs/plan.md Phase 18): a route ended and the journey is about to jump
-   * back to the decision to play the next unplayed route. The render layer
-   * draws a black screen from it; the machine holds the timeline for
-   * `INTERSTITIAL_MS` (a press ends it early) and then enters the route.
-   */
-  readonly interstitial?: InterstitialView;
 }
 
 /**
@@ -410,20 +424,6 @@ export interface EndCard {
   readonly otherUnseen: boolean;
   /** `jumpToUnseen()` (`u`) has somewhere to go from here. */
   readonly nextUnseen: boolean;
-}
-
-/** The play-all back-in-time interstitial's content (docs/plan.md Phase 18). */
-export interface InterstitialView {
-  readonly decisionId: string;
-  readonly prompt: string;
-  /** The text of the decision's `after` item — the context that led here. */
-  readonly context?: string;
-  /** Every route with its seen mark, in manifest order. */
-  readonly routes: readonly ChoiceRoute[];
-  /** The route that just ended. */
-  readonly fromRouteIdx: number;
-  /** The route about to start (highlighted). */
-  readonly toRouteIdx: number;
 }
 
 /** Timer seam so tests control time. Handles are opaque. */

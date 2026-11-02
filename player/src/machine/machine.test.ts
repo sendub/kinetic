@@ -2,8 +2,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createContextCodec, resumeOptionsFor } from "../storage/ids";
 import { createMemoryStorage } from "../storage/memory";
 import {
+  AUTO_PICK_MIN_MS,
+  AUTO_PICK_SHOW_MS,
   createMachine,
-  INTERSTITIAL_MS,
   itemHoldMs,
   textHoldMs,
   visualIndexFor,
@@ -2434,20 +2435,22 @@ describe("minPlaySeconds chain-exit floor (docs/plan.md Phase 15)", () => {
       settings: { ...floorSettings, playAllRoutes: true },
       autoAdvance: true,
     });
-    vi.advanceTimersByTime(800); // "a" settles, the decision auto-enters A
-    expect(m.getState().cursor).toBe(1); // chain head at machine time 800
+    vi.advanceTimersByTime(800); // "a" settles: the choice opens, counting down
+    expect(m.getState().choice?.autoPick?.ms).toBe(AUTO_PICK_MIN_MS);
+    vi.advanceTimersByTime(AUTO_PICK_MIN_MS + AUTO_PICK_SHOW_MS); // enters A
+    expect(m.getState().cursor).toBe(1); // chain head at machine time 4000
     vi.advanceTimersByTime(800);
     expect(m.getState().cursor).toBe(2);
     vi.advanceTimersByTime(800);
     expect(m.getState().cursor).toBe(3);
-    vi.advanceTimersByTime(800); // last chain item at machine time 3200
+    vi.advanceTimersByTime(800); // last chain item at machine time 6400
     expect(m.getState().cursor).toBe(4);
-    // Route end waits for the floor — deadline 800 + 5000, not 4000.
-    vi.advanceTimersByTime(2599); // total 5799
+    // Route end waits for the floor — deadline 4000 + 5000, not 7200.
+    vi.advanceTimersByTime(2599); // total 8999
     expect(m.getState().cursor).toBe(4);
-    vi.advanceTimersByTime(1); // route end: the interstitial holds first
-    expect(m.getState().interstitial?.toRouteIdx).toBe(1);
-    vi.advanceTimersByTime(INTERSTITIAL_MS); // then the burst enters route B
+    vi.advanceTimersByTime(1); // route end: the re-offer counts down first
+    expect(m.getState().choice?.autoPick?.routeIdx).toBe(1);
+    vi.advanceTimersByTime(AUTO_PICK_MIN_MS + AUTO_PICK_SHOW_MS); // then B
     expect(m.getState().cursor).toBe(5);
     m.destroy();
   });

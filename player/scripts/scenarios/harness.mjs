@@ -364,9 +364,8 @@ const INSTALL_BRANCH_LOG = () => {
 };
 const readBranchLog = (page) => page.evaluate(() => window.__branchLog);
 
-// One sample of the screen for the play-all burst: the painted visual,
-// the overlay line, and whether `#choice` is up — the step asserts the
-// overlay never surfaces while `Play all routes` resolves decisions.
+// One sample of the screen for a skip burst: the painted visual, the
+// overlay line, and whether `#choice` is up.
 const SKIP_PROBE = () => {
   const img = document.getElementById("visual-image");
   const video = document.getElementById("visual-video");

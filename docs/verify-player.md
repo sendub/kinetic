@@ -35,7 +35,7 @@ demo text edit never breaks them.
 | `navigation` | wheel steps and clamps, poster on rewind, Tab inert with nothing seen ahead, skip stopping ON the last seen item, Space stopping skip, `e` to the end of the history / no-op there, the wheel replaying a route path with its choice screens and never an unplayed route |
 | `screens` | Esc help mid-flow (paused, other screens blocked), bookmarks (`b`, `t` list, click to continue and append to the history, closing), reload resume (a rolled-back screen too), `b` then instant reload, config (live and persisted), the empty-manifest folder, Reset progress |
 | `branches` | decision firing, the ending route and its re-offer, the nested decision, the Return row rule, continuing-route join, resume inside branch content and the history surviving a reload, `e` to the end of the history, replayed choice screens and real picks from them (a fork), the wheel leaving choices, scroll-back showing every screen in reading order (Route 2 then Route 1), the ending hint |
-| `playall` | Play all routes with skip-all on one Tab, route order, no choice ever shown, the back-in-time interstitial (content, ~2.5 s hold, Space ends it), route pills (~1.6 s, no back pill after an interstitial), no ending hint at play-all route endings |
+| `playall` | Play all routes with skip-all on one Tab (each choice shown and picked at once, no countdown, continuing route last), the on-screen countdown sized to the screen's reading time then the highlighted pick, shortest route first, the re-offer's "Back in time" line, Space taking the pick, a digit picking another route, the continuing route's join with no choice, route pills (~1.6 s, no back pill after an auto-pick), no ending hint at play-all route endings |
 
 ## Old driver steps
 

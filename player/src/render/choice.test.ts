@@ -6,6 +6,9 @@
 import { describe, expect, it } from "vitest";
 import type { ChoiceRoute, ChoiceView } from "../machine/types";
 import {
+  AUTO_PICK_HINT,
+  autoPickStatus,
+  CHOICE_HINT,
   CONTINUE_LABEL,
   choiceHint,
   choiceRows,
@@ -99,5 +102,41 @@ describe("choiceHint (docs/plan.md Phase 18: the 0 hint follows the row)", () =>
     const withReturn = choiceHint(choice([route(0), route(1)], true));
     expect(withReturn).toBe("1-9 or click picks a route · 0 returns");
     expect(withReturn).not.toContain("Enter");
+  });
+});
+
+describe("the play-all auto-pick on the choice screen (docs/plan.md Phase 18)", () => {
+  const base = { routeIdx: 1, ms: 3000, armId: 1 };
+  it("counts down in whole seconds, then names the pick", () => {
+    expect(autoPickStatus({ ...base, picked: false }, "Route 2", 3)).toBe(
+      "Play all routes picks in 3 s",
+    );
+    expect(autoPickStatus({ ...base, picked: true }, "Route 2", 0)).toBe(
+      "Play all routes picked Route 2",
+    );
+  });
+
+  it("leads with the jump back on a re-offer", () => {
+    expect(
+      autoPickStatus(
+        { ...base, picked: false, backFromLabel: "Route 1" },
+        "Route 2",
+        2,
+      ),
+    ).toBe("Back in time: Route 1 done. Play all routes picks in 2 s");
+  });
+
+  it("the hint offers Space only while counting down", () => {
+    const view = {
+      decisionId: "d",
+      prompt: "?",
+      routes: [],
+    };
+    expect(choiceHint({ ...view, autoPick: { ...base, picked: false } })).toBe(
+      CHOICE_HINT + AUTO_PICK_HINT,
+    );
+    expect(choiceHint({ ...view, autoPick: { ...base, picked: true } })).toBe(
+      CHOICE_HINT,
+    );
   });
 });

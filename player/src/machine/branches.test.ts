@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createMachine, HISTORY_CAP, INTERSTITIAL_MS } from "./machine";
+import {
+  AUTO_PICK_MIN_MS,
+  AUTO_PICK_SHOW_MS,
+  createMachine,
+  HISTORY_CAP,
+} from "./machine";
 import type {
   Branch,
   Item,
@@ -537,24 +542,26 @@ describe("the reading history replays decisions (docs/plan.md, History rollback 
     m.destroy();
   });
 
-  it("playAllRoutes: auto-picks are recorded, the interstitial is not", () => {
+  it("playAllRoutes: its choice screens and picks are recorded like a reader's", () => {
     vi.useFakeTimers();
     const auto = { ...SETTINGS, playAllRoutes: true };
     const m = machine(CANON, { settings: auto });
     step(m);
     step(m); // cursor 2
-    m.advance(); // the settle auto-picks route A: no overlay, no choice entry
+    m.advance(); // fires: the choice opens, counting down
+    vi.advanceTimersByTime(AUTO_PICK_MIN_MS + AUTO_PICK_SHOW_MS); // route A
     expect(m.getState().cursor).toBe(3);
     step(m); // 3 -> 4, A's end
-    step(m); // off A's end: the interstitial holds
-    expect(m.getState().interstitial).toBeDefined();
-    expect(screens(m)).toEqual(["0", "1", "2", "3 [0/0]", "4 [0/0]"]);
-    vi.advanceTimersByTime(INTERSTITIAL_MS); // enters route B
-    expect(m.getState().cursor).toBe(5);
-    expect(screens(m).slice(-1)).toEqual(["5 [0/1]"]);
-    m.wheelBack(); // back to A's end: the screen before the hold
-    expect(m.getState().cursor).toBe(4);
-    expect(m.getState().interstitial).toBeUndefined();
+    step(m); // off A's end: the re-offer
+    expect(screens(m)).toEqual([
+      "0",
+      "1",
+      "2",
+      "2:choice#0",
+      "3 [0/0]",
+      "4 [0/0]",
+      "4:choice#0",
+    ]);
     m.destroy();
   });
 });
@@ -1195,15 +1202,12 @@ describe("a nested pure choice ending its enclosing route", () => {
     m.destroy();
   });
 
-  it("playAllRoutes: the parent's continuing route follows the back-in-time screen", () => {
+  it("playAllRoutes: the parent's continuing route follows its re-offer", () => {
     vi.useFakeTimers();
     const m = machine(NESTED_PURE_AT_END, {
       settings: { ...SETTINGS, playAllRoutes: true },
     });
-    for (let press = 0; press < 20; press += 1) {
-      m.advance();
-      vi.advanceTimersByTime(INTERSTITIAL_MS);
-    }
+    for (let press = 0; press < 20; press += 1) m.advance();
     expect(m.exportContext().playedRoutes).toEqual([
       { decision: 0, routes: [0, 1] },
       { decision: 1, routes: [0, 1] },
@@ -1216,7 +1220,7 @@ describe("a nested pure choice ending its enclosing route", () => {
 describe("playAllRoutes (docs/plan.md Phase 13)", () => {
   const auto: MachineSettings = { ...SETTINGS, playAllRoutes: true };
 
-  it("plays every route in manifest order, the continuing route last", () => {
+  it("plays every route once, the continuing route last", () => {
     vi.useFakeTimers();
     const m = machine(CANON, { settings: auto });
     const choices: unknown[] = [];
@@ -1227,7 +1231,12 @@ describe("playAllRoutes (docs/plan.md Phase 13)", () => {
     expect(seen.playedRoutes).toEqual([{ decision: 0, routes: [0, 1, 2] }]);
     // Route A (return), then B (ending), then C (continuing) joined at 9.
     expect(seen.visited).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
-    expect(choices.every((c) => c === undefined)).toBe(true);
+    // Every choice it showed was one it was answering itself.
+    const shown = choices.filter(
+      (c) => c !== undefined,
+    ) as MachineState["choice"][];
+    expect(shown.length).toBeGreaterThan(0);
+    expect(shown.every((c) => c?.autoPick !== undefined)).toBe(true);
     expect(m.getState().cursor).toBe(10);
     m.destroy();
   });
@@ -1285,8 +1294,9 @@ describe("playAllRoutes (docs/plan.md Phase 13)", () => {
     step(m); // C's end: playAllRoutes is on now, so the join is taken
     expect(m.getState().cursor).toBe(9); // straight to continueAt
     m.goTo(2);
-    m.advance(); // firing again: no choice — A has never played, so it runs
-    expect(m.getState().choice).toBeUndefined();
+    m.advance(); // firing again: A has never played, so play-all picks it
+    expect(m.getState().choice?.autoPick?.routeIdx).toBe(0);
+    m.advance(); // Space takes the pick now
     expect(m.getState().cursor).toBe(3);
     m.destroy();
   });
@@ -2256,157 +2266,279 @@ describe("the end card (docs/plan.md Phase 18, End card)", () => {
   });
 });
 
-describe("play-all back-in-time interstitial (docs/plan.md Phase 18, bullet 7)", () => {
-  const playAll = (shape: Shape, items?: Item[]) => {
+describe("play all routes shows the choice and picks on screen (docs/plan.md Phase 18)", () => {
+  const ALL: MachineSettings = { ...SETTINGS, playAllRoutes: true };
+  const playAll = (shape: Shape, settings: MachineSettings = ALL) => {
     const m = manifest(shape);
-    return createMachine({
-      items: items ?? m.items,
-      branches: m.branches,
-      settings: { ...SETTINGS, playAllRoutes: true },
-    }); // manual presses: each step is explicit
+    return createMachine({ items: m.items, branches: m.branches, settings });
+  }; // manual presses: each step is explicit
+  const countdown = (shape: Shape, decision = 0, extra = "") => {
+    const b = shape.branches[decision];
+    const words = [b.prompt, ...b.routes.map((r) => r.label)].join(" ") + extra;
+    return Math.max(AUTO_PICK_MIN_MS, [...words].length * SETTINGS.msPerChar);
   };
 
-  it("a route end held for INTERSTITIAL_MS shows the decision, seen marks, and the next route", () => {
+  it("a fired decision counts down, highlights the pick, then enters it", () => {
     vi.useFakeTimers();
     const m = playAll(CANON);
     m.advance(); // 0 -> 1
     m.advance(); // 1 -> 2 (`decide`)
-    m.advance(); // fires: play-all enters route A at 3
+    m.advance(); // fires: the choice opens with the auto-pick counting down
+    const ms = countdown(CANON);
+    expect(m.getState().cursor).toBe(2);
+    expect(m.getState().choice?.autoPick).toMatchObject({
+      routeIdx: 0,
+      picked: false,
+      ms,
+    });
+    expect(m.getState().choice?.autoPick?.backFromLabel).toBeUndefined();
+    vi.advanceTimersByTime(ms - 1);
+    expect(m.getState().choice?.autoPick?.picked).toBe(false);
+    vi.advanceTimersByTime(1); // the pick is shown before the route starts
+    expect(m.getState().choice?.autoPick).toMatchObject({
+      routeIdx: 0,
+      picked: true,
+      ms: AUTO_PICK_SHOW_MS,
+    });
+    vi.advanceTimersByTime(AUTO_PICK_SHOW_MS);
+    expect(m.getState().choice).toBeUndefined();
     expect(m.getState().cursor).toBe(3);
-    expect(m.getState().interstitial).toBeUndefined(); // the first pick: no jump back
-    m.advance(); // 3 -> 4
-    m.advance(); // off A's end: hold the interstitial before B
-    expect(m.getState().cursor).toBe(4);
-    expect(m.getState().interstitial).toEqual({
-      decisionId: "d1",
-      prompt: CANON.branches[0].prompt,
-      routes: [
-        { routeIdx: 0, id: "r-a", label: "Route A", seen: true },
-        { routeIdx: 1, id: "r-b", label: "Route B", seen: false },
-        { routeIdx: 2, id: "r-c", label: "Route C", seen: false },
+    expect(m.exportContext().stack).toEqual([{ decision: 0, route: 0 }]);
+    m.destroy();
+  });
+
+  it("the countdown is the screen's reading time at the reader's speed", () => {
+    vi.useFakeTimers();
+    const long: Shape = {
+      ...CANON,
+      branches: [
+        {
+          ...CANON.branches[0],
+          prompt:
+            "A much longer question that takes real time to read before anything is picked?",
+        },
       ],
-      fromRouteIdx: 0,
-      toRouteIdx: 1,
-    });
-    vi.advanceTimersByTime(INTERSTITIAL_MS - 1);
+    };
+    const m = playAll(long, { ...ALL, readingSpeed: 0.5 });
+    m.advance();
+    m.advance();
+    m.advance();
+    const b = long.branches[0];
+    const chars = [...[b.prompt, ...b.routes.map((r) => r.label)].join(" ")]
+      .length;
+    expect(m.getState().choice?.autoPick?.ms).toBe(
+      (chars * SETTINGS.msPerChar) / 0.5,
+    );
+    m.destroy();
+  });
+
+  it("a route end re-offers the choice saying which route just ended", () => {
+    vi.useFakeTimers();
+    const m = playAll(CANON);
+    for (let press = 0; press < 3; press += 1) m.advance(); // the choice
+    m.advance(); // Space takes the pick now: route A at 3
+    expect(m.getState().cursor).toBe(3);
+    m.advance(); // 3 -> 4
+    m.advance(); // off A's end: the re-offer
+    const choice = m.getState().choice;
     expect(m.getState().cursor).toBe(4);
-    vi.advanceTimersByTime(1);
-    expect(m.getState().interstitial).toBeUndefined();
-    expect(m.getState().cursor).toBe(5); // route B's first item
-    expect(m.exportContext().stack).toEqual([{ decision: 0, route: 1 }]);
+    expect(choice?.routes.map((r) => r.seen)).toEqual([true, false, false]);
+    expect(choice?.autoPick).toMatchObject({
+      routeIdx: 1,
+      picked: false,
+      backFromLabel: "Route A",
+      ms: countdown(CANON, 0, " Route A"),
+    });
     m.destroy();
   });
 
-  it("a press ends the hold early; pause freezes it and resume restarts it", () => {
+  it("picks the shortest unplayed route first, the continuing route last", () => {
+    vi.useFakeTimers();
+    // decide | l-1 l-2 l-3 | s-1 | m-1 m-2 | c-1 | after-1
+    const shape: Shape = {
+      items: [
+        "decide",
+        "l-1",
+        "l-2",
+        "l-3",
+        "s-1",
+        "m-1",
+        "m-2",
+        "c-1",
+        "after-1",
+      ],
+      branches: [
+        {
+          id: "d1",
+          after: "decide",
+          prompt: "Which?",
+          routes: [
+            {
+              id: "long",
+              label: "Long",
+              start: "l-1",
+              end: "l-3",
+              result: "return",
+            },
+            {
+              id: "short",
+              label: "Short",
+              start: "s-1",
+              end: "s-1",
+              result: "return",
+            },
+            {
+              id: "mid",
+              label: "Mid",
+              start: "m-1",
+              end: "m-2",
+              result: "return",
+            },
+            { id: "cont", label: "Cont", start: "c-1", end: "c-1" },
+          ],
+          continuingRoute: "cont",
+          continueAt: "after-1",
+        },
+      ],
+    };
+    const m = playAll(shape);
+    const picks: number[] = [];
+    m.subscribe((state) => {
+      const pick = state.choice?.autoPick;
+      if (
+        pick !== undefined &&
+        !pick.picked &&
+        picks[picks.length - 1] !== pick.routeIdx
+      )
+        picks.push(pick.routeIdx);
+    });
+    for (let press = 0; press < 30; press += 1) m.advance();
+    expect(picks).toEqual([1, 2, 0, 3]);
+    expect(m.getState().cursor).toBe(8);
+    m.destroy();
+  });
+
+  it("a digit picks another route; pause freezes the countdown and resume restarts it", () => {
     vi.useFakeTimers();
     const m = playAll(CANON);
-    for (let press = 0; press < 5; press += 1) m.advance(); // into the hold before B
-    expect(m.getState().interstitial?.toRouteIdx).toBe(1);
+    for (let press = 0; press < 3; press += 1) m.advance(); // the choice
+    const first = m.getState().choice?.autoPick?.armId;
     m.pause();
-    vi.advanceTimersByTime(INTERSTITIAL_MS * 2);
-    expect(m.getState().interstitial).toBeDefined(); // frozen behind help
+    vi.advanceTimersByTime(60_000);
+    expect(m.getState().choice?.autoPick?.picked).toBe(false); // frozen
     m.resume();
-    vi.advanceTimersByTime(INTERSTITIAL_MS - 1);
-    expect(m.getState().interstitial).toBeDefined();
-    m.advance(); // the reader's press: enter now
-    expect(m.getState().interstitial).toBeUndefined();
-    expect(m.getState().cursor).toBe(5);
-    vi.advanceTimersByTime(INTERSTITIAL_MS); // the cancelled hold fires nothing
-    expect(m.getState().cursor).toBe(5);
+    expect(m.getState().choice?.autoPick?.armId).not.toBe(first); // fresh
+    m.choose(2); // the reader's own pick wins
+    expect(m.getState().cursor).toBe(7);
+    vi.advanceTimersByTime(60_000); // the cancelled auto-pick fires nothing
+    expect(m.exportContext().playedRoutes).toEqual([
+      { decision: 0, routes: [2] },
+    ]);
     m.destroy();
   });
 
-  it("carries the `after` item's text as context when it has one", () => {
-    vi.useFakeTimers();
-    const shaped = manifest(CANON);
-    const items = shaped.items.map((item) =>
-      item.id === "decide" ? { ...item, text: "Where now?" } : item,
-    );
-    const m = playAll(CANON, items);
-    for (let press = 0; press < 5; press += 1) m.advance();
-    expect(m.getState().interstitial?.context).toBe("Where now?");
-    m.destroy();
-  });
-
-  it("the continuing route's end joins with no interstitial", () => {
+  it("the wheel leaves the countdown; the replayed choice screen waits", () => {
     vi.useFakeTimers();
     const m = playAll(CANON);
-    for (let press = 0; press < 5; press += 1) m.advance(); // hold before B
-    vi.advanceTimersByTime(INTERSTITIAL_MS); // B at 5
-    m.advance(); // 5 -> 6
-    m.advance(); // off B: hold before C, the continuing route
-    expect(m.getState().interstitial?.toRouteIdx).toBe(2);
-    vi.advanceTimersByTime(INTERSTITIAL_MS); // C at 7
-    m.advance(); // 7 -> 8
-    m.advance(); // off C: joins at `after-1` directly
-    expect(m.getState().interstitial).toBeUndefined();
+    for (let press = 0; press < 3; press += 1) m.advance(); // the choice
+    m.wheelBack(); // to `decide`
+    expect(m.getState().choice).toBeUndefined();
+    m.wheelForward(); // the recorded choice screen
+    expect(m.getState().choice?.decisionId).toBe("d1");
+    expect(m.getState().choice?.autoPick).toBeUndefined();
+    vi.advanceTimersByTime(60_000);
+    expect(m.getState().cursor).toBe(2);
+    m.destroy();
+  });
+
+  it("turning play-all off mid-countdown leaves the choice waiting", () => {
+    vi.useFakeTimers();
+    const m = playAll(CANON);
+    for (let press = 0; press < 3; press += 1) m.advance();
+    m.setSettings(SETTINGS);
+    expect(m.getState().choice?.autoPick).toBeUndefined();
+    vi.advanceTimersByTime(60_000);
+    expect(m.getState().choice?.decisionId).toBe("d1");
+    m.destroy();
+  });
+
+  it("a reload landing on the live choice counts down again", () => {
+    vi.useFakeTimers();
+    const first = playAll(CANON);
+    for (let press = 0; press < 3; press += 1) first.advance(); // the choice
+    const stored = first.exportContext();
+    first.destroy();
+    const m = machine(CANON, { resumeContext: stored, settings: ALL });
+    expect(m.getState().choice?.autoPick).toMatchObject({
+      routeIdx: 0,
+      picked: false,
+    });
+    vi.advanceTimersByTime(60_000);
+    expect(m.getState().cursor).toBe(3); // route A entered, no press
+    m.destroy();
+  });
+
+  it("a reload landing on a rolled-back choice screen waits", () => {
+    vi.useFakeTimers();
+    const first = playAll(CANON);
+    for (let press = 0; press < 3; press += 1) first.advance();
+    vi.advanceTimersByTime(60_000); // route A entered
+    first.wheelBack(); // the recorded choice screen
+    const stored = first.exportContext();
+    first.destroy();
+    const m = machine(CANON, { resumeContext: stored, settings: ALL });
+    expect(m.getState().choice?.decisionId).toBe("d1");
+    expect(m.getState().choice?.autoPick).toBeUndefined();
+    m.destroy();
+  });
+
+  it("the continuing route's end joins with no choice", () => {
+    vi.useFakeTimers();
+    const m = playAll(CANON);
+    for (let press = 0; press < 20 && m.getState().cursor !== 9; press += 1)
+      m.advance();
     expect(m.getState().cursor).toBe(9);
-    m.destroy();
-  });
-});
-
-describe("interstitial context and play-all hint rules (docs/plan.md Phase 18)", () => {
-  it("falls back to the nearest earlier line when `after` has no text", () => {
-    vi.useFakeTimers();
-    const shaped = manifest(CANON);
-    const items = shaped.items.map((item) =>
-      item.id === "lead-1" ? { ...item, text: "Before it all." } : item,
-    );
-    const m = createMachine({
-      items,
-      branches: shaped.branches,
-      settings: { ...SETTINGS, playAllRoutes: true },
-    });
-    for (let press = 0; press < 5; press += 1) m.advance();
-    expect(m.getState().interstitial?.context).toBe("Before it all.");
+    expect(m.getState().choice).toBeUndefined();
     m.destroy();
   });
 
-  it("play-all shows no ending hint on a route ending (it carries on), nor during the hold", () => {
+  it("no end card on a route ending play-all carries on from", () => {
     vi.useFakeTimers();
-    const shaped = manifest(PURE);
-    const m = createMachine({
-      items: shaped.items,
-      branches: shaped.branches,
-      settings: { ...SETTINGS, playAllRoutes: true },
-    });
+    const m = playAll(PURE);
     m.advance(); // 0 -> 1
-    m.advance(); // fires: enters route P at 2
+    m.advance(); // fires
+    m.advance(); // Space: route P at 2
     m.advance(); // 2 -> 3, P's last item: an ending
     expect(m.getState().cursor).toBe(3);
     expect(m.getState().endCard).toBeUndefined();
-    m.advance(); // the hold before Q
-    expect(m.getState().interstitial).toBeDefined();
+    m.advance(); // the re-offer before Q
+    expect(m.getState().choice?.autoPick?.routeIdx).toBe(1);
     expect(m.getState().endCard).toBeUndefined();
     m.destroy();
   });
-});
 
-describe("play-all + skip-all: the interstitial does not end the burst (Phase 18)", () => {
-  it("an elapsed hold resumes skipping; a press during it leaves skip off", () => {
+  it("skip-all: no countdown, only the highlight, and the burst carries on", () => {
     vi.useFakeTimers();
-    const shaped = manifest(CANON);
-    const make = () =>
-      createMachine({
-        items: shaped.items,
-        branches: shaped.branches,
-        settings: { ...SETTINGS, playAllRoutes: true, skipAll: true },
-      });
+    const make = () => playAll(CANON, { ...ALL, skipAll: true });
     const run = (m: ReturnType<typeof make>) => {
-      m.toggleSkip(); // skip-all: the burst may reveal
-      for (let n = 0; n < 40 && m.getState().interstitial === undefined; n += 1)
+      m.toggleSkip();
+      for (let n = 0; n < 40 && m.getState().choice === undefined; n += 1)
         vi.advanceTimersByTime(SETTINGS.skipDwellMs);
-      expect(m.getState().interstitial).toBeDefined();
+      expect(m.getState().choice?.autoPick).toMatchObject({
+        picked: true,
+        ms: AUTO_PICK_SHOW_MS,
+      });
     };
     const elapsed = make();
     run(elapsed);
-    vi.advanceTimersByTime(INTERSTITIAL_MS);
+    vi.advanceTimersByTime(AUTO_PICK_SHOW_MS);
     expect(elapsed.getState().skipping).toBe(true); // the burst carries on
     elapsed.destroy();
     const pressed = make();
     run(pressed);
-    pressed.advance(); // the reader's press ends it early: stop here
+    pressed.advance(); // the reader's press takes the pick and stops there
     expect(pressed.getState().skipping).toBe(false);
+    expect(pressed.getState().cursor).toBe(3);
     pressed.destroy();
   });
 });
@@ -2578,5 +2710,23 @@ describe("`u` reaches the next unseen content (docs/plan.md Phase 18)", () => {
     declinedOnly.jumpToUnseen(); // `u` still reaches them
     expect(declinedOnly.getState().cursor).toBe(3);
     declinedOnly.destroy();
+  });
+});
+
+describe("turning play-all on over an open choice (docs/plan.md Phase 18)", () => {
+  it("a live choice starts counting down; a replayed one stays waiting", () => {
+    vi.useFakeTimers();
+    const m = machine(CANON);
+    step(m);
+    step(m);
+    m.advance(); // the choice, manual
+    m.setSettings({ ...SETTINGS, playAllRoutes: true });
+    expect(m.getState().choice?.autoPick?.routeIdx).toBe(0);
+    m.setSettings(SETTINGS);
+    m.choose(1); // route B at 5
+    m.wheelBack(); // the recorded choice screen: a replay
+    m.setSettings({ ...SETTINGS, playAllRoutes: true });
+    expect(m.getState().choice?.autoPick).toBeUndefined();
+    m.destroy();
   });
 });

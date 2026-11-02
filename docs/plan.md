@@ -502,7 +502,8 @@ v1 model and decisions:
   continuing route once, then past it); after a route completes, return
   to the decision and repeat until every route has played once, then
   continue via `continueAt`. `holdSeconds`/video/text timing rules
-  unchanged. Works inside skip mode too.
+  unchanged. Works inside skip mode too. (Phase 19: the choice now
+  shows with a countdown, and routes go shortest first.)
 - Seen tracking (biggest machine change): a per-item visited set
   replaces the single `frontier` as the source of truth. An item counts
   seen when it is shown (same as today). Seeing a decision does NOT
@@ -755,7 +756,8 @@ directory holds too many files.
   interstitial (black screen) held ~2.5 s before the new route
   starts: the decision prompt, the route just completed, seen marks
   for every route, and the route now starting highlighted. Route
-  entry pills lengthen to ~1.6 s.
+  entry pills lengthen to ~1.6 s. (Superseded in Phase 19: the choice
+  screen itself shows the countdown; the interstitial is gone.)
 - Demo meta pass: the fixture gains short meta text items explaining
   the intent at each demo feature (ranges, loopStart, minPlay,
   chains, the branch map - what continues, what ends, what nests,
@@ -808,6 +810,22 @@ directory holds too many files.
   rule, skip-never-reveals (skip walks forward reading, not history),
   and bookmarks (a bookmark click is a jump that appends to the
   record).
+
+## Phase 19: Third demo-feedback round (2026-11-02, user)
+
+- Play all routes shows the choice (supersedes Phase 18's back-in-time
+  interstitial, user option 3): every decision, first fire and each
+  re-offer, shows the real choice screen with a status line and a
+  draining bar counting down for the screen's reading time at the
+  reader's speed (never under 2.5 s); then the picked row is
+  highlighted ~0.7 s and the route starts. Routes go shortest first
+  (fewest items), the continuing route last. A re-offer leads with
+  "Back in time: <route> done.". Space takes the pick at once; a digit
+  or click picks another route. In a skip-all burst there is no
+  countdown, only the highlight, and the burst carries on. The choice
+  screens are recorded in the history; a replayed one waits, a reload
+  onto the live one counts down again. Turning play-all on over a live
+  choice starts its countdown; off cancels it.
 
 ## Later, waiting on the user
 

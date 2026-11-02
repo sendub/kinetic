@@ -31,11 +31,11 @@ export interface RouteObservation {
   /** The innermost open frame, or null at the top level. */
   readonly frame: ContextFrame | null;
   /**
-   * True while the play-all interstitial is held (docs/plan.md Phase 18):
-   * an entry that follows one already had its jump back explained on the
-   * black screen, so only the route pill shows.
+   * True while a play-all auto-pick is on the open choice (docs/plan.md
+   * Phase 18): an entry that follows one already had its jump back
+   * explained on the choice screen, so only the route pill shows.
    */
-  readonly interstitial?: boolean;
+  readonly autoPick?: boolean;
 }
 
 /**
@@ -84,7 +84,7 @@ export function routeAnnouncementsFor(
   const label = labels.get(next.cursor);
   if (label === undefined) return [];
   const route = routeFlashLabel(label);
-  if (prev.interstitial === true) return [route];
+  if (prev.autoPick === true) return [route];
   return next.cursor < prev.cursor ? [BACK_JUMP_MESSAGE, route] : [route];
 }
 
@@ -120,7 +120,7 @@ export function mountRouteAnnouncements({
     return {
       cursor: state.cursor,
       frame: top ?? null,
-      interstitial: state.interstitial !== undefined,
+      autoPick: state.choice?.autoPick !== undefined,
     };
   }
 

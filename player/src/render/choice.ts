@@ -22,11 +22,18 @@
 // - Digits (1..9 and 0) reach the choice only with help closed; `0` acts
 //   only when the return row is drawn. Clicks land on the top panel anyway.
 //
+// With `Play all routes` on, the machine answers the choice itself
+// (`ChoiceView.autoPick`, docs/plan.md Phase 18): a status line under the
+// prompt says so — after a jump back, which route just ended — with a
+// draining bar and the seconds left; then the picked row lights up until
+// the route starts. Space takes the pick at once; a digit or click picks
+// another route instead.
+//
 // Like every panel here, the decisions are pure exports and the DOM half
 // only applies them; the verify walk proves the screen (its branch steps
 // arrive with the branch fixture, docs/plan.md Phase 13).
 
-import type { ChoiceView } from "../machine/types";
+import type { AutoPickView, ChoiceView } from "../machine/types";
 
 /** The label of the `continueAt` offer row. */
 export const CONTINUE_LABEL = "Return to main route";
@@ -46,9 +53,32 @@ export const CONTINUE_NUMBER = 0;
  * read a return hint on views where nothing could answer it).
  */
 export function choiceHint(choice: ChoiceView): string {
-  return choice.continueOption === true
-    ? CHOICE_HINT + CONTINUE_HINT
-    : CHOICE_HINT;
+  const base =
+    choice.continueOption === true ? CHOICE_HINT + CONTINUE_HINT : CHOICE_HINT;
+  return choice.autoPick !== undefined && !choice.autoPick.picked
+    ? base + AUTO_PICK_HINT
+    : base;
+}
+
+/** The hint's extra while play-all counts down: Space takes the pick now. */
+export const AUTO_PICK_HINT = " · Space picks now";
+
+/**
+ * The auto-pick status line: the jump back (on a re-offer), then the
+ * countdown's whole seconds left, or the route just picked.
+ */
+export function autoPickStatus(
+  auto: AutoPickView,
+  routeLabel: string,
+  secondsLeft: number,
+): string {
+  const back =
+    auto.backFromLabel === undefined
+      ? ""
+      : `Back in time: ${auto.backFromLabel} done. `;
+  return auto.picked
+    ? `${back}Play all routes picked ${routeLabel}`
+    : `${back}Play all routes picks in ${secondsLeft} s`;
 }
 
 /** The marker beside a route that has already been played in this save. */
@@ -151,7 +181,21 @@ export function mountChoiceOverlay({
   const list = doc.createElement("div");
   list.className = "choice-list";
 
-  panel.append(prompt, hint, list);
+  // The play-all status: a line and a draining bar, shown only while the
+  // machine is about to answer.
+  const auto = doc.createElement("div");
+  auto.className = "choice-auto";
+  auto.hidden = true;
+  const autoText = doc.createElement("p");
+  autoText.className = "choice-auto-text";
+  const autoBar = doc.createElement("div");
+  autoBar.className = "choice-auto-bar";
+  const autoFill = doc.createElement("div");
+  autoFill.className = "choice-auto-fill";
+  autoBar.appendChild(autoFill);
+  auto.append(autoText, autoBar);
+
+  panel.append(prompt, auto, hint, list);
   root.appendChild(panel);
 
   // One listener for the panel (as in bookmarks.ts): a row answers the
@@ -170,7 +214,56 @@ export function mountChoiceOverlay({
     if (Number.isInteger(routeIdx) && routeIdx >= 0) onPick(routeIdx);
   });
 
+  // The countdown in whole seconds, ticked by the page clock from the
+  // moment a phase was armed (a new `armId` restarts it).
+  let shownArm = -1;
+  let armedAt = 0;
+  let ticker: ReturnType<typeof setInterval> | null = null;
+  function stopTicker(): void {
+    if (ticker !== null) clearInterval(ticker);
+    ticker = null;
+  }
+  function renderAuto(choice: ChoiceView): void {
+    const pick = choice.autoPick;
+    if (pick === undefined) {
+      stopTicker();
+      shownArm = -1;
+      auto.hidden = true;
+      return;
+    }
+    const label =
+      choice.routes.find((route) => route.routeIdx === pick.routeIdx)?.label ??
+      "";
+    auto.hidden = false; // before the bar restarts (see render below)
+    if (pick.armId !== shownArm) {
+      shownArm = pick.armId;
+      armedAt = performance.now();
+      // Restart the bar: full, then drain over the phase (a picked phase
+      // shows it empty).
+      autoFill.style.transition = "none";
+      autoFill.style.width = pick.picked ? "0%" : "100%";
+      void autoFill.offsetWidth;
+      if (!pick.picked) {
+        autoFill.style.transition = `width ${pick.ms}ms linear`;
+        autoFill.style.width = "0%";
+      }
+    }
+    const update = () => {
+      const left = Math.max(0, pick.ms - (performance.now() - armedAt));
+      autoText.textContent = autoPickStatus(
+        pick,
+        label,
+        Math.ceil(left / 1000),
+      );
+    };
+    update();
+    stopTicker();
+    if (!pick.picked) ticker = setInterval(update, 200);
+  }
+
   function close(): void {
+    stopTicker();
+    shownArm = -1;
     panel.hidden = true;
   }
 
@@ -187,6 +280,13 @@ export function mountChoiceOverlay({
         const line = doc.createElement("button");
         line.className = "choice-row";
         line.type = "button";
+        if (
+          choice.autoPick?.picked === true &&
+          row.routeIdx === choice.autoPick.routeIdx
+        ) {
+          line.classList.add("choice-picked");
+          line.setAttribute("data-choice-picked", "");
+        }
         if (row.kind === "continue") {
           line.classList.add("choice-continue");
           line.setAttribute("data-choice-continue", "");
@@ -209,7 +309,10 @@ export function mountChoiceOverlay({
         return line;
       });
       list.replaceChildren(...rows);
+      // Shown first: a bar transition started under `display: none` never
+      // runs.
       panel.hidden = false;
+      renderAuto(choice);
     },
     close,
   };

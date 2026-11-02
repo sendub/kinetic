@@ -27,7 +27,8 @@
 // entry exactly — the item with its frames restored, or the choice screen in
 // full — answering nothing and marking nothing played; `e` shows the last
 // entry. The record is capped (`HISTORY_CAP`, oldest first) and persists in
-// the context. The play-all interstitial is transient and never recorded.
+// the context. A play-all auto-pick's choice screen is recorded like any
+// other, its countdown is not.
 //
 // Transition kind (`MachineState.transition`): the same funnel that marks an
 // item also records HOW it became current — `advance` for the forward step
@@ -53,9 +54,10 @@
 // completes it, never on navigation onto it. A firing decision either pauses
 // (`MachineState.choice`, answered by `choose()` / `chooseContinue()`; space,
 // tab and bookmark jumps are inert while it is open, the wheel and `e` leave
-// it through the history) or, with `settings.playAllRoutes`, resolves itself
-// to the first not-yet-played route in manifest order — the continuing route
-// last — and past the decision once every route has played. Scrolling back
+// it through the history) — with `settings.playAllRoutes` the choice
+// answers itself on screen after a countdown, taking the shortest
+// not-yet-played route (the continuing route last), and once every route
+// has played the decision resolves past itself unshown. Scrolling back
 // over a decision point shows its choice screen because the history recorded
 // it, not because the item has a decision. A stack of open decision contexts
 // gives nesting: a route's end pops its frame, proceeds to `continueAt`, or
@@ -82,13 +84,13 @@
 // burst goes on.
 
 import type {
+  AutoPickView,
   Branch,
   ChoiceRoute,
   ChoiceView,
   ContextFrame,
   EndCard,
   HistoryEntry,
-  InterstitialView,
   Item,
   MachineContext,
   MachineSettings,
@@ -624,10 +626,12 @@ function asIndex(value: unknown, fallback: number): number {
 }
 
 /**
- * How long `Play all routes` holds the back-in-time interstitial before the
- * next route starts (docs/plan.md Phase 18).
+ * `Play all routes` (docs/plan.md Phase 18): the shortest countdown before
+ * a choice is answered — longer when its words need more reading time — and
+ * how long the picked row stays highlighted before the route starts.
  */
-export const INTERSTITIAL_MS = 2500;
+export const AUTO_PICK_MIN_MS = 2500;
+export const AUTO_PICK_SHOW_MS = 700;
 
 /**
  * The reading history's cap, in entries (docs/plan.md, "History rollback
@@ -775,18 +779,24 @@ export function createMachine(options: MachineOptions): Machine {
   let skipStepping = false;
   let zeroStepDue = false;
   /**
-   * The play-all back-in-time interstitial being held (docs/plan.md
-   * Phase 18): set at a route end that play-all answers with another
-   * route; its own timer enters that route when it elapses.
+   * The play-all auto-pick on the open choice (docs/plan.md Phase 18): a
+   * countdown, then the picked row highlighted, then its own timer enters
+   * the route. Only a live opening has one; a replayed choice screen waits
+   * for the reader like any other.
    */
-  let interstitial: {
+  let autoPick: {
     decision: number;
-    fromRoute: number;
     toRoute: number;
-    /** A skip burst was running: the elapsed hold resumes it. */
+    /** The route that just ended (a re-offer), or -1 on a first fire. */
+    fromRoute: number;
+    picked: boolean;
+    /** A skip burst was running: no countdown, and the entry resumes it. */
     resumeSkip: boolean;
+    ms: number;
+    armId: number;
   } | null = null;
-  let interstitialTimer: unknown = null;
+  let autoPickTimer: unknown = null;
+  let autoPickArms = 0;
   let destroyed = false;
   // Start position. A stored context is authoritative: its history entry on
   // screen (or, without a history, its `lastShown`) is where the reader left
@@ -798,6 +808,7 @@ export function createMachine(options: MachineOptions): Machine {
       applyContext(options.resumeContext);
       restoreHistory(options.resumeContext);
       settled = true; // a resume landing was already read, as with a frontier
+      autoPickLiveChoice(); // play-all carries on from a live choice
     } else if (options.resumeFrontier !== undefined) {
       const frontier = clamp(options.resumeFrontier, 1, count);
       for (let index = 0; index < frontier; index += 1) visited.add(index);
@@ -827,7 +838,6 @@ export function createMachine(options: MachineOptions): Machine {
     // to find, so its all-seen card would only repeat "the end".
     const endCard =
       choice === null &&
-      interstitial === null &&
       endings.has(cursor) &&
       (visited.size < count || decisions.length > 0) &&
       !(settings.playAllRoutes && cursor !== count - 1)
@@ -842,87 +852,110 @@ export function createMachine(options: MachineOptions): Machine {
       ...(choice === null ? {} : { choice }),
       ...(endCard === null ? {} : { endCard }),
       ...(skipPlaysVideo() ? { skipVideo: true as const } : {}),
-      ...(interstitial === null
-        ? {}
-        : { interstitial: interstitialView(interstitial) }),
     });
   }
 
-  function interstitialView(held: {
+  /**
+   * The countdown before play-all answers the open choice: the reading time
+   * of everything on the screen at the reader's speed, never under
+   * `AUTO_PICK_MIN_MS`. Inside a skip burst there is none.
+   */
+  function autoPickCountdownMs(held: {
     decision: number;
     fromRoute: number;
-    toRoute: number;
-  }): InterstitialView {
+    resumeSkip: boolean;
+  }): number {
+    if (held.resumeSkip) return 0;
     const decision = decisions[held.decision];
-    // The context that led to the decision: the `after` item's own line, or
-    // the nearest line before it when that item carries none.
-    let context: string | undefined;
-    for (let index = decision.afterIndex; index >= 0; index -= 1) {
-      const text = items[index].text;
-      if (typeof text === "string" && text !== "") {
-        context = text;
-        break;
-      }
-    }
-    return Object.freeze({
-      decisionId: decision.id,
-      prompt: decision.prompt,
-      ...(context !== undefined && context !== "" ? { context } : {}),
-      routes: decision.routes.map((route, index) =>
-        Object.freeze({
-          routeIdx: index,
-          id: route.id,
-          label: route.label,
-          seen: isPlayed(decision.index, index),
-        }),
-      ),
-      fromRouteIdx: held.fromRoute,
-      toRouteIdx: held.toRoute,
-    });
+    const words = [decision.prompt, ...decision.routes.map((r) => r.label)];
+    if (held.fromRoute >= 0) words.push(decision.routes[held.fromRoute].label);
+    return Math.max(AUTO_PICK_MIN_MS, textHoldMs(words.join(" "), settings));
   }
 
   /**
-   * Play-all's route end answered by another route (docs/plan.md Phase 18):
-   * hold a black interstitial for `INTERSTITIAL_MS` before the jump back in
-   * time, so the reader can see where the journey goes. Timing is paused
-   * underneath; the interstitial's own timer (or a press) enters the route.
+   * Puts a play-all auto-pick on the open choice of `decisionIndex`, its
+   * countdown armed; false when every route has already played.
    */
-  function startInterstitial(
-    decision: ResolvedDecision,
+  function startAutoPick(
+    decisionIndex: number,
     fromRoute: number,
-    toRoute: number,
-  ): void {
-    cancelTimer();
-    const resumeSkip = skipping;
-    skipping = false;
-    settled = true;
-    interstitial = { decision: decision.index, fromRoute, toRoute, resumeSkip };
-    armInterstitial();
-    emit();
-  }
-
-  function armInterstitial(): void {
-    if (interstitialTimer !== null) scheduler.cancel(interstitialTimer);
-    interstitialTimer = paused
-      ? null
-      : scheduler.schedule(() => finishInterstitial(true), INTERSTITIAL_MS);
+    resumeSkip: boolean,
+  ): boolean {
+    const toRoute = nextAutoRoute(decisions[decisionIndex]);
+    if (toRoute < 0) return false;
+    autoPick = {
+      decision: decisionIndex,
+      toRoute,
+      fromRoute,
+      picked: false,
+      resumeSkip,
+      ms: 0,
+      armId: 0,
+    };
+    armAutoPick();
+    return true;
   }
 
   /**
-   * Ends the held interstitial and enters its route; false when none. When
-   * the hold ELAPSED (`elapsed`) over a skip burst, the burst carries on:
-   * play-all with skip-all is the no-interaction path. Any reader command
-   * that ends it early leaves skip off — a press means "stop here".
+   * Play-all takes over the choice on screen when it is the live one — the
+   * history's last entry, not a replay — as when the setting is turned on
+   * over it or a reload lands on it; true when it did.
    */
-  function finishInterstitial(elapsed = false): boolean {
-    if (interstitial === null) return false;
-    if (interstitialTimer !== null) scheduler.cancel(interstitialTimer);
-    interstitialTimer = null;
-    const held = interstitial;
-    interstitial = null;
+  function autoPickLiveChoice(): boolean {
+    if (!settings.playAllRoutes || pendingChoice === null) return false;
+    if (pos !== history.length - 1) return false;
+    return startAutoPick(pendingChoice.decision, -1, false);
+  }
+
+  /** Arms the current auto-pick phase from now; nothing arms while paused. */
+  function armAutoPick(): void {
+    if (autoPick === null) return;
+    if (autoPickTimer !== null) scheduler.cancel(autoPickTimer);
+    autoPickTimer = null;
+    if (!autoPick.picked) {
+      autoPick.ms = autoPickCountdownMs(autoPick);
+      if (autoPick.ms === 0) autoPick.picked = true;
+    }
+    if (autoPick.picked) autoPick.ms = AUTO_PICK_SHOW_MS;
+    autoPickArms += 1;
+    autoPick.armId = autoPickArms;
+    if (!paused)
+      autoPickTimer = scheduler.schedule(autoPickElapsed, autoPick.ms);
+  }
+
+  function autoPickElapsed(): void {
+    autoPickTimer = null;
+    if (autoPick === null) return;
+    if (!autoPick.picked) {
+      autoPick.picked = true;
+      armAutoPick();
+      emit();
+      return;
+    }
+    finishAutoPick(true);
+  }
+
+  /**
+   * Answers the open choice with the auto-pick's route. When the phases
+   * ELAPSED (`elapsed`) over a skip burst, the burst carries on: play-all
+   * with skip-all is the no-interaction path. Space ends it early and
+   * leaves skip off.
+   */
+  function finishAutoPick(elapsed: boolean): void {
+    if (autoPick === null) return;
+    const held = autoPick;
+    cancelAutoPick();
+    pendingChoice = null;
+    closeFramesFor(held.decision);
     if (elapsed && held.resumeSkip) skipping = true;
     enterRoute(decisions[held.decision], held.toRoute);
-    return true;
+  }
+
+  /** Drops the auto-pick; the choice it was on stays open. */
+  function cancelAutoPick(): void {
+    if (autoPickTimer !== null) scheduler.cancel(autoPickTimer);
+    autoPickTimer = null;
+    autoPick = null;
   }
 
   /** The overlay content for the open choice: prompt, routes, return offer. */
@@ -936,11 +969,25 @@ export function createMachine(options: MachineOptions): Machine {
         seen: isPlayed(decision.index, index),
       }),
     );
+    const held = autoPick?.decision === pending.decision ? autoPick : null;
+    const auto: AutoPickView | null =
+      held === null
+        ? null
+        : Object.freeze({
+            routeIdx: held.toRoute,
+            picked: held.picked,
+            ms: held.ms,
+            armId: held.armId,
+            ...(held.fromRoute >= 0
+              ? { backFromLabel: decision.routes[held.fromRoute].label }
+              : {}),
+          });
     const view = {
       decisionId: decision.id,
       prompt: decision.prompt,
       routes,
       ...(pending.continueOption ? { continueOption: true } : {}),
+      ...(auto === null ? {} : { autoPick: auto }),
     };
     return Object.freeze(view);
   }
@@ -1210,6 +1257,7 @@ export function createMachine(options: MachineOptions): Machine {
    */
   function showEntry(at: number): void {
     skipping = false;
+    cancelAutoPick();
     placeEntry(at);
     if (pendingChoice === null) {
       beginItem();
@@ -1400,19 +1448,22 @@ export function createMachine(options: MachineOptions): Machine {
   }
 
   /**
-   * The route `playAllRoutes` picks next: the first not-yet-played route in
-   * manifest order, with the continuing route held last so the alternates
-   * each get their play before the story leaves the decision (docs/plan.md
-   * Phase 13). -1 when every route has played.
+   * The route `playAllRoutes` picks next: the shortest not-yet-played route
+   * (fewest items, manifest order on a tie), with the continuing route held
+   * last so the alternates each get their play before the story leaves the
+   * decision (docs/plan.md Phase 18). -1 when every route has played.
    */
   function nextAutoRoute(decision: ResolvedDecision): number {
-    for (let index = 0; index < decision.routes.length; index += 1) {
-      if (
-        index !== decision.continuingRoute &&
-        !isPlayed(decision.index, index)
-      )
-        return index;
-    }
+    let best = -1;
+    decision.routes.forEach((route, index) => {
+      if (index === decision.continuingRoute || isPlayed(decision.index, index))
+        return;
+      const span = route.endIndex - route.startIndex;
+      const bestRoute = decision.routes[best];
+      if (best < 0 || span < bestRoute.endIndex - bestRoute.startIndex)
+        best = index;
+    });
+    if (best >= 0) return best;
     if (
       decision.continuingRoute >= 0 &&
       !isPlayed(decision.index, decision.continuingRoute)
@@ -1496,15 +1547,22 @@ export function createMachine(options: MachineOptions): Machine {
    * Shows the overlay for a decision, records it in the history, and
    * pauses: the item under the cursor is complete (`settled`), nothing is
    * pending but the reader's pick, and skip mode ends — an overlay is not
-   * something to skip past.
+   * something to skip past. Play-all passes `fromRoute` (the route that just
+   * ended, or -1 on a first fire) and answers the choice itself.
    */
-  function openChoice(decisionIndex: number): void {
+  function openChoice(decisionIndex: number, fromRoute?: number): void {
+    const resumeSkip = skipping;
     closeFramesFor(decisionIndex);
     const decision = decisions[decisionIndex];
     pendingChoice = {
       decision: decisionIndex,
       continueOption: offersContinue(decision),
     };
+    // Play all routes (docs/plan.md Phase 18) answers the choice itself, on
+    // screen: a countdown, then the picked row, then the route.
+    cancelAutoPick();
+    if (fromRoute !== undefined)
+      startAutoPick(decisionIndex, fromRoute, resumeSkip);
     // An overlay opening is a screen shown while reading: recorded.
     recordRead(currentEntry(decisionIndex));
     // A skip burst pauses at a decision (docs/plan.md Phase 16): the overlay
@@ -1519,9 +1577,9 @@ export function createMachine(options: MachineOptions): Machine {
   /**
    * The forward settle of a decision's `after` item. Returns true when a
    * decision did fire, so the caller does not move the cursor: the choice
-   * pauses (ending any skip burst — docs/plan.md Phase 16), or
-   * `playAllRoutes` resolves the decision in play order and lands on the
-   * route's first item.
+   * pauses (ending any skip burst — docs/plan.md Phase 16), with
+   * `playAllRoutes` counting down to its next route in play order, or —
+   * every route played — play-all resolves it at once.
    */
   function fireDecision(): boolean {
     const index = relevantDecision(cursor);
@@ -1529,7 +1587,8 @@ export function createMachine(options: MachineOptions): Machine {
     const decision = decisions[index];
     if (closeIfPureAndComplete(decision)) return true;
     if (settings.playAllRoutes) {
-      autoResolve(decision);
+      if (nextAutoRoute(decision) >= 0) openChoice(decision.index, -1);
+      else autoResolve(decision);
       return true;
     }
     openChoice(decision.index);
@@ -1537,17 +1596,12 @@ export function createMachine(options: MachineOptions): Machine {
   }
 
   /**
-   * Answers a decision with no reader: the first route not yet played (the
-   * continuing route last), else `continueAt`, else — for a pure-choice
-   * decision whose every route has played — the all-played close below.
+   * Play-all at a decision whose every route has played (with one left, the
+   * choice shows its auto-pick instead): `continueAt`, else — for a
+   * pure-choice decision — the all-played close below.
    */
   function autoResolve(decision: ResolvedDecision): void {
     closeFramesFor(decision.index);
-    const routeIdx = nextAutoRoute(decision);
-    if (routeIdx >= 0) {
-      enterRoute(decision, routeIdx);
-      return;
-    }
     if (decision.continueAt >= 0) {
       showItem(decision.continueAt, "nav");
       return;
@@ -1776,14 +1830,10 @@ export function createMachine(options: MachineOptions): Machine {
       return;
     }
     // The same pause as `fireDecision`: a skip burst stops at this re-offer
-    // too (docs/plan.md Phase 16); only `playAllRoutes` auto-resolves.
+    // too (docs/plan.md Phase 16); only `playAllRoutes` answers it itself.
     if (settings.playAllRoutes) {
-      const next = nextAutoRoute(decision);
-      if (next >= 0) {
-        startInterstitial(decision, frame.route, next);
-        return;
-      }
-      autoResolve(decision);
+      if (nextAutoRoute(decision) >= 0) openChoice(decision.index, frame.route);
+      else autoResolve(decision);
       return;
     }
     openChoice(decision.index);
@@ -1987,9 +2037,7 @@ export function createMachine(options: MachineOptions): Machine {
 
     importContext(context) {
       if (destroyed || count === 0) return;
-      if (interstitialTimer !== null) scheduler.cancel(interstitialTimer);
-      interstitialTimer = null;
-      interstitial = null;
+      cancelAutoPick();
       applyContext(context);
       skipping = false; // a restore is manual navigation, like `goTo()`
       // UNSETTLED arrival: the item replays under its hold. A jump: the
@@ -2006,7 +2054,10 @@ export function createMachine(options: MachineOptions): Machine {
 
     advance() {
       if (destroyed || count === 0) return;
-      if (finishInterstitial()) return; // a press ends the hold early
+      if (autoPick !== null) {
+        finishAutoPick(false); // Space takes the auto-pick now
+        return;
+      }
       // Only the choice's own inputs answer it, a replayed one included.
       if (pendingChoice !== null) return;
       if (skipPlaysVideo()) {
@@ -2052,19 +2103,16 @@ export function createMachine(options: MachineOptions): Machine {
 
     wheelBack() {
       if (destroyed) return;
-      finishInterstitial(); // navigation is never trapped: enter, then move
       stepHistory(-1);
     },
 
     wheelForward() {
       if (destroyed) return;
-      finishInterstitial(); // navigation is never trapped: enter, then move
       stepHistory(1);
     },
 
     toggleSkip() {
       if (destroyed || count === 0 || pendingChoice !== null) return;
-      if (interstitial !== null) return; // the hold is not skippable content
       if (skipping) {
         exitSkip(); // tab again: manual off, normal timing from here
       } else {
@@ -2079,7 +2127,6 @@ export function createMachine(options: MachineOptions): Machine {
 
     jumpToEnd() {
       if (destroyed || count === 0) return;
-      finishInterstitial();
       const last = history.length - 1;
       if (pos >= last) return; // already at the end: nothing to do
       showEntry(last);
@@ -2087,9 +2134,9 @@ export function createMachine(options: MachineOptions): Machine {
 
     jumpToUnseen() {
       if (destroyed || count === 0) return;
-      finishInterstitial();
       const target = unseenTarget();
       if (target < 0) return;
+      cancelAutoPick();
       skipping = false;
       pendingChoice = null;
       // Entering as if each enclosing route were picked: frames open, routes
@@ -2116,7 +2163,6 @@ export function createMachine(options: MachineOptions): Machine {
 
     goTo(index) {
       if (destroyed || count === 0) return;
-      finishInterstitial();
       if (pendingChoice !== null) return; // a choice owns the timeline
       // A bookmark always points at content the reader had reached, but the
       // list outlives the moment it was written, so clamp defensively to
@@ -2133,6 +2179,7 @@ export function createMachine(options: MachineOptions): Machine {
       const decision = decisions[pendingChoice.decision];
       if (!Number.isInteger(routeIdx) || routeIdx < 0) return;
       if (routeIdx >= decision.routes.length) return;
+      cancelAutoPick(); // the reader's own pick wins over play-all's
       pendingChoice = null;
       // The answered decision's open frames close first — a no-op after a
       // fired open, but it keeps a re-entry into the reader's own route
@@ -2149,6 +2196,7 @@ export function createMachine(options: MachineOptions): Machine {
       if (pending === null || !pending.continueOption) return;
       const decision = decisions[pending.decision];
       if (decision.continueAt < 0) return;
+      cancelAutoPick();
       pendingChoice = null;
       // Joining the aftermath replays none of the continuing route's items,
       // so the route is not marked played by this.
@@ -2179,6 +2227,15 @@ export function createMachine(options: MachineOptions): Machine {
       // `skipVideo` is derived from the settings: tell the renderer when a
       // toggle mid-burst starts or stops the video under the cursor.
       if (skipPlaysVideo() !== wasSkipVideo) emit();
+      // Play all routes turned off mid-countdown: the choice waits instead.
+      // Turned on over a live choice (the last history entry, not a
+      // replay): play-all answers it, counting down from the next resume.
+      if (autoPick !== null && !settings.playAllRoutes) {
+        cancelAutoPick();
+        emit();
+      } else if (autoPick === null && autoPickLiveChoice()) {
+        emit();
+      }
       // Only a live auto-advance is re-timed; a settled item (or one
       // waiting on a video's `ended`) owns no timer to re-arm. The new
       // delay is measured from when this item's timer was armed, so the
@@ -2213,22 +2270,24 @@ export function createMachine(options: MachineOptions): Machine {
       if (destroyed) return;
       paused = true;
       cancelTimer();
-      if (interstitialTimer !== null) scheduler.cancel(interstitialTimer);
-      interstitialTimer = null;
+      if (autoPickTimer !== null) scheduler.cancel(autoPickTimer);
+      autoPickTimer = null;
     },
 
     resume() {
       if (destroyed || !paused) return;
       paused = false;
-      if (interstitial !== null) armInterstitial(); // the hold restarts fresh
+      if (autoPick !== null) {
+        armAutoPick(); // the phase restarts fresh
+        emit();
+      }
       if (!settled) armTimer(); // the wait restarts fresh (interface docs)
     },
 
     destroy() {
       destroyed = true;
       cancelTimer();
-      if (interstitialTimer !== null) scheduler.cancel(interstitialTimer);
-      interstitialTimer = null;
+      cancelAutoPick();
       listeners.clear();
     },
   };
