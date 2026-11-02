@@ -1133,6 +1133,86 @@ describe("nested decisions", () => {
   });
 });
 
+// decide | a-decide x-1 y-1 | c-1 | after-1
+//  0     | 1        2   3   | 4   | 5
+// Route A of `d1` holds the pure choice `d2` (X, Y), whose region runs to
+// A's own last item: closing `d2` IS route A ending.
+const NESTED_PURE_AT_END: Shape = {
+  items: ["decide", "a-decide", "x-1", "y-1", "c-1", "after-1"],
+  branches: [
+    {
+      id: "d1",
+      after: "decide",
+      prompt: "Outer?",
+      routes: [
+        {
+          id: "r-a",
+          label: "Route A",
+          start: "a-decide",
+          end: "y-1",
+          result: "return",
+        },
+        { id: "r-c", label: "Route C", start: "c-1", end: "c-1" },
+      ],
+      continuingRoute: "r-c",
+      continueAt: "after-1",
+    },
+    {
+      id: "d2",
+      after: "a-decide",
+      prompt: "Inner?",
+      routes: [
+        { id: "r-x", label: "Route X", start: "x-1", end: "x-1" },
+        { id: "r-y", label: "Route Y", start: "y-1", end: "y-1" },
+      ],
+    },
+  ],
+};
+
+describe("a nested pure choice ending its enclosing route", () => {
+  it("closing the inner choice re-offers the parent, never entering its continuing route", () => {
+    const m = machine(NESTED_PURE_AT_END);
+    m.advance(); // d1 fires on `decide`
+    m.choose(0); // route A
+    m.advance(); // d2 fires on `a-decide`
+    m.choose(0); // route X
+    m.advance(); // off X's end: Y unplayed, d2 re-opens
+    expect(m.getState().choice?.decisionId).toBe("d2");
+    m.choose(1); // route Y, ending on A's last item
+    expect(m.getState().cursor).toBe(3);
+    m.advance(); // d2 closes, and that ends route A: d1 re-opens
+    const choice = m.getState().choice;
+    expect(choice?.decisionId).toBe("d1");
+    expect(choice?.routes.map((r) => r.seen)).toEqual([true, false]);
+    expect(choice?.continueOption).toBeUndefined();
+    expect(m.getState().cursor).toBe(3);
+    expect(m.exportContext().stack).toEqual([]);
+    expect(m.exportContext().visited).not.toContain(4);
+    m.choose(1); // route C, picked
+    expect(m.getState().cursor).toBe(4);
+    m.advance(); // C's end joins `after-1`
+    expect(m.getState().cursor).toBe(5);
+    m.destroy();
+  });
+
+  it("playAllRoutes: the parent's continuing route follows the back-in-time screen", () => {
+    vi.useFakeTimers();
+    const m = machine(NESTED_PURE_AT_END, {
+      settings: { ...SETTINGS, playAllRoutes: true },
+    });
+    for (let press = 0; press < 20; press += 1) {
+      m.advance();
+      vi.advanceTimersByTime(INTERSTITIAL_MS);
+    }
+    expect(m.exportContext().playedRoutes).toEqual([
+      { decision: 0, routes: [0, 1] },
+      { decision: 1, routes: [0, 1] },
+    ]);
+    expect(m.getState().cursor).toBe(5);
+    m.destroy();
+  });
+});
+
 describe("playAllRoutes (docs/plan.md Phase 13)", () => {
   const auto: MachineSettings = { ...SETTINGS, playAllRoutes: true };
 

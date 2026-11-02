@@ -1562,7 +1562,10 @@ export function createMachine(options: MachineOptions): Machine {
    * whole menu region: max route end + 1, the Ren'Py fall-through, never
    * inside another route's span (the routes tile the region, so a re-arrival
    * at `after` with all played resumes past every route, not at `after` + 1).
-   * Beyond the last item the story ends as before. Returns true when the
+   * Beyond the last item the story ends as before. A nested region that
+   * runs to the end of its enclosing route ends that route instead: the
+   * enclosing decision's route-end handling runs (re-offer, join or close),
+   * never a fall-through into the parent's next route. Returns true when the
    * decision closed, so the caller neither pauses nor re-offers.
    */
   function closeIfPureAndComplete(decision: ResolvedDecision): boolean {
@@ -1570,6 +1573,15 @@ export function createMachine(options: MachineOptions): Machine {
       return false;
     closeFramesFor(decision.index);
     const next = regionEnd(decision) + 1;
+    const frame = stack[stack.length - 1];
+    if (
+      frame !== undefined &&
+      frame.decision === decision.parent &&
+      next > decisions[frame.decision].routes[frame.route].endIndex
+    ) {
+      handleRouteEnd();
+      return true;
+    }
     if (next >= count) {
       settled = true;
       skipping = false;
