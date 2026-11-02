@@ -866,6 +866,28 @@ directory holds too many files.
   key that stops it, Tab, a choice or the end, a panel, anything else
   in the code) shows "Auto-forward off". No pill when nothing changed.
 
+## Phase 21: Progress that survives moving the game (2026-11-02, user)
+
+Progress stays saved automatically in the browser (IndexedDB); these
+make it independent of the folder's path and portable between browsers
+and machines (user chose a and b).
+
+- Story ID: the manifest gains a stable `storyId`. The converter derives
+  it from the Ren'Py project (`config.save_directory`, else
+  `config.name`, else the project folder name, slugified); the demo
+  assembler and fixtures write one too. The player stores state and
+  bookmarks under the story ID, falling back to the folder URL when a
+  manifest has none. Progress already saved under the folder URL is
+  carried over to the story ID on first load, so nobody loses it.
+  Moving or renaming the folder keeps progress in that browser.
+- Export / import progress: the `c` screen gains "Export progress"
+  (downloads `<storyId>-progress.json`: reading position, settings,
+  help-seen, bookmarks) and "Import progress" (file picker). Import is
+  for moving to another browser or machine: it checks the file is this
+  story's (else a clear refusal), confirms, replaces this browser's
+  state for the story, and reloads. From then on state is saved
+  automatically in the browser as usual.
+
 ## Later, waiting on the user
 
 - Overlay text styling iteration once the user can play with the demo.

@@ -792,3 +792,18 @@ truthful: an unchecked box means nothing was accepted.
       (2026-11-02: vitest 501, biome+tsc clean, scenario suite 8 files /
       175 checks: 173 pass + 2 PARTIAL (headless fullscreen), pytest 155,
       package-proof 18/18; .tmp/pkg-demo and .tmp/pkg-extract rebuilt.)
+
+## Phase 21: Progress that survives moving the game (2026-11-02, user)
+
+- [ ] Story ID (user option a, 2026-11-02): manifest `storyId` from the
+      converter (Ren'Py save_directory / name / folder), demo assembler
+      and fixtures; validator and docs/content-format.md; player keys
+      state and bookmarks by it (folder URL fallback), carrying over
+      progress saved under the folder URL. pytest on touched files,
+      vitest, scenario (move/rename the folder: progress kept).
+- [ ] Export / import progress (user option b, 2026-11-02): `c` screen
+      buttons; export downloads `<storyId>-progress.json`; import checks
+      the story, confirms, replaces this browser's state, reloads; then
+      saving stays automatic. Tests, scenario, README.
+- [ ] Phase-closer: full suite (scenarios, vitest, pytest,
+      package-proof), rebuild both demo folders.
