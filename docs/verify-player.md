@@ -30,7 +30,7 @@ demo text edit never breaks them.
 | Scenario | Covers |
 |---|---|
 | `smoke` | one check per area: Space, the chain video playing, a wheel step back, `b` + `t` + `c`, a decision opening |
-| `reading` | first-load key help, Space closing it (and entering fullscreen), manual default, `a` on/off, speech / thought / narration / bare picture, `h`, one press = one item, one notch = one step |
+| `reading` | first-load key help, Space closing it (and entering fullscreen), manual default, `a` on/off (on counts time already shown), speech / thought / narration / bare picture, `h`, one press = one item, one notch = one step |
 | `media` | animation fps and loops, video under a text chain (same element, poster first), ranges of one file with a loop restart point, contain fit at two viewports and a mismatched asset, minimum play time in auto, skip through it, loop count, WebM `holdSeconds` |
 | `navigation` | wheel steps and clamps, poster on rewind, Tab inert with nothing seen ahead, skip stopping ON the last seen item, Space stopping skip, `e` to the end of the history / no-op there, the wheel replaying a route path with its choice screens and never an unplayed route |
 | `screens` | Esc help mid-flow (paused, `t` blocked, `c` replacing it), bookmarks (`b`, `t` list, click to continue and append to the history, closing), reload resume (a rolled-back screen too), `b` then instant reload, config (the "When Tab skips" options grouped and indented, controls in one column; live and persisted), the empty-manifest folder, Reset progress |

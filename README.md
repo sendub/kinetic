@@ -5,7 +5,7 @@ A browser player for kinetic visual novels: a simple alternative to Ren'Py. A no
 ## Playing
 
 * **Space**: next item. Manual is the default: one press, one item. In auto-forward, Space turns auto-forward off and stays on the item.
-* **a**: auto-forward on/off (Space also turns it off). Items advance at the reading speed; animations play a few times, videos play out (or follow their loop count or display duration).
+* **a**: auto-forward on/off (Space also turns it off). Turning it on counts the time the item has already been on screen, so an item already read moves on at once. Items advance at the reading speed; animations play a few times, videos play out (or follow their loop count or display duration).
 * **Mouse wheel**: roll back through exactly what you saw, in the order you saw it, choice screens included; roll forward again to where you were.
 * **e**: jump to the end of what you have read.
 * **u**: go to the next unseen content wherever it is: an unplayed route (entered as if picked) or content earlier in the story, such as a prequel added by an update. A resume shows a quiet notice when such earlier content exists.

@@ -6,6 +6,7 @@
 import {
   currentItemId,
   item,
+  ON_TEXT,
   PAGE_STATE,
   pressA,
   pressH,
@@ -13,6 +14,7 @@ import {
   READ_HELP,
   sleep,
   wheel,
+  wheelUntil,
 } from "./harness.mjs";
 
 export const title = "boot, manual reading, text kinds, h";
@@ -62,19 +64,26 @@ export default async function ({ check, open }) {
     (await currentItemId(page)) === "intro-title",
   );
 
-  // `a` turns auto-forward on: the item advances on its own hold.
+  // `a` turns auto-forward on: the item advances by itself. It counts the
+  // time already shown (docs/plan.md Phase 20): intro-title has been up
+  // past its hold, so it moves on promptly rather than re-waiting ~10 s.
   await pressA(cdp);
+  const pressedAt = Date.now();
   let autoOk = true;
   try {
     await page.waitForFunction(
       (t) => document.getElementById("overlay-text")?.textContent === t,
-      { timeout: holdMs + 2000 },
+      { timeout: 1500 },
       item("text-speech").text,
     );
   } catch {
     autoOk = false;
   }
-  check("a turns auto-forward on: the item advances by itself", autoOk);
+  check(
+    "a turns auto-forward on, counting time already shown: intro-title moves on within 1.5 s",
+    autoOk,
+    { waitedMs: Date.now() - pressedAt, holdMs },
+  );
 
   // `a` again turns it off mid-item: the armed hold is cancelled.
   await pressA(cdp);
@@ -87,6 +96,11 @@ export default async function ({ check, open }) {
   // Space during auto-forward returns to manual (docs/plan.md Phase 18):
   // `a` on, then Space at once — the press moves nothing, and no hold fires
   // afterwards. The next Space (the text-kinds step below) steps as manual.
+  // text-speech has now been up past its hold, so `a` alone would move on
+  // at once (Phase 20); one wheel notch back and forward re-shows it with a
+  // fresh hold, so the press lands while auto has time left to wait.
+  await wheelUntil(page, cdp, true, ON_TEXT, first.text);
+  await wheelUntil(page, cdp, false, ON_TEXT, item("text-speech").text);
   await pressA(cdp);
   await pressSpace(cdp);
   const pressedOn = await currentItemId(page);

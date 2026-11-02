@@ -378,34 +378,89 @@ describe("manual and auto modes, pause/resume (docs/plan.md Phase 13b)", () => {
     m.destroy();
   });
 
-  it("setAutoAdvance(true) arms the current item's full hold from now", () => {
+  // `a` counts time already shown (docs/plan.md Phase 20): turning auto on
+  // waits only for what is left of the item's hold, measured from when the
+  // item first appeared — time under help or settings counts as shown.
+  it("setAutoAdvance(true) waits only for the hold left since the item appeared", () => {
     vi.useFakeTimers();
     const m = manualMachine([image("a".repeat(20)), image()]); // 1500 ms hold
-    vi.advanceTimersByTime(59_000); // the manual wait so far was free
+    vi.advanceTimersByTime(1000); // shown for 1000 ms in manual
     m.setAutoAdvance(true);
     expect(m.isAutoAdvance()).toBe(true);
-    vi.advanceTimersByTime(1499);
+    vi.advanceTimersByTime(499);
+    expect(m.getState().cursor).toBe(0);
+    vi.advanceTimersByTime(1);
+    expect(m.getState().cursor).toBe(1);
+    vi.advanceTimersByTime(1499); // the next item gets its own full hold
+    expect(m.getState().cursor).toBe(1);
+    m.destroy();
+  });
+
+  it("setAutoAdvance(true) moves on promptly once the hold has already passed", () => {
+    vi.useFakeTimers();
+    const m = manualMachine([image("a".repeat(20)), image()]); // 1500 ms hold
+    vi.advanceTimersByTime(59_000); // up far longer than its hold
+    m.setAutoAdvance(true);
+    vi.advanceTimersByTime(0); // the next tick
+    expect(m.getState().cursor).toBe(1);
+    m.destroy();
+  });
+
+  it("time under a pause (help, settings) counts as shown when `a` turns auto on", () => {
+    vi.useFakeTimers();
+    const m = manualMachine([image("a".repeat(30)), image()]); // 1800 ms hold
+    vi.advanceTimersByTime(500);
+    m.pause(); // help opens
+    vi.advanceTimersByTime(1000);
+    m.resume(); // closed after 1500 ms on screen
+    m.setAutoAdvance(true);
+    vi.advanceTimersByTime(299);
     expect(m.getState().cursor).toBe(0);
     vi.advanceTimersByTime(1);
     expect(m.getState().cursor).toBe(1);
     m.destroy();
   });
 
-  it("setAutoAdvance(false) cancels the pending hold; turning on re-arms fresh", () => {
+  it("setAutoAdvance(false) cancels the pending hold; turning on counts the time shown", () => {
     vi.useFakeTimers();
     const m = createMachine({
-      items: [image("a".repeat(30)), image()], // 1800 ms hold
+      items: [image("a".repeat(30)), image(), image()], // 1800 ms hold
       settings: SETTINGS,
       autoAdvance: true,
     });
     vi.advanceTimersByTime(900);
     m.setAutoAdvance(false);
-    vi.advanceTimersByTime(60_000);
+    vi.advanceTimersByTime(600);
     expect(m.getState().cursor).toBe(0);
-    m.setAutoAdvance(true); // a fresh full hold, not the old remainder
-    vi.advanceTimersByTime(1799);
+    m.setAutoAdvance(true); // 1500 ms shown: 300 ms left, not a fresh 1800
+    vi.advanceTimersByTime(299);
     expect(m.getState().cursor).toBe(0);
     vi.advanceTimersByTime(1);
+    expect(m.getState().cursor).toBe(1);
+    m.destroy();
+  });
+
+  it("setAutoAdvance(true) on a video still waits for its ended report", () => {
+    vi.useFakeTimers();
+    const m = manualMachine([video(10), image()]); // 10 s time bound
+    vi.advanceTimersByTime(12_000); // the bound has passed, no `ended` yet
+    m.setAutoAdvance(true);
+    vi.advanceTimersByTime(60_000);
+    expect(m.getState().cursor).toBe(0);
+    m.mediaEnded(); // the pass completes: the gate is now met
+    expect(m.getState().cursor).toBe(1);
+    m.destroy();
+  });
+
+  it("setAutoAdvance(true) on a video that already ended moves on promptly", () => {
+    vi.useFakeTimers();
+    const m = manualMachine([video(10), image()]);
+    vi.advanceTimersByTime(10_000);
+    m.mediaEnded(); // reported while manual: counted, nothing moves
+    vi.advanceTimersByTime(2000);
+    expect(m.getState().cursor).toBe(0);
+    m.setAutoAdvance(true);
+    vi.advanceTimersByTime(0);
     expect(m.getState().cursor).toBe(1);
     m.destroy();
   });

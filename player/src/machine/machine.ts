@@ -761,6 +761,12 @@ export function createMachine(options: MachineOptions): Machine {
   // if they had held since the item began (the interface docs). Time
   // enters only through scheduler and Date.now, both fakeable in tests.
   let timerArmedAt = 0;
+  // When the item under the cursor first appeared (`beginItem()`): the
+  // anchor `a` measures from when it turns auto on (docs/plan.md Phase 20),
+  // so the time already shown — help or settings time included, since a
+  // pause does not move it — counts toward the item's hold. The start
+  // item appears as the machine is built.
+  let itemShownAt = Date.now();
   // When the media item that STARTED the current text chain became current
   // (the chain head), or null when the cursor is not inside such a chain:
   // the anchor for a video's `minPlaySeconds` chain-exit floor (Phase 15).
@@ -1076,15 +1082,20 @@ export function createMachine(options: MachineOptions): Machine {
     }
   }
 
-  function armTimer(): void {
+  /**
+   * Arms the current item's wait, measured from `anchor` (default now): the
+   * timer covers only what is left of the delay after `anchor`, at least
+   * the next tick.
+   */
+  function armTimer(anchor = Date.now()): void {
     cancelTimer();
     if (destroyed || count === 0) return;
     // Manual mode arms no hold — the reader advances by pressing; skip's
     // dwell is the reader's own command and runs in both modes, and the
     // help screen's pause arms nothing until resume() (Phase 13b).
     if (paused || (!skipping && !autoAdvance)) return;
-    timerArmedAt = Date.now();
-    const delay = currentDelayMs();
+    timerArmedAt = anchor;
+    const delay = Math.max(0, currentDelayMs() - (Date.now() - anchor));
     if (skipping && delay === 0 && skipStepping) {
       zeroStepDue = true; // `runSkip()` takes the next step at once
       return;
@@ -1147,6 +1158,7 @@ export function createMachine(options: MachineOptions): Machine {
     settled = false;
     holdElapsed = false;
     endedCount = 0; // every cursor change starts the video's loops afresh
+    itemShownAt = Date.now();
     armTimer();
   }
 
@@ -2253,10 +2265,11 @@ export function createMachine(options: MachineOptions): Machine {
       autoAdvance = on;
       if (destroyed || count === 0 || paused) return;
       if (on) {
-        // Arm the current item's full hold from now; skip's dwell is
-        // already running, and a settled item waits for a press in
-        // either mode.
-        if (!settled && !skipping) armTimer();
+        // Arm what is left of the current item's hold, measured from when
+        // it first appeared (docs/plan.md Phase 20): an item already up
+        // past its hold moves on at the next tick. Skip's dwell is already
+        // running, and a settled item waits for a press in either mode.
+        if (!settled && !skipping) armTimer(itemShownAt);
       } else if (!skipping) {
         cancelTimer(); // manual: no pending hold; skip's dwell keeps running
       }

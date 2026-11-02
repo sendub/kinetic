@@ -750,7 +750,7 @@ truthful: an unchecked box means nothing was accepted.
 
 ## Phase 20: Fourth demo-feedback round (2026-11-02, user)
 
-- [ ] `a` counts time already shown (user option a, 2026-11-02): `a`
+- [x] `a` counts time already shown (user option a, 2026-11-02): `a`
       looked dead on the demo's opening screen because turning auto on
       restarts the screen's whole wait (10.4 s there). Turning auto on now
       waits only for what is left of the screen's reading time, measured
@@ -758,6 +758,11 @@ truthful: an unchecked box means nothing was accepted.
       counts as shown). Machine test red before, green after; playall
       scenario check (`a` on intro-title moves on promptly after the
       screen has been up past its wait).
+      (itemShownAt stamped in beginItem; setAutoAdvance(true) arms
+      armTimer(itemShownAt) for the remaining hold; off/on also counts
+      time shown. 5 new machine tests red before, green after; reading
+      scenario check (intro-title moves within 1.5 s) red on old code.
+      vitest 481, reading 13/13, playall 19/19, smoke 6/6. 2026-11-02)
 - [ ] Play-all choice: highlight and reading time (user, 2026-11-02): the
       route play-all will pick is highlighted from the start of the
       countdown, not only in the final ~0.7 s. Check that the countdown
