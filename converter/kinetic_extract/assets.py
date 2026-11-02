@@ -11,7 +11,8 @@ file extensions - corpus extensions lie. Policies:
   to 8-bit pixels, encode lossless and must decode back to identical
   pixels; 16-bit PNGs, a non-sRGB ICC profile or EXIF orientation keep
   the original. JPEG uses JPEG XL recompression and must reconstruct the
-  original JPEG bytes exactly. Animated images are never re-encoded (the
+  original JPEG bytes exactly. Lossy (VP8) WebP is never tried: its
+  exact JXL is always larger. Animated images are never re-encoded (the
   libjxl binding takes no frame durations). ``.jxl`` sources that libjxl
   decodes ship unchanged. A kept original's ``preserve`` step carries the
   ``reason`` no JXL replaced it.
@@ -372,9 +373,37 @@ def _pixel_candidate(data: bytes, fmt: str) -> JxlCandidate:
     return JxlCandidate(out, step)
 
 
+LOSSY_WEBP_REASON = "lossy WebP: exact JPEG XL is always larger"
+
+
+def webp_is_lossy(data: bytes) -> bool:
+    """Whether a WebP's (first) image is a lossy VP8 bitstream, read from
+    the RIFF chunks without decoding: a simple file starts with its
+    ``VP8 `` or ``VP8L`` chunk; an extended (``VP8X``) one carries it
+    after other chunks, inside the first ``ANMF`` frame when animated."""
+    at, end = 12, len(data)
+    while at + 8 <= end:
+        fourcc = data[at:at + 4]
+        size = int.from_bytes(data[at + 4:at + 8], "little")
+        if fourcc == b"VP8 ":
+            return True
+        if fourcc == b"VP8L":
+            return False
+        if fourcc == b"ANMF":
+            at, end = at + 8 + 16, min(end, at + 8 + size)
+            continue
+        at += 8 + size + (size & 1)
+    return False
+
+
 def jxl_candidate(data: bytes, fmt: str) -> JxlCandidate:
     """The verified lossless JPEG XL for a still image in `fmt`, whatever
-    its size (the caller applies the smaller-only rule)."""
+    its size (the caller applies the smaller-only rule).
+
+    Lossy WebP is not tried: its exact JXL was larger in every measured
+    file (docs/extracting.md) at about 27 s each."""
+    if fmt == "webp" and webp_is_lossy(data):
+        return JxlCandidate(reason=LOSSY_WEBP_REASON)
     if not jxl_available():
         return JxlCandidate(reason="jxl unavailable")
     if fmt == "jpeg":

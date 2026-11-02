@@ -87,15 +87,72 @@ def test_lossless_webp_ships_verified_lossless_jxl() -> None:
     assert any(f"< original {len(data)}" in note for note in notes)
 
 
-def test_lossy_webp_keeps_original_when_jxl_is_bigger() -> None:
-    data = save(noise(), "WEBP", quality=50)
-    candidate = assets.jxl_candidate(data, "webp")
-    # The lossless encode of the decoded pixels is exact, just bigger.
-    assert candidate.out is not None
-    assert rgba(decoded(candidate.out)) == source_rgba(data)
-    assert len(candidate.out) >= len(data)
-    kept(ship(data, "webp"), data, "webp",
-         f"jxl {len(candidate.out)} >= original {len(data)}")
+def _no_jxl_attempt(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """Record any decode or JXL encode: a lossy WebP must cost neither."""
+    calls: list[str] = []
+
+    def spy(name):
+        def fail(*_a, **_k):
+            calls.append(name)
+            raise AssertionError(f"{name} called for a lossy WebP")
+        return fail
+
+    monkeypatch.setattr(media_tools, "jxl_encode_lossless",
+                        spy("jxl_encode_lossless"))
+    monkeypatch.setattr(assets, "_pixel_candidate", spy("_pixel_candidate"))
+    return calls
+
+
+def _chunks(data: bytes) -> list[bytes]:
+    return [data[at:at + 4] for at in (12, 30) if len(data) > at + 4]
+
+
+@pytest.mark.parametrize("img_mode,params,first_chunks", [
+    ("RGB", {"quality": 50}, [b"VP8 "]),
+    # Alpha (or EXIF) wraps the lossy VP8 bitstream in an extended VP8X
+    # file with an ALPH chunk ahead of it.
+    ("RGBA", {"quality": 50}, [b"VP8X", b"ALPH"]),
+])
+def test_lossy_webp_ships_unchanged_without_a_jxl_attempt(
+        monkeypatch: pytest.MonkeyPatch, img_mode, params,
+        first_chunks) -> None:
+    img = noise().convert(img_mode)
+    if img_mode == "RGBA":
+        img.putalpha(Image.linear_gradient("L").resize(img.size))
+    data = save(img, "WEBP", **params)
+    assert _chunks(data)[:len(first_chunks)] == first_chunks
+    calls = _no_jxl_attempt(monkeypatch)
+    result = ship(data, "webp")
+    kept(result, data, "webp", assets.LOSSY_WEBP_REASON)
+    assert result[4] == [{"step": "preserve",
+                          "reason": "lossy WebP: exact JPEG XL is always "
+                                    "larger"}]
+    assert "lossy WebP: exact JPEG XL is always larger: kept original" \
+        in result[3]
+    assert calls == []
+
+
+def test_lossless_webp_in_vp8x_still_tries_jxl() -> None:
+    img = noise().convert("RGBA")
+    img.putalpha(Image.linear_gradient("L").resize(img.size))
+    data = save(img, "WEBP", lossless=True, quality=0, method=0,
+                exif=Image.Exif().tobytes())
+    assert data[12:16] == b"VP8X"
+    assert not assets.webp_is_lossy(data)
+    assert assets.jxl_candidate(data, "webp").out is not None
+
+
+def test_webp_lossy_detection_reads_the_first_frame() -> None:
+    lossy = save(noise(), "WEBP", quality=50)
+    lossless = save(noise(), "WEBP", lossless=True, quality=0, method=0)
+    assert assets.webp_is_lossy(lossy)
+    assert not assets.webp_is_lossy(lossless)
+    first, *rest = _frames()
+    anim = save(first, "WEBP", save_all=True, append_images=rest,
+                duration=100, quality=50)
+    assert b"ANMF" in anim
+    assert assets.webp_is_lossy(anim)
+    assert not assets.webp_is_lossy(b"RIFF\x04\x00\x00\x00WEBP")
 
 
 def test_webp_alpha_round_trips() -> None:

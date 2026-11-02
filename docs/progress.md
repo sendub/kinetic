@@ -1053,11 +1053,15 @@ truthful: an unchecked box means nothing was accepted.
       self-test case pinned (15 goldens); setup gains --repin CASE.
       46 failing before; pytest converter+tools 314; pinned renpy_demo
       twice identical, validator clean. 2026-11-02)
-- [ ] 25.5b Lossy WebP skips the JPEG XL attempt (user option a,
+- [x] 25.5b Lossy WebP skips the JPEG XL attempt (user option a,
       2026-11-02): an exact JXL of a lossy WebP was larger in all 206
       measured files and costs ~27 s each; lossy WebP ships unchanged
       with ledger reason "lossy WebP: exact JPEG XL is always larger".
       Lossless WebP is still tried.
+      (webp_is_lossy reads RIFF chunks (VP8 vs VP8L, VP8X, first ANMF
+      frame) without decoding; ledger preserve reason as above. 4 tests
+      red before; pytest converter+tools 317; pinned renpy_demo run
+      validator clean. 2026-11-02)
 - [ ] 25.6 MKV copied unchanged whatever the codec; headless-Chrome
       probe of an MKV+H.264 fixture; content-format / stack.md wording.
 - [ ] 25.7 Poster recipes recorded; a failed poster drops the item and

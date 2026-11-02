@@ -182,7 +182,8 @@ and the `preserve` step's `reason` says why.
 | Source | JXL route | Verification | Kept original when |
 | --- | --- | --- | --- |
 | JPEG | JPEG XL recompression | reconstruction gives back the original JPEG bytes exactly (no pixel comparison) | libjxl refuses it (CMYK, for one: `jpeg recompression failed: JpegxlError`), the reconstruction differs, or the JXL is not smaller |
-| PNG, GIF, WebP (lossless or lossy) | decode to 8-bit pixels (palette to RGB/RGBA, bilevel to L), libjxl lossless, effort 9, one thread | decoded JXL identical to the source pixels, compared in RGBA | 16-bit PNG, a pixel mode other than L/LA/RGB/RGBA/P/1, an embedded ICC profile that is not sRGB for these pixels (converting them to sRGB changes any; an sRGB one is dropped and the `jxl` step records `iccProfile`), an EXIF orientation other than 1, a pixel mismatch, or the JXL is not smaller (the usual outcome for lossy WebP) |
+| PNG, GIF, lossless WebP | decode to 8-bit pixels (palette to RGB/RGBA, bilevel to L), libjxl lossless, effort 9, one thread | decoded JXL identical to the source pixels, compared in RGBA | 16-bit PNG, a pixel mode other than L/LA/RGB/RGBA/P/1, an embedded ICC profile that is not sRGB for these pixels (converting them to sRGB changes any; an sRGB one is dropped and the `jxl` step records `iccProfile`), an EXIF orientation other than 1, a pixel mismatch, or the JXL is not smaller |
+| Lossy WebP | none | - | always, reason `lossy WebP: exact JPEG XL is always larger`: the exact JXL was larger in all 206 measured files (see Results) and cost about 27 s each. Read from the RIFF chunks before any decode: a `VP8 ` image chunk is lossy, `VP8L` lossless; in an extended `VP8X` file the first image chunk (inside the first `ANMF` frame when animated) decides |
 | Animated GIF, WebP, PNG | none | - | always: the libjxl binding takes no frame durations or loop count, so an animated JXL could not be verified to keep the timing |
 | `.jxl` | shipped as is | libjxl decodes the whole file (else the item is skipped) | - |
 
@@ -193,7 +194,7 @@ this replaced: `cjxl` read 16-bit PNGs and carried any ICC profile, so
 original bytes. (The 25.1 imagecodecs route before 25.5 fed a 16-bit RGB
 PNG's 8-bit Pillow decode to libjxl and passed its own pixel check, a
 silent precision loss now refused.) `cjxl` never read WebP; the pixel
-route now does.
+route now reads lossless WebP.
 
 ## Decoder hooks
 
@@ -367,7 +368,8 @@ Cost: the lossy-WebP attempts are the expensive part, about 27 s per
 2560x1440 image single-threaded, 5452 s of CPU for 202 images that all
 fell back, against 31 s for the 149 JPEGs. A full game-d run would spend
 about 11 hours trying JXL on its 1441 lossy WebPs before keeping them
-all.
+all. Item 25.5b therefore stops trying lossy WebP: it ships unchanged
+with no decode, reason `lossy WebP: exact JPEG XL is always larger`.
 
 ### game-a.app
 
