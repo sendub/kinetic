@@ -1018,5 +1018,14 @@ truthful: an unchecked box means nothing was accepted.
 - [ ] 25.11 Several episodes into one game: kinetic-extract (and ship)
       take several projects in order -> one continuous story, ids kept
       unique, one media folder.
-- [ ] 25.12 Phase-closer: corpus slices re-run (extract, validate,
+- [ ] 25.12 How-to docs (user, 2026-11-02): a practical guide to using
+      all of this effectively — setting up and pinning the tools, the
+      everyday convert command, writing and packaging a decoder hook
+      (EXTRA as the worked example), a game-specific helper delegating
+      media to `kinetic-media ship`, combining episodes into one game,
+      verifying with `rebuild`, what the cache does, and what to do when
+      the self-test or a rebuild fails. In CREATE.md (game makers) with
+      reference detail in docs/extracting.md and converter/README.md;
+      every command in it run once to prove it.
+- [ ] 25.13 Phase-closer: corpus slices re-run (extract, validate,
       play, rebuild), full suite, rebuild demo folders.
