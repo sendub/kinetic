@@ -826,6 +826,11 @@ directory holds too many files.
   screens are recorded in the history; a replayed one waits, a reload
   onto the live one counts down again. Turning play-all on over a live
   choice starts its countdown; off cancels it.
+- `c` works everywhere: the settings screen opens over a pending
+  choice (the choice waits underneath, its digits and rows are inert,
+  a play-all countdown freezes and restarts when the screen closes)
+  and over the key help (`c` replaces it). Only the reset box blocks
+  `c`; `t` still cannot open over a choice or the help.
 
 ## Later, waiting on the user
 

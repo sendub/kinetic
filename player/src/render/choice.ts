@@ -14,8 +14,11 @@
 //   opens it over the open decision; the choice stays open underneath
 //   (help's machine pause/resume is inert while the decision's item is
 //   settled) and reappears when help closes.
-// - A pending choice owns everything else: while it is open the `t`/`c`
-//   panels, `h`, `b` and `a` are inert — informational overlays cannot
+// - The `c` settings panel opens over anything but the reset box: over a
+//   choice it covers the panel, the digits are inert until it closes, and
+//   a play-all countdown pauses with it (main.ts).
+// - A pending choice owns everything else: while it is open the `t`
+//   panel, `h`, `b` and `a` are inert — informational overlays cannot
 //   stack over a decision waiting for an answer — and the timeline is
 //   suspended (the machine is inert to those commands too; the gate keeps
 //   the renderer from trying).

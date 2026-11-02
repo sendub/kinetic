@@ -255,8 +255,9 @@
       /* c config screen (docs/plan.md Phase 9, README c bullet): one
          panel, the player's settings — the reading-speed slider with its
          step buttons, the skip-all, skip-plays-videos and
-         play-all-routes switches — and nothing else. Same level as the bookmark panel
-         (under the #flash pill, z 10, so a `b` still confirms on top),
+         play-all-routes switches — and nothing else. Over the bookmark
+         panel and a pending choice (z 5; `c` opens over a choice), under
+         the #flash pill (z 10, so a `b` still confirms on top),
          and the cursor-moving keys are suspended behind it
          (render/keys.ts). Sizes stay viewport-proportional, as above.
          The look is deliberately minimal: like the overlay band, the
@@ -264,7 +265,7 @@
       #config {
         position: absolute;
         inset: 0;
-        z-index: 5;
+        z-index: 6; /* over a choice (z 5); the reset box (z 7) over it */
         display: flex;
         flex-direction: column;
         gap: clamp(12px, 2.4vh, 28px);

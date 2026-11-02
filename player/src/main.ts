@@ -430,11 +430,12 @@ function start(): void {
       // everything — Escape opens it even over a pending choice, and the
       // choice waits underneath, reappearing when help closes (help's
       // machine pause/resume is inert while a decision's item is settled).
-      // A pending CHOICE owns everything else: `t`/`c` cannot open over
-      // it, `h`/`b`/`a` are inert, the timeline is suspended, and only
-      // its own inputs act (1..9, 0 with the offer, row clicks) —
-      // except the history moves, the wheel and `e` (see the gates
-      // below). Otherwise the story reads, and `t`/`c` are the open
+      // A pending CHOICE owns everything else: `t` cannot open over it,
+      // `h`/`b`/`a` are inert, the timeline is suspended, and only its
+      // own inputs act (1..9, 0 with the offer, row clicks) — except the
+      // history moves, the wheel and `e` (see the gates below), and `c`,
+      // whose panel covers the choice and makes its digits inert until
+      // it closes. Otherwise the story reads, and `t`/`c` are the open
       // screens.
       const owner = () => inputOwnerFor(help.isOpen(), choice.isOpen());
       // The reset box owns the screen too, the way its parent `c` panel
@@ -520,8 +521,13 @@ function start(): void {
               showBookmarks();
             }
           },
+          // `c` works everywhere but under the reset box (docs/plan.md
+          // Phase 19): over a choice the panel covers it and the choice
+          // waits underneath (a play-all countdown pauses with the
+          // menu); over help it replaces the help screen.
           toggleConfig: () => {
-            if (!storyInput()) return;
+            if (confirm.isOpen()) return;
+            closeHelp();
             if (config.isOpen()) config.close();
             else {
               overlay.close();
@@ -552,10 +558,10 @@ function start(): void {
           // everything (the declared exception to choice ownership), the
           // decision waits underneath and is still open when help closes.
           // A choice is never closed by Escape: only its own answer ends
-          // it. `t`/`c` can never be open while one is, so they need no
-          // case here. The reset box (Phase 16) is checked FIRST: it
-          // sits over the `c` panel, and Escape cancels the box without
-          // disturbing the panel under it.
+          // it; a `c` panel over one closes first (`t` cannot open over
+          // one). The reset box (Phase 16) is checked FIRST: it sits over
+          // the `c` panel, and Escape cancels the box without disturbing
+          // the panel under it.
           dismissOverlay: () => {
             if (confirm.isOpen()) {
               confirm.close();
@@ -579,7 +585,7 @@ function start(): void {
         // no choice open a digit is inert, and with help up help owns the
         // screen.
         (key) => {
-          if (owner() !== "choice") return;
+          if (owner() !== "choice" || anyPanelOpen()) return;
           if (key !== "return") machine.choose(key);
           else if (machine.getState().choice?.continueOption === true) {
             machine.chooseContinue();

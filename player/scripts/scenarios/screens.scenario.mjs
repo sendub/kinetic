@@ -187,20 +187,42 @@ async function helpMidFlow({ check, open }) {
     { help: afterEnter.helpOpen, text: afterEnter.text },
   );
 
-  await pressC(cdp);
+  // `t` opens nothing behind the help; `c` replaces it with the settings
+  // screen (docs/plan.md Phase 19). Closing `c` and pressing Escape brings
+  // the help back over the same item for the checks below.
   await pressT(cdp);
-  const blocked = {
+  await sleep(150);
+  const afterT = {
     help: await helpOpen(page),
     config: await configOpen(page),
     list: await panelOpen(page),
   };
+  await pressC(cdp);
+  const cfgUp = await waitFor(page, CONFIG_OPEN, 2000);
+  const afterC = {
+    help: await helpOpen(page),
+    list: await panelOpen(page),
+    text: (await page.evaluate(PAGE_STATE)).text,
+  };
+  await pressC(cdp);
+  await pressEscape(cdp);
+  const helpBack = await waitFor(page, HELP_OPEN, 2000);
+  const back = await page.evaluate(PAGE_STATE);
   check(
-    "c and t open nothing behind the help: one screen at a time",
-    blocked.help === true && blocked.config === false && blocked.list === false,
-    blocked,
+    "t opens nothing behind the help; c replaces the help with the settings screen",
+    afterT.help === true &&
+      afterT.config === false &&
+      afterT.list === false &&
+      cfgUp &&
+      afterC.help === false &&
+      afterC.list === false &&
+      afterC.text === item("text-speech").text &&
+      helpBack &&
+      back.text === item("text-speech").text,
+    { afterT, cfgUp, afterC, helpBack, text: back.text },
   );
 
-  // The armed hold had ~1.4 s left; 3.2 s behind the help must show no move.
+  // Auto-forward is on; 3.2 s behind the help must show no move.
   const samples = transitions(await sampleSignatures(page, 3200, 120));
   check(
     "behind the help the machine is paused: no item moves with auto-forward on",

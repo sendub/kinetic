@@ -13,9 +13,11 @@ import {
   CONFIG_OPEN,
   clickCenter,
   currentItemId,
+  HELP_OPEN,
   item,
   pressC,
   pressDigit,
+  pressEscape,
   pressSpace,
   pressTab,
   READ_CONFIG_OVERLAY,
@@ -452,6 +454,66 @@ export default async function ({ check, open }) {
         !tl.some((e) => e.t >= tEnd && e.choice) &&
         (await currentItemId(page)) === "after-start",
       { onR1End, onAfter },
+    );
+  }
+
+  // ---- 3. `c` works over a choice and over help ------------------------
+  {
+    const { page, cdp } = await open("menu", { closeHelp: true });
+    await configure(page, cdp, { skipAll: false });
+    await walkTo(page, cdp, "branch-decide");
+    await pressSpace(cdp); // the choice, counting down
+    await sleep(300);
+    await pressC(cdp);
+    let cfgUp = true;
+    try {
+      await page.waitForFunction(CONFIG_OPEN, { timeout: 2000 });
+    } catch {
+      cfgUp = false;
+    }
+    await sleep(countdownMs(outer) + AUTO_PICK_SHOW_MS + 500);
+    const frozen = await page.evaluate(READ_AUTO);
+    await pressDigit(cdp, "2"); // inert behind the panel
+    await sleep(200);
+    const stillChoice = (await page.evaluate(READ_AUTO)).open;
+    await pressC(cdp);
+    await sleep(200);
+    const resumed = await page.evaluate(READ_AUTO);
+    const entered = await waitFor(
+      page,
+      "route2-start",
+      countdownMs(outer) + 3000,
+    );
+    check(
+      "c opens over a counting-down choice; the countdown waits behind it and digits are inert",
+      cfgUp && frozen.open && frozen.picked === null && stillChoice,
+      { cfgUp, frozen },
+    );
+    check(
+      "closing c restarts the countdown, which then picks",
+      resumed.open && resumed.picked === null && entered,
+      { resumed, entered },
+    );
+
+    await pressEscape(cdp);
+    let helpUp = true;
+    try {
+      await page.waitForFunction(HELP_OPEN, { timeout: 2000 });
+    } catch {
+      helpUp = false;
+    }
+    await pressC(cdp);
+    let cfgFromHelp = true;
+    try {
+      await page.waitForFunction(CONFIG_OPEN, { timeout: 2000 });
+    } catch {
+      cfgFromHelp = false;
+    }
+    const helpGone = !(await page.evaluate(HELP_OPEN));
+    check(
+      "c on the help screen replaces it with the settings screen",
+      helpUp && cfgFromHelp && helpGone,
+      { helpUp, cfgFromHelp, helpGone },
     );
   }
 }
