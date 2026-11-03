@@ -14,10 +14,11 @@ from __future__ import annotations
 
 import json
 import math
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-from .media import image_size
+from .media import image_size, probe_duration_seconds
 from .rpa import RpaError, extract_cached, open_archive
 from .timeline import ItemRecord, set_video_duration
 
@@ -148,11 +149,12 @@ def _member_file(root: Path, archive: str, member: str,
         return None
 
 
-def request_records(requests: list[dict[str, Any]],
-                    root: Path) -> list[ItemRecord]:
+def request_records(requests: list[dict[str, Any]], root: Path,
+                    jobs: int = 1) -> list[ItemRecord]:
     """One asset-pass record per request: a bare image/video item (video
     with its ``startSeconds`` and probed ``durationSeconds``), its source
-    identity and the file holding the source bytes."""
+    identity and the file holding the source bytes. Each video file is
+    probed once however many requests name it, on `jobs` threads."""
     records: list[ItemRecord] = []
     for n, request in enumerate(requests, start=1):
         kind = request["kind"]
@@ -171,9 +173,15 @@ def request_records(requests: list[dict[str, Any]],
         record = ItemRecord(item=item, source=asset, asset=asset,
                             asset_abs=path, source_ref=dict(source),
                             notes=notes)
-        if kind == "video" and path is not None and path.is_file():
-            set_video_duration(record)
         records.append(record)
+    videos = [r for r in records if r.item["type"] == "video"
+              and r.asset_abs is not None and r.asset_abs.is_file()]
+    paths = list(dict.fromkeys(r.asset_abs for r in videos))
+    with ThreadPoolExecutor(max(1, jobs)) as pool:
+        durations = dict(zip(paths, pool.map(probe_duration_seconds,
+                                              paths)))
+    for record in videos:
+        set_video_duration(record, durations.__getitem__)
     return records
 
 

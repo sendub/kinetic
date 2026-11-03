@@ -12,6 +12,7 @@ the build ledger keeps the source asset paths.
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -72,13 +73,16 @@ class ItemRecord:
     skipped: bool = False
 
 
-def set_video_duration(record: ItemRecord) -> None:
+def set_video_duration(record: ItemRecord,
+                       probe: Callable[[Path], float | None]
+                       = probe_duration_seconds) -> None:
     """A video item's ``durationSeconds``, probed from its source file, or
     the placeholder 1.0 with a note when it cannot be probed (the asset
     pass re-probes a source a decoder hook changed). kinetic-extract's
-    timeline and ``kinetic-media ship`` both set it here."""
+    timeline and ``kinetic-media ship`` both set it here; `probe` is
+    ``probe_duration_seconds`` or a memo of it."""
     path = record.asset_abs
-    duration = (probe_duration_seconds(path)
+    duration = (probe(path)
                 if path is not None and path.exists() else None)
     if duration is None:
         duration = 1.0

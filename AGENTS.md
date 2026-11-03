@@ -22,7 +22,10 @@ are implementing and docs/stack.md for settled decisions.
   <out>`; it refuses to start until that setup has passed. Tests
   `.venv/bin/pytest converter/ tools/ -q`.
 - Media only, no story parse: `.venv/bin/kinetic-media ship <game_root>
-  <out> --list requests.json` (format: docs/extracting.md).
+  <out> --list requests.json` (format: docs/extracting.md). Both
+  `ship` and `rebuild` take `--jobs N` (default: one per core) and
+  `--video-jobs N` (default: a quarter of that); `--jobs 1` is the
+  serial path, same output. Progress goes to stderr every 10 s.
 - Verify or reproduce a folder's media from its ledger and the original
   files: `.venv/bin/kinetic-media rebuild <game_root> <folder>
   [--decoder MODULE:FUNC ...] [--out DIR]` (exit 0 only when every hash

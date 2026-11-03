@@ -414,7 +414,7 @@ ship"):
 
 ```sh
 .venv/bin/kinetic-media ship <game_root> <out> --list requests.json \
-    [--decoder MODULE:FUNC ...]
+    [--decoder MODULE:FUNC ...] [--jobs N] [--video-jobs N]
 ```
 
 Each request goes through the same asset pass as kinetic-extract: the
@@ -512,6 +512,108 @@ into it, so a helper can ship once per episode into one folder:
   written. Only `poster` entries are ever deleted, never one still
   named.
 
+### Parallel workers
+
+`ship` and `rebuild` take two limits:
+
+- `--jobs N`: run up to N encodes at once (default: one per core,
+  `os.cpu_count()`). `--jobs 1` runs everything in order on one
+  thread, as before.
+- `--video-jobs N`: of those, at most N transcodes or remuxes (default:
+  a quarter of `--jobs`, at least 1). A waiting transcode takes the
+  next free slot before any waiting still image, so long transcodes
+  start early instead of last.
+
+The folder is the same whatever the limits: the same files, the same
+bytes, and a byte-identical `media-ledger.json`. How `ship` keeps it
+so (`converter/kinetic_extract/workers.py`, `assets._plan_ahead`):
+
+- First one coordinator walks the requests in order. It reads and
+  hashes each source, runs the decoder hooks, sniffs images and probes
+  videos (each file once), and queues every encode the requests need:
+  an image decision, a poster, a transcode or a remux. Each is keyed
+  by what it encodes (the input's sha256, plus `startSeconds` for a
+  poster), so an encode many requests share is queued once. An output
+  the folder's ledger already records is not queued.
+- Worker threads run the queue. libjxl, zlib and ffmpeg release
+  Python's lock, so threads run truly in parallel and no frame is
+  copied between processes. Each encode is still single-threaded
+  (`numthreads=1`, `-threads 1`); the speed comes from running several
+  at once. A finished output waits in a scratch file, not in memory.
+- The coordinator then places the requests one by one, in request
+  order, with the same code as `--jobs 1`. It takes each result as it
+  is needed, so ledger entries, `alsoFrom` order and notes cannot
+  depend on which worker finished first.
+- Every output is written to the scratch folder (inside `<out>`, on
+  the same disk) and renamed into `media/`. The ledger is written once,
+  at the end, to a temporary file that is then renamed. A crash or
+  kill therefore never leaves a half-written output or ledger. The
+  folder's earlier ledger stays as it was, and any outputs already in
+  `media/` are whole.
+
+`rebuild` checks each ledger entry on a worker. Failures are still
+listed in ledger order.
+
+Progress goes to stderr at most every 10 seconds, plus a last line:
+
+```text
+progress: 5120/87000 (5.9%), 41m10s elapsed, ~10h58m left
+```
+
+It counts requests (for `rebuild`, ledger entries) in ledger order, not
+distinct outputs, since several requests can share one output file.
+The estimate assumes the remaining requests take as long as the
+finished ones did.
+
+Measured on an 8-core M2 (4 performance + 4 efficiency cores, 16 GB),
+cold (`KINETIC_MEDIA_CACHE=off`), with the pinned tools, on 132
+requests for 120 synthetic 1920x1080 six-second videos (124 distinct
+posters, all shipped as JPEG XL); see the table below.
+
+Posters only: 132 requests, 124 distinct posters.
+
+| `--jobs` | Wall time | Peak memory | Same folder as before |
+| --- | --- | --- | --- |
+| before this change (serial) | 1649 s | 0.22 GB | (reference) |
+| 1 | 1648 s | 0.20 GB | yes |
+| 2 | 828 s | 0.39 GB | yes |
+| 4 | 477 s | 0.68 GB | yes |
+| 6 | 382 s | 0.84 GB | yes |
+| 8 (default) | 357 s | 1.07 GB | yes |
+
+Mixed: 27 requests, 9 needing a transcode (MPEG-4 Part 2) and 18
+copied, 25 posters.
+
+| `--jobs` / `--video-jobs` | Wall time | Peak memory | Same folder |
+| --- | --- | --- | --- |
+| before this change (serial) | 365 s | 0.16 GB | (reference) |
+| 1 / 1 | 360 s | 0.15 GB | yes |
+| 2 / 1 | 188 s | 0.28 GB | yes |
+| 4 / 1 | 111 s | 0.43 GB | yes |
+| 8 / 2 (default) | 88 s | 0.86 GB | yes |
+| 8 / 4 | 86 s | 0.78 GB | yes |
+| 8 / 8 | 86 s | 0.81 GB | yes |
+
+`rebuild` of the mixed folder: 242 s with `--jobs 1` and 62 s with 8,
+with the same report.
+
+Another single-threaded conversion was using one core throughout these
+runs. Going from 4 to 8 jobs adds the four efficiency cores, which
+encode about half as fast. The pinned transcode recipe is
+single-threaded (`-threads 1`), so `--video-jobs` hardly changes the
+total.
+
+Each JPEG XL encode of a 1080p frame takes about 10 s on a
+performance core and about 0.12 GB of memory. The defaults are one job
+per core, which is the fastest measured: 8 jobs used about 1.1 GB here.
+On a machine short of memory, lower `--jobs`.
+
+A run killed partway writes no ledger, so a restart reuses only what
+the reuse cache (Reuse cache, below) holds. With the cache on (the
+default), a restart re-reads and hashes every source but encodes
+nothing it finished before. With `KINETIC_MEDIA_CACHE=off`, it encodes
+everything again.
+
 ### Regenerating the posters of an existing shipment
 
 A shipment made before lossless posters has JPEG posters. Ship the same
@@ -548,8 +650,10 @@ files, and checks every hash (docs/plan.md Phase 25):
 
 ```sh
 .venv/bin/kinetic-media rebuild <game_root> [<game_root> ...] <folder> \
-    [--decoder MODULE:FUNC ...] [--out DIR]
+    [--decoder MODULE:FUNC ...] [--out DIR] [--jobs N] [--video-jobs N]
 ```
+
+`--jobs` and `--video-jobs` work as for ship (Parallel workers, above).
 
 - `<folder>` holds `build-ledger.json` (kinetic-extract),
   `media-ledger.json` (kinetic-media ship), or both. With both, both

@@ -79,11 +79,13 @@ recorded list for ``kinetic-media rebuild`` with those same functions.
 from __future__ import annotations
 
 import hashlib
+import itertools
 import json
 import os
 import shutil
 import subprocess
 import tempfile
+from collections.abc import Callable
 from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
@@ -95,6 +97,7 @@ from .media_cache import MediaCache
 from .media import (content_ref, image_size, probe_duration_seconds,
                     reuse_existing, sha256_file)
 from .timeline import ItemRecord
+from .workers import Workers
 
 COMPATIBLE_EXTS = {"png", "jpeg", "jpg", "webp", "gif"}
 JPEG_QUALITY = 92
@@ -1081,9 +1084,15 @@ class _Placed:
     is left untouched (it may be hard-linked elsewhere); one with other
     bytes raises ``media.ExistingFileError`` and is never overwritten."""
 
-    def __init__(self, out_dir: Path, tools: dict[str, Any]) -> None:
+    def __init__(self, out_dir: Path, tools: dict[str, Any],
+                 scratch: Path) -> None:
         self.out_dir = out_dir
         self.tools = tools
+        # New outputs are written here first, then renamed into place
+        # (same filesystem), so a crash never leaves a partial file under
+        # a content-addressed name.
+        self.scratch = scratch
+        self._seq = itertools.count()
         self.written: set[str] = set()
         self.media: dict[str, dict[str, Any]] = {}
         # source sha256 -> refs, of the earlier ledger's entries (`prior`)
@@ -1104,6 +1113,17 @@ class _Placed:
         path.parent.mkdir(parents=True, exist_ok=True)
         return path
 
+    def _publish(self, target: Path, write: Callable[[Path], Any]) -> None:
+        """`write` a scratch file, then rename it to `target`: the
+        output appears whole or not at all."""
+        tmp = self.scratch / f"publish-{next(self._seq)}"
+        try:
+            write(tmp)
+            os.replace(tmp, target)
+        except BaseException:
+            tmp.unlink(missing_ok=True)
+            raise
+
     def put_bytes(self, data: bytes, ext: str) -> tuple[str, bool]:
         """Ship in-memory bytes; returns (ref, already written this run)."""
         ref = content_ref(hashlib.sha256(data).hexdigest(), ext)
@@ -1111,7 +1131,7 @@ class _Placed:
             return ref, True
         target = self._target(ref)
         if not reuse_existing(target):
-            target.write_bytes(data)
+            self._publish(target, lambda tmp: tmp.write_bytes(data))
         self.written.add(ref)
         return ref, False
 
@@ -1123,7 +1143,8 @@ class _Placed:
             return ref, True
         target = self._target(ref)
         if not reuse_existing(target):
-            shutil.copyfile(source, target)
+            self._publish(target,
+                          lambda tmp: shutil.copyfile(source, tmp))
         self.written.add(ref)
         return ref, False
 
@@ -1148,6 +1169,19 @@ class _Placed:
         still in the folder with its bytes: (ref, its steps), else None.
         A re-ship into the same folder reuses it instead of encoding
         (a transcode, say) again, with or without the reuse cache."""
+        for ref, steps in self.recorded(kind, source_sha256, prefix):
+            if ref in self.written or reuse_existing(self.out_dir / ref):
+                self.written.add(ref)
+                return ref, steps
+        return None
+
+    def recorded(self, kind: str, source_sha256: str,
+                 prefix: list[dict[str, Any]],
+                 ) -> list[tuple[str, list[dict]]]:
+        """Every (ref, steps) the earlier ledger records that `prior`
+        would accept, in its order, before checking the files: no I/O,
+        no side effects (the parallel pass asks it ahead of time)."""
+        found: list[tuple[str, list[dict]]] = []
         for ref in self.by_source.get(source_sha256, ()):
             entry = self.media[ref]
             if entry.get("kind") != kind:
@@ -1160,11 +1194,8 @@ class _Placed:
                         or made.get("tools", {})
                         != steps_tools(steps, self.tools)):
                     continue
-                if ref in self.written or reuse_existing(
-                        self.out_dir / ref):
-                    self.written.add(ref)
-                    return ref, steps
-        return None
+                found.append((ref, steps))
+        return found
 
     def record(self, ref: str, kind: str, source: dict[str, Any],
                steps: list[dict[str, Any]]) -> None:
@@ -1283,6 +1314,8 @@ def run_asset_pass(records: list[ItemRecord], out_dir: Path,
                    decoded_sizes: list[tuple[int, int]] | None = None,
                    media: dict[str, dict[str, Any]] | None = None,
                    cache: MediaCache | None = None,
+                   workers: Workers | None = None,
+                   progress: Callable[[int], None] | None = None,
                    ) -> tuple[int, dict[str, dict[str, Any]]]:
     """Ship every referenced asset at its TRUE format (docs/plan.md Phase 10)
     under its content-addressed path (Phase 25).
@@ -1301,7 +1334,13 @@ def run_asset_pass(records: list[ItemRecord], out_dir: Path,
     when it is the entry's own source, changes nothing. ``cache`` is the
     reuse cache (``media_cache.open_cache``): image decisions,
     transcodes and posters it remembers for the same input bytes, recipe
-    and tools are not made again. Returns the
+    and tools are not made again. ``workers`` (``kinetic-media ship
+    --jobs``) makes the encodes (image decisions, posters, transcodes and
+    remuxes) ahead of time on worker threads, each distinct one once;
+    the records are still placed and recorded one by one in order, by
+    the same code, so the outputs and the ledger are the same as
+    without. ``progress`` is called with the number of records done
+    after each one. Returns the
     skipped count and the ledger's ``media`` section: output path ->
     entry.
 
@@ -1309,45 +1348,229 @@ def run_asset_pass(records: list[ItemRecord], out_dir: Path,
     story walk made, ``kinetic-media ship`` one record per list request.
     """
     out_dir.mkdir(parents=True, exist_ok=True)
-    placed = _Placed(out_dir, tools)
-    if media:
-        placed.add_prior(media)
     skipped = 0
-    # effective-source sha256 -> (shipped ref, decision, steps): identical
-    # sources encode once.
-    image_share: dict[str, tuple[str, str, list[dict]]] = {}
-    video_share: dict[str, tuple[str, str, list[dict]]] = {}
-    # video sha256 @ startSeconds -> (poster ref, its steps after any
-    # decode steps) or (None, error)
-    poster_share: dict[str, tuple[str | None, Any]] = {}
-    inputs: dict[tuple[str, ...], _Input] = {}
     with tempfile.TemporaryDirectory(prefix=".kinetic-tmp-",
                                      dir=out_dir) as scratch:
-        for record in records:
-            item = record.item
-            kind = item.get("type")
-            if kind not in ("image", "video"):
-                continue
-            source = record.asset_abs
-            if source is None or not source.is_file():
-                record.asset_meta["decision"] = "missing-source"
-                record.notes.append(
-                    "source asset missing: item dropped from manifest")
-                record.skipped = True
-                skipped += 1
-                continue
-            found = _read_input(record, source, list(decoders or ()),
-                                Path(scratch), inputs)
-            if kind == "image":
-                skipped += _ship_image(record, found, placed, image_share,
-                                       cache)
-                if found.steps and decoded_sizes is not None \
-                        and not record.skipped:
-                    _add_size(found.path, decoded_sizes)
-            else:
-                skipped += _ship_video(record, found, placed, video_share,
-                                       poster_share, Path(scratch), cache)
-    return skipped, dict(sorted(placed.media.items()))
+        run = _Pass(_Placed(out_dir, tools, Path(scratch)), Path(scratch),
+                    list(decoders or ()), cache)
+        if media:
+            run.placed.add_prior(media)
+        try:
+            if workers is not None:
+                run.ahead = _Ahead(workers, Path(scratch) / "ahead", cache)
+                _plan_ahead(records, run)
+            for done, record in enumerate(records, start=1):
+                skipped += _ship_record(record, run, decoded_sizes)
+                if progress is not None:
+                    progress(done)
+        finally:
+            if workers is not None:
+                # Before the scratch dir goes: no task may still write
+                # into it (unused ones are dropped, running ones end).
+                workers.close()
+    return skipped, dict(sorted(run.placed.media.items()))
+
+
+@dataclass
+class _Pass:
+    """One asset pass's state. The share maps make identical inputs
+    encode once: effective-source sha256 -> (shipped ref, decision,
+    steps) for images and videos; ``<video sha256>@<startSeconds>`` ->
+    (poster ref, its steps after any decode steps) or (None, error) for
+    posters. ``inputs``, ``sniffs`` and ``probes`` remember per-source
+    reads (``_read_input``, ``sniff_image``, ``probe_video``)."""
+
+    placed: _Placed
+    scratch: Path
+    decoders: list[decoder_hooks.Decoder]
+    cache: MediaCache | None
+    ahead: _Ahead | None = None
+
+    def __post_init__(self) -> None:
+        self.image_share: dict[str, tuple[str, str, list[dict]]] = {}
+        self.video_share: dict[str, tuple[str, str, list[dict]]] = {}
+        self.poster_share: dict[str, tuple[str | None, Any]] = {}
+        self.inputs: dict[tuple[str, ...], _Input] = {}
+        self.sniffs: dict[Path, tuple[str | None, int, str]] = {}
+        self.probes: dict[Path, VideoProbe | None] = {}
+
+    def input(self, record: ItemRecord) -> _Input | None:
+        """The record's source (after the hooks), or None when missing."""
+        source = record.asset_abs
+        if source is None or not source.is_file():
+            return None
+        return _read_input(record, source, self.decoders, self.scratch,
+                           self.inputs)
+
+    def sniff(self, found: _Input, data: bytes) -> tuple[str | None, int,
+                                                         str]:
+        """(format, carve offset, sha256 of the effective bytes) of the
+        image bytes `data` read from ``found.path``."""
+        if found.path not in self.sniffs:
+            fmt, offset = sniff_image(data)
+            digest = (hashlib.sha256(data[offset:]).hexdigest() if offset
+                      else found.digest)
+            self.sniffs[found.path] = (fmt, offset, digest)
+        return self.sniffs[found.path]
+
+    def probe(self, found: _Input) -> VideoProbe | None:
+        if found.path not in self.probes:
+            self.probes[found.path] = probe_video(found.path)
+        return self.probes[found.path]
+
+
+def _ship_record(record: ItemRecord, run: _Pass,
+                 decoded_sizes: list[tuple[int, int]] | None) -> int:
+    """Place one record's media (in record order); 1 when skipped."""
+    kind = record.item.get("type")
+    if kind not in ("image", "video"):
+        return 0
+    found = run.input(record)
+    if found is None:
+        record.asset_meta["decision"] = "missing-source"
+        record.notes.append("source asset missing: item dropped from "
+                            "manifest")
+        record.skipped = True
+        return 1
+    if kind == "video":
+        return _ship_video(record, found, run)
+    skipped = _ship_image(record, found, run)
+    if found.steps and decoded_sizes is not None and not record.skipped:
+        _add_size(found.path, decoded_sizes)
+    return skipped
+
+
+class _Ahead:
+    """Encodes made ahead of the in-order pass on worker threads.
+
+    Each task is keyed by exactly what the in-order pass would encode
+    (the effective input's sha256, plus the start time for a poster) and
+    calls the same function the in-order pass would; its output goes to
+    a scratch file (never held in memory while it waits), which the
+    in-order pass reads back and places as if it had just made it. A
+    key the in-order pass never asks for (a video whose every poster
+    failed, say) only costs the work; one it asks for that was not
+    planned is made there and then."""
+
+    def __init__(self, workers: Workers, scratch: Path,
+                 cache: MediaCache | None) -> None:
+        self.workers = workers
+        self.scratch = scratch
+        scratch.mkdir()
+        self.cache = cache
+        self._seq = itertools.count()
+
+    def _file(self, ext: str) -> Path:
+        return self.scratch / f"{next(self._seq)}.{ext}"
+
+    def image(self, path: Path, offset: int, digest: str, fmt: str,
+              wrapped: bool) -> None:
+        self.workers.submit(("image", digest), self._image, path, offset,
+                            digest, fmt, wrapped, self._file("out"))
+
+    def _image(self, path: Path, offset: int, digest: str, fmt: str,
+               wrapped: bool, out: Path) -> tuple[Any, ...]:
+        data = path.read_bytes()[offset:]
+        ext, made, decision, notes, steps = decide_image_cached(
+            self.cache, data, digest, fmt, wrapped)
+        same = made is data or made == data
+        if not same:
+            out.write_bytes(made)
+        return ext, None if same else out, decision, notes, steps
+
+    def take_image(self, digest: str, data: bytes,
+                   ) -> tuple[str, bytes, str, list[str], list[dict]] | None:
+        key = ("image", digest)
+        if not self.workers.has(key):
+            return None
+        ext, out, decision, notes, steps = self.workers.result(key)
+        made = data if out is None else _take_file(out)
+        return ext, made, decision, notes, steps
+
+    def poster(self, source: Path, start: float, digest: str) -> None:
+        self.workers.submit(("poster", digest, start), self._poster, source,
+                            start, digest, self._file("poster"))
+
+    def _poster(self, source: Path, start: float, digest: str,
+                out: Path) -> Poster:
+        made = extract_poster(source, start, self.cache, digest)
+        if made.error is None:
+            out.write_bytes(made.data)
+            made.data = b""
+        return made, out
+
+    def take_poster(self, digest: str, start: float) -> Poster | None:
+        key = ("poster", digest, start)
+        if not self.workers.has(key):
+            return None
+        made, out = self.workers.result(key)
+        if made.error is not None:
+            return made
+        return Poster(made.ext, _take_file(out), made.steps)
+
+    def video(self, step: dict[str, Any], source: Path, digest: str) -> None:
+        self.workers.submit(("video", digest), self._video, step, source,
+                            digest, self._file("mp4"), video=True)
+
+    def _video(self, step: dict[str, Any], source: Path, digest: str,
+               out: Path) -> tuple[str | None, Path]:
+        return file_step_cached(self.cache, step, source, digest, out), out
+
+    def take_video(self, digest: str) -> tuple[str | None, Path] | None:
+        key = ("video", digest)
+        return self.workers.result(key) if self.workers.has(key) else None
+
+
+def _take_file(path: Path) -> bytes:
+    data = path.read_bytes()
+    path.unlink()
+    return data
+
+
+def _plan_ahead(records: list[ItemRecord], run: _Pass) -> None:
+    """Queue every encode the in-order pass will ask for, in record
+    order, each distinct one once, on ``run.ahead``'s workers. It reads
+    sources, runs the decoder hooks, sniffs and probes exactly as the
+    in-order pass would (through the same memos, so that pass does none
+    of it again) and skips what an earlier ledger already holds."""
+    ahead = run.ahead
+    assert ahead is not None
+    planned_posters: set[str] = set()
+    planned_videos: set[str] = set()
+    for record in records:
+        kind = record.item.get("type")
+        if kind not in ("image", "video"):
+            continue
+        found = run.input(record)
+        if found is None:
+            continue
+        if kind == "image":
+            data = found.path.read_bytes()
+            fmt, offset, digest = run.sniff(found, data)
+            if fmt is not None:
+                ahead.image(found.path, offset, digest, fmt, offset > 0)
+            continue
+        probe = run.probe(found)
+        if probe is None:
+            continue
+        digest = found.digest
+        start = float(record.item.get("startSeconds") or 0.0)
+        poster_key = f"{digest}@{start:.6f}"
+        if poster_key not in planned_posters:
+            planned_posters.add(poster_key)
+            frame = found.steps + [poster_step(start)]
+            if not run.placed.recorded("poster", found.sha256, frame):
+                ahead.poster(found.path, start, digest)
+        if digest in planned_videos:
+            continue
+        planned_videos.add(digest)
+        rule = video_decision(probe.container, probe.codec, probe.tag)
+        if rule == KEEP:
+            continue
+        step = remux_step(probe) if rule == REMUX else transcode_step(probe)
+        if not run.placed.recorded("video", found.sha256,
+                                   found.steps + [step]):
+            ahead.video(step, found.path, digest)
 
 
 def _shared_note(record: ItemRecord, shipped: str) -> None:
@@ -1355,12 +1578,11 @@ def _shared_note(record: ItemRecord, shipped: str) -> None:
                         "output)")
 
 
-def _ship_image(record: ItemRecord, found: _Input, placed: _Placed,
-                share: dict[str, tuple[str, str, list[dict]]],
-                cache: MediaCache | None) -> int:
+def _ship_image(record: ItemRecord, found: _Input, run: _Pass) -> int:
+    placed, share = run.placed, run.image_share
     source = found.path
     data = source.read_bytes()
-    fmt, offset = sniff_image(data)
+    fmt, offset, digest = run.sniff(found, data)
     meta: dict[str, Any] = record.asset_meta
     meta["sniffedFormat"] = fmt or "unknown"
     if fmt is None:
@@ -1372,14 +1594,14 @@ def _ship_image(record: ItemRecord, found: _Input, placed: _Placed,
         record.skipped = True
         return 1
     effective = data[offset:]
-    digest = (hashlib.sha256(effective).hexdigest() if offset
-              else found.digest)
     if digest in share:
         shipped, decision, steps = share[digest]
         already = True
     else:
-        ext, out_bytes, decision, notes, steps = decide_image_cached(
-            cache, effective, digest, fmt, offset > 0)
+        made = run.ahead.take_image(digest, effective) if run.ahead \
+            else None
+        ext, out_bytes, decision, notes, steps = made or decide_image_cached(
+            run.cache, effective, digest, fmt, offset > 0)
         shipped, already = placed.put_bytes(out_bytes, ext)
         share[digest] = (shipped, decision, steps)
         record.notes.extend(notes)
@@ -1394,13 +1616,12 @@ def _ship_image(record: ItemRecord, found: _Input, placed: _Placed,
     return 0
 
 
-def _ship_video(record: ItemRecord, found: _Input, placed: _Placed,
-                video_share: dict[str, tuple[str, str, list[dict]]],
-                poster_share: dict[str, tuple[str | None, Any]],
-                scratch: Path, cache: MediaCache | None) -> int:
+def _ship_video(record: ItemRecord, found: _Input, run: _Pass) -> int:
+    placed, cache, scratch = run.placed, run.cache, run.scratch
+    video_share, poster_share = run.video_share, run.poster_share
     source = found.path
     meta: dict[str, Any] = record.asset_meta
-    probe = probe_video(source)
+    probe = run.probe(found)
     container = probe.container if probe else None
     codec = probe.codec if probe else None
     meta["sniffedFormat"] = container or "unknown"
@@ -1429,7 +1650,9 @@ def _ship_video(record: ItemRecord, found: _Input, placed: _Placed,
             cached = (prior[0], prior[1][len(found.steps):])
             poster_share[poster_key] = cached
         else:
-            made_poster = extract_poster(source, start, cache, digest)
+            made_poster = (run.ahead.take_poster(digest, start)
+                           if run.ahead else None) \
+                or extract_poster(source, start, cache, digest)
             if made_poster.error is not None:
                 cached = (None, made_poster.error)
                 poster_share[poster_key] = cached
@@ -1460,8 +1683,13 @@ def _ship_video(record: ItemRecord, found: _Input, placed: _Placed,
                 shipped, already = prior[0], False
             else:
                 made = scratch / f"{rule}.mp4"
-                if file_step_cached(cache, step, source, digest,
-                                    made) is not None:
+                ran = run.ahead.take_video(digest) if run.ahead else None
+                if ran is not None:
+                    error, made = ran
+                else:
+                    error = file_step_cached(cache, step, source, digest,
+                                             made)
+                if error is not None:
                     made.unlink(missing_ok=True)
                     meta["decision"] = "skipped"
                     record.notes.append(

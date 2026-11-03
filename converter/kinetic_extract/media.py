@@ -6,10 +6,13 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import subprocess
+import threading
 from collections import Counter
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from pathlib import Path
+from typing import Any
 
 from . import media_tools
 
@@ -44,6 +47,20 @@ def sha256_file(path: Path, chunk: int = HASH_CHUNK) -> str:
         while block := handle.read(chunk):
             digest.update(block)
     return digest.hexdigest()
+
+
+def write_whole(target: Path, write: Callable[[Path], Any]) -> None:
+    """`write` a temporary file beside `target`, then rename it over
+    `target`: readers, and a run that crashes midway, see the old file
+    or the whole new one, never part of it."""
+    tmp = target.with_name(f".{target.name}.{os.getpid()}-"
+                           f"{threading.get_ident()}.tmp")
+    try:
+        write(tmp)
+        os.replace(tmp, target)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
 
 
 class ExistingFileError(Exception):
@@ -97,8 +114,9 @@ def probe_duration_seconds(path: Path) -> float | None:
 
 def image_size(path: Path) -> tuple[int, int] | None:
     """(width, height) of an image file Pillow or libjxl decodes, or None.
-    Pillow reads no JPEG XL, so a ``.jxl`` file is decoded with the
-    pinned libjxl."""
+    Pillow reads no JPEG XL: a bare ``.jxl`` codestream's size is read
+    from its header (``jxl_codestream_size``), anything else (a
+    container) is decoded with the pinned libjxl."""
     from PIL import Image
 
     try:
@@ -108,13 +126,63 @@ def image_size(path: Path) -> tuple[int, int] | None:
         pass
     try:
         with path.open("rb") as fh:
-            head = fh.read(12)
+            head = fh.read(64)
         if head[:2] != b"\xff\x0a" and head[4:12] != b"JXL \r\n\x87\n":
             return None
+        size = jxl_codestream_size(head)
+        if size is not None:
+            return size
         pixels = media_tools.jxl_decode(path.read_bytes())
     except Exception:  # noqa: BLE001 - not a decodable image
         return None
     return int(pixels.shape[1]), int(pixels.shape[0])
+
+
+# JPEG XL SizeHeader aspect ratios (ISO/IEC 18181-1): ratio 1..7 ->
+# width = height * num // den.
+_JXL_RATIOS = {1: (1, 1), 2: (12, 10), 3: (4, 3), 4: (3, 2), 5: (16, 9),
+               6: (5, 4), 7: (2, 1)}
+
+
+def jxl_codestream_size(head: bytes) -> tuple[int, int] | None:
+    """The displayed (width, height) a bare JPEG XL codestream's header
+    gives (SizeHeader, then ImageMetadata's orientation: 5..8 swap the
+    axes, as libjxl's decode does), or None when `head` is not a bare
+    codestream or too short. Reading 64 bytes is always enough. This
+    skips decoding a whole poster just to learn its size; it gives what
+    ``jxl_decode`` returns (tests check that against the decoder)."""
+    if head[:2] != b"\xff\x0a":
+        return None
+    bits = int.from_bytes(head[2:], "little")
+    at = 0
+    avail = (len(head) - 2) * 8
+
+    def read(n: int) -> int:
+        nonlocal at
+        if at + n > avail:
+            raise IndexError
+        value = (bits >> at) & ((1 << n) - 1)
+        at += n
+        return value
+
+    def u32_dim() -> int:
+        return 1 + read((9, 13, 18, 30)[read(2)])
+
+    try:
+        small = read(1)
+        height = (read(5) + 1) * 8 if small else u32_dim()
+        ratio = read(3)
+        if ratio:
+            num, den = _JXL_RATIOS[ratio]
+            width = height * num // den
+        else:
+            width = (read(5) + 1) * 8 if small else u32_dim()
+        orientation = 1
+        if not read(1) and read(1):  # not all_default, extra_fields
+            orientation = 1 + read(3)
+    except IndexError:
+        return None
+    return (height, width) if orientation > 4 else (width, height)
 
 
 def most_common_image_size(paths: list[Path],

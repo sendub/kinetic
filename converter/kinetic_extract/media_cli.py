@@ -6,8 +6,10 @@ Usage:
     kinetic-media ship <game_root> <out_dir> --list FILE
                        [--decoder MODULE:FUNC ...]
                        [--delete-unreferenced-posters]
+                       [--jobs N] [--video-jobs N]
     kinetic-media rebuild <game_root> [<game_root> ...] <folder>
                           [--decoder MODULE:FUNC ...] [--out DIR]
+                          [--jobs N] [--video-jobs N]
 
 ``FILE`` is a JSON array of requests; each names a source relative to
 ``<game_root>`` (a loose path, or an ``.rpa`` archive plus member) and a
@@ -22,6 +24,13 @@ list regenerates only what the recipe changed (posters made before the
 lossless poster recipe, say). Poster files no request names any more
 are counted in the summary and kept, or deleted with
 ``--delete-unreferenced-posters``.
+
+``--jobs N`` (default: one per core) encodes up to N outputs at once on
+worker threads, transcodes and remuxes at most ``--video-jobs`` of them
+(default: a quarter of N); ``--jobs 1`` runs everything in order on
+one thread. Either way the outputs and the ledger are the same; the
+ledger is written once, at the end, through a temporary file. Progress
+(``progress: done/total requests``) goes to stderr at most every 10 s.
 
 Exit codes: 0 when every request ran (missing or unusable sources are
 reported as skipped results and in the summary), 1 when a decoder hook
@@ -52,11 +61,13 @@ from . import __version__
 from .assets import run_asset_pass
 from .cli import decoder_option, sorted_keys
 from .decoders import DecoderError
-from .media import ExistingFileError
+from .media import ExistingFileError, write_whole
 from .media_cache import open_cache
 from .media_tools import MediaToolsError, run_tools
 from .rebuild import RebuildError, load_ledgers, rebuild, tool_differences
 from .selftest import ensure_ready
+from .workers import (Progress, Workers, default_jobs,
+                      default_video_jobs)
 from .ship import (LEDGER_NAME, LedgerError, ListError, check_same_tools,
                    delete_posters, load_ledger, merge_decoders,
                    merge_requests, read_list, request_records,
@@ -89,12 +100,18 @@ def ship(args: argparse.Namespace) -> int:
         return _fail(str(exc), 1)
     existing = existing or {}
 
-    records = request_records(requests, root.resolve())
+    jobs, video_jobs = _limits(args)
+    records = request_records(requests, root.resolve(), jobs)
+    workers = Workers(jobs, video_jobs) if jobs > 1 else None
+    progress = Progress("progress", len(records), sys.stderr,
+                        PROGRESS_SECONDS)
     try:
         skipped, media = run_asset_pass(records, out_dir, tools,
                                         args.decoder,
                                         media=existing.get("media"),
-                                        cache=open_cache(tools))
+                                        cache=open_cache(tools),
+                                        workers=workers,
+                                        progress=progress)
     except (DecoderError, ExistingFileError) as exc:
         return _fail(str(exc), 1)
     entries = [{"request": request, "result": request_result(record,
@@ -115,9 +132,9 @@ def ship(args: argparse.Namespace) -> int:
             del media[ref]
     ledger["media"] = sorted_keys(media)
     ledger["requests"] = sorted_keys(requests_out)
-    (out_dir / LEDGER_NAME).write_text(
-        json.dumps(ledger, indent=2, ensure_ascii=False) + "\n",
-        encoding="utf-8")
+    text = json.dumps(ledger, indent=2, ensure_ascii=False) + "\n"
+    write_whole(out_dir / LEDGER_NAME,
+                lambda tmp: tmp.write_text(text, encoding="utf-8"))
     if args.delete_unreferenced_posters:
         delete_posters(out_dir, stale)
     _print_summary(records, entries, skipped)
@@ -127,6 +144,15 @@ def ship(args: argparse.Namespace) -> int:
                  "kept (no request names them any more; "
                  "--delete-unreferenced-posters removes them)"))
     return 0
+
+
+PROGRESS_SECONDS = 10.0
+
+
+def _limits(args: argparse.Namespace) -> tuple[int, int]:
+    """(--jobs, --video-jobs), defaults filled in."""
+    jobs = args.jobs or default_jobs()
+    return jobs, args.video_jobs or default_video_jobs(jobs)
 
 
 def _print_summary(records, entries, skipped: int) -> None:
@@ -157,8 +183,13 @@ def rebuild_cmd(args: argparse.Namespace) -> int:
         return _fail("the ledger was made with other media tools; with "
                      "these the outputs cannot match:\n"
                      + "\n".join(differ), 2)
+    jobs, video_jobs = _limits(args)
+    total = sum(len(ledger["media"]) for _, ledger in ledgers)
+    progress = Progress("progress", total, sys.stderr, PROGRESS_SECONDS)
     report = rebuild(folder, [root.resolve() for root in roots],
-                     args.decoder, ledgers, args.out)
+                     args.decoder, ledgers, args.out,
+                     Workers(jobs, video_jobs) if jobs > 1 else None,
+                     progress)
     names = " + ".join(name for name, _ in ledgers)
     for line in report.failures:
         print(f"FAIL {line}")
@@ -171,6 +202,31 @@ def rebuild_cmd(args: argparse.Namespace) -> int:
     print("rebuild OK" + (f": media written to {args.out}" if args.out
                           else ""))
     return 0
+
+
+def _positive(value: str) -> int:
+    try:
+        number = int(value)
+    except ValueError:
+        number = 0
+    if number < 1:
+        raise argparse.ArgumentTypeError(f"must be a whole number >= 1, "
+                                         f"got {value!r}")
+    return number
+
+
+def _add_limits(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--jobs", type=_positive, default=None,
+                        metavar="N",
+                        help="encode up to N outputs at once (default: "
+                             f"one per core, here {default_jobs()}); 1 "
+                             "runs in order on one thread; the output is "
+                             "the same either way")
+    parser.add_argument("--video-jobs", type=_positive, default=None,
+                        metavar="N",
+                        help="of those, at most N video transcodes or "
+                             "remuxes (default: a quarter of --jobs, at "
+                             "least 1)")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -202,6 +258,7 @@ def main(argv: list[str] | None = None) -> int:
                             "manifest or build ledger in the folder names "
                             "any more, e.g. the JPEG posters a re-ship "
                             "with the lossless poster recipe replaced")
+    _add_limits(shipp)
     rebuildp = sub.add_parser(
         "rebuild", help="make a folder's media again from its ledger and "
                         "the original files, checking every hash")
@@ -222,6 +279,7 @@ def main(argv: list[str] | None = None) -> int:
     rebuildp.add_argument("--out", type=Path, default=None, metavar="DIR",
                           help="also write the rebuilt media/ tree into "
                                "DIR (default: verify only)")
+    _add_limits(rebuildp)
     args = argp.parse_args(argv)
     try:
         ensure_ready()

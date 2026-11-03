@@ -30,6 +30,7 @@ from __future__ import annotations
 import json
 import shutil
 import tempfile
+import threading
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -38,8 +39,9 @@ from typing import Any
 from . import assets
 from .assets import hook_func
 from .decoders import Decoder, describe
-from .media import MEDIA_DIR, existing_problem, sha256_file
+from .media import MEDIA_DIR, existing_problem, sha256_file, write_whole
 from .rpa import RpaError, extract_cached, open_archive
+from .workers import Workers
 
 BUILD_LEDGER = "build-ledger.json"
 MEDIA_LEDGER = "media-ledger.json"
@@ -149,11 +151,14 @@ def project_base(game_root: Path) -> Path:
 
 class _Sources:
     """Resolves ledger sources under the base dirs (one per game root, a
-    source's 1-based ``project`` picking one), hashing each file once."""
+    source's 1-based ``project`` picking one), hashing each file once.
+    Safe to share between worker threads: finding (archive extraction
+    included) and hashing run one at a time."""
 
     def __init__(self, bases: list[Path]) -> None:
         self.bases = bases
         self.hashes: dict[Path, tuple[str, int]] = {}
+        self.lock = threading.Lock()
 
     def base(self, project: Any) -> tuple[Path | None, str]:
         """The base dir for a source's ``project`` (absent: the first),
@@ -172,6 +177,11 @@ class _Sources:
     def find(self, source: dict[str, Any],
              project: Any = None) -> tuple[Path | None, str]:
         """(file holding the source bytes, or None) and why it is None."""
+        with self.lock:
+            return self._find(source, project)
+
+    def _find(self, source: dict[str, Any],
+              project: Any) -> tuple[Path | None, str]:
         base, why = self.base(project)
         if base is None:
             return None, why
@@ -190,6 +200,10 @@ class _Sources:
             return None, f" (archive unreadable: {exc})"
 
     def digest(self, path: Path) -> tuple[str, int]:
+        with self.lock:
+            return self._digest(path)
+
+    def _digest(self, path: Path) -> tuple[str, int]:
         if path not in self.hashes:
             self.hashes[path] = (sha256_file(path), path.stat().st_size)
         return self.hashes[path]
@@ -254,11 +268,15 @@ def rebuild_one(entry: dict[str, Any], made: dict[str, Any],
 
 def rebuild(folder: Path, game_roots: list[Path], decoders: list[Decoder],
             ledgers: list[tuple[str, dict[str, Any]]],
-            out_dir: Path | None = None) -> Report:
+            out_dir: Path | None = None, workers: Workers | None = None,
+            progress: Callable[[int], None] | None = None) -> Report:
     """Rebuild every ``media`` entry of `ledgers` from the original files
     under `game_roots` (one per project, in order); write matching
     outputs under `out_dir` when given; check the folder's ``media/``
-    (always without `out_dir`, else when the folder has a ``media/``)."""
+    (always without `out_dir`, else when the folder has a ``media/``).
+    ``workers`` rebuilds several entries at once (transcodes and remuxes
+    in its video lane); the report lists them in the same order either
+    way. ``progress`` is called with the number of entries done."""
     report = Report()
     for line in decoder_differences(ledgers, decoders):
         report.fail("decoders", line)
@@ -267,18 +285,54 @@ def rebuild(folder: Path, game_roots: list[Path], decoders: list[Decoder],
     # a wrong file there, once.
     checked = out_dir is not None and (folder / MEDIA_DIR).is_dir() \
         and out_dir.resolve() == folder.resolve()
+    todo: list[tuple[str, dict[str, Any], _Sources]] = []
     for name, ledger in ledgers:
         sources = _Sources([project_base(root) if name == BUILD_LEDGER
                             else root for root in game_roots])
         for ref, entry in sorted(ledger["media"].items()):
             entries[ref] = entry
+            todo.append((ref, entry, sources))
+    if workers is None:
+        for done, (ref, entry, sources) in enumerate(todo, start=1):
             report.outputs += 1
-            ok = _rebuild_entry(ref, entry, sources, decoders, report,
-                                out_dir, checked)
-            report.matched += ok
+            report.matched += _rebuild_entry(ref, entry, sources, decoders,
+                                             report, out_dir, checked)
+            if progress is not None:
+                progress(done)
+    else:
+        with workers:
+            for n, (ref, entry, sources) in enumerate(todo):
+                workers.submit(n, _rebuild_apart, ref, entry, sources,
+                               decoders, out_dir, checked,
+                               video=_is_video_work(entry))
+            for done in range(1, len(todo) + 1):
+                ok, part = workers.result(done - 1)
+                report.outputs += 1
+                report.matched += ok
+                report.sources += part.sources
+                report.failures += part.failures
+                if progress is not None:
+                    progress(done)
     if out_dir is None or (folder / MEDIA_DIR).is_dir():
         _check_folder(folder, entries, report)
     return report
+
+
+def _is_video_work(entry: Any) -> bool:
+    """Whether rebuilding `entry` runs a transcode or remux."""
+    return isinstance(entry, dict) and any(
+        isinstance(s, dict) and s.get("step") in ("transcode", "remux")
+        for s in entry.get("steps") or [])
+
+
+def _rebuild_apart(ref: str, entry: dict[str, Any], sources: _Sources,
+                   decoders: list[Decoder], out_dir: Path | None,
+                   checked: bool) -> tuple[bool, Report]:
+    """`_rebuild_entry` on a worker, into a report of its own."""
+    part = Report()
+    ok = _rebuild_entry(ref, entry, sources, decoders, part, out_dir,
+                        checked)
+    return ok, part
 
 
 def _rebuild_entry(ref: str, entry: dict[str, Any], sources: _Sources,
@@ -317,7 +371,8 @@ def _rebuild_entry(ref: str, entry: dict[str, Any], sources: _Sources,
                 ok = False
             elif target is not None and not target.exists():
                 target.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copyfile(out, target)
+                write_whole(target,
+                            lambda tmp, made=out: shutil.copyfile(made, tmp))
     return ok
 
 

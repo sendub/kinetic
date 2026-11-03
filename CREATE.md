@@ -644,6 +644,17 @@ PYTHONPATH=. $KINETIC/.venv/bin/kinetic-media ship ~/games/RainyDay \
     --decoder rainy_unwrap:decode
 ```
 
+A ship encodes on one worker per core by default. `--jobs N` changes
+how many encodes run at once, and `--video-jobs N` how many of them
+may be video transcodes (default: a quarter of `--jobs`). Lower
+`--jobs` if the machine runs short of memory: each 1080p poster
+encode needs about 0.12 GB. `--jobs 1` encodes one thing at a time.
+The folder comes out byte-identical whatever the limits. A long ship
+prints `progress: 5120/87000 (5.9%), 41m10s elapsed, ~10h58m left` to
+stderr every 10 seconds. A killed ship writes no ledger. With the
+reuse cache on (the default), a restart re-encodes nothing it
+finished before. `rebuild` takes the same two options.
+
 Each run prints `requests: 2; shipped: 2; skipped: 0` and merges into
 `~/games/RainyDay-Kinetic/media-ledger.json`; shipping the same list
 again changes nothing. That ledger's `requests` pair each request with

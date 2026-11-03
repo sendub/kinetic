@@ -1515,3 +1515,30 @@ truthful: an unchecked box means nothing was accepted.
       exit 0, smoke 6/6, screens 66 pass 2 partial (fullscreen Escape);
       Safari file:// high-res fixture, 64 rows: first opening in-view
       cards 68..386 ms one by one, reopens 16-20 ms all at once.)
+
+## Phase 30: Parallel media conversion (2026-11-03, user via the converting agent)
+
+- [x] Parallel `kinetic-media ship` and `rebuild`: poster generation for
+      the game I batch has run 8+ hours. Maximise speed:
+      profile the serial poster path and remove waste; bounded parallel
+      workers starting with posters; dedupe by source hash + frame time +
+      pinned recipe before dispatch; JXL encodes single-threaded, with
+      concurrency from parallel posters; one coordinator writes the
+      ledger in request order and publishes outputs atomically; video
+      transcodes under their own lower limit; progress shows completed /
+      total requests. Benchmark one cold batch at 1, 2, 4 (and the
+      default) workers: output paths, file hashes and request results
+      match the serial run; record wall time and peak memory.
+      (`--jobs` (default cpu count) / `--video-jobs` (default jobs/4);
+      threads, since libjxl/zlib release the GIL and ffmpeg is a
+      subprocess; a coordinator plans and dedupes encodes ahead, then
+      places records in order with the old code; outputs, ledger and
+      rebuild --out written atomically; progress every 10 s on stderr.
+      Waste removed: a second full JXL decode per request just for its
+      size (now read from the codestream header) and repeated ffprobe
+      per file; serial time unchanged (the effort-9 JXL encode is 86%).
+      1080p poster batch, 132 requests: serial 1649 s -> 8 jobs 357 s,
+      1.07 GB peak, byte-identical at 1/2/4/6/8. Orchestrator: mixed
+      batch (27 requests, 9 transcodes) via `.venv/bin/kinetic-media`,
+      --jobs 1 359 s vs --jobs 8 88 s (1.06 GB), all 50 files identical
+      by sha256; test_media_parallel 24 passed; full pytest 523 passed.)
