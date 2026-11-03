@@ -118,6 +118,47 @@ const VIDEO_FACTS = () => {
     : null;
 };
 
+// Installed on the chain's <video> once it is playing (the initial load's
+// own `emptied` can land just after the element mounts): every `seeking`
+// (with the last playing position before it) and every source reload
+// (`emptied`). A chained text advance must cause neither; the only seek
+// allowed is the element's own loop wrap (end of the clip back to 0).
+const INSTALL_RESTART_WATCH = () => {
+  const v = document.getElementById("visual-video");
+  const rec = { seeks: [], reloads: 0 };
+  window.__kineticRestarts = rec;
+  let last = v.currentTime;
+  v.addEventListener("timeupdate", () => {
+    if (!v.seeking) last = v.currentTime;
+  });
+  v.addEventListener("seeking", () =>
+    rec.seeks.push({ from: last, to: v.currentTime }),
+  );
+  v.addEventListener("emptied", () => {
+    rec.reloads += 1;
+  });
+};
+
+const RAW_TIME = () =>
+  document.getElementById("visual-video")?.currentTime ?? null;
+
+// The media time of the next frame the <video> presents (null if none comes
+// within a second). `seeking` is fired from a queued task, so a restart's
+// events are only recorded once the element has presented a frame after it.
+const NEXT_FRAME_TIME = () =>
+  new Promise((resolve) => {
+    const v = document.getElementById("visual-video");
+    if (v === null || typeof v.requestVideoFrameCallback !== "function") {
+      resolve(null);
+      return;
+    }
+    const timer = setTimeout(() => resolve(null), 1000);
+    v.requestVideoFrameCallback((_now, meta) => {
+      clearTimeout(timer);
+      resolve(meta.mediaTime);
+    });
+  });
+
 /** Poll `probe` every `gapMs` until `done(sample)` or `timeoutMs`. */
 async function sampleUntil(page, probe, done, timeoutMs, gapMs = 40) {
   const samples = [];
@@ -229,6 +270,7 @@ async function animationAndChain({ check, open }) {
   } catch {
     played = false;
   }
+  await page.evaluate(INSTALL_RESTART_WATCH);
   const s10 = await page.evaluate(PAGE_STATE);
   const f10 = await page.evaluate(VIDEO_FACTS);
   check(
@@ -271,24 +313,50 @@ async function animationAndChain({ check, open }) {
 
   // 12. The next chain step does not touch the element either; this line is
   // a thought, so the same read pins thought mode (italic, no speaker).
+  // Playing on means no restart: from the item's entry through both chain
+  // advances there is no source reload and no seek other than the loop's
+  // own wrap at the clip's end, and the next frame presented after this
+  // advance is not behind the position before it unless such a wrap fell
+  // inside it. The position alone proves nothing here: this step runs a few
+  // milliseconds after playback began, so it can still read 0 (step 13
+  // proves the video keeps advancing).
   const line3 = item("video-chain-3");
+  const tBefore12 = await page.evaluate(RAW_TIME);
+  const seeksBefore12 = (await page.evaluate(() => window.__kineticRestarts))
+    .seeks.length;
   await pressSpace(cdp);
   const s12 = await page.evaluate(PAGE_STATE);
+  const tAfter12 = await page.evaluate(NEXT_FRAME_TIME);
+  const restarts = await page.evaluate(() => window.__kineticRestarts);
   const same12 = await videoTokenIs(page);
+  const isWrap = (seek) =>
+    seek.from >= head.durationSeconds - 0.5 && seek.to < 0.05;
+  const wrapped12 = restarts.seeks.slice(seeksBefore12).some(isWrap);
   check(
     "the next chain line keeps the same <video> playing (thought line, italic)",
     same12 &&
       s12.video?.loop === true &&
       s12.video?.visible === true &&
       s12.video?.paused === false &&
-      s12.video?.currentTime > 0 &&
+      restarts.reloads === 0 &&
+      restarts.seeks.every(isWrap) &&
+      tAfter12 !== null &&
+      (tAfter12 >= tBefore12 || wrapped12) &&
       s12.imgVisible === false &&
       s12.speaker === null &&
       s12.text === line3.text &&
       s12.overlayMode === "thought" &&
       s12.textMode === "thought" &&
       s12.textFontStyle === "italic",
-    { same12, video: s12.video, mode: s12.textMode, font: s12.textFontStyle },
+    {
+      same12,
+      video: s12.video,
+      tBefore12,
+      tAfter12,
+      restarts,
+      mode: s12.textMode,
+      font: s12.textFontStyle,
+    },
   );
 
   // 13. h over the playing video hides the overlay; the video plays on.

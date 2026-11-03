@@ -1446,11 +1446,24 @@ truthful: an unchecked box means nothing was accepted.
       reset box. Biome specificity warnings fixed. vitest 626, check
       clean, screens 66 + 2 headless-fullscreen partials (5 new checks),
       navigation 21/21, smoke 6/6. 2026-11-03)
-- [ ] Media scenario flake: "the next chain line keeps the same <video>
+- [x] Media scenario flake: "the next chain line keeps the same <video>
       playing" intermittently fails with currentTime 0 (closer run, and 1
       of 3 reruns, 2026-11-03; also seen once in Phase 26). Find whether
       the player restarts the chained video or the check samples too
       early, and fix the cause.
+      (Check, not player: the sample came 2-15 ms after first `playing`,
+      raw currentTime 0.0036-0.014 s, rounded to 0 below 0.005; no
+      seeking/emptied/loadstart events on the chained advances. The check
+      now records seeks and reloads after playback starts, waits for the
+      next presented frame, and requires no reload, no seek but the loop
+      wrap, and a media time not behind the pre-advance one. An injected
+      `seekTo(element, 0)` on the chain path fails it. Orchestrator: media
+      3/3 clean (22/22), vitest 626, check exit 0 with the 3 existing
+      warnings.)
+- [ ] Media range flake: "range-a plays its range [start, end]"
+      (insideA false, endedA 0, maxMediaTime 1.48) and "range-b plays its
+      range twice" (passesB 1) failed in 3 of 10 instrumented media runs
+      during the chain-flake work, 2026-11-03. Find the cause and fix it.
 - [ ] Phase-closer: full suite, rebuild demo folders.
       (2026-11-03 first run: vitest 626, scenario suite 233 checks: 230
       pass, 2 PARTIAL (headless fullscreen), 1 FAIL (media chain
