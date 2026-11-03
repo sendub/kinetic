@@ -1460,10 +1460,27 @@ truthful: an unchecked box means nothing was accepted.
       `seekTo(element, 0)` on the chain path fails it. Orchestrator: media
       3/3 clean (22/22), vitest 626, check exit 0 with the 3 existing
       warnings.)
-- [ ] Media range flake: "range-a plays its range [start, end]"
+- [x] Media range flake: "range-a plays its range [start, end]"
       (insideA false, endedA 0, maxMediaTime 1.48) and "range-b plays its
       range twice" (passesB 1) failed in 3 of 10 instrumented media runs
       during the chain-flake work, 2026-11-03. Find the cause and fix it.
+      (range-b, check at fault: Chrome sets `paused` at file end before
+      dispatching `pause`/`ended`, so a poll in that gap took the end of
+      pass 1 as settled; the settle wait now also needs loopCount `ended`
+      events. range-a: advancedMs was timed from Node after the CDP round
+      trip (3744/3777 ms under load against 3800); it is now page time
+      between poster changes, via a MutationObserver. The maxMediaTime
+      1.48 failure did not recur in ~420 runs; its evidence now records
+      `pastEnd` frames. Fault injection (one pass short; hold armed 400 ms
+      early) fails both checks. Orchestrator: media 3/3 clean, vitest 626,
+      check exit 0.)
+- [ ] Ranged video ends after its hold: `onVideoEnded` ->
+      `machine.mediaEnded()` moves forward synchronously, the next item's
+      `applyVideoMode` resets `videoEndedCount`, then the old item's stale
+      plan seeks to the old `loopStartSeconds` and replays
+      (player/src/render/visual.ts; noted in docs/verify-player.md as
+      "reported, engine untouched"). Make a stale end never touch the
+      next item's playback; add a test.
 - [ ] Phase-closer: full suite, rebuild demo folders.
       (2026-11-03 first run: vitest 626, scenario suite 233 checks: 230
       pass, 2 PARTIAL (headless fullscreen), 1 FAIL (media chain

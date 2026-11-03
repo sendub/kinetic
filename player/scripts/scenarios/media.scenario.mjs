@@ -40,13 +40,31 @@ const textHold = (it) =>
   Math.max(MIN_HOLD_MS, [...(it.text ?? "")].length * MS_PER_CHAR);
 
 // Installed in the page before a video item is entered: every native
-// `ended` from a <video>, and a self-scheduling requestVideoFrameCallback
+// `ended` from a <video>, a self-scheduling requestVideoFrameCallback
 // chain recording each presented frame (poster marks which item is on
-// screen; the renderer reuses one element). It attaches to a mounted video
-// at once, else on the first `play`.
+// screen; the renderer reuses one element), and the page time of every
+// poster change (the renderer repaints the poster in the same task that
+// enters the item, so this is the item's entry as the machine's hold
+// clock sees it). It attaches to a mounted video at once, else on the
+// first `play`.
 const INSTALL_VIDEO_SAMPLER = () => {
-  window.__kineticVid = { frames: [], ended: [], errors: [] };
+  window.__kineticVid = { frames: [], ended: [], errors: [], posters: [] };
   const rec = window.__kineticVid;
+  new MutationObserver((records) => {
+    const at = Date.now();
+    for (const r of records) {
+      if (r.target.tagName === "VIDEO") {
+        rec.posters.push({
+          poster: String(r.target.getAttribute("poster") ?? ""),
+          at,
+        });
+      }
+    }
+  }).observe(document.body, {
+    subtree: true,
+    attributes: true,
+    attributeFilter: ["poster"],
+  });
   document.addEventListener(
     "ended",
     (event) => {
@@ -396,7 +414,6 @@ async function ranges({ check, open }) {
   // item is a video), loop off; with auto on, its pass report plus its
   // text hold carry the machine on to range-b.
   await pressSpace(cdp);
-  const enteredA = Date.now();
   await pressA(cdp);
   let onClip = true;
   try {
@@ -431,7 +448,19 @@ async function ranges({ check, open }) {
   } catch {
     advanced = false;
   }
-  const advancedMs = Date.now() - enteredA;
+  // Entry to advance in page time, from the poster repaints: a Node-side
+  // clock started after the Space press returns runs late by the CDP round
+  // trip (100+ ms under load), while the machine's hold runs from the entry.
+  const posterAt = (poster) =>
+    page.evaluate(
+      (p) =>
+        window.__kineticVid.posters.find((x) => x.poster === p)?.at ?? null,
+      poster,
+    );
+  const enteredA = await posterAt(a.poster);
+  const leftA = await posterAt(b.poster);
+  const advancedMs =
+    enteredA === null || leftA === null ? -1 : leftA - enteredA;
   // 30 starts here: auto OFF on entry, so range-b's passes are measured on
   // a frozen cursor (its pass reports alone never move it).
   await pressA(cdp);
@@ -479,18 +508,37 @@ async function ranges({ check, open }) {
       maxMediaTime: r3(maxA),
       insideA,
       endedA,
+      // frames past the range end as [mediaTime, ms after entry], so an
+      // overshoot shows whether frames ran on or arrived after a gap
+      pastEnd: framesA
+        .filter((f) => f.mediaTime > a.endSeconds)
+        .slice(0, 4)
+        .map((f) => [
+          r3(f.mediaTime),
+          enteredA === null ? null : f.at - enteredA,
+        ]),
     },
   );
 
   // 30. range-b: the SAME file at [start, end], loopCount 2, the loop-back
   // seeking to loopStartSeconds, not startSeconds; the range end is the
   // file's end, so each pass is a native `ended`. It then holds near the end.
+  // Settled means the last pass's `ended` has been dispatched (so the
+  // player has handled it) and the element is paused at the end. Paused at
+  // the end alone is not enough: Chrome sets `paused` when playback reaches
+  // the file's end but dispatches `pause`/`ended` in a later task, so a poll
+  // in between sees the FIRST pass's end as settled, before the player has
+  // seeked back for the second pass.
   let settled = true;
   try {
     await page.waitForFunction(
-      (poster, end) => {
+      (poster, end, passes) => {
         const v = document.getElementById("visual-video");
+        const ends = window.__kineticVid.ended.filter(
+          (e) => e.poster === poster,
+        ).length;
         return (
+          ends >= passes &&
           v?.paused === true &&
           v.currentTime >= end - 0.1 &&
           v.getAttribute("poster") === poster
@@ -499,6 +547,7 @@ async function ranges({ check, open }) {
       { timeout: 6000 },
       b.poster,
       b.endSeconds,
+      b.loopCount,
     );
   } catch {
     settled = false;
