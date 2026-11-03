@@ -1407,3 +1407,7 @@ truthful: an unchecked box means nothing was accepted.
       clean, choicelist 11/11; subagent smoke 6/6, playall 27/27,
       branches 43/43. .tmp/flash-choice/reopen-800x600.png. 2026-11-03)
 - [x] Phase-closer: full suite, rebuild demo folders.
+      (2026-11-03: vitest 604, check clean, pytest converter+tools 499,
+      scenario suite 11 scenarios 224 checks: 222 pass, 2 PARTIAL
+      (headless fullscreen), 0 fail; package-proof 18/18, demo folders
+      .tmp/pkg-demo and .tmp/pkg-extract rebuilt.)
