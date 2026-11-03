@@ -1302,3 +1302,29 @@ truthful: an unchecked box means nothing was accepted.
       HISTORY_CAP (restore, advance 1 and 3, reload, in-history
       unchanged) failed before the fix. vitest 576, check clean, smoke
       6/6, screens 57 + 2 headless-fullscreen partials. 2026-11-03)
+
+## Phase 27: Converting-agent fixes and timeline navigation (2026-11-03, user + converting agent)
+
+- [ ] Nested routes sharing an ending: outer decision after i0 (alt i1
+      returns; continuing i2..i4 joins at i5), inner decision after i2
+      (alt i3 returns; continuing i4..i4 also joins at i5). Play all,
+      reach i5, go back to the outer choice: the outer continuing route
+      must be complete and the outer choice must offer the return to
+      main. Today it shows both routes seen with no return option.
+- [ ] Long choice lists: at 800x600 a 13-route choice runs below the
+      window with no scrolling; the last option cannot be clicked and
+      keys only cover 1-9. Every option must be reachable by mouse and
+      keyboard at small window sizes.
+- [ ] Odd-dimension video conversion: the H.264 re-encode fails on odd
+      sizes (e.g. AV1 180x101, 289 skipped). Handle odd dimensions and
+      record the recipe in the ledger so rebuild reproduces it.
+- [ ] Lossless video posters: `kinetic-media ship` posters from the frame
+      at startSeconds, JPEG XL when smaller else PNG (same rule as
+      images), recipe in the ledger, rebuild reproduces it, old ledgers
+      with JPEG poster steps still rebuild. A way to regenerate posters
+      for an existing shipment without redoing its videos.
+- [ ] Timeline navigation (design in docs/plan.md Phase 27, pending user
+      confirmation): wheel walks the story order along the last-taken
+      route at each decision, not the reading history; `e` goes to the
+      furthest point read; saved progress and bookmarks migrate
+      automatically.
