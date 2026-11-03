@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
-import type { TimelineCommands } from "./keys";
+import type { DecisionKey, KeyCommands, TimelineCommands } from "./keys";
 import {
   commandForKey,
   decisionKeyFor,
+  installKeyMap,
   keyHelpEntries,
   mappedKeys,
   routeIndexForKey,
@@ -49,11 +50,12 @@ describe("commandForKey", () => {
     expect(commandForKey("A", false)).toBe("toggleAutoForward");
   });
 
-  it("maps nothing to Enter — one key per action (Phase 18)", () => {
+  it("maps no command to Enter — one key per action (Phase 18)", () => {
     // "enter was never something I requested": help closes with Esc or
-    // Space, the return row is 0, the reset box is y or a click.
+    // Space, the return row is 0, the reset box is y or a click. Enter's
+    // one job is at a decision: picking the row cursor's row (long lists).
     expect(commandForKey("Enter", false)).toBeNull();
-    expect(decisionKeyFor("Enter", false)).toBeNull();
+    expect(decisionKeyFor("Enter", false)).toBe("pick");
   });
 
   it("ignores a held key's auto-repeat so it cannot burst through items", () => {
@@ -70,7 +72,7 @@ describe("commandForKey", () => {
 
   it("leaves keys owned by later phases unmapped", () => {
     // c joined with Phase 9, a with Phase 13b's help; these stay free
-    // (the arrow keys belong to nobody yet).
+    // (the arrows are no command: only a decision's row cursor reads them).
     for (const key of ["ArrowRight", "Shift"]) {
       expect(commandForKey(key, false)).toBeNull();
     }
@@ -114,7 +116,51 @@ describe("decisionKeyFor (1..9 pick a route, 0 returns — Phase 18)", () => {
     expect(decisionKeyFor("0", true)).toBeNull();
     expect(decisionKeyFor("1", true)).toBeNull();
     expect(decisionKeyFor("a", false)).toBeNull();
-    expect(decisionKeyFor("Enter", false)).toBeNull();
+    expect(decisionKeyFor("Enter", true)).toBeNull();
+    expect(decisionKeyFor("ArrowLeft", false)).toBeNull();
+  });
+
+  it("moves the row cursor with the arrows, held or not, and Enter picks", () => {
+    // Long lists: rows past nine have no digit, so the arrows reach them.
+    expect(decisionKeyFor("ArrowUp", false)).toBe("prev");
+    expect(decisionKeyFor("ArrowDown", false)).toBe("next");
+    expect(decisionKeyFor("ArrowDown", true)).toBe("next");
+    expect(decisionKeyFor("ArrowUp", true)).toBe("prev");
+    expect(decisionKeyFor("Enter", false)).toBe("pick");
+  });
+});
+
+describe("installKeyMap's decision keys (long lists)", () => {
+  function press(
+    taken: boolean,
+    key: string,
+  ): { got: DecisionKey[]; prevented: boolean } {
+    const target = new EventTarget();
+    const got: DecisionKey[] = [];
+    const commands = new Proxy({} as KeyCommands, {
+      get: () => () => {},
+    });
+    installKeyMap(target, commands, (decision) => {
+      got.push(decision);
+      return taken;
+    });
+    const event = new Event("keydown", { cancelable: true });
+    Object.assign(event, { key, repeat: false });
+    target.dispatchEvent(event);
+    return { got, prevented: event.defaultPrevented };
+  }
+
+  it("hands the arrows and Enter to the decision callback", () => {
+    expect(press(true, "ArrowDown").got).toEqual(["next"]);
+    expect(press(true, "ArrowUp").got).toEqual(["prev"]);
+    expect(press(true, "Enter").got).toEqual(["pick"]);
+  });
+
+  it("prevents a key's default only when the callback took it", () => {
+    // No choice open: Enter must still activate a focused settings button.
+    expect(press(false, "Enter").prevented).toBe(false);
+    expect(press(true, "Enter").prevented).toBe(true);
+    expect(press(true, "3").prevented).toBe(true);
   });
 });
 
@@ -231,10 +277,10 @@ describe("keyHelpEntries (the help lists the map itself, Phase 13b)", () => {
       "t",
       "Escape",
       "1-9 / 0",
+      "↑ ↓ Enter",
     ]);
     const listed = listedLabels();
-    for (const gone of ["Enter", "y", "n"])
-      expect(listed.has(gone)).toBe(false);
+    for (const gone of ["y", "n"]) expect(listed.has(gone)).toBe(false);
     for (const command of UNLISTED_COMMANDS) {
       expect(keyHelpEntries().some((entry) => entry.command === command)).toBe(
         false,

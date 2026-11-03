@@ -284,7 +284,8 @@ the same item array. The lead-in (everything before a decision's
 items: they play once, not per route. A decision fires when its
 `after` item settles on a forward advance: the player shows an overlay
 with the `prompt` above a numbered list of route labels, and a pointer
-click or a 1..9 press selects. References between decisions, routes,
+click, a 1..9 press, or the arrow keys and Enter (which reach routes
+past nine) selects. References between decisions, routes,
 and items always use ids, never array positions.
 
 - `id`: the decision's id, unique across `branches` and distinct from

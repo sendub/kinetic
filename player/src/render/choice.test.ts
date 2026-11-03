@@ -14,6 +14,9 @@ import {
   choiceHint,
   choiceRows,
   inputOwnerFor,
+  LONG_CHOICE_HINT,
+  moveCursor,
+  scrollIntoListDelta,
 } from "./choice";
 
 function route(idx: number, seen = false): ChoiceRoute {
@@ -168,7 +171,8 @@ describe("choiceHint (docs/plan.md Phase 18: the 0 hint follows the row)", () =>
   // The user had read a return hint on overlays where nothing answered
   // it. The hint's return half renders only when the return row — which
   // itself requires a completed continuing route — is drawn; its key is 0
-  // (Enter is no longer a key anywhere: "Key help simplified").
+  // (Enter is no key there: "Key help simplified"; only a list past nine
+  // routes names it, with the arrows — see the long-list block below).
   it("mentions 0 only when the return row is drawn, and never Enter", () => {
     const bare = choiceHint(choice([route(0), route(1)]));
     expect(bare).toBe("1-9 or click picks a route");
@@ -229,5 +233,63 @@ describe("the play-all auto-pick on the choice screen (docs/plan.md Phase 18)", 
     expect(choiceHint({ ...view, autoPick: { ...base, picked: false } })).toBe(
       "1-9 or click picks a route; Space picks now",
     );
+  });
+});
+
+describe("long choice lists (more routes than the digits reach)", () => {
+  const routes = (n: number) => Array.from({ length: n }, (_, i) => route(i));
+
+  it("the hint names the arrows and Enter only past nine routes", () => {
+    expect(choiceHint(choice(routes(9)))).toBe(CHOICE_HINT);
+    expect(choiceHint(choice(routes(10)))).toBe(LONG_CHOICE_HINT);
+    expect(choiceHint(choice(routes(13), true))).toBe(
+      "1-9, arrows and Enter, or click picks a route; 0 returns",
+    );
+    expect(choiceHint(choice(routes(13)))).not.toContain("·");
+  });
+
+  it("every route keeps its own number past nine", () => {
+    expect(choiceRows(choice(routes(13))).map((row) => row.number)).toEqual([
+      1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13,
+    ]);
+  });
+
+  it("the cursor starts at the first row going down, the last going up", () => {
+    expect(moveCursor(null, 13, "next")).toBe(0);
+    expect(moveCursor(null, 13, "prev")).toBe(12);
+    expect(moveCursor(null, 0, "next")).toBeNull();
+  });
+
+  it("the cursor moves one row and stops at either end", () => {
+    expect(moveCursor(0, 13, "next")).toBe(1);
+    expect(moveCursor(11, 13, "next")).toBe(12);
+    expect(moveCursor(12, 13, "next")).toBe(12);
+    expect(moveCursor(1, 13, "prev")).toBe(0);
+    expect(moveCursor(0, 13, "prev")).toBe(0);
+    // A cursor past a shrunken list restarts at an end.
+    expect(moveCursor(20, 3, "next")).toBe(0);
+  });
+
+  it("13 presses down reach the 13th row from no cursor", () => {
+    let at: number | null = null;
+    for (let i = 0; i < 13; i += 1) at = moveCursor(at, 13, "next");
+    expect(at).toBe(12);
+  });
+
+  describe("scrollIntoListDelta", () => {
+    const view = { top: 100, bottom: 400 };
+    it("leaves a row already in view alone", () => {
+      expect(scrollIntoListDelta(view, { top: 150, bottom: 200 }, 6)).toBe(0);
+    });
+    it("scrolls down by just enough for a row below the view, margin kept", () => {
+      expect(scrollIntoListDelta(view, { top: 500, bottom: 550 }, 6)).toBe(156);
+      expect(scrollIntoListDelta(view, { top: 380, bottom: 420 })).toBe(20);
+    });
+    it("scrolls up for a row above the view", () => {
+      expect(scrollIntoListDelta(view, { top: 40, bottom: 90 }, 6)).toBe(-66);
+    });
+    it("aligns the top of a row taller than the view", () => {
+      expect(scrollIntoListDelta(view, { top: 200, bottom: 800 }, 0)).toBe(100);
+    });
   });
 });

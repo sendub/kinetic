@@ -74,7 +74,7 @@ export const title = "help, bookmarks, resume, config, empty folder, reset";
 const HELP_TITLE = "Keys";
 const HELP_HINT = "Esc or Space closes; click a setting to change it";
 // The main interaction keys, one row each (Phase 18, "Key help
-// simplified"): no Enter, no reset-box keys.
+// simplified"): no reset-box keys; Enter only with a decision's arrows.
 const HELP_KEYS = [
   "Space",
   "wheel",
@@ -87,6 +87,7 @@ const HELP_KEYS = [
   "T",
   "Esc",
   "1-9 / 0",
+  "↑ ↓ Enter",
 ];
 const EMPTY_MESSAGE = "No bookmarks yet — press b";
 const EMPTY_NOTICE = "No content yet — this folder has an empty manifest.";

@@ -1320,10 +1320,19 @@ truthful: an unchecked box means nothing was accepted.
       branches 41/41 (one orchestrator run hung 20+ min in
       branches-unseen and was killed; rerun 41/41 in 67 s; follow-up
       below). 2026-11-03)
-- [ ] Long choice lists: at 800x600 a 13-route choice runs below the
+- [x] Long choice lists: at 800x600 a 13-route choice runs below the
       window with no scrolling; the last option cannot be clicked and
       keys only cover 1-9. Every option must be reachable by mouse and
       keyboard at small window sizes.
+      (Row list scrolls inside the panel, title/status/hint fixed;
+      ArrowUp/Down move a row cursor, Enter picks it (Enter's only job,
+      at a decision); wheel over an overflowing list scrolls it, else
+      walks; next pick / walk highlight scrolled into view; hint past 9
+      routes names arrows and Enter. New choicelist scenario (13 routes at
+      800x600, click and keyboard pick row 13) 10/10; vitest 601, check
+      clean, smoke 6/6; subagent: branches+playall+screens 137 + 2
+      headless-fullscreen partials. Screenshots .tmp/choice-overflow/.
+      2026-11-03)
 - [ ] Odd-dimension video conversion: the H.264 re-encode fails on odd
       sizes (e.g. AV1 180x101, 289 skipped). Handle odd dimensions and
       record the recipe in the ledger so rebuild reproduces it.
@@ -1362,3 +1371,7 @@ truthful: an unchecked box means nothing was accepted.
       on 2026-11-03, after the Phase 27 timeline change; earlier also an
       uncaptured branches abort). Find why the settings panel is not
       open/visible at that point and fix the cause, not the wait.
+- [ ] The route pill (`#flash`) can still show when a decision re-opens
+      right after a short route and covers the choice title and hint
+      (seen at 800x600, .tmp/choice-overflow/cursor-800x600.png). Hide it
+      when a choice screen opens, or keep it clear of the panel.

@@ -158,6 +158,11 @@ const HELP_ROWS: ReadonlyArray<{
     plainLabel: "1-9 / 0",
     description: "at a decision: pick a route or return to main route",
   },
+  {
+    command: null,
+    plainLabel: "↑ ↓ Enter",
+    description: "at a decision: move to any route, Enter picks it",
+  },
 ];
 
 /**
@@ -203,17 +208,25 @@ export function routeIndexForKey(key: string, repeat: boolean): number | null {
 }
 
 /**
- * A decision key: a route digit (`routeIndexForKey`), or `0` — the
+ * A decision key: a route digit (`routeIndexForKey`), `0` — the
  * "Return to main route" row's key, drawn as that row's number
- * (docs/plan.md Phase 18, "Key help simplified"). Null for anything else.
+ * (docs/plan.md Phase 18, "Key help simplified") — or the row cursor that
+ * reaches every row however many there are (a choice can have more routes
+ * than the nine digits): ArrowUp / ArrowDown move it (`prev` / `next`) and
+ * Enter picks the row under it (`pick`). Null for anything else.
  */
-export type DecisionKey = number | "return";
+export type DecisionKey = number | "return" | "prev" | "next" | "pick";
 
 export function decisionKeyFor(
   key: string,
   repeat: boolean,
 ): DecisionKey | null {
+  // A held arrow walks the rows (13 routes are 13 presses otherwise); a
+  // held digit or Enter must not pick twice.
+  if (key === "ArrowUp") return "prev";
+  if (key === "ArrowDown") return "next";
   if (repeat) return null;
+  if (key === "Enter") return "pick";
   if (key === "0") return "return";
   return routeIndexForKey(key, repeat);
 }
@@ -268,14 +281,16 @@ export function suspendTimeline(
  * the player, and Tab would otherwise move focus out of it.
  *
  * `onDecisionKey`, when given, receives decision keys (`decisionKeyFor`)
- * for keys no mapped command claims — the decision overlay's 1..9 and 0.
- * The callback owns the context check: a digit arriving with no choice
- * open is dropped by the shell, and stays inert either way.
+ * for keys no mapped command claims — the decision overlay's 1..9, 0, the
+ * arrows and Enter. The callback owns the context check: it returns false
+ * for a key it dropped (no choice open), and only a key it took has its
+ * default prevented — so Enter still activates a focused control on the
+ * Esc screen, as it always did.
  */
 export function installKeyMap(
   target: EventTarget,
   commands: KeyCommands,
-  onDecisionKey?: (key: DecisionKey) => void,
+  onDecisionKey?: (key: DecisionKey) => boolean,
 ): () => void {
   const onKeyDown = (event: Event): void => {
     const keydown = event as KeyboardEvent;
@@ -290,8 +305,7 @@ export function installKeyMap(
     if (onDecisionKey === undefined) return;
     const decision = decisionKeyFor(keydown.key, repeat);
     if (decision === null) return;
-    keydown.preventDefault();
-    onDecisionKey(decision);
+    if (onDecisionKey(decision)) keydown.preventDefault();
   };
   target.addEventListener("keydown", onKeyDown);
   return () => target.removeEventListener("keydown", onKeyDown);

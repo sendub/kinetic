@@ -122,15 +122,20 @@ export interface WheelCommands {
 /**
  * Installs the wheel listener; returns a function that removes it. Nothing is
  * cancelled here: the page has `overflow: hidden` (index.html), so a wheel
- * event has no default behaviour worth preventing.
+ * event has no default behaviour worth preventing — except over a panel
+ * that scrolls its own content, which `scrolls(event)` names: that event
+ * is the panel's (the browser scrolls it) and walks nothing, nor does it
+ * count toward the next step.
  */
 export function installWheelInput(
   target: EventTarget,
   commands: WheelCommands,
+  scrolls: (event: WheelEvent) => boolean = () => false,
 ): () => void {
   let tracker = initialWheelTracker;
   const onWheel = (event: Event): void => {
     const wheel = event as WheelEvent;
+    if (scrolls(wheel)) return;
     const now = Number.isFinite(wheel.timeStamp) ? wheel.timeStamp : 0;
     const outcome = wheelPlan(wheel.deltaY, now, tracker);
     tracker = outcome.tracker;

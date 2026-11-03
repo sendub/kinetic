@@ -49,7 +49,7 @@ describe("helpRows (drawn from the keymap, Phase 13b)", () => {
     expect(HELP_HINT).not.toMatch(/\bc\b/);
   });
 
-  it("draws no reset-box keys and no Enter (Phase 18)", () => {
+  it("draws no reset-box keys; Enter only with the decision arrows (Phase 18, long lists)", () => {
     const labels = helpRows().flatMap((row) => row.keys);
     expect(labels).toEqual([
       "Space",
@@ -63,6 +63,7 @@ describe("helpRows (drawn from the keymap, Phase 13b)", () => {
       "T",
       "Esc",
       "1-9 / 0",
+      "↑ ↓ Enter",
     ]);
   });
 

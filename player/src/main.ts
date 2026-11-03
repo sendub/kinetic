@@ -531,7 +531,8 @@ function start(): void {
       // machine pause/resume is inert while a decision's item is settled).
       // A pending CHOICE owns everything else: `t` cannot open over it,
       // `h`/`b`/`a` are inert, the timeline is suspended, and only its
-      // own inputs act (1..9, 0 with the offer, row clicks) — except the
+      // own inputs act (1..9, 0 with the offer, the arrows and Enter, row
+      // clicks) — except the
       // timeline moves, the wheel and `e` (see the gates below). Otherwise
       // the story reads, and `t` and Escape open the screens.
       const owner = () => inputOwnerFor(help.isOpen(), choice.isOpen());
@@ -664,21 +665,33 @@ function start(): void {
         },
         // 1..9 answer a pending decision (render/keys.ts's route digits)
         // and 0 takes its "Return to main route" row when that row is
-        // drawn (docs/plan.md Phase 18). The owner check lives here: with
-        // no choice open a digit is inert, and with help up help owns the
-        // screen.
+        // drawn (docs/plan.md Phase 18); the arrows move the row cursor
+        // and Enter picks its row, reaching rows past nine
+        // (render/choice.ts, long lists). The owner check lives here: with
+        // no choice open a decision key is inert — and left to the page,
+        // so Enter still activates a focused control on the Esc screen —
+        // and with help up help owns the screen.
         (key) => {
-          if (owner() !== "choice" || anyPanelOpen()) return;
-          if (key !== "return") machine.choose(key);
+          if (owner() !== "choice" || anyPanelOpen()) return false;
+          if (key === "prev" || key === "next") choice.moveCursor(key);
+          else if (key === "pick") choice.pickCursor();
+          else if (key !== "return") machine.choose(key);
           else if (machine.getState().choice?.continueOption === true) {
             machine.chooseContinue();
           }
+          return true;
         },
       );
-      installWheelInput(document, {
-        wheelBack: timeline.wheelBack,
-        wheelForward: timeline.wheelForward,
-      });
+      // Over a choice list too long for the window the wheel scrolls the
+      // list, not the story; anywhere else it walks (render/choice.ts).
+      installWheelInput(
+        document,
+        {
+          wheelBack: timeline.wheelBack,
+          wheelForward: timeline.wheelForward,
+        },
+        (event) => choice.ownsWheel(event.target),
+      );
 
       // Menus pause the timeline (docs/plan.md Phase 18): while the Esc
       // screen, the `t` list or the reset box is up, a running

@@ -41,6 +41,26 @@
 // look, and shows no status line: nothing counts down, and a digit or click
 // is a real pick.
 //
+// LONG LISTS (docs/progress.md, long choice lists): the panel never grows
+// past the window. The title, the play-all status and the hint keep their
+// size; the row list takes the rest and scrolls inside itself when the rows
+// do not fit (index.html `.choice-list`). Every row stays reachable:
+// - by keyboard, the digits reach rows 1..9 and 0 the return row; ArrowUp /
+//   ArrowDown move a row cursor (`.choice-cursor`) over every row, the
+//   return row included, and Enter picks the row under it. The first
+//   ArrowDown lands on the first row, the first ArrowUp on the last. Enter
+//   with no cursor does nothing. The hint names the arrows once a choice
+//   has more than nine routes.
+// - by mouse, the wheel over an overflowing list scrolls the list (the
+//   browser's own scroll) and walks nothing; anywhere else on the screen,
+//   or over a list that fits, it walks the story as before (Phase 27). So
+//   a wheel event has one meaning at a time, decided by where the pointer
+//   is (`ownsWheel`).
+// The cursor row, and the highlighted pick (play-all's next row, the walk's
+// route) when it changes, are scrolled into the list's view
+// (`scrollIntoListDelta`). A newly opened decision starts scrolled to the
+// top with no cursor.
+//
 // Like every panel here, the decisions are pure exports and the DOM half
 // only applies them; the verify walk proves the screen (its branch steps
 // arrive with the branch fixture, docs/plan.md Phase 13).
@@ -61,6 +81,15 @@ export { autoPickStatus, CONTINUE_LABEL, SEEN_MARKER };
 /** The panel's input hint, shown under the prompt. */
 export const CHOICE_HINT = "1-9 or click picks a route";
 
+/**
+ * The route half of the hint once the digits run out (more than nine
+ * routes): the arrows and Enter reach every row.
+ */
+export const LONG_CHOICE_HINT = "1-9, arrows and Enter, or click picks a route";
+
+/** The routes a digit can reach: `1`..`9`. */
+export const DIGIT_ROUTES = 9;
+
 /** The return half of the hint — only shown when the return row is drawn. */
 export const CONTINUE_HINT = "; 0 returns";
 
@@ -73,8 +102,9 @@ export const CONTINUE_NUMBER = 0;
  * read a return hint on views where nothing could answer it).
  */
 export function choiceHint(choice: ChoiceView): string {
-  const base =
-    choice.continueOption === true ? CHOICE_HINT + CONTINUE_HINT : CHOICE_HINT;
+  const routes =
+    choice.routes.length > DIGIT_ROUTES ? LONG_CHOICE_HINT : CHOICE_HINT;
+  const base = choice.continueOption === true ? routes + CONTINUE_HINT : routes;
   return choice.autoPick !== undefined ? base + AUTO_PICK_HINT : base;
 }
 
@@ -156,6 +186,50 @@ export function choiceRows(choice: ChoiceView | undefined): ChoiceRowModel[] {
 }
 
 /**
+ * Where the row cursor goes on an arrow press, over `count` rows: from no
+ * cursor, `next` lands on the first row and `prev` on the last (so the
+ * bottom of a long list is one press away); otherwise one row, stopping at
+ * either end. Null when there are no rows.
+ */
+export function moveCursor(
+  current: number | null,
+  count: number,
+  direction: "prev" | "next",
+): number | null {
+  if (count <= 0) return null;
+  if (current === null || current < 0 || current >= count) {
+    return direction === "next" ? 0 : count - 1;
+  }
+  return direction === "next"
+    ? Math.min(count - 1, current + 1)
+    : Math.max(0, current - 1);
+}
+
+/** A vertical extent on screen (a client rect's top and bottom). */
+export interface Extent {
+  readonly top: number;
+  readonly bottom: number;
+}
+
+/**
+ * How far to scroll a list (`view`, its visible box) so `row` is fully in
+ * view, plus `margin` px of air: 0 when it already is, negative to scroll
+ * up, positive down. A row taller than the view aligns its top.
+ */
+export function scrollIntoListDelta(
+  view: Extent,
+  row: Extent,
+  margin = 0,
+): number {
+  if (row.top < view.top + margin) return row.top - view.top - margin;
+  if (row.bottom > view.bottom - margin) {
+    const down = row.bottom - view.bottom + margin;
+    return Math.min(down, row.top - view.top - margin);
+  }
+  return 0;
+}
+
+/**
  * Which screen owns key input (the precedence rule of the header, as
  * data): help over everything, a pending choice over the story, and the
  * story otherwise. Escape is the declared exception — it opens help even
@@ -177,6 +251,15 @@ export interface ChoiceOverlay {
   /** Fills and shows the panel for this pending decision. */
   render(choice: ChoiceView): void;
   close(): void;
+  /** ArrowUp / ArrowDown: move the row cursor, scrolling its row into view. */
+  moveCursor(direction: "prev" | "next"): void;
+  /** Enter: answer with the row under the cursor; false when there is none. */
+  pickCursor(): boolean;
+  /**
+   * True when a wheel event over `target` is the list's own scroll: the
+   * panel is open, its rows overflow the list, and the pointer is over it.
+   */
+  ownsWheel(target: EventTarget | null): boolean;
 }
 
 export interface ChoiceOverlayOptions {
@@ -230,18 +313,50 @@ export function mountChoiceOverlay({
   // One listener for the panel (as in bookmarks.ts): a row answers the
   // decision, any other click is inert — a decision waiting for an answer
   // is not dismissed by clicking past it.
-  panel.addEventListener("click", (event) => {
-    const target = event.target;
-    const row =
-      target instanceof Element ? target.closest(".choice-row") : null;
-    if (row === null) return;
+  function answer(row: Element): void {
     if (row.hasAttribute("data-choice-continue")) {
       onContinue();
       return;
     }
     const routeIdx = Number(row.getAttribute("data-choice-idx"));
     if (Number.isInteger(routeIdx) && routeIdx >= 0) onPick(routeIdx);
+  }
+  panel.addEventListener("click", (event) => {
+    const target = event.target;
+    const row =
+      target instanceof Element ? target.closest(".choice-row") : null;
+    if (row !== null) answer(row);
   });
+
+  // The row cursor (an index into the drawn rows) and the decision it
+  // belongs to: a different decision, or the panel closing, drops it.
+  let cursor: number | null = null;
+  let shownDecision: string | null = null;
+  // The highlighted pick last scrolled into view, so a re-render for the
+  // same pick leaves a reader's own scrolling alone.
+  let scrolledPick: string | null = null;
+  // Air above and below a row scrolled into view: the picked row's 2 px
+  // ring stays inside the list's clip.
+  const SCROLL_MARGIN = 6;
+  function rowElements(): HTMLElement[] {
+    return Array.from(list.querySelectorAll<HTMLElement>(".choice-row"));
+  }
+  function revealRow(row: Element): void {
+    const delta = scrollIntoListDelta(
+      list.getBoundingClientRect(),
+      row.getBoundingClientRect(),
+      SCROLL_MARGIN,
+    );
+    if (delta !== 0) list.scrollTop += delta;
+  }
+  function drawCursor(): void {
+    rowElements().forEach((row, index) => {
+      const on = index === cursor;
+      row.classList.toggle("choice-cursor", on);
+      if (on) row.setAttribute("data-choice-cursor", "");
+      else row.removeAttribute("data-choice-cursor");
+    });
+  }
 
   // The countdown in whole seconds, ticked by the page clock from the
   // moment a phase was armed (a new `armId` restarts it).
@@ -289,6 +404,9 @@ export function mountChoiceOverlay({
   function close(): void {
     stopTicker();
     shownArm = -1;
+    cursor = null;
+    shownDecision = null;
+    scrolledPick = null;
     panel.hidden = true;
   }
 
@@ -297,6 +415,12 @@ export function mountChoiceOverlay({
       return !panel.hidden;
     },
     render(choice: ChoiceView) {
+      const opening = panel.hidden || shownDecision !== choice.decisionId;
+      if (opening) {
+        cursor = null;
+        scrolledPick = null;
+        shownDecision = choice.decisionId;
+      }
       prompt.textContent = choice.prompt;
       // The `0` hint follows the row: shown only when `continueOption`
       // is set, so the panel never promises a return it does not offer.
@@ -334,11 +458,44 @@ export function mountChoiceOverlay({
         return line;
       });
       list.replaceChildren(...rows);
+      if (cursor !== null && cursor >= rows.length) cursor = null;
+      drawCursor();
       // Shown first: a bar transition started under `display: none` never
-      // runs.
+      // runs, and nothing hidden has a box to scroll to.
       panel.hidden = false;
       renderAuto(choice);
+      if (opening) list.scrollTop = 0;
+      const pickRow = rows.find(
+        (row) =>
+          row.hasAttribute("data-choice-next") ||
+          row.hasAttribute("data-choice-picked"),
+      );
+      const pickKey =
+        pickRow === undefined
+          ? null
+          : `${choice.decisionId}:${pickRow.getAttribute("data-choice-idx") ?? ""}`;
+      if (pickRow !== undefined && pickKey !== scrolledPick) revealRow(pickRow);
+      scrolledPick = pickKey;
     },
     close,
+    moveCursor(direction) {
+      if (panel.hidden) return;
+      const rows = rowElements();
+      cursor = moveCursor(cursor, rows.length, direction);
+      drawCursor();
+      if (cursor !== null) revealRow(rows[cursor]);
+    },
+    pickCursor() {
+      if (panel.hidden || cursor === null) return false;
+      const row = rowElements()[cursor];
+      if (row === undefined) return false;
+      answer(row);
+      return true;
+    },
+    ownsWheel(target) {
+      if (panel.hidden) return false;
+      if (list.scrollHeight <= list.clientHeight) return false;
+      return target instanceof Node && list.contains(target);
+    },
   };
 }

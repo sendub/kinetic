@@ -637,7 +637,14 @@
       /* Rows are centered as whole rows (docs/plan.md Phase 16, Styling):
          `align-items: center` shrinks each button to its content and puts
          it on the panel's center line, so number badge, label and seen
-         marker stay inline as one centered unit. */
+         marker stay inline as one centered unit.
+         Long lists (docs/progress.md, long choice lists): the list is the
+         panel's only shrinking part — a scroll container's minimum height
+         is 0, while the title, status and hint keep their content height —
+         so rows that do not fit scroll inside it and the panel never grows
+         past the window. The padding keeps a highlighted row's ring inside
+         the scroll clip; `overscroll-behavior` stops a scroll reaching the
+         page at either end. */
       .choice-list {
         display: flex;
         flex-direction: column;
@@ -645,8 +652,13 @@
         gap: clamp(6px, 1.2vh, 14px);
         margin: 0 auto;
         max-width: 72ch;
+        min-height: 0;
+        overflow-y: auto;
+        overscroll-behavior: contain;
+        padding: 4px 6px;
       }
       .choice-row {
+        flex: none;
         display: flex;
         align-items: center;
         justify-content: center;
@@ -662,9 +674,17 @@
         cursor: pointer;
       }
       .choice-row:hover,
-      .choice-row:focus-visible {
+      .choice-row:focus-visible,
+      .choice-cursor {
         border-color: var(--accent);
         background: rgba(30, 28, 24, 0.95);
+      }
+      /* The keyboard's row cursor (ArrowUp / ArrowDown, Enter picks):
+         an outline ring outside the border, so it reads apart from the
+         play-all / walk highlight, which it may sit on. */
+      .choice-cursor {
+        outline: 2px solid var(--accent);
+        outline-offset: 2px;
       }
       .choice-continue {
         border-style: dashed;

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   initialWheelTracker,
+  installWheelInput,
   WHEEL_RATE_CAP_MS,
   WHEEL_STEP_PX,
   WHEEL_TICK_MIN_PX,
@@ -163,5 +164,52 @@ describe("wheelPlan degenerate input", () => {
     const first = wheelPlan(-WHEEL_STEP_PX, 1000, initialWheelTracker);
     const earlier = wheelPlan(-WHEEL_STEP_PX, 900, first.tracker);
     expect(earlier).toMatchObject({ direction: "back", steps: 1 });
+  });
+});
+
+describe("installWheelInput's scrolling panel (long choice lists)", () => {
+  function wheelEvent(deltaY: number, timeStamp: number): Event {
+    const event = new Event("wheel");
+    Object.defineProperty(event, "deltaY", { value: deltaY });
+    Object.defineProperty(event, "timeStamp", { value: timeStamp });
+    return event;
+  }
+
+  it("walks nothing for an event a scrolling panel claims, and walks otherwise", () => {
+    const target = new EventTarget();
+    const calls: string[] = [];
+    let overList = true;
+    installWheelInput(
+      target,
+      {
+        wheelBack: () => calls.push("back"),
+        wheelForward: () => calls.push("forward"),
+      },
+      () => overList,
+    );
+    target.dispatchEvent(wheelEvent(WHEEL_STEP_PX, 1000));
+    target.dispatchEvent(wheelEvent(-WHEEL_STEP_PX, 2000));
+    expect(calls).toEqual([]);
+    overList = false;
+    target.dispatchEvent(wheelEvent(-WHEEL_STEP_PX, 3000));
+    expect(calls).toEqual(["back"]);
+  });
+
+  it("claimed events leave no pixels behind toward the next step", () => {
+    const target = new EventTarget();
+    const calls: string[] = [];
+    let overList = true;
+    installWheelInput(
+      target,
+      {
+        wheelBack: () => calls.push("back"),
+        wheelForward: () => calls.push("forward"),
+      },
+      () => overList,
+    );
+    target.dispatchEvent(wheelEvent(WHEEL_TICK_MIN_PX - 1, 1000));
+    overList = false;
+    target.dispatchEvent(wheelEvent(1, 2000));
+    expect(calls).toEqual([]);
   });
 });
