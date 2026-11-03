@@ -13,7 +13,6 @@ import type { Item } from "../machine/types";
 import type { Bookmark, SavedContext } from "../storage/types";
 import {
   BOOKMARKS_HINT,
-  bookmarkContext,
   bookmarkItemIndex,
   bookmarkRestoreTarget,
   bottomScrollTop,
@@ -217,18 +216,6 @@ describe("bookmarkRestoreTarget (ctx restore landing on the item)", () => {
       ctx: { ...ctx, lastShown: "b-002" },
     });
   });
-
-  it("drops a stored reading history: the restore appends to the current one", () => {
-    const withHistory: SavedContext = {
-      ...ctx,
-      history: [{ item: "c-003", stack: [] }],
-      historyPos: 0,
-    };
-    expect(bookmarkContext(withHistory)).toEqual(ctx);
-    expect(
-      bookmarkRestoreTarget(bookmark({ itemId: "c-003", ctx: withHistory })),
-    ).toEqual({ itemId: "c-003", ctx });
-  });
 });
 
 describe("mergeProgress (a bookmark restore never forgets progress, Phase 18)", () => {
@@ -255,7 +242,37 @@ describe("mergeProgress (a bookmark restore never forgets progress, Phase 18)", 
       completedRoutes: [{ decision: 0, routes: [1] }],
       // An older bookmark without a pass record: its own played routes.
       passRoutes: [{ decision: 0, routes: [0] }],
+      // Neither knew a last pick (docs/plan.md Phase 27).
+      lastPicks: [],
     });
+  });
+
+  it("keeps the reader's last picks; the bookmark's fill decisions picked at nowhere since (docs/plan.md Phase 27)", () => {
+    const bookmark = {
+      lastShown: 3,
+      visited: [0, 1, 2, 3],
+      stack: [{ decision: 0, route: 0 }],
+      playedRoutes: [{ decision: 0, routes: [0] }],
+      lastPicks: [
+        { decision: 0, route: 0 },
+        { decision: 2, route: 1 },
+      ],
+    };
+    const current = {
+      lastShown: 9,
+      visited: [0, 1, 2, 3, 7, 8, 9],
+      stack: [],
+      playedRoutes: [{ decision: 0, routes: [0, 1] }],
+      lastPicks: [
+        { decision: 0, route: 1 },
+        { decision: 1, route: 0 },
+      ],
+    };
+    expect(mergeProgress(bookmark, current).lastPicks).toEqual([
+      { decision: 0, route: 1 },
+      { decision: 1, route: 0 },
+      { decision: 2, route: 1 },
+    ]);
   });
 
   it("restores the bookmark's own played-this-pass record, unmerged (docs/plan.md Phase 22)", () => {

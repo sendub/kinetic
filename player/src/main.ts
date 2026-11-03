@@ -37,11 +37,7 @@ import type { MachineSettings } from "./machine/types";
 import { DEFAULT_SETTINGS } from "./machine/types";
 import { mountError, mountShell } from "./render/app";
 import { mountAutoForwardAnnouncements } from "./render/autoforward";
-import {
-  bookmarkContext,
-  mergeProgress,
-  mountBookmarkOverlay,
-} from "./render/bookmarks";
+import { mergeProgress, mountBookmarkOverlay } from "./render/bookmarks";
 import { captureVisualThumbnail } from "./render/capture";
 import { inputOwnerFor, mountChoiceOverlay } from "./render/choice";
 import { mountConfigOverlay } from "./render/config";
@@ -168,9 +164,9 @@ function start(): void {
       };
       const storage =
         createIdbStorage(keys.key, keys.legacyKey) ?? createNoopStorage();
-      // Resume: a stored context is the reader's position — its history
-      // entry on screen (or `lastShown`) is where the load starts, the
-      // seen set and route stack arrive with it. Storage holds it keyed
+      // Resume: a stored context is the reader's position — its
+      // `lastShown` (under its open choice, if any) is where the load
+      // starts, the seen set, route stack and last picks arrive with it. Storage holds it keyed
       // by item / decision / route id (docs/plan.md Phase 18), so a
       // content update keeps it valid; the codec converts it to this
       // manifest's positions and drops ids that no longer exist. No
@@ -215,8 +211,7 @@ function start(): void {
       // coalesces nothing; only concurrency does: createImmediateWriter
       // keeps one write in flight and at most one pending snapshot, so a
       // skip burst still costs one write per burst-pause without a queue
-      // that grows with the reader. The codec caches the converted history
-      // as the machine caches its export, so a write stays cheap.
+      // that grows with the reader.
       const stateRecord = (): PersistedState => ({
         ctx: codec.toSaved(machine.exportContext()),
         settings: currentSettings,
@@ -276,7 +271,7 @@ function start(): void {
       const takeBookmark = async (): Promise<void> => {
         const blob = await captureVisualThumbnail(shell.currentVisual());
         const thumbDataUrl = blob === null ? null : await blobToDataUrl(blob);
-        const ctx = codec.toSaved(bookmarkContext(machine.exportContext()));
+        const ctx = codec.toSaved(machine.exportContext());
         const bookmark: Bookmark = {
           id: newBookmarkId(),
           timestampMs: Date.now(),
@@ -310,8 +305,8 @@ function start(): void {
       // record's ctx, converted to this manifest's positions, restores
       // THROUGH importContext — it re-enters the item inside the route
       // context the bookmark captured, an UNSETTLED arrival that fires no
-      // decision (same landing rule as a resume), and a jump: the landing
-      // is appended to the reading history. Only bookmarks whose item is
+      // decision (same landing rule as a resume); the wheel then walks the
+      // story around it (docs/plan.md Phase 27). Only bookmarks whose item is
       // still in the manifest are listed (render/bookmarks.ts).
       const overlay = mountBookmarkOverlay({
         root,
@@ -502,23 +497,23 @@ function start(): void {
       // render-side rule over state transitions (render/routes.ts reads the
       // machine's route context, mutates nothing): the branch journey the
       // user could not follow becomes three lines of pill on screen.
-      // The wheel and `e` replay the reading history, restoring each
-      // entry's route frames; a replayed route entry is not a pick, so its
-      // state changes announce no route pill (render/routes.ts).
-      let replaying = false;
-      const replay = (move: () => void) => () => {
-        replaying = true;
+      // The wheel and `e` walk the story (docs/plan.md Phase 27), opening
+      // each screen's route frames; walking into a route is not a pick, so
+      // its state changes announce no route pill (render/routes.ts).
+      let walking = false;
+      const walk = (move: () => void) => () => {
+        walking = true;
         try {
           move();
         } finally {
-          replaying = false;
+          walking = false;
         }
       };
       mountRouteAnnouncements({
         machine,
         manifest,
         flash: (messages) => shell.flashSequence(messages),
-        quiet: () => replaying,
+        quiet: () => walking,
       });
       // The auto-forward pill (docs/plan.md Phase 20): "Auto-forward on" /
       // "Auto-forward off" on every real flip of the mode — `a`, or the
@@ -537,7 +532,7 @@ function start(): void {
       // A pending CHOICE owns everything else: `t` cannot open over it,
       // `h`/`b`/`a` are inert, the timeline is suspended, and only its
       // own inputs act (1..9, 0 with the offer, row clicks) — except the
-      // history moves, the wheel and `e` (see the gates below). Otherwise
+      // timeline moves, the wheel and `e` (see the gates below). Otherwise
       // the story reads, and `t` and Escape open the screens.
       const owner = () => inputOwnerFor(help.isOpen(), choice.isOpen());
       // The reset box owns the screen too, over the Esc screen: while it
@@ -546,12 +541,12 @@ function start(): void {
       const anyPanelOpen = () =>
         overlay.isOpen() || confirm.isOpen() || help.isOpen();
       const anyScreenOpen = () => anyPanelOpen() || choice.isOpen();
-      // The history moves are never trapped by a choice (docs/plan.md,
-      // "History rollback spec"): a wheel notch or `e` leaves a choice
-      // screen for the neighbouring / last history entry — the screen stays
-      // in the history and nothing is answered. Only the panels (the Esc
+      // The timeline moves are never trapped by a choice (docs/plan.md
+      // Phase 27): a wheel notch or `e` leaves a choice screen for the
+      // neighbouring screen in story order / the furthest point read, and
+      // nothing is answered. Only the panels (the Esc
       // screen, `t`, the reset box) still suspend them.
-      const historyGate = (command: () => void) => () => {
+      const timelineGate = (command: () => void) => () => {
         if (anyPanelOpen()) return;
         command();
       };
@@ -572,9 +567,9 @@ function start(): void {
           },
           anyScreenOpen,
         ),
-        jumpToEnd: historyGate(replay(() => machine.jumpToEnd())),
-        wheelBack: historyGate(replay(() => machine.wheelBack())),
-        wheelForward: historyGate(replay(() => machine.wheelForward())),
+        jumpToEnd: timelineGate(walk(() => machine.jumpToEnd())),
+        wheelBack: timelineGate(walk(() => machine.wheelBack())),
+        wheelForward: timelineGate(walk(() => machine.wheelForward())),
       };
 
       installKeyMap(
@@ -612,7 +607,7 @@ function start(): void {
           // `u` (docs/plan.md Phase 18): a jump, like `e` never trapped by
           // a choice and suspended behind the panels; entering a route this
           // way is a pick, so its route pill shows.
-          nextUnseen: historyGate(() => machine.jumpToUnseen()),
+          nextUnseen: timelineGate(() => machine.jumpToUnseen()),
           bookmark: () => {
             if (!storyInput()) return;
             void takeBookmark();

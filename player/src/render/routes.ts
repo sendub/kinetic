@@ -8,11 +8,10 @@
 // `enterRoute` does (`choose`, auto-pick). A bookmark `goTo` changes no
 // frame, so it announces nothing; a bookmark restore landing mid-route
 // announces nothing either, and one landing exactly on a route's first
-// item simply names where the reader now is. The wheel and `e` replay the
-// reading history, restoring each entry's frames — a replayed route entry
-// would look like an entry — so the shell marks those moves `quiet` and
-// they announce nothing (docs/plan.md, "History rollback spec": a replay
-// answers nothing).
+// item simply names where the reader now is. The wheel and `e` walk the
+// story, opening each screen's frames — walking into a route would look
+// like an entry — so the shell marks those moves `quiet` and they announce
+// nothing (docs/plan.md Phase 27: a wheel step answers nothing).
 
 import type { Machine } from "../machine/machine";
 import type { ContextFrame, Manifest } from "../machine/types";
@@ -94,7 +93,7 @@ export interface RouteAnnouncementsOptions {
   /** Show the pills, in order: the next only after the former has shown. */
   flash(messages: readonly string[]): void;
   /**
-   * True while the state change being observed is a history replay (a
+   * True while the state change being observed is a timeline move (a
    * wheel step or `e`): the observation moves on, nothing is announced.
    */
   quiet?: () => boolean;

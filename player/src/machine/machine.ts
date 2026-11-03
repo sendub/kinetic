@@ -5,41 +5,38 @@
 // Seen set (Phase 13): `visited` is the set of item indices that have been
 // SHOWN, and it is the source of truth for "seen". MARKING RULE — an item is
 // marked the moment it becomes current, by whatever route to it: a forward
-// advance, a skip step, a route entered by `choose()`, a wheel or `e` replay
-// of the history, a `goTo()` bookmark click or a restore. (The wheel and `e`
-// only ever show history entries, which were shown before, and a bookmark
-// only reaches seen content, so marking on those arrivals changes nothing.)
+// advance, a skip step, a route entered by `choose()`, a `goTo()` bookmark
+// click or a restore. The wheel and `e` mark nothing: they only ever show
+// seen screens (the timeline below).
 // Seeing a decision marks nothing: its routes are ordinary items. The route
 // ROW's seen mark is a different, narrower thing than this set: it is
 // `played` — the routes the reader was actually routed into (docs/plan.md
 // Phase 16, Branches).
 //
-// Reading history (docs/plan.md, "History rollback spec"): `history` records
-// every screen shown, in the order shown — an item with the route frames open
-// when it showed, or a decision's choice overlay as it opened (a first fire or
-// a route-end re-offer) — and `pos` points at the entry on screen. Reading
-// appends (a forward show, a skip step, a pick, the return row, a continuing
-// route's join, a play-all auto-pick, an overlay opening); from `pos < last`
-// a reading step whose screen equals the next recorded entry just moves `pos`
-// along (replay), and one that differs drops the recorded future first (the
-// Ren'Py fork). Jumps that are not reading (`goTo()`, a bookmark restore)
-// append their landing at the end; a landing on a screen already on record
-// brings the screens recorded after it along as its future (Phase 26), so
-// reading on replays and `e` still reaches the furthest point read. A seen
-// landing the record no longer holds (the cap dropped it) brings the
-// record's end along instead, flagged `gap`: `e` goes there, and reading
-// on from the landing records each screen just before it, so it stays the
-// end until the reader reads up to that screen, reads on from it, or
-// jumps again. The wheel moves `pos` only and shows the
-// entry exactly — the item with its frames restored, or the choice screen in
-// full — answering nothing and marking nothing played; `e` shows the last
-// entry. The record is capped (`HISTORY_CAP`, oldest first) and persists in
-// the context. Each entry also records the routes PLAYED THIS PASS
-// (`passPlayed`, docs/plan.md Phase 22), and showing an entry puts that
-// record back: rolling back before a decision and reading on plays its
-// routes again, exactly as the first time. The cumulative `played` /
-// `completed` records (seen marks, return row) never rewind. A play-all auto-pick's choice screen is recorded like any
-// other, its countdown is not.
+// Timeline (docs/plan.md Phase 27): the wheel walks the STORY ORDER, not a
+// record of what was shown. A step goes to the neighbouring screen in the
+// item array as the story flows: through a decision it follows the route
+// LAST PICKED there (`lastPick`, persisted; with none known, the longest
+// route holding seen content). A decision's choice screen is a step of its
+// own, passed through like any screen and shown with the walk's route
+// highlighted (`ChoiceView.walkRoute`); a returning route leads back to its
+// choice screen and on along the continuing route; a continuing route's end
+// joins at `continueAt`; an ending route's end stops the walk. A pure
+// choice (no continuing route) closes past its menu region once every route
+// has played, so each of its routes leads back to its choice screen and on
+// past the region, whatever its `result`. Route frames are not stored per screen:
+// an item's frames are its enclosing route spans (`framesAround`), which
+// spans that nest or are disjoint make unique. The wheel shows only seen
+// screens (an unseen one stops it), marks nothing seen or played, answers
+// nothing, and reading on from where it stopped simply continues from there.
+// `e` goes to the furthest screen read in story order: the highest seen item,
+// with its enclosing frames. The played-this-pass record (`passPlayed`,
+// docs/plan.md Phase 22) rewinds with the walk: a walked-to screen shows the
+// record as it stood when the walk began minus every decision at or after
+// the screen (enclosing decisions keep theirs, plus the routes enclosing the
+// screen), so reading on from before a decision plays its routes again. The
+// cumulative `played` / `completed` records (seen marks, return row) never
+// rewind.
 //
 // Transition kind (`MachineState.transition`): the same funnel that marks an
 // item also records HOW it became current — `advance` for the forward step
@@ -64,13 +61,11 @@
 // the FORWARD SETTLE of its `after` item — on the press or auto-advance that
 // completes it, never on navigation onto it. A firing decision either pauses
 // (`MachineState.choice`, answered by `choose()` / `chooseContinue()`; space,
-// tab and bookmark jumps are inert while it is open, the wheel and `e` leave
-// it through the history) — with `settings.playAllRoutes` the choice
+// tab and bookmark jumps are inert while it is open, the wheel and `e` walk
+// on and leave it) — with `settings.playAllRoutes` the choice
 // answers itself on screen after a countdown, taking the shortest
 // not-yet-played route (the continuing route last), and once every route
-// has played the decision resolves past itself unshown. Scrolling back
-// over a decision point shows its choice screen because the history recorded
-// it, not because the item has a decision. A stack of open decision contexts
+// has played the decision resolves past itself unshown. A stack of open decision contexts
 // gives nesting: a route's end pops its frame, proceeds to `continueAt`, or
 // re-opens that decision to offer the routes still unplayed. A pure-choice
 // decision (no `continuingRoute`) whose every route has played does not
@@ -80,8 +75,8 @@
 // Skip mode (tab) paces by pictures (docs/plan.md Phase 18): a `text` item
 // takes ZERO time — the renderer hides the caption while skipping — so one
 // settings.skipDwellMs passes per picture or video still, regardless of
-// media. Every line is still walked (shown, marked seen, recorded in the
-// history, checked against every stop rule), so a burst can stop ON a line,
+// media. Every line is still walked (shown, marked seen, checked against
+// every stop rule), so a burst can stop ON a line,
 // which then shows normally. With skip_all off it ends when the cursor moves onto the first
 // never-shown item (which is then shown normally); with skip_all on it marks
 // items seen as it shows them and ends when nothing unseen is left to visit.
@@ -107,7 +102,6 @@ import type {
   ChoiceView,
   ContextFrame,
   EndCard,
-  HistoryEntry,
   Item,
   MachineContext,
   MachineSettings,
@@ -143,11 +137,10 @@ export interface MachineOptions {
   /**
    * Restored route-play context (`exportContext()`), the Phase 13 form of a
    * resume: the seen set, the open decision stack, the routes played,
-   * completed and played this pass per decision, and the reading history —
-   * the load starts on the entry at `historyPos` (a choice screen shows its
-   * overlay), with that entry's played-this-pass record. A
-   * context without a history lands on `lastShown` and starts a one-entry
-   * history there. A context predating `completedRoutes`
+   * completed and played this pass per decision, and the last pick at each
+   * decision — the load starts on `lastShown` (with `choice`, that
+   * decision's choice screen is up again, and play-all counts it down
+   * again). A context predating `completedRoutes`
    * restores with nothing completed (see `MachineContext`): the conservative
    * reading, the return row simply stays hidden until the continuing route
    * is finished once. Like the frontier resume that landing counts as
@@ -185,10 +178,10 @@ export interface Machine {
   /**
    * Route-play context for persistence: `lastShown` (the item on screen),
    * `visitedList()`, the open decision stack, the routes played, completed
-   * and played this pass per decision, and the reading history (each entry
-   * with its played-this-pass record where it changed) with the entry on
-   * screen — all JSON-safe. `MachineOptions.resumeContext` restores all of
-   * it; `importContext()` restores all but the history. It is in array
+   * and played this pass per decision, the last pick at each decision, and
+   * the open choice screen's decision — all JSON-safe.
+   * `MachineOptions.resumeContext` restores all of it; `importContext()`
+   * all but the open choice. It is in array
    * POSITIONS (item, resolved-decision and route indices); storage never
    * holds this form — `storage/ids.ts` converts it to the id-keyed save
    * and back against the manifest being played, so a content update
@@ -197,13 +190,10 @@ export interface Machine {
   exportContext(): MachineContext;
   /**
    * The bookmark-restore move: replaces the seen set, decision stack,
-   * played, completed and played-this-pass routes with a stored context
-   * (an absent `passRoutes` reads as its `playedRoutes`) and shows its
-   * `lastShown` item. The arrival is UNSETTLED, like `goTo()`, fires no
-   * decision, and is a jump: the landing is appended to THIS session's
-   * history (the stored context's history, if any, is ignored), followed
-   * by the screens recorded after that screen's latest showing as its
-   * future, so `e` reaches the furthest point read (docs/plan.md Phase 26). Like
+   * played, completed and played-this-pass routes and last picks with a
+   * stored context (an absent `passRoutes` reads as its `playedRoutes`) and
+   * shows its `lastShown` item; a stored `choice` is not reopened. The
+   * arrival is UNSETTLED, like `goTo()`, and fires no decision. Like
    * `exportContext()` it takes positions: a bookmark's id-keyed context is
    * converted by `storage/ids.ts` first.
    */
@@ -223,27 +213,29 @@ export interface Machine {
    * PLAYS a video (`settings.skipPlaysVideos`), where the press aborts the
    * video and the burst carries on with its next step.
    * Settling the item a decision hangs off is what fires that decision.
-   * Inert while a choice is open, a replayed one included: only `choose()`
-   * and `chooseContinue()` answer it. Every step is reading, so it records
-   * into the history: from a rolled-back position it replays the record
-   * while the screen matches and forks otherwise.
+   * Inert while a choice is open, a walked-to one included: only `choose()`
+   * and `chooseContinue()` answer it. From a screen the wheel walked to it
+   * simply reads on from there.
    */
   advance(): void;
   /**
-   * Wheel step back one entry in the reading history, clamped at the first
-   * (docs/plan.md, "History rollback spec"). The entry is shown exactly: an
-   * item with the route frames it showed under, or a choice screen in full
-   * (the overlay, the current seen marks and return-row rule). A step
-   * answers nothing, marks nothing played, and leaves any open choice (it
-   * stays in the history). It does put back the entry's played-this-pass
-   * record (docs/plan.md Phase 22), so reading on from there takes the
-   * routes as the first time did. An item arrival is unsettled, like `goTo()`.
-   * During skip mode, exits skip mode and still performs the step.
+   * Wheel step back one screen in STORY ORDER (docs/plan.md Phase 27; the
+   * header's "Timeline"): an item with its enclosing route frames, or a
+   * decision's choice screen with the walk's route highlighted
+   * (`ChoiceView.walkRoute`), the current seen marks and the return-row
+   * rule. Through a decision the walk follows the last pick there. A step
+   * shows only seen screens (an unseen neighbour, or none, leaves the
+   * position as it is), answers nothing, marks nothing seen or played, and
+   * leaves any open choice. It puts back the played-this-pass record as of
+   * the screen (docs/plan.md Phases 22, 27), so reading on from before a
+   * decision plays its routes again. An item arrival is unsettled, like
+   * `goTo()`. During skip mode, exits skip mode and still performs the
+   * step.
    */
   wheelBack(): void;
   /**
-   * Wheel step forward one entry in the reading history, clamped at the
-   * last; otherwise as `wheelBack()`.
+   * Wheel step forward one screen in story order, stopping before an unseen
+   * one, so it ends at the furthest point read; otherwise as `wheelBack()`.
    */
   wheelForward(): void;
   /**
@@ -265,10 +257,10 @@ export interface Machine {
    */
   toggleSkip(): void;
   /**
-   * `e` press: go to the END of the reading history and show that entry
-   * exactly, as a wheel step would (docs/plan.md, "History rollback spec").
-   * A no-op when already there. It finds no unseen content and looks up no
-   * ending.
+   * `e` press: go to the furthest screen read in story order (docs/plan.md
+   * Phase 27): the highest seen item, with its enclosing route frames,
+   * arriving as a wheel step does. It moves only when reading passes it;
+   * a no-op when already there. It finds no unseen content.
    */
   jumpToEnd(): void;
   /**
@@ -290,9 +282,9 @@ export interface Machine {
    * The landing opens the target's enclosing route frames and marks those
    * routes PLAYED, exactly as if each had been picked, so a forward press
    * carries on inside the route and the route rows' seen marks agree. Skip
-   * ends, any open choice is left (it stays in the history), and the
-   * landing is a jump appended to the history, arriving unsettled as a
-   * forward read (its media plays). A no-op when there is nowhere to go.
+   * ends, any open choice is left, the landing's routes become the last
+   * picks at their decisions, and it arrives unsettled as a forward read
+   * (its media plays). A no-op when there is nowhere to go.
    */
   jumpToUnseen(): void;
   /**
@@ -308,8 +300,7 @@ export interface Machine {
    * `index`, clamped to `[0, highest index ever shown]`. Nothing unseen is
    * entered — unseen items are reached by `advance()` or `choose()` — and no
    * decision fires; the route stack is left as it is. Inert while a choice
-   * is open. The landing is appended to the end of the reading history.
-   * The arrival is
+   * is open. The arrival is
    * UNSETTLED, unlike a resume landing: a bookmark click "continues the
    * novel from that time point", so the item's text hold replays and
    * auto-advance carries the reader onward.
@@ -320,10 +311,9 @@ export interface Machine {
    * `MachineState.choice.routes`, so 1..9 minus one, or a pointer click).
    * The route is marked played, its frame is pushed for nesting, and its
    * first item is entered as a forward entry — shown, marked seen, its own
-   * timing armed. From a choice screen replayed out of the history this is
-   * the same real pick: it replays the record when the next entry is this
-   * route's first item and forks it otherwise. Inert when no choice is open
-   * or the index is out of range.
+   * timing armed; it becomes the decision's last pick. From a choice screen
+   * the wheel walked to this is the same real pick. Inert when no choice is
+   * open or the index is out of range.
    */
   choose(routeIdx: number): void;
   /**
@@ -563,6 +553,13 @@ function regionEnd(decision: ResolvedDecision): number {
 interface PendingChoice {
   decision: number;
   continueOption: boolean;
+  /** The route whose end re-offered it, or -1 on a first fire. */
+  via: number;
+  /**
+   * Present on a screen the wheel walked onto: the route the walk takes
+   * from it (`ChoiceView.walkRoute`; -1 past a pure choice's region).
+   */
+  walk?: number;
 }
 
 /**
@@ -668,12 +665,6 @@ export {
   choiceCountdownMs,
 } from "./choicetext";
 
-/**
- * The reading history's cap, in entries (docs/plan.md, "History rollback
- * spec"): past it the oldest entries are dropped first.
- */
-export const HISTORY_CAP = 5000;
-
 /** Route sets by decision as sorted, frozen `RouteSet`s (empty sets left out). */
 function routeSets(
   map: ReadonlyMap<number, ReadonlySet<number>>,
@@ -691,55 +682,23 @@ function routeSets(
   );
 }
 
-function sameRouteSets(
-  a: readonly RouteSet[],
-  b: readonly RouteSet[],
-): boolean {
-  return (
-    a === b ||
-    (a.length === b.length &&
-      a.every(
-        (set, at) =>
-          set.decision === b[at].decision &&
-          set.routes.length === b[at].routes.length &&
-          set.routes.every((route, k) => route === b[at].routes[k]),
-      ))
-  );
-}
+/**
+ * One screen of the timeline walk (docs/plan.md Phase 27): an item, or a
+ * decision's choice screen. `next` is the route the walk takes from the
+ * choice screen (-1: past a pure choice's menu region), `via` the
+ * returning route whose end led back to it (-1: reached from `after`).
+ */
+type Screen =
+  | { readonly kind: "item"; readonly index: number }
+  | {
+      readonly kind: "choice";
+      readonly decision: number;
+      readonly next: number;
+      readonly via: number;
+    };
 
-/** One reading-history entry (see `HistoryEntry`), owned by the machine. */
-interface Entry {
-  index: number;
-  stack: Frame[];
-  decision?: number;
-  /** The played-this-pass record as of this screen, restored with it. */
-  pass: readonly RouteSet[];
-  /**
-   * The furthest point read, held at the record's end after a jump whose
-   * landing the record no longer held (`recordJump`): the screens between
-   * the one before it and this one are not on record. Only the last entry
-   * carries it.
-   */
-  gap?: true;
-}
-
-function sameStack(a: readonly Frame[], b: readonly Frame[]): boolean {
-  return (
-    a.length === b.length &&
-    a.every(
-      (frame, depth) =>
-        frame.decision === b[depth].decision && frame.route === b[depth].route,
-    )
-  );
-}
-
-/** Whether two history entries are the same screen. */
-function sameEntry(a: Entry, b: Entry): boolean {
-  return (
-    a.index === b.index &&
-    a.decision === b.decision &&
-    sameStack(a.stack, b.stack)
-  );
+function itemScreen(index: number): Screen {
+  return { kind: "item", index };
 }
 
 export function createMachine(options: MachineOptions): Machine {
@@ -787,6 +746,27 @@ export function createMachine(options: MachineOptions): Machine {
     }
   }
   const regionEnds = decisions.map(regionEnd);
+  /**
+   * The innermost route enclosing each item, or null at the top level.
+   * Spans nest or are disjoint, so the narrowest span holding an item is
+   * the innermost, and the frames around it chain outwards through each
+   * decision's own `after` item (`framesAround`).
+   */
+  const innermost: (Frame | null)[] = new Array<Frame | null>(count).fill(null);
+  {
+    const width = new Array<number>(count).fill(Infinity);
+    for (const decision of decisions) {
+      decision.routes.forEach((route, routeIdx) => {
+        const span = route.endIndex - route.startIndex;
+        for (let i = route.startIndex; i <= route.endIndex; i += 1) {
+          if (span < width[i]) {
+            width[i] = span;
+            innermost[i] = { decision: decision.index, route: routeIdx };
+          }
+        }
+      });
+    }
+  }
 
   const listeners = new Set<Listener>();
   let cursor = 0;
@@ -799,18 +779,17 @@ export function createMachine(options: MachineOptions): Machine {
   /** `max(visited)`, -1 when nothing has been shown: the wheel's ceiling. */
   let highestSeen = -1;
   /**
-   * The reading history (header, "Reading history"), oldest first, and the
-   * position of the entry on screen; -1 only for an empty manifest.
+   * The route LAST PICKED at each decision (header, "Timeline"): a pick,
+   * a play-all auto-pick or a `u` landing sets it; the wheel follows it.
    */
-  const history: Entry[] = [];
-  let pos = -1;
+  const lastPick = new Map<number, number>();
   /**
-   * `exportHistory()`'s frozen copy, kept until the record changes: every
-   * state change exports the context (persistence, the route pills), and
-   * at the cap that is thousands of entries, while most changes only move
-   * `pos`. Set to null wherever `history` itself changes.
+   * The played-this-pass record as it stood when the current walk began
+   * (the first wheel step or `e` since reading last moved), or null while
+   * reading: each walked-to screen shows this record rewound to it
+   * (`passAt`), so walking back and forth again loses nothing.
    */
-  let historyExport: readonly HistoryEntry[] | null = null;
+  let passBase: readonly RouteSet[] | null = null;
   let settled = false;
   /** Open decision contexts, outermost first — the nesting stack. */
   const stack: Frame[] = [];
@@ -834,9 +813,8 @@ export function createMachine(options: MachineOptions): Machine {
    * route FLOW: play-all's next pick, whether a route end re-offers or a
    * pure menu closes (the all-played rule). It grows during forward play,
    * so a pass enters each route of a decision at most once under play-all,
-   * and every history entry records it, so moving the reading position
-   * back (wheel, `e`, a resume, a bookmark) puts it back as of that screen:
-   * the repeat run plays every route again, like the first.
+   * and the wheel rewinds it to the screen walked to (`passAt`): reading on
+   * from before a decision plays every route again, like the first time.
    */
   const passPlayed = new Map<number, Set<number>>();
   /** `passPlayed` as frozen `RouteSet`s, kept until it changes. */
@@ -904,15 +882,14 @@ export function createMachine(options: MachineOptions): Machine {
   let autoPickTimer: unknown = null;
   let autoPickArms = 0;
   let destroyed = false;
-  // Start position. A stored context is authoritative: its history entry on
-  // screen (or, without a history, its `lastShown`) is where the reader left
-  // off. Otherwise a persisted frontier marks a seen
+  // Start position. A stored context is authoritative: its `lastShown`
+  // (under its open choice, if any) is where the reader left off. Otherwise a persisted frontier marks a seen
   // prefix, and the load starts on its last shown item. With neither, this is
   // the first-ever load: item 0, shown, so the frontier is one past it.
   if (count > 0) {
     if (options.resumeContext !== undefined) {
       applyContext(options.resumeContext);
-      restoreHistory(options.resumeContext);
+      reopenChoice(options.resumeContext);
       settled = true; // a resume landing was already read, as with a frontier
       autoPickLiveChoice(); // play-all carries on from a live choice
     } else if (options.resumeFrontier !== undefined) {
@@ -920,11 +897,9 @@ export function createMachine(options: MachineOptions): Machine {
       for (let index = 0; index < frontier; index += 1) visited.add(index);
       highestSeen = frontier - 1;
       cursor = frontier - 1;
-      pushEntry(currentEntry());
       settled = true;
     } else {
       markShown(0);
-      pushEntry(currentEntry());
     }
   }
   // The start position is an arrival like any other (Phase 15): a chain
@@ -1009,13 +984,13 @@ export function createMachine(options: MachineOptions): Machine {
   }
 
   /**
-   * Play-all takes over the choice on screen when it is the live one — the
-   * history's last entry, not a replay — as when the setting is turned on
-   * over it or a reload lands on it; true when it did.
+   * Play-all takes over the choice on screen when it is a live one — opened
+   * by reading or a reload, not walked onto by the wheel — as when the
+   * setting is turned on over it or a reload lands on it; true when it did.
    */
   function autoPickLiveChoice(): boolean {
     if (!settings.playAllRoutes || pendingChoice === null) return false;
-    if (pos !== history.length - 1) return false;
+    if (pendingChoice.walk !== undefined) return false;
     return startAutoPick(pendingChoice.decision, -1, false);
   }
 
@@ -1094,12 +1069,14 @@ export function createMachine(options: MachineOptions): Machine {
               ? { backFromLabel: decision.routes[held.fromRoute].label }
               : {}),
           });
+    const walk = pending.walk ?? -1;
     const view = {
       decisionId: decision.id,
       prompt: decision.prompt,
       routes,
       ...(pending.continueOption ? { continueOption: true } : {}),
       ...(auto === null ? {} : { autoPick: auto }),
+      ...(walk >= 0 ? { walkRoute: walk } : {}),
     };
     return Object.freeze(view);
   }
@@ -1274,16 +1251,6 @@ export function createMachine(options: MachineOptions): Machine {
     if (index > highestSeen) highestSeen = index;
   }
 
-  /** The screen under the cursor as a history entry (a copy). */
-  function currentEntry(decision?: number): Entry {
-    return {
-      index: cursor,
-      stack: stack.map((frame) => ({ ...frame })),
-      ...(decision === undefined ? {} : { decision }),
-      pass: passNow(),
-    };
-  }
-
   /** The played-this-pass record now, frozen. */
   function passNow(): readonly RouteSet[] {
     if (passExport === null) passExport = routeSets(passPlayed);
@@ -1311,164 +1278,300 @@ export function createMachine(options: MachineOptions): Machine {
     }
   }
 
-  /** Appends an entry as the last one, dropping the oldest past the cap. */
-  function pushEntry(entry: Entry): void {
-    historyExport = null;
-    const end = history[history.length - 1];
-    if (end?.gap === true) delete end.gap; // no longer the record's end
-    history.push(entry);
-    if (history.length > HISTORY_CAP) {
-      history.splice(0, history.length - HISTORY_CAP);
-    }
-    pos = history.length - 1;
-  }
-
-  /**
-   * Reading showed `entry` (header, "Reading history"): the same screen as
-   * the one on record stays put; from `pos < last` a screen equal to the
-   * next recorded entry just advances `pos` (replay), and any other drops
-   * the recorded future before it is appended (fork).
-   */
-  function recordRead(entry: Entry): void {
-    if (pos >= 0 && sameEntry(history[pos], entry)) {
-      keepPass(entry);
-      return;
-    }
-    if (pos < history.length - 1) {
-      // A replay matches only under the same pass record: the record after
-      // `pos` is the future of the pass it was read in.
-      const next = history[pos + 1];
-      if (sameEntry(next, entry) && sameRouteSets(next.pass, entry.pass)) {
-        pos += 1;
-        if (next.gap === true) {
-          delete next.gap; // read up to the furthest point: the gap closes
-          historyExport = null;
-        }
-        return;
-      }
-      if (next.gap === true) {
-        // Reading towards the furthest point (`recordJump`): the screen
-        // goes in before it, which stays the record's end.
-        history.pop();
-        pushEntry(entry);
-        pushEntry(next);
-        pos = history.length - 2;
-        return;
-      }
-      history.length = pos + 1; // pushEntry drops the cached export
-    }
-    pushEntry(entry);
-  }
-
-  /**
-   * A jump that is not reading (`goTo()`, a bookmark restore): its landing
-   * is appended at the END of the record, keeping every recorded screen.
-   * When the record already holds that screen, the screens recorded after
-   * its latest showing (preferring one under the same played-this-pass
-   * record) are appended after the landing as its recorded future
-   * (docs/plan.md Phase 26): reading on replays them and `e` reaches the
-   * furthest point read, instead of the landing becoming the record's end.
-   * When the record does not hold a SEEN landing (the cap dropped it, or a
-   * resume record never showed it), the record's end is appended again
-   * after the landing as a `gap` entry: `e` still goes there, and reading
-   * on from the landing records its screens before it until the reader
-   * reaches it. An `unseen` landing (`u`) is new reading: it becomes the
-   * end, as before.
-   */
-  function recordJump(entry: Entry, unseen: boolean): void {
-    pos = history.length - 1;
-    if (pos >= 0 && sameEntry(history[pos], entry)) {
-      keepPass(entry);
-      return;
-    }
-    let from = -1;
-    for (let at = pos - 1; at >= 0; at -= 1) {
-      if (!sameEntry(history[at], entry)) continue;
-      if (from < 0) from = at;
-      if (sameRouteSets(history[at].pass, entry.pass)) {
-        from = at;
-        break;
-      }
-    }
-    const future =
-      from < 0
-        ? pos < 0 || unseen
-          ? []
-          : [{ ...history[pos], gap: true as const }]
-        : history.slice(from + 1);
-    pushEntry(entry);
-    for (const recorded of future) pushEntry({ ...recorded });
-    pos = history.length - 1 - future.length;
-  }
-
-  /** The screen on record stays: it takes the pass record it now has. */
-  function keepPass(entry: Entry): void {
-    if (sameRouteSets(history[pos].pass, entry.pass)) return;
-    history[pos].pass = entry.pass;
-    historyExport = null;
-  }
-
   /**
    * Makes `index` the current item: record how it was reached, mark it shown,
-   * record it in the history, restart its timing, and tell the listeners.
-   * Every reading route to an item — forward advance, skip step, `choose()`,
-   * a join, `goTo()` — comes through here, which is why showing and seeing
-   * are the same moment (the header's marking rule). `kind` is the forward
-   * step's `advance` or any other route's `nav` arrival (see
-   * `TransitionKind`); `jump` marks the non-reading jumps (`goTo()`, a
-   * restore), which append at the history's end instead of replaying or
-   * forking it. A history replay (`showEntry`) does not come through here.
+   * restart its timing, and tell the listeners. Every reading route to an
+   * item — forward advance, skip step, `choose()`, a join, `goTo()`, a
+   * restore — comes through here, which is why showing and seeing are the
+   * same moment (the header's marking rule), and why it ends any walk: the
+   * played-this-pass record the walk rewound to is the reading's from here.
+   * `kind` is the forward step's `advance` or any other route's `nav`
+   * arrival (see `TransitionKind`). A wheel step or `e` (`showScreen`) does
+   * not come through here.
    */
-  function showItem(index: number, kind: TransitionKind, jump = false): void {
+  function showItem(index: number, kind: TransitionKind): void {
     const keepsChain = index === cursor + 1 && chainHeadAt !== null;
-    const unseen = !visited.has(index);
     cursor = index;
     transition = kind;
     chainHeadAt = chainHeadMarkFor(index, keepsChain);
     markShown(index);
-    if (jump) recordJump(currentEntry(), unseen);
-    else recordRead(currentEntry());
+    passBase = null;
     beginItem();
     emit();
   }
 
-  /**
-   * Puts history entry `at` on screen without timing or emitting: the
-   * cursor, the route frames it showed under, and — for a choice screen —
-   * the overlay, with the CURRENT seen marks and return-row rule. Nothing
-   * is answered or marked played.
-   */
-  function placeEntry(at: number): void {
-    pos = at;
-    const entry = history[at];
-    restorePass(entry.pass);
-    stack.length = 0;
-    stack.push(...entry.stack.map((frame) => ({ ...frame })));
-    cursor = entry.index;
-    transition = "nav";
-    chainHeadAt = chainHeadMarkFor(cursor, false);
-    markShown(cursor);
-    pendingChoice =
-      entry.decision === undefined
-        ? null
-        : {
-            decision: entry.decision,
-            continueOption: offersContinue(decisions[entry.decision]),
-          };
+  /** Whether an item is the `after` of a decision at its own level. */
+  function decisionAt(index: number): number {
+    const candidates = byAfter.get(index);
+    if (candidates === undefined) return -1;
+    const level = innermost[index]?.decision ?? -1;
+    return candidates.find((at) => decisions[at].parent === level) ?? -1;
+  }
+
+  /** Whether any item of a route has been seen. */
+  function routeSeen(route: ResolvedRoute): boolean {
+    for (let i = route.startIndex; i <= route.endIndex; i += 1) {
+      if (visited.has(i)) return true;
+    }
+    return false;
   }
 
   /**
-   * The wheel and `e`: show history entry `at` exactly (docs/plan.md,
-   * "History rollback spec"). Skip mode ends; an item arrives unsettled
-   * with its own hold, a choice screen settled and waiting for its pick.
+   * The route the walk takes forward through a decision (docs/plan.md
+   * Phase 27): the last pick there, else the longest route (most items,
+   * manifest order on a tie) holding seen content; -1 when none does.
    */
-  function showEntry(at: number): void {
+  function pickFor(decision: ResolvedDecision): number {
+    const known = lastPick.get(decision.index);
+    if (known !== undefined) return known;
+    let best = -1;
+    decision.routes.forEach((route, routeIdx) => {
+      if (!routeSeen(route)) return;
+      const span = route.endIndex - route.startIndex;
+      const bestRoute = decision.routes[best];
+      if (best < 0 || span > bestRoute.endIndex - bestRoute.startIndex)
+        best = routeIdx;
+    });
+    return best;
+  }
+
+  /** A returning (not continuing, not ending) route. */
+  function returns(route: ResolvedRoute): boolean {
+    return !route.continuing && route.result === "return";
+  }
+
+  /**
+   * Where the walk goes after the last item of route `routeIdx` of
+   * `decisionIndex`: a continuing route joins at `continueAt`; a returning
+   * route leads back to the choice screen and on along the continuing
+   * route; an ending route stops (null). A pure choice's routes, whatever
+   * their `result`, all lead back to its choice screen and on past the menu
+   * region, as the machine's flow closes past it once all have played
+   * (the shape the Ren'Py converter writes for every menu).
+   */
+  function afterRouteEnd(
+    decisionIndex: number,
+    routeIdx: number,
+  ): Screen | null {
+    const decision = decisions[decisionIndex];
+    const route = decision.routes[routeIdx];
+    if (route.continuing) return passOn(decision, decision.continueAt);
+    if (decision.continuingRoute >= 0 && !returns(route)) return null;
+    return {
+      kind: "choice",
+      decision: decisionIndex,
+      next: decision.continuingRoute,
+      via: routeIdx,
+    };
+  }
+
+  /**
+   * Flow leaving a decision for item `target` (a join, or a pure choice's
+   * fall-through): past the end of the route holding the decision it
+   * leaves that route too (nested routes sharing an ending, as `join`).
+   */
+  function passOn(decision: ResolvedDecision, target: number): Screen | null {
+    const holder = innermost[decision.afterIndex];
+    // A holder is an enclosing decision; a malformed table whose route
+    // holds its own `after` would loop, so only a parent counts.
+    if (holder !== null && holder.decision === decision.parent) {
+      const route = decisions[holder.decision].routes[holder.route];
+      if (target > route.endIndex)
+        return afterRouteEnd(holder.decision, holder.route);
+    }
+    return target >= 0 && target < count ? itemScreen(target) : null;
+  }
+
+  /** The screen after `screen` in story order, or null at a stop. */
+  function forwardOf(screen: Screen): Screen | null {
+    if (screen.kind === "choice") {
+      const decision = decisions[screen.decision];
+      if (screen.next >= 0)
+        return itemScreen(decision.routes[screen.next].startIndex);
+      return passOn(decision, regionEnd(decision) + 1);
+    }
+    const index = screen.index;
+    const fires = decisionAt(index);
+    if (fires >= 0) {
+      const next = pickFor(decisions[fires]);
+      return next < 0
+        ? null
+        : { kind: "choice", decision: fires, next, via: -1 };
+    }
+    const frame = innermost[index];
+    if (
+      frame !== null &&
+      decisions[frame.decision].routes[frame.route].endIndex === index
+    )
+      return afterRouteEnd(frame.decision, frame.route);
+    return index + 1 < count ? itemScreen(index + 1) : null;
+  }
+
+  /**
+   * The joins into each item: the route ends whose step lands on it (a
+   * continuing route's join, nested shared endings included), and the
+   * routes of pure choices whose fall-through does. The walk
+   * back from that item takes one of them. Static; built on first use.
+   */
+  let joinsInto: Map<number, Screen[]> | null = null;
+  function joinsTo(index: number): readonly Screen[] {
+    if (joinsInto === null) {
+      const map = new Map<number, Screen[]>();
+      const add = (target: Screen | null, from: Screen) => {
+        if (target?.kind !== "item") return;
+        const list = map.get(target.index) ?? [];
+        list.push(from);
+        map.set(target.index, list);
+      };
+      for (const decision of decisions) {
+        decision.routes.forEach((route, routeIdx) => {
+          const end = itemScreen(route.endIndex);
+          if (decisionAt(route.endIndex) < 0) add(forwardOf(end), end);
+          if (decision.continuingRoute < 0) {
+            const past: Screen = {
+              kind: "choice",
+              decision: decision.index,
+              next: -1,
+              via: routeIdx,
+            };
+            add(forwardOf(past), past);
+          }
+        });
+      }
+      joinsInto = map;
+    }
+    return joinsInto.get(index) ?? [];
+  }
+
+  /** The item a screen stands on: a choice screen's is the item under it. */
+  function anchorOf(screen: Screen): number {
+    if (screen.kind === "item") return screen.index;
+    const decision = decisions[screen.decision];
+    return screen.via >= 0
+      ? decision.routes[screen.via].endIndex
+      : decision.afterIndex;
+  }
+
+  /** The screen before `screen` in story order, or null at the start. */
+  function backwardOf(screen: Screen): Screen | null {
+    if (screen.kind === "choice") return itemScreen(anchorOf(screen));
+    const index = screen.index;
+    const frame = innermost[index];
+    if (
+      frame !== null &&
+      decisions[frame.decision].routes[frame.route].startIndex === index
+    ) {
+      // The choice screen that leads into this route: after a returning
+      // last pick (whose end was read) when this is the continuing route.
+      const decision = decisions[frame.decision];
+      const picked = lastPick.get(decision.index) ?? -1;
+      const via =
+        frame.route === decision.continuingRoute &&
+        picked >= 0 &&
+        picked !== frame.route &&
+        returns(decision.routes[picked]) &&
+        visited.has(decision.routes[picked].endIndex)
+          ? picked
+          : -1;
+      return {
+        kind: "choice",
+        decision: decision.index,
+        next: frame.route,
+        via,
+      };
+    }
+    if (index > 0) {
+      const step = forwardOf(itemScreen(index - 1));
+      if (
+        step?.kind === "item" &&
+        step.index === index &&
+        visited.has(index - 1)
+      )
+        return itemScreen(index - 1);
+    }
+    const joins = joinsTo(index).filter((from) => visited.has(anchorOf(from)));
+    // A pure choice's fall-through comes back by the last pick, else by
+    // the first route read.
+    return (
+      joins.find(
+        (from) =>
+          from.kind === "choice" && lastPick.get(from.decision) === from.via,
+      ) ??
+      joins[0] ??
+      null
+    );
+  }
+
+  /** Whether the wheel may show a screen: only seen content. */
+  function screenSeen(screen: Screen): boolean {
+    if (screen.kind === "item") return visited.has(screen.index);
+    const onward = forwardOf(screen);
+    return onward?.kind === "item" && visited.has(onward.index);
+  }
+
+  /** The screen on show now, as the walk sees it. */
+  function currentScreen(): Screen {
+    if (pendingChoice === null) return itemScreen(cursor);
+    const decision = decisions[pendingChoice.decision];
+    const via = pendingChoice.via;
+    const next =
+      pendingChoice.walk ??
+      (via < 0 ? pickFor(decision) : decision.continuingRoute);
+    return { kind: "choice", decision: decision.index, next, via };
+  }
+
+  /**
+   * The played-this-pass record as of item `anchor` in story order
+   * (docs/plan.md Phase 27): the walk's starting record without every
+   * decision at or after the anchor, plus the routes enclosing it.
+   */
+  function passAt(anchor: number): readonly RouteSet[] {
+    const map = new Map<number, Set<number>>();
+    for (const set of passBase ?? passNow()) {
+      if (decisions[set.decision].afterIndex < anchor)
+        map.set(set.decision, new Set(set.routes));
+    }
+    for (const frame of framesAround(anchor)) {
+      const routes = map.get(frame.decision) ?? new Set<number>();
+      routes.add(frame.route);
+      map.set(frame.decision, routes);
+    }
+    return routeSets(map);
+  }
+
+  /**
+   * The wheel and `e`: show a screen of the walk (header, "Timeline"). Skip
+   * mode ends; an item arrives unsettled with its own hold, a choice screen
+   * settled, its walk route highlighted, waiting for a pick. Nothing is
+   * marked seen or played; the played-this-pass record rewinds to it.
+   */
+  function showScreen(screen: Screen): void {
     skipping = false;
     cancelAutoPick();
-    placeEntry(at);
-    if (pendingChoice === null) {
+    if (passBase === null) passBase = passNow();
+    const anchor = anchorOf(screen);
+    restorePass(passAt(anchor));
+    stack.length = 0;
+    stack.push(
+      ...framesAround(
+        screen.kind === "item"
+          ? screen.index
+          : decisions[screen.decision].afterIndex,
+      ),
+    );
+    cursor = anchor;
+    transition = "nav";
+    chainHeadAt = chainHeadMarkFor(cursor, false);
+    if (screen.kind === "item") {
+      pendingChoice = null;
       beginItem();
     } else {
+      pendingChoice = {
+        decision: screen.decision,
+        continueOption: offersContinue(decisions[screen.decision]),
+        via: screen.via,
+        walk: screen.next,
+      };
       settled = true;
       holdElapsed = false;
       endedCount = 0;
@@ -1690,9 +1793,13 @@ export function createMachine(options: MachineOptions): Machine {
     return -1;
   }
 
-  /** Marks the route played, pushes its frame, and enters its first item. */
+  /**
+   * Marks the route played and last picked, pushes its frame, and enters its
+   * first item.
+   */
   function enterRoute(decision: ResolvedDecision, routeIdx: number): void {
     markPlayed(decision.index, routeIdx);
+    lastPick.set(decision.index, routeIdx);
     stack.push({ decision: decision.index, route: routeIdx });
     showItem(decision.routes[routeIdx].startIndex, "nav");
   }
@@ -1750,8 +1857,8 @@ export function createMachine(options: MachineOptions): Machine {
    * not merely entered. A continuation the reader has not reached the end of
    * is not a place to "return" to: from a re-offer they should pick the
    * continuing route to advance, and finishing it once opens the row on
-   * every later re-opening and history replay. A decision with no continuing route
-   * is never offered one (unchanged).
+   * every later re-opening and walked-to choice screen. A decision with no
+   * continuing route is never offered one (unchanged).
    */
   function offersContinue(decision: ResolvedDecision): boolean {
     if (decision.continuingRoute < 0) return false;
@@ -1761,27 +1868,26 @@ export function createMachine(options: MachineOptions): Machine {
   }
 
   /**
-   * Shows the overlay for a decision, records it in the history, and
-   * pauses: the item under the cursor is complete (`settled`), nothing is
-   * pending but the reader's pick, and skip mode ends — an overlay is not
-   * something to skip past. Play-all passes `fromRoute` (the route that just
-   * ended, or -1 on a first fire) and answers the choice itself.
+   * Shows the overlay for a decision and pauses: the item under the cursor
+   * is complete (`settled`), nothing is pending but the reader's pick, and
+   * skip mode ends — an overlay is not something to skip past. `via` is the
+   * route that just ended (a re-offer), or -1 on a first fire; with `auto`
+   * (play-all) the machine answers the choice itself.
    */
-  function openChoice(decisionIndex: number, fromRoute?: number): void {
+  function openChoice(decisionIndex: number, via: number, auto: boolean): void {
     const resumeSkip = skipping;
     closeFramesFor(decisionIndex);
     const decision = decisions[decisionIndex];
     pendingChoice = {
       decision: decisionIndex,
       continueOption: offersContinue(decision),
+      via,
     };
+    passBase = null; // reading opened it: no walk any more
     // Play all routes (docs/plan.md Phase 18) answers the choice itself, on
     // screen: a countdown, then the picked row, then the route.
     cancelAutoPick();
-    if (fromRoute !== undefined)
-      startAutoPick(decisionIndex, fromRoute, resumeSkip);
-    // An overlay opening is a screen shown while reading: recorded.
-    recordRead(currentEntry(decisionIndex));
+    if (auto) startAutoPick(decisionIndex, via, resumeSkip);
     // A skip burst pauses at a decision (docs/plan.md Phase 16): the overlay
     // ends the burst, and the pick never restarts it — the reader answers in
     // manual mode from here (a skip burst never auto-resumes).
@@ -1804,11 +1910,11 @@ export function createMachine(options: MachineOptions): Machine {
     const decision = decisions[index];
     if (closeIfPureAndComplete(decision)) return true;
     if (settings.playAllRoutes) {
-      if (nextAutoRoute(decision) >= 0) openChoice(decision.index, -1);
+      if (nextAutoRoute(decision) >= 0) openChoice(decision.index, -1, true);
       else autoResolve(decision);
       return true;
     }
-    openChoice(decision.index);
+    openChoice(decision.index, -1, false);
     return true;
   }
 
@@ -1892,30 +1998,17 @@ export function createMachine(options: MachineOptions): Machine {
     return cursor === decisions[frame.decision].routes[frame.route].endIndex;
   }
 
-  /** Nesting depth of a decision: 0 at the top level. */
-  function depthOf(decision: ResolvedDecision): number {
-    let depth = 0;
-    for (let at = decision.parent; at >= 0; at = decisions[at].parent) {
-      depth += 1;
-    }
-    return depth;
-  }
-
-  /** The route frames enclosing item `index`, outermost first. */
+  /** The route frames enclosing item `index`, outermost first (copies). */
   function framesAround(index: number): Frame[] {
-    const found: { frame: Frame; depth: number }[] = [];
-    for (const decision of decisions) {
-      decision.routes.forEach((route, routeIdx) => {
-        if (index >= route.startIndex && index <= route.endIndex) {
-          found.push({
-            frame: { decision: decision.index, route: routeIdx },
-            depth: depthOf(decision),
-          });
-        }
-      });
+    const found: Frame[] = [];
+    for (
+      let frame = innermost[index];
+      frame !== null && frame !== undefined && found.length < decisions.length;
+      frame = innermost[decisions[frame.decision].afterIndex]
+    ) {
+      found.unshift({ ...frame });
     }
-    found.sort((a, b) => a.depth - b.depth);
-    return found.map((entry) => entry.frame);
+    return found;
   }
 
   /**
@@ -2074,29 +2167,32 @@ export function createMachine(options: MachineOptions): Machine {
     // The same pause as `fireDecision`: a skip burst stops at this re-offer
     // too (docs/plan.md Phase 16); only `playAllRoutes` answers it itself.
     if (settings.playAllRoutes) {
-      if (nextAutoRoute(decision) >= 0) openChoice(decision.index, frame.route);
+      if (nextAutoRoute(decision) >= 0)
+        openChoice(decision.index, frame.route, true);
       else autoResolve(decision);
       return;
     }
-    openChoice(decision.index);
+    openChoice(decision.index, frame.route, false);
   }
 
   /**
-   * One wheel notch through the history (`direction` -1 back, +1 forward),
-   * clamped to the record. Decision (docs/plan.md Phase 4): a step during
-   * skip exits skip mode AND performs the step; a clamped step still ends
-   * skip, and the item left behind gets its normal timing.
+   * One wheel notch along the story (`direction` -1 back, +1 forward; header,
+   * "Timeline"), onto seen screens only. Decision (docs/plan.md Phase 4): a
+   * step during skip exits skip mode AND performs the step; a step with
+   * nowhere to go still ends skip, and the item left behind gets its normal
+   * timing.
    */
-  function stepHistory(direction: -1 | 1): void {
-    const target = pos + direction;
-    if (target < 0 || target >= history.length) {
+  function stepWalk(direction: -1 | 1): void {
+    const here = currentScreen();
+    const target = direction < 0 ? backwardOf(here) : forwardOf(here);
+    if (target === null || !screenSeen(target)) {
       if (skipping) {
         exitSkip();
         emit();
       }
       return;
     }
-    showEntry(target);
+    showScreen(target);
   }
 
   /** Sorted view of the seen set: what persistence stores. */
@@ -2105,9 +2201,9 @@ export function createMachine(options: MachineOptions): Machine {
   }
 
   /**
-   * Restores a stored context: seen set, played and completed routes, open
-   * stack, and the cursor at `lastShown` — everything but the history
-   * (`restoreHistory`). Indices outside this manifest are dropped — a save
+   * Restores a stored context: seen set, played and completed routes, last
+   * picks, open stack, and the cursor at `lastShown` — everything but the
+   * open choice (`reopenChoice`). Indices outside this manifest are dropped — a save
    * made against different content must degrade to playing, not to a cursor
    * off the end. The seen edge comes back with the seen set: `highestSeen`
    * is the restored maximum, not the landing item — otherwise a resumed
@@ -2156,6 +2252,18 @@ export function createMachine(options: MachineOptions): Machine {
     // The played-this-pass record; an older save without one reads as its
     // cumulative played routes (the flow it had then).
     restorePass(validRouteSets(context.passRoutes ?? context.playedRoutes));
+    passBase = null;
+    lastPick.clear();
+    for (const frame of Array.isArray(context.lastPicks)
+      ? context.lastPicks
+      : []) {
+      const decisionIndex = asIndex(frame?.decision, -1);
+      const routeIdx = asIndex(frame?.route, -1);
+      if (decisionIndex < 0 || decisionIndex >= decisions.length) continue;
+      if (routeIdx < 0 || routeIdx >= decisions[decisionIndex].routes.length)
+        continue;
+      lastPick.set(decisionIndex, routeIdx);
+    }
     stack.length = 0;
     for (const frame of context.stack ?? []) {
       const decisionIndex = asIndex(frame?.decision, -1);
@@ -2195,89 +2303,34 @@ export function createMachine(options: MachineOptions): Machine {
     return routeSets(map);
   }
 
-  /** A stored history entry checked against this manifest; null if foreign. */
-  function validEntry(
-    raw: HistoryEntry | undefined,
-    pass: readonly RouteSet[],
-  ): Entry | null {
-    if (typeof raw !== "object" || raw === null) return null;
-    const index = asIndex(raw.index, -1);
-    if (index < 0 || index >= count) return null;
-    const entryStack: Frame[] = [];
-    for (const frame of Array.isArray(raw.stack) ? raw.stack : []) {
-      const decision = asIndex(frame?.decision, -1);
-      const route = asIndex(frame?.route, -1);
-      if (decision < 0 || decision >= decisions.length) return null;
-      if (route < 0 || route >= decisions[decision].routes.length) return null;
-      entryStack.push({ decision, route });
-    }
-    const gap = raw.gap === true ? { gap: true as const } : {};
-    if (raw.decision === undefined)
-      return { index, stack: entryStack, pass, ...gap };
-    const decision = asIndex(raw.decision, -1);
-    if (decision < 0 || decision >= decisions.length) return null;
-    return { index, stack: entryStack, decision, pass, ...gap };
-  }
-
   /**
-   * The resume half of a stored context (docs/plan.md, "History rollback
-   * spec"): its history, checked entry by entry (a foreign entry is
-   * dropped) and capped, with the entry at `historyPos` (default: the
-   * last) put on screen. A context without a usable history — every save
-   * written before the history existed — starts a one-entry history at its
-   * `lastShown` landing, under its stored stack.
+   * The resume's open choice: a stored `choice` whose decision this
+   * manifest has is up again over the landing — a re-offer when the
+   * landing is the last item of one of its routes — as a live choice.
    */
-  function restoreHistory(context: MachineContext): void {
-    historyExport = null;
-    history.length = 0;
-    pos = -1;
-    const stored = Array.isArray(context.history) ? context.history : [];
-    // Each entry's pass record: its own when stored, else the one before
-    // it — a dropped entry's too — and before any, the context's (a save
-    // from before entries carried one never rewinds).
-    let pass = passNow();
-    for (const raw of stored.slice(-HISTORY_CAP)) {
-      if (
-        typeof raw === "object" &&
-        raw !== null &&
-        raw.passRoutes !== undefined
-      )
-        pass = validRouteSets(raw.passRoutes);
-      const entry = validEntry(raw, pass);
-      if (entry !== null) history.push(entry);
-    }
-    if (history.length === 0) {
-      pushEntry(currentEntry());
-      return;
-    }
-    const last = history.length - 1;
-    for (let at = 0; at < last; at += 1) delete history[at].gap; // end only
-    placeEntry(clamp(asIndex(context.historyPos, last), 0, last));
+  function reopenChoice(context: MachineContext): void {
+    const decisionIndex = asIndex(context.choice, -1);
+    if (decisionIndex < 0 || decisionIndex >= decisions.length) return;
+    const decision = decisions[decisionIndex];
+    const via =
+      cursor === decision.afterIndex
+        ? -1
+        : decision.routes.findIndex((route) => route.endIndex === cursor);
+    closeFramesFor(decisionIndex);
+    pendingChoice = {
+      decision: decisionIndex,
+      continueOption: offersContinue(decision),
+      via,
+    };
   }
 
-  /** The history as JSON-safe context data (cached until it changes). */
-  function exportHistory(): readonly HistoryEntry[] {
-    if (historyExport !== null) return historyExport;
-    historyExport = Object.freeze(
-      history.map((entry, at) =>
-        Object.freeze({
-          index: entry.index,
-          stack: Object.freeze(
-            entry.stack.map(
-              (frame): ContextFrame =>
-                Object.freeze({ decision: frame.decision, route: frame.route }),
-            ),
-          ),
-          ...(entry.decision === undefined ? {} : { decision: entry.decision }),
-          ...(entry.gap === true ? { gap: true } : {}),
-          // The pass record only where it changed (`HistoryEntry`).
-          ...(at > 0 && sameRouteSets(history[at - 1].pass, entry.pass)
-            ? {}
-            : { passRoutes: entry.pass }),
-        }),
-      ),
+  /** The last picks as JSON-safe frames, by decision. */
+  function exportPicks(): readonly ContextFrame[] {
+    return Object.freeze(
+      [...lastPick.entries()]
+        .sort((a, b) => a[0] - b[0])
+        .map(([decision, route]) => Object.freeze({ decision, route })),
     );
-    return historyExport;
   }
 
   return {
@@ -2312,8 +2365,13 @@ export function createMachine(options: MachineOptions): Machine {
         completedRoutes: routeSets(completed),
         // Played this pass (docs/plan.md Phase 22): the flow's record.
         passRoutes: passNow(),
-        history: exportHistory(),
-        historyPos: pos,
+        // The timeline's last picks (docs/plan.md Phase 27).
+        lastPicks: exportPicks(),
+        // A live choice only: a walked-to one is browsing, and a reload
+        // lands on the item under it instead.
+        ...(pendingChoice === null || pendingChoice.walk !== undefined
+          ? {}
+          : { choice: pendingChoice.decision }),
       });
     },
 
@@ -2322,9 +2380,8 @@ export function createMachine(options: MachineOptions): Machine {
       cancelAutoPick();
       applyContext(context);
       skipping = false; // a restore is manual navigation, like `goTo()`
-      // UNSETTLED arrival: the item replays under its hold. A jump: the
-      // landing is appended to this session's history.
-      showItem(cursor, "nav", true);
+      // UNSETTLED arrival: the item replays under its hold.
+      showItem(cursor, "nav");
     },
 
     subscribe(listener) {
@@ -2340,7 +2397,7 @@ export function createMachine(options: MachineOptions): Machine {
         finishAutoPick(false); // Space takes the auto-pick now
         return;
       }
-      // Only the choice's own inputs answer it, a replayed one included.
+      // Only the choice's own inputs answer it, a walked-to one included.
       if (pendingChoice !== null) return;
       if (skipPlaysVideo()) {
         // Space while skip plays a video (`skipPlaysVideos`, docs/plan.md
@@ -2384,13 +2441,13 @@ export function createMachine(options: MachineOptions): Machine {
     },
 
     wheelBack() {
-      if (destroyed) return;
-      stepHistory(-1);
+      if (destroyed || count === 0) return;
+      stepWalk(-1);
     },
 
     wheelForward() {
-      if (destroyed) return;
-      stepHistory(1);
+      if (destroyed || count === 0) return;
+      stepWalk(1);
     },
 
     toggleSkip() {
@@ -2409,9 +2466,9 @@ export function createMachine(options: MachineOptions): Machine {
 
     jumpToEnd() {
       if (destroyed || count === 0) return;
-      const last = history.length - 1;
-      if (pos >= last) return; // already at the end: nothing to do
-      showEntry(last);
+      // The furthest point read; already there, nothing to do.
+      if (highestSeen < 0 || cursor === highestSeen) return;
+      showScreen(itemScreen(highestSeen));
     },
 
     jumpToUnseen() {
@@ -2426,11 +2483,11 @@ export function createMachine(options: MachineOptions): Machine {
       stack.length = 0;
       for (const frame of framesAround(target)) {
         markPlayed(frame.decision, frame.route);
+        lastPick.set(frame.decision, frame.route);
         stack.push(frame);
       }
-      // A read of new content, so its media plays wherever the edge is; a
-      // jump, so the landing is appended to the history.
-      showItem(target, "advance", true);
+      // A read of new content, so its media plays wherever the edge is.
+      showItem(target, "advance");
     },
 
     hasEarlierUnseen() {
@@ -2451,9 +2508,9 @@ export function createMachine(options: MachineOptions): Machine {
       // seen content `[0, highestSeen]`: unseen items must be entered by
       // advance() or choose() rather than consumed by a jump. (The cursor
       // may move either way — backward, or forward back to the edge of what
-      // has been shown.) The landing is appended to the history's end.
+      // has been shown.)
       skipping = false; // manual navigation ends skip mode
-      showItem(clamp(index, 0, Math.max(0, highestSeen)), "nav", true);
+      showItem(clamp(index, 0, Math.max(0, highestSeen)), "nav");
     },
 
     choose(routeIdx) {
@@ -2510,8 +2567,8 @@ export function createMachine(options: MachineOptions): Machine {
       // toggle mid-burst starts or stops the video under the cursor.
       if (skipPlaysVideo() !== wasSkipVideo) emit();
       // Play all routes turned off mid-countdown: the choice waits instead.
-      // Turned on over a live choice (the last history entry, not a
-      // replay): play-all answers it, counting down from the next resume.
+      // Turned on over a live choice (not one the wheel walked onto):
+      // play-all answers it, counting down from the next resume.
       if (autoPick !== null && !settings.playAllRoutes) {
         cancelAutoPick();
         emit();

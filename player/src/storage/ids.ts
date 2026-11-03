@@ -10,18 +10,15 @@
 //
 // Restoring against a manifest the save was not made with drops what no
 // longer exists, piece by piece: an unknown item leaves the seen set, a
-// stack frame or played/completed route of an unknown decision or route is
-// dropped, and a history entry naming anything unknown is removed (the
-// entry on screen moves to the nearest kept entry at or before it). A
-// `lastShown` that is gone falls back to the restored history's landing,
-// else the furthest seen item. A save in which nothing resolves at all is
-// no save. Pure: no DOM, no storage.
+// stack frame, last pick or played/completed route of an unknown decision or
+// route is dropped, and so is an open choice of an unknown decision. A
+// `lastShown` that is gone falls back to the furthest seen item. A save in
+// which nothing resolves at all is no save. Pure: no DOM, no storage.
 
 import { resolveDecisions } from "../machine/machine";
 import type {
   Branch,
   ContextFrame,
-  HistoryEntry,
   Item,
   MachineContext,
 } from "../machine/types";
@@ -29,7 +26,6 @@ import type {
   PersistedState,
   SavedContext,
   SavedFrame,
-  SavedHistoryEntry,
   SavedRouteSet,
 } from "./types";
 
@@ -39,8 +35,8 @@ export interface ContextCodec {
   /**
    * A stored id-keyed context as the machine's index context for THIS
    * manifest, with every unknown id dropped (see the header); undefined
-   * when nothing in it resolves — no landing item, nothing seen, no
-   * history — which the caller treats as no save.
+   * when nothing in it resolves — no landing item, nothing seen — which
+   * the caller treats as no save.
    */
   fromSaved(saved: SavedContext): MachineContext | undefined;
 }
@@ -106,44 +102,6 @@ export function createContextCodec(
     return out;
   };
 
-  // `exportContext()` hands back the same frozen history array until the
-  // history itself changes, and every state change persists the context:
-  // converting up to `HISTORY_CAP` entries per write is the cost the
-  // machine's own cache exists to avoid, so the converted copy is kept too.
-  let historySource: readonly HistoryEntry[] | null = null;
-  let historySaved: readonly SavedHistoryEntry[] = [];
-  const savedHistory = (
-    history: readonly HistoryEntry[],
-  ): readonly SavedHistoryEntry[] => {
-    if (history === historySource) return historySaved;
-    const out: SavedHistoryEntry[] = [];
-    // A pass record on an entry left out moves to the next one kept.
-    let pass: HistoryEntry["passRoutes"];
-    for (const entry of history) {
-      if (entry.passRoutes !== undefined) pass = entry.passRoutes;
-      const item = itemId(entry.index);
-      if (item === undefined) continue;
-      const stack = entry.stack.map(savedFrame);
-      if (stack.some((frame) => frame === undefined)) continue;
-      const decision =
-        entry.decision === undefined
-          ? undefined
-          : decisions[entry.decision]?.id;
-      if (entry.decision !== undefined && decision === undefined) continue;
-      out.push({
-        item,
-        stack: stack as SavedFrame[],
-        ...(decision === undefined ? {} : { decision }),
-        ...(pass === undefined ? {} : { passRoutes: savedSets(pass) }),
-        ...(entry.gap === true ? { gap: true as const } : {}),
-      });
-      pass = undefined;
-    }
-    historySource = history;
-    historySaved = Object.freeze(out);
-    return historySaved;
-  };
-
   return {
     toSaved(context) {
       const stack = context.stack
@@ -160,12 +118,17 @@ export function createContextCodec(
         ...(context.passRoutes === undefined
           ? {}
           : { passRoutes: savedSets(context.passRoutes) }),
-        ...(context.history === undefined
+        ...(context.lastPicks === undefined
           ? {}
-          : { history: savedHistory(context.history) }),
-        ...(context.historyPos === undefined
+          : {
+              lastPicks: context.lastPicks
+                .map(savedFrame)
+                .filter((frame): frame is SavedFrame => frame !== undefined),
+            }),
+        ...(context.choice === undefined ||
+        decisions[context.choice] === undefined
           ? {}
-          : { historyPos: context.historyPos }),
+          : { choice: decisions[context.choice].id }),
       };
     },
 
@@ -175,52 +138,7 @@ export function createContextCodec(
         const index = itemById.get(id);
         if (index !== undefined) visited.add(index);
       }
-      // History: an entry naming anything this manifest lacks is removed
-      // whole (its screen cannot be rebuilt), and the entry on screen
-      // becomes the last kept entry at or before it — the first kept one
-      // when everything before it went.
-      const history: HistoryEntry[] = [];
-      const stored = saved.history ?? [];
-      const onScreen =
-        saved.historyPos === undefined
-          ? stored.length - 1
-          : Math.min(
-              Math.max(Math.trunc(saved.historyPos), 0),
-              stored.length - 1,
-            );
-      let historyPos = -1;
-      // A pass record on a dropped entry moves to the next one kept.
-      let pass: SavedHistoryEntry["passRoutes"];
-      stored.forEach((entry, position) => {
-        if (entry.passRoutes !== undefined) pass = entry.passRoutes;
-        const index = itemById.get(entry.item);
-        if (index === undefined) return;
-        const stack: ContextFrame[] = [];
-        for (const frame of entry.stack) {
-          const resolved = indexFrame(frame);
-          if (resolved === undefined) return;
-          stack.push(resolved);
-        }
-        let decision: number | undefined;
-        if (entry.decision !== undefined) {
-          decision = decisionById.get(entry.decision);
-          if (decision === undefined) return;
-        }
-        history.push({
-          index,
-          stack,
-          ...(decision === undefined ? {} : { decision }),
-          ...(pass === undefined ? {} : { passRoutes: indexSets(pass) }),
-          ...(entry.gap === true ? { gap: true as const } : {}),
-        });
-        pass = undefined;
-        if (position <= onScreen) historyPos = history.length - 1;
-      });
-      if (history.length > 0 && historyPos < 0) historyPos = 0;
       let lastShown = itemById.get(saved.lastShown);
-      if (lastShown === undefined && history.length > 0) {
-        lastShown = history[historyPos].index;
-      }
       if (lastShown === undefined && visited.size > 0) {
         lastShown = Math.max(...visited);
       }
@@ -236,7 +154,17 @@ export function createContextCodec(
         ...(saved.passRoutes === undefined
           ? {}
           : { passRoutes: indexSets(saved.passRoutes) }),
-        ...(history.length === 0 ? {} : { history, historyPos }),
+        ...(saved.lastPicks === undefined
+          ? {}
+          : {
+              lastPicks: saved.lastPicks
+                .map(indexFrame)
+                .filter((frame): frame is ContextFrame => frame !== undefined),
+            }),
+        ...(saved.choice === undefined ||
+        decisionById.get(saved.choice) === undefined
+          ? {}
+          : { choice: decisionById.get(saved.choice) }),
       };
     },
   };

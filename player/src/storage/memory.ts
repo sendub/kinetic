@@ -34,20 +34,10 @@ function copyContext(context: SavedContext): SavedContext {
     ...(context.passRoutes === undefined
       ? {}
       : { passRoutes: routeSets(context.passRoutes) }),
-    ...(context.history === undefined
+    ...(context.lastPicks === undefined
       ? {}
-      : {
-          history: context.history.map((entry) => ({
-            ...entry,
-            stack: entry.stack.map((frame) => ({ ...frame })),
-            ...(entry.passRoutes === undefined
-              ? {}
-              : { passRoutes: routeSets(entry.passRoutes) }),
-          })),
-        }),
-    ...(context.historyPos === undefined
-      ? {}
-      : { historyPos: context.historyPos }),
+      : { lastPicks: context.lastPicks.map((frame) => ({ ...frame })) }),
+    ...(context.choice === undefined ? {} : { choice: context.choice }),
   };
 }
 

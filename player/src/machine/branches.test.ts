@@ -1,10 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import {
-  AUTO_PICK_MIN_MS,
-  AUTO_PICK_SHOW_MS,
-  createMachine,
-  HISTORY_CAP,
-} from "./machine";
+import { mergeProgress } from "../render/bookmarks";
+import { AUTO_PICK_MIN_MS, AUTO_PICK_SHOW_MS, createMachine } from "./machine";
 import type {
   Branch,
   Item,
@@ -192,10 +188,10 @@ function step(m: ReturnType<typeof machine>): void {
 }
 
 /**
- * Wheel back until the cursor reaches `index`. The wheel walks the reading
- * history, choice screens included, so the notch count depends on the path
- * read; the tests name the target instead of counting notches. A choice
- * screen recorded over `index` is reached before the item itself.
+ * Wheel back until the cursor reaches `index`. The wheel walks the story,
+ * choice screens included, so the notch count depends on the path; the
+ * tests name the target instead of counting notches. A choice screen over
+ * `index` is reached before the item itself.
  */
 function wheelBackTo(
   m: { wheelBack(): void; getState(): { cursor: number } },
@@ -214,25 +210,6 @@ function wheelBackUntil(
   for (let notch = 0; notch < 64 && !done(m.getState()); notch += 1) {
     m.wheelBack();
   }
-}
-
-/**
- * The reading history as short strings, oldest first: `index`, or
- * `index:choice#decision` for a choice screen, then ` [decision/route ...]`
- * for the route frames open under it.
- */
-function screens(m: { exportContext(): MachineContext }): string[] {
-  return (m.exportContext().history ?? []).map((entry) => {
-    const frames =
-      entry.stack.length === 0
-        ? ""
-        : ` [${entry.stack.map((f) => `${f.decision}/${f.route}`).join(" ")}]`;
-    const screen =
-      entry.decision === undefined
-        ? `${entry.index}`
-        : `${entry.index}:choice#${entry.decision}`;
-    return `${screen}${frames}`;
-  });
 }
 
 afterEach(() => {
@@ -331,9 +308,9 @@ describe("a decision fires on the forward settle of its after item", () => {
     m.destroy();
   });
 
-  it("every key command but choose, chooseContinue and the history moves is inert while a choice is open", () => {
-    // The wheel and `e` move through the reading history (docs/plan.md,
-    // "History rollback spec") — pinned in their own describe below.
+  it("every key command but choose, chooseContinue and the wheel and `e` is inert while a choice is open", () => {
+    // The wheel and `e` walk the story (docs/plan.md Phase 27) — pinned in
+    // their own describes below.
     const m = machine(CANON);
     step(m);
     step(m);
@@ -342,7 +319,7 @@ describe("a decision fires on the forward settle of its after item", () => {
     m.advance();
     m.advance();
     m.toggleSkip();
-    m.jumpToEnd(); // the choice screen IS the history's end: a no-op
+    m.jumpToEnd(); // `decide` IS the furthest point: a no-op
     m.goTo(0);
     m.chooseContinue(); // not offered here
     m.choose(9); // out of range
@@ -363,38 +340,15 @@ describe("a decision fires on the forward settle of its after item", () => {
   });
 });
 
-describe("the reading history replays decisions (docs/plan.md, History rollback spec)", () => {
-  it("records every screen in order, each choice screen as its own entry", () => {
-    const m = machine(CANON);
-    step(m);
-    step(m);
-    m.advance(); // fires d1 over `decide`
-    m.choose(1); // route B
-    step(m); // 5 -> 6, B's end
-    step(m); // off B's end: the re-offer over b-2
-    m.choose(2); // route C
-    expect(screens(m)).toEqual([
-      "0",
-      "1",
-      "2",
-      "2:choice#0",
-      "5 [0/1]",
-      "6 [0/1]",
-      "6:choice#0",
-      "7 [0/2]",
-    ]);
-    expect(m.exportContext().historyPos).toBe(7);
-    m.destroy();
-  });
-
-  it("the wheel replays the record exactly: choice screens in full, frames restored", () => {
+describe("the wheel walks the story through decisions (docs/plan.md Phase 27)", () => {
+  it("back from a route: its choice screen with the route taken highlighted, then `after`", () => {
     const m = machine(CANON);
     step(m);
     step(m);
     m.advance(); // fires
     m.choose(0); // route A at 3
     const played = m.exportContext().playedRoutes;
-    m.wheelBack(); // the choice screen, as it was shown
+    m.wheelBack(); // the choice screen, walked onto
     expect(m.getState()).toMatchObject({ cursor: 2, settled: true });
     expect(m.getState().choice).toEqual({
       decisionId: "d1",
@@ -405,43 +359,45 @@ describe("the reading history replays decisions (docs/plan.md, History rollback 
         { routeIdx: 1, id: "r-b", label: "Route B", seen: false },
         { routeIdx: 2, id: "r-c", label: "Route C", seen: false },
       ],
+      walkRoute: 0, // going back: the route that had been taken
     });
     expect(m.exportContext().stack).toEqual([]);
-    m.wheelBack(); // `decide` before the overlay opened
+    m.wheelBack(); // `decide` itself
     expect(m.getState().cursor).toBe(2);
     expect(m.getState().choice).toBeUndefined();
     m.wheelForward(); // the choice screen again
-    expect(m.getState().choice?.decisionId).toBe("d1");
+    expect(m.getState().choice).toMatchObject({
+      decisionId: "d1",
+      walkRoute: 0,
+    });
     m.wheelForward(); // route A's first item, inside route A again
     expect(m.getState().cursor).toBe(3);
     expect(m.getState().choice).toBeUndefined();
     expect(m.exportContext().stack).toEqual([{ decision: 0, route: 0 }]);
     // Nothing was answered or marked played by any of it.
     expect(m.exportContext().playedRoutes).toEqual(played);
-    expect(screens(m)).toHaveLength(5);
     m.destroy();
   });
 
-  it("Space from a rolled-back point replays the record while it matches", () => {
+  it("Space from a walked-back `after` fires the decision again, live", () => {
     const m = machine(CANON);
     step(m);
     step(m);
     m.advance(); // fires
     m.choose(0); // route A at 3
     step(m); // 3 -> 4
-    const recorded = screens(m);
     wheelBackUntil(m, (state) => state.cursor === 2 && !state.choice);
-    m.advance(); // settle `decide`: the decision fires, as recorded
+    m.advance(); // settle `decide`: the decision fires, a live choice
     expect(m.getState().choice?.decisionId).toBe("d1");
-    m.choose(0); // the recorded pick
+    expect(m.getState().choice?.walkRoute).toBeUndefined();
+    m.choose(0);
     expect(m.getState().cursor).toBe(3);
     step(m); // 3 -> 4
-    expect(screens(m)).toEqual(recorded); // nothing appended, nothing dropped
-    expect(m.exportContext().historyPos).toBe(recorded.length - 1);
+    expect(m.getState().cursor).toBe(4);
     m.destroy();
   });
 
-  it("a different pick at a replayed choice screen forks: the recorded future is dropped", () => {
+  it("a pick at a walked choice screen is a real pick and becomes the last pick", () => {
     const m = machine(CANON);
     step(m);
     step(m);
@@ -449,19 +405,21 @@ describe("the reading history replays decisions (docs/plan.md, History rollback 
     m.choose(0); // route A
     step(m); // 3 -> 4
     wheelBackUntil(m, (state) => state.choice !== undefined);
-    expect(m.getState().cursor).toBe(2);
-    m.choose(1); // a REAL pick from the replayed screen: route B
-    expect(m.getState().cursor).toBe(5);
-    expect(screens(m)).toEqual(["0", "1", "2", "2:choice#0", "5 [0/1]"]);
-    m.wheelForward(); // nothing recorded ahead any more
+    expect(m.getState()).toMatchObject({ cursor: 2 });
+    m.choose(1); // route B
     expect(m.getState().cursor).toBe(5);
     expect(m.exportContext().playedRoutes).toEqual([
       { decision: 0, routes: [0, 1] },
     ]);
+    expect(m.exportContext().lastPicks).toEqual([{ decision: 0, route: 1 }]);
+    m.wheelForward(); // b-2 was never read: nothing seen ahead
+    expect(m.getState().cursor).toBe(5);
+    m.wheelBack(); // the choice screen now leads into route B
+    expect(m.getState().choice?.walkRoute).toBe(1);
     m.destroy();
   });
 
-  it("a replayed choice screen holds timing and is inert to Space, tab and bookmarks", () => {
+  it("a walked choice screen holds timing and is inert to Space, tab and bookmarks", () => {
     vi.useFakeTimers();
     const m = machine(CANON); // auto: holds fire on the timer
     step(m);
@@ -478,29 +436,26 @@ describe("the reading history replays decisions (docs/plan.md, History rollback 
     m.destroy();
   });
 
-  it("`e` shows the last entry exactly — a choice screen included — and is a no-op there", () => {
+  it("`e` from before a live choice goes to the furthest item; Space fires it again", () => {
     const m = machine(CANON);
     step(m);
     step(m);
-    m.advance(); // fires: the choice screen is the history's last entry
-    m.wheelBack();
+    m.advance(); // fires over `decide`, the furthest item
+    m.wheelBack(); // `decide`
     m.wheelBack(); // item 1
     expect(m.getState().cursor).toBe(1);
     m.jumpToEnd();
     const end = m.getState();
     expect(end.cursor).toBe(2);
-    expect(end.choice?.decisionId).toBe("d1");
+    expect(end.choice).toBeUndefined();
     m.jumpToEnd();
     expect(m.getState()).toBe(end);
-    m.choose(2); // the end's choice screen answers like the live one
-    expect(m.getState().cursor).toBe(7);
+    m.advance();
+    expect(m.getState().choice?.decisionId).toBe("d1");
     m.destroy();
   });
 
-  it("a replayed choice screen applies the return-row rule as it stands now", () => {
-    // The row exists only once the continuing route has COMPLETED
-    // (docs/plan.md Phase 18): the first screen was recorded before that,
-    // and replaying it after C finished shows the row.
+  it("a walked choice screen applies the return-row rule as it stands now", () => {
     const m = machine(CANON);
     step(m);
     step(m);
@@ -514,20 +469,19 @@ describe("the reading history replays decisions (docs/plan.md, History rollback 
     step(m);
     step(m); // off C's end: joins the aftermath at 9
     expect(m.getState().cursor).toBe(9);
+    // Back along the last pick: C's items, then the choice leading into C.
     wheelBackUntil(m, (state) => state.choice !== undefined);
-    expect(m.getState().cursor).toBe(6); // the re-offer over b-2
-    expect(m.getState().choice?.continueOption).toBe(true);
-    m.wheelBack();
-    wheelBackUntil(m, (state) => state.choice !== undefined);
-    expect(m.getState().cursor).toBe(2); // the first screen over `decide`
-    expect(m.getState().choice?.continueOption).toBe(true);
-    m.chooseContinue(); // a real pick: forks the record at the join
+    expect(m.getState().cursor).toBe(2);
+    expect(m.getState().choice).toMatchObject({
+      walkRoute: 2,
+      continueOption: true,
+    });
+    m.chooseContinue(); // a real answer: the join
     expect(m.getState().cursor).toBe(9);
-    expect(screens(m).slice(-2)).toEqual(["2:choice#0", "9"]);
     m.destroy();
   });
 
-  it("a pure-choice decision never offers a return, live or replayed", () => {
+  it("a pure-choice decision never offers a return, live or walked", () => {
     const m = machine(PURE);
     step(m); // 0 -> 1
     m.advance(); // fires
@@ -537,14 +491,16 @@ describe("the reading history replays decisions (docs/plan.md, History rollback 
     step(m); // P's end: Q unplayed, so the decision re-opens
     expect(m.getState().choice?.decisionId).toBe("d1");
     expect(m.getState().choice?.continueOption).toBeUndefined();
-    m.wheelBack();
+    m.wheelBack(); // P's last item
+    expect(m.getState().cursor).toBe(3);
     wheelBackUntil(m, (state) => state.choice !== undefined);
     expect(m.getState().cursor).toBe(1);
     expect(m.getState().choice?.continueOption).toBeUndefined();
+    expect(m.getState().choice?.walkRoute).toBe(0);
     m.destroy();
   });
 
-  it("playAllRoutes: its choice screens and picks are recorded like a reader's", () => {
+  it("playAllRoutes: a walked choice screen shows the walk's route and waits", () => {
     vi.useFakeTimers();
     const auto = { ...SETTINGS, playAllRoutes: true };
     const m = machine(CANON, { settings: auto });
@@ -554,17 +510,15 @@ describe("the reading history replays decisions (docs/plan.md, History rollback 
     const countdown = m.getState().choice?.autoPick?.ms ?? 0;
     vi.advanceTimersByTime(countdown + AUTO_PICK_SHOW_MS); // route A
     expect(m.getState().cursor).toBe(3);
-    step(m); // 3 -> 4, A's end
-    step(m); // off A's end: the re-offer
-    expect(screens(m)).toEqual([
-      "0",
-      "1",
-      "2",
-      "2:choice#0",
-      "3 [0/0]",
-      "4 [0/0]",
-      "4:choice#0",
-    ]);
+    m.wheelBack(); // the choice screen leading into A
+    expect(m.getState().choice).toMatchObject({
+      decisionId: "d1",
+      walkRoute: 0,
+    });
+    expect(m.getState().choice?.autoPick).toBeUndefined();
+    vi.advanceTimersByTime(60_000); // nothing counts down
+    expect(m.getState().cursor).toBe(2);
+    expect(m.getState().choice?.walkRoute).toBe(0);
     m.destroy();
   });
 });
@@ -707,10 +661,10 @@ describe("choosing a route and ending one", () => {
     step(m); // 7 -> 8
     step(m); // C completes: joins the aftermath, the row unlocks
     expect(m.getState().cursor).toBe(9);
-    wheelBackTo(m, 2); // back to the recorded choice screen over `decide`
+    wheelBackTo(m, 2); // back to the walked choice screen over `decide`
     expect(m.getState().choice?.decisionId).toBe("d1");
     expect(m.getState().choice?.continueOption).toBe(true); // C completed once
-    m.choose(0); // route A again from the replayed screen
+    m.choose(0); // route A again from the walked screen
     step(m); // 3 -> 4
     step(m); // A's end: the re-offer keeps the row
     expect(m.getState().choice?.continueOption).toBe(true);
@@ -771,7 +725,7 @@ describe("the seen mark means the route was PLAYED (docs/plan.md Phase 16)", () 
   // marks nothing; a restored position marks nothing.
   //
   // The decision this block pins (the Phase 16 item asked for the call):
-  // NAVIGATION does not mark a route: a wheel replay of a choice screen, or
+  // NAVIGATION does not mark a route: a wheel step onto a choice screen, or
   // a restored position inside a span, marks nothing. `visited` stays the
   // source for ITEM marks (skip, bookmarks, frontier resume); the row mark
   // stays the played set, so these tests fail the moment the row mark
@@ -789,8 +743,8 @@ describe("the seen mark means the route was PLAYED (docs/plan.md Phase 16)", () 
 
   it("one route played to the end: the back-scroll past the others marks them nothing", () => {
     // The user's flow on the demo: take the continuing route, finish, wheel
-    // back to the branch. The history never held the other spans, and the
-    // replayed overlay marks only the route taken.
+    // back to the branch. The walk follows the route taken, and the walked
+    // overlay marks only that route.
     const m = manual(CANON);
     m.advance(); // 0 -> 1
     m.advance(); // 1 -> 2 (`decide`)
@@ -799,11 +753,11 @@ describe("the seen mark means the route was PLAYED (docs/plan.md Phase 16)", () 
     m.advance(); // 7 -> 8
     m.advance(); // off C's end: the continuing route proceeds to `after-1`
     expect(m.getState().cursor).toBe(9);
-    wheelBackTo(m, 2); // onto the recorded choice screen over `decide`
+    wheelBackTo(m, 2); // onto the walked choice screen over `decide`
     expect(m.getState().cursor).toBe(2);
     expect(m.getState().choice?.decisionId).toBe("d1");
     expect(seenFlags(m)).toEqual([false, false, true]);
-    // The wheel replays only what was shown: route A's items (3, 4) and
+    // The wheel shows only seen screens: route A's items (3, 4) and
     // route B's (5, 6) stay unseen, unrevealed.
     for (const index of [3, 4, 5, 6])
       expect(m.visitedList()).not.toContain(index);
@@ -844,21 +798,21 @@ describe("the seen mark means the route was PLAYED (docs/plan.md Phase 16)", () 
     expect(fired.getState().cursor).toBe(2);
     expect(fired.getState().choice).toBeUndefined();
     expect(fired.exportContext().playedRoutes).toEqual([]);
-    fired.wheelForward(); // the screen replayed, then left again
-    expect(seenFlags(fired)).toEqual([false, false, false]);
-    fired.wheelBack();
+    // No route past the choice holds seen content: the walk stays here.
+    fired.wheelForward();
+    expect(fired.getState().cursor).toBe(2);
     expect(fired.getState().choice).toBeUndefined();
     expect(fired.exportContext().playedRoutes).toEqual([]);
     fired.destroy();
   });
 
-  it("wheeling back replays the choice screen, not another route's span; playing it marks it", () => {
+  it("wheeling back shows the choice screen, not another route's span; playing it marks it", () => {
     const m = manual(CANON);
     m.advance();
     m.advance();
     m.advance(); // fires d1
     m.choose(2); // route C at 7
-    m.wheelBack(); // the recorded choice screen: B's and A's spans unseen
+    m.wheelBack(); // the choice screen leading into C: B's and A's spans unseen
     expect(m.getState().cursor).toBe(2);
     expect(m.getState().choice?.decisionId).toBe("d1");
     expect(m.visitedList()).not.toContain(6);
@@ -915,14 +869,14 @@ describe("the return row needs the CONTINUING route completed (docs/plan.md Phas
   it("enter the continuing route and wheel away: re-offers carry no return row", () => {
     // The user's flow: enter the continuing route (the demo's `hire`),
     // abandon it mid-span, come back. Entry is not completion — every view
-    // of the decision, replayed or fired, stays routes-only.
+    // of the decision, walked or fired, stays routes-only.
     const m = manual(CANON);
     m.advance(); // 0 -> 1
     m.advance(); // 1 -> 2 (`decide`)
     m.advance(); // fires d1
     m.choose(2); // enter route C (the continuing route) at 7
     expect(m.getState().cursor).toBe(7);
-    wheelBackTo(m, 2); // the recorded choice screen, abandoning route C
+    wheelBackTo(m, 2); // the walked choice screen, abandoning route C
     expect(m.getState().choice?.decisionId).toBe("d1");
     expect(m.getState().choice?.continueOption).toBeUndefined(); // entry ≠ completion
     m.wheelBack(); // `decide` before the overlay
@@ -933,7 +887,7 @@ describe("the return row needs the CONTINUING route completed (docs/plan.md Phas
     m.destroy();
   });
 
-  it("finish the continuing route once: every later re-offer and replay has the row", () => {
+  it("finish the continuing route once: every later re-offer and walked screen has the row", () => {
     const m = manual(CANON);
     m.advance();
     m.advance();
@@ -942,10 +896,10 @@ describe("the return row needs the CONTINUING route completed (docs/plan.md Phas
     m.advance(); // 7 -> 8
     m.advance(); // C completes: joins the aftermath at 9
     expect(m.getState().cursor).toBe(9);
-    wheelBackTo(m, 2); // back to the recorded choice screen
+    wheelBackTo(m, 2); // back to the walked choice screen
     expect(m.getState().choice?.decisionId).toBe("d1");
     expect(m.getState().choice?.continueOption).toBe(true); // the rule as it stands now
-    m.choose(0); // route A from the replayed screen...
+    m.choose(0); // route A from the walked screen...
     m.advance(); // 3 -> 4
     m.advance(); // ...A's end: the fired re-offer keeps the row (Phase 18:
     expect(m.getState().choice?.continueOption).toBe(true); // completion is permanent)
@@ -1460,13 +1414,13 @@ describe("the visited set, the derived frontier, and the wheel", () => {
     m.destroy();
   });
 
-  it("wheel forward clamps at the end of the history, not at the array end", () => {
+  it("wheel forward clamps at the furthest point read, not at the array end", () => {
     const m = machine(CANON);
     step(m);
     step(m);
     m.advance();
     m.choose(2); // route C
-    step(m); // 7 -> 8, the history's end
+    step(m); // 7 -> 8, the furthest point
     m.wheelBack();
     m.wheelBack(); // 8 -> 7 -> the choice screen over `decide`
     for (let press = 0; press < 6; press += 1) m.wheelForward(); // -> 8 plus clamps
@@ -1476,13 +1430,13 @@ describe("the visited set, the derived frontier, and the wheel", () => {
     m.destroy();
   });
 
-  it("a wheel step back from a route shows the recorded choice screen; crossing it consumes nothing", () => {
+  it("a wheel step back from a route shows the walked choice screen; crossing it consumes nothing", () => {
     const m = machine(CANON);
     step(m);
     step(m);
     m.advance();
     m.choose(0); // inside route A at 3
-    m.wheelBack(); // the choice screen recorded over `decide`: shown, unanswered
+    m.wheelBack(); // the choice screen over `decide`: shown, unanswered
     expect(m.getState().choice?.decisionId).toBe("d1");
     m.wheelForward(); // over it into the route again: closed
     expect(m.getState().choice).toBeUndefined();
@@ -1501,7 +1455,7 @@ describe("the visited set, the derived frontier, and the wheel", () => {
     m.choose(2); // 7
     step(m); // 8
     const before = m.visitedList();
-    m.wheelBack(); // 7, then the recorded choice screen over 2
+    m.wheelBack(); // 7, then the walked choice screen over 2
     m.wheelBack();
     expect(m.getState().cursor).toBe(2);
     expect(m.visitedList()).toEqual(before); // nothing unseen was revealed
@@ -1523,7 +1477,7 @@ describe("the visited set, the derived frontier, and the wheel", () => {
     m.wheelForward(); // the choice screen
     m.wheelForward(); // 3
     m.wheelForward(); // 4: A's end
-    m.wheelForward(); // the history's end: B (5, 6) and C (7, 8) never shown
+    m.wheelForward(); // A returns, but C (7, 8) and B (5, 6) were never shown
     expect(m.getState().cursor).toBe(4);
     for (const index of [5, 6, 7, 8])
       expect(m.visitedList()).not.toContain(index);
@@ -1531,11 +1485,10 @@ describe("the visited set, the derived frontier, and the wheel", () => {
   });
 });
 
-describe("`e` goes to the end of the history (docs/plan.md, History rollback spec)", () => {
-  // `e` shows the history's last entry, a no-op there. It no longer jumps
-  // to unseen content (the old cases a/b/c) or looks up an ending; until
-  // the end card lands the ending hint just says content is unseen.
-  it("from a rolled-back point inside a route, `e` returns to the end and reveals nothing", () => {
+describe("`e` goes to the furthest point read (docs/plan.md Phase 27)", () => {
+  // `e` shows the highest seen item with its enclosing route frames, a
+  // no-op there. It never jumps to unseen content or looks up an ending.
+  it("from a walked-back point outside a route, `e` returns inside it and reveals nothing", () => {
     const m = machine(CANON);
     step(m);
     step(m);
@@ -1544,6 +1497,7 @@ describe("`e` goes to the end of the history (docs/plan.md, History rollback spe
     m.wheelBack(); // the choice screen
     m.wheelBack(); // `decide`: outside the span
     expect(m.getState().cursor).toBe(2);
+    expect(m.exportContext().stack).toEqual([]);
     m.jumpToEnd();
     expect(m.getState().cursor).toBe(3);
     expect(m.exportContext().stack).toEqual([{ decision: 0, route: 0 }]);
@@ -1600,8 +1554,8 @@ describe("`e` goes to the end of the history (docs/plan.md, History rollback spe
   it("an `e` landing is a fresh entry, not a settled landing", () => {
     vi.useFakeTimers();
     const m = machine(CANON, { auto: true });
-    step(m); // 0 -> 1: the history's end
-    m.wheelBack(); // roll back to 0
+    step(m); // 0 -> 1: the furthest point
+    m.wheelBack(); // walk back to 0
     m.jumpToEnd(); // a fresh entry on 1
     expect(m.getState()).toEqual({
       cursor: 1,
@@ -1615,7 +1569,7 @@ describe("`e` goes to the end of the history (docs/plan.md, History rollback spe
     m.destroy();
   });
 
-  it("a legacy all-seen save restores a one-entry history: `e` stays, no ending lookup", () => {
+  it("an all-seen save landing at the start: `e` goes to the highest seen item, no ending lookup", () => {
     const allSeen = {
       lastShown: 0,
       visited: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
@@ -1626,9 +1580,9 @@ describe("`e` goes to the end of the history (docs/plan.md, History rollback spe
     } as MachineContext;
     const m = machine(CANON, { resumeContext: allSeen });
     expect(m.getState().cursor).toBe(0);
-    expect(screens(m)).toEqual(["0"]);
     m.jumpToEnd();
-    expect(m.getState().cursor).toBe(0);
+    expect(m.getState().cursor).toBe(10);
+    expect(m.exportContext().stack).toEqual([]);
     expect(m.exportContext()).not.toHaveProperty("lastEnding");
     m.destroy();
   });
@@ -1651,21 +1605,8 @@ describe("route-play context for storage", () => {
       completedRoutes: [],
       // Played this pass (docs/plan.md Phase 22): the flow's record.
       passRoutes: [{ decision: 0, routes: [0] }],
-      // The reading history, the choice screen included, and the entry on
-      // screen (docs/plan.md, "History rollback spec"); each entry's pass
-      // record where it changed.
-      history: [
-        { index: 0, stack: [], passRoutes: [] },
-        { index: 1, stack: [] },
-        { index: 2, stack: [] },
-        { index: 2, stack: [], decision: 0 },
-        {
-          index: 3,
-          stack: [{ decision: 0, route: 0 }],
-          passRoutes: [{ decision: 0, routes: [0] }],
-        },
-      ],
-      historyPos: 4,
+      // The last pick at each decision (docs/plan.md Phase 27).
+      lastPicks: [{ decision: 0, route: 0 }],
     });
     m.destroy();
   });
@@ -1795,8 +1736,8 @@ describe("route-play context for storage", () => {
   });
 });
 
-describe("the reading history persists and jumps append (docs/plan.md, History rollback spec)", () => {
-  /** Read CANON into route A's last item: 0, 1, 2, the screen, 3, 4. */
+describe("the timeline persists (docs/plan.md Phase 27)", () => {
+  /** Read CANON into route A's last item: 0, 1, 2, the choice, 3, 4. */
   const readIntoRouteA = (m: ReturnType<typeof machine>) => {
     step(m);
     step(m);
@@ -1805,11 +1746,10 @@ describe("the reading history persists and jumps append (docs/plan.md, History r
     step(m); // 3 -> 4
   };
 
-  it("a JSON round trip restores the record and the entry on screen; the wheel rolls back across it", () => {
+  it("a JSON round trip keeps the position and last picks; the wheel walks on across it", () => {
     const first = machine(CANON);
     readIntoRouteA(first);
-    first.wheelBack(); // roll back to 3 before saving
-    const recorded = screens(first);
+    first.wheelBack(); // walk back to 3 before saving
     const stored = JSON.parse(JSON.stringify(first.exportContext()));
     first.destroy();
 
@@ -1821,12 +1761,16 @@ describe("the reading history persists and jumps append (docs/plan.md, History r
       skipping: false,
       transition: "nav",
     });
-    expect(screens(second)).toEqual(recorded);
-    expect(second.exportContext().historyPos).toBe(4);
     expect(second.exportContext().stack).toEqual([{ decision: 0, route: 0 }]);
+    expect(second.exportContext().lastPicks).toEqual([
+      { decision: 0, route: 0 },
+    ]);
     second.wheelBack(); // the choice screen, across the reload
-    expect(second.getState().choice?.decisionId).toBe("d1");
-    second.jumpToEnd(); // the end of the restored record
+    expect(second.getState().choice).toMatchObject({
+      decisionId: "d1",
+      walkRoute: 0,
+    });
+    second.jumpToEnd(); // the furthest point read
     expect(second.getState().cursor).toBe(4);
     second.destroy();
   });
@@ -1838,6 +1782,7 @@ describe("the reading history persists and jumps append (docs/plan.md, History r
     step(first);
     first.advance(); // fires
     const stored = first.exportContext();
+    expect(stored.choice).toBe(0);
     first.destroy();
     const second = machine(CANON, { resumeContext: stored }); // auto mode
     expect(second.getState()).toMatchObject({ cursor: 2, settled: true });
@@ -1849,124 +1794,88 @@ describe("the reading history persists and jumps append (docs/plan.md, History r
     second.destroy();
   });
 
-  it("a save without a history restores a one-entry history at its landing", () => {
+  it("a save on a re-offer resumes it over the route's last item; the wheel goes back into the route", () => {
+    const first = machine(CANON);
+    step(first);
+    step(first);
+    first.advance(); // fires
+    first.choose(1); // route B
+    step(first);
+    step(first); // off B's end: the re-offer over b-2
+    const stored = JSON.parse(JSON.stringify(first.exportContext()));
+    first.destroy();
+    const second = machine(CANON, { resumeContext: stored as MachineContext });
+    expect(second.getState()).toMatchObject({ cursor: 6, settled: true });
+    expect(second.getState().choice?.decisionId).toBe("d1");
+    expect(second.exportContext().stack).toEqual([]);
+    second.wheelBack(); // b-2, inside route B
+    expect(second.getState().cursor).toBe(6);
+    expect(second.getState().choice).toBeUndefined();
+    expect(second.exportContext().stack).toEqual([{ decision: 0, route: 1 }]);
+    second.destroy();
+  });
+
+  it("a save without last picks lands on its position; the walk takes the longest seen route", () => {
     const m = machine(CANON, {
       resumeContext: {
         lastShown: 8,
-        visited: [0, 1, 2, 7, 8],
+        visited: [0, 1, 2, 3, 4, 7, 8],
         stack: [{ decision: 0, route: 2 }],
-        playedRoutes: [{ decision: 0, routes: [2] }],
+        playedRoutes: [{ decision: 0, routes: [0, 2] }],
       },
     });
-    expect(screens(m)).toEqual(["8 [0/2]"]);
-    expect(m.exportContext().historyPos).toBe(0);
-    m.wheelBack(); // nothing behind the landing
     expect(m.getState().cursor).toBe(8);
-    step(m); // reading appends: the route ends into the aftermath
-    expect(screens(m)).toEqual(["8 [0/2]", "9"]);
+    m.wheelBack();
+    m.wheelBack();
+    expect(m.getState().choice).toMatchObject({ walkRoute: 2 });
+    m.wheelBack();
+    expect(m.getState()).toMatchObject({ cursor: 2 });
+    m.wheelForward(); // no pick known: A and C are both 2 items, A first
+    expect(m.getState().choice?.walkRoute).toBe(0);
     m.destroy();
   });
 
-  it("foreign history entries are dropped; with none usable the landing starts it", () => {
-    const base = {
-      lastShown: 4,
-      visited: [0, 1, 2, 3, 4],
-      stack: [{ decision: 0, route: 0 }],
-      playedRoutes: [{ decision: 0, routes: [0] }],
-    };
+  it("foreign last picks and a foreign choice are dropped", () => {
     const m = machine(CANON, {
       resumeContext: {
-        ...base,
-        history: [
-          { index: 99, stack: [] }, // off this manifest
-          { index: 1, stack: [{ decision: 7, route: 0 }] }, // no such decision
-          { index: 2, stack: [], decision: 5 }, // no such decision
-          { index: 3, stack: [{ decision: 0, route: 0 }] },
+        lastShown: 4,
+        visited: [0, 1, 2, 3, 4],
+        stack: [{ decision: 0, route: 0 }],
+        playedRoutes: [{ decision: 0, routes: [0] }],
+        lastPicks: [
+          { decision: 7, route: 0 },
+          { decision: 0, route: 9 },
         ],
-        historyPos: 7, // clamps to the record
+        choice: 5,
       },
     });
-    expect(screens(m)).toEqual(["3 [0/0]"]);
+    expect(m.getState().choice).toBeUndefined();
+    expect(m.exportContext().lastPicks).toEqual([]);
+    m.destroy();
+  });
+
+  it("a bookmark restore keeps the reader's last picks, the bookmark's filling the rest", () => {
+    const m = machine(CANON);
+    step(m);
+    step(m);
+    m.advance(); // fires
+    m.choose(0); // A
+    const mark = m.exportContext(); // last pick A
+    step(m);
+    step(m); // off A's end: the re-offer
+    m.choose(2); // C: the reader's last pick now
+    m.importContext(mergeProgress(mark, m.exportContext()));
     expect(m.getState().cursor).toBe(3);
-    m.destroy();
-    const fallback = machine(CANON, {
-      resumeContext: { ...base, history: [{ index: -1, stack: [] }] },
-    });
-    expect(screens(fallback)).toEqual(["4 [0/0]"]);
-    fallback.destroy();
-  });
-
-  it(`is capped at HISTORY_CAP (${HISTORY_CAP}) entries, oldest dropped first`, () => {
-    const long = Array.from({ length: HISTORY_CAP + 7 }, (_, i) => ({
-      index: i % 2, // 0, 1, 0, 1, ...
-      stack: [],
-    }));
-    const m = createMachine({
-      items: manifest(CANON).items,
-      branches: manifest(CANON).branches,
-      settings: SETTINGS,
-      resumeContext: {
-        lastShown: 1,
-        visited: [0, 1],
-        stack: [],
-        playedRoutes: [],
-        history: long,
-      },
-    }); // manual: one press is one step
-    expect(screens(m)).toHaveLength(HISTORY_CAP);
-    expect(m.getState().cursor).toBe(0); // the last stored entry, (HISTORY_CAP + 6) % 2
-    m.advance(); // a fork appends; the cap drops the oldest entry
-    const record = screens(m);
-    expect(record).toHaveLength(HISTORY_CAP);
-    expect(record.slice(-2)).toEqual(["0", "1"]);
-    expect(m.exportContext().historyPos).toBe(HISTORY_CAP - 1);
-    m.destroy();
-  });
-
-  it("a bookmark restore appends its landing to THIS history and ignores a stored one", () => {
-    const m = machine(CANON);
-    readIntoRouteA(m);
-    const before = screens(m);
-    m.importContext({
-      lastShown: 1,
-      visited: [0, 1],
-      stack: [],
-      playedRoutes: [],
-      history: [{ index: 9, stack: [] }],
-      historyPos: 0,
-    });
-    expect(m.getState().cursor).toBe(1);
-    // Item 1 is on record: what followed it rides along as the landing's
-    // recorded future (docs/plan.md Phase 26), so `e` reaches the end.
-    expect(screens(m)).toEqual([...before, "1", ...before.slice(2)]);
-    expect(m.exportContext().historyPos).toBe(before.length);
-    m.wheelBack(); // the screen before the jump
-    expect(m.getState().cursor).toBe(4);
-    m.destroy();
-  });
-
-  it("goTo from a rolled-back point appends at the end, keeping the recorded future", () => {
-    const m = machine(CANON);
-    readIntoRouteA(m);
-    const before = screens(m);
-    m.wheelBack();
-    m.wheelBack();
-    m.wheelBack(); // `decide`
-    m.goTo(0);
-    // Under the frames it left, followed by item 0's recorded future
-    // (docs/plan.md Phase 26).
-    expect(screens(m)).toEqual([...before, "0", ...before.slice(1)]);
-    expect(m.exportContext().historyPos).toBe(before.length);
+    expect(m.exportContext().lastPicks).toEqual([{ decision: 0, route: 2 }]);
     m.destroy();
   });
 });
 
-describe("scrolling back shows every choice screen in the order seen (docs/plan.md, History rollback spec)", () => {
-  // The user's scroll: back from the story's end must show exactly what was
-  // seen going forward — every choice screen (first fires and route-end
-  // re-offers, nested ones included) as its own waypoint, with the current
-  // seen marks and return-row rule — and change no route context: a wheel
-  // step is browsing, not answering.
+describe("walking back shows each choice screen on the path (docs/plan.md Phase 27)", () => {
+  // The wheel walks the story along the last picks: every decision on the
+  // path shows its choice screen as a waypoint (nested ones included), with
+  // the current seen marks and return-row rule and the walk's route
+  // highlighted — and answers nothing: a wheel step is browsing.
   const manual = (shape: Shape) => {
     const m = manifest(shape);
     return createMachine({
@@ -1982,16 +1891,17 @@ describe("scrolling back shows every choice screen in the order seen (docs/plan.
       id: choice?.decisionId,
       seen: choice?.routes.map((r) => r.seen),
       returns: choice?.continueOption === true,
+      walk: choice?.walkRoute,
       stack: m.exportContext().stack,
     };
   };
-  /** Wheel back to the history's start, collecting every choice screen. */
+  /** Wheel back as far as it goes, collecting every choice screen. */
   const choiceScreensBack = (m: ReturnType<typeof manual>) => {
     const opened: unknown[] = [];
     for (let notch = 0; notch < 64; notch += 1) {
-      const before = m.exportContext().historyPos;
+      const before = m.getState();
       m.wheelBack();
-      if (m.exportContext().historyPos === before) break;
+      if (m.getState() === before) break;
       if (m.getState().choice !== undefined) opened.push(view(m));
     }
     return opened;
@@ -2009,12 +1919,13 @@ describe("scrolling back shows every choice screen in the order seen (docs/plan.
     m.wheelBack(); // 9 -> 8
     m.wheelBack(); // 8 -> 7, no screen yet
     expect(view(m).id).toBeUndefined();
-    m.wheelBack(); // the recorded choice screen over `decide`
+    m.wheelBack(); // the choice screen over `decide`, leading into C
     expect(view(m)).toEqual({
       cursor: 2,
       id: "d1",
       seen: [false, false, true],
       returns: true, // C completed once: the row is offered here too
+      walk: 2,
       stack: [],
     });
     m.wheelBack(); // stepping away consumes nothing
@@ -2025,7 +1936,7 @@ describe("scrolling back shows every choice screen in the order seen (docs/plan.
     m.destroy();
   });
 
-  it("nested: re-offers and first fires surface in reverse reading order", () => {
+  it("nested: the walk follows the last picks through both levels", () => {
     const m = manual(NESTED);
     m.advance();
     m.advance(); // 0 -> 1 (`decide`)
@@ -2033,57 +1944,65 @@ describe("scrolling back shows every choice screen in the order seen (docs/plan.
     m.choose(0); // route A: 2..9
     m.advance(); // 2 -> 3 (`a-decide`)
     m.advance(); // fires d2
-    m.choose(0); // route X: 4..5
+    m.choose(0); // route X: 4..5, an ending
     m.advance(); // 4 -> 5
     m.advance(); // X's end re-opens d2
-    m.choose(1); // route Y: 6..7
+    m.choose(1); // route Y: 6..7, the last pick at d2
     m.advance(); // 6 -> 7
     m.advance(); // Y completes and rejoins A at `a-cont`, 8
     m.advance(); // 8 -> 9
-    m.advance(); // A's end re-opens d1
-    m.choose(2); // route C: 12, the continuing route
-    m.advance(); // C completes and joins at `after-1`, 13 — the end
-    expect(m.getState().cursor).toBe(13);
-    expect(m.exportContext().stack).toEqual([]);
-    const outer = { seen: [true, false, true], returns: true, stack: [] };
+    m.advance(); // A's end re-opens d1 (live)
+    expect(m.getState()).toMatchObject({ cursor: 9 });
+    const outer = { seen: [true, false, false], returns: false, stack: [] };
     const inner = {
       seen: [true, true],
       returns: true, // Y, the inner continuing route, completed
-      stack: [{ decision: 0, route: 0 }], // inside route A, as shown
+      stack: [{ decision: 0, route: 0 }], // inside route A
     };
     expect(choiceScreensBack(m)).toEqual([
-      { cursor: 9, id: "d1", ...outer }, // A's end re-offer
-      { cursor: 5, id: "d2", ...inner }, // X's end re-offer
-      { cursor: 3, id: "d2", ...inner }, // d2's first fire
-      { cursor: 1, id: "d1", ...outer }, // d1's first fire
+      { cursor: 3, id: "d2", walk: 1, ...inner }, // into Y, not X
+      { cursor: 1, id: "d1", walk: 0, ...outer }, // into A
     ]);
     expect(m.getState().cursor).toBe(0);
+    // And forward again along the same path, through both choice screens,
+    // ending at A's last item: C, past A's re-offer, was never read.
+    const path: string[] = [];
+    for (let notch = 0; notch < 64; notch += 1) {
+      const before = m.getState();
+      m.wheelForward();
+      if (m.getState() === before) break;
+      const choice = m.getState().choice;
+      path.push(
+        choice === undefined
+          ? String(m.getState().cursor)
+          : `${choice.decisionId}>${String(choice.walkRoute)}`,
+      );
+    }
+    expect(path).toEqual(["1", "d1>0", "2", "3", "d2>1", "6", "7", "8", "9"]);
     m.destroy();
   });
 
-  it("an all-played pure choice that CLOSED: its screens replay as they were shown", () => {
-    // The CLOSE rule governs the forward flow (docs/plan.md Phase 13); a
-    // scroll back shows the screens the reader saw on the way.
+  it("an all-played pure choice that CLOSED: back from past its region by the last pick", () => {
     const m = manual(PURE);
     m.advance(); // 0 -> 1 (`decide`)
     m.advance(); // fires d1
     m.choose(1); // route Q: 4..5
     m.advance(); // 4 -> 5
     m.advance(); // Q's end re-opens d1: P is unplayed
-    m.choose(0); // route P: 2..3
+    m.choose(0); // route P: 2..3, the last pick
     m.advance(); // 2 -> 3
     m.advance(); // P's end, all routes played: the decision CLOSES past the region
     expect(m.getState().cursor).toBe(6);
     expect(m.getState().choice).toBeUndefined();
     const closed = { id: "d1", seen: [true, true], returns: false, stack: [] };
     expect(choiceScreensBack(m)).toEqual([
-      { cursor: 5, ...closed }, // Q's end re-offer
-      { cursor: 1, ...closed }, // the first fire
+      { cursor: 3, walk: undefined, ...closed }, // after P, on past the region
+      { cursor: 1, walk: 0, ...closed }, // into P
     ]);
     m.destroy();
   });
 
-  it("a pick from a replayed completed screen enters the route exactly like a re-selection", () => {
+  it("a pick from a walked completed screen enters the route exactly like a re-selection", () => {
     const m = manual(PURE);
     m.advance(); // 0 -> 1 (`decide`)
     m.advance(); // its forward settle fires d1
@@ -2097,16 +2016,15 @@ describe("scrolling back shows every choice screen in the order seen (docs/plan.
       m,
       (state) => state.cursor === 1 && state.choice !== undefined,
     );
-    m.choose(1); // route Q again from the replayed first screen
+    m.choose(1); // route Q again from the walked first screen
     expect(m.getState().cursor).toBe(4); // Q's first item, entered
     expect(m.getState().choice).toBeUndefined();
     expect(m.exportContext().stack).toEqual([{ decision: 0, route: 1 }]);
     m.destroy();
   });
 
-  it("playAllRoutes: a recorded choice screen replays like any entry and resolves nothing", () => {
-    // The screen was recorded before play-all came on; the wheel shows the
-    // record exactly, and play-all answers only decisions that FIRE.
+  it("playAllRoutes: a walked choice screen resolves nothing", () => {
+    // Play-all answers only decisions that FIRE, never a walked screen.
     const m = manual(CANON);
     m.advance();
     m.advance();
@@ -2115,7 +2033,7 @@ describe("scrolling back shows every choice screen in the order seen (docs/plan.
     m.advance(); // 7 -> 8
     m.advance(); // joins at `after-1`, 9
     m.setSettings({ ...SETTINGS, playAllRoutes: true });
-    wheelBackTo(m, 2); // the recorded screen over `decide`
+    wheelBackTo(m, 2); // the walked screen over `decide`
     expect(m.getState().choice?.decisionId).toBe("d1");
     expect(m.exportContext()).toMatchObject({
       playedRoutes: [{ decision: 0, routes: [2] }],
@@ -2128,10 +2046,10 @@ describe("scrolling back shows every choice screen in the order seen (docs/plan.
   });
 });
 
-describe("the wheel leaves any choice screen for the adjacent history entry", () => {
+describe("the wheel leaves any choice screen for the neighbouring screen", () => {
   // User report (Phase 18): scroll wheel back did nothing on a fired choice
-  // and on a route-end re-offer. Only keys choose; a wheel notch moves
-  // through the history, answering nothing.
+  // and on a route-end re-offer. Only keys choose; a wheel notch walks on
+  // (docs/plan.md Phase 27), answering nothing.
   const manual = (shape: Shape) => {
     const m = manifest(shape);
     return createMachine({
@@ -2141,22 +2059,24 @@ describe("the wheel leaves any choice screen for the adjacent history entry", ()
     });
   };
 
-  it("a fired choice: a wheel back shows the item before it; forward re-shows it", () => {
+  it("a fired choice: a wheel back shows `decide`; nothing read past it, forward stays", () => {
     const m = manual(CANON);
     m.advance(); // 0 -> 1
     m.advance(); // 1 -> 2 (`decide`)
     m.advance(); // fires d1
-    const fired = m.getState().choice;
     m.wheelBack();
-    expect(m.getState().cursor).toBe(2); // `decide` before the overlay opened
+    expect(m.getState().cursor).toBe(2); // `decide` without the overlay
     expect(m.getState().choice).toBeUndefined();
     expect(m.exportContext().playedRoutes).toEqual([]);
-    m.wheelForward(); // the same screen again
-    expect(m.getState().choice).toEqual(fired);
+    m.wheelForward(); // no route holds seen content: nowhere to walk
+    expect(m.getState().cursor).toBe(2);
+    expect(m.getState().choice).toBeUndefined();
+    m.advance(); // reading on fires it again
+    expect(m.getState().choice?.decisionId).toBe("d1");
     m.destroy();
   });
 
-  it("a fired choice at the history's end: a wheel forward is blocked and it stays", () => {
+  it("a fired choice at the furthest point: a wheel forward is blocked and it stays", () => {
     const m = manual(CANON);
     m.advance();
     m.advance();
@@ -2183,11 +2103,12 @@ describe("the wheel leaves any choice screen for the adjacent history entry", ()
     expect(m.getState().cursor).toBe(4);
     expect(m.getState().choice).toBeUndefined();
     expect(m.exportContext().stack).toEqual([{ decision: 0, route: 0 }]);
-    const recorded = screens(m);
-    m.advance(); // A's end re-offers again, exactly as recorded
+    m.wheelForward(); // A returns: its choice screen, on to C (unread)…
+    expect(m.getState()).toMatchObject({ cursor: 4 });
+    expect(m.getState().choice).toBeUndefined(); // …so the walk stays
+    m.advance(); // reading on: A's end re-offers again
     expect(m.getState().choice?.decisionId).toBe("d1");
     expect(m.getState().cursor).toBe(4);
-    expect(screens(m)).toEqual(recorded);
     m.destroy();
   });
 });
@@ -2383,7 +2304,7 @@ describe("play all routes shows the choice and picks on screen (docs/plan.md Pha
     m.advance(); // 7 -> 8
     m.advance(); // C completes: joins at 9, the return row unlocks
     for (let n = 0; n < 20 && m.getState().cursor !== 2; n += 1) m.wheelBack();
-    m.choose(0); // route A from the replayed screen
+    m.choose(0); // route A from the walked screen
     m.advance(); // 3 -> 4
     m.advance(); // A's end: the live re-offer, with the return row
     expect(m.getState().choice?.continueOption).toBe(true);
@@ -2484,17 +2405,17 @@ describe("play all routes shows the choice and picks on screen (docs/plan.md Pha
     m.destroy();
   });
 
-  it("the wheel leaves the countdown; the replayed choice screen waits", () => {
+  it("the wheel leaves the countdown; nothing picks behind it", () => {
     vi.useFakeTimers();
     const m = playAll(CANON);
     for (let press = 0; press < 3; press += 1) m.advance(); // the choice
     m.wheelBack(); // to `decide`
     expect(m.getState().choice).toBeUndefined();
-    m.wheelForward(); // the recorded choice screen
-    expect(m.getState().choice?.decisionId).toBe("d1");
-    expect(m.getState().choice?.autoPick).toBeUndefined();
+    m.wheelForward(); // no route read yet: the walk stays on `decide`
+    expect(m.getState().choice).toBeUndefined();
     vi.advanceTimersByTime(60_000);
     expect(m.getState().cursor).toBe(2);
+    expect(m.exportContext().playedRoutes).toEqual([]);
     m.destroy();
   });
 
@@ -2525,17 +2446,21 @@ describe("play all routes shows the choice and picks on screen (docs/plan.md Pha
     m.destroy();
   });
 
-  it("a reload landing on a rolled-back choice screen waits", () => {
+  it("a reload on a walked choice screen lands on the item under it and waits", () => {
     vi.useFakeTimers();
     const first = playAll(CANON);
     for (let press = 0; press < 3; press += 1) first.advance();
     vi.advanceTimersByTime(60_000); // route A entered
-    first.wheelBack(); // the recorded choice screen
+    first.wheelBack(); // the walked choice screen
+    expect(first.getState().choice?.walkRoute).toBe(0);
     const stored = first.exportContext();
+    expect(stored.choice).toBeUndefined();
     first.destroy();
     const m = machine(CANON, { resumeContext: stored, settings: ALL });
-    expect(m.getState().choice?.decisionId).toBe("d1");
-    expect(m.getState().choice?.autoPick).toBeUndefined();
+    expect(m.getState()).toMatchObject({ cursor: 2, settled: true });
+    expect(m.getState().choice).toBeUndefined();
+    vi.advanceTimersByTime(60_000);
+    expect(m.getState().cursor).toBe(2);
     m.destroy();
   });
 
@@ -2618,7 +2543,8 @@ describe("`u` reaches the next unseen content (docs/plan.md Phase 18)", () => {
     expect(m.exportContext().playedRoutes).toEqual([
       { decision: 0, routes: [1, 2] },
     ]);
-    expect(screens(m).slice(-1)).toEqual(["7 [0/2]"]); // the jump is appended
+    // As if picked: C is now the last pick at d1 (docs/plan.md Phase 27).
+    expect(m.exportContext().lastPicks).toEqual([{ decision: 0, route: 2 }]);
     m.advance(); // carries on inside C
     m.advance(); // C's end joins the aftermath
     expect(m.getState().cursor).toBe(9);
@@ -2761,7 +2687,7 @@ describe("`u` reaches the next unseen content (docs/plan.md Phase 18)", () => {
 });
 
 describe("turning play-all on over an open choice (docs/plan.md Phase 18)", () => {
-  it("a live choice starts counting down; a replayed one stays waiting", () => {
+  it("a live choice starts counting down; a walked one stays waiting", () => {
     vi.useFakeTimers();
     const m = machine(CANON);
     step(m);
@@ -2771,7 +2697,7 @@ describe("turning play-all on over an open choice (docs/plan.md Phase 18)", () =
     expect(m.getState().choice?.autoPick?.routeIdx).toBe(0);
     m.setSettings(SETTINGS);
     m.choose(1); // route B at 5
-    m.wheelBack(); // the recorded choice screen: a replay
+    m.wheelBack(); // the walked choice screen
     m.setSettings({ ...SETTINGS, playAllRoutes: true });
     expect(m.getState().choice?.autoPick).toBeUndefined();
     m.destroy();
@@ -2860,7 +2786,6 @@ describe("rolling back restores the routes (docs/plan.md Phase 22)", () => {
     vi.useFakeTimers();
     const m = machine(CANON, { settings: ALL });
     const first = spaceToEnd(m, 10);
-    const recorded = screens(m);
     wheelBackUntil(m, (s) => s.cursor === 2 && s.choice === undefined);
     m.wheelBack(); // `lead-2`, before the decision's after item
     expect(m.getState().cursor).toBe(1);
@@ -2873,8 +2798,6 @@ describe("rolling back restores the routes (docs/plan.md Phase 22)", () => {
     expect(seenMarks(m)).toEqual([true, true, true]); // seen stays seen
     const again = spaceToEnd(m, 10);
     expect(again).toEqual(first.slice(first.indexOf(2) + 1));
-    // The repeat matched the record screen for screen: nothing was dropped.
-    expect(screens(m)).toEqual(recorded);
     expect(m.exportContext().passRoutes).toEqual([
       { decision: 0, routes: [0, 1, 2] },
     ]);
@@ -2909,30 +2832,41 @@ describe("rolling back restores the routes (docs/plan.md Phase 22)", () => {
     m.destroy();
   });
 
-  it("the wheel forward replays the record with each screen's pass; `e` restores the latest", () => {
+  it("the wheel forward rewinds the pass to each screen; `e` restores the walk's starting record", () => {
     vi.useFakeTimers();
     const m = machine(CANON, { settings: ALL });
-    spaceToEnd(m, 10);
+    spaceToEnd(m, 10); // A, B, then C: C is the last pick
     const end = m.exportContext();
     wheelBackUntil(m, (s) => s.cursor === 2 && s.choice === undefined);
-    m.wheelForward(); // the first choice screen: replayed, waiting
+    expect(m.exportContext().passRoutes).toEqual([]); // before the decision
+    m.wheelForward(); // the choice screen leading into C, waiting
+    expect(m.getState().choice?.walkRoute).toBe(2);
     expect(m.getState().choice?.autoPick).toBeUndefined();
     expect(seenMarks(m)).toEqual([true, true, true]);
-    m.wheelForward(); // A's first item: A played this pass as of then
-    expect(m.exportContext().passRoutes).toEqual([
-      { decision: 0, routes: [0] },
-    ]);
+    expect(m.exportContext().passRoutes).toEqual([]);
+    m.wheelForward(); // C's first item: inside the decision, its pass is back
+    expect(m.exportContext().passRoutes).toEqual(end.passRoutes);
     expect(m.exportContext().playedRoutes).toEqual(end.playedRoutes);
+    wheelBackUntil(m, (s) => s.cursor === 1);
     m.jumpToEnd();
+    expect(m.getState().cursor).toBe(10);
     expect(m.exportContext().passRoutes).toEqual(end.passRoutes);
     m.destroy();
   });
 
-  it("nested: rewound to the inner decision, the inner routes and the outer remainder play again", () => {
+  it("nested: walked back to the inner decision, the inner routes and the outer remainder play again", () => {
     vi.useFakeTimers();
+    const reference = machine(NESTED, { settings: ALL });
+    const first = spaceToEnd(reference, 13);
+    reference.destroy();
     const m = machine(NESTED, { settings: ALL });
-    const first = spaceToEnd(m, 13);
-    const recorded = screens(m);
+    // Play on to A's last item, past the inner decision.
+    for (let press = 0; press < 80; press += 1) {
+      const state = m.getState();
+      if (state.cursor === 9 && state.choice === undefined) break;
+      m.advance();
+    }
+    expect(m.getState().cursor).toBe(9);
     wheelBackUntil(m, (s) => s.cursor === 3 && s.choice === undefined);
     // B (shortest) went first, then A: the inner decision unplayed then.
     expect(m.exportContext().passRoutes).toEqual([
@@ -2942,7 +2876,6 @@ describe("rolling back restores the routes (docs/plan.md Phase 22)", () => {
     expect(m.getState().choice?.decisionId).toBe("d2");
     const again = spaceToEnd(m, 13);
     expect(again).toEqual(first.slice(first.indexOf(3) + 1));
-    expect(screens(m)).toEqual(recorded);
     m.destroy();
   });
 
@@ -2970,7 +2903,7 @@ describe("rolling back restores the routes (docs/plan.md Phase 22)", () => {
     m.destroy();
   });
 
-  it("a reload after a rollback resumes with the rolled-back pass", () => {
+  it("a reload after walking back resumes with the rewound pass", () => {
     vi.useFakeTimers();
     const m = machine(CANON, { settings: ALL });
     spaceToEnd(m, 10);
@@ -2986,10 +2919,8 @@ describe("rolling back restores the routes (docs/plan.md Phase 22)", () => {
     expect(again.getState().cursor).toBe(2);
     again.advance(); // fires: nothing played this pass as of this screen
     expect(again.getState().choice?.autoPick?.routeIdx).toBe(0);
-    again.jumpToEnd(); // and the record still knows the end's pass
-    expect(again.exportContext().passRoutes).toEqual([
-      { decision: 0, routes: [0, 1, 2] },
-    ]);
+    again.jumpToEnd(); // the furthest point read is still there
+    expect(again.getState().cursor).toBe(10);
     again.destroy();
   });
 
@@ -2998,7 +2929,7 @@ describe("rolling back restores the routes (docs/plan.md Phase 22)", () => {
     const m = machine(CANON, { settings: ALL });
     step(m);
     step(m); // on `decide`, nothing played
-    const { history: _h, historyPos: _p, ...bookmark } = m.exportContext();
+    const bookmark = m.exportContext();
     spaceToEnd(m, 10);
     m.importContext({
       ...bookmark,
@@ -3013,25 +2944,18 @@ describe("rolling back restores the routes (docs/plan.md Phase 22)", () => {
     m.destroy();
   });
 
-  it("a save from before the pass record restores without rewinding", () => {
+  it("a save from before the pass record reads its played routes as the pass; the wheel still rewinds it", () => {
     vi.useFakeTimers();
     const m = machine(CANON, { settings: ALL });
     spaceToEnd(m, 10);
-    const { passRoutes: _pass, ...ctx } = m.exportContext();
+    const { passRoutes: _pass, ...legacy } = m.exportContext();
     m.destroy();
-    const legacy: MachineContext = {
-      ...ctx,
-      history: (ctx.history ?? []).map(({ index, stack, decision }) => ({
-        index,
-        stack,
-        ...(decision === undefined ? {} : { decision }),
-      })),
-    };
     const again = machine(CANON, { settings: ALL, resumeContext: legacy });
+    expect(again.exportContext().passRoutes).toEqual(legacy.playedRoutes);
     wheelBackUntil(again, (s) => s.cursor === 2 && s.choice === undefined);
-    expect(again.exportContext().passRoutes).toEqual(ctx.playedRoutes);
-    again.advance(); // the old flow: every route played, on to continueAt
-    expect(again.getState().cursor).toBe(9);
+    expect(again.exportContext().passRoutes).toEqual([]);
+    again.advance(); // fires: every route plays again
+    expect(again.getState().choice?.autoPick?.routeIdx).toBe(0);
     again.destroy();
   });
 });
@@ -3124,7 +3048,6 @@ describe("nested continuing routes sharing an ending", () => {
     expect(m.getState().cursor).toBe(5);
     expect(m.exportContext().completedRoutes).toEqual(BOTH_COMPLETE);
     expect(m.exportContext().stack).toEqual([]);
-    expect(screens(m).slice(-1)).toEqual(["5"]);
     expectOuterReturnRow(m);
     m.destroy();
   });
@@ -3144,7 +3067,6 @@ describe("nested continuing routes sharing an ending", () => {
     m.advance(); // off i4 again
     expect(m.getState().cursor).toBe(5);
     expect(m.exportContext().stack).toEqual([]);
-    expect(screens(m).slice(-1)).toEqual(["5"]);
     expect(m.exportContext().completedRoutes).toEqual([
       { decision: 0, routes: [1] },
       { decision: 1, routes: [1] },
@@ -3160,12 +3082,330 @@ describe("nested continuing routes sharing an ending", () => {
     m.choose(1); // inner cont
     m.advance(); // off i4 to i5: the inner return row is open from now on
     wheelBackUntil(m, (s) => s.choice?.decisionId === "inner");
-    m.choose(0); // inner alt from the replayed screen
+    m.choose(0); // inner alt from the walked screen
     m.advance(); // off i3: inner re-offers, with the return row
     expect(m.getState().choice?.continueOption).toBe(true);
     m.chooseContinue();
     expect(m.getState().cursor).toBe(5);
     expect(m.exportContext().stack).toEqual([]);
+    m.destroy();
+  });
+});
+
+// m0 m1 m2 m3 | a1 a2 | c1 c2 c3 | m4 m5 m6 | e1 e2 | k1 k2 k3 | m7 .. m14
+//  0  1  2  3 | 4  5  | 6  7  8  | 9 10 11  | 12 13 | 14 15 16 | 17 .. 24
+// A main plot with two branches that rejoin it: `dA` off m3 (a1-a2 returns
+// to the choice, c1-c3 continues to m4) and `dB` off m6 (e1-e2 is an
+// ending, k1-k3 continues to m7).
+const STORY: Shape = {
+  items: [
+    "m0",
+    "m1",
+    "m2",
+    "m3",
+    "a1",
+    "a2",
+    "c1",
+    "c2",
+    "c3",
+    "m4",
+    "m5",
+    "m6",
+    "e1",
+    "e2",
+    "k1",
+    "k2",
+    "k3",
+    ...Array.from({ length: 8 }, (_, n) => `m${String(n + 7)}`),
+  ],
+  branches: [
+    {
+      id: "dA",
+      after: "m3",
+      prompt: "A?",
+      routes: [
+        {
+          id: "aShort",
+          label: "Short",
+          start: "a1",
+          end: "a2",
+          result: "return",
+        },
+        { id: "aCont", label: "Long", start: "c1", end: "c3" },
+      ],
+      continuingRoute: "aCont",
+      continueAt: "m4",
+    },
+    {
+      id: "dB",
+      after: "m6",
+      prompt: "B?",
+      routes: [
+        { id: "bEnd", label: "Ending", start: "e1", end: "e2" },
+        { id: "bCont", label: "On", start: "k1", end: "k3" },
+      ],
+      continuingRoute: "bCont",
+      continueAt: "m7",
+    },
+  ],
+};
+
+/** The screen on show: the item, or `decision>walk route` on a choice. */
+function here(m: ReturnType<typeof machine>): string {
+  const choice = m.getState().choice;
+  return choice === undefined
+    ? String(m.getState().cursor)
+    : `${choice.decisionId}>${String(choice.walkRoute)}`;
+}
+
+/** Wheel `notches` times one way, collecting each screen shown. */
+function walk(
+  m: ReturnType<typeof machine>,
+  direction: "back" | "forward",
+  notches: number,
+): string[] {
+  const shown: string[] = [];
+  for (let notch = 0; notch < notches; notch += 1) {
+    if (direction === "back") m.wheelBack();
+    else m.wheelForward();
+    shown.push(here(m));
+  }
+  return shown;
+}
+
+/** Manual reading: A's short route, then its continuing one; B's continuing. */
+function readStoryTo(m: ReturnType<typeof machine>, target: number): void {
+  for (
+    let press = 0;
+    press < 80 && m.getState().cursor !== target;
+    press += 1
+  ) {
+    const choice = m.getState().choice;
+    if (choice?.decisionId === "dA") m.choose(choice.routes[0].seen ? 1 : 0);
+    else if (choice?.decisionId === "dB") m.choose(1);
+    else m.advance();
+  }
+}
+
+describe("timeline: the wheel walks the story order (docs/plan.md Phase 27)", () => {
+  it("the user's example: from a bookmark near the start the wheel walks around it; after `e` around the furthest point", () => {
+    const m = machine(STORY);
+    readStoryTo(m, 1);
+    const early = m.exportContext(); // `b` at m1, near the start
+    readStoryTo(m, 22); // read on to m12, far along the main plot
+    expect(m.getState().cursor).toBe(22);
+    m.importContext(mergeProgress(early, m.exportContext())); // `t`: the bookmark
+    expect(m.getState().cursor).toBe(1);
+    expect(walk(m, "back", 1)).toEqual(["0"]); // towards the start…
+    expect(walk(m, "forward", 3)).toEqual(["1", "2", "3"]); // …and past it
+    m.jumpToEnd(); // the furthest point read
+    expect(m.getState().cursor).toBe(22);
+    expect(walk(m, "back", 1)).toEqual(["21"]);
+    expect(walk(m, "forward", 2)).toEqual(["22", "22"]); // nothing seen beyond
+    m.destroy();
+  });
+
+  it("the whole walk follows the last picks, through each choice screen, both ways", () => {
+    const m = machine(STORY);
+    readStoryTo(m, 22);
+    // dA: aShort first, then aCont (the last pick); dB: bCont.
+    expect(m.exportContext().lastPicks).toEqual([
+      { decision: 0, route: 1 },
+      { decision: 1, route: 1 },
+    ]);
+    const back = walk(m, "back", 26);
+    expect(back).toEqual([
+      "21",
+      "20",
+      "19",
+      "18",
+      "17",
+      "16",
+      "15",
+      "14",
+      "dB>1", // into bCont, back through its choice
+      "11",
+      "10",
+      "9",
+      "8",
+      "7",
+      "6",
+      "dA>1", // the last pick at dA: the long route
+      "3",
+      "2",
+      "1",
+      "0",
+      "0",
+      "0",
+      "0",
+      "0",
+      "0",
+      "0", // the start: nowhere further
+    ]);
+    const forward = walk(m, "forward", 25);
+    expect(forward).toEqual([
+      "1",
+      "2",
+      "3",
+      "dA>1",
+      "6",
+      "7",
+      "8",
+      "9",
+      "10",
+      "11",
+      "dB>1",
+      "14",
+      "15",
+      "16",
+      "17",
+      "18",
+      "19",
+      "20",
+      "21",
+      "22",
+      "22",
+      "22",
+      "22",
+      "22",
+      "22", // the furthest point: nothing seen beyond
+    ]);
+    m.destroy();
+  });
+
+  it("a returning last pick: back along it to its choice screen and on along the continuing route", () => {
+    const m = machine(STORY);
+    readStoryTo(m, 10); // dA: aShort, then aCont; on to m5
+    wheelBackUntil(m, (s) => s.cursor === 3 && s.choice === undefined);
+    m.advance(); // dA fires again
+    m.choose(0); // aShort: now the last pick
+    m.advance(); // a2
+    m.advance(); // off a2: the live re-offer
+    expect(m.getState().choice?.decisionId).toBe("dA");
+    expect(m.getState().choice?.walkRoute).toBeUndefined(); // live, not walked
+    // The live re-offer is the choice the returning route led back to: on
+    // from it along the continuing route.
+    expect(walk(m, "forward", 6)).toEqual([
+      "6",
+      "7",
+      "8",
+      "9",
+      "10",
+      "10", // the furthest point
+    ]);
+    expect(walk(m, "back", 12)).toEqual([
+      "9",
+      "8",
+      "7",
+      "6",
+      "dA>1", // the choice the returning route led back to
+      "5",
+      "4",
+      "dA>0", // the choice that led into the short route
+      "3",
+      "2",
+      "1",
+      "0",
+    ]);
+    m.destroy();
+  });
+
+  it("an ending last pick: its end stops the walk; `e` and the walk back from the furthest point take the continuing route", () => {
+    const m = machine(STORY);
+    readStoryTo(m, 17); // through bCont to m7
+    wheelBackUntil(m, (s) => s.cursor === 11 && s.choice === undefined);
+    m.advance(); // dB fires again
+    m.choose(0); // bEnd: the last pick at dB
+    m.advance(); // e2, the ending
+    expect(m.getState().cursor).toBe(13);
+    expect(walk(m, "forward", 2)).toEqual(["13", "13"]); // the ending stops it
+    expect(walk(m, "back", 4)).toEqual(["12", "dB>0", "11", "10"]);
+    expect(walk(m, "forward", 4)).toEqual(["11", "dB>0", "12", "13"]);
+    m.jumpToEnd(); // the furthest point read: m7, outside every route
+    expect(m.getState().cursor).toBe(17);
+    expect(m.exportContext().stack).toEqual([]);
+    expect(walk(m, "back", 5)).toEqual(["16", "15", "14", "dB>1", "11"]);
+    m.destroy();
+  });
+
+  it("no known pick: the walk takes the longest route holding seen content", () => {
+    const resume = (visited: number[]) =>
+      machine(STORY, {
+        resumeContext: {
+          lastShown: 3,
+          visited,
+          stack: [],
+          playedRoutes: [],
+        },
+      });
+    const both = resume([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
+    expect(walk(both, "forward", 3)).toEqual(["dA>1", "6", "7"]); // the longer
+    both.destroy();
+    const short = resume([0, 1, 2, 3, 4, 5]); // only the short route read
+    expect(walk(short, "forward", 4)).toEqual(["dA>0", "4", "5", "5"]);
+    short.destroy();
+    const none = resume([0, 1, 2, 3]); // nothing read past the decision
+    expect(walk(none, "forward", 1)).toEqual(["3"]);
+    none.destroy();
+  });
+
+  it("the wheel marks nothing seen or played, and a walked choice picks nothing", () => {
+    const m = machine(STORY);
+    readStoryTo(m, 22);
+    const before = m.exportContext();
+    walk(m, "back", 30);
+    walk(m, "forward", 10);
+    const after = m.exportContext();
+    expect(after.visited).toEqual(before.visited);
+    expect(after.playedRoutes).toEqual(before.playedRoutes);
+    expect(after.completedRoutes).toEqual(before.completedRoutes);
+    expect(after.lastPicks).toEqual(before.lastPicks);
+    m.destroy();
+  });
+
+  it("reading on from a walked-to screen simply continues from it", () => {
+    const m = machine(STORY);
+    readStoryTo(m, 22);
+    wheelBackUntil(m, (s) => s.cursor === 15);
+    expect(m.exportContext().stack).toEqual([{ decision: 1, route: 1 }]);
+    m.advance(); // k3
+    m.advance(); // off bCont's end: joins at m7
+    expect(m.getState().cursor).toBe(17);
+    expect(m.getState().transition).toBe("nav");
+    m.advance();
+    expect(m.getState()).toMatchObject({ cursor: 18, transition: "advance" });
+    m.jumpToEnd(); // still the furthest point read
+    expect(m.getState().cursor).toBe(22);
+    m.destroy();
+  });
+
+  it("play all routes: walked back before a decision, reading on replays its choices and routes", () => {
+    vi.useFakeTimers();
+    const ALL = { ...SETTINGS, playAllRoutes: true };
+    const m = machine(STORY, { settings: ALL });
+    // Space through: each play-all pick taken at once.
+    for (let press = 0; press < 80 && m.getState().cursor !== 22; press += 1)
+      m.advance();
+    expect(m.getState().cursor).toBe(22);
+    const seen = m.exportContext().playedRoutes;
+    expect(m.exportContext().passRoutes).toEqual([
+      { decision: 0, routes: [0, 1] },
+      { decision: 1, routes: [0, 1] },
+    ]);
+    wheelBackUntil(m, (s) => s.cursor === 11 && s.choice === undefined);
+    // dA, before the screen, keeps its pass; dB counts as unplayed.
+    expect(m.exportContext().passRoutes).toEqual([
+      { decision: 0, routes: [0, 1] },
+    ]);
+    m.advance(); // dB fires: the countdown for its shortest route again
+    expect(m.getState().choice?.autoPick?.routeIdx).toBe(0);
+    m.advance(); // Space takes it: bEnd
+    expect(m.getState().cursor).toBe(12);
+    m.advance();
+    m.advance(); // off e2: the re-offer counts down for bCont
+    expect(m.getState().choice?.autoPick?.routeIdx).toBe(1);
+    // Seen marks are cumulative: nothing was forgotten.
+    expect(m.exportContext().playedRoutes).toEqual(seen);
     m.destroy();
   });
 });

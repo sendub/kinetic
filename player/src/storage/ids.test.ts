@@ -3,8 +3,8 @@
 // inserted before everything (with its own decision, so decision indices
 // shift), a new route inserted mid-way into an existing decision (so route
 // indices shift), and an item deleted — and the seen set, the position, the
-// reading history, a bookmark and the played / completed route state all
-// still point at the same content.
+// last picks, a bookmark and the played / completed route state all still
+// point at the same content.
 
 import { describe, expect, it } from "vitest";
 
@@ -16,11 +16,7 @@ import type {
   MachineSettings,
 } from "../machine/types";
 import { DEFAULT_SETTINGS } from "../machine/types";
-import {
-  bookmarkContext,
-  bookmarkRestoreTarget,
-  listOrder,
-} from "../render/bookmarks";
+import { bookmarkRestoreTarget, listOrder } from "../render/bookmarks";
 import { sanitizeContext } from "./idb";
 import { createContextCodec, resumeOptionsFor } from "./ids";
 import type { Bookmark, SavedContext } from "./types";
@@ -134,16 +130,6 @@ function stored(saved: SavedContext): SavedContext {
   return read;
 }
 
-/** The reading history as item ids (`id@decision` for a choice screen). */
-function historyIds(version: Version, context: MachineContext): string[] {
-  return (context.history ?? []).map((entry) => {
-    const id = version.items[entry.index].id;
-    return entry.decision === undefined
-      ? id
-      : `${id}@${version.branches[entry.decision].id}`;
-  });
-}
-
 const idsOf = (version: Version, indices: readonly number[]) =>
   indices.map((index) => version.items[index].id);
 
@@ -157,7 +143,7 @@ function playV1() {
   const codec = createContextCodec(V1.items, V1.branches);
   const m = machine(V1);
   const bookmarkAt = (): Bookmark => {
-    const ctx = codec.toSaved(bookmarkContext(m.exportContext()));
+    const ctx = codec.toSaved(m.exportContext());
     return { id: ctx.lastShown, timestampMs: 1, itemId: ctx.lastShown, ctx };
   };
   m.advance(); // lead-1 -> aside
@@ -200,32 +186,19 @@ describe("a save survives a content update (prequel, new route, deleted item)", 
       playedRoutes: [{ decision: "d1", routes: ["r-a", "r-c"] }],
       completedRoutes: [{ decision: "d1", routes: ["r-a", "r-c"] }],
     });
-    expect(saved.history?.[saved.historyPos ?? -1]).toEqual({
-      item: "after-1",
-      stack: [],
-    });
-    // Entering C changed the pass record (docs/plan.md Phase 22), so the
-    // entry carries it, by ids too.
-    expect(saved.history).toContainEqual({
-      item: "cont-1",
-      stack: [{ decision: "d1", route: "r-c" }],
-      passRoutes: [{ decision: "d1", routes: ["r-a", "r-c"] }],
-    });
     expect(saved.passRoutes).toEqual([
       { decision: "d1", routes: ["r-a", "r-c"] },
     ]);
-    expect(saved.history).toContainEqual({
-      item: "a-2",
-      stack: [],
-      decision: "d1",
-    });
+    // The last pick at each decision (docs/plan.md Phase 27), by ids too.
+    expect(saved.lastPicks).toEqual([{ decision: "d1", route: "r-c" }]);
+    expect(saved).not.toHaveProperty("history");
+    expect(saved).not.toHaveProperty("choice");
     m.destroy();
   });
 
   it("resumes on the same item, with the same seen set and route state", () => {
     const { codec, m } = playV1();
     const saved = stored(codec.toSaved(m.exportContext()));
-    const before = historyIds(V1, m.exportContext());
     m.destroy();
 
     const codec2 = createContextCodec(V2.items, V2.branches);
@@ -255,17 +228,15 @@ describe("a save survives a content update (prequel, new route, deleted item)", 
     expect(context.playedRoutes).toEqual([{ decision: 1, routes: [0, 3] }]);
     expect(context.completedRoutes).toEqual([{ decision: 1, routes: [0, 3] }]);
     expect(context.passRoutes).toEqual([{ decision: 1, routes: [0, 3] }]);
-    // History: the same screens, minus the deleted item's.
-    expect(historyIds(V2, context)).toEqual(
-      before.filter((id) => id !== "aside"),
-    );
+    // The last pick follows the route id too.
+    expect(context.lastPicks).toEqual([{ decision: 1, route: 3 }]);
     // And saving again under V2 gives back the same save, minus `aside`.
     const again = codec2.toSaved(context);
     expect(again.visited).toEqual(saved.visited.filter((id) => id !== "aside"));
     expect(again.playedRoutes).toEqual(saved.playedRoutes);
     expect(again.completedRoutes).toEqual(saved.completedRoutes);
-    // Each screen's pass record survives the update too (docs/plan.md
-    // Phase 22): back on `decide`, nothing was played this pass yet.
+    // The pass rewinds with the walk under the new positions too
+    // (docs/plan.md Phase 27): back on `decide`, nothing played this pass.
     while (V2.items[resumed.getState().cursor].id !== "decide")
       resumed.wheelBack();
     expect(resumed.exportContext().passRoutes).toEqual([]);
@@ -275,7 +246,7 @@ describe("a save survives a content update (prequel, new route, deleted item)", 
     resumed.destroy();
   });
 
-  it("history replay walks back onto the right screens, choice included", () => {
+  it("the walk back follows the last pick onto the right screens, choice included", () => {
     const { codec, m } = playV1();
     const saved = stored(codec.toSaved(m.exportContext()));
     m.destroy();
@@ -293,21 +264,21 @@ describe("a save survives a content update (prequel, new route, deleted item)", 
     expect(walked).toEqual([
       "cont-2",
       "cont-1",
-      "a-2@d1",
-      "a-2",
-      "a-1",
-      "decide@d1",
+      "decide@d1", // the last pick, C, continues: its choice screen
       "decide",
       "lead-2",
-      "lead-1", // `aside`'s screen was removed with the item
-      "lead-1", // the start of the record: the wheel stays
+      "lead-1", // `aside` was removed with the item
+      "lead-1", // the start: the wheel stays
+      "lead-1",
+      "lead-1",
+      "lead-1",
       "lead-1",
       "lead-1",
     ]);
-    // The replayed choice screen shows the CURRENT routes with the seen
-    // marks the save carried — the new route unseen — and the return row
-    // the completed continuing route unlocked.
-    wheelForwardTo(resumed, "a-2@d1");
+    // The walked choice screen shows the CURRENT routes with the seen
+    // marks the save carried — the new route unseen — the return row the
+    // completed continuing route unlocked, and C highlighted.
+    wheelForwardTo(resumed, "decide@d1");
     const choice = resumed.getState().choice;
     expect(choice?.routes.map((route) => [route.id, route.seen])).toEqual([
       ["r-a", true],
@@ -316,6 +287,7 @@ describe("a save survives a content update (prequel, new route, deleted item)", 
       ["r-c", true],
     ]);
     expect(choice?.continueOption).toBe(true);
+    expect(choice?.walkRoute).toBe(3);
     resumed.destroy();
   });
 
@@ -349,7 +321,7 @@ describe("a save survives a content update (prequel, new route, deleted item)", 
     reader.destroy();
   });
 
-  it("the screen on display moves with its entry; a deleted one falls back to the entry before", () => {
+  it("the position moves with its item; a deleted one falls back to the furthest seen item", () => {
     const { codec, m } = playV1();
     const codec2 = createContextCodec(V2.items, V2.branches);
     const restoredOn = (stopAt: string): string => {
@@ -362,12 +334,12 @@ describe("a save survives a content update (prequel, new route, deleted item)", 
       resumed.destroy();
       return id;
     };
-    // Rolled back to lead-2 — past `aside` in the record — the restore
-    // lands on lead-2, not one entry off.
+    // Walked back to lead-2 — past `aside` — the restore lands on lead-2,
+    // not one item off.
     expect(restoredOn("lead-2")).toBe("lead-2");
-    // Rolled back onto `aside` itself: its entry is gone, so the restore
-    // lands on the kept entry before it.
-    expect(restoredOn("aside")).toBe("lead-1");
+    // Walked back onto `aside` itself: it is gone, so the restore lands on
+    // the furthest seen item.
+    expect(restoredOn("aside")).toBe("after-1");
     m.destroy();
   });
 });
@@ -381,14 +353,14 @@ describe("unknown ids and old saves", () => {
       stack: [{ decision: "dx", route: "rx" }],
       playedRoutes: [],
       completedRoutes: [],
-      history: [{ item: "elsewhere", stack: [] }],
-      historyPos: 0,
+      lastPicks: [{ decision: "dx", route: "rx" }],
+      choice: "dx",
     };
     expect(codec2.fromSaved(foreign)).toBeUndefined();
     expect(resumeOptionsFor({ ctx: foreign }, codec2)).toEqual({});
   });
 
-  it("a gone lastShown without a history lands on the furthest seen item", () => {
+  it("a gone lastShown lands on the furthest seen item; unknown last picks and choice are dropped", () => {
     const codec2 = createContextCodec(V2.items, V2.branches);
     expect(
       codec2.fromSaved({
@@ -397,6 +369,12 @@ describe("unknown ids and old saves", () => {
         stack: [{ decision: "d1", route: "r-gone" }],
         playedRoutes: [{ decision: "d-gone", routes: ["r-a"] }],
         completedRoutes: [{ decision: "d1", routes: ["r-gone", "r-b"] }],
+        lastPicks: [
+          { decision: "d-gone", route: "r-a" },
+          { decision: "d1", route: "r-gone" },
+          { decision: "d1", route: "r-b" },
+        ],
+        choice: "d-gone",
       }),
     ).toEqual({
       lastShown: 6,
@@ -404,6 +382,7 @@ describe("unknown ids and old saves", () => {
       stack: [],
       playedRoutes: [],
       completedRoutes: [{ decision: 1, routes: [2] }],
+      lastPicks: [{ decision: 1, route: 2 }],
     });
   });
 

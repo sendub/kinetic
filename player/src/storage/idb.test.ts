@@ -8,8 +8,18 @@
 // Each test gets a fresh database and re-imports idb.ts; "reloading the
 // page" is another import against the same fake database.
 
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { createMachine } from "../machine/machine";
+import type { Branch, Item } from "../machine/types";
+import { DEFAULT_SETTINGS } from "../machine/types";
+import { bookmarkRestoreTarget, mergeProgress } from "../render/bookmarks";
+import { createContextCodec, resumeOptionsFor } from "./ids";
+import { importProgress, parseProgressFile } from "./transfer";
 import type { Bookmark, SavedContext, Storage } from "./types";
 
 type Key = string | number;
@@ -433,5 +443,207 @@ describe("IndexedDB adapter — replaceProgress (Import progress, Phase 21)", ()
     const reloaded = await open(STORY);
     expect(await reloaded.loadState()).toEqual({});
     expect(await reloaded.getBookmarks()).toEqual([]);
+  });
+});
+
+// docs/plan.md Phase 27: saves from the reading-history days migrate
+// silently. The fixture is a real export written by the player before the
+// timeline (commit 7e420b8) on the manifest below: read with both branches,
+// a bookmark at m9, one at m12 that still carries its history, then the
+// m9 bookmark clicked and the wheel turned back once — so the old record
+// put the reader back on m12, reading order rather than story order.
+describe("IndexedDB adapter — old reading-history saves migrate (Phase 27)", () => {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const oldFile = readFileSync(
+    join(here, "fixtures", "old-timeline-progress.json"),
+    "utf8",
+  );
+  const ids = [
+    "m0",
+    "m1",
+    "m2",
+    "m3",
+    "a1",
+    "a2",
+    "c1",
+    "c2",
+    "c3",
+    "m4",
+    "m5",
+    "m6",
+    "e1",
+    "e2",
+    "k1",
+    "k2",
+    "k3",
+    "m7",
+    "m8",
+    "m9",
+    "m10",
+    "m11",
+    "m12",
+    "m13",
+    "m14",
+  ];
+  const items: Item[] = ids.map((id) => ({
+    id,
+    type: "image",
+    file: `${id}.jpg`,
+  }));
+  const branches: Branch[] = [
+    {
+      id: "dA",
+      after: "m3",
+      prompt: "A?",
+      routes: [
+        {
+          id: "aShort",
+          label: "Short",
+          start: "a1",
+          end: "a2",
+          result: "return",
+        },
+        { id: "aCont", label: "Cont", start: "c1", end: "c3" },
+      ],
+      continuingRoute: "aCont",
+      continueAt: "m4",
+    },
+    {
+      id: "dB",
+      after: "m6",
+      prompt: "B?",
+      routes: [
+        { id: "bEnd", label: "End", start: "e1", end: "e2" },
+        { id: "bCont", label: "Cont", start: "k1", end: "k3" },
+      ],
+      continuingRoute: "bCont",
+      continueAt: "m7",
+    },
+  ];
+  const at = (id: string) => ids.indexOf(id);
+  const STORY_KEY = "story:timeline-demo";
+
+  /** The old records as the old player left them in IndexedDB. */
+  async function seedOldRecords(): Promise<void> {
+    const file = JSON.parse(oldFile) as {
+      state: unknown;
+      bookmarks: unknown[];
+    };
+    expect(JSON.stringify(file.state)).toContain('"history"');
+    const old = await open(STORY_KEY);
+    await old.saveState(file.state as never);
+    for (const raw of file.bookmarks) await old.addBookmark(raw as never);
+  }
+
+  /** A page load: storage read, codec, machine — as main.ts does it. */
+  async function boot() {
+    const storage = await open(STORY_KEY);
+    const codec = createContextCodec(items, branches);
+    const persisted = await storage.loadState();
+    const machine = createMachine({
+      items,
+      branches,
+      settings: { ...DEFAULT_SETTINGS, ...persisted?.settings },
+      ...resumeOptionsFor(persisted, codec),
+    });
+    return { storage, codec, persisted, machine };
+  }
+
+  it("loads silently: position, seen marks, routes, settings and bookmarks kept; last picks derived; the record dropped", async () => {
+    installFakeIndexedDb();
+    await seedOldRecords();
+    const { storage, codec, persisted, machine } = await boot();
+    expect(persisted?.ctx).not.toHaveProperty("history");
+    expect(persisted?.ctx).not.toHaveProperty("historyPos");
+    expect(persisted?.helpSeen).toBe(true);
+    expect(persisted?.settings).toEqual({ playAllRoutes: false });
+    // The position the old save was on, and every seen mark.
+    expect(machine.getState()).toMatchObject({
+      cursor: at("m12"),
+      settled: true,
+    });
+    expect(machine.visitedList().map((i) => ids[i])).toEqual(
+      ids.filter((id) => !["e1", "e2", "m13", "m14"].includes(id)),
+    );
+    const ctx = machine.exportContext();
+    expect(ctx.playedRoutes).toEqual([
+      { decision: 0, routes: [0, 1] },
+      { decision: 1, routes: [1] },
+    ]);
+    expect(ctx.completedRoutes).toEqual(ctx.playedRoutes);
+    // The latest route entered at each decision: aCont (after aShort), bCont.
+    expect(ctx.lastPicks).toEqual([
+      { decision: 0, route: 1 },
+      { decision: 1, route: 1 },
+    ]);
+    // The wheel walks the story order from there.
+    machine.wheelBack();
+    expect(machine.getState().cursor).toBe(at("m11"));
+    // Both bookmarks are kept, the one with a history included.
+    const bookmarks = await storage.getBookmarks();
+    expect(bookmarks.map((b) => [b.id, b.itemId])).toEqual([
+      ["bm-a", "m9"],
+      ["bm-b", "m12"],
+    ]);
+    expect(bookmarks[1].ctx).not.toHaveProperty("history");
+    // Clicking the m9 bookmark lands there; the wheel walks back along the
+    // story and the last picks (into bCont through dB's choice screen),
+    // never up to m12 as the old record did.
+    const target = codec.fromSaved(bookmarkRestoreTarget(bookmarks[0]).ctx);
+    if (target === undefined) throw new Error("bookmark did not resolve");
+    machine.importContext(mergeProgress(target, machine.exportContext()));
+    expect(machine.getState().cursor).toBe(at("m9"));
+    const back: string[] = [];
+    for (let notch = 0; notch < 6; notch += 1) {
+      machine.wheelBack();
+      const choice = machine.getState().choice;
+      back.push(
+        choice === undefined
+          ? ids[machine.getState().cursor]
+          : `${choice.decisionId}>${String(choice.walkRoute)}`,
+      );
+    }
+    expect(back).toEqual(["m8", "m7", "k3", "k2", "k1", "dB>1"]);
+    machine.jumpToEnd();
+    expect(machine.getState().cursor).toBe(at("m12"));
+    // The next save writes the new shape: no record, never again.
+    await storage.saveState({ ctx: codec.toSaved(machine.exportContext()) });
+    machine.destroy();
+    const again = await boot();
+    expect(again.persisted?.ctx?.lastPicks).toEqual([
+      { decision: "dA", route: "aCont" },
+      { decision: "dB", route: "bCont" },
+    ]);
+    expect(again.machine.getState().cursor).toBe(at("m12"));
+    again.machine.destroy();
+  });
+
+  it("an old export file imports through the same migration", async () => {
+    installFakeIndexedDb();
+    const parsed = parseProgressFile(oldFile, {
+      storyId: "timeline-demo",
+      title: "Timeline demo",
+    });
+    if (!parsed.ok) throw new Error(parsed.message);
+    expect(parsed.state.ctx).not.toHaveProperty("history");
+    const storage = await open(STORY_KEY);
+    const ok = await importProgress({
+      flush: async () => {},
+      storage,
+      reload: () => {},
+      progress: parsed,
+    });
+    expect(ok).toBe(true);
+    const { machine, storage: reloaded } = await boot();
+    expect(machine.getState().cursor).toBe(at("m12"));
+    expect(machine.exportContext().lastPicks).toEqual([
+      { decision: 0, route: 1 },
+      { decision: 1, route: 1 },
+    ]);
+    expect((await reloaded.getBookmarks()).map((b) => b.itemId)).toEqual([
+      "m9",
+      "m12",
+    ]);
+    machine.destroy();
   });
 });

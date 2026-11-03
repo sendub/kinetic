@@ -25,6 +25,7 @@ function context(lastShown: string): SavedContext {
     stack: [{ decision: "d1", route: "r1" }],
     playedRoutes: [{ decision: "d1", routes: ["r1"] }],
     completedRoutes: [],
+    lastPicks: [{ decision: "d1", route: "r1" }],
   };
 }
 
@@ -37,11 +38,7 @@ const MARK: Bookmark = {
 };
 
 const STATE = {
-  ctx: {
-    ...context("i5"),
-    history: [{ item: "i5", stack: [] }],
-    historyPos: 0,
-  },
+  ctx: { ...context("i5"), choice: "d1" },
   settings: { readingSpeed: 2, skipAll: true },
   helpSeen: true,
 };

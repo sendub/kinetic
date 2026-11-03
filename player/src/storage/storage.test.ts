@@ -127,27 +127,25 @@ for (const [name, makeStorage] of ADAPTERS) {
       expect((await storage.loadState())?.ctx).toBeUndefined();
     });
 
-    it("round-trips a context's completed routes and reading history", async () => {
+    it("round-trips a context's completed routes, last picks and open choice", async () => {
       const storage = makeStorage();
       const ctx: SavedContext = {
         ...context("x-7", ["x-0", "x-1", "x-4", "x-7"]),
         completedRoutes: [{ decision: "d1", routes: ["r2"] }],
-        history: [
-          { item: "x-0", stack: [] },
-          { item: "x-1", stack: [], decision: "d1" },
-          { item: "x-7", stack: [{ decision: "d1", route: "r0" }] },
-          { item: "x-4", stack: [], gap: true },
+        lastPicks: [
+          { decision: "d1", route: "r0" },
+          { decision: "d2", route: "r5" },
         ],
-        historyPos: 1,
+        choice: "d1",
       };
       await storage.saveState({ ctx });
       const loaded = await storage.loadState();
       expect(loaded).toEqual({ ctx });
       // Copies out: a caller mutating the loaded record reaches nothing.
       const handedOut = loaded as unknown as {
-        ctx: { history: { stack: unknown[] }[] };
+        ctx: { lastPicks: { route: string }[] };
       };
-      handedOut.ctx.history[2].stack.push({});
+      handedOut.ctx.lastPicks[0].route = "changed";
       expect((await storage.loadState())?.ctx).toEqual(ctx);
     });
 
@@ -366,42 +364,96 @@ describe("sanitizeContext — the context the shipped adapter reads back", () =>
     completedRoutes: [],
   };
 
-  it("keeps the reading history and its position (History rollback spec)", () => {
-    const history = [
-      { item: "x-0", stack: [] },
-      { item: "x-2", stack: [], decision: "d0" },
-      { item: "x-3", stack: [{ decision: "d0", route: "r1" }] },
-      { item: "x-1", stack: [], gap: true as const }, // the furthest point (Phase 26)
-    ];
-    expect(sanitizeContext({ ...base, history, historyPos: 1 })).toEqual({
-      ...base,
-      history,
-      historyPos: 1,
-    });
-  });
-
-  it("drops malformed history entries whole; no history grows no field", () => {
+  it("keeps the last picks and the open choice; malformed picks are dropped", () => {
     expect(
       sanitizeContext({
         ...base,
-        history: [
+        lastPicks: [
+          { decision: "d0", route: "r1" },
+          { decision: 0, route: "r1" },
           null,
-          { item: 2, stack: [] },
-          { item: "x-1", stack: [], decision: 1 },
-          { item: "x-2", stack: [{ decision: "d0" }] },
-          { item: "x-2", stack: [{ decision: "d0", route: "r1" }] },
-          { item: "x-3" },
+          { decision: "d2", route: "r0" },
         ],
-        historyPos: "1",
+        choice: "d0",
       }),
     ).toEqual({
       ...base,
+      lastPicks: [
+        { decision: "d0", route: "r1" },
+        { decision: "d2", route: "r0" },
+      ],
+      choice: "d0",
+    });
+    expect(sanitizeContext({ ...base, choice: 3 })).toEqual(base);
+    expect(sanitizeContext(base)).toEqual(base);
+  });
+
+  it("migrates an old reading history: the latest route entered per decision, the open frames winning; the record is dropped", () => {
+    // docs/plan.md Phase 27: saves from the reading-history days load
+    // silently. Each entry's frames name the routes entered; the latest
+    // wins, and the frames open now (`stack`) are the present.
+    const migrated = sanitizeContext({
+      ...base,
+      stack: [{ decision: "d1", route: "r9" }],
+      passRoutes: [{ decision: "d0", routes: ["r0", "r1"] }],
       history: [
-        { item: "x-2", stack: [{ decision: "d0", route: "r1" }] },
-        { item: "x-3", stack: [] },
+        { item: "x-0", stack: [], passRoutes: [] },
+        { item: "x-1", stack: [{ decision: "d0", route: "r0" }] },
+        { item: "x-1", stack: [], decision: "d0" },
+        {
+          item: "x-2",
+          stack: [{ decision: "d0", route: "r1" }],
+          passRoutes: [{ decision: "d0", routes: ["r0", "r1"] }],
+        },
+        { item: "x-2", stack: [{ decision: "d1", route: "r3" }] },
+        null,
+        {
+          item: "x-3",
+          stack: [{ decision: 4 }, { decision: "d5", route: "r5" }],
+        },
+        { item: "x-3", stack: [], gap: true },
+      ],
+      historyPos: 4,
+    });
+    expect(migrated).toEqual({
+      ...base,
+      stack: [{ decision: "d1", route: "r9" }],
+      passRoutes: [{ decision: "d0", routes: ["r0", "r1"] }],
+      lastPicks: [
+        { decision: "d0", route: "r1" }, // r0 first, r1 entered later
+        { decision: "d1", route: "r9" }, // the open frame wins over r3
+        { decision: "d5", route: "r5" }, // a malformed frame beside it skipped
       ],
     });
-    expect(sanitizeContext(base)).toEqual(base);
+    expect(migrated).not.toHaveProperty("history");
+    expect(migrated).not.toHaveProperty("historyPos");
+  });
+
+  it("migrates the old screen showing: a choice screen there becomes the open choice", () => {
+    const history = [
+      { item: "x-0", stack: [] },
+      { item: "x-1", stack: [], decision: "d0" },
+      { item: "x-2", stack: [{ decision: "d0", route: "r1" }] },
+    ];
+    expect(sanitizeContext({ ...base, history, historyPos: 1 })?.choice).toBe(
+      "d0",
+    );
+    // Without a position the last screen shows: an item, so no choice.
+    expect(sanitizeContext({ ...base, history })).not.toHaveProperty("choice");
+    expect(
+      sanitizeContext({ ...base, history: history.slice(0, 2) })?.choice,
+    ).toBe("d0");
+    // New fields win over anything derived.
+    expect(
+      sanitizeContext({
+        ...base,
+        history,
+        historyPos: 1,
+        lastPicks: [],
+        choice: "d9",
+      }),
+    ).toEqual({ ...base, lastPicks: [], choice: "d9" });
+    // A broken record migrates to nothing rather than failing the load.
     expect(sanitizeContext({ ...base, history: "x", historyPos: 2 })).toEqual(
       base,
     );
@@ -425,10 +477,12 @@ describe("sanitizeContext — the context the shipped adapter reads back", () =>
       ...base,
       stack: [{ decision: "d0", route: "r1" }],
       playedRoutes: [{ decision: "d0", routes: ["r1"] }],
+      // A save without last picks takes its open frame as one.
+      lastPicks: [{ decision: "d0", route: "r1" }],
     });
   });
 
-  it("keeps the played-this-pass record, top level and per entry (docs/plan.md Phase 22)", () => {
+  it("keeps the played-this-pass record (docs/plan.md Phase 22)", () => {
     expect(
       sanitizeContext({
         ...base,
@@ -436,28 +490,10 @@ describe("sanitizeContext — the context the shipped adapter reads back", () =>
           { decision: "d0", routes: ["r1"] },
           { decision: "d1", routes: [0] },
         ],
-        history: [
-          { item: "x-0", stack: [], passRoutes: [] },
-          {
-            item: "x-3",
-            stack: [{ decision: "d0", route: "r1" }],
-            passRoutes: [{ decision: "d0", routes: ["r1"] }],
-          },
-          { item: "x-3", stack: [], passRoutes: "bad" },
-        ],
       }),
     ).toEqual({
       ...base,
       passRoutes: [{ decision: "d0", routes: ["r1"] }],
-      history: [
-        { item: "x-0", stack: [], passRoutes: [] },
-        {
-          item: "x-3",
-          stack: [{ decision: "d0", route: "r1" }],
-          passRoutes: [{ decision: "d0", routes: ["r1"] }],
-        },
-        { item: "x-3", stack: [] },
-      ],
     });
   });
 

@@ -1332,11 +1332,21 @@ truthful: an unchecked box means nothing was accepted.
       images), recipe in the ledger, rebuild reproduces it, old ledgers
       with JPEG poster steps still rebuild. A way to regenerate posters
       for an existing shipment without redoing its videos.
-- [ ] Timeline navigation (design in docs/plan.md Phase 27, pending user
-      confirmation): wheel walks the story order along the last-taken
+- [x] Timeline navigation (design in docs/plan.md Phase 27, user
+      confirmed): wheel walks the story order along the last-taken
       route at each decision, not the reading history; `e` goes to the
       furthest point read; saved progress and bookmarks migrate
       automatically.
+      (Reading record, cap, future copy and gap removed; lastPick per
+      decision persisted; wheel walks story order through choice screens
+      with the walk's route lit; pure choices walk into the last pick and
+      on past the region; `e` = highest seen item. Migration in
+      sanitizeContext drops history/historyPos/pass/gap and derives last
+      picks; fixture is a real export from 7e420b8. vitest 587, check
+      clean; branches 43/43, navigation 21/21, screens 57 + 2 headless-
+      fullscreen partials, progress 6/6, playall 27/27 x3 plus two early
+      aborts at configure (clickCenter .config-play-all not visible in
+      5 s; follow-up below). Screenshots .tmp/timeline-shots/. 2026-11-03)
 - [x] Scenario harness: a hung scenario (branches-unseen stalled 20+
       min, 2026-11-03) blocks the run forever. Give each scenario a
       wall-clock limit that fails it with the step it was on.
@@ -1347,3 +1357,8 @@ truthful: an unchecked box means nothing was accepted.
       kill. Orchestrator: 3 s limit -> FAIL "walk", 0 Chrome left; branches
       41/41 three times; one earlier branches run ended 40 checks 39 pass
       1 fail, output not captured, not reproduced in 3 reruns. 2026-11-03)
+- [ ] Harness flake: playall `configure` intermittently aborts with
+      clickCenter ".config-play-all" not visible after 5 s (2 of 5 runs
+      on 2026-11-03, after the Phase 27 timeline change; earlier also an
+      uncaptured branches abort). Find why the settings panel is not
+      open/visible at that point and fix the cause, not the wait.

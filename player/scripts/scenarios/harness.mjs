@@ -552,6 +552,9 @@ const READ_CHOICE = () => {
       number: el.querySelector(".choice-num")?.textContent ?? "",
       label: el.querySelector(".choice-label")?.textContent ?? "",
       seen: el.querySelector(".choice-seen")?.textContent ?? null,
+      // The play-all next pick, or the route a wheel walk takes through
+      // this screen (docs/plan.md Phase 27).
+      next: el.classList.contains("choice-next"),
     })),
   };
 };

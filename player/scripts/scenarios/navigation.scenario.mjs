@@ -1,13 +1,13 @@
 // Navigation (old driver steps 14-19, rewritten for the Phase 18 rules and
-// the history rollback spec): the wheel steps one screen of the reading
-// history per notch, shows a rewound video's poster as a still, clamps at
-// the first and last entries, and replays a route path exactly as read —
-// choice screens included, unplayed routes never shown; Tab skip runs
-// through seen items at the skip dwell per picture (lines take zero time,
-// caption hidden) and stops ON the last seen one
-// (doing nothing with nothing seen ahead); Space ends a skip; `e` goes to
-// the end of the history and is a no-op there; after continuing from a
-// bookmark (video or image), `e` goes to the furthest point read (Phase 26).
+// the Phase 27 timeline): the wheel steps one screen of the story per
+// notch, shows a rewound video's poster as a still, clamps at the start and
+// at the furthest point read, and walks a route path along the last picks —
+// choice screens included, the walk's route highlighted, unplayed routes
+// never shown; Tab skip runs through seen items at the skip dwell per
+// picture (lines take zero time, caption hidden) and stops ON the last seen
+// one (doing nothing with nothing seen ahead); Space ends a skip; `e` goes
+// to the furthest point read and is a no-op there, also after continuing
+// from a bookmark (video or image).
 
 import { DEFAULT_SETTINGS } from "../../src/machine/types.ts";
 import {
@@ -39,7 +39,7 @@ import {
   wheel,
 } from "./harness.mjs";
 
-export const title = "wheel, tab skip, e (history navigation)";
+export const title = "wheel, tab skip, e (timeline navigation)";
 
 const MS_PER_CHAR = 60; // DEFAULT_SETTINGS reading speed 1.00x
 const SKIP_DWELL_MS = DEFAULT_SETTINGS.skipDwellMs; // ~25 ms, Ren'Py-like
@@ -90,10 +90,10 @@ export default async function ({ check, open }) {
 }
 
 // Phase 26 (user repro): bookmark earlier items, read on, continue from a
-// bookmark, press `e`. It did nothing (the landing was the history's end);
-// now the landing carries the screens recorded after it, so `e` reaches the
-// furthest point read — straight from a video bookmark, and from an image
-// bookmark after reading on linearly.
+// bookmark, press `e`. It did nothing (the landing was the old history's
+// end); `e` now goes to the furthest point read (docs/plan.md Phase 27) —
+// straight from a video bookmark, and from an image bookmark after reading
+// on linearly.
 async function waitUntil(page, fn, timeout = 5000) {
   try {
     await page.waitForFunction(fn, { timeout });
@@ -206,8 +206,8 @@ async function wheelScenario(check, open) {
     { bareImg: bare.imgSrc, bareOverlay: bare.overlayHidden, narr: narr.text },
   );
 
-  // Clamps: past item 0 nothing moves; forward stops at the end of the
-  // history (video-chain-3) and never paints the unseen chain-still.
+  // Clamps: past item 0 nothing moves; forward stops at the furthest point
+  // read (video-chain-3) and never paints the unseen chain-still.
   await wheel(cdp, true, 5); // narration -> item 0, plus two clamped notches
   const top = await page.evaluate(PAGE_STATE);
   await page.evaluate(INSTALL_BRANCH_LOG);
@@ -220,7 +220,7 @@ async function wheelScenario(check, open) {
     line.startsWith(`${item("chain-still").file}|`),
   );
   check(
-    "wheel clamps at item 0 and stops at the end of the history going forward",
+    "wheel clamps at item 0 and stops at the furthest point read going forward",
     top.text === item("intro-title").text &&
       top.imgSrc === item("intro-title").file &&
       edge.text === item("video-chain-3").text &&
@@ -344,8 +344,8 @@ async function skipScenario(check, open) {
 }
 
 // Old step 18 (Space during skip exits it and holds), and `e` from the
-// skip's stop: it returns to the end of the history (where the reading had
-// reached) and never jumps on to unseen content.
+// skip's stop: it returns to the furthest point read and never jumps on to
+// unseen content.
 async function skipSpaceScenario(check, open) {
   const { page, cdp } = await open("skip-space", { closeHelp: true });
   // A long seen run (intro to floor-3), so the burst lasts long enough at
@@ -373,8 +373,8 @@ async function skipSpaceScenario(check, open) {
     { skipMoves: running.length - 1, stillAfter, stopId },
   );
 
-  // Stopped mid-burst: the skip's steps replayed the record, so its end
-  // is still floor-3; `e` goes there, not on to unseen content.
+  // Stopped mid-burst: the furthest point read is still floor-3; `e` goes
+  // there, not on to unseen content.
   await pressE(cdp);
   await sleep(150);
   const landed = await currentItemId(page);
@@ -382,15 +382,15 @@ async function skipSpaceScenario(check, open) {
   await sleep(300);
   const again = await currentItemId(page);
   check(
-    "e after a stopped skip returns to the end of the history and stays there",
+    "e after a stopped skip returns to the furthest point read and stays there",
     stopIndex >= 0 && landed === "floor-3" && again === "floor-3",
     { from: stopId, landed, again },
   );
 }
 
-// Old step 19, history rule: after rolling back, `e` returns to the end of
-// the history; pressed there with the next item unseen, `e` does nothing
-// (Space reads on).
+// Old step 19: after walking back, `e` returns to the furthest point read;
+// pressed there with the next item unseen, `e` does nothing (Space reads
+// on).
 async function resumeScenario(check, open) {
   const { page, cdp } = await open("resume", { closeHelp: true });
   await pressSpace(cdp);
@@ -413,17 +413,18 @@ async function resumeScenario(check, open) {
   const changes = changesOf(await samplePaint(page, 800, 50));
   const still = await currentItemId(page);
   check(
-    "e at the end of the history does nothing (the next item stays unseen)",
+    "e at the furthest point does nothing (the next item stays unseen)",
     changes.length === 1 && still === "text-speech",
     { changes: changes.length - 1, on: still },
   );
 }
 
-// Across routes the wheel replays the reading history: play Route 1
-// (nested 1a) to the end, then wheel back and forward through the branch.
-// Each choice screen is its own step, and the unplayed Route 2 and nested
-// 1b spans are never shown. `e` at the end stays put: no jump into an
-// unplayed route.
+// Across routes the wheel walks the story along the last picks: play
+// Route 1 (nested 1a) to the end, then wheel back and forward through the
+// branch. Each choice screen is its own step, passed through with the
+// route taken highlighted (`.choice-next`), and the unplayed Route 2 and
+// nested 1b spans are never shown. `e` at the end stays put: no jump into
+// an unplayed route.
 async function routesScenario(check, open) {
   const { page, cdp } = await open("routes", { closeHelp: true });
   const path = [];
@@ -459,11 +460,15 @@ async function routesScenario(check, open) {
         (it) => (it.text && text === it.text) || (it.file && img === it.file),
       );
     });
-  // A screen: the item, plus "+choice" while the decision panel shows.
-  const screen = async () =>
-    `${await currentItemId(page)}${
-      (await page.evaluate(READ_CHOICE)).hidden === false ? "+choice" : ""
+  // A screen: the item, plus "+choice>N" while the decision panel shows,
+  // N the number of the highlighted row (the route the walk takes).
+  const screen = async () => {
+    const choice = await page.evaluate(READ_CHOICE);
+    const next = choice.rows?.find((row) => row.next)?.number ?? "";
+    return `${await currentItemId(page)}${
+      choice.hidden === false ? `+choice>${next}` : ""
     }`;
+  };
 
   await page.evaluate(INSTALL_BRANCH_LOG);
   const backIds = [await screen()];
@@ -477,10 +482,10 @@ async function routesScenario(check, open) {
     "after-start",
     "route1-end",
     "nest-continue",
-    "route1-nest+choice",
+    "route1-nest+choice>1",
     "route1-nest",
     "route1-start",
-    "branch-decide+choice",
+    "branch-decide+choice>1",
     "branch-decide",
     "branch-lead",
     "branch-title",
@@ -488,7 +493,7 @@ async function routesScenario(check, open) {
     "floor-2",
   ];
   check(
-    "wheel back from the end replays the history: each choice screen a step, unplayed routes never shown",
+    "wheel back from the end walks the story: each choice screen a step with the route taken highlighted, unplayed routes never shown",
     played &&
       squash(backIds).join() === expectBack.join() &&
       !showsUnplayed(backLog),
@@ -508,19 +513,19 @@ async function routesScenario(check, open) {
   }
   const fwdLog = await readBranchLog(page);
   check(
-    "wheel forward replays the same screens in order and stops at the end of the history",
+    "wheel forward walks the same screens in order and stops at the furthest point read",
     squash(fwdIds).join() === [...expectBack].reverse().join() &&
       !showsUnplayed(fwdLog),
     { fwdIds: squash(fwdIds), unplayedShown: showsUnplayed(fwdLog) },
   );
 
-  // At the end of the history with nested 1b unseen: `e` stays put.
+  // At the furthest point with nested 1b unseen: `e` stays put.
   const before = await currentItemId(page);
   await pressE(cdp);
   await sleep(300);
   const landed = await currentItemId(page);
   check(
-    "e at the end of the history stays put (no jump into the unplayed 1b)",
+    "e at the furthest point stays put (no jump into the unplayed 1b)",
     before === "after-end" && landed === "after-end",
     { before, landed },
   );

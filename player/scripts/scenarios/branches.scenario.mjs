@@ -1,12 +1,12 @@
 // Decisions and routes (old driver steps 34-39 and 46, rewritten for the
-// Phase 18 rules and the history rollback spec): the outer decision firing
-// on the forward press from branch-decide, the ending route and its
-// re-offer, the nested decision inside the continuing route, the continuing
-// route's end running straight into the aftermath, reload inside branch
-// content, `e` going to the end of the history, the wheel replaying choice
-// screens (a pick from one is real), the scroll back from the end showing
-// every screen in the order it was seen, the end card, and `u` reaching
-// the next unseen content (an unplayed route, the nested 1b).
+// Phase 18 rules and the Phase 27 timeline): the outer decision firing on
+// the forward press from branch-decide, the ending route and its re-offer,
+// the nested decision inside the continuing route, the continuing route's
+// end running straight into the aftermath, reload inside branch content,
+// `e` going to the furthest point read, the wheel walking the story along
+// the last picks through each choice screen (the walk's route highlighted;
+// a pick from one is real), the end card, and `u` reaching the next unseen
+// content (an unplayed route, the nested 1b).
 // The "Return to main route" row (numbered 0, with its "0 returns" hint) is
 // drawn only once
 // that decision's CONTINUING route has been completed at least once.
@@ -112,6 +112,17 @@ function choiceIs(c, hints, b, seenIds, withReturn) {
       hints.choiceHint === CHOICE_HINT + CONTINUE_HINT
     : ret.length === 0 && hints.choiceHint === CHOICE_HINT;
   return routesOk && returnOk;
+}
+
+/**
+ * A screen as the walk tests name it: the item id, plus `+choice>N` on a
+ * choice screen, N the highlighted row's number (the route the walk takes;
+ * empty when none is).
+ */
+function screenLabel(s) {
+  if (s.choice.hidden !== false) return s.id;
+  const next = s.choice.rows.find((row) => row.next);
+  return `${s.id}+choice>${next?.number ?? ""}`;
 }
 
 /** Snapshot of the overlay + hints for evidence and `choiceIs`. */
@@ -276,8 +287,8 @@ export default async function ({ check, open }) {
       { rejoin, logA },
     );
 
-    // The nested decision's continuing route is now complete: rolling back
-    // to its first screen on route1-nest replays it with the Return row (the
+    // The nested decision's continuing route is now complete: walking back
+    // to its choice screen on route1-nest shows it with the Return row (the
     // rule as it stands now), and 0 answers it onto route1-end (Enter is
     // no key: pressed first, it changes nothing).
     const path = [];
@@ -293,7 +304,7 @@ export default async function ({ check, open }) {
       }
     }
     check(
-      "36. after 1a completes, rolling back to route1-nest's choice screen shows both marks AND the Return row (numbered 0) + 0 hint",
+      "36. after 1a completes, walking back to route1-nest's choice screen shows both marks AND the Return row (numbered 0) + 0 hint",
       arrivedNest !== null &&
         choiceIs(
           arrivedNest.choice,
@@ -364,17 +375,18 @@ export default async function ({ check, open }) {
       end,
     );
 
-    // Scroll back from the end: exactly the screens seen going forward,
-    // newest first. 0 on the replayed nested screen forked the record
-    // there, so the nested 1b/1a detour is gone; every choice screen shows
-    // the current marks and the Return row (each continuing route is done).
+    // Scroll back from the end: the story order along the last picks
+    // (Route 1, then 1a), every choice screen on that path a step with the
+    // walk's route highlighted, the current marks and the Return row (each
+    // continuing route is done). Route 2 and 1b, picked earlier, are off
+    // the path.
     const back = [];
     const views = {};
     for (let i = 0; i < 16; i += 1) {
       await wheel(cdp, true, 1);
       await sleep(80);
       const s = await snap(page);
-      const label = `${s.id}${s.choice.hidden === false ? "+choice" : ""}`;
+      const label = screenLabel(s);
       back.push(label);
       if (s.choice.hidden === false && views[label] === undefined)
         views[label] = s;
@@ -383,24 +395,21 @@ export default async function ({ check, open }) {
     const expectBack = [
       outer.continueAt,
       nested.continueAt,
-      `${nested.after}+choice`,
+      nestA.start,
+      `${nested.after}+choice>1`,
       nested.after,
       route1.start,
-      `${route2.end}+choice`,
-      route2.end,
-      route2.start,
-      `${outer.after}+choice`,
+      `${outer.after}+choice>1`,
       outer.after,
     ];
     const viewIs = (label, b, seenIds) =>
       views[label] !== undefined &&
       choiceIs(views[label].choice, views[label].hints, b, seenIds, true);
     check(
-      "scrolling back from after-end replays every screen in reading order, choice screens with both marks and the Return row",
+      "scrolling back from after-end walks the story along the last picks, choice screens highlighting the route with both marks and the Return row",
       back.join() === expectBack.join() &&
-        viewIs(`${nested.after}+choice`, nested, ["nest-a", "nest-b"]) &&
-        viewIs(`${route2.end}+choice`, outer, ["route1", "route2"]) &&
-        viewIs(`${outer.after}+choice`, outer, ["route1", "route2"]),
+        viewIs(`${nested.after}+choice>1`, nested, ["nest-a", "nest-b"]) &&
+        viewIs(`${outer.after}+choice>1`, outer, ["route1", "route2"]),
       { back, views },
     );
   }
@@ -449,18 +458,19 @@ export default async function ({ check, open }) {
       end,
     );
 
-    // The required rollback check (docs/plan.md, History rollback spec):
-    // after Route 2 then Route 1, the scroll back from the aftermath shows
-    // Route 1's items (its nested choice screen included), then the
-    // re-offered choice screen, then Route 2's items, then the first choice
-    // screen, then the decision picture — and never the unplayed 1b.
+    // The timeline check (docs/plan.md Phase 27): after Route 2 then
+    // Route 1, the scroll back from the aftermath walks the story along the
+    // LAST pick — Route 1's items with its nested choice screen (1a
+    // highlighted), then the first choice screen with Route 1 highlighted,
+    // then the decision picture — never Route 2 (picked before) or the
+    // unplayed 1b, and it never halts on a choice screen.
     const back = [];
     const views = {};
     for (let i = 0; i < 14; i += 1) {
       await wheel(cdp, true, 1);
       await sleep(80);
       const s = await snap(page);
-      const label = `${s.id}${s.choice.hidden === false ? "+choice" : ""}`;
+      const label = screenLabel(s);
       back.push(label);
       if (s.choice.hidden === false && views[label] === undefined)
         views[label] = s;
@@ -470,35 +480,24 @@ export default async function ({ check, open }) {
       outer.continueAt,
       nested.continueAt,
       nestA.start,
-      `${nested.after}+choice`,
+      `${nested.after}+choice>1`,
       nested.after,
       route1.start,
-      `${route2.end}+choice`,
-      route2.end,
-      route2.start,
-      `${outer.after}+choice`,
+      `${outer.after}+choice>1`,
       outer.after,
     ];
     const viewOf = (label) => views[label] ?? { choice: {}, hints: {} };
-    const nestView = viewOf(`${nested.after}+choice`);
-    const reView = viewOf(`${route2.end}+choice`);
-    const firstView = viewOf(`${outer.after}+choice`);
+    const nestView = viewOf(`${nested.after}+choice>1`);
+    const firstView = viewOf(`${outer.after}+choice>1`);
     check(
-      "after Route 2 then Route 1, scrolling back from the aftermath shows Route 1's items, the re-offered choice screen, Route 2's items, the first choice screen, then the decision picture",
+      "after Route 2 then Route 1, scrolling back from the aftermath follows the last pick: Route 1's items, the nested and first choice screens (route highlighted), then the decision picture",
       back.join() === expectBack.join() &&
-        !back.some((e) => e.startsWith(nestB.start)),
+        !back.some((e) => e.startsWith(nestB.start) || e.startsWith("route2")),
       { back, expectBack },
     );
     check(
-      "the replayed choice screens carry the current marks and Return rows (nested: 1a seen; outer: both seen)",
+      "the walked choice screens carry the current marks and Return rows (nested: 1a seen; outer: both seen)",
       choiceIs(nestView.choice, nestView.hints, nested, ["nest-a"], true) &&
-        choiceIs(
-          reView.choice,
-          reView.hints,
-          outer,
-          ["route1", "route2"],
-          true,
-        ) &&
         choiceIs(
           firstView.choice,
           firstView.hints,
@@ -506,31 +505,31 @@ export default async function ({ check, open }) {
           ["route1", "route2"],
           true,
         ),
-      { nestView, reView, firstView },
+      { nestView, firstView },
     );
 
-    // Forward again from the decision picture: the same screens in order.
+    // Forward again from the decision picture: the same screens in order,
+    // the choice screens highlighting the route about to be taken.
     const fwd = [];
-    for (let i = 0; i < expectBack.length - 1; i += 1) {
+    for (let i = 0; i < expectBack.length; i += 1) {
       await wheel(cdp, false, 1);
       await sleep(80);
-      const s = await snap(page);
-      fwd.push(`${s.id}${s.choice.hidden === false ? "+choice" : ""}`);
+      fwd.push(screenLabel(await snap(page)));
     }
     check(
-      "the wheel forward replays the same screens back to the aftermath",
-      fwd.join() === expectBack.slice(0, -1).reverse().join(),
+      "the wheel forward walks the same screens back to the furthest point (after-end) and stops there",
+      fwd.join() === [...expectBack.slice(0, -1).reverse(), "after-end"].join(),
       { fwd },
     );
 
-    // Roll back again, then `e` returns to the end of the history.
+    // Walk back again, then `e` returns to the furthest point read.
     await wheel(cdp, true, 3);
     await sleep(80);
     await pressE(cdp);
     const resumed =
       (await waitOn(page, "after-end")) && (await waitChoice(page, false));
     check(
-      "e from a rolled-back point returns to the end of the history (after-end)",
+      "e from a walked-back point returns to the furthest point read (after-end)",
       resumed,
       await snap(page),
     );
@@ -565,20 +564,20 @@ export default async function ({ check, open }) {
       rSnap.hints,
     );
 
-    // The history came back with the reload: the wheel still rolls back
-    // through it, and `e` returns to its end.
+    // The last picks came back with the reload: the wheel still walks
+    // back along them, and `e` returns to the furthest point.
     await wheel(cdp, true, 2);
     await sleep(120);
     const rolled = await currentItemId(page);
     await pressE(cdp);
     const reEnd = await waitOn(page, "after-end");
     check(
-      "after the reload the wheel rolls back through the saved history (route1-end) and e returns to after-end",
+      "after the reload the wheel walks back along the saved last picks (route1-end) and e returns to after-end",
       rolled === nested.continueAt && reEnd,
       { rolled, reEnd },
     );
 
-    // 39. `e` at the end of the history stays put: it no longer jumps to the
+    // 39. `e` at the furthest point stays put: it never jumps to the
     // never-taken 1b, and the hint keeps saying content is unseen.
     const endSig = await page.evaluate(PAINT_SIG);
     await pressE(cdp);
@@ -586,7 +585,7 @@ export default async function ({ check, open }) {
     const endSigHeld = await page.evaluate(PAINT_SIG);
     const stayed = await snap(page);
     check(
-      "39. e at the end of the history stays put (no jump to the unseen 1b), the end card still showing",
+      "39. e at the furthest point stays put (no jump to the unseen 1b), the end card still showing",
       stayed.id === "after-end" &&
         endSig === endSigHeld &&
         stayed.hints.endingShown === true &&
@@ -594,8 +593,8 @@ export default async function ({ check, open }) {
       { stayed, endSig, endSigHeld },
     );
 
-    // Reach 1b the reader's way: roll back to the nested choice screen and
-    // pick it (a real pick: the record forks), return, and read to the end.
+    // Reach 1b the reader's way: walk back to the nested choice screen and
+    // pick it (a real pick), return, and read to the end.
     let nestScreen = false;
     for (let i = 0; i < 8 && !nestScreen; i += 1) {
       await wheel(cdp, true, 1);
@@ -619,7 +618,7 @@ export default async function ({ check, open }) {
     await sleep(200);
     const ending = await snap(page);
     check(
-      "39. a pick of 1b from the replayed nested screen plays it; Return and Space read on to after-end",
+      "39. a pick of 1b from the walked nested screen plays it; Return and Space read on to after-end",
       nestScreen && onB && bReoffer && backOnRoute1 && onEnding,
       { nestScreen, onB, bReoffer, backOnRoute1, ending },
     );
@@ -716,9 +715,11 @@ export default async function ({ check, open }) {
 
   // ------------------------------------------------------------------
   // Session "wheel": a notch leaves a fired choice for the screen before
-  // it; a notch forward replays the choice screen and a pick from it enters
-  // the route (old 46); a notch leaves the route-end re-offer for the
-  // route's last item, and Space from there replays the re-offer.
+  // it; with no route read past it a notch forward stays there (the walk
+  // shows only seen screens) and Space fires it again; a pick enters the
+  // route (old 46); a notch leaves the route-end re-offer for the route's
+  // last item, the walk passes through the choice screen with the route
+  // highlighted both ways, the ending stops it, and Space re-offers.
   // ------------------------------------------------------------------
   {
     const { page, cdp } = await open("wheel", {
@@ -739,18 +740,27 @@ export default async function ({ check, open }) {
 
     await wheel(cdp, false, 1);
     await sleep(80);
-    const arrival = await snap(page);
+    const stay = await snap(page);
     check(
-      "46. a wheel notch forward replays the choice screen on branch-decide (2 routes, unmarked, no Return row)",
-      arrival.id === outer.after &&
-        choiceIs(arrival.choice, arrival.hints, outer, [], false),
+      "46. with no route read, a wheel notch forward stays on bare branch-decide",
+      stay.id === outer.after && stay.choice.hidden === true,
+      stay,
+    );
+    await pressSpace(cdp);
+    const arrival = (await waitChoice(page, true)) && (await snap(page));
+    check(
+      "46. Space fires the choice again (2 routes, unmarked, no Return row, nothing highlighted)",
+      arrival !== false &&
+        arrival.id === outer.after &&
+        choiceIs(arrival.choice, arrival.hints, outer, [], false) &&
+        screenLabel(arrival) === `${outer.after}+choice>`,
       arrival,
     );
     await pressDigit(cdp, "2");
     const entered =
       (await waitChoice(page, false)) && (await waitOn(page, route2.start));
     check(
-      "46. a pick from the replayed screen enters the route (route2-start)",
+      "46. a pick enters the route (route2-start)",
       entered,
       await snap(page),
     );
@@ -771,12 +781,34 @@ export default async function ({ check, open }) {
         reOff.id === route2.end,
       { reSnap, reOff },
     );
+    // Through the choice screen and back: never halting, Route 2 lit both
+    // ways; forward, the ending's last item stops the walk.
+    const through = [];
+    for (const back of [true, true, true, false, false, false, false]) {
+      await wheel(cdp, back, 1);
+      await sleep(80);
+      through.push(screenLabel(await snap(page)));
+    }
+    check(
+      "the wheel passes through the choice screen both ways with Route 2 highlighted; route2-end, an ending, stops it",
+      through.join() ===
+        [
+          route2.start,
+          `${outer.after}+choice>2`,
+          outer.after,
+          `${outer.after}+choice>2`,
+          route2.start,
+          route2.end,
+          route2.end,
+        ].join(),
+      { through },
+    );
     await pressSpace(cdp);
-    const replayed = await waitChoice(page, true);
+    const reoffered = await waitChoice(page, true);
     const reAgain = await snap(page);
     check(
-      "Space from route2-end replays the re-offer, exactly as before",
-      replayed &&
+      "Space from route2-end re-offers, exactly as before",
+      reoffered &&
         reAgain.id === route2.end &&
         choiceIs(reAgain.choice, reAgain.hints, outer, ["route2"], false),
       reAgain,

@@ -450,11 +450,10 @@ async function bookmarks({ check, open }) {
   await page.setViewport({ width: 800, height: 600, deviceScaleFactor: 1 });
   await sleep(100);
 
-  // Click the OLDER row: the list closes on that item. The jump is
-  // appended to the reading history (docs/plan.md, History rollback spec):
-  // a wheel notch back shows the screen before it (chain-still-3). The
-  // landing brings its recorded future along (Phase 26), so `e` goes to
-  // the furthest point read, chain-still-3, not back to the landing.
+  // Click the OLDER row: the list closes on that item. The wheel walks the
+  // story around the landing (docs/plan.md Phase 27): a notch back shows
+  // the item before it (video-chain-2), not the screen the click left, and
+  // `e` goes to the furthest point read, chain-still-3.
   const reread = await page.evaluate(READ_BOOKMARK_OVERLAY);
   await rowCenterClick(cdp, reread.entries[0]);
   const listClosed = await waitFor(page, OVERLAY_CLOSED);
@@ -469,12 +468,12 @@ async function bookmarks({ check, open }) {
   await pressE(cdp);
   const atFurthest = await waitForItem(page, "chain-still-3", 3000);
   check(
-    "clicking the older row continues from that item; the jump is appended to the history (wheel back: chain-still-3); e from the landing goes to the furthest read, chain-still-3",
+    "clicking the older row continues from that item; the wheel walks the story around it (back: video-chain-2); e from the landing goes to the furthest read, chain-still-3",
     listClosed &&
       landedId === "video-chain-3" &&
       landed.video?.visible === true &&
       landed.imgVisible === false &&
-      beforeJump === "chain-still-3" &&
+      beforeJump === "video-chain-2" &&
       backOnLanding === "video-chain-3" &&
       atFurthest,
     {
@@ -785,10 +784,9 @@ async function resume({ check, open }) {
     { resumedId, help: resumed.helpOpen, stored, rows: rows.length, afterRow },
   );
 
-  // Read on to chain-still-3, roll back onto the bare chain-still, reload:
-  // the reading history and its position persist (docs/plan.md, History
-  // rollback spec), so the page comes back on the rolled-back screen, and
-  // `e` returns to the history's end, the item last read.
+  // Read on to chain-still-3, walk back onto the bare chain-still, reload:
+  // the position persists, so the page comes back on the walked-to screen,
+  // and `e` returns to the furthest point read (docs/plan.md Phase 27).
   await spaceTo(page, cdp, "chain-still-3");
   const readSig = await page.evaluate(PAINT_SIG);
   await wheel(cdp, true, 2);
@@ -806,7 +804,7 @@ async function resume({ check, open }) {
   const endSig = await page.evaluate(PAINT_SIG);
 
   // Not the seen edge either: the bookmark row lands on text-narration
-  // (appended to the history) while 0..11 stay seen; a reload resumes there.
+  // while 0..11 stay seen; a reload resumes there.
   await pressT(cdp);
   await waitFor(page, OVERLAY_OPEN);
   const again = await page.evaluate(READ_BOOKMARK_OVERLAY);
@@ -820,7 +818,7 @@ async function resume({ check, open }) {
   await sleep(700);
   const resumedBehind = await currentItemId(page);
   check(
-    "reload resumes on the screen it left (a rolled-back one too; e then returns to the last read), and on a bookmark landing; the seen help stays closed",
+    "reload resumes on the screen it left (a walked-back one too; e then returns to the furthest read), and on a bookmark landing; the seen help stays closed",
     scrubbedTo === "chain-still" &&
       sigResumed === scrubSig &&
       sigHeld === scrubSig &&
@@ -1342,7 +1340,7 @@ async function contentUpdate({ check, open }) {
       walked1,
       flashed,
       walked2,
-      ctx: record?.ctx && { ...record.ctx, history: undefined },
+      ctx: record?.ctx,
     },
   );
 

@@ -134,8 +134,15 @@ const HELP_ROWS: ReadonlyArray<{
   description: string;
 }> = [
   { command: "advance", description: "next item; stops auto-forward" },
-  { command: null, plainLabel: "wheel", description: "roll back / forward" },
-  { command: "jumpToEnd", description: "jump to the end of what you read" },
+  {
+    command: null,
+    plainLabel: "wheel",
+    description: "back / forward through the story",
+  },
+  {
+    command: "jumpToEnd",
+    description: "jump to the furthest point read",
+  },
   { command: "nextUnseen", description: "next unseen content" },
   { command: "toggleSkip", description: "skip what you have seen" },
   { command: "toggleAutoForward", description: "auto-forward on / off" },

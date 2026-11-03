@@ -1,0 +1,541 @@
+{
+  "kind": "kinetic-progress",
+  "version": 1,
+  "storyId": "timeline-demo",
+  "title": "Timeline demo",
+  "exportedAt": "2026-11-03T09:00:00.000Z",
+  "state": {
+    "ctx": {
+      "lastShown": "m12",
+      "visited": [
+        "m0",
+        "m1",
+        "m2",
+        "m3",
+        "a1",
+        "a2",
+        "c1",
+        "c2",
+        "c3",
+        "m4",
+        "m5",
+        "m6",
+        "k1",
+        "k2",
+        "k3",
+        "m7",
+        "m8",
+        "m9",
+        "m10",
+        "m11",
+        "m12"
+      ],
+      "stack": [],
+      "playedRoutes": [
+        {
+          "decision": "dA",
+          "routes": ["aShort", "aCont"]
+        },
+        {
+          "decision": "dB",
+          "routes": ["bCont"]
+        }
+      ],
+      "completedRoutes": [
+        {
+          "decision": "dA",
+          "routes": ["aShort", "aCont"]
+        },
+        {
+          "decision": "dB",
+          "routes": ["bCont"]
+        }
+      ],
+      "passRoutes": [
+        {
+          "decision": "dA",
+          "routes": ["aShort", "aCont"]
+        },
+        {
+          "decision": "dB",
+          "routes": ["bCont"]
+        }
+      ],
+      "history": [
+        {
+          "item": "m0",
+          "stack": [],
+          "passRoutes": []
+        },
+        {
+          "item": "m1",
+          "stack": []
+        },
+        {
+          "item": "m2",
+          "stack": []
+        },
+        {
+          "item": "m3",
+          "stack": []
+        },
+        {
+          "item": "m3",
+          "stack": [],
+          "decision": "dA"
+        },
+        {
+          "item": "a1",
+          "stack": [
+            {
+              "decision": "dA",
+              "route": "aShort"
+            }
+          ],
+          "passRoutes": [
+            {
+              "decision": "dA",
+              "routes": ["aShort"]
+            }
+          ]
+        },
+        {
+          "item": "a2",
+          "stack": [
+            {
+              "decision": "dA",
+              "route": "aShort"
+            }
+          ]
+        },
+        {
+          "item": "a2",
+          "stack": [],
+          "decision": "dA"
+        },
+        {
+          "item": "c1",
+          "stack": [
+            {
+              "decision": "dA",
+              "route": "aCont"
+            }
+          ],
+          "passRoutes": [
+            {
+              "decision": "dA",
+              "routes": ["aShort", "aCont"]
+            }
+          ]
+        },
+        {
+          "item": "c2",
+          "stack": [
+            {
+              "decision": "dA",
+              "route": "aCont"
+            }
+          ]
+        },
+        {
+          "item": "c3",
+          "stack": [
+            {
+              "decision": "dA",
+              "route": "aCont"
+            }
+          ]
+        },
+        {
+          "item": "m4",
+          "stack": []
+        },
+        {
+          "item": "m5",
+          "stack": []
+        },
+        {
+          "item": "m6",
+          "stack": []
+        },
+        {
+          "item": "m6",
+          "stack": [],
+          "decision": "dB"
+        },
+        {
+          "item": "k1",
+          "stack": [
+            {
+              "decision": "dB",
+              "route": "bCont"
+            }
+          ],
+          "passRoutes": [
+            {
+              "decision": "dA",
+              "routes": ["aShort", "aCont"]
+            },
+            {
+              "decision": "dB",
+              "routes": ["bCont"]
+            }
+          ]
+        },
+        {
+          "item": "k2",
+          "stack": [
+            {
+              "decision": "dB",
+              "route": "bCont"
+            }
+          ]
+        },
+        {
+          "item": "k3",
+          "stack": [
+            {
+              "decision": "dB",
+              "route": "bCont"
+            }
+          ]
+        },
+        {
+          "item": "m7",
+          "stack": []
+        },
+        {
+          "item": "m8",
+          "stack": []
+        },
+        {
+          "item": "m9",
+          "stack": []
+        },
+        {
+          "item": "m10",
+          "stack": []
+        },
+        {
+          "item": "m11",
+          "stack": []
+        },
+        {
+          "item": "m12",
+          "stack": []
+        },
+        {
+          "item": "m9",
+          "stack": []
+        },
+        {
+          "item": "m10",
+          "stack": []
+        },
+        {
+          "item": "m11",
+          "stack": []
+        },
+        {
+          "item": "m12",
+          "stack": []
+        }
+      ],
+      "historyPos": 23
+    },
+    "settings": {
+      "playAllRoutes": false
+    },
+    "helpSeen": true
+  },
+  "bookmarks": [
+    {
+      "id": "bm-a",
+      "timestampMs": 1762000000000,
+      "itemId": "m9",
+      "ctx": {
+        "lastShown": "m9",
+        "visited": [
+          "m0",
+          "m1",
+          "m2",
+          "m3",
+          "a1",
+          "a2",
+          "c1",
+          "c2",
+          "c3",
+          "m4",
+          "m5",
+          "m6",
+          "k1",
+          "k2",
+          "k3",
+          "m7",
+          "m8",
+          "m9"
+        ],
+        "stack": [],
+        "playedRoutes": [
+          {
+            "decision": "dA",
+            "routes": ["aShort", "aCont"]
+          },
+          {
+            "decision": "dB",
+            "routes": ["bCont"]
+          }
+        ],
+        "completedRoutes": [
+          {
+            "decision": "dA",
+            "routes": ["aShort", "aCont"]
+          },
+          {
+            "decision": "dB",
+            "routes": ["bCont"]
+          }
+        ],
+        "passRoutes": [
+          {
+            "decision": "dA",
+            "routes": ["aShort", "aCont"]
+          },
+          {
+            "decision": "dB",
+            "routes": ["bCont"]
+          }
+        ]
+      },
+      "thumbDataUrl": null
+    },
+    {
+      "id": "bm-b",
+      "timestampMs": 1762000001000,
+      "itemId": "m12",
+      "ctx": {
+        "lastShown": "m12",
+        "visited": [
+          "m0",
+          "m1",
+          "m2",
+          "m3",
+          "a1",
+          "a2",
+          "c1",
+          "c2",
+          "c3",
+          "m4",
+          "m5",
+          "m6",
+          "k1",
+          "k2",
+          "k3",
+          "m7",
+          "m8",
+          "m9",
+          "m10",
+          "m11",
+          "m12"
+        ],
+        "stack": [],
+        "playedRoutes": [
+          {
+            "decision": "dA",
+            "routes": ["aShort", "aCont"]
+          },
+          {
+            "decision": "dB",
+            "routes": ["bCont"]
+          }
+        ],
+        "completedRoutes": [
+          {
+            "decision": "dA",
+            "routes": ["aShort", "aCont"]
+          },
+          {
+            "decision": "dB",
+            "routes": ["bCont"]
+          }
+        ],
+        "passRoutes": [
+          {
+            "decision": "dA",
+            "routes": ["aShort", "aCont"]
+          },
+          {
+            "decision": "dB",
+            "routes": ["bCont"]
+          }
+        ],
+        "history": [
+          {
+            "item": "m0",
+            "stack": [],
+            "passRoutes": []
+          },
+          {
+            "item": "m1",
+            "stack": []
+          },
+          {
+            "item": "m2",
+            "stack": []
+          },
+          {
+            "item": "m3",
+            "stack": []
+          },
+          {
+            "item": "m3",
+            "stack": [],
+            "decision": "dA"
+          },
+          {
+            "item": "a1",
+            "stack": [
+              {
+                "decision": "dA",
+                "route": "aShort"
+              }
+            ],
+            "passRoutes": [
+              {
+                "decision": "dA",
+                "routes": ["aShort"]
+              }
+            ]
+          },
+          {
+            "item": "a2",
+            "stack": [
+              {
+                "decision": "dA",
+                "route": "aShort"
+              }
+            ]
+          },
+          {
+            "item": "a2",
+            "stack": [],
+            "decision": "dA"
+          },
+          {
+            "item": "c1",
+            "stack": [
+              {
+                "decision": "dA",
+                "route": "aCont"
+              }
+            ],
+            "passRoutes": [
+              {
+                "decision": "dA",
+                "routes": ["aShort", "aCont"]
+              }
+            ]
+          },
+          {
+            "item": "c2",
+            "stack": [
+              {
+                "decision": "dA",
+                "route": "aCont"
+              }
+            ]
+          },
+          {
+            "item": "c3",
+            "stack": [
+              {
+                "decision": "dA",
+                "route": "aCont"
+              }
+            ]
+          },
+          {
+            "item": "m4",
+            "stack": []
+          },
+          {
+            "item": "m5",
+            "stack": []
+          },
+          {
+            "item": "m6",
+            "stack": []
+          },
+          {
+            "item": "m6",
+            "stack": [],
+            "decision": "dB"
+          },
+          {
+            "item": "k1",
+            "stack": [
+              {
+                "decision": "dB",
+                "route": "bCont"
+              }
+            ],
+            "passRoutes": [
+              {
+                "decision": "dA",
+                "routes": ["aShort", "aCont"]
+              },
+              {
+                "decision": "dB",
+                "routes": ["bCont"]
+              }
+            ]
+          },
+          {
+            "item": "k2",
+            "stack": [
+              {
+                "decision": "dB",
+                "route": "bCont"
+              }
+            ]
+          },
+          {
+            "item": "k3",
+            "stack": [
+              {
+                "decision": "dB",
+                "route": "bCont"
+              }
+            ]
+          },
+          {
+            "item": "m7",
+            "stack": []
+          },
+          {
+            "item": "m8",
+            "stack": []
+          },
+          {
+            "item": "m9",
+            "stack": []
+          },
+          {
+            "item": "m10",
+            "stack": []
+          },
+          {
+            "item": "m11",
+            "stack": []
+          },
+          {
+            "item": "m12",
+            "stack": []
+          }
+        ],
+        "historyPos": 23
+      },
+      "thumbDataUrl": null
+    }
+  ]
+}

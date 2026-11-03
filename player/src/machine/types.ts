@@ -236,9 +236,8 @@ export const DEFAULT_SETTINGS: MachineSettings = {
  *
  * PLAYED means `choose()` or a play-all auto-pick put the reader inside the
  * route (docs/plan.md Phase 16, Branches). Nothing else marks it: firing,
- * viewing or leaving the decision, a wheel step or `e` replaying history
- * through the route's items, and a restored position landing inside the
- * span.
+ * viewing or leaving the decision, a wheel step or `e` walking through the
+ * route's items, and a restored position landing inside the span.
  */
 export interface ChoiceRoute {
   /** Index into the decision's `routes` array; `choose()` takes it. */
@@ -252,10 +251,10 @@ export interface ChoiceRoute {
  * The open decision (docs/content-format.md, "Branches"). Its presence in
  * `MachineState` IS the awaiting-choice state: the reader picks a route with
  * `choose(routeIdx)`, or — only when `continueOption` is true — presses
- * "return to main route" with `chooseContinue()`. A choice screen replayed
- * from the reading history (the wheel, `e`) is the same view: the panel,
- * the current seen marks and the return-row rule, and a pick from it is a
- * real pick.
+ * "return to main route" with `chooseContinue()`. A choice screen the
+ * wheel walks onto (docs/plan.md Phase 27) is the same view — the panel,
+ * the current seen marks and the return-row rule, a pick from it a real
+ * pick — plus `walkRoute`.
  */
 export interface ChoiceView {
   readonly decisionId: string;
@@ -275,6 +274,15 @@ export interface ChoiceView {
    * countdown, then the picked row highlighted, then the route starts.
    */
   readonly autoPick?: AutoPickView;
+  /**
+   * Present on a choice screen the wheel walked onto (docs/plan.md Phase
+   * 27): the route the walk takes through this screen — going back, the
+   * route that had been taken from it; going forward, the route about to be
+   * taken. The renderer highlights its row as play-all marks its next pick
+   * (`.choice-next`). Absent on a choice opened by reading, and on a walked
+   * screen past a pure choice's region, where no route follows.
+   */
+  readonly walkRoute?: number;
 }
 
 /** The play-all auto-pick on an open choice (`ChoiceView.autoPick`). */
@@ -297,33 +305,6 @@ export interface ContextFrame {
   readonly route: number;
 }
 
-/**
- * One screen of the reading history (docs/plan.md, "History rollback
- * spec"). An ITEM screen is item `index` with the route frames open when it
- * showed (`stack`, outermost first). With `decision` present it is a CHOICE
- * screen instead: that decision's overlay as it opened over item `index` —
- * the decision's `after` item on a first fire, a route's last item on a
- * route-end re-offer — with the frames open under the overlay.
- *
- * `passRoutes` is the played-this-pass record as of the screen (docs/
- * plan.md Phase 22, "Rolling back restores the routes"): the wheel, `e` and
- * a resume put it back with the screen. Present only where it differs from
- * the entry before (always on the first); an entry without it has the
- * record of the entry before it, and a history with none at all (a save
- * from before this field) has the context's `passRoutes` throughout.
- *
- * `gap` (last entry only) marks the furthest point read, kept at the
- * record's end after a bookmark landing the record no longer held: the
- * screens before it are not on record (docs/plan.md Phase 26).
- */
-export interface HistoryEntry {
-  readonly index: number;
-  readonly stack: readonly ContextFrame[];
-  readonly decision?: number;
-  readonly passRoutes?: readonly RouteSet[];
-  readonly gap?: true;
-}
-
 /** The routes of one decision, by position (a played or completed set). */
 export interface RouteSet {
   readonly decision: number;
@@ -337,9 +318,10 @@ export interface RouteSet {
  * indices), `stack` the open decision contexts innermost-last,
  * `playedRoutes` the route indices played per decision,
  * `completedRoutes` the route indices played THROUGH to their route end
- * per decision (docs/plan.md Phase 18), and `history` / `historyPos` the
- * reading history and the entry on screen. `lastShown` is the item on
- * screen: the landing of a restore without a history. Every number here
+ * per decision (docs/plan.md Phase 18), `lastPicks` the route last picked
+ * at each decision and `choice` the decision whose choice screen is up
+ * (docs/plan.md Phase 27). `lastShown` is the item on screen: the landing
+ * of a restore. Every number here
  * is a POSITION in this manifest; what storage holds is the same context
  * keyed by item / decision / route id (`SavedContext`, converted by
  * `storage/ids.ts`), so saves survive content updates.
@@ -368,14 +350,18 @@ export interface MachineContext {
    */
   passRoutes?: readonly { decision: number; routes: readonly number[] }[];
   /**
-   * The reading history (docs/plan.md, "History rollback spec"): every
-   * screen shown while reading, oldest first, capped (`HISTORY_CAP`, oldest
-   * dropped first). Newer than the rest of the context: absent (a legacy
-   * save) restores a one-entry history at the `lastShown` landing.
+   * The route LAST PICKED at each decision (docs/plan.md Phase 27), one
+   * frame per decision: the wheel follows it through the decision. Absent
+   * (a save from before the timeline) reads as no pick known; storage
+   * derives it from an old save's reading history (storage/idb.ts).
    */
-  history?: readonly HistoryEntry[];
-  /** The history entry on screen; absent means the last one. */
-  historyPos?: number;
+  lastPicks?: readonly ContextFrame[];
+  /**
+   * The decision whose choice screen is up over `lastShown`, so a reload
+   * opens it again (a play-all countdown restarts). Absent: no choice, or
+   * one the wheel walked onto (a reload lands on the item under it).
+   */
+  choice?: number;
 }
 
 /**
@@ -410,8 +396,7 @@ export type TransitionKind = "advance" | "nav";
  * only times, it cannot stop a playing element. `choice` is present while a
  * branch decision awaits the reader: it is the overlay's content, and while
  * it is set space, tab and bookmark jumps are inert until `choose()` or
- * `chooseContinue()` answers it; the wheel and `e` move through the reading
- * history and leave it (the choice screen stays in the history).
+ * `chooseContinue()` answers it; the wheel and `e` walk on and leave it.
  * `transition` is the kind of the step that made `cursor` current
  * (`TransitionKind`): a forward advance plays its media wherever the cursor
  * sits, a nav arrival below the seen edge shows posters instead.

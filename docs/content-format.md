@@ -85,13 +85,14 @@ my-novel/
   exactly this size, and the player scales its surface to the screen.
 - `items`: the ordered sequence. Position in the array is position in the
   novel; the player's cursor and jumps refer to these indexes while it
-  runs. Saved state never does: the seen set, the reading position and
-  history, bookmarks, and played / completed routes are stored by item
+  runs. Saved state never does: the seen set, the reading position, the
+  last pick at each decision, bookmarks, and played / completed routes
+  are stored by item
   `id`, decision `id` and route `id`, so a content update (items inserted
   before existing ones, a new route, a reorder, an extension) keeps every
   save valid. A saved id the updated manifest no longer has is dropped on
-  its own (a deleted item leaves the seen set and the history, and a
-  bookmark on it is no longer listed). Keep ids stable across updates.
+  its own (a deleted item leaves the seen set, and a bookmark on it is
+  no longer listed). Keep ids stable across updates.
   The array may be empty: an empty manifest is a valid,
   honestly-empty folder — a converter run in which no visual resolved to
   a file ships no items rather than placeholders — and the player renders
@@ -354,26 +355,38 @@ docs/plan.md Phase 13):
   merely firing, viewing or dismissing a decision marks nothing
   (docs/plan.md Phase 16, Branches). The two differ where a jump (a
   bookmark, a restore) lands inside a route the reader never chose.
-- Reading history (docs/plan.md, "History rollback spec"): the player
-  records every screen shown while reading, in order - each item with
-  the route context it showed in, and each choice screen (a first fire
-  or a route-end re-offer) as its own entry. The wheel replays that
-  record one screen per notch, back and forth, clamped to it: an item
-  comes back in its own route context, and a choice screen comes back
-  in full, with the current seen marks and return-row rule. A wheel step
-  answers nothing and marks nothing played; an unplayed route's items
-  never appear, because they were never shown. Reading on from a
-  rolled-back point replays the record while the reader takes the same
-  path, and a different path (another pick at a replayed choice screen)
-  drops the recorded future, as in Ren'Py rollback. Route flow rolls
-  back with the reading position (docs/plan.md Phase 22): each screen
-  also records which routes had been played THIS PASS, and moving to a
-  screen (wheel, `e`, a reload, a bookmark) puts that back. Reading on
-  from before a decision therefore fires it again and plays its routes
-  again as the first time did (under `Play all routes`: the countdown,
-  shortest first, the continuing route last), while the rows' seen marks
-  and the return row, which are cumulative, stay. `e` goes to the end
-  of the record (a no-op there); it does not look for unseen content.
+- Timeline (docs/plan.md Phase 27): the wheel walks the STORY ORDER,
+  one screen per notch, back and forth - not a record of what was shown.
+  The player remembers the LAST PICK at each decision (a reader's pick, a
+  play-all auto-pick or a `u` landing; saved with the progress), and the
+  walk follows the last-picked route through each decision; with no pick
+  known it takes the longest route (most items) holding seen content. A
+  decision's choice screen is a step of its own that the wheel passes
+  through like any screen, never halting there: it shows the current seen
+  marks and return-row rule with the walk's route highlighted (the look
+  of play-all's next pick) - going back, the route that had been taken
+  from it; going forward, the route about to be taken. A returning
+  route's end leads back to its choice screen and on along the
+  continuing route; a continuing route's end joins at `continueAt`; an
+  ending route's end stops the walk. A pure choice (no continuing route)
+  closes past its menu region once every route has played, so each of
+  its routes, whatever its `result`, leads back to its choice screen and
+  on past the region (that screen highlights nothing); a region running
+  to the last item stops there. An item comes back inside its enclosing
+  route spans. The wheel shows only seen screens (forward ends at the
+  furthest point read) and answers, marks and plays nothing; reading on
+  (Space, auto, a pick) from where it stopped simply continues from
+  there, and a pick from a walked choice screen is a real pick. Route
+  flow rewinds with the walk (docs/plan.md Phase 22): a walked-to screen
+  counts every decision at or after it, other than the ones enclosing
+  it, as unplayed THIS PASS, so reading on from before a decision fires
+  it again and plays its routes again as the first time did (under `Play
+  all routes`: the countdown, shortest first, the continuing route
+  last), while the rows' seen marks and the return row, which are
+  cumulative, stay. Walking forward again or `e` puts the pass back as it
+  was. `e` goes to the furthest screen read in story order - the highest
+  seen item, inside its enclosing route spans - and moves only when
+  reading passes it; a no-op there. It does not look for unseen content.
   `u` does (docs/plan.md Phase 18, "Reach unseen content from
   anywhere"): it lands on the next unseen item in array order after the
   cursor, wrapping to earlier content, skipping the reader's own
@@ -394,9 +407,11 @@ docs/plan.md Phase 13):
   shows nothing. A resume with passed-over unseen content before the
   landing (not counting routes declined at an answered decision) shows
   a quiet notice pointing at `u` until the next key.
-  A bookmark jump appends its landing to the record. The record is
-  capped (5000 screens, oldest dropped first) and persists in the save,
-  so a reload lands on the screen that was showing and can roll back.
+  A reload lands on the item that was showing, its choice screen open
+  again when it was a live one (one the wheel had walked onto reloads as
+  the item under it). Saves from before the timeline (with a reading
+  history) load as they are: the last pick at each decision comes from
+  that record and the open route frames, and the record is dropped.
 - `Play all routes` (a persisted setting, default on since Phase 24:
   Kinetic is interaction-free; a saved Off is kept, and Reset progress
   restores On) is zero-interactivity, with or without auto-forward
@@ -413,33 +428,29 @@ docs/plan.md Phase 13):
   picked for about 0.7 s and the route starts. The highlight is the only
   change at the pick: the status line keeps its last "picks in 1 s" (the
   seconds never show 0) and the hint keeps "Space picks now". It picks the shortest route not yet played this
-  pass (fewest items; see the reading history on rollback), the
+  pass (fewest items; see the timeline on rewinding), the
   continuing route last, never the return row, repeats until every route
   has played once this pass, then continues via `continueAt` (a pure choice: past
   the region end, per the rule above). A re-offer's status line leads
   with "Back in time: “<route>” is done.". Space takes the pick at once; a
   digit or click picks another route. Inside a skip-all burst there is
-  no countdown, only the highlight, and the burst carries on. These
-  choice screens are recorded in the history like a reader's; a
-  replayed one (wheel, `e`) waits for a pick, while a reload onto the
+  no countdown, only the highlight, and the burst carries on. A choice
+  screen the wheel walks onto waits for a pick, while a reload onto a
   live one counts down again. Turning the setting on over a live choice
   starts its countdown; turning it off cancels it. The journey is
   announced by the render layer: entering a route flashes a "Route:
   <label>" pill — manual pick or auto-pick alike — led by "Back to try
   another route" when a manual pick jumped back in time.
 - Decisions fire only on a forward settle of `after`: a wheel step or
-  a bookmark jump onto `after` fires nothing. Rolling back to `after`
-  and pressing forward again re-opens the overlay (which, matching the
-  record, just moves along it).
-- A pick from a replayed choice screen is a real pick: it enters the
-  route exactly like a route-end re-selection (forking the record when
-  it differs from the recorded path), and "return to main route" works
-  there too where the return-row rule offers it.
+  a bookmark jump onto `after` fires nothing. Walking back to `after`
+  and pressing forward again re-opens the overlay.
+- A pick from a walked choice screen is a real pick: it enters the
+  route exactly like a route-end re-selection, and "return to main
+  route" works there too where the return-row rule offers it.
 - The wheel is never trapped by a choice overlay: a notch in either
-  direction leaves any choice screen for the neighbouring history entry,
-  answering nothing (the screen stays in the record). Space, tab and
-  bookmark jumps do not act on a choice screen; only its own keys and
-  rows answer it.
+  direction leaves any choice screen for the neighbouring screen in
+  story order, answering nothing. Space, tab and bookmark jumps do not
+  act on a choice screen; only its own keys and rows answer it.
 - Author-written transitions need no schema mechanism: put a
   `text`-only item or a title image at a route span's start or end.
 
@@ -496,8 +507,8 @@ content:
   item, not per file: items sharing one file may set different floors.
 - Skip mode paces by pictures: each media item shows for a fixed
   player dwell, and a `text` item takes zero time with its line
-  hidden. Every line is still stepped onto, marked seen and recorded
-  in the reading history, so skip can stop on a line (a decision
+  hidden. Every line is still stepped onto and marked seen, so skip
+  can stop on a line (a decision
   hanging off it, the last seen item) and that line then shows
   normally. An animation contributes `frames[0]` and a video its
   `poster`; both show that still and never play. A video holds for

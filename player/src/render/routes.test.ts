@@ -164,7 +164,7 @@ describe("routeAnnouncementsFor (the entry rule)", () => {
   });
 
   it("a choice screen opening is silent; the pick from it is not", () => {
-    // A choice screen (fired, or replayed from the history) has no route
+    // A choice screen (fired, or walked onto by the wheel) has no route
     // frame open over it, so it says nothing — and the row picked from it
     // enters the route exactly like a route-end re-selection, which does.
     expect(
@@ -196,31 +196,31 @@ describe("route pills after a play-all auto-pick (docs/plan.md Phase 18)", () =>
   });
 });
 
-describe("mountRouteAnnouncements: history replays are quiet (History rollback spec)", () => {
-  it("a wheel replay back into a route announces nothing; a real pick does", () => {
+describe("mountRouteAnnouncements: wheel walks are quiet (docs/plan.md Phase 27)", () => {
+  it("a wheel walk back into a route announces nothing; a real pick does", () => {
     const machine = createMachine({
       items: MANIFEST.items,
       branches: MANIFEST.branches,
       settings: DEFAULT_SETTINGS,
     }); // manual: one press is one step
     const shown: string[][] = [];
-    let replaying = false;
+    let walking = false;
     mountRouteAnnouncements({
       machine,
       manifest: MANIFEST,
       flash: (messages) => shown.push([...messages]),
-      quiet: () => replaying,
+      quiet: () => walking,
     });
     machine.advance(); // lead -> decide
     machine.advance(); // fires the decision
     machine.choose(0); // Route A: announced
     expect(shown).toEqual([[routeFlashLabel("Route A")]]);
-    replaying = true;
+    walking = true;
     machine.wheelBack(); // the choice screen
-    machine.wheelForward(); // Route A's first item, its frame restored
-    replaying = false;
+    machine.wheelForward(); // Route A's first item, inside its frame
+    walking = false;
     expect(machine.getState().cursor).toBe(2);
-    expect(shown).toHaveLength(1); // the replay said nothing
+    expect(shown).toHaveLength(1); // the walk said nothing
     machine.wheelBack(); // the choice screen again, then a different pick
     machine.choose(1);
     expect(shown[shown.length - 1]).toEqual([

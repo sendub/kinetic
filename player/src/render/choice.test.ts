@@ -121,6 +121,34 @@ describe("the row play-all will pick is marked from the start (docs/plan.md Phas
   });
 });
 
+describe("a walked choice screen marks the walk's route (docs/plan.md Phase 27)", () => {
+  const routes = [route(0, true), route(1, true), route(2)];
+  it("marks the walk route 'next', with or without the return row", () => {
+    expect(
+      choiceRows({ ...choice(routes, true), walkRoute: 1 }).map(
+        (row) => row.pick,
+      ),
+    ).toEqual(["none", "next", "none", "none"]);
+    expect(
+      choiceRows({ ...choice(routes), walkRoute: 0 }).map((row) => row.pick),
+    ).toEqual(["next", "none", "none"]);
+  });
+
+  it("a live play-all pick wins over a walk route", () => {
+    expect(
+      choiceRows({
+        ...choice(routes),
+        walkRoute: 0,
+        autoPick: { routeIdx: 2, ms: 9000, armId: 1, picked: false },
+      }).map((row) => row.pick),
+    ).toEqual(["none", "none", "next"]);
+  });
+
+  it("keeps the hint: a walked screen counts nothing down", () => {
+    expect(choiceHint({ ...choice(routes), walkRoute: 1 })).toBe(CHOICE_HINT);
+  });
+});
+
 describe("inputOwnerFor (help wins; a pending choice owns the rest)", () => {
   it("the key help wins over everything, a pending choice included", () => {
     expect(inputOwnerFor(true, true)).toBe("help");

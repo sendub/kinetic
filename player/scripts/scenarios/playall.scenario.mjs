@@ -646,7 +646,7 @@ export default async function ({ check, open }) {
     await sleep(300);
     const fired = await page.evaluate(READ_AUTO);
     check(
-      "rolled back before the first decision after play-all finished: Space fires the choice again, counting down, routes still marked seen",
+      "walked back before the first decision after play-all finished: Space fires the choice again, counting down, routes still marked seen",
       back &&
         fired.open &&
         fired.prompt === outer.prompt &&

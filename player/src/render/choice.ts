@@ -36,6 +36,11 @@
 // lights up as `.choice-picked`. Space takes the pick at once; a digit or click picks
 // another route instead.
 //
+// A choice screen the wheel walks through (docs/plan.md Phase 27) marks the
+// route the walk takes (`ChoiceView.walkRoute`) with that same `.choice-next`
+// look, and shows no status line: nothing counts down, and a digit or click
+// is a real pick.
+//
 // Like every panel here, the decisions are pure exports and the DOM half
 // only applies them; the verify walk proves the screen (its branch steps
 // arrive with the branch fixture, docs/plan.md Phase 13).
@@ -106,7 +111,8 @@ export interface ChoiceRowModel {
   readonly seen: boolean;
   /**
    * The play-all pick on this row: `next` while the countdown runs (the
-   * row it will take), `picked` once it has run out, `none` otherwise.
+   * row it will take), `picked` once it has run out, `none` otherwise. On a
+   * walked choice screen the walk's route is `next` too.
    */
   readonly pick: "none" | "next" | "picked";
 }
@@ -126,11 +132,15 @@ export function choiceRows(choice: ChoiceView | undefined): ChoiceRowModel[] {
     label: route.label,
     seen: route.seen,
     pick:
-      auto?.routeIdx !== route.routeIdx
-        ? "none"
-        : auto.picked
-          ? "picked"
-          : "next",
+      auto === undefined
+        ? choice.walkRoute === route.routeIdx
+          ? "next"
+          : "none"
+        : auto.routeIdx !== route.routeIdx
+          ? "none"
+          : auto.picked
+            ? "picked"
+            : "next",
   }));
   if (choice.continueOption === true) {
     rows.push({

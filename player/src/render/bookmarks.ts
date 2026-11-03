@@ -53,21 +53,8 @@ export function bookmarkRestoreTarget(record: Bookmark): BookmarkRestore {
   // any other `lastShown` a stored context might carry.
   return {
     itemId: record.itemId,
-    ctx: { ...bookmarkContext(record.ctx), lastShown: record.itemId },
+    ctx: { ...record.ctx, lastShown: record.itemId },
   };
-}
-
-/**
- * The context a bookmark stores: the context without its reading history
- * (docs/plan.md, "History rollback spec"). A bookmark restore is a jump
- * that appends to the CURRENT history, so the record would only be dead
- * weight — up to `HISTORY_CAP` entries in every bookmark.
- */
-export function bookmarkContext<T extends MachineContext | SavedContext>(
-  context: T,
-): Omit<T, "history" | "historyPos"> {
-  const { history: _history, historyPos: _historyPos, ...rest } = context;
-  return rest;
 }
 
 /**
@@ -78,7 +65,9 @@ export function bookmarkContext<T extends MachineContext | SavedContext>(
  * read since then count as unseen again. The played-this-pass record is
  * NOT merged: it is the bookmark's own, so the route flow (play-all's next
  * pick, re-offer or close) continues as of the bookmark (docs/plan.md
- * Phase 22).
+ * Phase 22). The last picks are the reader's current ones, the bookmark's
+ * filling only decisions picked at nowhere since (docs/plan.md Phase 27):
+ * the wheel keeps following the path last taken.
  */
 export function mergeProgress(
   bookmark: MachineContext,
@@ -115,6 +104,15 @@ export function mergeProgress(
     // played-this-pass record — for a bookmark from before that record, the
     // routes it had played — so continuing from it plays on as it did then.
     passRoutes: bookmark.passRoutes ?? bookmark.playedRoutes,
+    lastPicks: [
+      ...(bookmark.lastPicks ?? []).filter(
+        (pick) =>
+          !(current.lastPicks ?? []).some(
+            (newer) => newer.decision === pick.decision,
+          ),
+      ),
+      ...(current.lastPicks ?? []),
+    ].sort((a, b) => a.decision - b.decision),
   };
 }
 

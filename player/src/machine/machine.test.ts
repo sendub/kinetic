@@ -6,7 +6,6 @@ import {
   AUTO_PICK_MIN_MS,
   AUTO_PICK_SHOW_MS,
   createMachine,
-  HISTORY_CAP,
   itemHoldMs,
   textHoldMs,
   visualIndexFor,
@@ -100,7 +99,7 @@ function machine(
 
 /**
  * Reads a linear manifest forward with presses until `target` is on screen,
- * so the reading history holds every item on the way. A Space press in auto
+ * reading every item on the way. A Space press in auto
  * mode turns auto off (docs/plan.md Phase 18), so the presses go in manual
  * — one press, one step — and auto comes back on with the landing's hold.
  */
@@ -607,13 +606,9 @@ describe("manual and auto modes, pause/resume (docs/plan.md Phase 13b)", () => {
     expect(first.getState()).toMatchObject({ cursor: 3, frontier: 4 });
     first.goTo(1); // a `t` click back inside seen content: the cursor moves…
     expect(first.getState()).toMatchObject({ cursor: 1, frontier: 4 }); // the edge does not
-    // A restore WITHOUT a history keeps only the seen set and the landing,
-    // so the seen edge must come from the seen set.
-    const {
-      history: _history,
-      historyPos: _pos,
-      ...ctx
-    } = first.exportContext();
+    // A restore keeps only the seen set and the landing, so the seen edge
+    // must come from the seen set.
+    const ctx = first.exportContext();
     first.destroy();
 
     const resumed = createMachine({
@@ -1334,7 +1329,7 @@ describe("frontier and wheel rules", () => {
     m.destroy();
   });
 
-  it("wheel forward is blocked at the end of the history", () => {
+  it("wheel forward is blocked at the furthest point read", () => {
     const m = machine([image(), image(), image()], { auto: false });
     m.advance(); // read onto item 1
     const atEnd = {
@@ -1345,7 +1340,7 @@ describe("frontier and wheel rules", () => {
       transition: "advance",
     };
     expect(m.getState()).toEqual(atEnd);
-    m.wheelForward(); // the last history entry: nothing ahead, blocked
+    m.wheelForward(); // the furthest point: nothing seen ahead, blocked
     expect(m.getState()).toEqual(atEnd);
     m.wheelBack();
     expect(m.getState().cursor).toBe(0);
@@ -1371,7 +1366,7 @@ describe("frontier and wheel rules", () => {
     m.destroy();
   });
 
-  it("wheel forward at the end of the history stays blocked across a text chain", () => {
+  it("wheel forward at the furthest point stays blocked across a text chain", () => {
     const m = machine([image(), video(), text("one"), text("two"), image()], {
       auto: false,
     });
@@ -1386,7 +1381,7 @@ describe("frontier and wheel rules", () => {
     };
     expect(m.getState()).toEqual(atEnd);
     expect(m.visualIndex()).toBe(1); // the video's visual keeps showing
-    m.wheelForward(); // nothing recorded ahead: blocked
+    m.wheelForward(); // nothing seen ahead: blocked
     expect(m.getState()).toEqual(atEnd);
     m.wheelBack(); // back through seen content, same visual
     expect(m.getState()).toEqual({
@@ -1399,7 +1394,7 @@ describe("frontier and wheel rules", () => {
     expect(m.visualIndex()).toBe(1);
     m.wheelForward(); // forward again through seen content
     expect(m.getState().cursor).toBe(2);
-    m.wheelForward(); // blocked at the history's end again
+    m.wheelForward(); // blocked at the furthest point again
     expect(m.getState().cursor).toBe(2);
     // advance() crosses the frontier from a text item like any other item.
     m.advance();
@@ -1500,12 +1495,9 @@ describe("skip mode (tab), docs/plan.md Phase 4", () => {
     expect(m.getState().cursor).toBe(1);
     vi.advanceTimersByTime(1); // one dwell walks the whole chain
     expect(m.getState()).toMatchObject({ cursor: 7, skipping: true });
-    // Every line was still walked: shown, seen, recorded in the history.
+    // Every line was still walked: shown and seen.
     expect(states).toEqual([0, 1, 2, 3, 4, 5, 6, 7]);
     expect(m.visitedList()).toEqual([0, 1, 2, 3, 4, 5, 6, 7]);
-    expect(m.exportContext().history?.map((entry) => entry.index)).toEqual([
-      0, 1, 2, 3, 4, 5, 6, 7,
-    ]);
     m.destroy();
   });
 
@@ -1839,15 +1831,14 @@ describe("skip plays videos (docs/plan.md Phase 18)", () => {
   });
 });
 
-describe("`e` (jumpToEnd): the end of the reading history", () => {
-  // docs/plan.md, "History rollback spec": `e` goes to the last history
-  // entry and shows it exactly; a no-op there. It no longer looks for
-  // unseen content or an ending.
-  it("goes to the last history entry; there it does nothing", () => {
+describe("`e` (jumpToEnd): the furthest screen read (docs/plan.md Phase 27)", () => {
+  // `e` goes to the highest seen item — the furthest point read in story
+  // order — and is a no-op there. It never reveals unseen content.
+  it("goes to the furthest item read; there it does nothing", () => {
     const m = machine([image(), image(), image(), image(), image()]);
     readTo(m, 2);
     m.wheelBack();
-    m.wheelBack(); // rolled back to the start
+    m.wheelBack(); // walked back to the start
     expect(m.getState().cursor).toBe(0);
     m.jumpToEnd();
     const resumed = m.getState();
@@ -1858,13 +1849,13 @@ describe("`e` (jumpToEnd): the end of the reading history", () => {
       skipping: false,
       transition: "nav",
     });
-    // At the end now: unseen item 3 is next, but `e` never reveals it.
+    // There now: unseen item 3 is next, but `e` never reveals it.
     m.jumpToEnd();
     expect(m.getState()).toBe(resumed);
     m.destroy();
   });
 
-  it("at the end of the history with the next item unseen, the press reveals nothing", () => {
+  it("at the furthest point with the next item unseen, the press reveals nothing", () => {
     const m = machine([image(), image(), image()], { resumeFrontier: 1 });
     const before = m.getState();
     m.jumpToEnd();
@@ -1872,43 +1863,32 @@ describe("`e` (jumpToEnd): the end of the reading history", () => {
     expect(m.getState().frontier).toBe(1); // item 1 stayed unseen
     m.destroy();
   });
-});
 
-describe("`e` after rolling back (docs/plan.md, History rollback spec)", () => {
   it("user repro: after wheeling back, the press lands ON the last-read item; the next stays", () => {
     vi.useFakeTimers();
-    // The reported flow on the player's own manual start: one space shows
-    // the next item, the wheel rolls back, and `e` must return to the end
-    // of the history — where the reading stopped — and reveal nothing.
     const m = createMachine({
       items: [image(), image(), image(), image(), image()],
       settings: SETTINGS,
     });
     m.advance(); // one space: item 1 is the last item the reader read
-    expect(m.getState().cursor).toBe(1);
-    m.wheelBack(); // wheel back to item 0: a history step, not reading
+    m.wheelBack();
     expect(m.getState().cursor).toBe(0);
-    m.jumpToEnd(); // the press lands ON the history's last entry
+    m.jumpToEnd();
     expect(m.getState()).toEqual({
       cursor: 1,
       frontier: 2,
       settled: false,
       skipping: false,
-      transition: "nav", // a nav landing: below the edge it shows a poster
+      transition: "nav", // a nav landing, like a wheel step
     });
     const resumed = m.getState();
-    m.jumpToEnd(); // standing there: the next item is unseen, so `e` stays
-    expect(m.getState()).toBe(resumed); // no unseen jump
+    m.jumpToEnd();
+    expect(m.getState()).toBe(resumed);
     m.destroy();
   });
 
-  it("an `e` landing below the seen edge is a nav arrival — the poster rule holds under it", () => {
+  it("a resume below the furthest point: `e` lands on the highest seen item as a nav arrival", () => {
     vi.useFakeTimers();
-    // The machine half of the interaction: `playbackModeFor` (tested in
-    // render/visual.test.ts) keeps a nav arrival below the seen edge a
-    // poster, so the `e` landing must never report `advance`.
-    // A record whose end (item 2) is below the seen edge (item 3), with
-    // the reader rolled back to its start.
     const m = createMachine({
       items: [image(), image(), image(), image(), image()],
       settings: SETTINGS,
@@ -1918,176 +1898,104 @@ describe("`e` after rolling back (docs/plan.md, History rollback spec)", () => {
         visited: [0, 1, 2, 3],
         stack: [],
         playedRoutes: [],
-        history: [0, 1, 2].map((index) => ({ index, stack: [] })),
-        historyPos: 0,
       },
     });
     expect(m.getState().cursor).toBe(0);
-    m.jumpToEnd(); // to the record's end, below the seen edge
+    m.jumpToEnd();
     expect(m.getState()).toMatchObject({
-      cursor: 2,
-      frontier: 4, // cursor 2 < frontier - 1: the visual stays a still
+      cursor: 3,
+      frontier: 4,
       transition: "nav",
     });
-    m.jumpToEnd(); // the end already: no unseen jump follows
-    expect(m.getState().cursor).toBe(2);
+    m.jumpToEnd(); // already there
+    expect(m.getState().cursor).toBe(3);
     m.destroy();
   });
 });
 
-describe("`e` after continuing from a bookmark (docs/plan.md Phase 26)", () => {
-  // User repro: bookmark an earlier item, read on, continue from the
-  // bookmark, press `e` — it did nothing, because the landing was appended
-  // as the record's new end. The landing still appends (History rollback
-  // spec), and it carries the screens recorded after the same screen
-  // earlier, so `e` reaches the furthest point read.
+describe("`e` and the wheel after continuing from a bookmark (docs/plan.md Phase 27)", () => {
+  // The user's rejected behaviour: after a bookmark visit the wheel walked
+  // the reading order back to the furthest point. Now it walks the story
+  // order around the landing, and `e` reaches the furthest point read.
   const items = () => [image(), video(), image(), text("a"), image(), image()];
 
   it("right after the restore, `e` goes to where the reading had got to", () => {
     const m = machine(items(), { auto: false });
     readTo(m, 1); // the video
     const mark = m.exportContext(); // `b` on the video
-    readTo(m, 4); // read on: item 4 is the furthest point
-    m.importContext(mergeProgress(mark, m.exportContext())); // `t`, click the bookmark
+    readTo(m, 4);
+    m.importContext(mergeProgress(mark, m.exportContext()));
     expect(m.getState().cursor).toBe(1);
     m.jumpToEnd();
     expect(m.getState()).toMatchObject({ cursor: 4, transition: "nav" });
     m.destroy();
   });
 
-  it("reading on linearly from the bookmark replays the record; `e` still reaches the end", () => {
+  it("the wheel walks the story around the landing, not the reading order", () => {
     const m = machine(items(), { auto: false });
-    readTo(m, 2); // an image bookmark this time
-    const mark = m.exportContext();
-    readTo(m, 5);
-    m.importContext(mergeProgress(mark, m.exportContext()));
-    m.advance(); // item 3: the same screen the record holds next
-    expect(m.getState().cursor).toBe(3);
-    m.jumpToEnd();
-    expect(m.getState().cursor).toBe(5);
-    m.destroy();
-  });
-
-  it("the landing is still appended: the wheel goes back to the screen the click left", () => {
-    const m = machine(items(), { auto: false });
-    readTo(m, 1);
+    readTo(m, 2);
     const mark = m.exportContext();
     readTo(m, 4);
     m.importContext(mergeProgress(mark, m.exportContext()));
-    m.wheelBack(); // the screen on show when the bookmark was clicked
-    expect(m.getState().cursor).toBe(4);
     m.wheelBack();
-    expect(m.getState().cursor).toBe(3);
+    expect(m.getState().cursor).toBe(1); // towards the start, not item 4
+    m.wheelForward();
+    m.wheelForward();
+    expect(m.getState().cursor).toBe(3); // past the landing
+    m.wheelForward();
+    m.wheelForward(); // item 5 was never read: forward ends at item 4
+    expect(m.getState().cursor).toBe(4);
     m.destroy();
   });
 
-  it("a landing already the end appends nothing, and `e` stays", () => {
+  it("reading on from the landing keeps `e` on the furthest point until read past", () => {
+    const m = machine(items(), { auto: false });
+    readTo(m, 2);
+    const mark = m.exportContext();
+    readTo(m, 4);
+    m.importContext(mergeProgress(mark, m.exportContext()));
+    m.advance(); // item 3
+    expect(m.getState().cursor).toBe(3);
+    m.jumpToEnd();
+    expect(m.getState().cursor).toBe(4);
+    m.advance(); // reads past it
+    expect(m.getState().cursor).toBe(5);
+    const here = m.getState();
+    m.jumpToEnd();
+    expect(m.getState()).toBe(here);
+    m.destroy();
+  });
+
+  it("a landing on the furthest point: `e` stays", () => {
     const m = machine(items(), { auto: false });
     readTo(m, 3);
-    const mark = m.exportContext(); // `b` on the furthest point itself
+    const mark = m.exportContext();
     m.importContext(mergeProgress(mark, m.exportContext()));
-    expect(m.getState().cursor).toBe(3);
     const landed = m.getState();
     m.jumpToEnd();
     expect(m.getState()).toBe(landed);
     m.destroy();
   });
 
-  it("a landing not on record keeps the furthest point as the record's end", () => {
+  it("a bookmark click after a resume: `e` returns to the furthest item", () => {
     const m = machine(items(), { resumeFrontier: 5, auto: false });
-    m.goTo(2); // the one-entry resume record never showed item 2
-    m.jumpToEnd(); // back to where the reader was: item 4
+    m.goTo(2);
+    m.jumpToEnd();
     expect(m.getState()).toMatchObject({ cursor: 4, transition: "nav" });
-    m.jumpToEnd(); // the end already
+    m.jumpToEnd();
     expect(m.getState().cursor).toBe(4);
-    m.destroy();
-  });
-});
-
-describe("`e` after a bookmark whose screen the history cap dropped (docs/plan.md Phase 26)", () => {
-  // User repro on a long game: an old bookmark's screen is no longer in
-  // the capped record, so the restore found no copy to bring a future
-  // from, the landing became the record's end and `e` did nothing.
-  const MARK = 2;
-  const FURTHEST = MARK + HISTORY_CAP + 10; // the bookmark's screen evicted
-  const items = () =>
-    Array.from({ length: FURTHEST + 20 }, (_, n) => ({
-      ...image(),
-      id: `img-${String(n)}`,
-    }));
-
-  /** Reads to MARK, bookmarks it, reads to FURTHEST, restores the mark. */
-  function restoreEvicted(list: readonly Item[]) {
-    const m = machine(list, { auto: false });
-    readTo(m, MARK);
-    const mark = m.exportContext();
-    readTo(m, FURTHEST);
-    expect(m.exportContext().history?.some((e) => e.index === MARK)).toBe(
-      false,
-    );
-    m.importContext(mergeProgress(mark, m.exportContext()));
-    expect(m.getState().cursor).toBe(MARK);
-    return m;
-  }
-
-  it("right after the restore, `e` goes to the furthest point read", () => {
-    const m = restoreEvicted(items());
-    m.jumpToEnd();
-    expect(m.getState()).toMatchObject({ cursor: FURTHEST, transition: "nav" });
-    const there = m.getState();
-    m.jumpToEnd(); // a second press: the end already
-    expect(m.getState()).toBe(there);
-    m.destroy();
-  });
-
-  it("after reading on from the landing, `e` still goes to the furthest point", () => {
-    const m = restoreEvicted(items());
-    m.advance();
-    expect(m.getState().cursor).toBe(MARK + 1);
-    m.jumpToEnd();
-    expect(m.getState().cursor).toBe(FURTHEST);
-    m.destroy();
-    const n = restoreEvicted(items());
-    n.advance();
-    n.advance();
-    n.advance();
-    n.jumpToEnd();
-    expect(n.getState().cursor).toBe(FURTHEST);
-    n.wheelBack(); // the screens read since the landing, in order
-    expect(n.getState().cursor).toBe(MARK + 3);
-    n.wheelBack();
-    expect(n.getState().cursor).toBe(MARK + 2);
-    n.destroy();
-  });
-
-  it("reading on from the furthest point after `e` appends as usual", () => {
-    const m = restoreEvicted(items());
-    m.advance();
-    m.jumpToEnd();
-    m.advance();
-    expect(m.getState().cursor).toBe(FURTHEST + 1);
-    const here = m.getState();
-    m.jumpToEnd();
-    expect(m.getState()).toBe(here);
-    m.destroy();
-  });
-
-  it("reading up to the furthest point by hand closes the gap", () => {
-    const m = restoreEvicted(items());
-    readTo(m, FURTHEST); // the same screens again, past the cap's reach
-    const here = m.getState();
-    m.jumpToEnd(); // this IS the furthest point: nothing further
-    expect(m.getState()).toBe(here);
-    m.advance();
-    expect(m.getState().cursor).toBe(FURTHEST + 1);
     m.destroy();
   });
 
   it("survives a reload through storage", async () => {
-    const list = items();
+    const list = items().map((item, n) => ({ ...item, id: `i-${String(n)}` }));
     const storage = createMemoryStorage();
     const codec = createContextCodec(list);
-    const m = restoreEvicted(list);
+    const m = machine(list, { auto: false });
+    readTo(m, 1);
+    const mark = m.exportContext();
+    readTo(m, 4);
+    m.importContext(mergeProgress(mark, m.exportContext()));
     m.advance();
     await storage.saveState({ ctx: codec.toSaved(m.exportContext()) });
     m.destroy();
@@ -2096,23 +2004,12 @@ describe("`e` after a bookmark whose screen the history cap dropped (docs/plan.m
       settings: SETTINGS,
       ...resumeOptionsFor(await storage.loadState(), codec),
     });
-    expect(reloaded.getState().cursor).toBe(MARK + 1);
-    reloaded.advance();
+    expect(reloaded.getState().cursor).toBe(2);
+    reloaded.wheelBack();
+    expect(reloaded.getState().cursor).toBe(1);
     reloaded.jumpToEnd();
-    expect(reloaded.getState().cursor).toBe(FURTHEST);
+    expect(reloaded.getState().cursor).toBe(4);
     reloaded.destroy();
-  });
-
-  it("a bookmark still on record behaves as before (Phase 26)", () => {
-    const m = machine(items(), { auto: false });
-    readTo(m, FURTHEST - 5);
-    const mark = m.exportContext();
-    readTo(m, FURTHEST);
-    m.importContext(mergeProgress(mark, m.exportContext()));
-    m.advance(); // replays the recorded future
-    m.jumpToEnd();
-    expect(m.getState().cursor).toBe(FURTHEST);
-    m.destroy();
   });
 });
 
@@ -2492,7 +2389,7 @@ describe("resume from persisted storage (docs/plan.md Phase 8, memory fake)", ()
       skipping: false,
       transition: "nav",
     });
-    // `e` at the resume spot stays: the landing is the history's end.
+    // `e` at the resume spot stays: the landing is the furthest point.
     const landed = resumed.getState();
     resumed.jumpToEnd();
     expect(resumed.getState()).toBe(landed);
@@ -2983,9 +2880,9 @@ describe("transition kind: which mover made the item current", () => {
     vi.advanceTimersByTime(SETTINGS.minHoldMs * 3);
     m.goTo(0);
     expect(m.getState()).toMatchObject({ cursor: 0, transition: "nav" });
-    m.wheelBack(); // the screen before the jump: item 3
-    expect(m.getState()).toMatchObject({ cursor: 3, transition: "nav" });
-    m.jumpToEnd(); // the history's end: item 0's recorded future, item 3
+    m.wheelForward(); // the next screen in story order
+    expect(m.getState()).toMatchObject({ cursor: 1, transition: "nav" });
+    m.jumpToEnd(); // the furthest point read: item 3
     expect(m.getState()).toMatchObject({ cursor: 3, transition: "nav" });
     m.destroy();
   });

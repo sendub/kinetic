@@ -20,6 +20,13 @@
 // Its progress reads as a first boot; its settings and help flag, which
 // never referred to positions, are kept.
 //
+// One migration does exist (docs/plan.md Phase 27, the user is mid-game):
+// contexts written while the player kept a reading history (`history`,
+// `historyPos`, entries with `passRoutes` / `gap`) load silently. The
+// sanitizer (storage/idb.ts) derives the last pick at each decision from
+// that record and the open frames, keeps the choice screen that was up,
+// and drops the record; nothing writes it again.
+//
 // IndexedDB schema note: `ctx` rides inside the value objects the `state`
 // and `bookmarks` stores already hold, so no keyPath or store changes are
 // needed and the database stays at version 1.
@@ -32,21 +39,6 @@ export interface SavedFrame {
   readonly route: string;
 }
 
-/**
- * One reading-history screen by ids (the machine's `HistoryEntry`): the
- * item shown, the frames open over it, and — for a choice screen — the
- * decision whose overlay it was.
- */
-export interface SavedHistoryEntry {
-  readonly item: string;
-  readonly stack: readonly SavedFrame[];
-  readonly decision?: string;
-  /** Played this pass as of the screen, where it changed (`HistoryEntry`). */
-  readonly passRoutes?: readonly SavedRouteSet[];
-  /** The furthest point read after a gap (`HistoryEntry`). */
-  readonly gap?: true;
-}
-
 /** The routes of one decision, by ids. */
 export interface SavedRouteSet {
   readonly decision: string;
@@ -57,9 +49,9 @@ export interface SavedRouteSet {
  * The persisted route-play context (the machine's `MachineContext`, keyed
  * by id): `lastShown` the item on screen, `visited` the seen set,
  * `stack` the open frames outermost first, `playedRoutes` /
- * `completedRoutes` per decision, and the reading history with
- * `historyPos` the entry on screen (an index into `history` itself, not
- * into the manifest). Bookmarks store it without the history.
+ * `completedRoutes` per decision, `lastPicks` the route last picked at
+ * each decision (one frame per decision), and `choice` the decision whose
+ * choice screen is up (docs/plan.md Phase 27).
  */
 export interface SavedContext {
   readonly lastShown: string;
@@ -72,8 +64,9 @@ export interface SavedContext {
    * saves, which then read as `playedRoutes`.
    */
   readonly passRoutes?: readonly SavedRouteSet[];
-  readonly history?: readonly SavedHistoryEntry[];
-  readonly historyPos?: number;
+  /** Absent in older saves: derived from their history, else none known. */
+  readonly lastPicks?: readonly SavedFrame[];
+  readonly choice?: string;
 }
 
 /** Everything the player persists about reading progress and pacing. */
@@ -114,8 +107,8 @@ export interface Bookmark {
    */
   readonly itemId: string;
   /**
-   * The route-play context captured with `b`, without its history:
-   * restoring it re-enters the item within that route context.
+   * The route-play context captured with `b`: restoring it re-enters the
+   * item within that route context.
    */
   readonly ctx: SavedContext;
   /** Small JPEG preview, or null/absent when nothing was capturable. */

@@ -785,9 +785,17 @@ subpath support (schema, validator, player, package-proof) stays.
   2026-11-01): the wheel walked seen items in array order, so after two
   routes scroll-back interleaved them in file order, and a choice screen
   was never its own step. The record of screens actually shown is now
-  what the wheel replays (see docs/progress.md Phase 18).
+  what the wheel replays (see docs/progress.md Phase 18). Superseded by
+  Phase 27: the wheel walks the story order along the last picks.
 
-### History rollback spec (Phase 18, user-confirmed 2026-11-01)
+### History rollback spec (Phase 18, user-confirmed 2026-11-01; superseded)
+
+Superseded by Phase 27, "Timeline navigation" (user, 2026-11-03): the
+wheel now walks the story order along the last pick at each decision,
+`e` goes to the furthest screen read, and the reading-history record
+(with its cap, Phase 26 future copy and `gap` entries) is gone; old saves
+carrying it migrate automatically. Kept below as the record of what
+Phases 18-26 built.
 
 - The machine keeps a HISTORY: the ordered record of screens shown while
   reading. An entry is either an ITEM screen `{ index, stack }` (the item

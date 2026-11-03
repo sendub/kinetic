@@ -47,7 +47,6 @@ import type {
   PersistedState,
   SavedContext,
   SavedFrame,
-  SavedHistoryEntry,
   SavedRouteSet,
   Storage,
 } from "./types";
@@ -313,8 +312,9 @@ export function sanitizeSettings(
 /**
  * Read a stored `ctx` defensively: only the id-keyed `SavedContext` shape
  * survives — a string `lastShown` and an all-string `visited` are
- * required, and malformed stack / route-set / history entries are dropped
- * rather than guessed (the codec then drops ids the manifest lacks).
+ * required, and malformed stack / route-set / last-pick frames are dropped
+ * rather than guessed (the codec then drops ids the manifest lacks). A
+ * context from the reading-history days migrates (`legacyTimeline`).
  * Anything else reads as "no context" (undefined) — including every
  * index-based context written before saves were keyed by id (numeric
  * `lastShown`), which is the documented no-migration rule: that progress
@@ -340,34 +340,12 @@ export function sanitizeContext(raw: unknown): SavedContext | undefined {
     const value = frame(raw);
     if (value !== undefined) stack.push(value);
   }
-  // The reading history: an entry without a string `item`, with a
-  // non-string `decision`, or with any malformed frame is dropped whole
-  // (its screen cannot be rebuilt). Absent or empty is omitted — the
-  // restore then lands on `lastShown` with a one-entry history.
-  const history: SavedHistoryEntry[] = [];
-  for (const entry of Array.isArray(source.history) ? source.history : []) {
-    if (typeof entry !== "object" || entry === null) continue;
-    const candidate = entry as Record<string, unknown>;
-    if (!isString(candidate.item)) continue;
-    if (candidate.decision !== undefined && !isString(candidate.decision)) {
-      continue;
-    }
-    const frames = (Array.isArray(candidate.stack) ? candidate.stack : []).map(
-      frame,
-    );
-    if (frames.some((value) => value === undefined)) continue;
-    history.push({
-      item: candidate.item,
-      stack: frames as SavedFrame[],
-      ...(candidate.decision === undefined
-        ? {}
-        : { decision: candidate.decision }),
-      ...(Array.isArray(candidate.passRoutes)
-        ? { passRoutes: routeSets(candidate.passRoutes) }
-        : {}),
-      ...(candidate.gap === true ? { gap: true as const } : {}),
-    });
+  const lastPicks: SavedFrame[] = [];
+  for (const raw of Array.isArray(source.lastPicks) ? source.lastPicks : []) {
+    const value = frame(raw);
+    if (value !== undefined) lastPicks.push(value);
   }
+  const legacy = legacyTimeline(source, stack, frame);
   function routeSets(raw: unknown): SavedRouteSet[] {
     const out: SavedRouteSet[] = [];
     for (const entry of Array.isArray(raw) ? raw : []) {
@@ -398,11 +376,60 @@ export function sanitizeContext(raw: unknown): SavedContext | undefined {
     ...(Array.isArray(source.passRoutes)
       ? { passRoutes: routeSets(source.passRoutes) }
       : {}),
-    ...(history.length > 0 ? { history } : {}),
-    ...(history.length > 0 && isFiniteNumber(source.historyPos)
-      ? { historyPos: source.historyPos }
-      : {}),
+    // The timeline (docs/plan.md Phase 27): the last pick per decision and
+    // the open choice screen, from the stored fields or an old history.
+    ...(Array.isArray(source.lastPicks)
+      ? { lastPicks }
+      : legacy.lastPicks.length > 0
+        ? { lastPicks: legacy.lastPicks }
+        : {}),
+    ...(isString(source.choice)
+      ? { choice: source.choice }
+      : legacy.choice === undefined
+        ? {}
+        : { choice: legacy.choice }),
   };
+}
+
+/**
+ * The migration of a context written while the player kept a reading
+ * history (docs/plan.md Phase 27): `history` (screens `{ item, stack,
+ * decision?, passRoutes?, gap? }`) and `historyPos` (the screen showing,
+ * default the last). The LAST PICK at each decision is the route entered
+ * last there in the record — the latest frame naming the decision — and
+ * the open frames (`stack`) override it, being the present. When the
+ * screen showing was a choice screen, its decision is the open `choice`.
+ * The record itself is dropped. Malformed entries and frames are skipped.
+ */
+function legacyTimeline(
+  source: Record<string, unknown>,
+  stack: readonly SavedFrame[],
+  frame: (raw: unknown) => SavedFrame | undefined,
+): { lastPicks: SavedFrame[]; choice?: string } {
+  const history = Array.isArray(source.history) ? source.history : [];
+  const picks = new Map<string, string>();
+  for (const entry of history) {
+    if (typeof entry !== "object" || entry === null) continue;
+    const frames = (entry as Record<string, unknown>).stack;
+    for (const raw of Array.isArray(frames) ? frames : []) {
+      const value = frame(raw);
+      if (value !== undefined) picks.set(value.decision, value.route);
+    }
+  }
+  for (const open of stack) picks.set(open.decision, open.route);
+  const lastPicks = [...picks.entries()].map(([decision, route]) => ({
+    decision,
+    route,
+  }));
+  const at = isFiniteNumber(source.historyPos)
+    ? Math.min(Math.max(Math.trunc(source.historyPos), 0), history.length - 1)
+    : history.length - 1;
+  const showing: unknown = history[at];
+  const decision =
+    typeof showing === "object" && showing !== null
+      ? (showing as Record<string, unknown>).decision
+      : undefined;
+  return isString(decision) ? { lastPicks, choice: decision } : { lastPicks };
 }
 
 /**
