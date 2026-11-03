@@ -1486,8 +1486,11 @@ truthful: an unchecked box means nothing was accepted.
       autoplay-rejection loop stop when it is not. 3 new tests in
       visual.test.ts fail without the fix (1.5, 0.75, [0,0,1,1]).
       Orchestrator: vitest 629, check exit 0, smoke 6/6, media 22/22.)
-- [ ] Phase-closer: full suite, rebuild demo folders.
+- [x] Phase-closer: full suite, rebuild demo folders.
       (2026-11-03 first run: vitest 626, scenario suite 233 checks: 230
       pass, 2 PARTIAL (headless fullscreen), 1 FAIL (media chain
       currentTime 0, item above); package-proof 18/18, demo folders
-      rebuilt. Converter untouched since Phase 27's 499 pytest.)
+      rebuilt. Converter untouched since Phase 27's 499 pytest.
+      Rerun after the media items: vitest 629; scenario suite 233 checks:
+      231 pass, 2 PARTIAL (the same headless fullscreen Escapes), 0 FAIL;
+      package-proof 18/18. Pytest not rerun: converter untouched.)
