@@ -160,14 +160,21 @@ const READ_BOOKMARK_OVERLAY = () => {
     entries: Array.from(document.querySelectorAll(".bookmark-entry")).map(
       (el) => {
         const img = el.querySelector("img.bookmark-thumb");
+        // A card's manifest still is drawn shrunk into a canvas that
+        // names its file (render/bookmarks.ts, the Safari item).
+        const still = el.querySelector("canvas.bookmark-thumb");
         return {
           itemIndex: Number(el.getAttribute("data-item-index")),
           time: el.querySelector(".bookmark-time")?.textContent ?? "",
           label: el.querySelector(".bookmark-label")?.textContent ?? "",
           thumbSrcHead: img
             ? (img.getAttribute("src") ?? "").slice(0, 24)
-            : null,
-          thumbResolved: img ? img.complete && img.naturalWidth > 0 : false,
+            : still
+              ? (still.getAttribute("data-still-src") ?? "").slice(0, 24)
+              : null,
+          thumbResolved: img
+            ? img.complete && img.naturalWidth > 0
+            : still !== null && still.width > 0,
           rect: rectOf(el),
           // The thumbnail's delete "x" (Phase 18) and the thumbnail box
           // it must sit in the top-right corner of.

@@ -25,8 +25,16 @@
 // IntersectionObserver on the list) jumping the queue, each decoded off
 // the main thread before it replaces its placeholder,
 // which already holds the stage's aspect ratio so the cards do not jump.
-// A card without a capture shows its manifest still at once. Loaded
-// thumbnails are kept for the page's life, so a reopen or the re-render
+// A card without a capture shows its manifest still, SHRUNK: the still is
+// the game's full-size file (1920x1080 and up, a lossless PNG or JXL video
+// poster), and a grid of those in the page is what kept Safari from
+// painting until every visible one had decoded at full size — then all at
+// once (the Safari bookmark-screen item). So a still goes through the same
+// queue as a capture: decoded once off the page, drawn into a canvas no
+// bigger than a capture (`shrinkStill`), and that small copy is what the
+// card shows. A canvas, not a re-encoded image: over `file://` the still
+// taints it, and a tainted canvas can be drawn but not read back. Loaded
+// pictures are kept for the page's life, so a reopen or the re-render
 // after a delete draws them straight away. An entry click hands the
 // summary back; the caller reads the whole bookmark, then closes the panel
 // as it restores it.
@@ -39,6 +47,7 @@
 import { visualIndexFor } from "../machine/machine";
 import type { Item, MachineContext } from "../machine/types";
 import type { Bookmark, BookmarkSummary, SavedContext } from "../storage/types";
+import { thumbSize } from "./capture";
 
 /** The panel's message when the novel has no bookmarks yet. */
 export const EMPTY_MESSAGE = "No bookmarks yet — press b";
@@ -258,6 +267,60 @@ export function placeholderAspect(width: number, height: number): string {
     : "16 / 9";
 }
 
+/**
+ * A manifest still shrunk to thumbnail size: each call makes a fresh
+ * element showing it (a card per bookmark, and two bookmarks can share a
+ * still), already drawn.
+ */
+export type StillPicture = () => HTMLElement;
+
+/**
+ * The browser's still shrinker: loads `src`, decodes it off the page, and
+ * draws it once into a canvas no wider than a capture (`thumbSize`); each
+ * card then gets a copy of that small canvas. Null when it cannot (no 2D
+ * canvas, or the file does not decode) — the card then shows the file as
+ * an image, as before.
+ */
+export async function shrinkStill(
+  doc: Document,
+  src: string,
+): Promise<StillPicture | null> {
+  const image = doc.createElement("img");
+  image.decoding = "async";
+  image.src = src;
+  try {
+    await image.decode();
+  } catch {
+    return null;
+  }
+  const { width, height } = thumbSize(image.naturalWidth, image.naturalHeight);
+  if (width === 0 || height === 0) return null;
+  const canvasOf = (): HTMLCanvasElement | null => {
+    const canvas = doc.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    return canvas.getContext("2d") === null ? null : canvas;
+  };
+  const small = canvasOf();
+  const smallCtx = small?.getContext("2d");
+  if (small === null || smallCtx === null || smallCtx === undefined) {
+    return null;
+  }
+  smallCtx.imageSmoothingQuality = "high";
+  try {
+    smallCtx.drawImage(image, 0, 0, width, height);
+  } catch {
+    return null;
+  }
+  // The full-size image is dropped here; only the small copy is kept.
+  return () => {
+    const canvas = canvasOf();
+    if (canvas === null) return doc.createElement("canvas");
+    canvas.getContext("2d")?.drawImage(small, 0, 0);
+    return canvas;
+  };
+}
+
 export interface BookmarkOverlay {
   isOpen(): boolean;
   /**
@@ -286,6 +349,11 @@ export interface BookmarkOverlayOptions {
    */
   loadThumb(bookmark: BookmarkSummary): Promise<string | null>;
   /**
+   * Shrinks a manifest still for a card without a capture; defaults to
+   * `shrinkStill` on the panel's document. Called once per still per page.
+   */
+  shrinkStill?(src: string): Promise<StillPicture | null>;
+  /**
    * An entry was clicked: the caller reads the whole bookmark, then closes
    * the panel and restores what it recorded — `bookmarkRestoreTarget`: its
    * context, landing on its item.
@@ -303,10 +371,12 @@ export function mountBookmarkOverlay({
   items,
   stage,
   loadThumb,
+  shrinkStill: shrink,
   onPick,
   onDelete,
 }: BookmarkOverlayOptions): BookmarkOverlay {
   const doc = root.ownerDocument;
+  const shrinkOne = shrink ?? ((src: string) => shrinkStill(doc, src));
   const view = doc.defaultView;
   const indexById = new Map(items.map((item, index) => [item.id, index]));
 
@@ -343,8 +413,13 @@ export function mountBookmarkOverlay({
   // Captured thumbnails read so far, by row key (null: the row has none),
   // kept for the page's life: a row's thumbnail never changes.
   const thumbs = new Map<number, string | null>();
-  // The placeholders of the rows rendered now whose capture is not read
-  // yet, by key; a render replaces the set.
+  // Manifest stills shrunk so far, by file (null: they could not be, the
+  // card shows the file itself), and the shrinks running; page life too.
+  const stills = new Map<string, StillPicture | null>();
+  const shrinking = new Map<string, Promise<void>>();
+  // The placeholders of the rows rendered now whose picture is not ready
+  // yet — a capture not read, or a still not shrunk — by key; a render
+  // replaces the set.
   let pending = new Map<number, HTMLElement>();
   const rowsByKey = new Map<number, BookmarkSummary>();
   // Requested loads, the next first, and how many are running.
@@ -375,6 +450,25 @@ export function mountBookmarkOverlay({
     return box;
   }
 
+  /**
+   * The card's picture for `src` once it is ready: a capture as an image,
+   * a still as its shrunk copy (the file itself if it could not be).
+   */
+  function pictureElement(src: string): HTMLElement {
+    if (src.startsWith("data:")) return thumbImage(src, false);
+    const make = stills.get(src);
+    if (make === null || make === undefined) return thumbImage(src, true);
+    const picture = make();
+    picture.className = "bookmark-thumb";
+    picture.setAttribute("data-still-src", src);
+    return picture;
+  }
+
+  /** Whether `src` can be drawn now, without waiting on a load. */
+  function ready(src: string): boolean {
+    return src.startsWith("data:") || stills.has(src);
+  }
+
   function stillSrc(row: BookmarkSummary, thumb: string | null): string | null {
     return entryThumbSrc(
       { itemId: row.itemId, thumbDataUrl: thumb },
@@ -395,18 +489,46 @@ export function mountBookmarkOverlay({
       slot.removeAttribute("data-thumb-key"); // nothing to show: it stays
       return;
     }
-    const image = thumbImage(src, false) as HTMLImageElement;
+    const picture = pictureElement(src);
     const swap = () => {
       if (!slot.isConnected) return;
-      slot.replaceWith(image);
+      slot.replaceWith(picture);
       if (pinned)
         list.scrollTop = bottomScrollTop(list.scrollHeight, list.clientHeight);
     };
-    if (typeof image.decode === "function") {
+    // A capture is decoded before it goes in; a shrunk still is drawn.
+    const image = picture as HTMLImageElement;
+    if (src.startsWith("data:") && typeof image.decode === "function") {
       image.decode().then(swap, swap);
     } else {
       swap();
     }
+  }
+
+  /** Shrink a still once per page; later callers share the first's work. */
+  function shrinkOnce(src: string): Promise<void> {
+    if (stills.has(src)) return Promise.resolve();
+    let running = shrinking.get(src);
+    if (running === undefined) {
+      running = shrinkOne(src)
+        .catch(() => null)
+        .then((picture) => {
+          stills.set(src, picture);
+          shrinking.delete(src);
+        });
+      shrinking.set(src, running);
+    }
+    return running;
+  }
+
+  /** Make a row's picture ready: read its capture, else shrink its still. */
+  async function prepare(row: BookmarkSummary): Promise<void> {
+    if (row.hasThumb && !thumbs.has(row.key)) {
+      const thumb = await loadThumb(row).catch(() => null);
+      thumbs.set(row.key, thumb);
+    }
+    const src = stillSrc(row, thumbs.get(row.key) ?? null);
+    if (src !== null && !ready(src)) await shrinkOnce(src);
   }
 
   function pump(): void {
@@ -416,10 +538,9 @@ export function mountBookmarkOverlay({
       const row = rowsByKey.get(key);
       if (row === undefined || !pending.has(key)) continue;
       loading.add(key);
-      loadThumb(row)
-        .catch(() => null)
-        .then((thumb) => {
-          thumbs.set(key, thumb);
+      prepare(row)
+        .catch(() => undefined)
+        .then(() => {
           loading.delete(key);
           fill(key); // into whichever render now shows the row
           pump();
@@ -429,7 +550,7 @@ export function mountBookmarkOverlay({
 
   /** Queue a row's picture; an `urgent` one (in view) goes first. */
   function request(key: number, urgent = false): void {
-    if (loading.has(key) || thumbs.has(key)) return;
+    if (loading.has(key) || !pending.has(key)) return;
     if (queued.has(key)) {
       if (!urgent) return;
       queue.splice(queue.indexOf(key), 1);
@@ -483,18 +604,19 @@ export function mountBookmarkOverlay({
     // The thumbnail sits in a positioned box so the "x" can take its
     // top-right corner. The "x" is a span with a button role, not a
     // <button>: it lives inside the entry's button, which cannot nest one.
-    // A capture not read yet is a placeholder the loader swaps out.
+    // A picture not ready yet — a capture not read, a still not shrunk —
+    // is a placeholder the loader swaps out.
     const thumbBox = doc.createElement("span");
     thumbBox.className = "bookmark-thumb-box";
     const known = !bookmark.hasThumb || thumbs.has(bookmark.key);
     const src = known
       ? stillSrc(bookmark, thumbs.get(bookmark.key) ?? null)
       : null;
-    if (src !== null) {
-      thumbBox.appendChild(thumbImage(src, !src.startsWith("data:")));
+    if (src !== null && ready(src)) {
+      thumbBox.appendChild(pictureElement(src));
     } else {
       const slot = placeholder();
-      if (!known) {
+      if (!known || src !== null) {
         slot.setAttribute("data-thumb-key", String(bookmark.key));
         pending.set(bookmark.key, slot);
       }

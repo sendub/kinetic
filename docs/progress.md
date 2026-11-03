@@ -1494,3 +1494,24 @@ truthful: an unchecked box means nothing was accepted.
       Rerun after the media items: vitest 629; scenario suite 233 checks:
       231 pass, 2 PARTIAL (the same headless fullscreen Escapes), 0 FAIL;
       package-proof 18/18. Pytest not rerun: converter untouched.)
+
+## Phase 29: Safari bookmark thumbnails (2026-11-03, user)
+
+- [x] Safari `t` screen thumbnails: in Safari the panel opens at once,
+      then pauses a few seconds and every thumbnail appears together
+      (the other agent's game build, many bookmarks). Chrome fills them
+      in one by one on the first opening and near-instantly after. Make
+      Safari match Chrome: find what Safari waits on, fix it, and prove
+      it in Safari.
+      (Cause: over file:// Safari refuses to read back a canvas drawn from
+      an image ("The operation is insecure"), so image bookmarks have no
+      capture (video captures work); their cards showed the 1920x1080
+      still, which Safari paints only once every visible one has decoded,
+      and decodes again on each reopen. Probed in Safari on the real game:
+      87,361 items, 1920x1080 stills. Fix: `shrinkStill` decodes a still
+      once off-page into a canvas at capture size, through the same
+      newest-first queue, kept for the page's life; fallback to the file.
+      New `scripts/bookmark-timing.mjs`. Orchestrator: vitest 631, check
+      exit 0, smoke 6/6, screens 66 pass 2 partial (fullscreen Escape);
+      Safari file:// high-res fixture, 64 rows: first opening in-view
+      cards 68..386 ms one by one, reopens 16-20 ms all at once.)

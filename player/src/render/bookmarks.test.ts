@@ -24,6 +24,7 @@ import {
   mergeProgress,
   mountBookmarkOverlay,
   placeholderAspect,
+  type StillPicture,
   THUMB_LOADS_AT_ONCE,
   thumbLoadOrder,
 } from "./bookmarks";
@@ -424,9 +425,27 @@ function summaries(
   }));
 }
 
+/**
+ * A still shrinker standing in for the canvas one: every still shrinks
+ * (to a CANVAS element) unless `fails` names it; `shrunk` logs the asks.
+ */
+function fakeShrinker(fails: readonly string[] = []) {
+  const shrunk: string[] = [];
+  const shrink = (src: string): Promise<StillPicture | null> => {
+    shrunk.push(src);
+    if (fails.includes(src)) return Promise.resolve(null);
+    return Promise.resolve(
+      () =>
+        new FakeElement("CANVAS", new FakeDocument()) as unknown as HTMLElement,
+    );
+  };
+  return { shrunk, shrink };
+}
+
 function mountList(
   loadThumb: (row: BookmarkSummary) => Promise<string | null> = () =>
     Promise.resolve(null),
+  shrink: (src: string) => Promise<StillPicture | null> = fakeShrinker().shrink,
 ) {
   const root = new FakeDocument().createElement("div");
   const overlay = mountBookmarkOverlay({
@@ -434,6 +453,7 @@ function mountList(
     items,
     stage: { width: 1280, height: 720 },
     loadThumb,
+    shrinkStill: shrink,
     onPick: () => {},
     onDelete: () => {},
   });
@@ -466,9 +486,10 @@ describe("mountBookmarkOverlay cards (Phase 26: order and scroll unchanged)", ()
     ).toEqual(["0", "1", "2"]);
   });
 
-  it("each card is a button: the thumbnail box (still and ×) over the time and label", () => {
+  it("each card is a button: the thumbnail box (still and ×) over the time and label", async () => {
     const { overlay, list } = mountList();
     overlay.render(records);
+    await new Promise((resolve) => setTimeout(resolve, 0)); // stills drawn
     for (const card of list.children) {
       expect(card.tagName).toBe("BUTTON");
       expect(card.className).toBe("bookmark-entry");
@@ -569,21 +590,59 @@ describe("mountBookmarkOverlay opens at once and fills in its pictures", () => {
     expect(thumbOf(list.children[0])?.getAttribute("loading")).toBeNull();
   });
 
-  it("a row without a capture shows its manifest still at once, never asking storage", () => {
+  // The Safari bookmark-screen item: a full-size still in the grid held
+  // Safari's paint until every visible one decoded, then all at once.
+  it("a row without a capture shows its manifest still shrunk, newest first, never asking storage", async () => {
     let asked = 0;
+    const { shrunk, shrink } = fakeShrinker();
     const { overlay, list } = mountList(() => {
       asked += 1;
       return Promise.resolve(null);
-    });
+    }, shrink);
     overlay.render(summaries(records));
-    expect(list.children.map((card) => thumbOf(card)?.src)).toEqual([
-      "c-003.poster.jpg",
-      "a-001.jpg",
-      "b-002.f000.jpg",
-    ]);
-    // A file: fetched only as its card nears the view.
-    expect(thumbOf(list.children[0])?.getAttribute("loading")).toBe("lazy");
+    for (const card of list.children) {
+      expect(thumbOf(card)?.className).toBe(
+        "bookmark-thumb bookmark-thumb-empty",
+      );
+    }
+    await settle();
+    expect(shrunk).toEqual(["b-002.f000.jpg", "a-001.jpg", "c-003.poster.jpg"]);
+    for (const card of list.children) {
+      expect(thumbOf(card)?.tagName).toBe("CANVAS");
+      expect(thumbOf(card)?.className).toBe("bookmark-thumb");
+    }
+    expect(
+      list.children.map((card) =>
+        thumbOf(card)?.getAttribute("data-still-src"),
+      ),
+    ).toEqual(["c-003.poster.jpg", "a-001.jpg", "b-002.f000.jpg"]);
     expect(asked).toBe(0);
+  });
+
+  it("shrinks a still once per page: a reopen, or two cards on one still, draws it straight away", async () => {
+    const { shrunk, shrink } = fakeShrinker();
+    const { overlay, list } = mountList(undefined, shrink);
+    const twice = [...records, bookmark({ id: "bk-4", itemId: "a-001" })];
+    overlay.render(summaries(twice));
+    await settle();
+    expect(shrunk.filter((src) => src === "a-001.jpg")).toHaveLength(1);
+    overlay.close();
+    overlay.open();
+    overlay.render(summaries(twice));
+    for (const card of list.children) {
+      expect(thumbOf(card)?.tagName).toBe("CANVAS");
+    }
+    expect(shrunk).toHaveLength(3);
+  });
+
+  it("a still that cannot be shrunk shows the file itself", async () => {
+    const { shrink } = fakeShrinker(["a-001.jpg"]);
+    const { overlay, list } = mountList(undefined, shrink);
+    overlay.render(summaries(records));
+    await settle();
+    expect(thumbOf(list.children[1])?.tagName).toBe("IMG");
+    expect(thumbOf(list.children[1])?.src).toBe("a-001.jpg");
+    expect(thumbOf(list.children[0])?.tagName).toBe("CANVAS");
   });
 
   it("reads a picture once per page: a reopen draws it straight away", async () => {
@@ -601,11 +660,13 @@ describe("mountBookmarkOverlay opens at once and fills in its pictures", () => {
     expect(asked).toBe(3);
   });
 
-  it("a capture that cannot be read falls back to the manifest still", async () => {
+  it("a capture that cannot be read falls back to the manifest still, shrunk", async () => {
     const { overlay, list } = mountList(() => Promise.reject(new Error("x")));
     overlay.render(summaries(records, true));
     await settle();
-    expect(thumbOf(list.children[1])?.src).toBe("a-001.jpg");
+    expect(thumbOf(list.children[1])?.getAttribute("data-still-src")).toBe(
+      "a-001.jpg",
+    );
   });
 
   it("reads at most a few pictures at a time", async () => {
