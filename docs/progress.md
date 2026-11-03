@@ -1446,3 +1446,13 @@ truthful: an unchecked box means nothing was accepted.
       reset box. Biome specificity warnings fixed. vitest 626, check
       clean, screens 66 + 2 headless-fullscreen partials (5 new checks),
       navigation 21/21, smoke 6/6. 2026-11-03)
+- [ ] Media scenario flake: "the next chain line keeps the same <video>
+      playing" intermittently fails with currentTime 0 (closer run, and 1
+      of 3 reruns, 2026-11-03; also seen once in Phase 26). Find whether
+      the player restarts the chained video or the check samples too
+      early, and fix the cause.
+- [ ] Phase-closer: full suite, rebuild demo folders.
+      (2026-11-03 first run: vitest 626, scenario suite 233 checks: 230
+      pass, 2 PARTIAL (headless fullscreen), 1 FAIL (media chain
+      currentTime 0, item above); package-proof 18/18, demo folders
+      rebuilt. Converter untouched since Phase 27's 499 pytest.)
