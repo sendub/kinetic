@@ -43,6 +43,8 @@ export interface SavedHistoryEntry {
   readonly decision?: string;
   /** Played this pass as of the screen, where it changed (`HistoryEntry`). */
   readonly passRoutes?: readonly SavedRouteSet[];
+  /** The furthest point read after a gap (`HistoryEntry`). */
+  readonly gap?: true;
 }
 
 /** The routes of one decision, by ids. */

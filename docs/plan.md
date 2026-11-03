@@ -800,6 +800,17 @@ subpath support (schema, validator, player, package-proof) stays.
   showing are appended after the landing as its future (`pos` stays on
   the landing), so reading on replays them and `e` reaches the furthest
   point read rather than doing nothing.
+  When the landing is a seen screen the record no longer holds (the cap
+  dropped it, or a one-entry resume record never showed it), the
+  record's end is appended again after the landing as a GAP entry: the
+  furthest point read, with the screens between unrecorded. `e` goes to
+  it; reading on from the landing records each screen just before it,
+  so it stays the end through any picks (the record cannot tell a fork
+  without the screens in between), until the reader reaches that same
+  screen by reading (the gap closes), reads on from it, or jumps again
+  (a new landing's gap copies the end once more). A second `e` at the
+  end does nothing, as always. A `u` landing is new reading and becomes
+  the end as before. The flag persists on the entry (`gap`).
 - The wheel moves `pos` only: back/forward one entry, clamped to the
   record; it shows the entry exactly - an item with its stack restored,
   or the choice screen in full (the same panel, current seen marks and

@@ -135,6 +135,7 @@ export function createContextCodec(
         stack: stack as SavedFrame[],
         ...(decision === undefined ? {} : { decision }),
         ...(pass === undefined ? {} : { passRoutes: savedSets(pass) }),
+        ...(entry.gap === true ? { gap: true as const } : {}),
       });
       pass = undefined;
     }
@@ -210,6 +211,7 @@ export function createContextCodec(
           stack,
           ...(decision === undefined ? {} : { decision }),
           ...(pass === undefined ? {} : { passRoutes: indexSets(pass) }),
+          ...(entry.gap === true ? { gap: true as const } : {}),
         });
         pass = undefined;
         if (position <= onScreen) historyPos = history.length - 1;

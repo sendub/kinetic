@@ -136,6 +136,7 @@ for (const [name, makeStorage] of ADAPTERS) {
           { item: "x-0", stack: [] },
           { item: "x-1", stack: [], decision: "d1" },
           { item: "x-7", stack: [{ decision: "d1", route: "r0" }] },
+          { item: "x-4", stack: [], gap: true },
         ],
         historyPos: 1,
       };
@@ -370,6 +371,7 @@ describe("sanitizeContext — the context the shipped adapter reads back", () =>
       { item: "x-0", stack: [] },
       { item: "x-2", stack: [], decision: "d0" },
       { item: "x-3", stack: [{ decision: "d0", route: "r1" }] },
+      { item: "x-1", stack: [], gap: true as const }, // the furthest point (Phase 26)
     ];
     expect(sanitizeContext({ ...base, history, historyPos: 1 })).toEqual({
       ...base,

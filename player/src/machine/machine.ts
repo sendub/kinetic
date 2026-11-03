@@ -25,7 +25,12 @@
 // Ren'Py fork). Jumps that are not reading (`goTo()`, a bookmark restore)
 // append their landing at the end; a landing on a screen already on record
 // brings the screens recorded after it along as its future (Phase 26), so
-// reading on replays and `e` still reaches the furthest point read. The wheel moves `pos` only and shows the
+// reading on replays and `e` still reaches the furthest point read. A seen
+// landing the record no longer holds (the cap dropped it) brings the
+// record's end along instead, flagged `gap`: `e` goes there, and reading
+// on from the landing records each screen just before it, so it stays the
+// end until the reader reads up to that screen, reads on from it, or
+// jumps again. The wheel moves `pos` only and shows the
 // entry exactly — the item with its frames restored, or the choice screen in
 // full — answering nothing and marking nothing played; `e` shows the last
 // entry. The record is capped (`HISTORY_CAP`, oldest first) and persists in
@@ -709,6 +714,13 @@ interface Entry {
   decision?: number;
   /** The played-this-pass record as of this screen, restored with it. */
   pass: readonly RouteSet[];
+  /**
+   * The furthest point read, held at the record's end after a jump whose
+   * landing the record no longer held (`recordJump`): the screens between
+   * the one before it and this one are not on record. Only the last entry
+   * carries it.
+   */
+  gap?: true;
 }
 
 function sameStack(a: readonly Frame[], b: readonly Frame[]): boolean {
@@ -1302,6 +1314,8 @@ export function createMachine(options: MachineOptions): Machine {
   /** Appends an entry as the last one, dropping the oldest past the cap. */
   function pushEntry(entry: Entry): void {
     historyExport = null;
+    const end = history[history.length - 1];
+    if (end?.gap === true) delete end.gap; // no longer the record's end
     history.push(entry);
     if (history.length > HISTORY_CAP) {
       history.splice(0, history.length - HISTORY_CAP);
@@ -1326,6 +1340,19 @@ export function createMachine(options: MachineOptions): Machine {
       const next = history[pos + 1];
       if (sameEntry(next, entry) && sameRouteSets(next.pass, entry.pass)) {
         pos += 1;
+        if (next.gap === true) {
+          delete next.gap; // read up to the furthest point: the gap closes
+          historyExport = null;
+        }
+        return;
+      }
+      if (next.gap === true) {
+        // Reading towards the furthest point (`recordJump`): the screen
+        // goes in before it, which stays the record's end.
+        history.pop();
+        pushEntry(entry);
+        pushEntry(next);
+        pos = history.length - 2;
         return;
       }
       history.length = pos + 1; // pushEntry drops the cached export
@@ -1341,8 +1368,14 @@ export function createMachine(options: MachineOptions): Machine {
    * record) are appended after the landing as its recorded future
    * (docs/plan.md Phase 26): reading on replays them and `e` reaches the
    * furthest point read, instead of the landing becoming the record's end.
+   * When the record does not hold a SEEN landing (the cap dropped it, or a
+   * resume record never showed it), the record's end is appended again
+   * after the landing as a `gap` entry: `e` still goes there, and reading
+   * on from the landing records its screens before it until the reader
+   * reaches it. An `unseen` landing (`u`) is new reading: it becomes the
+   * end, as before.
    */
-  function recordJump(entry: Entry): void {
+  function recordJump(entry: Entry, unseen: boolean): void {
     pos = history.length - 1;
     if (pos >= 0 && sameEntry(history[pos], entry)) {
       keepPass(entry);
@@ -1357,7 +1390,12 @@ export function createMachine(options: MachineOptions): Machine {
         break;
       }
     }
-    const future = from < 0 ? [] : history.slice(from + 1);
+    const future =
+      from < 0
+        ? pos < 0 || unseen
+          ? []
+          : [{ ...history[pos], gap: true as const }]
+        : history.slice(from + 1);
     pushEntry(entry);
     for (const recorded of future) pushEntry({ ...recorded });
     pos = history.length - 1 - future.length;
@@ -1383,11 +1421,12 @@ export function createMachine(options: MachineOptions): Machine {
    */
   function showItem(index: number, kind: TransitionKind, jump = false): void {
     const keepsChain = index === cursor + 1 && chainHeadAt !== null;
+    const unseen = !visited.has(index);
     cursor = index;
     transition = kind;
     chainHeadAt = chainHeadMarkFor(index, keepsChain);
     markShown(index);
-    if (jump) recordJump(currentEntry());
+    if (jump) recordJump(currentEntry(), unseen);
     else recordRead(currentEntry());
     beginItem();
     emit();
@@ -2150,10 +2189,12 @@ export function createMachine(options: MachineOptions): Machine {
       if (route < 0 || route >= decisions[decision].routes.length) return null;
       entryStack.push({ decision, route });
     }
-    if (raw.decision === undefined) return { index, stack: entryStack, pass };
+    const gap = raw.gap === true ? { gap: true as const } : {};
+    if (raw.decision === undefined)
+      return { index, stack: entryStack, pass, ...gap };
     const decision = asIndex(raw.decision, -1);
     if (decision < 0 || decision >= decisions.length) return null;
-    return { index, stack: entryStack, decision, pass };
+    return { index, stack: entryStack, decision, pass, ...gap };
   }
 
   /**
@@ -2188,6 +2229,7 @@ export function createMachine(options: MachineOptions): Machine {
       return;
     }
     const last = history.length - 1;
+    for (let at = 0; at < last; at += 1) delete history[at].gap; // end only
     placeEntry(clamp(asIndex(context.historyPos, last), 0, last));
   }
 
@@ -2205,6 +2247,7 @@ export function createMachine(options: MachineOptions): Machine {
             ),
           ),
           ...(entry.decision === undefined ? {} : { decision: entry.decision }),
+          ...(entry.gap === true ? { gap: true } : {}),
           // The pass record only where it changed (`HistoryEntry`).
           ...(at > 0 && sameRouteSets(history[at - 1].pass, entry.pass)
             ? {}

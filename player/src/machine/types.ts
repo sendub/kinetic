@@ -311,12 +311,17 @@ export interface ContextFrame {
  * the entry before (always on the first); an entry without it has the
  * record of the entry before it, and a history with none at all (a save
  * from before this field) has the context's `passRoutes` throughout.
+ *
+ * `gap` (last entry only) marks the furthest point read, kept at the
+ * record's end after a bookmark landing the record no longer held: the
+ * screens before it are not on record (docs/plan.md Phase 26).
  */
 export interface HistoryEntry {
   readonly index: number;
   readonly stack: readonly ContextFrame[];
   readonly decision?: number;
   readonly passRoutes?: readonly RouteSet[];
+  readonly gap?: true;
 }
 
 /** The routes of one decision, by position (a played or completed set). */

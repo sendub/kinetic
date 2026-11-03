@@ -1286,3 +1286,19 @@ truthful: an unchecked box means nothing was accepted.
       suite 211: 209 pass + 2 headless-fullscreen partials. One unrelated
       media check flaked once (video currentTime 0) and passed on rerun.
       2026-11-02)
+- [x] `e` after a bookmark outside retained history (2026-11-03, user via
+      the game I agent): bookmark, read past HISTORY_CAP (5000)
+      so the bookmarked screen is evicted, restore the bookmark, advance
+      once, press `e`: nothing happens. recordJump finds no earlier copy
+      of the landing (`from` stays -1), so no future is attached and the
+      landing becomes the record's end. `e` must still return to the
+      furthest position read before the restore, also after advancing
+      from the landing and after a reload. Test at the real cap.
+      (Rule: a seen landing missing from the record appends the record's
+      end again after it, flagged `gap`; `e` goes there and reading on
+      records screens just before it until the reader reaches it, reads
+      on past it, or jumps again; `u` landings still become the end;
+      `gap` persists through storage. New machine tests at the real
+      HISTORY_CAP (restore, advance 1 and 3, reload, in-history
+      unchanged) failed before the fix. vitest 576, check clean, smoke
+      6/6, screens 57 + 2 headless-fullscreen partials. 2026-11-03)

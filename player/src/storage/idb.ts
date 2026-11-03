@@ -365,6 +365,7 @@ export function sanitizeContext(raw: unknown): SavedContext | undefined {
       ...(Array.isArray(candidate.passRoutes)
         ? { passRoutes: routeSets(candidate.passRoutes) }
         : {}),
+      ...(candidate.gap === true ? { gap: true as const } : {}),
     });
   }
   function routeSets(raw: unknown): SavedRouteSet[] {
