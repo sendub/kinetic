@@ -55,7 +55,11 @@ import { downloadText } from "./render/download";
 import { EARLIER_UNSEEN_NOTICE } from "./render/endcard";
 import { installFirstGestureFullscreen } from "./render/fullscreen";
 import { gameTitleOf, mountHelpOverlay, pageTitleFor } from "./render/help";
-import { installKeyMap, suspendTimeline } from "./render/keys";
+import {
+  bookmarksKeyAction,
+  installKeyMap,
+  suspendTimeline,
+} from "./render/keys";
 import { loadManifest } from "./render/manifest";
 import { mountRouteAnnouncements } from "./render/routes";
 import { installWheelInput } from "./render/wheel";
@@ -399,6 +403,10 @@ function start(): void {
       const help = mountHelpOverlay({
         root,
         gameTitle: manifest.title,
+        // The `t` row is clickable: it does what `t` does over the screen.
+        onEntry: (command) => {
+          if (command === "toggleBookmarks") runBookmarksKey();
+        },
       });
       // The settings (Phase 26: on the Esc screen, under the keys; `c` is
       // gone). A control click applies the full next settings live — machine.setSettings re-arms
@@ -621,6 +629,27 @@ function start(): void {
         wheelForward: timelineGate(walk(() => machine.wheelForward())),
       };
 
+      // `t` (and the Esc screen's `t` row): toggles the list, and over
+      // the Esc screen REPLACES it with the list — the list opens first,
+      // so the menu pause never lifts between the two and the game never
+      // shows through, then the screen closes as Escape would close it
+      // (helpSeen recorded). The next Escape closes the list and the game
+      // resumes as from the Esc screen; it does not reopen that screen.
+      function runBookmarksKey(): void {
+        const action = bookmarksKeyAction({
+          confirmOpen: confirm.isOpen(),
+          helpOpen: help.isOpen(),
+          choiceOpen: choice.isOpen(),
+          listOpen: overlay.isOpen(),
+        });
+        if (action === "close") overlay.close();
+        else if (action === "open") showBookmarks();
+        else if (action === "replaceHelp") {
+          showBookmarks();
+          closeHelp();
+        }
+      }
+
       installKeyMap(
         document,
         {
@@ -661,11 +690,7 @@ function start(): void {
             if (!storyInput()) return;
             void takeBookmark();
           },
-          toggleBookmarks: () => {
-            if (!storyInput()) return;
-            if (overlay.isOpen()) overlay.close();
-            else showBookmarks();
-          },
+          toggleBookmarks: runBookmarksKey,
           // `a` (README auto-forward bullet): manual is the start, and `a`
           // toggles auto-advance. Turning it off cancels the pending hold;
           // a skip dwell keeps running — skipping is the reader's own run.

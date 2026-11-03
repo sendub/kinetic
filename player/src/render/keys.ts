@@ -151,7 +151,7 @@ const HELP_ROWS: ReadonlyArray<{
   { command: "toggleBookmarks", description: "bookmark list" },
   {
     command: "dismissOverlay",
-    description: "this screen: keys and settings; closes t",
+    description: "this screen: keys and settings; closes the list",
   },
   {
     command: null,
@@ -180,6 +180,36 @@ export function keyHelpEntries(): KeyHelpEntry[] {
         : entryKeysFor(row.command),
     description: row.description,
   }));
+}
+
+/**
+ * The Esc screen rows that act when clicked (or Enter on them): `t` opens
+ * the bookmark list in the screen's place, as the key does over it. The
+ * other rows only describe; their keys do the work.
+ */
+export const CLICKABLE_HELP_COMMANDS: ReadonlySet<KeyCommand> = new Set([
+  "toggleBookmarks",
+]);
+
+/** What `t` (or a click on its Esc screen row) does in a given state. */
+export type BookmarksKeyAction = "open" | "close" | "replaceHelp" | "none";
+
+/**
+ * Pure routing for `t`. The reset box swallows it; over the Esc screen it
+ * replaces that screen with the list ("replaceHelp"), so the next Escape
+ * returns to the game, not to the Esc screen — unless a decision waits
+ * under the screen, which `t` never opens over; a pending decision makes
+ * it inert; otherwise it toggles the list.
+ */
+export function bookmarksKeyAction(state: {
+  confirmOpen: boolean;
+  helpOpen: boolean;
+  choiceOpen: boolean;
+  listOpen: boolean;
+}): BookmarksKeyAction {
+  if (state.confirmOpen || state.choiceOpen) return "none";
+  if (state.helpOpen) return "replaceHelp";
+  return state.listOpen ? "close" : "open";
 }
 
 /**

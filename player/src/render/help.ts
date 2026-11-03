@@ -28,7 +28,11 @@
 // half only applies them; the rows themselves live with the keymap
 // (single source), not here.
 
-import { keyHelpEntries } from "./keys";
+import {
+  CLICKABLE_HELP_COMMANDS,
+  type KeyCommand,
+  keyHelpEntries,
+} from "./keys";
 
 /** The keys' heading, shown above the key grid. */
 export const HELP_TITLE = "Keys";
@@ -75,6 +79,12 @@ export interface HelpOverlayOptions {
    * it is non-blank text (gameTitleOf), else no heading at all.
    */
   gameTitle?: unknown;
+  /**
+   * A click (or Enter) on a row whose command is in
+   * `CLICKABLE_HELP_COMMANDS` — the `t` row — runs that command as its key
+   * would over this screen. Absent: no row is a control.
+   */
+  onEntry?: (command: KeyCommand) => void;
 }
 
 /**
@@ -100,8 +110,13 @@ export function helpKeyLabel(key: string): string {
 }
 
 /** The rows to draw, from the keymap's entries. Pure. */
-export function helpRows(): { keys: string[]; description: string }[] {
+export function helpRows(): {
+  command: KeyCommand | null;
+  keys: string[];
+  description: string;
+}[] {
   return keyHelpEntries().map((entry) => ({
+    command: entry.command,
     keys: entry.keys.map(helpKeyLabel),
     description: entry.description,
   }));
@@ -110,6 +125,7 @@ export function helpRows(): { keys: string[]; description: string }[] {
 export function mountHelpOverlay({
   root,
   gameTitle,
+  onEntry,
 }: HelpOverlayOptions): HelpOverlay {
   const doc = root.ownerDocument;
 
@@ -131,8 +147,20 @@ export function mountHelpOverlay({
   const list = doc.createElement("div");
   list.className = "help-list";
   for (const row of helpRows()) {
-    const line = doc.createElement("div");
+    // A clickable row is a button (focusable, Enter activates it) drawn
+    // like the others; index.html's `button.help-row` adds only the
+    // hover/focus cue.
+    const command = row.command;
+    const clickable =
+      onEntry !== undefined &&
+      command !== null &&
+      CLICKABLE_HELP_COMMANDS.has(command);
+    const line = doc.createElement(clickable ? "button" : "div");
     line.className = "help-row";
+    if (clickable) {
+      (line as HTMLButtonElement).type = "button";
+      line.addEventListener("click", () => onEntry(command));
+    }
     // The entry's key caps on one line, its description beneath
     // (index.html's `.help-row`). Each word of a label is its own cap and
     // a lone "/" is the "or" between caps, so `1-9 / 0` draws two caps;
@@ -169,9 +197,10 @@ export function mountHelpOverlay({
   panel.append(hint, title, list);
   root.appendChild(panel);
 
-  // No click handler: only its keys close it (Esc or Space, main.ts),
-  // so a stray click — the first-load one included — leaves it up
-  // (docs/plan.md Phase 24).
+  // No click handler on the panel: only its keys close it (Esc or Space,
+  // main.ts), so a stray click — the first-load one included — leaves it
+  // up (docs/plan.md Phase 24). The one exception is the `t` row, a
+  // deliberate control that swaps this screen for the bookmark list.
 
   function close(): void {
     panel.hidden = true;

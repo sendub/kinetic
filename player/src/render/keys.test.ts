@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { DecisionKey, KeyCommands, TimelineCommands } from "./keys";
 import {
+  bookmarksKeyAction,
+  CLICKABLE_HELP_COMMANDS,
   commandForKey,
   decisionKeyFor,
   installKeyMap,
@@ -39,7 +41,9 @@ describe("commandForKey", () => {
     expect(commandForKey("c", false)).toBeNull();
     expect(commandForKey("C", false)).toBeNull();
     const esc = keyHelpEntries().find((e) => e.command === "dismissOverlay");
-    expect(esc?.description).toBe("this screen: keys and settings; closes t");
+    expect(esc?.description).toBe(
+      "this screen: keys and settings; closes the list",
+    );
     for (const entry of keyHelpEntries()) {
       expect(entry.description).not.toMatch(/\bc\b/);
     }
@@ -290,5 +294,40 @@ describe("keyHelpEntries (the help lists the map itself, Phase 13b)", () => {
     for (const entry of keyHelpEntries()) {
       expect(entry.description.length).toBeLessThanOrEqual(56);
     }
+  });
+});
+
+describe("bookmarksKeyAction (t over the Esc screen replaces it)", () => {
+  const closedAll = {
+    confirmOpen: false,
+    helpOpen: false,
+    choiceOpen: false,
+    listOpen: false,
+  };
+
+  it("toggles the list over the story", () => {
+    expect(bookmarksKeyAction(closedAll)).toBe("open");
+    expect(bookmarksKeyAction({ ...closedAll, listOpen: true })).toBe("close");
+  });
+
+  it("over the Esc screen swaps the screen for the list instead of doing nothing", () => {
+    expect(bookmarksKeyAction({ ...closedAll, helpOpen: true })).toBe(
+      "replaceHelp",
+    );
+  });
+
+  it("is inert under the reset box and with a decision pending, Esc screen or not", () => {
+    for (const helpOpen of [false, true]) {
+      expect(
+        bookmarksKeyAction({ ...closedAll, helpOpen, confirmOpen: true }),
+      ).toBe("none");
+      expect(
+        bookmarksKeyAction({ ...closedAll, helpOpen, choiceOpen: true }),
+      ).toBe("none");
+    }
+  });
+
+  it("only the t row of the Esc screen is a control", () => {
+    expect([...CLICKABLE_HELP_COMMANDS]).toEqual(["toggleBookmarks"]);
   });
 });

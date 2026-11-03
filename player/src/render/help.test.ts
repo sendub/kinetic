@@ -204,3 +204,31 @@ describe("a click does not close the help (docs/plan.md Phase 24)", () => {
     expect(help.isOpen()).toBe(false);
   });
 });
+
+describe("the T entry is a control (t from the Esc screen)", () => {
+  function mountRows(onEntry?: (command: string) => void): FakeElement[] {
+    const root = new FakeDocument().createElement("div");
+    mountHelpOverlay({ root: root as unknown as HTMLElement, onEntry });
+    const list = root.children[0]?.children.find(
+      (el) => el.className === "help-list",
+    );
+    if (list === undefined) throw new Error("no key grid");
+    return list.children;
+  }
+
+  it("draws the T row as a button that runs toggleBookmarks; every other row stays plain", () => {
+    const calls: string[] = [];
+    const rows = mountRows((command) => calls.push(command));
+    const index = helpRows().findIndex((r) => r.command === "toggleBookmarks");
+    rows.forEach((row, i) => {
+      expect(row.tagName).toBe(i === index ? "BUTTON" : "DIV");
+      expect(row.className).toBe("help-row");
+    });
+    rows[index]?.fire("click");
+    expect(calls).toEqual(["toggleBookmarks"]);
+  });
+
+  it("with no handler no row is a control", () => {
+    for (const row of mountRows()) expect(row.tagName).toBe("DIV");
+  });
+});

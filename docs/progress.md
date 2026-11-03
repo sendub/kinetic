@@ -1436,6 +1436,13 @@ truthful: an unchecked box means nothing was accepted.
       first and cached. Old-format rows migrate. vitest 620, screens 60 +
       2 headless-fullscreen partials incl. 60-row open <300 ms check,
       navigation pass. 3 s not reproduced on this machine. 2026-11-03)
-- [ ] `t` from the Esc screen: opening the bookmark screen from the Esc
+- [x] `t` from the Esc screen: opening the bookmark screen from the Esc
       screen replaces it, so a following Esc returns to the game, not to
       the Esc screen.
+      (Before: `t` did nothing under the Esc screen. Now `t` or a click on
+      the T entry (the one clickable key row, hover cue) opens the list and
+      then closes the Esc screen, 0 frames with neither; Esc then returns
+      to the game and auto-forward resumes. Inert over a choice or the
+      reset box. Biome specificity warnings fixed. vitest 626, check
+      clean, screens 66 + 2 headless-fullscreen partials (5 new checks),
+      navigation 21/21, smoke 6/6. 2026-11-03)

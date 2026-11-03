@@ -257,8 +257,9 @@ async function helpMidFlow({ check, open }) {
   );
 
   // The Esc screen holds the settings too (Phase 26): under the key grid,
-  // shown with it. `t` opens nothing behind it, and `c` is no key: it
-  // changes nothing, on the screen or (below) behind it.
+  // shown with it. `c` is no key: it changes nothing, on the screen or
+  // (below) behind it. (`t` swaps the screen for the bookmark list:
+  // escToBookmarks.)
   const onScreen = await page.evaluate(READ_CONFIG_OVERLAY);
   const grid = await page.evaluate(READ_KEY_GRID);
   check(
@@ -270,13 +271,6 @@ async function helpMidFlow({ check, open }) {
       grid.scrollWidth <= grid.clientWidth,
     { belowKeys: onScreen.belowKeys, grid },
   );
-  await pressT(cdp);
-  await sleep(150);
-  const afterT = {
-    help: await helpOpen(page),
-    config: await configOpen(page),
-    list: await panelOpen(page),
-  };
   await pressC(cdp);
   await sleep(150);
   const afterC = {
@@ -286,15 +280,12 @@ async function helpMidFlow({ check, open }) {
     text: (await page.evaluate(PAGE_STATE)).text,
   };
   check(
-    "t opens nothing behind the Esc screen, and c changes nothing on it",
-    afterT.help === true &&
-      afterT.config === true &&
-      afterT.list === false &&
-      afterC.help === true &&
+    "c changes nothing on the Esc screen",
+    afterC.help === true &&
       afterC.config === true &&
       afterC.list === false &&
       afterC.text === item("text-speech").text,
-    { afterT, afterC },
+    { afterC },
   );
 
   // Space closes the screen even with a settings button focused (a click
@@ -369,6 +360,196 @@ async function helpMidFlow({ check, open }) {
       advanced &&
       advancedMs > hold - 500,
     { closed: closed.helpOpen, advanced, advancedMs, fullHold: hold },
+  );
+}
+
+// The Esc screen hands over to the `t` list: `t`, or a click on the
+// screen's T entry, closes the Esc screen and opens the bookmark list in
+// its place (no frame with neither up), and the next Escape goes back to
+// the game, as closing the Esc screen would (the menu pause lifts), not
+// back to the Esc screen. A bookmark picked from that list lands as
+// usual. KINETIC_ESC_T_SHOTS names a folder for a screenshot of the
+// hovered T entry.
+async function escToBookmarks({ check, open }) {
+  const { page, cdp } = await open("esc-t", { closeHelp: true });
+  await leaveFullscreen(page, cdp);
+  const NEITHER = () =>
+    (document.getElementById("help")?.hidden ?? true) &&
+    (document.getElementById("bookmarks")?.hidden ?? true);
+  const SCREENS = () => ({
+    help: !(document.getElementById("help")?.hidden ?? true),
+    list: !(document.getElementById("bookmarks")?.hidden ?? true),
+    stageHidden: (() => {
+      const stage = document.getElementById("stage");
+      return stage === null ? null : getComputedStyle(stage).display === "none";
+    })(),
+    text: document.getElementById("overlay-text")?.textContent ?? "",
+  });
+  // Counts animation frames in which neither screen is up while armed:
+  // the game showing through between the two.
+  const ARM_GAP_PROBE = () => {
+    window.__gapFrames = 0;
+    window.__gapArmed = true;
+    const tick = () => {
+      if (!window.__gapArmed) return;
+      const help = document.getElementById("help");
+      const list = document.getElementById("bookmarks");
+      if ((help?.hidden ?? true) && (list?.hidden ?? true)) {
+        window.__gapFrames += 1;
+      }
+      requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  };
+  const readGap = () =>
+    page.evaluate(() => {
+      window.__gapArmed = false;
+      return window.__gapFrames;
+    });
+
+  // One bookmark, at text-speech; read on to text-thought.
+  await spaceTo(page, cdp, "text-speech");
+  await pressB(cdp);
+  await waitFor(page, FLASH_SHOWN);
+  await spaceTo(page, cdp, "text-thought");
+  const at = item("text-thought").text;
+  const hold = holdMs("text-thought");
+
+  // `t` over the Esc screen, auto-forward on: the list replaces the
+  // screen, and the machine stays paused under it.
+  await pressA(cdp);
+  await pressEscape(cdp);
+  const helpUp = await waitFor(page, HELP_OPEN, 2000);
+  await page.evaluate(ARM_GAP_PROBE);
+  await pressT(cdp);
+  const listUp = await waitFor(page, OVERLAY_VISIBLE, 2000);
+  await sleep(100);
+  const gap = await readGap();
+  const swapped = await page.evaluate(SCREENS);
+  await sleep(hold + 300);
+  const stillHere = await page.evaluate(SCREENS);
+  check(
+    "t on the Esc screen swaps it for the bookmark list (no frame with neither up), the story paused under it",
+    helpUp &&
+      listUp &&
+      gap === 0 &&
+      swapped.help === false &&
+      swapped.list === true &&
+      stillHere.list === true &&
+      stillHere.text === at,
+    { helpUp, listUp, gap, swapped, stillHere: stillHere.text, hold },
+  );
+
+  // Escape from that list goes back to the game, not to the Esc screen;
+  // the pause lifts, so auto-forward moves on after a fresh hold.
+  const back = await escapeUntil(page, cdp, NEITHER);
+  const game = await page.evaluate(SCREENS);
+  const movedOn = await waitFor(
+    page,
+    (t) => document.getElementById("overlay-text")?.textContent !== t,
+    hold + 1500,
+    at,
+  );
+  await pressA(cdp); // auto-forward off for the rest
+  check(
+    "Escape from that list returns to the game (no Esc screen), and auto-forward resumes",
+    back &&
+      game.help === false &&
+      game.list === false &&
+      game.stageHidden === false &&
+      game.text === at &&
+      movedOn,
+    { back, game, movedOn },
+  );
+
+  // The T entry is a control: it lights up under the pointer, and a
+  // click does what `t` does.
+  await escapeUntil(page, cdp, HELP_OPEN);
+  // The "Auto-forward off" pill fades first, for a clean screenshot.
+  await waitFor(page, () => document.getElementById("flash") === null);
+  const T_ROW = "#help button.help-row";
+  const LOOK = (sel) => {
+    const el = document.querySelector(sel);
+    if (el === null) return null;
+    const r = el.getBoundingClientRect();
+    const cap = el.querySelector(".help-cap");
+    return {
+      key: el.querySelector(".help-key")?.textContent ?? "",
+      rect: { top: r.top, bottom: r.bottom, left: r.left, right: r.right },
+      cursor: getComputedStyle(el).cursor,
+      rule: getComputedStyle(el).borderTopColor,
+      cap: cap === null ? null : getComputedStyle(cap).borderTopColor,
+      buttons: document.querySelectorAll("#help button.help-row").length,
+    };
+  };
+  const plain = await page.evaluate(LOOK, T_ROW);
+  if (plain !== null) {
+    await cdp.send("Input.dispatchMouseEvent", {
+      type: "mouseMoved",
+      x: Math.round((plain.rect.left + plain.rect.right) / 2),
+      y: Math.round((plain.rect.top + plain.rect.bottom) / 2),
+    });
+    await sleep(150);
+  }
+  const hovered = await page.evaluate(LOOK, T_ROW);
+  const shots = process.env.KINETIC_ESC_T_SHOTS;
+  if (shots) {
+    mkdirSync(shots, { recursive: true });
+    await page.screenshot({ path: join(shots, "esc-t-hover.png") });
+  }
+  check(
+    "only the T entry is clickable, and it looks it: pointer cursor, its rule and caps lit on hover",
+    plain !== null &&
+      hovered !== null &&
+      plain.key === "T" &&
+      plain.buttons === 1 &&
+      plain.cursor === "pointer" &&
+      hovered.rule !== plain.rule &&
+      hovered.cap !== plain.cap,
+    { plain, hovered },
+  );
+
+  await page.evaluate(ARM_GAP_PROBE);
+  await clickCenter(cdp, T_ROW);
+  const clickUp = await waitFor(page, OVERLAY_VISIBLE, 2000);
+  await sleep(100);
+  const clickGap = await readGap();
+  const clickSwap = await page.evaluate(SCREENS);
+  const clickBack = await escapeUntil(page, cdp, NEITHER);
+  const clickGame = await page.evaluate(SCREENS);
+  check(
+    "clicking the T entry swaps the Esc screen for the list, and Escape then returns to the game",
+    clickUp &&
+      clickGap === 0 &&
+      clickSwap.help === false &&
+      clickSwap.list === true &&
+      clickBack &&
+      clickGame.help === false &&
+      clickGame.list === false &&
+      clickGame.stageHidden === false,
+    { clickUp, clickGap, clickSwap, clickBack, clickGame },
+  );
+
+  // Picking a bookmark from the list the Esc screen opened lands on it.
+  await escapeUntil(page, cdp, HELP_OPEN);
+  await clickCenter(cdp, T_ROW);
+  await waitFor(page, OVERLAY_OPEN);
+  const list = await page.evaluate(READ_BOOKMARK_OVERLAY);
+  if (list.entries?.[0] !== undefined) {
+    await rowCenterClick(cdp, list.entries[0]);
+  }
+  const closed = await waitFor(page, NEITHER, 3000);
+  const landed = await waitForItem(page, "text-speech", 3000);
+  const final = await page.evaluate(SCREENS);
+  check(
+    "a bookmark picked from that list lands on its item, both screens closed",
+    list.entries?.length === 1 &&
+      closed &&
+      landed &&
+      final.help === false &&
+      final.list === false &&
+      final.stageHidden === false,
+    { entries: list.entries?.length, closed, landed, final },
   );
 }
 
@@ -1679,6 +1860,7 @@ export default async function (ctx) {
   for (const part of [
     helpFirstLoadClick,
     helpMidFlow,
+    escToBookmarks,
     bookmarks,
     bookmarkGrid,
     bookmarkSpeed,
