@@ -67,6 +67,8 @@ Per checklist item, run only what the item can break:
   `player/scripts/scenarios/*.scenario.mjs`, each on a fresh browser
   profile, so one never depends on another. Set
   `KINETIC_SCENARIO_ROOT=../.tmp/scenarios-<x>` when runs may overlap.
+  Each scenario file has a wall-clock limit (FAIL, Chrome killed, run
+  continues); `KINETIC_SCENARIO_TIMEOUT_MS` overrides the default.
 - Python change: `pytest` on the touched test file only.
 - The full suite (`npm run verify` with no filter, full pytest,
   `package-proof`) runs ONCE when the current phase is believed

@@ -1158,6 +1158,7 @@ export async function openScenario(name, options = {}) {
       `--crash-dumps-dir=${join(scenarioRoot, "crashdumps")}`,
     ],
   });
+  liveBrowsers.add(browser);
   const page = await browser.newPage();
   const errors = [];
   page.on("console", (msg) => {
@@ -1184,6 +1185,59 @@ export async function openScenario(name, options = {}) {
     }
   }
   return { browser, page, cdp, errors, url: page.url() };
+}
+
+// Every Chrome openScenario launched and nobody has closed yet, so the
+// runner can reap the ones a timed-out or crashed scenario left behind
+// (including one whose openScenario threw after the launch).
+const liveBrowsers = new Set();
+
+/**
+ * Kill `browser`'s whole process tree now. puppeteer starts Chrome as a
+ * process-group leader (detached), so the group kill takes its renderer,
+ * GPU and utility children too; the plain kill is the fallback.
+ */
+export function killBrowser(browser) {
+  liveBrowsers.delete(browser);
+  browser.disconnect().catch(() => {});
+  const proc = browser.process();
+  if (proc?.pid === undefined) return;
+  // The group outlives its leader while any helper is left, so it is
+  // killed even when Chrome itself already exited.
+  try {
+    process.kill(-proc.pid, "SIGKILL");
+  } catch {
+    if (proc.exitCode === null && proc.signalCode === null) {
+      try {
+        proc.kill("SIGKILL");
+      } catch {
+        // already gone
+      }
+    }
+  }
+}
+
+// How long a graceful close may take before the browser is killed:
+// puppeteer's close waits, unbounded, for the process to exit after
+// Browser.close was acknowledged.
+const CLOSE_WAIT_MS = 10000;
+
+/** Close `browser`, killing its process tree if the close does not finish. */
+export async function closeBrowser(browser) {
+  let timer;
+  await Promise.race([
+    browser.close().catch(() => {}),
+    new Promise((resolve) => {
+      timer = setTimeout(resolve, CLOSE_WAIT_MS);
+    }),
+  ]);
+  clearTimeout(timer);
+  killBrowser(browser);
+}
+
+/** Kill every browser still open (after a timeout, and before exit). */
+export function killLiveBrowsers() {
+  for (const browser of [...liveBrowsers]) killBrowser(browser);
 }
 
 /** Collects one scenario's checks; the runner prints and totals them. */

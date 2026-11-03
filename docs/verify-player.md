@@ -17,6 +17,10 @@ From `player/`:
   check per area in about 5 s, for per-change runs.
 - `KINETIC_SCENARIO_ROOT=../.tmp/scenarios-<x>` gives a run its own folders
   and profiles, so runs can overlap.
+- `KINETIC_SCENARIO_TIMEOUT_MS=<ms>` sets each scenario file's wall-clock
+  limit (default 300000, 5 minutes: about 3x `playall`, the slowest). A scenario past it FAILs with
+  `finished within <ms> ms`, naming the session and the last check it
+  reached; its Chrome is killed and the run goes on, exiting non-zero.
 
 Each `player/scripts/scenarios/*.scenario.mjs` file opens one or more FRESH
 browser profiles (a first-ever load each), so no scenario depends on

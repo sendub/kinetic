@@ -1337,6 +1337,13 @@ truthful: an unchecked box means nothing was accepted.
       route at each decision, not the reading history; `e` goes to the
       furthest point read; saved progress and bookmarks migrate
       automatically.
-- [ ] Scenario harness: a hung scenario (branches-unseen stalled 20+
+- [x] Scenario harness: a hung scenario (branches-unseen stalled 20+
       min, 2026-11-03) blocks the run forever. Give each scenario a
       wall-clock limit that fails it with the step it was on.
+      (Per-scenario limit, default 300 s = ~3x playall's 97 s,
+      KINETIC_SCENARIO_TIMEOUT_MS overrides; FAIL names session + last
+      check, Chrome process group killed, run continues, exit 1. The one
+      unbounded wait was browser.close() after Chrome acked: now 10 s then
+      kill. Orchestrator: 3 s limit -> FAIL "walk", 0 Chrome left; branches
+      41/41 three times; one earlier branches run ended 40 checks 39 pass
+      1 fail, output not captured, not reproduced in 3 reruns. 2026-11-03)
