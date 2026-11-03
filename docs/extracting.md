@@ -197,7 +197,11 @@ files (docs/plan.md Phase 25), which `kinetic-media rebuild` reads:
       JPEG bytes exactly;
     - `{"step": "transcode", "args": [...]}`: the full ffmpeg argument
       list after the binary, `{input}` and `{output}` standing for the
-      paths;
+      paths. A source with an odd width or height (H.264 yuv420p needs
+      even ones) also has `-vf format=yuv444p,pad=W:H:0:0,fillborders=
+      left=0:right=R:top=0:bottom=B:mode=smear` in `args`, with the
+      literal even size and the 0/1 column/row added, and a `reason`;
+      an even-sized source gets neither;
     - `{"step": "remux", "args": [...], "reason": "..."}`: a stream
       copy into MP4 (Video policy below), `args` as for `transcode`,
       `reason` why the source container or tag could not ship;
@@ -293,7 +297,17 @@ stream's codec and codec tag (`hvc1` or `hev1` for HEVC).
 | `transcode` | any other codec: AV1, MPEG-4 Part 2, MPEG-2, MJPEG, ProRes, H.263, Theora, FFV1, VP8 outside WebM/MKV (Ogg), unknown | bitexact H.264 faststart `.mp4` | `{"step": "transcode", "args": […]}` |
 
 AV1 is re-encoded because Safari on an M2 (no AV1 hardware decoder)
-does not play it, though Chrome does. A remux keeps only the first
+does not play it, though Chrome does. libx264 with yuv420p takes only
+even dimensions, so a re-encoded source with an odd width or height
+(a 180x101 AV1 clip) is padded by one column and/or row on the right
+and bottom, filled with a copy of the last source column or row
+(`fillborders` smear): no source pixel is cropped or resampled, no
+border shows, and the picture grows by at most one pixel each way.
+The padding runs on 4:4:4 pixels because padding odd-sized 4:2:0
+frames gave different bytes from run to run with the pinned ffmpeg.
+The poster is cut from the source, so it keeps the odd size. Even-sized
+transcodes, and every remux (odd-sized H.264, HEVC or VP9 is copied, not
+re-encoded), are unchanged. A remux keeps only the first
 video stream (`-map 0:v:0 -c:v copy -an -sn -dn`): audio is dropped
 because the player plays videos muted, and one recipe with no
 per-audio-codec table cannot fail on an audio, subtitle or attachment

@@ -1333,9 +1333,17 @@ truthful: an unchecked box means nothing was accepted.
       clean, smoke 6/6; subagent: branches+playall+screens 137 + 2
       headless-fullscreen partials. Screenshots .tmp/choice-overflow/.
       2026-11-03)
-- [ ] Odd-dimension video conversion: the H.264 re-encode fails on odd
+- [x] Odd-dimension video conversion: the H.264 re-encode fails on odd
       sizes (e.g. AV1 180x101, 289 skipped). Handle odd dimensions and
       record the recipe in the ledger so rebuild reproduces it.
+      (Only odd sizes: -vf format=yuv444p,pad to even,fillborders smear
+      of the last row/column (no border, no lost pixels; the 4:4:4 step
+      makes pad deterministic, plain pad varied run to run); exact chain
+      and a `reason` in the ledger step; even transcodes, remux and posters
+      unchanged. New golden ffmpeg.transcode-odd-mp4 recorded with --repin
+      from the installed tools. pytest odd/media-tools/setup 54 passed;
+      real pinned ship of 180x101 + 180x100 AV1: 2 shipped, outputs H.264
+      High yuv420p 180x102 / 180x100, rebuild OK. 2026-11-03)
 - [ ] Lossless video posters: `kinetic-media ship` posters from the frame
       at startSeconds, JPEG XL when smaller else PNG (same rule as
       images), recipe in the ledger, rebuild reproduces it, old ledgers

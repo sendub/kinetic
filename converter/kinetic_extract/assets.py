@@ -143,11 +143,14 @@ KEEP, REMUX, TRANSCODE = "keep", "remux", "transcode"
 @dataclass(frozen=True)
 class VideoProbe:
     """What ffprobe found: the true container, the first video stream's
-    codec and its codec tag (``hvc1``/``hev1`` for HEVC in ISO-BMFF)."""
+    codec, its codec tag (``hvc1``/``hev1`` for HEVC in ISO-BMFF) and its
+    coded width and height (None when ffprobe reports none)."""
 
     container: str
     codec: str | None
     tag: str | None
+    width: int | None = None
+    height: int | None = None
 
 
 _EBML_MAGIC = b"\x1a\x45\xdf\xa3"
@@ -267,7 +270,7 @@ def probe_video(path: Path) -> VideoProbe | None:
     proc = _run([*media_tools.ffprobe_cmd(),
                  "-show_entries", "format=format_name:format_tags=major_brand",
                  "-show_entries", "stream=codec_type,codec_name,"
-                 "codec_tag_string",
+                 "codec_tag_string,width,height",
                  "-of", "json", str(path)])
     if proc is None or proc.returncode != 0:
         return None
@@ -300,7 +303,13 @@ def probe_video(path: Path) -> VideoProbe | None:
         container = "webm" if webm else "mkv"
     else:
         container = names[0] or "unknown"
-    return VideoProbe(container, codec, tag)
+    return VideoProbe(container, codec, tag, _dimension(stream, "width"),
+                      _dimension(stream, "height"))
+
+
+def _dimension(stream: dict[str, Any], key: str) -> int | None:
+    value = stream.get(key)
+    return value if isinstance(value, int) and value > 0 else None
 
 
 def matroska_doctype(path: Path) -> str | None:
@@ -670,10 +679,32 @@ def file_step_cached(cache: MediaCache | None, step: dict[str, Any],
 INPUT, OUTPUT = "{input}", "{output}"
 
 
-def transcode_args() -> list[str]:
-    """Bitexact H.264 faststart MP4 transcode."""
+def even_pad_filter(width: int | None, height: int | None) -> str | None:
+    """The ffmpeg filter chain that makes an odd width or height even, or
+    None when both are even (or unknown). libx264 with yuv420p needs even
+    dimensions; one column/row is added on the right/bottom and filled
+    with a copy of the last source column/row (``fillborders`` smear), so
+    no source pixel is lost or resampled and no visible border appears.
+    The padding runs on 4:4:4 pixels (``format=yuv444p`` first): padding
+    an odd-sized 4:2:0 frame in place gave different bytes from run to
+    run with the pinned ffmpeg 9.0.2, the 4:4:4 chain the same bytes
+    every run. The numbers are literal: the ledger holds exactly what
+    ran."""
+    if width is None or height is None or (width % 2 == 0
+                                            and height % 2 == 0):
+        return None
+    right, bottom = width % 2, height % 2
+    return (f"format=yuv444p,pad={width + right}:{height + bottom}:0:0,"
+            f"fillborders=left=0:right={right}:top=0:bottom={bottom}"
+            ":mode=smear")
+
+
+def transcode_args(video_filter: str | None = None) -> list[str]:
+    """Bitexact H.264 faststart MP4 transcode; `video_filter` (``-vf``)
+    only when given, so the plain recipe is unchanged."""
+    vf = ["-vf", video_filter] if video_filter else []
     return [*media_tools.FFMPEG_GLOBAL, "-y",
-            *media_tools.FFMPEG_DECODE, "-i", INPUT,
+            *media_tools.FFMPEG_DECODE, "-i", INPUT, *vf,
             "-c:v", "libx264", "-preset", "veryfast",
             "-pix_fmt", "yuv420p", "-c:a", "aac",
             *media_tools.FFMPEG_ENCODE,
@@ -726,9 +757,21 @@ def run_ffmpeg(args: list[str], source: Path, out: Path) -> bool:
     return ffmpeg_error(args, source, out) is None
 
 
-def transcode_step() -> dict[str, Any]:
-    """The ledger recipe of a transcode (``run_file_step`` runs it)."""
-    return {"step": "transcode", "args": transcode_args()}
+def transcode_step(probe: VideoProbe | None = None) -> dict[str, Any]:
+    """The ledger recipe of a transcode (``run_file_step`` runs it). An
+    odd-sized source (`probe`) gets the even-pad filter in ``args`` and a
+    ``reason``; an even one gets the plain recipe, no extra fields."""
+    width = probe.width if probe else None
+    height = probe.height if probe else None
+    video_filter = even_pad_filter(width, height)
+    step: dict[str, Any] = {"step": "transcode",
+                            "args": transcode_args(video_filter)}
+    if video_filter:
+        step["reason"] = (
+            f"{width}x{height} has an odd dimension: H.264 yuv420p needs "
+            f"even ones, so it is padded to {width + width % 2}x"
+            f"{height + height % 2} repeating the last column/row")
+    return step
 
 
 def remux_step(probe: VideoProbe) -> dict[str, Any]:
@@ -738,9 +781,11 @@ def remux_step(probe: VideoProbe) -> dict[str, Any]:
             "reason": remux_reason(probe.container, codec, probe.tag)}
 
 
-def transcode_video(source: Path, out: Path) -> bool:
-    """Bitexact H.264 faststart MP4 transcode; True on success."""
-    return run_file_step(transcode_step(), source, out) is None
+def transcode_video(source: Path, out: Path,
+                    probe: VideoProbe | None = None) -> bool:
+    """Bitexact H.264 faststart MP4 transcode (`probe` gives the size an
+    odd source is padded from); True on success."""
+    return run_file_step(transcode_step(probe), source, out) is None
 
 
 def extract_frame_png(source: Path, png: Path, start_seconds: float) -> bool:
@@ -1306,7 +1351,8 @@ def _ship_video(record: ItemRecord, found: _Input, placed: _Placed,
             decision = "copy"
             steps = [{**PRESERVE_STEP, "codec": codec or "unknown"}]
         else:
-            step = remux_step(probe) if rule == REMUX else transcode_step()
+            step = remux_step(probe) if rule == REMUX \
+                else transcode_step(probe)
             made = scratch / f"{rule}.mp4"
             if file_step_cached(cache, step, source, digest,
                                 made) is not None:

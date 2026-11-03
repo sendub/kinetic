@@ -66,13 +66,26 @@ def make_video(ffmpeg: str) -> None:
         check=True)
 
 
+def make_odd_video(ffmpeg: str) -> None:
+    """An odd-sized (63x37) MPEG-4 Part 2 clip: never browser-native, so
+    it transcodes, through the even-pad filter."""
+    subprocess.run(
+        [ffmpeg, "-nostdin", "-hide_banner", "-v", "error", "-y",
+         "-f", "lavfi", "-i", "testsrc=size=63x37:rate=10:duration=0.5",
+         "-c:v", "mpeg4", "-an", "-threads", "1", "-fflags", "+bitexact",
+         "-flags:v", "+bitexact", "-map_metadata", "-1",
+         str(HERE / "sample-odd.mp4")],
+        check=True)
+
+
 def main() -> None:
     argp = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     argp.add_argument("--ffmpeg", default="ffmpeg",
-                      help="ffmpeg used once to write sample.mp4")
+                      help="ffmpeg used once to write the sample videos")
     args = argp.parse_args()
     make_images()
     make_video(args.ffmpeg)
+    make_odd_video(args.ffmpeg)
 
 
 if __name__ == "__main__":
