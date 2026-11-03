@@ -1411,3 +1411,15 @@ truthful: an unchecked box means nothing was accepted.
       scenario suite 11 scenarios 224 checks: 222 pass, 2 PARTIAL
       (headless fullscreen), 0 fail; package-proof 18/18, demo folders
       .tmp/pkg-demo and .tmp/pkg-extract rebuilt.)
+
+## Phase 28: Esc and bookmark screens (2026-11-03, user)
+
+- [ ] Esc screen layout: the description beside each key looks bad and
+      unaligned. Put it beneath the key, with structure within each
+      entry, and clear spacing between the keys area and the settings.
+- [ ] Bookmark screen (`t`) speed: with >50 bookmarks it takes ~3 s to
+      open. Open immediately regardless of count and fill in over time
+      if needed; optimise generally.
+- [ ] `t` from the Esc screen: opening the bookmark screen from the Esc
+      screen replaces it, so a following Esc returns to the game, not to
+      the Esc screen.
