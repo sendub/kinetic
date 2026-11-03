@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import type { Item, VideoItem } from "../machine/types";
+import type { Item, Manifest, VideoItem } from "../machine/types";
 import {
   animationFrameAt,
+  createVisualLayer,
   emptyStateNoticeText,
   playbackModeFor,
   upcomingVisualFiles,
@@ -527,5 +528,153 @@ describe("upcomingVisualFiles (Phase 12 decode preload)", () => {
     const items = [img("a.jpg"), img("b.jpg"), img("c.jpg"), img("d.jpg")];
     expect(upcomingVisualFiles(items, 0, 2)).toEqual(["b.jpg", "c.jpg"]);
     expect(upcomingVisualFiles(items, 3, 3)).toEqual([]);
+  });
+});
+
+// A stale end event: the machine moves forward INSIDE `onVideoEnded()`
+// (machine.mediaEnded() -> moveForward() once the hold has run out), so the
+// next item is applied to the reused <video> before the old item's
+// boundary code returns. That old code must not then seek or replay the
+// element with the old item's plan, nor report more ends for it.
+class FakeVideo {
+  id = "";
+  className = "";
+  muted = false;
+  playsInline = false;
+  preload = "";
+  loop = false;
+  poster = "";
+  src = "";
+  isConnected = false;
+  currentTime = 0;
+  paused = true;
+  style: Record<string, string> = {};
+  plays = 0;
+  rejectPlays = 0; // how many upcoming play() calls autoplay refuses
+  private listeners = new Map<string, Array<() => void>>();
+  setAttribute(): void {}
+  addEventListener(type: string, fn: () => void): void {
+    this.listeners.set(type, [...(this.listeners.get(type) ?? []), fn]);
+  }
+  removeEventListener(): void {}
+  remove(): void {
+    this.isConnected = false;
+  }
+  pause(): void {
+    this.paused = true;
+  }
+  play(): Promise<void> {
+    this.plays += 1;
+    if (this.rejectPlays > 0) {
+      this.rejectPlays -= 1;
+      return Promise.reject(new Error("NotAllowed"));
+    }
+    this.paused = false;
+    return Promise.resolve();
+  }
+  fire(type: string): void {
+    for (const fn of this.listeners.get(type) ?? []) fn();
+  }
+}
+
+function staleEndHarness(first: VideoItem, second: VideoItem, rejectPlays = 0) {
+  const videos: FakeVideo[] = [];
+  const doc = {
+    createElement(tag: string) {
+      if (tag === "video") {
+        const v = new FakeVideo();
+        v.rejectPlays = rejectPlays;
+        videos.push(v);
+        return v;
+      }
+      return { style: {}, remove() {} };
+    },
+  };
+  const stage = {
+    ownerDocument: doc,
+    append(el: { isConnected: boolean }) {
+      el.isConnected = true;
+    },
+  } as unknown as HTMLElement;
+  const items = [first, second];
+  const manifest = { schemaVersion: 1, items } as unknown as Manifest;
+  const reports: number[] = [];
+  let cursor = 0;
+  const show = (): void => {
+    layer.update(items[cursor], {
+      cursor,
+      frontier: cursor + 1,
+      settled: false,
+      skipping: false,
+      transition: "advance",
+    });
+  };
+  const layer = createVisualLayer(stage, manifest, {
+    onVideoEnded() {
+      reports.push(cursor);
+      // The machine's hold has already run out: the last counted pass
+      // moves it forward synchronously, inside this callback.
+      const owed = items[cursor].loopCount ?? 1;
+      if (reports.filter((c) => c === cursor).length >= owed && cursor === 0) {
+        cursor = 1;
+        show();
+      }
+    },
+  });
+  show();
+  const element = videos[0];
+  return { element, reports };
+}
+
+describe("a stale end event never touches the next item's playback", () => {
+  // Both items share one file, so the reused element keeps its source and
+  // only the plan changes, as for consecutive ranges of one movie.
+  const first = vid({
+    id: "v-001",
+    startSeconds: 1.0,
+    endSeconds: 2.0,
+    loopStartSeconds: 1.5,
+    loopCount: 2,
+  });
+  const next = vid({ id: "v-002", startSeconds: 0.25, loopCount: 1 });
+
+  it("file-end boundary: the next item starts at its own start, played once", () => {
+    const { element, reports } = staleEndHarness(first, next);
+    element.currentTime = 2.0;
+    element.fire("ended"); // pass 1 of 2: loops back
+    expect(element.currentTime).toBe(1.5);
+    element.currentTime = 2.0;
+    const playsBefore = element.plays;
+    element.fire("ended"); // pass 2 of 2: machine moves to v-002 inside
+    expect(reports).toEqual([0, 0]);
+    expect(element.currentTime).toBe(0.25);
+    expect(element.plays).toBe(playsBefore + 1); // v-002's own play only
+  });
+
+  it("in-file range boundary (timeupdate): the next item is not re-seeked", () => {
+    const inFile = vid({
+      id: "v-001",
+      startSeconds: 0.5,
+      endSeconds: 1.0,
+      loopStartSeconds: 0.75,
+      loopCount: 1,
+    });
+    const { element, reports } = staleEndHarness(inFile, next);
+    element.currentTime = 1.0;
+    element.fire("timeupdate"); // the only pass: machine moves to v-002
+    expect(reports).toEqual([0]);
+    expect(element.currentTime).toBe(0.25);
+    expect(element.paused).toBe(false);
+  });
+
+  it("autoplay rejection: owed ends stop once the machine has moved on", async () => {
+    // Only v-001's play is refused; v-002 plays, so it owes no ends yet.
+    const { reports } = staleEndHarness(
+      first,
+      vid({ id: "v-002", startSeconds: 0.25, loopCount: 3 }),
+      1,
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(reports).toEqual([0, 0]);
   });
 });

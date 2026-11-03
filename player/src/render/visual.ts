@@ -639,8 +639,7 @@ export function createVisualLayer(
    */
   function passBoundary(element: HTMLVideoElement, plan: VideoPlan): void {
     if (plan.reportEnds > 0) {
-      videoEndedCount += 1;
-      options.onVideoEnded();
+      if (!reportEnd(plan)) return;
       if (videoEndedCount >= plan.reportEnds) {
         stopRangeWatch();
         element.pause(); // last pass: hold at the range end
@@ -669,12 +668,27 @@ export function createVisualLayer(
       playVideo(video, plan);
       return;
     }
-    videoEndedCount += 1;
-    options.onVideoEnded();
+    if (!reportEnd(plan)) return;
     if (videoEndedCount < plan.reportEnds && video !== null) {
       seekTo(video, plan.loopStartSeconds);
       playVideo(video, plan);
     }
+  }
+
+  /**
+   * Count and report one pass of `plan` to the machine. The report can
+   * move the machine forward synchronously (`mediaEnded()` ->
+   * `moveForward()` once the hold has run out), and the next item's
+   * `applyVideoMode` then replaces `videoPlan` and resets
+   * `videoEndedCount` on this same element before control returns here.
+   * Returns false when `plan` is no longer current: the caller must then
+   * stop, so a stale pass never seeks, replays or reports for the next
+   * item.
+   */
+  function reportEnd(plan: VideoPlan): boolean {
+    videoEndedCount += 1;
+    options.onVideoEnded();
+    return videoPlan === plan;
   }
 
   function seekTo(element: HTMLVideoElement, seconds: number): void {
@@ -700,8 +714,7 @@ export function createVisualLayer(
     element.play().catch(() => {
       if (generation !== videoGeneration || videoPlan !== plan) return;
       while (videoEndedCount < plan.reportEnds) {
-        videoEndedCount += 1;
-        options.onVideoEnded();
+        if (!reportEnd(plan)) return;
       }
     });
   }

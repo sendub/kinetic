@@ -1474,13 +1474,18 @@ truthful: an unchecked box means nothing was accepted.
       `pastEnd` frames. Fault injection (one pass short; hold armed 400 ms
       early) fails both checks. Orchestrator: media 3/3 clean, vitest 626,
       check exit 0.)
-- [ ] Ranged video ends after its hold: `onVideoEnded` ->
+- [x] Ranged video ends after its hold: `onVideoEnded` ->
       `machine.mediaEnded()` moves forward synchronously, the next item's
       `applyVideoMode` resets `videoEndedCount`, then the old item's stale
       plan seeks to the old `loopStartSeconds` and replays
       (player/src/render/visual.ts; noted in docs/verify-player.md as
       "reported, engine untouched"). Make a stale end never touch the
       next item's playback; add a test.
+      (`reportEnd(plan)` counts and reports a pass, then returns whether
+      `plan` is still current; `passBoundary`, `onVideoEnded` and the
+      autoplay-rejection loop stop when it is not. 3 new tests in
+      visual.test.ts fail without the fix (1.5, 0.75, [0,0,1,1]).
+      Orchestrator: vitest 629, check exit 0, smoke 6/6, media 22/22.)
 - [ ] Phase-closer: full suite, rebuild demo folders.
       (2026-11-03 first run: vitest 626, scenario suite 233 checks: 230
       pass, 2 PARTIAL (headless fullscreen), 1 FAIL (media chain

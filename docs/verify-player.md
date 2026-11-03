@@ -96,9 +96,15 @@ tolerances below. Walked 2026-10-31 (on the pre-Phase-18 demo; the range clip is
   loop-back landing offsets, ≤ 0.25 s rVFC overshoot, range containment
   [-0.05, end+0.05]) so a slower machine still passes while the
   OBSERVED numbers above record what this one showed.
-- OBSERVED since the branch fixture made range-b mid-story: its last
-  pass report advances the machine INSIDE the same `ended` event, and
-  the renderer's counter reset under its own handler lets the hidden
-  element replay [1.5, 2.0] once before resting (reported, engine untouched). The step's arithmetic counts only what happened
-  while the item was on screen.
+- FIXED (was OBSERVED since the branch fixture made range-b mid-story):
+  its last pass report advances the machine INSIDE the same `ended`
+  event, and the next item's `applyVideoMode` reset the counter under
+  the old handler, which then seeked the element back to the old
+  `loopStartSeconds` and replayed [1.5, 2.0] once. The renderer now
+  reports each pass through `reportEnd`, and every boundary path
+  (`passBoundary`, `onVideoEnded`, the autoplay-rejection fallback)
+  stops when the report has replaced the plan, so a stale end never
+  seeks, replays or reports for the next item (`visual.test.ts`, "a
+  stale end event never touches the next item's playback"). The step's
+  arithmetic counts only what happened while the item was on screen.
 
