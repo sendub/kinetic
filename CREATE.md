@@ -387,8 +387,9 @@ keeps browser-compatible originals byte-identical or ships them as
 lossless JPEG XL when that is smaller, keeps video Safari and Chrome
 both play, remuxes H.264/HEVC/VP9 from a container one of them refuses
 (MKV, AVI, MPEG-TS) into MP4 without re-encoding, transcodes only other
-codecs, and makes the posters. Every media file it ships,
-posters included, is named by the sha256 of its bytes,
+codecs, and makes lossless posters (PNG, or JPEG XL when smaller).
+Every media file it ships, posters included, is named by the sha256 of
+its bytes,
 `media/<h[:2]>/<h>.<ext>` (docs/extracting.md, "Output layout").
 
 The conversion is reproducible: the same game gives the same bytes and
@@ -695,6 +696,32 @@ episodes). Share the finished folder, and keep the helper folder
 can rebuild it.
 
 Reference: docs/extracting.md, "kinetic-media ship".
+
+#### Regenerating JPEG posters as lossless ones
+
+Posters are lossless: a `.png`, or a `.jxl` when that is smaller and
+decodes to the same pixels. A folder shipped before that has `.jpg`
+posters. To replace them, ship the same request lists into the same
+folder again, then rebuild your manifest from the new results:
+
+```sh
+PYTHONPATH=. $KINETIC/.venv/bin/kinetic-media ship ~/games/RainyDay \
+    ~/games/RainyDay-Kinetic --list requests-ep1.json \
+    --decoder rainy_unwrap:decode
+```
+
+Videos are not converted again: each one the ledger already records
+for that source and recipe is re-hashed and reused, with or without
+the reuse cache, so only the posters are made. Every result's `poster`
+(and `width`/`height`) names the new file, and the summary ends with
+`unreferenced posters: N kept`, the old JPEGs, which stay in `media/`
+and in the ledger so the folder still rebuilds. Once your
+`manifest.json` uses the new posters, run the same command again with
+`--delete-unreferenced-posters` to delete them (it encodes nothing and
+prints `unreferenced posters: N deleted`). Only poster files that no
+request result, `manifest.json` or `build-ledger.json` in the folder
+names are deleted; a request you did not re-ship keeps its JPEG. Then
+run `rebuild` as below.
 
 ### Checking a folder with rebuild
 

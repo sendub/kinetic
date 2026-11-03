@@ -206,13 +206,20 @@ files (docs/plan.md Phase 25), which `kinetic-media rebuild` reads:
       copy into MP4 (Video policy below), `args` as for `transcode`,
       `reason` why the source container or tag could not ship;
     - `{"step": "poster", "startSeconds": S, "args": [...],
-      "frameFormat": "png", "mode": "RGB", "jpeg": {...}}`: the complete
-      poster recipe. ffmpeg runs `args` (`{input}` the video, `{output}`
-      a `frameFormat` file; the frame is selected by `-ss S` after `-i`,
-      an exact output seek, one frame, no scaling), then Pillow converts
-      that frame to `mode` and saves it as JPEG with the `jpeg` save
-      parameters. Running the step again on the source gives the same
-      bytes (Video policy, below).
+      "frameFormat": "png", "mode": "RGB", "png": {"optimize": true}}`:
+      the poster frame. ffmpeg runs `args` (`{input}` the video,
+      `{output}` a `frameFormat` file; the frame is selected by `-ss S`
+      after `-i`, an exact output seek, one frame, no scaling), then
+      Pillow converts that frame to `mode` and saves it as PNG with the
+      `png` save parameters. The next step is the still-image rule
+      applied to that PNG: `jxl` (lossless, verified pixel-identical)
+      when the JPEG XL is strictly smaller, else `preserve` with its
+      `reason` (the PNG ships). The two steps are the complete poster
+      recipe; running them again on the source gives the same bytes
+      (Video policy, below). Ledgers written before lossless posters
+      have a single `poster` step with `"jpeg": {...}` save parameters
+      in place of `png` (RGB JPEG q90); rebuild still runs it and gets
+      the same JPEG bytes. Nothing new ships with it.
   - `tools`: name to version for the tools the steps ran (from
     `mediaTools`); absent when nothing was encoded (`preserve`, `carve`).
   - `alsoFrom`: other sources that made the same bytes, each with its own
@@ -331,7 +338,11 @@ GPU. A file ffprobe finds no video stream in is skipped (`unprobeable
 video`); a failed remux or transcode drops the item.
 
 Every shipped video has a poster: the frame at the item's `startSeconds`
-(0 when unset), made by the ledger `poster` step above. The poster is
+(0 when unset), made by the ledger `poster` step above, lossless: a PNG,
+or the JPEG XL of it when that is strictly smaller and decodes to
+identical pixels (the Image policy's PNG rule), so a poster is `.png` or
+`.jxl`. The player shows a `.jxl` poster as it shows `.jxl` images,
+with the browser's own decoder. The poster is
 made before the video ships. When ffmpeg or Pillow cannot make it, the
 video item is dropped: nothing ships for it (no video, no poster),
 `decision` is `skipped`, and the item note, the same text as its ledger
@@ -448,7 +459,7 @@ normalized, and paired with its result:
              "startSeconds": 2.5},
  "result": {"codec": "vp9", "decision": "copy", "durationSeconds": 12.0,
             "file": "media/3f/3f…e1.webm", "height": 720,
-            "notes": [], "poster": "media/9a/9a…07.jpg",
+            "notes": [], "poster": "media/9a/9a…07.jxl",
             "sniffedFormat": "webm", "width": 1280}}
 ```
 
@@ -487,8 +498,39 @@ into it, so a helper can ship once per episode into one folder:
 - A ledger made with different `mediaTools` is refused (exit 1): one
   folder's media must rebuild with one tool set, so ship into a new
   folder.
-- Files are never deleted. An output that only a replaced request used
-  stays in `media/`.
+- An output its ledger already records for the same source, made by
+  the same steps with the same tools, and still in `media/` with its
+  sha256, is reused as it stands: a transcode or remux is not run
+  again, with or without the reuse cache. A poster made by the same
+  frame recipe is reused with whichever image step it took.
+- Files are never deleted unless asked. An output that only a replaced
+  request used stays in `media/`. Poster files no request (nor a
+  `manifest.json` or `build-ledger.json` in the folder) names any more
+  are counted in the summary (`unreferenced posters: N kept`);
+  `--delete-unreferenced-posters` deletes them and drops their ledger
+  entries (`unreferenced posters: N deleted`), after the new ledger is
+  written. Only `poster` entries are ever deleted, never one still
+  named.
+
+### Regenerating the posters of an existing shipment
+
+A shipment made before lossless posters has JPEG posters. Ship the same
+request list into the same folder again, with the same pinned tools:
+
+```sh
+.venv/bin/kinetic-media ship <game_root> <out> --list requests.json \
+    [--decoder MODULE:FUNC ...]
+.venv/bin/kinetic-media rebuild <game_root> <out> [--decoder ...]
+```
+
+Each video is reused from the ledger (copied ones re-hashed, transcodes
+and remuxes not run), each poster is made with the lossless recipe, and
+each request's `result.poster` (and `width`/`height`) now names the new
+file. Rebuild the helper's manifest from the new results. The old JPEGs
+stay, counted as unreferenced, and still rebuild; once the manifest
+uses the new posters, run the same ship again with
+`--delete-unreferenced-posters` to remove them (nothing is encoded the
+second time). Requests left out of the list keep their JPEG posters.
 
 Ship every episode from the same `<game_root>`, the folder holding all of
 them, with sources naming the episode folder
@@ -620,7 +662,7 @@ nothing already made from the same bytes, recipe and tools.
 - Key: the sha256 of the bytes entering the encode (after any decoder
   hook and carve), the recipe (every step dict and parameter the encode
   can use: PNG and JPEG convert params, JPEG XL effort, the transcode,
-  remux and poster ffmpeg args, the poster's start time and JPEG params), the
+  remux and poster ffmpeg args, the poster's start time and PNG params), the
   run's whole `mediaTools` (tool versions and binary sha256s, extractor
   version), and a cache format number that is bumped when the choosing
   code changes. Any difference is a miss.

@@ -161,10 +161,11 @@ def test_poster_entry_records_recipe_and_video_source(demo) -> None:
     raw = CLIP.read_bytes()
     assert entry["source"] == {"path": "game/data/clip.mp4",
                                "sha256": _sha(raw), "bytes": len(raw)}
-    (step,) = entry["steps"]
+    step, rule = entry["steps"]
     assert step["step"] == "poster"
     assert step["startSeconds"] == float(video.get("startSeconds") or 0.0)
-    assert step["jpeg"]["quality"] == 90
+    assert step["png"] == {"optimize": True} and "jpeg" not in step
+    assert rule["step"] in ("jxl", "preserve")
     assert "{input}" in step["args"] and "{output}" in step["args"]
     assert not any(str(out) in a or "/" in a for a in step["args"]
                    if a not in ("{input}", "{output}"))

@@ -1,7 +1,8 @@
 """Poster recipes and poster failure (docs/plan.md Phase 25, item 25.7).
 
 A video's poster is the frame at its ``startSeconds``, written by ffmpeg
-as a bitexact PNG and saved by Pillow as an RGB JPEG. The ledger's
+as a bitexact PNG and saved by Pillow as an RGB PNG, then lossless
+JPEG XL when that is smaller (test_lossless_poster.py). The ledger's
 ``poster`` step holds everything that decides those bytes, so running
 the recorded step again on the source makes the same file. When the
 poster cannot be made, the video item is dropped (nothing ships for it)
@@ -177,12 +178,13 @@ def test_every_shipped_poster_has_a_complete_recipe(demo) -> None:
     for ref in posters:
         entry = ledger["media"][ref]
         assert entry["kind"] == "poster"
-        (step,) = entry["steps"]
+        step, rule = entry["steps"]
         assert set(step) == {"step", "startSeconds", "args", "frameFormat",
-                             "mode", "jpeg"}
+                             "mode", "png"}
         assert step["frameFormat"] == "png" and step["mode"] == "RGB"
         assert step["args"] == assets.frame_args(step["startSeconds"])
-        assert set(entry["tools"]) == {"ffmpeg", "Pillow"}
+        assert rule["step"] in ("jxl", "preserve")
+        assert {"ffmpeg", "Pillow"} <= set(entry["tools"])
 
 
 def test_poster_recipe_rerun_from_the_ledger_gives_the_same_bytes(
@@ -193,9 +195,10 @@ def test_poster_recipe_rerun_from_the_ledger_gives_the_same_bytes(
         source = FIXTURE / entry["source"]["path"]
         assert hashlib.sha256(source.read_bytes()).hexdigest() == \
             entry["source"]["sha256"]
-        (step,) = entry["steps"]
-        remade = tmp_path / "remade.jpg"
-        assert assets.run_poster_step(step, source, remade) is None
+        work = tmp_path / item["id"]
+        work.mkdir()
+        remade = assets.run_steps(entry["steps"], source,
+                                  entry["source"], [], work)
         data = remade.read_bytes()
         assert data == (out / item["poster"]).read_bytes()
         assert hashlib.sha256(data).hexdigest() == entry["sha256"]

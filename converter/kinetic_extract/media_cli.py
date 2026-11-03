@@ -5,6 +5,7 @@ Usage:
 
     kinetic-media ship <game_root> <out_dir> --list FILE
                        [--decoder MODULE:FUNC ...]
+                       [--delete-unreferenced-posters]
     kinetic-media rebuild <game_root> [<game_root> ...] <folder>
                           [--decoder MODULE:FUNC ...] [--out DIR]
 
@@ -15,7 +16,12 @@ the caller's own ``id``. Outputs land at ``<out_dir>/media/<h[:2]>/<h>.<ext>``
 by the same code as kinetic-extract; ``<out_dir>/media-ledger.json`` holds
 ``mediaTools``, ``decoders``, ``media`` and a ``requests`` list giving each
 request's result. Shipping into a folder that already has a media ledger
-merges into it.
+merges into it: outputs its ledger records for the same source and
+recipe are reused (verified), not made again, so re-shipping the same
+list regenerates only what the recipe changed (posters made before the
+lossless poster recipe, say). Poster files no request names any more
+are counted in the summary and kept, or deleted with
+``--delete-unreferenced-posters``.
 
 Exit codes: 0 when every request ran (missing or unusable sources are
 reported as skipped results and in the summary), 1 when a decoder hook
@@ -52,8 +58,9 @@ from .media_tools import MediaToolsError, run_tools
 from .rebuild import RebuildError, load_ledgers, rebuild, tool_differences
 from .selftest import ensure_ready
 from .ship import (LEDGER_NAME, LedgerError, ListError, check_same_tools,
-                   load_ledger, merge_decoders, merge_requests, read_list,
-                   request_records, request_result)
+                   delete_posters, load_ledger, merge_decoders,
+                   merge_requests, read_list, request_records,
+                   request_result, unreferenced_posters)
 
 PROG = "kinetic-media"
 
@@ -101,13 +108,24 @@ def ship(args: argparse.Namespace) -> int:
     }
     if decoders:
         ledger["decoders"] = decoders
+    requests_out = merge_requests(existing.get("requests", []), entries)
+    stale = unreferenced_posters(media, requests_out, out_dir)
+    if args.delete_unreferenced_posters:
+        for ref in stale:
+            del media[ref]
     ledger["media"] = sorted_keys(media)
-    ledger["requests"] = sorted_keys(
-        merge_requests(existing.get("requests", []), entries))
+    ledger["requests"] = sorted_keys(requests_out)
     (out_dir / LEDGER_NAME).write_text(
         json.dumps(ledger, indent=2, ensure_ascii=False) + "\n",
         encoding="utf-8")
+    if args.delete_unreferenced_posters:
+        delete_posters(out_dir, stale)
     _print_summary(records, entries, skipped)
+    if stale:
+        print(f"unreferenced posters: {len(stale)} "
+              + ("deleted" if args.delete_unreferenced_posters else
+                 "kept (no request names them any more; "
+                 "--delete-unreferenced-posters removes them)"))
     return 0
 
 
@@ -178,6 +196,12 @@ def main(argv: list[str] | None = None) -> int:
                        help="run this hook over the complete bytes of "
                             "every source before format detection, as "
                             "kinetic-extract --decoder; repeatable")
+    shipp.add_argument("--delete-unreferenced-posters", action="store_true",
+                       help="after shipping, delete poster files (and "
+                            "their ledger entries) that no request, "
+                            "manifest or build ledger in the folder names "
+                            "any more, e.g. the JPEG posters a re-ship "
+                            "with the lossless poster recipe replaced")
     rebuildp = sub.add_parser(
         "rebuild", help="make a folder's media again from its ledger and "
                         "the original files, checking every hash")

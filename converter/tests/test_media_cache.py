@@ -166,11 +166,13 @@ def test_changed_poster_recipe_misses(project: Path, tmp_path: Path,
                                       ) -> None:
     out = tmp_path / "out"
     extract(project, out)
-    monkeypatch.setattr(assets, "POSTER_JPEG_QUALITY", 80)
+    monkeypatch.setattr(assets, "POSTER_PNG_PARAMS", {"optimize": False})
     calls = spy(monkeypatch)
     extract(project, out)
     assert "ffmpeg_error" in calls
-    assert "run_image_step" not in calls  # image recipes unchanged: hits
+    # Image recipes unchanged: the JPEG source's recompression hits (the
+    # new poster PNGs do go through the JPEG XL rule, being new bytes).
+    assert "jxl_recompress_jpeg" not in calls
 
 
 def test_corrupt_object_misses_and_is_replaced(

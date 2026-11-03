@@ -1344,11 +1344,21 @@ truthful: an unchecked box means nothing was accepted.
       from the installed tools. pytest odd/media-tools/setup 54 passed;
       real pinned ship of 180x101 + 180x100 AV1: 2 shipped, outputs H.264
       High yuv420p 180x102 / 180x100, rebuild OK. 2026-11-03)
-- [ ] Lossless video posters: `kinetic-media ship` posters from the frame
+- [x] Lossless video posters: `kinetic-media ship` posters from the frame
       at startSeconds, JPEG XL when smaller else PNG (same rule as
       images), recipe in the ledger, rebuild reproduces it, old ledgers
       with JPEG poster steps still rebuild. A way to regenerate posters
       for an existing shipment without redoing its videos.
+      (Frame at startSeconds -> bitexact PNG -> the image rule: lossless
+      JXL verified pixel-identical when smaller, else PNG; full recipe
+      in the ledger; old JPEG poster steps still rebuild. Re-running
+      `kinetic-media ship` with the same list reuses ledger-recorded
+      videos (no transcode/remux re-run) and regenerates posters;
+      `--delete-unreferenced-posters` removes only unreferenced ones.
+      Golden demo manifest: only the poster line changed. Full pytest
+      converter+tools 499 passed; real pinned JPEG shipment -> reship ->
+      delete -> rebuild OK, posters .jxl (1.2-1.4x the JPEG bytes).
+      2026-11-03)
 - [x] Timeline navigation (design in docs/plan.md Phase 27, user
       confirmed): wheel walks the story order along the last-taken
       route at each decision, not the reading history; `e` goes to the

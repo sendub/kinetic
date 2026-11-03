@@ -41,8 +41,16 @@ file extensions - corpus extensions lie. Policies:
   ``.media-tools/<platform>/``, single-threaded and bitexact; Pillow save
   parameters are spelled out in full.
 - Posters are the frame AT ``startSeconds`` (``-ss`` after ``-i``, exact
-  output seek) rendered to bitexact PNG, then RGB JPEG; the ledger's
-  ``poster`` step is the complete recipe (``run_poster_step`` runs it).
+  output seek) rendered to bitexact PNG, saved by Pillow as RGB PNG
+  (fixed params), then put through the still-image rule: verified
+  lossless JPEG XL when strictly smaller, else that PNG. The ledger's
+  ``poster`` step (``run_poster_step`` runs it) plus the ``jxl`` or
+  ``preserve`` step after it are the complete recipe. Older ledgers'
+  ``poster`` steps with ``jpeg`` params (RGB JPEG q90) still run, so
+  they rebuild; nothing new ships with them. A re-ship into a folder
+  whose ledger already holds an output made by the same recipe from the
+  same source (a transcode, a poster) reuses that file, verified,
+  instead of making it again.
   The poster is made before the video ships: when it fails, the video
   item is dropped (nothing ships for it) and reported with ffmpeg's
   error, never given the video as its poster.
@@ -517,6 +525,7 @@ def jxl_candidate(data: bytes, fmt: str) -> JxlCandidate:
 
 _PNG_PARAMS = {"optimize": True}  # zlib level 9, no time chunks
 PNG_STEP = {"step": "convert", "format": "png", "params": _PNG_PARAMS}
+POSTER_PNG_PARAMS = _PNG_PARAMS  # the poster frame's Pillow PNG save
 
 
 def jpeg_step() -> dict[str, Any]:
@@ -793,48 +802,104 @@ def extract_frame_png(source: Path, png: Path, start_seconds: float) -> bool:
     return run_ffmpeg(frame_args(start_seconds), source, png)
 
 
-def _save_poster_jpeg(frame: Path, out_jpg: Path, mode: str,
-                      params: dict[str, Any]) -> str | None:
-    """Pillow: frame -> `mode` -> JPEG with `params`; None or the error."""
+_POSTER_SAVE = {"png": "PNG", "jpeg": "JPEG"}
+
+
+def _save_poster(frame: Path, out: Path, mode: str, fmt: str,
+                 params: dict[str, Any]) -> str | None:
+    """Pillow: frame -> `mode` -> `fmt` (png or jpeg) with `params`; None
+    or the error."""
     from PIL import Image
 
     try:
         with Image.open(frame) as img:
             img.load()
-            img.convert(mode).save(out_jpg, "JPEG", **params)
+            img.convert(mode).save(out, _POSTER_SAVE[fmt], **params)
     except (OSError, ValueError) as exc:
         return f"Pillow: {type(exc).__name__}: {exc}"
     return None
 
 
 def poster_jpeg(png: Path, out_jpg: Path) -> bool:
-    """A poster JPEG (q90, fixed Pillow params) from a frame PNG."""
-    step = poster_step(0.0)
-    return _save_poster_jpeg(png, out_jpg, step["mode"],
-                             step["jpeg"]) is None
+    """A JPEG poster (q90, fixed Pillow params; the recipe of ledgers
+    before lossless posters) from a frame PNG."""
+    step = jpeg_poster_step(0.0)
+    return _save_poster(png, out_jpg, step["mode"], "jpeg",
+                        step["jpeg"]) is None
 
 
 def poster_step(start_seconds: float) -> dict[str, Any]:
-    """The ledger recipe of a poster, complete: ffmpeg runs ``args``
+    """The ledger recipe of a poster frame, complete: ffmpeg runs ``args``
     (frame selection is ``-ss startSeconds`` after ``-i``, one frame, no
     scaling) writing a ``frameFormat`` file, then Pillow converts it to
-    ``mode`` and saves JPEG with the ``jpeg`` params. `run_poster_step`
-    runs exactly this dict."""
+    ``mode`` and saves PNG with the ``png`` params. `run_poster_step`
+    runs exactly this dict. The image rule then follows as its own
+    ledger step (`extract_poster`): ``jxl`` when a verified lossless JPEG
+    XL is smaller, else ``preserve`` (the PNG ships)."""
+    return {"step": "poster", "startSeconds": start_seconds,
+            "args": frame_args(start_seconds), "frameFormat": "png",
+            "mode": "RGB", "png": dict(POSTER_PNG_PARAMS)}
+
+
+def jpeg_poster_step(start_seconds: float) -> dict[str, Any]:
+    """The lossy JPEG poster recipe ledgers recorded before lossless
+    posters. Nothing new ships with it; ``run_poster_step`` still runs it
+    so those ledgers rebuild to the same bytes."""
     return {"step": "poster", "startSeconds": start_seconds,
             "args": frame_args(start_seconds), "frameFormat": "png",
             "mode": "RGB", "jpeg": _jpeg_params(POSTER_JPEG_QUALITY)}
 
 
+def poster_format(step: dict[str, Any]) -> str:
+    """The image format a ledger ``poster`` step writes: ``png`` (the
+    lossless recipe) or ``jpeg`` (older ledgers)."""
+    return "png" if "png" in step else "jpeg"
+
+
 def run_poster_step(step: dict[str, Any], source: Path,
-                    out_jpg: Path) -> str | None:
-    """Make a poster from a ledger ``poster`` step: None on success, else
-    what failed (ffmpeg's or Pillow's error)."""
+                    out: Path) -> str | None:
+    """Make a poster from a ledger ``poster`` step (PNG or the older
+    JPEG recipe): None on success, else what failed (ffmpeg's or
+    Pillow's error)."""
+    fmt = poster_format(step)
     with tempfile.TemporaryDirectory() as td:
         frame = Path(td) / f"frame.{step['frameFormat']}"
         error = ffmpeg_error(step["args"], source, frame)
         if error is not None:
             return f"ffmpeg: {error}"
-        return _save_poster_jpeg(frame, out_jpg, step["mode"], step["jpeg"])
+        return _save_poster(frame, out, step["mode"], fmt, step[fmt])
+
+
+@dataclass
+class Poster:
+    """A made poster: ``ext`` and ``data`` to ship and its ledger
+    ``steps`` (the ``poster`` step, then ``jxl`` or ``preserve``), or the
+    ``error`` that stopped it."""
+
+    ext: str = ""
+    data: bytes = b""
+    steps: list[dict[str, Any]] | None = None
+    error: str | None = None
+
+
+def extract_poster(source: Path, start_seconds: float,
+                   cache: MediaCache | None = None,
+                   digest: str | None = None) -> Poster:
+    """The poster of video `source`: the frame at `start_seconds` (exact
+    output seek) as PNG, then the image rule (``decide_image_ship``):
+    verified lossless JPEG XL when strictly smaller, else that PNG.
+    `cache` (with `digest`, the sha256 of `source`) is the reuse cache."""
+    step = poster_step(start_seconds)
+    digest = digest or sha256_file(source)
+    with tempfile.TemporaryDirectory() as td:
+        png = Path(td) / "poster.png"
+        error = file_step_cached(cache, step, source, digest, png)
+        if error is not None:
+            return Poster(error=error)
+        data = png.read_bytes()
+    ext, out, _, _, image_steps = decide_image_cached(
+        cache, data, hashlib.sha256(data).hexdigest(), "png", False)
+    return Poster(ext, out, [step, *image_steps])
 
 
 # --- step runner -------------------------------------------------------------
@@ -972,7 +1037,8 @@ def run_steps(steps: list[dict[str, Any]], source: Path,
             current = work / f"step-{n}"
             current.write_bytes(out)
         elif name in FILE_STEPS:
-            ext = "jpg" if name == "poster" else "mp4"
+            ext = ({"png": "png", "jpeg": "jpg"}[poster_format(step)]
+                   if name == "poster" else "mp4")
             made_file = work / f"step-{n}.{ext}"
             error = run_file_step(step, current, made_file)
             if error is not None:
@@ -1008,13 +1074,6 @@ def steps_tools(steps: list[dict[str, Any]],
     return used
 
 
-def extract_poster(source: Path, out_jpg: Path,
-                   start_seconds: float) -> str | None:
-    """Write the frame at start_seconds (exact output seek) as poster
-    JPEG; None on success, else the error."""
-    return run_poster_step(poster_step(start_seconds), source, out_jpg)
-
-
 class _Placed:
     """Per-run record of the content-addressed files already written, and
     the ledger's ``media`` entry for each (docs/extracting.md, "Build
@@ -1027,6 +1086,18 @@ class _Placed:
         self.tools = tools
         self.written: set[str] = set()
         self.media: dict[str, dict[str, Any]] = {}
+        # source sha256 -> refs, of the earlier ledger's entries (`prior`)
+        self.by_source: dict[str, list[str]] = {}
+
+    def add_prior(self, media: dict[str, dict[str, Any]]) -> None:
+        """Start from an earlier ledger's ``media`` section."""
+        self.media.update(json.loads(json.dumps(media)))
+        for ref, entry in self.media.items():
+            for made in (entry, *entry.get("alsoFrom", [])):
+                sha = (made.get("source") or {}).get("sha256")
+                if isinstance(sha, str) and ref not in \
+                        self.by_source.setdefault(sha, []):
+                    self.by_source[sha].append(ref)
 
     def _target(self, ref: str) -> Path:
         path = self.out_dir / ref
@@ -1069,6 +1140,31 @@ class _Placed:
             os.replace(made, target)
         self.written.add(ref)
         return ref, False
+
+    def prior(self, kind: str, source_sha256: str,
+              prefix: list[dict[str, Any]]) -> tuple[str, list[dict]] | None:
+        """An output an earlier ledger (``media``) records for this source
+        whose steps start with `prefix` and whose tools are this run's,
+        still in the folder with its bytes: (ref, its steps), else None.
+        A re-ship into the same folder reuses it instead of encoding
+        (a transcode, say) again, with or without the reuse cache."""
+        for ref in self.by_source.get(source_sha256, ()):
+            entry = self.media[ref]
+            if entry.get("kind") != kind:
+                continue
+            for made in (entry, *entry.get("alsoFrom", [])):
+                steps = made.get("steps")
+                if (made.get("source", {}).get("sha256") != source_sha256
+                        or not isinstance(steps, list)
+                        or steps[:len(prefix)] != prefix
+                        or made.get("tools", {})
+                        != steps_tools(steps, self.tools)):
+                    continue
+                if ref in self.written or reuse_existing(
+                        self.out_dir / ref):
+                    self.written.add(ref)
+                    return ref, steps
+        return None
 
     def record(self, ref: str, kind: str, source: dict[str, Any],
                steps: list[dict[str, Any]]) -> None:
@@ -1215,14 +1311,15 @@ def run_asset_pass(records: list[ItemRecord], out_dir: Path,
     out_dir.mkdir(parents=True, exist_ok=True)
     placed = _Placed(out_dir, tools)
     if media:
-        placed.media.update(json.loads(json.dumps(media)))
+        placed.add_prior(media)
     skipped = 0
     # effective-source sha256 -> (shipped ref, decision, steps): identical
     # sources encode once.
     image_share: dict[str, tuple[str, str, list[dict]]] = {}
     video_share: dict[str, tuple[str, str, list[dict]]] = {}
-    # video sha256 @ startSeconds -> (poster ref, None) or (None, error)
-    poster_share: dict[str, tuple[str | None, str | None]] = {}
+    # video sha256 @ startSeconds -> (poster ref, its steps after any
+    # decode steps) or (None, error)
+    poster_share: dict[str, tuple[str | None, Any]] = {}
     inputs: dict[tuple[str, ...], _Input] = {}
     with tempfile.TemporaryDirectory(prefix=".kinetic-tmp-",
                                      dir=out_dir) as scratch:
@@ -1299,7 +1396,7 @@ def _ship_image(record: ItemRecord, found: _Input, placed: _Placed,
 
 def _ship_video(record: ItemRecord, found: _Input, placed: _Placed,
                 video_share: dict[str, tuple[str, str, list[dict]]],
-                poster_share: dict[str, tuple[str | None, str | None]],
+                poster_share: dict[str, tuple[str | None, Any]],
                 scratch: Path, cache: MediaCache | None) -> int:
     source = found.path
     meta: dict[str, Any] = record.asset_meta
@@ -1319,19 +1416,23 @@ def _ship_video(record: ItemRecord, found: _Input, placed: _Placed,
     digest = found.digest
     src = _source(record, found.sha256, found.size)
 
-    # The poster first, into scratch: a video without one ships nothing.
+    # The poster first: a video without one ships nothing. An earlier
+    # ledger's poster made by this same recipe is reused as it stands.
     start = float(record.item.get("startSeconds") or 0.0)
     poster_key = f"{digest}@{start:.6f}"
-    made_poster: Path | None = None
+    made_poster: Poster | None = None
     cached = poster_share.get(poster_key)
     if cached is None:
-        made_poster = scratch / "poster.jpg"
-        error = file_step_cached(cache, poster_step(start), source, digest,
-                                 made_poster)
-        if error is not None:
-            made_poster.unlink(missing_ok=True)
-            poster_share[poster_key] = (None, error)
-            cached = (None, error)
+        frame = found.steps + [poster_step(start)]
+        prior = placed.prior("poster", found.sha256, frame)
+        if prior is not None:
+            cached = (prior[0], prior[1][len(found.steps):])
+            poster_share[poster_key] = cached
+        else:
+            made_poster = extract_poster(source, start, cache, digest)
+            if made_poster.error is not None:
+                cached = (None, made_poster.error)
+                poster_share[poster_key] = cached
     if cached is not None and cached[0] is None:
         note = (f"poster failed for {record.asset}: {cached[1]}: item "
                 "dropped from manifest")
@@ -1353,18 +1454,21 @@ def _ship_video(record: ItemRecord, found: _Input, placed: _Placed,
         else:
             step = remux_step(probe) if rule == REMUX \
                 else transcode_step(probe)
-            made = scratch / f"{rule}.mp4"
-            if file_step_cached(cache, step, source, digest,
-                                made) is not None:
-                made.unlink(missing_ok=True)
-                if made_poster is not None:
-                    made_poster.unlink(missing_ok=True)
-                meta["decision"] = "skipped"
-                record.notes.append(
-                    f"{rule} failed for {source.name}: item dropped")
-                record.skipped = True
-                return 1
-            shipped, already = placed.move_file(made, "mp4")
+            prior = placed.prior("video", found.sha256,
+                                 found.steps + [step])
+            if prior is not None:
+                shipped, already = prior[0], False
+            else:
+                made = scratch / f"{rule}.mp4"
+                if file_step_cached(cache, step, source, digest,
+                                    made) is not None:
+                    made.unlink(missing_ok=True)
+                    meta["decision"] = "skipped"
+                    record.notes.append(
+                        f"{rule} failed for {source.name}: item dropped")
+                    record.skipped = True
+                    return 1
+                shipped, already = placed.move_file(made, "mp4")
             decision = rule
             steps = [step]
             record.notes.append(
@@ -1379,11 +1483,12 @@ def _ship_video(record: ItemRecord, found: _Input, placed: _Placed,
     meta["file"] = shipped
 
     if made_poster is not None:
-        poster, _ = placed.move_file(made_poster, "jpg")
-        poster_share[poster_key] = (poster, None)
+        poster, _ = placed.put_bytes(made_poster.data, made_poster.ext)
+        poster_steps = made_poster.steps or []
+        poster_share[poster_key] = (poster, poster_steps)
     else:
-        poster = cached[0]
-    placed.record(poster, "poster", src, found.steps + [poster_step(start)])
+        poster, poster_steps = cached
+    placed.record(poster, "poster", src, found.steps + poster_steps)
     _set_media(record.item, shipped, poster)
     meta["poster"] = poster
     return 0

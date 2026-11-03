@@ -39,7 +39,7 @@ def test_movie_item_gets_duration_via_ffprobe(tmp_path: Path) -> None:
     # The fixture clip is 1 s; allow a little slack for ffprobe rounding.
     assert 0.9 < video["durationSeconds"] <= 1.1
     assert video["file"].endswith(".mp4")
-    assert video["poster"].endswith(".jpg")
+    assert video["poster"].rsplit(".", 1)[1] in ("png", "jxl")
     assert is_content_addressed(tmp_path, video["file"])
     assert is_content_addressed(tmp_path, video["poster"])
 

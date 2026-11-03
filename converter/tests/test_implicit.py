@@ -130,7 +130,7 @@ def test_movie_def_scene_ships_a_video_item(
     assert item["text"] == "Playing."
     # Real duration from ffprobe on the source; no placeholder note.
     assert item["durationSeconds"] > 0.5
-    assert item["poster"].endswith(".jpg")
+    assert item["poster"].rsplit(".", 1)[1] in ("png", "jxl")
     assert is_content_addressed(out, item["poster"])
     entry = ledger_of(out)["items"]["mv-001"]
     assert entry["asset"] == "game/m.webm"

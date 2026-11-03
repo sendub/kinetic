@@ -15,8 +15,8 @@ import subprocess
 from pathlib import Path
 
 import pytest
-from PIL import Image
 
+from helpers import open_image
 from kinetic_extract import assets, media_tools
 from kinetic_extract.media_cli import main as media_main
 
@@ -158,8 +158,7 @@ def test_odd_video_poster_keeps_source_size(shipped: dict) -> None:
                for f, e in json.loads((shipped["out"] / LEDGER)
                                       .read_text("utf-8"))["media"].items()
                if e["kind"] == "poster"}
-    with Image.open(shipped["out"] / posters["odd.mp4"]) as img:
-        assert img.size == (180, 101)
+    assert open_image(shipped["out"] / posters["odd.mp4"]).size == (180, 101)
 
 
 def test_rebuild_reproduces_odd_and_even(shipped: dict) -> None:

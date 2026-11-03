@@ -221,7 +221,7 @@ def test_wrapped_video_is_decoded_with_duration_and_poster(
     assert [s["step"] for s in entry["steps"]] == ["decode", "preserve"]
     assert (out / video["file"]).read_bytes() == clip
     poster = ledger["media"][video["poster"]]
-    assert [s["step"] for s in poster["steps"]] == ["decode", "poster"]
+    assert [s["step"] for s in poster["steps"]][:2] == ["decode", "poster"]
     notes = ledger["items"][video["id"]]["notes"]
     assert not any("placeholder" in n for n in notes)
 

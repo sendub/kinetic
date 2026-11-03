@@ -37,3 +37,17 @@ def declared_media(manifest: dict[str, Any]) -> list[str]:
             elif isinstance(value, list):
                 paths.extend(value)
     return paths
+
+
+def open_image(path: Path) -> Any:
+    """A shipped image as a loaded Pillow image, ``.jxl`` included
+    (Pillow reads no JPEG XL; the pinned libjxl decodes it)."""
+    from PIL import Image
+
+    if path.suffix == ".jxl":
+        from kinetic_extract import media_tools
+
+        return Image.fromarray(media_tools.jxl_decode(path.read_bytes()))
+    with Image.open(path) as img:
+        img.load()
+        return img.copy()

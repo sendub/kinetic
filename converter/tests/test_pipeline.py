@@ -15,7 +15,8 @@ from io import BytesIO
 from pathlib import Path
 
 import pytest
-from helpers import content_ref, declared_media, is_content_addressed
+from helpers import (content_ref, declared_media, is_content_addressed,
+                     open_image)
 from kinetic_extract import assets, media_tools
 from kinetic_extract.cli import main as cli_main
 
@@ -41,12 +42,9 @@ def run_validator(out: Path) -> subprocess.CompletedProcess[str]:
 
 
 def mean_luma(path: Path) -> float:
-    from PIL import Image
-
-    with Image.open(path) as img:
-        gray = img.convert("L")
-        hist = gray.histogram()
-        pixels = gray.size[0] * gray.size[1]
+    gray = open_image(path).convert("L")
+    hist = gray.histogram()
+    pixels = gray.size[0] * gray.size[1]
     return sum(v * count for v, count in enumerate(hist)) / pixels
 
 
@@ -144,12 +142,14 @@ def test_poster_exists_nonblack_and_at_range_start(tmp_path: Path) -> None:
     video = next(i for i in manifest["items"] if i["type"] == "video")
     poster = tmp_path / "out" / video["poster"]
     assert is_content_addressed(tmp_path / "out", video["poster"])
-    assert video["poster"].endswith(".jpg")
+    assert video["poster"].rsplit(".", 1)[1] in ("png", "jxl")
     assert poster.is_file() and mean_luma(poster) > 10  # nonblack
     # The same extractor at a range start also yields a real frame.
-    mid = tmp_path / "poster-0p5.jpg"
-    assert assets.extract_poster(CLIP, mid, 0.5) is None
-    assert mean_luma(mid) > 10
+    mid = assets.extract_poster(CLIP, 0.5)
+    assert mid.error is None
+    shot = tmp_path / f"poster-0p5.{mid.ext}"
+    shot.write_bytes(mid.data)
+    assert mean_luma(shot) > 10
 
 
 # --- output layout: content-addressed media (docs/plan.md Phase 25) -----------

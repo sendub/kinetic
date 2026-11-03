@@ -262,3 +262,47 @@ def merge_decoders(old: list[dict[str, Any]],
         if record not in merged:
             merged.append(record)
     return merged
+
+
+def _manifest_refs(out_dir: Path) -> set[str]:
+    """Media paths a ``manifest.json`` or ``build-ledger.json`` in the
+    folder names (kinetic-extract output sharing it): never pruned."""
+    refs: set[str] = set()
+    try:
+        manifest = json.loads((out_dir / "manifest.json").read_text("utf-8"))
+        for item in manifest.get("items", []):
+            refs.update(v for k in ("file", "poster")
+                        if isinstance(v := item.get(k), str))
+            refs.update(f for f in item.get("frames") or []
+                        if isinstance(f, str))
+    except (OSError, ValueError, AttributeError, TypeError):
+        pass
+    try:
+        build = json.loads((out_dir / "build-ledger.json").read_text("utf-8"))
+        refs.update(build.get("media", {}))
+    except (OSError, ValueError, AttributeError, TypeError):
+        pass
+    return refs
+
+
+def unreferenced_posters(media: dict[str, dict[str, Any]],
+                         requests: list[dict[str, Any]],
+                         out_dir: Path) -> list[str]:
+    """Poster outputs in the ledger's ``media`` that no request result
+    (nor a manifest or build ledger in the folder) names any more: what
+    a re-ship with a new poster recipe left behind."""
+    used = _manifest_refs(out_dir)
+    for entry in requests:
+        result = entry.get("result") or {}
+        used.update(v for k in ("file", "poster")
+                    if isinstance(v := result.get(k), str))
+    return sorted(ref for ref, entry in media.items()
+                  if entry.get("kind") == "poster" and ref not in used)
+
+
+def delete_posters(out_dir: Path, refs: list[str]) -> None:
+    """Remove the files of `refs` (unreferenced posters, already dropped
+    from the ledger written before this runs, so a crash in between
+    leaves no ledger entry naming a missing file)."""
+    for ref in refs:
+        (out_dir / ref).unlink(missing_ok=True)

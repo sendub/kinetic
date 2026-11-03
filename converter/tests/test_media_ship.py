@@ -15,13 +15,13 @@ import shutil
 from pathlib import Path
 
 import pytest
-from PIL import Image
 
 import extra_hook
 from kinetic_extract import assets
 from kinetic_extract import rpa as rpa_mod
 from kinetic_extract.cli import main as extract_main
 from kinetic_extract.media_cli import main as media_main
+from helpers import open_image
 from test_rpa import tiny_png_bytes, write_rpa
 
 HERE = Path(__file__).resolve().parent
@@ -123,8 +123,8 @@ def test_ship_matches_extract(project: Path, tmp_path: Path) -> None:
     assert (room["width"], room["height"]) == (24, 16)
     assert video["decision"] == "copy"
     assert video["durationSeconds"] == files[2]["durationSeconds"]
-    with Image.open(out / video["poster"]) as img:
-        assert (video["width"], video["height"]) == img.size
+    assert (video["width"], video["height"]) == \
+        open_image(out / video["poster"]).size
     for result in results:
         assert isinstance(result["notes"], list)
     assert ledger["generatedBy"].startswith("kinetic-media ")
@@ -139,14 +139,13 @@ def test_video_start_seconds_sets_poster_frame(project: Path,
     (entry,) = ledger_of(out)["requests"]
     assert entry["request"] == request
     poster = entry["result"]["poster"]
-    step = ledger_of(out)["media"][poster]["steps"][-1]
-    assert step == assets.poster_step(0.5)
-    expected = tmp_path / "expected.jpg"
-    assert assets.extract_poster(CLIP, expected, 0.5) is None
-    assert (out / poster).read_bytes() == expected.read_bytes()
-    still = tmp_path / "zero.jpg"
-    assert assets.extract_poster(CLIP, still, 0.0) is None
-    assert still.read_bytes() != expected.read_bytes()
+    steps = ledger_of(out)["media"][poster]["steps"]
+    assert steps[0] == assets.poster_step(0.5)
+    expected = assets.extract_poster(CLIP, 0.5)
+    assert expected.error is None and steps == expected.steps
+    assert (out / poster).read_bytes() == expected.data
+    still = assets.extract_poster(CLIP, 0.0)
+    assert still.error is None and still.data != expected.data
 
 
 # --- decoder hooks ----------------------------------------------------------
