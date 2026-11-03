@@ -10,7 +10,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import type { Item } from "../machine/types";
-import type { Bookmark, SavedContext } from "../storage/types";
+import type { Bookmark, BookmarkSummary, SavedContext } from "../storage/types";
 import {
   BOOKMARKS_HINT,
   bookmarkItemIndex,
@@ -23,6 +23,9 @@ import {
   listOrder,
   mergeProgress,
   mountBookmarkOverlay,
+  placeholderAspect,
+  THUMB_LOADS_AT_ONCE,
+  thumbLoadOrder,
 } from "./bookmarks";
 
 const items: readonly Item[] = [
@@ -349,6 +352,7 @@ describe("the t list is a grid of large cards (docs/plan.md Phase 26)", () => {
 
 class FakeElement {
   children: FakeElement[] = [];
+  parent: FakeElement | null = null;
   className = "";
   id = "";
   hidden = false;
@@ -364,36 +368,72 @@ class FakeElement {
     readonly tagName: string,
     readonly ownerDocument: FakeDocument,
   ) {}
+  get isConnected(): boolean {
+    return this.parent !== null;
+  }
   setAttribute(name: string, value: string): void {
     this.attributes.set(name, value);
   }
   getAttribute(name: string): string | null {
     return this.attributes.get(name) ?? null;
   }
+  removeAttribute(name: string): void {
+    this.attributes.delete(name);
+  }
   append(...nodes: FakeElement[]): void {
-    this.children.push(...nodes);
+    for (const node of nodes) this.appendChild(node);
   }
   appendChild(node: FakeElement): FakeElement {
     this.children.push(node);
+    node.parent = this;
     return node;
   }
   replaceChildren(...nodes: FakeElement[]): void {
-    this.children = [...nodes];
+    for (const node of this.children) node.parent = null;
+    this.children = [];
+    this.append(...nodes);
+  }
+  replaceWith(node: FakeElement): void {
+    const parent = this.parent;
+    if (parent === null) return;
+    parent.children[parent.children.indexOf(this)] = node;
+    node.parent = parent;
+    this.parent = null;
   }
   addEventListener(): void {}
 }
 
 class FakeDocument {
+  defaultView = null;
   createElement(tag: string): FakeElement {
     return new FakeElement(tag.toUpperCase(), this);
   }
 }
 
-function mountList() {
+/** Summaries as `Storage.listBookmarks` hands them, keyed 1, 2, 3... */
+function summaries(
+  records: readonly Bookmark[],
+  withThumb = false,
+): BookmarkSummary[] {
+  return records.map((record, index) => ({
+    key: index + 1,
+    id: record.id,
+    timestampMs: record.timestampMs,
+    itemId: record.itemId,
+    hasThumb: withThumb,
+  }));
+}
+
+function mountList(
+  loadThumb: (row: BookmarkSummary) => Promise<string | null> = () =>
+    Promise.resolve(null),
+) {
   const root = new FakeDocument().createElement("div");
   const overlay = mountBookmarkOverlay({
     root: root as unknown as HTMLElement,
     items,
+    stage: { width: 1280, height: 720 },
+    loadThumb,
     onPick: () => {},
     onDelete: () => {},
   });
@@ -403,12 +443,15 @@ function mountList() {
   return { overlay, panel, list };
 }
 
+const thumbOf = (card: FakeElement | undefined) =>
+  card?.children[0]?.children[0];
+
 describe("mountBookmarkOverlay cards (Phase 26: order and scroll unchanged)", () => {
-  const records = [
+  const records = summaries([
     bookmark({ id: "bk-1", itemId: "c-003", timestampMs: 3 }),
     bookmark({ id: "bk-2", itemId: "a-001", timestampMs: 1 }),
     bookmark({ id: "bk-3", itemId: "b-002", timestampMs: 2 }),
-  ];
+  ]);
 
   it("draws one card per bookmark in the storage order, oldest first", () => {
     const { overlay, list } = mountList();
@@ -463,5 +506,143 @@ describe("mountBookmarkOverlay cards (Phase 26: order and scroll unchanged)", ()
     expect(list.hidden).toBe(true);
     expect(empty?.hidden).toBe(false);
     expect(empty?.textContent).toBe("No bookmarks yet — press b");
+  });
+});
+
+// The bookmark-screen speed item (docs/progress.md): the panel shows before
+// the list is read, and captured thumbnails load lazily, newest first.
+describe("mountBookmarkOverlay opens at once and fills in its pictures", () => {
+  const records = [
+    bookmark({ id: "bk-1", itemId: "c-003" }),
+    bookmark({ id: "bk-2", itemId: "a-001" }),
+    bookmark({ id: "bk-3", itemId: "b-002" }),
+  ];
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+  it("open() shows the panel with no rows and no empty message; the first render then scrolls to the newest", () => {
+    const { overlay, panel, list } = mountList();
+    list.scrollHeight = 1400;
+    list.clientHeight = 600;
+    overlay.open();
+    const empty = panel.children.find(
+      (el) => el.className === "bookmarks-empty",
+    );
+    expect(overlay.isOpen()).toBe(true);
+    expect(panel.hidden).toBe(false);
+    expect(list.children).toEqual([]);
+    expect(empty?.hidden).toBe(true);
+    overlay.render(summaries(records));
+    expect(list.children).toHaveLength(3);
+    expect(list.scrollTop).toBe(800);
+    // A later render of the open list (a delete) keeps the reader's place.
+    list.scrollTop = 100;
+    overlay.render(summaries(records).slice(1));
+    expect(list.scrollTop).toBe(100);
+  });
+
+  it("a captured thumbnail starts as a stage-shaped placeholder and is swapped in once read, newest first", async () => {
+    const asked: string[] = [];
+    const { overlay, panel, list } = mountList((row) => {
+      asked.push(row.id);
+      return Promise.resolve(`data:image/jpeg;base64,${row.id}`);
+    });
+    expect(panel.getAttribute("style")).toBe(
+      "--bookmark-thumb-aspect: 1280 / 720",
+    );
+    overlay.render(summaries(records, true));
+    for (const card of list.children) {
+      expect(thumbOf(card)?.className).toBe(
+        "bookmark-thumb bookmark-thumb-empty",
+      );
+    }
+    await settle();
+    expect(asked).toEqual(["bk-3", "bk-2", "bk-1"]);
+    expect(list.children.map((card) => thumbOf(card)?.src)).toEqual([
+      "data:image/jpeg;base64,bk-1",
+      "data:image/jpeg;base64,bk-2",
+      "data:image/jpeg;base64,bk-3",
+    ]);
+    expect(thumbOf(list.children[0])?.tagName).toBe("IMG");
+    expect(thumbOf(list.children[0])?.getAttribute("decoding")).toBe("async");
+    // Decoded before it goes in, so never `lazy` (which would never load
+    // outside the page).
+    expect(thumbOf(list.children[0])?.getAttribute("loading")).toBeNull();
+  });
+
+  it("a row without a capture shows its manifest still at once, never asking storage", () => {
+    let asked = 0;
+    const { overlay, list } = mountList(() => {
+      asked += 1;
+      return Promise.resolve(null);
+    });
+    overlay.render(summaries(records));
+    expect(list.children.map((card) => thumbOf(card)?.src)).toEqual([
+      "c-003.poster.jpg",
+      "a-001.jpg",
+      "b-002.f000.jpg",
+    ]);
+    // A file: fetched only as its card nears the view.
+    expect(thumbOf(list.children[0])?.getAttribute("loading")).toBe("lazy");
+    expect(asked).toBe(0);
+  });
+
+  it("reads a picture once per page: a reopen draws it straight away", async () => {
+    let asked = 0;
+    const { overlay, list } = mountList((row) => {
+      asked += 1;
+      return Promise.resolve(`data:image/jpeg;base64,${row.id}`);
+    });
+    overlay.render(summaries(records, true));
+    await settle();
+    overlay.close();
+    overlay.open();
+    overlay.render(summaries(records, true));
+    expect(thumbOf(list.children[2])?.src).toBe("data:image/jpeg;base64,bk-3");
+    expect(asked).toBe(3);
+  });
+
+  it("a capture that cannot be read falls back to the manifest still", async () => {
+    const { overlay, list } = mountList(() => Promise.reject(new Error("x")));
+    overlay.render(summaries(records, true));
+    await settle();
+    expect(thumbOf(list.children[1])?.src).toBe("a-001.jpg");
+  });
+
+  it("reads at most a few pictures at a time", async () => {
+    const many = Array.from({ length: 10 }, (_, n) =>
+      bookmark({ id: `bk-${String(n)}`, itemId: "a-001" }),
+    );
+    const waiting: Array<() => void> = [];
+    let live = 0;
+    let most = 0;
+    const { overlay } = mountList(
+      () =>
+        new Promise((resolve) => {
+          live += 1;
+          most = Math.max(most, live);
+          waiting.push(() => {
+            live -= 1;
+            resolve(null);
+          });
+        }),
+    );
+    overlay.render(summaries(many, true));
+    while (waiting.length > 0) {
+      (waiting.shift() as () => void)();
+      await settle();
+    }
+    expect(most).toBe(THUMB_LOADS_AT_ONCE);
+  });
+});
+
+describe("thumbLoadOrder and placeholderAspect", () => {
+  it("loads the newest (last) rows first", () => {
+    expect(thumbLoadOrder([1, 2, 3])).toEqual([3, 2, 1]);
+  });
+
+  it("shapes a placeholder like the stage, 16 / 9 for an unusable size", () => {
+    expect(placeholderAspect(1920, 1080)).toBe("1920 / 1080");
+    expect(placeholderAspect(0, 1080)).toBe("16 / 9");
+    expect(placeholderAspect(Number.NaN, 5)).toBe("16 / 9");
   });
 });

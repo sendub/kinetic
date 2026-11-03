@@ -16,6 +16,21 @@
 // oldest first (insertion order, `storage/types.ts`) — so "reading order,
 // newest last" IS that order, and the list scrolls to its bottom.
 //
+// Speed (the bookmark-screen speed item, docs/progress.md): the panel shows
+// the instant `t` is pressed and its cards come from the stored rows'
+// SUMMARIES (`Storage.listBookmarks`: id, time, item, whether a thumbnail
+// was captured) — never from every row's route context and thumbnail.
+// Captured thumbnails then load lazily, a few at a time, through
+// `loadThumb`: newest first, any card the reader scrolls into view (an
+// IntersectionObserver on the list) jumping the queue, each decoded off
+// the main thread before it replaces its placeholder,
+// which already holds the stage's aspect ratio so the cards do not jump.
+// A card without a capture shows its manifest still at once. Loaded
+// thumbnails are kept for the page's life, so a reopen or the re-render
+// after a delete draws them straight away. An entry click hands the
+// summary back; the caller reads the whole bookmark, then closes the panel
+// as it restores it.
+//
 // A bookmark names its item by id (docs/plan.md Phase 18, "Saves keyed by
 // id, not position"): the row resolves it to wherever that item sits in
 // the manifest being played, and a bookmark whose item is no longer in it
@@ -23,7 +38,7 @@
 
 import { visualIndexFor } from "../machine/machine";
 import type { Item, MachineContext } from "../machine/types";
-import type { Bookmark, SavedContext } from "../storage/types";
+import type { Bookmark, BookmarkSummary, SavedContext } from "../storage/types";
 
 /** The panel's message when the novel has no bookmarks yet. */
 export const EMPTY_MESSAGE = "No bookmarks yet — press b";
@@ -118,7 +133,7 @@ export function mergeProgress(
 
 /** Where a bookmark's item now sits in `items`; -1 when it is gone. */
 export function bookmarkItemIndex(
-  bookmark: Bookmark,
+  bookmark: { readonly itemId: string },
   items: readonly Item[],
 ): number {
   return items.findIndex((item) => item.id === bookmark.itemId);
@@ -131,12 +146,13 @@ export function bookmarkItemIndex(
  * is where the storage contract ("oldest first, never re-sorted by
  * clock") becomes the visual contract ("oldest first in reading order").
  */
-export function listOrder(
-  bookmarks: readonly Bookmark[],
+export function listOrder<T extends { readonly itemId: string }>(
+  bookmarks: readonly T[],
   items: readonly Item[],
-): Bookmark[] {
+): T[] {
+  const ids = new Set(items.map((item) => item.id));
   return bookmarks
-    .filter((bookmark) => bookmarkItemIndex(bookmark, items) >= 0)
+    .filter((bookmark) => ids.has(bookmark.itemId))
     .map((bookmark) => ({ ...bookmark }));
 }
 
@@ -164,12 +180,12 @@ export function formatTimestamp(ms: number): string {
  * no longer in the manifest).
  */
 export function entryThumbSrc(
-  bookmark: Bookmark,
+  bookmark: { readonly itemId: string; readonly thumbDataUrl?: string | null },
   items: readonly Item[],
+  index: number = bookmarkItemIndex(bookmark, items),
 ): string | null {
   const dataUrl = bookmark.thumbDataUrl;
   if (typeof dataUrl === "string" && dataUrl !== "") return dataUrl;
-  const index = bookmarkItemIndex(bookmark, items);
   if (index < 0) return null;
   const item: Item | undefined = items[visualIndexFor(items, index)];
   if (item === undefined) return null;
@@ -215,10 +231,45 @@ export function entryLabel(itemIndex: number, id: string | undefined): string {
     : `#${String(itemIndex)} ${id}`;
 }
 
+/**
+ * The order lazily loaded thumbnails are fetched in, before the observer
+ * says which cards are in view: the newest first, as the list opens
+ * scrolled to the newest. Pure.
+ */
+export function thumbLoadOrder<T>(pending: readonly T[]): T[] {
+  return [...pending].reverse();
+}
+
+/** How many captured thumbnails are read from storage at once. */
+export const THUMB_LOADS_AT_ONCE = 4;
+
+/**
+ * The CSS `aspect-ratio` of a thumbnail still loading: the stage's (the
+ * manifest's `width` / `height`), the shape a capture almost always has,
+ * so the card keeps its size when the picture arrives; 16 / 9 when the
+ * size is unusable. Pure.
+ */
+export function placeholderAspect(width: number, height: number): string {
+  return Number.isFinite(width) &&
+    Number.isFinite(height) &&
+    width > 0 &&
+    height > 0
+    ? `${String(width)} / ${String(height)}`
+    : "16 / 9";
+}
+
 export interface BookmarkOverlay {
   isOpen(): boolean;
-  /** Fills the list, shows the panel, and scrolls it to the bottom. */
-  render(bookmarks: readonly Bookmark[]): void;
+  /**
+   * Shows the panel now, before the list is read: the title and hint, an
+   * empty list until `render` fills it.
+   */
+  open(): void;
+  /**
+   * Fills the list and shows the panel; the first fill after opening
+   * scrolls it to the bottom, a later one (a delete) keeps the place.
+   */
+  render(bookmarks: readonly BookmarkSummary[]): void;
   close(): void;
 }
 
@@ -227,30 +278,49 @@ export interface BookmarkOverlayOptions {
   root: HTMLElement;
   /** The manifest, for thumbnails derived from item stills. */
   items: readonly Item[];
+  /** The stage size, for the shape of a thumbnail still loading. */
+  stage?: { readonly width: number; readonly height: number };
   /**
-   * An entry was clicked: the caller restores what the bookmark recorded
-   * — `bookmarkRestoreTarget`: its context, landing on its item.
+   * Reads a bookmark's captured thumbnail (a `data:image/` URL), null when
+   * there is none; called lazily, for cards in or near view.
    */
-  onPick(target: BookmarkRestore): void;
+  loadThumb(bookmark: BookmarkSummary): Promise<string | null>;
+  /**
+   * An entry was clicked: the caller reads the whole bookmark, then closes
+   * the panel and restores what it recorded — `bookmarkRestoreTarget`: its
+   * context, landing on its item.
+   */
+  onPick(bookmark: BookmarkSummary): void;
   /**
    * A thumbnail's "x" was clicked: the caller deletes this bookmark from
    * storage and re-renders the list (the panel stays open).
    */
-  onDelete(bookmark: Bookmark): void;
+  onDelete(bookmark: BookmarkSummary): void;
 }
 
 export function mountBookmarkOverlay({
   root,
   items,
+  stage,
+  loadThumb,
   onPick,
   onDelete,
 }: BookmarkOverlayOptions): BookmarkOverlay {
   const doc = root.ownerDocument;
+  const view = doc.defaultView;
+  const indexById = new Map(items.map((item, index) => [item.id, index]));
 
   const panel = doc.createElement("div");
   panel.id = "bookmarks";
   panel.className = "bookmarks";
   panel.hidden = true; // `t` opens; Escape, backdrop or an entry click closes
+  panel.setAttribute(
+    "style",
+    `--bookmark-thumb-aspect: ${placeholderAspect(
+      stage?.width ?? 0,
+      stage?.height ?? 0,
+    )}`,
+  );
 
   const title = doc.createElement("h2");
   title.className = "bookmarks-title";
@@ -270,11 +340,139 @@ export function mountBookmarkOverlay({
   panel.append(title, hint, list, empty);
   root.appendChild(panel);
 
-  function entryElement(bookmark: Bookmark, position: number): HTMLElement {
+  // Captured thumbnails read so far, by row key (null: the row has none),
+  // kept for the page's life: a row's thumbnail never changes.
+  const thumbs = new Map<number, string | null>();
+  // The placeholders of the rows rendered now whose capture is not read
+  // yet, by key; a render replaces the set.
+  let pending = new Map<number, HTMLElement>();
+  const rowsByKey = new Map<number, BookmarkSummary>();
+  // Requested loads, the next first, and how many are running.
+  const queue: number[] = [];
+  const queued = new Set<number>();
+  const loading = new Set<number>();
+  // Until the reader scrolls, the list stays on its newest card while
+  // pictures arrive (one shaped unlike the stage changes a card's height).
+  let pinned = false;
+
+  // A manifest still is a file: `lazy` leaves it unfetched until its card
+  // nears the view. A capture is already in memory and is decoded before
+  // it goes into the page — and a lazy image outside the page never loads,
+  // so it would never decode.
+  function thumbImage(src: string, lazy: boolean): HTMLElement {
+    const thumb = doc.createElement("img");
+    thumb.className = "bookmark-thumb";
+    thumb.alt = "";
+    thumb.setAttribute("decoding", "async");
+    if (lazy) thumb.setAttribute("loading", "lazy");
+    thumb.src = src; // relative to the page: the content folder's own file
+    return thumb;
+  }
+
+  function placeholder(): HTMLElement {
+    const box = doc.createElement("span");
+    box.className = "bookmark-thumb bookmark-thumb-empty";
+    return box;
+  }
+
+  function stillSrc(row: BookmarkSummary, thumb: string | null): string | null {
+    return entryThumbSrc(
+      { itemId: row.itemId, thumbDataUrl: thumb },
+      items,
+      indexById.get(row.itemId) ?? -1,
+    );
+  }
+
+  /** Swap a row's placeholder for its picture, once it is decoded. */
+  function fill(key: number): void {
+    const slot = pending.get(key);
+    const row = rowsByKey.get(key);
+    if (slot === undefined || row === undefined) return;
+    pending.delete(key);
+    observer?.unobserve(slot);
+    const src = stillSrc(row, thumbs.get(key) ?? null);
+    if (src === null) {
+      slot.removeAttribute("data-thumb-key"); // nothing to show: it stays
+      return;
+    }
+    const image = thumbImage(src, false) as HTMLImageElement;
+    const swap = () => {
+      if (!slot.isConnected) return;
+      slot.replaceWith(image);
+      if (pinned)
+        list.scrollTop = bottomScrollTop(list.scrollHeight, list.clientHeight);
+    };
+    if (typeof image.decode === "function") {
+      image.decode().then(swap, swap);
+    } else {
+      swap();
+    }
+  }
+
+  function pump(): void {
+    while (loading.size < THUMB_LOADS_AT_ONCE && queue.length > 0) {
+      const key = queue.shift() as number;
+      queued.delete(key);
+      const row = rowsByKey.get(key);
+      if (row === undefined || !pending.has(key)) continue;
+      loading.add(key);
+      loadThumb(row)
+        .catch(() => null)
+        .then((thumb) => {
+          thumbs.set(key, thumb);
+          loading.delete(key);
+          fill(key); // into whichever render now shows the row
+          pump();
+        });
+    }
+  }
+
+  /** Queue a row's picture; an `urgent` one (in view) goes first. */
+  function request(key: number, urgent = false): void {
+    if (loading.has(key) || thumbs.has(key)) return;
+    if (queued.has(key)) {
+      if (!urgent) return;
+      queue.splice(queue.indexOf(key), 1);
+    }
+    queued.add(key);
+    if (urgent) queue.unshift(key);
+    else queue.push(key);
+    pump();
+  }
+
+  // Cards in view, or within a screen of it, jump the queue; every other
+  // card's picture follows, newest first, so scrolling finds them drawn.
+  const observer =
+    view !== null && view !== undefined && "IntersectionObserver" in view
+      ? new view.IntersectionObserver(
+          (entries) => {
+            for (const entry of entries) {
+              if (!entry.isIntersecting) continue;
+              const key = Number(
+                (entry.target as HTMLElement).getAttribute("data-thumb-key"),
+              );
+              if (Number.isInteger(key)) request(key, true);
+            }
+          },
+          { root: list, rootMargin: "100% 0px" },
+        )
+      : null;
+
+  // The reader taking the scroll ends the pin to the newest card.
+  for (const type of ["wheel", "touchstart", "pointerdown", "keydown"]) {
+    panel.addEventListener(type, () => {
+      pinned = false;
+    });
+  }
+
+  function entryElement(
+    bookmark: BookmarkSummary,
+    position: number,
+  ): HTMLElement {
     const entry = doc.createElement("button");
     entry.className = "bookmark-entry";
     entry.type = "button";
-    const itemIndex = bookmarkItemIndex(bookmark, items);
+    const itemIndex = indexById.get(bookmark.itemId) ?? -1;
     entry.setAttribute("data-item-index", String(itemIndex));
     entry.setAttribute("data-item-id", bookmark.itemId);
     // Which record of the last-rendered list this row is: the click
@@ -285,19 +483,22 @@ export function mountBookmarkOverlay({
     // The thumbnail sits in a positioned box so the "x" can take its
     // top-right corner. The "x" is a span with a button role, not a
     // <button>: it lives inside the entry's button, which cannot nest one.
+    // A capture not read yet is a placeholder the loader swaps out.
     const thumbBox = doc.createElement("span");
     thumbBox.className = "bookmark-thumb-box";
-    const src = entryThumbSrc(bookmark, items);
+    const known = !bookmark.hasThumb || thumbs.has(bookmark.key);
+    const src = known
+      ? stillSrc(bookmark, thumbs.get(bookmark.key) ?? null)
+      : null;
     if (src !== null) {
-      const thumb = doc.createElement("img");
-      thumb.className = "bookmark-thumb";
-      thumb.src = src; // relative to the page: the content folder's own file
-      thumb.alt = "";
-      thumbBox.appendChild(thumb);
+      thumbBox.appendChild(thumbImage(src, !src.startsWith("data:")));
     } else {
-      const placeholder = doc.createElement("span");
-      placeholder.className = "bookmark-thumb bookmark-thumb-empty";
-      thumbBox.appendChild(placeholder);
+      const slot = placeholder();
+      if (!known) {
+        slot.setAttribute("data-thumb-key", String(bookmark.key));
+        pending.set(bookmark.key, slot);
+      }
+      thumbBox.appendChild(slot);
     }
     const remove = doc.createElement("span");
     remove.className = "bookmark-delete";
@@ -324,7 +525,10 @@ export function mountBookmarkOverlay({
 
   // The records behind the rows currently rendered, so a click restores
   // the FULL bookmark (ctx and all), not just the position it points at.
-  let shown: readonly Bookmark[] = [];
+  let shown: readonly BookmarkSummary[] = [];
+  // Set by `open`: the next render is the opening fill, scrolled to the
+  // newest card rather than kept where a previous list was.
+  let opening = false;
 
   // One listener for the whole panel: an entry click picks and closes; a
   // click anywhere outside the scroll list is backdrop and only closes.
@@ -349,19 +553,42 @@ export function mountBookmarkOverlay({
         if (record !== undefined) onDelete(record);
         return;
       }
-      close();
-      if (record !== undefined) onPick(bookmarkRestoreTarget(record));
+      // The caller closes the panel as the restore lands (`onPick`), so
+      // the old screen never shows between the two.
+      if (record !== undefined) onPick(record);
+      else close();
       return;
     }
     if (target instanceof Element && list.contains(target)) return;
     close();
   });
 
-  function render(bookmarks: readonly Bookmark[]): void {
-    const wasOpen = !panel.hidden;
+  function clearRows(): void {
+    observer?.disconnect();
+    pending = new Map();
+    rowsByKey.clear();
+    queue.length = 0;
+    queued.clear();
+  }
+
+  function open(): void {
+    clearRows();
+    shown = [];
+    list.replaceChildren();
+    list.hidden = false;
+    empty.hidden = true;
+    panel.hidden = false;
+    opening = true;
+  }
+
+  function render(bookmarks: readonly BookmarkSummary[]): void {
+    const fresh = panel.hidden || opening;
+    opening = false;
     const previousScroll = list.scrollTop;
     const ordered = listOrder(bookmarks, items);
     shown = ordered;
+    clearRows();
+    for (const row of ordered) rowsByKey.set(row.key, row);
     list.replaceChildren(
       ...ordered.map((bookmark, position) => entryElement(bookmark, position)),
     );
@@ -371,19 +598,30 @@ export function mountBookmarkOverlay({
     // After the entries are in the DOM, so scrollHeight counts them: the
     // newest entry is what the reader sees first (README `t` bullet). A
     // re-render of the open list (a delete) keeps the reader's place.
-    list.scrollTop = wasOpen
-      ? keptScrollTop(previousScroll, list.scrollHeight, list.clientHeight)
-      : bottomScrollTop(list.scrollHeight, list.clientHeight);
+    list.scrollTop = fresh
+      ? bottomScrollTop(list.scrollHeight, list.clientHeight)
+      : keptScrollTop(previousScroll, list.scrollHeight, list.clientHeight);
+    if (fresh) pinned = true;
+    // Then the pictures, newest first (the list opens on the newest); the
+    // observer moves whatever is in view to the front of the queue.
+    for (const key of thumbLoadOrder([...pending.keys()])) request(key);
+    if (observer !== null) {
+      for (const slot of pending.values()) observer.observe(slot);
+    }
   }
 
   function close(): void {
     panel.hidden = true;
+    opening = false;
+    pinned = false;
+    clearRows();
   }
 
   return {
     isOpen() {
       return !panel.hidden;
     },
+    open,
     render,
     close,
   };

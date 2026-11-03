@@ -37,7 +37,11 @@ import type { MachineSettings } from "./machine/types";
 import { DEFAULT_SETTINGS } from "./machine/types";
 import { mountError, mountShell } from "./render/app";
 import { mountAutoForwardAnnouncements } from "./render/autoforward";
-import { mergeProgress, mountBookmarkOverlay } from "./render/bookmarks";
+import {
+  bookmarkRestoreTarget,
+  mergeProgress,
+  mountBookmarkOverlay,
+} from "./render/bookmarks";
 import { captureVisualThumbnail } from "./render/capture";
 import { inputOwnerFor, mountChoiceOverlay } from "./render/choice";
 import { mountConfigOverlay } from "./render/config";
@@ -67,7 +71,11 @@ import {
   progressFileName,
   type StoryIdentity,
 } from "./storage/transfer";
-import type { Bookmark, PersistedState } from "./storage/types";
+import type {
+  Bookmark,
+  BookmarkSummary,
+  PersistedState,
+} from "./storage/types";
 import { helpSeenFrom } from "./storage/types";
 
 async function fetchJson(url: string): Promise<unknown> {
@@ -308,14 +316,43 @@ function start(): void {
       // decision (same landing rule as a resume); the wheel then walks the
       // story around it (docs/plan.md Phase 27). Only bookmarks whose item is
       // still in the manifest are listed (render/bookmarks.ts).
+      // The panel opens at once and its cards come from the bookmark
+      // summaries; each captured thumbnail is read lazily (`loadThumb`),
+      // and a click reads its whole bookmark only then (the bookmark-screen
+      // speed item). The panel stays up through that read and closes in
+      // the same task the restore lands in, so the screens switch in one
+      // step and a paused burst or hold stays paused through the jump, as
+      // when the record was already in hand.
+      let picking = false;
       const overlay = mountBookmarkOverlay({
         root,
         items: manifest.items,
-        onPick: (target) => {
-          const ctx = codec.fromSaved(target.ctx);
-          if (ctx !== undefined) {
-            machine.importContext(mergeProgress(ctx, machine.exportContext()));
-          }
+        stage: { width: manifest.width, height: manifest.height },
+        loadThumb: (row) =>
+          storage
+            .getBookmark(row.key)
+            .then((record) => record?.thumbDataUrl ?? null),
+        onPick: (row) => {
+          if (picking) return; // one restore at a time
+          picking = true;
+          const restore = (record: Bookmark | null): void => {
+            picking = false;
+            overlay.close();
+            if (record !== null) {
+              const target = bookmarkRestoreTarget(record);
+              const ctx = codec.fromSaved(target.ctx);
+              if (ctx !== undefined) {
+                machine.importContext(
+                  mergeProgress(ctx, machine.exportContext()),
+                );
+              }
+            }
+            syncMenuPause();
+          };
+          storage.getBookmark(row.key).then(restore, (error: unknown) => {
+            console.warn("[kinetic] bookmark not read", error);
+            restore(null);
+          });
         },
         // The thumbnail's "x" (docs/plan.md Phase 18): delete, then draw
         // what storage now holds. A failed delete re-reads the list, so
@@ -327,24 +364,35 @@ function start(): void {
             },
             (error: unknown) => {
               console.warn("[kinetic] bookmark not deleted", error);
-              if (overlay.isOpen()) showBookmarks();
+              if (overlay.isOpen()) fillBookmarks();
             },
           );
         },
       });
-      // The list read is async: `t` counts as an open screen from the
-      // press (`syncMenuPause`), so nothing advances while it loads.
-      let bookmarksOpening = false;
-      const showBookmarks = (): void => {
-        bookmarksOpening = true;
-        const shown = (list: readonly Bookmark[]): void => {
-          bookmarksOpening = false;
-          overlay.render(list);
-          syncMenuPause();
+      // `t` shows the panel this frame; the list read fills it when it
+      // lands (milliseconds: summaries only), unless the panel was closed
+      // or reopened meanwhile.
+      let bookmarkReads = 0;
+      const fillBookmarks = (): void => {
+        bookmarkReads += 1;
+        const read = bookmarkReads;
+        const shown = (list: readonly BookmarkSummary[]): void => {
+          if (read === bookmarkReads && overlay.isOpen()) overlay.render(list);
         };
         // A storage outage reads as an empty list, not a dead key.
-        storage.getBookmarks().then(shown, () => shown([]));
+        storage.listBookmarks().then(shown, () => shown([]));
       };
+      const showBookmarks = (): void => {
+        overlay.open();
+        syncMenuPause();
+        fillBookmarks();
+      };
+      // Warm the list once the story is up: the first read after this
+      // build meets old bookmarks reads each in full, once, and caches
+      // their summaries (storage/idb.ts), so even the first `t` is quick.
+      setTimeout(() => {
+        storage.listBookmarks().catch(() => undefined);
+      }, 1000);
       // The key help screen (docs/plan.md Phase 13b), mounted first: the
       // settings section below lives inside it (Phase 26).
       // The game's name heads it (docs/plan.md Phase 21).
@@ -708,11 +756,7 @@ function start(): void {
       // panels' own — re-sync after each.
       let menuPaused = false;
       function syncMenuPause(): void {
-        const open =
-          bookmarksOpening ||
-          overlay.isOpen() ||
-          confirm.isOpen() ||
-          help.isOpen();
+        const open = overlay.isOpen() || confirm.isOpen() || help.isOpen();
         if (open === menuPaused) return;
         menuPaused = open;
         shell.setMediaPaused(open);

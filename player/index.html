@@ -209,8 +209,12 @@
         border-radius: 3px;
         background: #000;
       }
+      /* A card with no picture, or one whose capture is still being read
+         (the list fills its pictures in lazily): the stage's shape, set on
+         the panel from the manifest, so a capture arriving keeps the card's
+         size. */
       .bookmark-thumb-empty {
-        aspect-ratio: 16 / 9;
+        aspect-ratio: var(--bookmark-thumb-aspect, 16 / 9);
       }
       /* The thumbnail's box positions its delete "x" (docs/plan.md Phase
          18, "Delete a bookmark") on the thumbnail's top-right corner. */

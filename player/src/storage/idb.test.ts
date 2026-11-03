@@ -26,6 +26,8 @@ type Key = string | number;
 type Range = { only: Key };
 
 interface StoreData {
+  /** How many record values were read (and so deserialized). */
+  reads: number;
   keyPath?: string;
   autoIncrement: boolean;
   next: number;
@@ -111,7 +113,12 @@ class FakeObjectStore {
   ) {}
 
   get(key: Key) {
-    return this.tx.request(() => structuredClone(this.data.records.get(key)));
+    return this.tx.request(() => this.read(key));
+  }
+
+  private read(key: Key): unknown {
+    if (this.data.records.has(key)) this.data.reads += 1;
+    return structuredClone(this.data.records.get(key));
   }
 
   getKey(key: Key) {
@@ -146,11 +153,9 @@ class FakeObjectStore {
       );
     return {
       getAll: (range: Range) =>
-        this.tx.request(() =>
-          matching(range).map((key) =>
-            structuredClone(this.data.records.get(key)),
-          ),
-        ),
+        this.tx.request(() => matching(range).map((key) => this.read(key))),
+      // Primary keys only: no value is read.
+      getAllKeys: (range: Range) => this.tx.request(() => matching(range)),
       openCursor: (range: Range) => {
         let keys: Key[] | null = null;
         let request: FakeRequest<unknown> | null = null;
@@ -160,7 +165,7 @@ class FakeObjectStore {
             const key = keys.shift() as Key;
             if (!this.data.records.has(key)) continue;
             return {
-              value: structuredClone(this.data.records.get(key)),
+              value: this.read(key),
               delete: () =>
                 this.tx.request(() => this.data.records.delete(key)),
               update: (value: unknown) =>
@@ -206,6 +211,7 @@ class FakeDatabase {
     options: { keyPath?: string; autoIncrement?: boolean } = {},
   ) {
     const data: StoreData = {
+      reads: 0,
       keyPath: options.keyPath,
       autoIncrement: options.autoIncrement ?? false,
       next: 1,
@@ -645,5 +651,155 @@ describe("IndexedDB adapter — old reading-history saves migrate (Phase 27)", (
       "m12",
     ]);
     machine.destroy();
+  });
+});
+
+// The bookmark-screen speed item (docs/progress.md): `t` lists bookmarks
+// from their summaries, cached in a `state` record, so a listing reads no
+// bookmark row in full once the cache knows it. Bookmarks saved before
+// the cache existed — in the existing format, history-carrying ones
+// included — are listed from a one-time full read that writes the cache.
+describe("IndexedDB adapter — the t list reads summaries, not whole rows", () => {
+  const KEY = "story:speed";
+  const thumb = "data:image/jpeg;base64,/9j/AAAA";
+
+  function rows(db: FakeDatabase) {
+    const data = db.stores.get("bookmarks");
+    if (data === undefined) throw new Error("no bookmarks store");
+    return data;
+  }
+
+  /** A row exactly as the player before this change stored it. */
+  function oldRow(id: string, itemId: string, withThumb: boolean) {
+    return {
+      content: KEY,
+      id,
+      timestampMs: 1700000000000 + id.length,
+      itemId,
+      ctx: {
+        ...context(itemId),
+        // A reading-history-era context (docs/plan.md Phase 27): heavy.
+        history: Array.from({ length: 50 }, (_, n) => ({
+          item: `h-${String(n)}`,
+          stack: [],
+        })),
+        historyPos: 49,
+      },
+      thumbDataUrl: withThumb ? thumb : null,
+    };
+  }
+
+  async function seed(db: FakeDatabase, records: unknown[]): Promise<void> {
+    // Written straight into the store, as an older build's addBookmark did.
+    const storage = await open(KEY);
+    await storage.loadState(); // opens (and creates) the database
+    const data = rows(db);
+    for (const record of records) {
+      const seq = data.next;
+      data.next += 1;
+      data.records.set(seq, { ...(record as object), seq });
+    }
+  }
+
+  it("lists existing bookmarks (the old format) once in full, then from the cache alone", async () => {
+    const db = installFakeIndexedDb();
+    await seed(db, [
+      oldRow("a", "x-1", true),
+      oldRow("b", "x-2", false),
+      // Not listable (an index-based row): skipped, and remembered as such.
+      { content: KEY, id: "old", timestampMs: 1, itemIndex: 3 },
+      oldRow("c", "x-3", true),
+    ]);
+    const first = await open(KEY);
+    const listed = await first.listBookmarks();
+    expect(listed.map((row) => [row.id, row.itemId, row.hasThumb])).toEqual([
+      ["a", "x-1", true],
+      ["b", "x-2", false],
+      ["c", "x-3", true],
+    ]);
+    expect(rows(db).reads).toBe(4); // the one-time full read
+    // A later page load lists the same rows reading no row at all.
+    const second = await open(KEY);
+    rows(db).reads = 0;
+    expect(await second.listBookmarks()).toEqual(listed);
+    expect(rows(db).reads).toBe(0);
+    // A summary's key reads the whole bookmark, migrated as before.
+    const whole = await second.getBookmark(listed[0].key);
+    expect(whole).toMatchObject({
+      id: "a",
+      itemId: "x-1",
+      thumbDataUrl: thumb,
+    });
+    expect(whole?.ctx).not.toHaveProperty("history");
+    expect(await second.getBookmarks()).toHaveLength(3);
+  });
+
+  it("notices rows another build added or deleted behind the cache", async () => {
+    const db = installFakeIndexedDb();
+    await seed(db, [oldRow("a", "x-1", true), oldRow("b", "x-2", true)]);
+    const storage = await open(KEY);
+    const before = await storage.listBookmarks();
+    // An older build (no cache) deletes "a" and appends "c".
+    rows(db).records.delete(before[0].key);
+    await seed(db, [oldRow("c", "x-3", false)]);
+    rows(db).reads = 0;
+    const after = await (await open(KEY)).listBookmarks();
+    expect(after.map((row) => row.id)).toEqual(["b", "c"]);
+    expect(rows(db).reads).toBe(1); // only the new row
+    expect(await storage.getBookmark(before[0].key)).toBeNull();
+  });
+
+  it("b and the x keep the list current without reading the other rows", async () => {
+    const db = installFakeIndexedDb();
+    const storage = await open(KEY);
+    await storage.addBookmark(bookmark("a", "x-1"));
+    await storage.addBookmark(bookmark("b", "x-2"));
+    rows(db).reads = 0;
+    const added = await storage.addBookmark(bookmark("c", "x-3"));
+    expect(added.map((row) => row.id)).toEqual(["a", "b", "c"]);
+    expect(rows(db).reads).toBe(1); // the new row only
+    rows(db).reads = 0;
+    const left = await storage.deleteBookmark("b");
+    expect(left.map((row) => row.id)).toEqual(["a", "c"]);
+    expect(rows(db).reads).toBe(0);
+    expect((await storage.getBookmarks()).map((b) => b.id)).toEqual(["a", "c"]);
+  });
+
+  it("never reads another novel's row by key", async () => {
+    installFakeIndexedDb();
+    const other = await open("story:other");
+    const [row] = await other.addBookmark(bookmark("o", "x-1"));
+    const mine = await open(KEY);
+    expect(await mine.getBookmark(row.key)).toBeNull();
+    expect(await mine.listBookmarks()).toEqual([]);
+  });
+
+  it("reset and import drop the cache with the rows", async () => {
+    const db = installFakeIndexedDb();
+    const storage = await open(KEY);
+    await storage.addBookmark(bookmark("a", "x-1"));
+    const states = db.stores.get("state");
+    expect(states?.records.has(`bookmark-list:${KEY}`)).toBe(true);
+    await storage.deleteBookmarks();
+    expect(states?.records.has(`bookmark-list:${KEY}`)).toBe(false);
+    expect(await storage.listBookmarks()).toEqual([]);
+    await storage.replaceProgress({}, [bookmark("i", "x-4")]);
+    expect(states?.records.has(`bookmark-list:${KEY}`)).toBe(false);
+    expect((await storage.listBookmarks()).map((row) => row.id)).toEqual(["i"]);
+  });
+
+  it("a malformed cache record or row is read again, never trusted", async () => {
+    const { sanitizeListCache } = await loadIdb();
+    expect(sanitizeListCache(null).size).toBe(0);
+    expect(sanitizeListCache({ rows: "x" }).size).toBe(0);
+    const parsed = sanitizeListCache({
+      rows: [
+        { key: 1, id: "a", timestampMs: 5, itemId: "x-1", hasThumb: true },
+        { key: 2, skip: true },
+        { key: "3", id: "c", timestampMs: 5, itemId: "x", hasThumb: false },
+        { key: 4, id: "d", timestampMs: 5, itemId: "x" },
+      ],
+    });
+    expect([...parsed.keys()]).toEqual([1, 2]);
   });
 });

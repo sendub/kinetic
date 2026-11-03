@@ -116,24 +116,48 @@ export interface Bookmark {
 }
 
 /**
+ * What the `t` list needs to draw a row before anything heavy is read (the
+ * bookmark-screen speed item, docs/progress.md): a stored bookmark minus
+ * its route context and thumbnail. `key` names the stored record for
+ * `getBookmark` (the IndexedDB row's `seq`); `hasThumb` says whether that
+ * record carries a captured thumbnail, so a row without one can show its
+ * manifest still at once.
+ */
+export interface BookmarkSummary {
+  readonly key: number;
+  readonly id: string;
+  readonly timestampMs: number;
+  readonly itemId: string;
+  readonly hasThumb: boolean;
+}
+
+/**
  * Everything the player stores. `addBookmark` returns the whole list after
- * the append, oldest first — insertion order, never re-sorted by clock — so
- * the caller needs no separate read to know what the list now holds.
- * Methods reject only on real adapter failure; callers must catch and carry
- * on (a storage outage must never break reading).
+ * the append as summaries, oldest first — insertion order, never re-sorted
+ * by clock — so the caller needs no separate read to know what the list
+ * now holds. `listBookmarks` is that list on its own: cheap whatever the
+ * bookmarks' contexts and thumbnails weigh; `getBookmark` reads one whole
+ * record (its thumbnail, its context for a restore); `getBookmarks` reads
+ * every whole record (export). Methods reject only on real adapter failure;
+ * callers must catch and carry on (a storage outage must never break
+ * reading).
  */
 export interface Storage {
   loadState(): Promise<PersistedState | null>;
   saveState(state: PersistedState): Promise<void>;
-  addBookmark(bookmark: Bookmark): Promise<Bookmark[]>;
+  addBookmark(bookmark: Bookmark): Promise<BookmarkSummary[]>;
   getBookmarks(): Promise<Bookmark[]>;
+  listBookmarks(): Promise<BookmarkSummary[]>;
+  /** The whole bookmark behind a summary's `key`; null once it is gone. */
+  getBookmark(key: number): Promise<Bookmark | null>;
   /**
    * The `t` list's "x" (docs/plan.md Phase 18, "Delete a bookmark"):
    * remove this content's bookmark with that `id` and return the list
-   * that remains, oldest first. Resolves once the deletion is COMMITTED;
-   * an unknown id deletes nothing and returns the list unchanged.
+   * that remains, oldest first, as summaries. Resolves once the deletion
+   * is COMMITTED; an unknown id deletes nothing and returns the list
+   * unchanged.
    */
-  deleteBookmark(id: string): Promise<Bookmark[]>;
+  deleteBookmark(id: string): Promise<BookmarkSummary[]>;
   /**
    * "Reset progress" (docs/plan.md Phase 16): drop this content's state
    * row / rows, as if it had never been read. `deleteState` removes the
@@ -156,6 +180,21 @@ export interface Storage {
     state: PersistedState,
     bookmarks: readonly Bookmark[],
   ): Promise<void>;
+}
+
+/** The `t` list's row for a stored bookmark under `key`. */
+export function summarizeBookmark(
+  key: number,
+  bookmark: Bookmark,
+): BookmarkSummary {
+  const thumb = bookmark.thumbDataUrl;
+  return {
+    key,
+    id: bookmark.id,
+    timestampMs: bookmark.timestampMs,
+    itemId: bookmark.itemId,
+    hasThumb: typeof thumb === "string" && thumb !== "",
+  };
 }
 
 /**

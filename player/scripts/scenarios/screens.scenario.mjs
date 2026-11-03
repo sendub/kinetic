@@ -36,6 +36,7 @@ import {
   manifest,
   OVERLAY_CLOSED,
   OVERLAY_OPEN,
+  OVERLAY_VISIBLE,
   openSettings,
   PAGE_STATE,
   PAINT_SIG,
@@ -750,6 +751,189 @@ async function bookmarkGrid({ check, open }) {
     tallGrid,
   );
   await pressT(cdp);
+  await page.setViewport({ width: 800, height: 600, deviceScaleFactor: 1 });
+}
+
+// The bookmark-screen speed item (docs/progress.md): with many bookmarks
+// saved in the format players before it wrote — rows carrying a heavy route
+// context and a 480 px JPEG capture each, and no list cache — `t` shows
+// the panel at once, the cards follow, and every captured thumbnail fills
+// in. The rows are copies of a real `b` row, written straight into
+// IndexedDB as an older build left them.
+const SPEED_ROWS = 60;
+const SPEED_VISIBLE_MS = 300;
+
+const SEED_OLD_ROWS = async (count) => {
+  const open = () =>
+    new Promise((resolve, reject) => {
+      const request = indexedDB.open("kinetic", 1);
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+  const db = await open();
+  const [base] = await new Promise((resolve) => {
+    const request = db
+      .transaction("bookmarks")
+      .objectStore("bookmarks")
+      .getAll();
+    request.onsuccess = () => resolve(request.result);
+  });
+  // Photo-like 480x270 captures at the player's JPEG quality, each
+  // distinct, so every one is a separate decode.
+  const canvas = document.createElement("canvas");
+  canvas.width = 480;
+  canvas.height = 270;
+  const g = canvas.getContext("2d");
+  const thumbs = [];
+  for (let n = 0; n < count; n += 1) {
+    g.fillStyle = `hsl(${(n * 37) % 360}, 50%, 40%)`;
+    g.fillRect(0, 0, 480, 270);
+    for (let k = 0; k < 30; k += 1) {
+      g.fillStyle = `hsla(${(n * 11 + k * 53) % 360}, 60%, 60%, 0.5)`;
+      g.fillRect((k * 97) % 480, (k * 61) % 270, 40 + (k % 5) * 12, 30);
+    }
+    g.fillStyle = "#fff";
+    g.font = "24px sans-serif";
+    g.fillText(`bookmark ${n}`, 20, 240);
+    thumbs.push(canvas.toDataURL("image/jpeg", 0.8));
+  }
+  // A long read's context: thousands of seen ids.
+  const visited = [...base.ctx.visited];
+  for (let k = 0; k < 5000; k += 1) visited.push(`seen-${k}-padding-id`);
+  const tx = db.transaction("bookmarks", "readwrite");
+  const store = tx.objectStore("bookmarks");
+  store.clear();
+  for (let n = 0; n < count; n += 1) {
+    const { seq: _seq, ...row } = base;
+    store.add({
+      ...row,
+      id: `seeded-${n}`,
+      timestampMs: base.timestampMs - (count - n) * 60000,
+      ctx: { ...base.ctx, visited },
+      thumbDataUrl: thumbs[n],
+    });
+  }
+  await new Promise((resolve) => {
+    tx.oncomplete = resolve;
+  });
+  db.close();
+  return { itemId: base.itemId, thumbBytes: thumbs[0].length };
+};
+
+// Page side: time from the `t` keydown to the panel showing in a frame,
+// to its cards, and to every card's captured picture.
+const ARM_SPEED_CLOCK = () => {
+  window.__bmSpeed = { t0: null };
+  window.addEventListener(
+    "keydown",
+    (event) => {
+      if (event.key !== "t" || window.__bmSpeed.t0 !== null) return;
+      const clock = window.__bmSpeed;
+      clock.t0 = performance.now();
+      const tick = () => {
+        const now = performance.now() - clock.t0;
+        const panel = document.getElementById("bookmarks");
+        if (clock.visibleMs === undefined && panel && !panel.hidden) {
+          clock.visibleMs = now;
+        }
+        const cards = document.querySelectorAll(".bookmark-entry");
+        if (clock.rowsMs === undefined && cards.length > 0) clock.rowsMs = now;
+        const loaded = [...cards].filter((card) => {
+          const img = card.querySelector("img.bookmark-thumb");
+          return (
+            img?.complete === true &&
+            img.naturalWidth > 0 &&
+            img.getAttribute("src").startsWith("data:image/jpeg")
+          );
+        }).length;
+        if (cards.length > 0 && loaded === cards.length) {
+          clock.allThumbsMs = now;
+          return;
+        }
+        if (now < 20000) requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    },
+    true,
+  );
+};
+
+async function bookmarkSpeed({ check, open }) {
+  const { page, cdp } = await open("bookmark-speed", { closeHelp: true });
+  await leaveFullscreen(page, cdp);
+  await page.setViewport({ width: 1280, height: 720, deviceScaleFactor: 1 });
+  await spaceTo(page, cdp, "chain-still-3");
+  await pressB(cdp);
+  for (let tries = 0; tries < 40; tries += 1) {
+    if ((await readBookmarks(page)).length === 1) break;
+    await sleep(50);
+  }
+  const seeded = await page.evaluate(SEED_OLD_ROWS, SPEED_ROWS);
+  // A fresh page load over the old rows; the list is opened at once,
+  // before anything could have read them ahead.
+  await page.reload();
+  await waitFor(
+    page,
+    () =>
+      (document.getElementById("visual-image")?.getAttribute("src") ?? "") !==
+        "" || document.getElementById("visual-video") !== null,
+  );
+  const timeOpen = async () => {
+    await page.evaluate(ARM_SPEED_CLOCK);
+    await pressT(cdp);
+    const filled = await waitFor(
+      page,
+      () => window.__bmSpeed.allThumbsMs !== undefined,
+      15000,
+    );
+    const clock = await page.evaluate(() => window.__bmSpeed);
+    const list = await page.evaluate(READ_BOOKMARK_OVERLAY);
+    await pressT(cdp);
+    await waitFor(page, OVERLAY_CLOSED);
+    return { filled, clock, list };
+  };
+  const cold = await timeOpen();
+  const warm = await timeOpen();
+  const rowsOk = (list) =>
+    list.entries?.length === SPEED_ROWS &&
+    list.entries.every(
+      (e) => e.thumbResolved && e.thumbSrcHead.startsWith("data:image/jpeg"),
+    ) &&
+    list.entries.every((e, i, all) => i === 0 || all[i - 1].time <= e.time) &&
+    list.scrollTop >= list.scrollHeight - list.clientHeight - 1;
+  const ms = ({ clock }) => ({
+    visible: Math.round(clock.visibleMs ?? -1),
+    rows: Math.round(clock.rowsMs ?? -1),
+    allThumbs: Math.round(clock.allThumbsMs ?? -1),
+  });
+  check(
+    `with ${SPEED_ROWS} bookmarks in the old stored format, t shows the panel within ${SPEED_VISIBLE_MS} ms and every captured thumbnail fills in, oldest first, scrolled to the newest — the first open and a second`,
+    cold.filled &&
+      warm.filled &&
+      cold.clock.visibleMs <= SPEED_VISIBLE_MS &&
+      warm.clock.visibleMs <= SPEED_VISIBLE_MS &&
+      rowsOk(cold.list) &&
+      rowsOk(warm.list),
+    { seeded, cold: ms(cold), warm: ms(warm), rows: cold.list.entries?.length },
+  );
+
+  // The old rows still restore: from a few items back, a click lands on
+  // the bookmarked item.
+  await wheel(cdp, true, 3);
+  const before = await currentItemId(page);
+  await pressT(cdp);
+  await waitFor(page, OVERLAY_OPEN);
+  const list = await page.evaluate(READ_BOOKMARK_OVERLAY);
+  await clickCenter(cdp, list.entries[SPEED_ROWS - 1].thumbRect);
+  const closed = await waitFor(page, OVERLAY_CLOSED);
+  const landed = await waitForItem(page, seeded.itemId, 3000);
+  check(
+    "a card from those old rows still continues from its item",
+    before !== seeded.itemId && closed && landed,
+    { before, closed, landed, want: seeded.itemId },
+  );
+  const visibleNow = await page.evaluate(OVERLAY_VISIBLE);
+  if (visibleNow) await pressT(cdp);
   await page.setViewport({ width: 800, height: 600, deviceScaleFactor: 1 });
 }
 
@@ -1497,6 +1681,7 @@ export default async function (ctx) {
     helpMidFlow,
     bookmarks,
     bookmarkGrid,
+    bookmarkSpeed,
     resume,
     config,
     settingsImmediateReload,

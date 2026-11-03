@@ -180,13 +180,49 @@ for (const [name, makeStorage] of ADAPTERS) {
       });
     });
 
-    it("appends a bookmark and returns the full list containing it", async () => {
+    it("appends a bookmark and returns the full list containing it, as summaries", async () => {
       const storage = makeStorage();
       const list = await storage.addBookmark(
         bookmark("a", "x-3", "data:image/jpeg;base64,x"),
       );
-      expect(list).toEqual([bookmark("a", "x-3", "data:image/jpeg;base64,x")]);
-      expect(await storage.getBookmarks()).toEqual(list);
+      expect(list).toHaveLength(1);
+      expect(list[0]).toMatchObject({
+        id: "a",
+        itemId: "x-3",
+        timestampMs: bookmark("a", "x-3").timestampMs,
+        hasThumb: true,
+      });
+      expect(await storage.listBookmarks()).toEqual(list);
+      expect(await storage.getBookmarks()).toEqual([
+        bookmark("a", "x-3", "data:image/jpeg;base64,x"),
+      ]);
+    });
+
+    it("lists summaries whose key reads the whole bookmark back (the t list)", async () => {
+      const storage = makeStorage();
+      await storage.addBookmark(
+        bookmark("a", "x-1", "data:image/jpeg;base64,A"),
+      );
+      await storage.addBookmark(bookmark("b", "x-2"));
+      const rows = await storage.listBookmarks();
+      expect(rows.map((row) => [row.id, row.itemId, row.hasThumb])).toEqual([
+        ["a", "x-1", true],
+        ["b", "x-2", false],
+      ]);
+      expect(new Set(rows.map((row) => row.key)).size).toBe(2);
+      expect(await storage.getBookmark(rows[0].key)).toEqual(
+        bookmark("a", "x-1", "data:image/jpeg;base64,A"),
+      );
+      expect((await storage.getBookmark(rows[1].key))?.ctx).toEqual(
+        context("x-2", ["x-2"]),
+      );
+      // A deleted row's key reads nothing, and keys are never reused.
+      await storage.deleteBookmark("a");
+      expect(await storage.getBookmark(rows[0].key)).toBeNull();
+      const [added] = (await storage.addBookmark(bookmark("c", "x-3"))).slice(
+        -1,
+      );
+      expect(rows.map((row) => row.key)).not.toContain(added?.key);
     });
 
     it("keeps appended bookmarks in insertion order, oldest first", async () => {
@@ -248,7 +284,7 @@ for (const [name, makeStorage] of ADAPTERS) {
       await storage.addBookmark(bookmark("c", "x-3"));
       const left = await storage.deleteBookmark("b");
       expect(left.map((entry) => entry.id)).toEqual(["a", "c"]);
-      expect(await storage.getBookmarks()).toEqual(left);
+      expect(await storage.listBookmarks()).toEqual(left);
       // An unknown id (deleted twice, say) is a no-op.
       const again = await storage.deleteBookmark("b");
       expect(again.map((entry) => entry.id)).toEqual(["a", "c"]);

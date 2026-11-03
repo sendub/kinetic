@@ -1424,9 +1424,18 @@ truthful: an unchecked box means nothing was accepted.
       Fits 800x600 without scrolling. vitest 604, check clean, screens 57
       + 2 headless-fullscreen partials, smoke 6/6 (subagent).
       .tmp/esc-layout/after-800.png, after-1440.png. 2026-11-03)
-- [ ] Bookmark screen (`t`) speed: with >50 bookmarks it takes ~3 s to
+- [x] Bookmark screen (`t`) speed: with >50 bookmarks it takes ~3 s to
       open. Open immediately regardless of count and fill in over time
       if needed; optimise generally.
+      (Cause: `t` waited for getAll to deserialize every full bookmark row,
+      route context and thumbnail included; 60 heavy rows 271 ms, 150 733
+      ms here, scaling with save size. Now the panel shows on the next
+      frame (<1.1 ms), cards from keys + a per-novel summary cache in the
+      existing state store (no DB version bump, older folders keep
+      working; heals from keys), thumbnails decoded 4 at a time newest
+      first and cached. Old-format rows migrate. vitest 620, screens 60 +
+      2 headless-fullscreen partials incl. 60-row open <300 ms check,
+      navigation pass. 3 s not reproduced on this machine. 2026-11-03)
 - [ ] `t` from the Esc screen: opening the bookmark screen from the Esc
       screen replaces it, so a following Esc returns to the game, not to
       the Esc screen.

@@ -183,15 +183,31 @@ const READ_BOOKMARK_OVERLAY = () => {
 };
 
 // Page-side predicates for "is the panel up", and the Node-side wrapper.
-const OVERLAY_OPEN = () => {
+// The panel shows the moment `t` is pressed and fills in after (the
+// bookmark-screen speed item): OVERLAY_VISIBLE is the first, OVERLAY_OPEN
+// waits for the list as the reader ends up seeing it — its rows read in
+// (or the empty message up) and every thumbnail placeholder replaced by
+// a loaded picture — so the steps that read the rows find them all.
+const OVERLAY_VISIBLE = () => {
   const p = document.getElementById("bookmarks");
   return p !== null && !p.hidden;
+};
+const OVERLAY_OPEN = () => {
+  const p = document.getElementById("bookmarks");
+  if (p === null || p.hidden) return false;
+  const rows = p.querySelectorAll(".bookmark-entry").length;
+  const empty = p.querySelector(".bookmarks-empty");
+  if (rows === 0 && (empty === null || empty.hidden)) return false;
+  if (p.querySelector("[data-thumb-key]") !== null) return false;
+  return [...p.querySelectorAll("img.bookmark-thumb")].every(
+    (img) => img.complete,
+  );
 };
 const OVERLAY_CLOSED = () => {
   const p = document.getElementById("bookmarks");
   return p === null || p.hidden;
 };
-const panelOpen = (page) => page.evaluate(OVERLAY_OPEN);
+const panelOpen = (page) => page.evaluate(OVERLAY_VISIBLE);
 
 // The settings section of the Esc screen (Phase 26: Escape opens the one
 // screen holding the keys and every setting; `c` is gone) as the reader
@@ -1319,6 +1335,7 @@ export {
   ON_TEXT,
   OVERLAY_CLOSED,
   OVERLAY_OPEN,
+  OVERLAY_VISIBLE,
   openAtViewport,
   openSettings,
   PAGE_STATE,

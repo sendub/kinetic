@@ -17,6 +17,23 @@
 //     novels share the database. A record carries `itemId` and its
 //     id-keyed `ctx`; an index-based record (`itemIndex`) is not listed.
 //
+//   - the bookmark-list cache (the bookmark-screen speed item): one more
+//     `state` record per novel, under `bookmark-list:<storage key>`
+//     (`listCacheKey`), holding each bookmark row's summary by `seq` — its
+//     id, time, item id and whether it has a thumbnail — or a mark that
+//     the row is not listable. A row's summary never changes (`seq` is
+//     never reused and a row is never rewritten except to retag its
+//     novel), so `listBookmarks` reads only this record plus the novel's
+//     row keys (`getAllKeys`, no values) and fetches just the rows the
+//     cache does not know yet — the first time, every row, once — instead
+//     of deserializing every row's route context and thumbnail on each
+//     `t`. The cache heals itself: a row added or deleted by any player
+//     build (older ones never touch the cache) is noticed from the keys.
+//     It lives in the existing `state` store, not a new index or store,
+//     because either would need a version-2 upgrade, and an older
+//     player's `open("kinetic", 1)` then fails with a VersionError — every
+//     older game folder on the origin would lose its progress.
+//
 // The stored values changed shape over time but no keyPath or store did,
 // so the database stays at version 1 with no upgrade step; old-shape
 // values are dropped at read (`storage/types.ts`, "No migration").
@@ -44,12 +61,14 @@ import type { MachineSettings } from "../machine/types";
 import { DEFAULT_SETTINGS } from "../machine/types";
 import type {
   Bookmark,
+  BookmarkSummary,
   PersistedState,
   SavedContext,
   SavedFrame,
   SavedRouteSet,
   Storage,
 } from "./types";
+import { summarizeBookmark } from "./types";
 
 export const DB_NAME = "kinetic";
 const DB_VERSION = 1;
@@ -100,6 +119,58 @@ export function storageKeys(
   const story = storyIdOf(storyId);
   if (story !== null) return { key: `story:${story}`, legacyKey: folder };
   return { key: folder };
+}
+
+/** The `state` key of a novel's bookmark-list cache (header comment). */
+export function listCacheKey(contentKey: string): string {
+  return `bookmark-list:${contentKey}`;
+}
+
+/** A cached row: its summary, or a mark that the row is not listed. */
+type CachedRow =
+  | BookmarkSummary
+  | { readonly key: number; readonly skip: true };
+
+/**
+ * A stored bookmark-list cache as rows by `seq`; anything malformed —
+ * the whole record or one row — is simply not known, so that row is
+ * read again. Never throws.
+ */
+export function sanitizeListCache(raw: unknown): Map<number, CachedRow> {
+  const rows = new Map<number, CachedRow>();
+  if (typeof raw !== "object" || raw === null) return rows;
+  const list = (raw as Record<string, unknown>).rows;
+  if (!Array.isArray(list)) return rows;
+  for (const entry of list) {
+    if (typeof entry !== "object" || entry === null) continue;
+    const row = entry as Record<string, unknown>;
+    if (!isFiniteNumber(row.key)) continue;
+    if (row.skip === true) {
+      rows.set(row.key, { key: row.key, skip: true });
+    } else if (
+      isString(row.id) &&
+      isFiniteNumber(row.timestampMs) &&
+      isString(row.itemId) &&
+      typeof row.hasThumb === "boolean"
+    ) {
+      rows.set(row.key, {
+        key: row.key,
+        id: row.id,
+        timestampMs: row.timestampMs,
+        itemId: row.itemId,
+        hasThumb: row.hasThumb,
+      });
+    }
+  }
+  return rows;
+}
+
+/** A bookmark row read in full, as its cache entry. */
+function cachedRow(key: number, raw: unknown): CachedRow {
+  const bookmark = sanitizeBookmark(raw);
+  return bookmark === null
+    ? { key, skip: true }
+    : summarizeBookmark(key, bookmark);
 }
 
 interface BookmarkRecord {
@@ -491,6 +562,66 @@ export function createIdbStorage(
     return transactionDone(tx);
   }
 
+  const cacheKey = listCacheKey(contentKey);
+
+  // One listing at a time: a second waits for the first, then finds the
+  // cache it wrote, so rows are never read in full twice over.
+  let listing: Promise<unknown> = Promise.resolve();
+  function listBookmarks(): Promise<BookmarkSummary[]> {
+    const run = listing.then(readListing, readListing);
+    listing = run.catch(() => undefined);
+    return run;
+  }
+
+  async function readListing(): Promise<BookmarkSummary[]> {
+    const db = await database();
+    const tx = db.transaction([BOOKMARKS_STORE, STATE_STORE], "readonly");
+    const store = tx.objectStore(BOOKMARKS_STORE);
+    // The novel's row keys only — no row value is deserialized — then the
+    // cache; requests complete in order, so both are in hand in the
+    // second's success, which fetches the rows the cache lacks.
+    const keysRequest = store
+      .index(CONTENT_INDEX)
+      .getAllKeys(IDBKeyRange.only(contentKey));
+    const cacheRequest = tx.objectStore(STATE_STORE).get(cacheKey);
+    let keys: number[] = [];
+    let cached = new Map<number, CachedRow>();
+    const fetched: CachedRow[] = [];
+    cacheRequest.onsuccess = () => {
+      keys = (keysRequest.result as IDBValidKey[]).filter(
+        (key): key is number => typeof key === "number",
+      );
+      cached = sanitizeListCache(cacheRequest.result);
+      for (const key of keys) {
+        if (cached.has(key)) continue;
+        const row = store.get(key);
+        row.onsuccess = () => fetched.push(cachedRow(key, row.result));
+      }
+    };
+    await transactionDone(tx);
+    for (const row of fetched) cached.set(row.key, row);
+    const rows = keys.flatMap((key) => {
+      const row = cached.get(key);
+      return row === undefined ? [] : [row];
+    });
+    // Write the cache back only when it changed: rows read in full, or
+    // rows it still lists that are gone.
+    if (fetched.length > 0 || cached.size !== rows.length) {
+      await writeListCache(db, rows).catch(() => undefined);
+    }
+    return rows.filter((row): row is BookmarkSummary => !("skip" in row));
+  }
+
+  function writeListCache(
+    db: IDBDatabase,
+    rows: readonly CachedRow[],
+  ): Promise<void> {
+    const tx = db.transaction(STATE_STORE, "readwrite");
+    tx.objectStore(STATE_STORE).put({ rows }, cacheKey);
+    commitNow(tx);
+    return transactionDone(tx);
+  }
+
   async function getBookmarks(): Promise<Bookmark[]> {
     const db = await database();
     const tx = db.transaction(BOOKMARKS_STORE, "readonly");
@@ -528,32 +659,49 @@ export function createIdbStorage(
       await transactionDone(tx);
     },
 
-    async addBookmark(bookmark: Bookmark): Promise<Bookmark[]> {
+    async addBookmark(bookmark: Bookmark): Promise<BookmarkSummary[]> {
       const db = await database();
       const tx = db.transaction(BOOKMARKS_STORE, "readwrite");
       tx.objectStore(BOOKMARKS_STORE).add(bookmarkValue(contentKey, bookmark));
       await transactionDone(tx); // durable before the list is read back
-      return getBookmarks();
+      return listBookmarks();
     },
 
     getBookmarks,
 
-    // The `t` list's "x" (docs/plan.md Phase 18): walk this content's rows
-    // and delete the one carrying `id` (ids are not the store key — `seq`
-    // is), committed before the remaining list is read back.
-    async deleteBookmark(id: string): Promise<Bookmark[]> {
+    listBookmarks,
+
+    async getBookmark(key: number): Promise<Bookmark | null> {
+      const db = await database();
+      const tx = db.transaction(BOOKMARKS_STORE, "readonly");
+      const raw = await requestPromise(
+        tx.objectStore(BOOKMARKS_STORE).get(key),
+      );
+      // Only this novel's rows: a key is not a licence to read another's.
+      if (
+        typeof raw !== "object" ||
+        raw === null ||
+        (raw as BookmarkRecord).content !== contentKey
+      ) {
+        return null;
+      }
+      return sanitizeBookmark(raw);
+    },
+
+    // The `t` list's "x" (docs/plan.md Phase 18): the listed rows carrying
+    // `id` (ids are not the store key — `seq` is) are found from the
+    // summaries, not by deserializing every row, and deleted, committed
+    // before the remaining list is read back.
+    async deleteBookmark(id: string): Promise<BookmarkSummary[]> {
+      const before = await listBookmarks();
+      const keys = before.filter((row) => row.id === id).map((row) => row.key);
+      if (keys.length === 0) return before;
       const db = await database();
       const tx = db.transaction(BOOKMARKS_STORE, "readwrite");
-      const index = tx.objectStore(BOOKMARKS_STORE).index(CONTENT_INDEX);
-      const cursorRequest = index.openCursor(IDBKeyRange.only(contentKey));
-      cursorRequest.onsuccess = () => {
-        const cursor = cursorRequest.result;
-        if (cursor === null) return;
-        if ((cursor.value as BookmarkRecord).id === id) cursor.delete();
-        cursor.continue();
-      };
+      const store = tx.objectStore(BOOKMARKS_STORE);
+      for (const key of keys) store.delete(key);
       await transactionDone(tx);
-      return getBookmarks();
+      return listBookmarks();
     },
 
     // "Reset progress" (docs/plan.md Phase 16). Both deletes run in a
@@ -572,7 +720,8 @@ export function createIdbStorage(
 
     async deleteBookmarks(): Promise<void> {
       const db = await database();
-      const tx = db.transaction(BOOKMARKS_STORE, "readwrite");
+      const tx = db.transaction([STATE_STORE, BOOKMARKS_STORE], "readwrite");
+      tx.objectStore(STATE_STORE).delete(cacheKey);
       // An index cannot delete directly; walk this content's cursor and
       // delete each row through it, then let the transaction commit.
       const index = tx.objectStore(BOOKMARKS_STORE).index(CONTENT_INDEX);
@@ -601,6 +750,7 @@ export function createIdbStorage(
       const db = await database();
       const tx = db.transaction([STATE_STORE, BOOKMARKS_STORE], "readwrite");
       tx.objectStore(STATE_STORE).put(stateValue(state), contentKey);
+      tx.objectStore(STATE_STORE).delete(cacheKey);
       const store = tx.objectStore(BOOKMARKS_STORE);
       const cursorRequest = store
         .index(CONTENT_INDEX)

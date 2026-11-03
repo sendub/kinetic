@@ -8,11 +8,13 @@
 import type { MachineSettings } from "../machine/types";
 import type {
   Bookmark,
+  BookmarkSummary,
   PersistedState,
   SavedContext,
   SavedRouteSet,
   Storage,
 } from "./types";
+import { summarizeBookmark } from "./types";
 
 /**
  * A deep copy of a stored context: the IndexedDB adapter structured-clones
@@ -67,10 +69,22 @@ function copyBookmark(bookmark: Bookmark): Bookmark {
 
 export function createMemoryStorage(): Storage {
   let state: PersistedState | null = null;
-  const bookmarks: Bookmark[] = [];
+  // Each bookmark under its key, in insertion order; keys never repeat,
+  // like the IndexedDB rows' auto-increment `seq`.
+  const bookmarks: { key: number; bookmark: Bookmark }[] = [];
+  let nextKey = 1;
 
   function readBookmarks(): Bookmark[] {
-    return bookmarks.map(copyBookmark);
+    return bookmarks.map((row) => copyBookmark(row.bookmark));
+  }
+
+  function summaries(): BookmarkSummary[] {
+    return bookmarks.map((row) => summarizeBookmark(row.key, row.bookmark));
+  }
+
+  function append(bookmark: Bookmark): void {
+    bookmarks.push({ key: nextKey, bookmark: copyBookmark(bookmark) });
+    nextKey += 1;
   }
 
   return {
@@ -84,18 +98,29 @@ export function createMemoryStorage(): Storage {
     },
 
     addBookmark(bookmark) {
-      bookmarks.push(copyBookmark(bookmark));
-      return Promise.resolve(readBookmarks());
+      append(bookmark);
+      return Promise.resolve(summaries());
     },
 
     getBookmarks() {
       return Promise.resolve(readBookmarks());
     },
 
+    listBookmarks() {
+      return Promise.resolve(summaries());
+    },
+
+    getBookmark(key) {
+      const row = bookmarks.find((entry) => entry.key === key);
+      return Promise.resolve(
+        row === undefined ? null : copyBookmark(row.bookmark),
+      );
+    },
+
     deleteBookmark(id) {
-      const index = bookmarks.findIndex((bookmark) => bookmark.id === id);
+      const index = bookmarks.findIndex((row) => row.bookmark.id === id);
       if (index !== -1) bookmarks.splice(index, 1);
-      return Promise.resolve(readBookmarks());
+      return Promise.resolve(summaries());
     },
 
     deleteState() {
@@ -111,7 +136,7 @@ export function createMemoryStorage(): Storage {
     replaceProgress(next, imported) {
       state = normalizeState(next);
       bookmarks.length = 0;
-      bookmarks.push(...imported.map(copyBookmark));
+      for (const bookmark of imported) append(bookmark);
       return Promise.resolve();
     },
   };

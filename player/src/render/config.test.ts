@@ -591,6 +591,8 @@ describe("the confirm box: cancel is a no-op, reset deletes and reloads", () => 
             saveState: (state) => storage.saveState(state),
             addBookmark: (bookmark) => storage.addBookmark(bookmark),
             getBookmarks: () => storage.getBookmarks(),
+            listBookmarks: () => storage.listBookmarks(),
+            getBookmark: (key) => storage.getBookmark(key),
             deleteBookmark: (id) => storage.deleteBookmark(id),
             deleteState: async () => {
               events.push("state");
