@@ -1305,12 +1305,21 @@ truthful: an unchecked box means nothing was accepted.
 
 ## Phase 27: Converting-agent fixes and timeline navigation (2026-11-03, user + converting agent)
 
-- [ ] Nested routes sharing an ending: outer decision after i0 (alt i1
+- [x] Nested routes sharing an ending: outer decision after i0 (alt i1
       returns; continuing i2..i4 joins at i5), inner decision after i2
       (alt i3 returns; continuing i4..i4 also joins at i5). Play all,
       reach i5, go back to the outer choice: the outer continuing route
       must be complete and the outer choice must offer the return to
       main. Today it shows both routes seen with no return option.
+      (Cause: handleRouteEnd closed only the innermost frame and jumped
+      to its continueAt, leaving the outer frame open; the inner return
+      row and play-all autoResolve did the same. New join(decision)
+      closes an enclosing route whose end the join passes. 4 new
+      branches tests failed before; validator accepts the shape (new
+      pytest). vitest 580, check clean, smoke 6/6, playall 27/27,
+      branches 41/41 (one orchestrator run hung 20+ min in
+      branches-unseen and was killed; rerun 41/41 in 67 s; follow-up
+      below). 2026-11-03)
 - [ ] Long choice lists: at 800x600 a 13-route choice runs below the
       window with no scrolling; the last option cannot be clicked and
       keys only cover 1-9. Every option must be reachable by mouse and
@@ -1328,3 +1337,6 @@ truthful: an unchecked box means nothing was accepted.
       route at each decision, not the reading history; `e` goes to the
       furthest point read; saved progress and bookmarks migrate
       automatically.
+- [ ] Scenario harness: a hung scenario (branches-unseen stalled 20+
+      min, 2026-11-03) blocks the run forever. Give each scenario a
+      wall-clock limit that fails it with the step it was on.

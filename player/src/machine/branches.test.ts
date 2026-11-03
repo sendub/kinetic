@@ -3035,3 +3035,137 @@ describe("rolling back restores the routes (docs/plan.md Phase 22)", () => {
     again.destroy();
   });
 });
+
+// i0 | i1 | i2 | i3 | i4 | i5
+//  0 |  1 |  2 |  3 |  4 |  5
+// Nested continuing routes sharing an ending: the outer decision's
+// continuing route i2..i4 holds the inner decision, whose continuing route
+// i4..i4 ends on the same item, and both join at i5.
+const SHARED_END: Shape = {
+  items: ["i0", "i1", "i2", "i3", "i4", "i5"],
+  branches: [
+    {
+      id: "outer",
+      after: "i0",
+      prompt: "Outer?",
+      routes: [
+        {
+          id: "o-alt",
+          label: "Outer alt",
+          start: "i1",
+          end: "i1",
+          result: "return",
+        },
+        { id: "o-cont", label: "Outer cont", start: "i2", end: "i4" },
+      ],
+      continuingRoute: "o-cont",
+      continueAt: "i5",
+    },
+    {
+      id: "inner",
+      after: "i2",
+      prompt: "Inner?",
+      routes: [
+        {
+          id: "n-alt",
+          label: "Inner alt",
+          start: "i3",
+          end: "i3",
+          result: "return",
+        },
+        { id: "n-cont", label: "Inner cont", start: "i4", end: "i4" },
+      ],
+      continuingRoute: "n-cont",
+      continueAt: "i5",
+    },
+  ],
+};
+
+describe("nested continuing routes sharing an ending", () => {
+  const BOTH_COMPLETE = [
+    { decision: 0, routes: [0, 1] },
+    { decision: 1, routes: [0, 1] },
+  ];
+
+  function expectOuterReturnRow(m: ReturnType<typeof machine>): void {
+    wheelBackUntil(m, (s) => s.choice?.decisionId === "outer");
+    const choice = m.getState().choice;
+    expect(choice?.decisionId).toBe("outer");
+    expect(choice?.routes.map((r) => r.seen)).toEqual([true, true]);
+    expect(choice?.continueOption).toBe(true);
+  }
+
+  it("playAllRoutes: leaving i4 completes both continuing routes; the outer choice offers the return", () => {
+    vi.useFakeTimers();
+    const m = machine(SHARED_END, {
+      settings: { ...SETTINGS, playAllRoutes: true },
+    });
+    for (let press = 0; press < 30 && m.getState().cursor !== 5; press += 1)
+      m.advance();
+    expect(m.getState().cursor).toBe(5);
+    expect(m.exportContext().completedRoutes).toEqual(BOTH_COMPLETE);
+    expect(m.exportContext().stack).toEqual([]);
+    expectOuterReturnRow(m);
+    m.destroy();
+  });
+
+  it("manual picks through both levels complete both continuing routes", () => {
+    const m = machine(SHARED_END);
+    m.advance(); // outer fires on i0
+    m.choose(0); // outer alt
+    m.advance(); // off i1: outer re-offers
+    m.choose(1); // outer cont
+    m.advance(); // inner fires on i2
+    m.choose(0); // inner alt
+    m.advance(); // off i3: inner re-offers
+    m.choose(1); // inner cont
+    expect(m.getState().cursor).toBe(4);
+    m.advance(); // off i4: both routes end here, joining at i5
+    expect(m.getState().cursor).toBe(5);
+    expect(m.exportContext().completedRoutes).toEqual(BOTH_COMPLETE);
+    expect(m.exportContext().stack).toEqual([]);
+    expect(screens(m).slice(-1)).toEqual(["5"]);
+    expectOuterReturnRow(m);
+    m.destroy();
+  });
+
+  it("rolling back to i4 and reading on closes both frames again", () => {
+    const m = machine(SHARED_END);
+    m.advance();
+    m.choose(1); // outer cont
+    m.advance();
+    m.choose(1); // inner cont
+    m.advance(); // off i4 to i5
+    wheelBackTo(m, 4);
+    expect(m.exportContext().stack).toEqual([
+      { decision: 0, route: 1 },
+      { decision: 1, route: 1 },
+    ]);
+    m.advance(); // off i4 again
+    expect(m.getState().cursor).toBe(5);
+    expect(m.exportContext().stack).toEqual([]);
+    expect(screens(m).slice(-1)).toEqual(["5"]);
+    expect(m.exportContext().completedRoutes).toEqual([
+      { decision: 0, routes: [1] },
+      { decision: 1, routes: [1] },
+    ]);
+    m.destroy();
+  });
+
+  it("the inner return row joins past the outer route and closes its frame", () => {
+    const m = machine(SHARED_END);
+    m.advance();
+    m.choose(1); // outer cont
+    m.advance();
+    m.choose(1); // inner cont
+    m.advance(); // off i4 to i5: the inner return row is open from now on
+    wheelBackUntil(m, (s) => s.choice?.decisionId === "inner");
+    m.choose(0); // inner alt from the replayed screen
+    m.advance(); // off i3: inner re-offers, with the return row
+    expect(m.getState().choice?.continueOption).toBe(true);
+    m.chooseContinue();
+    expect(m.getState().cursor).toBe(5);
+    expect(m.exportContext().stack).toEqual([]);
+    m.destroy();
+  });
+});

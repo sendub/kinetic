@@ -496,6 +496,10 @@ v1 model and decisions:
 - Nested branches: routes may contain decisions. The machine keeps a
   stack of active decision contexts; returning from a nested decision
   resumes its route. v1 supports nesting; the fixture exercises it.
+  Shared endings: leaving a route's last item closes every enclosing
+  frame whose route ends at that same item, each completing and taking
+  its own route-end step (join, re-offer or close), so a nested
+  continuing route that ends its enclosing route also completes it.
 - `Play all routes` (new persisted setting, default off, in the `c`
   screen): zero interactivity. On reaching a decision, auto-pick routes
   in manifest order among routes not yet played (all seen -> pick the
@@ -1056,6 +1060,48 @@ its answers on):
   and left untouched (it may be hard-linked elsewhere); one whose bytes
   do not match its name is an error naming it, never overwritten
   (kinetic-extract, `kinetic-media ship`, `kinetic-media rebuild --out`).
+
+## Phase 27: Timeline navigation (2026-11-03, user)
+
+Supersedes the Phase 18 history rollback spec and its Phase 26 future
+copy and gap rules: a history replay took the reader along their
+reading order (a bookmark visit at 2% scrolled forward back to 60%),
+which the user rejected.
+
+- The wheel walks the STORY ORDER, not a record of what was shown.
+  Back from 2% goes towards 1%, forward goes past 3%; after `e` back to
+  60%, back goes to 59%. Choice screens are steps of their own that
+  the wheel passes through like any screen (user, 2026-11-03: scrolling
+  never halts at a choice): shown with the route the walk takes
+  highlighted (the `.choice-next` look), going back the route that had
+  been taken, going forward the route about to be taken.
+- Branches: the machine remembers the LAST PICK at each decision
+  (persisted). The wheel follows the last-picked route through a
+  decision, so it walks back and forth along the path last taken. With
+  no known pick it takes the longest route (most items) that has seen
+  content. A returning route leads back to its choice screen, and the
+  walk continues past the choice along the route that continues.
+  An ending route's end stops the walk.
+- The wheel shows only seen screens; forward stops before an unseen
+  one. It marks nothing seen or played. Reading on (Space, auto, a
+  pick) from a wheeled-to screen simply continues from it: no fork, no
+  replay record.
+- `e` (user option a, 2026-11-03) = the furthest screen read in story
+  order: the highest seen item, shown with its enclosing route frames.
+  It moves only when the reader reads past it; revisiting earlier
+  screens or trying another branch never moves it back. A no-op when
+  already there.
+- Play all routes: the played-this-pass record keeps the Phase 22
+  split (seen marks stay, the pass rewinds). Wheeling back to a screen
+  puts back the pass as of that point in story order: decisions after
+  it (and not enclosing it) count as unplayed this pass, so reading on
+  replays their choices and routes.
+- Saves migrate automatically: a stored context or bookmark with the
+  old reading history loses it (the record is dropped on load and not
+  written again); the last pick per decision is derived from the old
+  record (the latest route entered at each decision) and the current
+  route frames. Seen marks, played routes, bookmarks and the current
+  position are kept. No user action.
 
 ## Later, waiting on the user
 

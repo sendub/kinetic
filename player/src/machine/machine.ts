@@ -1820,7 +1820,7 @@ export function createMachine(options: MachineOptions): Machine {
   function autoResolve(decision: ResolvedDecision): void {
     closeFramesFor(decision.index);
     if (decision.continueAt >= 0) {
-      showItem(decision.continueAt, "nav");
+      join(decision);
       return;
     }
     closeIfPureAndComplete(decision);
@@ -1861,6 +1861,28 @@ export function createMachine(options: MachineOptions): Machine {
     }
     showItem(next, "nav");
     return true;
+  }
+
+  /**
+   * Proceeds to a decision's `continueAt`, its own frames already closed.
+   * A join past the end of the enclosing open route (nested routes sharing
+   * an ending: the inner continuing route ends on the enclosing route's last
+   * item) leaves that route too, so its route-end handling runs — it
+   * completes, and joins, re-offers or closes in turn — rather than leaving
+   * a stale frame open (docs/plan.md Phase 13, Nested branches).
+   */
+  function join(decision: ResolvedDecision): void {
+    const frame = stack[stack.length - 1];
+    if (
+      frame !== undefined &&
+      frame.decision === decision.parent &&
+      decision.continueAt >
+        decisions[frame.decision].routes[frame.route].endIndex
+    ) {
+      handleRouteEnd();
+      return;
+    }
+    showItem(decision.continueAt, "nav");
   }
 
   /** True when the cursor is on the last item of the innermost open route. */
@@ -2046,7 +2068,7 @@ export function createMachine(options: MachineOptions): Machine {
     if (closeIfPureAndComplete(decision)) return;
     stack.pop();
     if (route.continuing) {
-      showItem(decision.continueAt, "nav");
+      join(decision);
       return;
     }
     // The same pause as `fireDecision`: a skip burst stops at this re-offer
@@ -2460,7 +2482,7 @@ export function createMachine(options: MachineOptions): Machine {
       pendingChoice = null;
       // Joining the aftermath replays none of the continuing route's items,
       // so the route is not marked played by this.
-      showItem(decision.continueAt, "nav");
+      join(decision);
     },
 
     mediaEnded() {

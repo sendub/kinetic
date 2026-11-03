@@ -932,6 +932,39 @@ def test_decision_without_continuing_route_passes(branch_folder: Path) -> None:
     assert proc.returncode == 0, proc.stdout + proc.stderr
 
 
+def test_nested_continuing_routes_sharing_an_ending_pass(
+        branch_folder: Path) -> None:
+    """Nested decisions whose continuing routes end on the same item and
+    join at the same `continueAt` (docs/plan.md Phase 13, shared endings)
+    are valid: the inner `continueAt` lies past the enclosing route."""
+    manifest = read_manifest(branch_folder)
+    ids = [item["id"] for item in manifest["items"][:6]]
+    manifest["branches"] = [
+        {
+            "id": "outer", "after": ids[0], "prompt": "Outer?",
+            "routes": [
+                {"id": "o-alt", "label": "Outer alt", "start": ids[1],
+                 "end": ids[1], "result": "return"},
+                {"id": "o-cont", "label": "Outer cont", "start": ids[2],
+                 "end": ids[4]},
+            ],
+            "continuingRoute": "o-cont", "continueAt": ids[5],
+        },
+        {
+            "id": "inner", "after": ids[2], "prompt": "Inner?",
+            "routes": [
+                {"id": "n-alt", "label": "Inner alt", "start": ids[3],
+                 "end": ids[3], "result": "return"},
+                {"id": "n-cont", "label": "Inner cont", "start": ids[4],
+                 "end": ids[4]},
+            ],
+            "continuingRoute": "n-cont", "continueAt": ids[5],
+        },
+    ]
+    write_manifest(branch_folder, manifest)
+    assert problems_of(branch_folder) == []
+
+
 def test_duplicate_branch_id_rejected(branch_folder: Path) -> None:
     manifest = read_manifest(branch_folder)
     manifest["branches"].append(manifest["branches"][0])
