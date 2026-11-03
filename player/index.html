@@ -519,9 +519,10 @@
         position: absolute;
         inset: 0;
         z-index: 6;
-        display: flex;
-        flex-direction: column;
-        gap: clamp(6px, 1.4vh, 20px);
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        align-content: start;
+        gap: clamp(5px, 1.2vh, 20px) clamp(16px, 3vw, 40px);
         padding: clamp(10px, 2vh, 32px) clamp(16px, 6vw, 88px);
         overflow-x: hidden;
         overflow-y: auto;
@@ -530,10 +531,28 @@
         color: var(--ink);
         font-family: var(--ui-font);
       }
-      /* Flex children keep their height: the panel scrolls rather than
-         squashing a section. */
+      /* One column of sections, each the full width; the panel scrolls
+         rather than squashing one. The header row is the exception: the
+         game's name on the left, the hint on the right of the same line
+         (stacked again on a narrow window). */
       #help > * {
-        flex: none;
+        grid-column: 1 / -1;
+        min-width: 0;
+      }
+      #help > .help-game {
+        grid-column: 1;
+      }
+      #help > .help-hint {
+        grid-column: 2;
+        align-self: center;
+        text-align: right;
+      }
+      @media (max-width: 560px) {
+        #help > .help-game,
+        #help > .help-hint {
+          grid-column: 1 / -1;
+          text-align: left;
+        }
       }
       #help[hidden] {
         display: none;
@@ -562,37 +581,81 @@
         color: rgba(244, 239, 230, 0.55);
         font-size: clamp(10px, 1.2vh, 13px);
       }
-      /* The keys fill across before going down (Phase 26): as many
-         columns as fit, each at least 26ch (or the full width when the
-         window is narrower), rows in reading order. */
+      /* The keys fill across before going down (Phase 26): a grid whose
+         cells line up in rows and columns. Each entry is its key caps on
+         one line with the description beneath, so every description in a
+         row starts at the same height and every cell at its column's
+         edge. Column counts divide the twelve entries evenly: six across
+         on a wide window, four at 800 px, three, then two. */
       .help-list {
         display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(min(100%, 26ch), 1fr));
-        gap: clamp(4px, 0.8vh, 12px) clamp(12px, 2.4vw, 32px);
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: clamp(6px, 1.2vh, 22px) clamp(14px, 2vw, 28px);
+        margin: 0;
+      }
+      @media (min-width: 480px) {
+        .help-list {
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+        }
+      }
+      @media (min-width: 700px) {
+        .help-list {
+          grid-template-columns: repeat(4, minmax(0, 1fr));
+        }
+      }
+      @media (min-width: 1100px) {
+        .help-list {
+          grid-template-columns: repeat(6, minmax(0, 1fr));
+        }
       }
       .help-row {
         display: flex;
-        align-items: baseline;
-        gap: clamp(10px, 2vw, 18px);
+        flex-direction: column;
+        align-items: flex-start;
+        gap: clamp(3px, 0.6vh, 8px);
+        min-width: 0;
+        padding-top: clamp(4px, 0.8vh, 10px);
+        border-top: 1px solid rgba(244, 239, 230, 0.1);
       }
-      /* One chip width for every key, so the descriptions line up in each
-         column; wide enough for "1-9 / 0". */
+      /* The caps line: one cap per key word, a muted slash between
+         alternatives; always one line tall so the descriptions in a row
+         share a baseline. */
       .help-key {
-        flex: none;
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 0.35em;
+        font-size: clamp(11px, 1.4vh, 15px);
+      }
+      .help-cap {
         box-sizing: border-box;
-        width: 7em;
-        padding: clamp(2px, 0.5vh, 5px) 0;
-        border: 1px solid rgba(244, 239, 230, 0.28);
+        min-width: 2.2em;
+        padding: 0.1em 0.6em;
+        border: 1px solid rgba(244, 239, 230, 0.3);
+        border-bottom-width: 2px;
         border-radius: 5px;
-        background: rgba(18, 18, 22, 0.9);
+        background: rgba(22, 22, 26, 0.95);
+        color: var(--ink);
         font: inherit;
-        font-size: clamp(11px, 1.4vh, 16px);
-        letter-spacing: 0.06em;
+        font-weight: 600;
+        line-height: 1.25;
+        letter-spacing: 0.04em;
         text-align: center;
       }
+      .help-or {
+        color: rgba(244, 239, 230, 0.45);
+      }
       .help-desc {
-        color: rgba(244, 239, 230, 0.8);
-        font-size: clamp(12px, 1.6vh, 18px);
+        color: rgba(244, 239, 230, 0.68);
+        font-size: clamp(11px, 1.45vh, 16px);
+        line-height: 1.3;
+      }
+      /* The settings under the keys (Phase 26), set apart by a rule and
+         a band of space so the two areas read as two sections. */
+      #help > #config {
+        margin-top: clamp(2px, 1vh, 28px);
+        padding-top: clamp(6px, 1.6vh, 32px);
+        border-top: 1px solid rgba(244, 239, 230, 0.18);
       }
       /* Decision overlay (docs/plan.md Phase 13): the machine's open
          choice drawn as a prompt over its numbered routes. z 5: it never

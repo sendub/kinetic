@@ -1414,9 +1414,16 @@ truthful: an unchecked box means nothing was accepted.
 
 ## Phase 28: Esc and bookmark screens (2026-11-03, user)
 
-- [ ] Esc screen layout: the description beside each key looks bad and
+- [x] Esc screen layout: the description beside each key looks bad and
       unaligned. Put it beneath the key, with structure within each
       entry, and clear spacing between the keys area and the settings.
+      (Key caps per word with a muted "/" between alternatives, the
+      description beneath in muted small text, entries in an aligned grid
+      (6/4/3/2 columns by width) with faint row rules; title and close hint
+      share a header row; a full-width rule and spacing before Settings.
+      Fits 800x600 without scrolling. vitest 604, check clean, screens 57
+      + 2 headless-fullscreen partials, smoke 6/6 (subagent).
+      .tmp/esc-layout/after-800.png, after-1440.png. 2026-11-03)
 - [ ] Bookmark screen (`t`) speed: with >50 bookmarks it takes ~3 s to
       open. Open immediately regardless of count and fill in over time
       if needed; optimise generally.

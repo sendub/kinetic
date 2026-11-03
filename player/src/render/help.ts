@@ -1,7 +1,7 @@
 // The `#help` Esc screen (docs/plan.md Phase 13b; Phase 26 "Settings live
 // on the Esc screen"): a black screen headed by the game's name, listing
-// the main interaction keys, one short line each, in a grid that fills
-// across before going down (Phase 18, "Key help simplified" — the reset
+// the main interaction keys, each its key caps over a short description,
+// in a grid that fills across before going down (Phase 18, "Key help simplified" — the reset
 // box's own keys are not listed), and below them every setting: main.ts
 // mounts the settings section (render/config.ts) into this panel, so the
 // keys and the settings are one screen. The rows render from the keymap module's own table
@@ -133,9 +133,23 @@ export function mountHelpOverlay({
   for (const row of helpRows()) {
     const line = doc.createElement("div");
     line.className = "help-row";
-    const key = doc.createElement("kbd");
+    // The entry's key caps on one line, its description beneath
+    // (index.html's `.help-row`). Each word of a label is its own cap and
+    // a lone "/" is the "or" between caps, so `1-9 / 0` draws two caps;
+    // the spaces between are text nodes, so the line's text is still the
+    // label itself.
+    const key = doc.createElement("span");
     key.className = "help-key";
-    key.textContent = row.keys.join(" / ");
+    row.keys
+      .join(" / ")
+      .split(" ")
+      .forEach((word, index) => {
+        if (index > 0) key.append(" ");
+        const part = doc.createElement(word === "/" ? "span" : "kbd");
+        part.className = word === "/" ? "help-or" : "help-cap";
+        part.textContent = word;
+        key.append(part);
+      });
     const description = doc.createElement("span");
     description.className = "help-desc";
     description.textContent = row.description;
