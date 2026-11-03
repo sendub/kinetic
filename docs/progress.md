@@ -1389,7 +1389,13 @@ truthful: an unchecked box means nothing was accepted.
       on 2026-11-03, after the Phase 27 timeline change; earlier also an
       uncaptured branches abort). Find why the settings panel is not
       open/visible at that point and fix the cause, not the wait.
-- [ ] The route pill (`#flash`) can still show when a decision re-opens
+- [x] The route pill (`#flash`) can still show when a decision re-opens
       right after a short route and covers the choice title and hint
       (seen at 800x600, .tmp/choice-overflow/cursor-800x600.png). Hide it
       when a choice screen opens, or keep it clear of the panel.
+      (Dropped, with its queue, when a choice opens and blocked while
+      one is open; the panel fills the window so no clear spot exists, and
+      nothing announces at a choice. Play-all's Phase 24 pick unchanged.
+      New choicelist check fails with app.ts reverted. vitest 604, check
+      clean, choicelist 11/11; subagent smoke 6/6, playall 27/27,
+      branches 43/43. .tmp/flash-choice/reopen-800x600.png. 2026-11-03)

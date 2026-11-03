@@ -10,6 +10,11 @@
 // The content is its own small folder, built here from the demo's images:
 // the demo fixture keeps its two-route decisions, which every other
 // scenario counts on. Screenshots land in .tmp/choice-overflow/.
+//
+// The route pill never covers a choice screen (docs/progress.md): route 13
+// is one item long, so the decision re-opens while its "Route: …" pill
+// still shows; the pill goes as the choice opens. Its screenshot lands in
+// .tmp/flash-choice/.
 
 import { cpSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -33,6 +38,7 @@ export const title =
 const ROUTES = 13;
 const folder = join(dirname(demoDir), "demo-choicelist");
 const shots = join(repoRoot, ".tmp", "choice-overflow");
+const flashShots = join(repoRoot, ".tmp", "flash-choice");
 
 const LEAD_TEXT =
   "A long decision comes next: thirteen routes in a small window.";
@@ -116,6 +122,11 @@ const READ_LAYOUT = () => {
       rect: box(el),
     })),
     text: document.getElementById("overlay-text")?.textContent ?? "",
+    // the #flash pill while it is on screen (not yet faded out)
+    flash: (() => {
+      const pill = document.getElementById("flash");
+      return pill === null || pill.style.opacity === "0" ? null : box(pill);
+    })(),
   };
 };
 
@@ -137,6 +148,26 @@ const rowShown = (l, idx) => {
     row !== undefined && inside(row.rect, l.list) && inViewport(row.rect, l)
   );
 };
+const overlaps = (a, b) =>
+  a !== null &&
+  b !== null &&
+  a.left < b.right &&
+  b.left < a.right &&
+  a.top < b.bottom &&
+  b.top < a.bottom;
+/** The panel's boxes the #flash pill overlaps: title, hint, shown rows. */
+const pillCovers = (l) =>
+  [
+    ["title", l.title],
+    ["hint", l.hint],
+    ["auto", l.auto],
+    ...l.rows
+      .filter((r) => inside(r.rect, l.list))
+      .map((r) => [`row ${r.idx}`, r.rect]),
+  ]
+    .filter(([, r]) => overlaps(l.flash, r))
+    .map(([name]) => name);
+
 /** The fixed parts sit in the window, apart from the list, in order. */
 const panelFits = (l) =>
   inViewport(l.title, l) &&
@@ -184,6 +215,7 @@ async function fireDecision(page, cdp) {
 export default async function ({ check, open }) {
   buildFolder();
   mkdirSync(shots, { recursive: true });
+  mkdirSync(flashShots, { recursive: true });
   const last = ROUTES - 1;
 
   // ------------------------------------------------------------------
@@ -242,6 +274,19 @@ export default async function ({ check, open }) {
     const reopened = await waitFor(page, CHOICE_OPEN);
     await sleep(150);
     const r0 = await layout(page);
+    await page.screenshot({ path: join(flashShots, "reopen-800x600.png") });
+    check(
+      "the route pill showing as a short route re-opens the decision goes with it: nothing covers the title, hint or rows",
+      afterClick.flash !== null &&
+        reopened &&
+        r0.flash === null &&
+        pillCovers(r0).length === 0,
+      {
+        pillBefore: afterClick.flash,
+        pillAfter: r0.flash,
+        covers: pillCovers(r0),
+      },
+    );
     for (let i = 0; i < ROUTES; i += 1) await pressDown(cdp);
     await sleep(150);
     const k = await layout(page);

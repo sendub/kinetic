@@ -12,6 +12,37 @@ import { createVisualLayer } from "./visual";
 /** A route announcement pill's visible hold (docs/plan.md Phase 18). */
 export const ROUTE_PILL_MS = 1600;
 
+/**
+ * The pill never covers a choice screen (docs/progress.md): `#choice` fills
+ * the window, so no spot is clear of its title, hint and rows. A choice
+ * opening drops the pill on screen and any message still queued — the
+ * leftover "Route: <label>" of a short route that has just ended — and no
+ * pill shows while the choice is open. Nothing is lost: what a choice
+ * allows (its own keys, a pick) announces nothing until it closes, and a
+ * pick closes it before its route pill shows; auto-forward never flips at
+ * a choice, and `b` is inert there.
+ */
+export interface PillGate {
+  /** Report the choice screen's state; true when the pill must go now. */
+  choiceChanged(open: boolean): boolean;
+  /** Whether a pill may show now. */
+  mayShow(): boolean;
+}
+
+export function createPillGate(): PillGate {
+  let choiceOpen = false;
+  return {
+    choiceChanged(open) {
+      const opened = open && !choiceOpen;
+      choiceOpen = open;
+      return opened;
+    },
+    mayShow() {
+      return !choiceOpen;
+    },
+  };
+}
+
 export interface Shell {
   /** The `h` toggle: hide or show the text overlay, visual untouched. */
   toggleText(): void;
@@ -167,6 +198,10 @@ export function mountShell({ root, manifest, machine }: ShellOptions): Shell {
     visuals.update(manifest.items[machine.visualIndex()], state);
     captions.update(manifest.items[state.cursor]);
     choiceOpen = state.choice !== undefined;
+    if (pillGate.choiceChanged(choiceOpen)) {
+      clearSequence();
+      clearFlash();
+    }
     skipping = state.skipping;
     endCardDue = state.endCard !== undefined;
     if (state.endCard !== undefined) {
@@ -221,6 +256,12 @@ export function mountShell({ root, manifest, machine }: ShellOptions): Shell {
   // from `flashTimers` on purpose: `flash` clears its own pill's timers,
   // and must never cancel the message still queued behind it.
   const sequenceTimers: ReturnType<typeof setTimeout>[] = [];
+  const pillGate = createPillGate();
+
+  function clearSequence(): void {
+    for (const timer of sequenceTimers) globalThis.clearTimeout(timer);
+    sequenceTimers.length = 0;
+  }
 
   function clearFlash(): void {
     for (const timer of flashTimers) globalThis.clearTimeout(timer);
@@ -232,6 +273,7 @@ export function mountShell({ root, manifest, machine }: ShellOptions): Shell {
   }
 
   function flash(message: string, holdMs = 900): void {
+    if (!pillGate.mayShow()) return; // never over a choice screen
     clearFlash(); // a second `b` replaces the first pill, mid-fade included
     const pill = doc.createElement("div");
     pill.id = "flash";
@@ -268,8 +310,7 @@ export function mountShell({ root, manifest, machine }: ShellOptions): Shell {
   function flashSequence(messages: readonly string[]): void {
     // A new announcement wins: a message of the previous sequence still
     // queued would otherwise land on top of this one's fresher pill.
-    for (const timer of sequenceTimers) globalThis.clearTimeout(timer);
-    sequenceTimers.length = 0;
+    clearSequence();
     let delay = 0;
     for (const message of messages) {
       sequenceTimers.push(
@@ -308,8 +349,7 @@ export function mountShell({ root, manifest, machine }: ShellOptions): Shell {
       machine.destroy();
       visuals.destroy();
       clearFlash();
-      for (const timer of sequenceTimers) globalThis.clearTimeout(timer);
-      sequenceTimers.length = 0;
+      clearSequence();
       root.replaceChildren();
     },
   };
