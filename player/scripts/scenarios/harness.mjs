@@ -360,22 +360,31 @@ const CONFIG_CLOSED = () => {
 const configOpen = (page) => page.evaluate(CONFIG_OPEN);
 
 // Escape until `predicate` holds: the settings live on the Esc screen
-// (Phase 26), so Escape opens and closes them. While the page is
-// fullscreen Chrome keeps the first Escape to leave fullscreen, so that
-// case sends one more. Returns whether the predicate held.
+// (Phase 26), so Escape opens and closes them. Returns whether the
+// predicate held.
 // A predicate that already holds sends nothing: Escape toggles the screen,
 // so pressing it then would undo the state the caller asked for and leave
 // every later open/close one step out of phase.
+// Whether the browser keeps an Escape to leave fullscreen cannot be
+// predicted from `document.fullscreenElement`: headless Chrome enters
+// fullscreen on the first gesture and drops it again on its own tens to
+// hundreds of ms later, and an Escape sent while it is still up reaches
+// the page (it toggles the screen) instead of being kept. So each press is
+// followed by asking the page whether it saw the key: seen, the page acted
+// on it and the predicate is awaited; not seen, the browser kept it to
+// leave fullscreen and one more press goes to the page.
 async function escapeUntil(page, cdp, predicate) {
   if (await page.evaluate(predicate)) return true;
-  const fullscreen = await page.evaluate(
-    () => document.fullscreenElement !== null,
-  );
-  if (fullscreen) {
-    await pressEscape(cdp);
-    await sleep(150);
+  for (let press = 0; press < 2; press += 1) {
+    if (await pressEscapeSeen(page, cdp)) break;
+    try {
+      await page.waitForFunction(() => document.fullscreenElement === null, {
+        timeout: CLICK_WAIT_MS,
+      });
+    } catch {
+      return false; // kept by the browser, yet still fullscreen
+    }
   }
-  await pressEscape(cdp);
   try {
     await page.waitForFunction(predicate, { timeout: CLICK_WAIT_MS });
     return true;
@@ -819,6 +828,27 @@ const pressC = (cdp) => pressKey(cdp, "c", "KeyC", 67, "c");
 const pressA = (cdp) => pressKey(cdp, "a", "KeyA", 65, "a");
 const pressEnter = (cdp) => pressKey(cdp, "Enter", "Enter", 13, "\r");
 const pressEscape = (cdp) => pressKey(cdp, "Escape", "Escape", 27, "");
+// Escape, then whether the page's own keydown saw it (true) or the browser
+// kept it, as it does to leave fullscreen (false). The CDP key dispatch
+// resolves once the page has handled the key, so the answer is final.
+const ARM_ESCAPE_PROBE = () => {
+  if (window.__escapeProbe !== true) {
+    window.__escapeProbe = true;
+    window.addEventListener(
+      "keydown",
+      (event) => {
+        if (event.key === "Escape") window.__escapeSeen = true;
+      },
+      true,
+    );
+  }
+  window.__escapeSeen = false;
+};
+const pressEscapeSeen = async (page, cdp) => {
+  await page.evaluate(ARM_ESCAPE_PROBE);
+  await pressEscape(cdp);
+  return page.evaluate(() => window.__escapeSeen === true);
+};
 // A decision route digit (Phase 13): the overlay takes 1..9 as its own
 // input (keys.ts's routeIndexForKey reads `key`).
 const pressDigit = (cdp, digit) =>
@@ -1278,6 +1308,7 @@ export {
   containFit,
   dismissHelp,
   dismissHelpByKeyboard,
+  escapeUntil,
   FIT_STATE,
   HELP_CLOSED,
   HELP_OPEN,
@@ -1300,6 +1331,7 @@ export {
   pressE,
   pressEnter,
   pressEscape,
+  pressEscapeSeen,
   pressH,
   pressKey,
   pressSpace,

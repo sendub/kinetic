@@ -28,6 +28,7 @@ import {
   currentItemId,
   demoDir,
   emptyDir,
+  escapeUntil,
   HELP_CLOSED,
   HELP_OPEN,
   helpOpen,
@@ -45,6 +46,7 @@ import {
   pressE,
   pressEnter,
   pressEscape,
+  pressEscapeSeen,
   pressSpace,
   pressT,
   pressTab,
@@ -125,19 +127,29 @@ const rowCenterClick = (cdp, row) => clickCenter(cdp, row.rect);
 /**
  * The first gesture requests fullscreen. When the browser granted it, Chrome
  * keeps the first Escape for leaving fullscreen and the page never sees it.
- * Returns what one Escape did, so callers can assert the windowed state that
- * follows; `wasFullscreen: false` means headless never entered it.
+ * Headless Chrome drops fullscreen on its own soon after, and an Escape sent
+ * before that reaches the page (it opens the Esc screen) instead of being
+ * kept; that Escape is then undone with one more, and `kept: false` says the
+ * browser's keeping could not be observed. Returns what happened, so callers
+ * can assert the windowed state that follows; `wasFullscreen: false` means
+ * headless never entered it (or had already left).
  */
 async function leaveFullscreen(page, cdp) {
   const before = await page.evaluate(PAGE_STATE);
   if (before.fullscreenElement === null) {
     return { wasFullscreen: false, ok: true, before };
   }
-  await pressEscape(cdp);
-  await sleep(150);
+  const kept = !(await pressEscapeSeen(page, cdp));
+  if (!kept) await escapeUntil(page, cdp, HELP_CLOSED);
+  await page
+    .waitForFunction(() => document.fullscreenElement === null, {
+      timeout: 5000,
+    })
+    .catch(() => {});
   const after = await page.evaluate(PAGE_STATE);
   return {
     wasFullscreen: true,
+    kept,
     ok: after.fullscreenElement === null && after.helpOpen === false,
     before,
     after,
@@ -181,7 +193,7 @@ async function helpMidFlow({ check, open }) {
   const fs = await leaveFullscreen(page, cdp);
   check(
     "the first Escape while fullscreen is the browser's: it leaves fullscreen and opens nothing",
-    fs.ok ? (fs.wasFullscreen ? true : "PARTIAL") : false,
+    fs.ok ? (fs.wasFullscreen && fs.kept ? true : "PARTIAL") : false,
     fs,
   );
 
@@ -1004,26 +1016,32 @@ async function config({ check, open }) {
   const fast = await page.evaluate(READ_CONFIG_OVERLAY);
   // The page went fullscreen on the first gesture: Chrome keeps the first
   // Escape, so the panel stays open and the second Escape closes it.
+  // Headless Chrome may instead hand that Escape to the page (it drops
+  // fullscreen on its own), which closes the panel at once: PARTIAL, the
+  // keeping was not observable.
   const wasFullscreen = (await page.evaluate(PAGE_STATE)).fullscreenElement;
-  await pressEscape(cdp);
-  await sleep(80);
+  const kept = !(await pressEscapeSeen(page, cdp));
   const afterFirstEsc = await configOpen(page);
-  const windowed = await page.evaluate(
-    () => document.fullscreenElement === null,
-  );
-  if (afterFirstEsc) await pressEscape(cdp);
-  await sleep(80);
-  const closed = (await configOpen(page)) === false;
+  const windowed = await page
+    .waitForFunction(() => document.fullscreenElement === null, {
+      timeout: 5000,
+    })
+    .then(
+      () => true,
+      () => false,
+    );
+  const closed = await closeSettings(page, cdp);
   check(
     "four + clicks show 2.00x; Escape closes config (the first one leaves fullscreen when fullscreen)",
     fast.speedValue === SPEED_2X &&
       fast.skipPressed === "true" &&
       windowed &&
       closed &&
-      (wasFullscreen !== null ? afterFirstEsc === true : "PARTIAL"),
+      (wasFullscreen !== null && kept ? afterFirstEsc === true : "PARTIAL"),
     {
       speed: fast.speedValue,
       wasFullscreen,
+      kept,
       afterFirstEsc,
       windowed,
       closed,

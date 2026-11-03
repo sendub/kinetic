@@ -1384,11 +1384,18 @@ truthful: an unchecked box means nothing was accepted.
       kill. Orchestrator: 3 s limit -> FAIL "walk", 0 Chrome left; branches
       41/41 three times; one earlier branches run ended 40 checks 39 pass
       1 fail, output not captured, not reproduced in 3 reruns. 2026-11-03)
-- [ ] Harness flake: playall `configure` intermittently aborts with
+- [x] Harness flake: playall `configure` intermittently aborts with
       clickCenter ".config-play-all" not visible after 5 s (2 of 5 runs
       on 2026-11-03, after the Phase 27 timeline change; earlier also an
       uncaptured branches abort). Find why the settings panel is not
       open/visible at that point and fix the cause, not the wait.
+      (Cause: headless Chrome often hands the fullscreen-leaving Escape
+      to the page, so escapeUntil's assumed-swallowed press opened the
+      Esc screen and its next press closed it. New pressEscapeSeen probes
+      whether the page saw the key; escapeUntil and screens'
+      leaveFullscreen use it. Before 3/18 runs failed under load, after
+      0/20 (subagent); orchestrator playall 27/27 x3, screens 57 + 2
+      headless-fullscreen partials, check clean. 2026-11-03)
 - [x] The route pill (`#flash`) can still show when a decision re-opens
       right after a short route and covers the choice title and hint
       (seen at 800x600, .tmp/choice-overflow/cursor-800x600.png). Hide it
@@ -1399,3 +1406,4 @@ truthful: an unchecked box means nothing was accepted.
       New choicelist check fails with app.ts reverted. vitest 604, check
       clean, choicelist 11/11; subagent smoke 6/6, playall 27/27,
       branches 43/43. .tmp/flash-choice/reopen-800x600.png. 2026-11-03)
+- [x] Phase-closer: full suite, rebuild demo folders.
