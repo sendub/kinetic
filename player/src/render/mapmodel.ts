@@ -957,13 +957,17 @@ export interface MapView {
 /** The furthest the map zooms in, Fit included. */
 export const MAX_SCALE = 3;
 
-/** The zoom limits for a model in a viewport: out to the whole tree, in to 3x. */
+/**
+ * The zoom limits for a model in a viewport: out to the whole tree (with
+ * the marker at `here`, when given, as Fit shows it), in to 3x.
+ */
 export function zoomLimits(
   model: MapModel,
   vw: number,
   vh: number,
+  here?: { x: number; y: number },
 ): { min: number; max: number } {
-  const fit = fitView(model, vw, vh).scale;
+  const fit = fitView(model, vw, vh, here).scale;
   return { min: Math.min(fit, 0.25), max: MAX_SCALE };
 }
 
@@ -1000,19 +1004,118 @@ export function centreOn(
 export const FIT_MARGIN_PX = 32;
 
 /**
+ * How far the "you are here" marker reaches from its point, in screen
+ * pixels at any zoom: its ring (r 13) above, its centred "you are here"
+ * label (13 px, letter-spaced, 4 px halo, baseline 32 px below) to each
+ * side and below, with a few pixels' slack. The branch map draws it in
+ * screen space, so Fit and the opening view leave this room around it.
+ */
+export const HERE_REACH = { side: 58, up: 18, down: 42 } as const;
+
+/** Screen pixels kept between the marker's reach and the view's edge. */
+const HERE_MARGIN_PX = 6;
+
+/** One edge of what a view must show, on one axis: screen = a * scale + c. */
+interface Edge {
+  readonly a: number;
+  readonly c: number;
+}
+
+/** The low and high edges a framed view keeps inside [0, room] on one axis. */
+interface Axis {
+  readonly lo: readonly Edge[];
+  readonly hi: readonly Edge[];
+}
+
+/** The largest scale at which every lo..hi span fits in `room`. */
+function axisScale(axis: Axis, room: number): number {
+  let scale = Infinity;
+  for (const hi of axis.hi)
+    for (const lo of axis.lo) {
+      const da = hi.a - lo.a;
+      if (da > 0) scale = Math.min(scale, Math.max(1, room - hi.c + lo.c) / da);
+    }
+  return scale;
+}
+
+/** The offset that centres the axis's extent at `scale` in `room`. */
+function axisOffset(axis: Axis, scale: number, room: number): number {
+  const lo = Math.min(...axis.lo.map((e) => e.a * scale + e.c));
+  const hi = Math.max(...axis.hi.map((e) => e.a * scale + e.c));
+  return room / 2 - (lo + hi) / 2;
+}
+
+/**
+ * What a whole-tree view keeps inside the viewport: the tree's drawn box
+ * (`bounds`) with `FIT_MARGIN_PX` a side and, when `here` is given, the
+ * marker's screen-space reach (`HERE_REACH`) around that point.
+ */
+function wholeAxes(
+  model: MapModel,
+  here: { x: number; y: number } | undefined,
+): { x: Axis; y: Axis } {
+  const b = model.bounds;
+  const m = FIT_MARGIN_PX;
+  const r = HERE_REACH;
+  const k = HERE_MARGIN_PX;
+  const x: Axis = {
+    lo: [{ a: b.x0, c: -m }],
+    hi: [{ a: b.x1, c: m }],
+  };
+  const y: Axis = {
+    lo: [{ a: b.y0, c: -m }],
+    hi: [{ a: b.y1, c: m }],
+  };
+  if (here === undefined) return { x, y };
+  return {
+    x: {
+      lo: [...x.lo, { a: here.x, c: -r.side - k }],
+      hi: [...x.hi, { a: here.x, c: r.side + k }],
+    },
+    y: {
+      lo: [...y.lo, { a: here.y, c: -r.up - k }],
+      hi: [...y.hi, { a: here.y, c: r.down + k }],
+    },
+  };
+}
+
+/** The whole-tree framing at `scale`, centred on what it keeps in view. */
+function framed(
+  axes: { x: Axis; y: Axis },
+  vw: number,
+  vh: number,
+  scale: number,
+): MapView {
+  return {
+    scale,
+    x: axisOffset(axes.x, scale, vw),
+    y: axisOffset(axes.y, scale, vh),
+  };
+}
+
+/**
  * The view showing the whole tree, centred, as large as the view allows:
  * the tree's drawn box (`bounds`, not the layout's padding) fills the
- * view less `FIT_MARGIN_PX` a side along its tighter axis. Only the zoom-in
- * limit caps it, so a tiny story (one stretch) is not blown up past 3x.
+ * view less `FIT_MARGIN_PX` a side along its tighter axis. With `here`
+ * (the marker's world point), the marker's fixed-size ring and label stay
+ * inside the view too: where it sits by an edge of the tree, the scale is
+ * solved with its pixel reach as the extra margin on that side. Only the
+ * zoom-in limit caps it, so a tiny story (one stretch) is not blown up
+ * past 3x.
  */
-export function fitView(model: MapModel, vw: number, vh: number): MapView {
-  const b = model.bounds;
+export function fitView(
+  model: MapModel,
+  vw: number,
+  vh: number,
+  here?: { x: number; y: number },
+): MapView {
+  const axes = wholeAxes(model, here);
   const scale = Math.min(
     MAX_SCALE,
-    Math.max(1, vw - 2 * FIT_MARGIN_PX) / Math.max(1, b.x1 - b.x0),
-    Math.max(1, vh - 2 * FIT_MARGIN_PX) / Math.max(1, b.y1 - b.y0),
+    axisScale(axes.x, vw),
+    axisScale(axes.y, vh),
   );
-  return centreOn((b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2, vw, vh, scale);
+  return framed(axes, vw, vh, scale);
 }
 
 /**
@@ -1031,7 +1134,10 @@ export function viewAfterResize(
   return centreOn(wx, wy, to.w, to.h, view.scale);
 }
 
-/** The view the map opens at: the reader's position, readable. */
+/**
+ * The view the map opens at: the reader's position, readable. A tree that
+ * fits whole at a readable scale (marker included) is shown whole.
+ */
 export function openingView(
   model: MapModel,
   marks: MapMarks,
@@ -1039,12 +1145,9 @@ export function openingView(
   vh: number,
 ): MapView {
   const scale = readableScale(vw, vh);
-  // A tree that fits whole at a readable scale is shown whole, centred.
-  const fit = fitView(model, vw, vh);
-  if (fit.scale >= scale) {
-    const b = model.bounds;
-    return centreOn((b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2, vw, vh, scale);
-  }
+  const fit = fitView(model, vw, vh, marks.here);
+  if (fit.scale >= scale)
+    return framed(wholeAxes(model, marks.here), vw, vh, scale);
   return centreOn(marks.here.x, marks.here.y, vw, vh, scale);
 }
 

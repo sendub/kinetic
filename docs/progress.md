@@ -1624,6 +1624,14 @@ truthful: an unchecked box means nothing was accepted.
       Orchestrator: vitest 682, check 0 warnings, smoke 6/6, branchmap
       29/29, screens 67 pass 2 partial (fullscreen Esc); screenshots:
       placeholders at both sizes, header fits at 800x600.)
-- [ ] Fit clips the screen-space "you are here" label: at 800x600 on
+- [x] Fit clips the screen-space "you are here" label: at 800x600 on
       the demo's start the marker's label runs off the left edge. Fit
       (and the opening view) must keep the marker and its label in view.
+      (`fitView` used `bounds` alone; the marker is screen-space. Now Fit
+      solves per axis with the marker's pixel reach (HERE_REACH) as
+      extra margin on its side, and the opening view and zoom-out limit
+      pass the marker too. Orchestrator: vitest 683, check 0 warnings,
+      smoke 6/6, branchmap 32/32; screenshot: label fully in view at
+      800x600 start.)
+- [ ] Phase-closer (Phase 32): full scenario suite, package-proof
+      (rebuilds the demo); pytest not needed, converter untouched.

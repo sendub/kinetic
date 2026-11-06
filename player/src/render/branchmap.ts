@@ -549,7 +549,9 @@ export function mountBranchMap({
   }
 
   function limits() {
-    return model === null ? { min: 0.1, max: 3 } : zoomLimits(model, vw, vh);
+    return model === null
+      ? { min: 0.1, max: 3 }
+      : zoomLimits(model, vw, vh, marks?.here);
   }
 
   function zoomBy(factor: number, px?: number, py?: number): void {
@@ -558,7 +560,7 @@ export function mountBranchMap({
 
   function showWhole(): void {
     if (model === null) return;
-    setView(fitView(model, vw, vh));
+    setView(fitView(model, vw, vh, marks?.here));
     fitted = true;
   }
 

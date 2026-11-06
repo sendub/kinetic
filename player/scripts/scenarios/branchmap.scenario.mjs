@@ -8,12 +8,15 @@
 // screen (and the end state after it) the marker sits on that ending's end
 // mark; Fit fills the view (less a small margin) at any window size, and
 // again after a resize while the map is open (as entering or leaving
-// fullscreen does); a drag or a double click selects no text. Spoilers
+// fullscreen does); a drag or a double click selects no text. The marker's
+// ring and "you are here" label stay inside the view on opening and after
+// F, at the story's start and at its end, at 800x600 and 1920x1080. Spoilers
 // (off by default): the question and route labels of a decision not
 // reached are not in the DOM at all (placeholders instead), a reached
 // decision's routes show their labels, S or the header button shows
 // everything without moving the tree, and the setting survives a reload.
-// Screenshots land in .tmp/branchmap-shots/fb-*.png and spoil-*.png.
+// Screenshots land in .tmp/branchmap-shots/fb-*.png, spoil-*.png and
+// mark-*.png.
 
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
@@ -502,6 +505,7 @@ export default async function ({ check, open }) {
   await pressEscape(cdp);
   await endings({ check, open });
   await spoilers({ check, open });
+  await markerInView({ check, open });
 }
 
 // The demo read through with play-all (everything seen): at the story's
@@ -712,5 +716,82 @@ async function spoilers({ check, open }) {
     "the Spoilers setting survives a reload",
     reloaded.pressed === "true" && reloaded.found.length === all.length,
     reloaded,
+  );
+}
+
+// The marker's ring and label, and the map view, on screen.
+const READ_MARKER = () => {
+  const panel = document.getElementById("branchmap");
+  const box = (el) => {
+    if (!el) return null;
+    const r = el.getBoundingClientRect();
+    return { x: r.x, y: r.y, w: r.width, h: r.height };
+  };
+  return {
+    view: box(panel?.querySelector(".map-view")),
+    ring: box(panel?.querySelector(".map-here-ring")),
+    label: box(panel?.querySelector(".map-here-label")),
+  };
+};
+
+// The "you are here" marker is drawn at a fixed pixel size; opening the map
+// and Fit (F) keep its ring and label wholly inside the map view, with the
+// reader at the story's start (the left end of the first stretch) and at
+// its end (the end square), at a small and a large window.
+async function markerInView({ check, open }) {
+  const { page, cdp } = await open("marker", { closeHelp: true });
+  const sizes = [
+    [800, 600],
+    [1920, 1080],
+  ];
+  const measure = async (where) => {
+    const seen = [];
+    for (const [width, height] of sizes) {
+      await page.setViewport({ width, height });
+      await sleep(150);
+      const opened = {
+        ...(await openMap(page, cdp)),
+        ...(await page.evaluate(READ_MARKER)),
+      };
+      await pressF(cdp);
+      await sleep(100);
+      const fitted = await page.evaluate(READ_MARKER);
+      if (width === 800)
+        await page.screenshot({
+          path: join(shots, `mark-${where}-${width}x${height}.png`),
+        });
+      for (const [when, m] of [
+        ["open", opened],
+        ["fit", fitted],
+      ])
+        seen.push({
+          at: `${width}x${height} ${when}`,
+          ok:
+            m.view !== null &&
+            m.label !== null &&
+            m.ring !== null &&
+            m.label.w > 0 &&
+            inside(m.label, m.view) &&
+            inside(m.ring, m.view),
+          label: m.label,
+          view: m.view,
+        });
+      await pressM(cdp);
+      await page.waitForFunction(MAP_CLOSED, { timeout: 3000 });
+    }
+    return seen;
+  };
+  const start = await measure("start");
+  check(
+    "at the story's start, on opening and after F, the marker's ring and label lie inside the map view (800x600, 1920x1080)",
+    start.every((s) => s.ok),
+    start,
+  );
+  const reached = await spaceTo(page, cdp, "after-end", 80);
+  const end = await measure("end");
+  check(
+    "at the story's end, on opening and after F, the marker's ring and label lie inside the map view (800x600, 1920x1080)",
+    reached && end.every((s) => s.ok),
+    { reached, end },
   );
 }

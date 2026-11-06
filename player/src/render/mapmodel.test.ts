@@ -9,6 +9,7 @@ import {
   FIT_MARGIN_PX,
   fitView,
   HERE_DECISION_GAP,
+  HERE_REACH,
   HIDDEN_PROMPT,
   HIDDEN_ROUTE,
   hitTest,
@@ -863,6 +864,72 @@ describe("view arithmetic", () => {
     // A one-stretch story is not blown up past the zoom-in limit.
     const tiny = buildMapModel([image("a")], []);
     expect(fitView(tiny, 3840, 1980).scale).toBe(MAX_SCALE);
+  });
+
+  it("fit and the opening view keep the marker's ring and label inside the view", () => {
+    // The marker is drawn in screen space at a fixed size: its ring and its
+    // "you are here" label reach HERE_REACH pixels from its point.
+    const inside = (
+      view: { x: number; y: number; scale: number },
+      here: { x: number; y: number },
+      vw: number,
+      vh: number,
+      what: string,
+    ) => {
+      const sx = here.x * view.scale + view.x;
+      const sy = here.y * view.scale + view.y;
+      expect(sx - HERE_REACH.side, what).toBeGreaterThanOrEqual(0);
+      expect(sx + HERE_REACH.side, what).toBeLessThanOrEqual(vw);
+      expect(sy - HERE_REACH.up, what).toBeGreaterThanOrEqual(0);
+      expect(sy + HERE_REACH.down, what).toBeLessThanOrEqual(vh);
+    };
+    const { items, branches } = synthetic(4, 3, 20);
+    const sizes = [
+      [800, 600],
+      [1920, 1080],
+      [1280, 630],
+      [600, 900],
+    ];
+    for (const [name, model] of [
+      ["demo", demoModel()],
+      ["synthetic", buildMapModel(items, branches, 16 / 9)],
+    ] as const) {
+      const last = model.itemCount - 1;
+      const all = Array.from({ length: model.itemCount }, (_, i) => i);
+      for (const [where, reader] of [
+        ["start", { visited: [0], playedRoutes: [], cursor: 0 }],
+        ["end", { visited: all, playedRoutes: [], cursor: last }],
+      ] as const) {
+        const marks = markMap(model, reader);
+        for (const [vw, vh] of sizes) {
+          const at = `${name} ${where} ${vw}x${vh}`;
+          const fit = fitView(model, vw, vh, marks.here);
+          inside(fit, marks.here, vw, vh, `fit ${at}`);
+          inside(
+            openingView(model, marks, vw, vh),
+            marks.here,
+            vw,
+            vh,
+            `open ${at}`,
+          );
+          // The tree is still whole, and Fit still fills the view.
+          const seen = visibleWorld(fit, vw, vh);
+          expect(seen.x0).toBeLessThanOrEqual(model.bounds.x0);
+          expect(seen.x1).toBeGreaterThanOrEqual(model.bounds.x1);
+          expect(seen.y0).toBeLessThanOrEqual(model.bounds.y0);
+          expect(seen.y1).toBeGreaterThanOrEqual(model.bounds.y1);
+          const b = model.bounds;
+          const fill = Math.max(
+            ((b.x1 - b.x0) * fit.scale) / vw,
+            ((b.y1 - b.y0) * fit.scale) / vh,
+          );
+          expect(fill, `fill ${at}`).toBeGreaterThan(0.75);
+          expect(zoomLimits(model, vw, vh, marks.here).min).toBeLessThanOrEqual(
+            fit.scale,
+          );
+        }
+      }
+    }
   });
 
   it("keeps the world point at the view's centre when the view is resized", () => {
