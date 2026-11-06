@@ -1111,12 +1111,66 @@ which the user rejected.
   route frames. Seen marks, played routes, bookmarks and the current
   position are kept. No user action.
 
+## Phase 31: Branch map (2026-11-06, user)
+
+The route map proposal the user approved on 2026-11-01 ("a key opens the
+decision tree with seen/unseen marks; clicking a decision or route jumps
+there"), built now, zoomable and pannable.
+
+- Data: only what the player already has: the manifest's `branches`
+  (question, routes and labels, `result`, `continuingRoute` /
+  `continueAt`, nesting) resolved exactly as the machine resolves them,
+  and the reader's state in the machine (seen set, played and completed
+  routes, last pick per decision, cursor, open choice). No converter or
+  manifest change: existing games get it by the normal upgrade (replace
+  `index.html` and `app.js`).
+- Shows: each decision as a box with its question; its routes as pills
+  with their labels, stacked down from the decision, each followed by its
+  own line (nested decisions inside); the routes that continue or return
+  meeting at a join on the decision's row, the line carrying on from
+  there (at `continueAt`, or past a pure choice's menu region); ending
+  routes in an end mark. Stretches without a decision collapse to one
+  line with their screen count. Per reader: decisions reached (their
+  `after` item seen) or not (faded, inert); each route not seen, partly
+  seen (entered, or any screen seen) or played (completed, or entered
+  with its last screen seen); the last pick at each decision outlined
+  (the route the wheel follows, Phase 27); a "you are here" marker on the
+  stretch holding the screen shown, or before the decision whose choice
+  screen is up. Labels truncate; the full text and status show on hover
+  or focus.
+- Opening and closing: `m`/`M` toggles it (the key table, a help row,
+  and a clickable M entry on the Esc screen). Over the Esc screen it
+  replaces that screen, as `t` does, so the next Esc returns to the game;
+  over the bookmark list it swaps the list for the map, and `t` over the
+  map swaps back. It opens over a pending choice (the map moves the
+  reader, like the wheel); Esc or `m` closes it. While it is open the
+  machine is paused like under the other panels, and the story's keys
+  and wheel are inert.
+- Zoom and pan: the wheel and a trackpad pinch zoom around the pointer
+  (ctrl+wheel, and Safari's gesture events); a drag pans; the arrow keys
+  pan and +/- zoom; F or 0 fits the whole tree; C (and a button)
+  recentres on "you are here". It opens centred on the reader at a
+  readable scale (a small tree that fits at that scale opens whole).
+  While open the map owns the wheel.
+- Jumps use the machine's own operations: a reached decision opens its
+  choice screen exactly as a wheel step onto it would (the new
+  `showChoice`, which is the wheel's own screen landing, inert unless the
+  decision's `after` item was seen: no marks change, the last pick
+  highlighted); a route of a reached decision is entered by a real
+  `choose()` from that screen (marked played, its last pick, its first
+  screen seen, its route pill shown). Unreached decisions and their
+  routes are drawn but inert. A jump closes the map.
+- Scale: the layout is computed once per manifest, linear in decisions
+  and routes, never in items. SVG, three layers: at a readable zoom only
+  the nodes and lines within half a view of the visible area exist
+  (culled, redrawn when the view leaves that area); below a scale (0.6;
+  0.3 for a tree of 200 nodes or fewer) labels go and the whole tree is
+  drawn as one path per look; the marker stays in screen space. Measured
+  with `npm run perf:map` (docs/perf.md, "Branch map").
+
 ## Later, waiting on the user
 
 - Overlay text styling iteration once the user can play with the demo.
-- Route map screen (user-approved proposal, 2026-11-01, "save till
-  later"): a key opens the decision tree with seen/unseen marks;
-  clicking a decision or route jumps there.
 
 ## Sequencing
 

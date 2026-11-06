@@ -42,6 +42,7 @@ import {
   mergeProgress,
   mountBookmarkOverlay,
 } from "./render/bookmarks";
+import { mountBranchMap } from "./render/branchmap";
 import { captureVisualThumbnail } from "./render/capture";
 import { inputOwnerFor, mountChoiceOverlay } from "./render/choice";
 import { mountConfigOverlay } from "./render/config";
@@ -58,9 +59,11 @@ import { gameTitleOf, mountHelpOverlay, pageTitleFor } from "./render/help";
 import {
   bookmarksKeyAction,
   installKeyMap,
+  mapKeyAction,
   suspendTimeline,
 } from "./render/keys";
 import { loadManifest } from "./render/manifest";
+import { buildMapModel, type MapModel, runJump } from "./render/mapmodel";
 import { mountRouteAnnouncements } from "./render/routes";
 import { installWheelInput } from "./render/wheel";
 import { createIdbStorage, storageKeys, storyIdOf } from "./storage/idb";
@@ -406,6 +409,7 @@ function start(): void {
         // The `t` row is clickable: it does what `t` does over the screen.
         onEntry: (command) => {
           if (command === "toggleBookmarks") runBookmarksKey();
+          else if (command === "toggleMap") runMapKey();
         },
       });
       // The settings (Phase 26: on the Esc screen, under the keys; `c` is
@@ -580,6 +584,52 @@ function start(): void {
         flash: (messages) => shell.flashSequence(messages),
       });
 
+      // The branch map (docs/plan.md Phase 31): `m` opens the decision
+      // tree with the reader's marks. Its layout is computed on the first
+      // open and kept (it depends on the manifest alone); the marks are
+      // read fresh from the machine on every open. A click on a reached
+      // decision or route closes the map and moves through the machine's
+      // own operations (mapmodel.ts `runJump`): the choice screen as a
+      // wheel step shows it — a walk, so no route pill — and a route
+      // entered by a real pick from it, whose pill names the route.
+      let mapModel: MapModel | null = null;
+      const mapModelNow = (): MapModel => {
+        mapModel ??= buildMapModel(manifest.items, manifest.branches);
+        return mapModel;
+      };
+      const map = mountBranchMap({
+        root,
+        model: mapModelNow,
+        reader: () => {
+          const ctx = machine.exportContext();
+          const state = machine.getState();
+          return {
+            visited: ctx.visited,
+            playedRoutes: ctx.playedRoutes,
+            completedRoutes: ctx.completedRoutes,
+            lastPicks: ctx.lastPicks,
+            cursor: state.cursor,
+            choiceId: state.choice?.decisionId,
+          };
+        },
+        onJump: (jump) => {
+          map.close();
+          runJump(jump, {
+            openChoice: () => {
+              const open = machine.getState().choice;
+              if (open === undefined) return -1;
+              return mapModelNow().decisionById.get(open.decisionId) ?? -1;
+            },
+            walkedChoice: () =>
+              machine.getState().choice?.walkRoute !== undefined,
+            showChoice: (decision) =>
+              walk(() => machine.showChoice(decision))(),
+            choose: (route) => machine.choose(route),
+          });
+          syncMenuPause();
+        },
+      });
+
       // Mutual exclusion, centralized (the rule is stated pure in
       // render/choice.ts as `inputOwnerFor`): the key HELP wins over
       // everything — Escape opens it even over a pending choice, and the
@@ -594,9 +644,10 @@ function start(): void {
       const owner = () => inputOwnerFor(help.isOpen(), choice.isOpen());
       // The reset box owns the screen too, over the Esc screen: while it
       // is open only its own controls act (its keys ride the map below).
-      const storyInput = () => owner() === "story" && !confirm.isOpen();
+      const storyInput = () =>
+        owner() === "story" && !confirm.isOpen() && !map.isOpen();
       const anyPanelOpen = () =>
-        overlay.isOpen() || confirm.isOpen() || help.isOpen();
+        overlay.isOpen() || confirm.isOpen() || help.isOpen() || map.isOpen();
       const anyScreenOpen = () => anyPanelOpen() || choice.isOpen();
       // The timeline moves are never trapped by a choice (docs/plan.md
       // Phase 27): a wheel notch or `e` leaves a choice screen for the
@@ -641,13 +692,41 @@ function start(): void {
           helpOpen: help.isOpen(),
           choiceOpen: choice.isOpen(),
           listOpen: overlay.isOpen(),
+          mapOpen: map.isOpen(),
         });
         if (action === "close") overlay.close();
         else if (action === "open") showBookmarks();
         else if (action === "replaceHelp") {
           showBookmarks();
           closeHelp();
+        } else if (action === "replaceMap") {
+          showBookmarks();
+          map.close();
         }
+      }
+
+      // `m` (and the Esc screen's `m` row), the `t` rule's twin
+      // (render/keys.ts `mapKeyAction`): toggles the map, and over the Esc
+      // screen or the list REPLACES that screen — the map opens first, so
+      // the menu pause never lifts between the two — so the next Escape
+      // returns to the game. It opens over a pending decision too.
+      function runMapKey(): void {
+        const action = mapKeyAction({
+          confirmOpen: confirm.isOpen(),
+          helpOpen: help.isOpen(),
+          listOpen: overlay.isOpen(),
+          mapOpen: map.isOpen(),
+        });
+        if (action === "close") map.close();
+        else if (action === "open") map.open();
+        else if (action === "replaceHelp") {
+          map.open();
+          closeHelp();
+        } else if (action === "replaceList") {
+          map.open();
+          overlay.close();
+        }
+        syncMenuPause();
       }
 
       installKeyMap(
@@ -691,6 +770,7 @@ function start(): void {
             void takeBookmark();
           },
           toggleBookmarks: runBookmarksKey,
+          toggleMap: runMapKey,
           // `a` (README auto-forward bullet): manual is the start, and `a`
           // toggles auto-advance. Turning it off cancels the pending hold;
           // a skip dwell keeps running — skipping is the reader's own run.
@@ -729,6 +809,10 @@ function start(): void {
               closeHelp();
               return;
             }
+            if (map.isOpen()) {
+              map.close();
+              return;
+            }
             if (overlay.isOpen()) {
               overlay.close();
               return;
@@ -757,13 +841,15 @@ function start(): void {
       );
       // Over a choice list too long for the window the wheel scrolls the
       // list, not the story; anywhere else it walks (render/choice.ts).
+      // While the branch map is up the wheel is the map's zoom, never a
+      // story step.
       installWheelInput(
         document,
         {
           wheelBack: timeline.wheelBack,
           wheelForward: timeline.wheelForward,
         },
-        (event) => choice.ownsWheel(event.target),
+        (event) => map.ownsWheel() || choice.ownsWheel(event.target),
       );
 
       // Menus pause the timeline (docs/plan.md Phase 18): while the Esc
@@ -781,7 +867,8 @@ function start(): void {
       // panels' own — re-sync after each.
       let menuPaused = false;
       function syncMenuPause(): void {
-        const open = overlay.isOpen() || confirm.isOpen() || help.isOpen();
+        const open =
+          overlay.isOpen() || confirm.isOpen() || help.isOpen() || map.isOpen();
         if (open === menuPaused) return;
         menuPaused = open;
         shell.setMediaPaused(open);

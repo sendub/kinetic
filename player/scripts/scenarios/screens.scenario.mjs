@@ -88,6 +88,7 @@ const HELP_KEYS = [
   "H",
   "B",
   "T",
+  "M",
   "Esc",
   "1-9 / 0",
   "↑ ↓ Enter",
@@ -498,11 +499,11 @@ async function escToBookmarks({ check, open }) {
     await page.screenshot({ path: join(shots, "esc-t-hover.png") });
   }
   check(
-    "only the T entry is clickable, and it looks it: pointer cursor, its rule and caps lit on hover",
+    "only the T and M entries are clickable, and T looks it: pointer cursor, its rule and caps lit on hover",
     plain !== null &&
       hovered !== null &&
       plain.key === "T" &&
-      plain.buttons === 1 &&
+      plain.buttons === 2 &&
       plain.cursor === "pointer" &&
       hovered.rule !== plain.rule &&
       hovered.cap !== plain.cap,

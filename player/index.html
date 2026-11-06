@@ -443,6 +443,261 @@
         border-color: var(--accent);
         color: var(--accent);
       }
+      /* The branch map (docs/plan.md Phase 31, render/branchmap.ts): the
+         decision tree on the panels' dark ground, opaque so the game does
+         not show through the lines. z 6: over
+         a pending choice (z 5), which it may open above; it never
+         coexists with the Esc screen (also z 6) or the list — each
+         replaces the other — and stays under the reset box (z 7) and
+         the #flash pill (z 10). A header of title, tools, hint and
+         legend; under it the SVG view, which owns every pointer and
+         wheel event (touch-action: none: no browser pan or zoom). */
+      #branchmap {
+        position: absolute;
+        inset: 0;
+        z-index: 6;
+        display: flex;
+        flex-direction: column;
+        background: rgb(8, 8, 10);
+        color: var(--ink);
+        font-family: var(--ui-font);
+      }
+      #branchmap[hidden] {
+        display: none;
+      }
+      .map-head {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        align-items: center;
+        gap: clamp(4px, 0.8vh, 10px) clamp(12px, 2vw, 28px);
+        padding: clamp(10px, 2vh, 28px) clamp(16px, 4vw, 64px)
+          clamp(8px, 1.4vh, 16px);
+        border-bottom: 1px solid rgba(244, 239, 230, 0.12);
+      }
+      .map-title {
+        margin: 0;
+        color: var(--accent);
+        font-size: clamp(12px, 1.5vh, 17px);
+        font-weight: 600;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+      }
+      .map-tools {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+        gap: 8px;
+      }
+      .map-tool {
+        min-width: 2.4em;
+        padding: clamp(3px, 0.6vh, 7px) clamp(10px, 1.2vw, 16px);
+        border: 1px solid rgba(244, 239, 230, 0.16);
+        border-radius: 6px;
+        background: rgba(18, 18, 22, 0.9);
+        color: var(--ink);
+        font: inherit;
+        font-size: clamp(12px, 1.5vh, 16px);
+        cursor: pointer;
+      }
+      .map-tool:hover,
+      .map-tool:focus-visible {
+        border-color: var(--accent);
+        background: rgba(30, 30, 36, 0.95);
+        outline: none;
+      }
+      .map-hint,
+      .map-legend {
+        grid-column: 1 / -1;
+        margin: 0;
+        color: rgba(244, 239, 230, 0.55);
+        font-size: clamp(10px, 1.2vh, 13px);
+        line-height: 1.4;
+      }
+      .map-view {
+        position: relative;
+        flex: 1 1 auto;
+        min-height: 0;
+        overflow: hidden;
+        cursor: grab;
+        touch-action: none;
+        user-select: none;
+      }
+      .map-view.map-dragging {
+        cursor: grabbing;
+      }
+      .map-svg {
+        display: block;
+        width: 100%;
+        height: 100%;
+      }
+      .map-svg text {
+        fill: var(--ink);
+        font-family: var(--ui-font);
+        font-size: 15px;
+      }
+      /* Level of detail (render/branchmap.ts): near, the culled node
+         groups with their text; far, only the skeleton's boxes. */
+      .map-svg.map-far .map-detail,
+      .map-svg:not(.map-far) .map-skeleton {
+        display: none;
+      }
+      /* Far out a dash would cost its whole length in dashes per frame;
+         the marks read by brightness alone there. */
+      .map-svg.map-far path {
+        stroke-dasharray: none;
+      }
+      .map-view.map-pointing {
+        cursor: pointer;
+      }
+      .map-conn,
+      .map-join,
+      .map-return,
+      .map-run {
+        fill: none;
+        stroke-linecap: round;
+        vector-effect: non-scaling-stroke;
+      }
+      .map-conn,
+      .map-join {
+        stroke: rgba(244, 239, 230, 0.4);
+        stroke-width: 2;
+      }
+      .map-return {
+        stroke: rgba(244, 239, 230, 0.4);
+        stroke-width: 2;
+        stroke-dasharray: 6 6;
+      }
+      .map-run {
+        stroke-width: 3;
+      }
+      .map-run-seen {
+        stroke: rgba(244, 239, 230, 0.85);
+      }
+      .map-run-partly {
+        stroke: rgba(244, 239, 230, 0.55);
+        stroke-dasharray: 10 5;
+      }
+      .map-run-unseen {
+        stroke: rgba(244, 239, 230, 0.22);
+        stroke-dasharray: 3 6;
+      }
+      .map-svg .map-count {
+        fill: rgba(244, 239, 230, 0.5);
+        font-size: 12px;
+        text-anchor: middle;
+      }
+      .map-dot {
+        fill: rgba(244, 239, 230, 0.6);
+      }
+      .map-end {
+        fill: rgba(244, 239, 230, 0.45);
+      }
+      .map-node rect,
+      .map-box {
+        fill: rgba(18, 18, 22, 0.95);
+        stroke: rgba(244, 239, 230, 0.3);
+        stroke-width: 1.5;
+        vector-effect: non-scaling-stroke;
+      }
+      .map-node.map-reached {
+        cursor: pointer;
+      }
+      .map-node:focus {
+        outline: none;
+      }
+      .map-dec.map-reached rect,
+      .map-box.map-dec.map-reached {
+        stroke: rgba(244, 239, 230, 0.6);
+      }
+      .map-svg .map-dec-q {
+        font-size: 16px;
+        font-weight: 600;
+      }
+      .map-svg .map-dec-sub {
+        fill: rgba(244, 239, 230, 0.55);
+        font-size: 12px;
+      }
+      .map-route.map-route-played rect,
+      .map-box.map-route-played {
+        fill: rgba(52, 46, 36, 0.95);
+      }
+      .map-route.map-route-unseen rect,
+      .map-box.map-route-unseen {
+        stroke-dasharray: 4 4;
+      }
+      /* The last pick at each decision: the choice screen's walk-route
+         look (.choice-next), the route the wheel follows. */
+      .map-node.map-last rect,
+      .map-box.map-last {
+        stroke: var(--accent);
+        stroke-width: 2.5;
+        fill: rgba(42, 35, 22, 0.95);
+      }
+      /* Not reached yet: drawn, but faded and inert. Faded by colour,
+         not group opacity, which would cost a layer per node. */
+      .map-node.map-inert {
+        cursor: default;
+      }
+      .map-node.map-inert rect,
+      .map-box.map-inert {
+        fill: rgba(14, 14, 16, 0.95);
+        stroke: rgba(244, 239, 230, 0.16);
+        stroke-dasharray: 4 4;
+      }
+      .map-svg .map-node.map-inert text {
+        fill: rgba(244, 239, 230, 0.4);
+      }
+      /* Hover / focus on anything clickable. */
+      .map-node.map-reached:hover rect,
+      .map-node.map-reached:focus-visible rect {
+        stroke: var(--accent);
+        stroke-width: 2.5;
+      }
+      .map-here-ring {
+        fill: none;
+        stroke: var(--accent);
+        stroke-width: 3;
+      }
+      .map-here-dot {
+        fill: var(--accent);
+      }
+      .map-svg .map-here-label {
+        fill: var(--accent);
+        font-size: 13px;
+        font-weight: 600;
+        letter-spacing: 0.08em;
+        text-anchor: middle;
+        paint-order: stroke;
+        stroke: rgba(8, 8, 10, 0.9);
+        stroke-width: 4px;
+      }
+      .map-here {
+        pointer-events: none;
+      }
+      .map-tip {
+        position: absolute;
+        top: 0;
+        left: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 3px;
+        max-width: min(46ch, 80vw);
+        padding: 8px 12px;
+        border: 1px solid rgba(244, 239, 230, 0.22);
+        border-radius: 6px;
+        background: rgba(10, 10, 12, 0.96);
+        color: var(--ink);
+        font-size: clamp(12px, 1.5vh, 16px);
+        line-height: 1.35;
+        pointer-events: none;
+      }
+      .map-tip[hidden] {
+        display: none;
+      }
+      .map-tip span {
+        color: rgba(244, 239, 230, 0.6);
+        font-size: 0.85em;
+      }
       /* Reset-confirmation box (docs/plan.md Phase 16): the Esc screen's
          "Reset progress" row opens it, centered over everything — above
          the Esc screen (#help, z 6), still under the #flash
@@ -589,8 +844,10 @@
          cells line up in rows and columns. Each entry is its key caps on
          one line with the description beneath, so every description in a
          row starts at the same height and every cell at its column's
-         edge. Column counts divide the twelve entries evenly: six across
-         on a wide window, four at 800 px, three, then two. */
+         edge. Six across on a wide window, four at 800 px, three, then
+         two; the column counts were picked to divide the twelve entries
+         evenly, so since Phase 31's `m` row the thirteenth sits alone on
+         the last line. */
       .help-list {
         display: grid;
         grid-template-columns: repeat(2, minmax(0, 1fr));

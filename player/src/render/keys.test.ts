@@ -7,6 +7,7 @@ import {
   decisionKeyFor,
   installKeyMap,
   keyHelpEntries,
+  mapKeyAction,
   mappedKeys,
   routeIndexForKey,
   suspendTimeline,
@@ -279,6 +280,7 @@ describe("keyHelpEntries (the help lists the map itself, Phase 13b)", () => {
       "h",
       "b",
       "t",
+      "m",
       "Escape",
       "1-9 / 0",
       "↑ ↓ Enter",
@@ -327,7 +329,55 @@ describe("bookmarksKeyAction (t over the Esc screen replaces it)", () => {
     }
   });
 
-  it("only the t row of the Esc screen is a control", () => {
-    expect([...CLICKABLE_HELP_COMMANDS]).toEqual(["toggleBookmarks"]);
+  it("over the branch map swaps the map for the list (Phase 31)", () => {
+    expect(bookmarksKeyAction({ ...closedAll, mapOpen: true })).toBe(
+      "replaceMap",
+    );
+    // A decision waiting under the map still makes t inert.
+    expect(
+      bookmarksKeyAction({ ...closedAll, mapOpen: true, choiceOpen: true }),
+    ).toBe("none");
+  });
+
+  it("only the t and m rows of the Esc screen are controls", () => {
+    expect([...CLICKABLE_HELP_COMMANDS]).toEqual([
+      "toggleBookmarks",
+      "toggleMap",
+    ]);
+  });
+});
+
+describe("mapKeyAction (m, the branch map; Phase 31)", () => {
+  const closedAll = {
+    confirmOpen: false,
+    helpOpen: false,
+    listOpen: false,
+    mapOpen: false,
+  };
+
+  it("m and M both map to the map toggle", () => {
+    expect(commandForKey("m", false)).toBe("toggleMap");
+    expect(commandForKey("M", false)).toBe("toggleMap");
+    expect(commandForKey("m", true)).toBeNull();
+  });
+
+  it("toggles the map over the story", () => {
+    expect(mapKeyAction(closedAll)).toBe("open");
+    expect(mapKeyAction({ ...closedAll, mapOpen: true })).toBe("close");
+  });
+
+  it("over the Esc screen replaces it, so the next Escape returns to the game", () => {
+    expect(mapKeyAction({ ...closedAll, helpOpen: true })).toBe("replaceHelp");
+  });
+
+  it("over the bookmark list swaps the list for the map", () => {
+    expect(mapKeyAction({ ...closedAll, listOpen: true })).toBe("replaceList");
+  });
+
+  it("is inert under the reset box, whatever else is up", () => {
+    for (const helpOpen of [false, true])
+      expect(mapKeyAction({ ...closedAll, helpOpen, confirmOpen: true })).toBe(
+        "none",
+      );
   });
 });

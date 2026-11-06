@@ -21,6 +21,11 @@ export interface KeyCommands {
   /** `t`: open or close the bookmark thumbnail overlay (Phase 8). */
   toggleBookmarks(): void;
   /**
+   * `m`: open or close the branch map (docs/plan.md Phase 31): the
+   * decision tree with the reader's marks; a click jumps there.
+   */
+  toggleMap(): void;
+  /**
    * Escape: with an overlay up, close it; otherwise open the Esc screen —
    * the keys and every setting (Phase 13b; Phase 26 moved the settings
    * there and dropped `c`).
@@ -63,6 +68,8 @@ const KEY_TABLE = new Map<string, KeyCommand>([
   ["B", "bookmark"],
   ["t", "toggleBookmarks"],
   ["T", "toggleBookmarks"],
+  ["m", "toggleMap"],
+  ["M", "toggleMap"],
   ["a", "toggleAutoForward"],
   ["A", "toggleAutoForward"],
   ["Escape", "dismissOverlay"],
@@ -150,6 +157,10 @@ const HELP_ROWS: ReadonlyArray<{
   { command: "bookmark", description: "bookmark this moment" },
   { command: "toggleBookmarks", description: "bookmark list" },
   {
+    command: "toggleMap",
+    description: "branch map: click a route to go there",
+  },
+  {
     command: "dismissOverlay",
     description: "this screen: keys and settings; closes the list",
   },
@@ -184,32 +195,69 @@ export function keyHelpEntries(): KeyHelpEntry[] {
 
 /**
  * The Esc screen rows that act when clicked (or Enter on them): `t` opens
- * the bookmark list in the screen's place, as the key does over it. The
- * other rows only describe; their keys do the work.
+ * the bookmark list and `m` the branch map in the screen's place, as their
+ * keys do over it. The other rows only describe; their keys do the work.
  */
 export const CLICKABLE_HELP_COMMANDS: ReadonlySet<KeyCommand> = new Set([
   "toggleBookmarks",
+  "toggleMap",
 ]);
 
 /** What `t` (or a click on its Esc screen row) does in a given state. */
-export type BookmarksKeyAction = "open" | "close" | "replaceHelp" | "none";
+export type BookmarksKeyAction =
+  | "open"
+  | "close"
+  | "replaceHelp"
+  | "replaceMap"
+  | "none";
 
 /**
  * Pure routing for `t`. The reset box swallows it; over the Esc screen it
  * replaces that screen with the list ("replaceHelp"), so the next Escape
  * returns to the game, not to the Esc screen — unless a decision waits
  * under the screen, which `t` never opens over; a pending decision makes
- * it inert; otherwise it toggles the list.
+ * it inert; over the branch map it swaps the map for the list
+ * ("replaceMap"); otherwise it toggles the list.
  */
 export function bookmarksKeyAction(state: {
   confirmOpen: boolean;
   helpOpen: boolean;
   choiceOpen: boolean;
   listOpen: boolean;
+  mapOpen?: boolean;
 }): BookmarksKeyAction {
   if (state.confirmOpen || state.choiceOpen) return "none";
   if (state.helpOpen) return "replaceHelp";
+  if (state.mapOpen === true) return "replaceMap";
   return state.listOpen ? "close" : "open";
+}
+
+/** What `m` (or a click on its Esc screen row) does in a given state. */
+export type MapKeyAction =
+  | "open"
+  | "close"
+  | "replaceHelp"
+  | "replaceList"
+  | "none";
+
+/**
+ * Pure routing for `m` (docs/plan.md Phase 31), the `t` rule's twin. The
+ * reset box swallows it; over the Esc screen it replaces that screen with
+ * the map, so the next Escape returns to the game; over the bookmark list
+ * it swaps the list for the map. Unlike the list it opens over a pending
+ * decision too — the map is a way to move, like the wheel, and a click on
+ * one of that decision's routes is a pick. Otherwise it toggles the map.
+ */
+export function mapKeyAction(state: {
+  confirmOpen: boolean;
+  helpOpen: boolean;
+  listOpen: boolean;
+  mapOpen: boolean;
+}): MapKeyAction {
+  if (state.confirmOpen) return "none";
+  if (state.helpOpen) return "replaceHelp";
+  if (state.mapOpen) return "close";
+  return state.listOpen ? "replaceList" : "open";
 }
 
 /**

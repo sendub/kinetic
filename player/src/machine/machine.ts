@@ -307,6 +307,17 @@ export interface Machine {
    */
   goTo(index: number): void;
   /**
+   * Branch map click on a decision (docs/plan.md Phase 31): show decision
+   * `decision`'s choice screen (a position in the resolved table) exactly
+   * as a wheel step onto it would — its enclosing route frames, the walk's
+   * route highlighted (the last pick there, else the longest seen route),
+   * the current seen marks and return-row rule, the played-this-pass
+   * record as of the screen. Nothing is marked seen or played and nothing
+   * is answered; a pick from it is a real `choose()`. Inert unless the
+   * decision's `after` item has been seen (the reader reached it).
+   */
+  showChoice(decision: number): void;
+  /**
    * Decision overlay: pick route `routeIdx` (the index in
    * `MachineState.choice.routes`, so 1..9 minus one, or a pointer click).
    * The route is marked played, its frame is pushed for nesting, and its
@@ -2469,6 +2480,18 @@ export function createMachine(options: MachineOptions): Machine {
       // The furthest point read; already there, nothing to do.
       if (highestSeen < 0 || cursor === highestSeen) return;
       showScreen(itemScreen(highestSeen));
+    },
+
+    showChoice(decisionIndex) {
+      if (destroyed || count === 0) return;
+      const decision = decisions[decisionIndex];
+      if (decision === undefined || !visited.has(decision.afterIndex)) return;
+      showScreen({
+        kind: "choice",
+        decision: decision.index,
+        next: pickFor(decision),
+        via: -1,
+      });
     },
 
     jumpToUnseen() {

@@ -1542,3 +1542,35 @@ truthful: an unchecked box means nothing was accepted.
       batch (27 requests, 9 transcodes) via `.venv/bin/kinetic-media`,
       --jobs 1 359 s vs --jobs 8 88 s (1.06 GB), all 50 files identical
       by sha256; test_media_parallel 24 passed; full pytest 523 passed.)
+
+## Phase 31: Branch map (2026-11-06, user)
+
+- [x] Branch map screen: `m` (and an M entry on the Esc screen) opens a
+      zoomable, pannable map of the story's decision tree, drawn from
+      the manifest's `decisions` alone (no game-file edits; arrives with
+      the usual index.html/app.js upgrade). Each decision shows its
+      question and routes with the reader's seen/unseen/played marks,
+      the last pick, nesting, continuing vs ending routes and rejoins,
+      and where the reader is now. Clicking a reached decision or route
+      jumps there; unreached parts are drawn but inert. Wheel/pinch
+      zoom, drag and arrow-key pan, a fit/centre control, opens centred
+      on the current position; Esc and `m` close it back to the game.
+      Must stay smooth for very large games (hundreds of decisions,
+      deep nesting, ~90k items).
+      (mapmodel.ts: left-to-right layout from `resolveDecisions()`,
+      cached per manifest; branchmap.ts: one SVG, culled near the view,
+      a few whole-tree paths when zoomed out; jumps via new
+      `machine.showChoice(d)` then a real `choose(r)`. Perf, synthetic
+      570 decisions / 90k items: open 48-52 ms first, 19-31 ms after,
+      frame p95 16.7 ms. Orchestrator: vitest 661, check clean (0
+      warnings after removing a stale player/.tmp Chrome profile),
+      smoke 6/6, branchmap 15/15, screens 66 pass 2 partial (headless
+      fullscreen Esc), branches 43/43, navigation 21/21; screenshots
+      checked: demo map correct; large game at fit is a thin strip,
+      fixed in the next item.)
+- [ ] Branch map follow-ups: (1) large games fit as a thin strip, so
+      wrap the main line into rows so a fit fills the screen and long
+      ending routes don't hang far below; (2) the "Route: ..." pill
+      after a map jump draws over the map header; (3) the Esc screen's
+      13th row (arrows/Enter) sits alone and at 800x600 pushes Reset
+      below the fold: merge the two decision-key rows.

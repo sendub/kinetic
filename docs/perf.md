@@ -70,3 +70,32 @@ simply does not need it:
   measured target is met without it. No fallback path was ever taken in
   headless Chrome (both probe APIs succeeded); the `Image()` design has
   no hard dependency on either API anyway.
+
+## Branch map (Phase 31)
+
+`player/scripts/mapperf.mjs` (`npm run perf:map` from `player/`, after
+`npm run build`; optional arguments `top depth run`) writes a synthetic
+game to `.tmp/perf-map/` with the current bundle: 30 top-level decisions,
+each with a continuing, a returning and an ending route, nesting to depth
+6 (570 decisions, 1,710 routes) over 90,296 items, the size of the
+largest real game (87,361 items). In headless Chrome at 1920x1080 it reads
+120 screens, then measures the map's open time (the `m` keydown to the
+second frame after the panel shows) and the frame intervals while it
+zooms (wheel events at 60 Hz), pans by drag at a readable zoom and at the
+fitted, labels-off zoom, and zooms back in, with Chrome's
+long-animation-frame entries. Output: JSON on stdout and
+`.tmp/perf-map.json`.
+
+| case (2026-11-06) | first open | later opens | frames p95 (all phases) | frames > 33 ms |
+| --- | --- | --- | --- | --- |
+| 570 decisions, 90k items | 48-52 ms | 19-31 ms | 16.7 ms | 0-1 of ~720 |
+| 2,340 decisions, 214k items (`60 7 15`) | 71 ms | 27-30 ms | 16.7 ms | 0 of ~720 |
+
+The first open includes the layout (about 30 ms at 570 decisions), which
+is then kept. The first build drew every node as a group and every line
+as one whole-tree path: later opens took 80-95 ms (mostly style and
+layout of ~9,700 SVG elements), the fitted view panned at 50-80 ms
+frames, and zooming in past 1.2x ran at 50-130 ms frames. Culling the
+near nodes and drawing the far view as one path per look fixed the first
+two; the last was the dashed strokes of the whole-tree line paths (their
+dash count grows with zoom), fixed by culling the lines too.

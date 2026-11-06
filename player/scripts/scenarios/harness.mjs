@@ -449,6 +449,10 @@ const visibleRect = async (cdp, selector) => {
       const el = document.querySelector(${JSON.stringify(selector)});
       if (el === null || !el.checkVisibility({ visibilityProperty: true }))
         return null;
+      // A control below the fold of a scrolling panel is scrolled to, as
+      // a reader would, before the click (the Esc screen's 13th key row
+      // pushed Reset below 600 px).
+      el.scrollIntoView({ block: "nearest" });
       const r = el.getBoundingClientRect();
       if (r.width <= 0 || r.height <= 0) return null;
       return { top: r.top, bottom: r.bottom, left: r.left, right: r.right };
