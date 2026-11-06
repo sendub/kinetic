@@ -1591,3 +1591,28 @@ truthful: an unchecked box means nothing was accepted.
       PARTIAL (headless fullscreen Escapes), 0 FAIL; full pytest 523
       passed; package-proof 18/18 after regenerating the deleted
       .tmp/extract-demo with kinetic-extract on fixtures/renpy_demo.)
+
+## Phase 32: Branch map feedback (2026-11-06, user)
+
+- [x] Branch map fixes: (1) with the demo fully seen, "you are here"
+      is not drawn on the ending's square when the reader is at that
+      ending; (2) Fit does not fill the view when the window is
+      fullscreen; (3) dragging to pan selects/highlights text.
+      ((1) `hereOf` only knew the current stretch: new `endMarkAt` puts
+      the marker on the end square at an ending's or the story's last
+      screen. (2) Fit included layout padding and a 0.96 factor (~88%
+      fill), was capped at 1.4x, and never refit on resize: now fills
+      `bounds` less 32 px, capped only by MAX_SCALE 3, and a
+      ResizeObserver refits a fitted view. (3) `user-select` was only
+      unprefixed and only on the view: now -webkit- too, on the whole
+      panel, plus selectstart/pointerdown default prevented.
+      Orchestrator: vitest 676, check 0 warnings, smoke 6/6, branchmap
+      23/23, screens 67 pass 2 partial (fullscreen Esc); screenshots:
+      marker on Route 2's end square, fit fills 2560x1440.)
+- [ ] Spoilers toggle on the map screen, off by default: when off,
+      unseen content shows no text labels. Scope (user chose "a"):
+      hide the question of every unreached decision and the labels of
+      routes at unreached decisions, tooltips included; routes at
+      reached decisions keep their labels (the choice screen already
+      showed them). Neutral placeholders; clicking unchanged; the
+      setting persists like the other settings.

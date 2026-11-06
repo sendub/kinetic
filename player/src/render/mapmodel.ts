@@ -54,6 +54,8 @@ export const MAP_GEOMETRY = {
 
 /** How far right of a line's end its end mark reaches. */
 const END_REACH = 17;
+/** How far right of a line's end its end mark's centre sits. */
+const END_MARK_DX = 10;
 
 /** The aspect (width / height) a layout aims for when none is given. */
 export const DEFAULT_MAP_ASPECT = 16 / 9;
@@ -132,8 +134,15 @@ export interface MapModel {
   /** Join dots and end marks, world points. */
   readonly joins: readonly { x: number; y: number }[];
   readonly ends: readonly { x: number; y: number }[];
-  /** Where the story starts (a dot) and, when the main line ends in a run, ends. */
+  /** Where the story starts (a dot). */
   readonly start: { x: number; y: number };
+  /** The main line's end mark, when the main line ends in a run (else null). */
+  readonly storyEnd: { x: number; y: number } | null;
+  /**
+   * The world box everything drawn lies in (boxes, lines, end marks, screen
+   * counts), without the layout's padding: what Fit fills the view with.
+   */
+  readonly bounds: { x0: number; y0: number; x1: number; y1: number };
   readonly width: number;
   readonly height: number;
   /** How many rows the main line wraps into (1: no wrap). */
@@ -476,7 +485,7 @@ export function buildMapModel(
     for (const { key, endX, y: routeY } of pending) {
       const route = routes[key];
       if (route.outcome === "ends") {
-        ends.push({ x: endX + 10, y: routeY });
+        ends.push({ x: endX + END_MARK_DX, y: routeY });
         continue;
       }
       joined = true;
@@ -525,6 +534,8 @@ export function buildMapModel(
     }
     idx = next;
   }
+  // The story's end mark, by position in `ends` (it moves with its segment).
+  let storyEndAt = -1;
   if (idx <= last) {
     // The story's tail: a stretch and its end mark, on the last segment.
     const tail = segments[segments.length - 1];
@@ -532,7 +543,8 @@ export function buildMapModel(
       segments.push({ from: mark(), width: addRun(idx, last, 0, 0), rows: 1 });
     } else tail.width = addRun(idx, last, tail.width, 0);
     const end = segments[segments.length - 1];
-    ends.push({ x: end.width + 10, y: 0 });
+    storyEndAt = ends.length;
+    ends.push({ x: end.width + END_MARK_DX, y: 0 });
     end.width += END_REACH;
   }
 
@@ -570,14 +582,18 @@ export function buildMapModel(
   const decisionById = new Map<string, number>();
   for (const decision of decisions)
     decisionById.set(decision.id, decision.index);
+  const links = [...raw.map(linkOf), ...wraps];
+  const start = { x: g.pad, y: y0 };
   return {
     runs,
     decisions: mapDecisions,
     routes,
-    links: [...raw.map(linkOf), ...wraps],
+    links,
     joins,
     ends,
-    start: { x: g.pad, y: y0 },
+    start,
+    storyEnd: storyEndAt >= 0 ? ends[storyEndAt] : null,
+    bounds: boundsOf(runs, mapDecisions, routes, links, joins, ends, start),
     width: widest + g.pad + 40,
     height,
     rows: Math.max(1, wrapped.length),
@@ -585,6 +601,43 @@ export function buildMapModel(
     decisionAt,
     decisionById,
   };
+}
+
+/** Above a stretch's line, its screen count's text reaches this far. */
+const COUNT_REACH = 22;
+
+/** The world box everything drawn lies in (see `MapModel.bounds`). */
+function boundsOf(
+  runs: readonly MapRun[],
+  decisions: readonly MapDecision[],
+  routes: readonly MapRoute[],
+  links: readonly MapLink[],
+  joins: readonly { x: number; y: number }[],
+  ends: readonly { x: number; y: number }[],
+  start: { x: number; y: number },
+): { x0: number; y0: number; x1: number; y1: number } {
+  const g = MAP_GEOMETRY;
+  const box = {
+    x0: start.x - 6,
+    y0: start.y - 6,
+    x1: start.x + 6,
+    y1: start.y + 6,
+  };
+  const add = (x0: number, y0: number, x1: number, y1: number) => {
+    if (x0 < box.x0) box.x0 = x0;
+    if (y0 < box.y0) box.y0 = y0;
+    if (x1 > box.x1) box.x1 = x1;
+    if (y1 > box.y1) box.y1 = y1;
+  };
+  for (const r of runs) add(r.x0, r.y - COUNT_REACH, r.x1, r.y);
+  for (const d of decisions)
+    add(d.x, d.y - g.decH / 2, d.x + g.decW, d.y + g.decH / 2);
+  for (const r of routes)
+    add(r.x, r.y - g.routeH / 2, r.x + g.routeW, r.y + g.routeH / 2);
+  for (const l of links) add(l.x0, l.y0, l.x1, l.y1);
+  for (const p of joins) add(p.x - 5, p.y - 5, p.x + 5, p.y + 5);
+  for (const p of ends) add(p.x - 7, p.y - 7, p.x + 7, p.y + 7);
+  return box;
 }
 
 /** How far the continuation connector turns outside the rows' ends. */
@@ -718,8 +771,10 @@ export const HERE_DECISION_GAP = 22;
 
 /**
  * Where the reader is: just before the decision box while its choice
- * screen is up, otherwise the point along the stretch holding the item on
- * screen.
+ * screen is up; on an end mark while the item on screen is the last one
+ * of the line that mark ends (an ending route's, or the story's: its last
+ * screen, and the end state after it, which stays there); otherwise the
+ * point along the stretch holding the item on screen.
  */
 function hereOf(
   model: MapModel,
@@ -733,10 +788,38 @@ function hereOf(
   }
   const run = runAt(model.runs, reader.cursor);
   if (run === undefined) return { ...model.start, decision: -1 };
+  const end = endMarkAt(model, run, reader.cursor);
+  if (end !== null) return { ...end, decision: -1 };
   const n = run.end - run.start + 1;
   const at = Math.min(Math.max(reader.cursor - run.start, 0), n - 1);
   const x = run.x0 + ((run.x1 - run.x0) * (at + 0.5)) / n;
   return { x, y: run.y, decision: -1 };
+}
+
+/**
+ * The end mark the reader stands on, or null: `cursor` is the last item of
+ * `run` (the stretch holding it), and that stretch is the last of a line
+ * ending in a mark — an ending route's own line (nested ones included), or
+ * the main line. A route whose line ends in a nested decision's join has
+ * no stretch ending there, so its mark is never matched by one inside.
+ */
+function endMarkAt(
+  model: MapModel,
+  run: MapRun,
+  cursor: number,
+): { x: number; y: number } | null {
+  if (run.end !== cursor) return null;
+  for (const route of model.routes)
+    if (
+      route.outcome === "ends" &&
+      route.endIndex === cursor &&
+      route.endX === run.x1 &&
+      route.y === run.y
+    )
+      return { x: route.endX + END_MARK_DX, y: route.y };
+  if (cursor === model.itemCount - 1 && model.storyEnd !== null)
+    return model.storyEnd;
+  return null;
 }
 
 /** The run holding item `index`, else the nearest one before it. */
@@ -829,6 +912,9 @@ export interface MapView {
   readonly scale: number;
 }
 
+/** The furthest the map zooms in, Fit included. */
+export const MAX_SCALE = 3;
+
 /** The zoom limits for a model in a viewport: out to the whole tree, in to 3x. */
 export function zoomLimits(
   model: MapModel,
@@ -836,7 +922,7 @@ export function zoomLimits(
   vh: number,
 ): { min: number; max: number } {
   const fit = fitView(model, vw, vh).scale;
-  return { min: Math.min(fit, 0.25), max: 3 };
+  return { min: Math.min(fit, 0.25), max: MAX_SCALE };
 }
 
 /** The scale the map opens at: readable labels, a little smaller on a small screen. */
@@ -868,16 +954,39 @@ export function centreOn(
   return { scale, x: vw / 2 - wx * scale, y: vh / 2 - wy * scale };
 }
 
-/** Fit never blows a small tree up past this. */
-export const FIT_MAX_SCALE = 1.4;
+/** Screen pixels Fit leaves between the tree and each edge of the view. */
+export const FIT_MARGIN_PX = 32;
 
-/** The view showing the whole tree, centred. */
+/**
+ * The view showing the whole tree, centred, as large as the view allows:
+ * the tree's drawn box (`bounds`, not the layout's padding) fills the
+ * view less `FIT_MARGIN_PX` a side along its tighter axis. Only the zoom-in
+ * limit caps it, so a tiny story (one stretch) is not blown up past 3x.
+ */
 export function fitView(model: MapModel, vw: number, vh: number): MapView {
+  const b = model.bounds;
   const scale = Math.min(
-    FIT_MAX_SCALE,
-    Math.min(vw / model.width, vh / model.height) * 0.96,
+    MAX_SCALE,
+    Math.max(1, vw - 2 * FIT_MARGIN_PX) / Math.max(1, b.x1 - b.x0),
+    Math.max(1, vh - 2 * FIT_MARGIN_PX) / Math.max(1, b.y1 - b.y0),
   );
-  return centreOn(model.width / 2, model.height / 2, vw, vh, scale);
+  return centreOn((b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2, vw, vh, scale);
+}
+
+/**
+ * The view after the viewport went from `from` to `to` (a resize, or
+ * entering or leaving fullscreen) with the map open: the world point at
+ * the old view's centre stays at the centre, at the same scale. (A fitted
+ * view is fitted again instead; the screen decides.)
+ */
+export function viewAfterResize(
+  view: MapView,
+  from: { w: number; h: number },
+  to: { w: number; h: number },
+): MapView {
+  const wx = (from.w / 2 - view.x) / view.scale;
+  const wy = (from.h / 2 - view.y) / view.scale;
+  return centreOn(wx, wy, to.w, to.h, view.scale);
 }
 
 /** The view the map opens at: the reader's position, readable. */
@@ -889,8 +998,11 @@ export function openingView(
 ): MapView {
   const scale = readableScale(vw, vh);
   // A tree that fits whole at a readable scale is shown whole, centred.
-  if (fitView(model, vw, vh).scale >= scale)
-    return centreOn(model.width / 2, model.height / 2, vw, vh, scale);
+  const fit = fitView(model, vw, vh);
+  if (fit.scale >= scale) {
+    const b = model.bounds;
+    return centreOn((b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2, vw, vh, scale);
+  }
   return centreOn(marks.here.x, marks.here.y, vw, vh, scale);
 }
 

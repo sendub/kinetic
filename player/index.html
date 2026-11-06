@@ -451,7 +451,9 @@
          replaces the other — and stays under the reset box (z 7) and
          the #flash pill (z 10). A header of title, tools, hint and
          legend; under it the SVG view, which owns every pointer and
-         wheel event (touch-action: none: no browser pan or zoom). */
+         wheel event (touch-action: none: no browser pan or zoom). No
+         text on it is selectable, so a drag pan or a double click never
+         selects any: Safari reads only the -webkit- form. */
       #branchmap {
         position: absolute;
         inset: 0;
@@ -461,6 +463,8 @@
         background: rgb(8, 8, 10);
         color: var(--ink);
         font-family: var(--ui-font);
+        -webkit-user-select: none;
+        user-select: none;
       }
       #branchmap[hidden] {
         display: none;
@@ -520,7 +524,6 @@
         overflow: hidden;
         cursor: grab;
         touch-action: none;
-        user-select: none;
       }
       .map-view.map-dragging {
         cursor: grabbing;

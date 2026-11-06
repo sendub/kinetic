@@ -1135,8 +1135,9 @@ there"), built now, zoomable and pannable.
   seen (entered, or any screen seen) or played (completed, or entered
   with its last screen seen); the last pick at each decision outlined
   (the route the wheel follows, Phase 27); a "you are here" marker on the
-  stretch holding the screen shown, or before the decision whose choice
-  screen is up. Labels truncate; the full text and status show on hover
+  stretch holding the screen shown, on an ending's (or the story's)
+  end square when the screen shown is that line's last, or before the
+  decision whose choice screen is up. Labels truncate; the full text and status show on hover
   or focus.
 - Layout for a large game: the main line wraps into rows like lines of
   text, left to right then down. A row holds whole top-level segments
@@ -1177,7 +1178,10 @@ there"), built now, zoomable and pannable.
   pan and +/- zoom; F or 0 fits the whole tree; C (and a button)
   recentres on "you are here". It opens centred on the reader at a
   readable scale (a small tree that fits at that scale opens whole).
-  While open the map owns the wheel.
+  Fit fills the view less a 32 px margin, capped only by the zoom-in
+  limit, and a fitted view refits when the window resizes (fullscreen
+  included). Dragging never selects text. While open the map owns the
+  wheel.
 - Jumps use the machine's own operations: a reached decision opens its
   choice screen exactly as a wheel step onto it would (the new
   `showChoice`, which is the wheel's own screen landing, inert unless the

@@ -6,7 +6,7 @@ import { describeTarget, detailMarkup, skeletonMarkup } from "./branchmap";
 import {
   buildMapModel,
   centreOn,
-  FIT_MAX_SCALE,
+  FIT_MARGIN_PX,
   fitView,
   HERE_DECISION_GAP,
   hitTest,
@@ -14,6 +14,7 @@ import {
   LABEL_MIN_SCALE,
   labelMinScale,
   MAP_GEOMETRY,
+  MAX_SCALE,
   type MapModel,
   type MapReader,
   markMap,
@@ -23,6 +24,7 @@ import {
   runJump,
   SMALL_LABEL_MIN_SCALE,
   truncateLabel,
+  viewAfterResize,
   visibleWorld,
   zoomAt,
   zoomLimits,
@@ -502,6 +504,118 @@ describe("markMap: the reader's marks", () => {
     });
   });
 
+  it("puts 'you are here' on an ending's end mark at its last screen", () => {
+    const model = demoModel();
+    const m = demoMachine();
+    m.advance();
+    m.advance();
+    m.choose(1); // route 2, the ending: r2-start
+    m.advance(); // r2-end, its last screen
+    const route2 = model.routes[routeKey(model, OUTER, 1)];
+    const mark = model.ends.find((p) => p.y === route2.y && p.x > route2.endX);
+    expect(mark).toBeDefined();
+    expect(markMap(model, readerOf(m)).here).toEqual({ ...mark, decision: -1 });
+    // One screen earlier it is still on the route's line, before the mark.
+    const before = markMap(model, { ...readerOf(m), cursor: 7 }).here;
+    expect(before.y).toBe(route2.y);
+    expect(before.x).toBeLessThan(route2.endX);
+  });
+
+  it("puts 'you are here' on the main line's end mark at the story's last screen", () => {
+    const model = demoModel();
+    const end = model.storyEnd;
+    expect(end).not.toBeNull();
+    expect(model.ends).toContainEqual(end);
+    const at = (cursor: number) =>
+      markMap(model, {
+        visited: DEMO_ITEMS.map((_, i) => i),
+        playedRoutes: [],
+        cursor,
+      }).here;
+    expect(at(10)).toEqual({ ...end, decision: -1 });
+    const tail = runAt(model.runs, 10);
+    expect(at(9).x).toBeLessThan(tail?.x1 ?? 0);
+    // A story with no decisions ends in its mark too.
+    const linear = buildMapModel(["a", "b"].map(image), []);
+    expect(
+      markMap(linear, { visited: [0, 1], playedRoutes: [], cursor: 1 }).here,
+    ).toEqual({ ...linear.storyEnd, decision: -1 });
+  });
+
+  it("puts 'you are here' on a nested ending's mark, and keeps a returning route's last screen on its line", () => {
+    // lead decide | a-start a-nest | n1 | n2 | a-end | b-1 b-2 | after
+    const items = [
+      "lead",
+      "decide",
+      "a-start",
+      "a-nest",
+      "n1",
+      "n2",
+      "a-end",
+      "b-1",
+      "b-2",
+      "after",
+    ].map(image);
+    const branches: Branch[] = [
+      {
+        id: "inner",
+        after: "a-nest",
+        prompt: "Inner?",
+        routes: [
+          { id: "n1", label: "Inner ending", start: "n1", end: "n1" },
+          {
+            id: "n2",
+            label: "Inner carries on",
+            start: "n2",
+            end: "n2",
+          },
+        ],
+        continuingRoute: "n2",
+        continueAt: "a-end",
+      },
+      {
+        id: "outer",
+        after: "decide",
+        prompt: "Outer?",
+        routes: [
+          {
+            id: "a",
+            label: "Returns",
+            start: "a-start",
+            end: "a-end",
+            result: "return",
+          },
+          { id: "b", label: "Continues", start: "b-1", end: "b-2" },
+        ],
+        continuingRoute: "b",
+        continueAt: "after",
+      },
+    ];
+    const model = buildMapModel(items, branches);
+    const here = (cursor: number) =>
+      markMap(model, { visited: [0, 1, cursor], playedRoutes: [], cursor })
+        .here;
+    const inner = model.routes.find((r) => r.label === "Inner ending");
+    const innerMark = model.ends.find(
+      (p) => p.y === inner?.y && p.x > (inner?.endX ?? 0),
+    );
+    expect(inner?.outcome).toBe("ends");
+    expect(here(4)).toEqual({ ...innerMark, decision: -1 });
+    // The returning route's last screen: on its own line, no end mark.
+    const ret = model.routes.find((r) => r.label === "Returns");
+    const lastRun = runAt(model.runs, 6);
+    const at = here(6);
+    expect(at.y).toBe(ret?.y);
+    expect(lastRun?.x1).toBe(ret?.endX);
+    expect(at.x).toBeGreaterThan(lastRun?.x0 ?? 0);
+    expect(at.x).toBeLessThan(lastRun?.x1 ?? 0);
+    expect(model.ends.some((p) => p.x === at.x && p.y === at.y)).toBe(false);
+    // A continuing route's last screen: on its line too.
+    const cont = model.routes.find((r) => r.label === "Continues");
+    expect(here(8).y).toBe(cont?.y);
+    expect(here(8).x).toBeLessThan(cont?.endX ?? 0);
+  });
+
   it("puts 'you are here' on the stretch holding the item on screen", () => {
     const model = demoModel();
     const m = demoMachine();
@@ -677,15 +791,83 @@ describe("view arithmetic", () => {
     const model = buildMapModel(items, branches);
     const view = fitView(model, 1920, 1080);
     const seen = visibleWorld(view, 1920, 1080);
-    expect(seen.x0).toBeLessThanOrEqual(0);
-    expect(seen.y0).toBeLessThanOrEqual(0);
-    expect(seen.x1).toBeGreaterThanOrEqual(model.width);
-    expect(seen.y1).toBeGreaterThanOrEqual(model.height);
+    expect(seen.x0).toBeLessThanOrEqual(model.bounds.x0);
+    expect(seen.y0).toBeLessThanOrEqual(model.bounds.y0);
+    expect(seen.x1).toBeGreaterThanOrEqual(model.bounds.x1);
+    expect(seen.y1).toBeGreaterThanOrEqual(model.bounds.y1);
     expect(zoomLimits(model, 1920, 1080).min).toBeLessThanOrEqual(view.scale);
-    // A small tree is not blown up past the cap.
-    expect(fitView(demoModel(), 1920, 1080).scale).toBeLessThanOrEqual(
-      FIT_MAX_SCALE,
+  });
+
+  it("fit fills the view, less a small margin, at any size, the demo included", () => {
+    // What the map draws, measured here from its parts (not `bounds`).
+    const g = MAP_GEOMETRY;
+    const drawn = (model: MapModel) => {
+      const xs: number[] = [];
+      const ys: number[] = [];
+      for (const d of model.decisions) {
+        xs.push(d.x, d.x + g.decW);
+        ys.push(d.y - g.decH / 2, d.y + g.decH / 2);
+      }
+      for (const r of model.routes) {
+        xs.push(r.x, r.x + g.routeW);
+        ys.push(r.y - g.routeH / 2, r.y + g.routeH / 2);
+      }
+      for (const r of model.runs) xs.push(r.x0, r.x1);
+      for (const p of model.ends) xs.push(p.x + 7);
+      return {
+        x0: Math.min(...xs),
+        y0: Math.min(...ys),
+        x1: Math.max(...xs),
+        y1: Math.max(...ys),
+      };
+    };
+    const { items, branches } = synthetic(12, 3, 20);
+    // Map views at 16:9 window sizes, under the map's header.
+    const sizes = [
+      [1280, 630],
+      [1920, 960],
+      [2560, 1300],
+      [3840, 1980],
+    ];
+    for (const model of [
+      demoModel(),
+      buildMapModel(items, branches, 1920 / 960),
+    ])
+      for (const [vw, vh] of sizes) {
+        const view = fitView(model, vw, vh);
+        const box = drawn(model);
+        const sx0 = box.x0 * view.scale + view.x;
+        const sx1 = box.x1 * view.scale + view.x;
+        const sy0 = box.y0 * view.scale + view.y;
+        const sy1 = box.y1 * view.scale + view.y;
+        // Inside the view, by at least most of the margin...
+        expect(sx0).toBeGreaterThanOrEqual(FIT_MARGIN_PX / 2);
+        expect(sy0).toBeGreaterThanOrEqual(FIT_MARGIN_PX / 2);
+        expect(sx1).toBeLessThanOrEqual(vw - FIT_MARGIN_PX / 2);
+        expect(sy1).toBeLessThanOrEqual(vh - FIT_MARGIN_PX / 2);
+        // ...and filling it along the tighter axis, up to the margins.
+        const fill = Math.max((sx1 - sx0) / vw, (sy1 - sy0) / vh);
+        expect(fill, `${vw}x${vh}`).toBeGreaterThan(0.93);
+        // Zooming never undoes a fit.
+        expect(zoomLimits(model, vw, vh).max).toBeGreaterThanOrEqual(
+          view.scale,
+        );
+      }
+    // A one-stretch story is not blown up past the zoom-in limit.
+    const tiny = buildMapModel([image("a")], []);
+    expect(fitView(tiny, 3840, 1980).scale).toBe(MAX_SCALE);
+  });
+
+  it("keeps the world point at the view's centre when the view is resized", () => {
+    const view = { x: -300, y: 40, scale: 0.8 };
+    const next = viewAfterResize(
+      view,
+      { w: 1280, h: 630 },
+      { w: 2560, h: 1300 },
     );
+    expect(next.scale).toBe(0.8);
+    expect((1280 - next.x) / next.scale).toBeCloseTo((640 - view.x) / 0.8);
+    expect((650 - next.y) / next.scale).toBeCloseTo((315 - view.y) / 0.8);
   });
 
   it("opens centred on 'you are here' at a readable scale", () => {

@@ -43,6 +43,7 @@ import {
   openingView,
   PROMPT_CHARS,
   truncateLabel,
+  viewAfterResize,
   visibleWorld,
   zoomAt,
   zoomLimits,
@@ -407,6 +408,9 @@ export function mountBranchMap({
   let modelAspect = 0;
   let marks: MapMarks | null = null;
   let view: MapView = { x: 0, y: 0, scale: 1 };
+  // The view is Fit's (F or the button) and nothing has moved it since: a
+  // resize fits again rather than keeping the old size.
+  let fitted = false;
   let frame = 0;
   let far = false;
   // The world rectangle the near nodes are drawn for (null: none drawn),
@@ -421,11 +425,43 @@ export function mountBranchMap({
     vw = viewport.clientWidth || win?.innerWidth || 800;
     vh = viewport.clientHeight || win?.innerHeight || 600;
   };
-  win?.addEventListener("resize", () => {
-    if (panel.hidden) return;
+
+  /**
+   * Lays the tree out again when the view's shape has moved well away from
+   * the one it was laid out for (the rows wrap to it); true when it did.
+   */
+  function layOut(): boolean {
+    const aspect = vw / Math.max(1, vh);
+    if (model !== null && Math.abs(Math.log(aspect / modelAspect)) <= 0.25)
+      return false;
+    model = buildModel(aspect);
+    modelAspect = aspect;
+    return true;
+  }
+
+  // The view changed size while open (a window resize, entering or leaving
+  // fullscreen, the header rewrapping): a fitted view fits the new size, any
+  // other keeps the world point at its centre (or, laid out anew, centres
+  // on "you are here"). The viewport's own size is watched, so its final
+  // size after a fullscreen change is the one used.
+  const resized = () => {
+    if (panel.hidden || model === null || marks === null) return;
+    const from = { w: vw, h: vh };
     measure();
-    setView(view);
-  });
+    if (vw === from.w && vh === from.h) return;
+    if (layOut() && model !== null) {
+      marks = markMap(model, reader());
+      drawn = null;
+      skeletonDrawn = false;
+      if (!fitted)
+        view = centreOn(marks.here.x, marks.here.y, vw, vh, view.scale);
+    } else if (!fitted) view = viewAfterResize(view, from, { w: vw, h: vh });
+    if (fitted) showWhole();
+    else setView(view);
+  };
+  const Observer = win?.ResizeObserver as typeof ResizeObserver | undefined;
+  if (Observer !== undefined) new Observer(resized).observe(viewport);
+  else win?.addEventListener("resize", resized);
 
   function paint(): void {
     frame = 0;
@@ -471,6 +507,7 @@ export function mountBranchMap({
 
   function setView(next: MapView): void {
     view = next;
+    fitted = false;
     if (frame === 0 && win !== null) frame = win.requestAnimationFrame(paint);
     else if (win === null) paint();
   }
@@ -484,7 +521,9 @@ export function mountBranchMap({
   }
 
   function showWhole(): void {
-    if (model !== null) setView(fitView(model, vw, vh));
+    if (model === null) return;
+    setView(fitView(model, vw, vh));
+    fitted = true;
   }
 
   function recentre(): void {
@@ -548,8 +587,15 @@ export function mountBranchMap({
     hit: MapTarget | null;
     dragged: boolean;
   } | null = null;
+  // A press on the map never starts a text selection (a drag pans, a
+  // double click zooms nothing): `user-select: none` on the panel, and the
+  // press's default (selection, in Safari too) prevented. Nothing in the
+  // view takes focus from a press (the nodes are reached by Tab; a click
+  // on one jumps), so focus and the keys are unaffected.
+  viewport.addEventListener("selectstart", (event) => event.preventDefault());
   viewport.addEventListener("pointerdown", (event) => {
     if (event.button !== 0) return;
+    event.preventDefault();
     press = {
       id: event.pointerId,
       x: event.clientX,
@@ -716,15 +762,11 @@ export function mountBranchMap({
       skeleton.textContent = "";
       panel.hidden = false;
       measure();
-      // The rows wrap to the view's shape: lay out again only when that
-      // shape has moved well away from the one laid out for.
-      const aspect = vw / Math.max(1, vh);
-      if (model === null || Math.abs(Math.log(aspect / modelAspect)) > 0.25) {
-        model = buildModel(aspect);
-        modelAspect = aspect;
-      }
+      layOut();
+      if (model === null) return;
       marks = markMap(model, reader());
       view = openingView(model, marks, vw, vh);
+      fitted = false;
       far = view.scale < labelMinScale(model);
       svg.classList.toggle("map-far", far);
       paint();
