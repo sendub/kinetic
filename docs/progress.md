@@ -1649,5 +1649,10 @@ truthful: an unchecked box means nothing was accepted.
       before Space, and requires closed,pill,no-pill,open with no
       covered frame. Fault injection (gate off; route pill never shown)
       fails it. Orchestrator: choicelist 3/3, vitest 683, check clean.)
-- [ ] Phase-closer (Phase 32): full scenario suite, package-proof
+- [x] Phase-closer (Phase 32): full scenario suite, package-proof
       (rebuilds the demo); pytest not needed, converter untouched.
+      (2026-11-06 first run: 266 checks, 263 pass, 2 PARTIAL, 1 FAIL
+      (choicelist pill, item above); package-proof 18/18, demo rebuilt.
+      After the fix: 12 scenarios, 266 checks: 264 pass, 2 PARTIAL
+      (headless fullscreen Escapes), 0 FAIL. One intermediate run
+      printed no results and was rerun with its log kept.)
