@@ -1683,3 +1683,19 @@ truthful: an unchecked box means nothing was accepted.
       (2026-11-06: 12 scenarios, 276 checks: 274 pass, 2 PARTIAL
       (headless fullscreen Escapes), 0 FAIL; package-proof 18/18, demo
       rebuilt.)
+
+## Phase 34: Map button hints (2026-11-06, user)
+
+- [ ] Map button shortcut hints show at once: the native `title` hint
+      appears only after a long delay in Chrome and never in Safari.
+      Replace it with the player's own hint that appears immediately on
+      hover and on keyboard focus, in both browsers.
+      (Pure CSS: `data-hint` drawn by `[data-hint]::after`, shown on
+      :hover/:focus-visible with no transition, below and right-aligned;
+      `title` removed, `aria-describedby` + `aria-keyshortcuts` kept;
+      the bookmark delete "x" moved to the same hint. Orchestrator:
+      vitest 695, check 0 warnings, smoke 6/6, branchmap 49/49 (hint
+      visible within one frame, in the viewport); Chrome screenshot
+      shows "shortcut: F" under Fit. Safari NOT verified: safaridriver
+      sessions time out connecting to Safari (subagent and orchestrator
+      runs); awaiting the user's check.)

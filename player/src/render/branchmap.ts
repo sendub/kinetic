@@ -5,7 +5,7 @@
 // switch) flips Spoilers, off by default, which hides the text of
 // decisions not reached (mapmodel.ts `MapMarks.hidden`). Esc or M closes.
 // The header is the title and three buttons (Spoilers, Centre, Fit), each
-// naming its key in its hover title. A click on a reached decision or one
+// naming its key in a hover/focus hint (index.html `[data-hint]`). A click on a reached decision or one
 // of its routes asks the shell to jump there (the machine does the moving;
 // see mapmodel.ts `runJump`).
 //
@@ -66,8 +66,8 @@ import {
 export const MAP_TITLE = "Branch map";
 
 /**
- * The header's buttons, in order: what each does, its text and the hover
- * title naming its key (the only help the header carries).
+ * The header's buttons, in order: what each does, its text and the key its
+ * hint names (the only help the header carries).
  */
 export const MAP_TOOLS = [
   { act: "spoil", text: spoilersLabel(false), key: "S" },
@@ -75,8 +75,12 @@ export const MAP_TOOLS = [
   { act: "fit", text: "Fit", key: "F" },
 ] as const;
 
-/** A header button's hover title. */
-export function shortcutTitle(key: string): string {
+/**
+ * A header button's hint, shown at once on hover or keyboard focus by
+ * index.html's `[data-hint]` rule. Not a native `title`: Chrome shows that
+ * late and Safari not at all in fullscreen.
+ */
+export function shortcutHint(key: string): string {
   return `shortcut: ${key}`;
 }
 
@@ -410,9 +414,17 @@ export function mountBranchMap({
     button.className = "map-tool";
     button.dataset.act = act;
     button.textContent = text;
-    button.title = shortcutTitle(key);
+    const hint = shortcutHint(key);
+    button.dataset.hint = hint;
     button.setAttribute("aria-keyshortcuts", key);
-    tools.append(button);
+    // The drawn hint is hidden from assistive tech (index.html); this
+    // hidden twin carries the same text as the button's description.
+    const described = doc.createElement("span");
+    described.id = `map-hint-${act}`;
+    described.hidden = true;
+    described.textContent = hint;
+    button.setAttribute("aria-describedby", described.id);
+    tools.append(button, described);
   }
   const spoilButton = tools.firstElementChild as HTMLButtonElement;
   spoilButton.classList.add("map-spoil");
@@ -785,7 +797,7 @@ export function mountBranchMap({
 
   // The map's own keys, live only while it is open. None of them is in the
   // story key table (render/keys.ts): like a choice's digits they belong to
-  // this one screen, and its buttons' hover titles name theirs.
+  // this one screen, and its buttons' hints name theirs.
   doc.addEventListener("keydown", (event) => {
     if (panel.hidden) return;
     const key = event.key;

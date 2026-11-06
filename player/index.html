@@ -511,6 +511,49 @@
         background: rgba(30, 30, 36, 0.95);
         outline: none;
       }
+      /* A control's instant hint (the branch map's buttons, a bookmark's
+         delete "x"): drawn from its data-hint below it, right-aligned to
+         it so a control at the window's right edge keeps it on screen,
+         shown with no delay on hover or keyboard focus. Replaces the
+         native title, which Chrome shows late and Safari not at all in
+         fullscreen. The "/ ''" alt text keeps it out of the control's
+         accessible name; the control carries the text itself
+         (aria-describedby or aria-label). */
+      .map-tool[data-hint] {
+        position: relative;
+      }
+      /* Fallback for a browser without alt text in content (dropped
+         there as invalid by the next rule). */
+      [data-hint]::after {
+        content: attr(data-hint);
+      }
+      [data-hint]::after {
+        content: attr(data-hint) / "";
+        position: absolute;
+        top: calc(100% + 6px);
+        right: 0;
+        z-index: 8;
+        padding: 4px 8px;
+        border: 1px solid rgba(244, 239, 230, 0.22);
+        border-radius: 6px;
+        background: rgba(10, 10, 12, 0.96);
+        color: var(--ink);
+        font-family: var(--ui-font);
+        font-size: clamp(11px, 1.4vh, 14px);
+        font-weight: normal;
+        letter-spacing: normal;
+        line-height: 1.35;
+        text-transform: none;
+        white-space: nowrap;
+        pointer-events: none;
+        visibility: hidden;
+        opacity: 0;
+      }
+      [data-hint]:hover::after,
+      [data-hint]:focus-visible::after {
+        visibility: visible;
+        opacity: 1;
+      }
       /* The Spoilers switch reads its state, like the Esc screen's. */
       .map-tool[aria-pressed="true"] {
         border-color: var(--accent);

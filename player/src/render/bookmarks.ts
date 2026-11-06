@@ -626,7 +626,9 @@ export function mountBookmarkOverlay({
     remove.className = "bookmark-delete";
     remove.setAttribute("role", "button");
     remove.setAttribute("aria-label", DELETE_LABEL);
-    remove.setAttribute("title", DELETE_LABEL);
+    // An instant hint (index.html `[data-hint]`), not a native title,
+    // which shows late in Chrome and never in Safari fullscreen.
+    remove.setAttribute("data-hint", DELETE_LABEL);
     remove.setAttribute("data-bookmark-delete", "");
     remove.textContent = DELETE_GLYPH;
     thumbBox.appendChild(remove);

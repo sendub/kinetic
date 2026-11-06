@@ -16,6 +16,7 @@ import {
   bookmarkItemIndex,
   bookmarkRestoreTarget,
   bottomScrollTop,
+  DELETE_LABEL,
   entryLabel,
   entryThumbSrc,
   formatTimestamp,
@@ -503,6 +504,11 @@ describe("mountBookmarkOverlay cards (Phase 26: order and scroll unchanged)", ()
         "bookmark-delete",
       ]);
       expect(box?.children[1]?.textContent).toBe("×");
+      // Its help is an instant data-hint, not a native title (late in
+      // Chrome, never shown in Safari fullscreen).
+      expect(box?.children[1]?.getAttribute("data-hint")).toBe(DELETE_LABEL);
+      expect(box?.children[1]?.getAttribute("aria-label")).toBe(DELETE_LABEL);
+      expect(box?.children[1]?.getAttribute("title")).toBeNull();
       expect(meta?.children.map((el) => el.className)).toEqual([
         "bookmark-time",
         "bookmark-label",

@@ -16,13 +16,16 @@
 // decision's routes show their labels, S or the header button shows
 // everything without moving the tree, and the setting survives a reload.
 // Phase 33: the header is the title and exactly three buttons (Spoilers,
-// Centre, Fit) titled with their keys, on one line; the first open is a
+// Centre, Fit) hinting their keys, on one line; the first open is a
 // Fit; a moved view reopens with the same transform after a close and
 // after a reload, a Fit reopens as a fresh Fit after a resize, a moved
 // view keeps its world centre and scale; after Reset progress the map
-// opens at Fit with the marker's ring centred on the start dot.
+// opens at Fit with the marker's ring centred on the start dot. Each
+// header button's key hint (no native title) shows within a frame of a
+// hover or keyboard focus, below the button and inside the window, as
+// does a bookmark delete x's.
 // Screenshots land in .tmp/branchmap-shots/fb-*.png, spoil-*.png,
-// mark-*.png and simp-*.png.
+// mark-*.png, simp-*.png and hint-*.png.
 
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
@@ -36,11 +39,14 @@ import {
   HELP_CLOSED,
   HELP_OPEN,
   helpOpen,
+  OVERLAY_OPEN,
   openSettings,
+  pressB,
   pressDigit,
   pressEscape,
   pressKey,
   pressSpace,
+  pressT,
   READ_CHOICE,
   repoRoot,
   sleep,
@@ -49,7 +55,7 @@ import {
 } from "./harness.mjs";
 
 export const title =
-  "branch map: open, here-marker (endings too), zoom, pan, fit fills and refits on resize, no text selection, jumps, Esc, M over Esc, spoilers, three-button header, remembered view, marker on the start after reset";
+  "branch map: open, here-marker (endings too), zoom, pan, fit fills and refits on resize, no text selection, jumps, Esc, M over Esc, spoilers, three-button header, instant key hints, remembered view, marker on the start after reset";
 
 const shots = join(repoRoot, ".tmp", "branchmap-shots");
 
@@ -520,6 +526,7 @@ export default async function ({ check, open }) {
   await spoilers({ check, open });
   await markerInView({ check, open });
   await header({ check, open });
+  await hints({ check, open });
   await memory({ check, open });
 }
 
@@ -811,8 +818,8 @@ async function markerInView({ check, open }) {
   );
 }
 
-// The header (Phase 33): the title and exactly three buttons, each titled
-// with its key, on one line; no hint or legend text; the map gets the rest.
+// The header (Phase 33): the title and exactly three buttons, each hinting
+// its key (data-hint, no native title), on one line; no hint or legend text; the map gets the rest.
 const READ_HEAD = () => {
   const panel = document.getElementById("branchmap");
   const head = panel?.querySelector(".map-head");
@@ -824,7 +831,8 @@ const READ_HEAD = () => {
     buttons: Array.from(head?.querySelectorAll("button") ?? []).map((b) => ({
       act: b.getAttribute("data-act"),
       text: b.textContent,
-      title: b.title,
+      title: b.getAttribute("title"),
+      hint: b.getAttribute("data-hint"),
       box: rect(b),
     })),
     title: head?.querySelector(".map-title")?.textContent ?? null,
@@ -857,14 +865,15 @@ async function header({ check, open }) {
       ["fit", "Fit", "shortcut: F"],
     ];
     check(
-      `at ${width}x${height} the header is the title and exactly three buttons (Spoilers, Centre, Fit) titled with their keys, on one line, no hint or legend`,
+      `at ${width}x${height} the header is the title and exactly three buttons (Spoilers, Centre, Fit) hinting their keys (no title attribute), on one line, no hint or legend`,
       h.title === "Branch map" &&
         h.buttons.length === 3 &&
         want.every(
-          ([act, text, title], i) =>
+          ([act, text, hint], i) =>
             h.buttons[i].act === act &&
             h.buttons[i].text === text &&
-            h.buttons[i].title === title,
+            h.buttons[i].hint === hint &&
+            h.buttons[i].title === null,
         ) &&
         h.texts.length === 2 &&
         h.buttons.every(
@@ -879,6 +888,185 @@ async function header({ check, open }) {
     await pressM(cdp);
     await page.waitForFunction(MAP_CLOSED, { timeout: 3000 });
   }
+}
+
+// A header button's drawn hint, read one animation frame after the hover
+// or focus that shows it: its ::after box (from the button's box and the
+// pseudo-element's computed offsets), visibility, opacity and text.
+const READ_HINT = async (act) => {
+  const framed = await Promise.race([
+    new Promise((r) => requestAnimationFrame(() => r(true))),
+    new Promise((r) => setTimeout(() => r(false), 500)),
+  ]);
+  const b = document.querySelector(`.map-tool[data-act="${act}"]`);
+  const cs = getComputedStyle(b, "::after");
+  const br = b.getBoundingClientRect();
+  const w = Number.parseFloat(cs.width);
+  const h = Number.parseFloat(cs.height);
+  const right = br.right - Number.parseFloat(cs.right);
+  const top = br.top + Number.parseFloat(cs.top);
+  const described = document.getElementById(
+    b.getAttribute("aria-describedby") ?? "",
+  );
+  return {
+    hint: b.getAttribute("data-hint"),
+    content: cs.content,
+    visibility: cs.visibility,
+    opacity: cs.opacity,
+    transition: cs.transitionDuration,
+    box: { x: right - w, y: top, w, h },
+    button: { x: br.x, y: br.y, w: br.width, h: br.height },
+    win: { w: innerWidth, h: innerHeight },
+    title: b.getAttribute("title"),
+    keys: b.getAttribute("aria-keyshortcuts"),
+    described: described?.textContent ?? null,
+    focusVisible: b.matches(":focus-visible"),
+    framed,
+    active: document.activeElement?.className ?? null,
+  };
+};
+
+const hintShown = (r, text) =>
+  r.framed &&
+  r.hint === text &&
+  r.content.includes(text) &&
+  r.visibility === "visible" &&
+  r.opacity === "1" &&
+  r.title === null &&
+  r.described === text &&
+  r.box.w > 20 &&
+  r.box.x >= 0 &&
+  r.box.y >= r.button.y + r.button.h &&
+  r.box.x + r.box.w <= r.win.w &&
+  r.box.y + r.box.h <= r.win.h;
+
+// The header's key hints: a hover shows each button's at once (no title,
+// no transition), below it and inside the window; leaving hides it;
+// keyboard focus shows it too.
+async function hints({ check, open }) {
+  const { page, cdp } = await open("hints", { closeHelp: true });
+  const tools = [
+    ["spoil", "shortcut: S"],
+    ["here", "shortcut: C"],
+    ["fit", "shortcut: F"],
+  ];
+  for (const [width, height] of [
+    [800, 600],
+    [1920, 1080],
+  ]) {
+    await page.setViewport({ width, height });
+    await sleep(150);
+    await openMap(page, cdp);
+    const hovered = [];
+    for (const [act, text] of tools) {
+      const b = await page.evaluate((a) => {
+        const r = document
+          .querySelector(`.map-tool[data-act="${a}"]`)
+          .getBoundingClientRect();
+        return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+      }, act);
+      await mouse(cdp, "mouseMoved", b.x, b.y, 0);
+      const r = await page.evaluate(READ_HINT, act);
+      hovered.push({ act, ok: hintShown(r, text), r });
+      if (width === 800 && act === "fit")
+        await page.screenshot({
+          path: join(shots, "hint-hover-800x600.png"),
+        });
+    }
+    check(
+      `at ${width}x${height} hovering each header button shows its key hint within a frame, below it and inside the window, with no title attribute`,
+      hovered.every((h) => h.ok && h.r.transition === "0s"),
+      hovered,
+    );
+    // Off the header: no hint shows.
+    await mouse(cdp, "mouseMoved", width / 2, height / 2, 0);
+    const away = await Promise.all(
+      tools.map(([act]) => page.evaluate(READ_HINT, act)),
+    );
+    check(
+      `at ${width}x${height} moving off the buttons hides every hint`,
+      away.every((r) => r.visibility === "hidden" && r.opacity === "0"),
+      away.map((r) => [r.visibility, r.opacity]),
+    );
+    await pressM(cdp);
+    await page.waitForFunction(MAP_CLOSED, { timeout: 3000 });
+  }
+
+  // Keyboard focus: Tab is the player's skip key (render/keys.ts), so it
+  // never walks onto the buttons; focus each from script right after a
+  // key press (the map's M), which Chrome treats as keyboard focus
+  // (:focus-visible), and its hint shows.
+  await page.setViewport({ width: 800, height: 600 });
+  await sleep(150);
+  await mouse(cdp, "mouseMoved", 400, 500, 0);
+  await openMap(page, cdp);
+  const focused = {};
+  for (const [act, text] of tools) {
+    await page.evaluate(
+      (a) => document.querySelector(`.map-tool[data-act="${a}"]`).focus(),
+      act,
+    );
+    const r = await page.evaluate(READ_HINT, act);
+    focused[act] = { ok: r.focusVisible && hintShown(r, text), r };
+    if (act === "spoil")
+      await page.screenshot({ path: join(shots, "hint-focus-800x600.png") });
+  }
+  check(
+    "keyboard focus on each header button shows its key hint (:focus-visible), inside the window",
+    tools.every(([act]) => focused[act]?.ok === true),
+    focused,
+  );
+  await pressM(cdp);
+  await page.waitForFunction(MAP_CLOSED, { timeout: 3000 });
+
+  // The bookmark list's delete "x" carries the same instant hint.
+  await pressB(cdp);
+  await sleep(200);
+  await pressT(cdp);
+  await page.waitForFunction(OVERLAY_OPEN, { timeout: 3000 });
+  await sleep(200);
+  const x = await page.evaluate(() => {
+    const r = document
+      .querySelector(".bookmark-delete")
+      .getBoundingClientRect();
+    return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+  });
+  await mouse(cdp, "mouseMoved", x.x, x.y, 0);
+  const del = await page.evaluate(async () => {
+    const framed = await Promise.race([
+      new Promise((r) => requestAnimationFrame(() => r(true))),
+      new Promise((r) => setTimeout(() => r(false), 500)),
+    ]);
+    const b = document.querySelector(".bookmark-delete");
+    const cs = getComputedStyle(b, "::after");
+    const br = b.getBoundingClientRect();
+    const w = Number.parseFloat(cs.width);
+    const left = br.right - Number.parseFloat(cs.right) - w;
+    return {
+      framed,
+      content: cs.content,
+      visibility: cs.visibility,
+      opacity: cs.opacity,
+      title: b.getAttribute("title"),
+      label: b.getAttribute("aria-label"),
+      left,
+      right: left + w,
+      win: innerWidth,
+    };
+  });
+  await page.screenshot({ path: join(shots, "hint-bookmark-delete.png") });
+  check(
+    "hovering a bookmark's delete x shows its 'Delete this bookmark' hint within a frame, inside the window, with no title attribute",
+    del.framed &&
+      del.content.includes("Delete this bookmark") &&
+      del.visibility === "visible" &&
+      del.opacity === "1" &&
+      del.title === null &&
+      del.label === "Delete this bookmark" &&
+      del.left >= 0 &&
+      del.right <= del.win,
+    del,
+  );
 }
 
 // The map's transform, the marker ring's centre and the start dot's centre
