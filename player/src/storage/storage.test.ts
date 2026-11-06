@@ -15,6 +15,7 @@ import {
   helpSeenFrom,
   type SavedContext,
   type Storage,
+  sanitizeMapView,
 } from "./types";
 
 /** An id-keyed route-play context with one open frame. */
@@ -161,6 +162,16 @@ for (const [name, makeStorage] of ADAPTERS) {
       expect(Object.keys((await storage.loadState()) ?? {})).toEqual([
         "settings",
       ]);
+    });
+
+    it("round-trips the branch map's view, copied in and out (Phase 33)", async () => {
+      const storage = makeStorage();
+      const view = { layout: "9:x1", fit: false, cx: 12, cy: -4.5, scale: 2 };
+      await storage.saveState({ helpSeen: true, mapView: view });
+      const loaded = await storage.loadState();
+      expect(loaded).toEqual({ helpSeen: true, mapView: view });
+      (loaded?.mapView as { cx: number }).cx = 99;
+      expect((await storage.loadState())?.mapView).toEqual(view);
     });
 
     it("copies ctx in and out: callers cannot rewrite the stored context", async () => {
@@ -325,6 +336,25 @@ describe("helpSeenFrom — the key-help migration reads absent as not-seen (Phas
 
   it("a persisted true says: never show it again", () => {
     expect(helpSeenFrom({ helpSeen: true })).toBe(true);
+  });
+});
+
+describe("sanitizeMapView — the map view the shipped adapter reads back (Phase 33)", () => {
+  it("keeps a well-formed view and drops anything else (reads as Fit)", () => {
+    const view = { layout: "3:a", fit: true, cx: 1, cy: 2, scale: 0.5 };
+    expect(sanitizeMapView({ ...view, extra: 1 })).toEqual(view);
+    for (const bad of [
+      null,
+      "view",
+      [],
+      { ...view, layout: 3 },
+      { ...view, fit: "yes" },
+      { ...view, cx: Number.NaN },
+      { ...view, cy: "2" },
+      { ...view, scale: 0 },
+      { ...view, scale: Number.POSITIVE_INFINITY },
+    ])
+      expect(sanitizeMapView(bad), JSON.stringify(bad)).toBeUndefined();
   });
 });
 

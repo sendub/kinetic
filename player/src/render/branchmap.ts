@@ -1,11 +1,18 @@
-// The branch map screen (docs/plan.md Phase 31): `m` opens the decision tree
-// with the reader's marks; drag pans, the wheel or a pinch zooms around the
-// pointer, the arrow keys pan and +/- zoom, F (or 0) fits the whole tree and
-// C recentres on "you are here"; S (or the header's switch) flips Spoilers,
-// off by default, which hides the text of decisions not reached
-// (mapmodel.ts `MapMarks.hidden`). A click on a reached decision or one of its
-// routes asks the shell to jump there (the machine does the moving; see
-// mapmodel.ts `runJump`).
+// The branch map screen (docs/plan.md Phases 31, 33): `m` opens the
+// decision tree with the reader's marks; drag pans, the wheel or a pinch
+// zooms around the pointer, the arrow keys pan and +/- zoom, F (or 0) fits
+// the whole tree and C centres on "you are here"; S (or the header's
+// switch) flips Spoilers, off by default, which hides the text of
+// decisions not reached (mapmodel.ts `MapMarks.hidden`). Esc or M closes.
+// The header is the title and three buttons (Spoilers, Centre, Fit), each
+// naming its key in its hover title. A click on a reached decision or one
+// of its routes asks the shell to jump there (the machine does the moving;
+// see mapmodel.ts `runJump`).
+//
+// The view is remembered (Phase 33): the first open is a Fit; after that
+// the map reopens where it was left — a Fit as a fresh Fit for the window,
+// anything else at the same world centre and zoom — across closes and,
+// through the shell's state record, reloads (mapmodel.ts `restoreView`).
 //
 // Rendering: one SVG. The layout is computed once per manifest
 // (mapmodel.ts); each open lays the reader's marks over it. Pan and zoom
@@ -34,6 +41,7 @@ import {
   jumpFor,
   LABEL_CHARS,
   labelMinScale,
+  layoutSignature,
   MAP_GEOMETRY,
   type MapJump,
   type MapMarks,
@@ -42,10 +50,12 @@ import {
   type MapTarget,
   type MapView,
   markMap,
-  openingView,
   PROMPT_CHARS,
   promptText,
+  restoreView,
   routeText,
+  type SavedMapView,
+  saveView,
   truncateLabel,
   viewAfterResize,
   visibleWorld,
@@ -54,8 +64,21 @@ import {
 } from "./mapmodel";
 
 export const MAP_TITLE = "Branch map";
-export const MAP_HINT =
-  "Drag to move · wheel or pinch to zoom · click a reached decision or route to go there · F fit · C you are here · S spoilers · Esc or M closes";
+
+/**
+ * The header's buttons, in order: what each does, its text and the hover
+ * title naming its key (the only help the header carries).
+ */
+export const MAP_TOOLS = [
+  { act: "spoil", text: spoilersLabel(false), key: "S" },
+  { act: "here", text: "Centre", key: "C" },
+  { act: "fit", text: "Fit", key: "F" },
+] as const;
+
+/** A header button's hover title. */
+export function shortcutTitle(key: string): string {
+  return `shortcut: ${key}`;
+}
 
 /**
  * The Spoilers switch's text, mirroring its aria-pressed value: off (the
@@ -91,6 +114,13 @@ export interface BranchMapOptions {
   spoilers(): boolean;
   /** The reader flipped Spoilers (button or S): the shell persists it. */
   onSpoilersChange(on: boolean): void;
+  /** The remembered view (`PersistedState.mapView`); read on every open. */
+  view(): SavedMapView | null | undefined;
+  /**
+   * The view now, as it would be remembered: on every painted change while
+   * open. The shell keeps it (no write); it persists on close.
+   */
+  onViewChange(view: SavedMapView): void;
 }
 
 export interface BranchMap {
@@ -108,8 +138,6 @@ const ROUTE_WORD = {
   played: "played",
 } as const;
 const ROUTE_GLYPH = { unseen: "○", partly: "◐", played: "●" } as const;
-export const MAP_LEGEND =
-  "● played · ◐ partly seen · ○ not seen · gold outline: your last pick · dashed line: returns to the choice · ■ ending · faded: not reached yet";
 const OUTCOME_WORD = {
   continues: "continues the story",
   returns: "returns to the choice",
@@ -358,6 +386,8 @@ export function mountBranchMap({
   onOpenChange,
   spoilers: spoilersSetting,
   onSpoilersChange,
+  view: rememberedView,
+  onViewChange,
 }: BranchMapOptions): BranchMap {
   const doc = root.ownerDocument;
   const win = doc.defaultView;
@@ -372,38 +402,22 @@ export function mountBranchMap({
   const title = doc.createElement("h2");
   title.className = "map-title";
   title.textContent = MAP_TITLE;
-  const hint = doc.createElement("p");
-  hint.className = "map-hint";
-  hint.textContent = MAP_HINT;
   const tools = doc.createElement("div");
   tools.className = "map-tools";
-  const tool = (act: string, text: string, label: string) => {
+  for (const { act, text, key } of MAP_TOOLS) {
     const button = doc.createElement("button");
     button.type = "button";
     button.className = "map-tool";
     button.dataset.act = act;
     button.textContent = text;
-    button.setAttribute("aria-label", label);
-    button.title = label;
+    button.title = shortcutTitle(key);
+    button.setAttribute("aria-keyshortcuts", key);
     tools.append(button);
-  };
-  tool(
-    "spoil",
-    spoilersLabel(false),
-    "Show the text of decisions not reached yet (S)",
-  );
-  const spoilButton = tools.lastElementChild as HTMLButtonElement;
+  }
+  const spoilButton = tools.firstElementChild as HTMLButtonElement;
   spoilButton.classList.add("map-spoil");
   spoilButton.setAttribute("aria-pressed", "false");
-  tool("here", "You are here", "Centre on where you are (C)");
-  tool("fit", "Fit", "Show the whole tree (F)");
-  tool("out", "−", "Zoom out (-)");
-  tool("in", "+", "Zoom in (+)");
-  tool("close", "Close", "Close the map (Esc)");
-  const legend = doc.createElement("p");
-  legend.className = "map-legend";
-  legend.textContent = MAP_LEGEND;
-  head.append(title, tools, hint, legend);
+  head.append(title, tools);
 
   const viewport = doc.createElement("div");
   viewport.className = "map-view";
@@ -435,6 +449,9 @@ export function mountBranchMap({
 
   let model: MapModel | null = null;
   let modelAspect = 0;
+  // The model's layout signature (what a remembered view is checked
+  // against), computed once per layout.
+  let layout = "";
   let marks: MapMarks | null = null;
   // Spoilers, as read at the open and flipped since (the marks carry it).
   let spoilers = false;
@@ -444,8 +461,9 @@ export function mountBranchMap({
   };
   const markNow = (m: MapModel) => markMap(m, { ...reader(), spoilers });
   let view: MapView = { x: 0, y: 0, scale: 1 };
-  // The view is Fit's (F or the button) and nothing has moved it since: a
-  // resize fits again rather than keeping the old size.
+  // The view is Fit's (F, the button, or the opening Fit) and nothing has
+  // moved it since: a resize fits again rather than keeping the old size,
+  // and it is remembered as a Fit.
   let fitted = false;
   let frame = 0;
   let far = false;
@@ -472,6 +490,7 @@ export function mountBranchMap({
       return false;
     model = buildModel(aspect);
     modelAspect = aspect;
+    layout = layoutSignature(model);
     return true;
   }
 
@@ -539,11 +558,12 @@ export function mountBranchMap({
       }
     }
     svg.setAttribute("data-scale", String(view.scale));
+    onViewChange(saveView(layout, view, vw, vh, fitted));
   }
 
-  function setView(next: MapView): void {
+  function setView(next: MapView, fit = false): void {
     view = next;
-    fitted = false;
+    fitted = fit;
     if (frame === 0 && win !== null) frame = win.requestAnimationFrame(paint);
     else if (win === null) paint();
   }
@@ -560,8 +580,7 @@ export function mountBranchMap({
 
   function showWhole(): void {
     if (model === null) return;
-    setView(fitView(model, vw, vh, marks?.here));
-    fitted = true;
+    setView(fitView(model, vw, vh, marks?.here), true);
   }
 
   // Spoilers flipped: the same layout and view (the boxes' sizes never
@@ -754,9 +773,6 @@ export function mountBranchMap({
     if (act === "spoil") toggleSpoilers();
     else if (act === "here") recentre();
     else if (act === "fit") showWhole();
-    else if (act === "in") zoomBy(KEY_ZOOM);
-    else if (act === "out") zoomBy(1 / KEY_ZOOM);
-    else if (act === "close") close();
   });
 
   svg.addEventListener("focusin", (event) => {
@@ -769,7 +785,7 @@ export function mountBranchMap({
 
   // The map's own keys, live only while it is open. None of them is in the
   // story key table (render/keys.ts): like a choice's digits they belong to
-  // this one screen, and its hint names them.
+  // this one screen, and its buttons' hover titles name theirs.
   doc.addEventListener("keydown", (event) => {
     if (panel.hidden) return;
     const key = event.key;
@@ -831,8 +847,18 @@ export function mountBranchMap({
       showSpoilers();
       if (model === null) return;
       marks = markNow(model);
-      view = openingView(model, marks, vw, vh);
-      fitted = false;
+      // The remembered view, or a Fit (mapmodel.ts `restoreView`). The
+      // marker shows wherever it is; only C centres on it.
+      const opening = restoreView(
+        model,
+        rememberedView(),
+        vw,
+        vh,
+        marks.here,
+        layout,
+      );
+      view = opening.view;
+      fitted = opening.fit;
       far = view.scale < labelMinScale(model);
       svg.classList.toggle("map-far", far);
       paint();

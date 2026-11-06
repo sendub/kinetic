@@ -37,6 +37,9 @@
 
 import { type ResolvedDecision, resolveDecisions } from "../machine/machine";
 import type { Branch, ContextFrame, Item, RouteSet } from "../machine/types";
+import type { SavedMapView } from "../storage/types";
+
+export type { SavedMapView };
 
 /** Geometry in world units (CSS pixels at zoom 1). */
 export const MAP_GEOMETRY = {
@@ -813,10 +816,12 @@ export const HERE_DECISION_GAP = 22;
 
 /**
  * Where the reader is: just before the decision box while its choice
- * screen is up; on an end mark while the item on screen is the last one
- * of the line that mark ends (an ending route's, or the story's: its last
- * screen, and the end state after it, which stays there); otherwise the
- * point along the stretch holding the item on screen.
+ * screen is up; on the start dot while the story's first screen is up (a
+ * first load, and every boot after "Reset progress"); on an end mark while
+ * the item on screen is the last one of the line that mark ends (an ending
+ * route's, or the story's: its last screen, and the end state after it,
+ * which stays there); otherwise the point along the stretch holding the
+ * item on screen.
  */
 function hereOf(
   model: MapModel,
@@ -828,6 +833,10 @@ function hereOf(
     if (node !== undefined)
       return { x: node.x - HERE_DECISION_GAP, y: node.y, decision: node.index };
   }
+  // The first screen is the story's start: the marker sits on the start
+  // dot itself, not a fraction of the first stretch to its right (with a
+  // short first stretch that fraction is half the stretch).
+  if (reader.cursor <= 0) return { ...model.start, decision: -1 };
   const run = runAt(model.runs, reader.cursor);
   if (run === undefined) return { ...model.start, decision: -1 };
   const end = endMarkAt(model, run, reader.cursor);
@@ -971,11 +980,6 @@ export function zoomLimits(
   return { min: Math.min(fit, 0.25), max: MAX_SCALE };
 }
 
-/** The scale the map opens at: readable labels, a little smaller on a small screen. */
-export function readableScale(vw: number, vh: number): number {
-  return Math.min(1.1, Math.max(0.7, Math.min(vw / 1700, vh / 950)));
-}
-
 /** Zoom by `factor` keeping the world point under screen (px, py) still. */
 export function zoomAt(
   view: MapView,
@@ -1008,7 +1012,7 @@ export const FIT_MARGIN_PX = 32;
  * pixels at any zoom: its ring (r 13) above, its centred "you are here"
  * label (13 px, letter-spaced, 4 px halo, baseline 32 px below) to each
  * side and below, with a few pixels' slack. The branch map draws it in
- * screen space, so Fit and the opening view leave this room around it.
+ * screen space, so Fit leaves this room around it.
  */
 export const HERE_REACH = { side: 58, up: 18, down: 42 } as const;
 
@@ -1135,20 +1139,72 @@ export function viewAfterResize(
 }
 
 /**
- * The view the map opens at: the reader's position, readable. A tree that
- * fits whole at a readable scale (marker included) is shown whole.
+ * A fingerprint of a model's layout: every stretch, box and pill position
+ * and the item count, hashed (FNV-1a, 32 bits). Two layouts with the same
+ * signature put every world point in the same place, so a view remembered
+ * on one is valid on the other; another game version, or the rows wrapped
+ * differently for a very different window shape, gives another one.
+ * Linear in runs, decisions and routes.
  */
-export function openingView(
-  model: MapModel,
-  marks: MapMarks,
+export function layoutSignature(model: MapModel): string {
+  let hash = 0x811c9dc5;
+  const mix = (n: number) => {
+    const text = `${Math.round(n * 100)},`;
+    for (let i = 0; i < text.length; i += 1) {
+      hash ^= text.charCodeAt(i);
+      hash = Math.imul(hash, 0x01000193) >>> 0;
+    }
+  };
+  mix(model.itemCount);
+  for (const r of model.runs)
+    for (const n of [r.start, r.end, r.x0, r.x1, r.y]) mix(n);
+  for (const d of model.decisions) for (const n of [d.index, d.x, d.y]) mix(n);
+  for (const r of model.routes)
+    for (const n of [r.decision, r.x, r.y, r.endX]) mix(n);
+  return `${model.itemCount}:${hash.toString(36)}`;
+}
+
+/**
+ * The view to remember for `view` in a vw x vh viewport, on the layout
+ * whose signature is `layout`.
+ */
+export function saveView(
+  layout: string,
+  view: MapView,
   vw: number,
   vh: number,
-): MapView {
-  const scale = readableScale(vw, vh);
-  const fit = fitView(model, vw, vh, marks.here);
-  if (fit.scale >= scale)
-    return framed(wholeAxes(model, marks.here), vw, vh, scale);
-  return centreOn(marks.here.x, marks.here.y, vw, vh, scale);
+  fit: boolean,
+): SavedMapView {
+  return {
+    layout,
+    fit,
+    cx: (vw / 2 - view.x) / view.scale,
+    cy: (vh / 2 - view.y) / view.scale,
+    scale: view.scale,
+  };
+}
+
+/**
+ * The view the map opens at: a fresh Fit for this window (nothing
+ * remembered, a remembered Fit, or one taken on another layout), else the
+ * remembered world centre and scale, the scale clamped to the zoom limits
+ * here (the window may have changed size since). `fit` says which, so a
+ * resize of a fitted view fits again. The marker's place does not move the
+ * view: C does that.
+ */
+export function restoreView(
+  model: MapModel,
+  saved: SavedMapView | null | undefined,
+  vw: number,
+  vh: number,
+  here?: { x: number; y: number },
+  layout: string = layoutSignature(model),
+): { view: MapView; fit: boolean } {
+  if (saved == null || saved.fit || saved.layout !== layout)
+    return { view: fitView(model, vw, vh, here), fit: true };
+  const limits = zoomLimits(model, vw, vh, here);
+  const scale = Math.min(limits.max, Math.max(limits.min, saved.scale));
+  return { view: centreOn(saved.cx, saved.cy, vw, vh, scale), fit: false };
 }
 
 /** Below this scale labels are not drawn (level of detail). */

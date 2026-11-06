@@ -449,8 +449,9 @@
          a pending choice (z 5), which it may open above; it never
          coexists with the Esc screen (also z 6) or the list — each
          replaces the other — and stays under the reset box (z 7) and
-         the #flash pill (z 10). A header of title, tools, hint and
-         legend; under it the SVG view, which owns every pointer and
+         the #flash pill (z 10). A one-line header (Phase 33): the title
+         and three buttons, each naming its key in its hover title; under
+         it the SVG view, taking all the height left, which owns every pointer and
          wheel event (touch-action: none: no browser pan or zoom). No
          text on it is selectable, so a drag pan or a double click never
          selects any: Safari reads only the -webkit- form. */
@@ -470,12 +471,13 @@
         display: none;
       }
       .map-head {
-        display: grid;
-        grid-template-columns: minmax(0, 1fr) auto;
+        display: flex;
+        flex: 0 0 auto;
+        flex-wrap: wrap;
         align-items: center;
-        gap: clamp(4px, 0.8vh, 10px) clamp(12px, 2vw, 28px);
-        padding: clamp(10px, 2vh, 28px) clamp(16px, 4vw, 64px)
-          clamp(8px, 1.4vh, 16px);
+        justify-content: space-between;
+        gap: 8px clamp(12px, 2vw, 28px);
+        padding: clamp(8px, 1.4vh, 16px) clamp(16px, 4vw, 64px);
         border-bottom: 1px solid rgba(244, 239, 230, 0.12);
       }
       .map-title {
@@ -513,14 +515,6 @@
       .map-tool[aria-pressed="true"] {
         border-color: var(--accent);
         color: var(--accent);
-      }
-      .map-hint,
-      .map-legend {
-        grid-column: 1 / -1;
-        margin: 0;
-        color: rgba(244, 239, 230, 0.55);
-        font-size: clamp(10px, 1.2vh, 13px);
-        line-height: 1.4;
       }
       .map-view {
         position: relative;

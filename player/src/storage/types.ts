@@ -69,6 +69,21 @@ export interface SavedContext {
   readonly choice?: string;
 }
 
+/**
+ * The branch map's remembered view (docs/plan.md Phase 33): the layout it
+ * was taken on (render/mapmodel.ts `layoutSignature`), whether it was a
+ * Fit, and the world point at the view's centre with the scale. The map
+ * reopens there (render/mapmodel.ts `restoreView`): a Fit, or a view taken
+ * on another layout, reopens as a fresh Fit.
+ */
+export interface SavedMapView {
+  readonly layout: string;
+  readonly fit: boolean;
+  readonly cx: number;
+  readonly cy: number;
+  readonly scale: number;
+}
+
 /** Everything the player persists about reading progress and pacing. */
 export interface PersistedState {
   /**
@@ -92,6 +107,11 @@ export interface PersistedState {
    * exactly once more (their first time seeing it), and then never again.
    */
   readonly helpSeen?: boolean;
+  /**
+   * The branch map's last view (docs/plan.md Phase 33). Absent (a first
+   * load, a reset, any record written before it) means Fit.
+   */
+  readonly mapView?: SavedMapView;
 }
 
 /** One entry of the `b` bookmark list (README bookmark bullet). */
@@ -195,6 +215,29 @@ export function summarizeBookmark(
     itemId: bookmark.itemId,
     hasThumb: typeof thumb === "string" && thumb !== "",
   };
+}
+
+/**
+ * A stored map view read defensively: the well-formed shape (a string
+ * layout, a boolean fit, finite centre, a positive finite scale) or
+ * undefined (reads as Fit). Never throws.
+ */
+export function sanitizeMapView(raw: unknown): SavedMapView | undefined {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw))
+    return undefined;
+  const v = raw as Record<string, unknown>;
+  const finite = (n: unknown): n is number =>
+    typeof n === "number" && Number.isFinite(n);
+  if (
+    typeof v.layout !== "string" ||
+    typeof v.fit !== "boolean" ||
+    !finite(v.cx) ||
+    !finite(v.cy) ||
+    !finite(v.scale) ||
+    v.scale <= 0
+  )
+    return undefined;
+  return { layout: v.layout, fit: v.fit, cx: v.cx, cy: v.cy, scale: v.scale };
 }
 
 /**

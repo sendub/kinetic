@@ -11,6 +11,7 @@ import type {
   BookmarkSummary,
   PersistedState,
   SavedContext,
+  SavedMapView,
   SavedRouteSet,
   Storage,
 } from "./types";
@@ -54,12 +55,14 @@ function normalizeState(next: PersistedState): PersistedState {
     ctx?: SavedContext;
     settings?: Partial<MachineSettings>;
     helpSeen?: boolean;
+    mapView?: SavedMapView;
   } = {};
   if (next.ctx !== undefined) state.ctx = copyContext(next.ctx);
   if (next.settings !== undefined) state.settings = { ...next.settings };
   // The key-help flag (Phase 13b): a real boolean rides along; a foreign
   // value does not, which reads back as "not seen".
   if (typeof next.helpSeen === "boolean") state.helpSeen = next.helpSeen;
+  if (next.mapView !== undefined) state.mapView = { ...next.mapView };
   return state;
 }
 

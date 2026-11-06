@@ -15,17 +15,28 @@
 // reached are not in the DOM at all (placeholders instead), a reached
 // decision's routes show their labels, S or the header button shows
 // everything without moving the tree, and the setting survives a reload.
-// Screenshots land in .tmp/branchmap-shots/fb-*.png, spoil-*.png and
-// mark-*.png.
+// Phase 33: the header is the title and exactly three buttons (Spoilers,
+// Centre, Fit) titled with their keys, on one line; the first open is a
+// Fit; a moved view reopens with the same transform after a close and
+// after a reload, a Fit reopens as a fresh Fit after a resize, a moved
+// view keeps its world centre and scale; after Reset progress the map
+// opens at Fit with the marker's ring centred on the start dot.
+// Screenshots land in .tmp/branchmap-shots/fb-*.png, spoil-*.png,
+// mark-*.png and simp-*.png.
 
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import {
   branch,
   CHOICE_OPEN,
+  CONFIG_CONTROL,
+  CONFIRM_CONTROL,
+  clickCenter,
   currentItemId,
+  HELP_CLOSED,
   HELP_OPEN,
   helpOpen,
+  openSettings,
   pressDigit,
   pressEscape,
   pressKey,
@@ -38,13 +49,15 @@ import {
 } from "./harness.mjs";
 
 export const title =
-  "branch map: open, here-marker (endings too), zoom, pan, fit fills and refits on resize, no text selection, jumps, Esc, M over Esc, spoilers";
+  "branch map: open, here-marker (endings too), zoom, pan, fit fills and refits on resize, no text selection, jumps, Esc, M over Esc, spoilers, three-button header, remembered view, marker on the start after reset";
 
 const shots = join(repoRoot, ".tmp", "branchmap-shots");
 
 const pressM = (cdp) => pressKey(cdp, "m", "KeyM", 77, "m");
 const pressF = (cdp) => pressKey(cdp, "f", "KeyF", 70, "f");
 const pressS = (cdp) => pressKey(cdp, "s", "KeyS", 83, "s");
+const pressC = (cdp) => pressKey(cdp, "c", "KeyC", 67, "c");
+const pressPlus = (cdp) => pressKey(cdp, "+", "Equal", 187, "+");
 
 const MAP_OPEN = () => {
   const p = document.getElementById("branchmap");
@@ -264,7 +277,7 @@ export default async function ({ check, open }) {
   );
 
   // No text selection: a drag from the map up over the header, a double
-  // click on the map and on the header's hint select nothing.
+  // click on the map and on the header's title select nothing.
   const sel = () => page.evaluate(() => String(window.getSelection()));
   const v0 = panned.view;
   await mouse(cdp, "mouseMoved", v0.x + 300, v0.y + 200, 0);
@@ -288,11 +301,11 @@ export default async function ({ check, open }) {
     await sleep(60);
     return sel();
   };
-  const hintBox = await page.evaluate(() => {
-    const r = document.querySelector(".map-hint").getBoundingClientRect();
+  const titleBox = await page.evaluate(() => {
+    const r = document.querySelector(".map-title").getBoundingClientRect();
     return { x: r.x + 30, y: r.y + r.height / 2 };
   });
-  const afterDblHint = await dbl(hintBox.x, hintBox.y);
+  const afterDblTitle = await dbl(titleBox.x, titleBox.y);
   const afterDblMap = await dbl(v0.x + 10, v0.y + 10);
   const userSelect = await page.evaluate(() => {
     const s = getComputedStyle(document.getElementById("branchmap"));
@@ -301,11 +314,11 @@ export default async function ({ check, open }) {
   check(
     "dragging or double-clicking on the map selects no text (user-select: none, -webkit- too)",
     afterDrag === "" &&
-      afterDblHint === "" &&
+      afterDblTitle === "" &&
       afterDblMap === "" &&
       userSelect.every((v) => v === "none") &&
       (await page.evaluate(MAP_OPEN)),
-    { afterDrag, afterDblHint, afterDblMap, userSelect },
+    { afterDrag, afterDblTitle, afterDblMap, userSelect },
   );
 
   // Fit: every node inside the view.
@@ -506,6 +519,8 @@ export default async function ({ check, open }) {
   await endings({ check, open });
   await spoilers({ check, open });
   await markerInView({ check, open });
+  await header({ check, open });
+  await memory({ check, open });
 }
 
 // The demo read through with play-all (everything seen): at the story's
@@ -793,5 +808,258 @@ async function markerInView({ check, open }) {
     "at the story's end, on opening and after F, the marker's ring and label lie inside the map view (800x600, 1920x1080)",
     reached && end.every((s) => s.ok),
     { reached, end },
+  );
+}
+
+// The header (Phase 33): the title and exactly three buttons, each titled
+// with its key, on one line; no hint or legend text; the map gets the rest.
+const READ_HEAD = () => {
+  const panel = document.getElementById("branchmap");
+  const head = panel?.querySelector(".map-head");
+  const rect = (el) => {
+    const r = el.getBoundingClientRect();
+    return { x: r.x, y: r.y, w: r.width, h: r.height };
+  };
+  return {
+    buttons: Array.from(head?.querySelectorAll("button") ?? []).map((b) => ({
+      act: b.getAttribute("data-act"),
+      text: b.textContent,
+      title: b.title,
+      box: rect(b),
+    })),
+    title: head?.querySelector(".map-title")?.textContent ?? null,
+    titleBox: rect(head.querySelector(".map-title")),
+    texts: Array.from(head?.children ?? []).map((el) => el.className),
+    head: rect(head),
+    viewH: panel.querySelector(".map-view").getBoundingClientRect().height,
+    win: { w: innerWidth, h: innerHeight },
+  };
+};
+
+async function header({ check, open }) {
+  const { page, cdp } = await open("header", { closeHelp: true });
+  for (const [width, height] of [
+    [800, 600],
+    [1920, 1080],
+  ]) {
+    await page.setViewport({ width, height });
+    await sleep(150);
+    await openMap(page, cdp);
+    const h = await page.evaluate(READ_HEAD);
+    await page.screenshot({
+      path: join(shots, `simp-header-${width}x${height}.png`),
+      clip: { x: 0, y: 0, width, height: Math.min(height, h.head.h + 160) },
+    });
+    const mid = (b) => b.y + b.h / 2;
+    const want = [
+      ["spoil", "Spoilers: Off", "shortcut: S"],
+      ["here", "Centre", "shortcut: C"],
+      ["fit", "Fit", "shortcut: F"],
+    ];
+    check(
+      `at ${width}x${height} the header is the title and exactly three buttons (Spoilers, Centre, Fit) titled with their keys, on one line, no hint or legend`,
+      h.title === "Branch map" &&
+        h.buttons.length === 3 &&
+        want.every(
+          ([act, text, title], i) =>
+            h.buttons[i].act === act &&
+            h.buttons[i].text === text &&
+            h.buttons[i].title === title,
+        ) &&
+        h.texts.length === 2 &&
+        h.buttons.every(
+          (b) =>
+            Math.abs(mid(b.box) - mid(h.titleBox)) < 4 &&
+            b.box.x + b.box.w <= h.win.w,
+        ) &&
+        h.head.h < 72 &&
+        h.viewH >= h.win.h - 72,
+      h,
+    );
+    await pressM(cdp);
+    await page.waitForFunction(MAP_CLOSED, { timeout: 3000 });
+  }
+}
+
+// The map's transform, the marker ring's centre and the start dot's centre
+// on screen (the start dot is the 6-unit circle in the drawn layer's dots).
+const READ_VIEW = () => {
+  const panel = document.getElementById("branchmap");
+  const svg = panel.querySelector(".map-svg");
+  const vr = panel.querySelector(".map-view").getBoundingClientRect();
+  const t = (
+    panel.querySelector(".map-world").getAttribute("transform") ?? ""
+  ).match(/translate\(([-\d.e]+) ([-\d.e]+)\) scale\(([-\d.e]+)\)/);
+  const tx = Number(t[1]);
+  const ty = Number(t[2]);
+  const sc = Number(t[3]);
+  const layer = svg.classList.contains("map-far")
+    ? ".map-skeleton"
+    : ".map-detail";
+  const d = panel.querySelector(`${layer} .map-dot`)?.getAttribute("d") ?? "";
+  const m = d.match(/M([-\d.e]+) ([-\d.e]+)a6 6/);
+  const ring = panel.querySelector(".map-here-ring").getBoundingClientRect();
+  const viewEl = panel.querySelector(".map-view");
+  return {
+    tx,
+    ty,
+    sc,
+    // The map measures its view in whole pixels (clientWidth/Height).
+    view: { w: viewEl.clientWidth, h: viewEl.clientHeight },
+    ring: { x: ring.x + ring.width / 2, y: ring.y + ring.height / 2 },
+    start: m
+      ? {
+          x: vr.x + tx + (Number(m[1]) + 6) * sc,
+          y: vr.y + ty + Number(m[2]) * sc,
+        }
+      : null,
+  };
+};
+
+const sameView = (a, b) =>
+  Math.abs(a.tx - b.tx) < 0.01 &&
+  Math.abs(a.ty - b.ty) < 0.01 &&
+  Math.abs(a.sc - b.sc) < 1e-6;
+const ringOnStart = (v) =>
+  v.start !== null &&
+  Math.hypot(v.ring.x - v.start.x, v.ring.y - v.start.y) <= 2;
+
+// The remembered view (Phase 33) and the marker after Reset progress.
+async function memory({ check, open }) {
+  const { page, cdp } = await open("memory", { closeHelp: true });
+  await page.setViewport({ width: 1280, height: 720 });
+  await sleep(150);
+  const readView = () => page.evaluate(READ_VIEW);
+  const reopen = async () => {
+    await pressM(cdp);
+    await page.waitForFunction(MAP_CLOSED, { timeout: 3000 });
+    await sleep(100);
+    await openMap(page, cdp);
+    return readView();
+  };
+
+  // First open: a Fit (F changes nothing).
+  await openMap(page, cdp);
+  const first = await readView();
+  await pressF(cdp);
+  await sleep(80);
+  const fitNow = await readView();
+  check(
+    "the first open is a Fit: pressing F then changes nothing",
+    sameView(first, fitNow),
+    { first, fitNow },
+  );
+
+  // Zoom and pan, close, reopen: the same transform.
+  await pressPlus(cdp);
+  await pressPlus(cdp);
+  await sleep(60);
+  const at = { x: 400, y: 400 };
+  await mouse(cdp, "mouseMoved", at.x, at.y, 0);
+  await mouse(cdp, "mousePressed", at.x, at.y, 1);
+  for (let i = 1; i <= 4; i += 1)
+    await mouse(cdp, "mouseMoved", at.x - 40 * i, at.y + 15 * i, 1);
+  await mouse(cdp, "mouseReleased", at.x - 160, at.y + 60, 0);
+  await sleep(80);
+  const moved = await readView();
+  const reopened = await reopen();
+  check(
+    "a zoomed and panned view reopens with the same transform after a close",
+    !sameView(moved, first) && sameView(moved, reopened),
+    { moved, reopened },
+  );
+
+  // Close, reload, reopen: the same transform.
+  await pressM(cdp);
+  await page.waitForFunction(MAP_CLOSED, { timeout: 3000 });
+  await sleep(300);
+  await page.reload();
+  await page.waitForFunction(() => document.getElementById("branchmap"), {
+    timeout: 5000,
+  });
+  await sleep(500);
+  await openMap(page, cdp);
+  const reloaded = await readView();
+  await page.screenshot({ path: join(shots, "simp-remembered.png") });
+  check(
+    "after a reload the map reopens with the same transform",
+    sameView(moved, reloaded),
+    { moved, reloaded },
+  );
+
+  // A moved view after a resize: the same world centre and scale.
+  await pressM(cdp);
+  await page.waitForFunction(MAP_CLOSED, { timeout: 3000 });
+  await page.setViewport({ width: 1600, height: 900 });
+  await sleep(200);
+  await openMap(page, cdp);
+  const resized = await readView();
+  const centreOf = (v) => ({
+    x: (v.view.w / 2 - v.tx) / v.sc,
+    y: (v.view.h / 2 - v.ty) / v.sc,
+  });
+  check(
+    "a moved view reopened at another window size keeps its world centre and scale",
+    Math.abs(resized.sc - moved.sc) < 1e-6 &&
+      Math.abs(centreOf(resized).x - centreOf(moved).x) < 0.05 &&
+      Math.abs(centreOf(resized).y - centreOf(moved).y) < 0.05,
+    { moved: centreOf(moved), resized: centreOf(resized) },
+  );
+
+  // F, close, resize, reopen: a fresh Fit for the new size.
+  await pressF(cdp);
+  await sleep(80);
+  const fit1600 = await readView();
+  await pressM(cdp);
+  await page.waitForFunction(MAP_CLOSED, { timeout: 3000 });
+  await page.setViewport({ width: 900, height: 700 });
+  await sleep(200);
+  await openMap(page, cdp);
+  const refit = await readView();
+  await pressF(cdp);
+  await sleep(80);
+  const fit900 = await readView();
+  check(
+    "after F, a reopen at another window size is a fresh Fit for that size",
+    sameView(refit, fit900) && !sameView(refit, fit1600),
+    { fit1600, refit, fit900 },
+  );
+
+  // A moved view, read on, then Reset progress: the map opens at Fit
+  // with the ring on the start dot, at Fit and zoomed in on it.
+  await pressPlus(cdp);
+  await pressPlus(cdp);
+  await sleep(60);
+  await pressM(cdp);
+  await page.waitForFunction(MAP_CLOSED, { timeout: 3000 });
+  for (let i = 0; i < 5; i += 1) {
+    await pressSpace(cdp);
+    await sleep(120);
+  }
+  await openSettings(page, cdp);
+  await clickCenter(cdp, CONFIG_CONTROL.reset);
+  await clickCenter(cdp, CONFIRM_CONTROL.confirm);
+  await page.waitForFunction(HELP_OPEN, { timeout: 8000 });
+  await pressEscape(cdp);
+  await page.waitForFunction(HELP_CLOSED, { timeout: 5000 });
+  await page.setViewport({ width: 1920, height: 1080 });
+  await sleep(200);
+  await openMap(page, cdp);
+  const afterReset = await readView();
+  await page.screenshot({ path: join(shots, "simp-reset-start.png") });
+  await pressF(cdp);
+  await sleep(80);
+  const resetFit = await readView();
+  await pressC(cdp);
+  for (let i = 0; i < 6; i += 1) await pressPlus(cdp);
+  await sleep(80);
+  const resetZoomed = await readView();
+  check(
+    "after Reset progress the map opens at Fit, the marker's ring centred within 2 px of the start dot (at Fit and zoomed in to 3x)",
+    sameView(afterReset, resetFit) &&
+      ringOnStart(afterReset) &&
+      ringOnStart(resetZoomed) &&
+      resetZoomed.sc > 2.9,
+    { afterReset, resetZoomed },
   );
 }

@@ -4,7 +4,7 @@
 //
 // Schema — one database for the whole app, `kinetic` (version 1):
 //   - store `state`: no keyPath; one record per novel, stored under the
-//     novel's storage key (below), value `{ ctx?, settings?, helpSeen? }`
+//     novel's storage key (below), value `{ ctx?, settings?, helpSeen?, mapView? }`
 //     (`ctx` is the id-keyed route-play context, `SavedContext`;
 //     `settings` is the partial the Esc screen's settings changed; absent or
 //     malformed fields simply fall back at load — a malformed or
@@ -65,10 +65,11 @@ import type {
   PersistedState,
   SavedContext,
   SavedFrame,
+  SavedMapView,
   SavedRouteSet,
   Storage,
 } from "./types";
-import { summarizeBookmark } from "./types";
+import { sanitizeMapView, summarizeBookmark } from "./types";
 
 export const DB_NAME = "kinetic";
 const DB_VERSION = 1;
@@ -300,6 +301,7 @@ export function sanitizeState(raw: unknown): PersistedState | null {
     ctx?: SavedContext;
     settings?: Partial<MachineSettings>;
     helpSeen?: boolean;
+    mapView?: SavedMapView;
   } = {};
   // An index-based ctx (written before saves were keyed by id) reads
   // as absent: that progress is a first boot (storage/types.ts).
@@ -311,6 +313,9 @@ export function sanitizeState(raw: unknown): PersistedState | null {
   // value reads as absent — which means "not seen" and shows the help
   // once (helpSeenFrom, storage/types.ts).
   if (typeof source.helpSeen === "boolean") state.helpSeen = source.helpSeen;
+  // The branch map's view (Phase 33): a malformed one reads as Fit.
+  const mapView = sanitizeMapView(source.mapView);
+  if (mapView !== undefined) state.mapView = mapView;
   return state;
 }
 
@@ -321,6 +326,7 @@ function stateValue(state: PersistedState): Record<string, unknown> {
   if (state.ctx !== undefined) record.ctx = state.ctx;
   if (state.settings !== undefined) record.settings = { ...state.settings };
   if (state.helpSeen !== undefined) record.helpSeen = state.helpSeen;
+  if (state.mapView !== undefined) record.mapView = { ...state.mapView };
   return record;
 }
 

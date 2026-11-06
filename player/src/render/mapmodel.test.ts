@@ -16,16 +16,18 @@ import {
   jumpFor,
   LABEL_MIN_SCALE,
   labelMinScale,
+  layoutSignature,
   MAP_GEOMETRY,
   MAX_SCALE,
   type MapModel,
   type MapReader,
   markMap,
-  openingView,
-  readableScale,
+  restoreView,
   runAt,
   runJump,
+  type SavedMapView,
   SMALL_LABEL_MIN_SCALE,
+  saveView,
   truncateLabel,
   viewAfterResize,
   visibleWorld,
@@ -437,9 +439,11 @@ describe("buildMapModel: rows like lines of text, endings tucked in", () => {
     expect(run?.x1).toBe(deep.x);
     expect(marks.here.x).toBeGreaterThan(run?.x0 ?? 0);
     expect(marks.here.x).toBeLessThan(deep.x);
-    expect(openingView(model, marks, 1920, 960)).toEqual(
-      centreOn(marks.here.x, marks.here.y, 1920, 960, readableScale(1920, 960)),
-    );
+    // With nothing remembered the map opens at Fit, not centred on it.
+    expect(restoreView(model, null, 1920, 960, marks.here)).toEqual({
+      view: fitView(model, 1920, 960, marks.here),
+      fit: true,
+    });
     for (const node of model.decisions.slice(0, 50))
       expect(hitTest(model, node.x + 5, node.y)).toEqual({
         kind: "decision",
@@ -468,10 +472,48 @@ describe("markMap: the reader's marks", () => {
     expect(marks.reached).toEqual([false, false]);
     expect(new Set(marks.routes)).toEqual(new Set(["unseen"]));
     expect(marks.runs[0]).toBe("partly"); // lead seen, decide not
-    expect(marks.here.y).toBe(model.runs[0].y);
-    expect(marks.here.x).toBeLessThan(
-      (model.runs[0].x0 + model.runs[0].x1) / 2,
+    // Exactly on the start dot, not a fraction of the first stretch in.
+    expect(marks.here).toEqual({ ...model.start, decision: -1 });
+  });
+
+  it("after a reset (a fresh boot on the first screen) here is the start dot exactly", () => {
+    const model = demoModel();
+    const played = demoMachine();
+    played.advance();
+    played.advance();
+    played.choose(1);
+    expect(markMap(model, readerOf(played)).here).not.toEqual({
+      ...model.start,
+      decision: -1,
+    });
+    // "Reset progress" deletes the record and reloads: a new machine.
+    const marks = markMap(model, readerOf(demoMachine()));
+    expect(marks.here).toEqual({ ...model.start, decision: -1 });
+    // Nothing seen at all (the cursor before any write) reads the same.
+    expect(
+      markMap(model, { visited: [], playedRoutes: [], cursor: 0 }).here,
+    ).toEqual({ ...model.start, decision: -1 });
+    // A one-screen first stretch: still the dot, not that screen's middle.
+    const short = buildMapModel(
+      [image("a"), image("b"), image("c")],
+      [
+        {
+          id: "d",
+          after: "a",
+          prompt: "Pick",
+          routes: [
+            { id: "r1", label: "One", start: "b", end: "b" },
+            { id: "r2", label: "Two", start: "c", end: "c" },
+          ],
+        } as Branch,
+      ],
     );
+    expect(short.runs[0]).toEqual(
+      expect.objectContaining({ start: 0, end: 0 }),
+    );
+    expect(
+      markMap(short, { visited: [0], playedRoutes: [], cursor: 0 }).here,
+    ).toEqual({ ...short.start, decision: -1 });
   });
 
   it("marks reached decisions, played / partly / unseen routes and the last pick", () => {
@@ -866,7 +908,7 @@ describe("view arithmetic", () => {
     expect(fitView(tiny, 3840, 1980).scale).toBe(MAX_SCALE);
   });
 
-  it("fit and the opening view keep the marker's ring and label inside the view", () => {
+  it("fit keeps the marker's ring and label inside the view", () => {
     // The marker is drawn in screen space at a fixed size: its ring and its
     // "you are here" label reach HERE_REACH pixels from its point.
     const inside = (
@@ -905,13 +947,6 @@ describe("view arithmetic", () => {
           const at = `${name} ${where} ${vw}x${vh}`;
           const fit = fitView(model, vw, vh, marks.here);
           inside(fit, marks.here, vw, vh, `fit ${at}`);
-          inside(
-            openingView(model, marks, vw, vh),
-            marks.here,
-            vw,
-            vh,
-            `open ${at}`,
-          );
           // The tree is still whole, and Fit still fills the view.
           const seen = visibleWorld(fit, vw, vh);
           expect(seen.x0).toBeLessThanOrEqual(model.bounds.x0);
@@ -943,20 +978,132 @@ describe("view arithmetic", () => {
     expect((1280 - next.x) / next.scale).toBeCloseTo((640 - view.x) / 0.8);
     expect((650 - next.y) / next.scale).toBeCloseTo((315 - view.y) / 0.8);
   });
+});
 
-  it("opens centred on 'you are here' at a readable scale", () => {
-    const { items, branches } = synthetic(10, 3, 20);
-    const model = buildMapModel(items, branches);
-    const marks = markMap(model, {
-      visited: [0, 1, 2],
-      playedRoutes: [],
-      cursor: 2,
-    });
-    const view = openingView(model, marks, 800, 600);
-    expect(view.scale).toBeGreaterThanOrEqual(0.7);
-    expect(view).toEqual(
-      centreOn(marks.here.x, marks.here.y, 800, 600, view.scale),
+describe("the remembered view (Phase 33)", () => {
+  const { items, branches } = synthetic(10, 3, 20);
+  const model = buildMapModel(items, branches);
+  const marks = markMap(model, {
+    visited: [0, 1, 2],
+    playedRoutes: [],
+    cursor: 2,
+  });
+  const layout = layoutSignature(model);
+  const world = (
+    view: { x: number; y: number; scale: number },
+    vw: number,
+    vh: number,
+  ) => ({
+    x: (vw / 2 - view.x) / view.scale,
+    y: (vh / 2 - view.y) / view.scale,
+  });
+
+  it("opens at Fit the first time (nothing remembered), not centred on here", () => {
+    for (const saved of [null, undefined]) {
+      const opened = restoreView(model, saved, 800, 600, marks.here);
+      expect(opened.fit).toBe(true);
+      expect(opened.view).toEqual(fitView(model, 800, 600, marks.here));
+      expect(opened.view).not.toEqual(
+        centreOn(marks.here.x, marks.here.y, 800, 600, opened.view.scale),
+      );
+    }
+  });
+
+  it("reopens a moved view exactly where it was, same window", () => {
+    const view = { x: -812.25, y: 133.5, scale: 1.37 };
+    const saved = saveView(layout, view, 1280, 640, false);
+    const opened = restoreView(model, saved, 1280, 640, marks.here);
+    expect(opened.fit).toBe(false);
+    expect(opened.view.scale).toBe(1.37);
+    expect(opened.view.x).toBeCloseTo(view.x, 9);
+    expect(opened.view.y).toBeCloseTo(view.y, 9);
+  });
+
+  it("survives a JSON round trip (the stored record) unchanged", () => {
+    const saved = saveView(
+      layout,
+      { x: 10, y: -3, scale: 0.9 },
+      900,
+      700,
+      false,
     );
+    const back = JSON.parse(JSON.stringify(saved)) as SavedMapView;
+    expect(restoreView(model, back, 900, 700)).toEqual(
+      restoreView(model, saved, 900, 700),
+    );
+  });
+
+  it("a remembered Fit reopens as a fresh Fit for the window now", () => {
+    const fit = fitView(model, 800, 600, marks.here);
+    const saved = saveView(layout, fit, 800, 600, true);
+    const opened = restoreView(model, saved, 1920, 1080, marks.here);
+    expect(opened).toEqual({
+      view: fitView(model, 1920, 1080, marks.here),
+      fit: true,
+    });
+  });
+
+  it("after a resize keeps the world centre and scale, the scale clamped to the zoom limits", () => {
+    const view = { x: -400, y: 50, scale: 1.2 };
+    const saved = saveView(layout, view, 1280, 640, false);
+    const opened = restoreView(model, saved, 1920, 1080, marks.here);
+    expect(opened.fit).toBe(false);
+    expect(opened.view.scale).toBe(1.2);
+    const before = world(view, 1280, 640);
+    const after = world(opened.view, 1920, 1080);
+    expect(after.x).toBeCloseTo(before.x, 9);
+    expect(after.y).toBeCloseTo(before.y, 9);
+    // Out of range either way: clamped, centre kept.
+    const limits = zoomLimits(model, 600, 400, marks.here);
+    const huge = restoreView(
+      model,
+      { ...saved, scale: 50 },
+      600,
+      400,
+      marks.here,
+    );
+    expect(huge.view.scale).toBe(limits.max);
+    const tiny = restoreView(
+      model,
+      { ...saved, scale: 1e-4 },
+      600,
+      400,
+      marks.here,
+    );
+    expect(tiny.view.scale).toBe(limits.min);
+    expect(world(tiny.view, 600, 400).x).toBeCloseTo(saved.cx, 9);
+    expect(world(huge.view, 600, 400).y).toBeCloseTo(saved.cy, 9);
+  });
+
+  it("a view taken on another layout (another game version, rows rewrapped) falls back to Fit", () => {
+    const saved = saveView(
+      layout,
+      { x: -400, y: 50, scale: 1.2 },
+      1280,
+      640,
+      false,
+    );
+    const other = synthetic(11, 3, 20);
+    const changed = buildMapModel(other.items, other.branches);
+    expect(layoutSignature(changed)).not.toBe(layout);
+    expect(restoreView(changed, saved, 1280, 640)).toEqual({
+      view: fitView(changed, 1280, 640),
+      fit: true,
+    });
+    const rewrapped = buildMapModel(items, branches, 0.5);
+    expect(rewrapped.rows).not.toBe(model.rows);
+    expect(layoutSignature(rewrapped)).not.toBe(layout);
+    expect(restoreView(rewrapped, saved, 1280, 640).fit).toBe(true);
+    // The same manifest laid out again gives the same signature.
+    expect(layoutSignature(buildMapModel(items, branches))).toBe(layout);
+  });
+
+  it("a reset (no remembered view: the record is gone) opens at Fit", () => {
+    // Reset deletes the state record (storage tests); with it the view.
+    expect(restoreView(model, undefined, 1024, 700, marks.here)).toEqual({
+      view: fitView(model, 1024, 700, marks.here),
+      fit: true,
+    });
   });
 });
 

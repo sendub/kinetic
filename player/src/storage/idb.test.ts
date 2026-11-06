@@ -404,6 +404,27 @@ describe("IndexedDB adapter — carry-over from the folder URL (Phase 21)", () =
   });
 });
 
+describe("IndexedDB adapter — the branch map's view (Phase 33)", () => {
+  const view = { layout: "12:abc", fit: false, cx: 410.5, cy: 96, scale: 1.7 };
+
+  it("survives a reload in the state record, beside the progress", async () => {
+    installFakeIndexedDb();
+    const before = await open(STORY);
+    await before.saveState({ ctx: context("x-3"), mapView: view });
+    const after = await open(STORY);
+    expect((await after.loadState())?.mapView).toEqual(view);
+  });
+
+  it("a reset deletes it with the record: the next load has none (Fit)", async () => {
+    installFakeIndexedDb();
+    const story = await open(STORY);
+    await story.saveState({ ctx: context("x-3"), mapView: view });
+    await story.deleteState();
+    const after = await open(STORY);
+    expect((await after.loadState())?.mapView).toBeUndefined();
+  });
+});
+
 describe("IndexedDB adapter — replaceProgress (Import progress, Phase 21)", () => {
   it("replaces this story's state and bookmarks, leaving other stories alone", async () => {
     installFakeIndexedDb();

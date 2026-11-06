@@ -1656,3 +1656,27 @@ truthful: an unchecked box means nothing was accepted.
       After the fix: 12 scenarios, 266 checks: 264 pass, 2 PARTIAL
       (headless fullscreen Escapes), 0 FAIL. One intermediate run
       printed no results and was rerun with its log kept.)
+
+## Phase 33: Branch map simplification (2026-11-06, user)
+
+- [x] Branch map: (1) after a progress reset, "you are here" is not
+      aligned over the start symbol; (2) the view defaults to Fit and
+      remembers the last view (zoom and position) between openings and
+      across reloads; (3) remove the hint and legend lines; each
+      button's hover help names its key ("shortcut: F"); (4) remove the
+      -, + and Close buttons (keys stay); (5) rename "You are here" to
+      "Centre".
+      ((1) `hereOf` put screen 1 at its slot along the first stretch,
+      not on the start dot (1.8 px off at the opening scale, worse
+      zoomed in or with a short first stretch); now cursor 0 is the
+      start dot. (2) `mapView {layout, fit, cx, cy, scale}` in the
+      story's state record, written on close and pagehide; `restoreView`:
+      none or fit -> fresh Fit, else same centre/scale clamped, a new
+      layout signature -> Fit; reset deletes it. (3-5) header is the
+      title plus Spoilers / Centre / Fit with "shortcut: S/C/F" titles.
+      Orchestrator: vitest 695, check 0 warnings, smoke 6/6, branchmap
+      42/42, screens 67 pass 2 partial (fullscreen Esc); screenshots:
+      three-button header at 800x600, marker on the start dot after
+      reset.)
+- [ ] Phase-closer (Phase 33): full scenario suite, package-proof
+      (rebuilds the demo); pytest not needed, converter untouched.

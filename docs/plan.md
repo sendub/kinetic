@@ -1135,6 +1135,7 @@ there"), built now, zoomable and pannable.
   seen (entered, or any screen seen) or played (completed, or entered
   with its last screen seen); the last pick at each decision outlined
   (the route the wheel follows, Phase 27); a "you are here" marker on the
+  start dot on the story's first screen (Phase 33), on the
   stretch holding the screen shown, on an ending's (or the story's)
   end square when the screen shown is that line's last, or before the
   decision whose choice screen is up. Labels truncate; the full text and status show on hover
@@ -1175,9 +1176,9 @@ there"), built now, zoomable and pannable.
   and wheel are inert.
 - Zoom and pan: the wheel and a trackpad pinch zoom around the pointer
   (ctrl+wheel, and Safari's gesture events); a drag pans; the arrow keys
-  pan and +/- zoom; F or 0 fits the whole tree; C (and a button)
-  recentres on "you are here". It opens centred on the reader at a
-  readable scale (a small tree that fits at that scale opens whole).
+  pan and +/- zoom; F or 0 fits the whole tree; C (and the Centre
+  button) recentres on "you are here". It opens at Fit the first time
+  and then where it was left (Phase 33).
   Fit fills the view less a 32 px margin, capped only by the zoom-in
   limit, and a fitted view refits when the window resizes (fullscreen
   included). Dragging never selects text. While open the map owns the
@@ -1202,7 +1203,8 @@ there"), built now, zoomable and pannable.
   with `npm run perf:map` (docs/perf.md, "Branch map").
 - Spoilers (2026-11-06, user): a header switch, "Spoilers: Off" /
   "Spoilers: On" (aria-pressed, styled like the Esc screen's On/Off
-  toggles), and the map-only key S (named in the hint). Off by default.
+  toggles), and the map-only key S (named in the button's hover title,
+  Phase 33). Off by default.
   While off, the question of every decision not reached and the labels of
   all its routes (nested decisions under it are not reached either, so
   theirs too) are replaced by "Decision not reached" and "Unseen route"
@@ -1218,6 +1220,41 @@ there"), built now, zoomable and pannable.
   with the other settings and rides in exported progress. The rule is
   `MapMarks.hidden` (mapmodel.ts `markMap`, from `MapReader.spoilers`);
   `promptText` / `routeText` give the text the map may show.
+
+## Phase 33: Branch map simplification (2026-11-06, user)
+
+- Marker on the start: on the story's first screen (a first load, and
+  the boot after "Reset progress", which deletes the record and reloads)
+  the "you are here" point is the start dot itself (mapmodel.ts
+  `hereOf`). Before, it was the first screen's place along the first
+  stretch, `x0 + width * 0.5 / n`, half a stretch right of the dot when
+  the first stretch is one screen (2.6 world units, about 2 to 8 px, in
+  the demo's 23-screen stretch).
+- Default view and memory: the first open, and any open with nothing
+  remembered, is a Fit. After that the map reopens at the view it was
+  left at, across closes and reloads. Stored in the story's state record
+  as `PersistedState.mapView` (storage/types.ts `SavedMapView`: the
+  layout signature, whether it was a Fit, the world point at the view's
+  centre and the scale), beside the context and settings, so it rides in
+  every state write; the map reports each painted view to the shell, and
+  a close issues the write. Restore rules (mapmodel.ts `restoreView`):
+  - a remembered Fit (F, the button, or the opening Fit untouched) opens
+    as a fresh Fit for the window now;
+  - otherwise the same world centre and scale, the scale clamped to the
+    zoom limits for the window now, so the same window gives the same
+    transform and another size shows the same place at the same zoom;
+  - a view taken on another layout (`layoutSignature`, a hash of every
+    stretch, box and pill position: another game version, or the rows
+    wrapped differently for a very different window shape) opens at Fit;
+  - "Reset progress" deletes the record, so the next open is a Fit.
+  The marker still shows wherever it is; only C centres on it.
+- Header: the title and three buttons, Spoilers (Off/On), Centre (was
+  "You are here") and Fit, on one line. The hint and legend lines and
+  the -, + and Close buttons are gone; the keys stay (+/- zoom, Esc or
+  M close, the wheel and pinch zoom). Each button's hover title names its
+  key: "shortcut: S", "shortcut: C", "shortcut: F" (0 also fits). The
+  node tooltips (full text and status) stay. The map gets the freed
+  height.
 
 ## Later, waiting on the user
 

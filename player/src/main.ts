@@ -82,6 +82,7 @@ import type {
   Bookmark,
   BookmarkSummary,
   PersistedState,
+  SavedMapView,
 } from "./storage/types";
 import { helpSeenFrom } from "./storage/types";
 
@@ -199,6 +200,11 @@ function start(): void {
       // so existing readers meet the help exactly once more, then never
       // again. It rides along in every save below, so a close is durable.
       let helpSeen = helpSeenFrom(persisted);
+      // The branch map's last view (docs/plan.md Phase 33): absent on a
+      // first load and after a reset (the record is deleted), which opens
+      // the map at Fit. The map updates it as it moves; it rides in every
+      // state write, and the map's close issues one.
+      let mapView: SavedMapView | undefined = persisted?.mapView;
       // The machine starts MANUAL (README advance bullet, docs/plan.md
       // Phase 13b): only the reader's presses move it until `a` turns
       // auto-forward on. The machine's own default is manual — not
@@ -231,6 +237,7 @@ function start(): void {
         ctx: codec.toSaved(machine.exportContext()),
         settings: currentSettings,
         helpSeen,
+        ...(mapView === undefined ? {} : { mapView }),
       });
       const writeState = createImmediateWriter((state: PersistedState) =>
         storage.saveState(state),
@@ -609,7 +616,15 @@ function start(): void {
         // entered, a bookmark) goes when it opens, and none shows while it
         // is up. A jump closes the map first, so its route pill shows on
         // the story.
-        onOpenChange: (open) => shell.setPillsCovered(open),
+        // A close persists the view the map was left at (Phase 33).
+        onOpenChange: (open) => {
+          shell.setPillsCovered(open);
+          if (!open) persistQuietly();
+        },
+        view: () => mapView,
+        onViewChange: (view) => {
+          mapView = view;
+        },
         // Spoilers (Phase 31): a reader setting like the Esc screen's, so it
         // persists in the same record and travels with exported progress.
         spoilers: () => currentSettings.mapSpoilers,
