@@ -14,7 +14,11 @@
 // The route pill never covers a choice screen (docs/progress.md): route 13
 // is one item long, so the decision re-opens while its "Route: …" pill
 // still shows; the pill goes as the choice opens. Its screenshot lands in
-// .tmp/flash-choice/.
+// .tmp/flash-choice/. The pill's first message is queued on a 0 ms timer
+// and holds only until the next key, so a sampled read can land before it
+// shows (and a Space sent then re-opens the choice, which rightly drops it
+// unshown): a page-side recorder (PILL_RECORDER) logs every pill and choice
+// change instead, and the check waits for the pill before the Space.
 
 import { cpSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -178,6 +182,40 @@ const panelFits = (l) =>
   l.hint.bottom <= l.list.top;
 
 const layout = (page) => page.evaluate(READ_LAYOUT);
+
+// Page-side log of the #flash pill and the choice panel: each mutation
+// batch (run before the next paint) records what changed, with
+// performance.now(), and flags a batch that ends with the choice open and
+// a pill still on it. `window.__pillLog` is read back by the check.
+const PILL_RECORDER = () => {
+  const log = { events: [], covered: [] };
+  window.__pillLog = log;
+  const now = () => Math.round(performance.now());
+  const pill = () => {
+    const el = document.getElementById("flash");
+    return el === null || el.style.opacity === "0" ? null : el;
+  };
+  const choiceOpen = () => document.getElementById("choice")?.hidden === false;
+  let wasPill = pill() !== null;
+  let wasOpen = choiceOpen();
+  new MutationObserver(() => {
+    const isPill = pill() !== null;
+    const isOpen = choiceOpen();
+    if (isPill !== wasPill)
+      log.events.push([now(), isPill ? "pill" : "no-pill"]);
+    if (isOpen !== wasOpen)
+      log.events.push([now(), isOpen ? "open" : "closed"]);
+    if (isPill && isOpen) log.covered.push(now());
+    wasPill = isPill;
+    wasOpen = isOpen;
+  }).observe(document.body, {
+    subtree: true,
+    childList: true,
+    attributes: true,
+    attributeFilter: ["style", "hidden"],
+  });
+};
+const PILL_SHOWN = () => document.getElementById("flash") !== null;
 const pressDown = (cdp) => pressKey(cdp, "ArrowDown", "ArrowDown", 40, "");
 
 const wheelAt = async (cdp, x, y, up) => {
@@ -258,8 +296,12 @@ export default async function ({ check, open }) {
       { scrollTop: l.scrollTop, text: l.text, open: l.open },
     );
     const row13 = l.rows.find((r) => r.idx === String(last));
+    await page.evaluate(PILL_RECORDER);
     await clickCenter(cdp, row13.rect);
     const clicked = await waitFor(page, ON_TEXT, routeText(ROUTES));
+    // The route pill is queued as the route starts: wait for it (it holds
+    // for ROUTE_PILL_MS) so the Space below lands while it shows.
+    const pillShown = await waitFor(page, PILL_SHOWN);
     const afterClick = await layout(page);
     check(
       "a click on the 13th row picks route 13",
@@ -274,17 +316,25 @@ export default async function ({ check, open }) {
     const reopened = await waitFor(page, CHOICE_OPEN);
     await sleep(150);
     const r0 = await layout(page);
+    const pillLog = await page.evaluate(() => window.__pillLog);
     await page.screenshot({ path: join(flashShots, "reopen-800x600.png") });
+    const seq = pillLog.events.map(([, e]) => e).join(",");
     check(
       "the route pill showing as a short route re-opens the decision goes with it: nothing covers the title, hint or rows",
-      afterClick.flash !== null &&
+      pillShown &&
+        afterClick.flash !== null &&
         reopened &&
+        // shown after the pick closed the choice, gone by its re-open
+        seq === "closed,pill,no-pill,open" &&
+        pillLog.covered.length === 0 &&
         r0.flash === null &&
         pillCovers(r0).length === 0,
       {
+        pillShown,
         pillBefore: afterClick.flash,
         pillAfter: r0.flash,
         covers: pillCovers(r0),
+        pillLog,
       },
     );
     for (let i = 0; i < ROUTES; i += 1) await pressDown(cdp);

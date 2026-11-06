@@ -1633,5 +1633,21 @@ truthful: an unchecked box means nothing was accepted.
       pass the marker too. Orchestrator: vitest 683, check 0 warnings,
       smoke 6/6, branchmap 32/32; screenshot: label fully in view at
       800x600 start.)
+- [x] Choicelist flake: "the route pill showing as a short route
+      re-opens the decision goes with it" failed in the Phase 32 closer
+      run and 1 of 3 reruns, with {"pillBefore":null,"pillAfter":null,
+      "covers":[]}: the pill was never sampled showing. Find whether the
+      check misses the pill's window or the player (e.g. the new pill
+      gate `coverChanged` / `setPillsCovered`) stopped showing it; fix
+      the cause.
+      (Check, not player: the first pill shows on a 0 ms timer; the
+      check read once a few ms after the click and pressed Space at
+      once, so it sampled before the timer or its Space re-opened the
+      one-item route's decision first, which rightly cancels the queued
+      pill; 7 of 18 traced runs. 82bbd87 not involved. The check now
+      records pill/choice transitions page-side, waits for the pill
+      before Space, and requires closed,pill,no-pill,open with no
+      covered frame. Fault injection (gate off; route pill never shown)
+      fails it. Orchestrator: choicelist 3/3, vitest 683, check clean.)
 - [ ] Phase-closer (Phase 32): full scenario suite, package-proof
       (rebuilds the demo); pytest not needed, converter untouched.
