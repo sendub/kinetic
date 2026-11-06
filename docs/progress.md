@@ -1678,5 +1678,8 @@ truthful: an unchecked box means nothing was accepted.
       42/42, screens 67 pass 2 partial (fullscreen Esc); screenshots:
       three-button header at 800x600, marker on the start dot after
       reset.)
-- [ ] Phase-closer (Phase 33): full scenario suite, package-proof
+- [x] Phase-closer (Phase 33): full scenario suite, package-proof
       (rebuilds the demo); pytest not needed, converter untouched.
+      (2026-11-06: 12 scenarios, 276 checks: 274 pass, 2 PARTIAL
+      (headless fullscreen Escapes), 0 FAIL; package-proof 18/18, demo
+      rebuilt.)
