@@ -61,12 +61,18 @@ const DRAG_PX = 5;
 export interface BranchMapOptions {
   /** The `#app` element; the panel is a sibling of the other panels. */
   root: HTMLElement;
-  /** The laid-out tree; called on the first open only. */
-  model: () => MapModel;
+  /**
+   * The tree laid out for a view of this aspect (width / height); called on
+   * the first open, and again only when the view's shape has changed a lot
+   * since (the rows wrap to it).
+   */
+  model: (aspect: number) => MapModel;
   /** The reader's state now; called on every open. */
   reader: () => MapReader;
   /** A reached decision or route was clicked: the shell jumps (and closes). */
   onJump(jump: MapJump): void;
+  /** The map opened (true) or closed (false). */
+  onOpenChange?(open: boolean): void;
 }
 
 export interface BranchMap {
@@ -129,7 +135,10 @@ export function describeTarget(
       ? "click to play it from its start"
       : "decision not reached yet",
   );
-  return { title: route.label, status: parts.join(" · ") };
+  const title = route.numbered
+    ? `${route.route + 1}. ${route.label}`
+    : route.label;
+  return { title, status: parts.join(" · ") };
 }
 
 /** A world rectangle (culling); null means everything. */
@@ -162,6 +171,7 @@ export function linesMarkup(
     "map-conn": [],
     "map-join": [],
     "map-return": [],
+    "map-wrap": [],
     "map-run map-run-unseen": [],
     "map-run map-run-partly": [],
     "map-run map-run-seen": [],
@@ -172,6 +182,7 @@ export function linesMarkup(
     branch: "map-conn",
     join: "map-join",
     return: "map-return",
+    wrap: "map-wrap",
   } as const;
   for (const link of model.links) {
     const y0 = Math.min(link.y0, link.y1);
@@ -286,7 +297,12 @@ export function detailMarkup(
       kind: "route",
       key,
     });
-    const label = escapeXml(truncateLabel(route.label, LABEL_CHARS));
+    // Drawn out of manifest order: the choice number says which is which.
+    const label = escapeXml(
+      route.numbered
+        ? `${route.route + 1}. ${truncateLabel(route.label, LABEL_CHARS - 3)}`
+        : truncateLabel(route.label, LABEL_CHARS),
+    );
     out.push(
       `<g class="${classes.join(" ")}" data-r="${key}" data-state="${state}" transform="translate(${route.x} ${route.y})"${reached ? ' tabindex="0" role="button"' : ""} aria-label="${escapeXml(`${title}: ${status}`)}">` +
         `<rect x="0" y="${-g.routeH / 2}" width="${g.routeW}" height="${g.routeH}" rx="${g.routeH / 2}"/>` +
@@ -319,6 +335,7 @@ export function mountBranchMap({
   model: buildModel,
   reader,
   onJump,
+  onOpenChange,
 }: BranchMapOptions): BranchMap {
   const doc = root.ownerDocument;
   const win = doc.defaultView;
@@ -387,6 +404,7 @@ export function mountBranchMap({
   root.appendChild(panel);
 
   let model: MapModel | null = null;
+  let modelAspect = 0;
   let marks: MapMarks | null = null;
   let view: MapView = { x: 0, y: 0, scale: 1 };
   let frame = 0;
@@ -671,6 +689,7 @@ export function mountBranchMap({
   });
 
   function close(): void {
+    if (panel.hidden) return;
     panel.hidden = true;
     hideTip();
     press = null;
@@ -679,6 +698,7 @@ export function mountBranchMap({
     // Drop the drawn nodes: a closed map holds no DOM worth styling.
     detail.textContent = "";
     skeleton.textContent = "";
+    onOpenChange?.(false);
   }
 
   return {
@@ -689,14 +709,21 @@ export function mountBranchMap({
       return !panel.hidden;
     },
     open() {
-      if (model === null) model = buildModel();
-      marks = markMap(model, reader());
+      onOpenChange?.(true);
       drawn = null;
       skeletonDrawn = false;
       detail.textContent = "";
       skeleton.textContent = "";
       panel.hidden = false;
       measure();
+      // The rows wrap to the view's shape: lay out again only when that
+      // shape has moved well away from the one laid out for.
+      const aspect = vw / Math.max(1, vh);
+      if (model === null || Math.abs(Math.log(aspect / modelAspect)) > 0.25) {
+        model = buildModel(aspect);
+        modelAspect = aspect;
+      }
+      marks = markMap(model, reader());
       view = openingView(model, marks, vw, vh);
       far = view.scale < labelMinScale(model);
       svg.classList.toggle("map-far", far);

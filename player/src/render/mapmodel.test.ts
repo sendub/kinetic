@@ -18,6 +18,7 @@ import {
   type MapReader,
   markMap,
   openingView,
+  readableScale,
   runAt,
   runJump,
   SMALL_LABEL_MIN_SCALE,
@@ -190,11 +191,17 @@ describe("buildMapModel: the tree from the decisions", () => {
     // Routes stack down from the decision's row, in table order.
     expect(r1.y).toBe(outer.y);
     expect(r2.y).toBeGreaterThan(r1.y);
-    // The nested decision sits on route 1's row, right of its pill, and
-    // its two routes make route 1 two rows tall, so route 2 comes after.
+    // The nested decision sits on route 1's row, right of its pill; its
+    // two routes make route 1 two rows tall, but route 2, an ending, fits
+    // in the empty column under route 1's pill, so it tucks in on the next
+    // row (manifest order kept: no numbers).
     expect(nested.y).toBe(r1.y);
     expect(nested.x).toBeGreaterThan(r1.x + MAP_GEOMETRY.routeW);
-    expect(r2.y - r1.y).toBe(2 * MAP_GEOMETRY.rowH);
+    expect(r2.y - r1.y).toBe(MAP_GEOMETRY.rowH);
+    expect(r2.x).toBe(r1.x);
+    expect(r2.endX + 17).toBeLessThan(nested.x + MAP_GEOMETRY.decW);
+    expect(model.routes.some((r) => r.numbered)).toBe(false);
+    expect(model.rows).toBe(1);
     expect(model.routes.map((r) => [r.label, r.outcome])).toEqual([
       ["1a: carries on", "continues"],
       ["1b: comes back", "returns"],
@@ -228,6 +235,218 @@ describe("buildMapModel: the tree from the decisions", () => {
       const b = pills[i];
       if (a.y === b.y)
         expect(b.x - a.x).toBeGreaterThanOrEqual(MAP_GEOMETRY.routeW);
+    }
+  });
+});
+
+describe("buildMapModel: rows like lines of text, endings tucked in", () => {
+  const g = MAP_GEOMETRY;
+  type Box = { x0: number; y0: number; x1: number; y1: number };
+
+  function boxesOf(model: MapModel): Box[] {
+    return [
+      ...model.decisions.map((d) => ({
+        x0: d.x,
+        y0: d.y - g.decH / 2,
+        x1: d.x + g.decW,
+        y1: d.y + g.decH / 2,
+      })),
+      ...model.routes.map((r) => ({
+        x0: r.x,
+        y0: r.y - g.routeH / 2,
+        x1: r.x + g.routeW,
+        y1: r.y + g.routeH / 2,
+      })),
+    ];
+  }
+
+  // The top-level decisions (parent -1), in story order.
+  function topLevel(model: MapModel, prompt = "at level 1") {
+    return model.decisions
+      .filter((d) => d.prompt.includes(prompt))
+      .sort((a, b) => a.afterIndex - b.afterIndex);
+  }
+
+  it("wraps a large game's main line into rows, in reading order, about the viewport's shape", () => {
+    const { items, branches } = synthetic(30, 6, 26);
+    for (const aspect of [16 / 9, 2, 4 / 3]) {
+      const model = buildMapModel(items, branches, aspect);
+      expect(model.rows).toBeGreaterThan(2);
+      const shape = model.width / model.height;
+      expect(shape / aspect).toBeGreaterThan(0.6);
+      expect(shape / aspect).toBeLessThan(1.6);
+      // Reading order: each top-level decision is right of the one before
+      // on its row, or on a lower row, starting again at the left.
+      const tops = topLevel(model);
+      expect(tops).toHaveLength(30);
+      const rowYs = [...new Set(tops.map((d) => d.y))];
+      expect(rowYs).toHaveLength(model.rows);
+      for (let i = 1; i < tops.length; i += 1) {
+        const [a, b] = [tops[i - 1], tops[i]];
+        if (a.y === b.y) expect(b.x).toBeGreaterThan(a.x);
+        else {
+          expect(b.y).toBeGreaterThan(a.y);
+          expect(b.x).toBeLessThan(a.x);
+        }
+      }
+    }
+  });
+
+  it("never splits a top-level decision's subtree across rows", () => {
+    const { items, branches } = synthetic(30, 6, 26);
+    const model = buildMapModel(items, branches, 16 / 9);
+    const tops = topLevel(model);
+    const rowYs = [...new Set(tops.map((d) => d.y))].sort((a, b) => a - b);
+    const nextRowY = (y: number) =>
+      rowYs.find((r) => r > y) ?? Number.POSITIVE_INFINITY;
+    tops.forEach((top, i) => {
+      const from = top.afterIndex;
+      const to = tops[i + 1]?.afterIndex ?? model.itemCount;
+      const right = tops[i + 1]?.y === top.y ? tops[i + 1].x : Infinity;
+      const inside = (x: number, y: number) => {
+        expect(y).toBeGreaterThanOrEqual(top.y);
+        expect(y).toBeLessThan(nextRowY(top.y));
+        expect(x).toBeGreaterThanOrEqual(top.x);
+        expect(x).toBeLessThan(right);
+      };
+      for (const route of model.routes)
+        if (route.startIndex > from && route.startIndex < to)
+          inside(route.x, route.y);
+      for (const node of model.decisions)
+        if (node.afterIndex > from && node.afterIndex < to)
+          inside(node.x, node.y);
+    });
+  });
+
+  it("draws a continuation connector from each row's end to the next row's start", () => {
+    const { items, branches } = synthetic(30, 6, 26);
+    const model = buildMapModel(items, branches, 16 / 9);
+    const wraps = model.links.filter((l) => l.kind === "wrap");
+    expect(wraps).toHaveLength(model.rows - 1);
+    const tops = topLevel(model);
+    for (const wrap of wraps) {
+      // It leaves a row's main line at its end (the last join there)...
+      expect(tops.some((d) => d.y === wrap.y0)).toBe(true);
+      expect(
+        model.joins.some((j) => j.y === wrap.y0 && j.x === wrap.x1 - 28),
+      ).toBe(true);
+      // ...and enters the next row where its first stretch starts.
+      const first = model.runs.find((r) => r.y === wrap.y1 && r.x0 === g.pad);
+      expect(first).toBeDefined();
+      expect(wrap.d.startsWith(`M${wrap.x1 - 28} ${wrap.y0}`)).toBe(true);
+      expect(wrap.d).toContain(`H${g.pad}`);
+      expect(wrap.x0).toBeLessThan(g.pad);
+    }
+    // The story's start dot is on the first row's first stretch.
+    expect(model.runs[0].x0).toBe(model.start.x);
+    expect(model.runs[0].y).toBe(model.start.y);
+  });
+
+  it("keeps boxes and lines apart, tucked endings included", () => {
+    const { items, branches } = synthetic(12, 5, 10);
+    const model = buildMapModel(items, branches, 16 / 9);
+    const boxes = boxesOf(model).sort((a, b) => a.x0 - b.x0);
+    for (let i = 0; i < boxes.length; i += 1)
+      for (let j = i + 1; j < boxes.length; j += 1) {
+        const [a, b] = [boxes[i], boxes[j]];
+        if (b.x0 >= a.x1) break;
+        expect(b.y0 >= a.y1 || b.y1 <= a.y0).toBe(true);
+      }
+    // No stretch or join line runs through a box (they meet at edges).
+    const lines = [
+      ...model.runs.map((r) => ({ x0: r.x0, x1: r.x1, y: r.y })),
+      ...model.links
+        .filter((l) => l.kind === "join" || l.kind === "return")
+        .map((l) => ({ x0: l.x0, x1: l.x1 - 24, y: l.y1 })),
+    ];
+    for (const line of lines)
+      for (const box of boxes)
+        if (line.y > box.y0 && line.y < box.y1)
+          expect(line.x1 <= box.x0 + 0.5 || line.x0 >= box.x1 - 0.5).toBe(true);
+    // End marks clear every box.
+    for (const end of model.ends)
+      for (const box of boxes)
+        expect(
+          end.x + 7 <= box.x0 ||
+            end.x - 7 >= box.x1 ||
+            end.y + 7 <= box.y0 ||
+            end.y - 7 >= box.y1,
+        ).toBe(true);
+  });
+
+  it("tucks an ending in right under its decision, numbering the routes when that breaks manifest order", () => {
+    const { items, branches } = synthetic(30, 6, 26);
+    const model = buildMapModel(items, branches);
+    for (const node of model.decisions) {
+      const [a, b, c] = node.routes.map((key) => model.routes[key]);
+      expect(a.y).toBe(node.y);
+      // The ending sits on the row after the first route, however tall
+      // that route is (its connector spans one row, not the subtree) —
+      // or, where all three are one row tall, simply after the detour.
+      expect(c.outcome).toBe("ends");
+      if (b.y === node.y + g.rowH && c.y === b.y + g.rowH) continue;
+      expect(c.y).toBe(node.y + g.rowH);
+      // The detour (it draws a line to the join) stays under everything.
+      expect(b.y).toBeGreaterThanOrEqual(c.y);
+      const outOfOrder = b.y > c.y;
+      for (const r of [a, b, c]) expect(r.numbered).toBe(outOfOrder);
+    }
+    // In the deep ones the detour comes after the ending: numbered.
+    expect(model.routes.some((r) => r.numbered)).toBe(true);
+    const tops = topLevel(model);
+    const route = model.routes[tops[0].routes[2]];
+    const marks = markMap(model, { visited: [], playedRoutes: [], cursor: 0 });
+    expect(detailMarkup(model, marks)).toContain(
+      `○ 3. ${truncateLabel(route.label, 22)}`,
+    );
+  });
+
+  it("lays a no-decision story out as one row, and an empty one without failing", () => {
+    expect(buildMapModel(["a", "b"].map(image), undefined).rows).toBe(1);
+    const empty = buildMapModel([], undefined);
+    expect(empty.rows).toBe(1);
+    expect(empty.runs).toHaveLength(0);
+    expect(empty.height).toBeGreaterThan(0);
+  });
+
+  it("keeps 'you are here' and hit testing on the wrapped layout", () => {
+    const { items, branches } = synthetic(30, 6, 26);
+    const model = buildMapModel(items, branches, 16 / 9);
+    const tops = topLevel(model);
+    const deep = tops[tops.length - 1];
+    expect(deep.y).toBeGreaterThan(tops[0].y);
+    // A reader on the stretch just before the last top-level decision.
+    const cursor = deep.afterIndex - 2;
+    const marks = markMap(model, {
+      visited: [cursor],
+      playedRoutes: [],
+      cursor,
+    });
+    const run = runAt(model.runs, cursor);
+    expect(marks.here.y).toBe(deep.y);
+    expect(run?.x1).toBe(deep.x);
+    expect(marks.here.x).toBeGreaterThan(run?.x0 ?? 0);
+    expect(marks.here.x).toBeLessThan(deep.x);
+    expect(openingView(model, marks, 1920, 960)).toEqual(
+      centreOn(marks.here.x, marks.here.y, 1920, 960, readableScale(1920, 960)),
+    );
+    for (const node of model.decisions.slice(0, 50))
+      expect(hitTest(model, node.x + 5, node.y)).toEqual({
+        kind: "decision",
+        decision: node.index,
+      });
+    for (const [key, route] of model.routes.slice(0, 80).entries())
+      expect(hitTest(model, route.x + 5, route.y)).toEqual({
+        kind: "route",
+        key,
+      });
+  });
+
+  it("lays the demo out as before, one row, whatever the viewport's shape", () => {
+    for (const aspect of [1, 4 / 3, 16 / 9, 3]) {
+      const model = buildMapModel(DEMO_ITEMS, DEMO_BRANCHES, aspect);
+      expect(model.rows).toBe(1);
+      expect(model.links.some((l) => l.kind === "wrap")).toBe(false);
     }
   });
 });

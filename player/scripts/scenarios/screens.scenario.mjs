@@ -90,8 +90,7 @@ const HELP_KEYS = [
   "T",
   "M",
   "Esc",
-  "1-9 / 0",
-  "↑ ↓ Enter",
+  "1-9 0 ↑↓ Enter",
 ];
 const EMPTY_MESSAGE = "No bookmarks yet — press b";
 const EMPTY_NOTICE = "No content yet — this folder has an empty manifest.";
@@ -1545,6 +1544,28 @@ async function reset({ check, open }) {
   // A non-default speed and play-all off, so the reset has settings to
   // put back.
   await openSettings(page, cdp);
+  // At 800x600 the whole Esc screen fits: Reset is on screen without a
+  // scroll (Phase 31: the decision keys share one row, 12 rows in all).
+  const viewport = page.viewport();
+  await page.setViewport({ width: 800, height: 600, deviceScaleFactor: 1 });
+  await sleep(150);
+  const small = await page.evaluate((selector) => {
+    const reset = document.querySelector(selector)?.getBoundingClientRect();
+    const help = document.getElementById("help");
+    return {
+      bottom: reset?.bottom ?? Number.POSITIVE_INFINITY,
+      height: innerHeight,
+      scrolled: (help?.scrollTop ?? 0) + document.scrollingElement.scrollTop,
+      rows: document.querySelectorAll("#help .help-row").length,
+    };
+  }, CONFIG_CONTROL.reset);
+  check(
+    "at 800x600 the Esc screen's 12 key rows leave Reset in view without scrolling",
+    small.rows === 12 && small.bottom <= small.height && small.scrolled === 0,
+    small,
+  );
+  if (viewport !== null) await page.setViewport(viewport);
+  await sleep(150);
   for (let i = 0; i < 4; i += 1) {
     await clickCenter(cdp, CONFIG_CONTROL.speedUp);
   }

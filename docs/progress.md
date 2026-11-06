@@ -1568,9 +1568,22 @@ truthful: an unchecked box means nothing was accepted.
       fullscreen Esc), branches 43/43, navigation 21/21; screenshots
       checked: demo map correct; large game at fit is a thin strip,
       fixed in the next item.)
-- [ ] Branch map follow-ups: (1) large games fit as a thin strip, so
+- [x] Branch map follow-ups: (1) large games fit as a thin strip, so
       wrap the main line into rows so a fit fills the screen and long
       ending routes don't hang far below; (2) the "Route: ..." pill
       after a map jump draws over the map header; (3) the Esc screen's
       13th row (arrows/Enter) sits alone and at 800x600 pushes Reset
       below the fold: merge the two decision-key rows.
+      (Top-level segments wrap into rows, chosen to match the view's
+      aspect, never splitting a subtree, with wrap connectors; ending
+      routes tuck under their decision, numbered when that breaks
+      manifest order. The pill was a reading pill still in its hold when
+      the map opened: opening the map now drops pills, and none show
+      while it is up. One `1-9 0 ↑↓ Enter` row; 12 rows. Perf 570
+      decisions: open 48-58 ms, p95 16.7 ms; fit scale 0.073 (was
+      0.012). Orchestrator: vitest 671, check 0 warnings, smoke 6/6,
+      branchmap 16/16, screens 67 pass 2 partial (fullscreen Esc),
+      branches 43/43; screenshots: large game fit fills the screen in
+      rows, Reset visible at 800x600.)
+- [ ] Phase-closer (Phases 29-31): full scenario suite, full pytest,
+      package-proof.

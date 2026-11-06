@@ -264,7 +264,7 @@ describe("keyHelpEntries (the help lists the map itself, Phase 13b)", () => {
   it("lists the decision digits and 0 — the choice overlay's own keys", () => {
     // The digits live outside KEY_TABLE (they carry a parameter and belong
     // to one context), so this row is the help's promise about them.
-    expect(listedLabels().has("1-9 / 0")).toBe(true);
+    expect(listedLabels().has("1-9 0 ↑↓ Enter")).toBe(true);
   });
 
   it("shows only the main interaction keys, one line each (Phase 18)", () => {
@@ -282,8 +282,7 @@ describe("keyHelpEntries (the help lists the map itself, Phase 13b)", () => {
       "t",
       "m",
       "Escape",
-      "1-9 / 0",
-      "↑ ↓ Enter",
+      "1-9 0 ↑↓ Enter",
     ]);
     const listed = listedLabels();
     for (const gone of ["y", "n"]) expect(listed.has(gone)).toBe(false);

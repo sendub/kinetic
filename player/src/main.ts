@@ -586,7 +586,9 @@ function start(): void {
 
       // The branch map (docs/plan.md Phase 31): `m` opens the decision
       // tree with the reader's marks. Its layout is computed on the first
-      // open and kept (it depends on the manifest alone); the marks are
+      // open and kept (it depends on the manifest and the view's shape,
+      // which its rows wrap to: render/branchmap.ts lays it out again only
+      // when that shape changes a lot); the marks are
       // read fresh from the machine on every open. A click on a reached
       // decision or route closes the map and moves through the machine's
       // own operations (mapmodel.ts `runJump`): the choice screen as a
@@ -599,7 +601,15 @@ function start(): void {
       };
       const map = mountBranchMap({
         root,
-        model: mapModelNow,
+        model: (aspect) => {
+          mapModel = buildMapModel(manifest.items, manifest.branches, aspect);
+          return mapModel;
+        },
+        // No `#flash` pill over the map: one still holding (a route just
+        // entered, a bookmark) goes when it opens, and none shows while it
+        // is up. A jump closes the map first, so its route pill shows on
+        // the story.
+        onOpenChange: (open) => shell.setPillsCovered(open),
         reader: () => {
           const ctx = machine.exportContext();
           const state = machine.getState();

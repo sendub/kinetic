@@ -249,6 +249,22 @@ export default async function ({ check, open }) {
       (await currentItemId(page)) === "route1-start",
     { item: await currentItemId(page) },
   );
+  // The jump's route pill shows on the story, never over the map: the map
+  // closed before it, and reopening the map at once drops it.
+  const pillAfterJump = await page.evaluate(
+    () => document.getElementById("flash")?.textContent ?? null,
+  );
+  await openMap(page, cdp);
+  const pillOverMap = await page.evaluate(
+    () => document.getElementById("flash") !== null,
+  );
+  await pressEscape(cdp);
+  await page.waitForFunction(MAP_CLOSED, { timeout: 3000 });
+  check(
+    "a jump's route pill shows once the map has closed, and reopening the map drops it",
+    (pillAfterJump ?? "").startsWith("Route: Route 1") && !pillOverMap,
+    { pillAfterJump, pillOverMap },
+  );
   // Reading on from there is plain reading: the nested decision fires.
   await spaceTo(page, cdp, "route1-nest");
   await pressSpace(cdp);

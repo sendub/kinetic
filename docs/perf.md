@@ -88,8 +88,19 @@ long-animation-frame entries. Output: JSON on stdout and
 
 | case (2026-11-06) | first open | later opens | frames p95 (all phases) | frames > 33 ms |
 | --- | --- | --- | --- | --- |
-| 570 decisions, 90k items | 48-52 ms | 19-31 ms | 16.7 ms | 0-1 of ~720 |
-| 2,340 decisions, 214k items (`60 7 15`) | 71 ms | 27-30 ms | 16.7 ms | 0 of ~720 |
+| 570 decisions, 90k items, one strip | 48-52 ms | 19-31 ms | 16.7 ms | 0-1 of ~720 |
+| 2,340 decisions, 214k items (`60 7 15`), one strip | 71 ms | 27-30 ms | 16.7 ms | 0 of ~720 |
+| 570 decisions, wrapped rows, endings tucked | 48-58 ms | 20-33 ms | 16.7-16.8 ms | 0-1 of ~720 (one run in five: 4) |
+| 2,340 decisions, wrapped rows, endings tucked | 74-80 ms | 26-31 ms | 16.7-16.8 ms | 0 of ~720 |
+
+The wrapped layout (docs/plan.md Phase 31, "Layout for a large game")
+changes the fitted view, not the cost: at 1920x1080 the 570-decision
+game wraps into 6 rows of 5 top-level segments (world 25,257 x 12,536,
+aspect 2.0 for a 1920x956 view), fitting at scale 0.073 where the one
+strip (150,057 x 2,136) fitted at 0.012; the 2,340-decision game wraps
+into 7 rows and fits at 0.032 (was 0.005). Layout time in node is
+unchanged within noise (12-19 ms and 119-141 ms against 13-33 ms and
+125-129 ms before for the two games).
 
 The first open includes the layout (about 30 ms at 570 decisions), which
 is then kept. The first build drew every node as a group and every line

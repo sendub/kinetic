@@ -32,3 +32,23 @@ describe("createPillGate (no pill over a choice screen)", () => {
     expect(gate.mayShow()).toBe(false);
   });
 });
+
+describe("createPillGate (no pill over the branch map)", () => {
+  it("drops the pill when the map opens, blocks pills while it is up, and lets them show once it closes", () => {
+    const gate = createPillGate();
+    expect(gate.coverChanged(true)).toBe(true); // a pill still holding goes
+    expect(gate.mayShow()).toBe(false);
+    expect(gate.coverChanged(true)).toBe(false);
+    // a map jump closes the map before the route pill shows
+    expect(gate.coverChanged(false)).toBe(false);
+    expect(gate.mayShow()).toBe(true);
+  });
+
+  it("a choice under the map still blocks pills after the map closes", () => {
+    const gate = createPillGate();
+    gate.choiceChanged(true);
+    gate.coverChanged(true);
+    gate.coverChanged(false);
+    expect(gate.mayShow()).toBe(false);
+  });
+});

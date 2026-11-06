@@ -20,25 +20,38 @@ export const ROUTE_PILL_MS = 1600;
  * pill shows while the choice is open. Nothing is lost: what a choice
  * allows (its own keys, a pick) announces nothing until it closes, and a
  * pick closes it before its route pill shows; auto-forward never flips at
- * a choice, and `b` is inert there.
+ * a choice, and `b` is inert there. The branch map is covered the same
+ * way (docs/plan.md Phase 31): opening it drops a pill still holding, none
+ * shows while it is up, and a map jump closes it before its route pill.
  */
 export interface PillGate {
   /** Report the choice screen's state; true when the pill must go now. */
   choiceChanged(open: boolean): boolean;
+  /**
+   * Report whether a panel the pill must not cover (the branch map) is up;
+   * true when the pill must go now.
+   */
+  coverChanged(covered: boolean): boolean;
   /** Whether a pill may show now. */
   mayShow(): boolean;
 }
 
 export function createPillGate(): PillGate {
   let choiceOpen = false;
+  let coveredNow = false;
   return {
     choiceChanged(open) {
       const opened = open && !choiceOpen;
       choiceOpen = open;
       return opened;
     },
+    coverChanged(covered) {
+      const opened = covered && !coveredNow;
+      coveredNow = covered;
+      return opened;
+    },
     mayShow() {
-      return !choiceOpen;
+      return !choiceOpen && !coveredNow;
     },
   };
 }
@@ -75,6 +88,12 @@ export interface Shell {
    * it.
    */
   flashSequence(messages: readonly string[]): void;
+  /**
+   * A full-screen panel that the pill must not cover (the branch map) has
+   * opened (true): the pill and its queued messages go, and no pill shows
+   * until it closes (false).
+   */
+  setPillsCovered(covered: boolean): void;
   /**
    * A quiet standing notice (`#notice`, the resume notice of docs/plan.md
    * Phase 18): it stays until the reader's next key, click or wheel notch,
@@ -342,6 +361,12 @@ export function mountShell({ root, manifest, machine }: ShellOptions): Shell {
     },
     flash,
     flashSequence,
+    setPillsCovered(covered: boolean) {
+      if (pillGate.coverChanged(covered)) {
+        clearSequence();
+        clearFlash();
+      }
+    },
     showNotice,
     unmount() {
       dismissNotice();

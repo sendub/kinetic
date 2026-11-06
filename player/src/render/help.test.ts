@@ -63,8 +63,7 @@ describe("helpRows (drawn from the keymap, Phase 13b)", () => {
       "T",
       "M",
       "Esc",
-      "1-9 / 0",
-      "↑ ↓ Enter",
+      "1-9 0 ↑↓ Enter",
     ]);
   });
 

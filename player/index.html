@@ -552,6 +552,7 @@
       .map-conn,
       .map-join,
       .map-return,
+      .map-wrap,
       .map-run {
         fill: none;
         stroke-linecap: round;
@@ -561,6 +562,13 @@
       .map-join {
         stroke: rgba(244, 239, 230, 0.4);
         stroke-width: 2;
+      }
+      /* A row's end to the next row's start: the main line wrapping like a
+         line of text. */
+      .map-wrap {
+        stroke: rgba(244, 239, 230, 0.4);
+        stroke-width: 2;
+        stroke-linejoin: round;
       }
       .map-return {
         stroke: rgba(244, 239, 230, 0.4);

@@ -12,10 +12,28 @@
 // decision's row, and the line carries on from there: at `continueAt` for a
 // decision with a continuing route, past the whole menu region for a pure
 // choice (the machine's own flow, docs/content-format.md "Branches"). An
-// ending route stops in an end mark. Every position is computed once, from
-// the resolved decision table the machine itself uses (`resolveDecisions`),
-// so map indices ARE machine indices; the cost is linear in decisions and
-// routes, never in items, whatever the game's size.
+// ending route stops in an end mark.
+//
+// Two rules keep a large game screen-shaped and its connectors short:
+//
+// - Rows like lines of text. The main line is cut into top-level SEGMENTS
+//   (the stretch before a top-level decision plus that decision's whole
+//   subtree; a decision is never split), and the segments fill rows left to
+//   right, then down. The row width is the one whose whole layout comes
+//   closest to the viewport's aspect, so a fit fills the screen. A
+//   continuation connector runs from each row's end, through the gap under
+//   it, back to the next row's start.
+// - Endings tuck in. Everything a route nests lies right of its nested
+//   decision's box, so the column under a tall route's pill is empty. An
+//   ending route (it draws no line to the join) goes on the first row under
+//   its decision where it fits in that empty column, instead of under the
+//   tallest sibling. When that draws a decision's routes out of manifest
+//   order, its pills carry their choice numbers (`numbered`).
+//
+// Every position is computed once, from the resolved decision table the
+// machine itself uses (`resolveDecisions`), so map indices ARE machine
+// indices; the cost is linear in decisions and routes (times nesting depth
+// for the tuck shifts), never in items, whatever the game's size.
 
 import { type ResolvedDecision, resolveDecisions } from "../machine/machine";
 import type { Branch, ContextFrame, Item, RouteSet } from "../machine/types";
@@ -30,7 +48,15 @@ export const MAP_GEOMETRY = {
   routeW: 230,
   routeH: 36,
   gap: 56,
+  /** Space between wrapped rows, which the continuation connector runs through. */
+  wrapGap: 64,
 } as const;
+
+/** How far right of a line's end its end mark reaches. */
+const END_REACH = 17;
+
+/** The aspect (width / height) a layout aims for when none is given. */
+export const DEFAULT_MAP_ASPECT = 16 / 9;
 
 /** Characters kept of a question / a route label before "…". */
 export const PROMPT_CHARS = 30;
@@ -60,7 +86,7 @@ export interface MapDecision {
 
 /** One connector's SVG path data, its kind and its bounding box. */
 export interface MapLink {
-  readonly kind: "branch" | "join" | "return";
+  readonly kind: "branch" | "join" | "return" | "wrap";
   readonly d: string;
   readonly x0: number;
   readonly y0: number;
@@ -85,6 +111,11 @@ export interface MapRoute {
   readonly y: number;
   /** Where the route's own line ends. */
   readonly endX: number;
+  /**
+   * The decision's routes are drawn out of manifest order (an ending
+   * tucked in above a taller sibling), so the pill shows its choice number.
+   */
+  readonly numbered: boolean;
 }
 
 export interface MapModel {
@@ -94,7 +125,8 @@ export interface MapModel {
   /**
    * The connectors, each with its bounding box (for culling): decision ->
    * route pill curves (`branch`), continuing routes into their join
-   * (`join`), returning routes back towards it (`return`).
+   * (`join`), returning routes back towards it (`return`), and a row's end
+   * to the next row's start (`wrap`).
    */
   readonly links: readonly MapLink[];
   /** Join dots and end marks, world points. */
@@ -104,6 +136,8 @@ export interface MapModel {
   readonly start: { x: number; y: number };
   readonly width: number;
   readonly height: number;
+  /** How many rows the main line wraps into (1: no wrap). */
+  readonly rows: number;
   readonly itemCount: number;
   /**
    * Decision nodes by machine index (`undefined` for a decision the layout
@@ -138,10 +172,130 @@ function continuationOf(decision: ResolvedDecision): number {
     : regionEndOf(decision) + 1;
 }
 
-/** Lays the decision tree out. Pure; call once per manifest. */
+type Mutable<T> = { -readonly [K in keyof T]: T[K] };
+
+/**
+ * A connector before its path data is written: a branch curve from (ax, ay)
+ * to (bx, by), or a route's line from its end (ax, ay) along its row to the
+ * join column bx, then up to the decision's row by. Kept as numbers so a
+ * block laid out once can be moved (tucked in, wrapped) by adding offsets.
+ */
+interface RawLink {
+  kind: "branch" | "join" | "return";
+  ax: number;
+  ay: number;
+  bx: number;
+  by: number;
+}
+
+function linkOf(raw: RawLink): MapLink {
+  const { kind, ax, ay, bx, by } = raw;
+  if (kind === "branch") {
+    const midX = (ax + bx) / 2;
+    return {
+      kind,
+      d: `M${ax} ${ay}C${midX} ${ay} ${midX} ${by} ${bx} ${by}`,
+      x0: ax,
+      y0: Math.min(ay, by),
+      x1: bx,
+      y1: Math.max(ay, by),
+    };
+  }
+  const r = Math.min(24, ay - by);
+  const d =
+    ay === by
+      ? `M${ax} ${ay}H${bx}`
+      : `M${ax} ${ay}H${bx - r}Q${bx} ${ay} ${bx} ${ay - r}V${by}`;
+  return { kind, d, x0: ax, y0: by, x1: bx, y1: ay };
+}
+
+/** One placed block's extent: its line's end, rows, and what lies below. */
+interface Block {
+  /** Where the block's line ends (its right edge). */
+  x: number;
+  /** Rows it takes, its own included. */
+  rows: number;
+  /**
+   * The leftmost x of anything it draws below its own row (Infinity when
+   * it is one row): its first nested decision box's right edge, where that
+   * decision's branch curves start.
+   */
+  belowLeft: number;
+}
+
+/**
+ * The rows to wrap segments of widths `widths` into: as many as fit
+ * `limit` each, in order, at least one per row.
+ */
+function packRows(widths: readonly number[], limit: number): number[][] {
+  const rows: number[][] = [];
+  let current: number[] = [];
+  let used = 0;
+  widths.forEach((w, i) => {
+    if (current.length > 0 && used + w > limit) {
+      rows.push(current);
+      current = [];
+      used = 0;
+    }
+    current.push(i);
+    used += w;
+  });
+  if (current.length > 0) rows.push(current);
+  return rows;
+}
+
+/**
+ * Wraps top-level segments (width, rows tall) into lines of text so the
+ * whole layout's aspect comes closest to `aspect`: tries row widths from
+ * the widest segment to everything on one row, geometrically spaced.
+ */
+export function wrapSegments(
+  segments: readonly { width: number; rows: number }[],
+  aspect: number,
+): number[][] {
+  const g = MAP_GEOMETRY;
+  const widths = segments.map((s) => s.width);
+  if (segments.length <= 1) return [segments.map((_, i) => i)];
+  const total = widths.reduce((a, b) => a + b, 0);
+  const widest = Math.max(...widths);
+  const shapeOf = (rows: number[][]) => {
+    let w = 0;
+    let h = 2 * g.pad + (rows.length - 1) * g.wrapGap;
+    for (const row of rows) {
+      let rw = 0;
+      let rh = 1;
+      for (const i of row) {
+        rw += widths[i];
+        rh = Math.max(rh, segments[i].rows);
+      }
+      w = Math.max(w, rw);
+      h += rh * g.rowH;
+    }
+    return (w + 2 * g.pad + 40) / h;
+  };
+  const steps = 48;
+  let best = packRows(widths, total);
+  let bestMiss = Math.abs(Math.log(shapeOf(best) / aspect));
+  for (let i = 0; i < steps; i += 1) {
+    const limit = widest * (total / widest) ** (i / steps);
+    const rows = packRows(widths, limit);
+    const miss = Math.abs(Math.log(shapeOf(rows) / aspect));
+    if (miss < bestMiss - 1e-9) {
+      best = rows;
+      bestMiss = miss;
+    }
+  }
+  return best;
+}
+
+/**
+ * Lays the decision tree out. Pure; call once per manifest and viewport
+ * shape (`aspect`, the map view's width / height: the rows wrap to it).
+ */
 export function buildMapModel(
   items: readonly Item[],
   branches: readonly Branch[] | undefined,
+  aspect: number = DEFAULT_MAP_ASPECT,
 ): MapModel {
   const g = MAP_GEOMETRY;
   const decisions = resolveDecisions(items, branches ?? []);
@@ -154,15 +308,56 @@ export function buildMapModel(
   for (const list of children.values())
     list.sort((a, b) => a.afterIndex - b.afterIndex);
 
-  const runs: MapRun[] = [];
-  const mapDecisions: MapDecision[] = [];
-  const routes: MapRoute[] = [];
-  const links: MapLink[] = [];
+  const runs: Mutable<MapRun>[] = [];
+  const mapDecisions: Mutable<MapDecision>[] = [];
+  const routes: Mutable<MapRoute>[] = [];
+  const raw: RawLink[] = [];
   const joins: { x: number; y: number }[] = [];
   const ends: { x: number; y: number }[] = [];
-  let width = 0;
-  let maxY = g.rowH / 2;
   const placed = new Set<number>();
+
+  // Everything is laid out where its block starts and then moved as a
+  // block: `mark` notes how much of each list exists, `shift` moves what
+  // was added between two marks.
+  type Mark = readonly number[];
+  const mark = (): Mark => [
+    runs.length,
+    mapDecisions.length,
+    routes.length,
+    raw.length,
+    joins.length,
+    ends.length,
+  ];
+  function shift(from: Mark, to: Mark, dx: number, dy: number): void {
+    for (let i = from[0]; i < to[0]; i += 1) {
+      runs[i].x0 += dx;
+      runs[i].x1 += dx;
+      runs[i].y += dy;
+    }
+    for (let i = from[1]; i < to[1]; i += 1) {
+      mapDecisions[i].x += dx;
+      mapDecisions[i].y += dy;
+    }
+    for (let i = from[2]; i < to[2]; i += 1) {
+      routes[i].x += dx;
+      routes[i].endX += dx;
+      routes[i].y += dy;
+    }
+    for (let i = from[3]; i < to[3]; i += 1) {
+      raw[i].ax += dx;
+      raw[i].bx += dx;
+      raw[i].ay += dy;
+      raw[i].by += dy;
+    }
+    for (let i = from[4]; i < to[4]; i += 1) {
+      joins[i].x += dx;
+      joins[i].y += dy;
+    }
+    for (let i = from[5]; i < to[5]; i += 1) {
+      ends[i].x += dx;
+      ends[i].y += dy;
+    }
+  }
 
   const addRun = (start: number, end: number, x: number, y: number) => {
     runs.push({ start, end, x0: x, x1: x + g.runW, y });
@@ -170,17 +365,17 @@ export function buildMapModel(
   };
 
   // One line of story from item `start` to `end` inside decision `parent`'s
-  // route (-1: the main line), starting at world x, on row centre y.
-  // Returns where it ends and how many rows it takes.
+  // route, starting at world x, on row centre y.
   function line(
     start: number,
     end: number,
     parent: number,
     x0: number,
     y: number,
-  ): { x: number; rows: number } {
+  ): Block {
     let x = x0;
     let rows = 1;
+    let belowLeft = Number.POSITIVE_INFINITY;
     let idx = start;
     for (const decision of children.get(parent) ?? []) {
       if (decision.afterIndex < idx || decision.afterIndex > end) continue;
@@ -189,6 +384,7 @@ export function buildMapModel(
       const block = layoutDecision(decision, x, y);
       x = block.x;
       rows = Math.max(rows, block.rows);
+      belowLeft = Math.min(belowLeft, block.belowLeft);
       const next = continuationOf(decision);
       if (next <= decision.afterIndex || next > end) {
         idx = end + 1;
@@ -197,44 +393,66 @@ export function buildMapModel(
       idx = next;
     }
     if (idx <= end) x = addRun(idx, end, x, y);
-    if (y > maxY) maxY = y;
-    if (x > width) width = x;
-    return { x, rows };
+    return { x, rows, belowLeft };
   }
 
   function layoutDecision(
     decision: ResolvedDecision,
     x: number,
     y: number,
-  ): { x: number; rows: number } {
+  ): Block {
     placed.add(decision.index);
     const routeKeys: number[] = [];
     const bx = x + g.decW + g.gap;
-    const midX = x + g.decW + g.gap / 2;
-    let ry = y;
+    // Per row under the decision (0: its own), the leftmost x anything
+    // placed so far draws there; rows past the end are free.
+    const left: number[] = [];
+    const occupy = (row: number, from: number) => {
+      left[row] = Math.min(left[row] ?? Number.POSITIVE_INFINITY, from);
+    };
+    const fits = (row: number, rows: number, reach: number) => {
+      for (let j = row; j < row + rows; j += 1)
+        if ((left[j] ?? Number.POSITIVE_INFINITY) < reach) return false;
+      return true;
+    };
+    let bottom = 0;
+    let lastRow = -1;
+    let reordered = false;
     let furthest = bx + g.routeW;
     const pending: { key: number; endX: number; y: number }[] = [];
     decision.routes.forEach((route, routeIdx) => {
-      links.push({
-        kind: "branch",
-        d: `M${x + g.decW} ${y}C${midX} ${y} ${midX} ${ry} ${bx} ${ry}`,
-        x0: x + g.decW,
-        y0: y,
-        x1: bx,
-        y1: ry,
-      });
-      const inner = line(
-        route.startIndex,
-        route.endIndex,
-        decision.index,
-        bx + g.routeW,
-        ry,
-      );
       const outcome: RouteOutcome = route.continuing
         ? "continues"
         : route.result === "return"
           ? "returns"
           : "ends";
+      // Laid out under everything so far, then, for an ending, moved up
+      // to the first row where it clears what is already there.
+      const before = mark();
+      const inner = line(
+        route.startIndex,
+        route.endIndex,
+        decision.index,
+        bx + g.routeW,
+        y + bottom * g.rowH,
+      );
+      let row = bottom;
+      if (outcome === "ends" && routeIdx > 0) {
+        const reach = inner.x + END_REACH + g.gap;
+        for (let r = 1; r < bottom; r += 1)
+          if (fits(r, inner.rows, reach)) {
+            row = r;
+            break;
+          }
+        if (row !== bottom) shift(before, mark(), 0, (row - bottom) * g.rowH);
+      }
+      occupy(row, bx);
+      for (let j = 1; j < inner.rows; j += 1) occupy(row + j, inner.belowLeft);
+      bottom = Math.max(bottom, row + inner.rows);
+      if (row < lastRow) reordered = true;
+      lastRow = row;
+      const ry = y + row * g.rowH;
+      raw.push({ kind: "branch", ax: x + g.decW, ay: y, bx, by: ry });
       const key = routes.length;
       routes.push({
         decision: decision.index,
@@ -246,12 +464,13 @@ export function buildMapModel(
         x: bx,
         y: ry,
         endX: inner.x,
+        numbered: false,
       });
       routeKeys.push(key);
       pending.push({ key, endX: inner.x, y: ry });
       if (inner.x > furthest) furthest = inner.x;
-      ry += inner.rows * g.rowH;
     });
+    if (reordered) for (const key of routeKeys) routes[key].numbered = true;
     const joinX = furthest + g.gap;
     let joined = false;
     for (const { key, endX, y: routeY } of pending) {
@@ -261,18 +480,12 @@ export function buildMapModel(
         continue;
       }
       joined = true;
-      const r = Math.min(24, routeY - y);
-      const d =
-        routeY === y
-          ? `M${endX} ${y}H${joinX}`
-          : `M${endX} ${routeY}H${joinX - r}Q${joinX} ${routeY} ${joinX} ${routeY - r}V${y}`;
-      links.push({
+      raw.push({
         kind: route.outcome === "continues" ? "join" : "return",
-        d,
-        x0: endX,
-        y0: y,
-        x1: joinX,
-        y1: routeY,
+        ax: endX,
+        ay: routeY,
+        bx: joinX,
+        by: y,
       });
     }
     const next = continuationOf(decision);
@@ -285,18 +498,69 @@ export function buildMapModel(
       y,
       routes: routeKeys,
     });
-    if (joinX > width) width = joinX;
-    return { x: joinX, rows: Math.max(1, (ry - y) / g.rowH) };
+    const rows = Math.max(1, bottom);
+    return {
+      x: joinX,
+      rows,
+      belowLeft: rows > 1 ? x + g.decW : Number.POSITIVE_INFINITY,
+    };
   }
 
+  // The main line, one top-level segment at a time, each laid out from
+  // (0, 0) and then moved to its place in the rows.
+  const segments: { from: Mark; width: number; rows: number }[] = [];
+  const last = items.length - 1;
+  let idx = 0;
+  for (const decision of children.get(-1) ?? []) {
+    if (decision.afterIndex < idx || decision.afterIndex > last) continue;
+    if (placed.has(decision.index)) continue;
+    const from = mark();
+    const x = addRun(idx, decision.afterIndex, 0, 0);
+    const block = layoutDecision(decision, x, 0);
+    segments.push({ from, width: block.x, rows: block.rows });
+    const next = continuationOf(decision);
+    if (next <= decision.afterIndex || next > last) {
+      idx = last + 1;
+      break;
+    }
+    idx = next;
+  }
+  if (idx <= last) {
+    // The story's tail: a stretch and its end mark, on the last segment.
+    const tail = segments[segments.length - 1];
+    if (tail === undefined) {
+      segments.push({ from: mark(), width: addRun(idx, last, 0, 0), rows: 1 });
+    } else tail.width = addRun(idx, last, tail.width, 0);
+    const end = segments[segments.length - 1];
+    ends.push({ x: end.width + 10, y: 0 });
+    end.width += END_REACH;
+  }
+
+  const wrapped = wrapSegments(segments, aspect);
+  const done = mark();
+  const wraps: MapLink[] = [];
+  let top = g.pad;
+  let widest = 0;
+  let previous: { endX: number; y: number; bottom: number } | null = null;
+  for (const row of wrapped) {
+    const rowY = top + g.rowH / 2;
+    let x = g.pad;
+    let rows = 1;
+    for (const i of row) {
+      const segment = segments[i];
+      shift(segment.from, segments[i + 1]?.from ?? done, x, rowY);
+      x += segment.width;
+      rows = Math.max(rows, segment.rows);
+    }
+    if (previous !== null) wraps.push(wrapLink(previous, g.pad, rowY));
+    const bottom = top + rows * g.rowH;
+    previous = { endX: x, y: rowY, bottom };
+    widest = Math.max(widest, x);
+    top = bottom + g.wrapGap;
+  }
+  const height = top - g.wrapGap + g.pad;
   const y0 = g.pad + g.rowH / 2;
-  const main =
-    items.length > 0
-      ? line(0, items.length - 1, -1, g.pad, y0)
-      : { x: g.pad, rows: 1 };
-  const lastRun = runs[runs.length - 1];
-  if (lastRun !== undefined && lastRun.y === y0 && lastRun.x1 === main.x)
-    ends.push({ x: main.x + 10, y: y0 });
+
   mapDecisions.sort((a, b) => a.index - b.index);
   runs.sort((a, b) => a.start - b.start);
   const decisionAt: (MapDecision | undefined)[] = decisions.map(
@@ -310,16 +574,43 @@ export function buildMapModel(
     runs,
     decisions: mapDecisions,
     routes,
-    links,
+    links: [...raw.map(linkOf), ...wraps],
     joins,
     ends,
     start: { x: g.pad, y: y0 },
-    width: width + g.pad + 40,
-    height: maxY + g.rowH / 2 + g.pad,
+    width: widest + g.pad + 40,
+    height,
+    rows: Math.max(1, wrapped.length),
     itemCount: items.length,
     decisionAt,
     decisionById,
   };
+}
+
+/** How far the continuation connector turns outside the rows' ends. */
+const WRAP_TURN = 28;
+const WRAP_R = 14;
+
+/**
+ * The continuation connector from a row's end, out right, down into the
+ * gap under that row, back left past the rows' start, and down into the
+ * next row's start (`startX`, `y`), with a small arrowhead there.
+ */
+function wrapLink(
+  from: { endX: number; y: number; bottom: number },
+  startX: number,
+  y: number,
+): MapLink {
+  const xr = from.endX + WRAP_TURN;
+  const xl = startX - WRAP_TURN;
+  const ym = from.bottom + MAP_GEOMETRY.wrapGap / 2;
+  const r = WRAP_R;
+  const d =
+    `M${from.endX} ${from.y}H${xr - r}Q${xr} ${from.y} ${xr} ${from.y + r}` +
+    `V${ym - r}Q${xr} ${ym} ${xr - r} ${ym}H${xl + r}` +
+    `Q${xl} ${ym} ${xl} ${ym + r}V${y - r}Q${xl} ${y} ${xl + r} ${y}H${startX}` +
+    `M${startX - 9} ${y - 5}L${startX - 1} ${y}L${startX - 9} ${y + 5}`;
+  return { kind: "wrap", d, x0: xl, y0: from.y, x1: xr, y1: y };
 }
 
 /** What the reader's state says, as the map needs it. */

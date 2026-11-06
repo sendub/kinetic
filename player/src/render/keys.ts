@@ -166,13 +166,8 @@ const HELP_ROWS: ReadonlyArray<{
   },
   {
     command: null,
-    plainLabel: "1-9 / 0",
-    description: "at a decision: pick a route or return to main route",
-  },
-  {
-    command: null,
-    plainLabel: "↑ ↓ Enter",
-    description: "at a decision: move to any route, Enter picks it",
+    plainLabel: "1-9 0 ↑↓ Enter",
+    description: "at a decision: pick a route; 0 returns to main route",
   },
 ];
 

@@ -1138,8 +1138,34 @@ there"), built now, zoomable and pannable.
   stretch holding the screen shown, or before the decision whose choice
   screen is up. Labels truncate; the full text and status show on hover
   or focus.
+- Layout for a large game: the main line wraps into rows like lines of
+  text, left to right then down. A row holds whole top-level segments
+  (the stretch before a top-level decision plus that decision's whole
+  subtree; a subtree is never split across rows). The row width is the
+  one, of 49 tried between the widest segment and everything on one row,
+  whose whole layout comes closest to the map view's aspect (the view's
+  shape at the open; laid out again only when that shape changes by
+  more than about 30%), so a fit fills the screen. A continuation
+  connector runs from each row's last join, out right, back left through
+  the gap under the row, and into the next row's first stretch with an
+  arrowhead. A story with one top-level decision (the demo) stays one
+  row.
+- Short connectors: everything a route nests lies right of its nested
+  decision's box, so the column under a tall route's pill is empty. An
+  ending route (it draws no line to the join) goes on the first row under
+  its decision where its pill, line and end mark clear that column,
+  rather than under its tallest sibling; routes that continue or return
+  still stack under everything, in manifest order, since their lines run
+  to the join. When a tuck draws a decision's routes out of manifest
+  order, that decision's pills (and their tooltips and aria labels) carry
+  their choice numbers ("3. End the story"), so the order stays legible;
+  in order, no numbers. In the demo, route 2 (an ending) now sits on the
+  row right under route 1, beside the nested decision's second route.
 - Opening and closing: `m`/`M` toggles it (the key table, a help row,
-  and a clickable M entry on the Esc screen). Over the Esc screen it
+  and a clickable M entry on the Esc screen; to keep that screen at 12
+  rows, 3 full rows of 4 or 2 of 6, with Reset in view at 800x600, the
+  two decision-key rows merged into one, `1-9 0 ↑↓ Enter`, "at a
+  decision: pick a route; 0 returns to main route"). Over the Esc screen it
   replaces that screen, as `t` does, so the next Esc returns to the game;
   over the bookmark list it swaps the list for the map, and `t` over the
   map swaps back. It opens over a pending choice (the map moves the
@@ -1159,9 +1185,12 @@ there"), built now, zoomable and pannable.
   highlighted); a route of a reached decision is entered by a real
   `choose()` from that screen (marked played, its last pick, its first
   screen seen, its route pill shown). Unreached decisions and their
-  routes are drawn but inert. A jump closes the map.
-- Scale: the layout is computed once per manifest, linear in decisions
-  and routes, never in items. SVG, three layers: at a readable zoom only
+  routes are drawn but inert. A jump closes the map before the route
+  pill shows. No `#flash` pill is drawn over the map: opening it drops a
+  pill still holding (and any queued), and none shows while it is up
+  (the choice screen's pill gate, `coverChanged`).
+- Scale: the layout is computed once per manifest (and view shape),
+  linear in decisions and routes times nesting depth, never in items. SVG, three layers: at a readable zoom only
   the nodes and lines within half a view of the visible area exist
   (culled, redrawn when the view leaves that area); below a scale (0.6;
   0.3 for a tree of 200 nodes or fewer) labels go and the whole tree is
