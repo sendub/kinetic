@@ -509,6 +509,11 @@
         background: rgba(30, 30, 36, 0.95);
         outline: none;
       }
+      /* The Spoilers switch reads its state, like the Esc screen's. */
+      .map-tool[aria-pressed="true"] {
+        border-color: var(--accent);
+        color: var(--accent);
+      }
       .map-hint,
       .map-legend {
         grid-column: 1 / -1;

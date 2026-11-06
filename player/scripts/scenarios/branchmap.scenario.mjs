@@ -8,12 +8,17 @@
 // screen (and the end state after it) the marker sits on that ending's end
 // mark; Fit fills the view (less a small margin) at any window size, and
 // again after a resize while the map is open (as entering or leaving
-// fullscreen does); a drag or a double click selects no text. Screenshots
-// land in .tmp/branchmap-shots/fb-*.png.
+// fullscreen does); a drag or a double click selects no text. Spoilers
+// (off by default): the question and route labels of a decision not
+// reached are not in the DOM at all (placeholders instead), a reached
+// decision's routes show their labels, S or the header button shows
+// everything without moving the tree, and the setting survives a reload.
+// Screenshots land in .tmp/branchmap-shots/fb-*.png and spoil-*.png.
 
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import {
+  branch,
   CHOICE_OPEN,
   currentItemId,
   HELP_OPEN,
@@ -30,12 +35,13 @@ import {
 } from "./harness.mjs";
 
 export const title =
-  "branch map: open, here-marker (endings too), zoom, pan, fit fills and refits on resize, no text selection, jumps, Esc, M over Esc";
+  "branch map: open, here-marker (endings too), zoom, pan, fit fills and refits on resize, no text selection, jumps, Esc, M over Esc, spoilers";
 
 const shots = join(repoRoot, ".tmp", "branchmap-shots");
 
 const pressM = (cdp) => pressKey(cdp, "m", "KeyM", 77, "m");
 const pressF = (cdp) => pressKey(cdp, "f", "KeyF", 70, "f");
+const pressS = (cdp) => pressKey(cdp, "s", "KeyS", 83, "s");
 
 const MAP_OPEN = () => {
   const p = document.getElementById("branchmap");
@@ -173,7 +179,8 @@ export default async function ({ check, open }) {
   // Open with m: the tree, its marks and the here-marker.
   const map = await openMap(page, cdp);
   const outerNode = map.decisions.find((d) => d.text.startsWith("Demo"));
-  const nestedNode = map.decisions.find((d) => d.text.startsWith("Nested"));
+  // Not reached, so (spoilers off) shown by placeholder, not its question.
+  const nestedNode = map.decisions.find((d) => d.inert);
   const route1 = map.routes.find((r) => r.text.includes("Route 1"));
   const route2 = map.routes.find((r) => r.text.includes("Route 2"));
   check(
@@ -310,8 +317,8 @@ export default async function ({ check, open }) {
   );
 
   // An unreached decision is inert: a click changes nothing.
-  const nestedFit = fit.decisions.find((d) => d.text.startsWith("Nested"));
-  const nestedRoute = fit.routes.find((r) => r.text.includes("1a"));
+  const nestedFit = fit.decisions.find((d) => d.inert);
+  const nestedRoute = fit.routes.find((r) => r.inert);
   await click(cdp, centre(nestedFit.box).x, centre(nestedFit.box).y);
   await sleep(80);
   await click(cdp, centre(nestedRoute.box).x, centre(nestedRoute.box).y);
@@ -494,6 +501,7 @@ export default async function ({ check, open }) {
   });
   await pressEscape(cdp);
   await endings({ check, open });
+  await spoilers({ check, open });
 }
 
 // The demo read through with play-all (everything seen): at the story's
@@ -542,5 +550,167 @@ async function endings({ check, open }) {
     "fully seen, on route 2's last screen the marker sits on route 2's ending mark",
     onChoice && item2 === "route2-end" && onEnding(atRoute2),
     { onChoice, item2, here: atRoute2.here, ends: atRoute2.ends },
+  );
+}
+
+// Every question and route label the demo's map could show, and what
+// "absent" means: neither the string nor its first 12 characters (a
+// truncated label keeps a prefix) anywhere in the panel's markup, which
+// holds the SVG text, the aria labels, the titles and the tooltip.
+const OUTER = branch("outer");
+const NESTED = branch("nested");
+const textsOf = (b) => [b.prompt, ...b.routes.map((r) => r.label)];
+const READ_SPOIL = (strings) => {
+  const panel = document.getElementById("branchmap");
+  const html = panel?.outerHTML ?? "";
+  const button = panel?.querySelector('[data-act="spoil"]');
+  const tools = Array.from(panel?.querySelectorAll(".map-tool") ?? []).map(
+    (el) => {
+      const r = el.getBoundingClientRect();
+      return { x: r.x, y: r.y, w: r.width, h: r.height };
+    },
+  );
+  const head = panel?.querySelector(".map-head")?.getBoundingClientRect();
+  const view = panel?.querySelector(".map-view")?.getBoundingClientRect();
+  return {
+    found: strings.filter(
+      (t) => html.includes(t) || html.includes(t.slice(0, 12)),
+    ),
+    prompts: (html.match(/Decision not reached/g) ?? []).length,
+    unseen: (html.match(/Unseen route/g) ?? []).length,
+    pressed: button?.getAttribute("aria-pressed") ?? null,
+    label: button?.textContent ?? null,
+    tools,
+    head: head ? { w: head.width, h: head.height } : null,
+    viewH: view?.height ?? 0,
+    win: { w: window.innerWidth, h: window.innerHeight },
+    boxes: Array.from(panel?.querySelectorAll("[data-d],[data-r]") ?? []).map(
+      (el) => el.getAttribute("transform"),
+    ),
+  };
+};
+
+async function spoilers({ check, open }) {
+  const { page, cdp } = await open("spoilers", {
+    closeHelp: true,
+    manualChoices: true,
+  });
+  const all = [...textsOf(OUTER), ...textsOf(NESTED)];
+  const read = () => page.evaluate(READ_SPOIL, all);
+  const shot = (name) =>
+    page.screenshot({ path: join(shots, `spoil-${name}.png`) });
+
+  // Early in the demo, nothing reached: every question and label hidden.
+  await page.setViewport({ width: 1920, height: 1080 });
+  await sleep(100);
+  const early = await openMap(page, cdp);
+  const off = await read();
+  // Hover a route pill: its tooltip says the placeholder.
+  const pill = early.routes.find((r) => r.inert);
+  await mouse(cdp, "mouseMoved", centre(pill.box).x, centre(pill.box).y, 0);
+  await sleep(80);
+  const tip = await page.evaluate(
+    () => document.querySelector(".map-tip")?.textContent ?? "",
+  );
+  const offHover = await read();
+  await shot("off-1920x1080");
+  await pressF(cdp);
+  await sleep(80);
+  const offFit = await read();
+  check(
+    "spoilers off by default: early on, no question or route label is in the map's DOM (tooltip and aria included); placeholders shown",
+    off.pressed === "false" &&
+      off.label === "Spoilers: Off" &&
+      off.found.length === 0 &&
+      offHover.found.length === 0 &&
+      offFit.found.length === 0 &&
+      off.prompts >= 2 &&
+      off.unseen >= 4 &&
+      tip.startsWith("Unseen route") &&
+      early.decisions.every((d) => d.text === "Decision not reached"),
+    { off, tip, fitFound: offFit.found },
+  );
+
+  // S shows everything, the tree where it was; at 800x600 the header fits.
+  const pre = await page.evaluate(READ_MAP);
+  await pressS(cdp);
+  await sleep(80);
+  const on = await read();
+  const post = await page.evaluate(READ_MAP);
+  await shot("on-1920x1080");
+  check(
+    "S turns spoilers on: every question and label shows, the tree does not move",
+    on.pressed === "true" &&
+      on.label === "Spoilers: On" &&
+      on.found.length === all.length &&
+      on.prompts === 0 &&
+      on.unseen === 0 &&
+      pre.tx === post.tx &&
+      pre.ty === post.ty &&
+      pre.scale === post.scale &&
+      JSON.stringify(offFit.boxes) === JSON.stringify(on.boxes),
+    {
+      on: on.found,
+      prompts: on.prompts,
+      unseen: on.unseen,
+      sameBoxes: JSON.stringify(offFit.boxes) === JSON.stringify(on.boxes),
+      pre: [pre.tx, pre.ty],
+      post: [post.tx, post.ty],
+    },
+  );
+  await page.setViewport({ width: 800, height: 600 });
+  await sleep(250);
+  await shot("on-800x600");
+  const small = await read();
+  // The header button toggles too.
+  const button = small.tools[0];
+  await click(cdp, centre(button).x, centre(button).y);
+  await sleep(80);
+  const smallOff = await read();
+  await shot("off-800x600");
+  check(
+    "at 800x600 the header (with the Spoilers button) fits and leaves the map most of the screen; the button toggles",
+    small.tools.every(
+      (t) => t.x >= 0 && t.x + t.w <= small.win.w && t.y >= 0,
+    ) &&
+      small.viewH > small.win.h * 0.6 &&
+      smallOff.pressed === "false" &&
+      smallOff.found.length === 0,
+    { tools: small.tools, head: small.head, viewH: small.viewH },
+  );
+  await pressEscape(cdp);
+  await page.waitForFunction(MAP_CLOSED, { timeout: 3000 });
+
+  // The outer decision reached (its choice up, no route played): its
+  // question and both labels show; the nested one stays hidden.
+  await page.setViewport({ width: 1280, height: 720 });
+  await spaceTo(page, cdp, "branch-decide");
+  await pressSpace(cdp);
+  await page.waitForFunction(CHOICE_OPEN, { timeout: 3000 });
+  await openMap(page, cdp);
+  const reached = await read();
+  check(
+    "once the first decision is reached its question and route labels show, unplayed ones too; the nested decision's stay hidden",
+    textsOf(OUTER).every((t) => reached.found.includes(t)) &&
+      textsOf(NESTED).every((t) => !reached.found.includes(t)) &&
+      reached.prompts > 0 &&
+      reached.unseen > 0,
+    reached,
+  );
+
+  // On, then a reload: still on.
+  await pressS(cdp);
+  await sleep(150);
+  await pressEscape(cdp);
+  await page.waitForFunction(MAP_CLOSED, { timeout: 3000 });
+  await sleep(300);
+  await page.reload();
+  await sleep(800);
+  await openMap(page, cdp);
+  const reloaded = await read();
+  check(
+    "the Spoilers setting survives a reload",
+    reloaded.pressed === "true" && reloaded.found.length === all.length,
+    reloaded,
   );
 }

@@ -1,7 +1,9 @@
 // The branch map screen (docs/plan.md Phase 31): `m` opens the decision tree
 // with the reader's marks; drag pans, the wheel or a pinch zooms around the
 // pointer, the arrow keys pan and +/- zoom, F (or 0) fits the whole tree and
-// C recentres on "you are here". A click on a reached decision or one of its
+// C recentres on "you are here"; S (or the header's switch) flips Spoilers,
+// off by default, which hides the text of decisions not reached
+// (mapmodel.ts `MapMarks.hidden`). A click on a reached decision or one of its
 // routes asks the shell to jump there (the machine does the moving; see
 // mapmodel.ts `runJump`).
 //
@@ -42,6 +44,8 @@ import {
   markMap,
   openingView,
   PROMPT_CHARS,
+  promptText,
+  routeText,
   truncateLabel,
   viewAfterResize,
   visibleWorld,
@@ -51,7 +55,16 @@ import {
 
 export const MAP_TITLE = "Branch map";
 export const MAP_HINT =
-  "Drag to move · wheel or pinch to zoom · click a reached decision or route to go there · F fit · C you are here · Esc or M closes";
+  "Drag to move · wheel or pinch to zoom · click a reached decision or route to go there · F fit · C you are here · S spoilers · Esc or M closes";
+
+/**
+ * The Spoilers switch's text, mirroring its aria-pressed value: off (the
+ * default) hides the text of decisions not reached (mapmodel.ts
+ * `MapMarks.hidden`).
+ */
+export function spoilersLabel(on: boolean): string {
+  return on ? "Spoilers: On" : "Spoilers: Off";
+}
 
 /** Pan per arrow press, in screen pixels; zoom per +/- press. */
 const KEY_PAN_PX = 90;
@@ -74,6 +87,10 @@ export interface BranchMapOptions {
   onJump(jump: MapJump): void;
   /** The map opened (true) or closed (false). */
   onOpenChange?(open: boolean): void;
+  /** The Spoilers setting in force (`mapSpoilers`); read on every open. */
+  spoilers(): boolean;
+  /** The reader flipped Spoilers (button or S): the shell persists it. */
+  onSpoilersChange(on: boolean): void;
 }
 
 export interface BranchMap {
@@ -123,7 +140,7 @@ export function describeTarget(
     const status = marks.reached[target.decision]
       ? `${marks.playedCount[target.decision]} of ${total} routes played · click to go to this choice`
       : "not reached yet";
-    return { title: node?.prompt ?? "", status };
+    return { title: promptText(model, marks, target.decision), status };
   }
   const route = model.routes[target.key];
   const parts: string[] = [
@@ -136,9 +153,8 @@ export function describeTarget(
       ? "click to play it from its start"
       : "decision not reached yet",
   );
-  const title = route.numbered
-    ? `${route.route + 1}. ${route.label}`
-    : route.label;
+  const text = routeText(model, marks, target.key);
+  const title = route.numbered ? `${route.route + 1}. ${text}` : text;
   return { title, status: parts.join(" · ") };
 }
 
@@ -269,7 +285,9 @@ export function detailMarkup(
     const top = node.y - g.decH / 2;
     if (!within(rect, node.x, top, node.x + g.decW, top + g.decH)) continue;
     const reached = marks.reached[node.index];
-    const label = escapeXml(truncateLabel(node.prompt, PROMPT_CHARS));
+    const label = escapeXml(
+      truncateLabel(promptText(model, marks, node.index), PROMPT_CHARS),
+    );
     const target: MapTarget = { kind: "decision", decision: node.index };
     const { title, status } = describeTarget(model, marks, target);
     const sub = reached
@@ -299,10 +317,11 @@ export function detailMarkup(
       key,
     });
     // Drawn out of manifest order: the choice number says which is which.
+    const text = routeText(model, marks, key);
     const label = escapeXml(
       route.numbered
-        ? `${route.route + 1}. ${truncateLabel(route.label, LABEL_CHARS - 3)}`
-        : truncateLabel(route.label, LABEL_CHARS),
+        ? `${route.route + 1}. ${truncateLabel(text, LABEL_CHARS - 3)}`
+        : truncateLabel(text, LABEL_CHARS),
     );
     out.push(
       `<g class="${classes.join(" ")}" data-r="${key}" data-state="${state}" transform="translate(${route.x} ${route.y})"${reached ? ' tabindex="0" role="button"' : ""} aria-label="${escapeXml(`${title}: ${status}`)}">` +
@@ -337,6 +356,8 @@ export function mountBranchMap({
   reader,
   onJump,
   onOpenChange,
+  spoilers: spoilersSetting,
+  onSpoilersChange,
 }: BranchMapOptions): BranchMap {
   const doc = root.ownerDocument;
   const win = doc.defaultView;
@@ -366,6 +387,14 @@ export function mountBranchMap({
     button.title = label;
     tools.append(button);
   };
+  tool(
+    "spoil",
+    spoilersLabel(false),
+    "Show the text of decisions not reached yet (S)",
+  );
+  const spoilButton = tools.lastElementChild as HTMLButtonElement;
+  spoilButton.classList.add("map-spoil");
+  spoilButton.setAttribute("aria-pressed", "false");
   tool("here", "You are here", "Centre on where you are (C)");
   tool("fit", "Fit", "Show the whole tree (F)");
   tool("out", "−", "Zoom out (-)");
@@ -407,6 +436,13 @@ export function mountBranchMap({
   let model: MapModel | null = null;
   let modelAspect = 0;
   let marks: MapMarks | null = null;
+  // Spoilers, as read at the open and flipped since (the marks carry it).
+  let spoilers = false;
+  const showSpoilers = () => {
+    spoilButton.textContent = spoilersLabel(spoilers);
+    spoilButton.setAttribute("aria-pressed", String(spoilers));
+  };
+  const markNow = (m: MapModel) => markMap(m, { ...reader(), spoilers });
   let view: MapView = { x: 0, y: 0, scale: 1 };
   // The view is Fit's (F or the button) and nothing has moved it since: a
   // resize fits again rather than keeping the old size.
@@ -450,7 +486,7 @@ export function mountBranchMap({
     measure();
     if (vw === from.w && vh === from.h) return;
     if (layOut() && model !== null) {
-      marks = markMap(model, reader());
+      marks = markNow(model);
       drawn = null;
       skeletonDrawn = false;
       if (!fitted)
@@ -526,6 +562,21 @@ export function mountBranchMap({
     fitted = true;
   }
 
+  // Spoilers flipped: the same layout and view (the boxes' sizes never
+  // depend on their text), only the text redrawn.
+  function toggleSpoilers(): void {
+    spoilers = !spoilers;
+    showSpoilers();
+    onSpoilersChange(spoilers);
+    if (panel.hidden || model === null) return;
+    marks = markNow(model);
+    drawn = null;
+    skeletonDrawn = false;
+    hideTip();
+    if (frame === 0 && win !== null) frame = win.requestAnimationFrame(paint);
+    else if (win === null) paint();
+  }
+
   function recentre(): void {
     if (marks !== null)
       setView(centreOn(marks.here.x, marks.here.y, vw, vh, view.scale));
@@ -573,8 +624,11 @@ export function mountBranchMap({
     tip.style.transform = `translate(${left}px, ${Math.max(top, 4)}px)`;
   }
 
+  // A hidden tip keeps no text: after Spoilers goes off, nothing it said
+  // may linger in the DOM.
   function hideTip(): void {
     tip.hidden = true;
+    tip.textContent = "";
   }
 
   // Pointer: a press that moves pans; one that does not is a click on the
@@ -695,7 +749,8 @@ export function mountBranchMap({
     const act = (event.target as Element)
       .closest("[data-act]")
       ?.getAttribute("data-act");
-    if (act === "here") recentre();
+    if (act === "spoil") toggleSpoilers();
+    else if (act === "here") recentre();
     else if (act === "fit") showWhole();
     else if (act === "in") zoomBy(KEY_ZOOM);
     else if (act === "out") zoomBy(1 / KEY_ZOOM);
@@ -726,6 +781,13 @@ export function mountBranchMap({
     else if (key === "-" || key === "_") zoomBy(1 / KEY_ZOOM);
     else if (key === "f" || key === "F" || key === "0") showWhole();
     else if (key === "c" || key === "C") recentre();
+    else if (
+      (key === "s" || key === "S") &&
+      !event.ctrlKey &&
+      !event.metaKey &&
+      !event.altKey
+    )
+      toggleSpoilers();
     else if (key === "Enter") {
       const hit = targetOf(doc.activeElement);
       if (hit !== null && panel.contains(hit.node)) activate(hit.target);
@@ -763,8 +825,10 @@ export function mountBranchMap({
       panel.hidden = false;
       measure();
       layOut();
+      spoilers = spoilersSetting();
+      showSpoilers();
       if (model === null) return;
-      marks = markMap(model, reader());
+      marks = markNow(model);
       view = openingView(model, marks, vw, vh);
       fitted = false;
       far = view.scale < labelMinScale(model);

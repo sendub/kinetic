@@ -206,6 +206,17 @@ describe("parseProgressFile (Import progress refuses, never trusts)", () => {
   });
 });
 
+describe("the map's Spoilers setting travels with the progress file", () => {
+  it("exports and imports mapSpoilers like the other settings", () => {
+    const text = exported({ state: { settings: { mapSpoilers: true } } });
+    const parsed = parseProgressFile(text, HERE);
+    expect(parsed).toMatchObject({
+      ok: true,
+      state: { settings: { mapSpoilers: true } },
+    });
+  });
+});
+
 describe("importProgress (a confirmed import replaces, then reloads)", () => {
   async function filled() {
     const storage = createMemoryStorage();

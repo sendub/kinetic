@@ -680,6 +680,11 @@ export interface MapReader {
   readonly cursor: number;
   /** The decision whose choice screen is up, by id; absent: none. */
   readonly choiceId?: string;
+  /**
+   * The map's Spoilers toggle (the `mapSpoilers` setting); absent or false:
+   * the text of every decision not reached is hidden (`MapMarks.hidden`).
+   */
+  readonly spoilers?: boolean;
 }
 
 /** A route as the reader stands with it. */
@@ -690,6 +695,13 @@ export type RunMark = "unseen" | "partly" | "seen";
 export interface MapMarks {
   /** Per decision (by machine index): its `after` item has been seen. */
   readonly reached: readonly boolean[];
+  /**
+   * Per decision: its question and its routes' labels are new to the
+   * reader and Spoilers is off, so the map shows placeholders instead
+   * (`promptText`, `routeText`). A decision not reached; nested ones under
+   * it are not reached either, so their text is hidden too.
+   */
+  readonly hidden: readonly boolean[];
   /** Per decision: how many of its routes are played. */
   readonly playedCount: readonly number[];
   /** Per `MapModel.routes` entry. */
@@ -734,6 +746,7 @@ export function markMap(model: MapModel, reader: MapReader): MapMarks {
   const reached = model.decisionAt.map(
     (d) => d !== undefined && seen[d.afterIndex] === 1,
   );
+  const hidden = reached.map((r) => !r && reader.spoilers !== true);
   const playedCount = model.decisionAt.map(() => 0);
   const routes: RouteMark[] = model.routes.map((route) => {
     const entered = played.get(route.decision)?.has(route.route) === true;
@@ -758,12 +771,41 @@ export function markMap(model: MapModel, reader: MapReader): MapMarks {
   });
   return {
     reached,
+    hidden,
     playedCount,
     routes,
     lastPick,
     runs,
     here: hereOf(model, reader),
   };
+}
+
+/** The placeholders shown, with Spoilers off, for text the reader has not met. */
+export const HIDDEN_PROMPT = "Decision not reached";
+export const HIDDEN_ROUTE = "Unseen route";
+
+/** A decision's question as the map may show it (full, untruncated). */
+export function promptText(
+  model: MapModel,
+  marks: MapMarks,
+  decision: number,
+): string {
+  if (marks.hidden[decision]) return HIDDEN_PROMPT;
+  return model.decisionAt[decision]?.prompt ?? "";
+}
+
+/**
+ * A route's label as the map may show it (full, untruncated, no choice
+ * number). A hidden one is the placeholder whatever the real label is, so
+ * nothing about it reaches the page.
+ */
+export function routeText(
+  model: MapModel,
+  marks: MapMarks,
+  key: number,
+): string {
+  const route = model.routes[key];
+  return marks.hidden[route.decision] ? HIDDEN_ROUTE : route.label;
 }
 
 /** How far before a decision box the marker sits while its choice is up. */

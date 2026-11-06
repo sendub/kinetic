@@ -9,6 +9,8 @@ import {
   FIT_MARGIN_PX,
   fitView,
   HERE_DECISION_GAP,
+  HIDDEN_PROMPT,
+  HIDDEN_ROUTE,
   hitTest,
   jumpFor,
   LABEL_MIN_SCALE,
@@ -397,9 +399,14 @@ describe("buildMapModel: rows like lines of text, endings tucked in", () => {
     expect(model.routes.some((r) => r.numbered)).toBe(true);
     const tops = topLevel(model);
     const route = model.routes[tops[0].routes[2]];
-    const marks = markMap(model, { visited: [], playedRoutes: [], cursor: 0 });
+    const reader = { visited: [], playedRoutes: [], cursor: 0 };
+    const marks = markMap(model, { ...reader, spoilers: true });
     expect(detailMarkup(model, marks)).toContain(
       `○ 3. ${truncateLabel(route.label, 22)}`,
+    );
+    // Spoilers off: the number stays, the label is the placeholder.
+    expect(detailMarkup(model, markMap(model, reader))).toContain(
+      `○ 3. ${HIDDEN_ROUTE}`,
     );
   });
 
@@ -974,6 +981,102 @@ describe("labels and markup", () => {
     });
     expect(title).toContain("very very");
     expect(title.endsWith("long")).toBe(true);
+  });
+});
+
+describe("Spoilers: text of decisions not reached stays hidden", () => {
+  // Every real string the demo's map could show: questions and labels.
+  const REAL = DEMO_BRANCHES.flatMap((b) => [
+    b.prompt ?? "",
+    ...b.routes.map((r) => r.label),
+  ]);
+  const OUTER_LABELS = DEMO_BRANCHES[1].routes.map((r) => r.label);
+  const NESTED_TEXT = [
+    DEMO_BRANCHES[0].prompt ?? "",
+    ...DEMO_BRANCHES[0].routes.map((r) => r.label),
+  ];
+  // All the text the map can put on the page for a reader state: both
+  // markup layers, every tooltip / aria label.
+  function pageText(model: MapModel, reader: MapReader): string {
+    const marks = markMap(model, reader);
+    const tips = [
+      ...model.decisions.map((d) =>
+        describeTarget(model, marks, { kind: "decision", decision: d.index }),
+      ),
+      ...model.routes.map((_, key) =>
+        describeTarget(model, marks, { kind: "route", key }),
+      ),
+    ].map(({ title, status }) => `${title}\n${status}`);
+    return [
+      detailMarkup(model, marks),
+      skeletonMarkup(model, marks),
+      ...tips,
+    ].join("\n");
+  }
+  // A string, or any 12-character piece of it (truncation keeps a prefix).
+  const leaks = (text: string, real: string) =>
+    text.includes(real) || text.includes(real.slice(0, 12));
+
+  it("is off by default: a first load hides every question and label", () => {
+    const model = demoModel();
+    const reader = readerOf(demoMachine());
+    expect(reader.spoilers).toBeUndefined();
+    const marks = markMap(model, reader);
+    expect(marks.hidden).toEqual([true, true]);
+    const text = pageText(model, reader);
+    for (const real of REAL) expect(leaks(text, real)).toBe(false);
+    expect(text).toContain(HIDDEN_PROMPT);
+    expect(text).toContain(HIDDEN_ROUTE);
+    // Counts, marks and status lines are unchanged.
+    expect(text).toContain("not reached yet");
+    expect(text).toContain("screens");
+  });
+
+  it("shows a reached decision's question and all its routes, unplayed ones too; nested ones stay hidden", () => {
+    const model = demoModel();
+    const m = demoMachine();
+    m.advance(); // decide
+    m.advance(); // the outer choice opens
+    const reader = readerOf(m);
+    const marks = markMap(model, reader);
+    expect(marks.hidden).toEqual([true, false]);
+    expect(marks.routes.every((r) => r === "unseen")).toBe(true);
+    const text = pageText(model, reader);
+    expect(text).toContain(DEMO_BRANCHES[1].prompt);
+    for (const label of OUTER_LABELS) expect(text).toContain(label);
+    for (const real of NESTED_TEXT) expect(leaks(text, real)).toBe(false);
+    const nestedRoute = routeKey(model, NESTED, 1);
+    expect(
+      describeTarget(model, marks, { kind: "route", key: nestedRoute }).title,
+    ).toBe(HIDDEN_ROUTE);
+    expect(
+      describeTarget(model, marks, { kind: "decision", decision: NESTED })
+        .title,
+    ).toBe(HIDDEN_PROMPT);
+  });
+
+  it("on: everything shows, as before", () => {
+    const model = demoModel();
+    const reader = { ...readerOf(demoMachine()), spoilers: true };
+    expect(markMap(model, reader).hidden).toEqual([false, false]);
+    const text = pageText(model, reader);
+    for (const real of REAL) expect(text).toContain(real);
+    expect(text).not.toContain(HIDDEN_PROMPT);
+    expect(text).not.toContain(HIDDEN_ROUTE);
+  });
+
+  it("changes no layout, marks or clicks: only the text", () => {
+    const model = demoModel();
+    const reader = readerOf(demoMachine());
+    const off = markMap(model, reader);
+    const on = markMap(model, { ...reader, spoilers: true });
+    expect({ ...off, hidden: [] }).toEqual({ ...on, hidden: [] });
+    const shape = (markup: string) =>
+      markup.replace(/>[^<]*</g, "><").replace(/aria-label="[^"]*"/g, "");
+    expect(shape(detailMarkup(model, off))).toBe(
+      shape(detailMarkup(model, on)),
+    );
+    expect(skeletonMarkup(model, off)).toBe(skeletonMarkup(model, on));
   });
 });
 

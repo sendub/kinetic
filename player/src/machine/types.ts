@@ -214,6 +214,14 @@ export interface MachineSettings {
    * skip burst the countdown is dropped; only the highlight shows.
    */
   playAllRoutes: boolean;
+  /**
+   * The branch map's Spoilers toggle (docs/plan.md Phase 31); default
+   * false. While off, the map (`m`) shows placeholders instead of the
+   * question of every decision not reached and the labels of its routes.
+   * A reader setting stored with the others (so it persists and travels
+   * with exported progress); the machine itself never reads it.
+   */
+  mapSpoilers: boolean;
 }
 
 export const DEFAULT_SETTINGS: MachineSettings = {
@@ -226,6 +234,7 @@ export const DEFAULT_SETTINGS: MachineSettings = {
   skipAll: false,
   skipPlaysVideos: false,
   playAllRoutes: true,
+  mapSpoilers: false,
 };
 
 /**

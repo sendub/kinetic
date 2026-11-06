@@ -380,6 +380,14 @@ describe("sanitizeSettings — the settings the shipped adapter reads back", () 
     ).toEqual({ playAllRoutes: true });
   });
 
+  it("keeps the branch map's Spoilers switch (off by default)", () => {
+    expect(DEFAULT_SETTINGS.mapSpoilers).toBe(false);
+    expect(sanitizeSettings({ mapSpoilers: true })).toEqual({
+      mapSpoilers: true,
+    });
+    expect(sanitizeSettings({ mapSpoilers: "on" })).toBeUndefined();
+  });
+
   it("accepts exactly the DEFAULT_SETTINGS fields — nothing is missed", () => {
     const all = Object.fromEntries(
       Object.entries(DEFAULT_SETTINGS).map(([field, value]) => [

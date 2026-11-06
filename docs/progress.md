@@ -1609,10 +1609,21 @@ truthful: an unchecked box means nothing was accepted.
       Orchestrator: vitest 676, check 0 warnings, smoke 6/6, branchmap
       23/23, screens 67 pass 2 partial (fullscreen Esc); screenshots:
       marker on Route 2's end square, fit fills 2560x1440.)
-- [ ] Spoilers toggle on the map screen, off by default: when off,
+- [x] Spoilers toggle on the map screen, off by default: when off,
       unseen content shows no text labels. Scope (user chose "a"):
       hide the question of every unreached decision and the labels of
       routes at unreached decisions, tooltips included; routes at
       reached decisions keep their labels (the choice screen already
       showed them). Neutral placeholders; clicking unchanged; the
       setting persists like the other settings.
+      (`mapSpoilers` in MachineSettings, default false, so it persists
+      and travels in export/import; `markMap` sets `hidden[d]` for
+      unreached decisions; `promptText`/`routeText` are the only text
+      sources, so real strings never reach the DOM; the hidden tooltip
+      is now cleared. Header "Spoilers: Off/On" button and `S`.
+      Orchestrator: vitest 682, check 0 warnings, smoke 6/6, branchmap
+      29/29, screens 67 pass 2 partial (fullscreen Esc); screenshots:
+      placeholders at both sizes, header fits at 800x600.)
+- [ ] Fit clips the screen-space "you are here" label: at 800x600 on
+      the demo's start the marker's label runs off the left edge. Fit
+      (and the opening view) must keep the marker and its label in view.

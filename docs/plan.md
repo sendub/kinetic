@@ -1200,6 +1200,24 @@ there"), built now, zoomable and pannable.
   0.3 for a tree of 200 nodes or fewer) labels go and the whole tree is
   drawn as one path per look; the marker stays in screen space. Measured
   with `npm run perf:map` (docs/perf.md, "Branch map").
+- Spoilers (2026-11-06, user): a header switch, "Spoilers: Off" /
+  "Spoilers: On" (aria-pressed, styled like the Esc screen's On/Off
+  toggles), and the map-only key S (named in the hint). Off by default.
+  While off, the question of every decision not reached and the labels of
+  all its routes (nested decisions under it are not reached either, so
+  theirs too) are replaced by "Decision not reached" and "Unseen route"
+  (a tucked, numbered pill keeps its number: "3. Unseen route") in the
+  SVG text, the aria labels and the tooltip; the real strings are never
+  put in the DOM (a hidden tooltip keeps no text). A reached decision's
+  routes keep their labels, played or not: its choice screen already
+  showed them. Counts, marks, status lines, layout (boxes are fixed
+  sizes, never sized by their text), clicks and "you are here" are the
+  same either way; a flip redraws the text only, the view unmoved. On:
+  everything, as before. Stored as the `mapSpoilers` reader setting
+  (`MachineSettings`, which the machine itself ignores), so it persists
+  with the other settings and rides in exported progress. The rule is
+  `MapMarks.hidden` (mapmodel.ts `markMap`, from `MapReader.spoilers`);
+  `promptText` / `routeText` give the text the map may show.
 
 ## Later, waiting on the user
 

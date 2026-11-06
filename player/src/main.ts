@@ -610,6 +610,14 @@ function start(): void {
         // is up. A jump closes the map first, so its route pill shows on
         // the story.
         onOpenChange: (open) => shell.setPillsCovered(open),
+        // Spoilers (Phase 31): a reader setting like the Esc screen's, so it
+        // persists in the same record and travels with exported progress.
+        spoilers: () => currentSettings.mapSpoilers,
+        onSpoilersChange: (on) => {
+          // The machine never reads it, so no setSettings (no re-arm).
+          currentSettings = { ...currentSettings, mapSpoilers: on };
+          persistUrgently();
+        },
         reader: () => {
           const ctx = machine.exportContext();
           const state = machine.getState();
