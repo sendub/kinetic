@@ -1686,7 +1686,7 @@ truthful: an unchecked box means nothing was accepted.
 
 ## Phase 34: Map button hints (2026-11-06, user)
 
-- [ ] Map button shortcut hints show at once: the native `title` hint
+- [x] Map button shortcut hints show at once: the native `title` hint
       appears only after a long delay in Chrome and never in Safari.
       Replace it with the player's own hint that appears immediately on
       hover and on keyboard focus, in both browsers.
@@ -1698,4 +1698,4 @@ truthful: an unchecked box means nothing was accepted.
       visible within one frame, in the viewport); Chrome screenshot
       shows "shortcut: F" under Fit. Safari NOT verified: safaridriver
       sessions time out connecting to Safari (subagent and orchestrator
-      runs); awaiting the user's check.)
+      runs); the user confirmed the hints appear in Safari, 2026-11-06.)
