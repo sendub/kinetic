@@ -1585,5 +1585,9 @@ truthful: an unchecked box means nothing was accepted.
       branchmap 16/16, screens 67 pass 2 partial (fullscreen Esc),
       branches 43/43; screenshots: large game fit fills the screen in
       rows, Reset visible at 800x600.)
-- [ ] Phase-closer (Phases 29-31): full scenario suite, full pytest,
+- [x] Phase-closer (Phases 29-31): full scenario suite, full pytest,
       package-proof.
+      (2026-11-06: scenario suite 12 files, 250 checks: 248 pass, 2
+      PARTIAL (headless fullscreen Escapes), 0 FAIL; full pytest 523
+      passed; package-proof 18/18 after regenerating the deleted
+      .tmp/extract-demo with kinetic-extract on fixtures/renpy_demo.)
