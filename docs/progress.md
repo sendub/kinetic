@@ -1741,5 +1741,9 @@ truthful: an unchecked box means nothing was accepted.
       .tmp/corpus-map/; the black card at Fit is that bookmark's own capture
       of a black video frame. Safari not verified: safaridriver
       does not connect.)
-- [ ] Phase-closer (Phase 35): full scenario suite, package-proof
+- [x] Phase-closer (Phase 35): full scenario suite, package-proof
       (rebuilds the demo); pytest not needed, converter untouched.
+      (2026-11-07: 13 scenarios, 304 checks: 301 pass, 2 PARTIAL
+      (headless fullscreen Escapes), 1 FAIL fixed before the item's
+      commit (reading's stale T row; re-run 17/17); package-proof 18/18,
+      demo rebuilt.)
