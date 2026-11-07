@@ -152,10 +152,7 @@ const HELP_ROWS: ReadonlyArray<{
   { command: "toggleAutoForward", description: "auto-forward on / off" },
   { command: "toggleText", description: "hide / show the text" },
   { command: "bookmark", description: "bookmark this moment" },
-  {
-    command: "toggleMap",
-    description: "branch map and bookmarks: click to go there",
-  },
+  { command: "toggleMap", description: "branch map and bookmarks" },
   {
     command: "dismissOverlay",
     description: "this screen: keys and settings; closes the map",

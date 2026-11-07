@@ -1298,7 +1298,8 @@ goes.
   deleting a bookmark is a Fit.
 - Cards: the newest has the accent outline (2 screen pixels at any zoom)
   and a NEWEST tag. Below 0.7x the caption goes (the thumbnail fills the
-  card) and a hover tooltip gives the time. A click opens the bookmark
+  card) and a hover tooltip gives the time (at every zoom since Phase
+  36, the time alone). A click opens the bookmark
   exactly as the `t` screen's row did (the record's context, converted
   to this manifest, through `importContext` with `mergeProgress`), closes
   the map and lands there; a press that moves 5 px is a drag and pans,
@@ -1343,6 +1344,21 @@ goes.
   the × at Fit; a ghost at Fit a sub-pixel outline with 3 px text, its
   Undo too small to aim at) are fixed and covered by
   `bookmarkmap.scenario.mjs` with the demo.
+
+## Phase 36: Card hover shows only the timestamp (2026-11-07, user)
+
+- Hovering a bookmark card's picture or body shows the map tooltip at
+  every zoom (Fit, 100% and between), ghosts included, with only the
+  card's timestamp: `formatTimestamp`, the caption's text, on one line.
+  Phase 35 showed it only below 0.7x, as "Bookmark <time>" (plus
+  "(newest)") over "click to continue from here · × deletes it" (a
+  ghost: "deleted · click or Z puts it back"). Over the × or a ghost's
+  Undo their own hint speaks and no card tooltip shows; the tooltip's
+  placement is unchanged. Undo stays with the ghost's Undo, a click on
+  the ghost, the toast and Z. A card's aria label still reads "Bookmark
+  <time>", with "(newest)" on the newest.
+- The Esc screen's M row reads "branch map and bookmarks" (it was
+  "branch map and bookmarks: click to go there").
 
 ## Later, waiting on the user
 

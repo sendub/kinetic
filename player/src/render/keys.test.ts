@@ -302,6 +302,11 @@ describe("the Esc screen's controls", () => {
   it("only the m row of the Esc screen is a control (t is gone, Phase 35)", () => {
     expect([...CLICKABLE_HELP_COMMANDS]).toEqual(["toggleMap"]);
   });
+
+  it("names the m row's screen without telling the reader to click (Phase 36)", () => {
+    const row = keyHelpEntries().find((e) => e.command === "toggleMap");
+    expect(row?.description).toBe("branch map and bookmarks");
+  });
 });
 
 describe("mapKeyAction (m, the branch map; Phase 31)", () => {

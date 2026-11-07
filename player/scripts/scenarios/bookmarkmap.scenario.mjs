@@ -7,9 +7,12 @@
 // drag that starts on a card pans and opens nothing; Delete, Backspace and
 // Enter do nothing to a card; the × deletes at 100% and at Fit (drawn at a
 // usable screen size there), with its instant hint, a ghost with an Undo,
-// the undo toast and Z; deletes are final once the map closes. `t` does
-// nothing (over the story, the Esc screen or the map) and the Esc screen
-// has no T row. A series of drags keeps the cards and the lines together:
+// the undo toast and Z; deletes are final once the map closes. Hovering a
+// card at 100% or at Fit (the newest and a ghost too) shows the map
+// tooltip with only its timestamp (Phase 36); over its × or Undo no card
+// tooltip shows. `t` does nothing (over the story, the Esc screen or the
+// map), the Esc screen has no T row and its M row reads "branch map and
+// bookmarks". A series of drags keeps the cards and the lines together:
 // after each, the card layer and the SVG keep the same offset, and the
 // painted pixels show the line running through the gap between two cards
 // at their centre height (the prototype's bug: a drag moved only the
@@ -40,7 +43,7 @@ import {
 } from "./harness.mjs";
 
 export const title =
-  "bookmarks on the branch map: cards at their place in story order, newest marked, 100% at the t screen's size, click opens, drag pans, no Del/Enter, × with undo (ghost, toast, Z) at 100% and Fit, t does nothing, no T row, drags keep cards and lines together";
+  "bookmarks on the branch map: cards at their place in story order, newest marked, 100% at the t screen's size, click opens, drag pans, no Del/Enter, × with undo (ghost, toast, Z) at 100% and Fit, hover tip only the timestamp at every zoom, t does nothing, no T row, drags keep cards and lines together";
 
 const shots = join(repoRoot, ".tmp", "bookmarkmap-shots");
 
@@ -65,6 +68,23 @@ async function plainKey(cdp, key, code, keyCode, text = "") {
   });
 }
 const pressF = (cdp) => pressKey(cdp, "f", "KeyF", 70, "f");
+const pressN = (cdp) => pressKey(cdp, "n", "KeyN", 78, "n");
+
+// The map's tooltip as shown: its whole text and how many lines it has;
+// null while hidden.
+const READ_TIP = () => {
+  const tip = document.querySelector("#branchmap .map-tip");
+  return tip === null || tip.hidden
+    ? null
+    : { text: tip.textContent, lines: tip.children.length };
+};
+// The tooltip is exactly the card's timestamp, on one line.
+const TIMESTAMP = /^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d$/;
+const tipIsTime = (tip, card) =>
+  tip !== null &&
+  TIMESTAMP.test(card?.time ?? "") &&
+  tip.text === card.time &&
+  tip.lines === 1;
 
 async function mouse(cdp, type, x, y, buttons) {
   await cdp.send("Input.dispatchMouseEvent", {
@@ -243,9 +263,7 @@ async function cards({ check, open }) {
     "1 (100%) shows the cards at the t screen's size: 280 px wide with their timestamp, none overlapping",
     full.scale === 1 &&
       fc.every(
-        (x) =>
-          Math.abs(x.rect.width - 280) < 1 &&
-          /^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d$/.test(x.time),
+        (x) => Math.abs(x.rect.width - 280) < 1 && TIMESTAMP.test(x.time),
       ) &&
       fc.every((x, i) => i === 0 || x.rect.left >= fc[i - 1].rect.right + 5),
     { scale: full.scale, cards: fc.map((x) => [x.rect.width, x.time]) },
@@ -446,39 +464,56 @@ async function deletes({ check, open }) {
     [...document.querySelectorAll("#help .help-key")].map((k) => k.textContent),
   );
   const grid = await page.evaluate(READ_KEY_GRID);
+  const mDesc = await page.evaluate(() => {
+    for (const row of document.querySelectorAll("#help .help-row"))
+      if (row.querySelector(".help-key")?.textContent === "M")
+        return row.querySelector(".help-desc")?.textContent ?? null;
+    return null;
+  });
   await pressT(cdp);
   await sleep(200);
   const stillHelp = await page.evaluate(HELP_OPEN);
   const noMap = await page.evaluate(MAP_CLOSED);
   check(
-    "the Esc screen has no T row (11 rows, M the only button) and t does nothing there",
+    "the Esc screen has no T row (11 rows, M the only button, reading 'branch map and bookmarks') and t does nothing there",
     !keys.includes("T") &&
       keys.includes("M") &&
+      mDesc === "branch map and bookmarks" &&
       grid.rows === 11 &&
       (await page.evaluate(
         () => document.querySelectorAll("#help button.help-row").length,
       )) === 1 &&
       stillHelp &&
       noMap,
-    { keys, rows: grid.rows, stillHelp, noMap },
+    { keys, mDesc, rows: grid.rows, stillHelp, noMap },
   );
   await pressEscape(cdp);
   await page.waitForFunction(HELP_CLOSED, { timeout: 3000 });
 
-  // At 100%: hover a card, its × and its instant hint; delete; the ghost's
-  // Undo puts it back.
+  // At 100%: hover a card (its tooltip), its × and its instant hint;
+  // delete; the ghost's Undo puts it back.
   await openMap(page, cdp);
   await press1(cdp);
   await sleep(150);
   let m = await page.evaluate(READ_MAP_CARDS);
   const vr = m.viewRect;
   const visible = (x) =>
-    x.rect.left >= vr.left && x.rect.right <= vr.right && !x.deleted;
+    x.rect.left >= vr.left &&
+    x.rect.right <= vr.right &&
+    !x.deleted &&
+    !x.newest;
   const one = m.cards.find(visible);
   await mouse(cdp, "mouseMoved", mid(one.rect).x, mid(one.rect).y, 0);
   await sleep(60);
   m = await page.evaluate(READ_MAP_CARDS);
   const hovered = m.cards.find((x) => x.id === one.id);
+  const tip100 = await page.evaluate(READ_TIP);
+  await page.screenshot({ path: join(shots, "card-tip-100.png") });
+  check(
+    "at 100% hovering a card's picture shows the map tooltip with only the card's timestamp",
+    m.scale === 1 && tipIsTime(tip100, hovered),
+    { scale: m.scale, tip: tip100, time: hovered?.time },
+  );
   await mouse(
     cdp,
     "mouseMoved",
@@ -503,10 +538,12 @@ async function deletes({ check, open }) {
       label: b.getAttribute("aria-label"),
     };
   }, one.id);
+  const xTip100 = await page.evaluate(READ_TIP);
   await page.screenshot({ path: join(shots, "delete-hint-100.png") });
   check(
-    "at 100% a hovered card shows its × (24 px, in its top-right corner) and the × its 'Delete this bookmark' hint within a frame, with no title attribute",
-    hint.framed &&
+    "at 100% a hovered card shows its × (24 px, in its top-right corner) and the × its 'Delete this bookmark' hint within a frame, with no title attribute and no card tooltip over it",
+    xTip100 === null &&
+      hint.framed &&
       hint.shown === "visible" &&
       hint.content.includes("Delete this bookmark") &&
       hint.visibility === "visible" &&
@@ -516,7 +553,7 @@ async function deletes({ check, open }) {
       Math.abs(hovered.deleteRect.width - 24) < 1 &&
       hovered.deleteRect.right <= hovered.rect.right &&
       hovered.deleteRect.top >= hovered.rect.top,
-    { hint, del: hovered.deleteRect, card: hovered.rect },
+    { hint, tip: xTip100, del: hovered.deleteRect, card: hovered.rect },
   );
   await click(cdp, mid(hovered.deleteRect).x, mid(hovered.deleteRect).y);
   await sleep(300);
@@ -540,6 +577,19 @@ async function deletes({ check, open }) {
       .getBoundingClientRect();
     return { left: r.left, right: r.right, top: r.top, bottom: r.bottom };
   }, one.id);
+  // The ghost's tooltip: its body (away from "Deleted" and Undo), then
+  // its Undo.
+  await mouse(cdp, "mouseMoved", ghost.rect.left + 12, ghost.rect.top + 12, 0);
+  await sleep(60);
+  const ghostTip100 = await page.evaluate(READ_TIP);
+  await mouse(cdp, "mouseMoved", mid(undoRect).x, mid(undoRect).y, 0);
+  await sleep(60);
+  const undoTip100 = await page.evaluate(READ_TIP);
+  check(
+    "at 100% hovering a ghost shows the same tooltip, only its timestamp; over its Undo no card tooltip shows",
+    tipIsTime(ghostTip100, ghost) && undoTip100 === null,
+    { ghostTip: ghostTip100, undoTip: undoTip100, time: ghost?.time },
+  );
   await click(cdp, mid(undoRect).x, mid(undoRect).y);
   await sleep(300);
   m = await page.evaluate(READ_MAP_CARDS);
@@ -570,16 +620,63 @@ async function deletes({ check, open }) {
     { zGone },
   );
 
+  // The newest card at 100% (N centres it): the same tooltip, no "Newest".
+  await pressN(cdp);
+  await sleep(200);
+  m = await page.evaluate(READ_MAP_CARDS);
+  const newest100 = m.cards.find((x) => x.newest);
+  await mouse(
+    cdp,
+    "mouseMoved",
+    mid(newest100.rect).x,
+    mid(newest100.rect).y,
+    0,
+  );
+  await sleep(60);
+  const newestTip100 = await page.evaluate(READ_TIP);
+  check(
+    "at 100% hovering the newest card shows only its timestamp too (no Newest, no second line)",
+    m.scale === 1 && tipIsTime(newestTip100, newest100),
+    { scale: m.scale, tip: newestTip100, time: newest100?.time },
+  );
+
   // At Fit the cards are small (no caption) and the × is still offered,
-  // at a usable screen size, in the card's corner; the toast's Undo.
+  // at a usable screen size, in the card's corner; the toast's Undo. A
+  // hovered card, the newest too, shows the same tooltip as at 100%.
   await pressF(cdp);
   await sleep(200);
   m = await page.evaluate(READ_MAP_CARDS);
+  const newestFit = m.cards.find((x) => x.newest);
+  await mouse(
+    cdp,
+    "mouseMoved",
+    mid(newestFit.rect).x,
+    mid(newestFit.rect).y,
+    0,
+  );
+  await sleep(80);
+  const newestTipFit = await page.evaluate(READ_TIP);
   const small = m.cards[4];
   await mouse(cdp, "mouseMoved", mid(small.rect).x, mid(small.rect).y, 0);
   await sleep(80);
+  const tipFit = await page.evaluate(READ_TIP);
+  await page.screenshot({ path: join(shots, "card-tip-fit.png") });
   m = await page.evaluate(READ_MAP_CARDS);
   const atFit = m.cards.find((x) => x.id === small.id);
+  check(
+    "at Fit hovering a card shows the same tooltip as at 100%: only its timestamp, for a card and for the newest",
+    m.scale < 0.7 &&
+      !small.newest &&
+      tipIsTime(tipFit, atFit) &&
+      tipIsTime(newestTipFit, newestFit),
+    {
+      scale: m.scale,
+      tip: tipFit,
+      time: atFit?.time,
+      newestTip: newestTipFit,
+      newestTime: newestFit?.time,
+    },
+  );
   const xShown = await page.evaluate(
     (id) =>
       getComputedStyle(
@@ -648,6 +745,15 @@ async function deletes({ check, open }) {
       ghostLook.style === "dashed" &&
       ghostLook.text === "hidden",
     ghostLook,
+  );
+  await mouse(cdp, "mouseMoved", mid(small.rect).x, mid(small.rect).y, 0);
+  await sleep(80);
+  const ghostTipFit = await page.evaluate(READ_TIP);
+  await page.screenshot({ path: join(shots, "delete-fit-ghost-tip.png") });
+  check(
+    "at Fit hovering a ghost shows the same tooltip: only its timestamp",
+    tipIsTime(ghostTipFit, fitGhost),
+    { tip: ghostTipFit, time: fitGhost?.time },
   );
   const toastUndo = await page.evaluate(() => {
     const r = document

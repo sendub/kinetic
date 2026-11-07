@@ -134,8 +134,8 @@ export interface MapBookmarks {
 
 /**
  * Below this scale a card's caption (13 px type, so under 9 px here) is
- * unreadable: the thumbnail fills the card and its time moves to the
- * hover tooltip.
+ * unreadable: the thumbnail fills the card, its time left to the hover
+ * tooltip (which gives it at every zoom).
  */
 export const CARD_SMALL_SCALE = 0.7;
 
@@ -1047,9 +1047,10 @@ export function mountBranchMap({
   }
 
   let tipFor = "";
+  // The tip's first line, and its dimmer second line if it has one.
   function placeTip(
     key: string,
-    fill: () => [string, string],
+    fill: () => [string, string?],
     clientX: number,
     clientY: number,
   ): void {
@@ -1058,9 +1059,12 @@ export function mountBranchMap({
       tip.textContent = "";
       const strong = doc.createElement("strong");
       strong.textContent = full;
-      const line = doc.createElement("span");
-      line.textContent = status;
-      tip.append(strong, line);
+      tip.append(strong);
+      if (status !== undefined) {
+        const line = doc.createElement("span");
+        line.textContent = status;
+        tip.append(line);
+      }
       tip.hidden = false;
       tipFor = key;
     }
@@ -1090,23 +1094,12 @@ export function mountBranchMap({
     );
   }
 
-  // A card's tip only while its caption is too small to read.
+  // A card's tip, the same at every zoom and on a ghost (Phase 36): only
+  // when the bookmark was made, the caption's text.
   function showCardTip(card: Card, clientX: number, clientY: number): void {
-    if (!small) {
-      hideTip();
-      return;
-    }
     placeTip(
-      `b${card.row.id}${card.deleted ? "-" : ""}`,
-      () => [
-        cardLabel(
-          card.row.timestampMs,
-          card.el.classList.contains("bm-newest"),
-        ),
-        card.deleted
-          ? "deleted · click or Z puts it back"
-          : "click to continue from here · × deletes it",
-      ],
+      `b${card.row.id}`,
+      () => [formatTimestamp(card.row.timestampMs)],
       clientX,
       clientY,
     );

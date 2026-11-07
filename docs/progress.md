@@ -1747,3 +1747,20 @@ truthful: an unchecked box means nothing was accepted.
       (headless fullscreen Escapes), 1 FAIL fixed before the item's
       commit (reading's stale T row; re-run 17/17); package-proof 18/18,
       demo rebuilt.)
+
+## Phase 36: Card hover shows only the timestamp (2026-11-07, user)
+
+- [x] Hovering a bookmark card on the branch map behaves the same at
+      every zoom (Fit, 100% and between): its tooltip gives only the
+      timestamp of when the bookmark was made, and nothing else (no
+      NEWEST, no "click to continue" or "× deletes" line), ghosts
+      included. The Esc screen's M row drops ": click to go there".
+      (2026-11-07: showCardTip gives formatTimestamp only, at every
+      zoom, ghosts too; × and Undo keep their own hint with no card tip;
+      aria-label unchanged. Orchestrator: npm test 688 pass, check
+      clean; full suite 13 scenarios, 309 checks: 307 pass, 2 PARTIAL
+      (headless fullscreen Escapes), 0 FAIL; bookmarkmap's new tip
+      checks fail on HEAD's code (subagent fault run); screenshot shows
+      the one-line timestamp tip at Fit; demo-final rebuilt.)
+- [ ] Phase-closer (Phase 36): full scenario suite, package-proof
+      (rebuilds the demo); pytest not needed, converter untouched.
