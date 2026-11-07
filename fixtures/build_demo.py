@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """Generate fixtures/demo: the Kinetic feature demo content folder.
 
-Usage (from the repo root, Pillow lives in the repo venv):
+Usage (from the repo root, Pillow and jsonschema live in the repo venv):
 
-    .venv/bin/python fixtures/build_demo.py
+    .venv/bin/python fixtures/build_demo.py [--out DIR]
 
+`--out` (default fixtures/demo) is deleted and recreated; nothing else is
+touched, and a folder holding subfolders (not a demo build) is refused.
 External tools: ffmpeg and ffprobe must be on PATH (the video items).
 
 The demo is a guided tour, not a story: one section per content feature,
@@ -23,16 +25,17 @@ settings. Videos are encoded from raw frames piped to ffmpeg with bitexact
 flags, stripped metadata and a single thread, so no encoder version string
 or timestamps are written.
 
-After generating, the script runs an inline structural check of
-manifest.json against docs/content-schema.json and verifies that
-manifest.js embeds the exact same JSON bytes and that every referenced file
-exists.
+After generating, the script checks the folder with
+tools/validate_content.py (the same rules as any content folder: the
+schema, media files, ids, text items, video ranges, branches and the
+manifest.js shim) and checks that every image is WIDTH x HEIGHT. It exits 1
+with one line per problem.
 """
 
 from __future__ import annotations
 
+import argparse
 import json
-import re
 import shutil
 import subprocess
 import sys
@@ -40,7 +43,9 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEMO_DIR = REPO_ROOT / "fixtures" / "demo"
-SCHEMA_PATH = REPO_ROOT / "docs" / "content-schema.json"
+
+sys.path.insert(0, str(REPO_ROOT / "tools"))
+import validate_content  # noqa: E402
 
 WIDTH = 960
 HEIGHT = 540
@@ -155,12 +160,12 @@ def extract_poster(mp4: Path, seconds: float, poster: Path) -> None:
 # to; the scenario suite (player/scripts/scenarios/) finds items by id.
 
 
-def card(item_id: str, text: str) -> dict:
+def card(out: Path, item_id: str, text: str) -> dict:
     """A section title card: near-black canvas with a thin accent rule."""
     img = new_canvas((14, 14, 18), (24, 22, 26))
     rect(img, WIDTH // 2 - 90, HEIGHT // 2 - 2, WIDTH // 2 + 90,
          HEIGHT // 2 + 2, (196, 164, 104))
-    save_jpeg(img, DEMO_DIR / f"{item_id}.jpg")
+    save_jpeg(img, out / f"{item_id}.jpg")
     return {"id": item_id, "type": "image", "file": f"{item_id}.jpg",
             "text": text}
 
@@ -187,26 +192,26 @@ def encode(path: Path, frames, codec: str = "h264") -> float:
     return probe_duration(path)
 
 
-def section_intro() -> list[dict]:
+def section_intro(out: Path) -> list[dict]:
     return [card(
-        "intro-title",
+        out, "intro-title",
         "Kinetic demo. Every line explains what you are seeing. Space shows "
         "the next item; the mouse wheel scrolls back and forth through what "
         "you have read; Esc shows the keys and settings.",
     )]
 
 
-def section_text() -> list[dict]:
+def section_text(out: Path) -> list[dict]:
     """Speech, thought, narration, a bare picture, and `h`."""
     img = new_canvas((96, 158, 224), (208, 232, 250))
     circle(img, 760, 120, 70, (255, 244, 200))
     rect(img, 0, 430, WIDTH, HEIGHT, (86, 148, 92))
-    save_jpeg(img, DEMO_DIR / "text-speech.jpg")
+    save_jpeg(img, out / "text-speech.jpg")
 
     bare = new_canvas((240, 128, 64), (146, 42, 62))
     circle(bare, WIDTH // 2, HEIGHT // 2, 150, (252, 226, 168))
     circle(bare, WIDTH // 2, HEIGHT // 2, 96, (240, 128, 64))
-    save_jpeg(bare, DEMO_DIR / "text-bare.jpg")
+    save_jpeg(bare, out / "text-bare.jpg")
 
     return [
         {"id": "text-speech", "type": "image", "file": "text-speech.jpg",
@@ -222,7 +227,7 @@ def section_text() -> list[dict]:
     ]
 
 
-def section_animation() -> list[dict]:
+def section_animation(out: Path) -> list[dict]:
     frames = []
     cx, cy, radius = WIDTH // 2, HEIGHT // 2, 170
     for n in range(4):
@@ -233,7 +238,7 @@ def section_animation() -> list[dict]:
             circle(img, px, py, rr, color)
         circle(img, cx, cy, 26, (200, 80, 60))
         name = f"anim-orbit.f{n:03d}.jpg"
-        save_jpeg(img, DEMO_DIR / name)
+        save_jpeg(img, out / name)
         frames.append(name)
     return [{
         "id": "anim-orbit", "type": "animation", "frames": frames,
@@ -243,7 +248,7 @@ def section_animation() -> list[dict]:
     }]
 
 
-def section_video_chain() -> list[dict]:
+def section_video_chain(out: Path) -> list[dict]:
     """A video with a chain of text items over it, then a chain over a still."""
     band_w = 120
 
@@ -253,14 +258,14 @@ def section_video_chain() -> list[dict]:
         rect(img, x, 150, x + band_w, 390, (90, 200, 170))
         return img
 
-    mp4 = DEMO_DIR / "video-chain.mp4"
+    mp4 = out / "video-chain.mp4"
     duration = encode(mp4, (frame(n) for n in range(VIDEO_FPS * 2)))
-    save_jpeg(frame(0), DEMO_DIR / "video-chain.poster.jpg")
+    save_jpeg(frame(0), out / "video-chain.poster.jpg")
 
     still = new_canvas((42, 30, 58), (96, 70, 64))
     rect(still, 0, 400, WIDTH, HEIGHT, (30, 24, 34))
     circle(still, 480, 250, 40, (250, 210, 150))
-    save_jpeg(still, DEMO_DIR / "chain-still.jpg")
+    save_jpeg(still, out / "chain-still.jpg")
 
     return [
         {"id": "video-chain", "type": "video", "file": "video-chain.mp4",
@@ -280,7 +285,7 @@ def section_video_chain() -> list[dict]:
     ]
 
 
-def section_loops() -> list[dict]:
+def section_loops(out: Path) -> list[dict]:
     """`loopCount` on a short MP4, `holdSeconds` on a WebM."""
 
     def pulse(n: int):
@@ -289,9 +294,9 @@ def section_loops() -> list[dict]:
         circle(img, WIDTH // 2, HEIGHT // 2, r, (230, 170, 220))
         return img
 
-    loops = DEMO_DIR / "video-loops.mp4"
+    loops = out / "video-loops.mp4"
     loops_duration = encode(loops, (pulse(n) for n in range(VIDEO_FPS)))
-    save_jpeg(pulse(0), DEMO_DIR / "video-loops.poster.jpg")
+    save_jpeg(pulse(0), out / "video-loops.poster.jpg")
 
     def kettle(n: int):
         img = new_canvas((30, 24, 20), (92, 70, 52))
@@ -301,10 +306,10 @@ def section_loops() -> list[dict]:
         circle(img, WIDTH // 2 + 20, 240 - rise, 14, (210, 206, 200))
         return img
 
-    webm = DEMO_DIR / "video-hold.webm"
+    webm = out / "video-hold.webm"
     hold_duration = encode(webm, (kettle(n) for n in range(VIDEO_FPS * 2)),
                            codec="vp9")
-    save_jpeg(kettle(0), DEMO_DIR / "video-hold.poster.jpg")
+    save_jpeg(kettle(0), out / "video-hold.poster.jpg")
 
     return [
         {"id": "video-loops", "type": "video", "file": "video-loops.mp4",
@@ -331,7 +336,7 @@ CLIP_QUARTERS = [
 ]
 
 
-def section_ranges() -> list[dict]:
+def section_ranges(out: Path) -> list[dict]:
     """Two items over ONE 2 s file: [0, 1] once, then [1, 2] twice with the
     repeat restarting at 1.5 s. Each has its own poster from its range."""
     frames_total = VIDEO_FPS * 2
@@ -344,10 +349,10 @@ def section_ranges() -> list[dict]:
         circle(img, x, HEIGHT // 2, 44, (236, 206, 120))
         return img
 
-    mp4 = DEMO_DIR / "range-clip.mp4"
+    mp4 = out / "range-clip.mp4"
     duration = encode(mp4, (frame(n) for n in range(frames_total)))
-    extract_poster(mp4, 0.0, DEMO_DIR / "range-a.poster.jpg")
-    extract_poster(mp4, 1.0, DEMO_DIR / "range-b.poster.jpg")
+    extract_poster(mp4, 0.0, out / "range-a.poster.jpg")
+    extract_poster(mp4, 1.0, out / "range-b.poster.jpg")
     return [
         {"id": "range-a", "type": "video", "file": "range-clip.mp4",
          "poster": "range-a.poster.jpg", "durationSeconds": duration,
@@ -374,7 +379,7 @@ FLOOR_SECONDS_COLORS = [
 FLOOR_MIN_PLAY = 4.5
 
 
-def section_floor() -> list[dict]:
+def section_floor(out: Path) -> list[dict]:
     """`minPlaySeconds` under a chain of deliberately short lines (each hold
     is the minimum, so only the floor can explain the wait in auto mode)."""
     frames_total = VIDEO_FPS * 6
@@ -387,11 +392,11 @@ def section_floor() -> list[dict]:
         circle(img, x, HEIGHT // 2 + 60, 36, (232, 200, 120))
         return img
 
-    mp4 = DEMO_DIR / "floor-clip.mp4"
+    mp4 = out / "floor-clip.mp4"
     duration = encode(mp4, (frame(n) for n in range(frames_total)))
-    save_jpeg(frame(0), DEMO_DIR / "floor-clip.poster.jpg")
+    save_jpeg(frame(0), out / "floor-clip.poster.jpg")
     return [
-        card("floor-title",
+        card(out, "floor-title",
              "Next: a clip with a minimum play time of 4.5 s. In auto mode "
              "its three short lines read fast, then the last waits for the "
              "clip. Space and tab never wait."),
@@ -403,7 +408,7 @@ def section_floor() -> list[dict]:
     ]
 
 
-def section_branches() -> tuple[list[dict], list[dict]]:
+def section_branches(out: Path) -> tuple[list[dict], list[dict]]:
     """Two decisions: an outer one with a continuing route (containing a
     nested continuing/return pair) and an ending route, then aftermath."""
 
@@ -411,7 +416,7 @@ def section_branches() -> tuple[list[dict], list[dict]]:
         img = new_canvas(top, bottom)
         for kind, args, color in shapes:
             (circle if kind == "c" else rect)(img, *args, color)
-        save_jpeg(img, DEMO_DIR / f"{name}.jpg")
+        save_jpeg(img, out / f"{name}.jpg")
 
     scene("branch-lead", (70, 58, 96), (196, 178, 150),
           ("r", (320, 170, 640, 390), (250, 236, 208)),
@@ -430,7 +435,7 @@ def section_branches() -> tuple[list[dict], list[dict]]:
           ("r", (0, 420, WIDTH, HEIGHT), (96, 108, 92)))
 
     items = [
-        card("branch-title",
+        card(out, "branch-title",
              "Next: a decision. Route 1 continues the story and holds a "
              "nested decision; Route 2 is an ending. After a route ends you "
              "can pick another."),
@@ -499,164 +504,37 @@ def section_branches() -> tuple[list[dict], list[dict]]:
 
 
 # --------------------------------------------------------------------------
-# Inline structural check (hand-rolled; the reusable validator is next task)
+# Check: tools/validate_content.py, plus what only the demo promises
 # --------------------------------------------------------------------------
 
-def check_manifest(manifest: dict, schema: dict) -> list[str]:
-    """Validate manifest structure against the schema fragments we need."""
+
+def image_paths(item: dict) -> list[str]:
+    """The image files an item references (a video's `file` is not one)."""
+    if item["type"] == "image":
+        return [item["file"]]
+    if item["type"] == "animation":
+        return item["frames"]
+    if item["type"] == "video":
+        return [item["poster"]]
+    return []
+
+
+def image_size_problems(out: Path, items: list[dict]) -> list[str]:
+    """Every image is WIDTH x HEIGHT, the manifest's size; the content
+    format allows any size, so the validator does not check this. A missing
+    file is the validator's problem."""
     from PIL import Image
 
-    errors: list[str] = []
-    defs = schema["$defs"]
-    path_re = re.compile(defs["path"]["pattern"])
-
-    def ext_pattern(name: str) -> str:
-        # imagePath/videoPath are allOf [path ref, {pattern}]; the extension
-        # pattern lives in the inline branch.
-        for branch in defs[name]["allOf"]:
-            if "pattern" in branch:
-                return branch["pattern"]
-        raise KeyError(name)
-
-    ext_res = {
-        "image": re.compile(ext_pattern("imagePath")),
-        "video": re.compile(ext_pattern("videoPath")),
-    }
-    id_re = re.compile(defs["id"]["pattern"])
-    type_to_def = {"image": "imageItem", "animation": "animationItem",
-                   "video": "videoItem", "text": "textItem"}
-
-    def bad(msg: str) -> None:
-        errors.append(msg)
-
-    def check_path(value, kind: str, where: str) -> None:
-        if not isinstance(value, str) or not path_re.fullmatch(value) \
-                or not ext_res[kind].search(value):
-            bad(f"{where}: {value!r} is not a valid {kind} path")
-            return
-        if not (DEMO_DIR / value).is_file():
-            bad(f"{where}: {value!r} does not exist in the folder")
-        if kind == "image":
-            with Image.open(DEMO_DIR / value) as im:
+    problems: list[str] = []
+    for item in items:
+        for name in image_paths(item):
+            if not (out / name).is_file():
+                continue
+            with Image.open(out / name) as im:
                 if im.size != (WIDTH, HEIGHT):
-                    bad(f"{where}: {value!r} is {im.size}, expected "
-                        f"{(WIDTH, HEIGHT)}")
-
-    props = schema["properties"]
-    if set(manifest) - set(props):
-        bad(f"top level: unexpected keys {set(manifest) - set(props)}")
-    for key in schema["required"]:
-        if key not in manifest:
-            bad(f"top level: missing required key {key!r}")
-    if manifest.get("schemaVersion") != props["schemaVersion"]["const"]:
-        bad(f"schemaVersion must be {props['schemaVersion']['const']}")
-    story = manifest.get("storyId")
-    if not isinstance(story, str) or not re.fullmatch(
-            props["storyId"]["pattern"], story):
-        bad(f"storyId {story!r} must match {props['storyId']['pattern']}")
-    title = manifest.get("title")
-    if not isinstance(title, str) or not title.strip() or \
-            len(title) > props["title"]["maxLength"]:
-        bad(f"title {title!r} must be non-blank text of at most "
-            f"{props['title']['maxLength']} characters")
-    for key in ("width", "height"):
-        if not isinstance(manifest.get(key), int) or manifest.get(key, 0) < 1:
-            bad(f"{key} must be an integer >= 1")
-    if manifest.get("width") != WIDTH or manifest.get("height") != HEIGHT:
-        bad("manifest width/height must match the generated images")
-
-    items = manifest.get("items")
-    min_items = props["items"].get("minItems", 1)
-    if not isinstance(items, list) or len(items) < min_items:
-        bad(f"items must be an array with >= {min_items} entries")
-        return errors
-
-    seen_ids: set[str] = set()
-    for i, item in enumerate(items):
-        where = f"items[{i}]"
-        itype = item.get("type")
-        if itype not in type_to_def:
-            bad(f"{where}: unknown type {itype!r}")
-            continue
-        spec = defs[type_to_def[itype]]
-        if not set(spec["required"]) <= set(item):
-            bad(f"{where}: missing required keys "
-                f"{set(spec['required']) - set(item)}")
-        extra = set(item) - set(spec["properties"])
-        if extra:
-            bad(f"{where}: unexpected keys {extra}")
-        item_id = item.get("id")
-        if not isinstance(item_id, str) or not id_re.fullmatch(item_id):
-            bad(f"{where}: id {item_id!r} fails the id pattern")
-        elif item_id in seen_ids:
-            bad(f"{where}: duplicate id {item_id!r}")
-        else:
-            seen_ids.add(item_id)
-        for key in ("speaker", "text"):
-            if key in item and not isinstance(item[key], str):
-                bad(f"{where}.{key}: must be a string")
-
-        if itype == "image":
-            check_path(item.get("file"), "image", f"{where}.file")
-        elif itype == "animation":
-            frames = item.get("frames")
-            min_frames = spec["properties"]["frames"].get("minItems", 2)
-            if not isinstance(frames, list) or len(frames) < min_frames:
-                bad(f"{where}.frames: needs >= {min_frames} entries")
-            else:
-                for f, frame in enumerate(frames):
-                    check_path(frame, "image", f"{where}.frames[{f}]")
-            fps = item.get("fps")
-            if not isinstance(fps, (int, float)) or fps <= 0:
-                bad(f"{where}.fps: must be > 0")
-            loops = item.get("loopCount")
-            if not isinstance(loops, int) or isinstance(loops, bool) \
-                    or loops < 1:
-                bad(f"{where}.loopCount: must be an integer >= 1")
-        elif itype == "video":
-            check_path(item.get("file"), "video", f"{where}.file")
-            check_path(item.get("poster"), "image", f"{where}.poster")
-            dur = item.get("durationSeconds")
-            if not isinstance(dur, (int, float)) or dur <= 0:
-                bad(f"{where}.durationSeconds: must be > 0")
-            # Playback ranges (Phase 9c): exact fractional seconds.
-            start = item.get("startSeconds", 0)
-            end = item.get("endSeconds", dur)
-            if not isinstance(start, (int, float)) or start < 0:
-                bad(f"{where}.startSeconds: must be >= 0")
-            if not isinstance(end, (int, float)) or not end > start:
-                bad(f"{where}.endSeconds: must be > startSeconds")
-            elif isinstance(dur, (int, float)) and dur > 0 and end > dur:
-                bad(f"{where}.endSeconds: must not exceed durationSeconds")
-            # Loop restart point (Phase 9d): below the effective end
-            # (`endSeconds` if present, else `durationSeconds`), else a
-            # later pass has no length — the validator's cross-field rule.
-            loop_start = item.get("loopStartSeconds", start)
-            if not isinstance(loop_start, (int, float)) or loop_start < 0:
-                bad(f"{where}.loopStartSeconds: must be >= 0")
-            elif isinstance(end, (int, float)) and not loop_start < end:
-                bad(f"{where}.loopStartSeconds: must be < the effective end")
-            # Chain-exit floor (Phase 15): optional, and when present a
-            # number greater than 0 (docs/content-format.md, "Timing").
-            floor = item.get("minPlaySeconds")
-            if floor is not None and (
-                isinstance(floor, bool)
-                or not isinstance(floor, (int, float))
-                or floor <= 0
-            ):
-                bad(f"{where}.minPlaySeconds: must be > 0")
-    return errors
-
-
-def check_manifest_js(manifest_text: str, manifest: dict) -> list[str]:
-    js = (DEMO_DIR / "manifest.js").read_text(encoding="utf-8")
-    prefix = "window.KINETIC_MANIFEST = "
-    expected = prefix + manifest_text + ";\n"
-    if js != expected:
-        return [f"manifest.js is not {prefix}<same JSON bytes>;"]
-    if json.loads(js[len(prefix):-2]) != manifest:
-        return ["manifest.js JSON does not equal manifest.json"]
-    return []
+                    problems.append(f"{name}: is {im.width}x{im.height}, "
+                                    f"expected {WIDTH}x{HEIGHT}")
+    return problems
 
 
 # --------------------------------------------------------------------------
@@ -664,20 +542,35 @@ def check_manifest_js(manifest_text: str, manifest: dict) -> list[str]:
 # --------------------------------------------------------------------------
 
 
+def reset_dir(out: Path) -> None:
+    """Delete and recreate `out`. The demo is flat, so a folder that holds
+    a subfolder is not a demo build: refuse to delete it."""
+    if out.is_dir():
+        if any(p.is_dir() for p in out.iterdir()):
+            sys.exit(f"{out}: holds subfolders, so it is not a demo build; "
+                     "not deleting it")
+        shutil.rmtree(out)
+    out.mkdir(parents=True)
+
+
 def main() -> None:
-    if DEMO_DIR.is_dir():
-        shutil.rmtree(DEMO_DIR)
-    DEMO_DIR.mkdir(parents=True)
+    parser = argparse.ArgumentParser(
+        description="Generate the Kinetic feature demo content folder.")
+    parser.add_argument("--out", type=Path, default=DEMO_DIR,
+                        help="folder to delete and recreate "
+                             f"(default: {DEMO_DIR})")
+    out = parser.parse_args().out
+    reset_dir(out)
 
     items: list[dict] = []
-    items += section_intro()
-    items += section_text()
-    items += section_animation()
-    items += section_video_chain()
-    items += section_loops()
-    items += section_ranges()
-    items += section_floor()
-    branch_items, branches = section_branches()
+    items += section_intro(out)
+    items += section_text(out)
+    items += section_animation(out)
+    items += section_video_chain(out)
+    items += section_loops(out)
+    items += section_ranges(out)
+    items += section_floor(out)
+    branch_items, branches = section_branches(out)
     items += branch_items
     manifest = {
         "schemaVersion": 1,
@@ -694,22 +587,21 @@ def main() -> None:
     }
 
     manifest_text = json.dumps(manifest, indent=2, ensure_ascii=True)
-    (DEMO_DIR / "manifest.json").write_text(manifest_text + "\n",
-                                            encoding="utf-8")
-    (DEMO_DIR / "manifest.js").write_text(
-        "window.KINETIC_MANIFEST = " + manifest_text + ";\n",
+    (out / "manifest.json").write_text(manifest_text + "\n",
+                                       encoding="utf-8")
+    (out / "manifest.js").write_text(
+        validate_content.SHIM_PREFIX + manifest_text + ";\n",
         encoding="utf-8")
 
-    schema = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
-    errors = check_manifest(manifest, schema)
-    errors += check_manifest_js(manifest_text, manifest)
-    if errors:
-        for err in errors:
-            print(f"schema check FAIL: {err}", file=sys.stderr)
+    problems = validate_content.validate_folder(out)
+    problems += image_size_problems(out, items)
+    if problems:
+        for problem in problems:
+            print(f"schema check FAIL: {problem}", file=sys.stderr)
         sys.exit(1)
 
-    names = sorted(p.name for p in DEMO_DIR.iterdir())
-    print(f"wrote {len(names)} files to {DEMO_DIR}")
+    names = sorted(p.name for p in out.iterdir())
+    print(f"wrote {len(names)} files to {out}")
     print("schema check OK")
 
 

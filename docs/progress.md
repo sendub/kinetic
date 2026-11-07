@@ -1767,3 +1767,29 @@ truthful: an unchecked box means nothing was accepted.
       (2026-11-07: 13 scenarios, 309 checks: 307 pass, 2 PARTIAL
       (headless fullscreen Escapes), 0 FAIL; package-proof 18/18, demo
       rebuilt.)
+
+## Phase 37: Demo builder passes its own check in a clean clone (2026-11-07, user)
+
+- [x] `fixtures/build_demo.py` fails in a clean clone with
+      `KeyError: 'videoPath'` (reported by another agent; reproduced in
+      a fresh clone of 0aae59f). Cause: its hand-rolled
+      `check_manifest` still reads an extension pattern from
+      `$defs.videoPath`, which Phase 26 (b64c7fe) removed; checkouts
+      with an old gitignored `fixtures/demo/` never re-ran the builder,
+      so tests stayed green. Fix the cause, not the lookup: the builder
+      checks its output with `tools/validate_content.py` (the shared
+      validator) instead of its own copy of the schema rules, keeping
+      only demo-specific checks the validator lacks. A test runs the
+      builder into a fresh directory and fails on HEAD's code. Output
+      stays byte-identical.
+      (2026-11-07: the builder runs validate_content.validate_folder on
+      its output plus a local every-image-is-960x540 check; its own
+      schema copy is gone; `--out DIR` (default fixtures/demo, refuses a
+      folder holding subfolders). New tools/test_build_demo.py builds
+      into tmp_path. Orchestrator: fresh clone with the change builds
+      exit 0, 28 files byte-identical to HEAD's output (taken with the
+      broken check bypassed); tools/test_build_demo.py +
+      test_validate_content.py 118 pass; the new test fails on HEAD's
+      builder in a fresh clone with KeyError: 'videoPath'.)
+- [ ] Phase-closer (Phase 37): `pytest tools/` in full, package-proof
+      (rebuilds the demo); the player and converter are untouched.
