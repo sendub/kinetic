@@ -8,7 +8,8 @@
 // change is the only one a reload a moment later can find —, `b` appends a
 // bookmark that captures the current context and confirms only once both
 // writes commit,
-// `t` opens the bookmark list, and the Esc screen holds every setting
+// the bookmarks show as cards on the branch map (`m`, Phase 35), and the
+// Esc screen holds every setting
 // (Phase 26: `c` is gone), whose changes apply live (machine.setSettings)
 // and persist with the context.
 // Phase 13b adds the manual/auto clarity and the `#help` key help: the
@@ -39,8 +40,8 @@ import { mountError, mountShell } from "./render/app";
 import { mountAutoForwardAnnouncements } from "./render/autoforward";
 import {
   bookmarkRestoreTarget,
+  cardPictures,
   mergeProgress,
-  mountBookmarkOverlay,
 } from "./render/bookmarks";
 import { mountBranchMap } from "./render/branchmap";
 import { captureVisualThumbnail } from "./render/capture";
@@ -56,12 +57,7 @@ import { downloadText } from "./render/download";
 import { EARLIER_UNSEEN_NOTICE } from "./render/endcard";
 import { installFirstGestureFullscreen } from "./render/fullscreen";
 import { gameTitleOf, mountHelpOverlay, pageTitleFor } from "./render/help";
-import {
-  bookmarksKeyAction,
-  installKeyMap,
-  mapKeyAction,
-  suspendTimeline,
-} from "./render/keys";
+import { installKeyMap, mapKeyAction, suspendTimeline } from "./render/keys";
 import { loadManifest } from "./render/manifest";
 import { buildMapModel, type MapModel, runJump } from "./render/mapmodel";
 import { mountRouteAnnouncements } from "./render/routes";
@@ -78,12 +74,7 @@ import {
   progressFileName,
   type StoryIdentity,
 } from "./storage/transfer";
-import type {
-  Bookmark,
-  BookmarkSummary,
-  PersistedState,
-  SavedMapView,
-} from "./storage/types";
+import type { Bookmark, PersistedState, SavedMapView } from "./storage/types";
 import { helpSeenFrom } from "./storage/types";
 
 async function fetchJson(url: string): Promise<unknown> {
@@ -280,7 +271,7 @@ function start(): void {
       // (over `file://` Chrome taints it, and null is expected); the
       // durable bookmark is `{timestampMs, itemId, ctx}` — keyed by id, so
       // a content update keeps it pointing at the same item — which the
-      // `t` list renders from even without a thumb (render/bookmarks.ts
+      // map's card renders from even without a thumb (render/bookmarks.ts
       // falls back to the manifest item's still). The ctx rides along so
       // the later restore can re-enter the route context the bookmark was
       // taken in (`bookmarkRestoreTarget`).
@@ -289,7 +280,7 @@ function start(): void {
       // is the one the last advance already issued (usually long done), and
       // awaiting it again covers the case where it is still in flight when
       // `b` lands — so the pill means a reload this very second resumes on
-      // this item AND finds the entry in the `t` list.
+      // this item AND finds its card on the map.
       const takeBookmark = async (): Promise<void> => {
         const blob = await captureVisualThumbnail(shell.currentVisual());
         const thumbDataUrl = blob === null ? null : await blobToDataUrl(blob);
@@ -321,89 +312,10 @@ function start(): void {
         shell.flash("Bookmarked");
       };
 
-      // `t` (README `t` bullet): the bookmark list panel. It reads the list
-      // fresh on every open (bookmarks taken since the last look show up),
-      // and an entry click continues the novel from that moment: the
-      // record's ctx, converted to this manifest's positions, restores
-      // THROUGH importContext — it re-enters the item inside the route
-      // context the bookmark captured, an UNSETTLED arrival that fires no
-      // decision (same landing rule as a resume); the wheel then walks the
-      // story around it (docs/plan.md Phase 27). Only bookmarks whose item is
-      // still in the manifest are listed (render/bookmarks.ts).
-      // The panel opens at once and its cards come from the bookmark
-      // summaries; each captured thumbnail is read lazily (`loadThumb`),
-      // and a click reads its whole bookmark only then (the bookmark-screen
-      // speed item). The panel stays up through that read and closes in
-      // the same task the restore lands in, so the screens switch in one
-      // step and a paused burst or hold stays paused through the jump, as
-      // when the record was already in hand.
-      let picking = false;
-      const overlay = mountBookmarkOverlay({
-        root,
-        items: manifest.items,
-        stage: { width: manifest.width, height: manifest.height },
-        loadThumb: (row) =>
-          storage
-            .getBookmark(row.key)
-            .then((record) => record?.thumbDataUrl ?? null),
-        onPick: (row) => {
-          if (picking) return; // one restore at a time
-          picking = true;
-          const restore = (record: Bookmark | null): void => {
-            picking = false;
-            overlay.close();
-            if (record !== null) {
-              const target = bookmarkRestoreTarget(record);
-              const ctx = codec.fromSaved(target.ctx);
-              if (ctx !== undefined) {
-                machine.importContext(
-                  mergeProgress(ctx, machine.exportContext()),
-                );
-              }
-            }
-            syncMenuPause();
-          };
-          storage.getBookmark(row.key).then(restore, (error: unknown) => {
-            console.warn("[kinetic] bookmark not read", error);
-            restore(null);
-          });
-        },
-        // The thumbnail's "x" (docs/plan.md Phase 18): delete, then draw
-        // what storage now holds. A failed delete re-reads the list, so
-        // the panel never shows a row as gone that is still stored.
-        onDelete: (bookmark) => {
-          storage.deleteBookmark(bookmark.id).then(
-            (list) => {
-              if (overlay.isOpen()) overlay.render(list);
-            },
-            (error: unknown) => {
-              console.warn("[kinetic] bookmark not deleted", error);
-              if (overlay.isOpen()) fillBookmarks();
-            },
-          );
-        },
-      });
-      // `t` shows the panel this frame; the list read fills it when it
-      // lands (milliseconds: summaries only), unless the panel was closed
-      // or reopened meanwhile.
-      let bookmarkReads = 0;
-      const fillBookmarks = (): void => {
-        bookmarkReads += 1;
-        const read = bookmarkReads;
-        const shown = (list: readonly BookmarkSummary[]): void => {
-          if (read === bookmarkReads && overlay.isOpen()) overlay.render(list);
-        };
-        // A storage outage reads as an empty list, not a dead key.
-        storage.listBookmarks().then(shown, () => shown([]));
-      };
-      const showBookmarks = (): void => {
-        overlay.open();
-        syncMenuPause();
-        fillBookmarks();
-      };
       // Warm the list once the story is up: the first read after this
       // build meets old bookmarks reads each in full, once, and caches
-      // their summaries (storage/idb.ts), so even the first `t` is quick.
+      // their summaries (storage/idb.ts), so even the first map open with
+      // bookmarks is quick.
       setTimeout(() => {
         storage.listBookmarks().catch(() => undefined);
       }, 1000);
@@ -413,10 +325,9 @@ function start(): void {
       const help = mountHelpOverlay({
         root,
         gameTitle: manifest.title,
-        // The `t` row is clickable: it does what `t` does over the screen.
+        // The `m` row is clickable: it does what `m` does over the screen.
         onEntry: (command) => {
-          if (command === "toggleBookmarks") runBookmarksKey();
-          else if (command === "toggleMap") runMapKey();
+          if (command === "toggleMap") runMapKey();
         },
       });
       // The settings (Phase 26: on the Esc screen, under the keys; `c` is
@@ -606,11 +517,88 @@ function start(): void {
         mapModel ??= buildMapModel(manifest.items, manifest.branches);
         return mapModel;
       };
+      const itemIndexById = new Map(
+        manifest.items.map((item, index) => [item.id, index]),
+      );
+      // A card's picture (bookmarks.ts `cardPictures`): its `b` capture,
+      // else its manifest still SHRUNK (`shrinkStill`): a board of
+      // full-size stills is what kept Safari from painting until every
+      // visible one had decoded (the Phase 29 item).
+      const cardPicture = cardPictures({
+        doc: document,
+        items: manifest.items,
+        itemIndex: (row) => itemIndexById.get(row.itemId) ?? -1,
+        readCapture: (row) =>
+          storage
+            .getBookmark(row.key)
+            .then((record) => record?.thumbDataUrl ?? null),
+      });
+      let picking = false;
       const map = mountBranchMap({
         root,
-        model: (aspect) => {
-          mapModel = buildMapModel(manifest.items, manifest.branches, aspect);
+        model: (aspect, bookmarkItems) => {
+          mapModel = buildMapModel(
+            manifest.items,
+            manifest.branches,
+            aspect,
+            bookmarkItems,
+          );
           return mapModel;
+        },
+        // The bookmarks as cards on the map (docs/plan.md Phase 35, which
+        // replaced the `t` screen). The list is read fresh on every open
+        // (summaries only: bookmarks taken since show up); a bookmark whose
+        // item is no longer in the manifest is not drawn.
+        bookmarks: {
+          list: () => storage.listBookmarks(),
+          itemIndex: (row) => itemIndexById.get(row.itemId) ?? -1,
+          picture: cardPicture,
+          // A card click continues the novel from that moment: the
+          // record's ctx, converted to this manifest's positions, restores
+          // THROUGH importContext — it re-enters the item inside the route
+          // context the bookmark captured, an UNSETTLED arrival that fires
+          // no decision (same landing rule as a resume); the wheel then
+          // walks the story around it (docs/plan.md Phase 27). The map
+          // stays up through the record's read and closes in the same task
+          // the restore lands in, so the screens switch in one step.
+          open: (row) => {
+            if (picking) return; // one restore at a time
+            picking = true;
+            const restore = (record: Bookmark | null): void => {
+              picking = false;
+              map.close();
+              if (record !== null) {
+                const target = bookmarkRestoreTarget(record);
+                const ctx = codec.fromSaved(target.ctx);
+                if (ctx !== undefined) {
+                  machine.importContext(
+                    mergeProgress(ctx, machine.exportContext()),
+                  );
+                }
+              }
+              syncMenuPause();
+            };
+            storage.getBookmark(row.key).then(restore, (error: unknown) => {
+              console.warn("[kinetic] bookmark not read", error);
+              restore(null);
+            });
+          },
+          // A card's ×: the whole record is read first (the undo stores
+          // it again), then deleted. A failed delete leaves the card.
+          remove: async (row) => {
+            try {
+              const record = await storage.getBookmark(row.key);
+              await storage.deleteBookmark(row.id);
+              if (record === null) return null;
+              return async () => {
+                const list = await storage.addBookmark(record);
+                return list.find((b) => b.id === record.id) ?? null;
+              };
+            } catch (error) {
+              console.warn("[kinetic] bookmark not deleted", error);
+              return null;
+            }
+          },
         },
         // No `#flash` pill over the map: one still holding (a route just
         // entered, a bookmark) goes when it opens, and none shows while it
@@ -668,34 +656,31 @@ function start(): void {
       // everything — Escape opens it even over a pending choice, and the
       // choice waits underneath, reappearing when help closes (help's
       // machine pause/resume is inert while a decision's item is settled).
-      // A pending CHOICE owns everything else: `t` cannot open over it,
-      // `h`/`b`/`a` are inert, the timeline is suspended, and only its
+      // A pending CHOICE owns everything else: `h`/`b`/`a` are inert, the timeline is suspended, and only its
       // own inputs act (1..9, 0 with the offer, the arrows and Enter, row
       // clicks) — except the
       // timeline moves, the wheel and `e` (see the gates below). Otherwise
-      // the story reads, and `t` and Escape open the screens.
+      // the story reads, and `m` and Escape open the screens.
       const owner = () => inputOwnerFor(help.isOpen(), choice.isOpen());
       // The reset box owns the screen too, over the Esc screen: while it
       // is open only its own controls act (its keys ride the map below).
       const storyInput = () =>
         owner() === "story" && !confirm.isOpen() && !map.isOpen();
       const anyPanelOpen = () =>
-        overlay.isOpen() || confirm.isOpen() || help.isOpen() || map.isOpen();
+        confirm.isOpen() || help.isOpen() || map.isOpen();
       const anyScreenOpen = () => anyPanelOpen() || choice.isOpen();
       // The timeline moves are never trapped by a choice (docs/plan.md
       // Phase 27): a wheel notch or `e` leaves a choice screen for the
       // neighbouring screen in story order / the furthest point read, and
       // nothing is answered. Only the panels (the Esc
-      // screen, `t`, the reset box) still suspend them.
+      // screen, the map, the reset box) still suspend them.
       const timelineGate = (command: () => void) => () => {
         if (anyPanelOpen()) return;
         command();
       };
 
       // While a panel is open it takes precedence: the cursor-moving
-      // commands (space/tab/e/wheel) are suspended until it closes. `b`
-      // still bookmarks the current item and `h` still toggles text —
-      // behind the bookmark panel, which does not hide the screen.
+      // commands (space/tab/e/wheel) are suspended until it closes.
       // Behind the Esc screen nothing but the closing actions acts.
       const timeline = {
         ...suspendTimeline(
@@ -713,41 +698,15 @@ function start(): void {
         wheelForward: timelineGate(walk(() => machine.wheelForward())),
       };
 
-      // `t` (and the Esc screen's `t` row): toggles the list, and over
-      // the Esc screen REPLACES it with the list — the list opens first,
-      // so the menu pause never lifts between the two and the game never
-      // shows through, then the screen closes as Escape would close it
-      // (helpSeen recorded). The next Escape closes the list and the game
-      // resumes as from the Esc screen; it does not reopen that screen.
-      function runBookmarksKey(): void {
-        const action = bookmarksKeyAction({
-          confirmOpen: confirm.isOpen(),
-          helpOpen: help.isOpen(),
-          choiceOpen: choice.isOpen(),
-          listOpen: overlay.isOpen(),
-          mapOpen: map.isOpen(),
-        });
-        if (action === "close") overlay.close();
-        else if (action === "open") showBookmarks();
-        else if (action === "replaceHelp") {
-          showBookmarks();
-          closeHelp();
-        } else if (action === "replaceMap") {
-          showBookmarks();
-          map.close();
-        }
-      }
-
-      // `m` (and the Esc screen's `m` row), the `t` rule's twin
-      // (render/keys.ts `mapKeyAction`): toggles the map, and over the Esc
-      // screen or the list REPLACES that screen — the map opens first, so
-      // the menu pause never lifts between the two — so the next Escape
-      // returns to the game. It opens over a pending decision too.
+      // `m` (and the Esc screen's `m` row; render/keys.ts `mapKeyAction`):
+      // toggles the map, and over the Esc screen REPLACES that screen —
+      // the map opens first, so the menu pause never lifts between the two
+      // — so the next Escape returns to the game. It opens over a pending
+      // decision too.
       function runMapKey(): void {
         const action = mapKeyAction({
           confirmOpen: confirm.isOpen(),
           helpOpen: help.isOpen(),
-          listOpen: overlay.isOpen(),
           mapOpen: map.isOpen(),
         });
         if (action === "close") map.close();
@@ -755,9 +714,6 @@ function start(): void {
         else if (action === "replaceHelp") {
           map.open();
           closeHelp();
-        } else if (action === "replaceList") {
-          map.open();
-          overlay.close();
         }
         syncMenuPause();
       }
@@ -802,7 +758,6 @@ function start(): void {
             if (!storyInput()) return;
             void takeBookmark();
           },
-          toggleBookmarks: runBookmarksKey,
           toggleMap: runMapKey,
           // `a` (README auto-forward bullet): manual is the start, and `a`
           // toggles auto-advance. Turning it off cancels the pending hold;
@@ -824,13 +779,13 @@ function start(): void {
             if (confirm.isOpen()) confirm.close();
           },
           // Escape (docs/plan.md Phase 13b, extended by 13 and 26): closes
-          // the Esc screen, else closes the open `t` list, else opens the
+          // the Esc screen, else closes the open map, else opens the
           // Esc screen — and "else" includes OVER a pending choice: the
           // screen wins over everything (the declared exception to choice
           // ownership), the decision waits underneath, its play-all
           // countdown frozen, and is still open when the screen closes. A
-          // choice is never closed by Escape: only its own answer ends it
-          // (`t` cannot open over one). The reset box (Phase 16) is
+          // choice is never closed by Escape: only its own answer ends it.
+          // The reset box (Phase 16) is
           // checked FIRST: it sits over the Esc screen, and Escape cancels
           // the box without disturbing the screen under it.
           dismissOverlay: () => {
@@ -844,10 +799,6 @@ function start(): void {
             }
             if (map.isOpen()) {
               map.close();
-              return;
-            }
-            if (overlay.isOpen()) {
-              overlay.close();
               return;
             }
             openHelp(); // Escape with nothing up opens the Esc screen
@@ -886,7 +837,7 @@ function start(): void {
       );
 
       // Menus pause the timeline (docs/plan.md Phase 18): while the Esc
-      // screen, the `t` list or the reset box is up, a running
+      // screen, the branch map or the reset box is up, a running
       // auto-forward hold or skip burst is frozen — machine.pause(), as
       // under help, keeps `skipping` and arms nothing — and a playing
       // video holds in place. Closing the screen resumes exactly what was
@@ -900,8 +851,7 @@ function start(): void {
       // panels' own — re-sync after each.
       let menuPaused = false;
       function syncMenuPause(): void {
-        const open =
-          overlay.isOpen() || confirm.isOpen() || help.isOpen() || map.isOpen();
+        const open = anyPanelOpen();
         if (open === menuPaused) return;
         menuPaused = open;
         shell.setMediaPaused(open);

@@ -68,8 +68,8 @@ const PAGE_STATE = () => {
     overlayMode: overlay?.getAttribute("data-mode") ?? null,
     textMode: textEl?.getAttribute("data-mode") ?? null,
     textFontStyle: textEl ? getComputedStyle(textEl).fontStyle : null,
-    bookmarksOpen: (() => {
-      const p = document.getElementById("bookmarks");
+    mapOpen: (() => {
+      const p = document.getElementById("branchmap");
       return p === null ? null : !p.hidden;
     })(),
     // The key help screen and the black screen it puts the stage through
@@ -130,91 +130,98 @@ const READ_BOOKMARKS = async () => {
   }
 };
 
-// The `t` overlay as the reader sees it: whether the panel is up, the
-// entries top to bottom, where the list is scrolled, and per entry its item
-// index, timestamp text, label and whether the thumbnail actually resolved
-// (a stored data URL, or the manifest still the entry falls back to when
-// the canvas capture was taint-blocked over file://).
-const READ_BOOKMARK_OVERLAY = () => {
-  const panel = document.getElementById("bookmarks");
+// The branch map's bookmark cards as the reader sees them (docs/plan.md
+// Phase 35: the bookmarks live on the map; the `t` screen is gone): whether
+// the map is up and has drawn its cards, and per card, in DOM order (story
+// order, top to bottom then left to right), its item, timestamp text,
+// newest and deleted marks, where it is on screen, and whether its picture
+// resolved (the stored capture, or the manifest still shrunk into a canvas
+// that names its file, `data-still-src`).
+const READ_MAP_CARDS = () => {
+  const panel = document.getElementById("branchmap");
   if (panel === null) return { present: false };
   if (panel.hidden) return { present: true, hidden: true };
-  const list = document.querySelector(".bookmarks-list");
   const rectOf = (el) => {
     if (el === null || el === undefined) return null;
     const r = el.getBoundingClientRect();
-    return { top: r.top, bottom: r.bottom, left: r.left, right: r.right };
+    return {
+      top: r.top,
+      bottom: r.bottom,
+      left: r.left,
+      right: r.right,
+      width: r.width,
+      height: r.height,
+    };
   };
+  const view = panel.querySelector(".map-view");
   return {
     present: true,
     hidden: false,
-    title: document.querySelector(".bookmarks-title")?.textContent ?? null,
-    titleRect: rectOf(document.querySelector(".bookmarks-title")),
-    scrollHeight: list.scrollHeight,
-    clientHeight: list.clientHeight,
-    scrollTop: list.scrollTop,
-    scrollWidth: list.scrollWidth,
-    clientWidth: list.clientWidth,
-    listRect: rectOf(list),
-    emptyText: panel.querySelector(".bookmarks-empty")?.textContent ?? null,
-    entries: Array.from(document.querySelectorAll(".bookmark-entry")).map(
-      (el) => {
-        const img = el.querySelector("img.bookmark-thumb");
-        // A card's manifest still is drawn shrunk into a canvas that
-        // names its file (render/bookmarks.ts, the Safari item).
-        const still = el.querySelector("canvas.bookmark-thumb");
-        return {
-          itemIndex: Number(el.getAttribute("data-item-index")),
-          time: el.querySelector(".bookmark-time")?.textContent ?? "",
-          label: el.querySelector(".bookmark-label")?.textContent ?? "",
-          thumbSrcHead: img
-            ? (img.getAttribute("src") ?? "").slice(0, 24)
-            : still
-              ? (still.getAttribute("data-still-src") ?? "").slice(0, 24)
-              : null,
-          thumbResolved: img
-            ? img.complete && img.naturalWidth > 0
-            : still !== null && still.width > 0,
-          rect: rectOf(el),
-          // The thumbnail's delete "x" (Phase 18) and the thumbnail box
-          // it must sit in the top-right corner of.
-          deleteRect: rectOf(el.querySelector(".bookmark-delete")),
-          deleteText: el.querySelector(".bookmark-delete")?.textContent ?? null,
-          thumbBoxRect: rectOf(el.querySelector(".bookmark-thumb-box")),
-          // The thumbnail as drawn (Phase 26: large, in a grid of cards).
-          thumbRect: rectOf(el.querySelector(".bookmark-thumb")),
-        };
-      },
-    ),
+    ready: panel.dataset.ready === "true",
+    viewRect: rectOf(view),
+    scale: Number(panel.querySelector(".map-svg")?.getAttribute("data-scale")),
+    toast: (() => {
+      const t = panel.querySelector(".map-toast");
+      return t === null || t.hidden ? null : t.textContent;
+    })(),
+    cards: Array.from(panel.querySelectorAll(".bm-card")).map((el) => {
+      const pic = el.querySelector(".bm-thumb > .bm-pic");
+      return {
+        id: el.getAttribute("data-bm"),
+        itemId: el.getAttribute("data-item-id"),
+        itemIndex: Number(el.getAttribute("data-item-index")),
+        time: el.querySelector(".bm-time")?.textContent ?? "",
+        newest: el.classList.contains("bm-newest"),
+        deleted: el.classList.contains("bm-deleted"),
+        label: el.getAttribute("aria-label"),
+        picTag: pic?.tagName ?? null,
+        picSrcHead: pic
+          ? (
+              pic.getAttribute("data-still-src") ??
+              pic.getAttribute("src") ??
+              ""
+            ).slice(0, 24)
+          : null,
+        picResolved:
+          pic === null
+            ? false
+            : pic.tagName === "IMG"
+              ? pic.complete && pic.naturalWidth > 0
+              : pic.width > 0,
+        rect: rectOf(el),
+        deleteRect: rectOf(el.querySelector(".bm-del")),
+        deleteText: el.querySelector(".bm-del")?.textContent ?? null,
+      };
+    }),
   };
 };
 
-// Page-side predicates for "is the panel up", and the Node-side wrapper.
-// The panel shows the moment `t` is pressed and fills in after (the
-// bookmark-screen speed item): OVERLAY_VISIBLE is the first, OVERLAY_OPEN
-// waits for the list as the reader ends up seeing it — its rows read in
-// (or the empty message up) and every thumbnail placeholder replaced by
-// a loaded picture — so the steps that read the rows find them all.
-const OVERLAY_VISIBLE = () => {
-  const p = document.getElementById("bookmarks");
+// Page-side predicates for the map, and the Node-side wrapper. The map
+// shows the moment `m` is pressed and draws its cards once the bookmark
+// list is read (`data-ready`): MAP_OPEN is the first, MAP_READY the
+// second, MAP_CARDS_LOADED waits until every card shows its picture too.
+const MAP_OPEN = () => {
+  const p = document.getElementById("branchmap");
   return p !== null && !p.hidden;
 };
-const OVERLAY_OPEN = () => {
-  const p = document.getElementById("bookmarks");
-  if (p === null || p.hidden) return false;
-  const rows = p.querySelectorAll(".bookmark-entry").length;
-  const empty = p.querySelector(".bookmarks-empty");
-  if (rows === 0 && (empty === null || empty.hidden)) return false;
-  if (p.querySelector("[data-thumb-key]") !== null) return false;
-  return [...p.querySelectorAll("img.bookmark-thumb")].every(
-    (img) => img.complete,
-  );
+const MAP_READY = () => {
+  const p = document.getElementById("branchmap");
+  return p !== null && !p.hidden && p.dataset.ready === "true";
 };
-const OVERLAY_CLOSED = () => {
-  const p = document.getElementById("bookmarks");
+const MAP_CARDS_LOADED = () => {
+  const p = document.getElementById("branchmap");
+  if (p === null || p.hidden || p.dataset.ready !== "true") return false;
+  return [...p.querySelectorAll(".bm-card")].every((card) => {
+    const pic = card.querySelector(".bm-thumb > .bm-pic");
+    if (pic === null) return false;
+    return pic.tagName !== "IMG" || pic.complete;
+  });
+};
+const MAP_CLOSED = () => {
+  const p = document.getElementById("branchmap");
   return p === null || p.hidden;
 };
-const panelOpen = (page) => page.evaluate(OVERLAY_VISIBLE);
+const mapOpen = (page) => page.evaluate(MAP_OPEN);
 
 // The settings section of the Esc screen (Phase 26: Escape opens the one
 // screen holding the keys and every setting; `c` is gone) as the reader
@@ -848,7 +855,10 @@ const pressTab = (cdp) => pressKey(cdp, "Tab", "Tab", 9, "");
 const pressE = (cdp) => pressKey(cdp, "e", "KeyE", 69, "e");
 const pressU = (cdp) => pressKey(cdp, "u", "KeyU", 85, "u");
 const pressB = (cdp) => pressKey(cdp, "b", "KeyB", 66, "b");
+// `t` no longer does anything (Phase 35); scenarios press it to prove that.
 const pressT = (cdp) => pressKey(cdp, "t", "KeyT", 84, "t");
+const pressM = (cdp) => pressKey(cdp, "m", "KeyM", 77, "m");
+const pressZ = (cdp) => pressKey(cdp, "z", "KeyZ", 90, "z");
 // `c` opens nothing since Phase 26 (the settings live on the Esc screen);
 // the key stays here so a scenario can prove it inert.
 const pressC = (cdp) => pressKey(cdp, "c", "KeyC", 67, "c");
@@ -881,8 +891,8 @@ const pressEscapeSeen = async (page, cdp) => {
 const pressDigit = (cdp, digit) =>
   pressKey(cdp, digit, `Digit${digit}`, 48 + Number(digit), digit);
 
-// A trusted left click at page coordinates: the `t` overlay is clicked the
-// way a reader clicks it, through CDP Input.
+// A trusted left click at page coordinates: a control is clicked the way a
+// reader clicks it, through CDP Input.
 const clickAt = async (cdp, x, y) => {
   await cdp.send("Input.dispatchMouseEvent", {
     type: "mousePressed",
@@ -1343,15 +1353,16 @@ export {
   INSTALL_BRANCH_LOG,
   INSTRUMENT,
   judgeFit,
+  MAP_CARDS_LOADED,
+  MAP_CLOSED,
+  MAP_OPEN,
+  MAP_READY,
+  mapOpen,
   ON_TEXT,
-  OVERLAY_CLOSED,
-  OVERLAY_OPEN,
-  OVERLAY_VISIBLE,
   openAtViewport,
   openSettings,
   PAGE_STATE,
   PAINT_SIG,
-  panelOpen,
   pressA,
   pressB,
   pressC,
@@ -1362,17 +1373,19 @@ export {
   pressEscapeSeen,
   pressH,
   pressKey,
+  pressM,
   pressSpace,
   pressT,
   pressTab,
   pressU,
-  READ_BOOKMARK_OVERLAY,
+  pressZ,
   READ_BOOKMARKS,
   READ_CHOICE,
   READ_CONFIG_OVERLAY,
   READ_CONFIRM_OVERLAY,
   READ_HELP,
   READ_KEY_GRID,
+  READ_MAP_CARDS,
   readBranchLog,
   readSignature,
   SIGNATURE,

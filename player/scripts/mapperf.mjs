@@ -1,19 +1,24 @@
 #!/usr/bin/env node
-// Branch map perf check (docs/plan.md Phase 31): a synthetic large game —
-// by default 30 top-level decisions nesting to depth 6 (570 decisions,
-// 1,710 routes) over ~90k items, the size of the largest real game — is
-// written to .tmp/perf-map/ with the CURRENT dist/ bundle, opened in
-// headless Chrome at 1920x1080, read a little (so there are marks), and then
-// measured in the page:
+// Branch map perf check (docs/plan.md Phases 31, 35): a synthetic large
+// game — by default 30 top-level decisions nesting to depth 6 (570
+// decisions, 1,710 routes) over ~90k items, the size of the largest real
+// game — is written to .tmp/perf-map/ with the CURRENT dist/ bundle, opened
+// in headless Chrome at 1920x1080, read a little (so there are marks), given
+// `bookmarks` bookmarks (default 180: one real `b`, then copies of its row
+// spread over the whole story, so over routes at every depth; half carry a
+// distinct captured JPEG, half show the manifest still), and then measured
+// in the page:
 //
 //   - open time: from the `m` keydown to the second animation frame after
-//     the panel is shown (layout + markup + first paint), for the first open
-//     (which lays the tree out) and a second one (layout cached);
+//     the map has drawn its cards (`data-ready`: layout + markup + cards +
+//     first paint), for the first open (which lays the tree out around the
+//     cards) and two more (layout cached);
 //   - frame intervals while the map zooms (wheel events at 60 Hz), pans at
-//     a readable zoom (a drag), pans at the fitted, labels-off zoom, and
-//     zooms back in; with Chrome's long-animation-frame entries (> 50 ms).
+//     a readable zoom (a drag), pans at 100% (cards at full size), pans at
+//     the fitted, labels-off zoom, and zooms back in; with Chrome's
+//     long-animation-frame entries (> 50 ms).
 //
-// Run from player/: npm run build && npm run perf:map [-- top depth run]
+// Run from player/: npm run build && npm run perf:map [-- top depth run bookmarks]
 // Output: a JSON summary on stdout (also .tmp/perf-map.json).
 
 import { copyFileSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
@@ -29,7 +34,7 @@ const chromePath =
   process.env.KINETIC_CHROME ??
   "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 
-const [top = 30, depth = 6, run = 26] = process.argv
+const [top = 30, depth = 6, run = 26, bookmarks = 180] = process.argv
   .slice(2)
   .map((a) => Number(a));
 
@@ -134,14 +139,26 @@ const INSTRUMENT = () => {
       const shownAt = performance.now();
       const from = keyAt;
       keyAt = 0;
-      requestAnimationFrame(() =>
+      // The cards are drawn once the bookmark list is read: wait for that
+      // (`data-ready`), then two frames for its paint.
+      const ready = () => {
+        if (panel.dataset.ready !== "true") {
+          requestAnimationFrame(ready);
+          return;
+        }
+        const readyAt = performance.now();
         requestAnimationFrame(() =>
-          perf.opens.push({
-            shownMs: shownAt - from,
-            paintedMs: performance.now() - from,
-          }),
-        ),
-      );
+          requestAnimationFrame(() =>
+            perf.opens.push({
+              shownMs: shownAt - from,
+              readyMs: readyAt - from,
+              paintedMs: performance.now() - from,
+              cards: panel.querySelectorAll(".bm-card").length,
+            }),
+          ),
+        );
+      };
+      ready();
     }).observe(panel, { attributes: true, attributeFilter: ["hidden"] });
   };
   watch();
@@ -170,6 +187,66 @@ const INSTRUMENT = () => {
   } catch {
     // no LoAF in this browser
   }
+};
+
+// In the page: wait for the real `b` row, then add `n - 1` copies of it
+// on items spread over the whole story (the nearest picture item), half
+// with a distinct 320x180 captured JPEG, half with none (the still).
+const SEED = async (n) => {
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const open = () =>
+    new Promise((resolve, reject) => {
+      const r = indexedDB.open("kinetic");
+      r.onsuccess = () => resolve(r.result);
+      r.onerror = () => reject(r.error);
+    });
+  let real = null;
+  for (let i = 0; i < 50 && real === null; i++) {
+    await sleep(100);
+    const db = await open();
+    real = await new Promise((resolve) => {
+      const all = db.transaction("bookmarks").objectStore("bookmarks").getAll();
+      all.onsuccess = () => resolve(all.result.at(-1) ?? null);
+    });
+    db.close();
+  }
+  if (real === null) return { error: "no bookmark row after b" };
+  const items = window.KINETIC_MANIFEST.items;
+  const canvas = document.createElement("canvas");
+  canvas.width = 320;
+  canvas.height = 180;
+  const g = canvas.getContext("2d");
+  const rows = [];
+  for (let i = 1; i < n; i++) {
+    let thumb = null;
+    if (i % 2 === 0) {
+      g.fillStyle = `hsl(${(i * 37) % 360} 60% 45%)`;
+      g.fillRect(0, 0, 320, 180);
+      g.fillStyle = `hsl(${(i * 91) % 360} 50% 70%)`;
+      g.fillRect((i * 13) % 280, (i * 7) % 140, 40, 40);
+      thumb = canvas.toDataURL("image/jpeg", 0.8);
+    }
+    const at = Math.floor((i * (items.length - 1)) / n);
+    const { seq, ...rest } = real;
+    rows.push({
+      ...rest,
+      id: `seed-${i}`,
+      timestampMs: real.timestampMs - (n - i) * 60000,
+      itemId: items[at].id,
+      ctx: { ...real.ctx, lastShown: items[at].id },
+      thumbDataUrl: thumb,
+    });
+  }
+  const db = await open();
+  await new Promise((resolve, reject) => {
+    const tx = db.transaction("bookmarks", "readwrite");
+    const store = tx.objectStore("bookmarks");
+    for (const row of rows) store.add(row);
+    tx.oncomplete = resolve;
+    tx.onerror = () => reject(tx.error);
+  });
+  db.close();
+  return { rows: rows.length + 1 };
 };
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -218,6 +295,12 @@ try {
   for (let i = 0; i < 120; i += 1) {
     await key(cdp, " ", "Space", 32);
     await sleep(15);
+  }
+  // The bookmarks: one real `b`, then copies of its row spread over the
+  // story (every route depth), half with their own captured JPEG.
+  if (bookmarks > 0) {
+    await key(cdp, "b", "KeyB", 66);
+    result.seeded = await page.evaluate(SEED, bookmarks);
   }
   const m = () => key(cdp, "m", "KeyM", 77);
   const isOpen = () =>
@@ -295,6 +378,10 @@ try {
   }
   await phase("pan at readable zoom");
   await drag(90, 700, 300);
+  await key(cdp, "1", "Digit1", 49);
+  await sleep(100);
+  await phase("pan at 100% (cards full size)");
+  await drag(90, 700, 300);
   await key(cdp, "f", "KeyF", 70);
   await sleep(100);
   await phase("pan at fit (labels off)");
@@ -333,6 +420,10 @@ try {
         .filter((f) => f.phase === name)
         .map((f) => +f.ms.toFixed(0)),
     };
+  result.cardsAtEnd = await page.evaluate(() => ({
+    cards: document.querySelectorAll(".bm-card").length,
+    pictures: document.querySelectorAll(".bm-thumb > .bm-pic").length,
+  }));
   result.manifest = {
     items: manifest.items.length,
     decisions: manifest.branches.length,

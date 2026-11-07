@@ -5,7 +5,7 @@
 // own request (title, message, button, hint and the action), so one box
 // serves both. Same visual family as the
 // other overlays (`#confirm`, index.html), and while it is open the
-// machine is suspended exactly like behind `t` and the Esc screen (main.ts folds
+// machine is suspended exactly like behind the map and the Esc screen (main.ts folds
 // `isOpen` into its screen gate). Its keys — y resets, Escape/n
 // cancel (y imports, for an import) — arrive through the shell's key map
 // like every other overlay's;

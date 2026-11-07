@@ -1,13 +1,15 @@
 #!/usr/bin/env node
-// Bookmark-screen timing in Safari (safaridriver) and headless Chrome.
+// Bookmark-card timing in Safari (safaridriver) and headless Chrome: the
+// bookmarks' cards on the branch map (docs/plan.md Phase 35; this timed
+// the `t` screen, Phase 29, before the map replaced it).
 //
 //   npm run build && node scripts/bookmark-timing.mjs [safari|chrome] [http|file] [count]
 //
 // Assembles the demo (fixtures/demo + dist bundle) in .tmp/bookmark-timing,
 // seeds `count` (default 64) bookmarks spread through the story — one real
 // `b`, then copies of its row with distinct photo-sized 480x270 JPEG
-// captures — reloads, and times `t` on the first opening and two reopens:
-// ms from the key press to the frame that shows the panel, the first rows,
+// captures — reloads, and times `m` on the first opening and two reopens:
+// ms from the key press to the frame that shows the map, the first cards,
 // and each in-view card's picture (`decodedInView`: when each is decoded,
 // ready to paint). Environment:
 //   HIRES=1        stills as a big converted game ships them: 1920x1080
@@ -290,16 +292,18 @@ async function seedInPage(n, pad, hist, captured) {
   };
 }
 
-// Press `t` (twice when `reopen`: close first) and time what appears.
+// Press `m` (twice when `reopen`: close first) and time what appears: the
+// bookmarks are cards on the branch map (docs/plan.md Phase 35; the `t`
+// screen this once timed is gone).
 async function timeOpenInPage(reopen) {
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const key = (k) =>
     document.body.dispatchEvent(
       new KeyboardEvent("keydown", { key: k, bubbles: true }),
     );
-  const panel = document.getElementById("bookmarks");
+  const panel = document.getElementById("branchmap");
   if (reopen && panel !== null && !panel.hidden) {
-    key("t");
+    key("m");
     await sleep(500);
   }
   // Every IndexedDB get during the open.
@@ -310,7 +314,8 @@ async function timeOpenInPage(reopen) {
     return realGet.apply(this, a);
   };
   // Each animation frame: which cards now hold a loaded picture (an <img>
-  // complete with pixels). A card's time is the first frame that has it.
+  // complete with pixels, or a shrunk still's canvas). A card's time is
+  // the first frame that has it.
   const seen = new Map();
   let shown = null;
   let entries = null;
@@ -325,26 +330,28 @@ async function timeOpenInPage(reopen) {
     const t = now - t0;
     if (last !== null) maxGap = Math.max(maxGap, t - last);
     last = t;
-    const p = document.getElementById("bookmarks");
+    const p = document.getElementById("branchmap");
     if (shown === null && p !== null && !p.hidden) shown = t;
-    const cards = p === null ? [] : p.querySelectorAll(".bookmark-entry");
+    const cards = p === null ? [] : p.querySelectorAll(".bm-card");
     if (entries === null && cards.length > 0) entries = t;
-    const box = p?.querySelector(".bookmarks-list")?.getBoundingClientRect();
+    const box = p?.querySelector(".map-view")?.getBoundingClientRect();
     for (const card of cards) {
-      const id = card.getAttribute("data-entry-index");
+      const id = card.getAttribute("data-bm");
       if (seen.has(id)) continue;
       // A picture: a capture or still as a loaded <img>, or a shrunk still
       // (a canvas, drawn when it goes in).
-      const img = card.querySelector(
-        ".bookmark-thumb:not(.bookmark-thumb-empty)",
-      );
+      const img = card.querySelector(".bm-thumb > .bm-pic");
       if (img === null) continue;
       const canvas = img.tagName === "CANVAS";
       if (!canvas && (!img.complete || img.naturalWidth === 0)) continue;
       const r = card.getBoundingClientRect();
       const rec = {
         t,
-        inView: r.bottom > box.top && r.top < box.bottom,
+        inView:
+          r.bottom > box.top &&
+          r.top < box.bottom &&
+          r.right > box.left &&
+          r.left < box.right,
         data: !canvas && img.src.startsWith("data:"),
       };
       seen.set(id, rec);
@@ -362,7 +369,7 @@ async function timeOpenInPage(reopen) {
     requestAnimationFrame(tick);
   };
   requestAnimationFrame(tick);
-  key("t");
+  key("m");
   const deadline = t0 + 30000;
   let quietSince = performance.now();
   let lastCount = -1;
@@ -372,9 +379,7 @@ async function timeOpenInPage(reopen) {
       lastCount = seen.size;
       quietSince = performance.now();
     }
-    const cards = document.querySelectorAll(
-      "#bookmarks .bookmark-entry",
-    ).length;
+    const cards = document.querySelectorAll("#branchmap .bm-card").length;
     if (cards > 0 && seen.size === cards) break;
     if (cards > 0 && performance.now() - quietSince > 3000) break;
   }
@@ -391,7 +396,7 @@ async function timeOpenInPage(reopen) {
   return {
     shown: r(shown),
     entries: r(entries),
-    cards: document.querySelectorAll("#bookmarks .bookmark-entry").length,
+    cards: document.querySelectorAll("#branchmap .bm-card").length,
     loaded: all.length,
     first: r(all[0]),
     last: r(all.at(-1)),

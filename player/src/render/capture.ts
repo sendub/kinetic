@@ -11,9 +11,9 @@
 
 /**
  * Bookmark captures are no wider than this. Wider than the converter's
- * 320px `<id>.thumb.jpg` previews (docs/content-format.md) because the `t`
- * grid (docs/plan.md Phase 26) draws each thumbnail some 300-400 CSS px
- * wide; at JPEG quality `THUMB_QUALITY` a 480x270 capture is a few tens
+ * 320px `<id>.thumb.jpg` previews (docs/content-format.md) because a
+ * bookmark's card on the branch map (docs/plan.md Phase 35) is 280 CSS px
+ * wide at 100% and may be zoomed in further; at JPEG quality `THUMB_QUALITY` a 480x270 capture is a few tens
  * of KB per bookmark.
  */
 export const THUMB_MAX_WIDTH = 480;

@@ -4,7 +4,8 @@
 // `<storyId>-progress.json`. A second, fresh browser profile opens the same
 // folder: another story's file is refused in the panel and changes
 // nothing; the real file asks to confirm, replaces this browser's progress
-// and reloads onto the same item, with the bookmark and the speed. From
+// and reloads onto the same item, with the bookmark (its card on the branch
+// map, docs/plan.md Phase 35) and the speed. From
 // there saving is automatic again: one more item and a reload resume there.
 
 import {
@@ -26,16 +27,17 @@ import {
   currentItemId,
   demoDir,
   item,
+  MAP_CLOSED,
+  MAP_READY,
   manifest,
-  OVERLAY_OPEN,
   openSettings,
   PAGE_STATE,
   pressB,
+  pressM,
   pressSpace,
-  pressT,
-  READ_BOOKMARK_OVERLAY,
   READ_CONFIG_OVERLAY,
   READ_CONFIRM_OVERLAY,
+  READ_MAP_CARDS,
   readBookmarks,
   sleep,
   spaceTo,
@@ -189,16 +191,16 @@ export default async function ({ check, open }) {
   await sleep(400);
   const resumed = await b.page.evaluate(PAGE_STATE);
   const resumedId = await currentItemId(b.page);
-  await pressT(b.cdp);
-  await waitFor(b.page, OVERLAY_OPEN);
-  const list = await b.page.evaluate(READ_BOOKMARK_OVERLAY);
-  await pressT(b.cdp);
+  await pressM(b.cdp);
+  const mapReady = await waitFor(b.page, MAP_READY);
+  const { cards = [] } = await b.page.evaluate(READ_MAP_CARDS);
+  await pressM(b.cdp);
+  const mapClosed = await waitFor(b.page, MAP_CLOSED);
   await openSettings(b.page, b.cdp);
   const cfgB = await b.page.evaluate(READ_CONFIG_OVERLAY);
   await closeSettings(b.page, b.cdp);
-  const rows = list.entries ?? [];
   check(
-    "the real file asks to confirm, then reloads onto the same item with the bookmark and 2.00x, help closed",
+    "the real file asks to confirm, then reloads onto the same item with the bookmark (its card on the map) and 2.00x, help closed",
     asked &&
       box.title === "Import progress" &&
       box.message ===
@@ -208,15 +210,19 @@ export default async function ({ check, open }) {
       painted &&
       resumedId === reached.id &&
       resumed.helpOpen === false &&
-      rows.length === 1 &&
-      rows[0].itemIndex === marked.index &&
+      mapReady &&
+      cards.length === 1 &&
+      cards[0].itemIndex === marked.index &&
+      mapClosed &&
       cfgB.speedValue === SPEED_2X,
     {
       box,
       reloaded,
       resumedId,
       help: resumed.helpOpen,
-      rows: rows.map((r) => r.itemIndex),
+      mapReady,
+      cards: cards.map((c) => c.itemIndex),
+      mapClosed,
       speed: cfgB.speedValue,
     },
   );

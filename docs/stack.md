@@ -12,9 +12,10 @@ From README.md:
 - Display ordered images, animation frame groups, and video, fullscreen,
   with overlay text.
 - Keys: space (advance), tab (fast skip), h (hide text), b (bookmark),
-  t (bookmark list), m (branch map, docs/plan.md Phase 31), e (jump to
-  the furthest point read), u (next unseen), Esc (settings). Scroll wheel
-  walks the story back and forward (docs/plan.md Phase 27).
+  m (branch map, with the bookmarks on it: docs/plan.md Phases 31 and
+  35; `t`, the old bookmark list, is gone), e (jump to the furthest
+  point read), u (next unseen), Esc (settings). Scroll wheel walks the
+  story back and forward (docs/plan.md Phase 27).
 - Navigation latency under 1/24 s (41 ms). Pre-decode and pre-size are the
   mechanisms; runtime video decode must never gate a navigation.
 - macOS, no runtime dependencies except browser-related stuff, no

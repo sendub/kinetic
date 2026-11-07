@@ -69,7 +69,7 @@ export interface Shell {
    */
   setStageVisible(visible: boolean): void;
   /**
-   * The Esc screen's and `t` list's timeline pause (docs/plan.md Phase 18): true
+   * The Esc screen's and the branch map's timeline pause (docs/plan.md Phase 18): true
    * holds a playing video in place, false lets it play on.
    */
   setMediaPaused(paused: boolean): void;
@@ -310,7 +310,7 @@ export function mountShell({ root, manifest, machine }: ShellOptions): Shell {
       color: "#f4efe6",
       font: "500 clamp(13px, 1.6vh, 17px)/1.3 ui-sans-serif, system-ui, sans-serif",
       letterSpacing: "0.04em",
-      pointerEvents: "none", // clicks pass through; the list stays clickable
+      pointerEvents: "none", // clicks pass through to what is under it
       userSelect: "none",
       zIndex: "10",
       opacity: "1",

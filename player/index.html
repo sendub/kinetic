@@ -45,7 +45,7 @@
       }
       /* The key help's black screen hides the stage itself, media and all
          (docs/plan.md Phase 13b); this beats `.stage`'s own display, same
-         pattern as `#bookmarks[hidden]` and `#config[hidden]` below. */
+         pattern as `#config[hidden]` below. */
       .stage[hidden] {
         display: none;
       }
@@ -118,154 +118,6 @@
       .overlay-text[data-mode="thought"] {
         font-style: italic;
         color: #b9d4e8;
-      }
-      /* t bookmark overlay (docs/plan.md Phase 8, README t bullet): one
-         panel owns the screen while open, and the cursor-moving keys are
-         suspended behind it (render/keys.ts). Phase 26 made the list a
-         grid of large cards that fills across, then down — oldest at the
-         top left, newest last — and it scrolls, so opening lands at the
-         bottom with the most recent card visible. The z-index keeps it
-         over stage and overlay but under the #flash pill (z 10), so a `b`
-         taken while browsing still confirms on screen. Sizes stay
-         proportional to the viewport; nothing here takes the manifest's
-         display size, same as the stage above. */
-      #bookmarks {
-        position: absolute;
-        inset: 0;
-        z-index: 5;
-        display: flex;
-        flex-direction: column;
-        gap: clamp(8px, 1.8vh, 20px);
-        padding: clamp(16px, 3vh, 36px) clamp(20px, 6vw, 88px);
-        background: rgba(8, 8, 10, 0.94);
-        color: var(--ink);
-        font-family: var(--ui-font);
-      }
-      #bookmarks[hidden] {
-        display: none;
-      }
-      .bookmarks-title {
-        margin: 0;
-        color: var(--accent);
-        font-size: clamp(12px, 1.5vh, 17px);
-        font-weight: 600;
-        letter-spacing: 0.16em;
-        text-transform: uppercase;
-      }
-      .bookmarks-hint {
-        margin: 0;
-        color: rgba(244, 239, 230, 0.55);
-        font-size: clamp(10px, 1.2vh, 13px);
-      }
-      /* The same auto-fill rule as the Esc screen's key grid (.help-list):
-         as many ~280 px columns as fit, sharing the spare width, one column
-         when the window is narrower; cards in reading order. */
-      .bookmarks-list {
-        flex: 1 1 auto;
-        min-height: 0;
-        display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr));
-        align-content: start;
-        align-items: start;
-        gap: clamp(10px, 2vh, 24px) clamp(10px, 1.6vw, 24px);
-        overflow-x: hidden;
-        overflow-y: auto;
-        overscroll-behavior: contain;
-        padding-right: 4px;
-      }
-      .bookmarks-list[hidden] {
-        display: none;
-      }
-      .bookmark-entry {
-        display: flex;
-        flex-direction: column;
-        align-items: stretch;
-        gap: clamp(6px, 1vh, 10px);
-        min-width: 0;
-        padding: clamp(6px, 1vh, 10px);
-        border: 1px solid rgba(244, 239, 230, 0.16);
-        border-radius: 6px;
-        background: rgba(18, 18, 22, 0.9);
-        color: var(--ink);
-        font: inherit;
-        text-align: left;
-        cursor: pointer;
-      }
-      .bookmark-entry:hover,
-      .bookmark-entry:focus-visible {
-        border-color: var(--accent);
-        background: rgba(30, 30, 36, 0.95);
-        outline: none;
-      }
-      /* The thumbnail is the card's full width at the still's own aspect
-         ratio; `contain` and the height cap so a portrait still letterboxes
-         instead of towering over the row. */
-      .bookmark-thumb {
-        display: block;
-        width: 100%;
-        height: auto;
-        max-height: 60vh;
-        object-fit: contain;
-        border-radius: 3px;
-        background: #000;
-      }
-      /* A card with no picture, or one whose capture is still being read
-         (the list fills its pictures in lazily): the stage's shape, set on
-         the panel from the manifest, so a capture arriving keeps the card's
-         size. */
-      .bookmark-thumb-empty {
-        aspect-ratio: var(--bookmark-thumb-aspect, 16 / 9);
-      }
-      /* The thumbnail's box positions its delete "x" (docs/plan.md Phase
-         18, "Delete a bookmark") on the thumbnail's top-right corner. */
-      .bookmark-thumb-box {
-        position: relative;
-        display: block;
-      }
-      .bookmark-delete {
-        position: absolute;
-        top: 4px;
-        right: 4px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        width: clamp(18px, 2.6vh, 26px);
-        height: clamp(18px, 2.6vh, 26px);
-        border: 1px solid rgba(244, 239, 230, 0.4);
-        border-radius: 50%;
-        background: rgba(10, 10, 12, 0.92);
-        color: var(--ink);
-        font-size: clamp(12px, 1.8vh, 18px);
-        line-height: 1;
-        cursor: pointer;
-      }
-      .bookmark-delete:hover {
-        border-color: var(--accent);
-        color: var(--accent);
-      }
-      .bookmark-meta {
-        display: flex;
-        flex-direction: column;
-        gap: 0.3em;
-        min-width: 0;
-      }
-      .bookmark-time {
-        font-variant-numeric: tabular-nums;
-        font-size: clamp(12px, 1.6vh, 18px);
-      }
-      .bookmark-label {
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-        color: rgba(244, 239, 230, 0.62);
-        font-size: clamp(10px, 1.3vh, 14px);
-        letter-spacing: 0.04em;
-      }
-      .bookmarks-empty {
-        margin: auto;
-        color: rgba(244, 239, 230, 0.7);
-        font-size: clamp(14px, 1.8vh, 20px);
-        letter-spacing: 0.02em;
       }
       /* The settings section of the Esc screen (docs/plan.md Phase 9;
          Phase 26 moved it into #help, under the key grid, and dropped
@@ -447,14 +299,14 @@
          decision tree on the panels' dark ground, opaque so the game does
          not show through the lines. z 6: over
          a pending choice (z 5), which it may open above; it never
-         coexists with the Esc screen (also z 6) or the list — each
-         replaces the other — and stays under the reset box (z 7) and
-         the #flash pill (z 10). A one-line header (Phase 33): the title
-         and three buttons, each naming its key in its hover title; under
-         it the SVG view, taking all the height left, which owns every pointer and
-         wheel event (touch-action: none: no browser pan or zoom). No
-         text on it is selectable, so a drag pan or a double click never
-         selects any: Safari reads only the -webkit- form. */
+         coexists with the Esc screen (also z 6) — each replaces the
+         other — and stays under the reset box (z 7) and the #flash pill
+         (z 10). A one-line header (Phase 33): the title and its buttons,
+         each naming its key in its hover hint; under it the view, taking
+         all the height left, which owns every pointer and wheel event
+         (touch-action: none: no browser pan or zoom). No text on it is
+         selectable, so a drag pan or a double click never selects any:
+         Safari reads only the -webkit- form. */
       #branchmap {
         position: absolute;
         inset: 0;
@@ -511,6 +363,13 @@
         background: rgba(30, 30, 36, 0.95);
         outline: none;
       }
+      /* Newest bookmark with no bookmarks: there, but greyed. */
+      .map-tool:disabled {
+        border-color: rgba(244, 239, 230, 0.16);
+        background: rgba(18, 18, 22, 0.9);
+        color: rgba(244, 239, 230, 0.4);
+        cursor: default;
+      }
       /* A control's instant hint (the branch map's buttons, a bookmark's
          delete "x"): drawn from its data-hint below it, right-aligned to
          it so a control at the window's right edge keeps it on screen,
@@ -559,21 +418,47 @@
         border-color: var(--accent);
         color: var(--accent);
       }
+      /* The view paints its own ground and clips and isolates what moves
+         inside it (Phase 35, a Safari lesson): when the map does not fill
+         the view, the area it leaves is repainted, never left holding
+         stale pixels. */
       .map-view {
         position: relative;
         flex: 1 1 auto;
         min-height: 0;
         overflow: hidden;
+        background: rgb(8, 8, 10);
+        isolation: isolate;
+        contain: paint;
         cursor: grab;
         touch-action: none;
       }
       .map-view.map-dragging {
         cursor: grabbing;
       }
+      /* The stage (render/branchmap.ts): everything that moves with the
+         view, the tree's SVG, the bookmark cards and the marker, in world
+         units under ONE transform, so lines and cards can never drift
+         apart. Sized to the layout; the SVGs fill it and may draw past it
+         (the marker's label at the layout's edge). */
+      .map-stage {
+        position: absolute;
+        top: 0;
+        left: 0;
+        transform-origin: 0 0;
+      }
+      .map-svg,
+      .map-cards {
+        position: absolute;
+        top: 0;
+        left: 0;
+      }
       .map-svg {
         display: block;
-        width: 100%;
-        height: 100%;
+        overflow: visible;
+      }
+      .map-top {
+        pointer-events: none;
       }
       .map-svg text {
         fill: var(--ink);
@@ -639,6 +524,13 @@
         font-size: 12px;
         text-anchor: middle;
       }
+      /* A stretch holding cards says its screens and bookmarks under
+         them, from its left end. */
+      .map-svg .map-count-cards {
+        font-size: 11px;
+        fill: rgba(244, 239, 230, 0.45);
+        text-anchor: start;
+      }
       .map-dot {
         fill: rgba(244, 239, 230, 0.6);
       }
@@ -662,13 +554,13 @@
       .map-box.map-dec.map-reached {
         stroke: rgba(244, 239, 230, 0.6);
       }
-      .map-svg .map-dec-q {
-        font-size: 16px;
+      /* Compact nodes (Phase 35): a decision's "played/total", a route's
+         choice number; the full text is in the tooltip. */
+      .map-svg .map-dec-c,
+      .map-svg .map-route-c {
+        font-size: 11px;
         font-weight: 600;
-      }
-      .map-svg .map-dec-sub {
-        fill: rgba(244, 239, 230, 0.55);
-        font-size: 12px;
+        text-anchor: middle;
       }
       .map-route.map-route-played rect,
       .map-box.map-route-played {
@@ -751,6 +643,176 @@
         color: rgba(244, 239, 230, 0.6);
         font-size: 0.85em;
       }
+      /* Bookmark cards (Phase 35, replacing the `t` screen): in world
+         units on the stage, so at 100% a card is the old screen's, a 280
+         px thumbnail over its timestamp, and at Fit it shrinks with the
+         tree. The newest has the accent border and a NEWEST tag. */
+      .bm-card {
+        position: absolute;
+        width: 280px;
+        height: 182px;
+        box-sizing: border-box;
+        border: 1px solid rgba(244, 239, 230, 0.16);
+        border-radius: 6px;
+        background: rgb(20, 20, 24);
+        cursor: pointer;
+      }
+      /* The hover ring and the newest's outline are 2 screen pixels at
+         any zoom (--px, a screen pixel in world units, set by
+         render/branchmap.ts), so the newest stands out at Fit too. */
+      .bm-card:hover {
+        border-color: var(--accent);
+        box-shadow: 0 0 0 calc(2px * var(--px, 1)) var(--accent);
+      }
+      .bm-card.bm-newest {
+        border-color: var(--accent);
+        box-shadow: 0 0 0 calc(2px * var(--px, 1)) var(--accent);
+      }
+      .bm-thumb {
+        height: 156px;
+        overflow: hidden;
+        border-radius: 5px 5px 0 0;
+        background: rgb(32, 32, 38);
+      }
+      .bm-thumb > .bm-pic {
+        display: block;
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+      }
+      .bm-cap {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        height: 24px;
+        padding: 0 8px;
+        color: rgba(244, 239, 230, 0.82);
+        font-size: 13px;
+        font-variant-numeric: tabular-nums;
+        white-space: nowrap;
+      }
+      .bm-tag {
+        color: var(--accent);
+        font-size: 11px;
+        font-weight: 600;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+      /* The delete x, at every zoom: shown on the card's hover, drawn at a
+         fixed screen size whatever the zoom (--del-scale, set per frame by
+         render/branchmap.ts), anchored to the card's top-right corner, so
+         it stays a usable target at Fit. Its hint is the instant
+         [data-hint] one. */
+      .bm-del {
+        position: absolute;
+        top: 6px;
+        right: 6px;
+        z-index: 1;
+        width: 24px;
+        height: 24px;
+        padding: 0;
+        border: 1px solid rgba(244, 239, 230, 0.4);
+        border-radius: 50%;
+        background: rgba(10, 10, 12, 0.92);
+        color: var(--ink);
+        font: inherit;
+        font-size: 17px;
+        line-height: 21px;
+        text-align: center;
+        cursor: pointer;
+        transform: scale(var(--del-scale, 1));
+        transform-origin: 100% 0;
+        visibility: hidden;
+      }
+      .bm-card:hover .bm-del {
+        visibility: visible;
+      }
+      .bm-del:hover {
+        border-color: var(--accent);
+        color: var(--accent);
+      }
+      /* Its hint at its usual screen size whatever the x's own scale. */
+      .bm-del[data-hint]::after {
+        top: calc(100% + 4px);
+        transform: scale(var(--hint-scale, 1));
+        transform-origin: 100% 0;
+      }
+      .bm-ghost {
+        display: none;
+      }
+      /* Deleted while the map is open: a dashed ghost in its place (its
+         outline 1.5 screen pixels at any zoom) with an Undo, until the map
+         closes; a click anywhere on it undoes too. */
+      .bm-card.bm-deleted {
+        border: calc(1.5px * var(--px, 1)) dashed rgba(244, 239, 230, 0.5);
+        background: transparent;
+        box-shadow: none;
+      }
+      .bm-card.bm-deleted > :not(.bm-ghost) {
+        display: none;
+      }
+      .bm-card.bm-deleted .bm-ghost {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 10px;
+        height: 100%;
+        color: rgba(244, 239, 230, 0.55);
+        font-size: 14px;
+      }
+      .bm-undo {
+        padding: 5px 14px;
+        border: 1px solid var(--accent);
+        border-radius: 6px;
+        background: none;
+        color: var(--accent);
+        font: inherit;
+        cursor: pointer;
+      }
+      /* Far out the caption is unreadable: the thumbnail fills the card
+         (its time is in the hover tooltip). */
+      .map-cards-small .bm-cap {
+        display: none;
+      }
+      .map-cards-small .bm-thumb {
+        height: 100%;
+        border-radius: 5px;
+      }
+      /* ...and a ghost is just its dashed outline (a click on it, the
+         toast's Undo or Z puts it back). */
+      .map-cards-small .bm-card.bm-deleted .bm-ghost {
+        visibility: hidden;
+      }
+      /* The undo toast: every delete offers it in screen space, so it is
+         usable at any zoom (a ghost's own Undo is tiny at Fit). */
+      .map-toast {
+        position: absolute;
+        left: 50%;
+        bottom: 18px;
+        z-index: 2;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 8px 10px 8px 14px;
+        border: 1px solid rgba(244, 239, 230, 0.22);
+        border-radius: 6px;
+        background: rgba(10, 10, 12, 0.96);
+        font-size: 14px;
+        transform: translateX(-50%);
+      }
+      .map-toast[hidden] {
+        display: none;
+      }
+      .map-undo {
+        padding: 4px 12px;
+        border: 1px solid var(--accent);
+        border-radius: 6px;
+        background: none;
+        color: var(--accent);
+        font: inherit;
+        cursor: pointer;
+      }
       /* Reset-confirmation box (docs/plan.md Phase 16): the Esc screen's
          "Reset progress" row opens it, centered over everything — above
          the Esc screen (#help, z 6), still under the #flash
@@ -821,8 +883,8 @@
       }
       /* The Esc screen (docs/plan.md Phase 13b; Phase 26): black over
          everything — the stage is hidden too, so the screen really is
-         black, not just covered. Opaque background, above the bookmark
-         panel and a pending choice (z 5) and still under the reset box
+         black, not just covered. Opaque background, above a pending
+         choice (z 5) and still under the reset box
          (z 7) and the #flash pill (z 10); the game's name, the key grid
          built from the keymap's own table (render/keys.ts), then the
          settings section (#config). Its keys close it. A window too short
@@ -931,8 +993,8 @@
         padding-top: clamp(4px, 0.8vh, 10px);
         border-top: 1px solid rgba(244, 239, 230, 0.1);
       }
-      /* The `t` row is a button (render/help.ts): it opens the bookmark
-         list in this screen's place. Drawn exactly like the other rows
+      /* The `m` row is a button (render/help.ts): it opens the branch
+         map in this screen's place. Drawn exactly like the other rows
          until hovered or focused, when its rule and caps light up. */
       button.help-row {
         margin: 0;
@@ -1003,9 +1065,8 @@
         border-top: 1px solid rgba(244, 239, 230, 0.18);
       }
       /* Decision overlay (docs/plan.md Phase 13): the machine's open
-         choice drawn as a prompt over its numbered routes. z 5: it never
-         coexists with the bookmark panel (one screen at a time),
-         and the Esc screen — the one screen that may open OVER a pending
+         choice drawn as a prompt over its numbered routes. z 5: the
+         branch map may open over it (z 6), and the Esc screen — the one screen that may open OVER a pending
          choice — stays above it at z 6; #flash (z 10) is unaffected.
          Rows are buttons so a pointer click is the row's own; the seen
          marker rides at the row's end. Look is minimal like the panels

@@ -296,7 +296,7 @@ export interface Machine {
    */
   hasEarlierUnseen(): boolean;
   /**
-   * Bookmark click (the `t` overlay, README `t` bullet): move the cursor to
+   * Bookmark click (a card on the branch map, README `b` bullet): move the cursor to
    * `index`, clamped to `[0, highest index ever shown]`. Nothing unseen is
    * entered — unseen items are reached by `advance()` or `choose()` — and no
    * decision fires; the route stack is left as it is. Inert while a choice

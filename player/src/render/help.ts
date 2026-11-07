@@ -81,7 +81,7 @@ export interface HelpOverlayOptions {
   gameTitle?: unknown;
   /**
    * A click (or Enter) on a row whose command is in
-   * `CLICKABLE_HELP_COMMANDS` — the `t` row — runs that command as its key
+   * `CLICKABLE_HELP_COMMANDS` — the `m` row — runs that command as its key
    * would over this screen. Absent: no row is a control.
    */
   onEntry?: (command: KeyCommand) => void;
@@ -199,8 +199,8 @@ export function mountHelpOverlay({
 
   // No click handler on the panel: only its keys close it (Esc or Space,
   // main.ts), so a stray click — the first-load one included — leaves it
-  // up (docs/plan.md Phase 24). The one exception is the `t` row, a
-  // deliberate control that swaps this screen for the bookmark list.
+  // up (docs/plan.md Phase 24). The one exception is the `m` row, a
+  // deliberate control that swaps this screen for the branch map.
 
   function close(): void {
     panel.hidden = true;

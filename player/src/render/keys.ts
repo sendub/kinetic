@@ -18,11 +18,10 @@ export interface KeyCommands {
   nextUnseen(): void;
   /** `b`: append a bookmark at the current item (Phase 8). */
   bookmark(): void;
-  /** `t`: open or close the bookmark thumbnail overlay (Phase 8). */
-  toggleBookmarks(): void;
   /**
    * `m`: open or close the branch map (docs/plan.md Phase 31): the
-   * decision tree with the reader's marks; a click jumps there.
+   * decision tree with the reader's marks and the bookmarks as cards on
+   * it (Phase 35, which retired `t`); a click jumps there.
    */
   toggleMap(): void;
   /**
@@ -66,8 +65,6 @@ const KEY_TABLE = new Map<string, KeyCommand>([
   ["U", "nextUnseen"],
   ["b", "bookmark"],
   ["B", "bookmark"],
-  ["t", "toggleBookmarks"],
-  ["T", "toggleBookmarks"],
   ["m", "toggleMap"],
   ["M", "toggleMap"],
   ["a", "toggleAutoForward"],
@@ -155,14 +152,13 @@ const HELP_ROWS: ReadonlyArray<{
   { command: "toggleAutoForward", description: "auto-forward on / off" },
   { command: "toggleText", description: "hide / show the text" },
   { command: "bookmark", description: "bookmark this moment" },
-  { command: "toggleBookmarks", description: "bookmark list" },
   {
     command: "toggleMap",
-    description: "branch map: click a route to go there",
+    description: "branch map and bookmarks: click to go there",
   },
   {
     command: "dismissOverlay",
-    description: "this screen: keys and settings; closes the list",
+    description: "this screen: keys and settings; closes the map",
   },
   {
     command: null,
@@ -189,70 +185,32 @@ export function keyHelpEntries(): KeyHelpEntry[] {
 }
 
 /**
- * The Esc screen rows that act when clicked (or Enter on them): `t` opens
- * the bookmark list and `m` the branch map in the screen's place, as their
- * keys do over it. The other rows only describe; their keys do the work.
+ * The Esc screen rows that act when clicked (or Enter on them): `m` opens
+ * the branch map in the screen's place, as its key does over it. The other
+ * rows only describe; their keys do the work.
  */
 export const CLICKABLE_HELP_COMMANDS: ReadonlySet<KeyCommand> = new Set([
-  "toggleBookmarks",
   "toggleMap",
 ]);
 
-/** What `t` (or a click on its Esc screen row) does in a given state. */
-export type BookmarksKeyAction =
-  | "open"
-  | "close"
-  | "replaceHelp"
-  | "replaceMap"
-  | "none";
-
-/**
- * Pure routing for `t`. The reset box swallows it; over the Esc screen it
- * replaces that screen with the list ("replaceHelp"), so the next Escape
- * returns to the game, not to the Esc screen — unless a decision waits
- * under the screen, which `t` never opens over; a pending decision makes
- * it inert; over the branch map it swaps the map for the list
- * ("replaceMap"); otherwise it toggles the list.
- */
-export function bookmarksKeyAction(state: {
-  confirmOpen: boolean;
-  helpOpen: boolean;
-  choiceOpen: boolean;
-  listOpen: boolean;
-  mapOpen?: boolean;
-}): BookmarksKeyAction {
-  if (state.confirmOpen || state.choiceOpen) return "none";
-  if (state.helpOpen) return "replaceHelp";
-  if (state.mapOpen === true) return "replaceMap";
-  return state.listOpen ? "close" : "open";
-}
-
 /** What `m` (or a click on its Esc screen row) does in a given state. */
-export type MapKeyAction =
-  | "open"
-  | "close"
-  | "replaceHelp"
-  | "replaceList"
-  | "none";
+export type MapKeyAction = "open" | "close" | "replaceHelp" | "none";
 
 /**
- * Pure routing for `m` (docs/plan.md Phase 31), the `t` rule's twin. The
- * reset box swallows it; over the Esc screen it replaces that screen with
- * the map, so the next Escape returns to the game; over the bookmark list
- * it swaps the list for the map. Unlike the list it opens over a pending
- * decision too — the map is a way to move, like the wheel, and a click on
- * one of that decision's routes is a pick. Otherwise it toggles the map.
+ * Pure routing for `m` (docs/plan.md Phase 31). The reset box swallows it;
+ * over the Esc screen it replaces that screen with the map, so the next
+ * Escape returns to the game. It opens over a pending decision too — the
+ * map is a way to move, like the wheel, and a click on one of that
+ * decision's routes is a pick. Otherwise it toggles the map.
  */
 export function mapKeyAction(state: {
   confirmOpen: boolean;
   helpOpen: boolean;
-  listOpen: boolean;
   mapOpen: boolean;
 }): MapKeyAction {
   if (state.confirmOpen) return "none";
   if (state.helpOpen) return "replaceHelp";
-  if (state.mapOpen) return "close";
-  return state.listOpen ? "replaceList" : "open";
+  return state.mapOpen ? "close" : "open";
 }
 
 /**
@@ -306,15 +264,13 @@ export function decisionKeyFor(
 
 /**
  * The cursor-moving commands: the key map's advance/toggleSkip/jumpToEnd
- * plus the wheel's two steps. While a full-screen screen (the `t` bookmark
- * overlay, the `#help` Esc screen with its settings — Phase 13b, Phase 26 —
- * or the reset confirmation box over it, Phase 16) is open these are suspended — the
- * overlay takes precedence, so no key or
- * wheel notch slides the timeline underneath it (`e` is included for the
- * same reason: jumping behind the panel would move the cursor out of
- * sight). `b` and `h` are not timeline commands and keep working behind
- * the `t` panel; behind the Esc screen the shell suspends them too,
- * since nothing behind it is visible. `t` and Escape drive the overlays.
+ * plus the wheel's two steps. While a full-screen screen (the branch map,
+ * the `#help` Esc screen with its settings — Phase 13b, Phase 26 — or the
+ * reset confirmation box over it, Phase 16) is open these are suspended —
+ * the overlay takes precedence, so no key or wheel notch slides the
+ * timeline underneath it (`e` is included for the same reason: jumping
+ * behind the panel would move the cursor out of sight). `m` and Escape
+ * drive the screens.
  */
 export interface TimelineCommands {
   advance(): void;

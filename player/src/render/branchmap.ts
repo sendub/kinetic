@@ -1,25 +1,43 @@
-// The branch map screen (docs/plan.md Phases 31, 33): `m` opens the
-// decision tree with the reader's marks; drag pans, the wheel or a pinch
-// zooms around the pointer, the arrow keys pan and +/- zoom, F (or 0) fits
-// the whole tree and C centres on "you are here"; S (or the header's
-// switch) flips Spoilers, off by default, which hides the text of
-// decisions not reached (mapmodel.ts `MapMarks.hidden`). Esc or M closes.
-// The header is the title and three buttons (Spoilers, Centre, Fit), each
-// naming its key in a hover/focus hint (index.html `[data-hint]`). A click on a reached decision or one
-// of its routes asks the shell to jump there (the machine does the moving;
-// see mapmodel.ts `runJump`).
+// The branch map screen (docs/plan.md Phases 31, 33, 35): `m` opens the
+// decision tree with the reader's marks and the bookmarks as cards on the
+// story line; drag pans, the wheel or a pinch zooms around the pointer, the
+// arrow keys pan and +/- zoom, F (or 0) fits the whole tree, 1 shows it at
+// 100% (a card at the old `t` screen's size), C centres on "you are here"
+// and N on the newest bookmark; S (or the header's switch) flips Spoilers,
+// off by default, which hides the text of decisions not reached
+// (mapmodel.ts `MapMarks.hidden`). Esc or M closes. The header is the title
+// and its buttons (Spoilers, Newest bookmark, Centre, 100%, Fit), each
+// naming its key in a hover/focus hint (index.html `[data-hint]`). A click
+// on a reached decision or one of its routes asks the shell to jump there
+// (the machine does the moving; see mapmodel.ts `runJump`).
+//
+// Bookmarks (Phase 35, replacing the `t` screen): each is a card centred
+// on its stretch's line at its screen's place (mapmodel.ts `cardSlots`),
+// its thumbnail over its timestamp, the newest outlined and tagged. A click
+// opens it (the shell restores it and closes the map); a drag that starts
+// on a card pans. Its × deletes it at any zoom (drawn at a fixed screen
+// size, so it stays usable at Fit); the card stays as a ghost with an Undo
+// (a click anywhere on it undoes too) until the map closes, and Z undoes
+// the latest delete. No key acts on a card. Pictures load lazily, a few at
+// a time, the cards in view first (mapcards.ts `pictureOrder`); the shell
+// shrinks a manifest still before a card shows it (bookmarks.ts
+// `shrinkStill`), as Safari needs.
 //
 // The view is remembered (Phase 33): the first open is a Fit; after that
 // the map reopens where it was left — a Fit as a fresh Fit for the window,
 // anything else at the same world centre and zoom — across closes and,
 // through the shell's state record, reloads (mapmodel.ts `restoreView`).
 //
-// Rendering: one SVG. The layout is computed once per manifest
-// (mapmodel.ts); each open lays the reader's marks over it. Pan and zoom
-// rewrite the world group's transform, once per animation frame. Three
-// layers keep a game with hundreds of decisions at frame rate:
+// Rendering: everything that moves with the view — the tree's SVG, the
+// cards and the marker — lives in ONE stage element carrying the view's
+// transform, so lines and cards can never drift apart (a separately
+// transformed card layer once did, in Safari). The layout is computed once
+// per manifest, view shape and set of bookmarked screens (mapmodel.ts);
+// each open lays the reader's marks over it. Pan and zoom rewrite the
+// stage's transform, once per animation frame. Two levels keep a game with
+// hundreds of decisions at frame rate:
 //
-// - near (scale >= `labelMinScale`): the decision boxes, route pills and
+// - near (scale >= `labelMinScale`): the decision nodes, route pills and
 //   screen counts as focusable groups with text, and the lines, CULLED —
 //   only what lies within half a view's margin of the visible area exists,
 //   redrawn (one string, one parse) when the view leaves that area. Culling
@@ -29,20 +47,39 @@
 //   as one path per look (lines undashed, every box a rectangle).
 //
 // Clicks and hovers find their node from the layout (`hitTest`), so they
-// work at any zoom. The "you are here" marker lives in screen space, so it
-// keeps its size and stays findable at any zoom.
+// work at any zoom. The "you are here" marker is drawn at a fixed screen
+// size (scaled by the inverse of the zoom), so it stays findable at any
+// zoom.
 //
-// All decisions are pure exports of mapmodel.ts; this file only applies them.
+// All decisions are pure exports of mapmodel.ts and mapcards.ts; this file
+// only applies them.
 
+import type { BookmarkSummary } from "../storage/types";
+import { DELETE_GLYPH, DELETE_LABEL, formatTimestamp } from "./bookmarks";
 import {
+  type Deletions,
+  latestDeleted,
+  NO_DELETIONS,
+  newestBookmarkId,
+  PICTURE_LOADS_AT_ONCE,
+  pictureOrder,
+  withDeleted,
+  withRestored,
+} from "./mapcards";
+import {
+  CARD,
+  CARD_COUNT_DY,
+  type CardSlot,
+  cardSlots,
   centreOn,
   fitView,
+  fullSizeView,
   hitTest,
   jumpFor,
-  LABEL_CHARS,
   labelMinScale,
   layoutSignature,
   MAP_GEOMETRY,
+  MAX_SCALE,
   type MapJump,
   type MapMarks,
   type MapModel,
@@ -50,13 +87,11 @@ import {
   type MapTarget,
   type MapView,
   markMap,
-  PROMPT_CHARS,
   promptText,
   restoreView,
   routeText,
   type SavedMapView,
   saveView,
-  truncateLabel,
   viewAfterResize,
   visibleWorld,
   zoomAt,
@@ -71,9 +106,68 @@ export const MAP_TITLE = "Branch map";
  */
 export const MAP_TOOLS = [
   { act: "spoil", text: spoilersLabel(false), key: "S" },
+  { act: "newest", text: "Newest bookmark", key: "N" },
   { act: "here", text: "Centre", key: "C" },
+  { act: "full", text: "100%", key: "1" },
   { act: "fit", text: "Fit", key: "F" },
 ] as const;
+
+/** What the map needs to show and act on the bookmarks (the shell's storage). */
+export interface MapBookmarks {
+  /** The bookmarks now (summaries, storage order); read on every open. */
+  list(): Promise<readonly BookmarkSummary[]>;
+  /** Where a bookmark's item sits in the manifest; -1 when it is gone. */
+  itemIndex(row: BookmarkSummary): number;
+  /** The card's picture, ready to place (a decoded image or a canvas). */
+  picture(row: BookmarkSummary): Promise<HTMLElement | null>;
+  /** A card was clicked: the shell closes the map and restores the bookmark. */
+  open(row: BookmarkSummary): void;
+  /**
+   * Its × was clicked: the shell deletes it from storage; resolves to an
+   * undo that stores it again (resolving to its new summary), or to null
+   * when the delete failed (the card comes back).
+   */
+  remove(
+    row: BookmarkSummary,
+  ): Promise<(() => Promise<BookmarkSummary | null>) | null>;
+}
+
+/**
+ * Below this scale a card's caption (13 px type, so under 9 px here) is
+ * unreadable: the thumbnail fills the card and its time moves to the
+ * hover tooltip.
+ */
+export const CARD_SMALL_SCALE = 0.7;
+
+/**
+ * The size of a card's × in screen pixels at `scale`: 24 px, smaller on a
+ * card under about 80 px wide (Fit on a large game), never under 14 px, so
+ * it stays a usable target at any zoom without hiding a small card.
+ */
+export function deleteButtonPx(scale: number): number {
+  return Math.max(14, Math.min(24, CARD.w * 0.3 * scale));
+}
+
+/**
+ * The card layer's per-zoom style (index.html `.bm-card`, `.bm-del`): a
+ * screen pixel in world units (`--px`, for the hover ring and the newest's
+ * outline), the × scaled to `deleteButtonPx` on screen (`--del-scale`; it
+ * is 24 world units), and its hint brought back to its usual size
+ * (`--hint-scale`).
+ */
+export function cardScaleStyle(scale: number): Record<string, string> {
+  const del = deleteButtonPx(scale);
+  return {
+    "--px": String(1 / scale),
+    "--del-scale": String(del / 24 / scale),
+    "--hint-scale": String(24 / del),
+  };
+}
+
+/** A card's accessible name. */
+export function cardLabel(timestampMs: number, newest: boolean): string {
+  return `Bookmark ${formatTimestamp(timestampMs)}${newest ? " (newest)" : ""}`;
+}
 
 /**
  * A header button's hint, shown at once on hover or keyboard focus by
@@ -107,7 +201,9 @@ export interface BranchMapOptions {
    * the first open, and again only when the view's shape has changed a lot
    * since (the rows wrap to it).
    */
-  model: (aspect: number) => MapModel;
+  model: (aspect: number, bookmarkItems: readonly number[]) => MapModel;
+  /** The bookmarks, drawn as cards on their stretches (Phase 35). */
+  bookmarks?: MapBookmarks;
   /** The reader's state now; called on every open. */
   reader: () => MapReader;
   /** A reached decision or route was clicked: the shell jumps (and closes). */
@@ -141,7 +237,6 @@ const ROUTE_WORD = {
   partly: "partly seen",
   played: "played",
 } as const;
-const ROUTE_GLYPH = { unseen: "○", partly: "◐", played: "●" } as const;
 const OUTCOME_WORD = {
   continues: "continues the story",
   returns: "returns to the choice",
@@ -185,8 +280,7 @@ export function describeTarget(
       ? "click to play it from its start"
       : "decision not reached yet",
   );
-  const text = routeText(model, marks, target.key);
-  const title = route.numbered ? `${route.route + 1}. ${text}` : text;
+  const title = `${route.route + 1}. ${routeText(model, marks, target.key)}`;
   return { title, status: parts.join(" · ") };
 }
 
@@ -296,9 +390,19 @@ export function skeletonMarkup(model: MapModel, marks: MapMarks): string {
 }
 
 /**
- * The near view's nodes: decision boxes, route pills and the stretches'
- * screen counts that touch `rect` (all of them for null), each node a
- * focusable group with its full text in its label. Pure.
+ * A stretch's count line: a compact stretch shows its screen count above
+ * its line; one holding cards says it under them, with its bookmarks.
+ */
+export function countText(screens: number, bookmarks: number): string {
+  if (bookmarks === 0) return String(screens);
+  return `${screensLabel(screens)} · ${bookmarks === 1 ? "1 bookmark" : `${bookmarks} bookmarks`}`;
+}
+
+/**
+ * The near view's nodes: decision nodes ("played/total", or "?" when not
+ * reached), route pills (their choice number) and the stretches' counts
+ * that touch `rect` (all of them for null), each node a focusable group
+ * with its full text in its label (and the hover tooltip). Pure.
  */
 export function detailMarkup(
   model: MapModel,
@@ -308,28 +412,34 @@ export function detailMarkup(
   const g = MAP_GEOMETRY;
   const out: string[] = [];
   for (const run of model.runs) {
-    if (!within(rect, run.x0, run.y - 20, run.x1, run.y)) continue;
-    out.push(
-      `<text class="map-count" x="${(run.x0 + run.x1) / 2}" y="${run.y - 9}">${screensLabel(run.end - run.start + 1)}</text>`,
-    );
+    const screens = run.end - run.start + 1;
+    const cards = run.bookmarks.length;
+    if (cards === 0) {
+      if (!within(rect, run.x0, run.y - 16, run.x1, run.y)) continue;
+      out.push(
+        `<text class="map-count" x="${(run.x0 + run.x1) / 2}" y="${run.y - 6}">${countText(screens, 0)}</text>`,
+      );
+    } else {
+      const y = run.y + CARD_COUNT_DY;
+      if (!within(rect, run.x0, y - 12, run.x1, y)) continue;
+      out.push(
+        `<text class="map-count map-count-cards" x="${run.x0 + CARD.inset}" y="${y}">${countText(screens, cards)}</text>`,
+      );
+    }
   }
   for (const node of model.decisions) {
     const top = node.y - g.decH / 2;
     if (!within(rect, node.x, top, node.x + g.decW, top + g.decH)) continue;
     const reached = marks.reached[node.index];
-    const label = escapeXml(
-      truncateLabel(promptText(model, marks, node.index), PROMPT_CHARS),
-    );
     const target: MapTarget = { kind: "decision", decision: node.index };
     const { title, status } = describeTarget(model, marks, target);
-    const sub = reached
-      ? `${marks.playedCount[node.index]} of ${node.routes.length} routes played`
-      : "not reached yet";
+    const text = reached
+      ? `${marks.playedCount[node.index]}/${node.routes.length}`
+      : "?";
     out.push(
       `<g class="map-node map-dec${reached ? " map-reached" : " map-inert"}" data-d="${node.index}" transform="translate(${node.x} ${node.y})"${reached ? ' tabindex="0" role="button"' : ""} aria-label="${escapeXml(`${title}: ${status}`)}">` +
-        `<rect x="0" y="${-g.decH / 2}" width="${g.decW}" height="${g.decH}" rx="8"/>` +
-        `<text class="map-dec-q" x="14" y="-4">${label}</text>` +
-        `<text class="map-dec-sub" x="14" y="16">${sub}</text></g>`,
+        `<rect x="0" y="${-g.decH / 2}" width="${g.decW}" height="${g.decH}" rx="5"/>` +
+        `<text class="map-dec-c" x="${g.decW / 2}" y="4">${text}</text></g>`,
     );
   }
   model.routes.forEach((route, key) => {
@@ -348,17 +458,10 @@ export function detailMarkup(
       kind: "route",
       key,
     });
-    // Drawn out of manifest order: the choice number says which is which.
-    const text = routeText(model, marks, key);
-    const label = escapeXml(
-      route.numbered
-        ? `${route.route + 1}. ${truncateLabel(text, LABEL_CHARS - 3)}`
-        : truncateLabel(text, LABEL_CHARS),
-    );
     out.push(
       `<g class="${classes.join(" ")}" data-r="${key}" data-state="${state}" transform="translate(${route.x} ${route.y})"${reached ? ' tabindex="0" role="button"' : ""} aria-label="${escapeXml(`${title}: ${status}`)}">` +
         `<rect x="0" y="${-g.routeH / 2}" width="${g.routeW}" height="${g.routeH}" rx="${g.routeH / 2}"/>` +
-        `<text x="14" y="5">${ROUTE_GLYPH[state]} ${label}</text></g>`,
+        `<text class="map-route-c" x="${g.routeW / 2}" y="4">${route.route + 1}</text></g>`,
     );
   });
   return out.join("");
@@ -382,9 +485,24 @@ function targetOf(element: Element | null): {
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
+/** One bookmark's card while the map is open. */
+interface Card {
+  row: BookmarkSummary;
+  readonly index: number;
+  readonly slot: CardSlot;
+  readonly el: HTMLElement;
+  deleted: boolean;
+  /** The delete in flight or done: resolves to its undo (null: it failed). */
+  removing: Promise<(() => Promise<BookmarkSummary | null>) | null> | null;
+}
+
+/** Which part of a card a press landed on. */
+type CardPart = "del" | "undo" | "card";
+
 export function mountBranchMap({
   root,
   model: buildModel,
+  bookmarks: bm,
   reader,
   onJump,
   onOpenChange,
@@ -408,6 +526,7 @@ export function mountBranchMap({
   title.textContent = MAP_TITLE;
   const tools = doc.createElement("div");
   tools.className = "map-tools";
+  const buttons = new Map<string, HTMLButtonElement>();
   for (const { act, text, key } of MAP_TOOLS) {
     const button = doc.createElement("button");
     button.type = "button";
@@ -425,42 +544,69 @@ export function mountBranchMap({
     described.textContent = hint;
     button.setAttribute("aria-describedby", described.id);
     tools.append(button, described);
+    buttons.set(act, button);
   }
-  const spoilButton = tools.firstElementChild as HTMLButtonElement;
+  const spoilButton = buttons.get("spoil") as HTMLButtonElement;
   spoilButton.classList.add("map-spoil");
   spoilButton.setAttribute("aria-pressed", "false");
+  const newestButton = buttons.get("newest") as HTMLButtonElement;
   head.append(title, tools);
 
   const viewport = doc.createElement("div");
   viewport.className = "map-view";
-  const svg = doc.createElementNS(SVG_NS, "svg");
-  svg.setAttribute("class", "map-svg");
+  // The stage: everything that moves with the view, under one transform.
+  const stage = doc.createElement("div");
+  stage.className = "map-stage";
+  const svgOf = (cls: string) => {
+    const el = doc.createElementNS(SVG_NS, "svg");
+    el.setAttribute("class", cls);
+    return el;
+  };
+  const svg = svgOf("map-svg");
   const group = (cls: string) => {
     const g = doc.createElementNS(SVG_NS, "g");
     g.setAttribute("class", cls);
     return g;
   };
   // The world: the far view's whole tree (lines and skeleton boxes) and
-  // the near view's culled lines and nodes. The marker sits outside it, in
-  // screen space.
+  // the near view's culled lines and nodes; over it the cards, and over
+  // them the marker.
   const world = group("map-world");
   const skeleton = group("map-skeleton");
   const detail = group("map-detail");
   world.append(skeleton, detail);
+  svg.append(world);
+  const cardLayer = doc.createElement("div");
+  cardLayer.className = "map-cards";
+  const top = svgOf("map-svg map-top");
   const here = group("map-here");
   here.innerHTML =
     '<circle class="map-here-ring" r="13"/><circle class="map-here-dot" r="6"/>' +
     '<text class="map-here-label" y="32">you are here</text>';
-  svg.append(world, here);
+  top.append(here);
+  stage.append(svg, cardLayer, top);
   const tip = doc.createElement("div");
   tip.className = "map-tip";
   tip.hidden = true;
-  viewport.append(svg, tip);
+  const toast = doc.createElement("div");
+  toast.className = "map-toast";
+  toast.setAttribute("role", "status");
+  toast.hidden = true;
+  const toastText = doc.createElement("span");
+  toastText.textContent = "Bookmark deleted";
+  const toastUndo = doc.createElement("button");
+  toastUndo.type = "button";
+  toastUndo.className = "map-undo";
+  toastUndo.textContent = "Undo (Z)";
+  toast.append(toastText, toastUndo);
+  viewport.append(stage, tip, toast);
   panel.append(head, viewport);
   root.appendChild(panel);
 
   let model: MapModel | null = null;
   let modelAspect = 0;
+  // The bookmarked screens the model was laid out for (a sorted list).
+  let modelItems = "";
   // The model's layout signature (what a remembered view is checked
   // against), computed once per layout.
   let layout = "";
@@ -479,6 +625,9 @@ export function mountBranchMap({
   let fitted = false;
   let frame = 0;
   let far = false;
+  let small = false;
+  // The scale the card layer's per-zoom style was last set for.
+  let styledScale = 0;
   // The world rectangle the near nodes are drawn for (null: none drawn),
   // and whether the skeleton is drawn for the current marks.
   let drawn: WorldRect | null = null;
@@ -492,17 +641,48 @@ export function mountBranchMap({
     vh = viewport.clientHeight || win?.innerHeight || 600;
   };
 
+  // The bookmarks of this open: listed (item still in the manifest) and
+  // their cards once placed; the deletes made since the open.
+  let listed: { row: BookmarkSummary; index: number }[] = [];
+  let cards: Card[] = [];
+  const cardById = new Map<string, Card>();
+  let deletions: Deletions = NO_DELETIONS;
+  // Pictures read so far, by bookmark id (null: none to show), kept for
+  // the page's life; the reads running.
+  const pictures = new Map<string, HTMLElement | null>();
+  const loading = new Set<string>();
+  // Each open's list read, so a stale one (closed or reopened since) is
+  // dropped.
+  let opening = 0;
+
   /**
    * Lays the tree out again when the view's shape has moved well away from
-   * the one it was laid out for (the rows wrap to it); true when it did.
+   * the one it was laid out for (the rows wrap to it), or the bookmarked
+   * screens changed; true when it did.
    */
   function layOut(): boolean {
     const aspect = vw / Math.max(1, vh);
-    if (model !== null && Math.abs(Math.log(aspect / modelAspect)) <= 0.25)
+    const items = listed.map((l) => l.index).sort((a, b) => a - b);
+    const itemsKey = items.join(",");
+    if (
+      model !== null &&
+      itemsKey === modelItems &&
+      Math.abs(Math.log(aspect / modelAspect)) <= 0.25
+    )
       return false;
-    model = buildModel(aspect);
+    model = buildModel(aspect, items);
     modelAspect = aspect;
+    modelItems = itemsKey;
     layout = layoutSignature(model);
+    const size = (el: Element) => {
+      el.setAttribute("width", String(model?.width ?? 0));
+      el.setAttribute("height", String(model?.height ?? 0));
+    };
+    size(svg);
+    size(top);
+    stage.style.width = `${model.width}px`;
+    stage.style.height = `${model.height}px`;
+    placeCards();
     return true;
   }
 
@@ -533,15 +713,26 @@ export function mountBranchMap({
   function paint(): void {
     frame = 0;
     if (model === null || marks === null) return;
-    world.setAttribute(
-      "transform",
-      `translate(${view.x} ${view.y}) scale(${view.scale})`,
-    );
+    const s = view.scale;
+    // One transform moves the lines, the cards and the marker together.
+    stage.style.transform = `translate(${view.x}px, ${view.y}px) scale(${s})`;
+    stage.dataset.view = `${view.x} ${view.y} ${s}`;
     here.setAttribute(
       "transform",
-      `translate(${marks.here.x * view.scale + view.x} ${marks.here.y * view.scale + view.y})`,
+      `translate(${marks.here.x} ${marks.here.y}) scale(${1 / s})`,
     );
-    const nowFar = view.scale < labelMinScale(model);
+    // Only a zoom restyles the cards: a pan leaves their style alone.
+    if (s !== styledScale) {
+      styledScale = s;
+      for (const [name, value] of Object.entries(cardScaleStyle(s)))
+        cardLayer.style.setProperty(name, value);
+    }
+    const nowSmall = s < CARD_SMALL_SCALE;
+    if (nowSmall !== small) {
+      small = nowSmall;
+      cardLayer.classList.toggle("map-cards-small", small);
+    }
+    const nowFar = s < labelMinScale(model);
     if (nowFar !== far) {
       far = nowFar;
       svg.classList.toggle("map-far", far);
@@ -569,7 +760,8 @@ export function mountBranchMap({
           linesMarkup(model, marks, drawn) + detailMarkup(model, marks, drawn);
       }
     }
-    svg.setAttribute("data-scale", String(view.scale));
+    svg.setAttribute("data-scale", String(s));
+    loadPictures();
     onViewChange(saveView(layout, view, vw, vh, fitted));
   }
 
@@ -582,7 +774,7 @@ export function mountBranchMap({
 
   function limits() {
     return model === null
-      ? { min: 0.1, max: 3 }
+      ? { min: 0.1, max: MAX_SCALE }
       : zoomLimits(model, vw, vh, marks?.here);
   }
 
@@ -593,6 +785,10 @@ export function mountBranchMap({
   function showWhole(): void {
     if (model === null) return;
     setView(fitView(model, vw, vh, marks?.here), true);
+  }
+
+  function fullSize(): void {
+    if (model !== null) setView(fullSizeView(view, vw, vh, limits()));
   }
 
   // Spoilers flipped: the same layout and view (the boxes' sizes never
@@ -615,11 +811,229 @@ export function mountBranchMap({
       setView(centreOn(marks.here.x, marks.here.y, vw, vh, view.scale));
   }
 
+  /** N (and the button): the newest bookmark's card, centred at 100%. */
+  function showNewest(): void {
+    const id = newestBookmarkId(
+      cards.filter((c) => !c.deleted).map((c) => c.row),
+    );
+    const card = id === null ? undefined : cardById.get(id);
+    if (card === undefined || model === null) return;
+    const scale = Math.min(limits().max, Math.max(limits().min, 1));
+    setView(centreOn(card.slot.cx, card.slot.cy, vw, vh, scale));
+  }
+
   function activate(target: MapTarget): void {
     if (model === null || marks === null) return;
     const jump = jumpFor(model, marks, target);
     if (jump !== null) onJump(jump);
   }
+
+  // ---- Bookmark cards ----------------------------------------------------
+
+  function cardElement(
+    row: BookmarkSummary,
+    index: number,
+    slot: CardSlot,
+    newest: boolean,
+  ) {
+    const el = doc.createElement("div");
+    el.className = newest ? "bm-card bm-newest" : "bm-card";
+    el.dataset.bm = row.id;
+    el.dataset.itemId = row.itemId;
+    el.dataset.itemIndex = String(index);
+    el.setAttribute("role", "img");
+    el.setAttribute("aria-label", cardLabel(row.timestampMs, newest));
+    el.style.left = `${slot.x}px`;
+    el.style.top = `${slot.y}px`;
+    const thumb = doc.createElement("div");
+    thumb.className = "bm-thumb";
+    const picture = pictures.get(row.id);
+    if (picture) thumb.append(picture);
+    const caption = doc.createElement("div");
+    caption.className = "bm-cap";
+    const time = doc.createElement("span");
+    time.className = "bm-time";
+    time.textContent = formatTimestamp(row.timestampMs);
+    caption.append(time);
+    if (newest) {
+      const tag = doc.createElement("span");
+      tag.className = "bm-tag";
+      tag.textContent = "Newest";
+      caption.append(tag);
+    }
+    // Pointer controls only: no key acts on a card (Phase 35), so neither
+    // button takes focus (a press never focuses: pointerdown is cancelled).
+    const del = doc.createElement("button");
+    del.type = "button";
+    del.className = "bm-del";
+    del.tabIndex = -1;
+    del.setAttribute("aria-label", DELETE_LABEL);
+    del.dataset.hint = DELETE_LABEL;
+    del.textContent = DELETE_GLYPH;
+    const ghost = doc.createElement("div");
+    ghost.className = "bm-ghost";
+    const gone = doc.createElement("span");
+    gone.textContent = "Deleted";
+    const undo = doc.createElement("button");
+    undo.type = "button";
+    undo.className = "bm-undo";
+    undo.tabIndex = -1;
+    undo.textContent = "Undo";
+    ghost.append(gone, undo);
+    el.append(thumb, caption, del, ghost);
+    return el;
+  }
+
+  /** The cards for the bookmarks listed, on the model laid out for them. */
+  function placeCards(): void {
+    cards = [];
+    cardById.clear();
+    if (model === null) return;
+    const slots = cardSlots(
+      model,
+      listed.map((l) => ({
+        itemIndex: l.index,
+        timestampMs: l.row.timestampMs,
+      })),
+    );
+    const newest = newestBookmarkId(listed.map((l) => l.row));
+    listed.forEach((l, i) => {
+      const slot = slots[i];
+      if (slot === null) return;
+      const card: Card = {
+        row: l.row,
+        index: l.index,
+        slot,
+        el: cardElement(l.row, l.index, slot, l.row.id === newest),
+        deleted: false,
+        removing: null,
+      };
+      cards.push(card);
+      cardById.set(l.row.id, card);
+    });
+    // DOM order: story order, as they read along the lines.
+    const ordered = [...cards].sort(
+      (a, b) => a.slot.cy - b.slot.cy || a.slot.cx - b.slot.cx,
+    );
+    cardLayer.replaceChildren(...ordered.map((c) => c.el));
+    newestButton.disabled = cards.length === 0;
+  }
+
+  /**
+   * Starts the next picture reads, a few at a time: the cards in or near
+   * the view first, then the rest newest first (mapcards.ts).
+   */
+  function loadPictures(): void {
+    if (bm === undefined || loading.size >= PICTURE_LOADS_AT_ONCE) return;
+    const todo = cards.filter(
+      (c) => !pictures.has(c.row.id) && !loading.has(c.row.id),
+    );
+    if (todo.length === 0) return;
+    const order = pictureOrder(
+      todo.map((c) => ({
+        card: c,
+        timestampMs: c.row.timestampMs,
+        cx: c.slot.cx,
+        cy: c.slot.cy,
+      })),
+      visibleWorld(view, vw, vh),
+    );
+    for (const { card } of order) {
+      if (loading.size >= PICTURE_LOADS_AT_ONCE) break;
+      const id = card.row.id;
+      loading.add(id);
+      bm.picture(card.row)
+        .catch(() => null)
+        .then((picture) => {
+          loading.delete(id);
+          if (picture !== null) {
+            picture.classList.add("bm-pic");
+            // A dragged image would start the browser's own drag.
+            if (picture instanceof HTMLImageElement) picture.draggable = false;
+          }
+          pictures.set(id, picture);
+          const now = cardById.get(id);
+          if (picture !== null && now !== undefined)
+            now.el.querySelector(".bm-thumb")?.replaceChildren(picture);
+          if (!panel.hidden) loadPictures();
+        });
+    }
+  }
+
+  function cardOf(element: Element | null): Card | null {
+    const el = element?.closest(".bm-card") ?? null;
+    if (!(el instanceof HTMLElement)) return null;
+    return cardById.get(el.dataset.bm ?? "") ?? null;
+  }
+
+  function partOf(element: Element | null): CardPart {
+    if (element?.closest(".bm-del")) return "del";
+    if (element?.closest(".bm-undo")) return "undo";
+    return "card";
+  }
+
+  let toastTimer = 0;
+  function showToast(on: boolean): void {
+    toast.hidden = !on;
+    if (win === null) return;
+    win.clearTimeout(toastTimer);
+    if (on)
+      toastTimer = win.setTimeout(() => {
+        toast.hidden = true;
+      }, 8000);
+  }
+
+  function setDeleted(card: Card, deleted: boolean): void {
+    card.deleted = deleted;
+    card.el.classList.toggle("bm-deleted", deleted);
+    deletions = deleted
+      ? withDeleted(deletions, card.row.id)
+      : withRestored(deletions, card.row.id);
+    showToast(latestDeleted(deletions) !== null && deleted);
+  }
+
+  function deleteCard(card: Card): void {
+    if (card.deleted || bm === undefined) return;
+    setDeleted(card, true);
+    card.removing = bm.remove(card.row).then(
+      (undo) => {
+        // The delete failed: the bookmark is still stored, so is its card.
+        if (undo === null && card.deleted) setDeleted(card, false);
+        return undo;
+      },
+      () => {
+        if (card.deleted) setDeleted(card, false);
+        return null;
+      },
+    );
+  }
+
+  async function undoCard(card: Card | null | undefined): Promise<void> {
+    if (card == null || !card.deleted || card.removing === null) return;
+    const removing = card.removing;
+    card.removing = null;
+    const undo = await removing;
+    if (undo === null) return;
+    const row = await undo().catch(() => null);
+    if (row === null) {
+      // Not stored again: it stays deleted, its undo still offered.
+      card.removing = Promise.resolve(undo);
+      return;
+    }
+    card.row = row;
+    if (!panel.hidden) setDeleted(card, false);
+  }
+
+  function undoLatest(): void {
+    const id = latestDeleted(deletions);
+    if (id !== null) void undoCard(cardById.get(id));
+  }
+
+  toastUndo.addEventListener("click", undoLatest);
+  // Never the browser's own drag of a picture: a drag pans.
+  viewport.addEventListener("dragstart", (event) => event.preventDefault());
+
+  // ---- Tooltip -----------------------------------------------------------
 
   /** The node under a client point, from the layout (any zoom). */
   function hitAt(clientX: number, clientY: number): MapTarget | null {
@@ -633,12 +1047,14 @@ export function mountBranchMap({
   }
 
   let tipFor = "";
-  function showTip(target: MapTarget, clientX: number, clientY: number): void {
-    if (model === null || marks === null) return;
-    const key =
-      target.kind === "decision" ? `d${target.decision}` : `r${target.key}`;
+  function placeTip(
+    key: string,
+    fill: () => [string, string],
+    clientX: number,
+    clientY: number,
+  ): void {
     if (tip.hidden || tipFor !== key) {
-      const { title: full, status } = describeTarget(model, marks, target);
+      const [full, status] = fill();
       tip.textContent = "";
       const strong = doc.createElement("strong");
       strong.textContent = full;
@@ -657,6 +1073,45 @@ export function mountBranchMap({
     tip.style.transform = `translate(${left}px, ${Math.max(top, 4)}px)`;
   }
 
+  function showTip(target: MapTarget, clientX: number, clientY: number): void {
+    if (model === null || marks === null) return;
+    const m = model;
+    const k = marks;
+    const key =
+      target.kind === "decision" ? `d${target.decision}` : `r${target.key}`;
+    placeTip(
+      key,
+      () => {
+        const { title: full, status } = describeTarget(m, k, target);
+        return [full, status];
+      },
+      clientX,
+      clientY,
+    );
+  }
+
+  // A card's tip only while its caption is too small to read.
+  function showCardTip(card: Card, clientX: number, clientY: number): void {
+    if (!small) {
+      hideTip();
+      return;
+    }
+    placeTip(
+      `b${card.row.id}${card.deleted ? "-" : ""}`,
+      () => [
+        cardLabel(
+          card.row.timestampMs,
+          card.el.classList.contains("bm-newest"),
+        ),
+        card.deleted
+          ? "deleted · click or Z puts it back"
+          : "click to continue from here · × deletes it",
+      ],
+      clientX,
+      clientY,
+    );
+  }
+
   // A hidden tip keeps no text: after Spoilers goes off, nothing it said
   // may linger in the DOM.
   function hideTip(): void {
@@ -664,14 +1119,18 @@ export function mountBranchMap({
     tip.textContent = "";
   }
 
-  // Pointer: a press that moves pans; one that does not is a click on the
-  // node it started on.
+  // ---- Pointer -----------------------------------------------------------
+
+  // A press that moves pans; one that does not is a click on the node or
+  // card it started on.
   let press: {
     id: number;
     x: number;
     y: number;
     view: MapView;
     hit: MapTarget | null;
+    card: Card | null;
+    part: CardPart;
     dragged: boolean;
   } | null = null;
   // A press on the map never starts a text selection (a drag pans, a
@@ -682,13 +1141,18 @@ export function mountBranchMap({
   viewport.addEventListener("selectstart", (event) => event.preventDefault());
   viewport.addEventListener("pointerdown", (event) => {
     if (event.button !== 0) return;
+    const target = event.target as Element;
+    if (toast.contains(target)) return;
     event.preventDefault();
+    const card = cardOf(target);
     press = {
       id: event.pointerId,
       x: event.clientX,
       y: event.clientY,
       view,
-      hit: hitAt(event.clientX, event.clientY),
+      hit: card === null ? hitAt(event.clientX, event.clientY) : null,
+      card,
+      part: partOf(target),
       dragged: false,
     };
     try {
@@ -699,15 +1163,22 @@ export function mountBranchMap({
   });
   viewport.addEventListener("pointermove", (event) => {
     if (press === null || press.id !== event.pointerId) {
-      const hit = hitAt(event.clientX, event.clientY);
-      if (hit === null) hideTip();
+      const target = event.target as Element;
+      const card = toast.contains(target) ? null : cardOf(target);
+      const hit = card === null ? hitAt(event.clientX, event.clientY) : null;
+      // Over a card's × or Undo, their own hint speaks (no card tooltip
+      // under it).
+      if (card !== null && partOf(target) === "card")
+        showCardTip(card, event.clientX, event.clientY);
+      else if (card !== null || hit === null) hideTip();
       else showTip(hit, event.clientX, event.clientY);
       viewport.classList.toggle(
         "map-pointing",
-        hit !== null &&
-          model !== null &&
-          marks !== null &&
-          jumpFor(model, marks, hit) !== null,
+        card !== null ||
+          (hit !== null &&
+            model !== null &&
+            marks !== null &&
+            jumpFor(model, marks, hit) !== null),
       );
       return;
     }
@@ -726,7 +1197,17 @@ export function mountBranchMap({
     const done = press;
     press = null;
     viewport.classList.remove("map-dragging");
-    if (click && !done.dragged && done.hit !== null) activate(done.hit);
+    if (!click || done.dragged) return;
+    const card = done.card;
+    if (card !== null) {
+      // A ghost is its own Undo: anywhere on it (at Fit its button is
+      // too small to aim at).
+      if (done.part === "del") deleteCard(card);
+      else if (done.part === "undo" || card.deleted) void undoCard(card);
+      else if (bm !== undefined) bm.open(card.row);
+      return;
+    }
+    if (done.hit !== null) activate(done.hit);
   };
   viewport.addEventListener("pointerup", (event) => endPress(event, true));
   viewport.addEventListener("pointercancel", (event) => endPress(event, false));
@@ -783,7 +1264,9 @@ export function mountBranchMap({
       .closest("[data-act]")
       ?.getAttribute("data-act");
     if (act === "spoil") toggleSpoilers();
+    else if (act === "newest") showNewest();
     else if (act === "here") recentre();
+    else if (act === "full") fullSize();
     else if (act === "fit") showWhole();
   });
 
@@ -797,10 +1280,12 @@ export function mountBranchMap({
 
   // The map's own keys, live only while it is open. None of them is in the
   // story key table (render/keys.ts): like a choice's digits they belong to
-  // this one screen, and its buttons' hints name theirs.
+  // this one screen, and its buttons' hints name theirs. No key acts on a
+  // bookmark card (Phase 35): a card is clicked, its × deletes it, Z undoes.
   doc.addEventListener("keydown", (event) => {
     if (panel.hidden) return;
     const key = event.key;
+    const plain = !event.ctrlKey && !event.metaKey && !event.altKey;
     const pan = event.shiftKey ? KEY_PAN_PX * 3 : KEY_PAN_PX;
     let handled = true;
     if (key === "ArrowLeft") setView({ ...view, x: view.x + pan });
@@ -810,14 +1295,11 @@ export function mountBranchMap({
     else if (key === "+" || key === "=") zoomBy(KEY_ZOOM);
     else if (key === "-" || key === "_") zoomBy(1 / KEY_ZOOM);
     else if (key === "f" || key === "F" || key === "0") showWhole();
+    else if (key === "1") fullSize();
     else if (key === "c" || key === "C") recentre();
-    else if (
-      (key === "s" || key === "S") &&
-      !event.ctrlKey &&
-      !event.metaKey &&
-      !event.altKey
-    )
-      toggleSpoilers();
+    else if ((key === "n" || key === "N") && plain) showNewest();
+    else if ((key === "z" || key === "Z") && plain) undoLatest();
+    else if ((key === "s" || key === "S") && plain) toggleSpoilers();
     else if (key === "Enter") {
       const hit = targetOf(doc.activeElement);
       if (hit !== null && panel.contains(hit.node)) activate(hit.target);
@@ -829,14 +1311,53 @@ export function mountBranchMap({
   function close(): void {
     if (panel.hidden) return;
     panel.hidden = true;
+    opening += 1;
     hideTip();
+    showToast(false);
     press = null;
     if (frame !== 0 && win !== null) win.cancelAnimationFrame(frame);
     frame = 0;
-    // Drop the drawn nodes: a closed map holds no DOM worth styling.
+    // Drop the drawn nodes and cards: a closed map holds no DOM worth
+    // styling. The deletes made are final now; the next open reads the
+    // list again.
     detail.textContent = "";
     skeleton.textContent = "";
+    cardLayer.replaceChildren();
+    cards = [];
+    cardById.clear();
+    deletions = NO_DELETIONS;
     onOpenChange?.(false);
+  }
+
+  /** The open's second half, once the bookmark list is read. */
+  function show(rows: readonly BookmarkSummary[]): void {
+    listed = [];
+    for (const row of rows) {
+      const index = bm?.itemIndex(row) ?? -1;
+      if (index >= 0) listed.push({ row, index });
+    }
+    measure();
+    if (!layOut()) placeCards();
+    spoilers = spoilersSetting();
+    showSpoilers();
+    if (model === null) return;
+    marks = markNow(model);
+    // The remembered view, or a Fit (mapmodel.ts `restoreView`). The
+    // marker shows wherever it is; only C centres on it.
+    const start = restoreView(
+      model,
+      rememberedView(),
+      vw,
+      vh,
+      marks.here,
+      layout,
+    );
+    view = start.view;
+    fitted = start.fit;
+    far = view.scale < labelMinScale(model);
+    svg.classList.toggle("map-far", far);
+    paint();
+    panel.dataset.ready = "true";
   }
 
   return {
@@ -852,28 +1373,20 @@ export function mountBranchMap({
       skeletonDrawn = false;
       detail.textContent = "";
       skeleton.textContent = "";
+      cardLayer.replaceChildren();
+      deletions = NO_DELETIONS;
+      showToast(false);
+      delete panel.dataset.ready;
       panel.hidden = false;
-      measure();
-      layOut();
-      spoilers = spoilersSetting();
-      showSpoilers();
-      if (model === null) return;
-      marks = markNow(model);
-      // The remembered view, or a Fit (mapmodel.ts `restoreView`). The
-      // marker shows wherever it is; only C centres on it.
-      const opening = restoreView(
-        model,
-        rememberedView(),
-        vw,
-        vh,
-        marks.here,
-        layout,
-      );
-      view = opening.view;
-      fitted = opening.fit;
-      far = view.scale < labelMinScale(model);
-      svg.classList.toggle("map-far", far);
-      paint();
+      opening += 1;
+      const read = opening;
+      const list =
+        bm === undefined
+          ? Promise.resolve([])
+          : bm.list().catch(() => [] as readonly BookmarkSummary[]);
+      void list.then((rows) => {
+        if (read === opening && !panel.hidden) show(rows);
+      });
     },
     close,
   };

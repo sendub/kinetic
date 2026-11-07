@@ -17,8 +17,8 @@
 // - The settings live on that same Esc screen (Phase 26; `c` is gone):
 //   over a choice the digits are inert until it closes, and a play-all
 //   countdown pauses with it (main.ts).
-// - A pending choice owns everything else: while it is open the `t`
-//   panel, `h`, `b` and `a` are inert — informational overlays cannot
+// - A pending choice owns everything else: while it is open `h`, `b`
+//   and `a` are inert — informational overlays cannot
 //   stack over a decision waiting for an answer — and the timeline is
 //   suspended (the machine is inert to those commands too; the gate keeps
 //   the renderer from trying).

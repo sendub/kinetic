@@ -223,7 +223,9 @@ Goal: b/t/e work as one feature.
 - Append `{timestamp, itemIndex, thumbnailBlob}` to an IndexedDB list on
   `b`; brief confirmation flash.
 - `t` overlay: scrolling list rendered bottom-first (most recent visible);
-  click resumes at that item, closing the overlay.
+  click resumes at that item, closing the overlay. (Superseded by Phase
+  35: the `t` overlay is gone, `t` does nothing, and the bookmarks are
+  cards on the branch map.)
 - Reload restores bookmarks, frontier, and cursor (resume at frontier).
 - Storage behind an interface so machine-level tests use a fake.
 
@@ -865,7 +867,8 @@ Phases 18-26 built.
   choice (the choice waits underneath, its digits and rows are inert,
   a play-all countdown freezes and restarts when the screen closes)
   and over the key help (`c` replaces it). Only the reset box blocks
-  `c`; `t` still cannot open over a choice or the help.
+  `c`; `t` still cannot open over a choice or the help (`t` is gone
+  since Phase 35).
 - Settings screen clarity: "Skip all" with an On/Off switch read as
   if turning it on starts skipping. The two skip settings now sit
   indented under a "When Tab skips" heading, as "Skip unseen content
@@ -987,7 +990,7 @@ and machines (user chose a and b).
 - "Reading speed" is named for auto-forward ("Auto-forward speed"),
   noting it also paces play-all's countdown.
 - Clicks no longer close the settings screen or the Esc help (keys do);
-  `t` unchanged. Hints say "or" in words for alternatives and use "; "
+  `t` unchanged (gone since Phase 35). Hints say "or" in words for alternatives and use "; "
   between clauses, never "·".
 
 ## Phase 25: Reproducible, content-addressed media (2026-11-02, user + converting agent)
@@ -1170,7 +1173,8 @@ there"), built now, zoomable and pannable.
   decision: pick a route; 0 returns to main route"). Over the Esc screen it
   replaces that screen, as `t` does, so the next Esc returns to the game;
   over the bookmark list it swaps the list for the map, and `t` over the
-  map swaps back. It opens over a pending choice (the map moves the
+  map swaps back. (Phase 35 removed the list and `t`: the map is the one
+  screen besides the Esc screen, and the Esc screen keeps 11 rows.) It opens over a pending choice (the map moves the
   reader, like the wheel); Esc or `m` closes it. While it is open the
   machine is paused like under the other panels, and the story's keys
   and wheel are inert.
@@ -1255,6 +1259,90 @@ there"), built now, zoomable and pannable.
   key: "shortcut: S", "shortcut: C", "shortcut: F" (0 also fits). The
   node tooltips (full text and status) stay. The map gets the freed
   height.
+
+## Phase 35: Bookmarks on the branch map (2026-11-07, user)
+
+The user approved prototype "B" ("cards on the line"; the shelves variant
+was dropped): the bookmarks move onto the branch map, and the `t` screen
+goes.
+
+- Placement: each bookmark is a card (its thumbnail over its timestamp)
+  centred on the story line at its screen's exact place, like beads on a
+  string, in story order (two on one screen: oldest first). A bookmark
+  inside a route sits on that route's line, nested routes included; one
+  on a screen no stretch holds (between a choice's routes, say) goes at
+  the end of the stretch before it, as the "you are here" marker does,
+  never dropped. A stretch holding k bookmarks is as long as k cards side
+  by side (`k * 290 - 10 + 28` world units) and a point along it runs
+  from card to card, so the marker for a bookmarked screen is its card's
+  centre; every row holding cards gets their room (101 units above the
+  line, 115 below, the count line "N screens · k bookmarks" under the
+  cards), the rows around it moving apart; stretches and rows without
+  bookmarks keep the compact geometry (mapmodel.ts `buildMapModel`,
+  `cardSlots`, `itemX`, `bandOffsets`).
+- Compact structure: at 100% a world unit is a screen pixel sized by the
+  cards, so a decision is a 40x22 node reading "played/total" ("?" before
+  it is reached), a route a numbered pill; their full text and status are
+  in the hover tooltip and aria label, where Spoilers still applies (a
+  hidden route keeps its number: "2. Unseen route"). The label
+  truncation helpers went with the long labels.
+- Zoom: two presets with continuous zoom between them: Fit (F, or 0: the
+  whole tree, cards scaled with it) and 100% (1: scale 1, a card at the
+  old `t` screen's 280 px with its caption, none overlapping), zoomed
+  about the view's centre. The zoom-in limit stays 3x (a compact tree in
+  a big window stops there, centred). Header: Spoilers, Newest bookmark
+  (N: the newest card centred at 100%; disabled with none), Centre, 100%,
+  Fit, each with its instant "shortcut: …" hint. The remembered view and
+  the Fit-by-default rules are Phase 33's; a change of bookmarked screens
+  is a change of layout (its signature), so the next open after adding or
+  deleting a bookmark is a Fit.
+- Cards: the newest has the accent outline (2 screen pixels at any zoom)
+  and a NEWEST tag. Below 0.7x the caption goes (the thumbnail fills the
+  card) and a hover tooltip gives the time. A click opens the bookmark
+  exactly as the `t` screen's row did (the record's context, converted
+  to this manifest, through `importContext` with `mergeProgress`), closes
+  the map and lands there; a press that moves 5 px is a drag and pans,
+  even on a card. No key acts on a card (no Del, Backspace or Enter).
+- Delete: hovering a card shows its × at every zoom, Fit included, drawn
+  at a fixed screen size (24 px, down to 14 px on cards under ~80 px)
+  in the card's top-right corner, with the instant "Delete this bookmark"
+  hint (and no card tooltip over it). The delete is stored at once; the
+  card stays as a ghost (a dashed outline at least a screen pixel wide;
+  "Deleted" and an Undo button inside once the cards are big enough to
+  read) until the map closes; Undo,
+  a click anywhere on the ghost, the "Bookmark deleted · Undo (Z)" toast
+  or Z (latest delete first) stores the record again. Storage is
+  unchanged: an undo is `addBookmark` of the record read before the
+  delete; no migration.
+- `t`/`T` do nothing; the T row left the Esc screen (11 rows: 3 rows of
+  4 or 2 of 6, Reset in view at 800x600); the M row is its only control.
+  Removed: `mountBookmarkOverlay` and its CSS, `bookmarksKeyAction`, the
+  list/map exclusivity, the list's README and help text. Kept in
+  bookmarks.ts: the restore target, `mergeProgress`, the timestamp,
+  `entryThumbSrc`, `shrinkStill`, and `cardPictures` (a card's picture:
+  its capture, else the manifest still shrunk once per file per page, the
+  file itself if it cannot be; the Phase 29 Safari fix), loaded a few at
+  a time, the cards in or near the view first, then newest first
+  (mapcards.ts `pictureOrder`).
+- Rendering: the tree's SVG, the cards (HTML) and the marker live in ONE
+  stage element under one CSS transform (`translate(x, y) scale(s)`, set
+  once per frame), so lines and cards cannot drift apart. The prototype
+  moved the card layer (its own `will-change` compositing layer, CSS
+  transform) and the SVG's world group (an attribute transform, repainted)
+  by separate writes; in Safari a drag sometimes moved only the cards
+  until 1 then F redrew the SVG: the SVG's repaint was lost while the
+  composited card layer moved on its own. With one transformed element
+  there is no second layer to move; culling redraws repaint inside it.
+  The view paints its own ground and isolates and clips what moves in it
+  (`contain: paint`), so area the map leaves uncovered never holds stale
+  pixels in Safari.
+- Measured (`npm run perf:map`, 180 bookmarks over every route depth of
+  the 570-decision game, docs/perf.md): opens 55-67 ms to cards painted,
+  frames p95 16.7-16.8 ms. Checked by hand on a large real game (178
+  bookmarks), not committed: the issues found there (a card tooltip over
+  the × at Fit; a ghost at Fit a sub-pixel outline with 3 px text, its
+  Undo too small to aim at) are fixed and covered by
+  `bookmarkmap.scenario.mjs` with the demo.
 
 ## Later, waiting on the user
 

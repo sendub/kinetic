@@ -1,23 +1,27 @@
 // Menus pause the timeline (docs/plan.md Phase 18): opening the Esc
-// screen (keys and settings, Phase 26) or `t`
-// freezes a running auto-forward hold or skip burst and holds a playing
-// video in place; closing the screen resumes exactly what was running (a
-// fresh auto hold, or the burst carrying on). A bookmark click that jumps
-// away does not resume the old burst. Each part starts a fresh browser.
+// screen (keys and settings, Phase 26) or the branch map (`m`, which holds
+// the bookmarks since Phase 35) freezes a running auto-forward hold or
+// skip burst and holds a playing video in place; closing the screen
+// resumes exactly what was running (a fresh auto hold, or the burst
+// carrying on). A bookmark card click on the map that jumps away does not
+// resume the old burst. Each part starts a fresh browser.
 
 import {
   clickCenter,
   closeSettings,
   currentItemId,
   item,
+  MAP_CLOSED,
+  MAP_OPEN,
+  MAP_READY,
   ON_TEXT,
-  OVERLAY_OPEN,
   openSettings,
   pressA,
   pressB,
+  pressM,
   pressSpace,
-  pressT,
   pressTab,
+  READ_MAP_CARDS,
   sleep,
   spaceTo,
   waitVideoPlaying,
@@ -72,13 +76,13 @@ async function autoForward({ check, open }) {
 async function skipBurst({ check, open }) {
   const { page, cdp } = await open("skip", { closeHelp: true });
   // A long seen run, so a ~25 ms-per-picture burst is still running when
-  // `t` opens.
+  // the map opens.
   const reached = await spaceTo(page, cdp, "floor-3");
   const back = await wheelBackTo(page, cdp, "intro-title");
   await pressTab(cdp);
   await sleep(60);
-  await pressT(cdp);
-  await page.waitForFunction(OVERLAY_OPEN, { timeout: 2000 });
+  await pressM(cdp);
+  await page.waitForFunction(MAP_OPEN, { timeout: 2000 });
   const frozenAt = await currentItemId(page);
   await sleep(800);
   const stillAt = await currentItemId(page);
@@ -86,7 +90,8 @@ async function skipBurst({ check, open }) {
     frozenAt === stillAt &&
     frozenAt !== "floor-3" &&
     item(frozenAt).index > item("intro-title").index;
-  await pressT(cdp); // close: the burst carries on to the last seen item
+  await pressM(cdp); // close: the burst carries on to the last seen item
+  await page.waitForFunction(MAP_CLOSED, { timeout: 2000 });
   let resumed = false;
   try {
     await page.waitForFunction(
@@ -100,7 +105,7 @@ async function skipBurst({ check, open }) {
     () => document.getElementById("overlay")?.hidden === false,
   );
   check(
-    "t pauses a skip burst mid-run; closing it lets the burst finish on the last seen item",
+    "the branch map pauses a skip burst mid-run; closing it lets the burst finish on the last seen item",
     reached && back && frozen && resumed && captionShown,
     { reached, back, frozenAt, stillAt, resumed, captionShown },
   );
@@ -151,16 +156,10 @@ async function bookmarkJump({ check, open }) {
   const back = await wheelBackTo(page, cdp, "intro-title");
   await pressTab(cdp);
   await sleep(60);
-  await pressT(cdp);
-  await page.waitForFunction(OVERLAY_OPEN, { timeout: 2000 });
-  const rect = await page.evaluate((id) => {
-    const entry = document.querySelector(
-      `.bookmark-entry[data-item-id="${id}"] .bookmark-meta`,
-    );
-    if (entry === null) return null;
-    const r = entry.getBoundingClientRect();
-    return { top: r.top, bottom: r.bottom, left: r.left, right: r.right };
-  }, target.id);
+  await pressM(cdp);
+  await page.waitForFunction(MAP_READY, { timeout: 2000 });
+  const { cards = [] } = await page.evaluate(READ_MAP_CARDS);
+  const rect = cards.find((c) => c.itemId === target.id)?.rect ?? null;
   if (rect !== null) await clickCenter(cdp, rect);
   await sleep(150);
   const landed = await currentItemId(page);
@@ -170,14 +169,14 @@ async function bookmarkJump({ check, open }) {
     () => document.getElementById("overlay")?.hidden === false,
   );
   check(
-    "a bookmark click during a paused burst jumps there and the burst does not resume",
+    "a bookmark card click on the map during a paused burst jumps there and the burst does not resume",
     reached &&
       back &&
       rect !== null &&
       landed === target.id &&
       stayed === target.id &&
       captionShown,
-    { reached, back, entry: rect !== null, landed, stayed, captionShown },
+    { reached, back, card: rect !== null, landed, stayed, captionShown },
   );
 }
 

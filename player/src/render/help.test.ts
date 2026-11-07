@@ -60,7 +60,6 @@ describe("helpRows (drawn from the keymap, Phase 13b)", () => {
       "A",
       "H",
       "B",
-      "T",
       "M",
       "Esc",
       "1-9 0 ↑↓ Enter",
@@ -205,7 +204,7 @@ describe("a click does not close the help (docs/plan.md Phase 24)", () => {
   });
 });
 
-describe("the T and M entries are controls (t / m from the Esc screen)", () => {
+describe("the M entry is a control (m from the Esc screen)", () => {
   function mountRows(onEntry?: (command: string) => void): FakeElement[] {
     const root = new FakeDocument().createElement("div");
     mountHelpOverlay({ root: root as unknown as HTMLElement, onEntry });
@@ -216,18 +215,17 @@ describe("the T and M entries are controls (t / m from the Esc screen)", () => {
     return list.children;
   }
 
-  it("draws the T and M rows as buttons that run their commands; every other row stays plain", () => {
+  it("draws the M row as a button that runs its command; every other row stays plain, and there is no T row (Phase 35)", () => {
     const calls: string[] = [];
     const rows = mountRows((command) => calls.push(command));
-    const t = helpRows().findIndex((r) => r.command === "toggleBookmarks");
     const m = helpRows().findIndex((r) => r.command === "toggleMap");
     rows.forEach((row, i) => {
-      expect(row.tagName).toBe(i === t || i === m ? "BUTTON" : "DIV");
+      expect(row.tagName).toBe(i === m ? "BUTTON" : "DIV");
       expect(row.className).toBe("help-row");
     });
-    rows[t]?.fire("click");
+    expect(helpRows().some((r) => r.keys.includes("T"))).toBe(false);
     rows[m]?.fire("click");
-    expect(calls).toEqual(["toggleBookmarks", "toggleMap"]);
+    expect(calls).toEqual(["toggleMap"]);
   });
 
   it("with no handler no row is a control", () => {

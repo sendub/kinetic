@@ -1,33 +1,21 @@
-// The pure half of the `t` bookmark overlay (docs/plan.md Phases 8, 13):
-// the list order, the scroll-to-bottom target, the timestamp and label
-// text, the thumbnail source rule, and the bookmark's restore target. The
-// DOM panel in bookmarks.ts only applies these; the end-to-end behaviour
-// is walked by scripts/verify.mjs.
+// Bookmarks' helpers (docs/plan.md Phases 8, 13, 29, 35): the timestamp
+// text, the thumbnail source rule and where a card's picture comes from,
+// and the bookmark's restore target. The cards on the branch map apply
+// these; the end-to-end behaviour is walked by
+// scripts/scenarios/bookmarkmap.scenario.mjs.
 
-import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import type { Item } from "../machine/types";
 import type { Bookmark, BookmarkSummary, SavedContext } from "../storage/types";
 import {
-  BOOKMARKS_HINT,
   bookmarkItemIndex,
   bookmarkRestoreTarget,
-  bottomScrollTop,
-  DELETE_LABEL,
-  entryLabel,
+  cardPictures,
   entryThumbSrc,
   formatTimestamp,
-  keptScrollTop,
-  listOrder,
   mergeProgress,
-  mountBookmarkOverlay,
-  placeholderAspect,
   type StillPicture,
-  THUMB_LOADS_AT_ONCE,
-  thumbLoadOrder,
 } from "./bookmarks";
 
 const items: readonly Item[] = [
@@ -65,43 +53,6 @@ function bookmark(fields: Partial<Bookmark> & { itemId: string }): Bookmark {
     ...fields,
   };
 }
-
-describe("listOrder (oldest first, top to bottom)", () => {
-  it("keeps the storage order (oldest first) as the render order", () => {
-    const stored = [
-      bookmark({ id: "old", itemId: "c-003" }),
-      bookmark({ id: "mid", itemId: "a-001" }),
-      bookmark({ id: "new", itemId: "b-002" }),
-    ];
-    // Never re-sorted by item index or clock: insertion order IS the
-    // top-to-bottom order, so the newest stays at the list's bottom.
-    expect(listOrder(stored, items).map((b) => b.id)).toEqual([
-      "old",
-      "mid",
-      "new",
-    ]);
-  });
-
-  it("copies, so a later mutation of the caller's array cannot restyle the panel", () => {
-    const stored = [bookmark({ itemId: "a-001" })];
-    const rendered = listOrder(stored, items);
-    stored.push(bookmark({ id: "late", itemId: "b-002" }));
-    expect(rendered).toHaveLength(1);
-  });
-
-  it("leaves out a bookmark whose item is no longer in the manifest", () => {
-    // Saves are keyed by id (Phase 18): a deleted item's bookmark has
-    // nothing to show or restore, so it is not listed; the rest keep
-    // their order wherever their items now sit.
-    const stored = [
-      bookmark({ id: "kept", itemId: "c-003" }),
-      bookmark({ id: "orphan", itemId: "gone" }),
-      bookmark({ id: "also", itemId: "a-001" }),
-    ];
-    expect(listOrder(stored, items).map((b) => b.id)).toEqual(["kept", "also"]);
-  });
-});
-
 describe("bookmarkItemIndex (the id resolved against the manifest)", () => {
   it("finds the item wherever it now sits, -1 when it is gone", () => {
     const prequel: readonly Item[] = [
@@ -112,28 +63,6 @@ describe("bookmarkItemIndex (the id resolved against the manifest)", () => {
     expect(bookmarkItemIndex(b, items)).toBe(2);
     expect(bookmarkItemIndex(b, prequel)).toBe(3);
     expect(bookmarkItemIndex(bookmark({ itemId: "gone" }), items)).toBe(-1);
-  });
-});
-
-describe("bottomScrollTop (scrolled to the newest)", () => {
-  it("is the scroll height past the viewport", () => {
-    expect(bottomScrollTop(1200, 500)).toBe(700);
-  });
-
-  it("is 0 when the list does not overflow", () => {
-    expect(bottomScrollTop(300, 500)).toBe(0);
-    expect(bottomScrollTop(500, 500)).toBe(0);
-  });
-});
-
-describe("keptScrollTop (a delete keeps the reader's place, Phase 18)", () => {
-  it("keeps the previous scroll while it still fits", () => {
-    expect(keptScrollTop(200, 1200, 500)).toBe(200);
-  });
-
-  it("clamps to the shorter list's new bottom", () => {
-    expect(keptScrollTop(700, 1000, 500)).toBe(500);
-    expect(keptScrollTop(300, 400, 500)).toBe(0); // no longer overflows
   });
 });
 
@@ -187,16 +116,6 @@ describe("entryThumbSrc (data URL, else the manifest still)", () => {
       entryThumbSrc(bookmark({ itemId: "a-001", thumbDataUrl: "" }), items),
     ).toBe("a-001.jpg");
     expect(entryThumbSrc(bookmark({ itemId: "gone" }), items)).toBeNull();
-  });
-});
-
-describe("entryLabel", () => {
-  it("shows the item index and its manifest id", () => {
-    expect(entryLabel(3, "line-004")).toBe("#3 line-004");
-  });
-
-  it("marks an index outside the manifest", () => {
-    expect(entryLabel(7, undefined)).toBe("#7 (unknown item)");
   });
 });
 
@@ -303,413 +222,113 @@ describe("mergeProgress (a bookmark restore never forgets progress, Phase 18)", 
   });
 });
 
-describe("BOOKMARKS_HINT (separators in words, Phase 24)", () => {
-  it('splits its clauses with "; ", never "·"', () => {
-    expect(BOOKMARKS_HINT).toBe(
-      "click an entry to continue there; its × deletes it; t or Esc closes",
-    );
-  });
-});
-
-// Phase 26, "Bigger bookmark thumbnails in a grid": the list is a grid of
-// cards filling across, then down, each a large thumbnail with its time
-// and label under it. The layout lives in CSS, so the durable assertion is
-// about the shipped CSS (the same kind of guard as fit.test.ts); the DOM
-// half is pinned against a minimal fake document, as help.test.ts does.
-const here = dirname(fileURLToPath(import.meta.url));
-const html = readFileSync(join(here, "..", "..", "index.html"), "utf8");
-const cssRule = (selector: string): string => {
-  const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return (
-    new RegExp(`(?:^|\\n)\\s*${escaped}\\s*\\{[^}]*\\}`).exec(html)?.[0] ?? ""
-  );
-};
-
-describe("the t list is a grid of large cards (docs/plan.md Phase 26)", () => {
-  it("lays the cards out across, then down: an auto-fill grid like the Esc keys", () => {
-    const list = cssRule(".bookmarks-list");
-    expect(list).toContain("display: grid");
-    expect(list).toMatch(
-      /grid-template-columns:\s*repeat\(\s*auto-fill,\s*minmax\(min\(100%,\s*\d+px\),\s*1fr\)\s*\)/,
-    );
-    const min = Number(
-      /minmax\(min\(100%,\s*(\d+)px\)/.exec(list)?.[1] ?? Number.NaN,
-    );
-    expect(min).toBeGreaterThanOrEqual(240);
-    expect(min).toBeLessThanOrEqual(340);
-  });
-
-  it("stacks each card: the thumbnail on top, its time and label under it", () => {
-    expect(cssRule(".bookmark-entry")).toContain("flex-direction: column");
-  });
-
-  it("draws the thumbnail the card's full width at its own aspect ratio", () => {
-    const thumb = cssRule(".bookmark-thumb");
-    expect(thumb).toContain("width: 100%");
-    expect(thumb).toContain("height: auto");
-    expect(thumb).toContain("object-fit: contain");
-    expect(thumb).not.toMatch(/(?:^|[^-])height:\s*clamp/);
-  });
-});
-
-class FakeElement {
-  children: FakeElement[] = [];
-  parent: FakeElement | null = null;
-  className = "";
-  id = "";
-  hidden = false;
-  textContent = "";
-  type = "";
-  src = "";
-  alt = "";
-  scrollTop = 0;
-  scrollHeight = 0;
-  clientHeight = 0;
-  readonly attributes = new Map<string, string>();
-  constructor(
-    readonly tagName: string,
-    readonly ownerDocument: FakeDocument,
-  ) {}
-  get isConnected(): boolean {
-    return this.parent !== null;
-  }
-  setAttribute(name: string, value: string): void {
-    this.attributes.set(name, value);
-  }
-  getAttribute(name: string): string | null {
-    return this.attributes.get(name) ?? null;
-  }
-  removeAttribute(name: string): void {
-    this.attributes.delete(name);
-  }
-  append(...nodes: FakeElement[]): void {
-    for (const node of nodes) this.appendChild(node);
-  }
-  appendChild(node: FakeElement): FakeElement {
-    this.children.push(node);
-    node.parent = this;
-    return node;
-  }
-  replaceChildren(...nodes: FakeElement[]): void {
-    for (const node of this.children) node.parent = null;
-    this.children = [];
-    this.append(...nodes);
-  }
-  replaceWith(node: FakeElement): void {
-    const parent = this.parent;
-    if (parent === null) return;
-    parent.children[parent.children.indexOf(this)] = node;
-    node.parent = parent;
-    this.parent = null;
-  }
-  addEventListener(): void {}
-}
-
-class FakeDocument {
-  defaultView = null;
-  createElement(tag: string): FakeElement {
-    return new FakeElement(tag.toUpperCase(), this);
-  }
-}
-
-/** Summaries as `Storage.listBookmarks` hands them, keyed 1, 2, 3... */
-function summaries(
-  records: readonly Bookmark[],
-  withThumb = false,
-): BookmarkSummary[] {
-  return records.map((record, index) => ({
-    key: index + 1,
-    id: record.id,
-    timestampMs: record.timestampMs,
-    itemId: record.itemId,
-    hasThumb: withThumb,
-  }));
-}
-
-/**
- * A still shrinker standing in for the canvas one: every still shrinks
- * (to a CANVAS element) unless `fails` names it; `shrunk` logs the asks.
- */
-function fakeShrinker(fails: readonly string[] = []) {
-  const shrunk: string[] = [];
-  const shrink = (src: string): Promise<StillPicture | null> => {
-    shrunk.push(src);
-    if (fails.includes(src)) return Promise.resolve(null);
-    return Promise.resolve(
-      () =>
-        new FakeElement("CANVAS", new FakeDocument()) as unknown as HTMLElement,
-    );
-  };
-  return { shrunk, shrink };
-}
-
-function mountList(
-  loadThumb: (row: BookmarkSummary) => Promise<string | null> = () =>
-    Promise.resolve(null),
-  shrink: (src: string) => Promise<StillPicture | null> = fakeShrinker().shrink,
-) {
-  const root = new FakeDocument().createElement("div");
-  const overlay = mountBookmarkOverlay({
-    root: root as unknown as HTMLElement,
-    items,
-    stage: { width: 1280, height: 720 },
-    loadThumb,
-    shrinkStill: shrink,
-    onPick: () => {},
-    onDelete: () => {},
-  });
-  const [panel] = root.children;
-  const list = panel?.children.find((el) => el.className === "bookmarks-list");
-  if (panel === undefined || list === undefined) throw new Error("no list");
-  return { overlay, panel, list };
-}
-
-const thumbOf = (card: FakeElement | undefined) =>
-  card?.children[0]?.children[0];
-
-describe("mountBookmarkOverlay cards (Phase 26: order and scroll unchanged)", () => {
-  const records = summaries([
-    bookmark({ id: "bk-1", itemId: "c-003", timestampMs: 3 }),
-    bookmark({ id: "bk-2", itemId: "a-001", timestampMs: 1 }),
-    bookmark({ id: "bk-3", itemId: "b-002", timestampMs: 2 }),
-  ]);
-
-  it("draws one card per bookmark in the storage order, oldest first", () => {
-    const { overlay, list } = mountList();
-    overlay.render(records);
-    expect(list.children.map((el) => el.getAttribute("data-item-id"))).toEqual([
-      "c-003",
-      "a-001",
-      "b-002",
-    ]);
-    expect(
-      list.children.map((el) => el.getAttribute("data-entry-index")),
-    ).toEqual(["0", "1", "2"]);
-  });
-
-  it("each card is a button: the thumbnail box (still and ×) over the time and label", async () => {
-    const { overlay, list } = mountList();
-    overlay.render(records);
-    await new Promise((resolve) => setTimeout(resolve, 0)); // stills drawn
-    for (const card of list.children) {
-      expect(card.tagName).toBe("BUTTON");
-      expect(card.className).toBe("bookmark-entry");
-      expect(card.children.map((el) => el.className)).toEqual([
-        "bookmark-thumb-box",
-        "bookmark-meta",
-      ]);
-      const [box, meta] = card.children;
-      expect(box?.children.map((el) => el.className)).toEqual([
-        "bookmark-thumb",
-        "bookmark-delete",
-      ]);
-      expect(box?.children[1]?.textContent).toBe("×");
-      // Its help is an instant data-hint, not a native title (late in
-      // Chrome, never shown in Safari fullscreen).
-      expect(box?.children[1]?.getAttribute("data-hint")).toBe(DELETE_LABEL);
-      expect(box?.children[1]?.getAttribute("aria-label")).toBe(DELETE_LABEL);
-      expect(box?.children[1]?.getAttribute("title")).toBeNull();
-      expect(meta?.children.map((el) => el.className)).toEqual([
-        "bookmark-time",
-        "bookmark-label",
-      ]);
+describe("cardPictures (a card's picture: capture, else the still shrunk)", () => {
+  class FakeElement {
+    alt = "";
+    decoding = "";
+    src = "";
+    readonly attributes = new Map<string, string>();
+    constructor(readonly tagName: string) {}
+    setAttribute(name: string, value: string): void {
+      this.attributes.set(name, value);
     }
-  });
-
-  it("opens scrolled to the bottom, so the newest (last) card is in view", () => {
-    const { overlay, list } = mountList();
-    list.scrollHeight = 1400;
-    list.clientHeight = 600;
-    overlay.render(records);
-    expect(list.scrollTop).toBe(800);
-  });
-
-  it("shows the empty message, and no grid, with no bookmarks", () => {
-    const { overlay, panel, list } = mountList();
-    overlay.render([]);
-    const empty = panel.children.find(
-      (el) => el.className === "bookmarks-empty",
-    );
-    expect(list.hidden).toBe(true);
-    expect(empty?.hidden).toBe(false);
-    expect(empty?.textContent).toBe("No bookmarks yet — press b");
-  });
-});
-
-// The bookmark-screen speed item (docs/progress.md): the panel shows before
-// the list is read, and captured thumbnails load lazily, newest first.
-describe("mountBookmarkOverlay opens at once and fills in its pictures", () => {
-  const records = [
-    bookmark({ id: "bk-1", itemId: "c-003" }),
-    bookmark({ id: "bk-2", itemId: "a-001" }),
-    bookmark({ id: "bk-3", itemId: "b-002" }),
-  ];
-  const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
-
-  it("open() shows the panel with no rows and no empty message; the first render then scrolls to the newest", () => {
-    const { overlay, panel, list } = mountList();
-    list.scrollHeight = 1400;
-    list.clientHeight = 600;
-    overlay.open();
-    const empty = panel.children.find(
-      (el) => el.className === "bookmarks-empty",
-    );
-    expect(overlay.isOpen()).toBe(true);
-    expect(panel.hidden).toBe(false);
-    expect(list.children).toEqual([]);
-    expect(empty?.hidden).toBe(true);
-    overlay.render(summaries(records));
-    expect(list.children).toHaveLength(3);
-    expect(list.scrollTop).toBe(800);
-    // A later render of the open list (a delete) keeps the reader's place.
-    list.scrollTop = 100;
-    overlay.render(summaries(records).slice(1));
-    expect(list.scrollTop).toBe(100);
-  });
-
-  it("a captured thumbnail starts as a stage-shaped placeholder and is swapped in once read, newest first", async () => {
-    const asked: string[] = [];
-    const { overlay, panel, list } = mountList((row) => {
-      asked.push(row.id);
-      return Promise.resolve(`data:image/jpeg;base64,${row.id}`);
+    getAttribute(name: string): string | null {
+      return this.attributes.get(name) ?? null;
+    }
+    decode(): Promise<void> {
+      return Promise.resolve();
+    }
+  }
+  const doc = {
+    createElement: (tag: string) => new FakeElement(tag.toUpperCase()),
+  } as unknown as Document;
+  const row = (
+    id: string,
+    itemId: string,
+    hasThumb = false,
+    key = 1,
+  ): BookmarkSummary => ({ key, id, timestampMs: 0, itemId, hasThumb });
+  // A still shrinker standing in for the canvas one: every still shrinks
+  // (to a CANVAS) unless `fails` names it; `shrunk` logs the asks.
+  function setup(
+    readCapture: (r: BookmarkSummary) => Promise<string | null> = () =>
+      Promise.resolve(null),
+    fails: readonly string[] = [],
+  ) {
+    const shrunk: string[] = [];
+    const reads: string[] = [];
+    const picture = cardPictures({
+      doc,
+      items,
+      itemIndex: (r) => items.findIndex((item) => item.id === r.itemId),
+      readCapture: (r) => {
+        reads.push(r.id);
+        return readCapture(r);
+      },
+      shrink: (src): Promise<StillPicture | null> => {
+        shrunk.push(src);
+        if (fails.includes(src)) return Promise.resolve(null);
+        return Promise.resolve(
+          () => new FakeElement("CANVAS") as unknown as HTMLElement,
+        );
+      },
     });
-    expect(panel.getAttribute("style")).toBe(
-      "--bookmark-thumb-aspect: 1280 / 720",
+    const of = (r: BookmarkSummary) =>
+      picture(r) as unknown as Promise<FakeElement | null>;
+    return { of, shrunk, reads };
+  }
+
+  it("shows a capture, decoded before it goes in, read only when the summary has one", async () => {
+    const { of, reads, shrunk } = setup((r) =>
+      Promise.resolve(`data:image/jpeg;base64,${r.id}`),
     );
-    overlay.render(summaries(records, true));
-    for (const card of list.children) {
-      expect(thumbOf(card)?.className).toBe(
-        "bookmark-thumb bookmark-thumb-empty",
-      );
-    }
-    await settle();
-    expect(asked).toEqual(["bk-3", "bk-2", "bk-1"]);
-    expect(list.children.map((card) => thumbOf(card)?.src)).toEqual([
-      "data:image/jpeg;base64,bk-1",
-      "data:image/jpeg;base64,bk-2",
-      "data:image/jpeg;base64,bk-3",
+    const img = await of(row("bk-1", "a-001", true));
+    expect(img?.tagName).toBe("IMG");
+    expect(img?.src).toBe("data:image/jpeg;base64,bk-1");
+    expect(img?.decoding).toBe("async");
+    expect(shrunk).toEqual([]);
+    // No capture: storage is never asked.
+    await of(row("bk-2", "a-001", false));
+    expect(reads).toEqual(["bk-1"]);
+  });
+
+  it("without a capture shows the item's still SHRUNK (the Safari item), naming its file", async () => {
+    const { of, shrunk } = setup();
+    const still = await of(row("bk-1", "c-003"));
+    expect(still?.tagName).toBe("CANVAS");
+    expect(still?.getAttribute("data-still-src")).toBe("c-003.poster.jpg");
+    // A text item shows the nearest earlier media item's still.
+    await of(row("bk-2", "line-004"));
+    expect(shrunk).toEqual(["c-003.poster.jpg"]);
+  });
+
+  it("shrinks a still once per page: two cards on one still, or a reopen, share it", async () => {
+    const { of, shrunk } = setup();
+    const [a, b] = await Promise.all([
+      of(row("bk-1", "a-001")),
+      of(row("bk-2", "a-001")),
     ]);
-    expect(thumbOf(list.children[0])?.tagName).toBe("IMG");
-    expect(thumbOf(list.children[0])?.getAttribute("decoding")).toBe("async");
-    // Decoded before it goes in, so never `lazy` (which would never load
-    // outside the page).
-    expect(thumbOf(list.children[0])?.getAttribute("loading")).toBeNull();
+    await of(row("bk-1", "a-001"));
+    expect(shrunk).toEqual(["a-001.jpg"]);
+    // Each card gets its own element.
+    expect(a).not.toBe(b);
   });
 
-  // The Safari bookmark-screen item: a full-size still in the grid held
-  // Safari's paint until every visible one decoded, then all at once.
-  it("a row without a capture shows its manifest still shrunk, newest first, never asking storage", async () => {
-    let asked = 0;
-    const { shrunk, shrink } = fakeShrinker();
-    const { overlay, list } = mountList(() => {
-      asked += 1;
-      return Promise.resolve(null);
-    }, shrink);
-    overlay.render(summaries(records));
-    for (const card of list.children) {
-      expect(thumbOf(card)?.className).toBe(
-        "bookmark-thumb bookmark-thumb-empty",
-      );
-    }
-    await settle();
-    expect(shrunk).toEqual(["b-002.f000.jpg", "a-001.jpg", "c-003.poster.jpg"]);
-    for (const card of list.children) {
-      expect(thumbOf(card)?.tagName).toBe("CANVAS");
-      expect(thumbOf(card)?.className).toBe("bookmark-thumb");
-    }
-    expect(
-      list.children.map((card) =>
-        thumbOf(card)?.getAttribute("data-still-src"),
-      ),
-    ).toEqual(["c-003.poster.jpg", "a-001.jpg", "b-002.f000.jpg"]);
-    expect(asked).toBe(0);
+  it("shows the file itself when a still cannot be shrunk", async () => {
+    const { of } = setup(undefined, ["a-001.jpg"]);
+    const img = await of(row("bk-1", "a-001"));
+    expect(img?.tagName).toBe("IMG");
+    expect(img?.src).toBe("a-001.jpg");
   });
 
-  it("shrinks a still once per page: a reopen, or two cards on one still, draws it straight away", async () => {
-    const { shrunk, shrink } = fakeShrinker();
-    const { overlay, list } = mountList(undefined, shrink);
-    const twice = [...records, bookmark({ id: "bk-4", itemId: "a-001" })];
-    overlay.render(summaries(twice));
-    await settle();
-    expect(shrunk.filter((src) => src === "a-001.jpg")).toHaveLength(1);
-    overlay.close();
-    overlay.open();
-    overlay.render(summaries(twice));
-    for (const card of list.children) {
-      expect(thumbOf(card)?.tagName).toBe("CANVAS");
-    }
-    expect(shrunk).toHaveLength(3);
+  it("falls back to the still when a capture cannot be read", async () => {
+    const { of } = setup(() => Promise.reject(new Error("storage down")));
+    const still = await of(row("bk-1", "b-002", true));
+    expect(still?.getAttribute("data-still-src")).toBe("b-002.f000.jpg");
   });
 
-  it("a still that cannot be shrunk shows the file itself", async () => {
-    const { shrink } = fakeShrinker(["a-001.jpg"]);
-    const { overlay, list } = mountList(undefined, shrink);
-    overlay.render(summaries(records));
-    await settle();
-    expect(thumbOf(list.children[1])?.tagName).toBe("IMG");
-    expect(thumbOf(list.children[1])?.src).toBe("a-001.jpg");
-    expect(thumbOf(list.children[0])?.tagName).toBe("CANVAS");
-  });
-
-  it("reads a picture once per page: a reopen draws it straight away", async () => {
-    let asked = 0;
-    const { overlay, list } = mountList((row) => {
-      asked += 1;
-      return Promise.resolve(`data:image/jpeg;base64,${row.id}`);
-    });
-    overlay.render(summaries(records, true));
-    await settle();
-    overlay.close();
-    overlay.open();
-    overlay.render(summaries(records, true));
-    expect(thumbOf(list.children[2])?.src).toBe("data:image/jpeg;base64,bk-3");
-    expect(asked).toBe(3);
-  });
-
-  it("a capture that cannot be read falls back to the manifest still, shrunk", async () => {
-    const { overlay, list } = mountList(() => Promise.reject(new Error("x")));
-    overlay.render(summaries(records, true));
-    await settle();
-    expect(thumbOf(list.children[1])?.getAttribute("data-still-src")).toBe(
-      "a-001.jpg",
-    );
-  });
-
-  it("reads at most a few pictures at a time", async () => {
-    const many = Array.from({ length: 10 }, (_, n) =>
-      bookmark({ id: `bk-${String(n)}`, itemId: "a-001" }),
-    );
-    const waiting: Array<() => void> = [];
-    let live = 0;
-    let most = 0;
-    const { overlay } = mountList(
-      () =>
-        new Promise((resolve) => {
-          live += 1;
-          most = Math.max(most, live);
-          waiting.push(() => {
-            live -= 1;
-            resolve(null);
-          });
-        }),
-    );
-    overlay.render(summaries(many, true));
-    while (waiting.length > 0) {
-      (waiting.shift() as () => void)();
-      await settle();
-    }
-    expect(most).toBe(THUMB_LOADS_AT_ONCE);
-  });
-});
-
-describe("thumbLoadOrder and placeholderAspect", () => {
-  it("loads the newest (last) rows first", () => {
-    expect(thumbLoadOrder([1, 2, 3])).toEqual([3, 2, 1]);
-  });
-
-  it("shapes a placeholder like the stage, 16 / 9 for an unusable size", () => {
-    expect(placeholderAspect(1920, 1080)).toBe("1920 / 1080");
-    expect(placeholderAspect(0, 1080)).toBe("16 / 9");
-    expect(placeholderAspect(Number.NaN, 5)).toBe("16 / 9");
+  it("has nothing to show for an item no longer in the manifest", async () => {
+    const { of } = setup();
+    expect(await of(row("bk-1", "gone"))).toBeNull();
   });
 });

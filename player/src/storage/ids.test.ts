@@ -16,7 +16,7 @@ import type {
   MachineSettings,
 } from "../machine/types";
 import { DEFAULT_SETTINGS } from "../machine/types";
-import { bookmarkRestoreTarget, listOrder } from "../render/bookmarks";
+import { bookmarkItemIndex, bookmarkRestoreTarget } from "../render/bookmarks";
 import { sanitizeContext } from "./idb";
 import { createContextCodec, resumeOptionsFor } from "./ids";
 import type { Bookmark, SavedContext } from "./types";
@@ -300,10 +300,13 @@ describe("a save survives a content update (prequel, new route, deleted item)", 
       ...bookmark,
       ctx: stored(bookmark.ctx),
     }));
-    // Only the bookmark whose item still exists is listed.
-    expect(listOrder(bookmarks, V2.items).map((b) => b.itemId)).toEqual([
-      "cont-1",
-    ]);
+    // Only the bookmark whose item still exists is drawn (the map skips
+    // one whose item index is -1).
+    expect(
+      bookmarks
+        .filter((b) => bookmarkItemIndex(b, V2.items) >= 0)
+        .map((b) => b.itemId),
+    ).toEqual(["cont-1"]);
     const target = bookmarkRestoreTarget(bookmarks[1]);
     const ctx = codec2.fromSaved(target.ctx);
     expect(ctx).toBeDefined();

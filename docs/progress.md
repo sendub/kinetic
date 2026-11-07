@@ -1718,7 +1718,7 @@ truthful: an unchecked box means nothing was accepted.
       set to "ending" (checked on a .tmp copy) the map ends it in an end
       mark. No player change; the fix belongs to the game's
       conversion. Orchestrator confirmed the manifest's route results.)
-- [ ] Bookmarks on the branch map replace the `t` screen (prototype B,
+- [x] Bookmarks on the branch map replace the `t` screen (prototype B,
       user-approved 2026-11-07): each bookmark's thumbnail sits on the
       story line at its exact place (route lines included), stretches
       with bookmarks grow to fit their cards; presets Fit (F) and 100%
@@ -1729,3 +1729,17 @@ truthful: an unchecked box means nothing was accepted.
       sometimes moves only the thumbnails, not the lines, until 1 then
       F). Remove the `t` screen. Tests use artificial data only;
       game I is for manual checking via .tmp, never committed.
+      (2026-11-07: resumed after the usage limit cut off the first
+      implementer. Lines, cards and marker now share one stage under a
+      single CSS transform (pan desync cause: the prototype's cards were
+      a separate will-change layer from the SVG); a new bookmarkmap
+      scenario reads pixels after 8 drags and fails under an injected
+      freeze. MAX_SCALE stays 3. Orchestrator: npm test 687 pass, check
+      clean; full suite 13 scenarios, 304 checks: 301 pass, 2 PARTIAL
+      (headless fullscreen Escapes), 1 FAIL = reading still expecting
+      the T row, fixed (no c or t), reading 17/17 on re-run; no game I text in the diff (grep); demo-final staged in
+      .tmp/corpus-map/; the black card at Fit is that bookmark's own capture
+      of a black video frame. Safari not verified: safaridriver
+      does not connect.)
+- [ ] Phase-closer (Phase 35): full scenario suite, package-proof
+      (rebuilds the demo); pytest not needed, converter untouched.

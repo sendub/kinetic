@@ -15,15 +15,18 @@
 // reached are not in the DOM at all (placeholders instead), a reached
 // decision's routes show their labels, S or the header button shows
 // everything without moving the tree, and the setting survives a reload.
-// Phase 33: the header is the title and exactly three buttons (Spoilers,
-// Centre, Fit) hinting their keys, on one line; the first open is a
+// Phase 33 (Phase 35 adds two): the header is the title and exactly five
+// buttons (Spoilers, Newest bookmark, Centre, 100%, Fit) hinting their
+// keys, on one line; the first open is a
 // Fit; a moved view reopens with the same transform after a close and
 // after a reload, a Fit reopens as a fresh Fit after a resize, a moved
 // view keeps its world centre and scale; after Reset progress the map
 // opens at Fit with the marker's ring centred on the start dot. Each
 // header button's key hint (no native title) shows within a frame of a
-// hover or keyboard focus, below the button and inside the window, as
-// does a bookmark delete x's.
+// hover or keyboard focus, below the button and inside the window (a
+// bookmark card's delete x's: bookmarkmap.scenario.mjs). Phase 35: the
+// nodes are compact (their full text in the label and tooltip), and the
+// view's transform is the stage's (lines, cards and marker share it).
 // Screenshots land in .tmp/branchmap-shots/fb-*.png, spoil-*.png,
 // mark-*.png, simp-*.png and hint-*.png.
 
@@ -39,14 +42,12 @@ import {
   HELP_CLOSED,
   HELP_OPEN,
   helpOpen,
-  OVERLAY_OPEN,
   openSettings,
   pressB,
   pressDigit,
   pressEscape,
   pressKey,
   pressSpace,
-  pressT,
   READ_CHOICE,
   repoRoot,
   sleep,
@@ -55,7 +56,7 @@ import {
 } from "./harness.mjs";
 
 export const title =
-  "branch map: open, here-marker (endings too), zoom, pan, fit fills and refits on resize, no text selection, jumps, Esc, M over Esc, spoilers, three-button header, instant key hints, remembered view, marker on the start after reset";
+  "branch map: open, here-marker (endings too), zoom, pan, fit fills and refits on resize, no text selection, jumps, Esc, M over Esc, spoilers, five-button header, instant key hints, remembered view, marker on the start after reset";
 
 const shots = join(repoRoot, ".tmp", "branchmap-shots");
 
@@ -85,9 +86,10 @@ const READ_MAP = () => {
     const r = el.getBoundingClientRect();
     return { x: r.x, y: r.y, w: r.width, h: r.height };
   };
-  const t = (world?.getAttribute("transform") ?? "").match(
-    /translate\(([-\d.e]+) ([-\d.e]+)\) scale\(([-\d.e]+)\)/,
-  );
+  // The view's transform: the stage carries it (one transform for the
+  // lines, cards and marker; Phase 35), as "x y scale".
+  const sv = panel?.querySelector(".map-stage")?.dataset.view;
+  const t = sv ? [null, ...sv.split(" ")] : null;
   // The end marks' centres on screen, from the drawn layer's squares.
   const layer = svg?.classList.contains("map-far")
     ? ".map-skeleton"
@@ -116,7 +118,8 @@ const READ_MAP = () => {
       (el) => ({
         d: el.getAttribute("data-d"),
         inert: el.classList.contains("map-inert"),
-        text: el.querySelector(".map-dec-q")?.textContent ?? "",
+        // A compact node (Phase 35): its full text is in its label.
+        text: el.getAttribute("aria-label") ?? "",
         box: box(el),
       }),
     ),
@@ -125,7 +128,7 @@ const READ_MAP = () => {
       state: el.getAttribute("data-state"),
       inert: el.classList.contains("map-inert"),
       last: el.classList.contains("map-last"),
-      text: el.querySelector("text")?.textContent ?? "",
+      text: el.getAttribute("aria-label") ?? "",
       box: box(el),
     })),
   };
@@ -467,14 +470,17 @@ export default async function ({ check, open }) {
 
   // Fit fills the map view at any window size, and a resize while the map
   // is open (entering or leaving fullscreen) fits it again.
+  // Fills it, or (the compact demo in a big window, Phase 35) stops at
+  // the 3x zoom-in limit, centred.
   const fills = (m) => {
     const w = m.world;
     const v = m.view;
+    if (w === null || v === null || !inside(w, v)) return false;
+    if (Math.max(w.w / v.w, w.h / v.h) > 0.93) return true;
     return (
-      w !== null &&
-      v !== null &&
-      inside(w, v) &&
-      Math.max(w.w / v.w, w.h / v.h) > 0.93
+      Math.abs(m.scale - 3) < 1e-9 &&
+      Math.abs(w.x + w.w / 2 - (v.x + v.w / 2)) < 40 &&
+      Math.abs(w.y + w.h / 2 - (v.y + v.h / 2)) < 40
     );
   };
   const sized = async (width, height) => {
@@ -497,9 +503,10 @@ export default async function ({ check, open }) {
     path: join(shots, "fit-resized-back-1280x720.png"),
   });
   check(
-    "F fills the view at 1280x720, and stays filling after resizes to 1920x1080, 2560x1440 and back",
+    "F fills the view at 1280x720 (or stops at the 3x zoom-in limit, centred), and stays so after resizes to 1920x1080, 2560x1440 and back",
     [fit720, fit1080, fit1440, back720].every(fills) &&
-      fit1440.scale > fit720.scale * 1.8,
+      fit1440.scale > fit720.scale &&
+      back720.scale === fit720.scale,
     {
       scales: [fit720, fit1080, fit1440, back720].map((m) => m.scale),
       world: [fit720, fit1080, fit1440, back720].map((m) => m.world),
@@ -516,11 +523,15 @@ export default async function ({ check, open }) {
   await sleep(80);
   const fitBig = await page.evaluate(READ_MAP);
   await page.screenshot({ path: join(shots, "fit-2560x1440.png") });
-  check("F fills the view when opened at 2560x1440", fills(fitBig), {
-    scale: fitBig.scale,
-    world: fitBig.world,
-    view: fitBig.view,
-  });
+  check(
+    "F fills the view (or stops at 3x, centred) when opened at 2560x1440",
+    fills(fitBig),
+    {
+      scale: fitBig.scale,
+      world: fitBig.world,
+      view: fitBig.view,
+    },
+  );
   await pressEscape(cdp);
   await endings({ check, open });
   await spoilers({ check, open });
@@ -652,8 +663,8 @@ async function spoilers({ check, open }) {
       offFit.found.length === 0 &&
       off.prompts >= 2 &&
       off.unseen >= 4 &&
-      tip.startsWith("Unseen route") &&
-      early.decisions.every((d) => d.text === "Decision not reached"),
+      /^\d+\. Unseen route/.test(tip) &&
+      early.decisions.every((d) => d.text.startsWith("Decision not reached:")),
     { off, tip, fitFound: offFit.found },
   );
 
@@ -818,8 +829,10 @@ async function markerInView({ check, open }) {
   );
 }
 
-// The header (Phase 33): the title and exactly three buttons, each hinting
-// its key (data-hint, no native title), on one line; no hint or legend text; the map gets the rest.
+// The header (Phase 33; Phase 35 added Newest bookmark and 100%): the
+// title and exactly five buttons, each hinting its key (data-hint, no
+// native title), on one line; no hint or legend text; the map gets the
+// rest.
 const READ_HEAD = () => {
   const panel = document.getElementById("branchmap");
   const head = panel?.querySelector(".map-head");
@@ -861,13 +874,15 @@ async function header({ check, open }) {
     const mid = (b) => b.y + b.h / 2;
     const want = [
       ["spoil", "Spoilers: Off", "shortcut: S"],
+      ["newest", "Newest bookmark", "shortcut: N"],
       ["here", "Centre", "shortcut: C"],
+      ["full", "100%", "shortcut: 1"],
       ["fit", "Fit", "shortcut: F"],
     ];
     check(
-      `at ${width}x${height} the header is the title and exactly three buttons (Spoilers, Centre, Fit) hinting their keys (no title attribute), on one line, no hint or legend`,
+      `at ${width}x${height} the header is the title and exactly five buttons (Spoilers, Newest bookmark, Centre, 100%, Fit) hinting their keys (no title attribute), on one line, no hint or legend`,
       h.title === "Branch map" &&
-        h.buttons.length === 3 &&
+        h.buttons.length === 5 &&
         want.every(
           ([act, text, hint], i) =>
             h.buttons[i].act === act &&
@@ -945,9 +960,14 @@ const hintShown = (r, text) =>
 // keyboard focus shows it too.
 async function hints({ check, open }) {
   const { page, cdp } = await open("hints", { closeHelp: true });
+  // A bookmark, so Newest bookmark is live (it is disabled with none).
+  await pressB(cdp);
+  await sleep(300);
   const tools = [
     ["spoil", "shortcut: S"],
+    ["newest", "shortcut: N"],
     ["here", "shortcut: C"],
+    ["full", "shortcut: 1"],
     ["fit", "shortcut: F"],
   ];
   for (const [width, height] of [
@@ -1018,55 +1038,6 @@ async function hints({ check, open }) {
   );
   await pressM(cdp);
   await page.waitForFunction(MAP_CLOSED, { timeout: 3000 });
-
-  // The bookmark list's delete "x" carries the same instant hint.
-  await pressB(cdp);
-  await sleep(200);
-  await pressT(cdp);
-  await page.waitForFunction(OVERLAY_OPEN, { timeout: 3000 });
-  await sleep(200);
-  const x = await page.evaluate(() => {
-    const r = document
-      .querySelector(".bookmark-delete")
-      .getBoundingClientRect();
-    return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
-  });
-  await mouse(cdp, "mouseMoved", x.x, x.y, 0);
-  const del = await page.evaluate(async () => {
-    const framed = await Promise.race([
-      new Promise((r) => requestAnimationFrame(() => r(true))),
-      new Promise((r) => setTimeout(() => r(false), 500)),
-    ]);
-    const b = document.querySelector(".bookmark-delete");
-    const cs = getComputedStyle(b, "::after");
-    const br = b.getBoundingClientRect();
-    const w = Number.parseFloat(cs.width);
-    const left = br.right - Number.parseFloat(cs.right) - w;
-    return {
-      framed,
-      content: cs.content,
-      visibility: cs.visibility,
-      opacity: cs.opacity,
-      title: b.getAttribute("title"),
-      label: b.getAttribute("aria-label"),
-      left,
-      right: left + w,
-      win: innerWidth,
-    };
-  });
-  await page.screenshot({ path: join(shots, "hint-bookmark-delete.png") });
-  check(
-    "hovering a bookmark's delete x shows its 'Delete this bookmark' hint within a frame, inside the window, with no title attribute",
-    del.framed &&
-      del.content.includes("Delete this bookmark") &&
-      del.visibility === "visible" &&
-      del.opacity === "1" &&
-      del.title === null &&
-      del.label === "Delete this bookmark" &&
-      del.left >= 0 &&
-      del.right <= del.win,
-    del,
-  );
 }
 
 // The map's transform, the marker ring's centre and the start dot's centre
@@ -1075,9 +1046,10 @@ const READ_VIEW = () => {
   const panel = document.getElementById("branchmap");
   const svg = panel.querySelector(".map-svg");
   const vr = panel.querySelector(".map-view").getBoundingClientRect();
-  const t = (
-    panel.querySelector(".map-world").getAttribute("transform") ?? ""
-  ).match(/translate\(([-\d.e]+) ([-\d.e]+)\) scale\(([-\d.e]+)\)/);
+  const t = [
+    null,
+    ...panel.querySelector(".map-stage").dataset.view.split(" "),
+  ];
   const tx = Number(t[1]);
   const ty = Number(t[2]);
   const sc = Number(t[3]);

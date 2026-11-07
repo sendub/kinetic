@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { DecisionKey, KeyCommands, TimelineCommands } from "./keys";
 import {
-  bookmarksKeyAction,
   CLICKABLE_HELP_COMMANDS,
   commandForKey,
   decisionKeyFor,
@@ -32,9 +31,11 @@ describe("commandForKey", () => {
     expect(commandForKey("B", false)).toBe("bookmark");
   });
 
-  it("maps t to the bookmark overlay and Escape closes it (Phase 8)", () => {
-    expect(commandForKey("t", false)).toBe("toggleBookmarks");
-    expect(commandForKey("T", false)).toBe("toggleBookmarks");
+  it("maps nothing to t: the bookmarks live on the branch map (Phase 35)", () => {
+    expect(commandForKey("t", false)).toBeNull();
+    expect(commandForKey("T", false)).toBeNull();
+    expect(mappedKeys()).not.toContain("t");
+    expect(mappedKeys()).not.toContain("T");
     expect(commandForKey("Escape", false)).toBe("dismissOverlay");
   });
 
@@ -43,7 +44,7 @@ describe("commandForKey", () => {
     expect(commandForKey("C", false)).toBeNull();
     const esc = keyHelpEntries().find((e) => e.command === "dismissOverlay");
     expect(esc?.description).toBe(
-      "this screen: keys and settings; closes the list",
+      "this screen: keys and settings; closes the map",
     );
     for (const entry of keyHelpEntries()) {
       expect(entry.description).not.toMatch(/\bc\b/);
@@ -279,7 +280,6 @@ describe("keyHelpEntries (the help lists the map itself, Phase 13b)", () => {
       "a",
       "h",
       "b",
-      "t",
       "m",
       "Escape",
       "1-9 0 ↑↓ Enter",
@@ -298,51 +298,9 @@ describe("keyHelpEntries (the help lists the map itself, Phase 13b)", () => {
   });
 });
 
-describe("bookmarksKeyAction (t over the Esc screen replaces it)", () => {
-  const closedAll = {
-    confirmOpen: false,
-    helpOpen: false,
-    choiceOpen: false,
-    listOpen: false,
-  };
-
-  it("toggles the list over the story", () => {
-    expect(bookmarksKeyAction(closedAll)).toBe("open");
-    expect(bookmarksKeyAction({ ...closedAll, listOpen: true })).toBe("close");
-  });
-
-  it("over the Esc screen swaps the screen for the list instead of doing nothing", () => {
-    expect(bookmarksKeyAction({ ...closedAll, helpOpen: true })).toBe(
-      "replaceHelp",
-    );
-  });
-
-  it("is inert under the reset box and with a decision pending, Esc screen or not", () => {
-    for (const helpOpen of [false, true]) {
-      expect(
-        bookmarksKeyAction({ ...closedAll, helpOpen, confirmOpen: true }),
-      ).toBe("none");
-      expect(
-        bookmarksKeyAction({ ...closedAll, helpOpen, choiceOpen: true }),
-      ).toBe("none");
-    }
-  });
-
-  it("over the branch map swaps the map for the list (Phase 31)", () => {
-    expect(bookmarksKeyAction({ ...closedAll, mapOpen: true })).toBe(
-      "replaceMap",
-    );
-    // A decision waiting under the map still makes t inert.
-    expect(
-      bookmarksKeyAction({ ...closedAll, mapOpen: true, choiceOpen: true }),
-    ).toBe("none");
-  });
-
-  it("only the t and m rows of the Esc screen are controls", () => {
-    expect([...CLICKABLE_HELP_COMMANDS]).toEqual([
-      "toggleBookmarks",
-      "toggleMap",
-    ]);
+describe("the Esc screen's controls", () => {
+  it("only the m row of the Esc screen is a control (t is gone, Phase 35)", () => {
+    expect([...CLICKABLE_HELP_COMMANDS]).toEqual(["toggleMap"]);
   });
 });
 
@@ -350,7 +308,6 @@ describe("mapKeyAction (m, the branch map; Phase 31)", () => {
   const closedAll = {
     confirmOpen: false,
     helpOpen: false,
-    listOpen: false,
     mapOpen: false,
   };
 
@@ -367,10 +324,6 @@ describe("mapKeyAction (m, the branch map; Phase 31)", () => {
 
   it("over the Esc screen replaces it, so the next Escape returns to the game", () => {
     expect(mapKeyAction({ ...closedAll, helpOpen: true })).toBe("replaceHelp");
-  });
-
-  it("over the bookmark list swaps the list for the map", () => {
-    expect(mapKeyAction({ ...closedAll, listOpen: true })).toBe("replaceList");
   });
 
   it("is inert under the reset box, whatever else is up", () => {

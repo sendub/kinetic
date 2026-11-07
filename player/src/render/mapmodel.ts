@@ -27,8 +27,15 @@
 //   decision's box, so the column under a tall route's pill is empty. An
 //   ending route (it draws no line to the join) goes on the first row under
 //   its decision where it fits in that empty column, instead of under the
-//   tallest sibling. When that draws a decision's routes out of manifest
-//   order, its pills carry their choice numbers (`numbered`).
+//   tallest sibling. Every pill shows its choice number, so the order
+//   stays legible either way.
+//
+// Bookmarks ride on the lines (docs/plan.md Phase 35): each bookmark's card
+// sits centred on the line at its screen's place, like beads on a string,
+// in story order. A stretch holding bookmarks is as long as its cards side
+// by side, and every line holding cards gets the vertical room they need
+// (`CARD_ABOVE`, `CARD_BELOW`); stretches without bookmarks keep the
+// compact geometry.
 //
 // Every position is computed once, from the resolved decision table the
 // machine itself uses (`resolveDecisions`), so map indices ARE machine
@@ -41,19 +48,49 @@ import type { SavedMapView } from "../storage/types";
 
 export type { SavedMapView };
 
-/** Geometry in world units (CSS pixels at zoom 1). */
+/**
+ * Geometry in world units (CSS pixels at zoom 1). Compact (docs/plan.md
+ * Phase 35): at 100% a world unit is a screen pixel sized by the bookmark
+ * cards, so a decision is a small "played/total" node and a route a
+ * numbered pill; their full text is in the hover tooltip.
+ */
 export const MAP_GEOMETRY = {
-  pad: 60,
-  rowH: 84,
-  runW: 120,
-  decW: 250,
-  decH: 56,
-  routeW: 230,
-  routeH: 36,
-  gap: 56,
+  pad: 40,
+  rowH: 34,
+  runW: 44,
+  decW: 40,
+  decH: 22,
+  routeW: 24,
+  routeH: 18,
+  gap: 20,
   /** Space between wrapped rows, which the continuation connector runs through. */
-  wrapGap: 64,
+  wrapGap: 40,
 } as const;
+
+/**
+ * A bookmark's card (Phase 35), world units: at 100% zoom the old `t`
+ * screen's card, a 280 x 158 thumbnail over a 24 px timestamp caption.
+ * Cards sit centred on their stretch's line, side by side in story order,
+ * `gap` apart, `inset` in from the stretch's ends.
+ */
+export const CARD = {
+  w: 280,
+  h: 182,
+  thumbH: 158,
+  gap: 10,
+  pitch: 290,
+  inset: 14,
+} as const;
+
+/**
+ * The room a line holding cards gets: above it, half a card and a margin;
+ * below it, half a card, a margin and the stretch's count line under the
+ * cards.
+ */
+export const CARD_ABOVE = CARD.h / 2 + 10;
+export const CARD_BELOW = CARD.h / 2 + 24;
+/** Where a carded stretch's count line sits, below its line. */
+export const CARD_COUNT_DY = CARD.h / 2 + 15;
 
 /** How far right of a line's end its end mark reaches. */
 const END_REACH = 17;
@@ -63,10 +100,6 @@ const END_MARK_DX = 10;
 /** The aspect (width / height) a layout aims for when none is given. */
 export const DEFAULT_MAP_ASPECT = 16 / 9;
 
-/** Characters kept of a question / a route label before "…". */
-export const PROMPT_CHARS = 30;
-export const LABEL_CHARS = 25;
-
 /** One collapsed stretch of screens between decisions. */
 export interface MapRun {
   /** First and last item index of the stretch, inclusive. */
@@ -75,6 +108,12 @@ export interface MapRun {
   readonly x0: number;
   readonly x1: number;
   readonly y: number;
+  /**
+   * The item indices of the bookmarks drawn on this stretch, ascending
+   * (one per bookmark: two on one screen appear twice). Empty: the compact
+   * `runW` stretch; else it is as long as its cards side by side.
+   */
+  readonly bookmarks: readonly number[];
 }
 
 /** One decision node. `index` is the machine's resolved-table position. */
@@ -116,11 +155,6 @@ export interface MapRoute {
   readonly y: number;
   /** Where the route's own line ends. */
   readonly endX: number;
-  /**
-   * The decision's routes are drawn out of manifest order (an ending
-   * tucked in above a taller sibling), so the pill shows its choice number.
-   */
-  readonly numbered: boolean;
 }
 
 export interface MapModel {
@@ -158,16 +192,6 @@ export interface MapModel {
   readonly decisionAt: readonly (MapDecision | undefined)[];
   /** Decision index by decision id (the choice view names it by id). */
   readonly decisionById: ReadonlyMap<string, number>;
-}
-
-/** `text` cut to `max` characters, with "…" when cut. */
-export function truncateLabel(text: string, max: number): string {
-  const chars = [...text.replace(/\s+/g, " ").trim()];
-  if (chars.length <= max) return chars.join("");
-  return `${chars
-    .slice(0, max - 1)
-    .join("")
-    .trimEnd()}…`;
 }
 
 function regionEndOf(decision: ResolvedDecision): number {
@@ -256,13 +280,59 @@ function packRows(widths: readonly number[], limit: number): number[][] {
   return rows;
 }
 
+/** A top-level segment as the wrapping sees it. */
+export interface SegmentShape {
+  readonly width: number;
+  /** Rows it takes (lines under its own, nested decisions' routes). */
+  readonly rows: number;
+  /** Per row (0: its own), whether a line there holds bookmark cards. */
+  readonly bands?: readonly boolean[];
+}
+
 /**
- * Wraps top-level segments (width, rows tall) into lines of text so the
- * whole layout's aspect comes closest to `aspect`: tries row widths from
- * the widest segment to everything on one row, geometrically spaced.
+ * How a segment's rows spread apart to make room for its cards: each row's
+ * downward offset (`off[r]`, row 0 none) and the segment's height from its
+ * row 0's top (row 0's own room above, shared across a wrapped row, not
+ * included). A segment without cards is `rows * rowH` tall, unmoved.
+ */
+export function bandOffsets(segment: SegmentShape): {
+  off: number[];
+  height: number;
+} {
+  const g = MAP_GEOMETRY;
+  const bands = segment.bands ?? [];
+  const off = [0];
+  for (let r = 1; r < segment.rows; r += 1)
+    off.push(
+      off[r - 1] +
+        (bands[r - 1] === true ? CARD_BELOW : 0) +
+        (bands[r] === true ? CARD_ABOVE : 0),
+    );
+  const last = segment.rows - 1;
+  return {
+    off,
+    height:
+      segment.rows * g.rowH +
+      off[last] +
+      (bands[last] === true ? CARD_BELOW : 0),
+  };
+}
+
+/** The room above a wrapped row's main line: cards on it need it. */
+function aboveOf(
+  segments: readonly SegmentShape[],
+  row: readonly number[],
+): number {
+  return row.some((i) => segments[i].bands?.[0] === true) ? CARD_ABOVE : 0;
+}
+
+/**
+ * Wraps top-level segments (width, rows tall, cards) into lines of text so
+ * the whole layout's aspect comes closest to `aspect`: tries row widths
+ * from the widest segment to everything on one row, geometrically spaced.
  */
 export function wrapSegments(
-  segments: readonly { width: number; rows: number }[],
+  segments: readonly SegmentShape[],
   aspect: number,
 ): number[][] {
   const g = MAP_GEOMETRY;
@@ -275,13 +345,13 @@ export function wrapSegments(
     let h = 2 * g.pad + (rows.length - 1) * g.wrapGap;
     for (const row of rows) {
       let rw = 0;
-      let rh = 1;
+      let rh: number = g.rowH;
       for (const i of row) {
         rw += widths[i];
-        rh = Math.max(rh, segments[i].rows);
+        rh = Math.max(rh, bandOffsets(segments[i]).height);
       }
       w = Math.max(w, rw);
-      h += rh * g.rowH;
+      h += aboveOf(segments, row) + rh;
     }
     return (w + 2 * g.pad + 40) / h;
   };
@@ -301,15 +371,68 @@ export function wrapSegments(
 }
 
 /**
- * Lays the decision tree out. Pure; call once per manifest and viewport
- * shape (`aspect`, the map view's width / height: the rows wrap to it).
+ * Lays the decision tree out, with a card's room for each bookmarked item
+ * in `bookmarkItems` (item indices; one per bookmark, so a screen
+ * bookmarked twice is listed twice). Pure; call once per manifest, viewport
+ * shape (`aspect`, the map view's width / height: the rows wrap to it) and
+ * set of bookmarked screens.
+ *
+ * A bookmark sits on the stretch holding its screen. A screen no stretch
+ * holds (say, one between a choice's routes that no route covers) goes at
+ * the end of the stretch `runAt` names for it, the nearest one before it,
+ * as the "you are here" marker does: never dropped from the map.
  */
 export function buildMapModel(
   items: readonly Item[],
   branches: readonly Branch[] | undefined,
   aspect: number = DEFAULT_MAP_ASPECT,
+  bookmarkItems: readonly number[] = [],
+): MapModel {
+  const valid = bookmarkItems.filter(
+    (i) => Number.isInteger(i) && i >= 0 && i < items.length,
+  );
+  const model = layOutMap(items, branches, aspect, valid);
+  // Stretches never depend on the bookmarks (only their lengths do), so
+  // a second pass with the stray screens moved onto a stretch's last one
+  // gives the same stretches; it runs only when there is a stray.
+  const held = (i: number) => {
+    const run = runAt(model.runs, i);
+    return run !== undefined && i >= run.start && i <= run.end;
+  };
+  if (valid.every(held)) return model;
+  return layOutMap(
+    items,
+    branches,
+    aspect,
+    valid.map((i) => {
+      if (held(i)) return i;
+      const run = runAt(model.runs, i);
+      if (run === undefined) return i;
+      return i < run.start ? run.start : run.end;
+    }),
+  );
+}
+
+function layOutMap(
+  items: readonly Item[],
+  branches: readonly Branch[] | undefined,
+  aspect: number,
+  bookmarkItems: readonly number[],
 ): MapModel {
   const g = MAP_GEOMETRY;
+  // The bookmarks' item indices, ascending: a stretch takes the ones in its
+  // range (binary search), so the cost stays linear in stretches.
+  const marked = [...bookmarkItems].sort((a, b) => a - b);
+  const firstAtOrAfter = (index: number) => {
+    let lo = 0;
+    let hi = marked.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (marked[mid] < index) lo = mid + 1;
+      else hi = mid;
+    }
+    return lo;
+  };
   const decisions = resolveDecisions(items, branches ?? []);
   const children = new Map<number, ResolvedDecision[]>();
   for (const decision of decisions) {
@@ -372,8 +495,16 @@ export function buildMapModel(
   }
 
   const addRun = (start: number, end: number, x: number, y: number) => {
-    runs.push({ start, end, x0: x, x1: x + g.runW, y });
-    return x + g.runW;
+    const bookmarks = marked.slice(
+      firstAtOrAfter(start),
+      firstAtOrAfter(end + 1),
+    );
+    const w =
+      bookmarks.length === 0
+        ? g.runW
+        : bookmarks.length * CARD.pitch - CARD.gap + 2 * CARD.inset;
+    runs.push({ start, end, x0: x, x1: x + w, y, bookmarks });
+    return x + w;
   };
 
   // One line of story from item `start` to `end` inside decision `parent`'s
@@ -428,8 +559,6 @@ export function buildMapModel(
       return true;
     };
     let bottom = 0;
-    let lastRow = -1;
-    let reordered = false;
     let furthest = bx + g.routeW;
     const pending: { key: number; endX: number; y: number }[] = [];
     decision.routes.forEach((route, routeIdx) => {
@@ -461,8 +590,6 @@ export function buildMapModel(
       occupy(row, bx);
       for (let j = 1; j < inner.rows; j += 1) occupy(row + j, inner.belowLeft);
       bottom = Math.max(bottom, row + inner.rows);
-      if (row < lastRow) reordered = true;
-      lastRow = row;
       const ry = y + row * g.rowH;
       raw.push({ kind: "branch", ax: x + g.decW, ay: y, bx, by: ry });
       const key = routes.length;
@@ -476,13 +603,11 @@ export function buildMapModel(
         x: bx,
         y: ry,
         endX: inner.x,
-        numbered: false,
       });
       routeKeys.push(key);
       pending.push({ key, endX: inner.x, y: ry });
       if (inner.x > furthest) furthest = inner.x;
     });
-    if (reordered) for (const key of routeKeys) routes[key].numbered = true;
     const joinX = furthest + g.gap;
     let joined = false;
     for (const { key, endX, y: routeY } of pending) {
@@ -520,7 +645,12 @@ export function buildMapModel(
 
   // The main line, one top-level segment at a time, each laid out from
   // (0, 0) and then moved to its place in the rows.
-  const segments: { from: Mark; width: number; rows: number }[] = [];
+  const segments: {
+    from: Mark;
+    width: number;
+    rows: number;
+    bands?: boolean[];
+  }[] = [];
   const last = items.length - 1;
   let idx = 0;
   for (const decision of children.get(-1) ?? []) {
@@ -551,30 +681,60 @@ export function buildMapModel(
     end.width += END_REACH;
   }
 
-  const wrapped = wrapSegments(segments, aspect);
   const done = mark();
+  // Which of each segment's rows hold cards (laid out from y 0, its lines
+  // sit at whole multiples of rowH).
+  const rowOf = (y: number) => Math.round(y / g.rowH);
+  segments.forEach((segment, i) => {
+    const to = segments[i + 1]?.from ?? done;
+    const bands: boolean[] = [];
+    for (let k = segment.from[0]; k < to[0]; k += 1)
+      if (runs[k].bookmarks.length > 0) bands[rowOf(runs[k].y)] = true;
+    segment.bands = bands;
+  });
+  // Moves a segment's rows apart (still in its own coordinates): row r goes
+  // down by off[r], everything on it with it.
+  function spread(from: Mark, to: Mark, off: readonly number[]): void {
+    const f = (y: number) => y + (off[rowOf(y)] ?? 0);
+    for (let i = from[0]; i < to[0]; i += 1) runs[i].y = f(runs[i].y);
+    for (let i = from[1]; i < to[1]; i += 1)
+      mapDecisions[i].y = f(mapDecisions[i].y);
+    for (let i = from[2]; i < to[2]; i += 1) routes[i].y = f(routes[i].y);
+    for (let i = from[3]; i < to[3]; i += 1) {
+      raw[i].ay = f(raw[i].ay);
+      raw[i].by = f(raw[i].by);
+    }
+    for (let i = from[4]; i < to[4]; i += 1) joins[i].y = f(joins[i].y);
+    for (let i = from[5]; i < to[5]; i += 1) ends[i].y = f(ends[i].y);
+  }
+
+  const wrapped = wrapSegments(segments, aspect);
   const wraps: MapLink[] = [];
   let top = g.pad;
   let widest = 0;
+  let firstY = g.pad + g.rowH / 2;
   let previous: { endX: number; y: number; bottom: number } | null = null;
   for (const row of wrapped) {
-    const rowY = top + g.rowH / 2;
+    const rowY = top + aboveOf(segments, row) + g.rowH / 2;
+    if (previous === null) firstY = rowY;
     let x = g.pad;
-    let rows = 1;
+    let height: number = g.rowH;
     for (const i of row) {
       const segment = segments[i];
-      shift(segment.from, segments[i + 1]?.from ?? done, x, rowY);
+      const to = segments[i + 1]?.from ?? done;
+      const shape = bandOffsets(segment);
+      spread(segment.from, to, shape.off);
+      shift(segment.from, to, x, rowY);
       x += segment.width;
-      rows = Math.max(rows, segment.rows);
+      height = Math.max(height, shape.height);
     }
     if (previous !== null) wraps.push(wrapLink(previous, g.pad, rowY));
-    const bottom = top + rows * g.rowH;
+    const bottom = rowY - g.rowH / 2 + height;
     previous = { endX: x, y: rowY, bottom };
     widest = Math.max(widest, x);
     top = bottom + g.wrapGap;
   }
   const height = top - g.wrapGap + g.pad;
-  const y0 = g.pad + g.rowH / 2;
 
   mapDecisions.sort((a, b) => a.index - b.index);
   runs.sort((a, b) => a.start - b.start);
@@ -586,7 +746,7 @@ export function buildMapModel(
   for (const decision of decisions)
     decisionById.set(decision.id, decision.index);
   const links = [...raw.map(linkOf), ...wraps];
-  const start = { x: g.pad, y: y0 };
+  const start = { x: g.pad, y: firstY };
   return {
     runs,
     decisions: mapDecisions,
@@ -607,7 +767,7 @@ export function buildMapModel(
 }
 
 /** Above a stretch's line, its screen count's text reaches this far. */
-const COUNT_REACH = 22;
+const COUNT_REACH = 16;
 
 /** The world box everything drawn lies in (see `MapModel.bounds`). */
 function boundsOf(
@@ -632,7 +792,9 @@ function boundsOf(
     if (x1 > box.x1) box.x1 = x1;
     if (y1 > box.y1) box.y1 = y1;
   };
-  for (const r of runs) add(r.x0, r.y - COUNT_REACH, r.x1, r.y);
+  for (const r of runs)
+    if (r.bookmarks.length === 0) add(r.x0, r.y - COUNT_REACH, r.x1, r.y);
+    else add(r.x0, r.y - CARD.h / 2, r.x1, r.y + CARD_COUNT_DY + 4);
   for (const d of decisions)
     add(d.x, d.y - g.decH / 2, d.x + g.decW, d.y + g.decH / 2);
   for (const r of routes)
@@ -841,10 +1003,40 @@ function hereOf(
   if (run === undefined) return { ...model.start, decision: -1 };
   const end = endMarkAt(model, run, reader.cursor);
   if (end !== null) return { ...end, decision: -1 };
+  return { x: itemX(run, reader.cursor), y: run.y, decision: -1 };
+}
+
+/** The centre x of a stretch's `j`-th card (story order). */
+function cardCentre(run: MapRun, j: number): number {
+  return run.x0 + CARD.inset + j * CARD.pitch + CARD.w / 2;
+}
+
+/**
+ * Where item `index` sits along `run`'s line (clamped into the stretch).
+ * Without cards, its share of the stretch. With cards, the place is exact
+ * for a bookmarked screen — its card's centre (several cards on one
+ * screen: their middle) — and the screens between run evenly from one
+ * card to the next, so a point on the line and the cards always agree on
+ * story order.
+ */
+export function itemX(run: MapRun, index: number): number {
   const n = run.end - run.start + 1;
-  const at = Math.min(Math.max(reader.cursor - run.start, 0), n - 1);
-  const x = run.x0 + ((run.x1 - run.x0) * (at + 0.5)) / n;
-  return { x, y: run.y, decision: -1 };
+  const u = Math.min(Math.max(index - run.start, 0), n - 1) + 0.5;
+  const marks = run.bookmarks;
+  if (marks.length === 0) return run.x0 + ((run.x1 - run.x0) * u) / n;
+  let pu = 0;
+  let px = run.x0;
+  for (let j = 0; j < marks.length; ) {
+    let k = j;
+    while (k + 1 < marks.length && marks[k + 1] === marks[j]) k += 1;
+    const au = marks[j] - run.start + 0.5;
+    const ax = (cardCentre(run, j) + cardCentre(run, k)) / 2;
+    if (u <= au) return u === au ? ax : px + ((ax - px) * (u - pu)) / (au - pu);
+    pu = au;
+    px = ax;
+    j = k + 1;
+  }
+  return px + ((run.x1 - px) * (u - pu)) / (n - pu);
 }
 
 /**
@@ -963,12 +1155,16 @@ export interface MapView {
   readonly scale: number;
 }
 
-/** The furthest the map zooms in, Fit included. */
+/**
+ * The furthest the map zooms in, Fit included: 3x, where a card is three
+ * times the old `t` screen's (100% is scale 1) and a tiny story (one
+ * stretch) is not blown up further.
+ */
 export const MAX_SCALE = 3;
 
 /**
  * The zoom limits for a model in a viewport: out to the whole tree (with
- * the marker at `here`, when given, as Fit shows it), in to 3x.
+ * the marker at `here`, when given, as Fit shows it), in to `MAX_SCALE`.
  */
 export function zoomLimits(
   model: MapModel,
@@ -1105,7 +1301,7 @@ function framed(
  * inside the view too: where it sits by an edge of the tree, the scale is
  * solved with its pixel reach as the extra margin on that side. Only the
  * zoom-in limit caps it, so a tiny story (one stretch) is not blown up
- * past 3x.
+ * past `MAX_SCALE`.
  */
 export function fitView(
   model: MapModel,
@@ -1266,4 +1462,67 @@ export function hitTest(
       return { kind: "route", key };
   }
   return null;
+}
+
+/** One bookmark's card on the map, world units. */
+export interface CardSlot {
+  /** The card's left and top edges. */
+  readonly x: number;
+  readonly y: number;
+  /** Its centre, on its stretch's line at its screen's place. */
+  readonly cx: number;
+  readonly cy: number;
+}
+
+/**
+ * Each bookmark's card, in the order given: on the stretch `buildMapModel`
+ * sized for it (the one holding its item, else the nearest before it),
+ * side by side in story order (item order; on one screen, oldest first),
+ * centred on the line. Null for an item outside the manifest, or a
+ * bookmark beyond those the model was built with. Linear in bookmarks
+ * (plus a sort).
+ */
+export function cardSlots(
+  model: MapModel,
+  bookmarks: readonly { itemIndex: number; timestampMs: number }[],
+): (CardSlot | null)[] {
+  const out: (CardSlot | null)[] = bookmarks.map(() => null);
+  const byRun = new Map<MapRun, number[]>();
+  bookmarks.forEach((b, i) => {
+    const index = b.itemIndex;
+    if (!Number.isInteger(index) || index < 0 || index >= model.itemCount)
+      return;
+    const run = runAt(model.runs, index);
+    if (run === undefined) return;
+    const list = byRun.get(run) ?? [];
+    list.push(i);
+    byRun.set(run, list);
+  });
+  for (const [run, list] of byRun) {
+    list.sort(
+      (a, b) =>
+        bookmarks[a].itemIndex - bookmarks[b].itemIndex ||
+        bookmarks[a].timestampMs - bookmarks[b].timestampMs ||
+        a - b,
+    );
+    list.forEach((i, j) => {
+      if (j >= run.bookmarks.length) return;
+      const cx = cardCentre(run, j);
+      out[i] = { x: cx - CARD.w / 2, y: run.y - CARD.h / 2, cx, cy: run.y };
+    });
+  }
+  return out;
+}
+
+/**
+ * 100% (key 1, Phase 35): scale 1, where a card is the old `t` screen's
+ * size, zoomed about the view's centre (within the zoom limits).
+ */
+export function fullSizeView(
+  view: MapView,
+  vw: number,
+  vh: number,
+  limits: { min: number; max: number },
+): MapView {
+  return zoomAt(view, 1 / view.scale, vw / 2, vh / 2, limits);
 }

@@ -171,7 +171,7 @@ export interface Storage {
   /** The whole bookmark behind a summary's `key`; null once it is gone. */
   getBookmark(key: number): Promise<Bookmark | null>;
   /**
-   * The `t` list's "x" (docs/plan.md Phase 18, "Delete a bookmark"):
+   * A bookmark card's × on the branch map (docs/plan.md Phases 18, 35):
    * remove this content's bookmark with that `id` and return the list
    * that remains, oldest first, as summaries. Resolves once the deletion
    * is COMMITTED; an unknown id deletes nothing and returns the list

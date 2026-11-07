@@ -1,10 +1,11 @@
 // The screens over the stage (old driver steps 20, 22-28, 31, 42, 47): the
-// mid-flow key help, bookmarks (`b`, the `t` list, restore from a row),
-// reload resume, the settings on the Esc screen and their persistence
-// (including a reload the instant after a change), the empty-manifest
-// folder, "Reset progress", and a save surviving a content update (a
-// prequel inserted before everything, an item deleted). Each part opens
-// its own fresh profile, so no part leans on another's storage.
+// mid-flow key help, bookmarks (`b`, their cards on the branch map — `m`,
+// docs/plan.md Phase 35, which retired the `t` list — restore from a card,
+// delete with its ×), reload resume, the settings on the Esc screen and
+// their persistence (including a reload the instant after a change), the
+// empty-manifest folder, "Reset progress", and a save surviving a content
+// update (a prequel inserted before everything, an item deleted). Each
+// part opens its own fresh profile, so no part leans on another's storage.
 
 import {
   cpSync,
@@ -33,14 +34,15 @@ import {
   HELP_OPEN,
   helpOpen,
   item,
+  MAP_CARDS_LOADED,
+  MAP_CLOSED,
+  MAP_OPEN,
+  MAP_READY,
   manifest,
-  OVERLAY_CLOSED,
-  OVERLAY_OPEN,
-  OVERLAY_VISIBLE,
+  mapOpen,
   openSettings,
   PAGE_STATE,
   PAINT_SIG,
-  panelOpen,
   pressA,
   pressB,
   pressC,
@@ -48,15 +50,17 @@ import {
   pressEnter,
   pressEscape,
   pressEscapeSeen,
+  pressKey,
+  pressM,
   pressSpace,
   pressT,
   pressTab,
   pressU,
-  READ_BOOKMARK_OVERLAY,
   READ_CONFIG_OVERLAY,
   READ_CONFIRM_OVERLAY,
   READ_HELP,
   READ_KEY_GRID,
+  READ_MAP_CARDS,
   readBookmarks,
   readSignature,
   SIGNATURE,
@@ -69,15 +73,17 @@ import {
   wheelNotch,
 } from "./harness.mjs";
 
-export const title = "help, bookmarks, resume, config, empty folder, reset";
+export const title =
+  "help, bookmarks on the map, resume, config, empty folder, reset";
 
-// Player UI strings. render/help.ts and render/bookmarks.ts import modules
-// by extensionless paths node cannot resolve, so these two are restated;
-// the speed readout comes from config.ts itself.
+// Player UI strings. render/help.ts imports modules by extensionless paths
+// node cannot resolve, so these two are restated; the speed readout comes
+// from config.ts itself.
 const HELP_TITLE = "Keys";
 const HELP_HINT = "Esc or Space closes; click a setting to change it";
 // The main interaction keys, one row each (Phase 18, "Key help
 // simplified"): no reset-box keys; Enter only with a decision's arrows.
+// No T row: the bookmarks are on the branch map (Phase 35).
 const HELP_KEYS = [
   "Space",
   "wheel",
@@ -87,12 +93,10 @@ const HELP_KEYS = [
   "A",
   "H",
   "B",
-  "T",
   "M",
   "Esc",
   "1-9 0 ↑↓ Enter",
 ];
-const EMPTY_MESSAGE = "No bookmarks yet — press b";
 const EMPTY_NOTICE = "No content yet — this folder has an empty manifest.";
 const MS_PER_CHAR = DEFAULT_SETTINGS.msPerChar;
 const MIN_HOLD = DEFAULT_SETTINGS.minHoldMs;
@@ -123,7 +127,48 @@ const waitForItem = (page, id, timeout) =>
     item(id).text,
   );
 
-const rowCenterClick = (cdp, row) => clickCenter(cdp, row.rect);
+// The bookmarks live on the branch map (docs/plan.md Phase 35: one card
+// per bookmark on the story line; the `t` list is gone). `m` opens it;
+// the cards are read once placed, or with `loaded` once every card's
+// picture is in too.
+async function openMap(page, cdp, { loaded = false } = {}) {
+  await pressM(cdp);
+  const ready = await waitFor(page, loaded ? MAP_CARDS_LOADED : MAP_READY);
+  return { ready, map: await page.evaluate(READ_MAP_CARDS) };
+}
+
+/** `m` again closes the map; true once it is down. */
+async function closeMap(page, cdp) {
+  if (!(await mapOpen(page))) return true;
+  await pressM(cdp);
+  return waitFor(page, MAP_CLOSED);
+}
+
+// A reader's pick: a press and release on the card without moving (a drag
+// would pan the map instead).
+const clickCard = (cdp, card) => clickCenter(cdp, card.rect);
+
+const centreOf = (r) => [
+  Math.round((r.left + r.right) / 2),
+  Math.round((r.top + r.bottom) / 2),
+];
+const mouseTo = (cdp, [x, y]) =>
+  cdp.send("Input.dispatchMouseEvent", { type: "mouseMoved", x, y });
+
+// A card's × shows only while the pointer is over the card (index.html
+// `.bm-card:hover .bm-del`), so the pointer moves onto the card, then onto
+// the ×, and clicks it there.
+async function clickCardDelete(cdp, card) {
+  await mouseTo(cdp, centreOf(card.rect));
+  await sleep(60);
+  await mouseTo(cdp, centreOf(card.deleteRect));
+  await sleep(60);
+  const [x, y] = centreOf(card.deleteRect);
+  await clickAt(cdp, x, y);
+}
+
+/** The map's own Fit key (F): the whole tree, every card in view. */
+const pressF = (cdp) => pressKey(cdp, "f", "KeyF", 70, "f");
 
 /**
  * The first gesture requests fullscreen. When the browser granted it, Chrome
@@ -258,8 +303,8 @@ async function helpMidFlow({ check, open }) {
 
   // The Esc screen holds the settings too (Phase 26): under the key grid,
   // shown with it. `c` is no key: it changes nothing, on the screen or
-  // (below) behind it. (`t` swaps the screen for the bookmark list:
-  // escToBookmarks.)
+  // (below) behind it. (A click on the M row swaps the screen for the
+  // branch map: escToMap.)
   const onScreen = await page.evaluate(READ_CONFIG_OVERLAY);
   const grid = await page.evaluate(READ_KEY_GRID);
   check(
@@ -276,14 +321,14 @@ async function helpMidFlow({ check, open }) {
   const afterC = {
     help: await helpOpen(page),
     config: await configOpen(page),
-    list: await panelOpen(page),
+    map: await mapOpen(page),
     text: (await page.evaluate(PAGE_STATE)).text,
   };
   check(
     "c changes nothing on the Esc screen",
     afterC.help === true &&
       afterC.config === true &&
-      afterC.list === false &&
+      afterC.map === false &&
       afterC.text === item("text-speech").text,
     { afterC },
   );
@@ -363,22 +408,23 @@ async function helpMidFlow({ check, open }) {
   );
 }
 
-// The Esc screen hands over to the `t` list: `t`, or a click on the
-// screen's T entry, closes the Esc screen and opens the bookmark list in
-// its place (no frame with neither up), and the next Escape goes back to
-// the game, as closing the Esc screen would (the menu pause lifts), not
-// back to the Esc screen. A bookmark picked from that list lands as
-// usual. KINETIC_ESC_T_SHOTS names a folder for a screenshot of the
-// hovered T entry.
-async function escToBookmarks({ check, open }) {
-  const { page, cdp } = await open("esc-t", { closeHelp: true });
+// The Esc screen hands over to the branch map: a click on the screen's M
+// entry (the one clickable row; `m` over the screen does the same, a case
+// branchmap.scenario owns) closes the Esc screen and opens the map in its
+// place (no frame with neither up), the story staying paused, and the next
+// Escape goes back to the game, as closing the Esc screen would (the menu
+// pause lifts), not back to the Esc screen. A bookmark picked from that
+// map lands as usual. KINETIC_ESC_M_SHOTS names a folder for a screenshot
+// of the hovered M entry.
+async function escToMap({ check, open }) {
+  const { page, cdp } = await open("esc-m", { closeHelp: true });
   await leaveFullscreen(page, cdp);
   const NEITHER = () =>
     (document.getElementById("help")?.hidden ?? true) &&
-    (document.getElementById("bookmarks")?.hidden ?? true);
+    (document.getElementById("branchmap")?.hidden ?? true);
   const SCREENS = () => ({
     help: !(document.getElementById("help")?.hidden ?? true),
-    list: !(document.getElementById("bookmarks")?.hidden ?? true),
+    map: !(document.getElementById("branchmap")?.hidden ?? true),
     stageHidden: (() => {
       const stage = document.getElementById("stage");
       return stage === null ? null : getComputedStyle(stage).display === "none";
@@ -393,8 +439,8 @@ async function escToBookmarks({ check, open }) {
     const tick = () => {
       if (!window.__gapArmed) return;
       const help = document.getElementById("help");
-      const list = document.getElementById("bookmarks");
-      if ((help?.hidden ?? true) && (list?.hidden ?? true)) {
+      const map = document.getElementById("branchmap");
+      if ((help?.hidden ?? true) && (map?.hidden ?? true)) {
         window.__gapFrames += 1;
       }
       requestAnimationFrame(tick);
@@ -406,6 +452,7 @@ async function escToBookmarks({ check, open }) {
       window.__gapArmed = false;
       return window.__gapFrames;
     });
+  const M_ROW = "#help button.help-row";
 
   // One bookmark, at text-speech; read on to text-thought.
   await spaceTo(page, cdp, "text-speech");
@@ -415,32 +462,32 @@ async function escToBookmarks({ check, open }) {
   const at = item("text-thought").text;
   const hold = holdMs("text-thought");
 
-  // `t` over the Esc screen, auto-forward on: the list replaces the
-  // screen, and the machine stays paused under it.
+  // A click on the M entry, auto-forward on: the map replaces the screen,
+  // and the machine stays paused under it.
   await pressA(cdp);
   await pressEscape(cdp);
   const helpUp = await waitFor(page, HELP_OPEN, 2000);
   await page.evaluate(ARM_GAP_PROBE);
-  await pressT(cdp);
-  const listUp = await waitFor(page, OVERLAY_VISIBLE, 2000);
+  await clickCenter(cdp, M_ROW);
+  const mapUp = await waitFor(page, MAP_OPEN, 2000);
   await sleep(100);
   const gap = await readGap();
   const swapped = await page.evaluate(SCREENS);
   await sleep(hold + 300);
   const stillHere = await page.evaluate(SCREENS);
   check(
-    "t on the Esc screen swaps it for the bookmark list (no frame with neither up), the story paused under it",
+    "clicking the M entry swaps the Esc screen for the branch map (no frame with neither up), the story paused under it",
     helpUp &&
-      listUp &&
+      mapUp &&
       gap === 0 &&
       swapped.help === false &&
-      swapped.list === true &&
-      stillHere.list === true &&
+      swapped.map === true &&
+      stillHere.map === true &&
       stillHere.text === at,
-    { helpUp, listUp, gap, swapped, stillHere: stillHere.text, hold },
+    { helpUp, mapUp, gap, swapped, stillHere: stillHere.text, hold },
   );
 
-  // Escape from that list goes back to the game, not to the Esc screen;
+  // Escape from that map goes back to the game, not to the Esc screen;
   // the pause lifts, so auto-forward moves on after a fresh hold.
   const back = await escapeUntil(page, cdp, NEITHER);
   const game = await page.evaluate(SCREENS);
@@ -452,22 +499,21 @@ async function escToBookmarks({ check, open }) {
   );
   await pressA(cdp); // auto-forward off for the rest
   check(
-    "Escape from that list returns to the game (no Esc screen), and auto-forward resumes",
+    "Escape from that map returns to the game (no Esc screen), and auto-forward resumes",
     back &&
       game.help === false &&
-      game.list === false &&
+      game.map === false &&
       game.stageHidden === false &&
       game.text === at &&
       movedOn,
     { back, game, movedOn },
   );
 
-  // The T entry is a control: it lights up under the pointer, and a
-  // click does what `t` does.
+  // The M entry is the screen's one control: it lights up under the
+  // pointer.
   await escapeUntil(page, cdp, HELP_OPEN);
   // The "Auto-forward off" pill fades first, for a clean screenshot.
   await waitFor(page, () => document.getElementById("flash") === null);
-  const T_ROW = "#help button.help-row";
   const LOOK = (sel) => {
     const el = document.querySelector(sel);
     if (el === null) return null;
@@ -482,78 +528,56 @@ async function escToBookmarks({ check, open }) {
       buttons: document.querySelectorAll("#help button.help-row").length,
     };
   };
-  const plain = await page.evaluate(LOOK, T_ROW);
+  // The pointer is still where the earlier click left it, on the row:
+  // off to a bare corner first, so the row is read unhovered.
+  await mouseTo(cdp, [4, 4]);
+  await sleep(150);
+  const plain = await page.evaluate(LOOK, M_ROW);
   if (plain !== null) {
-    await cdp.send("Input.dispatchMouseEvent", {
-      type: "mouseMoved",
-      x: Math.round((plain.rect.left + plain.rect.right) / 2),
-      y: Math.round((plain.rect.top + plain.rect.bottom) / 2),
-    });
+    await mouseTo(cdp, centreOf(plain.rect));
     await sleep(150);
   }
-  const hovered = await page.evaluate(LOOK, T_ROW);
-  const shots = process.env.KINETIC_ESC_T_SHOTS;
+  const hovered = await page.evaluate(LOOK, M_ROW);
+  const shots = process.env.KINETIC_ESC_M_SHOTS;
   if (shots) {
     mkdirSync(shots, { recursive: true });
-    await page.screenshot({ path: join(shots, "esc-t-hover.png") });
+    await page.screenshot({ path: join(shots, "esc-m-hover.png") });
   }
   check(
-    "only the T and M entries are clickable, and T looks it: pointer cursor, its rule and caps lit on hover",
+    "only the M entry is clickable, and it looks it: pointer cursor, its rule and caps lit on hover",
     plain !== null &&
       hovered !== null &&
-      plain.key === "T" &&
-      plain.buttons === 2 &&
+      plain.key === "M" &&
+      plain.buttons === 1 &&
       plain.cursor === "pointer" &&
       hovered.rule !== plain.rule &&
       hovered.cap !== plain.cap,
     { plain, hovered },
   );
 
-  await page.evaluate(ARM_GAP_PROBE);
-  await clickCenter(cdp, T_ROW);
-  const clickUp = await waitFor(page, OVERLAY_VISIBLE, 2000);
-  await sleep(100);
-  const clickGap = await readGap();
-  const clickSwap = await page.evaluate(SCREENS);
-  const clickBack = await escapeUntil(page, cdp, NEITHER);
-  const clickGame = await page.evaluate(SCREENS);
-  check(
-    "clicking the T entry swaps the Esc screen for the list, and Escape then returns to the game",
-    clickUp &&
-      clickGap === 0 &&
-      clickSwap.help === false &&
-      clickSwap.list === true &&
-      clickBack &&
-      clickGame.help === false &&
-      clickGame.list === false &&
-      clickGame.stageHidden === false,
-    { clickUp, clickGap, clickSwap, clickBack, clickGame },
-  );
-
-  // Picking a bookmark from the list the Esc screen opened lands on it.
-  await escapeUntil(page, cdp, HELP_OPEN);
-  await clickCenter(cdp, T_ROW);
-  await waitFor(page, OVERLAY_OPEN);
-  const list = await page.evaluate(READ_BOOKMARK_OVERLAY);
-  if (list.entries?.[0] !== undefined) {
-    await rowCenterClick(cdp, list.entries[0]);
-  }
+  // Picking a bookmark from the map the Esc screen opened lands on it.
+  await clickCenter(cdp, M_ROW);
+  await waitFor(page, MAP_READY);
+  const { cards } = await page.evaluate(READ_MAP_CARDS);
+  if (cards?.[0] !== undefined) await clickCard(cdp, cards[0]);
   const closed = await waitFor(page, NEITHER, 3000);
   const landed = await waitForItem(page, "text-speech", 3000);
   const final = await page.evaluate(SCREENS);
   check(
-    "a bookmark picked from that list lands on its item, both screens closed",
-    list.entries?.length === 1 &&
+    "a bookmark's card picked on the map the M entry opened lands on its item, both screens closed",
+    cards?.length === 1 &&
+      cards[0].itemId === "text-speech" &&
       closed &&
       landed &&
       final.help === false &&
-      final.list === false &&
+      final.map === false &&
       final.stageHidden === false,
-    { entries: list.entries?.length, closed, landed, final },
+    { cards: cards?.map((c) => c.itemId), closed, landed, final },
   );
 }
 
-// Old steps 22-25: bookmarks and the `t` list.
+// Old steps 22-25: bookmarks, and their cards on the branch map (docs/plan.md
+// Phase 35, which retired the `t` list).
 async function bookmarks({ check, open }) {
   const { page, cdp } = await open("bookmarks", { closeHelp: true });
   const fs = await leaveFullscreen(page, cdp);
@@ -590,41 +614,39 @@ async function bookmarks({ check, open }) {
     { atOlder, atNewer, flash1, flash2, stored, flashGone },
   );
 
-  // A narrow, short viewport: one grid column (Phase 26), so the two
-  // cards stack and genuinely overflow the list.
-  await page.setViewport({ width: 400, height: 420, deviceScaleFactor: 1 });
-  await pressT(cdp);
-  const listOpened = await waitFor(page, OVERLAY_OPEN);
-  const list = await page.evaluate(READ_BOOKMARK_OVERLAY);
-  const entries = list.entries ?? [];
-  const maxScroll = Math.max(0, list.scrollHeight - list.clientHeight);
-  const newest = entries[entries.length - 1];
-  const newestVisible =
-    newest !== undefined &&
-    newest.rect.top >= list.listRect.top - 1 &&
-    newest.rect.bottom <= list.listRect.bottom + 1;
+  // The map opens at Fit (a fresh profile): both cards in its view.
+  const first = await openMap(page, cdp, { loaded: true });
+  const cards = first.map.cards ?? [];
+  const view = first.map.viewRect;
+  const inView = (r) =>
+    view !== null &&
+    r.left >= view.left - 1 &&
+    r.right <= view.right + 1 &&
+    r.top >= view.top - 1 &&
+    r.bottom <= view.bottom + 1;
   check(
-    "t opens the list oldest first, scrolled so the newest row is visible",
-    listOpened &&
-      list.title === "Bookmarks" &&
-      entries.length === 2 &&
-      entries[0].itemIndex === older &&
-      entries[1].itemIndex === newer &&
-      maxScroll > 0 &&
-      list.scrollTop >= maxScroll - 1 &&
-      newestVisible &&
-      entries.every(
-        (e) =>
-          e.thumbResolved &&
-          (e.thumbSrcHead?.startsWith("data:") === true ||
-            /\.(?:jpg|jpeg|png|webp|gif)$/i.test(e.thumbSrcHead ?? "")) &&
-          TIME_RE.test(e.time),
+    "m opens the map with one card per bookmark in story order, in view, each showing its picture and timestamp, the newer one marked newest",
+    first.ready &&
+      cards.length === 2 &&
+      cards[0].itemIndex === older &&
+      cards[1].itemIndex === newer &&
+      cards.map((c) => c.id).join() === stored.map((b) => b.id).join() &&
+      cards[0].newest === false &&
+      cards[1].newest === true &&
+      cards.every(
+        (c) =>
+          !c.deleted &&
+          inView(c.rect) &&
+          c.picResolved &&
+          (c.picSrcHead?.startsWith("data:") === true ||
+            /\.(?:jpg|jpeg|png|webp|gif)$/i.test(c.picSrcHead ?? "")) &&
+          TIME_RE.test(c.time),
       ),
     {
-      entries: entries.map((e) => [e.itemIndex, e.time, e.thumbSrcHead]),
-      scrollTop: list.scrollTop,
-      maxScroll,
-      newestVisible,
+      ready: first.ready,
+      cards: cards.map((c) => [c.itemIndex, c.time, c.newest, c.picSrcHead]),
+      rects: cards.map((c) => c.rect),
+      view,
     },
   );
 
@@ -634,24 +656,26 @@ async function bookmarks({ check, open }) {
   await wheelNotch(cdp, true);
   await sleep(WHEEL_GAP_MS);
   const sigAfter = await readSignature(page);
-  const still = await page.evaluate(READ_BOOKMARK_OVERLAY);
+  const still = await page.evaluate(READ_MAP_CARDS);
   check(
-    "while the list is open the timeline is suspended: space, tab and the wheel move nothing",
+    "while the map is open the timeline is suspended: space, tab and the wheel move nothing",
     sigAfter === sigBefore &&
       still.hidden === false &&
-      still.entries.length === 2,
+      still.cards.length === 2,
     { sigBefore, sigAfter },
   );
-  await page.setViewport({ width: 800, height: 600, deviceScaleFactor: 1 });
-  await sleep(100);
+  // The wheel zoomed the map; its F fits it again, both cards in view.
+  await pressF(cdp);
+  await sleep(150);
 
-  // Click the OLDER row: the list closes on that item. The wheel walks the
+  // Click the OLDER card: the map closes on that item. The wheel walks the
   // story around the landing (docs/plan.md Phase 27): a notch back shows
   // the item before it (video-chain-2), not the screen the click left, and
   // `e` goes to the furthest point read, chain-still-3.
-  const reread = await page.evaluate(READ_BOOKMARK_OVERLAY);
-  await rowCenterClick(cdp, reread.entries[0]);
-  const listClosed = await waitFor(page, OVERLAY_CLOSED);
+  const reread = await page.evaluate(READ_MAP_CARDS);
+  const olderCard = (reread.cards ?? []).find((c) => c.itemIndex === older);
+  if (olderCard !== undefined) await clickCard(cdp, olderCard);
+  const mapClosed = await waitFor(page, MAP_CLOSED);
   const landed = await page.evaluate(PAGE_STATE);
   const landedId = await currentItemId(page);
   await wheelNotch(cdp, true);
@@ -663,8 +687,9 @@ async function bookmarks({ check, open }) {
   await pressE(cdp);
   const atFurthest = await waitForItem(page, "chain-still-3", 3000);
   check(
-    "clicking the older row continues from that item; the wheel walks the story around it (back: video-chain-2); e from the landing goes to the furthest read, chain-still-3",
-    listClosed &&
+    "clicking the older card continues from that item; the wheel walks the story around it (back: video-chain-2); e from the landing goes to the furthest read, chain-still-3",
+    olderCard !== undefined &&
+      mapClosed &&
       landedId === "video-chain-3" &&
       landed.video?.visible === true &&
       landed.imgVisible === false &&
@@ -672,6 +697,7 @@ async function bookmarks({ check, open }) {
       backOnLanding === "video-chain-3" &&
       atFurthest,
     {
+      clicked: olderCard?.itemIndex,
       landedId,
       video: landed.video?.visible,
       beforeJump,
@@ -680,92 +706,89 @@ async function bookmarks({ check, open }) {
     },
   );
 
-  // Ways out: backdrop click, a windowed Escape, and t again.
-  await pressT(cdp);
-  await waitFor(page, OVERLAY_OPEN);
-  const reopened = await page.evaluate(READ_BOOKMARK_OVERLAY);
-  await clickCenter(cdp, reopened.titleRect);
-  const afterBackdrop = await panelOpen(page);
-  await pressT(cdp);
-  await waitFor(page, OVERLAY_OPEN);
+  // Ways out: a windowed Escape, and m again.
+  const reopened = await openMap(page, cdp);
   await pressEscape(cdp);
   await sleep(80);
-  const afterEscape = await panelOpen(page);
+  const afterEscape = await mapOpen(page);
   const windowed = await page.evaluate(
     () => document.fullscreenElement === null,
   );
-  await pressT(cdp);
-  await waitFor(page, OVERLAY_OPEN);
-  await pressT(cdp);
-  const afterT = await panelOpen(page);
+  await openMap(page, cdp);
+  await pressM(cdp);
+  await sleep(80);
+  const afterM = await mapOpen(page);
   check(
-    "t reopens the list; a backdrop click, one windowed Escape and t again each close it",
+    "m reopens the map with both cards; one windowed Escape and m again each close it",
     fs.ok &&
-      reopened.entries.length === 2 &&
-      afterBackdrop === false &&
+      reopened.ready &&
+      reopened.map.cards?.length === 2 &&
       afterEscape === false &&
       windowed &&
-      afterT === false,
+      afterM === false,
     {
       fs: fs.wasFullscreen,
-      reopened: reopened.entries.length,
-      afterBackdrop,
+      reopened: reopened.map.cards?.length,
       afterEscape,
       windowed,
-      afterT,
+      afterM,
     },
   );
 
-  // Phase 18, "Delete a bookmark": each thumbnail's top-right "x" deletes
-  // that row (storage included) without opening it; the list re-renders.
+  // A card's × deletes that bookmark, storage included, without opening
+  // it: the card stays as a ghost while the map is open, and the next open
+  // reads the list again, without it.
   const sigBeforeDelete = await readSignature(page);
   const idBeforeDelete = await currentItemId(page);
-  await pressT(cdp);
-  await waitFor(page, OVERLAY_OPEN);
-  const two = await page.evaluate(READ_BOOKMARK_OVERLAY);
-  const x = two.entries?.[0]?.deleteRect ?? null;
-  const box = two.entries?.[0]?.thumbBoxRect ?? null;
-  const inCorner =
-    x !== null &&
-    box !== null &&
-    x.right <= box.right + 1 &&
-    x.right >= box.right - 8 &&
-    x.top >= box.top - 1 &&
-    x.top <= box.top + 8;
-  if (x !== null) await clickCenter(cdp, x);
-  const oneLeft = await waitFor(
-    page,
-    () => document.querySelectorAll(".bookmark-entry").length === 1,
-    3000,
-  );
-  const afterDelete = await page.evaluate(READ_BOOKMARK_OVERLAY);
-  const storedAfter = await readBookmarks(page);
+  const two = await openMap(page, cdp);
+  const victim = (two.map.cards ?? []).find((c) => c.itemIndex === older);
+  if (victim !== undefined) await clickCardDelete(cdp, victim);
+  let storedAfter = await readBookmarks(page);
+  for (let tries = 0; tries < 60 && storedAfter.length !== 1; tries += 1) {
+    await sleep(50);
+    storedAfter = await readBookmarks(page);
+  }
+  const afterDelete = await page.evaluate(READ_MAP_CARDS);
   const sigAfterDelete = await readSignature(page);
   const idAfterDelete = await currentItemId(page);
+  const ghost = (afterDelete.cards ?? []).find((c) => c.id === victim?.id);
+  const kept = (afterDelete.cards ?? []).find((c) => c.itemIndex === newer);
   check(
-    "a thumbnail's x (top-right corner) deletes that bookmark without opening it: the list re-renders with the other row, storage agrees",
-    two.entries?.length === 2 &&
-      two.entries.every((e) => e.deleteText === "×") &&
-      inCorner &&
-      oneLeft &&
+    "a card's × deletes that bookmark without opening it: the map stays open with the card a ghost, storage drops the row, reading untouched",
+    two.map.cards?.length === 2 &&
+      two.map.cards.every((c) => c.deleteText === "×") &&
+      victim !== undefined &&
       afterDelete.hidden === false &&
-      afterDelete.entries.length === 1 &&
-      afterDelete.entries[0].itemIndex === newer &&
+      ghost?.deleted === true &&
+      kept?.deleted === false &&
       storedAfter.length === 1 &&
       storedAfter[0].itemIndex === newer &&
       idAfterDelete === idBeforeDelete &&
       sigAfterDelete === sigBeforeDelete,
     {
-      x,
-      box,
-      inCorner,
-      rows: (afterDelete.entries ?? []).map((e) => e.itemIndex),
+      cards: (afterDelete.cards ?? []).map((c) => [c.itemIndex, c.deleted]),
       stored: storedAfter.map((b) => b.itemIndex),
       idBeforeDelete,
       idAfterDelete,
+      sigBeforeDelete,
+      sigAfterDelete,
     },
   );
-  await pressT(cdp);
+  const closedAfterDelete = await closeMap(page, cdp);
+  const third = await openMap(page, cdp);
+  check(
+    "reopened after the delete, the map shows only the other bookmark's card",
+    closedAfterDelete &&
+      third.ready &&
+      third.map.cards?.length === 1 &&
+      third.map.cards[0].itemIndex === newer &&
+      third.map.cards[0].deleted === false,
+    {
+      closedAfterDelete,
+      cards: (third.map.cards ?? []).map((c) => [c.itemIndex, c.deleted]),
+    },
+  );
+  await closeMap(page, cdp);
   await page.reload();
   await waitFor(
     page,
@@ -774,60 +797,26 @@ async function bookmarks({ check, open }) {
         "" || document.getElementById("visual-video") !== null,
   );
   await sleep(300);
-  await pressT(cdp);
-  await waitFor(page, OVERLAY_OPEN);
-  const reloaded = await page.evaluate(READ_BOOKMARK_OVERLAY);
+  const reloaded = await openMap(page, cdp);
   check(
-    "after a reload the deleted bookmark stays deleted: t lists only the other row",
-    reloaded.hidden === false &&
-      reloaded.entries.length === 1 &&
-      reloaded.entries[0].itemIndex === newer,
-    { rows: (reloaded.entries ?? []).map((e) => e.itemIndex) },
+    "after a reload the deleted bookmark stays deleted and the other stays on the map",
+    reloaded.ready &&
+      reloaded.map.cards?.length === 1 &&
+      reloaded.map.cards[0].itemIndex === newer,
+    { cards: (reloaded.map.cards ?? []).map((c) => c.itemIndex) },
   );
+  await closeMap(page, cdp);
 }
 
-// Phase 26, "Bigger bookmark thumbnails in a grid": eight bookmarks fill
-// a grid of large cards across, then down (oldest top-left, newest last),
-// opened scrolled so the newest card is in view; × and a click still
-// delete and continue. KINETIC_BMGRID_SHOTS names a folder for screenshots
-// at 1280x720 and 700x900.
-const GRID_THUMB_MIN_WIDTH = 240; // the old one-column rows drew ~102 px
-
-const gridLayout = (list) => {
-  const entries = list.entries ?? [];
-  const rects = entries.map((e) => e.rect);
-  const lefts = new Set(rects.map((r) => Math.round(r.left)));
-  const readingOrder = rects
-    .map((r, i) => ({ i, top: Math.round(r.top), left: Math.round(r.left) }))
-    .sort((a, b) => a.top - b.top || a.left - b.left)
-    .map((r) => r.i);
-  const thumbs = entries.map((e) => e.thumbRect);
-  const newest = rects[rects.length - 1];
-  return {
-    columns: lefts.size,
-    acrossFirst:
-      rects.length > 1 &&
-      Math.round(rects[1].top) === Math.round(rects[0].top) &&
-      rects[1].left > rects[0].left,
-    readingOrderIsDomOrder: readingOrder.every((v, i) => v === i),
-    thumbWidths: thumbs.map((t) => Math.round(t.right - t.left)),
-    thumbAspects: thumbs.map(
-      (t) => Math.round(((t.right - t.left) / (t.bottom - t.top)) * 100) / 100,
-    ),
-    scrolledToNewest:
-      list.scrollTop >=
-        Math.max(0, list.scrollHeight - list.clientHeight) - 1 &&
-      newest !== undefined &&
-      newest.top >= list.listRect.top - 1 &&
-      newest.bottom <= list.listRect.bottom + 1,
-    noSideScroll: list.scrollWidth <= list.clientWidth,
-  };
-};
-
-async function bookmarkGrid({ check, open }) {
-  const { page, cdp } = await open("bookmark-grid", { closeHelp: true });
+// Many bookmarks on the map (Phase 26's grid of the `t` screen, before
+// Phase 35): eight bookmarks draw eight cards in story order, all in view
+// at Fit; a card's × deletes it with the map open and reading untouched,
+// and a click on another continues from its item. KINETIC_MAPCARDS_SHOTS
+// names a folder for a screenshot at 1280x720.
+async function manyBookmarks({ check, open }) {
+  const { page, cdp } = await open("many-bookmarks", { closeHelp: true });
   await leaveFullscreen(page, cdp);
-  const shots = process.env.KINETIC_BMGRID_SHOTS;
+  const shots = process.env.KINETIC_MAPCARDS_SHOTS;
   if (shots) mkdirSync(shots, { recursive: true });
 
   // Eight bookmarks, newest-read first: chain-still-3 then one notch back
@@ -844,103 +833,87 @@ async function bookmarkGrid({ check, open }) {
     if (n < 8) await wheel(cdp, true, 1);
   }
   const stored = await readBookmarks(page);
-  const storedOrder = stored.map((b) => b.itemIndex);
+  const storyOrder = stored.map((b) => b.itemIndex).sort((a, b) => a - b);
   await waitFor(page, () => document.getElementById("flash") === null); // a clean screenshot
 
   await page.setViewport({ width: 1280, height: 720, deviceScaleFactor: 1 });
   await sleep(100);
-  await pressT(cdp);
-  await waitFor(page, OVERLAY_OPEN);
-  await waitFor(page, () =>
-    [...document.querySelectorAll("img.bookmark-thumb")].every(
-      (img) => img.complete && img.naturalWidth > 0,
-    ),
-  );
-  const wide = await page.evaluate(READ_BOOKMARK_OVERLAY);
-  const wideGrid = gridLayout(wide);
+  const wide = await openMap(page, cdp, { loaded: true });
+  const cards = wide.map.cards ?? [];
+  const view = wide.map.viewRect;
+  const inView = (r) =>
+    view !== null &&
+    r.left >= view.left - 1 &&
+    r.right <= view.right + 1 &&
+    r.top >= view.top - 1 &&
+    r.bottom <= view.bottom + 1;
   if (shots) {
-    await page.screenshot({ path: join(shots, "bookmarks-1280x720.png") });
+    await page.screenshot({ path: join(shots, "map-cards-1280x720.png") });
   }
   check(
-    "t at 1280x720 lays eight bookmarks out as a grid of large cards: several columns, across before down, oldest first, scrolled to show the newest, no sideways scroll",
+    "m at 1280x720 with eight bookmarks draws eight cards in story order, every picture in, all inside the map's view, only the latest marked newest",
     stored.length === 8 &&
-      wide.entries?.length === 8 &&
-      wide.entries.every((e, i) => e.itemIndex === storedOrder[i]) &&
-      wideGrid.columns >= 3 &&
-      wideGrid.acrossFirst &&
-      wideGrid.readingOrderIsDomOrder &&
-      wideGrid.thumbWidths.every((w) => w >= GRID_THUMB_MIN_WIDTH) &&
-      wideGrid.thumbAspects.every((a) => Math.abs(a - 16 / 9) < 0.05) &&
-      wideGrid.scrolledToNewest &&
-      wideGrid.noSideScroll,
-    { taken, storedOrder, ...wideGrid },
+      wide.ready &&
+      cards.length === 8 &&
+      cards.map((c) => c.itemIndex).join() === storyOrder.join() &&
+      cards.every((c) => c.picResolved && inView(c.rect)) &&
+      cards.filter((c) => c.newest).length === 1 &&
+      cards.find((c) => c.newest)?.id === stored[7].id,
+    {
+      taken,
+      cards: cards.map((c) => [c.itemIndex, c.newest, c.picResolved]),
+      storyOrder,
+      offView: cards.filter((c) => !inView(c.rect)).map((c) => c.rect),
+      view,
+      scale: wide.map.scale,
+    },
   );
 
-  // The × still deletes without continuing; a card click still continues.
-  // The newest card's × — the one in view, the list being scrolled to it.
+  // The × deletes without continuing; a card click continues. The newest
+  // card's ×, then a click on the card of the bookmark before it.
   const sigBefore = await readSignature(page);
-  await clickCenter(cdp, wide.entries[7].deleteRect);
-  const sevenLeft = await waitFor(
-    page,
-    () => document.querySelectorAll(".bookmark-entry").length === 7,
-    3000,
-  );
-  const afterDelete = await page.evaluate(READ_BOOKMARK_OVERLAY);
-  const storedAfter = await readBookmarks(page);
+  const newest = cards.find((c) => c.newest);
+  if (newest !== undefined) await clickCardDelete(cdp, newest);
+  let storedAfter = await readBookmarks(page);
+  for (let tries = 0; tries < 60 && storedAfter.length !== 7; tries += 1) {
+    await sleep(50);
+    storedAfter = await readBookmarks(page);
+  }
+  const afterDelete = await page.evaluate(READ_MAP_CARDS);
   const sigAfter = await readSignature(page);
-  const pick = afterDelete.entries?.[afterDelete.entries.length - 1];
-  if (pick !== undefined) await clickCenter(cdp, pick.thumbRect);
-  const closed = await waitFor(page, OVERLAY_CLOSED);
+  const pick = (afterDelete.cards ?? []).find((c) => c.id === stored[6].id);
+  if (pick !== undefined) await clickCard(cdp, pick);
+  const closed = await waitFor(page, MAP_CLOSED);
   const landed = await currentItemId(page);
   check(
-    "in the grid a card's × deletes it, panel open and reading untouched; clicking a card closes the list on its item",
-    sevenLeft &&
+    "with eight cards, a card's × deletes it (map open, reading untouched) and a click on another closes the map on its item",
+    newest !== undefined &&
       afterDelete.hidden === false &&
-      afterDelete.entries.map((e) => e.itemIndex).join() ===
-        storedOrder.slice(0, 7).join() &&
+      (afterDelete.cards ?? []).find((c) => c.id === newest.id)?.deleted ===
+        true &&
+      (afterDelete.cards ?? []).filter((c) => !c.deleted).length === 7 &&
       storedAfter.length === 7 &&
+      !storedAfter.some((b) => b.id === newest.id) &&
       sigAfter === sigBefore &&
+      pick !== undefined &&
       closed &&
       landed === stored[6].itemId,
     {
-      rows: (afterDelete.entries ?? []).map((e) => e.itemIndex),
+      cards: (afterDelete.cards ?? []).map((c) => [c.itemIndex, c.deleted]),
       stored: storedAfter.length,
       landed,
       want: stored[6].itemId,
     },
   );
-
-  await page.setViewport({ width: 700, height: 900, deviceScaleFactor: 1 });
-  await sleep(100);
-  await pressT(cdp);
-  await waitFor(page, OVERLAY_OPEN);
-  await sleep(100);
-  const tall = await page.evaluate(READ_BOOKMARK_OVERLAY);
-  const tallGrid = gridLayout(tall);
-  if (shots) {
-    await page.screenshot({ path: join(shots, "bookmarks-700x900.png") });
-  }
-  check(
-    "t at 700x900 still fills across first (two columns), large thumbnails, scrolled to the newest, no sideways scroll",
-    tall.entries?.length === 7 &&
-      tallGrid.columns >= 2 &&
-      tallGrid.acrossFirst &&
-      tallGrid.readingOrderIsDomOrder &&
-      tallGrid.thumbWidths.every((w) => w >= GRID_THUMB_MIN_WIDTH) &&
-      tallGrid.scrolledToNewest &&
-      tallGrid.noSideScroll,
-    tallGrid,
-  );
-  await pressT(cdp);
   await page.setViewport({ width: 800, height: 600, deviceScaleFactor: 1 });
 }
 
-// The bookmark-screen speed item (docs/progress.md): with many bookmarks
-// saved in the format players before it wrote — rows carrying a heavy route
-// context and a 480 px JPEG capture each, and no list cache — `t` shows
-// the panel at once, the cards follow, and every captured thumbnail fills
-// in. The rows are copies of a real `b` row, written straight into
-// IndexedDB as an older build left them.
+// The bookmark-screen speed item (docs/progress.md), on the branch map
+// since Phase 35: with many bookmarks saved in the format players before
+// it wrote — rows carrying a heavy route context and a 480 px JPEG capture
+// each, and no list cache — `m` shows the map at once, the cards follow,
+// and every captured picture fills in. The rows are copies of a real `b`
+// row, written straight into IndexedDB as an older build left them.
 const SPEED_ROWS = 60;
 const SPEED_VISIBLE_MS = 300;
 
@@ -1001,34 +974,36 @@ const SEED_OLD_ROWS = async (count) => {
   return { itemId: base.itemId, thumbBytes: thumbs[0].length };
 };
 
-// Page side: time from the `t` keydown to the panel showing in a frame,
-// to its cards, and to every card's captured picture.
+// Page side: time from the `m` keydown to the map showing in a frame, to
+// its cards, and to every card's captured picture.
 const ARM_SPEED_CLOCK = () => {
   window.__bmSpeed = { t0: null };
   window.addEventListener(
     "keydown",
     (event) => {
-      if (event.key !== "t" || window.__bmSpeed.t0 !== null) return;
+      if (event.key !== "m" || window.__bmSpeed.t0 !== null) return;
       const clock = window.__bmSpeed;
       clock.t0 = performance.now();
       const tick = () => {
         const now = performance.now() - clock.t0;
-        const panel = document.getElementById("bookmarks");
+        const panel = document.getElementById("branchmap");
         if (clock.visibleMs === undefined && panel && !panel.hidden) {
           clock.visibleMs = now;
         }
-        const cards = document.querySelectorAll(".bookmark-entry");
-        if (clock.rowsMs === undefined && cards.length > 0) clock.rowsMs = now;
+        const cards = panel?.querySelectorAll(".bm-card") ?? [];
+        if (clock.cardsMs === undefined && cards.length > 0) {
+          clock.cardsMs = now;
+        }
         const loaded = [...cards].filter((card) => {
-          const img = card.querySelector("img.bookmark-thumb");
+          const img = card.querySelector(".bm-thumb > img.bm-pic");
           return (
             img?.complete === true &&
             img.naturalWidth > 0 &&
-            img.getAttribute("src").startsWith("data:image/jpeg")
+            (img.getAttribute("src") ?? "").startsWith("data:image/jpeg")
           );
         }).length;
         if (cards.length > 0 && loaded === cards.length) {
-          clock.allThumbsMs = now;
+          clock.allPicturesMs = now;
           return;
         }
         if (now < 20000) requestAnimationFrame(tick);
@@ -1050,7 +1025,7 @@ async function bookmarkSpeed({ check, open }) {
     await sleep(50);
   }
   const seeded = await page.evaluate(SEED_OLD_ROWS, SPEED_ROWS);
-  // A fresh page load over the old rows; the list is opened at once,
+  // A fresh page load over the old rows; the map is opened at once,
   // before anything could have read them ahead.
   await page.reload();
   await waitFor(
@@ -1061,60 +1036,77 @@ async function bookmarkSpeed({ check, open }) {
   );
   const timeOpen = async () => {
     await page.evaluate(ARM_SPEED_CLOCK);
-    await pressT(cdp);
+    await pressM(cdp);
     const filled = await waitFor(
       page,
-      () => window.__bmSpeed.allThumbsMs !== undefined,
+      () => window.__bmSpeed.allPicturesMs !== undefined,
       15000,
     );
     const clock = await page.evaluate(() => window.__bmSpeed);
-    const list = await page.evaluate(READ_BOOKMARK_OVERLAY);
-    await pressT(cdp);
-    await waitFor(page, OVERLAY_CLOSED);
-    return { filled, clock, list };
+    const map = await page.evaluate(READ_MAP_CARDS);
+    const closed = await closeMap(page, cdp);
+    return { filled, clock, map, closed };
   };
   const cold = await timeOpen();
   const warm = await timeOpen();
-  const rowsOk = (list) =>
-    list.entries?.length === SPEED_ROWS &&
-    list.entries.every(
-      (e) => e.thumbResolved && e.thumbSrcHead.startsWith("data:image/jpeg"),
+  // Every card shows its stored capture; all sixty sit on one screen's
+  // stretch, so story order there is oldest first.
+  const cardsOk = (map) =>
+    map.cards?.length === SPEED_ROWS &&
+    map.cards.every(
+      (c) =>
+        c.picTag === "IMG" &&
+        c.picResolved &&
+        c.picSrcHead.startsWith("data:image/jpeg"),
     ) &&
-    list.entries.every((e, i, all) => i === 0 || all[i - 1].time <= e.time) &&
-    list.scrollTop >= list.scrollHeight - list.clientHeight - 1;
+    map.cards.every((c, i, all) => i === 0 || all[i - 1].time <= c.time);
   const ms = ({ clock }) => ({
     visible: Math.round(clock.visibleMs ?? -1),
-    rows: Math.round(clock.rowsMs ?? -1),
-    allThumbs: Math.round(clock.allThumbsMs ?? -1),
+    cards: Math.round(clock.cardsMs ?? -1),
+    allPictures: Math.round(clock.allPicturesMs ?? -1),
   });
   check(
-    `with ${SPEED_ROWS} bookmarks in the old stored format, t shows the panel within ${SPEED_VISIBLE_MS} ms and every captured thumbnail fills in, oldest first, scrolled to the newest — the first open and a second`,
+    `with ${SPEED_ROWS} bookmarks in the old stored format, m shows the map within ${SPEED_VISIBLE_MS} ms, then a card for each, oldest first, every captured picture filled in — the first open and a second`,
     cold.filled &&
       warm.filled &&
+      cold.closed &&
+      warm.closed &&
       cold.clock.visibleMs <= SPEED_VISIBLE_MS &&
       warm.clock.visibleMs <= SPEED_VISIBLE_MS &&
-      rowsOk(cold.list) &&
-      rowsOk(warm.list),
-    { seeded, cold: ms(cold), warm: ms(warm), rows: cold.list.entries?.length },
+      cardsOk(cold.map) &&
+      cardsOk(warm.map),
+    { seeded, cold: ms(cold), warm: ms(warm), cards: cold.map.cards?.length },
   );
 
   // The old rows still restore: from a few items back, a click lands on
-  // the bookmarked item.
+  // the bookmarked item. At Fit sixty cards on one screen's stretch are
+  // tiny; the map's N (Newest bookmark) centres the newest at 100%, where
+  // a reader clicks it.
   await wheel(cdp, true, 3);
   const before = await currentItemId(page);
-  await pressT(cdp);
-  await waitFor(page, OVERLAY_OPEN);
-  const list = await page.evaluate(READ_BOOKMARK_OVERLAY);
-  await clickCenter(cdp, list.entries[SPEED_ROWS - 1].thumbRect);
-  const closed = await waitFor(page, OVERLAY_CLOSED);
+  const again = await openMap(page, cdp);
+  await pressKey(cdp, "n", "KeyN", 78, "n");
+  const centred = await waitFor(page, () => {
+    const card = document.querySelector("#branchmap .bm-card.bm-newest");
+    return card !== null && card.getBoundingClientRect().width >= 270;
+  });
+  const newest = (await page.evaluate(READ_MAP_CARDS)).cards?.find(
+    (c) => c.newest,
+  );
+  if (newest !== undefined) await clickCard(cdp, newest);
+  const closed = await waitFor(page, MAP_CLOSED);
   const landed = await waitForItem(page, seeded.itemId, 3000);
   check(
     "a card from those old rows still continues from its item",
-    before !== seeded.itemId && closed && landed,
-    { before, closed, landed, want: seeded.itemId },
+    before !== seeded.itemId &&
+      again.ready &&
+      centred &&
+      newest !== undefined &&
+      closed &&
+      landed,
+    { before, centred, closed, landed, want: seeded.itemId },
   );
-  const visibleNow = await page.evaluate(OVERLAY_VISIBLE);
-  if (visibleNow) await pressT(cdp);
+  await closeMap(page, cdp);
   await page.setViewport({ width: 800, height: 600, deviceScaleFactor: 1 });
 }
 
@@ -1137,15 +1129,13 @@ async function resume({ check, open }) {
   const resumed = await page.evaluate(PAGE_STATE);
   const resumedId = await currentItemId(page);
   const stored = await readBookmarks(page);
-  await pressT(cdp);
-  const listOpen = await waitFor(page, OVERLAY_OPEN);
-  const list = await page.evaluate(READ_BOOKMARK_OVERLAY);
-  const rows = list.entries ?? [];
-  if (rows.length > 0) await rowCenterClick(cdp, rows[rows.length - 1]);
-  const listClosed = await waitFor(page, OVERLAY_CLOSED);
-  const afterRow = await currentItemId(page);
+  const shown = await openMap(page, cdp);
+  const cards = shown.map.cards ?? [];
+  if (cards.length > 0) await clickCard(cdp, cards[cards.length - 1]);
+  const mapClosed = await waitFor(page, MAP_CLOSED);
+  const afterCard = await currentItemId(page);
   check(
-    "b then an immediate reload resumes on the bookmarked item, help closed, and its t row agrees",
+    "b then an immediate reload resumes on the bookmarked item, help closed, and its card on the map agrees",
     walked &&
       flashed &&
       painted &&
@@ -1154,12 +1144,18 @@ async function resume({ check, open }) {
       resumed.stageHidden === false &&
       stored.length === 1 &&
       stored[0].itemIndex === target.index &&
-      listOpen &&
-      rows.length === 1 &&
-      rows[0].itemIndex === target.index &&
-      listClosed &&
-      afterRow === target.id,
-    { resumedId, help: resumed.helpOpen, stored, rows: rows.length, afterRow },
+      shown.ready &&
+      cards.length === 1 &&
+      cards[0].itemIndex === target.index &&
+      mapClosed &&
+      afterCard === target.id,
+    {
+      resumedId,
+      help: resumed.helpOpen,
+      stored,
+      cards: cards.length,
+      afterCard,
+    },
   );
 
   // Read on to chain-still-3, walk back onto the bare chain-still, reload:
@@ -1181,15 +1177,13 @@ async function resume({ check, open }) {
   await sleep(300);
   const endSig = await page.evaluate(PAINT_SIG);
 
-  // Not the seen edge either: the bookmark row lands on text-narration
+  // Not the seen edge either: the bookmark's card lands on text-narration
   // while 0..11 stay seen; a reload resumes there.
-  await pressT(cdp);
-  await waitFor(page, OVERLAY_OPEN);
-  const again = await page.evaluate(READ_BOOKMARK_OVERLAY);
-  if ((again.entries ?? []).length > 0) {
-    await rowCenterClick(cdp, again.entries[0]);
+  const again = await openMap(page, cdp);
+  if ((again.map.cards ?? []).length > 0) {
+    await clickCard(cdp, again.map.cards[0]);
   }
-  await waitFor(page, OVERLAY_CLOSED);
+  await waitFor(page, MAP_CLOSED);
   const restored = await currentItemId(page);
   await sleep(300);
   await page.reload();
@@ -1516,21 +1510,31 @@ async function emptyFolder({ check, open }) {
   await pressEscape(cdp);
   const helpClosed = await waitFor(page, HELP_CLOSED);
   const fs = await leaveFullscreen(page, cdp);
+  // `t` is no key since the bookmarks moved onto the map (Phase 35).
   await pressT(cdp);
-  const listOpen = await waitFor(page, OVERLAY_OPEN);
-  const list = await page.evaluate(READ_BOOKMARK_OVERLAY);
+  await sleep(150);
+  const afterT = await page.evaluate(PAGE_STATE);
+  const shown = await openMap(page, cdp);
   await pressEscape(cdp);
   await sleep(80);
-  const closed = (await panelOpen(page)) === false;
+  const closed = (await mapOpen(page)) === false;
   check(
-    "t there says no bookmarks yet, and Escape closes it",
+    "t opens nothing there; m opens the branch map with no bookmark cards, and Escape closes it",
     helpClosed &&
       fs.ok &&
-      listOpen &&
-      (list.entries ?? []).length === 0 &&
-      list.emptyText === EMPTY_MESSAGE &&
+      afterT.mapOpen === false &&
+      afterT.helpOpen === false &&
+      shown.ready &&
+      (shown.map.cards ?? []).length === 0 &&
       closed,
-    { helpClosed, fs: fs.wasFullscreen, emptyText: list.emptyText, closed },
+    {
+      helpClosed,
+      fs: fs.wasFullscreen,
+      afterT: { map: afterT.mapOpen, help: afterT.helpOpen },
+      ready: shown.ready,
+      cards: shown.map.cards?.length,
+      closed,
+    },
   );
 }
 
@@ -1545,7 +1549,8 @@ async function reset({ check, open }) {
   // put back.
   await openSettings(page, cdp);
   // At 800x600 the whole Esc screen fits: Reset is on screen without a
-  // scroll (Phase 31: the decision keys share one row, 12 rows in all).
+  // scroll (Phase 31: the decision keys share one row; Phase 35 dropped
+  // the T row, 11 rows in all).
   const viewport = page.viewport();
   await page.setViewport({ width: 800, height: 600, deviceScaleFactor: 1 });
   await sleep(150);
@@ -1560,8 +1565,10 @@ async function reset({ check, open }) {
     };
   }, CONFIG_CONTROL.reset);
   check(
-    "at 800x600 the Esc screen's 12 key rows leave Reset in view without scrolling",
-    small.rows === 12 && small.bottom <= small.height && small.scrolled === 0,
+    `at 800x600 the Esc screen's ${HELP_KEYS.length} key rows leave Reset in view without scrolling`,
+    small.rows === HELP_KEYS.length &&
+      small.bottom <= small.height &&
+      small.scrolled === 0,
     small,
   );
   if (viewport !== null) await page.setViewport(viewport);
@@ -1620,24 +1627,24 @@ async function reset({ check, open }) {
   await sleep(700);
   const resumed = await page.evaluate(PAGE_STATE);
   const resumedId = await currentItemId(page);
-  await pressT(cdp);
-  await waitFor(page, OVERLAY_OPEN);
-  const kept = await page.evaluate(READ_BOOKMARK_OVERLAY);
-  await pressT(cdp);
+  const kept = await openMap(page, cdp);
+  const keptClosed = await closeMap(page, cdp);
   await openSettings(page, cdp);
   const keptCfg = await page.evaluate(READ_CONFIG_OVERLAY);
   check(
-    "cancel kept everything: the reload resumes on the item, the row, 2.00x and play-all off are still there",
+    "cancel kept everything: the reload resumes on the item, the bookmark's card is on the map, 2.00x and play-all off are still there",
     resumedId === target.id &&
       resumed.helpOpen === false &&
-      (kept.entries ?? []).length === 1 &&
-      kept.entries[0].itemIndex === target.index &&
+      kept.ready &&
+      (kept.map.cards ?? []).length === 1 &&
+      kept.map.cards[0].itemIndex === target.index &&
+      keptClosed &&
       keptCfg.speedValue === SPEED_2X &&
       keptCfg.playPressed === "false",
     {
       resumedId,
       help: resumed.helpOpen,
-      rows: (kept.entries ?? []).map((e) => e.itemIndex),
+      cards: (kept.map.cards ?? []).map((c) => c.itemIndex),
       speed: keptCfg.speedValue,
       play: keptCfg.playPressed,
     },
@@ -1654,22 +1661,21 @@ async function reset({ check, open }) {
   const bootId = await currentItemId(page);
   await pressEscape(cdp);
   await waitFor(page, HELP_CLOSED);
-  await pressT(cdp);
-  await waitFor(page, OVERLAY_OPEN);
-  const list = await page.evaluate(READ_BOOKMARK_OVERLAY);
-  await pressT(cdp);
+  const map = await openMap(page, cdp);
+  const mapClosed = await closeMap(page, cdp);
   await openSettings(page, cdp);
   const fresh = await page.evaluate(READ_CONFIG_OVERLAY);
   await closeSettings(page, cdp);
   check(
-    "confirming is a true first-ever boot: help up, first item, empty list, 1.00x, skip-all off and play-all back on",
+    "confirming is a true first-ever boot: help up, first item, no bookmark cards on the map, 1.00x, skip-all off and play-all back on",
     box2.hidden === false &&
       bootHelp &&
       boot.helpOpen === true &&
       boot.stageHidden === true &&
       bootId === item("intro-title").id &&
-      (list.entries ?? []).length === 0 &&
-      list.emptyText === EMPTY_MESSAGE &&
+      map.ready &&
+      (map.map.cards ?? []).length === 0 &&
+      mapClosed &&
       fresh.speedValue === SPEED_1X &&
       fresh.skipPressed === "false" &&
       fresh.playPressed === "true",
@@ -1677,7 +1683,7 @@ async function reset({ check, open }) {
       bootHelp,
       bootId,
       stage: boot.stageHidden,
-      emptyText: list.emptyText,
+      cards: map.map.cards?.length,
       speed: fresh.speedValue,
       play: fresh.playPressed,
     },
@@ -1828,23 +1834,21 @@ async function contentUpdate({ check, open }) {
     { rolledTo, stopId, passed: [...seenIds] },
   );
 
-  await pressT(cdp);
-  const listOpen = await waitFor(page, OVERLAY_OPEN);
-  const list = await page.evaluate(READ_BOOKMARK_OVERLAY);
-  const rows = list.entries ?? [];
-  if (rows.length > 0) await rowCenterClick(cdp, rows[0]);
-  await waitFor(page, OVERLAY_CLOSED);
+  const shown = await openMap(page, cdp);
+  const cards = shown.map.cards ?? [];
+  if (cards.length > 0) await clickCard(cdp, cards[0]);
+  await waitFor(page, MAP_CLOSED);
   await sleep(300);
   const restoredId = await currentItemId(page);
   check(
-    "the bookmark still names video-chain-3 at its new place, and its row restores there",
-    listOpen &&
-      rows.length === 1 &&
-      rows[0].itemIndex === newIndex("video-chain-3") &&
-      rows[0].label.includes("video-chain-3") &&
+    "the bookmark still names video-chain-3 at its new place, and its card on the map restores there",
+    shown.ready &&
+      cards.length === 1 &&
+      cards[0].itemIndex === newIndex("video-chain-3") &&
+      cards[0].itemId === "video-chain-3" &&
       restoredId === "video-chain-3",
     {
-      rows: rows.map((r) => [r.itemIndex, r.label]),
+      cards: cards.map((c) => [c.itemIndex, c.itemId]),
       expected: newIndex("video-chain-3"),
       restoredId,
     },
@@ -1882,9 +1886,9 @@ export default async function (ctx) {
   for (const part of [
     helpFirstLoadClick,
     helpMidFlow,
-    escToBookmarks,
+    escToMap,
     bookmarks,
-    bookmarkGrid,
+    manyBookmarks,
     bookmarkSpeed,
     resume,
     config,

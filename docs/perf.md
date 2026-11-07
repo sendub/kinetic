@@ -110,3 +110,35 @@ frames, and zooming in past 1.2x ran at 50-130 ms frames. Culling the
 near nodes and drawing the far view as one path per look fixed the first
 two; the last was the dashed strokes of the whole-tree line paths (their
 dash count grows with zoom), fixed by culling the lines too.
+
+## Bookmarks on the branch map (Phase 35)
+
+`npm run perf:map` now also gives the synthetic game bookmarks (fourth
+argument, default 180): one real `b`, then copies of its row on items
+spread over the whole story, so on routes at every depth; half carry
+their own captured 320x180 JPEG, half show the manifest still (shrunk
+once). The open time now runs from the `m` keydown to the second frame
+after the map has drawn its cards (`data-ready`: the bookmark list read,
+the layout around the cards, the markup, the cards); a new phase pans at
+100% with the cards at full size.
+
+| case (2026-11-07) | first open | later opens | frames p95 (all phases) | frames > 33 ms |
+| --- | --- | --- | --- | --- |
+| 570 decisions, 90k items, 180 bookmarks | 57-67 ms | 55-66 ms | 16.7-16.8 ms | 0 of ~900 (one run in three: 2, while zooming) |
+| 570 decisions, 90k items, no bookmarks (`30 6 26 0`) | 52 ms | 62-63 ms | 16.7-16.8 ms | 0 of ~900 |
+
+Later opens now include the bookmark list read and the cards' DOM (the
+layout is kept while the bookmarked screens and the view's shape stay),
+so they no longer drop to ~20 ms. Every pan and zoom rewrites one CSS
+transform on the stage that holds the SVG, the cards and the marker
+(docs/plan.md Phase 35, "Rendering"); the cards restyle only when the
+zoom changes. Layout on a real game of 87,361 items with 63 decisions
+and 178 bookmarks takes 11.5 ms in node.
+
+`scripts/bookmark-timing.mjs` (the Phase 29 Safari check) now times the
+map: `m` to the map, to its cards, and each in-view card's picture.
+Headless Chrome, `file://`, 64 seeded rows with captures: cards drawn
+17 ms after the key, every in-view picture decoded by 35-69 ms on the
+first open and 13-20 ms on reopens. Safari was not measured: as in
+Phase 34, the safaridriver session never connects from this machine.
+

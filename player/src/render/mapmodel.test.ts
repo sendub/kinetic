@@ -4,15 +4,23 @@ import type { Branch, Item, Route } from "../machine/types";
 import { DEFAULT_SETTINGS } from "../machine/types";
 import { describeTarget, detailMarkup, skeletonMarkup } from "./branchmap";
 import {
+  bandOffsets,
   buildMapModel,
+  CARD,
+  CARD_ABOVE,
+  CARD_BELOW,
+  type CardSlot,
+  cardSlots,
   centreOn,
   FIT_MARGIN_PX,
   fitView,
+  fullSizeView,
   HERE_DECISION_GAP,
   HERE_REACH,
   HIDDEN_PROMPT,
   HIDDEN_ROUTE,
   hitTest,
+  itemX,
   jumpFor,
   LABEL_MIN_SCALE,
   labelMinScale,
@@ -28,7 +36,6 @@ import {
   type SavedMapView,
   SMALL_LABEL_MIN_SCALE,
   saveView,
-  truncateLabel,
   viewAfterResize,
   visibleWorld,
   zoomAt,
@@ -201,13 +208,12 @@ describe("buildMapModel: the tree from the decisions", () => {
     // The nested decision sits on route 1's row, right of its pill; its
     // two routes make route 1 two rows tall, but route 2, an ending, fits
     // in the empty column under route 1's pill, so it tucks in on the next
-    // row (manifest order kept: no numbers).
+    // row.
     expect(nested.y).toBe(r1.y);
     expect(nested.x).toBeGreaterThan(r1.x + MAP_GEOMETRY.routeW);
     expect(r2.y - r1.y).toBe(MAP_GEOMETRY.rowH);
     expect(r2.x).toBe(r1.x);
     expect(r2.endX + 17).toBeLessThan(nested.x + MAP_GEOMETRY.decW);
-    expect(model.routes.some((r) => r.numbered)).toBe(false);
     expect(model.rows).toBe(1);
     expect(model.routes.map((r) => [r.label, r.outcome])).toEqual([
       ["1a: carries on", "continues"],
@@ -381,7 +387,7 @@ describe("buildMapModel: rows like lines of text, endings tucked in", () => {
         ).toBe(true);
   });
 
-  it("tucks an ending in right under its decision, numbering the routes when that breaks manifest order", () => {
+  it("tucks an ending in right under its decision; every pill shows its choice number", () => {
     const { items, branches } = synthetic(30, 6, 26);
     const model = buildMapModel(items, branches);
     for (const node of model.decisions) {
@@ -395,22 +401,27 @@ describe("buildMapModel: rows like lines of text, endings tucked in", () => {
       expect(c.y).toBe(node.y + g.rowH);
       // The detour (it draws a line to the join) stays under everything.
       expect(b.y).toBeGreaterThanOrEqual(c.y);
-      const outOfOrder = b.y > c.y;
-      for (const r of [a, b, c]) expect(r.numbered).toBe(outOfOrder);
     }
-    // In the deep ones the detour comes after the ending: numbered.
-    expect(model.routes.some((r) => r.numbered)).toBe(true);
+    // In the deep ones the detour comes after the ending, out of manifest
+    // order; the pills' numbers (and tooltips) keep it legible.
     const tops = topLevel(model);
-    const route = model.routes[tops[0].routes[2]];
+    const key = tops[0].routes[2];
+    const route = model.routes[key];
     const reader = { visited: [], playedRoutes: [], cursor: 0 };
     const marks = markMap(model, { ...reader, spoilers: true });
-    expect(detailMarkup(model, marks)).toContain(
-      `○ 3. ${truncateLabel(route.label, 22)}`,
+    expect(detailMarkup(model, marks)).toMatch(
+      new RegExp(
+        `data-r="${key}"[^>]*>.*?<text class="map-route-c"[^>]*>3</text>`,
+      ),
+    );
+    expect(describeTarget(model, marks, { kind: "route", key }).title).toBe(
+      `3. ${route.label}`,
     );
     // Spoilers off: the number stays, the label is the placeholder.
-    expect(detailMarkup(model, markMap(model, reader))).toContain(
-      `○ 3. ${HIDDEN_ROUTE}`,
-    );
+    expect(
+      describeTarget(model, markMap(model, reader), { kind: "route", key })
+        .title,
+    ).toBe(`3. ${HIDDEN_ROUTE}`);
   });
 
   it("lays a no-decision story out as one row, and an empty one without failing", () => {
@@ -862,8 +873,18 @@ describe("view arithmetic", () => {
         xs.push(r.x, r.x + g.routeW);
         ys.push(r.y - g.routeH / 2, r.y + g.routeH / 2);
       }
-      for (const r of model.runs) xs.push(r.x0, r.x1);
+      // A stretch's line, and its screen count above it (12 px type on a
+      // baseline 6 above the line).
+      for (const r of model.runs) {
+        xs.push(r.x0, r.x1);
+        ys.push(r.y - 15);
+      }
       for (const p of model.ends) xs.push(p.x + 7);
+      // The connectors, the rows' continuation turns included.
+      for (const l of model.links) {
+        xs.push(l.x0, l.x1);
+        ys.push(l.y0, l.y1);
+      }
       return {
         x0: Math.min(...xs),
         y0: Math.min(...ys),
@@ -895,9 +916,14 @@ describe("view arithmetic", () => {
         expect(sy0).toBeGreaterThanOrEqual(FIT_MARGIN_PX / 2);
         expect(sx1).toBeLessThanOrEqual(vw - FIT_MARGIN_PX / 2);
         expect(sy1).toBeLessThanOrEqual(vh - FIT_MARGIN_PX / 2);
-        // ...and filling it along the tighter axis, up to the margins.
-        const fill = Math.max((sx1 - sx0) / vw, (sy1 - sy0) / vh);
-        expect(fill, `${vw}x${vh}`).toBeGreaterThan(0.93);
+        // ...and filling it along the tighter axis, up to the margins,
+        // unless the zoom-in limit stops it first (the compact demo in a
+        // 4K window).
+        const m2 = 2 * FIT_MARGIN_PX;
+        const fill = Math.max((sx1 - sx0) / (vw - m2), (sy1 - sy0) / (vh - m2));
+        if (view.scale < MAX_SCALE)
+          expect(fill, `${vw}x${vh}`).toBeGreaterThan(0.97);
+        else expect(fill, `${vw}x${vh}`).toBeLessThanOrEqual(1);
         // Zooming never undoes a fit.
         expect(zoomLimits(model, vw, vh).max).toBeGreaterThanOrEqual(
           view.scale,
@@ -958,7 +984,9 @@ describe("view arithmetic", () => {
             ((b.x1 - b.x0) * fit.scale) / vw,
             ((b.y1 - b.y0) * fit.scale) / vh,
           );
-          expect(fill, `fill ${at}`).toBeGreaterThan(0.75);
+          // (Unless the zoom-in limit stops it: the compact demo.)
+          if (fit.scale < MAX_SCALE)
+            expect(fill, `fill ${at}`).toBeGreaterThan(0.75);
           expect(zoomLimits(model, vw, vh, marks.here).min).toBeLessThanOrEqual(
             fit.scale,
           );
@@ -1114,7 +1142,9 @@ describe("level of detail, culling and hit testing", () => {
     const marks = markMap(model, { visited: [], playedRoutes: [], cursor: 0 });
     const all = detailMarkup(model, marks).match(/<g /g)?.length ?? 0;
     expect(all).toBe(model.decisions.length + model.routes.length);
-    const near = visibleWorld(centreOn(800, 400, 1920, 1080, 1), 1920, 1080);
+    // At 100% the compact tree's nodes are small: a view at 2x shows a
+    // small part of this large tree.
+    const near = visibleWorld(centreOn(800, 400, 1920, 1080, 2), 1920, 1080);
     const culled = detailMarkup(model, marks, near).match(/<g /g)?.length ?? 0;
     expect(culled).toBeGreaterThan(0);
     expect(culled).toBeLessThan(all / 20);
@@ -1150,7 +1180,9 @@ describe("level of detail, culling and hit testing", () => {
       kind: "decision",
       decision: OUTER,
     });
-    expect(hitTest(model, route.x + 100, route.y + 10)).toEqual({
+    expect(
+      hitTest(model, route.x + MAP_GEOMETRY.routeW / 2, route.y + 5),
+    ).toEqual({
       kind: "route",
       key,
     });
@@ -1159,14 +1191,6 @@ describe("level of detail, culling and hit testing", () => {
 });
 
 describe("labels and markup", () => {
-  it("truncates long labels with an ellipsis and keeps short ones", () => {
-    expect(truncateLabel("Short", 10)).toBe("Short");
-    expect(truncateLabel("A rather long route label here", 12)).toBe(
-      "A rather lo…",
-    );
-    expect([...truncateLabel("x".repeat(40), 12)]).toHaveLength(12);
-  });
-
   it("draws reached nodes as buttons, unreached ones inert, text escaped, full text in the label", () => {
     const items = DEMO_ITEMS;
     const branches = DEMO_BRANCHES.map((b) =>
@@ -1243,7 +1267,7 @@ describe("Spoilers: text of decisions not reached stays hidden", () => {
     expect(text).toContain(HIDDEN_ROUTE);
     // Counts, marks and status lines are unchanged.
     expect(text).toContain("not reached yet");
-    expect(text).toContain("screens");
+    expect(text).toContain('class="map-count"');
   });
 
   it("shows a reached decision's question and all its routes, unplayed ones too; nested ones stay hidden", () => {
@@ -1259,10 +1283,11 @@ describe("Spoilers: text of decisions not reached stays hidden", () => {
     expect(text).toContain(DEMO_BRANCHES[1].prompt);
     for (const label of OUTER_LABELS) expect(text).toContain(label);
     for (const real of NESTED_TEXT) expect(leaks(text, real)).toBe(false);
+    // A hidden route keeps its choice number (its pill shows it).
     const nestedRoute = routeKey(model, NESTED, 1);
     expect(
       describeTarget(model, marks, { kind: "route", key: nestedRoute }).title,
-    ).toBe(HIDDEN_ROUTE);
+    ).toBe(`2. ${HIDDEN_ROUTE}`);
     expect(
       describeTarget(model, marks, { kind: "decision", decision: NESTED })
         .title,
@@ -1300,6 +1325,326 @@ describe("Spoilers: text of decisions not reached stays hidden", () => {
 // decision down to `depth`, the returning one down to half of it; every
 // stretch is `run` screens.
 // ---------------------------------------------------------------------------
+describe("bookmark cards on the line (docs/plan.md Phase 35)", () => {
+  const g = MAP_GEOMETRY;
+  const compact = (run: { x0: number; x1: number }) => run.x1 - run.x0;
+  const carded = (k: number) => k * CARD.pitch - CARD.gap + 2 * CARD.inset;
+  // A bookmark as the map gets it: its item and when it was taken.
+  const bm = (itemIndex: number, timestampMs = itemIndex) => ({
+    itemIndex,
+    timestampMs,
+  });
+  const box = (s: CardSlot) => ({
+    x0: s.x,
+    y0: s.y,
+    x1: s.x + CARD.w,
+    y1: s.y + CARD.h,
+  });
+  const overlaps = (
+    a: { x0: number; y0: number; x1: number; y1: number },
+    b: { x0: number; y0: number; x1: number; y1: number },
+  ) => a.x0 < b.x1 && b.x0 < a.x1 && a.y0 < b.y1 && b.y0 < a.y1;
+  // A large synthetic game with bookmarks on every kind of line: the main
+  // line, routes, nested routes several levels down, two on one screen.
+  function crowded() {
+    const { items, branches } = synthetic(8, 4, 12);
+    const marks: { itemIndex: number; timestampMs: number }[] = [];
+    for (let i = 3; i < items.length; i += 7) marks.push(bm(i, i * 10));
+    marks.push(bm(3, 5)); // a second bookmark on item 3, taken earlier
+    const model = buildMapModel(
+      items,
+      branches,
+      16 / 9,
+      marks.map((m) => m.itemIndex),
+    );
+    return { items, branches, model, marks, slots: cardSlots(model, marks) };
+  }
+
+  it("keeps stretches without bookmarks compact and grows one with k bookmarks to k cards side by side", () => {
+    const plain = demoModel();
+    for (const run of plain.runs) {
+      expect(run.bookmarks).toEqual([]);
+      expect(compact(run)).toBe(g.runW);
+    }
+    // Two bookmarks on the lead stretch (items 0..1), one on route 2's
+    // (items 7..8).
+    const model = buildMapModel(
+      DEMO_ITEMS,
+      DEMO_BRANCHES,
+      undefined,
+      [1, 0, 8],
+    );
+    const byStart = new Map(model.runs.map((r) => [r.start, r]));
+    expect(byStart.get(0)?.bookmarks).toEqual([0, 1]);
+    expect(compact(byStart.get(0) ?? plain.runs[0])).toBe(carded(2));
+    expect(byStart.get(7)?.bookmarks).toEqual([8]);
+    expect(compact(byStart.get(7) ?? plain.runs[0])).toBe(carded(1));
+    for (const run of model.runs)
+      if (run.start !== 0 && run.start !== 7) {
+        expect(run.bookmarks).toEqual([]);
+        expect(compact(run)).toBe(g.runW);
+      }
+    // A card is the old t screen's at 100%: 280 px of thumbnail and caption.
+    expect(CARD.w).toBe(280);
+    expect(CARD.thumbH).toBe(Math.round((280 * 9) / 16));
+  });
+
+  it("ignores item indices outside the manifest", () => {
+    const model = buildMapModel(
+      DEMO_ITEMS,
+      DEMO_BRANCHES,
+      undefined,
+      [-1, 99, 2.5],
+    );
+    expect(layoutSignature(model)).toBe(layoutSignature(demoModel()));
+    expect(cardSlots(model, [bm(-1), bm(99), bm(2.5)])).toEqual([
+      null,
+      null,
+      null,
+    ]);
+  });
+
+  it("puts every card centred on its own stretch's line at its screen's exact place: where the marker stands on that screen", () => {
+    const { model, marks, slots } = crowded();
+    marks.forEach((mark, i) => {
+      const slot = slots[i];
+      if (slot === null) throw new Error(`no card for item ${mark.itemIndex}`);
+      const run = runAt(model.runs, mark.itemIndex);
+      if (run === undefined) throw new Error("no stretch");
+      expect(mark.itemIndex).toBeGreaterThanOrEqual(run.start);
+      expect(mark.itemIndex).toBeLessThanOrEqual(run.end);
+      expect(slot.cy).toBe(run.y);
+      expect(slot.y + CARD.h / 2).toBe(run.y);
+      expect(slot.x + CARD.w / 2).toBe(slot.cx);
+      expect(slot.x).toBeGreaterThanOrEqual(run.x0);
+      expect(slot.x + CARD.w).toBeLessThanOrEqual(run.x1);
+    });
+    // One bookmark per screen: the point along the line for that screen,
+    // where "you are here" sits while it is up, is its card's centre.
+    const single = buildMapModel(DEMO_ITEMS, DEMO_BRANCHES, undefined, [4, 8]);
+    const [nested, ending] = cardSlots(single, [bm(4), bm(8)]);
+    const here = (cursor: number) =>
+      markMap(single, { visited: [], playedRoutes: [], cursor }).here;
+    expect(here(4)).toMatchObject({ x: nested?.cx, y: nested?.cy });
+    const route2 = runAt(single.runs, 8);
+    if (route2 === undefined) throw new Error("no stretch");
+    expect(itemX(route2, 8)).toBe(ending?.cx);
+  });
+
+  it("orders the cards along each line in story order, two on one screen oldest first", () => {
+    const { model, marks, slots } = crowded();
+    const byRun = new Map<number, { item: number; t: number; cx: number }[]>();
+    marks.forEach((mark, i) => {
+      const run = runAt(model.runs, mark.itemIndex);
+      const slot = slots[i];
+      if (run === undefined || slot === null) throw new Error("unplaced");
+      const list = byRun.get(run.start) ?? [];
+      list.push({ item: mark.itemIndex, t: mark.timestampMs, cx: slot.cx });
+      byRun.set(run.start, list);
+    });
+    let pairs = 0;
+    for (const list of byRun.values()) {
+      list.sort((a, b) => a.cx - b.cx);
+      for (let i = 1; i < list.length; i += 1) {
+        pairs += 1;
+        const [a, b] = [list[i - 1], list[i]];
+        expect(a.item < b.item || (a.item === b.item && a.t < b.t)).toBe(true);
+      }
+    }
+    expect(pairs).toBeGreaterThan(0);
+    // The two on item 3: the earlier one (t 5) left of the later (t 30).
+    const on3 = marks
+      .map((m, i) => ({ m, s: slots[i] }))
+      .filter(({ m }) => m.itemIndex === 3);
+    expect(on3).toHaveLength(2);
+    const early = on3.find(({ m }) => m.timestampMs === 5)?.s;
+    const late = on3.find(({ m }) => m.timestampMs === 30)?.s;
+    expect(early?.cx).toBeLessThan(late?.cx ?? -1);
+    // A point on the line moves forward through the screens.
+    for (const run of model.runs) {
+      let last = -Infinity;
+      for (let i = run.start; i <= run.end; i += 1) {
+        const x = itemX(run, i);
+        expect(x).toBeGreaterThanOrEqual(last);
+        last = x;
+      }
+    }
+  });
+
+  it("never overlaps at 100%: no card on another, on a box, or across another line", () => {
+    const { model, slots } = crowded();
+    const placed = slots.filter((s): s is CardSlot => s !== null);
+    expect(placed.length).toBeGreaterThan(20);
+    // Cards ride on routes several levels down, not only the main line.
+    expect(new Set(placed.map((s) => s.cy)).size).toBeGreaterThan(3);
+    for (let i = 0; i < placed.length; i += 1)
+      for (let j = i + 1; j < placed.length; j += 1)
+        expect(overlaps(box(placed[i]), box(placed[j]))).toBe(false);
+    for (const s of placed) {
+      const card = box(s);
+      for (const d of model.decisions)
+        expect(
+          overlaps(card, {
+            x0: d.x,
+            y0: d.y - g.decH / 2,
+            x1: d.x + g.decW,
+            y1: d.y + g.decH / 2,
+          }),
+        ).toBe(false);
+      for (const r of model.routes)
+        expect(
+          overlaps(card, {
+            x0: r.x,
+            y0: r.y - g.routeH / 2,
+            x1: r.x + g.routeW,
+            y1: r.y + g.routeH / 2,
+          }),
+        ).toBe(false);
+      // Another row's line never runs through a card.
+      for (const run of model.runs)
+        if (run.y !== s.cy)
+          expect(
+            run.x0 < card.x1 &&
+              card.x0 < run.x1 &&
+              run.y > card.y0 &&
+              run.y < card.y1,
+          ).toBe(false);
+      // Inside what Fit frames.
+      expect(card.x0).toBeGreaterThanOrEqual(model.bounds.x0);
+      expect(card.x1).toBeLessThanOrEqual(model.bounds.x1);
+      expect(card.y0).toBeGreaterThanOrEqual(model.bounds.y0);
+      expect(card.y1).toBeLessThanOrEqual(model.bounds.y1);
+    }
+  });
+
+  it("gives a route nested in a route its own cards on its own row, moved down by their room", () => {
+    // Item 5 is the nested decision's second route (nest-ret), on the row
+    // under the main line, beside route 2 (an ending, tucked in there).
+    const plain = demoModel();
+    const model = buildMapModel(DEMO_ITEMS, DEMO_BRANCHES, undefined, [5]);
+    const [slot] = cardSlots(model, [bm(5)]);
+    const nestB = model.routes[routeKey(model, NESTED, 1)];
+    const route2 = model.routes[routeKey(model, OUTER, 1)];
+    const main = model.decisionAt[OUTER];
+    if (main === undefined || slot == null) throw new Error("unset");
+    expect(runAt(model.runs, 5)?.y).toBe(nestB.y);
+    expect(slot.cy).toBe(nestB.y);
+    // Without cards the row is a row's height under the main line; with
+    // one, the card's room above it too, and everything on it moves along.
+    const plainB = plain.routes[routeKey(plain, NESTED, 1)];
+    const plainMain = plain.decisionAt[OUTER];
+    expect(plainB.y - (plainMain?.y ?? 0)).toBe(g.rowH);
+    expect(nestB.y - main.y).toBe(g.rowH + CARD_ABOVE);
+    expect(route2.y).toBe(nestB.y);
+    // The card clears the main line's boxes above it.
+    expect(slot.y).toBeGreaterThan(main.y + g.decH / 2);
+  });
+
+  it("spreads a segment's rows by the room their cards need, and leaves one without cards as it was", () => {
+    expect(bandOffsets({ width: 1, rows: 3 })).toEqual({
+      off: [0, 0, 0],
+      height: 3 * g.rowH,
+    });
+    expect(
+      bandOffsets({ width: 1, rows: 3, bands: [false, true, false] }),
+    ).toEqual({
+      off: [0, CARD_ABOVE, CARD_ABOVE + CARD_BELOW],
+      height: 3 * g.rowH + CARD_ABOVE + CARD_BELOW,
+    });
+    // Row 0's room above is the wrapped row's (shared), not the segment's.
+    expect(bandOffsets({ width: 1, rows: 1, bands: [true] })).toEqual({
+      off: [0],
+      height: g.rowH + CARD_BELOW,
+    });
+  });
+
+  it("puts a bookmark on a screen no stretch holds at the end of the stretch before it", () => {
+    // A choice whose routes skip item 2 (a menu screen no route covers).
+    const items = ["a", "decide", "menu", "r1", "r2", "after"].map(image);
+    const branches: Branch[] = [
+      {
+        id: "pick",
+        after: "decide",
+        prompt: "Which?",
+        routes: [
+          { id: "one", label: "One", start: "r1", end: "r1" },
+          { id: "two", label: "Two", start: "r2", end: "r2" },
+        ],
+      },
+    ];
+    const plain = buildMapModel(items, branches);
+    expect(
+      plain.runs.some((r) => r.start <= 2 && r.end >= 2),
+      "item 2 is on no stretch",
+    ).toBe(false);
+    const model = buildMapModel(items, branches, undefined, [2]);
+    const lead = model.runs.find((r) => r.start === 0);
+    if (lead === undefined) throw new Error("no lead stretch");
+    expect(lead.bookmarks).toEqual([lead.end]);
+    expect(compact(lead)).toBe(carded(1));
+    const [slot] = cardSlots(model, [bm(2)]);
+    expect(slot?.cy).toBe(lead.y);
+    expect(slot?.cx).toBe(itemX(lead, lead.end));
+  });
+
+  it("Fit shows every card scaled down with the tree; 100% is a card at the t screen's size, about the same centre", () => {
+    const { model, slots } = crowded();
+    const fit = fitView(model, 1920, 1080);
+    expect(fit.scale).toBeLessThan(1);
+    const seen = visibleWorld(fit, 1920, 1080);
+    for (const s of slots) {
+      if (s === null) continue;
+      expect(s.x).toBeGreaterThanOrEqual(seen.x0);
+      expect(s.x + CARD.w).toBeLessThanOrEqual(seen.x1);
+      expect(s.y).toBeGreaterThanOrEqual(seen.y0);
+      expect(s.y + CARD.h).toBeLessThanOrEqual(seen.y1);
+    }
+    const limits = zoomLimits(model, 1920, 1080);
+    const full = fullSizeView(fit, 1920, 1080, limits);
+    expect(full.scale).toBe(1);
+    expect(CARD.w * full.scale).toBe(280);
+    const centre = (v: { x: number; y: number; scale: number }) => [
+      (960 - v.x) / v.scale,
+      (540 - v.y) / v.scale,
+    ];
+    expect(centre(full)[0]).toBeCloseTo(centre(fit)[0]);
+    expect(centre(full)[1]).toBeCloseTo(centre(fit)[1]);
+    // From further in, 100% zooms back out to the same size.
+    expect(
+      fullSizeView({ ...full, scale: 2.5 }, 1920, 1080, limits).scale,
+    ).toBe(1);
+  });
+
+  it("remembers a view across opens with the same bookmarks; another set of bookmarked screens is another layout (Fit)", () => {
+    const { items, branches, model, marks } = crowded();
+    const layout = layoutSignature(model);
+    const view = centreOn(900, 500, 1440, 860, 1);
+    const saved = saveView(layout, view, 1440, 860, false);
+    // Reopened with the same bookmarks: the same layout, the same view.
+    const again = buildMapModel(
+      items,
+      branches,
+      16 / 9,
+      marks.map((m) => m.itemIndex),
+    );
+    expect(layoutSignature(again)).toBe(layout);
+    expect(restoreView(again, saved, 1440, 860)).toEqual({
+      view,
+      fit: false,
+    });
+    // A bookmark more (or less) moves the stretches: a fresh Fit.
+    const more = buildMapModel(items, branches, 16 / 9, [
+      ...marks.map((m) => m.itemIndex),
+      5,
+    ]);
+    expect(layoutSignature(more)).not.toBe(layout);
+    expect(restoreView(more, saved, 1440, 860)).toEqual({
+      view: fitView(more, 1440, 860),
+      fit: true,
+    });
+  });
+});
+
 function synthetic(
   top: number,
   depth: number,

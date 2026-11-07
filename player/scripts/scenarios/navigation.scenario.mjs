@@ -7,7 +7,7 @@
 // picture (lines take zero time, caption hidden) and stops ON the last seen
 // one (doing nothing with nothing seen ahead); Space ends a skip; `e` goes
 // to the furthest point read and is a no-op there, also after continuing
-// from a bookmark (video or image).
+// from a bookmark (video or image) picked on the branch map.
 
 import { DEFAULT_SETTINGS } from "../../src/machine/types.ts";
 import {
@@ -15,21 +15,21 @@ import {
   currentItemId,
   INSTALL_BRANCH_LOG,
   item,
+  MAP_CLOSED,
+  MAP_READY,
   manifest,
   ON_TEXT,
-  OVERLAY_CLOSED,
-  OVERLAY_OPEN,
   PAGE_STATE,
   PAINT_SIG,
   pressA,
   pressB,
   pressDigit,
   pressE,
+  pressM,
   pressSpace,
-  pressT,
   pressTab,
-  READ_BOOKMARK_OVERLAY,
   READ_CHOICE,
+  READ_MAP_CARDS,
   readBookmarks,
   readBranchLog,
   sleep,
@@ -103,14 +103,16 @@ async function waitUntil(page, fn, timeout = 5000) {
   }
 }
 
+// Continue from the bookmark at item `row`: its card on the branch map
+// (`m`; docs/plan.md Phase 35, which retired the `t` list), clicked.
 async function continueFrom(page, cdp, row) {
-  await pressT(cdp);
-  const opened = await waitUntil(page, OVERLAY_OPEN);
-  const list = await page.evaluate(READ_BOOKMARK_OVERLAY);
-  const entry = (list.entries ?? []).find((e) => e.itemIndex === row);
-  if (!opened || entry === undefined) return false;
-  await clickCenter(cdp, entry.rect);
-  return waitUntil(page, OVERLAY_CLOSED);
+  await pressM(cdp);
+  const opened = await waitUntil(page, MAP_READY);
+  const { cards = [] } = await page.evaluate(READ_MAP_CARDS);
+  const card = cards.find((c) => c.itemIndex === row);
+  if (!opened || card === undefined) return false;
+  await clickCenter(cdp, card.rect);
+  return waitUntil(page, MAP_CLOSED);
 }
 
 async function bookmarkEndScenario(check, open) {

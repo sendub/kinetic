@@ -7,12 +7,16 @@ import {
   closeSettings,
   currentItemId,
   item,
-  OVERLAY_OPEN,
+  MAP_CLOSED,
+  MAP_READY,
   openSettings,
   PAGE_STATE,
   pressB,
+  pressM,
   pressSpace,
   pressT,
+  READ_MAP_CARDS,
+  readBookmarks,
   sleep,
   spaceTo,
   waitVideoPlaying,
@@ -54,21 +58,49 @@ export default async function ({ check, open }) {
     (await currentItemId(page)) === "anim-orbit",
   );
 
-  // screens
+  // screens: `t` is no key (the bookmarks are cards on the branch map,
+  // docs/plan.md Phase 35); `m` shows the new bookmark's card.
+  await pressT(cdp);
+  await sleep(100);
+  const afterT = await page.evaluate(PAGE_STATE);
   await pressB(cdp);
-  await pressT(cdp);
-  let listed = true;
-  try {
-    await page.waitForFunction(OVERLAY_OPEN, { timeout: 2000 });
-  } catch {
-    listed = false;
+  for (let tries = 0; tries < 40; tries += 1) {
+    if ((await readBookmarks(page)).length === 1) break;
+    await sleep(50);
   }
-  await pressT(cdp);
+  await pressM(cdp);
+  let mapped = true;
+  try {
+    await page.waitForFunction(MAP_READY, { timeout: 2000 });
+  } catch {
+    mapped = false;
+  }
+  const { cards } = await page.evaluate(READ_MAP_CARDS);
+  await pressM(cdp);
+  let mapClosed = true;
+  try {
+    await page.waitForFunction(MAP_CLOSED, { timeout: 2000 });
+  } catch {
+    mapClosed = false;
+  }
   const config = await openSettings(page, cdp);
   await closeSettings(page, cdp);
   check(
-    "screens: b + t lists a bookmark; Esc opens the settings",
-    listed && config,
+    "screens: t opens nothing; b + m shows the bookmark's card on the map; Esc opens the settings",
+    afterT.mapOpen === false &&
+      afterT.helpOpen === false &&
+      mapped &&
+      cards?.length === 1 &&
+      cards[0].itemId === "anim-orbit" &&
+      mapClosed &&
+      config,
+    {
+      afterT: { map: afterT.mapOpen, help: afterT.helpOpen },
+      mapped,
+      cards: cards?.map((c) => c.itemId),
+      mapClosed,
+      config,
+    },
   );
 
   // branches

@@ -3,7 +3,8 @@
 // progress by folder URL as before; once its manifest gains the demo's
 // `storyId` the next load carries that progress over to the story; then the
 // folder is moved to a new path, renamed, and opened there: the reading
-// position and the bookmark are still there.
+// position and the bookmark (its card on the branch map, docs/plan.md
+// Phase 35) are still there.
 
 import { cpSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -12,12 +13,12 @@ import {
   currentItemId,
   demoDir,
   item,
+  MAP_READY,
   manifest,
-  OVERLAY_OPEN,
   PAGE_STATE,
   pressB,
-  pressT,
-  READ_BOOKMARK_OVERLAY,
+  pressM,
+  READ_MAP_CARDS,
   readBookmarks,
   sleep,
   spaceTo,
@@ -160,19 +161,25 @@ export default async function ({ check, open }) {
   const movedState = await page.evaluate(PAGE_STATE);
   const movedResume = await currentItemId(page);
   const movedUrl = await page.evaluate(FOLDER_URL);
-  await pressT(cdp);
-  const listOpen = await waitFor(page, OVERLAY_OPEN);
-  const list = await page.evaluate(READ_BOOKMARK_OVERLAY);
-  const rows = list.entries ?? [];
+  await pressM(cdp);
+  const mapReady = await waitFor(page, MAP_READY);
+  const { cards = [] } = await page.evaluate(READ_MAP_CARDS);
   check(
-    "after moving and renaming the folder it resumes where the reader was, help closed, and t lists the bookmark",
+    "after moving and renaming the folder it resumes where the reader was, help closed, and m shows the bookmark's card on the map",
     painted3 &&
       movedUrl !== oldUrl &&
       movedResume === reached.id &&
       movedState.helpOpen === false &&
-      listOpen &&
-      rows.length === 1 &&
-      rows[0].itemIndex === marked.index,
-    { movedUrl, movedResume, help: movedState.helpOpen, rows: rows.length },
+      mapReady &&
+      cards.length === 1 &&
+      cards[0].itemId === marked.id &&
+      cards[0].itemIndex === marked.index,
+    {
+      movedUrl,
+      movedResume,
+      help: movedState.helpOpen,
+      mapReady,
+      cards: cards.map((c) => [c.itemId, c.itemIndex]),
+    },
   );
 }
