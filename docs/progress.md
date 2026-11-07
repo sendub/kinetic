@@ -1791,5 +1791,6 @@ truthful: an unchecked box means nothing was accepted.
       broken check bypassed); tools/test_build_demo.py +
       test_validate_content.py 118 pass; the new test fails on HEAD's
       builder in a fresh clone with KeyError: 'videoPath'.)
-- [ ] Phase-closer (Phase 37): `pytest tools/` in full, package-proof
+- [x] Phase-closer (Phase 37): `pytest tools/` in full, package-proof
       (rebuilds the demo); the player and converter are untouched.
+      (2026-11-07: pytest tools/ 138 pass; package-proof 18/18.)
