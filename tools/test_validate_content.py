@@ -965,6 +965,66 @@ def test_nested_continuing_routes_sharing_an_ending_pass(
     assert problems_of(branch_folder) == []
 
 
+def test_continue_routes_into_the_join_pass(branch_folder: Path) -> None:
+    """`result: "continue"` on a decision with continuingRoute/continueAt is
+    valid (docs/plan.md Phase 38), on the continuing route itself too,
+    where it is moot like the other results."""
+    manifest = read_manifest(branch_folder)
+    decision = manifest["branches"][0]
+    decision["routes"][1]["result"] = "continue"  # leave, on cafe-choice
+    decision["routes"][0]["result"] = "continue"  # stay, its continuingRoute
+    write_manifest(branch_folder, manifest)
+    assert problems_of(branch_folder) == []
+    proc = run_cli(branch_folder)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+
+
+def test_continue_route_without_a_join_rejected(branch_folder: Path) -> None:
+    """A pure choice has no join: a "continue" route there is a problem,
+    one line per such route, at its `result`."""
+    manifest = read_manifest(branch_folder)
+    decision = manifest["branches"][0]
+    del decision["continuingRoute"]
+    del decision["continueAt"]
+    decision["routes"][1]["result"] = "continue"
+    write_manifest(branch_folder, manifest)
+    problems = problems_of(branch_folder)
+    assert len(problems) == 1
+    assert problems[0].startswith(
+        "manifest.json: branches[0].routes[1].result:")
+    assert '"continue" needs the decision\'s continuingRoute and continueAt' \
+        in problems[0]
+
+
+def test_continue_route_with_half_a_join_rejected(branch_folder: Path) -> None:
+    """With continueAt but no continuingRoute there is still no join: the
+    pairing problem and the "continue" route are both reported."""
+    manifest = read_manifest(branch_folder)
+    decision = manifest["branches"][0]
+    del decision["continuingRoute"]
+    decision["routes"][1]["result"] = "continue"
+    write_manifest(branch_folder, manifest)
+    problems = problems_of(branch_folder)
+    assert len(problems) == 2
+    assert any(p.startswith("manifest.json: branches[0].continueAt:")
+               and "allowed only with continuingRoute" in p
+               for p in problems)
+    assert any(p.startswith("manifest.json: branches[0].routes[1].result:")
+               and "no join to continue to" in p
+               for p in problems)
+
+
+def test_unknown_route_result_rejected(branch_folder: Path) -> None:
+    """The schema's enum is "return", "ending" and "continue" only."""
+    manifest = read_manifest(branch_folder)
+    manifest["branches"][0]["routes"][1]["result"] = "join"
+    write_manifest(branch_folder, manifest)
+    problems = problems_of(branch_folder)
+    assert len(problems) == 1
+    assert problems[0].startswith(
+        "manifest.json: branches[0].routes[1].result:")
+
+
 def test_duplicate_branch_id_rejected(branch_folder: Path) -> None:
     manifest = read_manifest(branch_folder)
     manifest["branches"].append(manifest["branches"][0])

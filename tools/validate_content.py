@@ -24,9 +24,10 @@ invariants:
    that sets `thought` true has a non-empty `text`; a video item's playback
    range is sound (`startSeconds` not negative, `endSeconds` greater than
    `startSeconds` and no greater than `durationSeconds`); the optional
-   `branches` table obeys its reference, span, and continuingRoute/
-   continueAt rules (docs/content-format.md § Branches); and a present
-   `manifest.js` shim embeds JSON equal to `manifest.json`.
+   `branches` table obeys its reference, span, continuingRoute/
+   continueAt, and `"continue"` result rules (docs/content-format.md
+   § Branches); and a present `manifest.js` shim embeds JSON equal to
+   `manifest.json`.
 """
 
 from __future__ import annotations
@@ -374,10 +375,12 @@ def branches_problems(manifest: Any) -> list[str]:
     spans of one decision are disjoint and none contains that decision's
     `after` item; `after`'s item index precedes every route `start`;
     `continueAt` is required with `continuingRoute` and forbidden without
-    it, and resolves to an item after every route `end`; `prompt` is
-    shorter than 200 characters and every route `label` shorter than 120.
-    An unresolvable or non-string reference is reported once, and the
-    checks that would compare it are skipped.
+    it, and resolves to an item after every route `end`; a route whose
+    `result` is `"continue"` needs that pair on its decision (a pure choice
+    has no join to continue to); `prompt` is shorter than 200 characters
+    and every route `label` shorter than 120. An unresolvable or
+    non-string reference is reported once, and the checks that would
+    compare it are skipped.
     """
     if not isinstance(manifest, dict):
         return []
@@ -432,6 +435,7 @@ def branches_problems(manifest: Any) -> list[str]:
         routes = routes if isinstance(routes, list) else []
         route_ids: dict[str, int] = {}
         spans: list[tuple[int, int, str]] = []
+        continue_routes: list[str] = []
         for ri, route in enumerate(routes):
             if not isinstance(route, dict):
                 continue  # the schema reports non-object routes
@@ -445,6 +449,8 @@ def branches_problems(manifest: Any) -> list[str]:
                         f"{base}.routes[{route_ids[route_id]}])"))
                 else:
                     route_ids[route_id] = ri
+            if route.get("result") == "continue":
+                continue_routes.append(rbase)
             label = route.get("label")
             if isinstance(label, str) and len(label) >= BRANCH_LABEL_MAX:
                 problems.append(_line(
@@ -511,6 +517,13 @@ def branches_problems(manifest: Any) -> list[str]:
                     continue_loc,
                     f"must resolve to an item after every route end "
                     f"items[{max(ends)}] (found items[{continue_idx}])"))
+        if not (isinstance(continuing, str) and has_continue_at):
+            for rbase in continue_routes:
+                problems.append(_line(
+                    f"{rbase}.result",
+                    '"continue" needs the decision\'s continuingRoute and '
+                    "continueAt: without them there is no join to continue "
+                    "to"))
     return problems
 
 

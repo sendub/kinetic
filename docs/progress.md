@@ -1794,3 +1794,47 @@ truthful: an unchecked box means nothing was accepted.
 - [x] Phase-closer (Phase 37): `pytest tools/` in full, package-proof
       (rebuilds the demo); the player and converter are untouched.
       (2026-11-07: pytest tools/ 138 pass; package-proof 18/18.)
+
+## Phase 38: Routes that continue into the join (2026-11-07, converting agent)
+
+- [x] Route `result` `"continue"` (docs/plan.md Phase 38): a route that,
+      after its last item, flows into its decision's `continueAt`
+      without the continuing route being read first. Play all routes
+      off: the join is direct, no choice screen. Play all routes on:
+      unchanged contract (every route once this pass, shortest first,
+      continuing last, then `continueAt`), so its end re-offers like a
+      `return` route's until none is unplayed this pass. Completes only
+      itself (the return row still needs the continuing route); counts
+      as passing the decision for `u` and the end card; not an ending;
+      the timeline walks its end to `continueAt` and back by the last
+      pick; the branch map draws it as a join. Schema enum, validator
+      (needs `continuingRoute`/`continueAt`), content-format.md
+      § Branches, CREATE.md § Branches. Unit tests that fail on HEAD's
+      code, and a browser scenario on a scenario-local folder (play-all
+      off: pick the `continue` route, its last item steps straight to
+      `continueAt`; play-all on: re-offer then join; the map draws the
+      join).
+      (2026-11-07: machine `endJoins` decides a route end's step
+      (continuing always; `continue` with play-all off, or once no route
+      is unplayed this pass), used by handleRouteEnd, skip's reveal check
+      and `u`'s continuation; `decisionPassed` counts any completed
+      joining route; the walk sends a `continue` end to `continueAt` and
+      back by last pick, then the continuing route, then the plain step;
+      a `continue` route on a decision without `continueAt` drops the
+      decision; mapmodel draws it as a join. New continueroute scenario
+      on its own folder; demo untouched. Orchestrator: npm test 702 pass
+      (one run of seven failed mapmodel's "never overlaps at 100%",
+      whose fixture has no `continue` route; six file and four suite
+      re-runs passed); check clean; smoke 6/6, continueroute 6/6,
+      branches 43/43, playall 27/27, branchmap 48/48;
+      test_validate_content.py 121 pass; with `endJoins` ignoring
+      `continue` 9 new branch tests fail, restored 142 pass; subagent
+      ran the new tests on HEAD's code: 11 of 14 unit, 3 of 4 scenario
+      and 3 of 4 validator checks fail, the rest are guards.)
+- [ ] Route completion follows the route's current end (docs/plan.md
+      Phase 38, last bullet): on restore, a completed route whose `end`
+      item is not in the restored seen set is not completed (played
+      mark kept), so extending a route does not offer "Return to main
+      route" past the new content. Unit test that fails on HEAD's code.
+- [ ] Phase-closer (Phase 38): full scenario suite, `pytest tools/`,
+      package-proof (rebuilds the demo).

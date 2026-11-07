@@ -232,6 +232,61 @@ describe("buildMapModel: the tree from the decisions", () => {
     expect(after?.y).toBe(outer.y);
   });
 
+  it("draws a continue route's end as a join into the decision's join point, like the continuing route's (docs/plan.md Phase 38)", () => {
+    // lead decide | c-1 c-2 | n-1 | p-1 | shared
+    const items = ["lead", "decide", "c-1", "c-2", "n-1", "p-1", "shared"].map(
+      image,
+    );
+    const branches: Branch[] = [
+      {
+        id: "rowan",
+        after: "decide",
+        prompt: "What does Rowan do?",
+        routes: [
+          {
+            id: "negotiate",
+            label: "Negotiate",
+            start: "n-1",
+            end: "n-1",
+            result: "continue",
+          },
+          {
+            id: "pay",
+            label: "Pay",
+            start: "p-1",
+            end: "p-1",
+            result: "continue",
+          },
+          { id: "contract", label: "Contract", start: "c-1", end: "c-2" },
+        ],
+        continuingRoute: "contract",
+        continueAt: "shared",
+      },
+    ];
+    const model = buildMapModel(items, branches);
+    const node = model.decisionAt[0];
+    if (node === undefined) throw new Error("unset");
+    expect(model.routes.map((r) => [r.label, r.outcome])).toEqual([
+      ["Negotiate", "continues"],
+      ["Pay", "continues"],
+      ["Contract", "continues"],
+    ]);
+    // Three join lines, every one into the one join dot on the decision's
+    // row; no return line, and no end mark but the story's own.
+    const joins = model.links.filter((l) => l.kind === "join");
+    expect(joins).toHaveLength(3);
+    expect(model.links.filter((l) => l.kind === "return")).toHaveLength(0);
+    expect(model.joins).toHaveLength(1);
+    const dot = model.joins[0];
+    expect(dot.y).toBe(node.y);
+    for (const link of joins) {
+      expect(link.x1).toBe(dot.x);
+      expect(link.y0).toBe(node.y);
+    }
+    expect(model.ends).toHaveLength(1);
+    expect(model.ends[0]).toEqual(model.storyEnd);
+  });
+
   it("keeps a large, deeply nested game's nodes apart and lays it out fast", () => {
     const { items, branches } = synthetic(30, 6, 26);
     expect(branches.length).toBeGreaterThan(500);

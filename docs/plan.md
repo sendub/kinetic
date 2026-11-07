@@ -1360,6 +1360,57 @@ goes.
 - The Esc screen's M row reads "branch map and bookmarks" (it was
   "branch map and bookmarks: click to go there").
 
+## Phase 38: Routes that continue into the join (2026-11-07, converting agent)
+
+A converting agent's story has one decision whose three alternatives
+rejoin one long shared scene: in the source game each alternative jumps
+into it. Kinetic lets only the continuing route reach `continueAt`;
+every other route ends or re-offers the choice, so a reader with Play
+all routes off who picks a short alternative is sent back to the choice
+and must read the long continuing route to reach the shared scene.
+Copying the shared scene after each route is not acceptable (duplicate
+content that drifts).
+
+- New route `result` `"continue"`: after the route's last item, flow
+  proceeds to the decision's `continueAt`, as the continuing route's
+  does. The validator allows it only on a decision with
+  `continuingRoute`/`continueAt` (a pure choice has no join). On the
+  continuing route itself it is moot, like the other results.
+- Completion: stepping off a `continue` route's last item completes
+  that route only. The continuing route is not completed by it, so the
+  "Return to main route" row still appears only once the continuing
+  route has completed (rule unchanged).
+- Play all routes keeps its contract: every route of the decision plays
+  once this pass, shortest first, the continuing route last, then
+  `continueAt`, and the shared scene plays once. So under play-all a
+  `continue` route's end behaves as a `return` route's end: it re-offers
+  the choice ("Back in time: “<route>” is done.") while a route of the
+  decision is unplayed this pass, and joins at `continueAt` once none
+  is. The direct join, with no choice screen after the route, is what a
+  reader with play-all off gets, every time.
+- Passing the decision: a completed `continue` route has reached
+  `continueAt`, so for `u`, the end card and every other "flow has
+  passed this decision" rule it counts as the continuing route's
+  completion does. Its last item is not an ending: no end card there.
+- Timeline walk: a `continue` route's end leads forward to `continueAt`
+  (story order, as the continuing route's does), not back to the choice
+  screen. Walking back from `continueAt` takes the end of the decision's
+  last-picked route when that route joins there, else the continuing
+  route's end, else another joining route end that was read.
+- Branch map: a `continue` route's end draws as a join into the
+  decision's join point, like the continuing route's, not as a return.
+- No closing-card feature: an author puts a `text` item at the route's
+  end ("Later, at the office."), as for any route. Saves and bookmarks
+  are unchanged: items and routes keep their ids.
+- Route completion follows the route's current end. On restore, a
+  completed route whose `end` item is not in the restored seen set is
+  no longer completed (its played mark stays). Extending a route moves
+  its `end` to a new, unseen item, so a reader who finished the shorter
+  route is not offered "Return to main route" past the new content, and
+  the decision is not passed until they read to the new end. Live play
+  always sees the end item before completing, so this acts only on
+  restore.
+
 ## Later, waiting on the user
 
 - Overlay text styling iteration once the user can play with the demo.

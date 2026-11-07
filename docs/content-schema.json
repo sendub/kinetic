@@ -110,9 +110,9 @@
           "description": "last item of the route's span; must resolve to an item id"
         },
         "result": {
-          "enum": ["return", "ending"],
+          "enum": ["return", "ending", "continue"],
           "default": "ending",
-          "description": "what happens when the route ends: \"ending\" means its last item IS the ending (no implicit join); \"return\" needs the decision's continuingRoute and offers return-to-main via continueAt; default \"ending\""
+          "description": "what happens when the route ends: \"ending\" means its last item IS the ending (no implicit join); \"return\" needs the decision's continuingRoute and offers return-to-main via continueAt; \"continue\" proceeds to the decision's continueAt after the route, as the continuing route does (under Play all routes it re-offers the choice while a route of the decision is unplayed this pass), and needs continuingRoute/continueAt, which the validator enforces; default \"ending\""
         }
       }
     },

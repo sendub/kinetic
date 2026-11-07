@@ -308,7 +308,20 @@ and items always use ids, never array positions.
   the default, means the route's last item IS the ending: afterwards
   the overlay offers route reselection. `"return"` means that after
   its end the overlay offers route reselection through to the
-  decision's join (see the return-row rule below). A route counts as
+  decision's join (see the return-row rule below). `"continue"` means
+  that after its end flow proceeds to the decision's `continueAt`, as
+  the continuing route's does, with no choice screen: the shape for
+  alternatives that all lead into one shared scene, written once. It
+  needs `continuingRoute`/`continueAt` (a pure choice has no join).
+  Stepping off its last item completes that route only, so the return
+  row below still waits for the continuing route; for every "flow has
+  passed this decision" rule (`u`, the end card) a completed
+  `"continue"` route counts as the continuing route's completion does,
+  and its last item is not an ending. Under `Play all routes` its end
+  re-offers the choice, as a `"return"` route's end does, while a route
+  of the decision is unplayed this pass, and joins at `continueAt` once
+  none is, so every route still plays once and the shared scene once
+  (see below). A route counts as
   played once it is ENTERED - its first content becomes current, by
   any means - so the seen mark appears immediately and an abandoned
   route still counts as seen. The ENTERED mark and the return row are
@@ -368,8 +381,12 @@ docs/plan.md Phase 13):
   of play-all's next pick) - going back, the route that had been taken
   from it; going forward, the route about to be taken. A returning
   route's end leads back to its choice screen and on along the
-  continuing route; a continuing route's end joins at `continueAt`; an
-  ending route's end stops the walk. A pure choice (no continuing route)
+  continuing route; a continuing route's end, and a `"continue"`
+  route's, joins at `continueAt` (story order, whatever `Play all
+  routes` does there); an ending route's end stops the walk. Walking
+  back from a `continueAt` takes the end of the decision's last-picked
+  route when that route joins there, else the continuing route's end,
+  else another joining route end that was read. A pure choice (no continuing route)
   closes past its menu region once every route has played, so each of
   its routes, whatever its `result`, leads back to its choice screen and
   on past the region (that screen highlights nothing); a region running
@@ -394,8 +411,9 @@ docs/plan.md Phase 13):
   continuation (what Space shows next, including the routes of a
   decision none of whose routes has been played), items inside a route
   whose enclosing decision was never reached, and content past a
-  decision flow has not passed yet (its continuing route not completed,
-  or a pure choice with a route unplayed). Landing inside routes opens
+  decision flow has not passed yet (no route joining at its
+  `continueAt` completed - its continuing route or a `"continue"`
+  route - or a pure choice with a route unplayed). Landing inside routes opens
   their frames and marks them PLAYED, exactly as picking them would, so
   Space reads on inside the route. Like a bookmark jump it is appended
   to the record.
@@ -432,7 +450,9 @@ docs/plan.md Phase 13):
   pass (fewest items; see the timeline on rewinding), the
   continuing route last, never the return row, repeats until every route
   has played once this pass, then continues via `continueAt` (a pure choice: past
-  the region end, per the rule above). A re-offer's status line leads
+  the region end, per the rule above). So a `"continue"` route's end
+  re-offers the choice while a route is unplayed this pass, and joins at
+  `continueAt` once none is. A re-offer's status line leads
   with "Back in time: “<route>” is done.". Space takes the pick at once; a
   digit or click picks another route. Inside a skip-all burst there is
   no countdown, only the highlight, and the burst carries on. A choice
@@ -654,6 +674,7 @@ The validator checks the schema plus these invariants:
 11. `continuingRoute` and `continueAt` require each other: the schema
     cannot express this pairing, so a `continuingRoute` without
     `continueAt`, or a `continueAt` without `continuingRoute`, is a
-    problem.
+    problem. A route whose `result` is `"continue"` on a decision
+    without both is a problem too: there is no join to continue to.
 12. A decision `prompt` is shorter than 200 characters and every
     route `label` shorter than 120.

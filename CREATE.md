@@ -175,9 +175,13 @@ Each entry is a decision that fires when the item named by its
 `after` settles: the player shows the `prompt` above a numbered list
 of route labels. A route's `start` and `end` name the inclusive,
 contiguous run of items it plays. The continuing route is named by
-`continuingRoute` and proceeds to `continueAt`; every other route
-must be an `ending` (the default: its last item IS the ending) or
-declare `result: "return"`. There is no implicit join. Two different
+`continuingRoute` and proceeds to `continueAt`; every other route is
+an `ending` (the default: its last item IS the ending), declares
+`result: "return"` (its end offers the choice again), or declares
+`result: "continue"` (its end also proceeds to `continueAt`, for
+alternatives that all lead into one shared scene: write the scene once,
+at `continueAt`, not after each route). There is no implicit join; a
+`"continue"` route needs `continuingRoute`. Two different
 milestones decide what a re-opened decision shows: a route row's seen
 mark needs only ENTERING that route, while the "Return to main route"
 row appears only once the reader has played the `continuingRoute`
@@ -185,8 +189,9 @@ through to its end at least once - a route entered and abandoned opens
 nothing, and until the continuing route is finished, re-openings offer
 routes only. Readers do not have to answer: "Play all routes" is on by
 default, so each choice counts down and the player plays every route,
-shortest first, then `continueAt`; a reader who turns it off on the Esc
-screen picks routes themselves. Full semantics
+shortest first, then `continueAt` (a `"continue"` route's end offers
+the choice again while a route is unplayed); a reader who turns it off
+on the Esc screen picks routes themselves. Full semantics
 are in docs/content-format.md § Branches; the validator checks every
 id, reference, and span.
 

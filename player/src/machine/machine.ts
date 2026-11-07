@@ -21,7 +21,8 @@
 // own, passed through like any screen and shown with the walk's route
 // highlighted (`ChoiceView.walkRoute`); a returning route leads back to its
 // choice screen and on along the continuing route; a continuing route's end
-// joins at `continueAt`; an ending route's end stops the walk. A pure
+// joins at `continueAt`, as does a `continue` route's (whatever play-all's
+// flow does there); an ending route's end stops the walk. A pure
 // choice (no continuing route) closes past its menu region once every route
 // has played, so each of its routes leads back to its choice screen and on
 // past the region, whatever its `result`. Route frames are not stored per screen:
@@ -275,9 +276,10 @@ export interface Machine {
    * - An item inside routes only when every enclosing decision's `after`
    *   item has been seen (the reader got to that decision).
    * - Not content behind an unpassed decision: past a decision's menu
-   *   region (in the same enclosing route) while its continuing route has
-   *   not been completed, or for a pure choice, while a route is unplayed —
-   *   the machine itself only flows there after that.
+   *   region (in the same enclosing route) while no route joining at its
+   *   `continueAt` (the continuing route, or a `"continue"` one) has been
+   *   completed, or for a pure choice, while a route is unplayed — the
+   *   machine itself only flows there after that.
    *
    * The landing opens the target's enclosing route frames and marks those
    * routes PLAYED, exactly as if each had been picked, so a forward press
@@ -529,6 +531,17 @@ export interface ResolvedRoute {
   continuing: boolean;
 }
 
+/**
+ * Whether a route's end leads on to its decision's `continueAt` in story
+ * order: the continuing route, or a `"continue"` one (docs/content-format.md,
+ * "Branches"). `resolveDecisions` keeps a `"continue"` route only on a
+ * decision that has a `continueAt`. The timeline and the branch map draw
+ * this; the flow off a `"continue"` route's end also asks play-all.
+ */
+export function joinsAtContinue(route: ResolvedRoute): boolean {
+  return route.continuing || route.result === "continue";
+}
+
 /** A decision with its item references resolved to indices. */
 export interface ResolvedDecision {
   /** Position in the resolved table: what the stack and context store. */
@@ -576,8 +589,9 @@ interface PendingChoice {
 /**
  * Resolves the branch table to item indices (docs/content-format.md,
  * "Branches"). The validator has already checked the table; an unresolvable
- * item id, an inverted span or a continuing route without `continueAt` drops
- * that one decision rather than guessing, so the manifest still plays.
+ * item id, an inverted span, a continuing route without `continueAt` or a
+ * `"continue"` route on a decision without one (no join to continue to)
+ * drops that one decision rather than guessing, so the manifest still plays.
  */
 export function resolveDecisions(
   items: readonly Item[],
@@ -612,6 +626,7 @@ export function resolveDecisions(
         return;
       }
       if (startIndex > endIndex) sound = false;
+      if (route.result === "continue" && continueAt < 0) sound = false;
       routes.push({
         id: route.id,
         label: route.label,
@@ -712,6 +727,16 @@ function itemScreen(index: number): Screen {
   return { kind: "item", index };
 }
 
+/**
+ * A step into an item from a route of a decision (the timeline's joins): a
+ * route end, or a pure choice's screen past its menu region.
+ */
+interface Join {
+  readonly from: Screen;
+  readonly decision: number;
+  readonly route: number;
+}
+
 export function createMachine(options: MachineOptions): Machine {
   const { items } = options;
   // Copied, and copied again on every setSettings(): the caller keeps
@@ -733,8 +758,8 @@ export function createMachine(options: MachineOptions): Machine {
    * The ENDING items, where the ending hint can show (docs/plan.md Phase
    * 18): the last item of the array plus the final item of every route
    * whose `result` is `ending`. A `return` route's end re-offers the
-   * decision and a continuing route's end rejoins the story, so neither IS
-   * an ending.
+   * decision and the ends of a continuing route and of a `continue` route
+   * rejoin the story, so none of them IS an ending.
    */
   const endings = new Set<number>();
   if (count > 0) endings.add(count - 1);
@@ -1353,12 +1378,13 @@ export function createMachine(options: MachineOptions): Machine {
 
   /**
    * Where the walk goes after the last item of route `routeIdx` of
-   * `decisionIndex`: a continuing route joins at `continueAt`; a returning
-   * route leads back to the choice screen and on along the continuing
-   * route; an ending route stops (null). A pure choice's routes, whatever
-   * their `result`, all lead back to its choice screen and on past the menu
-   * region, as the machine's flow closes past it once all have played
-   * (the shape the Ren'Py converter writes for every menu).
+   * `decisionIndex`: a continuing route, or a `continue` one, joins at
+   * `continueAt` (story order, whatever play-all's flow does there); a
+   * returning route leads back to the choice screen and on along the
+   * continuing route; an ending route stops (null). A pure choice's routes,
+   * whatever their `result`, all lead back to its choice screen and on past
+   * the menu region, as the machine's flow closes past it once all have
+   * played (the shape the Ren'Py converter writes for every menu).
    */
   function afterRouteEnd(
     decisionIndex: number,
@@ -1366,7 +1392,7 @@ export function createMachine(options: MachineOptions): Machine {
   ): Screen | null {
     const decision = decisions[decisionIndex];
     const route = decision.routes[routeIdx];
-    if (route.continuing) return passOn(decision, decision.continueAt);
+    if (joinsAtContinue(route)) return passOn(decision, decision.continueAt);
     if (decision.continuingRoute >= 0 && !returns(route)) return null;
     return {
       kind: "choice",
@@ -1419,25 +1445,28 @@ export function createMachine(options: MachineOptions): Machine {
   }
 
   /**
-   * The joins into each item: the route ends whose step lands on it (a
-   * continuing route's join, nested shared endings included), and the
-   * routes of pure choices whose fall-through does. The walk
-   * back from that item takes one of them. Static; built on first use.
+   * The joins into each item: the route ends whose step lands on it (the
+   * join of a continuing or `continue` route, nested shared endings
+   * included), and the routes of pure choices whose fall-through does, each
+   * with the decision and route it comes by. The walk back from that item
+   * takes one of them (`backwardOf`). Static; built on first use.
    */
-  let joinsInto: Map<number, Screen[]> | null = null;
-  function joinsTo(index: number): readonly Screen[] {
+  let joinsInto: Map<number, Join[]> | null = null;
+  function joinsTo(index: number): readonly Join[] {
     if (joinsInto === null) {
-      const map = new Map<number, Screen[]>();
-      const add = (target: Screen | null, from: Screen) => {
+      const map = new Map<number, Join[]>();
+      const add = (target: Screen | null, join: Join) => {
         if (target?.kind !== "item") return;
         const list = map.get(target.index) ?? [];
-        list.push(from);
+        list.push(join);
         map.set(target.index, list);
       };
       for (const decision of decisions) {
         decision.routes.forEach((route, routeIdx) => {
+          const by = { decision: decision.index, route: routeIdx };
           const end = itemScreen(route.endIndex);
-          if (decisionAt(route.endIndex) < 0) add(forwardOf(end), end);
+          if (decisionAt(route.endIndex) < 0)
+            add(forwardOf(end), { from: end, ...by });
           if (decision.continuingRoute < 0) {
             const past: Screen = {
               kind: "choice",
@@ -1445,7 +1474,7 @@ export function createMachine(options: MachineOptions): Machine {
               next: -1,
               via: routeIdx,
             };
-            add(forwardOf(past), past);
+            add(forwardOf(past), { from: past, ...by });
           }
         });
       }
@@ -1491,6 +1520,18 @@ export function createMachine(options: MachineOptions): Machine {
         via,
       };
     }
+    // A join comes back by the route last picked at its decision (a pure
+    // choice's fall-through too), else by the continuing route, else by
+    // the plain step from the item before, else by the first route read.
+    const joins = joinsTo(index).filter((join) =>
+      visited.has(anchorOf(join.from)),
+    );
+    const preferred =
+      joins.find((join) => lastPick.get(join.decision) === join.route) ??
+      joins.find(
+        (join) => decisions[join.decision].continuingRoute === join.route,
+      );
+    if (preferred !== undefined) return preferred.from;
     if (index > 0) {
       const step = forwardOf(itemScreen(index - 1));
       if (
@@ -1500,17 +1541,7 @@ export function createMachine(options: MachineOptions): Machine {
       )
         return itemScreen(index - 1);
     }
-    const joins = joinsTo(index).filter((from) => visited.has(anchorOf(from)));
-    // A pure choice's fall-through comes back by the last pick, else by
-    // the first route read.
-    return (
-      joins.find(
-        (from) =>
-          from.kind === "choice" && lastPick.get(from.decision) === from.via,
-      ) ??
-      joins[0] ??
-      null
-    );
+    return joins[0]?.from ?? null;
   }
 
   /** Whether the wheel may show a screen: only seen content. */
@@ -1712,8 +1743,8 @@ export function createMachine(options: MachineOptions): Machine {
 
   /**
    * Whether skip's next forward step would SHOW an unseen item with
-   * `skipAll` off (docs/plan.md Phase 18): a continuing route's end joining
-   * at an unseen `continueAt`, or a plain step onto an unseen item. A
+   * `skipAll` off (docs/plan.md Phase 18): a route end joining at an unseen
+   * `continueAt` (`endJoins`), or a plain step onto an unseen item. A
    * decision here opens its overlay instead (no reveal), and a re-offer
    * reveals nothing either.
    */
@@ -1723,10 +1754,25 @@ export function createMachine(options: MachineOptions): Machine {
     if (atRouteEnd()) {
       const frame = stack[stack.length - 1];
       const decision = decisions[frame.decision];
-      if (!decision.routes[frame.route].continuing) return false;
+      if (!endJoins(decision, frame.route)) return false;
       return decision.continueAt >= 0 && !visited.has(decision.continueAt);
     }
     return cursor + 1 < count && !visited.has(cursor + 1);
+  }
+
+  /**
+   * Whether the forward step off route `routeIdx`'s last item joins at the
+   * decision's `continueAt` (`handleRouteEnd`): always for the continuing
+   * route; for a `continue` route with play-all off, and under play-all
+   * once no route of the decision is left unplayed this pass (until then
+   * play-all re-offers the choice there, as at a `return` route's end, so
+   * every route still plays once, the continuing route last).
+   */
+  function endJoins(decision: ResolvedDecision, routeIdx: number): boolean {
+    const route = decision.routes[routeIdx];
+    if (route.continuing) return true;
+    if (route.result !== "continue") return false;
+    return !settings.playAllRoutes || nextAutoRoute(decision) < 0;
   }
 
   /** Leave skip mode; the current item restarts under its normal hold. */
@@ -1983,10 +2029,11 @@ export function createMachine(options: MachineOptions): Machine {
   /**
    * Proceeds to a decision's `continueAt`, its own frames already closed.
    * A join past the end of the enclosing open route (nested routes sharing
-   * an ending: the inner continuing route ends on the enclosing route's last
-   * item) leaves that route too, so its route-end handling runs — it
-   * completes, and joins, re-offers or closes in turn — rather than leaving
-   * a stale frame open (docs/plan.md Phase 13, Nested branches).
+   * an ending: the inner continuing or `continue` route ends on the
+   * enclosing route's last item) leaves that route too, so its route-end
+   * handling runs — it completes, and joins, re-offers or closes in turn —
+   * rather than leaving a stale frame open (docs/plan.md Phase 13, Nested
+   * branches).
    */
   function join(decision: ResolvedDecision): void {
     const frame = stack[stack.length - 1];
@@ -2023,14 +2070,16 @@ export function createMachine(options: MachineOptions): Machine {
   }
 
   /**
-   * Whether flow has gone past a decision's menu region: its continuing
-   * route completed (the join), or — a pure choice — every route played
-   * (the all-played close).
+   * Whether flow has gone past a decision's menu region: a route that joins
+   * at its `continueAt` completed (the continuing route, or a `continue`
+   * one), or — a pure choice — every route played (the all-played close).
    */
   function decisionPassed(decision: ResolvedDecision): boolean {
     if (decision.continuingRoute >= 0) {
-      return (
-        completed.get(decision.index)?.has(decision.continuingRoute) === true
+      const done = completed.get(decision.index);
+      return decision.routes.some(
+        (route, routeIdx) =>
+          joinsAtContinue(route) && done?.has(routeIdx) === true,
       );
     }
     // `u` reads the cumulative record (seen routes), not this pass's.
@@ -2061,11 +2110,11 @@ export function createMachine(options: MachineOptions): Machine {
 
   /**
    * What the reader's next forward step reads, which `u` leaves to Space
-   * (`jumpToUnseen`): the unseen run a plain step would show — from the next
-   * item, or a continuing route's join — up to a route boundary, and the
-   * decision the step would open when none of its routes has been played
-   * yet (its routes are the reader's pick). A re-offered decision is not
-   * excluded: its unplayed routes are what the end card points `u` at.
+   * (`jumpToUnseen`): the unseen run a plain step would show — from the
+   * next item, or a route end's join (`endJoins`) — up to a route boundary,
+   * and the decision the step would open when none of its routes has been
+   * played yet (its routes are the reader's pick). A re-offered decision is
+   * not excluded: its unplayed routes are what the end card points `u` at.
    */
   function continuation(): { run: Set<number>; decision: number } {
     const run = new Set<number>();
@@ -2078,7 +2127,7 @@ export function createMachine(options: MachineOptions): Machine {
     } else if (atRouteEnd()) {
       const frame = stack[stack.length - 1];
       const owner = decisions[frame.decision];
-      if (owner.routes[frame.route].continuing) start = owner.continueAt;
+      if (endJoins(owner, frame.route)) start = owner.continueAt;
     } else {
       start = cursor + 1;
     }
@@ -2156,22 +2205,23 @@ export function createMachine(options: MachineOptions): Machine {
    * "Branches"): the route is COMPLETED — recorded in the `completed` set —
    * then pop the frame, and by the route's kind — the continuing route
    * proceeds to `continueAt` (its own completion is recorded right here, at
-   * the join); any other route re-opens the decision, and that re-offer
-   * includes "return to main route" only if the decision's CONTINUING route
-   * has already completed (docs/plan.md Phase 18) — the route that just
-   * finished opens the join only by being that route. A pure-choice decision
-   * whose every route has now played does not re-open: it closes and flow
-   * continues past the whole menu region (docs/plan.md Phase 13), ending the
-   * story when the region runs to the last item.
+   * the join), and so does a `continue` route unless play-all still has a
+   * route of the decision to play this pass (`endJoins`); any other route
+   * re-opens the decision, and that re-offer includes "return to main
+   * route" only if the decision's CONTINUING route has already completed
+   * (docs/plan.md Phase 18) — the route that just finished opens the row
+   * only by being that route, a `continue` route completing only itself. A
+   * pure-choice decision whose every route has now played does not re-open:
+   * it closes and flow continues past the whole menu region (docs/plan.md
+   * Phase 13), ending the story when the region runs to the last item.
    */
   function handleRouteEnd(): void {
     const frame = stack[stack.length - 1];
     const decision = decisions[frame.decision];
-    const route = decision.routes[frame.route];
     completedOf(decision.index).add(frame.route);
     if (closeIfPureAndComplete(decision)) return;
     stack.pop();
-    if (route.continuing) {
+    if (endJoins(decision, frame.route)) {
       join(decision);
       return;
     }

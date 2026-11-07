@@ -3409,3 +3409,408 @@ describe("timeline: the wheel walks the story order (docs/plan.md Phase 27)", ()
     m.destroy();
   });
 });
+
+// lead decide | c-1 c-2 c-3 c-4 | n-1 n-2 | p-1 p-2 | s-1 s-2 s-3
+//  0    1     | 2   3   4   5   | 6   7   | 8   9   | 10  11  12
+// Routes that continue into the join (docs/plan.md Phase 38): Rowan's
+// decision, whose short routes Negotiate (0) and Pay (1) are `continue`
+// routes and whose long route Contract (2) is the continuing one; all three
+// lead into the shared scene at `s-1`. Contract comes first in the array,
+// so the short routes' ends are the items just before the join.
+const JOINING: Shape = {
+  items: [
+    "lead",
+    "decide",
+    "c-1",
+    "c-2",
+    "c-3",
+    "c-4",
+    "n-1",
+    "n-2",
+    "p-1",
+    "p-2",
+    "s-1",
+    "s-2",
+    "s-3",
+  ],
+  branches: [
+    {
+      id: "rowan",
+      after: "decide",
+      prompt: "What does Rowan do?",
+      routes: [
+        {
+          id: "negotiate",
+          label: "Negotiate",
+          start: "n-1",
+          end: "n-2",
+          result: "continue",
+        },
+        {
+          id: "pay",
+          label: "Pay",
+          start: "p-1",
+          end: "p-2",
+          result: "continue",
+        },
+        { id: "contract", label: "Contract", start: "c-1", end: "c-4" },
+      ],
+      continuingRoute: "contract",
+      continueAt: "s-1",
+    },
+  ],
+};
+const NEGOTIATE = 0;
+const PAY = 1;
+const CONTRACT = 2;
+const JOIN = 10;
+
+/** From the start, Space to `decide` and settle it: Rowan's choice opens. */
+function openRowan(m: ReturnType<typeof machine>): void {
+  step(m); // lead -> decide
+  m.advance(); // settling decide fires the decision
+}
+
+/** Pick `route` from the open choice and read it through to the join. */
+function readThrough(m: ReturnType<typeof machine>, route: number): void {
+  m.choose(route);
+  for (let press = 0; press < 8 && m.getState().cursor !== JOIN; press += 1)
+    m.advance();
+  expect(m.getState().cursor).toBe(JOIN);
+  expect(m.getState().choice).toBeUndefined();
+}
+
+/** Wheel back onto Rowan's choice screen. */
+function backToRowan(m: ReturnType<typeof machine>): void {
+  wheelBackUntil(m, (s) => s.choice?.decisionId === "rowan");
+}
+
+describe("routes that continue into the join (docs/plan.md Phase 38)", () => {
+  const PLAY_ALL: MachineSettings = { ...SETTINGS, playAllRoutes: true };
+
+  it("play all routes off: stepping off a continue route's last item goes straight to continueAt, every time", () => {
+    const m = machine(JOINING);
+    openRowan(m);
+    m.choose(PAY);
+    expect(m.getState().cursor).toBe(8);
+    m.advance();
+    expect(m.getState().cursor).toBe(9); // p-2, Pay's last item
+    m.advance(); // off it: no choice screen, the shared scene
+    expect(m.getState().cursor).toBe(JOIN);
+    expect(m.getState().choice).toBeUndefined();
+    expect(m.exportContext().stack).toEqual([]);
+    backToRowan(m);
+    m.choose(NEGOTIATE); // again, from the walked choice screen
+    m.advance();
+    m.advance(); // off n-2
+    expect(m.getState().cursor).toBe(JOIN);
+    expect(m.getState().choice).toBeUndefined();
+    expect(m.exportContext().stack).toEqual([]);
+    m.destroy();
+  });
+
+  it("a continue route completes only itself: the return row waits for the continuing route", () => {
+    const m = machine(JOINING);
+    openRowan(m);
+    readThrough(m, PAY);
+    expect(m.exportContext().completedRoutes).toEqual([
+      { decision: 0, routes: [PAY] },
+    ]);
+    backToRowan(m);
+    expect(m.getState().choice?.continueOption).toBeUndefined();
+    readThrough(m, NEGOTIATE);
+    backToRowan(m);
+    expect(m.getState().choice?.continueOption).toBeUndefined();
+    readThrough(m, CONTRACT); // the continuing route: its end opens the row
+    expect(m.exportContext().completedRoutes).toEqual([
+      { decision: 0, routes: [NEGOTIATE, PAY, CONTRACT] },
+    ]);
+    backToRowan(m);
+    expect(m.getState().choice?.continueOption).toBe(true);
+    m.destroy();
+  });
+
+  it("play all routes on: every route once, shortest first, the continuing route last; a continue route's end re-offers", () => {
+    vi.useFakeTimers();
+    const m = machine(JOINING, { settings: PLAY_ALL });
+    const shown: { cursor: number; pick?: number; back?: string }[] = [];
+    m.subscribe((s) => {
+      if (s.choice?.autoPick?.picked === false)
+        shown.push({
+          cursor: s.cursor,
+          pick: s.choice.autoPick.routeIdx,
+          back: s.choice.autoPick.backFromLabel,
+        });
+    });
+    for (let press = 0; press < 40 && m.getState().cursor !== 12; press += 1)
+      m.advance();
+    expect(shown).toEqual([
+      { cursor: 1, pick: NEGOTIATE, back: undefined },
+      { cursor: 7, pick: PAY, back: "Negotiate" }, // re-offered off n-2
+      { cursor: 9, pick: CONTRACT, back: "Pay" }, // re-offered off p-2
+    ]);
+    // Contract's end joins, and the shared scene plays once.
+    expect(m.exportContext().visited).toEqual([
+      0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12,
+    ]);
+    expect(m.getState().cursor).toBe(12);
+    m.destroy();
+  });
+
+  it("play all routes on: a continue route's end joins at continueAt once no route is unplayed this pass", () => {
+    vi.useFakeTimers();
+    const m = machine(JOINING);
+    openRowan(m);
+    m.choose(CONTRACT); // entered this pass, then left by `u`
+    expect(m.getState().cursor).toBe(2);
+    m.jumpToUnseen(); // past Contract's own run: into Negotiate
+    expect(m.getState().cursor).toBe(6);
+    m.setSettings(PLAY_ALL);
+    m.advance(); // n-2
+    m.advance(); // off it: Pay is unplayed this pass, so the choice again
+    expect(m.getState().cursor).toBe(7);
+    expect(m.getState().choice?.autoPick?.routeIdx).toBe(PAY);
+    expect(m.getState().choice?.continueOption).toBeUndefined();
+    m.advance(); // Space takes Pay
+    m.advance(); // p-2
+    expect(m.getState().cursor).toBe(9);
+    m.advance(); // off it: nothing unplayed this pass, so the join
+    expect(m.getState().cursor).toBe(JOIN);
+    expect(m.getState().choice).toBeUndefined();
+    m.destroy();
+  });
+
+  it("its last item is not an ending: no end card there", () => {
+    const m = machine(JOINING);
+    openRowan(m);
+    m.choose(PAY);
+    m.advance();
+    expect(m.getState().cursor).toBe(9);
+    expect(m.getState().endCard).toBeUndefined();
+    m.destroy();
+  });
+
+  it("a completed continue route passes the decision: `u` reaches the shared scene", () => {
+    const m = machine(JOINING);
+    openRowan(m);
+    readThrough(m, NEGOTIATE); // completed: the decision is passed
+    backToRowan(m);
+    m.choose(PAY);
+    m.advance();
+    expect(m.getState().cursor).toBe(9); // p-2, Pay not yet completed
+    m.jumpToUnseen();
+    // s-1 is seen (Space shows it next); s-2 lies past the menu region,
+    // reachable because Negotiate has completed (not Contract's c-1).
+    expect(m.getState().cursor).toBe(11);
+    m.destroy();
+  });
+
+  it("`u` leaves the join to Space where the next step takes it, and not under play-all's re-offer", () => {
+    vi.useFakeTimers();
+    // Play all routes: Negotiate completes and re-offers; Pay is taken and
+    // read to its last item. The shared scene is still unseen.
+    const atPayEnd = () => {
+      const m = machine(JOINING, { settings: PLAY_ALL });
+      openRowan(m);
+      m.advance(); // Space takes Negotiate
+      m.advance(); // n-2
+      m.advance(); // off it: the re-offer
+      m.advance(); // Space takes Pay
+      m.advance(); // p-2
+      expect(m.getState().cursor).toBe(9);
+      expect(m.getState().choice).toBeUndefined();
+      return m;
+    };
+    const playAll = atPayEnd();
+    // The next step re-offers (Contract is unplayed), so s-1 is not the
+    // reader's continuation and `u` may land there.
+    playAll.jumpToUnseen();
+    expect(playAll.getState().cursor).toBe(JOIN);
+    playAll.destroy();
+    const manual = atPayEnd();
+    manual.setSettings(SETTINGS);
+    // Now the next step joins: s-1 onwards is Space's, so `u` wraps round
+    // to the unplayed Contract instead.
+    manual.jumpToUnseen();
+    expect(manual.getState().cursor).toBe(2);
+    manual.destroy();
+  });
+
+  it("skip never reveals the join off a continue route's end", () => {
+    const m = machine(JOINING, {
+      settings: { ...SETTINGS, skipAll: false },
+    });
+    openRowan(m);
+    m.choose(PAY);
+    m.advance();
+    expect(m.getState().cursor).toBe(9);
+    m.toggleSkip(); // the next step would show the unseen s-1
+    expect(m.getState().skipping).toBe(false);
+    expect(m.getState().cursor).toBe(9);
+    m.destroy();
+  });
+
+  it("the wheel: a continue route's end leads forward to continueAt; back from it the last pick's end", () => {
+    const m = machine(JOINING);
+    openRowan(m);
+    readThrough(m, CONTRACT);
+    backToRowan(m);
+    readThrough(m, PAY);
+    backToRowan(m);
+    readThrough(m, NEGOTIATE); // the last pick; p-2 is read and adjacent
+    m.advance(); // s-2
+    expect(walk(m, "back", 7)).toEqual([
+      "10",
+      "7", // Negotiate's end, not p-2 or Contract's c-4
+      "6",
+      "rowan>0",
+      "1",
+      "0",
+      "0",
+    ]);
+    expect(walk(m, "forward", 7)).toEqual([
+      "1",
+      "rowan>0",
+      "6",
+      "7",
+      "10", // on to the join, not back to the choice screen
+      "11",
+      "11",
+    ]);
+    m.destroy();
+  });
+
+  it("the wheel back from continueAt: the continuing route's end when the last pick's end is unread", () => {
+    const m = machine(JOINING);
+    openRowan(m);
+    readThrough(m, CONTRACT);
+    m.advance();
+    m.advance(); // s-3
+    backToRowan(m);
+    readThrough(m, NEGOTIATE);
+    backToRowan(m);
+    m.choose(PAY); // the last pick, abandoned on p-1
+    m.jumpToEnd();
+    expect(m.getState().cursor).toBe(12);
+    expect(walk(m, "back", 4)).toEqual(["11", "10", "5", "4"]);
+    m.destroy();
+  });
+
+  it("the wheel back from continueAt: another joining route's end that was read", () => {
+    const m = machine(JOINING);
+    openRowan(m);
+    readThrough(m, NEGOTIATE);
+    m.advance();
+    m.advance(); // s-3
+    backToRowan(m);
+    m.choose(PAY); // the last pick, abandoned on p-1; Contract never read
+    m.jumpToEnd();
+    expect(walk(m, "back", 5)).toEqual(["11", "10", "7", "6", "rowan>0"]);
+    m.destroy();
+  });
+
+  it("a continue route on a decision without a join drops that decision", () => {
+    const m = machine({
+      items: ["lead", "decide", "p-1", "q-1", "tail"],
+      branches: [
+        {
+          id: "pure",
+          after: "decide",
+          prompt: "Which?",
+          routes: [
+            {
+              id: "p",
+              label: "P",
+              start: "p-1",
+              end: "p-1",
+              result: "continue",
+            },
+            { id: "q", label: "Q", start: "q-1", end: "q-1" },
+          ],
+        },
+      ],
+    });
+    step(m);
+    m.advance(); // settling decide fires nothing: the items play linearly
+    expect(m.getState().choice).toBeUndefined();
+    expect(m.getState().cursor).toBe(2);
+    m.destroy();
+  });
+});
+
+// i0 | i1 | i2 | i3 | i4 | i5
+//  0 |  1 |  2 |  3 |  4 |  5
+// A continue route inside an enclosing route: the outer decision's
+// continuing route i2..i4 holds the inner decision, whose continue route
+// i3 and continuing route i4 both join at i5, past the enclosing route.
+const NESTED_JOINING: Shape = {
+  items: ["i0", "i1", "i2", "i3", "i4", "i5"],
+  branches: [
+    {
+      id: "outer",
+      after: "i0",
+      prompt: "Outer?",
+      routes: [
+        {
+          id: "o-alt",
+          label: "Outer alt",
+          start: "i1",
+          end: "i1",
+          result: "return",
+        },
+        { id: "o-cont", label: "Outer cont", start: "i2", end: "i4" },
+      ],
+      continuingRoute: "o-cont",
+      continueAt: "i5",
+    },
+    {
+      id: "inner",
+      after: "i2",
+      prompt: "Inner?",
+      routes: [
+        {
+          id: "n-pay",
+          label: "Inner pay",
+          start: "i3",
+          end: "i3",
+          result: "continue",
+        },
+        { id: "n-cont", label: "Inner cont", start: "i4", end: "i4" },
+      ],
+      continuingRoute: "n-cont",
+      continueAt: "i5",
+    },
+  ],
+};
+
+describe("a nested continue route joining past its enclosing route (docs/plan.md Phase 38)", () => {
+  it("its end leaves the enclosing route too, completing it, as the continuing route's does", () => {
+    const m = machine(NESTED_JOINING);
+    m.advance(); // outer fires on i0
+    m.choose(1); // outer cont
+    m.advance(); // inner fires on i2
+    m.choose(0); // inner pay
+    expect(m.getState().cursor).toBe(3);
+    m.advance(); // off i3: joins at i5, past the outer route's end
+    expect(m.getState().cursor).toBe(5);
+    expect(m.getState().choice).toBeUndefined();
+    expect(m.exportContext().stack).toEqual([]);
+    expect(m.exportContext().completedRoutes).toEqual([
+      { decision: 0, routes: [1] },
+      { decision: 1, routes: [0] },
+    ]);
+    // The wheel walks the same path, both ways.
+    expect(walk(m, "back", 5)).toEqual(["3", "inner>0", "2", "outer>1", "0"]);
+    expect(walk(m, "forward", 5)).toEqual([
+      "outer>1",
+      "2",
+      "inner>0",
+      "3",
+      "5",
+    ]);
+    // The outer continuing route completed, so its return row is open.
+    wheelBackUntil(m, (s) => s.choice?.decisionId === "outer");
+    expect(m.getState().choice?.continueOption).toBe(true);
+    m.destroy();
+  });
+});

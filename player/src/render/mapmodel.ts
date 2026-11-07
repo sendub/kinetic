@@ -8,11 +8,12 @@
 // decision is a box; its routes stack downward from the decision's own row,
 // each a pill followed by the route's own line (nested decisions included,
 // recursively), so a route that holds a nested decision is as tall as that
-// decision's routes. Routes that continue or return meet at a join on the
-// decision's row, and the line carries on from there: at `continueAt` for a
-// decision with a continuing route, past the whole menu region for a pure
-// choice (the machine's own flow, docs/content-format.md "Branches"). An
-// ending route stops in an end mark.
+// decision's routes. Routes that continue (the continuing route, and every
+// `continue` route) or return meet at a join on the decision's row, and the
+// line carries on from there: at `continueAt` for a decision with a
+// continuing route, past the whole menu region for a pure choice (the
+// machine's own flow, docs/content-format.md "Branches"). An ending route
+// stops in an end mark.
 //
 // Two rules keep a large game screen-shaped and its connectors short:
 //
@@ -42,7 +43,11 @@
 // indices; the cost is linear in decisions and routes (times nesting depth
 // for the tuck shifts), never in items, whatever the game's size.
 
-import { type ResolvedDecision, resolveDecisions } from "../machine/machine";
+import {
+  joinsAtContinue,
+  type ResolvedDecision,
+  resolveDecisions,
+} from "../machine/machine";
 import type { Branch, ContextFrame, Item, RouteSet } from "../machine/types";
 import type { SavedMapView } from "../storage/types";
 
@@ -138,7 +143,11 @@ export interface MapLink {
   readonly y1: number;
 }
 
-/** How a route's span ends (docs/content-format.md, "Branches"). */
+/**
+ * How a route's span ends (docs/content-format.md, "Branches"):
+ * `continues` for the continuing route and a `continue` route (both join
+ * at `continueAt`), `returns` for a `return` route, `ends` otherwise.
+ */
 export type RouteOutcome = "continues" | "returns" | "ends";
 
 /** One route pill and the line after it. */
@@ -163,9 +172,9 @@ export interface MapModel {
   readonly routes: readonly MapRoute[];
   /**
    * The connectors, each with its bounding box (for culling): decision ->
-   * route pill curves (`branch`), continuing routes into their join
-   * (`join`), returning routes back towards it (`return`), and a row's end
-   * to the next row's start (`wrap`).
+   * route pill curves (`branch`), continuing and `continue` routes into
+   * their join (`join`), returning routes back towards it (`return`), and a
+   * row's end to the next row's start (`wrap`).
    */
   readonly links: readonly MapLink[];
   /** Join dots and end marks, world points. */
@@ -562,7 +571,7 @@ function layOutMap(
     let furthest = bx + g.routeW;
     const pending: { key: number; endX: number; y: number }[] = [];
     decision.routes.forEach((route, routeIdx) => {
-      const outcome: RouteOutcome = route.continuing
+      const outcome: RouteOutcome = joinsAtContinue(route)
         ? "continues"
         : route.result === "return"
           ? "returns"

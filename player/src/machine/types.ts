@@ -115,9 +115,12 @@ export type Item = ImageItem | AnimationItem | VideoItem | TextItem;
  * "Branches"). `"ending"` — the default — means the span's last item IS the
  * ending, so afterwards the overlay offers only route reselection; `"return"`
  * means the overlay also offers "return to main route", which proceeds to the
- * decision's `continueAt`. A continuing route's own `result` is moot.
+ * decision's `continueAt`; `"continue"` means flow proceeds to the decision's
+ * `continueAt` after the route, as the continuing route's does (under Play
+ * all routes it re-offers as a `"return"` route does while a route of the
+ * decision is unplayed this pass). A continuing route's own `result` is moot.
  */
-export type RouteResult = "return" | "ending";
+export type RouteResult = "return" | "ending" | "continue";
 
 /**
  * One route of a decision: an inclusive, contiguous span of items in array
@@ -132,7 +135,10 @@ export interface Route {
   start: string;
   /** Id of the span's last item. */
   end: string;
-  /** Defaults to `"ending"`: there is no implicit join into the main line. */
+  /**
+   * Defaults to `"ending"`: there is no implicit join into the main line;
+   * `"continue"` is the explicit one, and needs `continuingRoute`.
+   */
   result?: RouteResult;
 }
 
