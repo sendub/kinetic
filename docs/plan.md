@@ -1403,13 +1403,17 @@ content that drifts).
   end ("Later, at the office."), as for any route. Saves and bookmarks
   are unchanged: items and routes keep their ids.
 - Route completion follows the route's current end. On restore, a
-  completed route whose `end` item is not in the restored seen set is
-  no longer completed (its played mark stays). Extending a route moves
-  its `end` to a new, unseen item, so a reader who finished the shorter
+  completed route counts only if its `end` item is in the restored seen
+  set, or flow left it past its end through a directly nested decision
+  that is passed: one whose `continueAt` (or, for a pure choice, its
+  menu region's fall-through) lies past the route's end, with a joining
+  route completed that itself counts by this rule (inner decisions
+  first), or for a pure choice every route played. Otherwise it is no
+  longer completed (its played mark stays). Every completion live play
+  produces survives a reload unchanged. Extending a route moves its
+  `end` to a new, unseen item, so a reader who finished the shorter
   route is not offered "Return to main route" past the new content, and
-  the decision is not passed until they read to the new end. Live play
-  always sees the end item before completing, so this acts only on
-  restore.
+  the decision is not passed until they read to the new end.
 
 ## Later, waiting on the user
 

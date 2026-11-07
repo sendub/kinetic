@@ -13,7 +13,10 @@
 // stack frame, last pick or played/completed route of an unknown decision or
 // route is dropped, and so is an open choice of an unknown decision. A
 // `lastShown` that is gone falls back to the furthest seen item. A save in
-// which nothing resolves at all is no save. Pure: no DOM, no storage.
+// which nothing resolves at all is no save. A completed route whose current
+// end the reader has not reached, such as one extended since, converts
+// as-is; the machine drops that completion on restore (`reachedEnd` in
+// machine.ts). Pure: no DOM, no storage.
 
 import { resolveDecisions } from "../machine/machine";
 import type {

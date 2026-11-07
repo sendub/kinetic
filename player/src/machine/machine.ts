@@ -783,6 +783,21 @@ export function createMachine(options: MachineOptions): Machine {
   }
   const regionEnds = decisions.map(regionEnd);
   /**
+   * The decisions deepest first, so each nested decision comes before the
+   * one holding it: the order a restore checks completions in (`reachedEnd`).
+   */
+  const innerFirst = [...decisions].sort((a, b) => depthOf(b) - depthOf(a));
+  function depthOf(decision: ResolvedDecision): number {
+    let depth = 0;
+    for (
+      let parent = decision.parent;
+      parent >= 0 && depth < decisions.length;
+      parent = decisions[parent].parent
+    )
+      depth += 1;
+    return depth;
+  }
+  /**
    * The innermost route enclosing each item, or null at the top level.
    * Spans nest or are disjoint, so the narrowest span holding an item is
    * the innermost, and the frames around it chain outwards through each
@@ -2293,21 +2308,28 @@ export function createMachine(options: MachineOptions): Machine {
         }
       }
     }
-    // Completed routes restore with the same validation. The field is newer
-    // than the rest of the context: a legacy save carries none, and its
-    // known played routes say nothing about completions — so the restore
-    // treats NOTHING as completed (the conservative reading: the return row
-    // just stays hidden until the reader finishes the continuing route once,
-    // rather than offering a return to an end they may never have reached).
+    // Completed routes restore with the same validation, and each only as
+    // its route now ends (`reachedEnd`): a completion whose route end the
+    // restored seen set has not reached, as after the route was extended to
+    // a new end, is dropped while its played mark stays. Nested decisions
+    // are checked first, so an enclosing route's check reads their filtered
+    // completions. The field is newer than the rest of the context: a
+    // legacy save carries none, and its known played routes say nothing
+    // about completions — so the restore treats NOTHING as completed (the
+    // conservative reading: the return row just stays hidden until the
+    // reader finishes the continuing route once, rather than offering a
+    // return to an end they may never have reached).
+    const storedCompleted = new Map(
+      validRouteSets(context.completedRoutes).map((set) => [
+        set.decision,
+        set.routes,
+      ]),
+    );
     completed.clear();
-    for (const entry of context.completedRoutes ?? []) {
-      const decisionIndex = asIndex(entry?.decision, -1);
-      if (decisionIndex < 0 || decisionIndex >= decisions.length) continue;
-      for (const routeIdx of entry.routes ?? []) {
-        const value = asIndex(routeIdx, -1);
-        if (value >= 0 && value < decisions[decisionIndex].routes.length) {
-          completedOf(decisionIndex).add(value);
-        }
+    for (const decision of innerFirst) {
+      for (const routeIdx of storedCompleted.get(decision.index) ?? []) {
+        if (reachedEnd(decision, routeIdx))
+          completedOf(decision.index).add(routeIdx);
       }
     }
     // The played-this-pass record; an older save without one reads as its
@@ -2339,6 +2361,33 @@ export function createMachine(options: MachineOptions): Machine {
     cursor = clamp(asIndex(context.lastShown, 0), 0, count - 1);
     // The landing item is shown, so it counts as seen.
     markShown(cursor);
+  }
+
+  /**
+   * Whether a restored completion of route `routeIdx` of `decision` holds
+   * for this manifest (docs/content-format.md, "Branches"): completion is of
+   * the route as it now ends. Live play completes a route by stepping off
+   * its `end` item, which is then seen, or by leaving it past that end
+   * through a decision nested directly in it — a join at its `continueAt`
+   * (`join`) or a pure choice's close at its fall-through
+   * (`closeIfPureAndComplete`) beyond the route's end. So the completion
+   * holds when the end item is seen, or when such a decision is passed
+   * (`decisionPassed`, over its completions already checked). A route
+   * extended to a new, unseen end fails both.
+   */
+  function reachedEnd(decision: ResolvedDecision, routeIdx: number): boolean {
+    const route = decision.routes[routeIdx];
+    if (visited.has(route.endIndex)) return true;
+    return decisions.some(
+      (inner) =>
+        inner.parent === decision.index &&
+        inner.afterIndex >= route.startIndex &&
+        inner.afterIndex <= route.endIndex &&
+        (inner.continuingRoute >= 0
+          ? inner.continueAt
+          : regionEnds[inner.index] + 1) > route.endIndex &&
+        decisionPassed(inner),
+    );
   }
 
   /**

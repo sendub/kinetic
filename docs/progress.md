@@ -1831,10 +1831,25 @@ truthful: an unchecked box means nothing was accepted.
       `continue` 9 new branch tests fail, restored 142 pass; subagent
       ran the new tests on HEAD's code: 11 of 14 unit, 3 of 4 scenario
       and 3 of 4 validator checks fail, the rest are guards.)
-- [ ] Route completion follows the route's current end (docs/plan.md
+- [x] Route completion follows the route's current end (docs/plan.md
       Phase 38, last bullet): on restore, a completed route whose `end`
       item is not in the restored seen set is not completed (played
       mark kept), so extending a route does not offer "Return to main
       route" past the new content. Unit test that fails on HEAD's code.
+      (2026-11-07: the subagent found live play completes an outer
+      route without showing its end when a nested decision joins or
+      closes past it, so the rule became plan.md's revised bullet:
+      end seen, or left past its end through a passed nested decision,
+      inner decisions first (`reachedEnd` in applyContext, which reload,
+      progress import and bookmark opens all reach). Known gap, left as
+      is: play-all + a hand-picked inner continuing route + `u` into a
+      sibling whose end auto-resolves past the outer end completes the
+      outer route live without the inner decision passed; a reload then
+      hides the outer return row until it is completed again. One
+      existing test now builds its context with the real mergeProgress.
+      Orchestrator: npm test 709 pass, check clean; smoke 6/6, branches
+      43/43, progress 6/6, continueroute 6/6; with `reachedEnd` always
+      true the 2 machine tests and the codec extension test fail, the
+      nested guards pass.)
 - [ ] Phase-closer (Phase 38): full scenario suite, `pytest tools/`,
       package-proof (rebuilds the demo).

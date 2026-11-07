@@ -347,6 +347,63 @@ describe("a save survives a content update (prequel, new route, deleted item)", 
   });
 });
 
+// V1X, a later episode: route C extended, `cont-3` added after `cont-2` and
+// C's `end` moved onto it.
+//   lead-1 aside lead-2 decide | a-1 a-2 | b-1 b-2 | cont-1 cont-2 cont-3 | after-1 after-2
+//    0      1     2      3      | 4   5   | 6   7   | 8      9      10     | 11      12
+const V1X: Version = {
+  items: [...V1.items.slice(0, 10), image("cont-3"), ...V1.items.slice(10)],
+  branches: [
+    {
+      ...D1,
+      routes: [D1.routes[0], D1.routes[1], { ...D1.routes[2], end: "cont-3" }],
+    },
+  ],
+};
+
+describe("a completion follows the route's current end (docs/plan.md Phase 38)", () => {
+  it("a save that finished route C, restored after C was extended: no return row until the new end is read", () => {
+    const { codec, m } = playV1(); // C completed, `cont-2` its end, seen
+    const saved = stored(codec.toSaved(m.exportContext()));
+    m.destroy();
+
+    // Unchanged manifest: the completion holds, the return row is offered.
+    const same = machine(
+      V1,
+      resumeOptionsFor({ ctx: saved }, codec).resumeContext,
+    );
+    same.showChoice(0);
+    expect(same.getState().choice?.continueOption).toBe(true);
+    same.destroy();
+
+    // Extended: C now ends on the unseen `cont-3`, so it is played, not
+    // completed, and d1's re-openings carry no return row.
+    const codecX = createContextCodec(V1X.items, V1X.branches);
+    const resumed = machine(
+      V1X,
+      resumeOptionsFor({ ctx: saved }, codecX).resumeContext,
+    );
+    expect(resumed.exportContext().playedRoutes).toEqual([
+      { decision: 0, routes: [0, 2] },
+    ]);
+    expect(resumed.exportContext().completedRoutes).toEqual([
+      { decision: 0, routes: [0] },
+    ]);
+    resumed.showChoice(0);
+    expect(resumed.getState().choice?.continueOption).toBeUndefined();
+    // Picking C reads through to its new end, which completes it again.
+    resumed.choose(2);
+    resumed.advance(); // cont-1 -> cont-2
+    resumed.advance(); // -> cont-3, the new content
+    expect(V1X.items[resumed.getState().cursor].id).toBe("cont-3");
+    resumed.advance(); // off C's new end: joins at after-1
+    expect(V1X.items[resumed.getState().cursor].id).toBe("after-1");
+    resumed.showChoice(0);
+    expect(resumed.getState().choice?.continueOption).toBe(true);
+    resumed.destroy();
+  });
+});
+
 describe("unknown ids and old saves", () => {
   it("a save in which nothing resolves is no save", () => {
     const codec2 = createContextCodec(V2.items, V2.branches);

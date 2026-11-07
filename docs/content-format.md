@@ -336,7 +336,12 @@ and items always use ids, never array positions.
   re-openings offer routes only and picking it is the way forward; its
   own end joining at `continueAt` opens the row, as does finishing it
   from any re-offer. Once it has completed, every re-opening carries
-  the row, so an ending is escapable rather than a loop. A decision
+  the row, so an ending is escapable rather than a loop. Completion is
+  of the route as it now ends: a restored completion counts only if
+  the route's `end` item has been seen, or flow left the route past
+  that end through a passed decision nested in it, so a reader who
+  finished a route since extended to a new end has not completed it
+  until they read to the new end (its seen mark stays). A decision
   with no `continuingRoute` is never offered it. There is
   NO implicit join: an unmarked route never silently merges into the
   main line, because an alternate's later state is not the main

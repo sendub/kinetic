@@ -351,9 +351,12 @@ export interface MachineContext {
    * the route (docs/plan.md Phase 18, Branches). Entered-and-abandoned is
    * `playedRoutes` only; completion additionally needs `completedRoutes`.
    * "Return to main route" is offered from the CONTINUING route appearing
-   * here. The field is newer than the rest of the context: absent (a legacy
-   * save) restores as nothing-completed, the conservative reading — the row
-   * simply stays hidden until the reader finishes the continuing route once.
+   * here. A restored completion counts only while its route's current end
+   * has been reached (machine.ts `reachedEnd`), so one whose route was
+   * extended to an unseen end is dropped. The field is newer than the rest
+   * of the context: absent (a legacy save) restores as nothing-completed,
+   * the conservative reading — the row simply stays hidden until the reader
+   * finishes the continuing route once.
    */
   completedRoutes?: readonly { decision: number; routes: readonly number[] }[];
   /**

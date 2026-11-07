@@ -2931,12 +2931,9 @@ describe("rolling back restores the routes (docs/plan.md Phase 22)", () => {
     step(m); // on `decide`, nothing played
     const bookmark = m.exportContext();
     spaceToEnd(m, 10);
-    m.importContext({
-      ...bookmark,
-      // what mergeProgress hands over: seen merged, the pass the bookmark's
-      playedRoutes: m.exportContext().playedRoutes,
-      completedRoutes: m.exportContext().completedRoutes,
-    });
+    // What mergeProgress hands over: seen and route records merged, the
+    // pass the bookmark's.
+    m.importContext(mergeProgress(bookmark, m.exportContext()));
     expect(m.getState().cursor).toBe(2);
     m.advance(); // fires: the choice counts down for route A again
     expect(m.getState().choice?.autoPick?.routeIdx).toBe(0);
@@ -3812,5 +3809,225 @@ describe("a nested continue route joining past its enclosing route (docs/plan.md
     wheelBackUntil(m, (s) => s.choice?.decisionId === "outer");
     expect(m.getState().choice?.continueOption).toBe(true);
     m.destroy();
+  });
+});
+
+/** The context `m` would save, through JSON as storage holds it. */
+function savedContext(m: ReturnType<typeof machine>): MachineContext {
+  return JSON.parse(JSON.stringify(m.exportContext())) as MachineContext;
+}
+
+// lead-1 lead-2 decide | a-1 a-2 | b-1 b-2 | cont-1 cont-2 | after-1 after-2 after-3
+//  0      1      2     | 3   4   | 5   6   | 7      8      | 9       10      11
+// CANON with `after-3`: content past the join that `u` reaches only once
+// flow has passed d1.
+const LONGER: Shape = { ...CANON, items: [...CANON.items, "after-3"] };
+
+describe("a restored completion follows the route's current end (docs/plan.md Phase 38)", () => {
+  // Every route of d1 recorded completed, as a save made before route C was
+  // extended restores: C's end `cont-2` (8) is not in the seen set.
+  const restored = (
+    visited: readonly number[],
+    lastShown: number,
+    stack: MachineContext["stack"],
+  ): MachineContext => ({
+    lastShown,
+    visited,
+    stack,
+    playedRoutes: [{ decision: 0, routes: [0, 1, 2] }],
+    completedRoutes: [{ decision: 0, routes: [0, 1, 2] }],
+  });
+  const END_UNSEEN = [0, 1, 2, 3, 4, 5, 6, 7, 9, 10];
+  const END_SEEN = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+
+  it("the continuing route's end unseen: no return row on a re-opening, played mark kept", () => {
+    const m = machine(LONGER, {
+      resumeContext: restored(END_UNSEEN, 4, [{ decision: 0, route: 0 }]),
+    });
+    expect(m.exportContext().completedRoutes).toEqual([
+      { decision: 0, routes: [0, 1] },
+    ]);
+    expect(m.exportContext().playedRoutes).toEqual([
+      { decision: 0, routes: [0, 1, 2] },
+    ]);
+    m.advance(); // off A's end (a return route): d1 re-offers
+    const choice = m.getState().choice;
+    expect(choice?.decisionId).toBe("d1");
+    expect(choice?.continueOption).toBeUndefined();
+    expect(choice?.routes.map((route) => route.seen)).toEqual([
+      true,
+      true,
+      true,
+    ]);
+    m.destroy();
+  });
+
+  it("the continuing route's end unseen: `u` reads the decision as not passed", () => {
+    const m = machine(LONGER, { resumeContext: restored(END_UNSEEN, 9, []) });
+    m.jumpToUnseen();
+    expect(m.getState().cursor).toBe(8); // C's unseen end, not `after-3`
+    m.destroy();
+  });
+
+  it("the continuing route's end seen: the completion is kept", () => {
+    const reopened = machine(LONGER, {
+      resumeContext: restored(END_SEEN, 4, [{ decision: 0, route: 0 }]),
+    });
+    expect(reopened.exportContext().completedRoutes).toEqual([
+      { decision: 0, routes: [0, 1, 2] },
+    ]);
+    reopened.advance(); // off A's end: d1 re-offers, with the return row
+    expect(reopened.getState().choice?.continueOption).toBe(true);
+    reopened.destroy();
+    const jumped = machine(LONGER, {
+      resumeContext: restored(END_SEEN, 9, []),
+    });
+    jumped.jumpToUnseen();
+    expect(jumped.getState().cursor).toBe(11); // d1 passed: past it
+    jumped.destroy();
+  });
+
+  it("a nested continue route's join past the outer end: the outer completion survives a reload", () => {
+    const m = machine(NESTED_JOINING);
+    m.advance(); // outer fires on i0
+    m.choose(1); // outer cont
+    m.advance(); // inner fires on i2
+    m.choose(0); // inner pay
+    m.advance(); // off i3: joins at i5, completing the outer route too
+    expect(m.visitedList()).not.toContain(4); // the outer route's end
+    const saved = savedContext(m);
+    m.destroy();
+    const resumed = machine(NESTED_JOINING, { resumeContext: saved });
+    expect(resumed.exportContext().completedRoutes).toEqual(
+      saved.completedRoutes,
+    );
+    resumed.showChoice(0);
+    expect(resumed.getState().choice?.decisionId).toBe("outer");
+    expect(resumed.getState().choice?.continueOption).toBe(true);
+    resumed.destroy();
+  });
+
+  it("a nested continuing route joining past the outer end: the outer completion survives a reload", () => {
+    // i0 | i1 | i2 | i3 | i4 i5 | i6: the inner continuing route i3 comes
+    // first, its alternative runs to the outer route's end, and both
+    // decisions join at i6, so picking it skips the outer end i5.
+    const shape: Shape = {
+      items: ["i0", "i1", "i2", "i3", "i4", "i5", "i6"],
+      branches: [
+        {
+          id: "outer",
+          after: "i0",
+          prompt: "Outer?",
+          routes: [
+            {
+              id: "o-alt",
+              label: "Outer alt",
+              start: "i1",
+              end: "i1",
+              result: "return",
+            },
+            { id: "o-cont", label: "Outer cont", start: "i2", end: "i5" },
+          ],
+          continuingRoute: "o-cont",
+          continueAt: "i6",
+        },
+        {
+          id: "inner",
+          after: "i2",
+          prompt: "Inner?",
+          routes: [
+            { id: "n-cont", label: "Inner cont", start: "i3", end: "i3" },
+            { id: "n-alt", label: "Inner alt", start: "i4", end: "i5" },
+          ],
+          continuingRoute: "n-cont",
+          continueAt: "i6",
+        },
+      ],
+    };
+    const m = machine(shape);
+    m.advance(); // outer fires on i0
+    m.choose(1); // outer cont
+    m.advance(); // inner fires on i2
+    m.choose(0); // inner cont
+    m.advance(); // off i3: joins at i6, past the outer end
+    expect(m.getState().cursor).toBe(6);
+    expect(m.visitedList()).toEqual([0, 2, 3, 6]);
+    const saved = savedContext(m);
+    expect(saved.completedRoutes).toEqual([
+      { decision: 0, routes: [1] },
+      { decision: 1, routes: [0] },
+    ]);
+    m.destroy();
+    const resumed = machine(shape, { resumeContext: saved });
+    expect(resumed.exportContext().completedRoutes).toEqual(
+      saved.completedRoutes,
+    );
+    resumed.showChoice(0);
+    expect(resumed.getState().choice?.continueOption).toBe(true);
+    resumed.destroy();
+  });
+
+  it("a nested pure choice closing past the outer end: the outer completion survives a reload", () => {
+    // o0 | o1 | o2 | p1 | q1 q2 | o3: the pure choice `menu` inside the
+    // outer continuing route o2..q2 has a region running to that route's
+    // end, so closing it ends the outer route. Q is entered, then `u` leaves
+    // it for P before its end `q2`, and P's end closes the menu.
+    const shape: Shape = {
+      items: ["o0", "o1", "o2", "p1", "q1", "q2", "o3"],
+      branches: [
+        {
+          id: "outer",
+          after: "o0",
+          prompt: "Outer?",
+          routes: [
+            {
+              id: "o-alt",
+              label: "Outer alt",
+              start: "o1",
+              end: "o1",
+              result: "return",
+            },
+            { id: "o-cont", label: "Outer cont", start: "o2", end: "q2" },
+          ],
+          continuingRoute: "o-cont",
+          continueAt: "o3",
+        },
+        {
+          id: "menu",
+          after: "o2",
+          prompt: "Menu?",
+          routes: [
+            { id: "p", label: "P", start: "p1", end: "p1" },
+            { id: "q", label: "Q", start: "q1", end: "q2" },
+          ],
+        },
+      ],
+    };
+    const m = machine(shape);
+    m.advance(); // outer fires on o0
+    m.choose(0); // outer alt
+    m.advance(); // off o1: outer re-offers
+    m.choose(1); // outer cont
+    m.advance(); // menu fires on o2
+    m.choose(1); // Q
+    expect(m.getState().cursor).toBe(4);
+    m.jumpToUnseen(); // into P, as picking it would
+    expect(m.getState().cursor).toBe(3);
+    m.advance(); // off P's end: every menu route played, it closes past q2
+    expect(m.getState().cursor).toBe(6);
+    expect(m.visitedList()).not.toContain(5); // the outer route's end
+    const saved = savedContext(m);
+    expect(saved.completedRoutes).toEqual([
+      { decision: 0, routes: [0, 1] },
+      { decision: 1, routes: [0] },
+    ]);
+    m.destroy();
+    const resumed = machine(shape, { resumeContext: saved });
+    expect(resumed.exportContext().completedRoutes).toEqual(
+      saved.completedRoutes,
+    );
+    resumed.showChoice(0);
+    expect(resumed.getState().choice?.continueOption).toBe(true);
+    resumed.destroy();
   });
 });
