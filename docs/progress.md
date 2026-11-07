@@ -1762,5 +1762,8 @@ truthful: an unchecked box means nothing was accepted.
       (headless fullscreen Escapes), 0 FAIL; bookmarkmap's new tip
       checks fail on HEAD's code (subagent fault run); screenshot shows
       the one-line timestamp tip at Fit; demo-final rebuilt.)
-- [ ] Phase-closer (Phase 36): full scenario suite, package-proof
+- [x] Phase-closer (Phase 36): full scenario suite, package-proof
       (rebuilds the demo); pytest not needed, converter untouched.
+      (2026-11-07: 13 scenarios, 309 checks: 307 pass, 2 PARTIAL
+      (headless fullscreen Escapes), 0 FAIL; package-proof 18/18, demo
+      rebuilt.)
