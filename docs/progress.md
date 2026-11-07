@@ -1851,5 +1851,8 @@ truthful: an unchecked box means nothing was accepted.
       43/43, progress 6/6, continueroute 6/6; with `reachedEnd` always
       true the 2 machine tests and the codec extension test fail, the
       nested guards pass.)
-- [ ] Phase-closer (Phase 38): full scenario suite, `pytest tools/`,
+- [x] Phase-closer (Phase 38): full scenario suite, `pytest tools/`,
       package-proof (rebuilds the demo).
+      (2026-11-07: 14 scenarios, 315 checks: 313 pass, 2 PARTIAL
+      (headless fullscreen Escapes), 0 FAIL; pytest tools/ 142 pass;
+      package-proof 18/18, demo rebuilt.)
