@@ -388,6 +388,14 @@ export function createVisualLayer(
     }
     const img = doc.createElement("img"); // off-DOM: fetches + decodes, paints nowhere
     img.src = file;
+    // WebKit only fetches an off-DOM image and decodes it on first paint, on
+    // the main thread (106-126 ms per 1080p JPEG XL in WKWebView), which
+    // stalls a skip burst at every such picture. `decode()` decodes off the
+    // main thread and the `<img>` that later shows this URL reuses the
+    // result; Chrome keeps the same contract (docs/plan.md Phase 43). The
+    // promise is caught, so a failed decode is left to that `<img>`, and an
+    // entry evicted mid-decode needs nothing more than dropping its ref.
+    if (typeof img.decode === "function") img.decode().catch(() => undefined);
     warm.set(file, img);
     while (warm.size > PRELOAD_CAP) {
       const oldest = warm.keys().next().value;

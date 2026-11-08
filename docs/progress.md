@@ -2210,9 +2210,15 @@ truthful: an unchecked box means nothing was accepted.
       fail on HEAD's machine.ts (orchestrator re-ran them: 10 failed).
       Orchestrator: npm test 770 pass, check clean, smoke 6/6; branches,
       continueroute, choicelist, playall, navigation, reading 127/127.)
-- [ ] Decoding ahead (item 3): `warmFile` calls `img.decode()`; a unit test
+- [x] Decoding ahead (item 3): `warmFile` calls `img.decode()`; a unit test
       that a preloaded image is asked to decode and that a failed decode is
       swallowed.
+      (2026-11-08: `warmFile` calls `img.decode()` after setting `src` when
+      the engine has it, the promise caught. Three visual tests: decode
+      asked once per preloaded file (fails on HEAD), a rejected decode
+      raises no unhandled rejection and preloading carries on (fails on
+      HEAD), an img without `decode` still preloads. Orchestrator: npm test
+      773 pass, check clean, smoke 6/6, media, navigation, reading 60/60.)
 - [ ] Skip notices and both modes on a choice (item 4): "Skip on" and "Skip
       off" pills on every start and stop; `a` and Tab toggle on a choice
       screen with their pill and take effect after the pick; a burst still

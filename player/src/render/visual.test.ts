@@ -678,3 +678,81 @@ describe("a stale end event never touches the next item's playback", () => {
     expect(reports).toEqual([0, 0]);
   });
 });
+
+// Decoding ahead (docs/plan.md Phase 43): WebKit only fetches an off-DOM
+// image and decodes it on first paint, on the main thread, so each
+// preloaded image is asked to decode up front.
+class FakeImage {
+  src = "";
+  style: Record<string, string> = {};
+  remove(): void {}
+}
+
+function preloadHarness(
+  files: string[],
+  decode?: (img: FakeImage) => Promise<void>,
+) {
+  const images: FakeImage[] = [];
+  const doc = {
+    createElement() {
+      const img = new FakeImage();
+      if (decode !== undefined) {
+        Object.assign(img, { decode: () => decode(img) });
+      }
+      images.push(img);
+      return img;
+    },
+  };
+  const stage = { ownerDocument: doc, append() {} } as unknown as HTMLElement;
+  const items = files.map((file, i) =>
+    item({ id: `i-${i}`, type: "image", file }),
+  );
+  const manifest = { schemaVersion: 1, items } as unknown as Manifest;
+  const layer = createVisualLayer(stage, manifest, { onVideoEnded() {} });
+  return { layer, images };
+}
+
+describe("decoding ahead (Phase 43)", () => {
+  it("asks each preloaded image to decode once, after its src is set", () => {
+    const decoded: string[] = [];
+    const { layer, images } = preloadHarness(["a.jpg", "b.jpg"], (img) => {
+      decoded.push(img.src);
+      return Promise.resolve();
+    });
+    layer.preloadUpcoming(-1);
+    expect(images.map((img) => img.src)).toEqual(["a.jpg", "b.jpg"]);
+    expect(decoded).toEqual(["a.jpg", "b.jpg"]);
+    layer.preloadUpcoming(-1); // already warm: an LRU touch, no new decode
+    expect(images).toHaveLength(2);
+    expect(decoded).toEqual(["a.jpg", "b.jpg"]);
+  });
+
+  it("swallows a rejected decode and preloads the rest", async () => {
+    const unhandled: unknown[] = [];
+    const onUnhandled = (reason: unknown): void => {
+      unhandled.push(reason);
+    };
+    process.on("unhandledRejection", onUnhandled);
+    try {
+      let decodes = 0;
+      const { layer, images } = preloadHarness(["a.jpg", "b.jpg"], () => {
+        decodes += 1;
+        return Promise.reject(new Error("EncodingError"));
+      });
+      layer.preloadUpcoming(-1);
+      expect(decodes).toBe(2);
+      expect(images.map((img) => img.src)).toEqual(["a.jpg", "b.jpg"]);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(unhandled).toEqual([]);
+    } finally {
+      process.off("unhandledRejection", onUnhandled);
+    }
+  });
+
+  it("still preloads in an engine whose img has no decode()", () => {
+    const { layer, images } = preloadHarness(["a.jpg", "b.jpg"]);
+    expect(() => layer.preloadUpcoming(-1)).not.toThrow();
+    expect(images.map((img) => img.src)).toEqual(["a.jpg", "b.jpg"]);
+  });
+});
