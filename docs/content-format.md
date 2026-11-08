@@ -484,8 +484,11 @@ docs/plan.md Phase 13):
   route" works there too where the return-row rule offers it.
 - The wheel is never trapped by a choice overlay: a notch in either
   direction leaves any choice screen for the neighbouring screen in
-  story order, answering nothing. Space, tab and bookmark jumps do not
-  act on a choice screen; only its own keys and rows answer it.
+  story order, answering nothing. Space and bookmark jumps do not act
+  on a choice screen, and tab and `a` only switch skip or auto-forward
+  for after the answer; only its own keys and rows answer it. Skip set
+  on a choice starts on the first item the answer shows when it has
+  seen content to run through, and is off otherwise.
 - Author-written transitions need no schema mechanism: put a
   `text`-only item or a title image at a route span's start or end.
 

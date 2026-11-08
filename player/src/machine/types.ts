@@ -405,16 +405,19 @@ export type TransitionKind = "advance" | "nav";
  * `settled` means the current item's timing rule is
  * satisfied (via its auto-advance condition, a manual `advance()`, or a
  * resume landing on an item that was read before), so the next
- * `advance()` moves on. `skipping` means skip mode (tab) is active: the
+ * `advance()` moves on. `skipping` means a skip burst (tab) is running: the
  * machine advances every picture after `settings.skipDwellMs` regardless
- * of media and every `text` item after zero time. While it is true the
+ * of media and every `text` item after zero time (skip turned on over an
+ * open choice waits for the answer and is not `skipping` until it runs;
+ * `Machine.onSkipChange` reports the mode). While it is true the
  * renderer hides the caption (docs/plan.md Phase 18) and must show an animation's first
  * frame and a video's poster as stills and never play media (unless
  * `skipVideo` says skip is playing the video) — the machine
  * only times, it cannot stop a playing element. `choice` is present while a
  * branch decision awaits the reader: it is the overlay's content, and while
- * it is set space, tab and bookmark jumps are inert until `choose()` or
- * `chooseContinue()` answers it; the wheel and `e` walk on and leave it.
+ * it is set space and bookmark jumps are inert, and tab only switches skip
+ * on or off for after the answer, until `choose()` or `chooseContinue()`
+ * answers it; the wheel and `e` walk on and leave it.
  * `transition` is the kind of the step that made `cursor` current
  * (`TransitionKind`): a forward advance plays its media wherever the cursor
  * sits, a nav arrival below the seen edge shows posters instead.

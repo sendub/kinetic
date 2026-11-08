@@ -9,6 +9,9 @@
 // just ended. Space takes the pick at once; a digit picks another route;
 // `c` over the choice freezes the countdown. Inside a skip-all burst there
 // is no countdown, only the highlight, and one Tab carries the whole story.
+// Tab during a countdown (docs/plan.md Phase 43) shows "Skip on" over the
+// choice and changes nothing there; the auto-pick is the answer, and skip
+// runs on through the route it enters when that route was read.
 
 import {
   branch,
@@ -18,6 +21,8 @@ import {
   closeSettings,
   currentItemId,
   HELP_OPEN,
+  INSTALL_BRANCH_LOG,
+  INSTALL_PILL_LOG,
   item,
   openSettings,
   pressA,
@@ -26,6 +31,8 @@ import {
   pressSpace,
   pressTab,
   READ_CONFIG_OVERLAY,
+  readBranchLog,
+  readPills,
   sleep,
   wheel,
 } from "./harness.mjs";
@@ -294,7 +301,13 @@ const firstImgIndex = (timeline, id) =>
 
 // Independent parts (each opens its own browser); the runner runs them
 // side by side and prints their checks in this order.
-export const parts = [burstSession, manualSession, menuSession, rewindSession];
+export const parts = [
+  burstSession,
+  manualSession,
+  menuSession,
+  rewindSession,
+  choiceSkipSession,
+];
 
 // ---- 1. play-all + skip-all: one Tab, highlights only ----------------
 async function burstSession({ check, open }) {
@@ -686,5 +699,74 @@ async function rewindSession({ check, open }) {
     "with auto-forward instead: the choice counts down again and play-all enters Route 2 first",
     backAgain && counting && pickedRoute2,
     { backAgain, counting, pickedRoute2 },
+  );
+}
+
+// ---- 5. Tab during a countdown (docs/plan.md Phase 43) ----------------
+// Route 2 read once (Space takes each pick), then the wheel back before
+// the decision: the next pass counts down to Route 2 again. Tab during
+// that countdown shows "Skip on" over the choice and leaves it counting;
+// the auto-pick enters Route 2 and skip runs it to its last item, read
+// before, with no key pressed: "Skip off" when it stops there.
+async function choiceSkipSession({ check, open }) {
+  const { page, cdp } = await open("choice-skip", { closeHelp: true });
+  await configure(page, cdp, { skipAll: false });
+  await walkTo(page, cdp, "branch-decide");
+  await pressSpace(cdp); // fires: counting down to Route 2
+  await sleep(300);
+  await pressSpace(cdp); // Space takes the pick at once
+  const inRoute = await waitFor(page, "route2-start");
+  await pressSpace(cdp); // route2-end
+  const atEnd = await waitFor(page, "route2-end");
+  let back = false;
+  for (let notch = 0; notch < 20 && !back; notch += 1) {
+    await wheel(cdp, true, 1);
+    back = (await currentItemId(page)) === "branch-lead";
+  }
+  await pressSpace(cdp); // branch-lead -> branch-decide
+  await sleep(150);
+  await pressSpace(cdp); // fires again: Route 2 is next once more
+  await sleep(300);
+  const fired = await page.evaluate(READ_AUTO);
+  await page.evaluate(INSTALL_PILL_LOG);
+  await page.evaluate(INSTALL_BRANCH_LOG);
+  await pressTab(cdp);
+  let pillOver = false;
+  try {
+    await page.waitForFunction(
+      () =>
+        document.getElementById("flash")?.textContent === "Skip on" &&
+        document.getElementById("choice")?.hidden === false,
+      { timeout: 2000 },
+    );
+    pillOver = true;
+  } catch {}
+  await sleep(500);
+  const counting = await page.evaluate(READ_AUTO);
+  const ran = await waitFor(
+    page,
+    "route2-end",
+    countdownMs(outer) + AUTO_PICK_SHOW_MS + 3000,
+  );
+  await sleep(300);
+  const log = await readBranchLog(page);
+  const startShown = log.some((line) =>
+    line.startsWith(`${item("route2-start").file}|`),
+  );
+  const pills = (await readPills(page)).filter((t) => t.startsWith("Skip "));
+  check(
+    'Tab during a countdown shows "Skip on" over the choice, which keeps counting; the auto-pick enters Route 2 and skip runs it to its last item, then "Skip off"',
+    inRoute &&
+      atEnd &&
+      back &&
+      fired.open &&
+      fired.next === routeLabel(outer, "route2") &&
+      pillOver &&
+      counting.open &&
+      counting.picked === null &&
+      ran &&
+      startShown &&
+      pills.join("|") === "Skip on|Skip off",
+    { inRoute, atEnd, back, fired, pillOver, counting, ran, startShown, pills },
   );
 }

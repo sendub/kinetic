@@ -2219,11 +2219,30 @@ truthful: an unchecked box means nothing was accepted.
       raises no unhandled rejection and preloading carries on (fails on
       HEAD), an img without `decode` still preloads. Orchestrator: npm test
       773 pass, check clean, smoke 6/6, media, navigation, reading 60/60.)
-- [ ] Skip notices and both modes on a choice (item 4): "Skip on" and "Skip
+- [x] Skip notices and both modes on a choice (item 4): "Skip on" and "Skip
       off" pills on every start and stop; `a` and Tab toggle on a choice
       screen with their pill and take effect after the pick; a burst still
       stops at a choice. Machine and render unit tests; scenario checks in
       the matching scenario files.
+      (2026-11-08: machine `skipArmed` holds skip turned on at an open
+      choice (no timer runs under it); the first item the answer shows
+      starts the burst when `skipCanStart()` (something follows and it
+      would not reveal), else skip turns off. Every way of leaving a choice
+      unanswered disarms it. New `onSkipChange`, the twin of
+      `onAutoAdvanceChange`, reports flips of skipping-or-armed; Tab that
+      does nothing (nothing seen ahead, or where the story ends) reports
+      nothing. main.ts gates `a` and Tab on the panels only. render/app.ts
+      lets mode pills (not route pills) show over a choice and merges pills
+      announced in one task (mode pills first), so Space ending a skip in
+      auto shows "Skip off" then "Auto-forward off". Accepted calls: Space
+      taking a play-all pick turns armed skip off; a burst stays armed
+      through a play-all auto-pick. 44 new unit tests, most failing on HEAD
+      (the `a`-at-a-choice machine test passes on HEAD: only main.ts
+      blocked it); 9 scenario checks in navigation, branches, playall and
+      menus. README Tab, `a` and Branches bullets and docs/content-format.md
+      key rule updated. Orchestrator: npm test 817 pass, check clean; full
+      `npm run verify` 14 scenarios, 348 checks, 346 pass, 2 PARTIAL, 0
+      fail, 122 s.)
 - [x] Esc and M on a choice screen (item 5): dropped (the user,
       2026-11-08). On HEAD both work over a pending choice in Chrome and
       WebKit (probe 2026-11-08, demo outer decision, play-all off).

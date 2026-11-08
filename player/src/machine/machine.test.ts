@@ -2447,6 +2447,165 @@ describe("onAutoAdvanceChange: every real flip of the mode (docs/plan.md Phase 2
   });
 });
 
+describe("onSkipChange: every real flip of skip mode (docs/plan.md Phase 43)", () => {
+  function watch(m: ReturnType<typeof createMachine>): boolean[] {
+    const flips: boolean[] = [];
+    m.onSkipChange((on) => flips.push(on));
+    return flips;
+  }
+
+  /** Six images read to the fourth, then back at the start: skip can run. */
+  function seenAhead(opts: { auto?: boolean; count?: number } = {}) {
+    const items = Array.from({ length: opts.count ?? 6 }, () => image());
+    const m = machine(items, { auto: opts.auto ?? false });
+    readTo(m, 3);
+    for (let notch = 0; notch < 3; notch += 1) m.wheelBack();
+    expect(m.getState().cursor).toBe(0);
+    return m;
+  }
+
+  it("Tab reports on and Tab again off, each once", () => {
+    vi.useFakeTimers();
+    const m = seenAhead();
+    const flips = watch(m);
+    m.toggleSkip();
+    expect(m.getState().skipping).toBe(true);
+    expect(flips).toEqual([true]);
+    m.toggleSkip();
+    expect(m.getState().skipping).toBe(false);
+    expect(flips).toEqual([true, false]);
+    m.destroy();
+  });
+
+  it("a Tab that does nothing (nothing seen ahead) reports nothing", () => {
+    vi.useFakeTimers();
+    const m = machine([image(), image(), image()], { auto: false });
+    const flips = watch(m);
+    m.toggleSkip(); // a fresh start: skip would only reveal
+    expect(m.getState().skipping).toBe(false);
+    expect(flips).toEqual([]);
+    m.destroy();
+  });
+
+  it("the burst stopping on the last seen item reports off once", () => {
+    vi.useFakeTimers();
+    const m = seenAhead();
+    const flips = watch(m);
+    m.toggleSkip();
+    vi.advanceTimersByTime(SETTINGS.skipDwellMs * 10);
+    expect(m.getState()).toMatchObject({ cursor: 3, skipping: false });
+    expect(flips).toEqual([true, false]);
+    m.destroy();
+  });
+
+  it("a Tab where the story ends does nothing and reports nothing", () => {
+    vi.useFakeTimers();
+    const m = machine([image(), image(), image()], { auto: false });
+    readTo(m, 2); // the last item
+    const before = m.getState();
+    const seen: MachineState[] = [];
+    m.subscribe((state) => seen.push(state));
+    const flips = watch(m);
+    m.toggleSkip();
+    vi.advanceTimersByTime(60_000);
+    expect(m.getState()).toBe(before);
+    expect(seen).toEqual([]);
+    expect(flips).toEqual([]);
+    m.destroy();
+  });
+
+  it("a burst running onto the story's last item reports off there", () => {
+    vi.useFakeTimers();
+    const m = machine([image(), image(), image(), image()], {
+      auto: false,
+      settings: { ...SETTINGS, skipAll: true },
+    });
+    readTo(m, 1);
+    m.wheelBack();
+    const flips = watch(m);
+    m.toggleSkip();
+    vi.advanceTimersByTime(SETTINGS.skipDwellMs * 4);
+    expect(m.getState()).toMatchObject({ cursor: 3, skipping: false });
+    expect(flips).toEqual([true, false]);
+    m.destroy();
+  });
+
+  it("Space stopping a burst reports off; in auto-forward before auto-forward's own off", () => {
+    vi.useFakeTimers();
+    const manual = seenAhead();
+    const flips = watch(manual);
+    manual.toggleSkip();
+    manual.advance();
+    expect(manual.getState().skipping).toBe(false);
+    expect(flips).toEqual([true, false]);
+    manual.destroy();
+
+    const auto = seenAhead({ auto: true });
+    auto.setAutoAdvance(true);
+    const order: string[] = [];
+    auto.onSkipChange((on) => order.push(`skip ${on}`));
+    auto.onAutoAdvanceChange((on) => order.push(`auto ${on}`));
+    auto.toggleSkip();
+    auto.advance();
+    expect(order).toEqual(["skip true", "skip false", "auto false"]);
+    vi.advanceTimersByTime(60_000); // auto is off: nothing moves on
+    expect(auto.getState().cursor).toBe(0);
+    auto.destroy();
+  });
+
+  it.each([
+    ["a wheel step back", (m: ReturnType<typeof machine>) => m.wheelBack()],
+    [
+      "a wheel step forward",
+      (m: ReturnType<typeof machine>) => m.wheelForward(),
+    ],
+    ["`e`", (m: ReturnType<typeof machine>) => m.jumpToEnd()],
+    ["a bookmark jump", (m: ReturnType<typeof machine>) => m.goTo(2)],
+    [
+      "a restore",
+      (m: ReturnType<typeof machine>) => m.importContext(m.exportContext()),
+    ],
+    ["`u`", (m: ReturnType<typeof machine>) => m.jumpToUnseen()],
+  ])("%s ending a burst reports off", (_name, end) => {
+    vi.useFakeTimers();
+    const m = seenAhead({ count: 8 }); // items 4.. unseen: `u` has a target
+    m.toggleSkip();
+    vi.advanceTimersByTime(SETTINGS.skipDwellMs); // the burst is on item 1
+    expect(m.getState()).toMatchObject({ cursor: 1, skipping: true });
+    const flips = watch(m);
+    end(m);
+    expect(m.getState().skipping).toBe(false);
+    expect(flips).toEqual([false]);
+    m.destroy();
+  });
+
+  it("a panel's pause and resume leave a burst on: no report", () => {
+    vi.useFakeTimers();
+    const m = seenAhead();
+    m.toggleSkip();
+    const flips = watch(m);
+    m.pause();
+    m.resume();
+    expect(m.getState().skipping).toBe(true);
+    expect(flips).toEqual([]);
+    m.destroy();
+  });
+
+  it("construction, unsubscribed and destroyed machines report nothing", () => {
+    vi.useFakeTimers();
+    const m = seenAhead();
+    const flips: boolean[] = [];
+    const stop = m.onSkipChange((on) => flips.push(on));
+    stop();
+    m.toggleSkip();
+    const flips2 = watch(m);
+    m.destroy();
+    m.toggleSkip();
+    expect(flips).toEqual([]);
+    expect(flips2).toEqual([]);
+  });
+});
+
 describe("subscribe, timers, and destroy()", () => {
   it("notifies subscribers on every state change until unsubscribe", () => {
     const m = machine([image(), image(), image()], { auto: false });

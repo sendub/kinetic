@@ -310,9 +310,10 @@ describe("a decision fires on the forward settle of its after item", () => {
     m.destroy();
   });
 
-  it("every key command but choose, chooseContinue and the wheel and `e` is inert while a choice is open", () => {
-    // The wheel and `e` walk the story (docs/plan.md Phase 27) — pinned in
-    // their own describes below.
+  it("every key command but choose, chooseContinue, Tab and the wheel and `e` is inert while a choice is open", () => {
+    // The wheel and `e` walk the story (docs/plan.md Phase 27), and Tab
+    // arms skip for after the pick (Phase 43) — pinned in their own
+    // describes below.
     const m = machine(CANON);
     step(m);
     step(m);
@@ -320,7 +321,6 @@ describe("a decision fires on the forward settle of its after item", () => {
     const before = m.getState();
     m.advance();
     m.advance();
-    m.toggleSkip();
     m.jumpToEnd(); // `decide` IS the furthest point: a no-op
     m.goTo(0);
     m.chooseContinue(); // not offered here
@@ -4452,6 +4452,368 @@ describe("auto-forward over an open choice (docs/plan.md Phase 43)", () => {
   });
 });
 
+// lead-1 decide | a-1 a-2 a-3 a-4 | b-1 | after-1
+//  0      1     | 2   3   4   5   | 6   | 7
+// One decision with a long returning route A, so a burst through it after
+// a pick has steps to take, and a one-item continuing route B.
+const LONG_A: Shape = {
+  items: ["lead-1", "decide", "a-1", "a-2", "a-3", "a-4", "b-1", "after-1"],
+  branches: [
+    {
+      id: "d1",
+      after: "decide",
+      prompt: "Which way?",
+      routes: [
+        {
+          id: "r-a",
+          label: "Route A",
+          start: "a-1",
+          end: "a-4",
+          result: "return",
+        },
+        { id: "r-b", label: "Route B", start: "b-1", end: "b-1" },
+      ],
+      continuingRoute: "r-b",
+      continueAt: "after-1",
+    },
+  ],
+};
+
+// s0 | s1 s2 s3 | s4 | s5
+//  0 |  1  2  3 |  4 |  5
+// The outer decision's returning route s1..s3 holds the inner decision,
+// whose continuing route s3 ends with it and joins past it at s5: leaving
+// the inner decision by its return row ends the outer route there, so the
+// outer decision re-offers at once.
+const REOFFER: Shape = {
+  items: ["s0", "s1", "s2", "s3", "s4", "s5"],
+  branches: [
+    {
+      id: "outer",
+      after: "s0",
+      prompt: "Outer?",
+      routes: [
+        {
+          id: "o-alt",
+          label: "Outer alt",
+          start: "s1",
+          end: "s3",
+          result: "return",
+        },
+        { id: "o-cont", label: "Outer cont", start: "s4", end: "s4" },
+      ],
+      continuingRoute: "o-cont",
+      continueAt: "s5",
+    },
+    {
+      id: "inner",
+      after: "s1",
+      prompt: "Inner?",
+      routes: [
+        {
+          id: "n-alt",
+          label: "Inner alt",
+          start: "s2",
+          end: "s2",
+          result: "return",
+        },
+        { id: "n-cont", label: "Inner cont", start: "s3", end: "s3" },
+      ],
+      continuingRoute: "n-cont",
+      continueAt: "s5",
+    },
+  ],
+};
+
+describe("skip and auto-forward on a choice screen (docs/plan.md Phase 43)", () => {
+  // Tab on an open choice turns skip on (reported) and moves nothing; the
+  // answer then starts the burst on the first item it shows, as a Tab
+  // pressed there would. `a` likewise: the route's first item gets its
+  // hold after the pick.
+  const ALL: MachineSettings = { ...SETTINGS, playAllRoutes: true };
+  const dwell = SETTINGS.skipDwellMs;
+
+  function watch(m: ReturnType<typeof machine>): boolean[] {
+    const flips: boolean[] = [];
+    m.onSkipChange((on) => flips.push(on));
+    return flips;
+  }
+
+  /** Manual LONG_A: route A read through, the choice re-offered after it. */
+  function atReoffer(settings: MachineSettings = SETTINGS) {
+    const m = machine(LONG_A, { settings });
+    m.advance(); // 0 -> 1
+    m.advance(); // fires d1
+    m.choose(0); // route A: a-1
+    for (let press = 0; press < 3; press += 1) m.advance(); // to a-4
+    m.advance(); // off a-4: route A returns, the choice re-offers
+    expect(m.getState().choice).toMatchObject({ decisionId: "d1" });
+    expect(m.getState().choice?.routes[0].seen).toBe(true);
+    return m;
+  }
+
+  it("Tab on a choice arms skip: reported on, the choice stays and nothing moves", () => {
+    vi.useFakeTimers();
+    const m = atReoffer();
+    const before = m.getState();
+    const seen: MachineState[] = [];
+    m.subscribe((state) => seen.push(state));
+    const flips = watch(m);
+    m.toggleSkip();
+    expect(flips).toEqual([true]);
+    vi.advanceTimersByTime(60_000);
+    expect(m.getState()).toBe(before);
+    expect(seen).toEqual([]);
+    m.destroy();
+  });
+
+  it("the pick then runs the burst from the route's first item", () => {
+    vi.useFakeTimers();
+    const m = atReoffer();
+    const flips = watch(m);
+    m.toggleSkip();
+    const path: [number, boolean][] = [];
+    m.subscribe((state) => path.push([state.cursor, state.skipping]));
+    m.choose(0); // route A again: every item of it was read
+    expect(m.getState()).toMatchObject({ cursor: 2, skipping: true });
+    expect(m.getState().choice).toBeUndefined();
+    vi.advanceTimersByTime(dwell * 3);
+    expect(path).toEqual([
+      [2, true],
+      [3, true],
+      [4, true],
+      [5, false], // the last seen item: the burst stops ON it
+    ]);
+    expect(flips).toEqual([true, false]);
+    m.destroy();
+  });
+
+  it("Tab twice on a choice arms nothing: on, then off, and the pick runs no burst", () => {
+    vi.useFakeTimers();
+    const m = atReoffer();
+    const flips = watch(m);
+    m.toggleSkip();
+    m.toggleSkip();
+    expect(flips).toEqual([true, false]);
+    m.choose(0);
+    expect(m.getState()).toMatchObject({ cursor: 2, skipping: false });
+    vi.advanceTimersByTime(60_000); // manual: the route waits for a press
+    expect(m.getState().cursor).toBe(2);
+    expect(flips).toEqual([true, false]);
+    m.destroy();
+  });
+
+  it("armed skip with nothing seen to run through after the pick turns off at the pick", () => {
+    vi.useFakeTimers();
+    const m = machine(LONG_A);
+    m.advance();
+    m.advance(); // the first fire: no route read yet
+    const flips = watch(m);
+    m.toggleSkip();
+    expect(flips).toEqual([true]);
+    m.choose(0); // route A, unseen
+    expect(m.getState()).toMatchObject({
+      cursor: 2,
+      skipping: false,
+      settled: false,
+    });
+    expect(flips).toEqual([true, false]);
+    vi.advanceTimersByTime(60_000);
+    expect(m.getState().cursor).toBe(2); // shown normally, manual
+    m.destroy();
+  });
+
+  it("a burst reaching a choice stops there with the off report; Tab on it arms skip for after the pick", () => {
+    vi.useFakeTimers();
+    const m = atReoffer();
+    wheelBackTo(m, 0); // back before the decision, everything up to a-4 read
+    const flips = watch(m);
+    m.toggleSkip();
+    vi.advanceTimersByTime(dwell * 4);
+    expect(m.getState()).toMatchObject({ cursor: 1, skipping: false });
+    expect(m.getState().choice).toMatchObject({ decisionId: "d1" });
+    expect(flips).toEqual([true, false]);
+    vi.advanceTimersByTime(60_000); // the pick never resumes it by itself
+    m.toggleSkip();
+    expect(flips).toEqual([true, false, true]);
+    expect(m.getState().choice).toMatchObject({ decisionId: "d1" });
+    m.choose(0);
+    expect(m.getState()).toMatchObject({ cursor: 2, skipping: true });
+    m.destroy();
+  });
+
+  it("auto-forward turned on at a choice runs after the pick; turned off there, the route waits", () => {
+    vi.useFakeTimers();
+    const on = machine(LONG_A);
+    on.advance();
+    on.advance(); // the choice
+    on.setAutoAdvance(true);
+    vi.advanceTimersByTime(60_000);
+    expect(on.getState().choice).toMatchObject({ decisionId: "d1" });
+    on.choose(0);
+    expect(on.getState().cursor).toBe(2);
+    vi.advanceTimersByTime(SETTINGS.minHoldMs); // a-1's own hold
+    expect(on.getState().cursor).toBe(3);
+    on.destroy();
+
+    const off = machine(LONG_A, { auto: true });
+    step(off);
+    step(off);
+    off.advance(); // the choice
+    expect(off.getState().choice).toMatchObject({ decisionId: "d1" });
+    off.setAutoAdvance(false);
+    off.choose(0);
+    vi.advanceTimersByTime(60_000);
+    expect(off.getState().cursor).toBe(2);
+    off.destroy();
+  });
+
+  it("chooseContinue answers like a pick: armed skip runs from where it lands", () => {
+    vi.useFakeTimers();
+    const m = machine(CANON);
+    for (let press = 0; press < 3; press += 1) m.advance(); // fires d1
+    m.choose(2); // route C, the continuing route
+    m.advance(); // cont-2
+    m.advance(); // off cont-2: joins at after-1, C completed
+    m.advance(); // after-2
+    wheelBackUntil(m, (s) => s.choice !== undefined);
+    expect(m.getState().choice?.continueOption).toBe(true);
+    const flips = watch(m);
+    m.toggleSkip();
+    m.chooseContinue();
+    expect(m.getState()).toMatchObject({ cursor: 9, skipping: true });
+    vi.advanceTimersByTime(dwell);
+    expect(m.getState()).toMatchObject({ cursor: 10, skipping: false });
+    expect(flips).toEqual([true, false]);
+    m.destroy();
+  });
+
+  it("an answer landing where the story ends turns armed skip off at once", () => {
+    vi.useFakeTimers();
+    const m = machine(LONG_A);
+    m.advance();
+    m.advance(); // fires d1
+    m.choose(1); // route B, the continuing route
+    m.advance(); // off b-1: joins at after-1, the last item; B completed
+    wheelBackUntil(m, (s) => s.choice !== undefined);
+    expect(m.getState().choice?.continueOption).toBe(true);
+    const flips = watch(m);
+    m.toggleSkip();
+    m.chooseContinue(); // lands on after-1, where the story ends
+    expect(m.getState()).toMatchObject({ cursor: 7, skipping: false });
+    expect(flips).toEqual([true, false]);
+    m.destroy();
+  });
+
+  it("an answer that opens another choice keeps skip armed for that one", () => {
+    vi.useFakeTimers();
+    const m = machine(REOFFER);
+    m.advance(); // outer fires on s0
+    m.choose(0); // outer alt: s1
+    m.advance(); // inner fires on s1
+    m.choose(1); // inner cont: s3
+    m.advance(); // off s3: inner joins past outer alt's end, outer re-offers
+    expect(m.getState().choice?.decisionId).toBe("outer");
+    wheelBackUntil(m, (s) => s.choice?.decisionId === "inner");
+    expect(m.getState().choice?.continueOption).toBe(true);
+    const flips = watch(m);
+    m.toggleSkip();
+    m.chooseContinue(); // ends outer alt too: the outer choice re-offers
+    expect(m.getState().choice?.decisionId).toBe("outer");
+    expect(m.getState().skipping).toBe(false);
+    expect(flips).toEqual([true]);
+    m.choose(0); // outer alt again, read: the burst runs
+    expect(m.getState()).toMatchObject({ cursor: 1, skipping: true });
+    expect(flips).toEqual([true]);
+    m.destroy();
+  });
+
+  it.each([
+    ["a wheel step back", (m: ReturnType<typeof machine>) => m.wheelBack()],
+    [
+      "a wheel step forward with nowhere to go",
+      (m: ReturnType<typeof machine>) => m.wheelForward(),
+    ],
+    ["`u`", (m: ReturnType<typeof machine>) => m.jumpToUnseen()],
+    [
+      "a restore",
+      (m: ReturnType<typeof machine>) => m.importContext(m.exportContext()),
+    ],
+    [
+      "a map click on the decision",
+      (m: ReturnType<typeof machine>) => m.showChoice(0),
+    ],
+  ])("%s leaving an armed choice unanswered turns skip off", (_name, leave) => {
+    vi.useFakeTimers();
+    const m = atReoffer();
+    const flips = watch(m);
+    m.toggleSkip();
+    leave(m);
+    expect(flips).toEqual([true, false]);
+    expect(m.getState().skipping).toBe(false);
+    // Whatever is on screen now, a pick from it (if any) runs no burst.
+    if (m.getState().choice !== undefined) {
+      m.choose(0);
+      expect(m.getState().skipping).toBe(false);
+    }
+    expect(flips).toEqual([true, false]);
+    m.destroy();
+  });
+
+  it("play-all: Tab during the countdown arms skip; the elapsed auto-pick runs it from the route entered", () => {
+    vi.useFakeTimers();
+    const m = atReoffer(ALL);
+    // The re-offer under play-all picks the continuing route; back before
+    // the decision, a fresh pass picks route A (read) again.
+    wheelBackTo(m, 0);
+    m.advance(); // 0 -> 1
+    m.advance(); // fires: play-all counts down to route A
+    const pick = m.getState().choice?.autoPick;
+    expect(pick).toMatchObject({ routeIdx: 0, picked: false });
+    const flips = watch(m);
+    m.toggleSkip();
+    expect(flips).toEqual([true]);
+    vi.advanceTimersByTime(pick?.ms ?? 0); // the countdown runs as before
+    expect(m.getState().choice?.autoPick?.picked).toBe(true);
+    vi.advanceTimersByTime(AUTO_PICK_SHOW_MS);
+    expect(m.getState().choice).toBeUndefined();
+    expect(m.getState()).toMatchObject({ cursor: 2, skipping: true });
+    expect(flips).toEqual([true]);
+    m.destroy();
+  });
+
+  it("play-all: Space taking the auto-pick turns armed skip off", () => {
+    vi.useFakeTimers();
+    const m = atReoffer(ALL);
+    wheelBackTo(m, 0);
+    m.advance();
+    m.advance(); // the countdown to route A
+    const flips = watch(m);
+    m.toggleSkip();
+    m.advance(); // Space takes the pick at once, and stops skip
+    expect(m.getState()).toMatchObject({ cursor: 2, skipping: false });
+    expect(flips).toEqual([true, false]);
+    m.destroy();
+  });
+
+  it("play-all: a burst its choice carries on through reports nothing until it stops", () => {
+    vi.useFakeTimers();
+    const m = machine(CANON, { settings: { ...ALL, skipAll: true } });
+    const flips = watch(m);
+    m.toggleSkip();
+    expect(flips).toEqual([true]);
+    for (let n = 0; n < 40 && m.getState().choice === undefined; n += 1)
+      vi.advanceTimersByTime(dwell);
+    expect(m.getState().choice?.autoPick?.picked).toBe(true);
+    vi.advanceTimersByTime(AUTO_PICK_SHOW_MS);
+    expect(m.getState().skipping).toBe(true); // the burst carries on
+    expect(flips).toEqual([true]);
+    m.advance(); // Space stops it
+    expect(flips).toEqual([true, false]);
+    m.destroy();
+  });
+});
+
 describe("where a pure choice's close ends the story (docs/plan.md Phase 43)", () => {
   // lead-1 decide | p-1 p-2 | q-1 q-2
   //  0      1     | 2   3   | 4   5
@@ -4535,17 +4897,23 @@ describe("where a pure choice's close ends the story (docs/plan.md Phase 43)", (
     },
   );
 
-  it("skip's dwell there ends the burst in place, as at the array end", () => {
+  it("Tab there does nothing and reports nothing, as at the array end", () => {
     vi.useFakeTimers();
     const m = machine(toEnd("ending"));
     endOnRoute(m);
     const last = machine(toEnd("ending"));
     endOnLast(last);
+    const before = m.getState();
+    const lastBefore = last.getState();
+    const flips: boolean[] = [];
+    m.onSkipChange((on) => flips.push(on));
+    last.onSkipChange((on) => flips.push(on));
     m.toggleSkip();
     last.toggleSkip();
-    expect(m.getState().skipping).toBe(true);
     vi.advanceTimersByTime(60_000);
-    expect(m.getState()).toMatchObject({ cursor: 3, skipping: false });
+    expect(m.getState()).toBe(before);
+    expect(last.getState()).toBe(lastBefore);
+    expect(flips).toEqual([]);
     expect(apartFromCursor(m.getState())).toEqual(
       apartFromCursor(last.getState()),
     );

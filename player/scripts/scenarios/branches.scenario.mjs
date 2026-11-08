@@ -10,6 +10,8 @@
 // The "Return to main route" row (numbered 0, with its "0 returns" hint) is
 // drawn only once
 // that decision's CONTINUING route has been completed at least once.
+// Tab and `a` on a choice screen (docs/plan.md Phase 43) show their pill
+// over it and move nothing; after the pick the mode set runs the route.
 
 import { CHOICE_HINT, CONTINUE_HINT } from "../../src/render/choice.ts";
 import { ALL_SEEN_TEXT } from "../../src/render/endcard.ts";
@@ -19,9 +21,11 @@ import {
   CONTINUE_LABEL,
   currentItemId,
   INSTALL_BRANCH_LOG,
+  INSTALL_PILL_LOG,
   item,
   PAGE_STATE,
   PAINT_SIG,
+  pressA,
   pressDigit,
   pressE,
   pressEnter,
@@ -30,6 +34,7 @@ import {
   pressU,
   READ_CHOICE,
   readBranchLog,
+  readPills,
   sleep,
   spaceTo,
   wheel,
@@ -145,6 +150,7 @@ export const parts = [
   wheelSession,
   skipSession,
   rewindManualSession,
+  choiceModesSession,
 ];
 
 // ------------------------------------------------------------------
@@ -909,5 +915,114 @@ async function rewindManualSession({ check, open }) {
       marks[1] === true &&
       picked === "route1-start",
     { back, fired, marks, picked },
+  );
+}
+
+// ---- Tab and `a` on a choice screen (docs/plan.md Phase 43), manual ----
+// Each key shows its pill over the open choice and moves nothing; the pick
+// is the answer. Skip set on a choice runs after the pick through a route
+// already read, and turns off with its pill when the route is unseen;
+// auto-forward set there runs the route after the pick.
+async function choiceModesSession({ check, open }) {
+  const { page, cdp } = await open("choice-modes", {
+    closeHelp: true,
+    manualChoices: true,
+  });
+  const PILL_OVER_CHOICE = (text) =>
+    document.getElementById("flash")?.textContent === text &&
+    document.getElementById("choice")?.hidden === false;
+  const pillOverChoice = async (text) => {
+    try {
+      await page.waitForFunction(PILL_OVER_CHOICE, { timeout: 2000 }, text);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  const modePills = async () =>
+    (await readPills(page)).filter(
+      (t) => t.startsWith("Skip ") || t.startsWith("Auto-forward "),
+    );
+
+  // First fire, nothing read past it: Tab arms skip, route 2 is unseen.
+  await spaceTo(page, cdp, "branch-decide");
+  await pressSpace(cdp);
+  const fired = await waitChoice(page, true);
+  await page.evaluate(INSTALL_PILL_LOG);
+  await pressTab(cdp);
+  const onShown = await pillOverChoice("Skip on");
+  await sleep(600);
+  const stayed =
+    (await page.evaluate(CHOICE_OPEN)) &&
+    (await currentItemId(page)) === "branch-decide";
+  await pressDigit(cdp, "2");
+  const picked = await waitOn(page, "route2-start");
+  await sleep(800); // manual and no burst: the route waits
+  const waited = (await currentItemId(page)) === "route2-start";
+  const unseenPills = await modePills();
+  check(
+    'Tab on a choice shows "Skip on" over it and moves nothing; picking an unseen route shows "Skip off" and the route waits',
+    fired &&
+      onShown &&
+      stayed &&
+      picked &&
+      waited &&
+      unseenPills.join("|") === "Skip on|Skip off",
+    { fired, onShown, stayed, picked, waited, pills: unseenPills },
+  );
+
+  // The re-offer after route 2: Tab, then route 2 again, read this time.
+  await pressSpace(cdp); // route2-end
+  await waitOn(page, "route2-end");
+  await pressSpace(cdp); // off the ending: the decision re-offers
+  const reoffered = await waitChoice(page, true);
+  await page.evaluate(INSTALL_PILL_LOG);
+  await page.evaluate(INSTALL_BRANCH_LOG);
+  await pressTab(cdp);
+  const armedShown = await pillOverChoice("Skip on");
+  await sleep(500);
+  const stillOpen = await page.evaluate(CHOICE_OPEN);
+  await pressDigit(cdp, "2");
+  const ran = await waitOn(page, "route2-end", 1500); // no key pressed
+  await sleep(300);
+  const log = await readBranchLog(page);
+  const startShown = logHas(log, item("route2-start").file);
+  const seenPills = await modePills();
+  check(
+    'Tab on a re-offer, then the route already read: skip runs it to its last seen item, "Skip on" then "Skip off"',
+    reoffered &&
+      armedShown &&
+      stillOpen &&
+      ran &&
+      startShown &&
+      seenPills.join("|") === "Skip on|Skip off",
+    { reoffered, armedShown, stillOpen, ran, startShown, pills: seenPills },
+  );
+
+  // `a` on the next re-offer: its pill, nothing moves, then the route
+  // auto-forwards after the pick.
+  await pressSpace(cdp); // off route2-end again
+  const again = await waitChoice(page, true);
+  await page.evaluate(INSTALL_PILL_LOG);
+  await pressA(cdp);
+  const autoShown = await pillOverChoice("Auto-forward on");
+  await sleep(1800); // past any item's minimum hold: the choice waits
+  const autoStayed =
+    (await page.evaluate(CHOICE_OPEN)) &&
+    (await currentItemId(page)) === "route2-end";
+  await pressDigit(cdp, "2");
+  const autoPicked = await waitOn(page, "route2-start");
+  const hold = Math.max(1500, [...item("route2-start").text].length * 60);
+  const autoRan = await waitOn(page, "route2-end", hold + 2500);
+  const autoPills = await modePills();
+  check(
+    'a on a choice shows "Auto-forward on" over it and moves nothing; after the pick the route auto-forwards',
+    again &&
+      autoShown &&
+      autoStayed &&
+      autoPicked &&
+      autoRan &&
+      autoPills.join("|") === "Auto-forward on",
+    { again, autoShown, autoStayed, autoPicked, autoRan, pills: autoPills },
   );
 }

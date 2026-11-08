@@ -741,6 +741,30 @@ const INSTALL_BRANCH_LOG = () => {
 };
 const readBranchLog = (page) => page.evaluate(() => window.__branchLog);
 
+// Every `#flash` pill that appears from now on, in order (docs/plan.md
+// Phases 20 and 43, the mode pills): a MutationObserver logs each new
+// pill's text, so a pill that has already faded or been replaced is still
+// counted. A pill already on screen at the install is not new. A second
+// install starts the log afresh.
+const INSTALL_PILL_LOG = () => {
+  window.__pills = [];
+  if (window.__pillObs) window.__pillObs.disconnect();
+  const seen = new WeakSet();
+  const already = document.getElementById("flash");
+  if (already !== null) seen.add(already);
+  const scan = () => {
+    const pill = document.getElementById("flash");
+    if (pill !== null && !seen.has(pill)) {
+      seen.add(pill);
+      window.__pills.push(pill.textContent);
+    }
+  };
+  window.__pillObs = new MutationObserver(scan);
+  window.__pillObs.observe(document.body, { childList: true, subtree: true });
+};
+const READ_PILLS = () => [...(window.__pills ?? [])];
+const readPills = (page) => page.evaluate(READ_PILLS);
+
 // One sample of the screen for a skip burst: the painted visual, the
 // overlay line, and whether `#choice` is up.
 const SKIP_PROBE = () => {
@@ -1458,6 +1482,7 @@ export {
   HELP_OPEN,
   helpOpen,
   INSTALL_BRANCH_LOG,
+  INSTALL_PILL_LOG,
   INSTRUMENT,
   judgeFit,
   MAP_CARDS_LOADED,
@@ -1495,7 +1520,9 @@ export {
   READ_KEY_GRID,
   READ_MAP_CARDS,
   READ_MAP_VIEW,
+  READ_PILLS,
   readBranchLog,
+  readPills,
   readSignature,
   SIGNATURE,
   SKIP_PROBE,

@@ -5,7 +5,9 @@
 // choice screens included, the walk's route highlighted, unplayed routes
 // never shown; Tab skip runs through seen items at the skip dwell per
 // picture (lines take zero time, caption hidden) and stops ON the last seen
-// one (doing nothing with nothing seen ahead); Space ends a skip; `e` goes
+// one (doing nothing with nothing seen ahead); Space ends a skip; every
+// start and stop of skip shows its pill, "Skip on" / "Skip off", and a Tab
+// that does nothing shows none (docs/plan.md Phase 43); `e` goes
 // to the furthest point read and is a no-op there, also after continuing
 // from a bookmark (video or image) picked on the branch map.
 
@@ -14,6 +16,7 @@ import {
   clickCenter,
   currentItemId,
   INSTALL_BRANCH_LOG,
+  INSTALL_PILL_LOG,
   item,
   MAP_CLOSED,
   MAP_READY,
@@ -32,6 +35,7 @@ import {
   READ_MAP_CARDS,
   readBookmarks,
   readBranchLog,
+  readPills,
   sleep,
   spaceTo,
   VIDEO_TOKEN,
@@ -70,6 +74,11 @@ const textOf = (sig) => sig.split("|").pop();
 // Drop consecutive duplicates: a notch the browser swallowed shows up as a
 // repeat, not as a skipped item.
 const squash = (ids) => ids.filter((id, i) => i === 0 || ids[i - 1] !== id);
+
+// The skip pills among every pill the page has shown (docs/plan.md Phase
+// 43): the mode pills of auto-forward and the route pills are left out.
+const skipPills = async (page) =>
+  (await readPills(page)).filter((text) => text.startsWith("Skip "));
 
 async function wheelTo(page, cdp, up, id, max = 12) {
   for (let i = 0; i < max; i += 1) {
@@ -244,6 +253,7 @@ async function wheelScenario({ check, open }) {
 // holds standing on the last seen item.
 async function freshTabScenario({ check, open }) {
   const { page, cdp } = await open("fresh-tab", { closeHelp: true });
+  await page.evaluate(INSTALL_PILL_LOG);
   await pressTab(cdp);
   const fresh = changesOf(await samplePaint(page, 1000, 50));
   const freshId = await currentItemId(page);
@@ -262,6 +272,12 @@ async function freshTabScenario({ check, open }) {
     reached && atEdge.length === 1 && edgeId === "text-bare",
     { reached, changes: atEdge.length - 1, on: edgeId },
   );
+  const pills = await readPills(page);
+  check(
+    "a Tab that does nothing (nothing seen ahead) shows no pill",
+    pills.length === 0,
+    pills,
+  );
 }
 
 // Old step 17, Phase 18 rule: skip runs through seen items at the dwell and
@@ -271,6 +287,7 @@ async function skipScenario({ check, open }) {
   const { page, cdp } = await open("skip", { closeHelp: true });
   const reached = await spaceTo(page, cdp, "chain-still-3");
   const back = await wheelTo(page, cdp, true, "anim-orbit");
+  await page.evaluate(INSTALL_PILL_LOG);
   await pressA(cdp); // auto-forward on: "shown normally" then advances
   const tabAt = Date.now();
   await pressTab(cdp);
@@ -345,6 +362,12 @@ async function skipScenario({ check, open }) {
       heldMs,
     },
   );
+  const pills = await skipPills(page);
+  check(
+    'Tab shows "Skip on", and the burst stopping on the last seen line "Skip off"',
+    stopped && pills.join("|") === "Skip on|Skip off",
+    pills,
+  );
 }
 
 // Old step 18 (Space during skip exits it and holds), and `e` from the
@@ -356,6 +379,7 @@ async function skipSpaceScenario({ check, open }) {
   // ~25 ms per item for a Space press to land in the middle of it.
   const reached = await spaceTo(page, cdp, "floor-3");
   const back = await wheelTo(page, cdp, true, "intro-title", 40);
+  await page.evaluate(INSTALL_PILL_LOG);
   await pressTab(cdp);
   const running = changesOf(await samplePaint(page, 120, 10));
   await pressSpace(cdp);
@@ -375,6 +399,12 @@ async function skipSpaceScenario({ check, open }) {
       stopIndex > item("intro-title").index &&
       stopIndex < item("floor-3").index,
     { skipMoves: running.length - 1, stillAfter, stopId },
+  );
+  const pills = await skipPills(page);
+  check(
+    'Space stopping a burst shows "Skip off" after Tab\'s "Skip on"',
+    pills.join("|") === "Skip on|Skip off",
+    pills,
   );
 
   // Stopped mid-burst: the furthest point read is still floor-3; `e` goes

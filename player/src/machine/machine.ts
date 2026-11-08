@@ -66,9 +66,10 @@
 // Branch decisions (docs/content-format.md, "Branches"): a decision fires on
 // the FORWARD SETTLE of its `after` item — on the press or auto-advance that
 // completes it, never on navigation onto it. A firing decision either pauses
-// (`MachineState.choice`, answered by `choose()` / `chooseContinue()`; space,
-// tab and bookmark jumps are inert while it is open, the wheel and `e` walk
-// on and leave it) — with `settings.playAllRoutes` the choice
+// (`MachineState.choice`, answered by `choose()` / `chooseContinue()`; space
+// and bookmark jumps are inert while it is open, tab and `a` only switch
+// their mode for after the answer, the wheel and `e` walk on and leave it)
+// — with `settings.playAllRoutes` the choice
 // answers itself on screen after a countdown, taking the shortest
 // not-yet-played route (the continuing route last), and once every route
 // has played the decision resolves past itself unshown. A stack of open decision contexts
@@ -89,8 +90,14 @@
 // Inside a branched manifest a skip visits items in PLAY order, and it PAUSES
 // at a decision (docs/plan.md Phase 16): reaching an unresolved decision's
 // `after` item opens the choice and ends the burst — `skipAll` governs only
-// unseen stops — and after the pick the reader stays in manual mode (a skip
-// burst never auto-resumes). `playAllRoutes` remains the no-stop path.
+// unseen stops — and the pick does not resume it by itself (a skip burst
+// never auto-resumes). `playAllRoutes` remains the no-stop path.
+// Tab ON an open choice (docs/plan.md Phase 43) turns skip on without
+// moving anything: the mode is ARMED (`skipArmed`) until the reader's
+// answer, whose first shown item then starts the burst exactly as a Tab
+// pressed there would — or, with nothing seen ahead and `skipAll` off or
+// nothing ahead at all, turns the mode back off. Every real flip of the mode — the burst
+// running or armed, versus neither — is reported once (`onSkipChange`).
 // `skipPlaysVideos` (Phase 18) makes a burst play each video it reaches for
 // the video's own time bound instead of one dwell; Space aborts it and the
 // burst goes on.
@@ -224,7 +231,10 @@ export interface Machine {
    * closed there (docs/plan.md Phase 43; the next item belongs to another
    * route, reached only through its decision).
    * Inert while a choice is open, a walked-to one included: only `choose()`
-   * and `chooseContinue()` answer it. From a screen the wheel walked to it
+   * and `chooseContinue()` answer it — except that a play-all auto-pick on
+   * the choice is taken at once, and as Space it stops skip: a mode armed
+   * on that choice (`toggleSkip()`) or carried by a burst turns off rather
+   * than running after the pick. From a screen the wheel walked to it
    * simply reads on from there.
    */
   advance(): void;
@@ -258,12 +268,27 @@ export interface Machine {
    * before the burst moves on through its chain's zero-time lines. With `settings.skipAll` off skip never reveals unseen content
    * (docs/plan.md Phase 18): the burst steps only onto seen items and ends
    * ON the last seen one before the frontier, which is then shown normally;
-   * a press with nothing seen ahead does nothing at all. With it on
+   * a press with nothing seen ahead does nothing at all, and so does a press
+   * where the story ends (the last item, or a route's last item once a pure
+   * choice's menu has closed there; docs/plan.md Phase 43). With it on
    * the mode continues through unseen items, marking them seen, and ends
    * when nothing unseen is left to visit. A decision reached during a skip
    * STOPS the burst: the choice opens (`skipping` ends) and the reader
-   * picks — the pick never auto-resumes skipping (docs/plan.md Phase 16).
-   * Only `settings.playAllRoutes` auto-resolves inside a skip instead.
+   * picks — the pick never resumes the burst by itself (docs/plan.md Phase
+   * 16). Only `settings.playAllRoutes` auto-resolves inside a skip instead:
+   * the mode stays on over its auto-pick and runs on from the route entered.
+   *
+   * On an open choice (docs/plan.md Phase 43) the press moves nothing and
+   * the choice stays open: it ARMS skip for after the answer, and a second
+   * press disarms it. The answer — `choose()`, `chooseContinue()` or
+   * play-all's elapsed auto-pick — then starts the burst on the first item
+   * it shows, as if Tab were pressed just after it; with nothing seen ahead
+   * there (and `skipAll` off), or where the story ends, the mode turns off
+   * instead. An answer that
+   * opens another choice keeps it armed for that one. Leaving the choice
+   * unanswered (a wheel notch, even one with nowhere to go; `e`, `u`, a map
+   * click, a restore) or Space taking a play-all auto-pick disarms it. `MachineState.skipping` stays false
+   * while armed; `onSkipChange` reports the mode.
    */
   toggleSkip(): void;
   /**
@@ -335,7 +360,10 @@ export interface Machine {
    * first item is entered as a forward entry — shown, marked seen, its own
    * timing armed; it becomes the decision's last pick. From a choice screen
    * the wheel walked to this is the same real pick. Inert when no choice is
-   * open or the index is out of range.
+   * open or the index is out of range. Skip armed on the choice
+   * (`toggleSkip()`) starts on the route's first item, or turns off when it
+   * has nothing seen to run through; auto-forward, if on, arms that item's
+   * hold as for any arrival.
    */
   choose(routeIdx: number): void;
   /**
@@ -344,6 +372,7 @@ export interface Machine {
    * choice offers it (`MachineState.choice.continueOption`, which requires a
    * completed continuing route — docs/plan.md Phase 18), and it does not
    * mark the continuing route played — its items are skipped, not replayed.
+   * An answer like `choose()`: armed skip starts on the item it lands on.
    */
   chooseContinue(): void;
   /**
@@ -397,8 +426,10 @@ export interface Machine {
    * appeared, so an item already up past its hold moves on at the next
    * tick. A settled item counts too (docs/plan.md Phase 43): a resume
    * landing, or the item Space stopped a skip burst on, moves on like any
-   * other. Nothing arms while a choice is open (it waits for its answer;
-   * play-all's auto-pick runs on its own timer) or on a settled item with
+   * other. Nothing arms while a choice is open (it waits for its answer —
+   * turned on there, it runs from the first item the answer shows, whose
+   * hold arms as for any arrival (docs/plan.md Phase 43); play-all's
+   * auto-pick runs on its own timer) or on a settled item with
    * nothing after it (the last item, or a route's last item once its menu
    * has closed). Turning auto off cancels the pending hold. Skip mode is
    * unaffected either way — its dwell is the reader's own command and runs
@@ -415,6 +446,23 @@ export interface Machine {
    * see nothing. Returns the unsubscribe; destroy() drops every listener.
    */
   onAutoAdvanceChange(listener: (on: boolean) => void): () => void;
+  /**
+   * Reports every real flip of skip mode (docs/plan.md Phase 43), the
+   * twin of `onAutoAdvanceChange`: on when Tab starts a burst or arms one
+   * on an open choice; off whenever neither is left — Tab again, Space, the
+   * burst stopping (the last seen item, a choice, the end), the wheel, `e`,
+   * `u`, a map click or a restore ending it, an armed answer with nothing
+   * seen to run through, Space taking a play-all auto-pick. Each is
+   * reported after the state change that makes it, once (the subscribers
+   * have seen that state). A play-all choice a burst carries on through
+   * reports nothing, nor do a Tab that does nothing (nothing seen ahead,
+   * or where the story ends),
+   * construction, pause/resume or a repeat. When Space stops a burst in
+   * auto-forward the skip flip is reported before the auto-forward one.
+   * Not a state change itself; returns the unsubscribe; destroy() drops
+   * every listener.
+   */
+  onSkipChange(listener: (on: boolean) => void): () => void;
   /**
    * The key help's machine freeze (docs/plan.md Phase 13b): cancels the
    * pending timer — hold or skip dwell — and arms none while paused, so
@@ -892,6 +940,17 @@ export function createMachine(options: MachineOptions): Machine {
   let passExport: readonly RouteSet[] | null = null;
   let pendingChoice: PendingChoice | null = null;
   let skipping = false;
+  /**
+   * Skip mode on while a choice is open (docs/plan.md Phase 43): Tab on the
+   * choice, or a burst that a play-all choice carries on through. Nothing
+   * runs until the answer; the first item the answer shows (`showItem`)
+   * then starts the burst, or turns the mode off when it has nothing seen
+   * to run through. Every way of leaving the choice unanswered clears it.
+   */
+  let skipArmed = false;
+  /** The skip mode last reported to `onSkipChange` (off at construction). */
+  let skipReported = false;
+  const skipListeners = new Set<(on: boolean) => void>();
   let holdElapsed = false;
   /** `mediaEnded()` calls counted for the standalone video under the cursor. */
   let endedCount = 0;
@@ -922,8 +981,24 @@ export function createMachine(options: MachineOptions): Machine {
   function setAutoFlag(on: boolean): void {
     if (autoAdvance === on) return;
     autoAdvance = on;
+    reportAuto(on);
+  }
+  function reportAuto(on: boolean): void {
     if (destroyed) return;
     for (const listener of [...autoListeners]) listener(on);
+  }
+  /**
+   * Tells the `onSkipChange` listeners (the skip pill) when skip mode — a
+   * burst running or armed on a choice — differs from what they last
+   * heard. `emit()` calls it after its subscribers, so a flip is reported
+   * once its state is out; the few flips that change no state (Tab on a
+   * choice) call it themselves.
+   */
+  function reportSkip(): void {
+    const on = skipping || skipArmed;
+    if (on === skipReported || destroyed) return;
+    skipReported = on;
+    for (const listener of [...skipListeners]) listener(on);
   }
   // The help screen's freeze (Phase 13b): while paused nothing arms.
   let paused = false;
@@ -945,7 +1020,10 @@ export function createMachine(options: MachineOptions): Machine {
     /** The route that just ended (a re-offer), or -1 on a first fire. */
     fromRoute: number;
     picked: boolean;
-    /** A skip burst was running: no countdown, and the entry resumes it. */
+    /**
+     * A skip burst was running: no countdown. Whether the entry resumes it
+     * is `skipArmed`'s (Tab on the choice can drop or add it).
+     */
     resumeSkip: boolean;
     ms: number;
     armId: number;
@@ -1100,9 +1178,10 @@ export function createMachine(options: MachineOptions): Machine {
 
   /**
    * Answers the open choice with the auto-pick's route. When the phases
-   * ELAPSED (`elapsed`) over a skip burst, the burst carries on: play-all
-   * with skip-all is the no-interaction path. Space ends it early and
-   * leaves skip off.
+   * ELAPSED (`elapsed`) with skip on — a burst the choice carried on
+   * through, or Tab on the choice — the burst runs on from the route
+   * entered: play-all with skip-all is the no-interaction path. Space ends
+   * it early and leaves skip off.
    */
   function finishAutoPick(elapsed: boolean): void {
     if (autoPick === null) return;
@@ -1110,8 +1189,19 @@ export function createMachine(options: MachineOptions): Machine {
     cancelAutoPick();
     pendingChoice = null;
     closeFramesFor(held.decision);
-    if (elapsed && held.resumeSkip) skipping = true;
+    if (!elapsed) skipArmed = false; // Space stops skip, as everywhere
     enterRoute(decisions[held.decision], held.toRoute);
+    settleArm();
+  }
+
+  /**
+   * After an answer (docs/plan.md Phase 43): an arm the answer's first item
+   * did not take (`showItem`) waits on a choice the answer opened, or —
+   * nothing shown and no choice, the story ended — turns off.
+   */
+  function settleArm(): void {
+    if (skipArmed && pendingChoice === null) skipArmed = false;
+    reportSkip();
   }
 
   /** Drops the auto-pick; the choice it was on stays open. */
@@ -1160,6 +1250,7 @@ export function createMachine(options: MachineOptions): Machine {
   function emit(): void {
     state = snapshot();
     for (const listener of [...listeners]) listener(state);
+    reportSkip();
   }
 
   function cancelTimer(): void {
@@ -1394,6 +1485,13 @@ export function createMachine(options: MachineOptions): Machine {
    * `kind` is the forward step's `advance` or any other route's `nav`
    * arrival (see `TransitionKind`). A wheel step or `e` (`showScreen`) does
    * not come through here.
+   *
+   * Skip armed on a choice (docs/plan.md Phase 43) is taken here: only an
+   * answer can show an item while it is set (every other way off a choice
+   * clears it first), so this is the answer's first item, and the burst
+   * starts on it as a Tab pressed there would — or not at all when it has
+   * nothing to run through (`skipCanStart`), which turns the mode off. One emit
+   * carries the outcome, so the renderer never sees a half-started burst.
    */
   function showItem(index: number, kind: TransitionKind): void {
     const keepsChain = index === cursor + 1 && chainHeadAt !== null;
@@ -1402,6 +1500,10 @@ export function createMachine(options: MachineOptions): Machine {
     chainHeadAt = chainHeadMarkFor(index, keepsChain);
     markShown(index);
     passBase = null;
+    if (skipArmed && pendingChoice === null) {
+      skipArmed = false;
+      skipping = skipCanStart();
+    }
     beginItem();
     emit();
   }
@@ -1718,12 +1820,14 @@ export function createMachine(options: MachineOptions): Machine {
 
   /**
    * The wheel and `e`: show a screen of the walk (header, "Timeline"). Skip
-   * mode ends; an item arrives unsettled with its own hold, a choice screen
-   * settled, its walk route highlighted, waiting for a pick. Nothing is
-   * marked seen or played; the played-this-pass record rewinds to it.
+   * mode ends, a burst or one armed on the choice left; an item arrives
+   * unsettled with its own hold, a choice screen settled, its walk route
+   * highlighted, waiting for a pick. Nothing is marked seen or played; the
+   * played-this-pass record rewinds to it.
    */
   function showScreen(screen: Screen): void {
     skipping = false;
+    skipArmed = false;
     cancelAutoPick();
     if (passBase === null) passBase = passNow();
     const anchor = anchorOf(screen);
@@ -1895,6 +1999,17 @@ export function createMachine(options: MachineOptions): Machine {
       return decision.continueAt >= 0 && !visited.has(decision.continueAt);
     }
     return !nothingFollows() && !visited.has(cursor + 1);
+  }
+
+  /**
+   * Whether Tab here starts a burst: something follows the item under the
+   * cursor (`nothingFollows`, docs/plan.md Phase 43: where the story ends a
+   * burst would only end itself after one dwell) and the step would not
+   * reveal unseen content (`skipWouldReveal`). Otherwise the press does
+   * nothing, and an armed answer landing here turns skip off.
+   */
+  function skipCanStart(): boolean {
+    return !nothingFollows() && !skipWouldReveal();
   }
 
   /**
@@ -2083,8 +2198,11 @@ export function createMachine(options: MachineOptions): Machine {
     cancelAutoPick();
     if (auto) startAutoPick(decisionIndex, via, resumeSkip);
     // A skip burst pauses at a decision (docs/plan.md Phase 16): the overlay
-    // ends the burst, and the pick never restarts it — the reader answers in
-    // manual mode from here (a skip burst never auto-resumes).
+    // ends the burst, and the pick never restarts it by itself — Tab on the
+    // choice arms it for after the pick (Phase 43). Play-all's auto-pick
+    // carries the burst on instead: the mode stays on, armed for the route
+    // it enters. An answer that opened this choice keeps its arm for it.
+    if (auto && resumeSkip) skipArmed = true;
     skipping = false;
     settled = true;
     cancelTimer();
@@ -2379,7 +2497,8 @@ export function createMachine(options: MachineOptions): Machine {
    * the nearest seen one (`seenBehind`), forward stops before an unseen one.
    * Decision (docs/plan.md Phase 4): a step during skip exits skip mode AND
    * performs the step; a step with nowhere to go still ends skip, and the
-   * item left behind gets its normal timing.
+   * item left behind gets its normal timing — or, skip armed on a choice
+   * (Phase 43), the choice stays open with the mode off.
    */
   function stepWalk(direction: -1 | 1): void {
     const here = currentScreen();
@@ -2388,6 +2507,9 @@ export function createMachine(options: MachineOptions): Machine {
       if (skipping) {
         exitSkip();
         emit();
+      } else if (skipArmed) {
+        skipArmed = false;
+        reportSkip(); // no state moved: the flip is the only news
       }
       return;
     }
@@ -2613,6 +2735,7 @@ export function createMachine(options: MachineOptions): Machine {
       cancelAutoPick();
       applyContext(context);
       skipping = false; // a restore is manual navigation, like `goTo()`
+      skipArmed = false; // and leaves any choice unanswered
       // UNSETTLED arrival: the item replays under its hold.
       showItem(cursor, "nav");
     },
@@ -2646,12 +2769,15 @@ export function createMachine(options: MachineOptions): Machine {
         // (the reader meant "stop here", not "step past this one"). In
         // auto-forward the stop also returns to manual (docs/plan.md Phase
         // 18), so the next press steps instead of only turning auto off.
-        setAutoFlag(false);
+        // The flag drops first, so nothing below arms a hold, and is
+        // reported last: the skip pill (the emit's report) comes first.
+        const wasAuto = autoAdvance;
+        autoAdvance = false;
         exitSkip();
         settled = true;
         cancelTimer();
-        if (fireDecision()) return;
-        emit();
+        if (!fireDecision()) emit();
+        if (wasAuto) reportAuto(false);
         return;
       }
       if (autoAdvance) {
@@ -2684,13 +2810,20 @@ export function createMachine(options: MachineOptions): Machine {
     },
 
     toggleSkip() {
-      if (destroyed || count === 0 || pendingChoice !== null) return;
+      if (destroyed || count === 0) return;
+      if (pendingChoice !== null) {
+        // On a choice (docs/plan.md Phase 43): arm or disarm for after the
+        // answer; nothing moves and no state changes, so no emit.
+        skipArmed = !skipArmed;
+        reportSkip();
+        return;
+      }
       if (skipping) {
         exitSkip(); // tab again: manual off, normal timing from here
       } else {
         // Nothing seen ahead (a fresh start, or standing on the last seen
-        // item): skip would only reveal, so the press does nothing.
-        if (skipWouldReveal()) return;
+        // item) or nothing ahead at all: the press does nothing.
+        if (!skipCanStart()) return;
         skipping = true;
         beginItem(); // the current item gets a fresh dwell too
       }
@@ -2722,6 +2855,7 @@ export function createMachine(options: MachineOptions): Machine {
       if (target < 0) return;
       cancelAutoPick();
       skipping = false;
+      skipArmed = false; // a jump, not an answer: armed skip goes too
       pendingChoice = null;
       // Entering as if each enclosing route were picked: frames open, routes
       // played, so a forward press carries on inside the route.
@@ -2769,9 +2903,11 @@ export function createMachine(options: MachineOptions): Machine {
       // fired open, but it keeps a re-entry into the reader's own route
       // from double-pushing the frame.
       closeFramesFor(decision.index);
-      // A skip burst never restarts here: the pause at a decision ended it
-      // and the pick belongs to manual reading (docs/plan.md Phase 16).
+      // A burst the decision stopped never restarts by itself (docs/plan.md
+      // Phase 16); skip armed on the choice (Tab, Phase 43) starts on the
+      // route's first item (`showItem`).
       enterRoute(decision, routeIdx);
+      settleArm();
     },
 
     chooseContinue() {
@@ -2785,6 +2921,7 @@ export function createMachine(options: MachineOptions): Machine {
       // Joining the aftermath replays none of the continuing route's items,
       // so the route is not marked played by this.
       join(decision);
+      settleArm();
     },
 
     mediaEnded() {
@@ -2859,6 +2996,13 @@ export function createMachine(options: MachineOptions): Machine {
       };
     },
 
+    onSkipChange(listener) {
+      skipListeners.add(listener);
+      return () => {
+        skipListeners.delete(listener);
+      };
+    },
+
     pause() {
       if (destroyed) return;
       paused = true;
@@ -2883,6 +3027,7 @@ export function createMachine(options: MachineOptions): Machine {
       cancelAutoPick();
       listeners.clear();
       autoListeners.clear();
+      skipListeners.clear();
     },
   };
 }

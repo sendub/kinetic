@@ -4,12 +4,17 @@
 // skip burst and holds a playing video in place; closing the screen
 // resumes exactly what was running (a fresh auto hold, or the burst
 // carrying on). A bookmark card click on the map that jumps away does not
-// resume the old burst. Each part starts a fresh browser.
+// resume the old burst. A panel's pause is no stop: skip shows no pill for
+// it (docs/plan.md Phase 43). Over a choice, the panels keep `a` and Tab:
+// pressed over the Esc screen or the map they do nothing, as before. Each
+// part starts a fresh browser.
 
 import {
+  CHOICE_OPEN,
   clickCenter,
   closeSettings,
   currentItemId,
+  INSTALL_PILL_LOG,
   item,
   MAP_CLOSED,
   MAP_OPEN,
@@ -18,10 +23,12 @@ import {
   openSettings,
   pressA,
   pressB,
+  pressDigit,
   pressM,
   pressSpace,
   pressTab,
   READ_MAP_CARDS,
+  readPills,
   sleep,
   spaceTo,
   waitVideoPlaying,
@@ -79,6 +86,7 @@ async function skipBurst({ check, open }) {
   // the map opens.
   const reached = await spaceTo(page, cdp, "floor-3");
   const back = await wheelBackTo(page, cdp, "intro-title");
+  await page.evaluate(INSTALL_PILL_LOG);
   await pressTab(cdp);
   await sleep(60);
   await pressM(cdp);
@@ -108,6 +116,13 @@ async function skipBurst({ check, open }) {
     "the branch map pauses a skip burst mid-run; closing it lets the burst finish on the last seen item",
     reached && back && frozen && resumed && captionShown,
     { reached, back, frozenAt, stillAt, resumed, captionShown },
+  );
+  await sleep(200);
+  const pills = (await readPills(page)).filter((t) => t.startsWith("Skip "));
+  check(
+    'the map\'s pause is no stop: the burst shows "Skip on" and, when it ends, "Skip off" only',
+    resumed && pills.join("|") === "Skip on|Skip off",
+    pills,
   );
 }
 
@@ -180,6 +195,54 @@ async function bookmarkJump({ check, open }) {
   );
 }
 
+// Over a choice, the Esc screen and the map keep `a` and Tab (docs/plan.md
+// Phase 43 changes them on the choice screen itself, not over a panel):
+// pressed there they show no pill and set no mode, so the route picked
+// after waits in manual.
+async function choicePanelKeys({ check, open }) {
+  const { page, cdp } = await open("choice-panels", {
+    closeHelp: true,
+    manualChoices: true,
+  });
+  const reached = await spaceTo(page, cdp, "branch-decide");
+  await pressSpace(cdp); // the outer decision
+  await page.waitForFunction(CHOICE_OPEN, { timeout: 2000 });
+  await page.evaluate(INSTALL_PILL_LOG);
+  await openSettings(page, cdp);
+  await pressA(cdp);
+  await pressTab(cdp);
+  await closeSettings(page, cdp);
+  await pressM(cdp);
+  await page.waitForFunction(MAP_OPEN, { timeout: 2000 });
+  await pressA(cdp);
+  await pressTab(cdp);
+  await pressM(cdp);
+  await page.waitForFunction(MAP_CLOSED, { timeout: 2000 });
+  const choiceStill = await page.evaluate(CHOICE_OPEN);
+  await sleep(300);
+  const pillsBehind = await readPills(page);
+  await pressDigit(cdp, "2");
+  await sleep(150);
+  const picked = await currentItemId(page);
+  await sleep(textHold(item("route2-start")) + 1000);
+  const waited = await currentItemId(page);
+  check(
+    "over a choice, a and Tab pressed on the Esc screen or the map do nothing: no pill, and the route picked after waits",
+    reached &&
+      choiceStill &&
+      pillsBehind.length === 0 &&
+      picked === "route2-start" &&
+      waited === "route2-start",
+    { reached, choiceStill, pills: pillsBehind, picked, waited },
+  );
+}
+
 // Independent parts (each opens its own browser); the runner runs them
 // side by side and prints their checks in this order.
-export const parts = [autoForward, skipBurst, videoHold, bookmarkJump];
+export const parts = [
+  autoForward,
+  skipBurst,
+  videoHold,
+  bookmarkJump,
+  choicePanelKeys,
+];

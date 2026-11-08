@@ -17,11 +17,12 @@
 // - The settings live on that same Esc screen (Phase 26; `c` is gone):
 //   over a choice the digits are inert until it closes, and a play-all
 //   countdown pauses with it (main.ts).
-// - A pending choice owns everything else: while it is open `h`, `b`
-//   and `a` are inert — informational overlays cannot
-//   stack over a decision waiting for an answer — and the timeline is
-//   suspended (the machine is inert to those commands too; the gate keeps
-//   the renderer from trying).
+// - A pending choice owns everything else: while it is open `h` and `b`
+//   are inert — informational overlays cannot stack over a decision
+//   waiting for an answer — and Space is suspended (the machine is inert
+//   to it too; the gate keeps the renderer from trying). The wheel and `e`
+//   walk on, and the mode keys `a` and Tab switch their mode for after the
+//   answer, each with its pill (docs/plan.md Phase 43).
 // - Digits (1..9 and 0) reach the choice only with help closed; `0` acts
 //   only when the return row is drawn. Clicks land on the top panel anyway.
 //

@@ -61,6 +61,7 @@ import { installKeyMap, mapKeyAction, suspendTimeline } from "./render/keys";
 import { loadManifest } from "./render/manifest";
 import { layOutStrip, type MapStrip, runJump } from "./render/mapmodel";
 import { mountRouteAnnouncements } from "./render/routes";
+import { mountSkipAnnouncements } from "./render/skip";
 import { installWheelInput } from "./render/wheel";
 import { createIdbStorage, storageKeys, storyIdOf } from "./storage/idb";
 import { createContextCodec, resumeOptionsFor } from "./storage/ids";
@@ -494,14 +495,18 @@ function start(): void {
         flash: (messages) => shell.flashSequence(messages),
         quiet: () => walking,
       });
-      // The auto-forward pill (docs/plan.md Phase 20): "Auto-forward on" /
-      // "Auto-forward off" on every real flip of the mode — `a`, or the
-      // Space that stops it — through the same route pill, newest wins.
-      // The machine reports the flips; a load is no flip, so no pill.
-      mountAutoForwardAnnouncements({
-        machine,
-        flash: (messages) => shell.flashSequence(messages),
-      });
+      // The mode pills: "Auto-forward on" / "Auto-forward off" (docs/plan.md
+      // Phase 20) and "Skip on" / "Skip off" (Phase 43) on every real flip
+      // of the mode — its key, the Space that stops it, a burst stopping —
+      // through the same route pill, newest wins. The machine reports the
+      // flips; a load is no flip, so no pill. `a` and Tab work on a choice
+      // screen and a burst can stop at one, so these pills may show over a
+      // choice (render/app.ts `PillGate`), and they lead a route pill
+      // announced in the same moment (`createPillQueue`).
+      const flashMode = (messages: readonly string[]): void =>
+        shell.flashSequence(messages, { mode: true });
+      mountAutoForwardAnnouncements({ machine, flash: flashMode });
+      mountSkipAnnouncements({ machine, flash: flashMode });
 
       // The branch map (docs/plan.md Phase 31): `m` opens the decision
       // tree with the reader's marks. Its strip is laid out on the first
@@ -656,11 +661,13 @@ function start(): void {
       // everything — Escape opens it even over a pending choice, and the
       // choice waits underneath, reappearing when help closes (help's
       // machine pause/resume is inert while a decision's item is settled).
-      // A pending CHOICE owns everything else: `h`/`b`/`a` are inert, the timeline is suspended, and only its
-      // own inputs act (1..9, 0 with the offer, the arrows and Enter, row
-      // clicks) — except the
-      // timeline moves, the wheel and `e` (see the gates below). Otherwise
-      // the story reads, and `m` and Escape open the screens.
+      // A pending CHOICE owns everything else: `h`/`b` are inert, Space is
+      // suspended, and only its own inputs answer it (1..9, 0 with the
+      // offer, the arrows and Enter, row clicks) — except the timeline
+      // moves, the wheel and `e` (see the gates below), and the two mode
+      // keys, `a` and Tab (docs/plan.md Phase 43), which switch their mode
+      // there for after the answer. Otherwise the story reads, and `m` and
+      // Escape open the screens.
       const owner = () => inputOwnerFor(help.isOpen(), choice.isOpen());
       // The reset box owns the screen too, over the Esc screen: while it
       // is open only its own controls act (its keys ride the map below).
@@ -672,8 +679,10 @@ function start(): void {
       // The timeline moves are never trapped by a choice (docs/plan.md
       // Phase 27): a wheel notch or `e` leaves a choice screen for the
       // neighbouring screen in story order / the furthest point read, and
-      // nothing is answered. Only the panels (the Esc
-      // screen, the map, the reset box) still suspend them.
+      // nothing is answered. Tab works on a choice too (Phase 43): the
+      // machine arms skip there for after the answer and moves nothing.
+      // Only the panels (the Esc screen, the map, the reset box) still
+      // suspend them.
       const timelineGate = (command: () => void) => () => {
         if (anyPanelOpen()) return;
         command();
@@ -693,6 +702,7 @@ function start(): void {
           },
           anyScreenOpen,
         ),
+        toggleSkip: timelineGate(() => machine.toggleSkip()),
         jumpToEnd: timelineGate(walk(() => machine.jumpToEnd())),
         wheelBack: timelineGate(walk(() => machine.wheelBack())),
         wheelForward: timelineGate(walk(() => machine.wheelForward())),
@@ -764,9 +774,11 @@ function start(): void {
           // a skip dwell keeps running — skipping is the reader's own run.
           // Space also turns it off (machine `advance()`, Phase 18). Every
           // flip shows its pill (render/autoforward.ts, Phase 20), from
-          // the machine's own report, so nothing here syncs it.
+          // the machine's own report, so nothing here syncs it. It works on
+          // a choice screen (Phase 43): nothing moves until the answer,
+          // whose route then runs in the mode set. The panels keep it.
           toggleAutoForward: () => {
-            if (!storyInput()) return;
+            if (anyPanelOpen()) return;
             machine.setAutoAdvance(!machine.isAutoAdvance());
           },
           // `y`/`n` act only while the reset box is open (keys.ts maps

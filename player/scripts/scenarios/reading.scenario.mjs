@@ -5,6 +5,7 @@
 
 import {
   currentItemId,
+  INSTALL_PILL_LOG,
   item,
   ON_TEXT,
   PAGE_STATE,
@@ -13,6 +14,7 @@ import {
   pressSpace,
   READ_CONFIG_OVERLAY,
   READ_HELP,
+  READ_PILLS,
   sleep,
   wheel,
   wheelUntil,
@@ -21,27 +23,6 @@ import {
 export const title = "boot, manual reading, text kinds, h";
 
 const MS_PER_CHAR = 60; // DEFAULT_SETTINGS reading speed 1.00x
-
-// Every `#flash` pill that appears, in order (docs/plan.md Phase 20, the
-// auto-forward pill): a MutationObserver logs each new pill's text, so a
-// pill that has already faded is still counted.
-const INSTALL_PILL_LOG = () => {
-  window.__pills = [];
-  const seen = new WeakSet();
-  const scan = () => {
-    const pill = document.getElementById("flash");
-    if (pill !== null && !seen.has(pill)) {
-      seen.add(pill);
-      window.__pills.push(pill.textContent);
-    }
-  };
-  new MutationObserver(scan).observe(document.body, {
-    childList: true,
-    subtree: true,
-  });
-  scan();
-};
-const READ_PILLS = () => [...(window.__pills ?? [])];
 
 export default async function ({ check, open }) {
   const { page, cdp } = await open("main");

@@ -13,16 +13,19 @@ import { createVisualLayer } from "./visual";
 export const ROUTE_PILL_MS = 1600;
 
 /**
- * The pill never covers a choice screen (docs/progress.md): `#choice` fills
- * the window, so no spot is clear of its title, hint and rows. A choice
- * opening drops the pill on screen and any message still queued — the
- * leftover "Route: <label>" of a short route that has just ended — and no
- * pill shows while the choice is open. Nothing is lost: what a choice
- * allows (its own keys, a pick) announces nothing until it closes, and a
- * pick closes it before its route pill shows; auto-forward never flips at
- * a choice, and `b` is inert there. The branch map is covered the same
- * way (docs/plan.md Phase 31): opening it drops a pill still holding, none
- * shows while it is up, and a map jump closes it before its route pill.
+ * The pill never covers a choice screen with news the reader did not ask
+ * for (docs/progress.md): `#choice` fills the window, so no spot is clear
+ * of its title, hint and rows. A choice opening drops the pill on screen
+ * and any route message still queued — the leftover "Route: <label>" of a
+ * short route that has just ended — and no route pill shows while the
+ * choice is open; a pick closes it before its route pill shows, and `b` is
+ * inert there. The MODE pills are the exception (docs/plan.md Phase 43):
+ * `a` and Tab work on a choice screen, and a skip burst can stop at one, so
+ * "Auto-forward on/off" and "Skip on/off" (`mode`) show over it — the
+ * brief cover answers the reader's own key, or says honestly that skip
+ * stopped there. The branch map is covered for every pill (docs/plan.md
+ * Phase 31): opening it drops a pill still holding, none shows while it is
+ * up, and a map jump closes it before its route pill.
  */
 export interface PillGate {
   /** Report the choice screen's state; true when the pill must go now. */
@@ -32,8 +35,11 @@ export interface PillGate {
    * true when the pill must go now.
    */
   coverChanged(covered: boolean): boolean;
-  /** Whether a pill may show now. */
-  mayShow(): boolean;
+  /**
+   * Whether a pill may show now; a `mode` pill may show over an open
+   * choice, never over the map.
+   */
+  mayShow(mode?: boolean): boolean;
 }
 
 export function createPillGate(): PillGate {
@@ -50,8 +56,100 @@ export function createPillGate(): PillGate {
       coveredNow = covered;
       return opened;
     },
-    mayShow() {
-      return !choiceOpen && !coveredNow;
+    mayShow(mode = false) {
+      return !coveredNow && (mode || !choiceOpen);
+    },
+  };
+}
+
+/**
+ * One queued pill: its text, and whether it is a mode pill ("Skip on",
+ * "Auto-forward off"…), which may cover a choice and leads its sequence.
+ */
+export interface PillMessage {
+  readonly text: string;
+  readonly mode: boolean;
+}
+
+/** The timers and the pill itself, injected so the queue is testable. */
+export interface PillQueueIo {
+  /** Run `fn` once the current task's own work is done (a microtask). */
+  defer(fn: () => void): void;
+  setTimer(fn: () => void, ms: number): unknown;
+  clearTimer(handle: unknown): void;
+  show(message: PillMessage): void;
+}
+
+/**
+ * The route pill's queue (`flashSequence`). Announcements made in the same
+ * task (docs/plan.md Phase 43) join ONE sequence, each message holding
+ * `holdMs` before the next, rather than the later wiping the earlier
+ * unseen. The mode pills lead, in the order made, then the route pills: a
+ * mode pill answers the key just pressed, so it shows at once — Space
+ * stopping a skip burst in auto-forward says "Skip off" then "Auto-forward
+ * off", and a pick whose armed skip cannot run says "Skip off" then its
+ * "Route: <label>". A later task's announcement still wins over whatever
+ * is queued (Phase 18).
+ */
+export interface PillQueue {
+  add(messages: readonly string[], mode: boolean): void;
+  /** A choice opened: drop every queued message but the mode pills. */
+  dropGated(): void;
+  /** Drop every queued message (the map opened, unmount). */
+  dropAll(): void;
+}
+
+export function createPillQueue(
+  io: PillQueueIo,
+  holdMs: number = ROUTE_PILL_MS,
+): PillQueue {
+  // This task's announcements, until the deferred start schedules them.
+  let batch: PillMessage[] | null = null;
+  // Scheduled messages not shown yet.
+  let queued: { handle: unknown; message: PillMessage }[] = [];
+
+  function cancel(keep: (message: PillMessage) => boolean): void {
+    queued = queued.filter((entry) => {
+      if (keep(entry.message)) return true;
+      io.clearTimer(entry.handle);
+      return false;
+    });
+  }
+
+  function start(): void {
+    const messages = batch ?? [];
+    batch = null;
+    if (messages.length === 0) return;
+    cancel(() => false); // the newest announcement wins
+    const ordered = [
+      ...messages.filter((message) => message.mode),
+      ...messages.filter((message) => !message.mode),
+    ];
+    ordered.forEach((message, index) => {
+      const entry = { handle: null as unknown, message };
+      entry.handle = io.setTimer(() => {
+        queued = queued.filter((other) => other !== entry);
+        io.show(message);
+      }, index * holdMs);
+      queued.push(entry);
+    });
+  }
+
+  return {
+    add(messages, mode) {
+      if (batch === null) {
+        batch = [];
+        io.defer(start);
+      }
+      for (const text of messages) batch.push({ text, mode });
+    },
+    dropGated() {
+      if (batch !== null) batch = batch.filter((message) => message.mode);
+      cancel((message) => message.mode);
+    },
+    dropAll() {
+      if (batch !== null) batch = [];
+      cancel(() => false);
     },
   };
 }
@@ -85,9 +183,14 @@ export interface Shell {
    * Show several pills in order — the route announcements' "Back to try
    * another route" before its "Route: <label>". Each message holds for
    * ROUTE_PILL_MS (~1.6 s, docs/plan.md Phase 18) before the next replaces
-   * it.
+   * it; calls made in the same task join one sequence (`createPillQueue`).
+   * `mode` marks a mode pill, which may show over an open choice
+   * (`PillGate`) and leads its task's sequence.
    */
-  flashSequence(messages: readonly string[]): void;
+  flashSequence(
+    messages: readonly string[],
+    options?: { mode?: boolean },
+  ): void;
   /**
    * A full-screen panel that the pill must not cover (the branch map) has
    * opened (true): the pill and its queued messages go, and no pill shows
@@ -218,7 +321,9 @@ export function mountShell({ root, manifest, machine }: ShellOptions): Shell {
     captions.update(manifest.items[state.cursor]);
     choiceOpen = state.choice !== undefined;
     if (pillGate.choiceChanged(choiceOpen)) {
-      clearSequence();
+      // The pill on screen is old news; a mode pill still queued may show
+      // over the choice (`PillGate`).
+      pills.dropGated();
       clearFlash();
     }
     skipping = state.skipping;
@@ -271,16 +376,17 @@ export function mountShell({ root, manifest, machine }: ShellOptions): Shell {
   // selector for "a bookmark was taken".
   let flashElement: HTMLElement | null = null;
   let flashTimers: ReturnType<typeof setTimeout>[] = [];
-  // Queue timers for a pending `flashSequence` message. They live apart
-  // from `flashTimers` on purpose: `flash` clears its own pill's timers,
-  // and must never cancel the message still queued behind it.
-  const sequenceTimers: ReturnType<typeof setTimeout>[] = [];
   const pillGate = createPillGate();
-
-  function clearSequence(): void {
-    for (const timer of sequenceTimers) globalThis.clearTimeout(timer);
-    sequenceTimers.length = 0;
-  }
+  // The `flashSequence` queue. Its timers live apart from `flashTimers` on
+  // purpose: `flash` clears its own pill's timers, and must never cancel
+  // the message still queued behind it.
+  const pills = createPillQueue({
+    defer: (fn) => queueMicrotask(fn),
+    setTimer: (fn, ms) => globalThis.setTimeout(fn, ms),
+    clearTimer: (handle) =>
+      globalThis.clearTimeout(handle as ReturnType<typeof setTimeout>),
+    show: (message) => flash(message.text, ROUTE_PILL_MS, message.mode),
+  });
 
   function clearFlash(): void {
     for (const timer of flashTimers) globalThis.clearTimeout(timer);
@@ -291,8 +397,9 @@ export function mountShell({ root, manifest, machine }: ShellOptions): Shell {
     }
   }
 
-  function flash(message: string, holdMs = 900): void {
-    if (!pillGate.mayShow()) return; // never over a choice screen
+  function flash(message: string, holdMs = 900, mode = false): void {
+    // Never over the map; over a choice screen only a mode pill.
+    if (!pillGate.mayShow(mode)) return;
     clearFlash(); // a second `b` replaces the first pill, mid-fade included
     const pill = doc.createElement("div");
     pill.id = "flash";
@@ -326,17 +433,14 @@ export function mountShell({ root, manifest, machine }: ShellOptions): Shell {
     );
   }
 
-  function flashSequence(messages: readonly string[]): void {
-    // A new announcement wins: a message of the previous sequence still
-    // queued would otherwise land on top of this one's fresher pill.
-    clearSequence();
-    let delay = 0;
-    for (const message of messages) {
-      sequenceTimers.push(
-        globalThis.setTimeout(() => flash(message, ROUTE_PILL_MS), delay),
-      );
-      delay += ROUTE_PILL_MS; // one route pill's visible hold (Phase 18)
-    }
+  function flashSequence(
+    messages: readonly string[],
+    options: { mode?: boolean } = {},
+  ): void {
+    // A new announcement wins over the previous sequence's queued messages
+    // (they would otherwise land on top of its fresher pill); the same
+    // task's announcements play one after another (`createPillQueue`).
+    pills.add(messages, options.mode === true);
   }
 
   const unsubscribe = machine.subscribe(render);
@@ -363,7 +467,7 @@ export function mountShell({ root, manifest, machine }: ShellOptions): Shell {
     flashSequence,
     setPillsCovered(covered: boolean) {
       if (pillGate.coverChanged(covered)) {
-        clearSequence();
+        pills.dropAll();
         clearFlash();
       }
     },
@@ -374,7 +478,7 @@ export function mountShell({ root, manifest, machine }: ShellOptions): Shell {
       machine.destroy();
       visuals.destroy();
       clearFlash();
-      clearSequence();
+      pills.dropAll();
       root.replaceChildren();
     },
   };
