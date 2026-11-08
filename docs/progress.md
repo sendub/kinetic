@@ -2136,5 +2136,10 @@ truthful: an unchecked box means nothing was accepted.
       headless with no errors. Layout 22.5-24.4 ms against a's 17.3-18.9 at
       570 decisions with 180 bookmarks. Reverted; the working tree is a's
       6f15a77.)
-- [ ] Phase-closer (Phase 42): full scenario suite, package-proof
+- [x] Phase-closer (Phase 42): full scenario suite, package-proof
       (rebuilds the demo); pytest not needed unless tools change.
+      (2026-11-08, on 33ab45b: npm test 749 pass; full `npm run verify`
+      14 scenarios, 336 checks, 334 pass, 2 PARTIAL (headless fullscreen
+      Escapes), 0 fail, branchmap with no throw; package-proof 18/18. The
+      user accepted the slower cold open at Fit on perf:map's 180-bookmark
+      tree (docs/perf.md, Phase 42).)

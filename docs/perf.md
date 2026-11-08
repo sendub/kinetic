@@ -439,3 +439,10 @@ screen, so Fit now draws 4,562 texts where HEAD drew 1. This is the cost
 the tree without bookmarks already had at Fit in the table above
 (switch 96.6-118.1 ms). The cold open at Fit, at 106-125 ms, is over
 the roughly 100 ms the user accepted for that case.
+
+Accepted (user, 2026-11-08), on the same grounds as Phase 41's: the tree
+is synthetic, about nine times the largest real game. perf:map renders at
+1x; on a 2x screen `figuresVisible` draws the figures down to 0.053x, so
+this tree's Fit very likely drew them before Phase 42 too (not measured
+at 2x). The still-picture fallback above stays the remedy if a real game's
+Fit is ever slow.
