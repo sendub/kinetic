@@ -1545,7 +1545,9 @@ to stay fast while moving.
     drag, the wheel does nothing. Its drawing may be optimised for a still
     picture, and opening at Fit stays within docs/perf.md's numbers with its
     counts and figures drawn (the first item left the 570-decision tree
-    without bookmarks at 77-91 ms for a first open at Fit).
+    without bookmarks at 77-91 ms for a first open at Fit; the band layout
+    added about 7 ms to every first open, from the cold cut and width
+    chooser). A Full size open cuts at the view width, with no chooser.
   - No zoom other than these two: the wheel, a pinch, + and - and the
     left and right arrows no longer zoom or pan the map.
   - C (Centre) and N (Newest bookmark) switch to Full size and scroll so

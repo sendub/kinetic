@@ -15,10 +15,12 @@ import {
   LINE_STEPS_PER_OCTAVE,
   labelsMarkup,
   lineScaleStyle,
+  linesMarkup,
+  tickClass,
   treeMarkup,
 } from "./branchmap";
 import {
-  bandOffsets,
+  bandWidthForAspect,
   buildMapModel,
   CARD,
   CARD_ABOVE,
@@ -27,6 +29,7 @@ import {
   type CardSlot,
   cardSlots,
   centreOn,
+  cutBands,
   FIGURE_INK_PX,
   FIT_MARGIN_PX,
   figuresVisible,
@@ -37,23 +40,28 @@ import {
   HIDDEN_PROMPT,
   HIDDEN_ROUTE,
   hitTest,
-  itemX,
+  itemPoint,
   jumpFor,
+  layOutStrip,
   layoutSignature,
   MAP_GEOMETRY,
   MAX_SCALE,
   type MapModel,
   type MapReader,
+  type MapRun,
   mapDrawing,
   markMap,
   NODE_GROUP_MIN_SCALE,
   nodeGroupMinScale,
   restoreView,
+  rowOffset,
   runAt,
   runJump,
   type SavedMapView,
   SMALL_NODE_GROUP_MIN_SCALE,
   saveView,
+  tickBox,
+  tickPaths,
   viewAfterResize,
   visibleWorld,
   zoomAt,
@@ -232,7 +240,7 @@ describe("buildMapModel: the tree from the decisions", () => {
     expect(r2.y - r1.y).toBe(MAP_GEOMETRY.rowH);
     expect(r2.x).toBe(r1.x);
     expect(r2.endX + 17).toBeLessThan(nested.x + MAP_GEOMETRY.decW);
-    expect(model.rows).toBe(1);
+    expect(model.bands).toHaveLength(1);
     expect(model.routes.map((r) => [r.label, r.outcome])).toEqual([
       ["1a: carries on", "continues"],
       ["1b: comes back", "returns"],
@@ -325,7 +333,7 @@ describe("buildMapModel: the tree from the decisions", () => {
   });
 });
 
-describe("buildMapModel: rows like lines of text, endings tucked in", () => {
+describe("buildMapModel: bands like a score's systems, endings tucked in", () => {
   const g = MAP_GEOMETRY;
   type Box = { x0: number; y0: number; x1: number; y1: number };
 
@@ -353,11 +361,11 @@ describe("buildMapModel: rows like lines of text, endings tucked in", () => {
       .sort((a, b) => a.afterIndex - b.afterIndex);
   }
 
-  it("wraps a large game's main line into rows, in reading order, about the viewport's shape", () => {
+  it("wraps a large game's main line into bands, in reading order, about the viewport's shape", () => {
     const { items, branches } = synthetic(30, 6, 26);
     for (const aspect of [16 / 9, 2, 4 / 3]) {
       const model = buildMapModel(items, branches, aspect);
-      expect(model.rows).toBeGreaterThan(2);
+      expect(model.bands.length).toBeGreaterThan(2);
       const shape = model.width / model.height;
       expect(shape / aspect).toBeGreaterThan(0.6);
       expect(shape / aspect).toBeLessThan(1.6);
@@ -366,7 +374,7 @@ describe("buildMapModel: rows like lines of text, endings tucked in", () => {
       const tops = topLevel(model);
       expect(tops).toHaveLength(30);
       const rowYs = [...new Set(tops.map((d) => d.y))];
-      expect(rowYs).toHaveLength(model.rows);
+      expect(rowYs).toHaveLength(model.bands.length);
       for (let i = 1; i < tops.length; i += 1) {
         const [a, b] = [tops[i - 1], tops[i]];
         if (a.y === b.y) expect(b.x).toBeGreaterThan(a.x);
@@ -376,56 +384,6 @@ describe("buildMapModel: rows like lines of text, endings tucked in", () => {
         }
       }
     }
-  });
-
-  it("never splits a top-level decision's subtree across rows", () => {
-    const { items, branches } = synthetic(30, 6, 26);
-    const model = buildMapModel(items, branches, 16 / 9);
-    const tops = topLevel(model);
-    const rowYs = [...new Set(tops.map((d) => d.y))].sort((a, b) => a - b);
-    const nextRowY = (y: number) =>
-      rowYs.find((r) => r > y) ?? Number.POSITIVE_INFINITY;
-    tops.forEach((top, i) => {
-      const from = top.afterIndex;
-      const to = tops[i + 1]?.afterIndex ?? model.itemCount;
-      const right = tops[i + 1]?.y === top.y ? tops[i + 1].x : Infinity;
-      const inside = (x: number, y: number) => {
-        expect(y).toBeGreaterThanOrEqual(top.y);
-        expect(y).toBeLessThan(nextRowY(top.y));
-        expect(x).toBeGreaterThanOrEqual(top.x);
-        expect(x).toBeLessThan(right);
-      };
-      for (const route of model.routes)
-        if (route.startIndex > from && route.startIndex < to)
-          inside(route.x, route.y);
-      for (const node of model.decisions)
-        if (node.afterIndex > from && node.afterIndex < to)
-          inside(node.x, node.y);
-    });
-  });
-
-  it("draws a continuation connector from each row's end to the next row's start", () => {
-    const { items, branches } = synthetic(30, 6, 26);
-    const model = buildMapModel(items, branches, 16 / 9);
-    const wraps = model.links.filter((l) => l.kind === "wrap");
-    expect(wraps).toHaveLength(model.rows - 1);
-    const tops = topLevel(model);
-    for (const wrap of wraps) {
-      // It leaves a row's main line at its end (the last join there)...
-      expect(tops.some((d) => d.y === wrap.y0)).toBe(true);
-      expect(
-        model.joins.some((j) => j.y === wrap.y0 && j.x === wrap.x1 - 28),
-      ).toBe(true);
-      // ...and enters the next row where its first stretch starts.
-      const first = model.runs.find((r) => r.y === wrap.y1 && r.x0 === g.pad);
-      expect(first).toBeDefined();
-      expect(wrap.d.startsWith(`M${wrap.x1 - 28} ${wrap.y0}`)).toBe(true);
-      expect(wrap.d).toContain(`H${g.pad}`);
-      expect(wrap.x0).toBeLessThan(g.pad);
-    }
-    // The story's start dot is on the first row's first stretch.
-    expect(model.runs[0].x0).toBe(model.start.x);
-    expect(model.runs[0].y).toBe(model.start.y);
   });
 
   it("keeps boxes and lines apart, tucked endings included", () => {
@@ -498,9 +456,11 @@ describe("buildMapModel: rows like lines of text, endings tucked in", () => {
   });
 
   it("lays a no-decision story out as one row, and an empty one without failing", () => {
-    expect(buildMapModel(["a", "b"].map(image), undefined).rows).toBe(1);
+    expect(buildMapModel(["a", "b"].map(image), undefined).bands).toHaveLength(
+      1,
+    );
     const empty = buildMapModel([], undefined);
-    expect(empty.rows).toBe(1);
+    expect(empty.bands).toHaveLength(1);
     expect(empty.runs).toHaveLength(0);
     expect(empty.height).toBeGreaterThan(0);
   });
@@ -543,8 +503,8 @@ describe("buildMapModel: rows like lines of text, endings tucked in", () => {
   it("lays the demo out as before, one row, whatever the viewport's shape", () => {
     for (const aspect of [1, 4 / 3, 16 / 9, 3]) {
       const model = buildMapModel(DEMO_ITEMS, DEMO_BRANCHES, aspect);
-      expect(model.rows).toBe(1);
-      expect(model.links.some((l) => l.kind === "wrap")).toBe(false);
+      expect(model.bands).toHaveLength(1);
+      expect(model.ticks).toEqual([]);
     }
   });
 });
@@ -1192,7 +1152,7 @@ describe("the remembered view (Phase 33)", () => {
       fit: true,
     });
     const rewrapped = buildMapModel(items, branches, 0.5);
-    expect(rewrapped.rows).not.toBe(model.rows);
+    expect(rewrapped.bands.length).not.toBe(model.bands.length);
     expect(layoutSignature(rewrapped)).not.toBe(layout);
     expect(restoreView(rewrapped, saved, 1280, 640).fit).toBe(true);
     // The same manifest laid out again gives the same signature.
@@ -1523,11 +1483,13 @@ describe("bookmark cards on the line (docs/plan.md Phase 35)", () => {
       if (run === undefined) throw new Error("no stretch");
       expect(mark.itemIndex).toBeGreaterThanOrEqual(run.start);
       expect(mark.itemIndex).toBeLessThanOrEqual(run.end);
-      expect(slot.cy).toBe(run.y);
-      expect(slot.y + CARD.h / 2).toBe(run.y);
+      // On one of its stretch's pieces (a band cut may split the stretch).
+      const piece = run.pieces.find(
+        (p) => p.y === slot.cy && slot.x >= p.x0 && slot.x + CARD.w <= p.x1,
+      );
+      expect(piece).toBeDefined();
+      expect(slot.y + CARD.h / 2).toBe(slot.cy);
       expect(slot.x + CARD.w / 2).toBe(slot.cx);
-      expect(slot.x).toBeGreaterThanOrEqual(run.x0);
-      expect(slot.x + CARD.w).toBeLessThanOrEqual(run.x1);
     });
     // One bookmark per screen: the point along the line for that screen,
     // where "you are here" sits while it is up, is its card's centre.
@@ -1538,23 +1500,29 @@ describe("bookmark cards on the line (docs/plan.md Phase 35)", () => {
     expect(here(4)).toMatchObject({ x: nested?.cx, y: nested?.cy });
     const route2 = runAt(single.runs, 8);
     if (route2 === undefined) throw new Error("no stretch");
-    expect(itemX(route2, 8)).toBe(ending?.cx);
+    expect(itemPoint(route2, 8).x).toBe(ending?.cx);
   });
 
   it("orders the cards along each line in story order, two on one screen oldest first", () => {
     const { model, marks, slots } = crowded();
-    const byRun = new Map<number, { item: number; t: number; cx: number }[]>();
+    // How far along its stretch a point is (its pieces in story order).
+    const alongOn = (run: MapRun, x: number, y: number) => {
+      const piece = run.pieces.find((p) => p.y === y && x >= p.x0 && x <= p.x1);
+      return piece === undefined ? Number.NaN : piece.at + x - piece.x0;
+    };
+    const byRun = new Map<number, { item: number; t: number; at: number }[]>();
     marks.forEach((mark, i) => {
       const run = runAt(model.runs, mark.itemIndex);
       const slot = slots[i];
       if (run === undefined || slot === null) throw new Error("unplaced");
       const list = byRun.get(run.start) ?? [];
-      list.push({ item: mark.itemIndex, t: mark.timestampMs, cx: slot.cx });
+      const at = alongOn(run, slot.cx, slot.cy);
+      list.push({ item: mark.itemIndex, t: mark.timestampMs, at });
       byRun.set(run.start, list);
     });
     let pairs = 0;
     for (const list of byRun.values()) {
-      list.sort((a, b) => a.cx - b.cx);
+      list.sort((a, b) => a.at - b.at);
       for (let i = 1; i < list.length; i += 1) {
         pairs += 1;
         const [a, b] = [list[i - 1], list[i]];
@@ -1569,14 +1537,17 @@ describe("bookmark cards on the line (docs/plan.md Phase 35)", () => {
     expect(on3).toHaveLength(2);
     const early = on3.find(({ m }) => m.timestampMs === 5)?.s;
     const late = on3.find(({ m }) => m.timestampMs === 30)?.s;
+    expect(early?.cy).toBe(late?.cy);
     expect(early?.cx).toBeLessThan(late?.cx ?? -1);
-    // A point on the line moves forward through the screens.
+    // A point on the line moves forward through the screens, across a
+    // band cut too.
     for (const run of model.runs) {
       let last = -Infinity;
       for (let i = run.start; i <= run.end; i += 1) {
-        const x = itemX(run, i);
-        expect(x).toBeGreaterThanOrEqual(last);
-        last = x;
+        const point = itemPoint(run, i);
+        const at = alongOn(run, point.x, point.y);
+        expect(at).toBeGreaterThanOrEqual(last);
+        last = at;
       }
     }
   });
@@ -1651,21 +1622,12 @@ describe("bookmark cards on the line (docs/plan.md Phase 35)", () => {
   });
 
   it("spreads a segment's rows by the room their cards need, and leaves one without cards as it was", () => {
-    expect(bandOffsets({ width: 1, rows: 3 })).toEqual({
-      off: [0, 0, 0],
-      height: 3 * g.rowH,
-    });
-    expect(
-      bandOffsets({ width: 1, rows: 3, bands: [false, true, false] }),
-    ).toEqual({
-      off: [0, CARD_ABOVE, CARD_ABOVE + CARD_BELOW],
-      height: 3 * g.rowH + CARD_ABOVE + CARD_BELOW,
-    });
-    // Row 0's room above is the wrapped row's (shared), not the segment's.
-    expect(bandOffsets({ width: 1, rows: 1, bands: [true] })).toEqual({
-      off: [0],
-      height: g.rowH + CARD_BELOW,
-    });
+    const offsets = (cards: number[]) =>
+      [0, 1, 2].map((r) => rowOffset(cards, r));
+    expect(offsets([])).toEqual([0, 0, 0]);
+    expect(offsets([1])).toEqual([0, CARD_ABOVE, CARD_ABOVE + CARD_BELOW]);
+    // Row 0's room above is the band's top (what it draws), not an offset.
+    expect(offsets([0])).toEqual([0, CARD_BELOW, CARD_BELOW]);
   });
 
   it("puts a bookmark on a screen no stretch holds at the end of the stretch before it", () => {
@@ -1694,7 +1656,7 @@ describe("bookmark cards on the line (docs/plan.md Phase 35)", () => {
     expect(compact(lead)).toBe(carded(1));
     const [slot] = cardSlots(model, [bm(2)]);
     expect(slot?.cy).toBe(lead.y);
-    expect(slot?.cx).toBe(itemX(lead, lead.end));
+    expect(slot?.cx).toBe(itemPoint(lead, lead.end).x);
   });
 
   it("Fit shows every card scaled down with the tree; 100% is a card at the t screen's size, about the same centre", () => {
@@ -1722,6 +1684,12 @@ describe("bookmark cards on the line (docs/plan.md Phase 35)", () => {
     // From further in, 100% zooms back out to the same size.
     expect(
       fullSizeView({ ...full, scale: 2.5 }, 1920, 1080, limits).scale,
+    ).toBe(1);
+    // Exactly 1 from any scale (a scale times its reciprocal is not always).
+    const odd = 0.7653061224489796;
+    expect(odd * (1 / odd)).not.toBe(1);
+    expect(
+      fullSizeView({ x: 3, y: 4, scale: odd }, 1280, 656, limits).scale,
     ).toBe(1);
   });
 
@@ -2170,6 +2138,514 @@ describe("one look at every zoom (docs/plan.md Phase 41)", () => {
     const bare = treeMarkup(model, marks, null, "bare");
     expect(bare.labels).toBe("");
     expect(bare.tree).toBe(treeMarkup(model, marks, null, "merged").tree);
+  });
+});
+
+// Phase 41 ("Band layout"): the tree laid out as one strip and cut into
+// bands like the systems of a score, every line cut at the same x, each
+// band under the one before. A cut crosses only straight lines; each line
+// it crosses ends in a "continues" tick and resumes from one.
+describe("band layout (docs/plan.md Phase 41)", () => {
+  const g = MAP_GEOMETRY;
+  type Box = { what: string; x0: number; y0: number; x1: number; y1: number };
+  const layOut = (
+    items: readonly Item[],
+    branches: readonly Branch[] | undefined,
+    width: number,
+    bookmarks: readonly number[] = [],
+  ) => cutBands(layOutStrip(items, branches, bookmarks), width);
+  // Bookmarks spread over the whole story (perf:map's way): on routes at
+  // every depth, often several on one stretch.
+  const spread = (items: readonly Item[], n: number) =>
+    Array.from({ length: n - 1 }, (_, i) =>
+      Math.floor(((i + 1) * (items.length - 1)) / n),
+    );
+  const big = synthetic(30, 6, 26);
+  const models = (): [string, MapModel][] => {
+    const marked = spread(big.items, 180);
+    return [
+      ["570 decisions at 1440", layOut(big.items, big.branches, 1440)],
+      [
+        "570 decisions, 180 bookmarks at 1440",
+        layOut(big.items, big.branches, 1440, marked),
+      ],
+      [
+        "570 decisions, 180 bookmarks at 1920",
+        layOut(big.items, big.branches, 1920, marked),
+      ],
+      [
+        "570 decisions, 180 bookmarks at 16:9",
+        buildMapModel(big.items, big.branches, 16 / 9, marked),
+      ],
+    ];
+  };
+  // Everything a cut may not cross, each a world box: nodes, pills,
+  // cards, counts (their text at a wide 0.62 em a character), curves
+  // (branches, and a join or return line's turn), joins, end marks and the
+  // start dot.
+  function solids(model: MapModel): Box[] {
+    const out: Box[] = [];
+    const reader = { visited: [], playedRoutes: [], cursor: 0 };
+    const marks = markMap(model, reader);
+    for (const d of model.decisions)
+      out.push({
+        what: `decision ${d.index}`,
+        x0: d.x,
+        y0: d.y - g.decH / 2,
+        x1: d.x + g.decW,
+        y1: d.y + g.decH / 2,
+      });
+    model.routes.forEach((r, key) => {
+      out.push({
+        what: `pill ${key}`,
+        x0: r.x,
+        y0: r.y - g.routeH / 2,
+        x1: r.x + g.routeW,
+        y1: r.y + g.routeH / 2,
+      });
+    });
+    const cards = model.runs.flatMap((run) =>
+      run.bookmarks.map((itemIndex, j) => ({ itemIndex, timestampMs: j })),
+    );
+    for (const slot of cardSlots(model, cards))
+      if (slot !== null)
+        out.push({
+          what: `card at ${slot.cx}`,
+          x0: slot.x,
+          y0: slot.y,
+          x1: slot.x + CARD.w,
+          y1: slot.y + CARD.h,
+        });
+    const counts = labelsMarkup(model, marks).matchAll(
+      /<text class="map-count( map-count-cards)?" x="([-\d.]+)" y="([-\d.]+)">([^<]*)<\/text>/g,
+    );
+    for (const [, cardsCount, x, y, text] of counts) {
+      const size = cardsCount ? 11 : 12;
+      const w = text.length * 0.62 * size;
+      const x0 = cardsCount ? Number(x) : Number(x) - w / 2;
+      out.push({
+        what: `count "${text}"`,
+        x0,
+        // Its digits' ink, under 10 px tall above the baseline.
+        y0: Number(y) - (cardsCount ? size : 10),
+        x1: x0 + w,
+        y1: Number(y),
+      });
+    }
+    for (const l of model.links)
+      if (l.kind === "branch")
+        out.push({ what: "branch", x0: l.x0, y0: l.y0, x1: l.x1, y1: l.y1 });
+      else if (l.y0 !== l.y1)
+        out.push({
+          what: `${l.kind} turn`,
+          x0: l.x1 - 24,
+          y0: l.y0,
+          x1: l.x1,
+          y1: l.y1,
+        });
+    for (const p of model.joins)
+      out.push({
+        what: "join",
+        x0: p.x - 5,
+        y0: p.y - 5,
+        x1: p.x + 5,
+        y1: p.y + 5,
+      });
+    for (const p of model.ends)
+      out.push({
+        what: "end",
+        x0: p.x - 7,
+        y0: p.y - 7,
+        x1: p.x + 7,
+        y1: p.y + 7,
+      });
+    const s = model.start;
+    out.push({
+      what: "start",
+      x0: s.x - 6,
+      y0: s.y - 6,
+      x1: s.x + 6,
+      y1: s.y + 6,
+    });
+    return out;
+  }
+  // The band a world y lies in (bands never overlap down the page).
+  const bandOf = (model: MapModel, y: number) =>
+    model.bands.findIndex((b) => y >= b.y0 && y <= b.y1);
+  // Whether a box crosses a cut: a band's left edge (not the first's,
+  // where the story starts) or its right edge (not the last's).
+  const crossesCut = (model: MapModel, box: Box) => {
+    const b = bandOf(model, (box.y0 + box.y1) / 2);
+    const band = model.bands[b];
+    return (
+      (b > 0 && box.x0 < band.x0) ||
+      (b < model.bands.length - 1 && box.x1 > band.x1)
+    );
+  };
+
+  it("never cuts through a node, pill, card, count or curve: each lies whole inside one band", () => {
+    let inside = 0;
+    for (const [name, model] of models()) {
+      expect(model.bands.length, name).toBeGreaterThan(2);
+      // Not only between top-level segments (where the main line is the one
+      // line): count the cuts that cross several lines, or a card stretch.
+      model.bands.forEach((_, b) => {
+        const outs = model.ticks.filter(
+          (t) => t.side === "out" && t.band === b,
+        );
+        const carded = outs.some(
+          (t) => t.line === "run" && model.runs[t.run].bookmarks.length > 0,
+        );
+        if (outs.length > 1 || carded) inside += 1;
+      });
+      for (const box of solids(model)) {
+        const b = bandOf(model, (box.y0 + box.y1) / 2);
+        const band = model.bands[b];
+        expect(band, `${name}: ${box.what} in no band`).toBeDefined();
+        const at = `${name}: ${box.what} at ${box.x0}..${box.x1}, band ${b} ${band.x0}..${band.x1}`;
+        expect(crossesCut(model, box), at).toBe(false);
+        expect(box.y0, at).toBeGreaterThanOrEqual(band.y0 - 0.5);
+        expect(box.y1, at).toBeLessThanOrEqual(band.y1 + 0.5);
+      }
+    }
+    expect(inside).toBeGreaterThan(5);
+  });
+
+  it("continues every line a cut crosses: a tick pair in that line's look, from one band's right edge to the next band's left edge", () => {
+    for (const [name, model] of models()) {
+      // Read up to half way: stretches seen, partly seen and unseen.
+      const half = Math.floor(model.itemCount / 2);
+      const visited = Array.from({ length: half }, (_, i) => i);
+      const marks = markMap(model, { visited, playedRoutes: [], cursor: half });
+      const markup = linesMarkup(model, marks);
+      const pathOf = (cls: string) =>
+        new RegExp(`<path class="${cls}" d="([^"]*)"`).exec(markup)?.[1] ?? "";
+      const classes = new Set<string>();
+      for (let b = 0; b + 1 < model.bands.length; b += 1) {
+        const edge = model.bands[b].x1;
+        const next = model.bands[b + 1].x0;
+        const byY = (side: "out" | "in", band: number) =>
+          model.ticks
+            .filter((t) => t.side === side && t.band === band)
+            .sort((p, q) => p.y - q.y);
+        const outs = byY("out", b);
+        const ins = byY("in", b + 1);
+        expect(outs.length, `${name} cut ${b}`).toBeGreaterThan(0);
+        expect(ins.length, `${name} cut ${b}`).toBe(outs.length);
+        outs.forEach((out, i) => {
+          const into = ins[i];
+          expect(out.x).toBe(edge);
+          expect(into.x).toBe(next);
+          // The same line, so the same look on both sides of the cut.
+          expect([into.line, into.run]).toEqual([out.line, out.run]);
+          const cls = tickClass(marks, out);
+          expect(tickClass(marks, into)).toBe(cls);
+          classes.add(cls);
+          // Its stub drawn in the path of its line's look, beside the
+          // line's own pieces (a stretch's by its read state), its slash
+          // in that look made solid (map-tick).
+          for (const tick of [out, into]) {
+            const { stub, slash } = tickPaths(tick);
+            expect(pathOf(cls)).toContain(stub);
+            expect(pathOf(`${cls} map-tick`)).toContain(slash);
+          }
+          if (out.line === "run") {
+            const run = model.runs[out.run];
+            expect(cls).toBe(`map-run map-run-${marks.runs[out.run]}`);
+            for (const p of run.pieces)
+              expect(pathOf(cls)).toContain(`M${p.x0} ${p.y}H${p.x1}`);
+          }
+        });
+        // Every line that reaches the cut has its tick: a stretch's piece or
+        // a connector's straight piece ending at the edge, or starting at
+        // the next band's left edge.
+        const lines = [
+          ...model.runs.flatMap((r) =>
+            r.pieces.map((p) => ({ x0: p.x0, x1: p.x1, y: p.y })),
+          ),
+          ...model.links
+            .filter((l) => l.kind !== "branch")
+            .map((l) => ({ x0: l.x0, x1: l.x1, y: l.y1 })),
+        ];
+        for (const l of lines) {
+          if (l.x1 === edge && bandOf(model, l.y) === b)
+            expect(outs.some((t) => t.y === l.y)).toBe(true);
+          if (l.x0 === next && bandOf(model, l.y) === b + 1)
+            expect(ins.some((t) => t.y === l.y)).toBe(true);
+        }
+      }
+      if (name.includes("bookmarks")) expect(classes.size).toBeGreaterThan(1);
+    }
+    // A tick is a stub out past the band's edge and a slash across it, on
+    // the far side of the edge from everything the band holds.
+    const out = {
+      x: 100,
+      y: 50,
+      side: "out",
+      line: "run",
+      run: 0,
+      band: 0,
+    } as const;
+    expect(tickPaths(out)).toEqual({
+      stub: "M100 50h5",
+      slash: "M102 56l6 -12",
+    });
+    expect(tickPaths({ ...out, x: 40, side: "in" })).toEqual({
+      stub: "M35 50h5",
+      slash: "M32 56l6 -12",
+    });
+  });
+
+  it("fits a 2,900 px stretch of 10 bookmarks' cards into 1,440 px bands, every piece and card inside its band", () => {
+    // Ten bookmarks on the demo's lead-in (items 0 and 1).
+    const marked = [0, 0, 0, 0, 0, 1, 1, 1, 1, 1];
+    const model = layOut(DEMO_ITEMS, DEMO_BRANCHES, 1440, marked);
+    const lead = runAt(model.runs, 0);
+    if (lead === undefined) throw new Error("no lead-in");
+    expect(lead.bookmarks).toHaveLength(10);
+    expect(lead.length).toBeGreaterThan(2900);
+    expect(model.width).toBeLessThanOrEqual(1440);
+    for (const band of model.bands)
+      expect(band.x1 - band.x0).toBeLessThanOrEqual(1440 - 2 * g.pad);
+    expect(lead.pieces.length).toBeGreaterThanOrEqual(3);
+    let along = 0;
+    for (const p of lead.pieces) {
+      const band = model.bands[bandOf(model, p.y)];
+      expect(p.x0).toBeGreaterThanOrEqual(band.x0);
+      expect(p.x1).toBeLessThanOrEqual(band.x1);
+      expect(p.at).toBeCloseTo(along, 9);
+      along += p.x1 - p.x0;
+    }
+    expect(along).toBeCloseTo(lead.length, 9);
+    const slots = cardSlots(
+      model,
+      marked.map((itemIndex, i) => ({ itemIndex, timestampMs: i })),
+    );
+    for (const slot of slots) {
+      if (slot === null) throw new Error("no card");
+      const band = model.bands[bandOf(model, slot.cy)];
+      expect(slot.x).toBeGreaterThanOrEqual(band.x0);
+      expect(slot.x + CARD.w).toBeLessThanOrEqual(band.x1);
+      expect(slot.y).toBeGreaterThanOrEqual(band.y0);
+      expect(slot.y + CARD.h).toBeLessThanOrEqual(band.y1);
+    }
+    // In story order down the bands, as they read.
+    for (let i = 1; i < slots.length; i += 1) {
+      const [a, b] = [slots[i - 1], slots[i]];
+      if (a === null || b === null) throw new Error("no card");
+      expect(b.cy > a.cy || (b.cy === a.cy && b.cx > a.cx)).toBe(true);
+    }
+  });
+
+  it("puts 'you are here' on the right piece for a screen past a cut", () => {
+    const marked = [0, 0, 0, 0, 0, 1, 1, 1, 1, 1];
+    const model = layOut(DEMO_ITEMS, DEMO_BRANCHES, 1440, marked);
+    const lead = runAt(model.runs, 1);
+    if (lead === undefined) throw new Error("no lead-in");
+    // Item 1's five cards (the 6th to 10th) are past the first cut: the
+    // marker on item 1 is at their middle, on the piece holding them.
+    const here = markMap(model, {
+      visited: [0, 1],
+      playedRoutes: [],
+      cursor: 1,
+    }).here;
+    const piece = lead.pieces.find(
+      (p) => p.y === here.y && here.x >= p.x0 && here.x <= p.x1,
+    );
+    expect(piece).toBeDefined();
+    expect(piece).not.toBe(lead.pieces[0]);
+    const middle = cardSlots(
+      model,
+      marked.map((itemIndex, i) => ({ itemIndex, timestampMs: i })),
+    )[7];
+    expect(here).toEqual({ x: middle?.cx, y: middle?.cy, decision: -1 });
+    expect(itemPoint(lead, 1)).toEqual({ x: here.x, y: here.y });
+    // Item 0's are before it: on the first piece.
+    expect(itemPoint(lead, 0).y).toBe(lead.pieces[0].y);
+  });
+
+  it("stacks the bands wrapGap apart between what they draw, each as tall as what it draws", () => {
+    // How far things are drawn round their points at 100%, from the
+    // shipped styles: the "you are here" ring (it can sit on any stretch,
+    // end mark, the start dot, or a decision's row); a card's hover ring
+    // and the newest's outline; a decision's hover stroke.
+    const px = (re: RegExp, body: string) => Number(re.exec(body)?.[1]);
+    const ringRule = cssRule(/\.map-here-ring/);
+    const ring =
+      px(/r:\s*([\d.]+)px/, ringRule) +
+      px(/stroke-width:\s*([\d.]+)/, ringRule) / 2;
+    const cardRing = px(
+      /box-shadow:\s*0 0 0 calc\(([\d.]+)px/,
+      cssRule(/\.bm-card:hover,\s*\.bm-card\.bm-newest/),
+    );
+    const hover = px(
+      /stroke-width:\s*calc\(([\d.]+)px/,
+      cssRule(
+        /\.map-node\.map-reached:hover rect,\s*\.map-node\.map-reached:focus-visible rect/,
+      ),
+    );
+    expect([ring, cardRing, hover]).toEqual([17, 3, 3.5]);
+    for (const [name, model] of models()) {
+      const marks = markMap(model, {
+        visited: [],
+        playedRoutes: [],
+        cursor: 0,
+      });
+      const top = model.bands.map(() => Infinity);
+      const bottom = model.bands.map(() => -Infinity);
+      const draw = (y0: number, y1: number) => {
+        const b = bandOf(model, (y0 + y1) / 2);
+        top[b] = Math.min(top[b], y0);
+        bottom[b] = Math.max(bottom[b], y1);
+      };
+      for (const r of model.runs)
+        for (const p of r.pieces) draw(p.y - ring, p.y + ring);
+      const cards = model.runs.flatMap((r) =>
+        r.bookmarks.map((itemIndex, j) => ({ itemIndex, timestampMs: j })),
+      );
+      for (const slot of cardSlots(model, cards))
+        if (slot !== null) draw(slot.y - cardRing, slot.y + CARD.h + cardRing);
+      // Counts: a compact one's digits above its line (baseline 6 above,
+      // under 10 tall), a carded one's line under its cards (baseline at
+      // CARD_COUNT_DY, as `bounds` holds it, 4 below).
+      for (const [, cardsCount, , y] of labelsMarkup(model, marks).matchAll(
+        /<text class="map-count( map-count-cards)?" x="([-\d.]+)" y="([-\d.]+)">/g,
+      ))
+        if (cardsCount) draw(Number(y) - 11, Number(y) + 4);
+        else draw(Number(y) - 10, Number(y));
+      for (const d of model.decisions) {
+        draw(d.y - g.decH / 2 - hover / 2, d.y + g.decH / 2 + hover / 2);
+        draw(d.y - ring, d.y + ring);
+      }
+      for (const r of model.routes)
+        draw(r.y - g.routeH / 2 - hover / 2, r.y + g.routeH / 2 + hover / 2);
+      for (const p of model.joins) draw(p.y - 6.5, p.y + 6.5);
+      for (const p of [...model.ends, model.start])
+        draw(p.y - ring, p.y + ring);
+      for (const l of model.links) draw(l.y0 - 2, l.y1 + 2);
+      for (const t of model.ticks) {
+        const box = tickBox(t);
+        draw(box.y0 - 2.5, box.y1 + 2.5);
+      }
+      model.bands.forEach((band, b) => {
+        const at = `${name} band ${b}`;
+        expect(band.y0, at).toBeCloseTo(top[b], 9);
+        expect(band.y1, at).toBeCloseTo(bottom[b], 9);
+        if (b > 0)
+          expect(band.y0 - model.bands[b - 1].y1, at).toBeCloseTo(g.wrapGap, 9);
+      });
+      expect(model.bands[0].y0).toBeCloseTo(g.pad, 9);
+      const last = model.bands[model.bands.length - 1];
+      expect(model.height).toBeCloseTo(last.y1 + g.pad, 9);
+    }
+    // The ten cards of the demo's lead-in at 1,440 px: a card's ring to the
+    // next band's card's ring is wrapGap, its count line in between where
+    // the band draws one.
+    const ten = layOut(
+      DEMO_ITEMS,
+      DEMO_BRANCHES,
+      1440,
+      [0, 0, 0, 0, 0, 1, 1, 1, 1, 1],
+    );
+    const slots = cardSlots(
+      ten,
+      [0, 0, 0, 0, 0, 1, 1, 1, 1, 1].map((itemIndex, i) => ({
+        itemIndex,
+        timestampMs: i,
+      })),
+    );
+    const rows = [...new Set(slots.map((slot) => slot?.y ?? 0))];
+    expect(rows).toHaveLength(3);
+    // Band 0 has the count line (4 below its baseline, 15 under the
+    // cards); band 1 has none.
+    expect(rows[1] - (rows[0] + CARD.h)).toBeCloseTo(
+      CARD_COUNT_DY + 4 - CARD.h / 2 + g.wrapGap + cardRing,
+      9,
+    );
+    expect(rows[2] - (rows[1] + CARD.h)).toBeCloseTo(
+      2 * cardRing + g.wrapGap,
+      9,
+    );
+  });
+
+  it("runs a band past the width only where no cut lies within it, and always ends", () => {
+    // Too narrow for anything: still cut only where allowed, and finished.
+    // On the demo a cut lies within 120 px everywhere; ten cards on its
+    // lead-in leave one only between cards, 290 px apart.
+    const plain = layOutStrip(DEMO_ITEMS, DEMO_BRANCHES);
+    const carded = layOutStrip(
+      DEMO_ITEMS,
+      DEMO_BRANCHES,
+      [0, 0, 0, 0, 0, 1, 1, 1, 1, 1],
+    );
+    for (const width of [0, 200, 400])
+      for (const strip of [plain, carded]) {
+        const model = cutBands(strip, width);
+        expect(model.bands.length).toBeGreaterThan(1);
+        for (const box of solids(model))
+          expect(crossesCut(model, box), box.what).toBe(false);
+      }
+    // Each card's band is as wide as the card and more: wider than the
+    // 120 px a band gets at the least.
+    const narrow = cutBands(carded, 0);
+    const lead = runAt(narrow.runs, 0);
+    expect(lead?.pieces.length).toBeGreaterThanOrEqual(10);
+    const slots = cardSlots(
+      narrow,
+      (lead?.bookmarks ?? []).map((itemIndex, i) => ({
+        itemIndex,
+        timestampMs: i,
+      })),
+    );
+    expect(new Set(slots.map((slot) => slot?.cy)).size).toBe(10);
+    for (const slot of slots) {
+      const band = narrow.bands[bandOf(narrow, slot?.cy ?? -1)];
+      expect(band.x1 - band.x0).toBeGreaterThan(CARD.w);
+    }
+    // Wide enough for all of it: one band, nothing cut.
+    const whole = cutBands(plain, 4000);
+    expect(whole.bands).toHaveLength(1);
+    expect(whole.ticks).toEqual([]);
+    expect(whole.runs.every((r) => r.pieces.length === 1)).toBe(true);
+  });
+
+  it("gives a layout cut at other places another signature, and the same cuts the same one", () => {
+    const strip = layOutStrip(big.items, big.branches, spread(big.items, 60));
+    const at1440 = cutBands(strip, 1440);
+    const at1920 = cutBands(strip, 1920);
+    expect(layoutSignature(at1920)).not.toBe(layoutSignature(at1440));
+    expect(layoutSignature(cutBands(strip, 1440))).toBe(
+      layoutSignature(at1440),
+    );
+    // A view remembered on one is not restored on the other.
+    const saved = saveView(
+      layoutSignature(at1440),
+      centreOn(700, 400, 1440, 800, 1),
+      1440,
+      800,
+      false,
+    );
+    expect(restoreView(at1920, saved, 1920, 800).fit).toBe(true);
+    expect(restoreView(at1440, saved, 1440, 800).fit).toBe(false);
+  });
+
+  it("chooses a width for a view's shape with no stub of a last band", () => {
+    for (const aspect of [16 / 9, 2, 4 / 3, 1]) {
+      const strip = layOutStrip(
+        big.items,
+        big.branches,
+        spread(big.items, 180),
+      );
+      const model = cutBands(strip, bandWidthForAspect(strip, aspect));
+      const widths = model.bands.map((b) => b.x1 - b.x0);
+      expect(model.bands.length).toBeGreaterThan(1);
+      expect(widths[widths.length - 1]).toBeGreaterThanOrEqual(
+        Math.max(...widths) / 2,
+      );
+      const shape = model.width / model.height;
+      expect(shape / aspect).toBeGreaterThan(0.7);
+      expect(shape / aspect).toBeLessThan(1.4);
+    }
   });
 });
 

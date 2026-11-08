@@ -492,9 +492,9 @@ async function cards({ check, open }) {
   );
 }
 
-// Ten bookmarks, so Fit draws small cards; the × at 100% and at Fit, the
-// hint, the ghost's Undo, the toast's Undo and Z; deletes final on close;
-// the Esc screen without a T row.
+// Ten bookmarks, and Fit in a smaller window, so Fit draws small cards;
+// the × at 100% and at Fit, the hint, the ghost's Undo, the toast's Undo
+// and Z; deletes final on close; the Esc screen without a T row.
 async function deletes({ check, open }) {
   const { page, cdp } = await open("deletes", {
     closeHelp: true,
@@ -557,9 +557,13 @@ async function deletes({ check, open }) {
   await sleep(150);
   let m = await page.evaluate(READ_MAP_CARDS);
   const vr = m.viewRect;
+  // Wholly in view: the band layout (docs/plan.md Phase 41) puts the ten
+  // cards on several lines, so some are above or below the view at 100%.
   const visible = (x) =>
     x.rect.left >= vr.left &&
     x.rect.right <= vr.right &&
+    x.rect.top >= vr.top &&
+    x.rect.bottom <= vr.bottom &&
     !x.deleted &&
     !x.newest;
   const one = m.cards.find(visible);
@@ -702,7 +706,13 @@ async function deletes({ check, open }) {
 
   // At Fit the cards are small and the × is still offered,
   // at a usable screen size, in the card's corner; the toast's Undo. A
-  // hovered card, the newest too, shows the same tooltip as at 100%.
+  // hovered card, the newest too, shows the same tooltip as at 100%. The
+  // bands (docs/plan.md Phase 41) stack the ten cards on two lines, which
+  // Fit shows at about 0.69x in 1280x720, barely under CARD_SMALL_SCALE;
+  // at 960x600 (about the same shape, so the same layout) it is about
+  // 0.51x.
+  await page.setViewport({ width: 960, height: 600 });
+  await sleep(200);
   await pressF(cdp);
   await sleep(200);
   m = await page.evaluate(READ_MAP_CARDS);

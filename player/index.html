@@ -1600,17 +1600,16 @@
       .map-conn,
       .map-join,
       .map-return,
-      .map-wrap,
       .map-run {
         fill: none;
         stroke-linecap: round;
       }
-      /* Connectors: the branches out to each route and back, and a row's
-         end to the next row's start (the main line wrapping like a line
-         of text); returns dashed. */
+      /* Connectors: the branches out to each route and back; returns
+         dashed. Where a band cut crosses a line, the line ends in a
+         "continues" tick (a slash) in its own look, and resumes from one at
+         the next band's left edge (render/branchmap.ts `linesMarkup`). */
       .map-conn,
       .map-join,
-      .map-wrap,
       .map-return {
         stroke: var(--k-line-conn);
         stroke-width: calc(4px * var(--line-px, 1));
@@ -1638,6 +1637,11 @@
         stroke: var(--k-line-unseen);
         stroke-width: calc(4.5px * var(--line-px, 1));
         stroke-dasharray: 0 calc(10px * var(--line-px, 1));
+      }
+      /* A "continues" tick's slash: its line's colour and weight, solid
+         even on a dashed or dotted line, so it reads as a tick. */
+      .map-svg .map-tick {
+        stroke-dasharray: none;
       }
       /* Counts: secondary text, as everywhere. */
       .map-svg .map-count {

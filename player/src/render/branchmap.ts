@@ -80,6 +80,7 @@ import {
   type CardSlot,
   cardSlots,
   centreOn,
+  countText,
   fitView,
   fullSizeView,
   hitTest,
@@ -94,14 +95,18 @@ import {
   type MapModel,
   type MapReader,
   type MapTarget,
+  type MapTick,
   type MapView,
   mapDrawing,
   markMap,
+  pointAlong,
   promptText,
   restoreView,
   routeText,
   type SavedMapView,
   saveView,
+  tickBox,
+  tickPaths,
   viewAfterResize,
   visibleWorld,
   zoomAt,
@@ -241,7 +246,7 @@ export interface BranchMapOptions {
   /**
    * The tree laid out for a view of this aspect (width / height); called on
    * the first open, and again only when the view's shape has changed a lot
-   * since (the rows wrap to it).
+   * since (its bands are cut to it).
    */
   model: (aspect: number, bookmarkItems: readonly number[]) => MapModel;
   /** The bookmarks, drawn as cards on their stretches (Phase 35). */
@@ -293,10 +298,6 @@ function escapeXml(text: string): string {
     .replace(/"/g, "&quot;");
 }
 
-function screensLabel(n: number): string {
-  return n === 1 ? "1 screen" : `${n} screens`;
-}
-
 /** The full text and status a node's tooltip and aria label carry. */
 export function describeTarget(
   model: MapModel,
@@ -338,10 +339,31 @@ function within(
   );
 }
 
+/** A connector kind's look (index.html). */
+const LINK_CLASS = {
+  branch: "map-conn",
+  join: "map-join",
+  return: "map-return",
+} as const;
+
 /**
- * The lines: connectors, the stretches by mark, joins and end marks
- * touching `rect` (all of them for null), merged into one path element per
- * look, so even a whole large tree is a handful of elements. Pure.
+ * The look of the line a "continues" tick ends (mapmodel.ts `MapTick`): a
+ * stretch's by how much of it is read, or the connector kind's. Its stub
+ * is drawn in that look, dashes and all; its slash in that look with
+ * `map-tick`, solid (index.html), so it reads as a tick on any line.
+ */
+export function tickClass(marks: MapMarks, tick: MapTick): string {
+  return tick.line === "run"
+    ? `map-run map-run-${marks.runs[tick.run]}`
+    : LINK_CLASS[tick.line];
+}
+
+/**
+ * The lines: connectors, the stretches' pieces by mark, the "continues"
+ * ticks where band cuts cross them (each in its line's look), joins and end
+ * marks touching `rect` (all of them for null), merged into one path
+ * element per look, so even a whole large tree is a handful of elements.
+ * Pure.
  */
 export function linesMarkup(
   model: MapModel,
@@ -352,31 +374,34 @@ export function linesMarkup(
     "map-conn": [],
     "map-join": [],
     "map-return": [],
-    "map-wrap": [],
     "map-run map-run-unseen": [],
     "map-run map-run-partly": [],
     "map-run map-run-seen": [],
     "map-dot": [],
     "map-end": [],
   };
-  const linkClass = {
-    branch: "map-conn",
-    join: "map-join",
-    return: "map-return",
-    wrap: "map-wrap",
-  } as const;
   for (const link of model.links) {
     const y0 = Math.min(link.y0, link.y1);
     const y1 = Math.max(link.y0, link.y1);
     if (within(rect, link.x0, y0, link.x1, y1))
-      paths[linkClass[link.kind]].push(link.d);
+      paths[LINK_CLASS[link.kind]].push(link.d);
   }
   model.runs.forEach((run, i) => {
-    if (within(rect, run.x0, run.y, run.x1, run.y))
-      paths[`map-run map-run-${marks.runs[i]}`].push(
-        `M${run.x0} ${run.y}H${run.x1}`,
-      );
+    for (const p of run.pieces)
+      if (within(rect, p.x0, p.y, p.x1, p.y))
+        paths[`map-run map-run-${marks.runs[i]}`].push(
+          `M${p.x0} ${p.y}H${p.x1}`,
+        );
   });
+  for (const tick of model.ticks) {
+    const b = tickBox(tick);
+    if (!within(rect, b.x0, b.y0, b.x1, b.y1)) continue;
+    const cls = tickClass(marks, tick);
+    const { stub, slash } = tickPaths(tick);
+    paths[cls].push(stub);
+    paths[`${cls} map-tick`] ??= [];
+    paths[`${cls} map-tick`].push(slash);
+  }
   for (const p of model.joins)
     if (within(rect, p.x - 5, p.y - 5, p.x + 5, p.y + 5))
       paths["map-dot"].push(
@@ -458,15 +483,6 @@ function decisionFigure(marks: MapMarks, node: MapDecision): string {
 }
 
 /**
- * A stretch's count line: a compact stretch shows its screen count above
- * its line; one holding cards says it under them, with its bookmarks.
- */
-export function countText(screens: number, bookmarks: number): string {
-  if (bookmarks === 0) return String(screens);
-  return `${screensLabel(screens)} · ${bookmarks === 1 ? "1 bookmark" : `${bookmarks} bookmarks`}`;
-}
-
-/**
  * The baseline of a node's figure (index.html `.map-dec-c`, `.map-route-c`,
  * 13 px), below the node's centre line: its digits' ink is 9.2-9.4 px
  * tall in the system UI font (measured with canvas `measureText` in
@@ -542,19 +558,25 @@ export function labelsMarkup(
 ): string {
   const g = MAP_GEOMETRY;
   const out: string[] = [];
+  // A count sits where its stretch's middle (or, with cards, its first
+  // card's left edge) is, on whichever piece of a cut stretch holds that:
+  // band cuts never cross a count (mapmodel.ts `layOutStrip`).
   for (const run of model.runs) {
     const screens = run.end - run.start + 1;
     const cards = run.bookmarks.length;
     if (cards === 0) {
-      if (!within(rect, run.x0, run.y - 16, run.x1, run.y)) continue;
+      const at = pointAlong(run, run.length / 2);
+      const half = run.length / 2;
+      if (!within(rect, at.x - half, at.y - 16, at.x + half, at.y)) continue;
       out.push(
-        `<text class="map-count" x="${(run.x0 + run.x1) / 2}" y="${run.y - 6}">${countText(screens, 0)}</text>`,
+        `<text class="map-count" x="${at.x}" y="${at.y - 6}">${countText(screens, 0)}</text>`,
       );
     } else {
-      const y = run.y + CARD_COUNT_DY;
-      if (!within(rect, run.x0, y - 12, run.x1, y)) continue;
+      const at = pointAlong(run, CARD.inset);
+      const y = at.y + CARD_COUNT_DY;
+      if (!within(rect, at.x, y - 12, at.x + CARD.w, y)) continue;
       out.push(
-        `<text class="map-count map-count-cards" x="${run.x0 + CARD.inset}" y="${y}">${countText(screens, cards)}</text>`,
+        `<text class="map-count map-count-cards" x="${at.x}" y="${y}">${countText(screens, cards)}</text>`,
       );
     }
   }
@@ -810,8 +832,8 @@ export function mountBranchMap({
 
   /**
    * Lays the tree out again when the view's shape has moved well away from
-   * the one it was laid out for (the rows wrap to it), or the bookmarked
-   * screens changed; true when it did.
+   * the one it was laid out for (its bands are cut to it), or the
+   * bookmarked screens changed; true when it did.
    */
   function layOut(): boolean {
     const aspect = vw / Math.max(1, vh);

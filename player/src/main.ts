@@ -505,8 +505,8 @@ function start(): void {
       // The branch map (docs/plan.md Phase 31): `m` opens the decision
       // tree with the reader's marks. Its layout is computed on the first
       // open and kept (it depends on the manifest and the view's shape,
-      // which its rows wrap to: render/branchmap.ts lays it out again only
-      // when that shape changes a lot); the marks are
+      // which its bands are cut to: render/branchmap.ts lays it out again
+      // only when that shape changes a lot); the marks are
       // read fresh from the machine on every open. A click on a reached
       // decision or route closes the map and moves through the machine's
       // own operations (mapmodel.ts `runJump`): the choice screen as a

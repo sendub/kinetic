@@ -240,3 +240,61 @@ figure in view, so zooming there costs about 4 ms more per step on
 average. Its worst steps are the redraws on crossing 0.106x and 0.6x.
 Phase 41's next item replaces free zoom and pan with two views, so this
 range is not tuned.
+
+## Band layout (Phase 41)
+
+Segment wrapping is gone. The map is laid out once as one strip
+(mapmodel.ts `layOutStrip`: every position, where a cut may fall, and what
+each band would hold) and then cut into bands of a width (`cutBands`).
+Bands sit `wrapGap` (40) apart between what they draw: cards with their
+3 px rings, the count under a stretch's first card, nodes, ticks, and the
+"you are here" ring wherever it can sit (17 px round a stretch). Ten
+cards on the demo's lead-in lose 54-70 px between one band's cards and
+the next band's against the first cut of this layout, which reserved a
+row's half height and the cards' room instead. Until the two views pass
+the view's width, `bandWidthForAspect` picks the width for the view's
+aspect. For each band count it tries the narrowest width that still
+takes that many bands, and one roomier while the last band stays at
+least half a band long, never under 1,280 px a band. In a 1920x1080
+window perf:map's tree lays out as 4 bands with 180 bookmarks (15,843 x
+9,031 world units, Fit 0.105x) and as 5 without (8,734 x 5,240, Fit
+0.18x). Cut at 1,440 px, as Full size will cut it, it makes 53 and 30
+bands, each within the width.
+
+Node-side layout, each tree as an open builds it: the layout and then its
+`layoutSignature`. Warm medians of 20 interleaved runs (10 for the larger
+tree), 2026-11-08:
+
+| tree | HEAD | band layout |
+| --- | --- | --- |
+| 570 decisions, 180 bookmarks | 17.4 ms | 17.8 ms |
+| 570 decisions, no bookmarks | 16.3 ms | 16.0 ms |
+| 2,340 decisions (`60 7 15`), no bookmarks | 131.7 ms | 130.3 ms |
+
+Of the band layout, choosing the width takes 1-3 ms and the cut 2-5 ms
+(8-13 ms on the larger tree). `layoutSignature` now hashes each number as
+an integer rather than as a decimal string: 1 ms cold where it took 5.
+That pays for most of the cut. A cold first call, as on a first open, is
+still about 10 ms slower than HEAD's (median of 10 fresh processes: 38
+against 28.5 ms for the layout, plus 1 against 5 ms for the signature).
+That is the cut and the chooser running unoptimised.
+
+`npm run perf:map`, HEAD and the band layout alternated run by run, so
+each pair saw the same machine load (taken before the bands were packed
+by what they draw, which moves Fit from 0.103x to 0.105x and leaves the
+counts and figures out there as before):
+
+| build (2026-11-08) | runs | first open | later opens | frames p95 (all phases) | frames > 33 ms |
+| --- | --- | --- | --- | --- | --- |
+| HEAD (segment rows) | 11 | 60.2-77.8 ms (median 66.2) | 52.0-64.1 ms | 16.7-16.8 ms; 33.3 in 2 of 55 phase runs | 0-5 of ~900 |
+| band layout | 11 | 63.1-79.0 ms (median 73.5) | 50.6-68.5 ms | 16.7-16.8 ms; 33.3-33.4 in 5 of 55 phase runs | 0-10 of ~900 |
+| HEAD, the 3 quietest pairs (load 8) | 3 | 66.2-70.7 ms | 52.0-62.5 ms | 16.7-16.8 ms; 33.3 in 1 of 15 | 0-2 of ~900 |
+| band layout, the same 3 pairs | 3 | 69.5-78.1 ms | 52.7-68.5 ms | 16.7-16.8 ms; 33.4 in 1 of 15 | 0-10 of ~900 |
+
+The machine was busy throughout this item, with Spotlight, media
+analysis and log collection holding the load average between 8 and 200.
+HEAD's own first opens here ran 60-78 ms (66-71 ms in the quietest
+pairs), against 52-61 ms in the Phase 41 table above. First opens with
+the band layout ran about 7 ms slower by median (73.5 against 66.2 ms):
+the cold cut and chooser above. 9 of its 11 runs were over 69 ms, as
+were 3 of HEAD's. Later opens keep the layout and match HEAD's.

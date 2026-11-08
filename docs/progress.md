@@ -2006,7 +2006,7 @@ truthful: an unchecked box means nothing was accepted.
       drawn). Opening at Fit within docs/perf.md's numbers moved to the
       two-views item, where Fit becomes a still picture and the first
       open is Full size.)
-- [ ] Band layout (docs/plan.md Phase 41, "Band layout"): the tree is
+- [x] Band layout (docs/plan.md Phase 41, "Band layout"): the tree is
       cut into bands of a given width at points where nothing straddles
       any line, every line continuing from a tick at a band's right edge
       to a tick at the next band's left; one wrap mark replaces the old
@@ -2015,6 +2015,29 @@ truthful: an unchecked box means nothing was accepted.
       Unit tests that fail on HEAD's code (no node, card or count across
       a cut; every cut line continues; a 2,900 px stretch of cards fits
       a 1,440 px band); `npm run perf:map` within docs/perf.md.
+      (2026-11-08: the tree is laid out once as a strip (`layOutStrip`)
+      and cut into bands at an explicit width (`cutBands`; `bandsShape`
+      sizes a cut without building it), cut only where every crossing
+      is a straight line; a cut line ends in a 5 px stub crossed by a
+      solid slash, resumed by a matching one at the next band's left;
+      the wrap link is gone. Bands are sized by what they draw and sit
+      `wrapGap` apart (cards 46-62 px apart across bands on the demo,
+      116 before the send-back). Interim width chooser
+      `bandWidthForAspect` with a 1,280 px floor, so the 3-card demo
+      stays one band; item 3 replaces it. Remembered views reopen at
+      Fit once (layout signature changed). Orchestrator: npm test 740
+      pass, check clean; smoke 6/6, branchmap 54/54, bookmarkmap 29/29
+      (its Fit checks now at 960x600), continueroute 8/8, screens 67
+      pass, 2 PARTIAL (headless fullscreen Escapes); screenshots of the
+      demo with 10 bookmarks and the 570-decision tree at Fit and of
+      ticks at 100%; perf:map opens 84.0/53.4/56.8 and
+      71.3/66.4/57.2 ms, frames p95 16.7-16.8 ms. Subagent: the 18 new
+      or changed unit tests fail on HEAD's sources, the band-height
+      test on the pre-fix geometry; node layout 17.8 ms (HEAD 17.4) at
+      570 decisions, 130 ms (HEAD 132) at 2,340; first opens median
+      73.5 ms against HEAD's 66.2 over 11 alternated pairs, a cold-path
+      cost carried to the two-views item, whose Full size opens cut at
+      the view width with no chooser.)
 - [ ] Two views (docs/plan.md Phase 41, "Two views" and "Remembered view"):
       Full size with bands as wide as the view and vertical scrolling (wheel,
       scroll bar, drag, keys), Fit showing the whole map at once and not
@@ -2023,8 +2046,11 @@ truthful: an unchecked box means nothing was accepted.
       size; the view and scroll position remembered, except that after C the
       next Full size open centres on "you are here" again. Scenarios rewritten
       for the new navigation (branchmap, bookmarkmap, screens' map checks);
-      opening at Fit within docs/perf.md's numbers with its counts and figures
-      drawn; `scripts/mapperf.mjs` measures opens, Full size scrolling and
-      Fit; README, docs/verify-player.md and docs/perf.md updated.
+      first opens (now Full size) and opening at Fit within docs/perf.md's
+      numbers, Fit with its counts and figures drawn (items 1 and 2 left
+      perf:map's first open at Fit about 7 ms over HEAD's, from the cold cut
+      and width chooser, and the tree without bookmarks at 77-91 ms);
+      `scripts/mapperf.mjs` measures opens, Full size scrolling and Fit;
+      README, docs/verify-player.md and docs/perf.md updated.
 - [ ] Phase-closer (Phase 41): full scenario suite, package-proof
       (rebuilds the demo); pytest not needed unless tools change.
