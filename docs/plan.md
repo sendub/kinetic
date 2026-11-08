@@ -1442,6 +1442,47 @@ items inside a route) and a `u` or bookmark landing past unseen items.
   still returns to the furthest point read.
 - Nothing unseen is shown or marked on the way.
 
+## Phase 40: The Transit look and a roomier map (2026-11-08, user)
+
+The user ran a speculative visuals pass (`.tmp/visuals`, never
+committed) and chose "Scene - Transit" (`skins/s-grey-bold.css`, with
+the designer's notes in `notes/s-grey-bold.md`): the Esc screen as one
+contained sheet on an opaque grey, the choice screen over the blurred
+story, the branch map on the same grey drawn like a transit diagram,
+one gold accent, one switch, one capsule family. They compared the two
+map node sizes live and chose the larger one.
+
+- Text: the Esc screen's hint reads "Esc or Space closes" (it was "Esc
+  or Space closes; click a setting to change it"). Map node tooltips
+  drop their "click to ..." parts: a reached decision's status is "N of
+  M routes played", and a route's drops "click to play it from its
+  start" (an unreached decision's routes keep "decision not reached
+  yet"). The aria labels carry the same text.
+- Map layout: decisions 40x22 -> 52x28, route pills 24x18 -> 32x24,
+  rows 34 -> 42, gap 20 -> 22 (`MAP_GEOMETRY`); node figures 11 -> 13 px,
+  still centred in their node. Cards lose the caption strip (timestamp
+  and NEWEST tag): a card is its 280x158 thumbnail, the newest keeps
+  its accent outline, the hover tooltip still gives the timestamp, and
+  the aria label is unchanged ("Bookmark <time>", "(newest)" on the
+  newest). Rows holding cards get room for the shorter card, which
+  stays centred on the line.
+- Look: Transit's styles become `player/index.html`'s own, written as
+  one set of rules (no override layer over the old ones), on top of
+  the two changes above (no caption-strip styles, no 28-px-node
+  workaround). With the user's changes to the sandbox version: key caps
+  look as Transit's did before its last consistency pass (the filled,
+  raised caps of `.tmp/visuals/skins-archive/scene2.css`), the choice
+  numbers matching them; "Esc or Space closes" reads as plain text, not
+  a capsule or button; the x of a card's delete button sits centred in
+  its circle. Unchanged rules: the Esc screen hides the story (Phase
+  13b); the choice screen shows the blurred story; nothing blurred,
+  blended or animated inside `.map-view`; system fonts only (offline).
+- Map lines: line and outline widths are screen pixels at every zoom,
+  as the styles intend. In Chrome `vector-effect: non-scaling-stroke`
+  does not undo the stage's CSS scale, so lines thin out at Fit and
+  thicken past 100%. Far out, where rows come within a few pixels of
+  each other, lines may thin with the zoom so the tree stays readable.
+
 ## Later, waiting on the user
 
 - Overlay text styling iteration once the user can play with the demo.

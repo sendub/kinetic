@@ -265,7 +265,7 @@ export function describeTarget(
     const node = model.decisionAt[target.decision];
     const total = node?.routes.length ?? 0;
     const status = marks.reached[target.decision]
-      ? `${marks.playedCount[target.decision]} of ${total} routes played · click to go to this choice`
+      ? `${marks.playedCount[target.decision]} of ${total} routes played`
       : "not reached yet";
     return { title: promptText(model, marks, target.decision), status };
   }
@@ -275,11 +275,7 @@ export function describeTarget(
     OUTCOME_WORD[route.outcome],
   ];
   if (marks.lastPick[target.key]) parts.push("your last pick");
-  parts.push(
-    marks.reached[route.decision]
-      ? "click to play it from its start"
-      : "decision not reached yet",
-  );
+  if (!marks.reached[route.decision]) parts.push("decision not reached yet");
   const title = `${route.route + 1}. ${routeText(model, marks, target.key)}`;
   return { title, status: parts.join(" · ") };
 }

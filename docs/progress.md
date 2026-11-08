@@ -1887,3 +1887,36 @@ truthful: an unchecked box means nothing was accepted.
       out waiting after its window-size checks; branchmap alone 48/48
       twice; full re-run 315 pass, 2 PARTIAL, 0 FAIL; package-proof
       18/18, demo rebuilt; tools untouched.)
+
+## Phase 40: The Transit look and a roomier map (2026-11-08, user)
+
+- [x] Text cuts (docs/plan.md Phase 40, first bullet): the Esc hint
+      reads "Esc or Space closes"; map node tooltips and aria labels
+      drop "click to go to this choice" and "click to play it from its
+      start". Unit tests and any scenario checks that read these texts
+      updated.
+      (2026-11-08: `HELP_HINT` and `describeTarget` changed; a new
+      mapmodel test pins the four status strings and an aria label and
+      fails on HEAD's code (subagent swap run). Orchestrator: npm test
+      722 pass, check clean; smoke 6/6, screens 66 pass, 2 PARTIAL
+      (headless fullscreen Escapes), 0 FAIL; subagent: branchmap
+      48/48; the old texts survive only in plan.md/progress.md.)
+- [ ] Map layout (docs/plan.md Phase 40, second bullet): larger nodes
+      (52x28 decisions, 32x24 route pills, rows 42, gap 22, 13 px
+      figures centred) and cards without the caption strip (thumbnail
+      only, newest outlined, timestamp in the hover tooltip, aria label
+      unchanged), rows holding cards sized for the shorter card. Unit
+      tests that fail on HEAD's code; `npm run perf:map` against
+      docs/perf.md's numbers.
+- [ ] Transit look (docs/plan.md Phase 40, third bullet): the sandbox
+      skin's styles written into `player/index.html` as its own rules,
+      with the user's changes (scene2 key caps and matching choice
+      numbers, plain-text Esc hint, centred delete x). Screenshots of
+      every screen against the sandbox's; the full set of hard rules
+      checked (story hidden behind Esc, nothing filtered or animated in
+      `.map-view`, no network fonts).
+- [ ] Map lines keep their screen width at every zoom (docs/plan.md
+      Phase 40, last bullet), readable far out; measured widths at Fit,
+      100% and 3x; `npm run perf:map` against docs/perf.md's numbers.
+- [ ] Phase-closer (Phase 40): full scenario suite, package-proof
+      (rebuilds the demo); pytest not needed unless tools change.

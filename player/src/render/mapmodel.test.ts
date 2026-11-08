@@ -1277,6 +1277,35 @@ describe("labels and markup", () => {
   });
 });
 
+describe("node status text (Phase 40: no click hints)", () => {
+  it("says what a node is, not what a click does; the aria label carries the same text", () => {
+    const model = demoModel();
+    const m = demoMachine();
+    m.advance(); // decide
+    m.advance(); // the outer choice opens
+    const marks = markMap(model, readerOf(m));
+    const status = (target: Parameters<typeof describeTarget>[2]) =>
+      describeTarget(model, marks, target).status;
+    expect(status({ kind: "decision", decision: OUTER })).toBe(
+      "0 of 2 routes played",
+    );
+    expect(status({ kind: "decision", decision: NESTED })).toBe(
+      "not reached yet",
+    );
+    expect(status({ kind: "route", key: routeKey(model, OUTER, 1) })).toBe(
+      "not seen · an ending",
+    );
+    expect(status({ kind: "route", key: routeKey(model, NESTED, 1) })).toBe(
+      "not seen · returns to the choice · decision not reached yet",
+    );
+    const markup = detailMarkup(model, marks);
+    expect(markup).toContain(
+      'aria-label="Demo decision: which route?: 0 of 2 routes played"',
+    );
+    expect(markup).not.toContain("click");
+  });
+});
+
 describe("Spoilers: text of decisions not reached stays hidden", () => {
   // Every real string the demo's map could show: questions and labels.
   const REAL = DEMO_BRANCHES.flatMap((b) => [

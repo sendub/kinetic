@@ -80,7 +80,7 @@ export const title =
 // node cannot resolve, so these two are restated; the speed readout comes
 // from config.ts itself.
 const HELP_TITLE = "Keys";
-const HELP_HINT = "Esc or Space closes; click a setting to change it";
+const HELP_HINT = "Esc or Space closes";
 // The main interaction keys, one row each (Phase 18, "Key help
 // simplified"): no reset-box keys; Enter only with a decision's arrows.
 // No T row: the bookmarks are on the branch map (Phase 35).
@@ -283,7 +283,7 @@ async function helpMidFlow({ check, open }) {
   );
 
   check(
-    "the help lists only the main keys, one row each (no c), and its hint reads Esc or Space closes; click a setting to change it",
+    "the help lists only the main keys, one row each (no c), and its hint reads Esc or Space closes",
     JSON.stringify(help.rows.map((r) => r.key)) === JSON.stringify(HELP_KEYS) &&
       help.rows.every((r) => r.desc.length > 0 && r.desc.length <= 56) &&
       help.hint === HELP_HINT,

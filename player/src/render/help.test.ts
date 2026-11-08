@@ -42,8 +42,8 @@ describe("helpRows (drawn from the keymap, Phase 13b)", () => {
     }
   });
 
-  it("closes with Esc or Space; a click changes a setting (Phases 18, 24, 26)", () => {
-    expect(HELP_HINT).toBe("Esc or Space closes; click a setting to change it");
+  it("closes with Esc or Space, and says only that (Phases 18, 24, 26, 40)", () => {
+    expect(HELP_HINT).toBe("Esc or Space closes");
     expect(HELP_HINT).not.toContain("Enter");
     expect(HELP_HINT).not.toContain("·");
     expect(HELP_HINT).not.toMatch(/\bc\b/);

@@ -38,10 +38,10 @@ import {
 export const HELP_TITLE = "Keys";
 
 /**
- * The screen's one hint (Phase 26): its keys close it, and a click changes
- * a setting (a click never closes it, Phase 24).
+ * The screen's one hint (Phase 26, cut in Phase 40): its keys close it (a
+ * click never closes it, Phase 24).
  */
-export const HELP_HINT = "Esc or Space closes; click a setting to change it";
+export const HELP_HINT = "Esc or Space closes";
 
 /** The page title when the manifest names no game (index.html's own). */
 export const PAGE_TITLE_DEFAULT = "Kinetic";
