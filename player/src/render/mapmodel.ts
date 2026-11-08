@@ -22,9 +22,10 @@
 //   layout"). The tree is laid out once as one long strip (`layOutStrip`),
 //   then cut into bands of a given width (`cutBands`): every parallel line
 //   cut at the same x, each band under the one before, `wrapGap` apart
-//   between what they draw, as tall as what it draws (the rows of each
-//   top-level segment in it spread only by the room its own cards there
-//   need). A cut falls only where everything crossing it is a straight
+//   between what they draw, as tall as what it draws. A band only moves
+//   what it holds: every line keeps the height below the main line it has
+//   on the strip, so the two sides of a cut would join edge to edge. A cut
+//   falls only where everything crossing it is a straight
 //   horizontal line (a stretch, or the straight run of a join or return
 //   line): never through a node, a pill, a card, a count, an end mark, a
 //   station or a curve, though between two cards of a stretch is fine.
@@ -48,15 +49,23 @@
 // Bookmarks ride on the lines (docs/plan.md Phase 35): each bookmark's card
 // sits centred on the line at its screen's place, like beads on a string,
 // in story order. A stretch holding bookmarks is as long as its cards side
-// by side, and every line holding cards gets the vertical room they need
-// (`CARD_ABOVE`, `CARD_BELOW`); stretches without bookmarks keep the
-// compact geometry.
+// by side; stretches without bookmarks keep the compact geometry.
+//
+// Lines are spaced by what lies between them (docs/plan.md Phase 42). The
+// layout stacks every route's line on a row of the decision it leaves,
+// then gives each line, once for the whole strip, its height below the
+// main line (`lineOffsets`): `rowH` below the lowest line above it that
+// overlaps it in x, more only where a card on one of the two lies over the
+// other (`CARD_ABOVE`, `CARD_BELOW`). A card anywhere along a line sets
+// that line's height along its whole length, in every band; a card under
+// one decision moves nothing under another.
 //
 // Every position is computed once, from the resolved decision table the
 // machine itself uses (`resolveDecisions`), so map indices ARE machine
 // indices; the cost is linear in decisions and routes (times nesting depth
-// for the tuck shifts), never in items, whatever the game's size. Cutting
-// the strip into bands is linear in what it draws, at any width.
+// for the tuck shifts, and a logarithm for the lines' spacing), never in
+// items, whatever the game's size. Cutting the strip into bands is linear
+// in what it draws, at any width.
 
 import {
   joinsAtContinue,
@@ -106,9 +115,10 @@ export const CARD = {
 } as const;
 
 /**
- * The room a line holding cards gets: above it, half a card and a margin;
- * below it, half a card, a margin and the stretch's count line under the
- * cards.
+ * The room a line's cards take past a row's height (`lineOffsets`): above
+ * the line, half a card and a margin; below it, half a card, a margin and
+ * the stretch's count line under the cards. Two lines `rowH` apart get
+ * this much more between them where a card on one lies over the other.
  */
 export const CARD_ABOVE = CARD.h / 2 + 10;
 export const CARD_BELOW = CARD.h / 2 + 24;
@@ -279,7 +289,10 @@ export interface MapBand {
   /** Where along the strip it starts and ends (`MapStrip`, x from 0). */
   readonly start: number;
   readonly end: number;
-  /** Its main line (row 0), world y. */
+  /**
+   * Its main line, world y: every line in it sits as far below this as it
+   * does below the main line on the strip (`MapStrip`), in every band.
+   */
   readonly line: number;
 }
 
@@ -416,29 +429,15 @@ export function countText(screens: number, bookmarks: number): string {
 }
 
 /**
- * How far row `r` of a segment's rows in a band moves down to make room
- * for its cards (Phase 35): the room below every card row above it, and
- * above every card row from row 1 to it. `cards` lists the rows holding
- * cards; without any, rows stay `rowH` apart. Row 0's room above is
- * the band's own top, as what it draws.
+ * Where a strip element sits across: how far below the main line its line
+ * is (0 on the main line; `lineOffsets`), the same in every band.
  */
-export function rowOffset(cards: readonly number[], r: number): number {
-  let off = 0;
-  for (const q of cards) {
-    if (q < r) off += CARD_BELOW;
-    if (q >= 1 && q <= r) off += CARD_ABOVE;
-  }
-  return off;
-}
-
-/** Where a strip element sits: its row (0, the main line) and segment. */
-interface Placed {
-  readonly row: number;
-  readonly seg: number;
+interface OnLine {
+  readonly y: number;
 }
 
 /** A stretch on the strip (`MapStrip`). */
-export interface StripRun extends Placed {
+export interface StripRun extends OnLine {
   readonly start: number;
   readonly end: number;
   readonly x0: number;
@@ -447,7 +446,7 @@ export interface StripRun extends Placed {
 }
 
 /** A decision node on the strip. */
-export interface StripNode extends Placed {
+export interface StripNode extends OnLine {
   readonly index: number;
   readonly prompt: string;
   readonly afterIndex: number;
@@ -455,8 +454,8 @@ export interface StripNode extends Placed {
   readonly routes: readonly number[];
 }
 
-/** A route pill on the strip, its line ending at `endX` on its row. */
-export interface StripRoute extends Placed {
+/** A route pill on the strip, its line ending at `endX` at its height. */
+export interface StripRoute extends OnLine {
   readonly decision: number;
   readonly route: number;
   readonly label: string;
@@ -467,31 +466,28 @@ export interface StripRoute extends Placed {
   readonly endX: number;
 }
 
-/** A connector on the strip: from (ax, rowA) to (bx, rowB) (`RawLink`). */
+/** A connector on the strip: from (ax, ay) to (bx, by) (`RawLink`). */
 export interface StripLink {
   readonly kind: "branch" | "join" | "return";
   readonly ax: number;
+  readonly ay: number;
   readonly bx: number;
-  readonly rowA: number;
-  readonly rowB: number;
-  readonly seg: number;
+  readonly by: number;
 }
 
 /** A join dot or end mark on the strip. */
-export interface StripPoint extends Placed {
+export interface StripPoint extends OnLine {
   readonly x: number;
 }
 
 /**
  * The tree laid out as one long strip, before it is cut into bands
- * (`cutBands`): every element on a row (0, the main line; rows `rowH`
- * apart before the cards' room spreads them) at an x from the story's start
- * (0), with the top-level segment it belongs to (the stretch before a
- * top-level decision and that decision's whole subtree: the rows that
- * spread together to make room for cards). With it, where a band may be
- * cut and what each band would hold, so cutting it at any width is linear
- * in what it draws. Laid out once per manifest and set of bookmarked
- * screens (`layOutStrip`); never changed after.
+ * (`cutBands`): every element at an x from the story's start (0) and a
+ * height below the main line (0), its line's (`lineOffsets`), which a band
+ * keeps. With it, where a band may be cut and what each band would hold,
+ * so cutting it at any width is linear in what it draws. Laid out once per
+ * manifest and set of bookmarked screens (`layOutStrip`); never changed
+ * after.
  */
 export interface MapStrip {
   readonly itemCount: number;
@@ -500,8 +496,6 @@ export interface MapStrip {
   readonly decisionById: ReadonlyMap<string, number>;
   /** Where its drawing ends on the right. */
   readonly length: number;
-  /** How many top-level segments it has (at least one). */
-  readonly segments: number;
   /** Its stretches, by `start`. */
   readonly runs: readonly StripRun[];
   /** Its decision nodes, by machine index. */
@@ -522,27 +516,25 @@ export interface MapStrip {
   /**
    * What a band holds: for every element (but pills and branch curves,
    * which their routes' first stretches stand for, reaching less far), how
-   * many windows lie before its left and right ends (no end lies in one),
-   * its lowest row and its segment. A band holds what lies between its
-   * cuts' windows.
+   * many windows lie before its left and right ends (no end lies in one)
+   * and its lowest line's height. A band holds what lies between its cuts'
+   * windows.
    */
   readonly held: {
     readonly w0: Int32Array;
     readonly w1: Int32Array;
-    readonly row: Int32Array;
-    readonly seg: Int32Array;
-    /** How far it is drawn above and below its row's line (`DRAWN_REACH`). */
+    readonly y: Float64Array;
+    /** How far it is drawn above and below its line (`DRAWN_REACH`). */
     readonly up: Float64Array;
     readonly down: Float64Array;
   };
   /**
-   * Every card: how many windows lie before it, its row and segment, and
-   * how far it is drawn below its line (above: `DRAWN_REACH.card`).
+   * Every card: how many windows lie before it, its line's height, and how
+   * far it is drawn below its line (above: `DRAWN_REACH.card`).
    */
   readonly cards: {
     readonly w: Int32Array;
-    readonly row: Int32Array;
-    readonly seg: Int32Array;
+    readonly y: Float64Array;
     readonly down: Float64Array;
   };
 }
@@ -617,16 +609,20 @@ function stripOf(
   for (const list of children.values())
     list.sort((a, b) => a.afterIndex - b.afterIndex);
 
-  // Laid out at world y (rows at whole multiples of rowH), each element
-  // becomes its own strip record once its row and segment are filled in.
-  type Laid<T> = Mutable<T> & { y: number };
+  // Laid out on rows (y at whole multiples of rowH), each element on a
+  // line: the main line (0), or a route's that leaves its decision's line
+  // for a row below (a decision's first route carries its line on). Once
+  // laid out, every line gets its height (`lineOffsets`) and each element
+  // its line's.
+  type Laid<T> = Mutable<T> & { line: number };
   const runs: Laid<StripRun>[] = [];
   const mapDecisions: Laid<StripNode>[] = [];
   const routes: Laid<StripRoute>[] = [];
-  const raw: (RawLink & Mutable<StripLink>)[] = [];
+  const raw: (RawLink & { lineA: number; lineB: number })[] = [];
   const joins: Laid<StripPoint>[] = [];
   const ends: Laid<StripPoint>[] = [];
   const placed = new Set<number>();
+  let lineCount = 1;
 
   // Everything is laid out where its block starts and then moved as a
   // block: `mark` notes how much of each list exists, `shift` moves what
@@ -671,7 +667,13 @@ function stripOf(
     }
   }
 
-  const addRun = (start: number, end: number, x: number, y: number) => {
+  const addRun = (
+    start: number,
+    end: number,
+    x: number,
+    y: number,
+    ln: number,
+  ) => {
     const bookmarks = marked.slice(
       firstAtOrAfter(start),
       firstAtOrAfter(end + 1),
@@ -680,18 +682,19 @@ function stripOf(
       bookmarks.length === 0
         ? g.runW
         : bookmarks.length * CARD.pitch - CARD.gap + 2 * CARD.inset;
-    runs.push({ start, end, x0: x, x1: x + w, y, bookmarks, row: 0, seg: 0 });
+    runs.push({ start, end, x0: x, x1: x + w, y, bookmarks, line: ln });
     return x + w;
   };
 
   // One line of story from item `start` to `end` inside decision `parent`'s
-  // route, starting at world x, on row centre y.
+  // route, starting at world x, on row centre y, on line `ln`.
   function line(
     start: number,
     end: number,
     parent: number,
     x0: number,
     y: number,
+    ln: number,
   ): Block {
     let x = x0;
     let rows = 1;
@@ -700,8 +703,8 @@ function stripOf(
     for (const decision of children.get(parent) ?? []) {
       if (decision.afterIndex < idx || decision.afterIndex > end) continue;
       if (placed.has(decision.index)) continue;
-      x = addRun(idx, decision.afterIndex, x, y);
-      const block = layoutDecision(decision, x, y);
+      x = addRun(idx, decision.afterIndex, x, y, ln);
+      const block = layoutDecision(decision, x, y, ln);
       x = block.x;
       rows = Math.max(rows, block.rows);
       belowLeft = Math.min(belowLeft, block.belowLeft);
@@ -712,7 +715,7 @@ function stripOf(
       }
       idx = next;
     }
-    if (idx <= end) x = addRun(idx, end, x, y);
+    if (idx <= end) x = addRun(idx, end, x, y, ln);
     return { x, rows, belowLeft };
   }
 
@@ -720,6 +723,7 @@ function stripOf(
     decision: ResolvedDecision,
     x: number,
     y: number,
+    ln: number,
   ): Block {
     placed.add(decision.index);
     const routeKeys: number[] = [];
@@ -746,6 +750,7 @@ function stripOf(
           : "ends";
       // Laid out under everything so far, then, for an ending, moved up
       // to the first row where it clears what is already there.
+      const own = routeIdx === 0 ? ln : lineCount++;
       const before = mark();
       const inner = line(
         route.startIndex,
@@ -753,6 +758,7 @@ function stripOf(
         decision.index,
         bx + g.routeW,
         y + bottom * g.rowH,
+        own,
       );
       let row = bottom;
       if (outcome === "ends" && routeIdx > 0) {
@@ -774,9 +780,8 @@ function stripOf(
         ay: y,
         bx,
         by: ry,
-        rowA: 0,
-        rowB: 0,
-        seg: 0,
+        lineA: ln,
+        lineB: own,
       });
       const key = routes.length;
       routes.push({
@@ -789,8 +794,7 @@ function stripOf(
         x: bx,
         y: ry,
         endX: inner.x,
-        row: 0,
-        seg: 0,
+        line: own,
       });
       routeKeys.push(key);
       pending.push({ key, endX: inner.x, y: ry });
@@ -801,7 +805,7 @@ function stripOf(
     for (const { key, endX, y: routeY } of pending) {
       const route = routes[key];
       if (route.outcome === "ends") {
-        ends.push({ x: endX + END_MARK_DX, y: routeY, row: 0, seg: 0 });
+        ends.push({ x: endX + END_MARK_DX, y: routeY, line: route.line });
         continue;
       }
       joined = true;
@@ -811,14 +815,13 @@ function stripOf(
         ay: routeY,
         bx: joinX,
         by: y,
-        rowA: 0,
-        rowB: 0,
-        seg: 0,
+        lineA: route.line,
+        lineB: ln,
       });
     }
     const next = continuationOf(decision);
     if (joined || next > decision.afterIndex)
-      joins.push({ x: joinX, y, row: 0, seg: 0 });
+      joins.push({ x: joinX, y, line: ln });
     mapDecisions.push({
       index: decision.index,
       prompt: decision.prompt,
@@ -826,8 +829,7 @@ function stripOf(
       x,
       y,
       routes: routeKeys,
-      row: 0,
-      seg: 0,
+      line: ln,
     });
     const rows = Math.max(1, bottom);
     return {
@@ -837,18 +839,16 @@ function stripOf(
     };
   }
 
-  // The main line, one top-level segment after another along row 0 from
-  // x 0, the story's tail and end mark on the last.
-  const segFrom: Mark[] = [];
+  // The main line along row 0 from x 0, one top-level decision after
+  // another, the story's tail and end mark after the last.
   const last = items.length - 1;
   let x = 0;
   let idx = 0;
   for (const decision of children.get(-1) ?? []) {
     if (decision.afterIndex < idx || decision.afterIndex > last) continue;
     if (placed.has(decision.index)) continue;
-    segFrom.push(mark());
-    x = addRun(idx, decision.afterIndex, x, 0);
-    x = layoutDecision(decision, x, 0).x;
+    x = addRun(idx, decision.afterIndex, x, 0, 0);
+    x = layoutDecision(decision, x, 0, 0).x;
     const next = continuationOf(decision);
     if (next <= decision.afterIndex || next > last) {
       idx = last + 1;
@@ -858,30 +858,48 @@ function stripOf(
   }
   let storyEnd = -1;
   if (idx <= last) {
-    if (segFrom.length === 0) segFrom.push(mark());
-    x = addRun(idx, last, x, 0);
+    x = addRun(idx, last, x, 0, 0);
     storyEnd = ends.length;
-    ends.push({ x: x + END_MARK_DX, y: 0, row: 0, seg: 0 });
+    ends.push({ x: x + END_MARK_DX, y: 0, line: 0 });
   }
 
-  // Each element's segment (what was added after the segment's mark) and
-  // row (laid out from y 0, lines sit at whole multiples of rowH).
-  const done = mark();
-  segFrom.forEach((from, s) => {
-    const to = segFrom[s + 1] ?? done;
-    for (let i = from[0]; i < to[0]; i += 1) runs[i].seg = s;
-    for (let i = from[1]; i < to[1]; i += 1) mapDecisions[i].seg = s;
-    for (let i = from[2]; i < to[2]; i += 1) routes[i].seg = s;
-    for (let i = from[3]; i < to[3]; i += 1) raw[i].seg = s;
-    for (let i = from[4]; i < to[4]; i += 1) joins[i].seg = s;
-    for (let i = from[5]; i < to[5]; i += 1) ends[i].seg = s;
-  });
-  const rowOf = (y: number) => Math.round(y / g.rowH);
+  // Each line's row (where its pill was laid out), the x it spans (from
+  // its decision's box, over the branch curves, to its join or past its
+  // end mark by the "you are here" ring that can sit there) and its cards;
+  // then its height, and every element's.
+  const rows = new Int32Array(lineCount);
+  const from = new Float64Array(lineCount).fill(Number.POSITIVE_INFINITY);
+  const to = new Float64Array(lineCount).fill(Number.NEGATIVE_INFINITY);
+  const span = (ln: number, x0: number, x1: number) => {
+    if (x0 < from[ln]) from[ln] = x0;
+    if (x1 > to[ln]) to[ln] = x1;
+  };
+  const cardRanges: number[] = [];
+  const ring = DRAWN_REACH.card - CARD.h / 2;
+  for (const r of runs) {
+    span(r.line, r.x0, r.x1);
+    if (r.bookmarks.length > 0)
+      cardRanges.push(
+        r.line,
+        r.x0 + CARD.inset - ring,
+        r.x1 - CARD.inset + ring,
+      );
+  }
+  for (const d of mapDecisions) span(d.line, d.x, d.x + g.decW);
+  for (const r of routes) {
+    rows[r.line] = Math.round(r.y / g.rowH);
+    span(r.line, r.x - g.gap, r.x + g.routeW);
+  }
+  for (const l of raw) if (l.kind !== "branch") span(l.lineA, l.ax, l.bx);
+  for (const p of joins) span(p.line, p.x - 5, p.x + 5);
+  for (const p of ends) span(p.line, p.x - 7, p.x + DRAWN_REACH.here);
+  rows[0] = 0;
+  const offset = lineOffsets(rows, from, to, cardRanges);
   for (const list of [runs, mapDecisions, routes, joins, ends])
-    for (const e of list) e.row = rowOf(e.y);
+    for (const e of list) e.y = offset[e.line];
   for (const l of raw) {
-    l.rowA = rowOf(l.ay);
-    l.rowB = rowOf(l.by);
+    l.ay = offset[l.lineA];
+    l.by = offset[l.lineB];
   }
   runs.sort((a, b) => a.start - b.start);
   mapDecisions.sort((a, b) => a.index - b.index);
@@ -892,7 +910,7 @@ function stripOf(
   const stripJoins: readonly StripPoint[] = joins;
   const stripEnds: readonly StripPoint[] = ends;
 
-  // What a band holds (x extent, lowest row, segment), and where a cut
+  // What a band holds (x extent, lowest line's height), and where a cut
   // may not fall: open x ranges, so two touching ones (two cards' halves
   // of the gap between them) leave the point they share. Flat lists, as
   // long as they can get.
@@ -900,30 +918,22 @@ function stripOf(
   for (const r of stripRuns) cardCount += r.bookmarks.length;
   const elements = nodes.length + stripJoins.length + stripEnds.length;
   const held = new Float64Array(
-    6 * (1 + stripRuns.length + links.length + elements),
+    4 * (1 + stripRuns.length + links.length + elements),
   );
   const blocked = new Float64Array(
     2 * (1 + 2 * stripRuns.length + cardCount + 2 * links.length + elements),
   );
-  const cards = new Float64Array(4 * cardCount);
+  const cards = new Float64Array(3 * cardCount);
   let nHeld = 0;
   let nBlocked = 0;
   let nCards = 0;
-  // Each with how far it is drawn above and below its row's line.
-  const hold = (
-    x0: number,
-    x1: number,
-    row: number,
-    seg: number,
-    reach: number,
-  ) => {
-    const at = 6 * nHeld;
+  // Each with how far it is drawn above and below its line.
+  const hold = (x0: number, x1: number, y: number, reach: number) => {
+    const at = 4 * nHeld;
     held[at] = x0;
     held[at + 1] = x1;
-    held[at + 2] = row;
-    held[at + 3] = seg;
-    held[at + 4] = reach;
-    held[at + 5] = reach;
+    held[at + 2] = y;
+    held[at + 3] = reach;
     nHeld += 1;
   };
   const block = (x0: number, x1: number) => {
@@ -932,14 +942,14 @@ function stripOf(
     nBlocked += 1;
   };
   const reach = DRAWN_REACH;
-  hold(-6, 6, 0, 0, reach.here);
+  hold(-6, 6, 0, reach.here);
   block(-6 - CUT_CLEAR, 6 + CUT_CLEAR);
   // A stretch's ends need no range of their own: it starts after a pill,
   // a join or the start dot, and ends at a node, an end mark (where no line
   // goes on) or a connector's start, which has one.
   for (const r of stripRuns) {
     // Its count above it (12 px type) lies inside the ring's reach.
-    hold(r.x0, r.x1, r.row, r.seg, reach.here);
+    hold(r.x0, r.x1, r.y, reach.here);
     const screens = r.end - r.start + 1;
     const n = r.bookmarks.length;
     if (n === 0) {
@@ -950,11 +960,10 @@ function stripOf(
     }
     for (let j = 0; j < n; j += 1) {
       const left = r.x0 + CARD.inset + j * CARD.pitch;
-      cards[4 * nCards] = left;
-      cards[4 * nCards + 1] = r.row;
-      cards[4 * nCards + 2] = r.seg;
+      cards[3 * nCards] = left;
+      cards[3 * nCards + 1] = r.y;
       // The first card has the stretch's count line under it.
-      cards[4 * nCards + 3] = j === 0 ? reach.cardCount : reach.card;
+      cards[3 * nCards + 2] = j === 0 ? reach.cardCount : reach.card;
       nCards += 1;
       block(left - CARD.gap / 2, left + CARD.w + CARD.gap / 2);
     }
@@ -965,28 +974,28 @@ function stripOf(
   // one range.
   const pillsEnd = g.decW + g.gap + g.routeW;
   for (const d of nodes) {
-    hold(d.x, d.x + g.decW, d.row, d.seg, reach.decision);
+    hold(d.x, d.x + g.decW, d.y, reach.decision);
     block(d.x - CUT_CLEAR, d.x + pillsEnd + CUT_CLEAR);
   }
   // A pill and its branch curve need no record: its route's first stretch
-  // starts at the pill, on its row, in the same band.
+  // starts at the pill, on its line, in the same band.
   for (const l of links) {
     if (l.kind === "branch") continue;
-    hold(l.ax, l.bx, Math.max(l.rowA, l.rowB), l.seg, reach.tick);
+    hold(l.ax, l.bx, Math.max(l.ay, l.by), reach.tick);
     block(l.ax - CUT_JOINT, l.ax + CUT_JOINT);
-    if (l.rowA !== l.rowB) block(l.bx - TURN_R - CUT_CLEAR, l.bx + CUT_CLEAR);
+    if (l.ay !== l.by) block(l.bx - TURN_R - CUT_CLEAR, l.bx + CUT_CLEAR);
   }
   for (const p of stripJoins) {
-    hold(p.x - 5, p.x + 5, p.row, p.seg, reach.join);
+    hold(p.x - 5, p.x + 5, p.y, reach.join);
     block(p.x - 5 - CUT_CLEAR, p.x + 5 + CUT_CLEAR);
   }
   for (const p of stripEnds) {
-    hold(p.x - 7, p.x + 7, p.row, p.seg, reach.here);
+    hold(p.x - 7, p.x + 7, p.y, reach.here);
     block(p.x - 7 - CUT_CLEAR, p.x + 7 + CUT_CLEAR);
   }
   let length = 6;
   for (let i = 0; i < nHeld; i += 1)
-    if (held[6 * i + 1] > length) length = held[6 * i + 1];
+    if (held[4 * i + 1] > length) length = held[4 * i + 1];
   // The windows: the free points between blocked ranges, from their
   // starts and their ends each in order (an end first at a tie: a point two
   // ranges only touch is free).
@@ -1028,30 +1037,26 @@ function stripOf(
   const heldColumns = {
     w0: new Int32Array(nHeld),
     w1: new Int32Array(nHeld),
-    row: new Int32Array(nHeld),
-    seg: new Int32Array(nHeld),
+    y: new Float64Array(nHeld),
     up: new Float64Array(nHeld),
     down: new Float64Array(nHeld),
   };
   for (let i = 0; i < nHeld; i += 1) {
-    heldColumns.w0[i] = slot(held[6 * i]);
-    heldColumns.w1[i] = slot(held[6 * i + 1]);
-    heldColumns.row[i] = held[6 * i + 2];
-    heldColumns.seg[i] = held[6 * i + 3];
-    heldColumns.up[i] = held[6 * i + 4];
-    heldColumns.down[i] = held[6 * i + 5];
+    heldColumns.w0[i] = slot(held[4 * i]);
+    heldColumns.w1[i] = slot(held[4 * i + 1]);
+    heldColumns.y[i] = held[4 * i + 2];
+    heldColumns.up[i] = held[4 * i + 3];
+    heldColumns.down[i] = held[4 * i + 3];
   }
   const cardColumns = {
     w: new Int32Array(nCards),
-    row: new Int32Array(nCards),
-    seg: new Int32Array(nCards),
+    y: new Float64Array(nCards),
     down: new Float64Array(nCards),
   };
   for (let i = 0; i < nCards; i += 1) {
-    cardColumns.w[i] = slot(cards[4 * i]);
-    cardColumns.row[i] = cards[4 * i + 1];
-    cardColumns.seg[i] = cards[4 * i + 2];
-    cardColumns.down[i] = cards[4 * i + 3];
+    cardColumns.w[i] = slot(cards[3 * i]);
+    cardColumns.y[i] = cards[3 * i + 1];
+    cardColumns.down[i] = cards[3 * i + 2];
   }
 
   const decisionById = new Map<string, number>();
@@ -1062,7 +1067,6 @@ function stripOf(
     decisionCount: decisions.length,
     decisionById,
     length,
-    segments: Math.max(1, segFrom.length),
     runs: stripRuns,
     nodes,
     routes: stripRoutes,
@@ -1074,6 +1078,147 @@ function stripOf(
     held: heldColumns,
     cards: cardColumns,
   };
+}
+
+/** A line's room above and below it where it holds no card. */
+const LINE_ROOM = MAP_GEOMETRY.rowH / 2;
+
+/**
+ * Each line's height below the main line (docs/plan.md Phase 42), from
+ * `rows` (the row each line was laid out on: line 0, the main line, on row
+ * 0), the x each spans (`from`..`to`) and its cards (`cards`: line, x0, x1
+ * in threes). A line takes `LINE_ROOM` above and below it, and over a card
+ * `CARD_ABOVE` more above and `CARD_BELOW` more below; it sits just low
+ * enough that its room clears, at every x it spans, the room of the lines
+ * above it there. So two lines overlapping in x are `rowH` apart unless a
+ * card on one of them lies over the other. A skyline, row by row: the
+ * lowest room so far at each x (a max tree over the spans' ends), read
+ * over a line's span and raised to its own room. Lines on one row never
+ * overlap in x (the layout keeps them apart), and those on lower rows lie
+ * under them, so the rows' order is the lines' order down. Linear in lines
+ * and cards, times a sort and a logarithm.
+ */
+function lineOffsets(
+  rows: Int32Array,
+  from: Float64Array,
+  to: Float64Array,
+  cards: readonly number[],
+): Float64Array {
+  const n = rows.length;
+  const offset = new Float64Array(n);
+  // Each line's cards, by x: a linked list through `nextCard`.
+  const nCards = cards.length / 3;
+  const firstCard = new Int32Array(n).fill(-1);
+  const nextCard = new Int32Array(nCards).fill(-1);
+  const byX = Array.from({ length: nCards }, (_, i) => i).sort(
+    (a, b) => cards[3 * b + 1] - cards[3 * a + 1],
+  );
+  for (const c of byX) {
+    const ln = cards[3 * c];
+    nextCard[c] = firstCard[ln];
+    firstCard[ln] = c;
+  }
+  // The x every span and card starts and ends at, in order: the tree's
+  // leaves are the gaps between them.
+  const xs: number[] = [];
+  for (let ln = 0; ln < n; ln += 1)
+    if (from[ln] < to[ln]) xs.push(from[ln], to[ln]);
+  for (let c = 0; c < nCards; c += 1)
+    xs.push(cards[3 * c + 1], cards[3 * c + 2]);
+  const sorted = Float64Array.from(xs).sort();
+  let m = 0;
+  for (let i = 0; i < sorted.length; i += 1)
+    if (m === 0 || sorted[i] !== sorted[m - 1]) sorted[m++] = sorted[i];
+  const at = (x: number) => {
+    let lo = 0;
+    let hi = m - 1;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (sorted[mid] < x) lo = mid + 1;
+      else hi = mid;
+    }
+    return lo;
+  };
+  let size = 1;
+  while (size < m) size *= 2;
+  // `low[k]`: the lowest room raised anywhere under node k; `all[k]`: the
+  // room raised over all of it. Raising only ever lowers a room (a line
+  // sits below the rooms it reads), so a raise is a max.
+  const low = new Float64Array(2 * size).fill(Number.NEGATIVE_INFINITY);
+  const all = new Float64Array(2 * size).fill(Number.NEGATIVE_INFINITY);
+  const read = (
+    k: number,
+    k0: number,
+    k1: number,
+    a: number,
+    b: number,
+  ): number => {
+    if (b <= k0 || k1 <= a) return Number.NEGATIVE_INFINITY;
+    if (a <= k0 && k1 <= b) return low[k];
+    const mid = (k0 + k1) >> 1;
+    return Math.max(
+      all[k],
+      read(2 * k, k0, mid, a, b),
+      read(2 * k + 1, mid, k1, a, b),
+    );
+  };
+  const raise = (
+    k: number,
+    k0: number,
+    k1: number,
+    a: number,
+    b: number,
+    v: number,
+  ) => {
+    if (b <= k0 || k1 <= a) return;
+    if (v > low[k]) low[k] = v;
+    if (a <= k0 && k1 <= b) {
+      if (v > all[k]) all[k] = v;
+      return;
+    }
+    const mid = (k0 + k1) >> 1;
+    raise(2 * k, k0, mid, a, b, v);
+    raise(2 * k + 1, mid, k1, a, b, v);
+  };
+  // A line's pieces, left to right: between its cards (no card), and its
+  // cards; `visit` gets each piece's leaves and whether it is a card's.
+  const pieces = (
+    ln: number,
+    visit: (a: number, b: number, card: boolean) => void,
+  ) => {
+    let x = from[ln];
+    for (let c = firstCard[ln]; c >= 0; c = nextCard[c]) {
+      const c0 = Math.max(x, cards[3 * c + 1]);
+      const c1 = Math.min(to[ln], cards[3 * c + 2]);
+      if (c0 > x) visit(at(x), at(c0), false);
+      if (c1 > c0) visit(at(c0), at(c1), true);
+      x = Math.max(x, c1);
+    }
+    if (to[ln] > x) visit(at(x), at(to[ln]), false);
+  };
+  const order = Array.from({ length: n }, (_, i) => i).sort(
+    (a, b) => rows[a] - rows[b] || from[a] - from[b],
+  );
+  for (const ln of order) {
+    if (!(from[ln] < to[ln])) {
+      offset[ln] = rows[ln] * MAP_GEOMETRY.rowH;
+      continue;
+    }
+    let y = Number.NEGATIVE_INFINITY;
+    if (ln !== 0)
+      pieces(ln, (a, b, card) => {
+        const above = read(1, 0, size, a, b);
+        const up = card ? LINE_ROOM + CARD_ABOVE : LINE_ROOM;
+        if (above + up > y) y = above + up;
+      });
+    if (ln === 0 || y === Number.NEGATIVE_INFINITY)
+      y = rows[ln] * MAP_GEOMETRY.rowH;
+    offset[ln] = y;
+    pieces(ln, (a, b, card) =>
+      raise(1, 0, size, a, b, y + (card ? LINE_ROOM + CARD_BELOW : LINE_ROOM)),
+    );
+  }
+  return offset;
 }
 
 /**
@@ -1137,19 +1282,17 @@ interface BandPlan {
   readonly mainY: readonly number[];
   readonly top: readonly number[];
   readonly bottom: readonly number[];
-  /** The rows holding cards, per band and segment (band * segments + seg). */
-  readonly cardRows: ReadonlyMap<number, readonly number[]>;
   readonly width: number;
   readonly height: number;
 }
 
 /**
  * The bands a strip is cut into for a layout `width` wide, padding
- * included: where each starts and ends, and where its main line sits. Per
- * top-level segment in a band, its rows are spread by the room their cards
- * need (`rowOffset`); the band's top and bottom are the extent of what it
- * draws (`DRAWN_REACH`), and each band sits `wrapGap` under the one before,
- * between those. Linear in what the strip holds.
+ * included: where each starts and ends, and where its main line sits. A
+ * band's top and bottom are the extent of what it draws (`DRAWN_REACH`),
+ * every line at its strip height below the band's main line, and each band
+ * sits `wrapGap` under the one before, between those. Linear in what the
+ * strip holds.
  */
 function planBands(strip: MapStrip, width: number): BandPlan {
   const g = MAP_GEOMETRY;
@@ -1158,43 +1301,31 @@ function planBands(strip: MapStrip, width: number): BandPlan {
   const from = cut.cuts;
   const bands = from.length;
   const to = from.map((_, b) => (b + 1 < bands ? from[b + 1] : strip.length));
-  const segs = strip.segments;
   // The band past the first w windows: the cuts in them, counted.
   const bandPast = new Int32Array(strip.windows.length / 2 + 1);
   for (let b = 1; b < bands; b += 1) bandPast[cut.at[b] + 1] += 1;
   for (let w = 1; w < bandPast.length; w += 1) bandPast[w] += bandPast[w - 1];
-  // The rows holding cards, per band and segment: they spread its rows.
-  const cardRows = new Map<number, number[]>();
-  const cardsIn = strip.cards;
-  for (let i = 0; i < cardsIn.w.length; i += 1) {
-    const key = bandPast[cardsIn.w[i]] * segs + cardsIn.seg[i];
-    const rows = cardRows.get(key) ?? [];
-    if (!rows.includes(cardsIn.row[i])) rows.push(cardsIn.row[i]);
-    cardRows.set(key, rows);
-  }
-  // Each band's drawn top and bottom, from its main line: what it holds,
-  // on its rows as spread (only a straight line crosses a cut: it is in
-  // every band it crosses).
+  // Each band's drawn top and bottom, from its main line: what it holds
+  // (only a straight line crosses a cut: it is in every band it crosses).
   const above = new Float64Array(bands).fill(Number.POSITIVE_INFINITY);
   const below = new Float64Array(bands).fill(Number.NEGATIVE_INFINITY);
-  const lineY = (key: number, row: number) => {
-    const cards = cardRows.get(key);
-    return row * g.rowH + (cards === undefined ? 0 : rowOffset(cards, row));
-  };
-  const { w0, w1, row, seg, up, down } = strip.held;
+  const { w0, w1, up, down } = strip.held;
+  const lineY = strip.held.y;
   for (let i = 0; i < w0.length; i += 1) {
     const last = bandPast[w1[i]];
+    const top = lineY[i] - up[i];
+    const bottom = lineY[i] + down[i];
     for (let b = bandPast[w0[i]]; b <= last; b += 1) {
-      const y = lineY(b * segs + seg[i], row[i]);
-      if (y - up[i] < above[b]) above[b] = y - up[i];
-      if (y + down[i] > below[b]) below[b] = y + down[i];
+      if (top < above[b]) above[b] = top;
+      if (bottom > below[b]) below[b] = bottom;
     }
   }
+  const cardsIn = strip.cards;
   for (let i = 0; i < cardsIn.w.length; i += 1) {
     const b = bandPast[cardsIn.w[i]];
-    const y = lineY(b * segs + cardsIn.seg[i], cardsIn.row[i]);
-    if (y - DRAWN_REACH.card < above[b]) above[b] = y - DRAWN_REACH.card;
-    if (y + cardsIn.down[i] > below[b]) below[b] = y + cardsIn.down[i];
+    const cy = cardsIn.y[i];
+    if (cy - DRAWN_REACH.card < above[b]) above[b] = cy - DRAWN_REACH.card;
+    if (cy + cardsIn.down[i] > below[b]) below[b] = cy + cardsIn.down[i];
   }
   // Each band under the one before, wrapGap between what they draw.
   const mainY: number[] = [];
@@ -1219,7 +1350,6 @@ function planBands(strip: MapStrip, width: number): BandPlan {
     mainY,
     top,
     bottom,
-    cardRows,
     width: widest + 2 * g.pad,
     height: bottom[bands - 1] + g.pad,
   };
@@ -1241,8 +1371,9 @@ export function bandsShape(
  * The band width (the layout's, its padding included) at which the whole
  * of `strip` shows largest in a vw x vh view: Fit's (docs/plan.md Phase
  * 41, "Two views"), the width and the scale chosen together. A width is
- * scored by the scale at which its layout's size, less its padding, fits
- * the view less `FIT_MARGIN_PX` a side, up to `MAX_SCALE`; a tie goes to
+ * scored by the scale at which its layout's size, less its padding (plus
+ * the ticks' reach past the bands' edges where it is cut), fits the view
+ * less `FIT_MARGIN_PX` a side, up to `MAX_SCALE`; a tie goes to
  * the wider width (fewer bands, so a small map stays on one line once it
  * reaches 3x). First, for one band, two, three and so on, the narrowest
  * width that still takes that many (the bands come out even, the layout
@@ -1265,14 +1396,13 @@ export function fitWidth(strip: MapStrip, vw: number, vh: number): number {
   let best = length + pad2;
   let bestScale = 0;
   // The scale bands `room` wide show the map at, and that its depth allows.
+  // Cut, the ticks reach past the bands' edges on both sides (`tickBox`).
+  const ticks = 2 * (TICK.reach + TICK.lean);
   const score = (room: number) => {
     const shape = bandsShape(strip, room + pad2);
     const deep = down / Math.max(1, shape.height - pad2);
-    const scale = Math.min(
-      MAX_SCALE,
-      across / Math.max(1, shape.width - pad2),
-      deep,
-    );
+    const wide = shape.width - pad2 + (shape.bands > 1 ? ticks : 0);
+    const scale = Math.min(MAX_SCALE, across / Math.max(1, wide), deep);
     if (scale > bestScale * (1 + 1e-9)) {
       best = room + pad2;
       bestScale = scale;
@@ -1325,13 +1455,8 @@ export function cutBands(strip: MapStrip, width: number): MapModel {
   const g = MAP_GEOMETRY;
   const plan = planBands(strip, width);
   const { from, to } = plan;
-  const segs = strip.segments;
   const wx = (b: number, x: number) => x - from[b] + g.pad;
-  const wy = (b: number, seg: number, row: number) => {
-    const cards = plan.cardRows.get(b * segs + seg);
-    const y = plan.mainY[b] + row * g.rowH;
-    return cards === undefined ? y : y + rowOffset(cards, row);
-  };
+  const wy = (b: number, y: number) => plan.mainY[b] + y;
   const bandOf = (x: number) => bandAt(from, x);
   const ticks: MapTick[] = [];
 
@@ -1342,7 +1467,7 @@ export function cutBands(strip: MapStrip, width: number): MapModel {
     for (let b = first; b <= last; b += 1) {
       const a = b === first ? r.x0 : from[b];
       const z = b === last ? r.x1 : to[b];
-      const y = wy(b, r.seg, r.row);
+      const y = wy(b, r.y);
       pieces.push({ x0: wx(b, a), x1: wx(b, z), y, at: a - r.x0 });
       if (b > first)
         ticks.push({ x: g.pad, y, side: "in", line: "run", run: i, band: b });
@@ -1374,7 +1499,7 @@ export function cutBands(strip: MapStrip, width: number): MapModel {
       prompt: d.prompt,
       afterIndex: d.afterIndex,
       x: wx(b, d.x),
-      y: wy(b, d.seg, d.row),
+      y: wy(b, d.y),
       routes: d.routes,
     };
   });
@@ -1389,9 +1514,9 @@ export function cutBands(strip: MapStrip, width: number): MapModel {
       endIndex: r.endIndex,
       outcome: r.outcome,
       x: wx(b, r.x),
-      y: wy(b, r.seg, r.row),
+      y: wy(b, r.y),
       endX: wx(e, r.endX),
-      endY: wy(e, r.seg, r.row),
+      endY: wy(e, r.y),
     };
   });
   // A branch curve is never cut. A join or return line is cut only along
@@ -1403,7 +1528,7 @@ export function cutBands(strip: MapStrip, width: number): MapModel {
     const last = l.kind === "branch" ? first : bandOf(l.bx);
     for (let b = first; b <= last; b += 1) {
       const a = b === first ? l.ax : from[b];
-      const ay = wy(b, l.seg, l.rowA);
+      const ay = wy(b, l.ay);
       if (l.kind !== "branch" && b > first)
         ticks.push({
           x: g.pad,
@@ -1431,14 +1556,14 @@ export function cutBands(strip: MapStrip, width: number): MapModel {
           ax: wx(b, a),
           ay,
           bx: wx(b, l.bx),
-          by: wy(b, l.seg, l.rowB),
+          by: wy(b, l.by),
         }),
       );
     }
   }
   const pointOf = (p: StripPoint) => {
     const b = bandOf(p.x);
-    return { x: wx(b, p.x), y: wy(b, p.seg, p.row) };
+    return { x: wx(b, p.x), y: wy(b, p.y) };
   };
   const joins = strip.joins.map(pointOf);
   const ends = strip.ends.map(pointOf);
@@ -2123,10 +2248,10 @@ export function placeOf(
 
 /**
  * The world y a place is at on `model`, cut at any width: in the band
- * holding its place along the strip, as far below that band's main line,
- * kept within the band and half the gap to its neighbours (its rows may
- * be spread by other cards at another width; on the model it was taken on
- * it comes back exactly).
+ * holding its place along the strip, as far below that band's main line
+ * (every line keeps its strip height in every band, so a place on a line
+ * comes back on it), kept within the band and half the gap to its
+ * neighbours (a band cut elsewhere may be shallower).
  */
 export function placeY(model: MapModel, place: MapPlace): number {
   let band = model.bands[0];
@@ -2140,7 +2265,8 @@ export function placeY(model: MapModel, place: MapPlace): number {
 
 /**
  * A fingerprint of a strip (`layOutStrip`): every stretch, box and pill
- * position on it and the item count, each to a hundredth, hashed (FNV-1a
+ * position on it (its x and its line's height) and the item count, each
+ * to a hundredth, hashed (FNV-1a
  * over their 16-bit halves, 32 bits; no strings, so it is cheap). Another
  * game version, or another set of bookmarked screens, gives another one;
  * the band width does not enter it, so a remembered place (`MapPlace`)
@@ -2161,17 +2287,17 @@ export function stripSignature(strip: MapStrip): string {
     mix(r.end);
     mix(r.x0);
     mix(r.x1);
-    mix(r.row);
+    mix(r.y);
   }
   for (const d of strip.nodes) {
     mix(d.index);
     mix(d.x);
-    mix(d.row);
+    mix(d.y);
   }
   for (const r of strip.routes) {
     mix(r.decision);
     mix(r.x);
-    mix(r.row);
+    mix(r.y);
     mix(r.endX);
   }
   return `${strip.itemCount}:${(hash >>> 0).toString(36)}`;

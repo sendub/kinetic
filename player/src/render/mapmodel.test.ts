@@ -60,7 +60,6 @@ import {
   placeY,
   pointAlong,
   remember,
-  rowOffset,
   runAt,
   runJump,
   type SavedMapView,
@@ -1886,7 +1885,7 @@ describe("bookmark cards on the line (docs/plan.md Phase 35)", () => {
     }
   });
 
-  it("gives a route nested in a route its own cards on its own row, moved down by their room", () => {
+  it("gives a route nested in a route its own cards on its own line, moved down by their room, and leaves a line beside it where it was", () => {
     // Item 5 is the nested decision's second route (nest-ret), on the row
     // under the main line, beside route 2 (an ending, tucked in there).
     const plain = demoModel();
@@ -1904,18 +1903,13 @@ describe("bookmark cards on the line (docs/plan.md Phase 35)", () => {
     const plainMain = plain.decisionAt[OUTER];
     expect(plainB.y - (plainMain?.y ?? 0)).toBe(g.rowH);
     expect(nestB.y - main.y).toBe(g.rowH + CARD_ABOVE);
-    expect(route2.y).toBe(nestB.y);
+    // Route 2 is left of the card, under nothing but the main line: it
+    // stays a row's height under it (docs/plan.md Phase 42).
+    expect(route2.y - main.y).toBe(g.rowH);
+    const plain2 = plain.routes[routeKey(plain, OUTER, 1)];
+    expect(plain2.y - (plainMain?.y ?? 0)).toBe(g.rowH);
     // The card clears the main line's boxes above it.
     expect(slot.y).toBeGreaterThan(main.y + g.decH / 2);
-  });
-
-  it("spreads a segment's rows by the room their cards need, and leaves one without cards as it was", () => {
-    const offsets = (cards: number[]) =>
-      [0, 1, 2].map((r) => rowOffset(cards, r));
-    expect(offsets([])).toEqual([0, 0, 0]);
-    expect(offsets([1])).toEqual([0, CARD_ABOVE, CARD_ABOVE + CARD_BELOW]);
-    // Row 0's room above is the band's top (what it draws), not an offset.
-    expect(offsets([0])).toEqual([0, CARD_BELOW, CARD_BELOW]);
   });
 
   it("puts a bookmark on a screen no stretch holds at the end of the stretch before it", () => {
@@ -2942,6 +2936,400 @@ describe("band layout (docs/plan.md Phase 41)", () => {
         Math.max(...widths) / 2,
       );
     }
+  });
+});
+
+describe("even route spacing (docs/plan.md Phase 42)", () => {
+  const g = MAP_GEOMETRY;
+  // A decision with three one-row routes, cards on the main line before it
+  // (two on the lead-in) and after it (one past the join).
+  const threeRoutes = (() => {
+    const items = ["lead", "decide", "r1", "r2", "r3", "after", "tail"].map(
+      image,
+    );
+    const branches: Branch[] = [
+      {
+        id: "d",
+        after: "decide",
+        prompt: "Which way?",
+        routes: [
+          { id: "r1", label: "One", start: "r1", end: "r1" },
+          {
+            id: "r2",
+            label: "Two",
+            start: "r2",
+            end: "r2",
+            result: "return",
+          },
+          { id: "r3", label: "Three", start: "r3", end: "r3" },
+        ],
+        continuingRoute: "r1",
+        continueAt: "after",
+      },
+    ];
+    return { items, branches, bookmarks: [0, 0, 5] };
+  })();
+  // A decision whose second route holds a card on its first stretch and
+  // runs on past two nested decisions, so a cut can fall on it right of
+  // the card; its first route is one stretch and its join line.
+  //  lead decide | r1 | c n-at | na | nb | s2 m-at | ma | mb | s3 | after
+  //  0    1      | 2  | 3 4    | 5  | 6  | 7  8    | 9  | 10 | 11 | 12
+  const longRoute = (() => {
+    const items = [
+      "lead",
+      "decide",
+      "r1",
+      "c",
+      "n-at",
+      "na",
+      "nb",
+      "s2",
+      "m-at",
+      "ma",
+      "mb",
+      "s3",
+      "after",
+    ].map(image);
+    const nested = (
+      id: string,
+      at: string,
+      a: string,
+      b: string,
+      continueAt: string,
+    ): Branch => ({
+      id,
+      after: at,
+      prompt: `Nested ${id}?`,
+      routes: [
+        { id: `${id}a`, label: "On", start: a, end: a },
+        { id: `${id}b`, label: "Back", start: b, end: b, result: "return" },
+      ],
+      continuingRoute: `${id}a`,
+      continueAt,
+    });
+    const branches: Branch[] = [
+      nested("n", "n-at", "na", "nb", "s2"),
+      nested("m", "m-at", "ma", "mb", "s3"),
+      {
+        id: "d",
+        after: "decide",
+        prompt: "Which way?",
+        routes: [
+          { id: "r1", label: "One", start: "r1", end: "r1" },
+          {
+            id: "r2",
+            label: "Two",
+            start: "c",
+            end: "s3",
+            result: "return",
+          },
+        ],
+        continuingRoute: "r1",
+        continueAt: "after",
+      },
+    ];
+    const strip = layOutStrip(items, branches, [3]);
+    // The first cut in s2 (items 7-8), right of the card and of n.
+    const s2 = strip.runs.find((r) => r.start === 7);
+    if (s2 === undefined) throw new Error("no s2");
+    let cut = -1;
+    for (let i = 0; i < strip.windows.length; i += 2)
+      if (strip.windows[i] > s2.x0 && strip.windows[i + 1] < s2.x1) {
+        cut = strip.windows[i];
+        break;
+      }
+    if (cut < 0) throw new Error("no window in s2");
+    return { items, branches, strip, width: cut + 0.01 + 2 * g.pad };
+  })();
+  const big = synthetic(30, 6, 26);
+  const bigStrip = layOutStrip(
+    big.items,
+    big.branches,
+    spreadOver(big.items, 180),
+  );
+  const ten = layOutStrip(
+    DEMO_ITEMS,
+    DEMO_BRANCHES,
+    [0, 0, 0, 0, 0, 1, 1, 1, 1, 1],
+  );
+  const everyItem = layOutStrip(
+    DEMO_ITEMS,
+    DEMO_BRANCHES,
+    DEMO_ITEMS.map((_, i) => i),
+  );
+  const crowded = (): [string, MapModel][] => [
+    ["the demo, 10 bookmarks, Full size in 1440", fullCut(ten, 1440)],
+    ["the demo, 10 bookmarks, Full size in 1920", fullCut(ten, 1920)],
+    ["the demo, 10 bookmarks, Fit in 1920x1080", fitCut(ten, 1920, 1080)],
+    ["the demo, a bookmark on every screen", fullCut(everyItem, 1920)],
+    [
+      "570 decisions, 180 bookmarks, Full size in 1440",
+      fullCut(bigStrip, 1440),
+    ],
+    [
+      "570 decisions, 180 bookmarks, Full size in 1920",
+      fullCut(bigStrip, 1920),
+    ],
+    [
+      "570 decisions, 180 bookmarks, Fit in 1920x1080",
+      fitCut(bigStrip, 1920, 1080),
+    ],
+    ["570 decisions, 180 bookmarks, uncut", cutBands(bigStrip, 1e7)],
+  ];
+  const bandAt = (model: MapModel, y: number) =>
+    model.bands.findIndex((b) => y >= b.y0 && y <= b.y1);
+  // How far below its band's main line a world y is.
+  const fromMain = (model: MapModel, y: number) =>
+    y - model.bands[bandAt(model, y)].line;
+
+  it("keeps a decision's routes rowH apart where its routes hold no card, though the main line before and after it does", () => {
+    const { items, branches, bookmarks } = threeRoutes;
+    const strip = layOutStrip(items, branches, bookmarks);
+    for (const model of [
+      cutBands(strip, 1e6),
+      fullCut(strip, 1920),
+      fullCut(strip, 1280),
+      fitCut(strip, 1920, 1080),
+      fitCut(strip, 1280, 720),
+    ]) {
+      const d = model.decisionAt[0];
+      if (d === undefined) throw new Error("no decision");
+      const [a, b, c] = d.routes.map((key) => model.routes[key]);
+      expect(a.y).toBe(d.y);
+      expect(b.y - a.y).toBe(g.rowH);
+      expect(c.y - b.y).toBe(g.rowH);
+    }
+    // The cards are on the main line, one before the decision's box and
+    // one past its join, as the reader sees them.
+    const whole = cutBands(strip, 1e6);
+    const d = whole.decisionAt[0];
+    const slots = cardSlots(
+      whole,
+      bookmarks.map((itemIndex, i) => ({ itemIndex, timestampMs: i })),
+    );
+    if (d === undefined || slots.some((s) => s === null))
+      throw new Error("unset");
+    const [first, , last] = slots as CardSlot[];
+    expect(first.cy).toBe(d.y);
+    expect(first.x + CARD.w).toBeLessThan(d.x);
+    expect(last.cy).toBe(d.y);
+    expect(last.x).toBeGreaterThan(Math.max(...whole.joins.map((p) => p.x)));
+  });
+
+  it("gives every line a cut crosses the same height under its band's main line on both sides of the cut", () => {
+    const cases: [string, MapModel][] = [
+      ...crowded(),
+      [
+        "a card's route cut right of its card",
+        cutBands(longRoute.strip, longRoute.width),
+      ],
+    ];
+    let inside = 0;
+    for (const [name, model] of cases) {
+      // Each out tick is followed by its in tick, one band on.
+      model.ticks.forEach((out, i) => {
+        if (out.side !== "out") return;
+        const into = model.ticks[i + 1];
+        const at = `${name}: tick ${i}`;
+        expect(into.side, at).toBe("in");
+        expect(into.band, at).toBe(out.band + 1);
+        expect([into.line, into.run], at).toEqual([out.line, out.run]);
+        expect(into.y - model.bands[into.band].line, at).toBeCloseTo(
+          out.y - model.bands[out.band].line,
+          9,
+        );
+        if (out.y !== model.bands[out.band].line) inside += 1;
+      });
+      // And every stretch's pieces.
+      for (const run of model.runs)
+        for (const p of run.pieces)
+          expect(fromMain(model, p.y), name).toBeCloseTo(
+            fromMain(model, run.pieces[0].y),
+            9,
+          );
+    }
+    // Cuts fall inside decisions, crossing lines under the main line.
+    expect(inside).toBeGreaterThan(20);
+  });
+
+  it("overlaps no card, count, node or pill with another, nor runs a line through one, on the demo with bookmarks and on 570 decisions with 180", () => {
+    type Box = { what: string; x0: number; y0: number; x1: number; y1: number };
+    const ring = 3; // a card's hover ring and the newest's outline
+    for (const [name, model] of crowded()) {
+      const boxes: Box[] = [];
+      for (const d of model.decisions)
+        boxes.push({
+          what: `decision ${d.index}`,
+          x0: d.x,
+          y0: d.y - g.decH / 2,
+          x1: d.x + g.decW,
+          y1: d.y + g.decH / 2,
+        });
+      model.routes.forEach((r, key) => {
+        boxes.push({
+          what: `pill ${key}`,
+          x0: r.x,
+          y0: r.y - g.routeH / 2,
+          x1: r.x + g.routeW,
+          y1: r.y + g.routeH / 2,
+        });
+      });
+      const cards = model.runs.flatMap((run) =>
+        run.bookmarks.map((itemIndex, j) => ({ itemIndex, timestampMs: j })),
+      );
+      for (const s of cardSlots(model, cards))
+        if (s !== null)
+          boxes.push({
+            what: `card at ${s.cx},${s.cy}`,
+            x0: s.x - ring,
+            y0: s.y - ring,
+            x1: s.x + CARD.w + ring,
+            y1: s.y + CARD.h + ring,
+          });
+      const marks = markMap(model, {
+        visited: [],
+        playedRoutes: [],
+        cursor: 0,
+      });
+      for (const [, carded, x, y, text] of labelsMarkup(model, marks).matchAll(
+        /<text class="map-count( map-count-cards)?" x="([-\d.]+)" y="([-\d.]+)">([^<]*)<\/text>/g,
+      )) {
+        const size = carded ? 11 : 12;
+        const w = text.length * 0.62 * size;
+        const x0 = carded ? Number(x) : Number(x) - w / 2;
+        boxes.push({
+          what: `count "${text}" at ${x},${y}`,
+          x0,
+          y0: Number(y) - (carded ? size : 10),
+          x1: x0 + w,
+          y1: Number(y),
+        });
+      }
+      expect(boxes.some((b) => b.what.startsWith("card"))).toBe(true);
+      // Pairs within a band (bands never overlap down the page).
+      const byBand = new Map<number, Box[]>();
+      for (const b of boxes) {
+        const band = bandAt(model, (b.y0 + b.y1) / 2);
+        byBand.set(band, [...(byBand.get(band) ?? []), b]);
+      }
+      const lines = [
+        ...model.runs.flatMap((r) => r.pieces),
+        ...model.links
+          .filter((l) => l.kind !== "branch")
+          .map((l) => ({
+            x0: l.x0,
+            x1: l.x1 - (l.y0 === l.y1 ? 0 : 24),
+            y: l.y1,
+          })),
+      ];
+      for (const [band, list] of byBand) {
+        list.sort((a, b) => a.x0 - b.x0);
+        for (let i = 0; i < list.length; i += 1)
+          for (
+            let j = i + 1;
+            j < list.length && list[j].x0 < list[i].x1;
+            j += 1
+          ) {
+            const [a, b] = [list[i], list[j]];
+            expect(
+              a.y0 < b.y1 && b.y0 < a.y1,
+              `${name}, band ${band}: ${a.what} on ${b.what}`,
+            ).toBe(false);
+          }
+        // A line runs through only what sits on it.
+        for (const l of lines)
+          for (const b of list)
+            if (l.x0 < b.x1 && b.x0 < l.x1 && l.y > b.y0 && l.y < b.y1)
+              expect(
+                b.what.startsWith("count") ? false : l.y === (b.y0 + b.y1) / 2,
+                `${name}: line at ${l.y} through ${b.what}`,
+              ).toBe(true);
+      }
+    }
+  });
+
+  it("clears the line above a route holding a card by the card's room, in every band its line crosses", () => {
+    // A cut right of the card: the route's line, in the band without its
+    // card, keeps the card's room under the line above it.
+    const model = cutBands(longRoute.strip, longRoute.width);
+    expect(model.bands).toHaveLength(2);
+    const d = model.decisionAt[2];
+    if (d === undefined) throw new Error("no decision");
+    const two = model.routes[d.routes[1]];
+    const room = g.rowH + CARD_ABOVE;
+    expect(bandAt(model, two.y)).toBe(0);
+    expect(two.y - d.y).toBe(room);
+    const [slot] = cardSlots(model, [{ itemIndex: 3, timestampMs: 0 }]);
+    expect(slot?.cy).toBe(two.y);
+    const s2 = runAt(model.runs, 7);
+    const m = model.decisionAt[1];
+    if (s2 === undefined || m === undefined) throw new Error("unset");
+    expect(s2.pieces).toHaveLength(2);
+    const later = s2.pieces[1];
+    expect(bandAt(model, later.y)).toBe(1);
+    expect(later.y - model.bands[1].line).toBe(room);
+    expect(m.y - model.bands[1].line).toBe(room);
+    // The line above it there is route 1's join line, on the main line.
+    expect(
+      model.links.some(
+        (l) =>
+          l.kind === "join" &&
+          l.y0 === model.bands[1].line &&
+          l.x0 === model.bands[1].x0,
+      ),
+    ).toBe(true);
+    // And on 570 decisions with 180 bookmarks, uncut: every line over or
+    // under a card keeps the card's room from its line.
+    const whole = cutBands(bigStrip, 1e7);
+    const cards = whole.runs.flatMap((run) =>
+      run.bookmarks.map((itemIndex, j) => ({ itemIndex, timestampMs: j })),
+    );
+    const lines = [
+      ...whole.runs.flatMap((r) => r.pieces),
+      ...whole.links
+        .filter((l) => l.kind !== "branch")
+        .map((l) => ({
+          x0: l.x0,
+          x1: l.x1 - (l.y0 === l.y1 ? 0 : 24),
+          y: l.y1,
+        })),
+    ];
+    let checked = 0;
+    for (const s of cardSlots(whole, cards)) {
+      if (s === null) throw new Error("no card");
+      for (const l of lines) {
+        if (l.y === s.cy || l.x1 <= s.x || l.x0 >= s.x + CARD.w) continue;
+        checked += 1;
+        if (l.y < s.cy) expect(s.cy - l.y).toBeGreaterThanOrEqual(room);
+        else expect(l.y - s.cy).toBeGreaterThanOrEqual(g.rowH + CARD_BELOW);
+      }
+    }
+    expect(checked).toBeGreaterThan(100);
+  });
+
+  it("brings a remembered place on a route's line back on that line at another width, and signs a strip by its lines' heights", () => {
+    // A place taken at Full size in 1440 with a pill under the main line in
+    // the middle of the view comes back on that pill at 1920.
+    const at1440 = fullCut(bigStrip, 1440);
+    const at1920 = fullCut(bigStrip, 1920);
+    let checked = 0;
+    for (const key of [40, 400, 900, 1500]) {
+      const pill = at1440.routes[key];
+      const band = at1440.bands[bandAt(at1440, pill.y)];
+      if (pill.y === band.line) continue;
+      // Scrolled so the pill is in the middle of a 2,000 px tall view.
+      const view = { x: 0, y: 1000 - pill.y, scale: 1 };
+      const place = placeOf(at1440, view, 1440, 2000, pill.x);
+      expect(placeY(at1920, place)).toBeCloseTo(at1920.routes[key].y, 9);
+      checked += 1;
+    }
+    expect(checked).toBeGreaterThan(2);
+    // Another height for one line is another layout.
+    const lower = {
+      ...bigStrip,
+      runs: bigStrip.runs.map((r, i) => (i === 7 ? { ...r, y: r.y + 1 } : r)),
+    };
+    expect(stripSignature(lower)).not.toBe(stripSignature(bigStrip));
   });
 });
 

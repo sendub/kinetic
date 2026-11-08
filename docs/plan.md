@@ -1563,6 +1563,51 @@ to stay fast while moving.
   here" too. A window resize lays the bands out again for the new width: at
   Full size what was in the middle of the view stays there; Fit fits again.
 
+## Phase 42: Even route spacing (2026-11-08, user)
+
+The user, on the game I map at Full size: the routes of some
+decisions sit a wide gap apart and others a narrow one, even under one
+decision with no bookmark inside it (route 1 to route 2 wide, route 2 to route
+3 narrow), and where a band cut falls inside a decision the lines leave one
+band at one set of gaps and enter the next at another, so the two halves would
+not join if set side by side. The narrow gap looks better.
+
+Cause: room for bookmark cards is reserved per row of a top-level segment,
+separately in each band (mapmodel.ts `planBands`, `rowOffset`): once any card
+sits on a row anywhere in a band's part of a segment, every row below it in
+that part drops by a card's height, even under decisions far from the card;
+and a band holding a different part of the same segment spreads its rows
+differently.
+
+- Route lines are spaced by what lies between them: a line sits one `rowH`
+  below the line above it unless something that line or this one draws (a
+  card, its count line, a node) overlaps it in x, and then only as far as that
+  needs. A decision whose routes hold no cards, with cards on the main line
+  before and after it, has all its routes `rowH` apart.
+- Each line's offset is fixed once for the whole strip, before the cut, so a
+  line continues at the same height in every band it crosses and the two sides
+  of a cut would join edge to edge. A line is straight, so a card anywhere
+  along it sets its offset along its whole length, in every band.
+- Everything else stays: the look, band cuts only where every crossing is
+  straight, bands sized by what they draw and `wrapGap` apart, endings tucked
+  in, nothing overlapping, layout cost near Phase 41's (about 18 ms at 570
+  decisions, 130 ms at 2,340).
+
+Follow-up, same day: a straight line takes one height along its whole length,
+so a card on a route in one band also lowers that route in the band before, a
+gap whose reason is out of sight. The user leans to letting lines step, and
+asked to compare both before choosing:
+
+- a) One height per line, fixed for the strip (the bullets above), landed
+  first: it is the groundwork for b and fixes the reported gaps.
+- b) Stepped lines: each line runs at the lowest height it needs at each x,
+  dropping where a card, count or node above needs the room and rising after,
+  by a short S-bend in the branch curves' style; everything nested under a
+  route steps with it. A cut never falls on a bend, so lines still join edge
+  to edge at every cut, and no gap lacks a reason in its own band.
+- The user picks between a and b on game I staged with each, with
+  screenshots side by side; b lands only if chosen.
+
 ## Later, waiting on the user
 
 - Overlay text styling iteration once the user can play with the demo.

@@ -2082,3 +2082,48 @@ truthful: an unchecked box means nothing was accepted.
       pass, 2 PARTIAL (headless fullscreen Escapes), 0 FAIL;
       `npm run package-proof` 18/18 steps; pytest not run, no tools
       changed.)
+
+## Phase 42: Even route spacing (2026-11-08, user)
+
+- [x] Route lines spaced by what lies between them (docs/plan.md Phase 42): a
+      decision's routes `rowH` apart unless a card, count or node between them
+      in x needs more, and each line's offset fixed once for the strip so
+      lines continue at the same height across a band cut. Unit tests that
+      fail on HEAD's code (a decision with cards on the main line before and
+      after it but none in its routes has its routes `rowH` apart; every cut
+      line has the same offset from its band's main line on both sides; no
+      card, count or node overlaps another); screenshots of the demo with
+      bookmarks and the 570-decision tree with 180 bookmarks at Full size;
+      `npm run perf:map` and layout time near Phase 41's.
+      (2026-11-08: each element carries a line id; `lineOffsets` gives
+      every line one height below the main line in one pass (a max tree
+      over spans), rowH/2 of room each side plus card room only over its
+      cards, as high as clears the lines above where they overlap in x;
+      per-band row spreading (`rowOffset`, `cardRows`) gone, bands only
+      translate strip content; `fitWidth` counts the ticks' reach. Trees
+      without bookmarks lay out identically to HEAD. game I:
+      gaps of 42 px between consecutive routes 29 -> 69, card-height
+      gaps 44 -> 7 (each explained by a card or nested lines), lines
+      changing height at a cut 9 of 47 -> 0 (2000 px) and 14 of 71 -> 0
+      (1440 px). Orchestrator: npm test 749 pass, check clean; smoke
+      6/6, bookmarkmap 29/29, continueroute 8/8, screens 67 pass, 2
+      PARTIAL (headless fullscreen Escapes); branchmap 65/65 in three
+      runs, and one run threw mid-scenario (60 checks, cause not
+      captured; not seen again); the two branchmap edits (scroll to Home
+      before the second C; "whole map in view" counts as an end) follow
+      from the shorter demo map; game I cut screenshots join
+      edge to edge. Subagent: four of five new tests fail on HEAD's
+      sources, the overlap test shown to catch under-spacing by breaking
+      the code; node layout 17.8 ms (HEAD 16.7) at 570 decisions, 134 ms
+      (HEAD 129) at 2,340; perf:map Full size opens like HEAD's, but
+      perf:map's 180-bookmark tree now fits at 0.116x, above the
+      figures' 0.106x, so its Fit draws 4,562 texts: switch to Fit
+      86-97 ms, cold open at Fit 106-125 ms (HEAD 70-77).)
+- [ ] Stepped lines, candidate b (docs/plan.md Phase 42, follow-up): on top of
+      item 1, each line at the lowest height it needs at each x, stepping by
+      an S-bend where a card, count or node above needs room, nested routes
+      stepping with it, no cut on a bend. Unit tests (no gap wider than its
+      own band's content needs; lines join at cuts; no overlaps); game I staged with a and with b, with screenshots side by side for the
+      user; landed only if the user picks b, otherwise noted here and dropped.
+- [ ] Phase-closer (Phase 42): full scenario suite, package-proof
+      (rebuilds the demo); pytest not needed unless tools change.

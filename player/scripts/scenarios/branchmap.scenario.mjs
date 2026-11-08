@@ -1596,9 +1596,11 @@ async function memory({ check, open }) {
 
   // C, then a scroll, then C again: each time C leaves it "centred", so
   // the next open centres on "you are here" wherever the reader has got
-  // to, after a reload too.
+  // to, after a reload too. The scroll goes to the top: "you are here",
+  // past the cards, centres as near as the map's bottom allows, which is
+  // where End would scroll to.
   await pressC(cdp);
-  await pressNavKey(cdp, "End", 35);
+  await pressNavKey(cdp, "Home", 36);
   await sleep(60);
   const afterScroll = await readView();
   await pressC(cdp);
@@ -1648,8 +1650,12 @@ async function memory({ check, open }) {
       bottom: c?.rect.bottom,
       mid: m.viewRect.top + m.viewRect.height / 2,
       view: m.viewRect,
+      // At the map's top or bottom, or the whole map in view (it sits
+      // still in the middle).
       ends:
-        Math.abs(v.ty) < 0.01 || Math.abs(v.ty - (v.view.h - v.height)) < 0.01,
+        Math.abs(v.ty) < 0.01 ||
+        Math.abs(v.ty - (v.view.h - v.height)) < 0.01 ||
+        v.height * v.sc <= v.view.h,
     };
   };
   const before = await cardAt(null);

@@ -391,3 +391,51 @@ as immediate, and they occur only on this synthetic tree, about nine
 times the decisions of the largest real game measured (63). If a real
 game's Fit is ever slow, draw Fit as a still picture: its figures on a
 canvas, or one image kept until the layout changes.
+
+## Even route spacing (Phase 42)
+
+Route lines are now spaced by what lies between them (mapmodel.ts
+`lineOffsets`), each line's height fixed once for the strip, and the
+per-band row spreading (`rowOffset`) is gone. A tree without bookmarks
+lays out exactly as before: perf:map's tree, `60 7 15`, the demo and
+game I were checked position by position. With bookmarks the
+map is shorter: perf:map's tree with 180 bookmarks at 1920 px went from
+69,395 to 68,106 world units tall at Full size, and game I at
+2,000 px from 11,505 to 9,340.
+
+Node-side layout as a Full size open builds it (the strip, its
+`stripSignature`, the cut at 1,920 px). These are warm medians of 20
+interleaved runs (10 for the larger tree), 2026-11-08, load average 7.5:
+
+| tree | HEAD (strip + signature, cut) | Phase 42 (strip + signature, cut) |
+| --- | --- | --- |
+| 570 decisions, 180 bookmarks | 14.7 + 2.0 ms | 16.5 + 1.3 ms |
+| 570 decisions, no bookmarks | 14.2 + 1.3 ms | 15.4 + 1.0 ms |
+| 2,340 decisions (`60 7 15`), no bookmarks | 123.5 + 5.3 ms | 129.7 + 4.6 ms |
+| game I (63 decisions, 178 bookmarks) | 7.4 + 0.2 ms | 7.1 + 0.2 ms |
+
+The spacing pass (a max tree over the lines' spans, read and raised once
+per line piece) adds 1-6 ms to the strip, and the cut, with no rows to
+spread, saves 0.3-0.7 ms. An earlier series at load 5 gave the same
+picture with every figure higher (570 decisions with 180 bookmarks: 27.1
++ 3.1 against 26.8 + 2.5 ms).
+
+`npm run perf:map` alternated with HEAD, 2026-11-08, load average
+5.9-7.6:
+
+| build | runs | first open | later opens | switch to Fit | opens at Fit | cold open at Fit | scroll frames p95 |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| HEAD | 3 | 69.1-84.3 ms | 53.0-61.9 ms | 47.4-49.3 ms | 57.1-61.7 ms | 69.7-76.7 ms | 16.7-16.8 ms |
+| Phase 42 | 3 | 67.6-80.5 ms | 60.2-67.5 ms | 86.2-97.2 ms | 72.4-87.6 ms | 105.9-124.7 ms | 16.7-16.8 ms |
+
+Three earlier runs of the final build (load 10.6-13.4) matched: first
+open 57.6-80.6, later opens 52.2-64.2, switch to Fit 83.0-88.4, opens at
+Fit 70.2-81.0, cold open at Fit 124.5-127.6 ms.
+
+Full size is unchanged. Fit is slower because the shorter map fits
+larger: 0.116x where HEAD's fitted at 0.105x. That is above the 0.106x
+at which `figuresVisible` starts drawing the counts and figures on a 1x
+screen, so Fit now draws 4,562 texts where HEAD drew 1. This is the cost
+the tree without bookmarks already had at Fit in the table above
+(switch 96.6-118.1 ms). The cold open at Fit, at 106-125 ms, is over
+the roughly 100 ms the user accepted for that case.
