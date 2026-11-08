@@ -427,9 +427,10 @@ export interface MachineState {
   readonly transition: TransitionKind;
   readonly choice?: ChoiceView;
   /**
-   * Present while the cursor stands on an ENDING — the array end or an
-   * ending route's last item — with no choice open (docs/plan.md Phase
-   * 18, "End card"): the render layer
+   * Present while the cursor stands on an ENDING — the array end, an
+   * ending route's last item, or a route's last item where a pure choice's
+   * close ended the story (Phase 43) — with no choice open (docs/plan.md
+   * Phase 18, "End card"): the render layer
    * draws the small end card from it. Present when content is still
    * unseen, and — in a manifest with branches — when everything has been
    * seen (all counts zero), so the card can say so. Absent otherwise, and

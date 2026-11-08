@@ -1701,6 +1701,11 @@ The work, in order:
      `setAutoAdvance` and `resume` change to match.
    - Tests and docs use only synthetic content. No game's names, paths or
      text enter the repo (the user).
+   - Found while fixing it: with a pure choice whose routes run to the end
+     of the item array, once every route has played the menu closes and the
+     story ends on a route's last item, yet Space there steps into the next
+     route's items. Space treats that point as the end of the story, as at
+     the last item.
 3. Decoding ahead: `render/visual.ts` `warmFile` calls `img.decode()` on each
    image it preloads (measured above).
 4. Skip notices, and both modes on a choice screen.

@@ -357,7 +357,9 @@ and items always use ids, never array positions.
   decision until every route of it has played — then the decision
   CLOSES and flow continues past the whole menu region (the max route
   `end` plus one, the Ren'Py fall-through), never inside another
-  route's span; route replay stays possible by navigating into the
+  route's span. A region running to the last item ends the story on
+  the route just finished, where Space moves nothing, as at the last
+  item. Route replay stays possible by navigating into the
   route. "return to main" exists only when `continuingRoute` does -
   and then only once that route has COMPLETED (the rule above), not
   merely entered.
@@ -427,8 +429,10 @@ docs/plan.md Phase 13):
   their frames and marks them PLAYED, exactly as picking them would, so
   Space reads on inside the route. Like a bookmark jump it is appended
   to the record.
-- End card: on an ending (the array end or an ending route's last item,
-  no choice open, not a play-all route ending) a small card counts the
+- End card: on an ending (the array end, an ending route's last item
+  but not under play-all, or a route's last item where a pure choice's
+  close ended the story, whatever its `result`), with no choice open, a
+  small card counts the
   unplayed routes that still hold unseen items, across every decision,
   mentions other unseen content (main line, an aftermath, the rest of
   an abandoned route), and offers `u`. With everything seen it reads

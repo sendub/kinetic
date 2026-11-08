@@ -219,6 +219,10 @@ export interface Machine {
    * PLAYS a video (`settings.skipPlaysVideos`), where the press aborts the
    * video and the burst carries on with its next step.
    * Settling the item a decision hangs off is what fires that decision.
+   * Where the story ends the press settles the item and moves nothing: the
+   * last item, and a route's last item once a pure choice's menu has
+   * closed there (docs/plan.md Phase 43; the next item belongs to another
+   * route, reached only through its decision).
    * Inert while a choice is open, a walked-to one included: only `choose()`
    * and `chooseContinue()` answer it. From a screen the wheel walked to it
    * simply reads on from there.
@@ -982,13 +986,18 @@ export function createMachine(options: MachineOptions): Machine {
     const choice = pendingChoice === null ? null : choiceView(pendingChoice);
     const frontier = highestSeen < 0 ? 0 : Math.min(highestSeen + 1, count);
     // Play-all carries on from a route ending by itself, so the card there
-    // is noise; the array end still earns it. A linear manifest has nothing
-    // to find, so its all-seen card would only repeat "the end".
+    // is noise; the array end still earns it, and so does any item where
+    // the story ends (`nothingFollows`), whatever its route's `result`. A
+    // linear manifest has nothing to find, so its all-seen card would only
+    // repeat "the end".
+    const ending =
+      nothingFollows() ||
+      (endings.has(cursor) &&
+        !(settings.playAllRoutes && cursor !== count - 1));
     const endCard =
       choice === null &&
-      endings.has(cursor) &&
-      (visited.size < count || decisions.length > 0) &&
-      !(settings.playAllRoutes && cursor !== count - 1)
+      ending &&
+      (visited.size < count || decisions.length > 0)
         ? endCardView()
         : null;
     return Object.freeze({
@@ -1259,22 +1268,28 @@ export function createMachine(options: MachineOptions): Machine {
    * landing, or the item Space stopped a skip burst on — moves on like any
    * other once its hold has passed. Two waits stay: an open choice (it
    * waits for its answer; play-all's auto-pick is its own timer) and a
-   * settled item with nothing after it, where no decision fires and no
-   * open route ends: the last item, and a route's last item whose route is
-   * no longer open — where a pure choice's close ended the story
-   * (`closeIfPureAndComplete`), so a step on would fall into the next
-   * route's items, which the format never does.
+   * settled item where the story ends (`nothingFollows`).
    */
   function armHold(anchor?: number): void {
-    if (settled) {
-      if (pendingChoice !== null) return;
-      const follows =
-        relevantDecision(cursor) >= 0 ||
-        atRouteEnd() ||
-        (cursor < count - 1 && !routeEnds.has(cursor));
-      if (!follows) return;
-    }
+    if (settled && (pendingChoice !== null || nothingFollows())) return;
     armTimer(anchor);
+  }
+
+  /**
+   * Whether the story ends on the item under the cursor: no decision fires
+   * on it and no open route ends on it, and it is the last item or the last
+   * item of a route that is no longer open — where a pure choice's close
+   * ended the story, its menu region running to the last item
+   * (`closeIfPureAndComplete`). A step on from such a route end would fall
+   * into the next route's items, which the format never does: a route's
+   * items are reached only through its decision. So every forward step
+   * (Space, the hold, skip's dwell) stops there as at the last item, the
+   * end card shows there as at the last item, and `u` counts nothing there
+   * as Space's next read (`continuation`).
+   */
+  function nothingFollows(): boolean {
+    if (relevantDecision(cursor) >= 0 || atRouteEnd()) return false;
+    return cursor >= count - 1 || routeEnds.has(cursor);
   }
 
   /**
@@ -1804,8 +1819,8 @@ export function createMachine(options: MachineOptions): Machine {
       handleRouteEnd();
       return;
     }
-    if (cursor >= count - 1) {
-      // Nothing unseen ahead: the shown item is simply settled.
+    if (nothingFollows()) {
+      // The story ends here: the shown item is simply settled.
       settled = true;
       emit();
       return;
@@ -1837,8 +1852,8 @@ export function createMachine(options: MachineOptions): Machine {
       handleRouteEnd();
       return;
     }
-    if (cursor >= count - 1) {
-      // Dwell elapsed on the last item; nothing is left to skip.
+    if (nothingFollows()) {
+      // Dwell elapsed where the story ends; nothing is left to skip.
       skipping = false;
       beginItem();
       emit();
@@ -1879,7 +1894,7 @@ export function createMachine(options: MachineOptions): Machine {
       if (!endJoins(decision, frame.route)) return false;
       return decision.continueAt >= 0 && !visited.has(decision.continueAt);
     }
-    return cursor + 1 < count && !visited.has(cursor + 1);
+    return !nothingFollows() && !visited.has(cursor + 1);
   }
 
   /**
@@ -2250,7 +2265,7 @@ export function createMachine(options: MachineOptions): Machine {
       const frame = stack[stack.length - 1];
       const owner = decisions[frame.decision];
       if (endJoins(owner, frame.route)) start = owner.continueAt;
-    } else {
+    } else if (!nothingFollows()) {
       start = cursor + 1;
     }
     if (decision >= 0 && (played.get(decision)?.size ?? 0) > 0) decision = -1;

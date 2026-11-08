@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { mergeProgress } from "../render/bookmarks";
-import { createContextCodec } from "../storage/ids";
+import { createContextCodec, resumeOptionsFor } from "../storage/ids";
+import { createMemoryStorage } from "../storage/memory";
 import { AUTO_PICK_MIN_MS, AUTO_PICK_SHOW_MS, createMachine } from "./machine";
 import type {
   Branch,
@@ -4447,6 +4448,212 @@ describe("auto-forward over an open choice (docs/plan.md Phase 43)", () => {
     vi.advanceTimersByTime(AUTO_PICK_SHOW_MS);
     expect(m.getState().choice).toBeUndefined();
     expect(m.getState().cursor).toBe(3);
+    m.destroy();
+  });
+});
+
+describe("where a pure choice's close ends the story (docs/plan.md Phase 43)", () => {
+  // lead-1 decide | p-1 p-2 | q-1 q-2
+  //  0      1     | 2   3   | 4   5
+  // A pure choice whose menu region runs to the array end. Played Q then P,
+  // the all-played close ends the story on P's last item with Q's items
+  // after it, which the format reaches only through the decision; played P
+  // then Q, it ends on the array's last item. Every route kind a pure
+  // choice allows: `ending`, `return`, and no `result` (an ending).
+  const RESULTS = ["ending", "return", undefined] as const;
+  function toEnd(result: (typeof RESULTS)[number]): Shape {
+    const d1 = PURE.branches[0];
+    return {
+      items: ["lead-1", "decide", "p-1", "p-2", "q-1", "q-2"],
+      branches: [
+        {
+          ...d1,
+          routes: d1.routes.map((route) =>
+            result === undefined ? route : { ...route, result },
+          ),
+        },
+      ],
+    };
+  }
+
+  /** Q then P: the story ends on P's last item, 3. */
+  function endOnRoute(m: ReturnType<typeof machine>): void {
+    m.advance(); // 0 -> 1
+    m.advance(); // fires d1
+    m.choose(1); // route Q: 4..5
+    m.advance(); // 4 -> 5
+    m.advance(); // the re-offer
+    m.choose(0); // route P: 2..3
+    m.advance(); // 2 -> 3
+    m.advance(); // all played: the menu closes and the story ends
+    expect(m.getState().cursor).toBe(3);
+  }
+
+  /** P then Q: the story ends on the array's last item, 5. */
+  function endOnLast(m: ReturnType<typeof machine>): void {
+    m.advance(); // 0 -> 1
+    m.advance(); // fires d1
+    m.choose(0); // route P: 2..3
+    m.advance(); // 2 -> 3
+    m.advance(); // the re-offer
+    m.choose(1); // route Q: 4..5
+    m.advance(); // 4 -> 5
+    m.advance(); // all played: the menu closes and the story ends
+    expect(m.getState().cursor).toBe(5);
+  }
+
+  /** A state with the cursor blanked, to compare the two ends. */
+  const apartFromCursor = (state: MachineState) => ({ ...state, cursor: -1 });
+  const ALL_SEEN = { unseenRoutes: 0, otherUnseen: false, nextUnseen: false };
+
+  it.each(RESULTS)(
+    "Space there moves nothing, with the array end's state and end card (result %s)",
+    (result) => {
+      const m = machine(toEnd(result));
+      endOnRoute(m);
+      const last = machine(toEnd(result));
+      endOnLast(last);
+      expect(apartFromCursor(m.getState())).toEqual(
+        apartFromCursor(last.getState()),
+      );
+      for (let press = 0; press < 3; press += 1) {
+        m.advance();
+        last.advance();
+      }
+      expect(m.getState().cursor).toBe(3);
+      expect(last.getState().cursor).toBe(5);
+      expect(m.exportContext().stack).toEqual([]);
+      expect(apartFromCursor(m.getState())).toEqual(
+        apartFromCursor(last.getState()),
+      );
+      expect(m.getState()).toMatchObject({ settled: true, endCard: ALL_SEEN });
+      expect(m.getState().choice).toBeUndefined();
+      m.wheelForward(); // and the wheel stops there, as it already did
+      expect(m.getState().cursor).toBe(3);
+      m.destroy();
+      last.destroy();
+    },
+  );
+
+  it("skip's dwell there ends the burst in place, as at the array end", () => {
+    vi.useFakeTimers();
+    const m = machine(toEnd("ending"));
+    endOnRoute(m);
+    const last = machine(toEnd("ending"));
+    endOnLast(last);
+    m.toggleSkip();
+    last.toggleSkip();
+    expect(m.getState().skipping).toBe(true);
+    vi.advanceTimersByTime(60_000);
+    expect(m.getState()).toMatchObject({ cursor: 3, skipping: false });
+    expect(apartFromCursor(m.getState())).toEqual(
+      apartFromCursor(last.getState()),
+    );
+    m.destroy();
+    last.destroy();
+  });
+
+  it("a bookmark onto it under auto-forward stays there when its hold ends", () => {
+    vi.useFakeTimers();
+    const first = machine(toEnd("return"));
+    endOnRoute(first);
+    const stored = first.exportContext();
+    first.destroy();
+    const m = machine(toEnd("return"), { auto: true });
+    m.importContext(stored); // an unsettled arrival: its hold is armed
+    expect(m.getState()).toMatchObject({ cursor: 3, settled: false });
+    vi.advanceTimersByTime(60_000);
+    expect(m.getState()).toMatchObject({
+      cursor: 3,
+      settled: true,
+      endCard: ALL_SEEN,
+    });
+    m.destroy();
+  });
+
+  it.each(RESULTS)(
+    "a reload from the saved context main.ts passes back lands there, and Space stays (result %s)",
+    async (result) => {
+      const shape = toEnd(result);
+      const { items, branches } = manifest(shape);
+      const codec = createContextCodec(items, branches);
+      const storage = createMemoryStorage();
+      const first = machine(shape);
+      endOnRoute(first);
+      await storage.saveState({ ctx: codec.toSaved(first.exportContext()) });
+      first.destroy();
+      const m = createMachine({
+        items,
+        branches,
+        settings: SETTINGS,
+        ...resumeOptionsFor(await storage.loadState(), codec),
+      });
+      expect(m.getState()).toMatchObject({
+        cursor: 3,
+        settled: true,
+        endCard: ALL_SEEN,
+      });
+      m.advance();
+      expect(m.getState()).toMatchObject({ cursor: 3, settled: true });
+      m.destroy();
+    },
+  );
+
+  it("under play-all the end card shows there too, and Space stays", () => {
+    vi.useFakeTimers();
+    // lead-1 decide | p-1 p-2 | q-1
+    //  0      1     | 2   3   | 4
+    // Play-all plays the shorter Q first, so P's last item ends the story.
+    const d1 = PURE.branches[0];
+    const SHORT_Q: Shape = {
+      items: ["lead-1", "decide", "p-1", "p-2", "q-1"],
+      branches: [
+        { ...d1, routes: [d1.routes[0], { ...d1.routes[1], end: "q-1" }] },
+      ],
+    };
+    const m = machine(SHORT_Q, {
+      settings: { ...SETTINGS, playAllRoutes: true },
+    });
+    // Space takes each auto-pick at once: Q, its re-offer, then P to its end.
+    for (let press = 0; press < 7; press += 1) m.advance();
+    expect(m.exportContext().playedRoutes).toEqual([
+      { decision: 0, routes: [0, 1] },
+    ]);
+    expect(m.getState()).toMatchObject({
+      cursor: 3,
+      settled: true,
+      endCard: ALL_SEEN,
+    });
+    m.advance();
+    expect(m.getState()).toMatchObject({ cursor: 3, endCard: ALL_SEEN });
+    m.destroy();
+  });
+
+  it("`u` there reaches unseen content in the menu region, as Space reads nothing on", () => {
+    // lead-1 decide | p-1 p-2 | gap | q-1 q-2
+    //  0      1     | 2   3   | 4   | 5   6
+    // An item between the routes, in neither: only `u` reaches it.
+    const GAP: Shape = {
+      items: ["lead-1", "decide", "p-1", "p-2", "gap", "q-1", "q-2"],
+      branches: PURE.branches,
+    };
+    const m = machine(GAP);
+    m.advance(); // 0 -> 1
+    m.advance(); // fires d1
+    m.choose(1); // route Q: 5..6
+    m.advance(); // 5 -> 6
+    m.advance(); // the re-offer
+    m.choose(0); // route P: 2..3
+    m.advance(); // 2 -> 3
+    m.advance(); // all played: the menu closes and the story ends
+    expect(m.getState()).toMatchObject({
+      cursor: 3,
+      endCard: { unseenRoutes: 0, otherUnseen: true, nextUnseen: true },
+    });
+    m.advance();
+    expect(m.getState().cursor).toBe(3);
+    m.jumpToUnseen();
+    expect(m.getState().cursor).toBe(4);
     m.destroy();
   });
 });

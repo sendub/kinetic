@@ -2192,13 +2192,24 @@ truthful: an unchecked box means nothing was accepted.
       `anim-orbit`. Orchestrator: npm test 760 pass, check clean, smoke 6/6;
       menus, navigation, reading, playall, screens 142 checks, 140 pass, 2
       PARTIAL, 0 fail.)
-- [ ] Space at a story end inside a closed pure choice (found during item
+- [x] Space at a story end inside a closed pure choice (found during item
       2): with a pure choice whose routes run to the end of the item array,
       once every route has played the menu closes and the story ends on a
       route's last item, but Space there steps into the next route's items.
       Space must stay (the end, as at the last item). Machine unit test on
       synthetic items that fails on HEAD; the end card shows as at any other
       end.
+      (2026-11-08: one predicate, machine.ts `nothingFollows()` (no decision
+      fires and no open route ends on the item, and it is the last item or
+      a route's last item with no open frame), now used by `moveForward`,
+      skip's dwell, `skipWouldReveal`, `continuation()` (`u`), the end card
+      and item 2's `armHold`. Space, the hold and a skip burst stop there;
+      the end card shows there for `ending`, `return` and no `result`, and
+      under play-all. docs/content-format.md's pure-choice close and End
+      card text updated. 10 new branches tests on synthetic items, all 10
+      fail on HEAD's machine.ts (orchestrator re-ran them: 10 failed).
+      Orchestrator: npm test 770 pass, check clean, smoke 6/6; branches,
+      continueroute, choicelist, playall, navigation, reading 127/127.)
 - [ ] Decoding ahead (item 3): `warmFile` calls `img.decode()`; a unit test
       that a preloaded image is asked to decode and that a failed decode is
       swallowed.
