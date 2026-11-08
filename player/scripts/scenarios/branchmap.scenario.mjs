@@ -86,6 +86,7 @@ export const title =
   "branch map: open, here-marker (endings too), Full size scrolling (wheel, scroll bar, drag, keys) and nothing else moving, Fit still, the Full size | Fit button and F, C and N, fit fills and refits on resize, no text selection, jumps, Esc, M over Esc, spoilers, header, instant key hints, remembered view (C rule, reload, resize, layout change), marker on the start after reset, line widths in both views, one look either side of 0.6x";
 
 const shots = join(repoRoot, ".tmp", "branchmap-shots");
+mkdirSync(shots, { recursive: true });
 
 const pressM = (cdp) => pressKey(cdp, "m", "KeyM", 77, "m");
 const pressF = (cdp) => pressKey(cdp, "f", "KeyF", 70, "f");
@@ -255,8 +256,22 @@ async function openMap(page, cdp) {
   return page.evaluate(READ_MAP);
 }
 
-export default async function ({ check, open }) {
-  mkdirSync(shots, { recursive: true });
+// Independent parts (each opens its own browser); the runner runs them
+// side by side and prints their checks in this order.
+export const parts = [
+  mainView,
+  endings,
+  spoilers,
+  markerInView,
+  header,
+  hints,
+  fullSize,
+  memory,
+  lineWidths,
+  oneLook,
+];
+
+async function mainView({ check, open }) {
   const { page, cdp } = await open("main", {
     closeHelp: true,
     manualChoices: true,
@@ -628,15 +643,6 @@ export default async function ({ check, open }) {
     },
   );
   await pressEscape(cdp);
-  await endings({ check, open });
-  await spoilers({ check, open });
-  await markerInView({ check, open });
-  await header({ check, open });
-  await hints({ check, open });
-  await fullSize({ check, open });
-  await memory({ check, open });
-  await lineWidths({ check, open });
-  await oneLook({ check, open });
 }
 
 // The demo read through with play-all (everything seen): at the story's
@@ -1733,7 +1739,14 @@ async function memory({ check, open }) {
   await close();
   await openSettings(page, cdp);
   await clickCenter(cdp, CONFIG_CONTROL.reset);
-  await clickCenter(cdp, CONFIRM_CONTROL.confirm);
+  // The wipe is async and ends in a reload: wait for that page, not the
+  // old one's Esc screen still up behind the box (as progress does).
+  await Promise.all([
+    page
+      .waitForNavigation({ waitUntil: "load", timeout: 8000 })
+      .catch(() => {}),
+    clickCenter(cdp, CONFIRM_CONTROL.confirm),
+  ]);
   await page.waitForFunction(HELP_OPEN, { timeout: 8000 });
   await pressEscape(cdp);
   await page.waitForFunction(HELP_CLOSED, { timeout: 5000 });

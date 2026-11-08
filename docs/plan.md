@@ -1613,6 +1613,205 @@ the low-held line length on game I but not all (a line stays low
 after a cut until its first place to bend), its bends were steep, and dense
 trees looked busier. b was dropped and is not in the code.
 
+## Phase 43: Game apps, WebKit tests and test speed (2026-11-08, user)
+
+A game opens by double-clicking `index.html`. The game then lands as a tab
+in whichever browser window is in front, goes fullscreen only on the first
+press, can drop out of fullscreen on Esc or reload, and the browser may still
+show its toolbar in fullscreen. The user asked for an app-like way to play
+that stays cross-platform and never meets a Gatekeeper check whose time grows
+with the media. Prototypes in `.tmp/app-launch/` (2026-11-08), which the user
+played on macOS and on Windows, settled the shape:
+
+- macOS: a small app inside the game folder that shows the folder through the
+  system WebKit (WKWebView, the engine Safari uses). It has its own name and
+  Dock icon, starts fullscreen as a window (so Esc and reload keep
+  fullscreen), and Esc belongs to the game. The app holds only its binary;
+  the media stays beside it, so no check reads the media.
+- Windows: a small exe inside the game folder that opens `index.html` in a
+  Microsoft Edge app window (no tabs or toolbar), fullscreen from the start,
+  under a profile used only by this game. Edge ships with Windows 10 and 11.
+- `index.html` stays the fallback everywhere. A macOS Chrome launcher was
+  built and dropped (the user, 2026-11-08): macOS gets the app or
+  `index.html`, Windows the exe or `index.html`.
+
+Facts the prototypes measured, which the items below rely on:
+
+- Gatekeeper assesses only files that carry the quarantine flag. A folder the
+  author builds locally has none, so the app opens with no check. A folder
+  downloaded as a zip is quarantined. Its ad-hoc signed app is then refused,
+  and App Translocation would run it away from its folder, so readers of a
+  download use `index.html` (or clear the flag).
+- The first time the app opens from Documents, Desktop or Downloads, macOS
+  asks once for access to that folder. An ad-hoc signature changes with
+  every build, so a rebuilt app asks again.
+- WebKit fetches an image created off the page but decodes it only when it
+  first paints, on the main thread: 106-126 ms for a 1080p JPEG XL in
+  WKWebView. During a skip burst that stalled the picture at every such
+  image. `img.decode()` decodes off the main thread (about 10 ms), and a
+  later `<img>` with the same URL reuses the result. On the "pay Rowan"
+  stretch of game I, a 25 s Tab skip with "Play videos in full"
+  off showed 97 of 275 pictures in WebKit before the change and 275 of 275
+  after. Chrome went from 120 to 257 of 275.
+- The scenario suite runs unchanged on WebKit through a WKWebView driver
+  (`.tmp/webkit-driver/`). The driver uses an off-screen window and is
+  configured the way the app configures its web view, so nothing appears on
+  screen. On 66ce4dc: 325 checks, 319 pass, 3 PARTIAL (element fullscreen,
+  which WKWebView has off) and 3 FAIL, all of them Chrome assumptions in the
+  tests (`.tmp/webkit-driver/README.md`). The user expects some of the six to
+  go with Phases 41-42.
+
+The work, in order:
+
+1. Test speed (the user asked for this first). The suite has got slow. Speed
+   it up without losing coverage: every test and check that runs today still
+   runs and can still fail. Baseline on 2026-11-08:
+   - `npm test`: 5 s, 749 tests.
+   - `npm run check`: 1 s.
+   - pytest: 168 s, 528 tests in one process.
+   - The scenario suite: about 8 min, 14 files run one after another
+     (playall about 95 s, bookmarkmap 78 s, screens 76 s, branchmap 61 s).
+
+   Candidate ways to speed it up:
+   - run the scenario files side by side (each already starts its own
+     profile);
+   - wait for the state a check needs instead of sleeping a fixed time;
+   - run pytest on several cores;
+   - share expensive setup.
+
+   Done means the same test and check counts, and the full suite passing
+   twice in a row with no new flake.
+2. Auto-forward after a restore. A creator session reported this, and a
+   synthetic machine test with ten items reproduced it on 66ce4dc. Press `a`
+   just after a reload: "Auto-forward on" shows but the restored item never
+   moves until a press. README's `a` bullet promises that turning
+   auto-forward on counts the time the item has already been on screen, so
+   an item already read moves on at once. The cause is in machine.ts, which
+   marks a restore landing `settled` and arms the hold only for an unsettled
+   item, in both `setAutoAdvance(true)` and `resume()`. Two other paths hit
+   the same bug: Space stopping a skip burst followed by `a`, and the Esc
+   screen closing over a restored item while auto-forward is on.
+   - The fix: turning auto-forward on arms the current item's remaining
+     hold (from `itemShownAt`) even when the item is settled, which keeps
+     README's promise. Closing a screen while auto-forward is on re-arms the
+     hold fresh even when the item is settled, as it already does for an
+     unsettled one ("the wait restarts from the moment of closing"). Two
+     exceptions: no hold is armed while a choice is open, or when nothing
+     follows the last item. The machine's interface docs for
+     `setAutoAdvance` and `resume` change to match.
+   - Tests and docs use only synthetic content. No game's names, paths or
+     text enter the repo (the user).
+3. Decoding ahead: `render/visual.ts` `warmFile` calls `img.decode()` on each
+   image it preloads (measured above).
+4. Skip notices, and both modes on a choice screen.
+   - Starting a skip shows the route pill "Skip on". Every stop shows "Skip
+     off": Tab, Space, the last seen item, or a choice that ends the burst.
+     This is the auto-forward pill's look and rule (Phase 20).
+   - `a` and Tab now work on a choice screen. Each shows its pill. Nothing
+     moves until the reader answers the choice the normal way. After the
+     pick, the mode that is on runs from the route's first item, as if its
+     key had been pressed just after the pick.
+   - A burst that reaches a choice still stops there (Phase 16). Tab on that
+     choice turns skip on for after the pick.
+5. Esc and M on a choice screen. Dropped (the user, 2026-11-08, who may have
+   misremembered). The user had reported that neither key works there, but on
+   HEAD both open their screens over a pending choice, and the choice is still
+   open when they close. A probe on 2026-11-08 checked the demo's outer
+   decision with play-all off and with the row cursor moved, in headless
+   Chrome and in the WebKit driver.
+6. WebKit in the scenario suite: the driver and its puppeteer-subset adapter
+   move into the repo.
+   - `npm run verify -- --webkit` runs any filter on WebKit; Chrome stays the
+     default.
+   - The driver builds on first use from its Swift source into a gitignored
+     folder, and reports a missing Swift toolchain plainly.
+   - One Swift source sets up the web view for both the driver and the
+     macOS app (item 7), so they cannot drift.
+   - The driver fails loudly when a private WebKit hook it relies on is
+     missing: occlusion off, scale override, `_simulateMouseMove:`,
+     `_doAfterNextPresentationUpdate:`.
+   - Rerun the full suite on WebKit first. Make engine-aware only the checks
+     that still miss, each with its reason in a comment.
+7. The macOS app, built when the author asks.
+   - `tools/build_apps.py <game-folder> --mac` adds `<title>.app` to an
+     existing game folder. `tools/assemble_folder.py` takes the same flags.
+   - The app is arm64 only (Intel Macs use `index.html`), ad-hoc signed,
+     macOS 12 or later. Its bundle id comes from the `storyId`, its name
+     from the manifest `title`.
+   - It behaves as the prototype did:
+     - fullscreen from launch, and Esc never beeps or leaves fullscreen;
+     - ⌘Q quits, ⌘R reloads, ⌃⌘F toggles fullscreen;
+     - Export saves to Downloads and Import opens a file panel;
+     - progress persists across launches;
+     - closing the window quits;
+     - a missing `index.html` (a moved or translocated app) explains itself
+       and quits.
+   - Building needs a Mac with a Swift toolchain (Xcode or the Command Line
+     Tools). Asking for `--mac` anywhere else fails with an error naming
+     that requirement, and nothing is written.
+   - `--icon IMAGE` names the icon. PNG, JPEG, WebP or JPEG XL are accepted,
+     cut to a centred square. Without it, the game's first graphic is the
+     icon.
+8. The Windows app, built when the author asks. `--windows` adds
+   `<title>.exe` to the folder.
+   - It is an x86-64 GUI exe built with Go, which cross-compiles from macOS,
+     Linux or Windows.
+   - It behaves as the prototype did:
+     - Edge app window, fullscreen, game-only profile;
+     - a second launch while open closes the game's Edge and starts it
+       fresh;
+     - Chrome when Edge is missing, then the default browser;
+     - no console window flash.
+   - Its icon comes from the same `--icon` image.
+   - Building needs Go. Without it `--windows` fails with an error naming
+     that requirement.
+9. The game's own window controls.
+   - The Esc screen gains Exit, which quits the game:
+     - in the macOS app, the app;
+     - in the Edge app, its window;
+     - in a browser tab, the tab where the browser lets a page close itself,
+       and otherwise a line asking the reader to close the tab.
+   - The Esc screen gains a Fullscreen / Window toggle, and the choice is
+     remembered. The window's first size is the resolution and shape of the
+     game's first graphic, scaled down to fit the screen. A size the reader
+     sets by resizing is kept after that.
+     - In the macOS app the page asks the app over a message handler.
+     - In a browser tab the toggle uses the Fullscreen API, since the click
+       is the gesture.
+     - In the Edge app (the user chose this over an F11 hint or a windowed
+       start, 2026-11-08), the exe stays running, hidden, while the game is
+       open, and steers its Edge over Edge's DevTools connection. A page
+       cannot leave the window fullscreen Edge started in. The page calls a
+       binding the exe added; the exe switches the window between fullscreen
+       and normal and sets its size (`Browser.setWindowBounds`), and closes
+       Edge on Exit. The exe ends when Edge does. The debugging port is
+       local-only and lives only while the game runs. The core is tested
+       against Chrome on macOS; running it on Windows is the user's check.
+   - The `index.html` route takes the prototype's fullscreen changes:
+     - a key or click while windowed asks for fullscreen again when the
+       setting is Fullscreen, and Escape never asks;
+     - no request when the window already fills the screen;
+     - Keyboard Lock in Chromium, so a short Esc reaches the game and only
+       holding Esc leaves fullscreen.
+10. Testing a game with no window on screen (the user, "if possible").
+    - A small library opens a built game folder in the hidden WebKit driver
+      (macOS) or headless Chrome. It offers the puppeteer-style page, key
+      and screenshot calls the scenarios use, plus helpers: press a key,
+      read the current item, wait for an item or a choice, pick a route,
+      reload.
+    - It plays the folder's own `index.html` and `app.js`, so it tests what
+      ships. Each open starts a fresh profile unless the creator asks to
+      keep one.
+    - CREATE.md documents it with a worked example. Creator sessions today
+      write their own puppeteer scripts against this repo's
+      `node_modules`; this replaces that.
+
+Docs for items 7-10: CREATE.md (building the apps, their requirements, what
+readers see, testing a game); docs/packaging.md; docs/stack.md (the
+Distribution decision now includes the two apps); README.md (Exit, the
+display toggle, the skip pill, the keys on a choice); AGENTS.md (the WebKit
+run and whatever item 1 changes in the test commands).
+
 ## Later, waiting on the user
 
 - Overlay text styling iteration once the user can play with the demo.

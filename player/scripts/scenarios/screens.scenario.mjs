@@ -1756,7 +1756,14 @@ async function reset({ check, open }) {
   await clickCenter(cdp, CONFIG_CONTROL.reset);
   await waitFor(page, CONFIRM_OPEN);
   const box2 = await page.evaluate(READ_CONFIRM_OVERLAY);
-  await clickCenter(cdp, CONFIRM_CONTROL.confirm);
+  // The wipe is async and ends in a reload: wait for that page, not the
+  // old one's Esc screen still up behind the box (as progress does).
+  await Promise.all([
+    page
+      .waitForNavigation({ waitUntil: "load", timeout: 8000 })
+      .catch(() => {}),
+    clickCenter(cdp, CONFIRM_CONTROL.confirm),
+  ]);
   const bootHelp = await waitFor(page, HELP_OPEN, 6000);
   await sleep(400);
   const boot = await page.evaluate(PAGE_STATE);
@@ -1984,25 +1991,20 @@ async function contentUpdate({ check, open }) {
   );
 }
 
-export default async function (ctx) {
-  for (const part of [
-    helpFirstLoadClick,
-    helpMidFlow,
-    escToMap,
-    bookmarks,
-    manyBookmarks,
-    bookmarkSpeed,
-    resume,
-    config,
-    settingsImmediateReload,
-    emptyFolder,
-    reset,
-    contentUpdate,
-  ]) {
-    try {
-      await part(ctx);
-    } catch (error) {
-      ctx.check(`${part.name} completed`, false, String(error?.stack ?? error));
-    }
-  }
-}
+// Independent parts (each opens its own browser); the runner runs them
+// side by side and prints their checks in this order. A part that throws
+// gets a FAIL "<part> completed" and the others still run.
+export const parts = [
+  helpFirstLoadClick,
+  helpMidFlow,
+  escToMap,
+  bookmarks,
+  manyBookmarks,
+  bookmarkSpeed,
+  resume,
+  config,
+  settingsImmediateReload,
+  emptyFolder,
+  reset,
+  contentUpdate,
+];

@@ -292,398 +292,399 @@ const firstIndex = (timeline, id) =>
 const firstImgIndex = (timeline, id) =>
   timeline.findIndex((e) => e.img === item(id).file);
 
-export default async function ({ check, open }) {
-  // ---- 1. play-all + skip-all: one Tab, highlights only ----------------
-  {
-    const { page, cdp } = await open("burst", { closeHelp: true });
-    const { after, closed } = await configure(page, cdp, { skipAll: true });
-    await page.evaluate(INSTALL_TIMELINE);
-    await pressTab(cdp);
-    const endText = item("after-end").text;
-    let reached = false;
-    const start = Date.now();
-    while (Date.now() - start < 40000) {
-      const tl = await readTimeline(page);
-      if (tl[tl.length - 1].text === endText) {
-        reached = true;
-        break;
-      }
-      await sleep(50);
-    }
-    await sleep(600); // a trailing overlay or stray advance would still show
+// Independent parts (each opens its own browser); the runner runs them
+// side by side and prints their checks in this order.
+export const parts = [burstSession, manualSession, menuSession, rewindSession];
+
+// ---- 1. play-all + skip-all: one Tab, highlights only ----------------
+async function burstSession({ check, open }) {
+  const { page, cdp } = await open("burst", { closeHelp: true });
+  const { after, closed } = await configure(page, cdp, { skipAll: true });
+  await page.evaluate(INSTALL_TIMELINE);
+  await pressTab(cdp);
+  const endText = item("after-end").text;
+  let reached = false;
+  const start = Date.now();
+  while (Date.now() - start < 40000) {
     const tl = await readTimeline(page);
-    const markers = [
-      ["img", "branch-decide"],
-      ["text", "route2-start"],
-      ["text", "route2-end"],
-      ["text", "route1-start"],
-      ["text", "route1-nest"],
-      ["text", "nest-return"],
-      ["text", "nest-continue"],
-      ["text", "route1-end"],
-      ["text", "after-start"],
-      ["text", "after-end"],
-    ];
-    const idx = markers.map(([kind, id]) =>
-      kind === "img" ? firstImgIndex(tl, id) : firstIndex(tl, id),
-    );
-    const orderOk =
-      idx.every((i) => i >= 0) &&
-      idx.every((i, k) => k === 0 || i > idx[k - 1]);
-    const spans = choiceSpans(tl);
-    check(
-      "skip-all + play-all set in c before the walk (both switches on, screen closed)",
-      after.skipPressed === "true" && after.playPressed === "true" && closed,
-      after,
-    );
-    check(
-      "one Tab plays every route once, continuing route last at each decision, then the aftermath",
-      reached && orderOk,
-      {
-        reached,
-        order: markers.map(([, id], i) => `${id}@${idx[i]}`).join(" "),
-      },
-    );
-    check(
-      "the burst shows each choice four times over (outer, its re-offer, nested, its re-offer), picked at once with no countdown",
-      spans.length === 4 &&
-        [outer, outer, nested, nested].every(
-          (b, i) => spans[i].prompt === b.prompt,
-        ) &&
-        spans.every(
-          (sp) =>
-            sp.ms !== null &&
-            Math.abs(sp.ms - AUTO_PICK_SHOW_MS) <= TOLERANCE_MS &&
-            sp.entries.every((e) => e.picked !== null) &&
-            new Set(sp.entries.map((e) => e.words)).size === 1,
-        ),
-      spans.map(({ prompt, ms, entries }) => ({
-        prompt,
-        ms,
-        entries: entries.length,
-      })),
-    );
-    check(
-      "no ending hint at any play-all route ending in the burst",
-      !tl.some((e) => e.hint && e.text !== endText),
-      tl.filter((e) => e.hint),
-    );
-  }
-
-  // ---- 2. Manual walk: countdown, highlight, re-offer, Space, digit ----
-  {
-    const { page, cdp } = await open("manual", { closeHelp: true });
-    const { after, closed } = await configure(page, cdp, { skipAll: false });
-    const atDecide = await walkTo(page, cdp, "branch-decide");
-    await page.evaluate(INSTALL_TIMELINE);
-    const r1 = routeLabel(outer, "route1");
-    const r2 = routeLabel(outer, "route2");
-
-    // The outer decision fires: the choice counts down, nothing picked yet.
-    await pressSpace(cdp);
-    await sleep(400);
-    const first = await page.evaluate(READ_AUTO);
-    check(
-      "play-all on (c); the decision shows its choice counting down, with Space offered and nothing picked yet",
-      after.playPressed === "true" &&
-        closed &&
-        atDecide &&
-        first.open &&
-        first.prompt === outer.prompt &&
-        first.autoShown &&
-        /^Play all routes picks in \d+ s$/.test(first.status) &&
-        first.hint.includes("Space picks now") &&
-        first.barWidth > 0 &&
-        first.picked === null,
-      first,
-    );
-    check(
-      "from the countdown's start the row play-all will pick (Route 2) is marked, and looks different from the others",
-      first.next === r2 && first.nextLook?.differs === true,
-      { next: first.next, nextLook: first.nextLook },
-    );
-    const onRoute2 = await waitFor(
-      page,
-      "route2-start",
-      countdownMs(outer) + 3000,
-    );
-    await sleep(ROUTE_PILL_MS + 600);
-    let tl = await readTimeline(page);
-    let spans = choiceSpans(tl);
-    const span1 = spans[0];
-    const lit1 = span1 ? pickedAt(span1) : null;
-    const beforeLit1 = span1
-      ? span1.entries.filter((e) => lit1 === null || e.t < lit1)
-      : [];
-    check(
-      "the next-pick mark is on Route 2 from the choice's first frame until it lights up as picked",
-      beforeLit1.length > 0 && beforeLit1.every((e) => e.next === r2),
-      beforeLit1.map(({ t, next, picked }) => ({ t, next, picked })),
-    );
-    check(
-      "it counts down for every word on the screen plus comprehension time, lights up the shortest route (Route 2), then enters it",
-      onRoute2 &&
-        spans.length === 1 &&
-        lit1 !== null &&
-        Math.abs(lit1 - span1.shownAt - countdownMs(outer)) <= TOLERANCE_MS &&
-        span1.entries.find((e) => e.picked !== null)?.picked === r2 &&
-        Math.abs(span1.hiddenAt - lit1 - AUTO_PICK_SHOW_MS) <= TOLERANCE_MS,
-      {
-        countdown: lit1 === null ? null : lit1 - span1.shownAt,
-        expected: countdownMs(outer),
-        show: lit1 === null ? null : span1.hiddenAt - lit1,
-      },
-    );
-    const frozen1 = pickedPhaseWords(span1);
-    check(
-      "the pick changes only the row highlight: #choice's words (status, seconds, hint, rows) stay as the countdown's last frame left them until the choice hides",
-      wordsFrozen(frozen1),
-      frozen1,
-    );
-    const firstPills = pillSpans(tl);
-    check(
-      "the pick shows only the route pill",
-      firstPills.length === 1 && firstPills[0].text === `Route: ${r2}`,
-      firstPills,
-    );
-
-    // Route 2's ending: no end card while play-all carries on.
-    await pressSpace(cdp);
-    const onEnd = await waitFor(page, "route2-end");
-    await sleep(800);
-    tl = await readTimeline(page);
-    const atEnd = tl.slice(firstIndex(tl, "route2-end"));
-    check(
-      "no ending hint at a play-all route ending",
-      onEnd && atEnd.length > 0 && !atEnd.some((e) => e.hint),
-      atEnd,
-    );
-
-    // The re-offer says which route ended and marks it seen.
-    const tReoffer = await pageNow(page);
-    await pressSpace(cdp);
-    await sleep(400);
-    const re = await page.evaluate(READ_AUTO);
-    check(
-      "the re-offer leads with the jump back, Route 2 marked seen, Route 1 marked as the next pick",
-      re.open &&
-        re.status.startsWith(
-          `Back in time: “${r2}” is done. Play all routes picks in`,
-        ) &&
-        re.seen[0] === false &&
-        re.seen[1] === true &&
-        re.next === r1 &&
-        re.picked === null,
-      re,
-    );
-    const onRoute1 = await waitFor(
-      page,
-      "route1-start",
-      countdownMs(outer, "route2") + 3000,
-    );
-    await sleep(ROUTE_PILL_MS + 600);
-    tl = await readTimeline(page);
-    spans = choiceSpans(tl.filter((e) => e.t >= tReoffer));
-    const lit2 = spans[0] ? pickedAt(spans[0]) : null;
-    const frozen2 = pickedPhaseWords(spans[0]);
-    check(
-      "on the re-offer too, the pick changes no word on #choice (the Back-in-time line and seconds stay)",
-      wordsFrozen(frozen2),
-      frozen2,
-    );
-    check(
-      "its countdown includes the Back-in-time line and the seen marker; then Route 1 starts with only its route pill",
-      onRoute1 &&
-        lit2 !== null &&
-        Math.abs(lit2 - spans[0].shownAt - countdownMs(outer, "route2")) <=
-          TOLERANCE_MS &&
-        pillSpans(tl.filter((e) => e.t >= spans[0].hiddenAt))
-          .map((p) => p.text)
-          .join("|") === `Route: ${r1}`,
-      {
-        lit: lit2 === null ? null : lit2 - spans[0].shownAt,
-        expected: countdownMs(outer, "route2"),
-      },
-    );
-
-    // Nested decision: Space takes the pick at once, without also stepping.
-    await pressSpace(cdp);
-    const onNest = await waitFor(page, "route1-nest");
-    await pressSpace(cdp); // fires the nested choice
-    await sleep(300);
-    const nestOpen = (await page.evaluate(READ_AUTO)).open;
-    await pressSpace(cdp); // take it now
-    const onReturn = await waitFor(page, "nest-return", 800);
-    await sleep(400);
-    check(
-      "Space during the countdown takes the pick at once (1b, the shortest) and does not also step",
-      onNest &&
-        nestOpen &&
-        onReturn &&
-        (await currentItemId(page)) === "nest-return",
-      { onNest, nestOpen, onReturn },
-    );
-
-    // Its re-offer: a digit picks instead of waiting.
-    await pressSpace(cdp);
-    await sleep(300);
-    const nre = await page.evaluate(READ_AUTO);
-    await pressDigit(cdp, "1");
-    const onContinue = await waitFor(page, "nest-continue", 800);
-    check(
-      "the nested re-offer names 1b; a digit picks 1a at once",
-      nre.open &&
-        nre.status.startsWith(
-          `Back in time: “${routeLabel(nested, "nest-b")}” is done.`,
-        ) &&
-        onContinue,
-      nre,
-    );
-
-    // The continuing route's end joins with no choice.
-    await pressSpace(cdp);
-    const onR1End = await waitFor(page, "route1-end");
-    const tEnd = await pageNow(page);
-    await pressSpace(cdp);
-    const onAfter = await waitFor(page, "after-start");
-    await sleep(600);
-    tl = await readTimeline(page);
-    check(
-      "the continuing route's end joins its continueAt with no choice",
-      onR1End &&
-        onAfter &&
-        !tl.some((e) => e.t >= tEnd && e.choice) &&
-        (await currentItemId(page)) === "after-start",
-      { onR1End, onAfter },
-    );
-  }
-
-  // ---- 3. The Esc screen's settings work over a choice; `c` is gone -----
-  {
-    const { page, cdp } = await open("menu", { closeHelp: true });
-    await configure(page, cdp, { skipAll: false });
-    await walkTo(page, cdp, "branch-decide");
-    await pressSpace(cdp); // the choice, counting down
-    await sleep(300);
-    const cfgUp = await openSettings(page, cdp);
-    await sleep(countdownMs(outer) + AUTO_PICK_SHOW_MS + 500);
-    const frozen = await page.evaluate(READ_AUTO);
-    await pressDigit(cdp, "2"); // inert behind the screen
-    await sleep(200);
-    const stillChoice = (await page.evaluate(READ_AUTO)).open;
-    await closeSettings(page, cdp);
-    await sleep(200);
-    const resumed = await page.evaluate(READ_AUTO);
-    const entered = await waitFor(
-      page,
-      "route2-start",
-      countdownMs(outer) + 3000,
-    );
-    check(
-      "Esc opens the settings over a counting-down choice; the countdown is frozen behind it and digits are inert",
-      cfgUp && frozen.open && frozen.picked === null && stillChoice,
-      { cfgUp, frozen },
-    );
-    check(
-      "closing the Esc screen restarts the countdown, which then picks",
-      resumed.open && resumed.picked === null && entered,
-      { resumed, entered },
-    );
-
-    // `c` is no key (Phase 26): on the Esc screen it changes nothing.
-    const helpUp = await openSettings(page, cdp);
-    await pressC(cdp);
-    await sleep(200);
-    const stillUp =
-      (await page.evaluate(HELP_OPEN)) && (await page.evaluate(CONFIG_OPEN));
-    check(
-      "c does nothing on the Esc screen: keys and settings stay up",
-      helpUp && stillUp,
-      { helpUp, stillUp },
-    );
-  }
-
-  // ---- 4. Rolling back restores the routes (docs/plan.md Phase 22) -----
-  // The user's steps: play-all on, every route played to the end, the
-  // wheel back to before the first decision, then forward again — with
-  // Space, and with auto-forward. The repeat shows the choice with its
-  // countdown and plays every route again in the same order; the rows keep
-  // their seen marks.
-  {
-    const { page, cdp } = await open("rewind", { closeHelp: true });
-    await configure(page, cdp, { skipAll: false });
-    const where = async () => {
-      const c = await page.evaluate(READ_AUTO);
-      const id = await currentItemId(page);
-      return c.open ? `${id}?` : id;
-    };
-    /** Space (taking each pick at once) to after-end, logging each screen. */
-    const spaceToEnd = async () => {
-      const path = [];
-      for (let press = 0; press < 80; press += 1) {
-        const at = await where();
-        if (path[path.length - 1] !== at) path.push(at);
-        if (at === "after-end") break;
-        await pressSpace(cdp);
-        await sleep(150);
-      }
-      return path;
-    };
-    /** Wheel back until branch-lead, the item before the decision's own. */
-    const rollBack = async () => {
-      for (let notch = 0; notch < 20; notch += 1) {
-        await wheel(cdp, true, 1);
-        if ((await where()) === "branch-lead") return true;
-      }
-      return false;
-    };
-    const first = await spaceToEnd();
-    const fromDecide = (path) => path.slice(path.indexOf("branch-decide"));
-    const back = await rollBack();
-    await pressSpace(cdp); // branch-lead -> branch-decide
-    await sleep(150);
-    await pressSpace(cdp); // fires the outer decision
-    await sleep(300);
-    const fired = await page.evaluate(READ_AUTO);
-    check(
-      "walked back before the first decision after play-all finished: Space fires the choice again, counting down, routes still marked seen",
-      back &&
-        fired.open &&
-        fired.prompt === outer.prompt &&
-        fired.autoShown &&
-        /Play all routes picks in \d+ s$/.test(fired.status) &&
-        fired.next === routeLabel(outer, "route2") &&
-        fired.seen[0] === true &&
-        fired.seen[1] === true,
-      { back, fired },
-    );
-    const again = await spaceToEnd();
-    check(
-      "the repeat plays every route again, exactly as the first run did",
-      JSON.stringify(fromDecide(["branch-decide", ...again])) ===
-        JSON.stringify(fromDecide(first)),
-      { first: fromDecide(first), again },
-    );
-
-    // The same with auto-forward instead of Space.
-    const backAgain = await rollBack();
-    await pressA(cdp);
-    let counting = false;
-    let pickedRoute2 = false;
-    const start = Date.now();
-    while (Date.now() - start < 40000) {
-      const c = await page.evaluate(READ_AUTO);
-      if (c.open && c.autoShown && c.prompt === outer.prompt) counting = true;
-      if ((await currentItemId(page)) === "route2-start") {
-        pickedRoute2 = true;
-        break;
-      }
-      await sleep(100);
+    if (tl[tl.length - 1].text === endText) {
+      reached = true;
+      break;
     }
-    check(
-      "with auto-forward instead: the choice counts down again and play-all enters Route 2 first",
-      backAgain && counting && pickedRoute2,
-      { backAgain, counting, pickedRoute2 },
-    );
+    await sleep(50);
   }
+  await sleep(600); // a trailing overlay or stray advance would still show
+  const tl = await readTimeline(page);
+  const markers = [
+    ["img", "branch-decide"],
+    ["text", "route2-start"],
+    ["text", "route2-end"],
+    ["text", "route1-start"],
+    ["text", "route1-nest"],
+    ["text", "nest-return"],
+    ["text", "nest-continue"],
+    ["text", "route1-end"],
+    ["text", "after-start"],
+    ["text", "after-end"],
+  ];
+  const idx = markers.map(([kind, id]) =>
+    kind === "img" ? firstImgIndex(tl, id) : firstIndex(tl, id),
+  );
+  const orderOk =
+    idx.every((i) => i >= 0) && idx.every((i, k) => k === 0 || i > idx[k - 1]);
+  const spans = choiceSpans(tl);
+  check(
+    "skip-all + play-all set in c before the walk (both switches on, screen closed)",
+    after.skipPressed === "true" && after.playPressed === "true" && closed,
+    after,
+  );
+  check(
+    "one Tab plays every route once, continuing route last at each decision, then the aftermath",
+    reached && orderOk,
+    {
+      reached,
+      order: markers.map(([, id], i) => `${id}@${idx[i]}`).join(" "),
+    },
+  );
+  check(
+    "the burst shows each choice four times over (outer, its re-offer, nested, its re-offer), picked at once with no countdown",
+    spans.length === 4 &&
+      [outer, outer, nested, nested].every(
+        (b, i) => spans[i].prompt === b.prompt,
+      ) &&
+      spans.every(
+        (sp) =>
+          sp.ms !== null &&
+          Math.abs(sp.ms - AUTO_PICK_SHOW_MS) <= TOLERANCE_MS &&
+          sp.entries.every((e) => e.picked !== null) &&
+          new Set(sp.entries.map((e) => e.words)).size === 1,
+      ),
+    spans.map(({ prompt, ms, entries }) => ({
+      prompt,
+      ms,
+      entries: entries.length,
+    })),
+  );
+  check(
+    "no ending hint at any play-all route ending in the burst",
+    !tl.some((e) => e.hint && e.text !== endText),
+    tl.filter((e) => e.hint),
+  );
+}
+
+// ---- 2. Manual walk: countdown, highlight, re-offer, Space, digit ----
+async function manualSession({ check, open }) {
+  const { page, cdp } = await open("manual", { closeHelp: true });
+  const { after, closed } = await configure(page, cdp, { skipAll: false });
+  const atDecide = await walkTo(page, cdp, "branch-decide");
+  await page.evaluate(INSTALL_TIMELINE);
+  const r1 = routeLabel(outer, "route1");
+  const r2 = routeLabel(outer, "route2");
+
+  // The outer decision fires: the choice counts down, nothing picked yet.
+  await pressSpace(cdp);
+  await sleep(400);
+  const first = await page.evaluate(READ_AUTO);
+  check(
+    "play-all on (c); the decision shows its choice counting down, with Space offered and nothing picked yet",
+    after.playPressed === "true" &&
+      closed &&
+      atDecide &&
+      first.open &&
+      first.prompt === outer.prompt &&
+      first.autoShown &&
+      /^Play all routes picks in \d+ s$/.test(first.status) &&
+      first.hint.includes("Space picks now") &&
+      first.barWidth > 0 &&
+      first.picked === null,
+    first,
+  );
+  check(
+    "from the countdown's start the row play-all will pick (Route 2) is marked, and looks different from the others",
+    first.next === r2 && first.nextLook?.differs === true,
+    { next: first.next, nextLook: first.nextLook },
+  );
+  const onRoute2 = await waitFor(
+    page,
+    "route2-start",
+    countdownMs(outer) + 3000,
+  );
+  await sleep(ROUTE_PILL_MS + 600);
+  let tl = await readTimeline(page);
+  let spans = choiceSpans(tl);
+  const span1 = spans[0];
+  const lit1 = span1 ? pickedAt(span1) : null;
+  const beforeLit1 = span1
+    ? span1.entries.filter((e) => lit1 === null || e.t < lit1)
+    : [];
+  check(
+    "the next-pick mark is on Route 2 from the choice's first frame until it lights up as picked",
+    beforeLit1.length > 0 && beforeLit1.every((e) => e.next === r2),
+    beforeLit1.map(({ t, next, picked }) => ({ t, next, picked })),
+  );
+  check(
+    "it counts down for every word on the screen plus comprehension time, lights up the shortest route (Route 2), then enters it",
+    onRoute2 &&
+      spans.length === 1 &&
+      lit1 !== null &&
+      Math.abs(lit1 - span1.shownAt - countdownMs(outer)) <= TOLERANCE_MS &&
+      span1.entries.find((e) => e.picked !== null)?.picked === r2 &&
+      Math.abs(span1.hiddenAt - lit1 - AUTO_PICK_SHOW_MS) <= TOLERANCE_MS,
+    {
+      countdown: lit1 === null ? null : lit1 - span1.shownAt,
+      expected: countdownMs(outer),
+      show: lit1 === null ? null : span1.hiddenAt - lit1,
+    },
+  );
+  const frozen1 = pickedPhaseWords(span1);
+  check(
+    "the pick changes only the row highlight: #choice's words (status, seconds, hint, rows) stay as the countdown's last frame left them until the choice hides",
+    wordsFrozen(frozen1),
+    frozen1,
+  );
+  const firstPills = pillSpans(tl);
+  check(
+    "the pick shows only the route pill",
+    firstPills.length === 1 && firstPills[0].text === `Route: ${r2}`,
+    firstPills,
+  );
+
+  // Route 2's ending: no end card while play-all carries on.
+  await pressSpace(cdp);
+  const onEnd = await waitFor(page, "route2-end");
+  await sleep(800);
+  tl = await readTimeline(page);
+  const atEnd = tl.slice(firstIndex(tl, "route2-end"));
+  check(
+    "no ending hint at a play-all route ending",
+    onEnd && atEnd.length > 0 && !atEnd.some((e) => e.hint),
+    atEnd,
+  );
+
+  // The re-offer says which route ended and marks it seen.
+  const tReoffer = await pageNow(page);
+  await pressSpace(cdp);
+  await sleep(400);
+  const re = await page.evaluate(READ_AUTO);
+  check(
+    "the re-offer leads with the jump back, Route 2 marked seen, Route 1 marked as the next pick",
+    re.open &&
+      re.status.startsWith(
+        `Back in time: “${r2}” is done. Play all routes picks in`,
+      ) &&
+      re.seen[0] === false &&
+      re.seen[1] === true &&
+      re.next === r1 &&
+      re.picked === null,
+    re,
+  );
+  const onRoute1 = await waitFor(
+    page,
+    "route1-start",
+    countdownMs(outer, "route2") + 3000,
+  );
+  await sleep(ROUTE_PILL_MS + 600);
+  tl = await readTimeline(page);
+  spans = choiceSpans(tl.filter((e) => e.t >= tReoffer));
+  const lit2 = spans[0] ? pickedAt(spans[0]) : null;
+  const frozen2 = pickedPhaseWords(spans[0]);
+  check(
+    "on the re-offer too, the pick changes no word on #choice (the Back-in-time line and seconds stay)",
+    wordsFrozen(frozen2),
+    frozen2,
+  );
+  check(
+    "its countdown includes the Back-in-time line and the seen marker; then Route 1 starts with only its route pill",
+    onRoute1 &&
+      lit2 !== null &&
+      Math.abs(lit2 - spans[0].shownAt - countdownMs(outer, "route2")) <=
+        TOLERANCE_MS &&
+      pillSpans(tl.filter((e) => e.t >= spans[0].hiddenAt))
+        .map((p) => p.text)
+        .join("|") === `Route: ${r1}`,
+    {
+      lit: lit2 === null ? null : lit2 - spans[0].shownAt,
+      expected: countdownMs(outer, "route2"),
+    },
+  );
+
+  // Nested decision: Space takes the pick at once, without also stepping.
+  await pressSpace(cdp);
+  const onNest = await waitFor(page, "route1-nest");
+  await pressSpace(cdp); // fires the nested choice
+  await sleep(300);
+  const nestOpen = (await page.evaluate(READ_AUTO)).open;
+  await pressSpace(cdp); // take it now
+  const onReturn = await waitFor(page, "nest-return", 800);
+  await sleep(400);
+  check(
+    "Space during the countdown takes the pick at once (1b, the shortest) and does not also step",
+    onNest &&
+      nestOpen &&
+      onReturn &&
+      (await currentItemId(page)) === "nest-return",
+    { onNest, nestOpen, onReturn },
+  );
+
+  // Its re-offer: a digit picks instead of waiting.
+  await pressSpace(cdp);
+  await sleep(300);
+  const nre = await page.evaluate(READ_AUTO);
+  await pressDigit(cdp, "1");
+  const onContinue = await waitFor(page, "nest-continue", 800);
+  check(
+    "the nested re-offer names 1b; a digit picks 1a at once",
+    nre.open &&
+      nre.status.startsWith(
+        `Back in time: “${routeLabel(nested, "nest-b")}” is done.`,
+      ) &&
+      onContinue,
+    nre,
+  );
+
+  // The continuing route's end joins with no choice.
+  await pressSpace(cdp);
+  const onR1End = await waitFor(page, "route1-end");
+  const tEnd = await pageNow(page);
+  await pressSpace(cdp);
+  const onAfter = await waitFor(page, "after-start");
+  await sleep(600);
+  tl = await readTimeline(page);
+  check(
+    "the continuing route's end joins its continueAt with no choice",
+    onR1End &&
+      onAfter &&
+      !tl.some((e) => e.t >= tEnd && e.choice) &&
+      (await currentItemId(page)) === "after-start",
+    { onR1End, onAfter },
+  );
+}
+
+// ---- 3. The Esc screen's settings work over a choice; `c` is gone -----
+async function menuSession({ check, open }) {
+  const { page, cdp } = await open("menu", { closeHelp: true });
+  await configure(page, cdp, { skipAll: false });
+  await walkTo(page, cdp, "branch-decide");
+  await pressSpace(cdp); // the choice, counting down
+  await sleep(300);
+  const cfgUp = await openSettings(page, cdp);
+  await sleep(countdownMs(outer) + AUTO_PICK_SHOW_MS + 500);
+  const frozen = await page.evaluate(READ_AUTO);
+  await pressDigit(cdp, "2"); // inert behind the screen
+  await sleep(200);
+  const stillChoice = (await page.evaluate(READ_AUTO)).open;
+  await closeSettings(page, cdp);
+  await sleep(200);
+  const resumed = await page.evaluate(READ_AUTO);
+  const entered = await waitFor(
+    page,
+    "route2-start",
+    countdownMs(outer) + 3000,
+  );
+  check(
+    "Esc opens the settings over a counting-down choice; the countdown is frozen behind it and digits are inert",
+    cfgUp && frozen.open && frozen.picked === null && stillChoice,
+    { cfgUp, frozen },
+  );
+  check(
+    "closing the Esc screen restarts the countdown, which then picks",
+    resumed.open && resumed.picked === null && entered,
+    { resumed, entered },
+  );
+
+  // `c` is no key (Phase 26): on the Esc screen it changes nothing.
+  const helpUp = await openSettings(page, cdp);
+  await pressC(cdp);
+  await sleep(200);
+  const stillUp =
+    (await page.evaluate(HELP_OPEN)) && (await page.evaluate(CONFIG_OPEN));
+  check(
+    "c does nothing on the Esc screen: keys and settings stay up",
+    helpUp && stillUp,
+    { helpUp, stillUp },
+  );
+}
+
+// ---- 4. Rolling back restores the routes (docs/plan.md Phase 22) -----
+// The user's steps: play-all on, every route played to the end, the
+// wheel back to before the first decision, then forward again — with
+// Space, and with auto-forward. The repeat shows the choice with its
+// countdown and plays every route again in the same order; the rows keep
+// their seen marks.
+async function rewindSession({ check, open }) {
+  const { page, cdp } = await open("rewind", { closeHelp: true });
+  await configure(page, cdp, { skipAll: false });
+  const where = async () => {
+    const c = await page.evaluate(READ_AUTO);
+    const id = await currentItemId(page);
+    return c.open ? `${id}?` : id;
+  };
+  /** Space (taking each pick at once) to after-end, logging each screen. */
+  const spaceToEnd = async () => {
+    const path = [];
+    for (let press = 0; press < 80; press += 1) {
+      const at = await where();
+      if (path[path.length - 1] !== at) path.push(at);
+      if (at === "after-end") break;
+      await pressSpace(cdp);
+      await sleep(150);
+    }
+    return path;
+  };
+  /** Wheel back until branch-lead, the item before the decision's own. */
+  const rollBack = async () => {
+    for (let notch = 0; notch < 20; notch += 1) {
+      await wheel(cdp, true, 1);
+      if ((await where()) === "branch-lead") return true;
+    }
+    return false;
+  };
+  const first = await spaceToEnd();
+  const fromDecide = (path) => path.slice(path.indexOf("branch-decide"));
+  const back = await rollBack();
+  await pressSpace(cdp); // branch-lead -> branch-decide
+  await sleep(150);
+  await pressSpace(cdp); // fires the outer decision
+  await sleep(300);
+  const fired = await page.evaluate(READ_AUTO);
+  check(
+    "walked back before the first decision after play-all finished: Space fires the choice again, counting down, routes still marked seen",
+    back &&
+      fired.open &&
+      fired.prompt === outer.prompt &&
+      fired.autoShown &&
+      /Play all routes picks in \d+ s$/.test(fired.status) &&
+      fired.next === routeLabel(outer, "route2") &&
+      fired.seen[0] === true &&
+      fired.seen[1] === true,
+    { back, fired },
+  );
+  const again = await spaceToEnd();
+  check(
+    "the repeat plays every route again, exactly as the first run did",
+    JSON.stringify(fromDecide(["branch-decide", ...again])) ===
+      JSON.stringify(fromDecide(first)),
+    { first: fromDecide(first), again },
+  );
+
+  // The same with auto-forward instead of Space.
+  const backAgain = await rollBack();
+  await pressA(cdp);
+  let counting = false;
+  let pickedRoute2 = false;
+  const start = Date.now();
+  while (Date.now() - start < 40000) {
+    const c = await page.evaluate(READ_AUTO);
+    if (c.open && c.autoShown && c.prompt === outer.prompt) counting = true;
+    if ((await currentItemId(page)) === "route2-start") {
+      pickedRoute2 = true;
+      break;
+    }
+    await sleep(100);
+  }
+  check(
+    "with auto-forward instead: the choice counts down again and play-all enters Route 2 first",
+    backAgain && counting && pickedRoute2,
+    { backAgain, counting, pickedRoute2 },
+  );
 }

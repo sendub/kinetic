@@ -213,7 +213,7 @@ docs/extracting.md, "Reuse cache".
 ## Tests
 
 ```sh
-.venv/bin/pytest converter/ tools/ -q
+.venv/bin/pytest converter/ tools/ -q -n auto
 ```
 
 ## Simplifications (MVP, per docs/plan.md Phase 10)

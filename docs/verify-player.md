@@ -15,18 +15,30 @@ From `player/`:
   `node scripts/scenarios/run.mjs` directly.
 - `npm run verify -- --smoke` runs only `smoke.scenario.mjs`: one quick
   check per area in about 5 s, for per-change runs.
+- `npm run verify -- --jobs=<n>` (or `KINETIC_SCENARIO_JOBS=<n>`) sets how
+  many files or parts run side by side, each in its own process (default
+  half the cores, at most 4, which keeps the timing checks steady on a
+  shared machine; `--jobs=8` is faster on a quiet one, `--jobs=1` runs
+  one at a time). They start
+  longest first, by the times the last run left in
+  `.tmp/scenario-times.json`. A file's block prints once all its parts
+  are done, its checks in the order a one-at-a-time run gives.
 - `KINETIC_SCENARIO_ROOT=../.tmp/scenarios-<x>` gives a run its own folders
   and profiles, so runs can overlap.
-- `KINETIC_SCENARIO_TIMEOUT_MS=<ms>` sets each scenario file's wall-clock
-  limit (default 300000, 5 minutes: about 3x `playall`, the slowest). A scenario past it FAILs with
+- `KINETIC_SCENARIO_TIMEOUT_MS=<ms>` sets the wall-clock limit of each
+  file, or of each part of a file that has them (default 300000, 5
+  minutes; the slowest part takes under 50 s). One past it FAILs with
   `finished within <ms> ms`, naming the session and the last check it
   reached; its Chrome is killed and the run goes on, exiting non-zero.
 
 Each `player/scripts/scenarios/*.scenario.mjs` file opens one or more FRESH
 browser profiles (a first-ever load each), so no scenario depends on
-another. The runner prints PASS / PARTIAL / FAIL per check with evidence
-for anything that did not pass, adds a "console stayed clean" check for
-every browser a scenario opened, and exits non-zero on any FAIL. Scenarios
+another. A file exports a default function, or `parts`: functions that
+share nothing (each opens its own browsers and folders), which the runner
+can run at the same time. The runner prints PASS / PARTIAL / FAIL per
+check with evidence for anything that did not pass, adds a "console
+stayed clean" check for every browser a scenario opened, and exits
+non-zero on any FAIL. Scenarios
 read every demo string, id and timing from the manifest through the
 harness (`harness.mjs`: `item(id)`, `branch(id)`, `currentItemId`), so a
 demo text edit never breaks them. A fresh profile has Play all routes

@@ -180,9 +180,6 @@ async function bookmarkJump({ check, open }) {
   );
 }
 
-export default async function (ctx) {
-  await autoForward(ctx);
-  await skipBurst(ctx);
-  await videoHold(ctx);
-  await bookmarkJump(ctx);
-}
+// Independent parts (each opens its own browser); the runner runs them
+// side by side and prints their checks in this order.
+export const parts = [autoForward, skipBurst, videoHold, bookmarkJump];

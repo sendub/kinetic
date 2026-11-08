@@ -9,6 +9,7 @@ validator to report exactly that problem. Run with:
 
 from __future__ import annotations
 
+import fcntl
 import json
 import re
 import shutil
@@ -40,13 +41,20 @@ import validate_content  # noqa: E402
 
 @pytest.fixture(scope="session")
 def demo() -> Path:
-    """fixtures/demo, built by fixtures/build_demo.py if it is absent."""
-    if not (DEMO_DIR / "manifest.json").is_file():
-        proc = subprocess.run([sys.executable, str(BUILD_DEMO)],
-                              capture_output=True, text=True)
-        if proc.returncode != 0:
-            pytest.fail(f"build_demo.py failed (exit {proc.returncode}):\n"
-                        f"{proc.stdout}{proc.stderr}")
+    """fixtures/demo, built by fixtures/build_demo.py if it is absent.
+
+    Under a lock: pytest-xdist workers (``-n``) each run this fixture, and
+    two building the folder at once would delete each other's files."""
+    lock = REPO_ROOT / ".tmp" / "build-demo.lock"
+    lock.parent.mkdir(exist_ok=True)
+    with lock.open("w") as held:
+        fcntl.flock(held, fcntl.LOCK_EX)
+        if not (DEMO_DIR / "manifest.json").is_file():
+            proc = subprocess.run([sys.executable, str(BUILD_DEMO)],
+                                  capture_output=True, text=True)
+            if proc.returncode != 0:
+                pytest.fail(f"build_demo.py failed (exit {proc.returncode}):"
+                            f"\n{proc.stdout}{proc.stderr}")
     return DEMO_DIR
 
 

@@ -2143,3 +2143,69 @@ truthful: an unchecked box means nothing was accepted.
       Escapes), 0 fail, branchmap with no throw; package-proof 18/18. The
       user accepted the slower cold open at Fit on perf:map's 180-bookmark
       tree (docs/perf.md, Phase 42).)
+
+## Phase 43: Game apps, WebKit tests and test speed (2026-11-08, user)
+
+- [x] Test speed without losing coverage (docs/plan.md Phase 43, item 1):
+      per-suite timings before and after (baseline 2026-11-08: npm test 5 s,
+      check 1 s, pytest 168 s, scenarios about 8 min run serially); the same
+      test and check counts; the full suite green twice in a row; AGENTS.md
+      test commands updated if they change.
+      (2026-11-08: the scenario runner runs files and their independent
+      `parts` (eight files now export the sessions they already ran in
+      turn) in child processes, 4 at a time by default (`--jobs=N`,
+      `KINETIC_SCENARIO_JOBS`), longest first from the last run's times,
+      each file's block printed whole in serial order; per-part time
+      limit, reaping and Ctrl-C kept. Two Reset-progress races (branchmap
+      memory, screens reset) now wait for the reload, and a Chrome that
+      dies before it is up gets one retry. pytest-xdist 3.8.0 pinned, run
+      with `-n auto`; the demo-building fixture holds a lock. Subagent:
+      verify 423 s -> 115-119 s, pytest 149 s -> 46-49 s, npm test, check
+      and package-proof unchanged (no change worth making); counts
+      identical (749 vitest, 528 pytest, 14 files / 336 checks, 334 pass,
+      2 PARTIAL), check names and order diffed against the baseline; two
+      green runs each. Flakes seen only at load averages 30-56: the 300 ms
+      map open and the 2.00x hold. Orchestrator: npm test 749 pass, check
+      clean; `npm run verify` 116 s, 334 pass, 2 PARTIAL, 0 fail; pytest
+      `-n auto` 528 passed in 44 s; per-file `check(` counts unchanged.)
+- [ ] Auto-forward after a restore (item 2): machine unit tests with
+      synthetic items that fail on HEAD (restored then `a` moves on after the
+      remaining hold; Space ending a skip burst then `a`; the Esc screen
+      closing over a restored item in auto), plus "a choice still waits" and
+      "the last item stays"; README's `a` bullet still true.
+- [ ] Decoding ahead (item 3): `warmFile` calls `img.decode()`; a unit test
+      that a preloaded image is asked to decode and that a failed decode is
+      swallowed.
+- [ ] Skip notices and both modes on a choice (item 4): "Skip on" and "Skip
+      off" pills on every start and stop; `a` and Tab toggle on a choice
+      screen with their pill and take effect after the pick; a burst still
+      stops at a choice. Machine and render unit tests; scenario checks in
+      the matching scenario files.
+- [x] Esc and M on a choice screen (item 5): dropped (the user,
+      2026-11-08). On HEAD both work over a pending choice in Chrome and
+      WebKit (probe 2026-11-08, demo outer decision, play-all off).
+- [ ] WebKit in the scenario suite (item 6): driver and adapter in the repo,
+      `npm run verify -- --webkit`, shared web view setup source, loud
+      failure on a missing private hook; the full suite on WebKit with every
+      remaining engine-aware check explained; Chrome results unchanged.
+- [ ] The macOS app (item 7): `tools/build_apps.py --mac [--icon]` and the
+      same flags on `assemble_folder.py`; pytest for the options, the
+      non-Mac error and the icon; the demo built with the app, opened through
+      the driver-free path (the app's own launch) with fullscreen, Esc,
+      reload, Export and Import checked; CREATE.md, docs/packaging.md and
+      docs/stack.md.
+- [ ] The Windows app (item 8): `--windows` builds `<title>.exe` with its
+      icon; Go unit tests (file URL, browser lookup), pytest for the option
+      and the missing-Go error; the PE's icon resource read back in a test;
+      docs. Running it on Windows is the user's check.
+- [ ] The game's own window controls (item 9): Exit and the Fullscreen /
+      Window toggle on the Esc screen in the macOS app, the Edge app (the
+      exe steering Edge over DevTools, tested against Chrome here) and a
+      browser tab; window size from the first
+      graphic; the `index.html` fullscreen changes; unit tests and scenario
+      checks; README.
+- [ ] Testing a game with no window on screen (item 10): the library, its
+      tests, and a CREATE.md worked example run against the demo on both
+      engines.
+- [ ] Phase-closer (Phase 43): full scenario suite on Chrome and on WebKit,
+      full pytest, package-proof.

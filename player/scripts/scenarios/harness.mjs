@@ -1313,18 +1313,27 @@ async function setPlayAll(page, cdp, on) {
  */
 export async function openScenario(name, options = {}) {
   const profile = join(scenarioRoot, "profiles", name);
-  rmSync(profile, { recursive: true, force: true });
-  const browser = await puppeteer.launch({
-    executablePath: chromePath,
-    headless: true,
-    userDataDir: profile,
-    protocolTimeout: 30000,
-    args: [
-      "--no-sandbox",
-      "--disable-gpu",
-      "--disable-crash-reporter",
-      `--crash-dumps-dir=${join(scenarioRoot, "crashdumps")}`,
-    ],
+  const launch = () => {
+    rmSync(profile, { recursive: true, force: true });
+    return puppeteer.launch({
+      executablePath: chromePath,
+      headless: true,
+      userDataDir: profile,
+      protocolTimeout: 30000,
+      args: [
+        "--no-sandbox",
+        "--disable-gpu",
+        "--disable-crash-reporter",
+        `--crash-dumps-dir=${join(scenarioRoot, "crashdumps")}`,
+      ],
+    });
+  };
+  // A Chrome killed before it is up (seen once on a loaded machine running
+  // scenarios side by side: no exit code, no output) gets one more try;
+  // nothing has been checked yet, so the retry hides no finding.
+  const browser = await launch().catch((error) => {
+    if (!String(error?.message).startsWith("Failed to launch")) throw error;
+    return launch();
   });
   liveBrowsers.add(browser);
   const page = await browser.newPage();

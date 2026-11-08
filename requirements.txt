@@ -8,3 +8,5 @@ jsonschema==4.26.0
 numpy==2.5.4
 Pillow==13.0.0
 pytest==9.2.0
+# Runs pytest on every core: pytest converter/ tools/ -q -n auto
+pytest-xdist==3.8.0

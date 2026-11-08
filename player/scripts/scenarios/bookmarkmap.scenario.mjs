@@ -53,6 +53,7 @@ export const title =
   "bookmarks on the branch map: cards at their place in story order, newest marked, Full size at the t screen's size (thumbnail alone, count line clear), click opens, drag scrolls, no Del/Enter, × with undo (ghost, toast, Z) at Full size and Fit, hover tip only the timestamp in both views, t does nothing, no T row, drags keep cards and lines together";
 
 const shots = join(repoRoot, ".tmp", "bookmarkmap-shots");
+mkdirSync(shots, { recursive: true });
 
 // Full size (Phase 41): F when Fit is on show.
 const showFull = (page, cdp) => showMapView(page, cdp, "full");
@@ -922,8 +923,6 @@ async function deletes({ check, open }) {
   );
 }
 
-export default async function ({ check, open }) {
-  mkdirSync(shots, { recursive: true });
-  await cards({ check, open });
-  await deletes({ check, open });
-}
+// Independent parts (each opens its own browser); the runner runs them
+// side by side and prints their checks in this order.
+export const parts = [cards, deletes];

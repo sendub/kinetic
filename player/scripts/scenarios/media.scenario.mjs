@@ -1071,12 +1071,14 @@ async function hold({ check, open }) {
   );
 }
 
-export default async function (ctx) {
-  await animationAndChain(ctx);
-  await ranges(ctx);
-  await contentFit(ctx);
-  await floor(ctx);
-  await skipVideos(ctx);
-  await loops(ctx);
-  await hold(ctx);
-}
+// Independent parts (each opens its own browsers); the runner runs them
+// side by side and prints their checks in this order.
+export const parts = [
+  animationAndChain,
+  ranges,
+  contentFit,
+  floor,
+  skipVideos,
+  loops,
+  hold,
+];

@@ -20,7 +20,8 @@ are implementing and docs/stack.md for settled decisions.
   self-test; `--pin` records null checksums and goldens, which the user
   runs, not agents). Run `.venv/bin/kinetic-extract <renpy_project>
   <out>`; it refuses to start until that setup has passed. Tests
-  `.venv/bin/pytest converter/ tools/ -q`.
+  `.venv/bin/pytest converter/ tools/ -q -n auto` (pytest-xdist, one
+  worker per core, about 45 s; a single file runs fine without `-n`).
 - Media only, no story parse: `.venv/bin/kinetic-media ship <game_root>
   <out> --list requests.json` (format: docs/extracting.md). Both
   `ship` and `rebuild` take `--jobs N` (default: one per core) and
@@ -68,9 +69,12 @@ Per checklist item, run only what the item can break:
   `npm run verify -- <name>` (e.g. `branches`) runs only the scenario
   files whose name matches. Scenarios live in
   `player/scripts/scenarios/*.scenario.mjs`, each on a fresh browser
-  profile, so one never depends on another. Set
+  profile, so one never depends on another. The runner runs files and
+  their independent `parts` side by side, 4 at a time (`--jobs=N` or
+  `KINETIC_SCENARIO_JOBS` changes it: `--jobs=8` on a quiet machine,
+  `--jobs=1` is serial); the full suite takes about 2 minutes. Set
   `KINETIC_SCENARIO_ROOT=../.tmp/scenarios-<x>` when runs may overlap.
-  Each scenario file has a wall-clock limit (FAIL, Chrome killed, run
+  Each file or part has a wall-clock limit (FAIL, Chrome killed, run
   continues); `KINETIC_SCENARIO_TIMEOUT_MS` overrides the default.
 - Python change: `pytest` on the touched test file only.
 - The full suite (`npm run verify` with no filter, full pytest,

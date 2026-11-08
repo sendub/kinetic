@@ -79,15 +79,17 @@ async function wheelTo(page, cdp, up, id, max = 12) {
   return (await currentItemId(page)) === id;
 }
 
-export default async function ({ check, open }) {
-  await wheelScenario(check, open);
-  await freshTabScenario(check, open);
-  await skipScenario(check, open);
-  await skipSpaceScenario(check, open);
-  await resumeScenario(check, open);
-  await bookmarkEndScenario(check, open);
-  await routesScenario(check, open);
-}
+// Independent parts (each opens its own browser); the runner runs them
+// side by side and prints their checks in this order.
+export const parts = [
+  wheelScenario,
+  freshTabScenario,
+  skipScenario,
+  skipSpaceScenario,
+  resumeScenario,
+  bookmarkEndScenario,
+  routesScenario,
+];
 
 // Phase 26 (user repro): bookmark earlier items, read on, continue from a
 // bookmark, press `e`. It did nothing (the landing was the old history's
@@ -115,7 +117,7 @@ async function continueFrom(page, cdp, row) {
   return waitUntil(page, MAP_CLOSED);
 }
 
-async function bookmarkEndScenario(check, open) {
+async function bookmarkEndScenario({ check, open }) {
   const { page, cdp } = await open("bookmark-e", { closeHelp: true });
   const atImage = await spaceTo(page, cdp, "text-bare");
   await pressB(cdp);
@@ -164,7 +166,7 @@ async function bookmarkEndScenario(check, open) {
 }
 
 // Old steps 14-16.
-async function wheelScenario(check, open) {
+async function wheelScenario({ check, open }) {
   const { page, cdp } = await open("wheel", { closeHelp: true });
   const reached = await spaceTo(page, cdp, "video-chain-3");
   // Tag the <video> so the rewind can prove it is the SAME element.
@@ -240,7 +242,7 @@ async function wheelScenario(check, open) {
 
 // NEW: a fresh start has nothing seen ahead, so Tab does nothing; the same
 // holds standing on the last seen item.
-async function freshTabScenario(check, open) {
+async function freshTabScenario({ check, open }) {
   const { page, cdp } = await open("fresh-tab", { closeHelp: true });
   await pressTab(cdp);
   const fresh = changesOf(await samplePaint(page, 1000, 50));
@@ -265,7 +267,7 @@ async function freshTabScenario(check, open) {
 // Old step 17, Phase 18 rule: skip runs through seen items at the dwell and
 // stops ON the last seen item, which is then shown normally (auto mode: its
 // own hold, then on).
-async function skipScenario(check, open) {
+async function skipScenario({ check, open }) {
   const { page, cdp } = await open("skip", { closeHelp: true });
   const reached = await spaceTo(page, cdp, "chain-still-3");
   const back = await wheelTo(page, cdp, true, "anim-orbit");
@@ -348,7 +350,7 @@ async function skipScenario(check, open) {
 // Old step 18 (Space during skip exits it and holds), and `e` from the
 // skip's stop: it returns to the furthest point read and never jumps on to
 // unseen content.
-async function skipSpaceScenario(check, open) {
+async function skipSpaceScenario({ check, open }) {
   const { page, cdp } = await open("skip-space", { closeHelp: true });
   // A long seen run (intro to floor-3), so the burst lasts long enough at
   // ~25 ms per item for a Space press to land in the middle of it.
@@ -393,7 +395,7 @@ async function skipSpaceScenario(check, open) {
 // Old step 19: after walking back, `e` returns to the furthest point read;
 // pressed there with the next item unseen, `e` does nothing (Space reads
 // on).
-async function resumeScenario(check, open) {
+async function resumeScenario({ check, open }) {
   const { page, cdp } = await open("resume", { closeHelp: true });
   await pressSpace(cdp);
   await sleep(100);
@@ -427,7 +429,7 @@ async function resumeScenario(check, open) {
 // route taken highlighted (`.choice-next`), and the unplayed Route 2 and
 // nested 1b spans are never shown. `e` at the end stays put: no jump into
 // an unplayed route.
-async function routesScenario(check, open) {
+async function routesScenario({ check, open }) {
   const { page, cdp } = await open("routes", { closeHelp: true });
   const path = [];
   const atDecide = await spaceTo(page, cdp, "branch-decide");
