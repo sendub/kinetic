@@ -4356,3 +4356,97 @@ describe("the wheel steps back over unseen content (docs/plan.md Phase 39)", () 
     m.destroy();
   });
 });
+
+describe("auto-forward over an open choice (docs/plan.md Phase 43)", () => {
+  // Auto-forward now arms a settled item's hold, but an open choice waits
+  // for its answer: no hold re-fires the decision behind it, and play-all's
+  // auto-pick keeps its own timer.
+  it("`a` over a restored choice arms nothing: it waits for its answer", () => {
+    vi.useFakeTimers();
+    const first = machine(CANON);
+    for (let press = 0; press < 3; press += 1) first.advance(); // the choice
+    const stored = first.exportContext();
+    first.destroy();
+    const m = machine(CANON, { resumeContext: stored });
+    const landed = m.getState();
+    expect(landed).toMatchObject({ cursor: 2, settled: true });
+    expect(landed.choice?.decisionId).toBe("d1");
+    const seen: MachineState[] = [];
+    m.subscribe((state) => seen.push(state));
+    m.setAutoAdvance(true);
+    vi.advanceTimersByTime(60_000);
+    m.pause(); // the Esc screen opens and closes over it
+    m.resume();
+    vi.advanceTimersByTime(60_000);
+    expect(seen).toEqual([]);
+    expect(m.getState()).toBe(landed);
+    m.destroy();
+  });
+
+  it.each(["ending", "return"] as const)(
+    "a pure choice that closed the story on route P's last item (result %s) stays: no hold steps into route Q",
+    (result) => {
+      vi.useFakeTimers();
+      // A pure choice whose routes run to the array end: the all-played close
+      // ends the story on P's last item, with Q's items after it.
+      const d1 = PURE.branches[0];
+      const LAST: Shape = {
+        items: ["lead-1", "decide", "p-1", "p-2", "q-1", "q-2"],
+        branches: [
+          { ...d1, routes: d1.routes.map((route) => ({ ...route, result })) },
+        ],
+      };
+      const m = machine(LAST);
+      m.advance(); // 0 -> 1
+      m.advance(); // fires d1
+      m.choose(1); // route Q: 4..5
+      m.advance(); // 4 -> 5
+      m.advance(); // the re-offer
+      m.choose(0); // route P: 2..3
+      m.advance(); // 2 -> 3
+      m.advance(); // all routes played: the menu closes and the story ends
+      const ended = m.getState();
+      expect(ended).toMatchObject({ cursor: 3, settled: true });
+      expect(ended.choice).toBeUndefined();
+      const seen: MachineState[] = [];
+      m.subscribe((state) => seen.push(state));
+      m.setAutoAdvance(true);
+      vi.advanceTimersByTime(60_000);
+      m.pause(); // the Esc screen opens and closes at the end
+      m.resume();
+      vi.advanceTimersByTime(60_000);
+      expect(seen).toEqual([]);
+      expect(m.getState()).toBe(ended);
+      const reloaded = machine(LAST, { resumeContext: m.exportContext() });
+      m.destroy();
+      expect(reloaded.getState()).toMatchObject({ cursor: 3, settled: true });
+      reloaded.setAutoAdvance(true); // and after a reload onto it
+      vi.advanceTimersByTime(60_000);
+      expect(reloaded.getState().cursor).toBe(3);
+      reloaded.destroy();
+    },
+  );
+
+  it("`a` during play-all's countdown leaves the auto-pick on its own timer", () => {
+    vi.useFakeTimers();
+    const m = machine(CANON, {
+      settings: { ...SETTINGS, playAllRoutes: true },
+    });
+    for (let press = 0; press < 3; press += 1) m.advance(); // the choice
+    const ms = m.getState().choice?.autoPick?.ms ?? 0;
+    expect(ms).toBeGreaterThan(2000);
+    vi.advanceTimersByTime(1000);
+    m.setAutoAdvance(true);
+    vi.advanceTimersByTime(ms - 1001);
+    expect(m.getState().choice?.autoPick?.picked).toBe(false);
+    vi.advanceTimersByTime(1); // the countdown never restarted
+    expect(m.getState().choice?.autoPick).toMatchObject({
+      routeIdx: 0,
+      picked: true,
+    });
+    vi.advanceTimersByTime(AUTO_PICK_SHOW_MS);
+    expect(m.getState().choice).toBeUndefined();
+    expect(m.getState().cursor).toBe(3);
+    m.destroy();
+  });
+});

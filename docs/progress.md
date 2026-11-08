@@ -2168,11 +2168,37 @@ truthful: an unchecked box means nothing was accepted.
       map open and the 2.00x hold. Orchestrator: npm test 749 pass, check
       clean; `npm run verify` 116 s, 334 pass, 2 PARTIAL, 0 fail; pytest
       `-n auto` 528 passed in 44 s; per-file `check(` counts unchanged.)
-- [ ] Auto-forward after a restore (item 2): machine unit tests with
+- [x] Auto-forward after a restore (item 2): machine unit tests with
       synthetic items that fail on HEAD (restored then `a` moves on after the
       remaining hold; Space ending a skip burst then `a`; the Esc screen
       closing over a restored item in auto), plus "a choice still waits" and
       "the last item stays"; README's `a` bullet still true.
+      (2026-11-08: machine.ts `armHold()` arms a settled item's hold under
+      auto-forward from `setAutoAdvance(true)` (what is left, from
+      `itemShownAt`), `resume()` (fresh) and construction, except while a
+      choice is open or when nothing follows: the last item, or a route's
+      last item once a pure choice's close has ended the story there (else
+      a hold would walk into the next route's items). A settled item passes
+      the video gate, so a restored video at the seen edge moves on at its
+      time bound instead of stalling. Interface docs for `setAutoAdvance`,
+      `resume` and `setSettings` updated; README unchanged and still true.
+      11 new tests on synthetic items; the 6 behaviour tests fail on HEAD's
+      machine.ts (orchestrator re-ran them against HEAD's file: 6 failed),
+      the 5 guards (last item, open choice, play-all countdown timing, the
+      pure-choice story end with `ending` and `return` routes) shown to
+      catch each exception's removal. One test that expected the old rule
+      under auto became its manual-mode twin. Browser check: the demo,
+      reload then `a`, HEAD stays on `text-bare`, the fix moves to
+      `anim-orbit`. Orchestrator: npm test 760 pass, check clean, smoke 6/6;
+      menus, navigation, reading, playall, screens 142 checks, 140 pass, 2
+      PARTIAL, 0 fail.)
+- [ ] Space at a story end inside a closed pure choice (found during item
+      2): with a pure choice whose routes run to the end of the item array,
+      once every route has played the menu closes and the story ends on a
+      route's last item, but Space there steps into the next route's items.
+      Space must stay (the end, as at the last item). Machine unit test on
+      synthetic items that fails on HEAD; the end card shows as at any other
+      end.
 - [ ] Decoding ahead (item 3): `warmFile` calls `img.decode()`; a unit test
       that a preloaded image is asked to decode and that a failed decode is
       swallowed.

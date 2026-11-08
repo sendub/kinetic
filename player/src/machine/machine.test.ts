@@ -556,14 +556,15 @@ describe("manual and auto modes, pause/resume (docs/plan.md Phase 13b)", () => {
     m.destroy();
   });
 
-  it("resume on a settled item arms nothing: settled items move on presses", () => {
+  // In auto-forward a settled item re-arms on resume like any other (Phase
+  // 43, "auto-forward over a settled item" below); manual mode is unchanged.
+  it("resume on a settled item in manual mode arms nothing: it moves on a press", () => {
     vi.useFakeTimers();
     const m = createMachine({
       items: [image(), image(), image()],
       settings: SETTINGS,
       resumeFrontier: 2, // a resume landing: item 1, settled
-      autoAdvance: true,
-    });
+    }); // manual, the player's start
     m.pause();
     m.resume();
     vi.advanceTimersByTime(60_000);
@@ -626,6 +627,147 @@ describe("manual and auto modes, pause/resume (docs/plan.md Phase 13b)", () => {
     resumed.goTo(4); // the frontier stays the ceiling: item 4 is unseen
     expect(resumed.getState().cursor).toBe(3);
     resumed.destroy();
+  });
+});
+
+describe("auto-forward over a settled item (docs/plan.md Phase 43)", () => {
+  // A resume landing and the item Space stopped a skip burst on are
+  // settled. Turning auto-forward on still counts the time the item has
+  // been on screen (README `a` bullet), and closing a screen re-arms its
+  // hold fresh; only the last item, with nothing after it, stays put (an
+  // open choice: branches.test.ts). Ten 1500 ms images, manual like the
+  // player's start.
+  const TEN = Array.from({ length: 10 }, (_, n) => ({
+    ...image(),
+    id: `img-${String(n)}`,
+  }));
+  const restored = (frontier: number, items: readonly Item[] = TEN) =>
+    createMachine({ items, settings: SETTINGS, resumeFrontier: frontier });
+
+  it("restored from a frontier, `a` moves on after what is left of the hold", () => {
+    vi.useFakeTimers();
+    const m = restored(5); // lands on item 4, settled
+    expect(m.getState()).toMatchObject({ cursor: 4, settled: true });
+    vi.advanceTimersByTime(1000); // up for 1000 ms of its 1500 ms hold
+    m.setAutoAdvance(true);
+    vi.advanceTimersByTime(499);
+    expect(m.getState().cursor).toBe(4);
+    vi.advanceTimersByTime(1);
+    expect(m.getState()).toMatchObject({ cursor: 5, settled: false });
+    vi.advanceTimersByTime(1500); // and auto-forward carries on from there
+    expect(m.getState().cursor).toBe(6);
+    m.destroy();
+  });
+
+  it("restored from the saved context main.ts passes back, `a` moves on at once once the hold has passed", async () => {
+    vi.useFakeTimers();
+    const storage = createMemoryStorage();
+    const codec = createContextCodec(TEN);
+    const first = createMachine({ items: TEN, settings: SETTINGS });
+    for (let press = 0; press < 4; press += 1) first.advance(); // 0..4 read
+    await storage.saveState({ ctx: codec.toSaved(first.exportContext()) });
+    first.destroy();
+    const m = createMachine({
+      items: TEN,
+      settings: SETTINGS,
+      ...resumeOptionsFor(await storage.loadState(), codec),
+    });
+    expect(m.getState()).toMatchObject({ cursor: 4, settled: true });
+    vi.advanceTimersByTime(5000); // the reader looks at it a while first
+    m.setAutoAdvance(true);
+    vi.advanceTimersByTime(0); // the next tick
+    expect(m.getState().cursor).toBe(5);
+    m.destroy();
+  });
+
+  it("after Space ends a skip burst, `a` moves on after what is left of the hold", () => {
+    vi.useFakeTimers();
+    const m = createMachine({
+      items: TEN,
+      settings: SETTINGS,
+      resumeFrontier: 10, // all seen, so the burst runs
+      autoAdvance: true,
+    });
+    m.goTo(0);
+    m.toggleSkip();
+    vi.advanceTimersByTime(SETTINGS.skipDwellMs); // 0 -> 1
+    m.advance(); // Space: the burst stops here, settled, auto-forward off
+    expect(m.getState()).toMatchObject({
+      cursor: 1,
+      settled: true,
+      skipping: false,
+    });
+    expect(m.isAutoAdvance()).toBe(false);
+    vi.advanceTimersByTime(1000);
+    m.setAutoAdvance(true);
+    vi.advanceTimersByTime(499);
+    expect(m.getState().cursor).toBe(1);
+    vi.advanceTimersByTime(1);
+    expect(m.getState().cursor).toBe(2);
+    m.destroy();
+  });
+
+  it("restored, `a`, then a screen opens and closes: the hold re-arms fresh", () => {
+    vi.useFakeTimers();
+    const m = restored(5);
+    m.setAutoAdvance(true); // just after the reload
+    vi.advanceTimersByTime(1000);
+    m.pause(); // the Esc screen opens
+    vi.advanceTimersByTime(60_000); // nothing moves behind it
+    expect(m.getState().cursor).toBe(4);
+    m.resume(); // closed: a full 1500 ms from now
+    vi.advanceTimersByTime(1499);
+    expect(m.getState().cursor).toBe(4);
+    vi.advanceTimersByTime(1);
+    expect(m.getState().cursor).toBe(5);
+    m.destroy();
+  });
+
+  it("restored, `a`, Space, `a` again: the hold left still counts", () => {
+    vi.useFakeTimers();
+    const m = restored(5);
+    m.setAutoAdvance(true);
+    vi.advanceTimersByTime(500);
+    m.advance(); // Space: auto-forward off, the item stays
+    expect(m.isAutoAdvance()).toBe(false);
+    expect(m.getState().cursor).toBe(4);
+    vi.advanceTimersByTime(500);
+    m.setAutoAdvance(true); // 1000 ms shown: 500 ms left
+    vi.advanceTimersByTime(499);
+    expect(m.getState().cursor).toBe(4);
+    vi.advanceTimersByTime(1);
+    expect(m.getState().cursor).toBe(5);
+    m.destroy();
+  });
+
+  it("a restored video at the seen edge moves on at its time bound: a settled item's ended reports are not counted", () => {
+    vi.useFakeTimers();
+    const m = restored(2, [image(), video(10), image()]); // lands on the video
+    expect(m.getState()).toMatchObject({ cursor: 1, settled: true });
+    m.setAutoAdvance(true);
+    m.mediaEnded(); // ignored on a settled item
+    vi.advanceTimersByTime(9999);
+    expect(m.getState().cursor).toBe(1);
+    vi.advanceTimersByTime(1);
+    expect(m.getState().cursor).toBe(2);
+    m.destroy();
+  });
+
+  it("the restored last item stays: nothing follows it", () => {
+    vi.useFakeTimers();
+    const m = restored(10);
+    const landed = m.getState();
+    expect(landed).toMatchObject({ cursor: 9, settled: true });
+    const seen: MachineState[] = [];
+    m.subscribe((state) => seen.push(state));
+    m.setAutoAdvance(true);
+    vi.advanceTimersByTime(60_000);
+    m.pause();
+    m.resume();
+    vi.advanceTimersByTime(60_000);
+    expect(seen).toEqual([]); // no hold fired to settle it again
+    expect(m.getState()).toBe(landed);
+    m.destroy();
   });
 });
 

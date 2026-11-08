@@ -367,8 +367,9 @@ export interface Machine {
    *   the time already shown counts toward the new total — a 2400 ms hold
    *   changed to a 1200 ms one at 500 ms fires 700 ms later. A new total
    *   already behind the elapsed time fires on the next tick. An item
-   *   with no pending timer (settled, or waiting on a video's `ended`) is
-   *   not armed by this call. A pending `minPlaySeconds` chain-exit floor
+   *   with no pending timer (manual mode, an open choice, a completed item
+   *   with nothing after it, or one waiting on a video's `ended`) is not
+   *   armed by this call. A pending `minPlaySeconds` chain-exit floor
    *   re-arms from the chain's own start instant, so the time already
    *   shown counts toward the floor exactly as toward the hold (Phase 15).
    * - `skipAll`: read when skip mode meets content the reader has not seen,
@@ -387,10 +388,17 @@ export interface Machine {
    * `a`: the auto-forward toggle (docs/plan.md Phase 13b, README `a`
    * bullet). Manual (off) is the player's start (main.ts constructs with
    * `autoAdvance: false`): nothing arms a hold timer, so items wait for
-   * `advance()`, the wheel, or skip mode. Turning auto on arms the
-   * current unsettled item's full hold from now; turning it off cancels
-   * the pending hold. Skip mode is unaffected either way — its dwell is
-   * the reader's own command and runs in both modes.
+   * `advance()`, the wheel, or skip mode. Turning auto on arms what is
+   * left of the current item's hold, measured from when the item first
+   * appeared, so an item already up past its hold moves on at the next
+   * tick. A settled item counts too (docs/plan.md Phase 43): a resume
+   * landing, or the item Space stopped a skip burst on, moves on like any
+   * other. Nothing arms while a choice is open (it waits for its answer;
+   * play-all's auto-pick runs on its own timer) or on a settled item with
+   * nothing after it (the last item, or a route's last item once its menu
+   * has closed). Turning auto off cancels the pending hold. Skip mode is
+   * unaffected either way — its dwell is the reader's own command and runs
+   * in both modes.
    */
   setAutoAdvance(on: boolean): void;
   isAutoAdvance(): boolean;
@@ -412,8 +420,11 @@ export interface Machine {
   /**
    * Ends `pause()`: the current item's hold re-arms FRESH (a skip dwell
    * too), like the other paused overlays — the wait restarts from the
-   * moment of closing. A settled item stays settled: it advances only on
-   * the reader's press.
+   * moment of closing. In auto-forward that holds for a settled item too
+   * (docs/plan.md Phase 43), with `setAutoAdvance`'s exceptions: an open
+   * choice waits for its answer (a play-all countdown restarts its own
+   * phase instead), and a settled item with nothing after it stays. In
+   * manual mode a settled item still waits for the reader's press.
    */
   resume(): void;
   /** Cancels the pending timer and drops all subscribers. */
@@ -964,8 +975,8 @@ export function createMachine(options: MachineOptions): Machine {
   let state: MachineState = snapshot();
   // The item shown at start: auto mode arms its hold; manual mode (the
   // player's start, Phase 13b) waits for the reader instead. A restored
-  // choice screen waits for its pick.
-  if (pendingChoice === null) armTimer();
+  // choice screen waits for its pick, and a restored last item stays.
+  armHold();
 
   function snapshot(): MachineState {
     const choice = pendingChoice === null ? null : choiceView(pendingChoice);
@@ -1240,6 +1251,30 @@ export function createMachine(options: MachineOptions): Machine {
       return;
     }
     timer = scheduler.schedule(onTimerElapsed, delay);
+  }
+
+  /**
+   * `armTimer()` for the item under the cursor whether or not it is settled
+   * (docs/plan.md Phase 43): under auto-forward a settled item — a resume
+   * landing, or the item Space stopped a skip burst on — moves on like any
+   * other once its hold has passed. Two waits stay: an open choice (it
+   * waits for its answer; play-all's auto-pick is its own timer) and a
+   * settled item with nothing after it, where no decision fires and no
+   * open route ends: the last item, and a route's last item whose route is
+   * no longer open — where a pure choice's close ended the story
+   * (`closeIfPureAndComplete`), so a step on would fall into the next
+   * route's items, which the format never does.
+   */
+  function armHold(anchor?: number): void {
+    if (settled) {
+      if (pendingChoice !== null) return;
+      const follows =
+        relevantDecision(cursor) >= 0 ||
+        atRouteEnd() ||
+        (cursor < count - 1 && !routeEnds.has(cursor));
+      if (!follows) return;
+    }
+    armTimer(anchor);
   }
 
   /**
@@ -1716,7 +1751,8 @@ export function createMachine(options: MachineOptions): Machine {
    * the timer) AND `endedCount` has reached `loopCount` (checked at each
    * `mediaEnded()`), whichever happens last. A settled item bypasses the gate
    * entirely — its wait ended on the reader's press or on a resume landing,
-   * so ended counts are irrelevant to it.
+   * so ended counts are irrelevant to it (and `mediaEnded()` ignores it):
+   * under auto-forward it moves on at its time bound (Phase 43).
    *
    * The ended half applies only while the renderer can actually report it.
    * Below the seen edge (`cursor < frontier - 1`) a NAV arrival shows a still
@@ -1736,6 +1772,7 @@ export function createMachine(options: MachineOptions): Machine {
    * entry and reports its passes, and the ended count gates there as always.
    */
   function mediaGateSatisfied(): boolean {
+    if (settled) return true;
     const item = items[cursor];
     if (item.type !== "video") return true;
     if (item.holdSeconds !== undefined || nextIsText(cursor)) return true;
@@ -2768,10 +2805,11 @@ export function createMachine(options: MachineOptions): Machine {
       } else if (autoPick === null && autoPickLiveChoice()) {
         emit();
       }
-      // Only a live auto-advance is re-timed; a settled item (or one
-      // waiting on a video's `ended`) owns no timer to re-arm. The new
-      // delay is measured from when this item's timer was armed, so the
-      // time already shown counts toward the new total.
+      // Only a live auto-advance is re-timed; an item with no pending hold
+      // (manual mode, an open choice, a completed item with nothing after
+      // it, or one waiting on a video's `ended`) owns no timer to re-arm.
+      // The new delay is measured from when this item's timer was armed, so
+      // the time already shown counts toward the new total.
       if (timer === null) return;
       const remainingMs = Math.max(
         0,
@@ -2787,9 +2825,9 @@ export function createMachine(options: MachineOptions): Machine {
       if (on) {
         // Arm what is left of the current item's hold, measured from when
         // it first appeared (docs/plan.md Phase 20): an item already up
-        // past its hold moves on at the next tick. Skip's dwell is already
-        // running, and a settled item waits for a press in either mode.
-        if (!settled && !skipping) armTimer(itemShownAt);
+        // past its hold moves on at the next tick, a settled one included
+        // (Phase 43). Skip's dwell is already running.
+        if (!skipping) armHold(itemShownAt);
       } else if (!skipping) {
         cancelTimer(); // manual: no pending hold; skip's dwell keeps running
       }
@@ -2821,7 +2859,7 @@ export function createMachine(options: MachineOptions): Machine {
         armAutoPick(); // the phase restarts fresh
         emit();
       }
-      if (!settled) armTimer(); // the wait restarts fresh (interface docs)
+      armHold(); // the wait restarts fresh, settled or not (interface docs)
     },
 
     destroy() {
