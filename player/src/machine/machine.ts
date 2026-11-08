@@ -28,8 +28,13 @@
 // past the region, whatever its `result`. Route frames are not stored per screen:
 // an item's frames are its enclosing route spans (`framesAround`), which
 // spans that nest or are disjoint make unique. The wheel shows only seen
-// screens (an unseen one stops it), marks nothing seen or played, answers
-// nothing, and reading on from where it stopped simply continues from there.
+// screens: forward, an unseen one stops it; back, it passes over unseen
+// screens (content added since the reader passed, or skipped by a jump) to
+// the nearest seen one, and stays when none lies behind; back through a
+// join it follows the route last picked there whenever that route holds
+// anything read, its end seen or not (docs/plan.md Phase 39). It marks
+// nothing seen or played, answers nothing, and reading on from where it
+// stopped simply continues from there.
 // `e` goes to the furthest screen read in story order: the highest seen item,
 // with its enclosing frames. The played-this-pass record (`passPlayed`,
 // docs/plan.md Phase 22) rewinds with the walk: a walked-to screen shows the
@@ -1507,9 +1512,34 @@ export function createMachine(options: MachineOptions): Machine {
       : decision.afterIndex;
   }
 
-  /** The screen before `screen` in story order, or null at the start. */
-  function backwardOf(screen: Screen): Screen | null {
+  /**
+   * Whether a join is the way the reader last came (docs/plan.md Phase
+   * 39): its route is the last pick at its decision and holds anything
+   * read, and every route around its end is the last pick at its own
+   * decision where one is known. A continuing route's end inside a nested
+   * decision joins for it too, so the nested last pick decides which of
+   * the two ways in is the reader's.
+   */
+  function lastPickJoin(join: Join): boolean {
+    if (lastPick.get(join.decision) !== join.route) return false;
+    if (!routeSeen(decisions[join.decision].routes[join.route])) return false;
+    return framesAround(anchorOf(join.from)).every(
+      (frame) => (lastPick.get(frame.decision) ?? frame.route) === frame.route,
+    );
+  }
+
+  /**
+   * The screen before `screen` in story order, or null at the start. With
+   * `seenOnly` every candidate step must come from read content (a join's
+   * route end, the item before, a returning route's end before a choice
+   * screen), except the join of the reader's last pick, which needs only
+   * its route to hold anything read (`lastPickJoin`); without it the same
+   * order picks among all of them, seen or not (`seenBehind` walks those
+   * over unseen content).
+   */
+  function backwardOf(screen: Screen, seenOnly: boolean): Screen | null {
     if (screen.kind === "choice") return itemScreen(anchorOf(screen));
+    const read = (index: number) => !seenOnly || visited.has(index);
     const index = screen.index;
     const frame = innermost[index];
     if (
@@ -1517,7 +1547,8 @@ export function createMachine(options: MachineOptions): Machine {
       decisions[frame.decision].routes[frame.route].startIndex === index
     ) {
       // The choice screen that leads into this route: after a returning
-      // last pick (whose end was read) when this is the continuing route.
+      // last pick (whose end was read, under `seenOnly`) when this is the
+      // continuing route.
       const decision = decisions[frame.decision];
       const picked = lastPick.get(decision.index) ?? -1;
       const via =
@@ -1525,7 +1556,7 @@ export function createMachine(options: MachineOptions): Machine {
         picked >= 0 &&
         picked !== frame.route &&
         returns(decision.routes[picked]) &&
-        visited.has(decision.routes[picked].endIndex)
+        read(decision.routes[picked].endIndex)
           ? picked
           : -1;
       return {
@@ -1536,11 +1567,15 @@ export function createMachine(options: MachineOptions): Machine {
       };
     }
     // A join comes back by the route last picked at its decision (a pure
-    // choice's fall-through too), else by the continuing route, else by
-    // the plain step from the item before, else by the first route read.
-    const joins = joinsTo(index).filter((join) =>
-      visited.has(anchorOf(join.from)),
-    );
+    // choice's fall-through too) whenever that route holds anything read,
+    // its end read or not, so the walk passes over an unseen end to the
+    // route's last read item (docs/plan.md Phase 39). Else by the
+    // continuing route, else by the plain step from the item before, else
+    // by the first joining route.
+    const all = joinsTo(index);
+    const lastPicked = all.find((join) => lastPickJoin(join));
+    if (lastPicked !== undefined) return lastPicked.from;
+    const joins = all.filter((join) => read(anchorOf(join.from)));
     const preferred =
       joins.find((join) => lastPick.get(join.decision) === join.route) ??
       joins.find(
@@ -1549,21 +1584,56 @@ export function createMachine(options: MachineOptions): Machine {
     if (preferred !== undefined) return preferred.from;
     if (index > 0) {
       const step = forwardOf(itemScreen(index - 1));
-      if (
-        step?.kind === "item" &&
-        step.index === index &&
-        visited.has(index - 1)
-      )
+      if (step?.kind === "item" && step.index === index && read(index - 1))
         return itemScreen(index - 1);
     }
     return joins[0]?.from ?? null;
   }
 
-  /** Whether the wheel may show a screen: only seen content. */
+  /**
+   * Whether the wheel may show a screen: only seen content. A choice screen
+   * counts as seen when the step on from it was read and the item under it
+   * (whose picture it shows) was too.
+   */
   function screenSeen(screen: Screen): boolean {
     if (screen.kind === "item") return visited.has(screen.index);
     const onward = forwardOf(screen);
-    return onward?.kind === "item" && visited.has(onward.index);
+    return (
+      onward?.kind === "item" &&
+      visited.has(onward.index) &&
+      visited.has(anchorOf(screen))
+    );
+  }
+
+  /** A screen as a key, so a walk can tell one it has passed. */
+  function screenKey(screen: Screen): string {
+    return screen.kind === "item"
+      ? `i${String(screen.index)}`
+      : `c${String(screen.decision)}:${String(screen.next)}:${String(screen.via)}`;
+  }
+
+  /**
+   * Where a back notch lands (docs/plan.md Phases 27, 39): the step back
+   * `backwardOf` takes from read content, when the screen it reaches is
+   * seen (a last-picked route's join may reach an unseen end); otherwise
+   * the story-order step back taken whether seen or not. Either is
+   * repeated through unseen screens (content added since the reader
+   * passed, or skipped by a jump) to the nearest seen one. Null when no
+   * seen screen lies behind. A screen met twice ends the search: a
+   * malformed table can make the steps loop, and there are finitely many
+   * screens.
+   */
+  function seenBehind(here: Screen): Screen | null {
+    const passed = new Set<string>();
+    let screen: Screen | null = here;
+    while (screen !== null && !passed.has(screenKey(screen))) {
+      passed.add(screenKey(screen));
+      const seen = backwardOf(screen, true);
+      if (seen !== null && screenSeen(seen)) return seen;
+      screen = backwardOf(screen, false);
+      if (screen !== null && screenSeen(screen)) return screen;
+    }
+    return null;
   }
 
   /** The screen on show now, as the walk sees it. */
@@ -2253,14 +2323,15 @@ export function createMachine(options: MachineOptions): Machine {
 
   /**
    * One wheel notch along the story (`direction` -1 back, +1 forward; header,
-   * "Timeline"), onto seen screens only. Decision (docs/plan.md Phase 4): a
-   * step during skip exits skip mode AND performs the step; a step with
-   * nowhere to go still ends skip, and the item left behind gets its normal
-   * timing.
+   * "Timeline"), onto seen screens only: back passes over unseen screens to
+   * the nearest seen one (`seenBehind`), forward stops before an unseen one.
+   * Decision (docs/plan.md Phase 4): a step during skip exits skip mode AND
+   * performs the step; a step with nowhere to go still ends skip, and the
+   * item left behind gets its normal timing.
    */
   function stepWalk(direction: -1 | 1): void {
     const here = currentScreen();
-    const target = direction < 0 ? backwardOf(here) : forwardOf(here);
+    const target = direction < 0 ? seenBehind(here) : forwardOf(here);
     if (target === null || !screenSeen(target)) {
       if (skipping) {
         exitSkip();

@@ -2922,3 +2922,69 @@ describe("transition kind: which mover made the item current", () => {
     m.destroy();
   });
 });
+
+describe("the wheel steps back over unseen content (docs/plan.md Phase 39)", () => {
+  /** Images with the given ids: a story as a manifest holds it. */
+  const story = (ids: readonly string[]): Item[] =>
+    ids.map((id) => ({ id, type: "image", file: `${id}.jpg` }));
+
+  /** `m`'s save, made under `from`, reloaded under `to` (ids, as storage). */
+  function reloaded(
+    m: ReturnType<typeof createMachine>,
+    from: readonly Item[],
+    to: readonly Item[],
+  ): ReturnType<typeof createMachine> {
+    const saved = createContextCodec(from).toSaved(m.exportContext());
+    return createMachine({
+      items: to,
+      settings: SETTINGS,
+      ...resumeOptionsFor(
+        { ctx: JSON.parse(JSON.stringify(saved)) },
+        createContextCodec(to),
+      ),
+    });
+  }
+
+  /** The cursor after each of `notches` wheel notches one way. */
+  function notches(
+    m: ReturnType<typeof createMachine>,
+    back: boolean,
+    count: number,
+  ): number[] {
+    const shown: number[] = [];
+    for (let n = 0; n < count; n += 1) {
+      if (back) m.wheelBack();
+      else m.wheelForward();
+      shown.push(m.getState().cursor);
+    }
+    return shown;
+  }
+
+  it("items added in the middle since: back passes over them to the nearest seen item; forward stops before them", () => {
+    const before = story(["a", "b", "e", "f"]);
+    const m = createMachine({ items: before, settings: SETTINGS });
+    readTo(m, 3); // f
+    const after = story(["a", "b", "c", "d", "e", "f"]);
+    const resumed = reloaded(m, before, after);
+    m.destroy();
+    expect(resumed.getState().cursor).toBe(5);
+    expect(notches(resumed, true, 4)).toEqual([4, 1, 0, 0]); // past c and d
+    expect(notches(resumed, false, 2)).toEqual([1, 1]); // c is unseen
+    expect(resumed.visitedList()).toEqual([0, 1, 4, 5]); // nothing marked
+    resumed.advance();
+    expect(resumed.getState().cursor).toBe(2); // Space reads the new content
+    resumed.destroy();
+  });
+
+  it("a prequel added before everything: no seen item behind, so the wheel stays", () => {
+    const before = story(["a", "b"]);
+    const m = createMachine({ items: before, settings: SETTINGS });
+    readTo(m, 1);
+    const after = story(["p-1", "p-2", "a", "b"]);
+    const resumed = reloaded(m, before, after);
+    m.destroy();
+    expect(notches(resumed, true, 3)).toEqual([2, 2, 2]);
+    expect(resumed.visitedList()).toEqual([2, 3]);
+    resumed.destroy();
+  });
+});

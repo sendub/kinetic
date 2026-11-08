@@ -1415,6 +1415,33 @@ content that drifts).
   route is not offered "Return to main route" past the new content, and
   the decision is not passed until they read to the new end.
 
+## Phase 39: The wheel steps back over unseen content (2026-11-07, user)
+
+After a content update a back notch can do nothing. A reader who
+finished a route before it was extended stands on its `continueAt`; the
+story-order step back is the route's new end, which they have not seen,
+so the wheel does not move (found in Phase 38; older than it). The same
+dead end follows any content added behind a seen screen (a prequel, new
+items inside a route) and a `u` or bookmark landing past unseen items.
+
+- Going back, when the story-order step lands on a screen the reader
+  has not seen, the wheel keeps stepping back through unseen screens
+  and shows the nearest seen one. Each step back is chosen as now (the
+  last pick at the decision, then the continuing route, then the plain
+  step, then the first joining route) but without needing to be seen.
+  With no seen screen behind, the wheel does not move.
+- The last pick wins over a seen join: back from a screen that the
+  decision's last-picked route joins into, the notch follows that route
+  even when its end is unseen, to its last read item. So after Play all
+  routes read Negotiate, Pay, then Contract, and Contract was extended,
+  a back notch from the shared scene shows Contract's old end, not
+  Negotiate's. Only when that route holds nothing seen do the other
+  joins count.
+- Forward is unchanged: the walk stops before the first unseen screen,
+  where Space reads on, into the new content after an extension; `e`
+  still returns to the furthest point read.
+- Nothing unseen is shown or marked on the way.
+
 ## Later, waiting on the user
 
 - Overlay text styling iteration once the user can play with the demo.

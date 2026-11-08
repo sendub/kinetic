@@ -389,17 +389,22 @@ docs/plan.md Phase 13):
   continuing route; a continuing route's end, and a `"continue"`
   route's, joins at `continueAt` (story order, whatever `Play all
   routes` does there); an ending route's end stops the walk. Walking
-  back from a `continueAt` takes the end of the decision's last-picked
-  route when that route joins there, else the continuing route's end,
-  else another joining route end that was read. A pure choice (no continuing route)
+  back from a `continueAt` follows the decision's last-picked route when
+  that route joins there and holds anything read, to its last read item
+  even when its end is not seen (docs/plan.md Phase 39), else takes the
+  continuing route's end, else another joining route end that was read.
+  A pure choice (no continuing route)
   closes past its menu region once every route has played, so each of
   its routes, whatever its `result`, leads back to its choice screen and
   on past the region (that screen highlights nothing); a region running
   to the last item stops there. An item comes back inside its enclosing
-  route spans. The wheel shows only seen screens (forward ends at the
-  furthest point read) and answers, marks and plays nothing; reading on
-  (Space, auto, a pick) from where it stopped simply continues from
-  there, and a pick from a walked choice screen is a real pick. Route
+  route spans. The wheel shows only seen screens and answers, marks and
+  plays nothing. Going back it passes over screens not seen, such as
+  content added since or skipped by a jump, to the nearest seen one
+  (docs/plan.md Phase 39), and with none behind it stays; forward it
+  stops before the first unseen screen. Reading on (Space, auto, a
+  pick) from where it stopped simply continues from there, and a pick
+  from a walked choice screen is a real pick. Route
   flow rewinds with the walk (docs/plan.md Phase 22): a walked-to screen
   counts every decision at or after it, other than the ones enclosing
   it, as unplayed THIS PASS, so reading on from before a decision fires

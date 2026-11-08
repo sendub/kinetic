@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { mergeProgress } from "../render/bookmarks";
+import { createContextCodec } from "../storage/ids";
 import { AUTO_PICK_MIN_MS, AUTO_PICK_SHOW_MS, createMachine } from "./machine";
 import type {
   Branch,
@@ -3677,7 +3678,11 @@ describe("routes that continue into the join (docs/plan.md Phase 38)", () => {
     m.destroy();
   });
 
-  it("the wheel back from continueAt: the continuing route's end when the last pick's end is unread", () => {
+  // The last pick wins over a seen join (docs/plan.md Phase 39): back from
+  // continueAt, a last pick abandoned before its end leads to its last read
+  // item. The continuing route's end and another read joining end count
+  // only when the last pick holds nothing read (the Phase 39 block below).
+  it("the wheel back from continueAt: the last pick's route, abandoned before its end, to its last read item", () => {
     const m = machine(JOINING);
     openRowan(m);
     readThrough(m, CONTRACT);
@@ -3689,11 +3694,12 @@ describe("routes that continue into the join (docs/plan.md Phase 38)", () => {
     m.choose(PAY); // the last pick, abandoned on p-1
     m.jumpToEnd();
     expect(m.getState().cursor).toBe(12);
-    expect(walk(m, "back", 4)).toEqual(["11", "10", "5", "4"]);
+    // p-1, not Contract's read end c-4 (5).
+    expect(walk(m, "back", 4)).toEqual(["11", "10", "8", "rowan>1"]);
     m.destroy();
   });
 
-  it("the wheel back from continueAt: another joining route's end that was read", () => {
+  it("the wheel back from continueAt: the abandoned last pick before another joining route's read end", () => {
     const m = machine(JOINING);
     openRowan(m);
     readThrough(m, NEGOTIATE);
@@ -3702,7 +3708,8 @@ describe("routes that continue into the join (docs/plan.md Phase 38)", () => {
     backToRowan(m);
     m.choose(PAY); // the last pick, abandoned on p-1; Contract never read
     m.jumpToEnd();
-    expect(walk(m, "back", 5)).toEqual(["11", "10", "7", "6", "rowan>0"]);
+    // p-1, not Negotiate's read end n-2 (7).
+    expect(walk(m, "back", 5)).toEqual(["11", "10", "8", "rowan>1", "1"]);
     m.destroy();
   });
 
@@ -4029,5 +4036,323 @@ describe("a restored completion follows the route's current end (docs/plan.md Ph
     resumed.showChoice(0);
     expect(resumed.getState().choice?.continueOption).toBe(true);
     resumed.destroy();
+  });
+});
+
+/**
+ * `shape` after a content update: `added` items inserted after item
+ * `after`, and, when `end` is given, route `end.route` ending on `end.at`.
+ */
+function updated(
+  shape: Shape,
+  after: string,
+  added: readonly string[],
+  end?: { route: string; at: string },
+): Shape {
+  const at = shape.items.indexOf(after) + 1;
+  return {
+    items: [...shape.items.slice(0, at), ...added, ...shape.items.slice(at)],
+    branches: shape.branches.map((branch) => ({
+      ...branch,
+      routes: branch.routes.map((route) =>
+        route.id === end?.route ? { ...route, end: end.at } : route,
+      ),
+    })),
+  };
+}
+
+/** `m`'s save, made under `from`, restored under `to` as storage does: by ids. */
+function reloadedUnder(
+  m: ReturnType<typeof machine>,
+  from: Shape,
+  to: Shape,
+  settings: MachineSettings = SETTINGS,
+): ReturnType<typeof machine> {
+  const saved = createContextCodec(manifest(from).items, from.branches).toSaved(
+    m.exportContext(),
+  );
+  const context = createContextCodec(manifest(to).items, to.branches).fromSaved(
+    JSON.parse(JSON.stringify(saved)),
+  );
+  if (context === undefined) throw new Error("the save did not restore");
+  return machine(to, { resumeContext: context, settings });
+}
+
+/** The context fields the wheel must never touch. */
+function records(m: ReturnType<typeof machine>) {
+  const { visited, playedRoutes, completedRoutes, lastPicks } =
+    m.exportContext();
+  return { visited, playedRoutes, completedRoutes, lastPicks };
+}
+
+describe("the wheel steps back over unseen content (docs/plan.md Phase 39)", () => {
+  it("a finished continuing route extended since: back from continueAt passes over the new end to the old one", () => {
+    const m = machine(JOINING);
+    openRowan(m);
+    readThrough(m, CONTRACT); // c-1..c-4, then the shared scene
+    // lead decide | c-1 c-2 c-3 c-4 c-5 c-6 | n-1 n-2 | p-1 p-2 | s-1 s-2 s-3
+    //  0    1     | 2   3   4   5   6   7   | 8   9   | 10  11  | 12  13  14
+    const later = updated(JOINING, "c-4", ["c-5", "c-6"], {
+      route: "contract",
+      at: "c-6",
+    });
+    const resumed = reloadedUnder(m, JOINING, later);
+    m.destroy();
+    expect(resumed.getState().cursor).toBe(12); // s-1
+    const before = records(resumed);
+    expect(before.visited).toEqual([0, 1, 2, 3, 4, 5, 12]);
+    expect(walk(resumed, "back", 7)).toEqual([
+      "5", // c-4, the last item of the route as it was read
+      "4",
+      "3",
+      "2",
+      "rowan>2",
+      "1",
+      "0",
+    ]);
+    // Forward stops before the unseen c-5, where Space reads on into it.
+    expect(walk(resumed, "forward", 7)).toEqual([
+      "1",
+      "rowan>2",
+      "2",
+      "3",
+      "4",
+      "5",
+      "5",
+    ]);
+    // Nothing unseen was shown or marked on the way.
+    expect(records(resumed)).toEqual(before);
+    resumed.advance();
+    expect(resumed.getState().cursor).toBe(6); // c-5, the new content
+    resumed.jumpToEnd(); // the furthest point read is still s-1
+    expect(resumed.getState().cursor).toBe(12);
+    resumed.destroy();
+  });
+
+  it("a finished continue route extended since, the last pick: back from continueAt passes over its new end", () => {
+    const m = machine(JOINING);
+    openRowan(m);
+    readThrough(m, PAY); // p-1 p-2, then the shared scene
+    m.advance(); // s-2
+    // lead decide | c-1 c-2 c-3 c-4 | n-1 n-2 | p-1 p-2 p-3 | s-1 s-2 s-3
+    //  0    1     | 2   3   4   5   | 6   7   | 8   9   10  | 11  12  13
+    const later = updated(JOINING, "p-2", ["p-3"], { route: "pay", at: "p-3" });
+    const resumed = reloadedUnder(m, JOINING, later);
+    m.destroy();
+    expect(resumed.getState().cursor).toBe(12); // s-2
+    const before = records(resumed);
+    expect(walk(resumed, "back", 6)).toEqual([
+      "11",
+      "9", // p-2, past the unseen p-3
+      "8",
+      "rowan>1",
+      "1",
+      "0",
+    ]);
+    expect(walk(resumed, "forward", 5)).toEqual([
+      "1",
+      "rowan>1",
+      "8",
+      "9",
+      "9", // p-3 is unseen: the walk stops before it
+    ]);
+    expect(records(resumed)).toEqual(before);
+    resumed.destroy();
+  });
+
+  it("items inserted inside a route: the walk back passes over them", () => {
+    const m = machine(JOINING);
+    openRowan(m);
+    readThrough(m, CONTRACT);
+    // lead decide | c-1 c-2 c-2b c-3 c-4 | n-1 n-2 | p-1 p-2 | s-1 s-2 s-3
+    //  0    1     | 2   3   4    5   6   | 7   8   | 9   10  | 11  12  13
+    const later = updated(JOINING, "c-2", ["c-2b"]);
+    const resumed = reloadedUnder(m, JOINING, later);
+    m.destroy();
+    expect(resumed.getState().cursor).toBe(11);
+    const before = records(resumed);
+    expect(walk(resumed, "back", 5)).toEqual([
+      "6",
+      "5",
+      "3", // c-2, past the unseen c-2b
+      "2",
+      "rowan>2",
+    ]);
+    expect(walk(resumed, "forward", 4)).toEqual(["2", "3", "3", "3"]);
+    expect(records(resumed)).toEqual(before);
+    resumed.destroy();
+  });
+
+  it("a `u` landing past unseen items: back from it to the last item read on the way", () => {
+    const m = machine(PURE);
+    step(m); // lead-1 -> decide
+    m.advance(); // the choice
+    m.choose(0); // P: p-1
+    m.jumpToUnseen(); // into Q, past P's unread end
+    expect(m.getState().cursor).toBe(4);
+    m.jumpToUnseen(); // both routes played: past the region, both ends unread
+    expect(m.getState().cursor).toBe(6);
+    const before = records(m);
+    // Not the screen past the region over Q's unread end: nothing unseen
+    // shows, the choice screen's picture included.
+    expect(walk(m, "back", 4)).toEqual(["4", "d1>1", "1", "0"]);
+    expect(walk(m, "forward", 4)).toEqual(["1", "d1>1", "4", "4"]);
+    expect(records(m)).toEqual(before);
+    m.destroy();
+  });
+
+  // lead decide | c-1 c-2 c-3 c-4 c-5 c-6 | n-1 n-2 | p-1 p-2 | s-1 s-2 s-3
+  //  0    1     | 2   3   4   5   6   7   | 8   9   | 10  11  | 12  13  14
+  // Contract extended by c-5 and c-6 after the reader finished it.
+  const CONTRACT_EXTENDED = updated(JOINING, "c-4", ["c-5", "c-6"], {
+    route: "contract",
+    at: "c-6",
+  });
+
+  it("the last pick wins over a seen join: play all routes read Negotiate, Pay, then Contract; Contract extended since, back from the shared scene shows Contract's old end", () => {
+    vi.useFakeTimers();
+    const PLAY_ALL: MachineSettings = { ...SETTINGS, playAllRoutes: true };
+    const m = machine(JOINING, { settings: PLAY_ALL });
+    for (let press = 0; press < 40 && m.getState().cursor !== JOIN; press += 1)
+      m.advance();
+    expect(m.getState().cursor).toBe(JOIN);
+    expect(m.visitedList()).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+    expect(m.exportContext().lastPicks).toEqual([
+      { decision: 0, route: CONTRACT },
+    ]);
+    const resumed = reloadedUnder(m, JOINING, CONTRACT_EXTENDED, PLAY_ALL);
+    m.destroy();
+    expect(resumed.getState().cursor).toBe(12);
+    const before = records(resumed);
+    // c-4, not Pay's read end p-2 (11) just before the join.
+    expect(walk(resumed, "back", 2)).toEqual(["5", "4"]);
+    expect(walk(resumed, "forward", 2)).toEqual(["5", "5"]); // c-5 unseen
+    expect(records(resumed)).toEqual(before);
+    resumed.advance();
+    expect(resumed.getState().cursor).toBe(6); // Space reads c-5
+    resumed.destroy();
+  });
+
+  it("the last pick wins over a seen join: Negotiate read earlier, Contract last, Contract extended since; back from the shared scene follows Contract", () => {
+    const m = machine(JOINING);
+    openRowan(m);
+    readThrough(m, NEGOTIATE);
+    backToRowan(m);
+    readThrough(m, CONTRACT); // the last pick
+    const resumed = reloadedUnder(m, JOINING, CONTRACT_EXTENDED);
+    m.destroy();
+    expect(resumed.getState().cursor).toBe(12);
+    const before = records(resumed);
+    // c-4, not Negotiate's read end n-2 (9).
+    expect(walk(resumed, "back", 2)).toEqual(["5", "4"]);
+    expect(walk(resumed, "forward", 2)).toEqual(["5", "5"]);
+    expect(records(resumed)).toEqual(before);
+    resumed.advance();
+    expect(resumed.getState().cursor).toBe(6);
+    resumed.destroy();
+  });
+
+  it("only when the last pick's route holds nothing read do the other joins count, in their order", () => {
+    // Saved state with Pay the last pick and none of its items seen (as
+    // after Pay's items were replaced by new ones).
+    const restored = (visited: number[]) =>
+      machine(JOINING, {
+        resumeContext: {
+          lastShown: JOIN,
+          visited,
+          stack: [],
+          playedRoutes: [{ decision: 0, routes: [NEGOTIATE, PAY, CONTRACT] }],
+          lastPicks: [{ decision: 0, route: PAY }],
+        },
+      });
+    const both = restored([0, 1, 2, 3, 4, 5, 6, 7, JOIN]);
+    expect(walk(both, "back", 1)).toEqual(["5"]); // the continuing route's end
+    both.destroy();
+    const negotiated = restored([0, 1, 6, 7, JOIN]); // Contract never read
+    expect(walk(negotiated, "back", 1)).toEqual(["7"]); // Negotiate's end
+    negotiated.destroy();
+  });
+
+  it("no seen screen behind: the wheel does not move, and the notch still ends skip", () => {
+    // A prequel with its own decision inserted before everything read.
+    // pre-1 pre-decide | px-1 | py-1 | pre-end lead-1 lead-2
+    //  0     1         | 2    | 3    | 4       5      6
+    const m = machine(
+      {
+        items: [
+          "pre-1",
+          "pre-decide",
+          "px-1",
+          "py-1",
+          "pre-end",
+          "lead-1",
+          "lead-2",
+        ],
+        branches: [
+          {
+            id: "pre",
+            after: "pre-decide",
+            prompt: "Prequel?",
+            routes: [
+              { id: "px", label: "PX", start: "px-1", end: "px-1" },
+              { id: "py", label: "PY", start: "py-1", end: "py-1" },
+            ],
+            continuingRoute: "py",
+            continueAt: "pre-end",
+          },
+        ],
+      },
+      {
+        resumeContext: {
+          lastShown: 6,
+          visited: [5, 6],
+          stack: [],
+          playedRoutes: [],
+        },
+      },
+    );
+    expect(walk(m, "back", 3)).toEqual(["5", "5", "5"]);
+    expect(m.visitedList()).toEqual([5, 6]);
+    m.toggleSkip(); // lead-2 is seen ahead
+    expect(m.getState().skipping).toBe(true);
+    m.wheelBack();
+    expect(m.getState()).toMatchObject({ cursor: 5, skipping: false });
+    m.destroy();
+  });
+
+  it("a malformed table whose walk back loops: the notch finds nothing and does not move", () => {
+    // i0 i1 | i2 i3 | i4 | i5: the join `continueAt` is the decision's own
+    // `after`, so the walk back from it runs through route R1 to its
+    // choice screen and on to `after` again.
+    const m = machine(
+      {
+        items: ["i0", "i1", "i2", "i3", "i4", "i5"],
+        branches: [
+          {
+            id: "loop",
+            after: "i1",
+            prompt: "Loop?",
+            routes: [
+              { id: "r1", label: "R1", start: "i2", end: "i3" },
+              { id: "r2", label: "R2", start: "i4", end: "i4" },
+            ],
+            continuingRoute: "r1",
+            continueAt: "i1",
+          },
+        ],
+      },
+      {
+        resumeContext: {
+          lastShown: 4,
+          visited: [4],
+          stack: [{ decision: 0, route: 1 }],
+          playedRoutes: [{ decision: 0, routes: [1] }],
+        },
+      },
+    );
+    m.wheelBack();
+    expect(here(m)).toBe("4");
+    expect(m.visitedList()).toEqual([4]);
+    m.destroy();
   });
 });

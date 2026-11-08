@@ -404,6 +404,59 @@ describe("a completion follows the route's current end (docs/plan.md Phase 38)",
   });
 });
 
+describe("the wheel steps back over content added since (docs/plan.md Phase 39)", () => {
+  it("a save that finished route C, restored after C was extended: back from after-1 passes over the unseen cont-3 to cont-2", () => {
+    const { codec, m } = playV1(); // on after-1, C read to its old end
+    const saved = stored(codec.toSaved(m.exportContext()));
+    m.destroy();
+    const codecX = createContextCodec(V1X.items, V1X.branches);
+    const resumed = machine(
+      V1X,
+      resumeOptionsFor({ ctx: saved }, codecX).resumeContext,
+    );
+    const screen = () => {
+      const state = resumed.getState();
+      return (
+        V1X.items[state.cursor].id +
+        (state.choice === undefined ? "" : `@${state.choice.decisionId}`)
+      );
+    };
+    const walk = (back: boolean, notches: number): string[] =>
+      Array.from({ length: notches }, () => {
+        if (back) resumed.wheelBack();
+        else resumed.wheelForward();
+        return screen();
+      });
+    expect(screen()).toBe("after-1");
+    const seen = idsOf(V1X, resumed.visitedList());
+    expect(walk(true, 8)).toEqual([
+      "cont-2", // the old end, read; the new cont-3 is passed over
+      "cont-1",
+      "decide@d1",
+      "decide",
+      "lead-2",
+      "aside",
+      "lead-1",
+      "lead-1",
+    ]);
+    // Forward stops before cont-3: Space reads on into it.
+    expect(walk(false, 8)).toEqual([
+      "aside",
+      "lead-2",
+      "decide",
+      "decide@d1",
+      "cont-1",
+      "cont-2",
+      "cont-2",
+      "cont-2",
+    ]);
+    expect(idsOf(V1X, resumed.visitedList())).toEqual(seen); // nothing marked
+    resumed.advance();
+    expect(screen()).toBe("cont-3");
+    resumed.destroy();
+  });
+});
+
 describe("unknown ids and old saves", () => {
   it("a save in which nothing resolves is no save", () => {
     const codec2 = createContextCodec(V2.items, V2.branches);

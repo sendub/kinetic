@@ -1856,3 +1856,29 @@ truthful: an unchecked box means nothing was accepted.
       (2026-11-07: 14 scenarios, 315 checks: 313 pass, 2 PARTIAL
       (headless fullscreen Escapes), 0 FAIL; pytest tools/ 142 pass;
       package-proof 18/18, demo rebuilt.)
+
+## Phase 39: The wheel steps back over unseen content (2026-11-07, user)
+
+- [x] A back notch passes over unseen screens to the nearest seen one
+      (docs/plan.md Phase 39): after a route is extended, the wheel
+      walks back from its `continueAt` to the last item of the route the
+      reader read; also behind a prequel, inserted items or a `u`
+      landing. Forward unchanged. Unit tests that fail on HEAD's code,
+      and a browser check through a real reload against an extended
+      manifest.
+      (2026-11-08: `seenBehind` takes the seen step back, else walks
+      the story-order step through unseen screens, bounded by screens
+      passed; a choice screen counts as seen only with the item under
+      it seen; the last pick's join wins whenever its route holds read
+      items and every route around its end is the last pick
+      (`lastPickJoin`), added after the first round landed play-all
+      readers on Negotiate's end. Two Phase 38 walk-back tests now
+      expect the abandoned last pick's last read item instead of the
+      continuing route's end, matching the forward walk's last pick.
+      Orchestrator: npm test 721 pass, check clean; smoke 6/6,
+      continueroute 8/8 (its new reload-against-an-extended-manifest
+      session fails on HEAD per subagent), branches 43/43, navigation
+      21/21, reading 17/17, playall 27/27; with `lastPickJoin` always
+      false the 2 new last-pick tests and the 2 rewritten ones fail.)
+- [ ] Phase-closer (Phase 39): full scenario suite, package-proof
+      (rebuilds the demo); pytest not needed unless tools change.

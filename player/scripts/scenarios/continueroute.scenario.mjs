@@ -12,6 +12,12 @@
 // - Play all routes on: Negotiate's end and Pay's end each re-offer the
 //   choice ("Back in time: “<route>” is done."), and Contract, played
 //   last, joins the shared scene with no choice.
+// - Content added since (docs/plan.md Phase 39): Contract read through to
+//   the shared scene, then the folder's manifest rewritten with Contract
+//   extended by two new items and the page reloaded. One wheel notch back
+//   from the shared scene shows Contract's old last item, passing over
+//   the new unseen end; forward stops there, and Space reads on into the
+//   new content.
 //
 // The content is its own small folder, built here from the demo's images:
 // the demo fixture keeps its routes, which every other scenario counts on.
@@ -36,6 +42,8 @@ export const title =
   'routes with result "continue": straight to the shared scene with play all routes off, re-offers under play all, drawn as joins on the branch map';
 
 const folder = join(dirname(demoDir), "demo-continueroute");
+// The extension session's own copy: its manifest is rewritten mid-run.
+const extendedFolder = join(dirname(demoDir), "demo-continueroute-extended");
 
 const TEXT = {
   lead: "Rowan's office, late in the evening.",
@@ -43,6 +51,8 @@ const TEXT = {
   c1: "Contract: Rowan reads every clause.",
   c2: "Contract: he redrafts the penalty terms.",
   c3: "Contract: the supplier signs at last.",
+  c4: "Contract: a courier brings one more page to sign.",
+  c5: "Contract: Rowan files the copies away.",
   n1: "Negotiate: Rowan talks the price down.",
   p1: "Pay: Rowan writes the cheque.",
   p2: "Pay: the supplier pockets it without a word.",
@@ -52,13 +62,20 @@ const TEXT = {
 const PROMPT = "What does Rowan do?";
 const LABEL = { negotiate: "Negotiate", pay: "Pay", contract: "Contract" };
 
-/** The manifest: Contract first in the array, then Negotiate, then Pay. */
-function buildFolder() {
-  rmSync(folder, { recursive: true, force: true });
-  mkdirSync(folder, { recursive: true });
-  cpSync(demoDir, folder, { recursive: true });
+/**
+ * The manifest: Contract first in the array, then Negotiate, then Pay.
+ * `extended`: a later version, Contract running on through two new items
+ * (c-4, c-5) to a new end.
+ */
+function manifestFor(extended = false) {
   const at = (id, file, text) => ({ id, type: "image", file, text });
-  const manifest = {
+  const added = extended
+    ? [
+        at("c-4", "route1-start.jpg", TEXT.c4),
+        at("c-5", "route1-start.jpg", TEXT.c5),
+      ]
+    : [];
+  return {
     schemaVersion: 1,
     storyId: "kinetic-continueroute",
     title: "Kinetic continue routes",
@@ -70,6 +87,7 @@ function buildFolder() {
       at("c-1", "route1-start.jpg", TEXT.c1),
       at("c-2", "route1-start.jpg", TEXT.c2),
       at("c-3", "route1-start.jpg", TEXT.c3),
+      ...added,
       at("n-1", "route2-start.jpg", TEXT.n1),
       at("p-1", "text-bare.jpg", TEXT.p1),
       at("p-2", "text-bare.jpg", TEXT.p2),
@@ -100,7 +118,7 @@ function buildFolder() {
             id: "contract",
             label: LABEL.contract,
             start: "c-1",
-            end: "c-3",
+            end: extended ? "c-5" : "c-3",
           },
         ],
         continuingRoute: "contract",
@@ -108,12 +126,24 @@ function buildFolder() {
       },
     ],
   };
+}
+
+/** Write `manifest` into `dir` as the player reads it: JSON and script. */
+function writeManifest(dir, manifest) {
   const json = JSON.stringify(manifest, null, 2);
-  writeFileSync(join(folder, "manifest.json"), json);
+  writeFileSync(join(dir, "manifest.json"), json);
   writeFileSync(
-    join(folder, "manifest.js"),
+    join(dir, "manifest.js"),
     `window.KINETIC_MANIFEST = ${json};\n`,
   );
+}
+
+/** A fresh copy of the demo folder at `dir` with the first manifest. */
+function buildFolder(dir) {
+  rmSync(dir, { recursive: true, force: true });
+  mkdirSync(dir, { recursive: true });
+  cpSync(demoDir, dir, { recursive: true });
+  writeManifest(dir, manifestFor());
 }
 
 async function waitFor(page, fn, arg, timeout = 3000) {
@@ -181,7 +211,8 @@ async function fireDecision(page, cdp) {
 }
 
 export default async function ({ check, open }) {
-  buildFolder();
+  buildFolder(folder);
+  buildFolder(extendedFolder);
 
   // ------------------------------------------------------------------
   // Session "manual": play all routes off.
@@ -300,6 +331,61 @@ export default async function ({ check, open }) {
         steps: { onN1, onP1, onP2, onC1, onC2, onC3, joined },
         choiceAfter,
         log,
+      },
+    );
+  }
+
+  // ------------------------------------------------------------------
+  // Session "extended": content added since (docs/plan.md Phase 39).
+  // ------------------------------------------------------------------
+  {
+    const { page, cdp } = await open("extended", {
+      closeHelp: true,
+      manualChoices: true,
+      folder: extendedFolder,
+    });
+    const fired = await fireDecision(page, cdp);
+    await pressDigit(cdp, "3"); // Contract
+    const onC1 = await waitFor(page, ON_TEXT, TEXT.c1);
+    const onC2 = await spaceOnto(page, cdp, TEXT.c2);
+    const onC3 = await spaceOnto(page, cdp, TEXT.c3);
+    const joined = await spaceOnto(page, cdp, TEXT.s1);
+    await sleep(400); // every change is saved as it happens
+    // The author extends Contract past c-3; the reader reloads.
+    writeManifest(extendedFolder, manifestFor(true));
+    await page.reload();
+    const resumed = await waitFor(page, ON_TEXT, TEXT.s1, 5000);
+    await sleep(300);
+    await wheel(cdp, true);
+    const backOnC3 = await waitFor(page, ON_TEXT, TEXT.c3);
+    const backChoice = await page.evaluate(CHOICE_OPEN);
+    const backShown = await page.evaluate(
+      () => document.getElementById("overlay-text")?.textContent ?? "",
+    );
+    await sleep(200);
+    await wheel(cdp, false); // c-4 is unseen: the walk stops on c-3
+    await sleep(400);
+    const forwardStays = await page.evaluate(ON_TEXT, TEXT.c3);
+    const readsOn = await spaceOnto(page, cdp, TEXT.c4);
+    check(
+      "content added since: after Contract is extended and the page reloaded, one wheel notch back from the shared scene shows Contract's old last item, passing over the new unseen end; forward stops there and Space reads on into the new item",
+      fired &&
+        onC1 &&
+        onC2 &&
+        onC3 &&
+        joined &&
+        resumed &&
+        backOnC3 &&
+        !backChoice &&
+        forwardStays &&
+        readsOn,
+      {
+        steps: { fired, onC1, onC2, onC3, joined, resumed },
+        backOnC3,
+        backChoice,
+        backShown,
+        forwardStays,
+        readsOn,
       },
     );
   }
