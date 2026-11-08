@@ -1971,5 +1971,8 @@ truthful: an unchecked box means nothing was accepted.
       unchanged, Fit lines now as at 100%. Subagent: perf:map 8 runs
       opens 51.1-68.9 ms, frames p95 16.7-16.8 ms, one unexplained
       283 ms frame in one run, not seen again.)
-- [ ] Phase-closer (Phase 40): full scenario suite, package-proof
+- [x] Phase-closer (Phase 40): full scenario suite, package-proof
       (rebuilds the demo); pytest not needed unless tools change.
+      (2026-11-08: 14 scenarios, 323 checks: 321 pass, 2 PARTIAL
+      (headless fullscreen Escapes), 0 FAIL; package-proof 18/18, demo
+      rebuilt; tools and converter untouched.)
