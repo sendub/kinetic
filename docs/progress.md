@@ -2076,5 +2076,9 @@ truthful: an unchecked box means nothing was accepted.
       as immediate, on a synthetic tree about nine times the largest
       real game; docs/perf.md "Two views"). Subagent: 34 new or changed
       tests fail on HEAD's sources.)
-- [ ] Phase-closer (Phase 41): full scenario suite, package-proof
+- [x] Phase-closer (Phase 41): full scenario suite, package-proof
       (rebuilds the demo); pytest not needed unless tools change.
+      (2026-11-08: `npm run verify`, 14 scenarios, 336 checks: 334
+      pass, 2 PARTIAL (headless fullscreen Escapes), 0 FAIL;
+      `npm run package-proof` 18/18 steps; pytest not run, no tools
+      changed.)
