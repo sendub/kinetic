@@ -1920,13 +1920,37 @@ truthful: an unchecked box means nothing was accepted.
       checks fail on HEAD's sources; screens 66 pass, 2 PARTIAL
       (headless fullscreen Escapes); perf:map with 180 bookmarks opens
       51.7-64.1 ms (Phase 35: 55-67), frames p95 16.7-16.8 ms.)
-- [ ] Transit look (docs/plan.md Phase 40, third bullet): the sandbox
+- [x] Transit look (docs/plan.md Phase 40, third bullet): the sandbox
       skin's styles written into `player/index.html` as its own rules,
       with the user's changes (scene2 key caps and matching choice
       numbers, plain-text Esc hint, centred delete x). Screenshots of
       every screen against the sandbox's; the full set of hard rules
       checked (story hidden behind Esc, nothing filtered or animated in
       `.map-view`, no network fonts).
+      (2026-11-08: index.html's styles reorganised as story band, panel
+      tokens, shared components, one section per panel, motion; base
+      rules the skin superseded deleted. The delete x is an SVG path
+      (`DELETE_CROSS`), 0.01-0.06 px off its circle's centre (the old
+      glyph sat 0.7-1.2 px low). Kept from the subagent, against the
+      reference: card thumbnails rounded at the bottom, the m row's
+      hairline, no transition on the toast's Undo (inside `.map-view`).
+      First round let the Esc screen scroll at 800x600; sent back:
+      keys and settings now sit side by side from 700 px wide, and the
+      screen fits 1280x720, 700x900 and 800x600 with no scroll (HEAD's
+      800x600 check restored verbatim, plus a no-scroll check at all
+      three). Scenario checks moved to the new look: the M row lit by
+      fill, the x drawn, settings beside the keys, labels on one edge,
+      Progress buttons on one line, the newest card's gold ring, the
+      grey ground's brightness, the map header's height.
+      Orchestrator: npm test 724 pass, check clean; smoke 6/6, screens
+      67 pass, 2 PARTIAL (headless fullscreen Escapes), reading 17/17,
+      choicelist 11/11, bookmarkmap 29/29; 20 screenshot pairs against
+      the sandbox differ only in caps, hint, x and card corners; the
+      800x600 and 700x900 shots fit unclipped. Subagent: menus 8/8,
+      playall 27/27, progress 6/6, branchmap 49/49; no filter, blend,
+      animation or transition on the 1,255 elements in `.map-view`;
+      perf:map opens 52.5-67.8 ms, frames p95 16.7-16.8 ms (Phase 35:
+      55-67, 16.7-16.8).)
 - [ ] Map lines keep their screen width at every zoom (docs/plan.md
       Phase 40, last bullet), readable far out; measured widths at Fit,
       100% and 3x; `npm run perf:map` against docs/perf.md's numbers.

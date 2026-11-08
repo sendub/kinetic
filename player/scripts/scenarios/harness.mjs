@@ -198,7 +198,8 @@ const READ_MAP_CARDS = () => {
         rect: rectOf(el),
         thumbRect: rectOf(el.querySelector(".bm-thumb")),
         deleteRect: rectOf(el.querySelector(".bm-del")),
-        deleteText: el.querySelector(".bm-del")?.textContent ?? null,
+        // The x is drawn (an SVG path in the button), not a glyph.
+        deleteDrawn: el.querySelector(".bm-del > svg > path") !== null,
       };
     }),
   };
@@ -256,7 +257,9 @@ const READ_CONFIG_OVERLAY = () => {
     titleRect: rectOf(document.querySelector(".config-title")),
     // The screen's one hint, shared by the keys and the settings.
     hint: document.querySelector(".help-hint")?.textContent ?? null,
-    // The settings sit under the key grid on the same screen.
+    // The settings sit with the keys on the same screen: under the key
+    // list when the sheet is one column, beside it (to its right, level
+    // with it) when it is two (Phase 40: from 700px wide).
     belowKeys: (() => {
       const grid = document.querySelector("#help .help-list");
       return (
@@ -264,6 +267,13 @@ const READ_CONFIG_OVERLAY = () => {
         panel.parentElement?.id === "help" &&
         panel.getBoundingClientRect().top >= grid.getBoundingClientRect().bottom
       );
+    })(),
+    besideKeys: (() => {
+      const grid = document.querySelector("#help .help-list");
+      if (grid === null || panel.parentElement?.id !== "help") return false;
+      const g = grid.getBoundingClientRect();
+      const p = panel.getBoundingClientRect();
+      return p.left >= g.right && p.top < g.bottom && p.bottom > g.top;
     })(),
     speedValue:
       document.querySelector(".config-speed-value")?.textContent ?? null,
@@ -308,6 +318,15 @@ const READ_CONFIG_OVERLAY = () => {
     ),
     labelLefts: [...panel.querySelectorAll(".config-row .config-label")].map(
       (el) => Math.round(el.getBoundingClientRect().left),
+    ),
+    rowRects: [...panel.querySelectorAll(".config-row")].map(rectOf),
+    // Each section heading's text (not its padded box): its left edge.
+    headingTextLefts: [...panel.querySelectorAll(".config-section")].map(
+      (el) => {
+        const range = document.createRange();
+        range.selectNodeContents(el);
+        return Math.round(range.getBoundingClientRect().left);
+      },
     ),
     controlLefts: [...panel.querySelectorAll(".config-row")].map((row) =>
       Math.round(

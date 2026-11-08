@@ -81,6 +81,10 @@ const READ_TIP = () => {
     ? null
     : { text: tip.textContent, lines: tip.children.length };
 };
+// The accent (index.html's --k-gold) as getComputedStyle writes it: every
+// card has a foot shadow (Phase 40), so the newest's outline is told by
+// its gold ring, not by having a box-shadow at all.
+const GOLD = "rgb(230, 181, 102)";
 // The tooltip is exactly the card's timestamp, on one line.
 const TIMESTAMP = /^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d$/;
 const tipIsTime = (tip, card) =>
@@ -273,7 +277,7 @@ async function cards({ check, open }) {
   );
   // Phase 40: a card is its thumbnail alone (no caption strip): 280 x 158,
   // the thumbnail filling it inside its 1 px border, nothing but the
-  // thumbnail, the × and the ghost in it; the newest keeps its outline and
+  // thumbnail, the × and the ghost in it; the newest keeps its gold ring and
   // " (newest)" in its label. The stretch's count line sits under the
   // cards, clear of them.
   const countLines = await page.evaluate(() =>
@@ -302,7 +306,7 @@ async function cards({ check, open }) {
           Math.abs(x.thumbRect.bottom - (x.rect.bottom - 1)) < 0.6 &&
           x.parts.join() === "bm-thumb,bm-del,bm-ghost" &&
           x.label === `Bookmark ${x.time}${x.newest ? " (newest)" : ""}` &&
-          (x.outline !== "none") === x.newest,
+          x.outline.includes(GOLD) === x.newest,
       ) &&
       under !== undefined &&
       / · \d+ bookmarks?$/.test(under.text) &&
@@ -461,7 +465,9 @@ async function cards({ check, open }) {
         Math.abs(s.moved[1] - s.dy) <= 1 &&
         s.offset[0] === steps[0].offset[0] &&
         s.offset[1] === steps[0].offset[1] &&
-        (!s.inView || (s.onLine > 120 && s.above < 40 && s.below < 40)) &&
+        // The ground is the Phase 40 grey (#46464d at its lightest, a
+        // fine grain over it): no channel above about 90 off the line.
+        (!s.inView || (s.onLine > 120 && s.above < 110 && s.below < 110)) &&
         (i > 0 || s.inView),
     ) && steps.filter((s) => s.fromCard).length >= 3,
     steps,

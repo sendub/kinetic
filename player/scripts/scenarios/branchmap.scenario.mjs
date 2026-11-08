@@ -947,8 +947,10 @@ async function header({ check, open }) {
             Math.abs(mid(b.box) - mid(h.titleBox)) < 4 &&
             b.box.x + b.box.w <= h.win.w,
         ) &&
-        h.head.h < 72 &&
-        h.viewH >= h.win.h - 72,
+        // One line: the header is at most its Phase 40 height (its
+        // min-height, clamp(56px, 7.4vh, 80px)), the view takes the rest.
+        h.head.h <= 80.5 &&
+        h.viewH >= h.win.h - 80.5,
       h,
     );
     await pressM(cdp);

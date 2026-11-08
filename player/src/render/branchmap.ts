@@ -55,7 +55,7 @@
 // only applies them.
 
 import type { BookmarkSummary } from "../storage/types";
-import { DELETE_GLYPH, DELETE_LABEL, formatTimestamp } from "./bookmarks";
+import { DELETE_CROSS, DELETE_LABEL, formatTimestamp } from "./bookmarks";
 import {
   type Deletions,
   latestDeleted,
@@ -861,7 +861,13 @@ export function mountBranchMap({
     del.tabIndex = -1;
     del.setAttribute("aria-label", DELETE_LABEL);
     del.dataset.hint = DELETE_LABEL;
-    del.textContent = DELETE_GLYPH;
+    const cross = doc.createElementNS(SVG_NS, "svg");
+    cross.setAttribute("viewBox", "0 0 24 24");
+    cross.setAttribute("aria-hidden", "true");
+    const strokes = doc.createElementNS(SVG_NS, "path");
+    strokes.setAttribute("d", DELETE_CROSS);
+    cross.append(strokes);
+    del.append(cross);
     const ghost = doc.createElement("div");
     ghost.className = "bm-ghost";
     const gone = doc.createElement("span");

@@ -301,20 +301,39 @@ async function helpMidFlow({ check, open }) {
     { help: afterEnter.helpOpen, text: afterEnter.text },
   );
 
-  // The Esc screen holds the settings too (Phase 26): under the key grid,
-  // shown with it. `c` is no key: it changes nothing, on the screen or
-  // (below) behind it. (A click on the M row swaps the screen for the
-  // branch map: escToMap.)
+  // The Esc screen holds the settings too (Phase 26), shown with the keys:
+  // since Phase 40 beside them from 700px wide (the keys one per row in a
+  // sidebar), so the whole screen fits a short window, and under them on
+  // a narrower one, where the keys fill across before going down. `c` is
+  // no key: it changes nothing, on the screen or (below) behind it. (A
+  // click on the M row swaps the screen for the branch map: escToMap.)
   const onScreen = await page.evaluate(READ_CONFIG_OVERLAY);
   const grid = await page.evaluate(READ_KEY_GRID);
+  const wide = page.viewport();
+  await page.setViewport({ width: 600, height: 900, deviceScaleFactor: 1 });
+  await sleep(150);
+  const narrowSettings = await page.evaluate(READ_CONFIG_OVERLAY);
+  const narrowGrid = await page.evaluate(READ_KEY_GRID);
+  if (wide !== null) await page.setViewport(wide);
+  await sleep(150);
   check(
-    "the Esc screen shows the settings under the keys, and the keys fill across before going down",
+    "the Esc screen shows the settings beside the keys from 700px wide (one key per row) and under them at 600px, where the keys fill across before going down",
     onScreen.hidden === false &&
-      onScreen.belowKeys === true &&
-      grid.columns >= 2 &&
-      grid.acrossFirst === true &&
-      grid.scrollWidth <= grid.clientWidth,
-    { belowKeys: onScreen.belowKeys, grid },
+      (wide?.width ?? 0) >= 700 &&
+      onScreen.besideKeys === true &&
+      grid.columns === 1 &&
+      grid.scrollWidth <= grid.clientWidth &&
+      narrowSettings.belowKeys === true &&
+      narrowGrid.columns >= 2 &&
+      narrowGrid.acrossFirst === true &&
+      narrowGrid.scrollWidth <= narrowGrid.clientWidth,
+    {
+      wide,
+      besideKeys: onScreen.besideKeys,
+      grid,
+      belowKeys: narrowSettings.belowKeys,
+      narrowGrid,
+    },
   );
   await pressC(cdp);
   await sleep(150);
@@ -510,7 +529,7 @@ async function escToMap({ check, open }) {
   );
 
   // The M entry is the screen's one control: it lights up under the
-  // pointer.
+  // pointer (Phase 40: the row's fill lights and its key cap turns gold).
   await escapeUntil(page, cdp, HELP_OPEN);
   // The "Auto-forward off" pill fades first, for a clean screenshot.
   await waitFor(page, () => document.getElementById("flash") === null);
@@ -523,8 +542,8 @@ async function escToMap({ check, open }) {
       key: el.querySelector(".help-key")?.textContent ?? "",
       rect: { top: r.top, bottom: r.bottom, left: r.left, right: r.right },
       cursor: getComputedStyle(el).cursor,
-      rule: getComputedStyle(el).borderTopColor,
-      cap: cap === null ? null : getComputedStyle(cap).borderTopColor,
+      fill: getComputedStyle(el).backgroundColor,
+      cap: cap === null ? null : getComputedStyle(cap).backgroundColor,
       buttons: document.querySelectorAll("#help button.help-row").length,
     };
   };
@@ -544,13 +563,13 @@ async function escToMap({ check, open }) {
     await page.screenshot({ path: join(shots, "esc-m-hover.png") });
   }
   check(
-    "only the M entry is clickable, and it looks it: pointer cursor, its rule and caps lit on hover",
+    "only the M entry is clickable, and it looks it: pointer cursor, the row and its cap lit on hover",
     plain !== null &&
       hovered !== null &&
       plain.key === "M" &&
       plain.buttons === 1 &&
       plain.cursor === "pointer" &&
-      hovered.rule !== plain.rule &&
+      hovered.fill !== plain.fill &&
       hovered.cap !== plain.cap,
     { plain, hovered },
   );
@@ -756,7 +775,7 @@ async function bookmarks({ check, open }) {
   check(
     "a card's × deletes that bookmark without opening it: the map stays open with the card a ghost, storage drops the row, reading untouched",
     two.map.cards?.length === 2 &&
-      two.map.cards.every((c) => c.deleteText === "×") &&
+      two.map.cards.every((c) => c.deleteDrawn) &&
       victim !== undefined &&
       afterDelete.hidden === false &&
       ghost?.deleted === true &&
@@ -1230,7 +1249,7 @@ async function config({ check, open }) {
     cInert &&
       opened &&
       (await helpOpen(page)) &&
-      first.belowKeys === true &&
+      (first.belowKeys === true || first.besideKeys === true) &&
       first.title === "Settings" &&
       first.speedValue === SPEED_1X &&
       first.skipPressed === "false" &&
@@ -1242,11 +1261,16 @@ async function config({ check, open }) {
   );
 
   // The skip settings read as options of how Tab skips, not switches that
-  // start a skip: indented under their own heading, every control in one
-  // column (Phase 19, "Settings screen clarity").
-  const [outerLeft, optionLeft] = [first.labelLefts[0], first.labelLefts[1]];
+  // start a skip (Phase 19, "Settings screen clarity"). Since Phase 40
+  // they are one inset group under their own heading, with Play all routes
+  // a group of its own after them; every shown row label and heading
+  // starts on one edge (the Progress rows' labels are hidden: their
+  // buttons name themselves), and the switches line up in one column at
+  // the rows' right end.
+  const shownLefts = first.labelLefts.filter((left) => left > 0);
+  const [, skipRow, videoRow, playRow] = first.rowRects;
   check(
-    "the config screen groups the skip options under When Tab skips and export, import, reset under Progress, indented, controls in one column, with a note on play all routes",
+    "the config screen groups the skip options under When Tab skips and export, import, reset under Progress, labels and headings on one edge, the skip options one group apart from Play all routes, the switches in one column, with a note on play all routes",
     JSON.stringify(first.lines) ===
       JSON.stringify([
         "Auto-forward speed",
@@ -1260,25 +1284,36 @@ async function config({ check, open }) {
         "  Import progress",
         "  Reset progress",
       ]) &&
-      optionLeft > outerLeft &&
-      first.labelLefts[2] === optionLeft &&
-      first.labelLefts[3] === outerLeft &&
-      new Set(first.controlLefts).size === 1 &&
+      shownLefts.length === 4 &&
+      new Set(shownLefts).size === 1 &&
+      first.headingTextLefts.every((left) => left === shownLefts[0]) &&
+      Math.abs(videoRow.top - skipRow.bottom) < 1 &&
+      playRow.top - videoRow.bottom >= 8 &&
+      Math.abs(first.skipRect.right - first.playRect.right) < 1 &&
       first.playNote === "when on, choices pick themselves after a countdown" &&
       first.hint === HELP_HINT,
     first,
   );
 
-  // The Progress note (Phase 22): one line, indented with the options,
-  // between the heading and Export.
+  // The Progress note (Phase 22) between the heading and the buttons, its
+  // text on the rows' text edge; Export, Import and Reset share one line
+  // under it (Phase 40). In the settings pane's narrower column (Phase 40)
+  // the note takes two lines, as in the approved look at any width.
   const noteRect = first.progressNoteRect;
   check(
-    "the Progress note sits on one line under its heading, aligned with the Progress options, above Export",
+    "the Progress note sits under its heading in at most two lines, on the rows' text edge, above Export, Import and Reset on one line",
     noteRect !== null &&
-      noteRect.bottom - noteRect.top < 2 * first.progressNoteFontPx &&
-      Math.round(noteRect.left) === first.labelLefts[4] &&
-      noteRect.bottom <= first.exportRect.top,
-    { noteRect, fontPx: first.progressNoteFontPx, lefts: first.labelLefts },
+      noteRect.bottom - noteRect.top < 3 * first.progressNoteFontPx &&
+      Math.round(noteRect.left) === first.labelLefts[0] &&
+      noteRect.bottom <= first.exportRect.top &&
+      Math.abs(first.importRect.top - first.exportRect.top) < 1 &&
+      Math.abs(first.resetRect.top - first.exportRect.top) < 1,
+    {
+      noteRect,
+      fontPx: first.progressNoteFontPx,
+      lefts: first.labelLefts,
+      buttons: [first.exportRect, first.importRect, first.resetRect],
+    },
   );
 
   // The speed row is named for auto-forward (Phase 24), and a note under
@@ -1571,6 +1606,53 @@ async function reset({ check, open }) {
       small.scrolled === 0,
     small,
   );
+  // The whole Esc screen fits without any scroll at every size Phase 28
+  // promised (1280x720, 700x900, 800x600), and nothing in it ever
+  // scrolls across: the screen's content is no taller or wider than the
+  // screen, the page itself does not scroll, Reset is in the window.
+  const fits = [];
+  for (const [width, height] of [
+    [1280, 720],
+    [700, 900],
+    [800, 600],
+  ]) {
+    await page.setViewport({ width, height, deviceScaleFactor: 1 });
+    await sleep(150);
+    fits.push(
+      await page.evaluate(
+        (selector, size) => {
+          const help = document.getElementById("help");
+          const reset = document
+            .querySelector(selector)
+            ?.getBoundingClientRect();
+          return {
+            size,
+            down: help.scrollHeight - help.clientHeight,
+            across: help.scrollWidth - help.clientWidth,
+            page:
+              document.scrollingElement.scrollHeight -
+              document.scrollingElement.clientHeight,
+            resetBottom: reset?.bottom ?? Number.POSITIVE_INFINITY,
+            height: innerHeight,
+          };
+        },
+        CONFIG_CONTROL.reset,
+        `${width}x${height}`,
+      ),
+    );
+  }
+  check(
+    "the whole Esc screen fits without scrolling at 1280x720, 700x900 and 800x600, Reset in view, nothing scrolling across",
+    fits.every(
+      (f) =>
+        f.down <= 0 &&
+        f.across <= 0 &&
+        f.page <= 0 &&
+        f.resetBottom <= f.height,
+    ),
+    fits,
+  );
+
   if (viewport !== null) await page.setViewport(viewport);
   await sleep(150);
   for (let i = 0; i < 4; i += 1) {

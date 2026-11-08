@@ -7,7 +7,11 @@
     <style>
       /* The player is index.html + app.js + manifest.js, so its styles live
          here: a content folder copied with these three files plays offline
-         with nothing else to carry. */
+         with nothing else to carry. System fonts only; the one texture
+         (the panels' grain) and the title marks are inline data URIs. The
+         story band (stage, overlay, notice) comes first with its own look;
+         then the four panels, which share one set of tokens and
+         components (docs/plan.md Phase 40, the Transit look). */
       :root {
         color-scheme: dark;
         --ink: #f4efe6;
@@ -43,9 +47,10 @@
         inset: 0;
         display: flex;
       }
-      /* The key help's black screen hides the stage itself, media and all
-         (docs/plan.md Phase 13b); this beats `.stage`'s own display, same
-         pattern as `#config[hidden]` below. */
+      /* The Esc screen hides the stage itself, media and all (docs/plan.md
+         Phase 13b), so the story is not merely covered by its opaque grey;
+         this beats `.stage`'s own display, same pattern as `#config[hidden]`
+         below. (The choice screen instead blurs it: "The paused scene".) */
       .stage[hidden] {
         display: none;
       }
@@ -119,116 +124,746 @@
         font-style: italic;
         color: #b9d4e8;
       }
-      /* The settings section of the Esc screen (docs/plan.md Phase 9;
-         Phase 26 moved it into #help, under the key grid, and dropped
-         `c`): the auto-forward speed slider with its step buttons, the
-         "When Tab skips" options (skip unseen content too, play videos in
-         full), the play-all-routes switch and the Progress group (export,
-         import, reset; Phase 21) — and nothing else. It flows inside the
-         #help panel, which owns the z-order, the black background and the
-         vertical scroll. Sizes stay viewport-proportional, as above. */
+
+      /* ==== The panels: tokens ============================================
+         The Esc screen (#help, with the settings, #config), the reset box
+         (#confirm), the choice screen (#choice) and the branch map
+         (#branchmap) share these tokens, so the story band above keeps its
+         own look. One gold accent for the reader's own things (on, focus,
+         the walk's route, the last pick, where they are, the newest
+         bookmark, Undo); red only for the reset actions and the delete x's
+         hover. One grey ground under the Esc screen and the map; every
+         floating surface is the sheet. */
+      #help,
+      #branchmap,
+      #choice,
+      #confirm {
+        /* Accent: one gold; dark type (the stamp) on any solid gold or ink
+           fill. */
+        --k-gold: #e6b566;
+        --k-gold-hi: #f2c983;
+        --k-gold-press: #d9a650;
+        /* Gold over the sheet: a hovered decision's body. */
+        --k-gold-sheet: rgb(48, 41, 28);
+        --k-gold-tint: rgba(230, 181, 102, 0.15);
+        --k-gold-edge: rgba(230, 181, 102, 0.7);
+        --k-stamp: #1b1b20;
+        /* Danger: the reset actions and the delete x's hover. */
+        --k-red-solid: #e5342b;
+        --k-red-text: #ff8a82;
+        --k-red-fill: linear-gradient(rgba(255, 69, 58, 0.2), rgba(255, 69, 58, 0.2)), var(--k-sheet);
+        --k-red-fill-hover: linear-gradient(rgba(255, 69, 58, 0.3), rgba(255, 69, 58, 0.3)), var(--k-sheet);
+        --k-red-fill-press: linear-gradient(rgba(255, 69, 58, 0.38), rgba(255, 69, 58, 0.38)), var(--k-sheet);
+
+        /* Ink: the story's warm white, for text and chart marks alike.
+           Three text levels, by alpha. */
+        --k-ink: 244, 239, 230;
+        --k-t1: rgba(var(--k-ink), 0.95);
+        --k-t2: rgba(var(--k-ink), 0.72);
+        --k-t3: rgba(var(--k-ink), 0.5);
+
+        /* Surfaces, back to front. The ground is ONE grey under the Esc
+           screen and the map: a soft radial lift at 40% height with a fine
+           grain, in viewport units so the map's header and view paint it
+           seamlessly. Every floating surface is the sheet: a near-black
+           body, light from above (a sheen, a rim brightest on top), a soft
+           shadow under it. */
+        --k-ground-0: #46464d;
+        --k-ground-1: #36363c;
+        --k-ground-2: #26262b;
+        --k-noise: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 .045 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+        --k-ground:
+          var(--k-noise),
+          radial-gradient(125vw 100vh at 50% 40vh, var(--k-ground-0) 0%, var(--k-ground-1) 55%, var(--k-ground-2) 100%);
+        --k-sheet-rgb: 30, 30, 35;
+        --k-sheet: rgb(var(--k-sheet-rgb));
+        --k-glass: rgba(34, 34, 40, 0.64);
+        --k-sheen:
+          radial-gradient(80% 60% at 0% 0%, rgba(255, 255, 255, 0.055), transparent 60%),
+          linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.015) 40%, rgba(255, 255, 255, 0));
+        --k-rim-ring: linear-gradient(
+          160deg,
+          rgba(255, 255, 255, 0.34),
+          rgba(255, 255, 255, 0.08) 22%,
+          rgba(255, 255, 255, 0.04) 60%,
+          rgba(255, 255, 255, 0.14)
+        );
+        /* The same light as the ring, for chips (no spare pseudo-element). */
+        --k-rim: inset 0 1px 0 rgba(255, 255, 255, 0.14), inset 0 0 0 1px rgba(255, 255, 255, 0.05);
+        --k-shadow-sheet:
+          0 0 0 0.5px rgba(0, 0, 0, 0.55),
+          0 2px 6px rgba(0, 0, 0, 0.25),
+          0 30px 80px -18px rgba(0, 0, 0, 0.7),
+          0 90px 180px -60px rgba(0, 0, 0, 0.55);
+        --k-shadow-chip: 0 0 0 0.5px rgba(0, 0, 0, 0.6), 0 10px 26px rgba(0, 0, 0, 0.38);
+        /* Inside a sheet: grouped cells and their hairlines. */
+        --k-cell: rgba(255, 255, 255, 0.06);
+        --k-cell-hover: rgba(255, 255, 255, 0.08);
+        --k-hair: rgba(255, 255, 255, 0.09);
+
+        /* Radii: pill for one-line things (capsules, switches, tags,
+           hints, toast), md for blocks (cells, rows, tooltip), sm for a
+           highlight inside a cell, and the sheet's corner concentric with
+           its cells. */
+        --k-r-pill: 999px;
+        --k-r-md: clamp(10px, 1vw, 13px);
+        --k-r-sm: calc(var(--k-r-md) - 4px);
+        --k-r-sheet: calc(var(--k-r-md) + clamp(18px, 2.3vw, 34px));
+
+        /* Type: SF Pro for words, SF Rounded (Safari; SF Pro elsewhere)
+           for the chart's figures. One scale, one weight system: 400
+           reading text, 500 secondary text, 600 controls, 700 titles,
+           headings and figures. */
+        --k-font: system-ui, -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+        --k-font-figure: ui-rounded, var(--k-font);
+        --k-t-display: clamp(22px, 3vh, 32px);
+        --k-t-title: clamp(17px, 2.3vh, 24px);
+        --k-t-head: clamp(14px, 1.85vh, 19px);
+        --k-t-body: clamp(13px, 1.7vh, 16px);
+        --k-t-ctl: clamp(12px, 1.5vh, 15px);
+        --k-t-small: clamp(11px, 1.35vh, 13px);
+        --k-t-micro: clamp(10px, 1.2vh, 12px);
+        --k-w-2: 500;
+        --k-w-ctl: 600;
+        --k-w-bold: 700;
+
+        /* Controls: one height (a large one for the reset box's decision),
+           one fill that reads on the sheet and on the ground, one edge. */
+        --k-ctl-h: clamp(26px, 3.1vh, 32px);
+        --k-ctl-h-lg: clamp(34px, 4.2vh, 42px);
+        --k-ctl-padx: clamp(12px, 1.2vw, 17px);
+        --k-ctl-fill: linear-gradient(180deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.05)), var(--k-sheet);
+        --k-ctl-fill-hover: linear-gradient(180deg, rgba(255, 255, 255, 0.17), rgba(255, 255, 255, 0.12)), var(--k-sheet);
+        --k-ctl-fill-press: linear-gradient(rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0.22)), var(--k-sheet);
+        --k-ctl-edge:
+          inset 0 1px 0 rgba(255, 255, 255, 0.12),
+          0 0 0 0.5px rgba(0, 0, 0, 0.6),
+          0 1px 0 rgba(0, 0, 0, 0.35);
+        /* Key caps: a raised key, lit from above with a hard foot; the lit
+           edge stays when a state fills the cap. */
+        --k-cap: linear-gradient(180deg, rgba(255, 255, 255, 0.17), rgba(255, 255, 255, 0.085));
+        --k-cap-edge:
+          inset 0 0.5px 0 rgba(255, 255, 255, 0.28),
+          inset 0 0 0 0.5px rgba(255, 255, 255, 0.1),
+          0 1px 0 rgba(0, 0, 0, 0.5),
+          0 1px 3px rgba(0, 0, 0, 0.22);
+        --k-cap-edge-filled: inset 0 0.5px 0 rgba(255, 255, 255, 0.35), 0 1px 0 rgba(0, 0, 0, 0.5);
+        /* The switch: a track at the control height, a white knob, the
+           On / Off text on the side the knob leaves free. */
+        --k-sw-knob: calc(var(--k-ctl-h) - 4px);
+        --k-sw-w: calc(var(--k-ctl-h) * 2.1);
+        --k-sw-off: rgb(78, 78, 85);
+        --k-sw-off-hover: rgb(92, 92, 100);
+        --k-knob: #fbf9f5;
+        /* Focus: one gold ring, 2px, 2px out. */
+        --k-focus: 2px solid var(--k-gold);
+        --k-focus-off: 2px;
+
+        font-family: var(--k-font);
+        font-optical-sizing: auto;
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+      }
+
+      /* ==== The panels: shared components ================================= */
+
+      /* ---- Titles and marks. One title style: screen titles (the Esc
+         screen's game name, the map's) at display size, sheet titles (the
+         reset box's, the choice prompt) at title size. A panel's own title
+         carries one mark, drawn in the chart's grammar: a stroke of ink
+         line ending in the screen's station symbol (each title's
+         `--k-mark`, with its panel below). The choice prompt is the
+         story's own question and carries no mark. */
+      .help-game,
+      .map-title,
+      .confirm-title,
+      .choice-title {
+        color: var(--k-t1);
+        font-weight: var(--k-w-bold);
+      }
+      .help-game,
+      .map-title,
+      .confirm-title {
+        display: flex;
+        align-items: center;
+        gap: 0.42em;
+        line-height: 1.1;
+      }
+      .help-game,
+      .map-title {
+        font-size: var(--k-t-display);
+        letter-spacing: -0.022em;
+      }
+      .confirm-title,
+      .choice-title {
+        font-size: var(--k-t-title);
+        letter-spacing: -0.018em;
+      }
+      .help-game::before,
+      .map-title::before,
+      .confirm-title::before {
+        content: "";
+        flex: none;
+        width: 1.5em;
+        height: 0.66em;
+        background: var(--k-mark) left center / contain no-repeat;
+      }
+
+      /* ---- Section headings inside a sheet ("Keys", "Settings"). */
+      .help-title,
+      .config-title {
+        display: flex;
+        align-items: center;
+        height: var(--k-head-h);
+        margin: 0;
+        color: var(--k-t1);
+        font-size: var(--k-t-head);
+        font-weight: var(--k-w-bold);
+        line-height: 1.3;
+        letter-spacing: -0.014em;
+      }
+
+      /* ---- Sheets: the Esc screen, the reset box and the choice screen
+         each draw theirs as the panel's own ::before (the body) and
+         ::after (the rim: light catching the edge, brightest at the
+         top-left, a 1px gradient ring), placed on the panel's grid, so the
+         sheet grows with its content and scrolls with it. The choice
+         sheet's body is glass (with the choice screen). */
+      #help::before,
+      #confirm::before {
+        content: "";
+        background: var(--k-sheen), var(--k-sheet);
+        box-shadow: var(--k-shadow-sheet);
+      }
+      #help::after,
+      #choice::after,
+      #confirm::after {
+        content: "";
+        padding: 1px;
+        background: var(--k-rim-ring);
+        -webkit-mask:
+          linear-gradient(#000 0 0) content-box,
+          linear-gradient(#000 0 0);
+        -webkit-mask-composite: xor;
+        mask:
+          linear-gradient(#000 0 0) content-box exclude,
+          linear-gradient(#000 0 0);
+        pointer-events: none;
+      }
+
+      /* ---- Capsules: every push button on every panel. The Esc screen's
+         Export, Import... and Reset... and its - / + steps, the reset
+         box's Reset and Cancel (at the large size), the map's tools (a
+         segmented pair joins two) and both Undo buttons. One height, the
+         pill, one fill and edge, one type, one set of states: hover lifts,
+         press lifts more (and sinks: Motion, at the end), focus is the
+         gold ring, disabled dims. The danger and primary variants swap
+         only the fill tokens. */
+      .config-toggle,
+      .config-step,
+      .confirm-button,
+      .map-tool,
+      .map-undo {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        height: var(--k-ctl-h);
+        min-width: 0;
+        padding: 0 var(--k-ctl-padx);
+        border: 0;
+        border-radius: var(--k-r-pill);
+        background: var(--k-ctl-fill);
+        box-shadow: var(--k-ctl-edge);
+        color: var(--k-t1);
+        font: var(--k-w-ctl) var(--k-t-ctl) / 1 var(--k-font);
+        letter-spacing: -0.006em;
+        white-space: nowrap;
+        cursor: pointer;
+      }
+      .config-toggle:hover,
+      .config-step:hover,
+      .confirm-button:hover,
+      .map-tool:hover,
+      .map-undo:hover {
+        background: var(--k-ctl-fill-hover);
+      }
+      .config-toggle:active,
+      .config-step:active,
+      .confirm-button:active,
+      .map-tool:active,
+      .map-undo:active {
+        background: var(--k-ctl-fill-press);
+      }
+      /* Newest bookmark with no bookmarks: there, but dimmed. */
+      .map-tool:disabled {
+        background: rgba(var(--k-sheet-rgb), 0.55);
+        box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.45);
+        color: var(--k-t3);
+        cursor: default;
+      }
+      /* Danger: Reset... and the reset box's Reset. */
+      .config-reset,
+      .confirm-reset {
+        --k-ctl-fill: var(--k-red-fill);
+        --k-ctl-fill-hover: var(--k-red-fill-hover);
+        --k-ctl-fill-press: var(--k-red-fill-press);
+        color: var(--k-red-text);
+      }
+      /* Primary: Undo, the one action a toast or a ghost offers. A gold
+         capsule, so its edge's top light is whiter. */
+      .map-undo,
+      .bm-undo {
+        --k-ctl-fill: var(--k-gold);
+        --k-ctl-fill-hover: var(--k-gold-hi);
+        --k-ctl-fill-press: var(--k-gold-press);
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.3), 0 0 0 0.5px rgba(0, 0, 0, 0.6);
+        color: var(--k-stamp);
+      }
+
+      /* ---- The switch: the same component on the Esc screen and the
+         map. A track at the control height with a white knob; the state
+         text rides on the side the knob leaves free, so the switch reads
+         its own state, never by position alone. Off: grey track, knob
+         left. On: gold track, knob right, dark text. The Esc switches say
+         "Off" / "On" at a fixed width; the map's says "Spoilers: Off" /
+         "Spoilers: On", so its track is longer. */
+      .config-toggle[role="switch"],
+      .map-tool[data-act="spoil"] {
+        padding: 0 calc(var(--k-ctl-padx) * 0.75) 0 calc(var(--k-sw-knob) + 2px + var(--k-ctl-padx) * 0.5);
+        background: var(--k-sw-off);
+        letter-spacing: 0.01em;
+      }
+      .config-toggle[role="switch"] {
+        position: relative;
+        width: var(--k-sw-w);
+      }
+      .config-toggle[role="switch"]::before,
+      .map-tool[data-act="spoil"]::before {
+        content: "";
+        position: absolute;
+        top: 2px;
+        left: 2px;
+        width: var(--k-sw-knob);
+        height: var(--k-sw-knob);
+        border-radius: 50%;
+        background: var(--k-knob);
+        box-shadow:
+          0 0 0 0.5px rgba(0, 0, 0, 0.12),
+          0 2px 4px rgba(0, 0, 0, 0.3);
+      }
+      .config-toggle[role="switch"][aria-pressed="true"],
+      .map-tool[data-act="spoil"][aria-pressed="true"] {
+        padding: 0 calc(var(--k-sw-knob) + 2px + var(--k-ctl-padx) * 0.5) 0 calc(var(--k-ctl-padx) * 0.75);
+        background: var(--k-gold);
+        color: var(--k-stamp);
+      }
+      .config-toggle[role="switch"][aria-pressed="true"]::before,
+      .map-tool[data-act="spoil"][aria-pressed="true"]::before {
+        right: 2px;
+        left: auto;
+      }
+      .config-toggle[role="switch"]:hover,
+      .map-tool[data-act="spoil"]:hover {
+        background: var(--k-sw-off-hover);
+      }
+      .config-toggle[role="switch"][aria-pressed="true"]:hover,
+      .map-tool[data-act="spoil"][aria-pressed="true"]:hover {
+        background: var(--k-gold-hi);
+      }
+
+      /* ---- Key caps: the Esc screen's keys and the choice screen's
+         numbers (keys too: 1-9 pick). A filled, raised rounded rectangle,
+         lit along its top with a hard foot, like a keyboard's own key. A
+         state fills the cap and keeps it raised (with the choice screen
+         and the `m` row): solid ink once seen, solid gold when it is
+         yours. `font: inherit` undoes the monospace of `kbd`. */
+      .help-cap,
+      .choice-num {
+        display: inline-flex;
+        flex: none;
+        align-items: center;
+        justify-content: center;
+        min-width: 1.9em;
+        height: 1.8em;
+        padding: 0 0.5em;
+        border-radius: 0.45em;
+        background: var(--k-cap);
+        box-shadow: var(--k-cap-edge);
+        color: var(--k-t1);
+        font: inherit;
+        font-weight: var(--k-w-ctl);
+        line-height: 1;
+        letter-spacing: 0.012em;
+        font-variant-numeric: tabular-nums;
+      }
+
+      /* ---- Focus: one gold ring on every control. The choice screen's
+         keyboard cursor (ArrowUp / ArrowDown, Enter picks) wears it too:
+         an outline outside the border, so it reads apart from the play-all
+         walk's highlight, which it may sit on. */
+      .config-toggle:focus-visible,
+      .config-step:focus-visible,
+      .config-slider:focus-visible,
+      .confirm-button:focus-visible,
+      .choice-row:focus-visible,
+      .choice-cursor,
+      button.help-row:focus-visible,
+      .map-tool:focus-visible,
+      .map-undo:focus-visible {
+        outline: var(--k-focus);
+        outline-offset: var(--k-focus-off);
+      }
+
+      /* ---- Browser surfaces: selection and scrollbars in the palette
+         (the Esc screen and a long choice list scroll inside themselves). */
+      #help ::selection,
+      #choice ::selection,
+      #confirm ::selection {
+        background: rgba(230, 181, 102, 0.34);
+        color: rgb(var(--k-ink));
+      }
+      #help,
+      .choice-list {
+        scrollbar-color: rgba(var(--k-ink), 0.28) transparent;
+        scrollbar-width: thin;
+      }
+
+      /* ==== The Esc screen (docs/plan.md Phase 13b; Phase 26) ==============
+         One sheet on the opaque grey ground: the stage is hidden too
+         (`.stage[hidden]`), so the story is gone, not just covered. Above a
+         pending choice (z 5) and still under the reset box (z 7) and the
+         #flash pill (z 10): the game's name, the key list built from the
+         keymap's own table (render/keys.ts), then the settings (#config).
+         Its keys close it. Narrow (under 700px, the default here): one
+         column, the keys in a recessed group above the settings. From
+         700px (at the end of this section): a sidebar of keys beside the
+         settings pane. The sheet and its rim sit on the grid's named
+         lines. The whole screen fits without a scroll at 1280x720,
+         700x900 and 800x600 (Phase 28; Reset in view at 800x600, Phases
+         31, 35); a window smaller than that scrolls vertically inside the
+         screen, never across. */
+      #help {
+        --g-out: clamp(12px, 3vw, 56px);
+        --g-outv: clamp(10px, 3.2vh, 48px);
+        --g-pad: clamp(18px, 2.3vw, 34px);
+        --g-padv: clamp(16px, 2.8vh, 32px);
+        --k-head-h: calc(var(--k-t-head) * 1.3);
+        --g-cellpad: clamp(12px, 1.25vw, 18px);
+        --g-row: clamp(36px, 4.3vh, 48px);
+        --g-group: clamp(12px, 2.1vh, 24px);
+        position: absolute;
+        inset: 0;
+        z-index: 6;
+        display: grid;
+        grid-template-columns:
+          [full-start] minmax(var(--g-out), 1fr)
+          [sheet-start] var(--g-pad)
+          [side-start main-start] minmax(0, 340px)
+          [hint-start] minmax(0, auto)
+          [side-end main-end] var(--g-pad)
+          [sheet-end] minmax(var(--g-out), 1fr) [full-end];
+        grid-template-rows:
+          [top] minmax(var(--g-outv), 1fr)
+          [sheet-top] var(--g-padv)
+          [title] auto
+          [hint] auto
+          [gap1] clamp(14px, 2.4vh, 30px)
+          [keyshead] var(--k-head-h)
+          [keys] auto
+          [gap2] clamp(16px, 2.6vh, 32px)
+          [config] auto
+          [end] var(--g-padv)
+          [sheet-bottom] minmax(var(--g-outv), 1fr) [bottom];
+        overflow-x: hidden;
+        overflow-y: auto;
+        overscroll-behavior: contain;
+        background: var(--k-ground);
+        color: var(--k-t1);
+      }
+      #help[hidden] {
+        display: none;
+      }
+      #help::before,
+      #help::after {
+        z-index: -1;
+        grid-column: sheet-start / sheet-end;
+        grid-row: sheet-top / sheet-bottom;
+        border-radius: var(--k-r-sheet);
+      }
+      #help > * {
+        min-width: 0;
+      }
+      /* The game's name (docs/plan.md Phase 21), from the manifest
+         `title`: the sheet's first line, above the keys; absent when the
+         manifest names no game. Its mark: gold pause bars, the story
+         held. */
+      .help-game {
+        --k-mark: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 46 20'%3E%3Cpath d='M3 10H24' stroke='%23f4efe6' stroke-width='5' stroke-linecap='round'/%3E%3Crect x='29.1' y='2' width='5.4' height='16' rx='2.7' fill='%23e6b566'/%3E%3Crect x='37.5' y='2' width='5.4' height='16' rx='2.7' fill='%23e6b566'/%3E%3C/svg%3E");
+        margin: 0;
+        overflow-wrap: anywhere;
+      }
+      .help-hint {
+        color: var(--k-t2);
+        font-size: var(--k-t-small);
+        font-weight: var(--k-w-2);
+        line-height: 1.3;
+        letter-spacing: 0.004em;
+      }
+
+      /* ---- Keys: an inset group like the settings', two across when
+         stacked and one per row in the sidebar. Each row is menu-style: the
+         description leading, its caps trailing on one line, as a Mac menu
+         shows a shortcut; one cap per key word, a muted slash between
+         alternatives. */
+      .help-list {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 0 calc(2 * var(--g-cellpad));
+        align-self: start;
+        margin: clamp(4px, 0.8vh, 10px) 0 0;
+        padding: 2px var(--g-cellpad);
+        border-radius: var(--k-r-md);
+        background: var(--k-cell);
+      }
+      /* Two across: the last entry (the decision keys) takes the full
+         width. */
+      .help-row:last-child {
+        grid-column: 1 / -1;
+      }
+      /* Inset hairlines between rows (none above the first line). */
+      .help-row {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto 0.55em;
+        grid-template-areas: "desc key chev";
+        align-items: center;
+        column-gap: clamp(8px, 0.9vw, 12px);
+        min-width: 0;
+        min-height: clamp(30px, 3.6vh, 40px);
+        margin: 0 -8px;
+        padding: clamp(3px, 0.5vh, 6px) 8px;
+        border-radius: var(--k-r-sm);
+        background-image: linear-gradient(var(--k-hair), var(--k-hair));
+        background-repeat: no-repeat;
+        background-position: 8px 0;
+        background-size: calc(100% - 16px) 1px;
+      }
+      .help-row:nth-child(-n + 2) {
+        background-image: none;
+      }
+      .help-key {
+        display: flex;
+        flex-wrap: wrap;
+        grid-area: key;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 0.3em;
+        font-size: var(--k-t-small);
+      }
+      .help-or {
+        color: var(--k-t3);
+      }
+      .help-desc {
+        grid-area: desc;
+        color: var(--k-t1);
+        font-size: var(--k-t-ctl);
+        line-height: 1.28;
+        letter-spacing: -0.006em;
+      }
+      /* Menu items start with a capital. */
+      .help-desc::first-letter {
+        text-transform: uppercase;
+      }
+      /* The `m` row is a button (render/help.ts): it opens the branch map
+         in this screen's place. Drawn like the other rows, plus a
+         disclosure chevron that says it is a control; on hover or focus
+         the whole row lights and its cap turns gold. */
+      button.help-row {
+        border: 0;
+        background-color: transparent;
+        color: inherit;
+        font: inherit;
+        text-align: left;
+        cursor: pointer;
+      }
+      button.help-row::after {
+        content: "";
+        grid-area: chev;
+        justify-self: center;
+        width: 0.42em;
+        height: 0.42em;
+        border-top: 1.6px solid var(--k-t2);
+        border-right: 1.6px solid var(--k-t2);
+        transform: translateX(-0.1em) rotate(45deg);
+      }
+      button.help-row:hover,
+      button.help-row:focus-visible {
+        background-color: var(--k-cell-hover);
+      }
+      button.help-row:hover .help-cap,
+      button.help-row:focus-visible .help-cap {
+        background: var(--k-gold);
+        box-shadow: var(--k-cap-edge-filled);
+        color: var(--k-stamp);
+      }
+      button.help-row:hover .help-desc,
+      button.help-row:focus-visible .help-desc {
+        color: rgb(var(--k-ink));
+      }
+      button.help-row:hover::after,
+      button.help-row:focus-visible::after {
+        border-color: var(--k-t1);
+      }
+
+      /* ---- Settings (docs/plan.md Phase 9; Phase 26 moved them into
+         #help, under the keys, and dropped `c`): the auto-forward speed
+         slider with its step buttons, the "When Tab skips" options (skip
+         unseen content too, play videos in full), the play-all-routes
+         switch and the Progress group (export, import, reset; Phase 21) —
+         and nothing else. Inset-grouped lists, like a native settings
+         window. It flows inside the #help panel, which owns the z-order,
+         the ground and the vertical scroll. #config wraps so the Progress
+         buttons can share a line (below); every other child keeps a full
+         line. */
       #config {
         display: flex;
-        flex-direction: column;
-        gap: clamp(4px, 1.2vh, 16px);
+        flex-flow: row wrap;
       }
       #config[hidden] {
         display: none;
       }
-      .config-title {
-        margin: 0;
-        color: var(--accent);
-        font-size: clamp(12px, 1.5vh, 17px);
-        font-weight: 600;
-        letter-spacing: 0.16em;
-        text-transform: uppercase;
-      }
-      .config-hint {
-        margin: 0;
-        color: rgba(244, 239, 230, 0.55);
-        font-size: clamp(10px, 1.2vh, 13px);
+      #config > * {
+        flex: 1 0 100%;
       }
       .config-row {
         display: flex;
         align-items: center;
-        gap: clamp(10px, 2vw, 18px);
+        justify-content: space-between;
+        gap: clamp(10px, 1.2vw, 16px);
+        min-height: var(--g-row);
+        padding: 6px var(--g-cellpad);
+        background-color: var(--k-cell);
       }
-      /* The skip options sit under their own heading, indented, so they
-         read as options of Tab rather than switches that start a skip. */
+      /* Inset hairline between rows of one group. */
+      .config-row + .config-row {
+        background-image: linear-gradient(var(--k-hair), var(--k-hair));
+        background-repeat: no-repeat;
+        background-position: var(--g-cellpad) 0;
+        background-size: calc(100% - var(--g-cellpad)) 1px;
+      }
+      /* Group edges: rounded where a group starts and ends. */
+      :not(.config-row) + .config-row {
+        border-top-left-radius: var(--k-r-md);
+        border-top-right-radius: var(--k-r-md);
+      }
+      .config-row:has(+ :not(.config-row)) {
+        border-bottom-left-radius: var(--k-r-md);
+        border-bottom-right-radius: var(--k-r-md);
+      }
+      /* The skip options are one group under their own heading, so they
+         read as options of Tab rather than switches that start a skip;
+         Play all routes is its own group after them. */
+      .config-option + .config-row:not(.config-option) {
+        margin-top: var(--g-group);
+        border-top-left-radius: var(--k-r-md);
+        border-top-right-radius: var(--k-r-md);
+        background-image: none;
+      }
+      .config-option:has(+ .config-row:not(.config-option)) {
+        border-bottom-left-radius: var(--k-r-md);
+        border-bottom-right-radius: var(--k-r-md);
+      }
+      .config-label {
+        flex: 1 1 auto;
+        min-width: 0;
+        color: var(--k-t1);
+        font-size: var(--k-t-body);
+        line-height: 1.3;
+        letter-spacing: -0.012em;
+      }
+      /* The current speed is a readout, not a control (docs/plan.md
+         Phase 16): secondary text at the cell's top right, on one line at
+         any width ("1.00x — ~60 ms/char" wrapped at 700x900, Phase 24). */
+      .config-speed-value {
+        flex: none;
+        min-width: 0;
+        color: var(--k-t2);
+        font-size: var(--k-t-small);
+        font-weight: var(--k-w-2);
+        font-variant-numeric: tabular-nums;
+        white-space: nowrap;
+      }
+      /* Section labels ("When Tab skips", "Progress") sit outside their
+         group, aligned with the row text. */
       .config-section {
-        margin: 0 0 calc(-1 * clamp(2px, 0.8vh, 10px));
-        color: rgba(244, 239, 230, 0.7);
-        font-size: clamp(11px, 1.4vh, 15px);
-        letter-spacing: 0.08em;
-        text-transform: uppercase;
-      }
-      .config-option {
-        padding-left: clamp(12px, 2vw, 24px);
+        margin: var(--g-group) 0 0;
+        padding: 0 var(--g-cellpad) clamp(5px, 0.8vh, 8px);
+        color: var(--k-t2);
+        font-size: var(--k-t-small);
+        font-weight: var(--k-w-ctl);
+        line-height: 1.3;
+        letter-spacing: 0.004em;
       }
       .config-note {
-        color: rgba(244, 239, 230, 0.55);
-        font-size: clamp(10px, 1.2vh, 13px);
-      }
-      /* The speed row's note line (Phase 24), drawn up under its row as
-         a heading draws up its first option. */
-      .config-speed-note {
-        margin: calc(-1 * clamp(2px, 0.8vh, 10px)) 0 0;
+        color: var(--k-t2);
+        font-size: var(--k-t-small);
+        font-weight: var(--k-w-2);
+        line-height: 1.35;
+        letter-spacing: 0.004em;
       }
       /* A group's own note line (Phase 22), under its heading. */
       .config-group-note {
-        margin: 0;
+        margin: calc(-1 * clamp(2px, 0.5vh, 5px)) 0 0;
+        padding: 0 var(--g-cellpad) clamp(8px, 1.3vh, 12px);
       }
       /* The Progress group's message line (Phase 21): an import refusal
          or an export's confirmation, under the group, in the accent. */
       .config-message {
         margin: 0;
-        max-width: 64ch;
-        padding-left: clamp(12px, 2vw, 24px);
-        color: var(--accent);
-        font-size: clamp(11px, 1.4vh, 15px);
+        padding: clamp(6px, 1vh, 10px) var(--g-cellpad) 0;
+        color: var(--k-gold);
+        font-size: var(--k-t-small);
+        font-weight: var(--k-w-2);
       }
-      .config-label {
-        /* The longest label, "Skip unseen content too", keeps the
-           controls in one column. */
-        min-width: 24ch;
-        font-size: clamp(13px, 1.7vh, 19px);
+      /* Progress: the buttons say what they do (and carry aria-labels),
+         so their row labels go and the three sit on one line under the
+         note. */
+      #config > .config-row:has(> [data-config-action$="-progress"]) {
+        flex: 0 0 auto;
+        min-height: 0;
+        margin: 0 8px 0 0;
+        padding: 0;
+        border-radius: 0;
+        background: none;
       }
-      /* The indent comes out of the label, so the controls still line up. */
-      .config-option .config-label {
-        min-width: calc(24ch - clamp(12px, 2vw, 24px));
+      .config-row:has(> [data-config-action$="-progress"]) > .config-label {
+        display: none;
       }
-      .config-value {
-        min-width: 18ch;
-        font-variant-numeric: tabular-nums;
-        font-size: clamp(13px, 1.7vh, 19px);
+      .config-toggle:not([role="switch"]) {
+        min-width: 6.4em;
       }
-      /* The current speed is a readout, not a control, and it rides at the
-         row's right of the slider (docs/plan.md Phase 16), so it reads
-         smaller and dimmer than the row's own label — the panel's hint
-         size and the dim value colour, both already used above. */
-      .config-speed-value {
-        /* One line at any width: "1.00x — ~60 ms/char" wrapped at 700x900
-           (Phase 24); the slider gives way instead (below). */
-        flex: none;
-        white-space: nowrap;
-        color: rgba(244, 239, 230, 0.62);
-        font-size: clamp(10px, 1.2vh, 13px);
+      /* The - / + steps: capsules at their circle (width = height). */
+      .config-step {
+        width: var(--k-ctl-h);
+        padding: 0;
+        font-size: var(--k-t-head);
+        font-weight: var(--k-w-2);
       }
       /* Reading-speed slider (docs/plan.md Phase 16): the native range
-         input between the − and + buttons, redrawn in this panel's own
-         palette — a hairline track in the border colour, the accent on
-         the thumb. `appearance: none` is what lets the track and thumb
-         be drawn at all; the thumb is a fixed 14px because a webkit thumb
-         centers on its track by a margin of half the difference, so the
-         two sizes belong together. Keyboard is untouched: arrows step it. */
+         input between the − and + buttons, redrawn in the panel's own
+         palette — an ink track, the switch's knob as its thumb, the gold
+         ring on focus. `appearance: none` is what lets the track and thumb
+         be drawn at all; a webkit thumb centers on its track by a margin
+         of half the difference, so the thumb's margin follows the two
+         sizes. Keyboard is untouched: arrows step it. */
       .config-slider {
         appearance: none;
         -webkit-appearance: none;
-        /* Shrinks (down to 80px) before the one-line readout overflows. */
-        flex: 0 1 clamp(160px, 24vw, 320px);
+        flex: 1 1 auto;
+        width: 100%;
         min-width: 80px;
-        height: 16px;
+        height: var(--k-ctl-h);
         margin: 0;
+        border-radius: var(--k-r-pill);
         background: transparent;
         cursor: pointer;
       }
@@ -236,86 +871,563 @@
         height: 4px;
         border: none;
         border-radius: 2px;
-        background: rgba(244, 239, 230, 0.22);
+        background: rgba(var(--k-ink), 0.2);
       }
       .config-slider::-webkit-slider-thumb {
         -webkit-appearance: none;
-        width: 14px;
-        height: 14px;
-        margin-top: -5px;
+        width: var(--k-sw-knob);
+        height: var(--k-sw-knob);
+        margin-top: calc((4px - var(--k-sw-knob)) / 2);
         border: none;
         border-radius: 50%;
-        background: var(--accent);
+        background: var(--k-knob);
+        box-shadow:
+          0 0 0 0.5px rgba(0, 0, 0, 0.18),
+          0 2px 5px rgba(0, 0, 0, 0.38);
       }
       .config-slider::-moz-range-track {
         height: 4px;
         border: none;
         border-radius: 2px;
-        background: rgba(244, 239, 230, 0.22);
+        background: rgba(var(--k-ink), 0.2);
+      }
+      .config-slider::-moz-range-progress {
+        height: 4px;
+        border-radius: 2px;
+        background: var(--k-gold);
       }
       .config-slider::-moz-range-thumb {
-        width: 14px;
-        height: 14px;
+        width: var(--k-sw-knob);
+        height: var(--k-sw-knob);
         border: none;
         border-radius: 50%;
-        background: var(--accent);
+        background: var(--k-knob);
+        box-shadow:
+          0 0 0 0.5px rgba(0, 0, 0, 0.18),
+          0 2px 5px rgba(0, 0, 0, 0.38);
       }
-      .config-slider:focus-visible {
-        outline: 1px solid var(--accent);
-        outline-offset: 3px;
+      /* The speed cell: its label and readout on top, the slider between
+         its step buttons beneath, the note (Phase 24) closing the cell. */
+      .config-title + .config-row {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr) auto;
+        grid-template-areas:
+          "label label value"
+          "down slider up";
+        row-gap: clamp(4px, 0.7vh, 8px);
+        column-gap: clamp(10px, 1vw, 14px);
+        margin-top: clamp(4px, 0.8vh, 10px);
+        padding-top: clamp(8px, 1.2vh, 13px);
+        padding-bottom: clamp(4px, 0.6vh, 7px);
+        border-bottom-left-radius: 0;
+        border-bottom-right-radius: 0;
       }
-      .config-step,
-      .config-toggle {
-        padding: clamp(3px, 0.8vh, 8px) clamp(10px, 1.8vw, 18px);
-        border: 1px solid rgba(244, 239, 230, 0.16);
-        border-radius: 6px;
-        background: rgba(18, 18, 22, 0.9);
-        color: var(--ink);
+      .config-title + .config-row > .config-label {
+        grid-area: label;
+      }
+      .config-title + .config-row > .config-speed-value {
+        grid-area: value;
+      }
+      .config-step[data-config-action="speed-down"] {
+        grid-area: down;
+      }
+      .config-step[data-config-action="speed-up"] {
+        grid-area: up;
+      }
+      .config-title + .config-row > .config-slider {
+        grid-area: slider;
+      }
+      .config-speed-note {
+        margin: 0;
+        padding: 0 var(--g-cellpad) clamp(9px, 1.3vh, 13px);
+        border-radius: 0 0 var(--k-r-md) var(--k-r-md);
+        background-color: var(--k-cell);
+      }
+      /* Play all routes: its title over its description, the switch
+         trailing. */
+      .config-row:has(> span.config-note) {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        grid-template-areas:
+          "label toggle"
+          "note toggle";
+        row-gap: 2px;
+        padding-top: clamp(7px, 1vh, 10px);
+        padding-bottom: clamp(7px, 1vh, 10px);
+      }
+      .config-row:has(> span.config-note) > .config-label {
+        grid-area: label;
+      }
+      .config-row:has(> span.config-note) > .config-toggle {
+        grid-area: toggle;
+      }
+      .config-row:has(> span.config-note) > .config-note {
+        grid-area: note;
+      }
+
+      /* ---- Placement on the sheet's grid (narrow; wide below). The
+         header row: the game's name on the left, the hint on the right
+         of the same line, as plain secondary text (it names keys; nothing
+         to click). */
+      #help > .help-game {
+        grid-column: main-start / hint-start;
+        grid-row: title;
+        align-self: center;
+      }
+      #help > .help-hint {
+        grid-column: hint-start / main-end;
+        grid-row: title;
+        justify-self: end;
+        align-self: center;
+        margin: 0 0 0 16px;
+      }
+      /* Very narrow: the hint goes under the name. */
+      @media (max-width: 620px) {
+        #help > .help-game {
+          grid-column: main-start / main-end;
+        }
+        #help > .help-hint {
+          grid-column: main-start / main-end;
+          grid-row: hint;
+          justify-self: start;
+          margin: clamp(8px, 1.2vh, 12px) 0 0;
+        }
+      }
+      #help > .help-title {
+        grid-column: main-start / main-end;
+        grid-row: keyshead;
+      }
+      #help > .help-list {
+        grid-column: main-start / main-end;
+        grid-row: keys;
+      }
+      #help > #config {
+        grid-column: main-start / main-end;
+        grid-row: config;
+      }
+
+      /* ---- From 700px wide: a sidebar of keys beside the settings pane,
+         under a title bar across the sheet (the game's name, the hint
+         trailing). Side by side, the screen fits a short window (800x600)
+         that the stacked one overflows; under 1000px the gutter between
+         the two narrows with the window, so the settings' rows keep their
+         one-line labels down to 700px. */
+      @media (min-width: 700px) {
+        #help {
+          --g-gut: clamp(16px, 2.8vw, 48px);
+          grid-template-columns:
+            [full-start] minmax(var(--g-out), 1fr)
+            [sheet-start] var(--g-pad)
+            [side-start] clamp(300px, 26vw, 400px)
+            [side-end] var(--g-gut)
+            [main-start] minmax(0, 430px)
+            [main-end] var(--g-pad)
+            [sheet-end] minmax(var(--g-out), 1fr) [full-end];
+          grid-template-rows:
+            [top] minmax(var(--g-outv), 1fr)
+            [sheet-top] var(--g-padv)
+            [title] auto
+            [gap1] clamp(16px, 2.8vh, 32px)
+            [keyshead] var(--k-head-h)
+            [keys] auto
+            [end] var(--g-padv)
+            [sheet-bottom] minmax(var(--g-outv), 1fr) [bottom];
+        }
+        #help > .help-game {
+          grid-column: side-start / main-start;
+        }
+        #help > .help-hint {
+          grid-column: main-start / main-end;
+          margin: 0;
+        }
+        #help > .help-title {
+          grid-column: side-start / side-end;
+        }
+        /* One key per row in the side column. */
+        #help > .help-list {
+          grid-column: side-start / side-end;
+          grid-template-columns: minmax(0, 1fr);
+        }
+        .help-row:nth-child(2) {
+          background-image: linear-gradient(var(--k-hair), var(--k-hair));
+        }
+        #help > #config {
+          grid-column: main-start / main-end;
+          grid-row: keyshead / end;
+        }
+      }
+
+      /* ==== The reset box (docs/plan.md Phase 16) =========================
+         The Esc screen's "Reset..." opens it, centered over everything —
+         above the Esc screen (#help, z 6), still under the #flash pill
+         (z 10). A sheet over a sheet: the Esc screen recedes one more
+         step (frosted and dimmed, so the stack reads back to front:
+         ground, Esc sheet, alert) and a smaller sheet of the same make
+         asks. The reader's own buttons decide, and Escape/n simply
+         cancels. No second blur on the sheet itself (the scrim behind
+         already frosts): its body is opaque. */
+      #confirm {
+        --c-padx: clamp(20px, 2.2vw, 30px);
+        --c-padv: clamp(20px, 3vh, 30px);
+        position: absolute;
+        inset: 0;
+        z-index: 7;
+        display: grid;
+        grid-template-columns:
+          minmax(calc(var(--c-padx) + 14px), 1fr)
+          minmax(0, 23rem)
+          minmax(calc(var(--c-padx) + 14px), 1fr);
+        grid-template-rows:
+          minmax(16px, 1fr)
+          var(--c-padv)
+          auto auto auto auto
+          var(--c-padv)
+          minmax(16px, 1fr);
+        justify-items: center;
+        background: rgba(8, 8, 11, 0.42);
+        -webkit-backdrop-filter: blur(18px) saturate(120%);
+        backdrop-filter: blur(18px) saturate(120%);
+        color: var(--k-t1);
+        text-align: center;
+      }
+      #confirm[hidden] {
+        display: none;
+      }
+      #confirm > * {
+        grid-column: 2;
+        min-width: 0;
+      }
+      #confirm::before,
+      #confirm::after {
+        grid-column: 2;
+        grid-row: 2 / 8;
+        justify-self: stretch;
+        margin: 0 calc(-1 * var(--c-padx));
+        border-radius: var(--k-r-sheet);
+      }
+      /* Its mark: a red restore arrow. */
+      .confirm-title {
+        --k-mark: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 46 20'%3E%3Cpath d='M3 10H24' stroke='%23f4efe6' stroke-width='5' stroke-linecap='round'/%3E%3Cg fill='none' stroke='%23ff6961' stroke-width='3.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M36 3.4A6.8 6.8 0 1 1 31.2 5.4'/%3E%3Cpath d='M38.8 0.9L36 3.4L38.8 5.9'/%3E%3C/g%3E%3C/svg%3E");
+        grid-row: 3;
+        justify-content: center;
+        margin: 0 0 clamp(8px, 1.2vh, 12px);
+      }
+      .confirm-message {
+        grid-row: 4;
+        margin: 0 0 clamp(16px, 2.4vh, 24px);
+        color: var(--k-t2);
+        font-size: var(--k-t-body);
+        line-height: 1.42;
+        letter-spacing: -0.006em;
+      }
+      .confirm-actions {
+        display: grid;
+        grid-row: 5;
+        grid-template-columns: 1fr 1fr;
+        justify-self: stretch;
+        gap: clamp(8px, 1vw, 12px);
+      }
+      /* The alert's decision: the capsule at its large size; the
+         destructive one is the danger capsule. */
+      .confirm-button {
+        height: var(--k-ctl-h-lg);
+        font-size: var(--k-t-body);
+      }
+      .confirm-hint {
+        grid-row: 6;
+        margin: clamp(12px, 1.8vh, 16px) 0 0;
+        color: var(--k-t2);
+        font-size: var(--k-t-small);
+        font-weight: var(--k-w-2);
+        letter-spacing: 0.004em;
+      }
+
+      /* ==== The choice screen (docs/plan.md Phase 13) =====================
+         The machine's open choice drawn as a prompt over its numbered
+         routes, on a glass sheet (the same rim, radius and shadow as the
+         others) over the paused scene, centred on the decision. z 5: the
+         branch map may open over it (z 6), and the Esc screen — the one
+         screen that may open OVER a pending choice — stays above it at
+         z 6; #flash (z 10) is unaffected. Rows are buttons so a pointer
+         click is the row's own; each route's number is a key cap, and the
+         seen marker rides at the row's end. */
+
+      /* The paused scene, under the choice screen only: the frame frozen,
+         out of focus and veiled behind the sheet. Where the frame does not
+         reach (letterbox) #app's graphite ground shows. The Esc screen
+         keeps Phase 13b's hidden stage instead (its own opaque ground). */
+      #app:has(> #choice:not([hidden])) {
+        background: radial-gradient(120% 95% at 50% 42%, #1b1b20 0%, #101013 58%, #08080a 100%);
+      }
+      #app:has(> #choice:not([hidden])) > .stage {
+        filter: blur(clamp(22px, 2.6vw, 48px)) saturate(1.65) brightness(0.74);
+        transform: scale(0.95);
+      }
+      /* The opaque map can open over a pending choice: no blurred layer is
+         kept under it while it pans. */
+      #app:has(> #branchmap:not([hidden])) > .stage {
+        filter: none;
+        transform: none;
+      }
+      #choice {
+        --c-padx: clamp(18px, 2.2vw, 30px);
+        --c-padv: clamp(18px, 3vh, 32px);
+        position: absolute;
+        inset: 0;
+        z-index: 5;
+        display: grid;
+        grid-template-columns:
+          minmax(calc(var(--c-padx) + clamp(12px, 3vw, 48px)), 1fr)
+          minmax(min(26rem, 100%), max-content)
+          minmax(calc(var(--c-padx) + clamp(12px, 3vw, 48px)), 1fr);
+        grid-template-rows:
+          minmax(clamp(12px, 4vh, 48px), 1fr)
+          var(--c-padv)
+          auto auto auto
+          minmax(0, auto)
+          var(--c-padv)
+          minmax(clamp(12px, 4vh, 48px), 1fr);
+        /* The scene's blur is on the stage itself (above); this is the
+           veil, with the grounds' grain. */
+        background:
+          var(--k-noise),
+          radial-gradient(
+            130% 105% at 50% 46%,
+            rgba(15, 15, 19, 0.45) 0%,
+            rgba(11, 11, 14, 0.6) 52%,
+            rgba(5, 5, 7, 0.86) 100%
+          );
+        color: var(--k-t1);
+      }
+      #choice[hidden] {
+        display: none;
+      }
+      #choice > * {
+        grid-column: 2;
+        min-width: 0;
+      }
+      #choice::before,
+      #choice::after {
+        z-index: -1;
+        grid-column: 2;
+        grid-row: 2 / 8;
+        margin: 0 calc(-1 * var(--c-padx));
+        border-radius: var(--k-r-sheet);
+      }
+      #choice::before {
+        content: "";
+        background: var(--k-sheen), var(--k-glass);
+        -webkit-backdrop-filter: blur(40px) saturate(185%) brightness(1.06);
+        backdrop-filter: blur(40px) saturate(185%) brightness(1.06);
+        box-shadow: var(--k-shadow-sheet);
+      }
+      .choice-title {
+        grid-row: 3;
+        margin: 0 auto clamp(4px, 0.8vh, 8px);
+        max-width: 60ch;
+        line-height: 1.25;
+        text-align: center;
+      }
+      /* Play all routes (docs/plan.md Phase 18): the machine is about to
+         answer — a status line over a bar that drains to the pick. */
+      .choice-auto {
+        display: flex;
+        flex-direction: column;
+        grid-row: 4;
+        align-items: center;
+        gap: 8px;
+        margin: clamp(4px, 0.8vh, 8px) 0;
+      }
+      .choice-auto[hidden] {
+        display: none;
+      }
+      .choice-auto-text {
+        margin: 0;
+        color: var(--k-t1);
+        font-size: var(--k-t-ctl);
+        font-weight: var(--k-w-2);
+        letter-spacing: -0.004em;
+        text-align: center;
+      }
+      .choice-auto-bar {
+        width: min(320px, 60vw);
+        height: 4px;
+        border-radius: 2px;
+        background: rgba(var(--k-ink), 0.18);
+        overflow: hidden;
+      }
+      .choice-auto-fill {
+        width: 100%;
+        height: 100%;
+        border-radius: 2px;
+        background: var(--k-gold);
+      }
+      .choice-hint {
+        grid-row: 5;
+        margin: 0 0 clamp(12px, 2vh, 20px);
+        color: var(--k-t2);
+        font-size: var(--k-t-small);
+        font-weight: var(--k-w-2);
+        letter-spacing: 0.004em;
+        text-align: center;
+      }
+      /* Rows fill the sheet's column, each a cell: number, label, then the
+         seen marker. Long lists (docs/progress.md, long choice lists): the
+         list is the panel's only shrinking part — a scroll container's
+         minimum height is 0, while the title, status and hint keep their
+         content height — so rows that do not fit scroll inside it and the
+         panel never grows past the window. The padding keeps a highlighted
+         row's ring inside the scroll clip; `overscroll-behavior` stops a
+         scroll reaching the page at either end. */
+      .choice-list {
+        display: flex;
+        flex-direction: column;
+        grid-row: 6;
+        gap: clamp(6px, 1vh, 10px);
+        width: 100%;
+        max-width: 72ch;
+        min-height: 0;
+        margin: 0 auto;
+        padding: 4px;
+        overflow-y: auto;
+        overscroll-behavior: contain;
+      }
+      .choice-row {
+        flex: none;
+        display: flex;
+        align-items: center;
+        gap: clamp(10px, 1.2vw, 14px);
+        padding: clamp(8px, 1.3vh, 12px) clamp(14px, 1.5vw, 20px)
+          clamp(8px, 1.3vh, 12px) clamp(8px, 0.9vw, 12px);
+        border: 1px solid rgba(255, 255, 255, 0.07);
+        border-radius: var(--k-r-md);
+        background: var(--k-cell);
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+        color: var(--k-t1);
         font: inherit;
+        font-size: var(--k-t-head);
+        letter-spacing: -0.012em;
+        text-align: left;
         cursor: pointer;
       }
-      .config-step {
-        font-size: clamp(14px, 1.8vh, 20px);
+      .choice-row:hover,
+      .choice-row:focus-visible,
+      .choice-cursor {
+        border-color: rgba(255, 255, 255, 0.14);
+        background: rgba(255, 255, 255, 0.12);
+      }
+      .choice-continue {
+        border-style: dashed;
+        border-color: rgba(var(--k-ink), 0.28);
+      }
+      .choice-num {
+        font-size: var(--k-t-ctl);
+      }
+      /* Seen: a solid ink cap, as a played route on the map. */
+      .choice-row:has(.choice-seen) .choice-num {
+        background: rgb(var(--k-ink));
+        box-shadow: var(--k-cap-edge-filled);
+        color: var(--k-stamp);
+      }
+      /* Yours: hovered, the keyboard's cursor, the walk's route: gold. */
+      .choice-row:hover .choice-num,
+      .choice-row.choice-cursor .choice-num,
+      .choice-row.choice-next .choice-num {
+        background: var(--k-gold);
+        box-shadow: var(--k-cap-edge-filled);
+        color: var(--k-stamp);
+      }
+      .choice-label {
+        flex: 1;
+        line-height: 1.35;
+      }
+      /* The seen marker: a small capsule tag, a checkmark before "seen". */
+      .choice-seen {
+        flex: none;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.45em;
+        padding: 0.3em 0.7em 0.3em 0.6em;
+        border-radius: var(--k-r-pill);
+        background: rgba(255, 255, 255, 0.08);
+        color: var(--k-t2);
+        font-size: var(--k-t-micro);
+        font-weight: var(--k-w-bold);
         line-height: 1.2;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
       }
-      .config-toggle {
-        font-size: clamp(13px, 1.7vh, 19px);
+      .choice-seen::before {
+        content: "";
+        width: 0.36em;
+        height: 0.68em;
+        margin-top: -0.18em;
+        border-right: 1.6px solid currentColor;
+        border-bottom: 1.6px solid currentColor;
+        transform: rotate(45deg);
       }
-      .config-step:hover,
-      .config-step:focus-visible,
-      .config-toggle:hover,
-      .config-toggle:focus-visible {
-        border-color: var(--accent);
-        background: rgba(30, 30, 36, 0.95);
-        outline: none;
+      /* Play all routes (docs/plan.md Phase 20): the row it will pick,
+         marked through the whole countdown — a softer form of the picked
+         look below, which takes over for the last moment. Both keep their
+         look under the pointer. */
+      .choice-row.choice-next {
+        border-color: var(--k-gold-edge);
+        background: var(--k-gold-tint);
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
       }
-      /* The switch reads its own state, so the panel shows the value
-         without relying on position alone. */
-      .config-toggle[aria-pressed="true"] {
-        border-color: var(--accent);
-        color: var(--accent);
+      .choice-row.choice-picked {
+        border-color: var(--k-gold);
+        background: var(--k-gold);
+        box-shadow: 0 0 0 1px var(--k-gold);
+        color: var(--k-stamp);
+        font-weight: var(--k-w-ctl);
       }
-      /* The branch map (docs/plan.md Phase 31, render/branchmap.ts): the
-         decision tree on the panels' dark ground, opaque so the game does
-         not show through the lines. z 6: over
-         a pending choice (z 5), which it may open above; it never
-         coexists with the Esc screen (also z 6) — each replaces the
-         other — and stays under the reset box (z 7) and the #flash pill
-         (z 10). A one-line header (Phase 33): the title and its buttons,
-         each naming its key in its hover hint; under it the view, taking
-         all the height left, which owns every pointer and wheel event
-         (touch-action: none: no browser pan or zoom). No text on it is
-         selectable, so a drag pan or a double click never selects any:
-         Safari reads only the -webkit- form. */
+      .choice-row.choice-picked .choice-num {
+        background: var(--k-stamp);
+        box-shadow: var(--k-cap-edge-filled);
+        color: var(--k-gold);
+      }
+      .choice-picked .choice-seen {
+        background: rgba(27, 27, 32, 0.14);
+        color: var(--k-stamp);
+      }
+
+      /* ==== The branch map (docs/plan.md Phase 31, render/branchmap.ts) ====
+         The decision tree on the Esc screen's grey, drawn like a transit
+         diagram: thick round-capped lines, solid stations, capsule
+         interchanges, a heavy gold bullseye for "you are here". Opaque, so
+         the game does not show through the lines. z 6: over a pending
+         choice (z 5), which it may open above; it never coexists with the
+         Esc screen (also z 6) — each replaces the other — and stays under
+         the reset box (z 7) and the #flash pill (z 10). A one-line header
+         (Phase 33) standing on the ground, no bar: the title and its
+         buttons, each naming its key in its hover hint; under it the view,
+         taking all the height left, which owns every pointer and wheel
+         event (touch-action: none: no browser pan or zoom). No text on it
+         is selectable, so a drag pan or a double click never selects any:
+         Safari reads only the -webkit- form. Inside the view: flat fills
+         and strokes only (no filter, blend, soft shadow on the chart or
+         animation), so it pans at full rate. */
       #branchmap {
+        /* Chart tones: the ink mixed onto the ground as opaque colours,
+           so caps and crossings never double up. */
+        --k-line-conn: #b3b0ab;
+        --k-line-partly: #c3bfb9;
+        --k-line-unseen: #9a9794;
+        --k-line-end: #d6d2cb;
+        --k-line-inert: #6e6d6f;
+        /* An empty thumbnail (its picture still loading). */
+        --k-thumb: rgb(46, 46, 52);
+        /* The header's height, so the view can paint the ground's radial
+           from the same centre. */
+        --k-map-head-h: clamp(56px, 7.4vh, 80px);
         position: absolute;
         inset: 0;
         z-index: 6;
         display: flex;
         flex-direction: column;
-        background: rgb(8, 8, 10);
-        color: var(--ink);
-        font-family: var(--ui-font);
+        background: var(--k-ground);
+        color: var(--k-t1);
         -webkit-user-select: none;
         user-select: none;
       }
@@ -323,61 +1435,57 @@
         display: none;
       }
       .map-head {
+        position: relative;
         display: flex;
         flex: 0 0 auto;
         flex-wrap: wrap;
         align-items: center;
         justify-content: space-between;
-        gap: 8px clamp(12px, 2vw, 28px);
-        padding: clamp(8px, 1.4vh, 16px) clamp(16px, 4vw, 64px);
-        border-bottom: 1px solid rgba(244, 239, 230, 0.12);
+        gap: 10px clamp(12px, 2vw, 28px);
+        min-height: var(--k-map-head-h);
+        padding: 0 clamp(18px, 2.8vw, 44px);
       }
+      /* Its mark: the gold "you are here" bullseye. */
       .map-title {
+        --k-mark: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 46 20'%3E%3Cpath d='M3 10H24' stroke='%23f4efe6' stroke-width='5' stroke-linecap='round'/%3E%3Ccircle cx='36' cy='10' r='7.2' fill='%231e1e23' stroke='%23e6b566' stroke-width='3.4'/%3E%3Ccircle cx='36' cy='10' r='2.9' fill='%23e6b566'/%3E%3C/svg%3E");
         margin: 0;
-        color: var(--accent);
-        font-size: clamp(12px, 1.5vh, 17px);
-        font-weight: 600;
-        letter-spacing: 0.16em;
-        text-transform: uppercase;
       }
+      /* The tools in groups: the Spoilers switch, then Newest bookmark |
+         Centre, then 100% | Fit, each pair a segmented capsule (its parts
+         the single capsule, cut). */
       .map-tools {
         display: flex;
         flex-wrap: wrap;
+        align-items: center;
         justify-content: flex-end;
-        gap: 8px;
       }
-      .map-tool {
-        min-width: 2.4em;
-        padding: clamp(3px, 0.6vh, 7px) clamp(10px, 1.2vw, 16px);
-        border: 1px solid rgba(244, 239, 230, 0.16);
-        border-radius: 6px;
-        background: rgba(18, 18, 22, 0.9);
-        color: var(--ink);
-        font: inherit;
-        font-size: clamp(12px, 1.5vh, 16px);
-        cursor: pointer;
+      .map-tool[data-act="spoil"],
+      .map-tool[data-act="here"] {
+        margin-right: clamp(8px, 0.9vw, 14px);
       }
-      .map-tool:hover,
+      .map-tool[data-act="newest"],
+      .map-tool[data-act="full"] {
+        padding-right: calc(var(--k-ctl-padx) * 0.85);
+        border-radius: var(--k-r-pill) 0 0 var(--k-r-pill);
+      }
+      .map-tool[data-act="here"],
+      .map-tool[data-act="fit"] {
+        margin-left: 1px;
+        padding-left: calc(var(--k-ctl-padx) * 0.85);
+        border-radius: 0 var(--k-r-pill) var(--k-r-pill) 0;
+      }
+      /* A focused segment's ring over its neighbour. */
       .map-tool:focus-visible {
-        border-color: var(--accent);
-        background: rgba(30, 30, 36, 0.95);
-        outline: none;
+        z-index: 1;
       }
-      /* Newest bookmark with no bookmarks: there, but greyed. */
-      .map-tool:disabled {
-        border-color: rgba(244, 239, 230, 0.16);
-        background: rgba(18, 18, 22, 0.9);
-        color: rgba(244, 239, 230, 0.4);
-        cursor: default;
-      }
-      /* A control's instant hint (the branch map's buttons, a bookmark's
-         delete "x"): drawn from its data-hint below it, right-aligned to
-         it so a control at the window's right edge keeps it on screen,
-         shown with no delay on hover or keyboard focus. Replaces the
-         native title, which Chrome shows late and Safari not at all in
-         fullscreen. The "/ ''" alt text keeps it out of the control's
-         accessible name; the control carries the text itself
-         (aria-describedby or aria-label). */
+      /* A control's instant hint (the map's buttons, a bookmark's delete
+         x): drawn from its data-hint below it, right-aligned to it so a
+         control at the window's right edge keeps it on screen, shown with
+         no delay on hover or keyboard focus; a chip of the sheet, its rim
+         on top. Replaces the native title, which Chrome shows late and
+         Safari not at all in fullscreen. The "/ ''" alt text keeps it out
+         of the control's accessible name; the control carries the text
+         itself (aria-describedby or aria-label). */
       .map-tool[data-hint] {
         position: relative;
       }
@@ -392,17 +1500,16 @@
         top: calc(100% + 6px);
         right: 0;
         z-index: 8;
-        padding: 4px 8px;
-        border: 1px solid rgba(244, 239, 230, 0.22);
-        border-radius: 6px;
-        background: rgba(10, 10, 12, 0.96);
-        color: var(--ink);
-        font-family: var(--ui-font);
-        font-size: clamp(11px, 1.4vh, 14px);
-        font-weight: normal;
-        letter-spacing: normal;
-        line-height: 1.35;
-        text-transform: none;
+        padding: 5px 11px;
+        border-radius: var(--k-r-pill);
+        background: var(--k-sheet);
+        box-shadow: var(--k-rim), 0 0 0 0.5px rgba(0, 0, 0, 0.6);
+        color: var(--k-t1);
+        font-family: var(--k-font);
+        font-size: var(--k-t-small);
+        font-weight: var(--k-w-2);
+        letter-spacing: 0.004em;
+        line-height: 1.3;
         white-space: nowrap;
         pointer-events: none;
         visibility: hidden;
@@ -413,21 +1520,28 @@
         visibility: visible;
         opacity: 1;
       }
-      /* The Spoilers switch reads its state, like the Esc screen's. */
-      .map-tool[aria-pressed="true"] {
-        border-color: var(--accent);
-        color: var(--accent);
+      .map-tool[data-hint]::after {
+        top: calc(100% + 9px);
       }
       /* The view paints its own ground and clips and isolates what moves
          inside it (Phase 35, a Safari lesson): when the map does not fill
          the view, the area it leaves is repainted, never left holding
-         stale pixels. */
+         stale pixels. The ground is the panel's grey, its radial centred
+         where the panel's is (the header's height up), so header and view
+         read as one; it is static, never moving with the chart. */
       .map-view {
         position: relative;
         flex: 1 1 auto;
         min-height: 0;
         overflow: hidden;
-        background: rgb(8, 8, 10);
+        background:
+          var(--k-noise),
+          radial-gradient(
+            125vw 100vh at 50% calc(40vh - var(--k-map-head-h)),
+            var(--k-ground-0) 0%,
+            var(--k-ground-1) 55%,
+            var(--k-ground-2) 100%
+          );
         isolation: isolate;
         contain: paint;
         cursor: grab;
@@ -460,10 +1574,13 @@
       .map-top {
         pointer-events: none;
       }
+      /* The chart's figures in SF Rounded where there is one (Safari),
+         like transit signage. */
       .map-svg text {
-        fill: var(--ink);
-        font-family: var(--ui-font);
+        fill: rgb(var(--k-ink));
+        font-family: var(--k-font-figure);
         font-size: 15px;
+        font-weight: var(--k-w-bold);
       }
       /* Level of detail (render/branchmap.ts): near, the culled node
          groups with their text; far, only the skeleton's boxes. */
@@ -479,6 +1596,12 @@
       .map-view.map-pointing {
         cursor: pointer;
       }
+      /* Lines. Weights are a drawing's, in world units: bold against the
+         boxes at 100%, heavier again far out (below). (`vector-effect`
+         asks for screen pixels, but in Chrome the stage's CSS scale still
+         scales them: docs/plan.md Phase 40, map lines.) Colours are opaque
+         (ink mixed onto the ground), so crossings and caps never double
+         up. */
       .map-conn,
       .map-join,
       .map-return,
@@ -488,61 +1611,90 @@
         stroke-linecap: round;
         vector-effect: non-scaling-stroke;
       }
+      /* Connectors: the branches out to each route and back, and a row's
+         end to the next row's start (the main line wrapping like a line
+         of text); returns dashed. */
       .map-conn,
-      .map-join {
-        stroke: rgba(244, 239, 230, 0.4);
-        stroke-width: 2;
-      }
-      /* A row's end to the next row's start: the main line wrapping like a
-         line of text. */
-      .map-wrap {
-        stroke: rgba(244, 239, 230, 0.4);
-        stroke-width: 2;
+      .map-join,
+      .map-wrap,
+      .map-return {
+        stroke: var(--k-line-conn);
+        stroke-width: 4;
         stroke-linejoin: round;
       }
       .map-return {
-        stroke: rgba(244, 239, 230, 0.4);
-        stroke-width: 2;
-        stroke-dasharray: 6 6;
+        stroke-dasharray: 7 9;
       }
+      /* The stretches by how much is read: solid, dashed, a bead chain. */
       .map-run {
-        stroke-width: 3;
+        stroke-width: 5;
       }
       .map-run-seen {
-        stroke: rgba(244, 239, 230, 0.85);
+        stroke: rgb(var(--k-ink));
       }
       .map-run-partly {
-        stroke: rgba(244, 239, 230, 0.55);
-        stroke-dasharray: 10 5;
+        stroke: var(--k-line-partly);
+        stroke-dasharray: 11 10;
       }
       .map-run-unseen {
-        stroke: rgba(244, 239, 230, 0.22);
-        stroke-dasharray: 3 6;
+        stroke: var(--k-line-unseen);
+        stroke-width: 4.5;
+        stroke-dasharray: 0 10;
       }
+      /* Far out (no labels) the lines double their weight, so the tree
+         still reads as lines, not hairlines; rows stay apart. */
+      .map-svg.map-far .map-run {
+        stroke-width: 10;
+      }
+      .map-svg.map-far .map-conn,
+      .map-svg.map-far .map-join,
+      .map-svg.map-far .map-wrap,
+      .map-svg.map-far .map-return {
+        stroke-width: 8;
+      }
+      /* Counts: secondary text, as everywhere. */
       .map-svg .map-count {
-        fill: rgba(244, 239, 230, 0.5);
+        fill: var(--k-t2);
+        font-family: var(--k-font);
         font-size: 12px;
+        font-weight: var(--k-w-2);
         text-anchor: middle;
       }
       /* A stretch holding cards says its screens and bookmarks under
          them, from its left end. */
       .map-svg .map-count-cards {
         font-size: 11px;
-        fill: rgba(244, 239, 230, 0.45);
         text-anchor: start;
       }
+      /* Stations: the start and the joins, solid beads on the line (paths,
+         grown by a same-colour stroke). */
       .map-dot {
-        fill: rgba(244, 239, 230, 0.6);
+        fill: rgb(var(--k-ink));
+        stroke: rgb(var(--k-ink));
+        stroke-width: 3;
       }
+      /* Ends: a solid stop block, corners rounded (opaque, so the stroke
+         never doubles over the fill). */
       .map-end {
-        fill: rgba(244, 239, 230, 0.45);
+        fill: var(--k-line-end);
+        stroke: var(--k-line-end);
+        stroke-width: 3;
+        stroke-linejoin: round;
       }
+      /* Nodes: plates on the chart. Decisions: full capsules (`rx` half
+         their height) on the sheet, a heavy ink ring once reached. Routes:
+         solid ink once played, solid gold for the last pick, ink-outlined
+         when partly read, dashed when unseen. Not reached: faint, dashed,
+         inert. */
       .map-node rect,
       .map-box {
-        fill: rgba(18, 18, 22, 0.95);
-        stroke: rgba(244, 239, 230, 0.3);
-        stroke-width: 1.5;
+        fill: var(--k-sheet);
+        stroke: rgba(var(--k-ink), 0.55);
+        stroke-width: 2;
         vector-effect: non-scaling-stroke;
+      }
+      .map-dec rect {
+        rx: 14px;
       }
       .map-node.map-reached {
         cursor: pointer;
@@ -552,7 +1704,8 @@
       }
       .map-dec.map-reached rect,
       .map-box.map-dec.map-reached {
-        stroke: rgba(244, 239, 230, 0.6);
+        stroke: rgb(var(--k-ink));
+        stroke-width: 3;
       }
       /* Compact nodes (Phase 35): a decision's "played/total", a route's
          choice number; the full text is in the tooltip. Their baseline
@@ -560,24 +1713,39 @@
       .map-svg .map-dec-c,
       .map-svg .map-route-c {
         font-size: 13px;
-        font-weight: 600;
+        letter-spacing: 0.01em;
         text-anchor: middle;
+      }
+      .map-route.map-route-partly rect,
+      .map-box.map-route-partly {
+        stroke: rgb(var(--k-ink));
+        stroke-width: 2.5;
       }
       .map-route.map-route-played rect,
       .map-box.map-route-played {
-        fill: rgba(52, 46, 36, 0.95);
+        fill: rgb(var(--k-ink));
+        stroke: rgb(var(--k-ink));
+        stroke-width: 2.5;
+      }
+      .map-svg .map-route-played text {
+        fill: var(--k-stamp);
       }
       .map-route.map-route-unseen rect,
       .map-box.map-route-unseen {
-        stroke-dasharray: 4 4;
+        stroke: rgba(var(--k-ink), 0.6);
+        stroke-dasharray: 3 3;
       }
-      /* The last pick at each decision: the choice screen's walk-route
-         look (.choice-next), the route the wheel follows. */
+      /* The last pick at each decision, the route the wheel follows: the
+         reader's own, in gold (the choice screen's walk route, too). */
       .map-node.map-last rect,
       .map-box.map-last {
-        stroke: var(--accent);
+        fill: var(--k-gold);
+        stroke: var(--k-gold);
         stroke-width: 2.5;
-        fill: rgba(42, 35, 22, 0.95);
+        stroke-dasharray: none;
+      }
+      .map-svg .map-node.map-last text {
+        fill: var(--k-stamp);
       }
       /* Not reached yet: drawn, but faded and inert. Faded by colour,
          not group opacity, which would cost a layer per node. */
@@ -586,94 +1754,162 @@
       }
       .map-node.map-inert rect,
       .map-box.map-inert {
-        fill: rgba(14, 14, 16, 0.95);
-        stroke: rgba(244, 239, 230, 0.16);
-        stroke-dasharray: 4 4;
+        fill: rgba(var(--k-sheet-rgb), 0.6);
+        stroke: rgba(var(--k-ink), 0.34);
+        stroke-width: 2;
+        stroke-dasharray: 3 4;
       }
       .map-svg .map-node.map-inert text {
-        fill: rgba(244, 239, 230, 0.4);
+        fill: rgba(var(--k-ink), 0.6);
       }
-      /* Hover / focus on anything clickable. */
+      /* Far out the boxes carry no text: solid blocks read best there,
+         each in its state's colour, swelled by a stroke of the same
+         colour. */
+      .map-svg.map-far .map-box {
+        fill: var(--k-line-partly);
+        stroke: var(--k-line-partly);
+        stroke-width: 6;
+        stroke-linejoin: round;
+      }
+      .map-svg.map-far .map-box.map-dec.map-reached,
+      .map-svg.map-far .map-box.map-route-played {
+        fill: rgb(var(--k-ink));
+        stroke: rgb(var(--k-ink));
+      }
+      .map-svg.map-far .map-box.map-route-unseen {
+        fill: var(--k-line-unseen);
+        stroke: var(--k-line-unseen);
+      }
+      .map-svg.map-far .map-box.map-last {
+        fill: var(--k-gold);
+        stroke: var(--k-gold);
+      }
+      .map-svg.map-far .map-box.map-inert {
+        fill: var(--k-line-inert);
+        stroke: var(--k-line-inert);
+      }
+      /* Hover / focus on anything clickable: the gold ring (ink on the
+         gold pill), and a decision's figures turn gold. */
       .map-node.map-reached:hover rect,
       .map-node.map-reached:focus-visible rect {
-        stroke: var(--accent);
-        stroke-width: 2.5;
+        stroke: var(--k-gold);
+        stroke-width: 3.5;
       }
-      .map-here-ring {
-        fill: none;
-        stroke: var(--accent);
-        stroke-width: 3;
+      .map-dec.map-reached:hover rect,
+      .map-dec.map-reached:focus-visible rect {
+        fill: var(--k-gold-sheet);
       }
-      .map-here-dot {
-        fill: var(--accent);
+      .map-svg .map-dec.map-reached:hover text,
+      .map-svg .map-dec.map-reached:focus-visible text {
+        fill: var(--k-gold);
       }
-      .map-svg .map-here-label {
-        fill: var(--accent);
-        font-size: 13px;
-        font-weight: 600;
-        letter-spacing: 0.08em;
-        text-anchor: middle;
-        paint-order: stroke;
-        stroke: rgba(8, 8, 10, 0.9);
-        stroke-width: 4px;
+      .map-node.map-last.map-reached:hover rect,
+      .map-node.map-last.map-reached:focus-visible rect {
+        fill: var(--k-gold-hi);
+        stroke: rgb(var(--k-ink));
       }
+      /* You are here: a heavy bullseye, a dark disc inside so it reads
+         over a card's picture too; its ring stays inside the marker's
+         reach (18 up). */
       .map-here {
         pointer-events: none;
+      }
+      .map-here-ring {
+        r: 15px;
+        fill: rgba(var(--k-sheet-rgb), 0.62);
+        stroke: var(--k-gold);
+        stroke-width: 4;
+      }
+      .map-here-dot {
+        r: 6.5px;
+        fill: var(--k-gold);
+      }
+      .map-svg .map-here-label {
+        fill: var(--k-gold);
+        font-family: var(--k-font);
+        font-size: 13px;
+        letter-spacing: 0.05em;
+        text-anchor: middle;
+        paint-order: stroke;
+        stroke: rgba(var(--k-sheet-rgb), 0.94);
+        stroke-width: 4.5px;
+        stroke-linejoin: round;
+      }
+      /* The node tooltip and the undo toast: chips of the sheet, its rim
+         on top. */
+      .map-tip,
+      .map-toast {
+        background: var(--k-sheet);
+        box-shadow: var(--k-rim), var(--k-shadow-chip);
+        color: var(--k-t1);
       }
       .map-tip {
         position: absolute;
         top: 0;
         left: 0;
+        z-index: 3;
         display: flex;
         flex-direction: column;
         gap: 3px;
         max-width: min(46ch, 80vw);
-        padding: 8px 12px;
-        border: 1px solid rgba(244, 239, 230, 0.22);
-        border-radius: 6px;
-        background: rgba(10, 10, 12, 0.96);
-        color: var(--ink);
-        font-size: clamp(12px, 1.5vh, 16px);
+        padding: 9px 13px;
+        border-radius: var(--k-r-md);
+        font-size: var(--k-t-ctl);
         line-height: 1.35;
+        letter-spacing: -0.006em;
         pointer-events: none;
       }
       .map-tip[hidden] {
         display: none;
       }
+      .map-tip strong {
+        font-weight: var(--k-w-ctl);
+      }
       .map-tip span {
-        color: rgba(244, 239, 230, 0.6);
-        font-size: 0.85em;
+        color: var(--k-t2);
+        font-size: var(--k-t-small);
+        font-weight: var(--k-w-2);
       }
       /* Bookmark cards (Phase 35, replacing the `t` screen): in world
          units on the stage, so at 100% a card is the old screen's 280 x
          158 px thumbnail (its time in the hover tooltip), and at Fit it
-         shrinks with the tree. The newest has the accent border. */
+         shrinks with the tree. Tiles of the sheet on the grey: one dark
+         hairline all round (the same on every side, so the silhouette
+         reads on the grey whatever the picture), the sheet's light from
+         above drawn INSIDE, over the picture's top edge, and a hard foot
+         of 2 screen pixels, unblurred (--px, a screen pixel in world
+         units, set by render/branchmap.ts). */
       .bm-card {
         position: absolute;
         width: 280px;
         height: 158px;
-        box-sizing: border-box;
-        border: 1px solid rgba(244, 239, 230, 0.16);
-        border-radius: 6px;
-        background: rgb(20, 20, 24);
+        border: 1px solid rgba(8, 8, 10, 0.62);
+        border-radius: 12px;
+        background: var(--k-sheet);
+        box-shadow: 0 calc(2px * var(--px, 1)) 0 rgba(0, 0, 0, 0.3);
         cursor: pointer;
       }
-      /* The hover ring and the newest's outline are 2 screen pixels at
-         any zoom (--px, a screen pixel in world units, set by
-         render/branchmap.ts), so the newest stands out at Fit too. */
-      .bm-card:hover {
-        border-color: var(--accent);
-        box-shadow: 0 0 0 calc(2px * var(--px, 1)) var(--accent);
-      }
+      /* The hover ring and the newest's outline are 3 screen pixels of
+         gold at any zoom, so the newest stands out at Fit too. */
+      .bm-card:hover,
       .bm-card.bm-newest {
-        border-color: var(--accent);
-        box-shadow: 0 0 0 calc(2px * var(--px, 1)) var(--accent);
+        border-color: var(--k-gold);
+        box-shadow: 0 0 0 calc(3px * var(--px, 1)) var(--k-gold);
       }
       .bm-thumb {
+        position: relative;
         height: 100%;
         overflow: hidden;
-        border-radius: 5px;
-        background: rgb(32, 32, 38);
+        border-radius: 11px;
+        background: var(--k-thumb);
+      }
+      .bm-thumb::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        border-radius: inherit;
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16);
+        pointer-events: none;
       }
       .bm-thumb > .bm-pic {
         display: block;
@@ -684,8 +1920,11 @@
       /* The delete x, at every zoom: shown on the card's hover, drawn at a
          fixed screen size whatever the zoom (--del-scale, set per frame by
          render/branchmap.ts), anchored to the card's top-right corner, so
-         it stays a usable target at Fit. Its hint is the instant
-         [data-hint] one. */
+         it stays a usable target at Fit. A small round capsule over the
+         picture, red on hover (it deletes). The x is an inline SVG
+         centred on the circle's centre, so it sits centred at every size,
+         as a font's glyph would not. Its hint is the instant [data-hint]
+         one. */
       .bm-del {
         position: absolute;
         top: 6px;
@@ -694,25 +1933,32 @@
         width: 24px;
         height: 24px;
         padding: 0;
-        border: 1px solid rgba(244, 239, 230, 0.4);
+        border: 0;
         border-radius: 50%;
-        background: rgba(10, 10, 12, 0.92);
-        color: var(--ink);
-        font: inherit;
-        font-size: 17px;
-        line-height: 21px;
-        text-align: center;
+        background: var(--k-ctl-fill);
+        box-shadow: var(--k-ctl-edge), inset 0 0 0 1px rgba(var(--k-ink), 0.3);
+        color: var(--k-t1);
         cursor: pointer;
         transform: scale(var(--del-scale, 1));
         transform-origin: 100% 0;
         visibility: hidden;
       }
+      .bm-del > svg {
+        display: block;
+        width: 100%;
+        height: 100%;
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 1.6;
+        stroke-linecap: round;
+      }
       .bm-card:hover .bm-del {
         visibility: visible;
       }
       .bm-del:hover {
-        border-color: var(--accent);
-        color: var(--accent);
+        background: var(--k-red-solid);
+        box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.6);
+        color: #fff;
       }
       /* Its hint at its usual screen size whatever the x's own scale. */
       .bm-del[data-hint]::after {
@@ -727,7 +1973,7 @@
          outline 1.5 screen pixels at any zoom) with an Undo, until the map
          closes; a click anywhere on it undoes too. */
       .bm-card.bm-deleted {
-        border: calc(1.5px * var(--px, 1)) dashed rgba(244, 239, 230, 0.5);
+        border: calc(1.5px * var(--px, 1)) dashed rgba(var(--k-ink), 0.6);
         background: transparent;
         box-shadow: none;
       }
@@ -741,17 +1987,26 @@
         justify-content: center;
         gap: 10px;
         height: 100%;
-        color: rgba(244, 239, 230, 0.55);
+        color: var(--k-t2);
         font-size: 14px;
+        font-weight: var(--k-w-2);
       }
+      /* The ghost's Undo: the primary capsule, in world units, so it
+         scales with the card. */
       .bm-undo {
-        padding: 5px 14px;
-        border: 1px solid var(--accent);
-        border-radius: 6px;
-        background: none;
-        color: var(--accent);
+        display: inline-flex;
+        align-items: center;
+        padding: 6px 15px;
+        border: 0;
+        border-radius: var(--k-r-pill);
+        background: var(--k-ctl-fill);
         font: inherit;
+        font-weight: var(--k-w-ctl);
+        line-height: 1.2;
         cursor: pointer;
+      }
+      .bm-undo:hover {
+        background: var(--k-ctl-fill-hover);
       }
       /* Far out a ghost's words are unreadable: it is just its dashed
          outline (a click on it, the toast's Undo or Z puts it back). */
@@ -767,436 +2022,92 @@
         z-index: 2;
         display: flex;
         align-items: center;
-        gap: 12px;
-        padding: 8px 10px 8px 14px;
-        border: 1px solid rgba(244, 239, 230, 0.22);
-        border-radius: 6px;
-        background: rgba(10, 10, 12, 0.96);
-        font-size: 14px;
+        gap: 14px;
+        padding: 6px 6px 6px 18px;
+        border-radius: var(--k-r-pill);
+        font-size: var(--k-t-ctl);
+        font-weight: var(--k-w-ctl);
         transform: translateX(-50%);
       }
       .map-toast[hidden] {
         display: none;
       }
-      .map-undo {
-        padding: 4px 12px;
-        border: 1px solid var(--accent);
-        border-radius: 6px;
-        background: none;
-        color: var(--accent);
-        font: inherit;
-        cursor: pointer;
-      }
-      /* Reset-confirmation box (docs/plan.md Phase 16): the Esc screen's
-         "Reset progress" row opens it, centered over everything — above
-         the Esc screen (#help, z 6), still under the #flash
-         pill (z 10). Same dark family as the panels; the reader's own
-         buttons decide, and Escape/n simply cancels. */
-      #confirm {
-        position: absolute;
-        inset: 0;
-        z-index: 7;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        gap: clamp(12px, 2.4vh, 28px);
-        padding: clamp(16px, 3vh, 36px) clamp(20px, 6vw, 88px);
-        background: rgba(8, 8, 10, 0.94);
-        color: var(--ink);
-        font-family: var(--ui-font);
-        text-align: center;
-      }
-      #confirm[hidden] {
-        display: none;
-      }
-      .confirm-title {
-        margin: 0;
-        color: var(--accent);
-        font-size: clamp(12px, 1.5vh, 17px);
-        font-weight: 600;
-        letter-spacing: 0.16em;
-        text-transform: uppercase;
-      }
-      .confirm-message {
-        margin: 0;
-        max-width: 52ch;
-        font-size: clamp(13px, 1.7vh, 19px);
-        line-height: 1.5;
-      }
-      .confirm-hint {
-        margin: 0;
-        color: rgba(244, 239, 230, 0.55);
-        font-size: clamp(10px, 1.2vh, 13px);
-      }
-      .confirm-actions {
-        display: flex;
-        gap: clamp(10px, 2vw, 18px);
-      }
-      /* The buttons share the settings' control skin: same border,
-         hover and focus ring; the destructive one carries the accent. */
-      .confirm-button {
-        padding: clamp(4px, 1vh, 10px) clamp(14px, 2.4vw, 26px);
-        border: 1px solid rgba(244, 239, 230, 0.16);
-        border-radius: 6px;
-        background: rgba(18, 18, 22, 0.9);
-        color: var(--ink);
-        font: inherit;
-        font-size: clamp(13px, 1.7vh, 19px);
-        cursor: pointer;
-      }
-      .confirm-button:hover,
-      .confirm-button:focus-visible {
-        border-color: var(--accent);
-        background: rgba(30, 30, 36, 0.95);
-        outline: none;
-      }
-      .confirm-reset {
-        border-color: var(--accent);
-        color: var(--accent);
-      }
-      /* The Esc screen (docs/plan.md Phase 13b; Phase 26): black over
-         everything — the stage is hidden too, so the screen really is
-         black, not just covered. Opaque background, above a pending
-         choice (z 5) and still under the reset box
-         (z 7) and the #flash pill (z 10); the game's name, the key grid
-         built from the keymap's own table (render/keys.ts), then the
-         settings section (#config). Its keys close it. A window too short
-         for it all scrolls vertically inside the screen, never across. */
-      #help {
-        position: absolute;
-        inset: 0;
-        z-index: 6;
-        display: grid;
-        grid-template-columns: minmax(0, 1fr) auto;
-        align-content: start;
-        gap: clamp(5px, 1.2vh, 20px) clamp(16px, 3vw, 40px);
-        padding: clamp(10px, 2vh, 32px) clamp(16px, 6vw, 88px);
-        overflow-x: hidden;
-        overflow-y: auto;
-        overscroll-behavior: contain;
-        background: #000;
-        color: var(--ink);
-        font-family: var(--ui-font);
-      }
-      /* The game's name (docs/plan.md Phase 21), from the manifest
-         `title`: the screen's first line, above the keys; absent when
-         the manifest names no game. */
-      .help-game {
-        margin: 0;
-        color: var(--ink);
-        font-size: clamp(20px, 3.4vh, 38px);
-        font-weight: 600;
-        line-height: 1.2;
-        overflow-wrap: anywhere;
-      }
-      .help-title {
-        margin: 0;
-        color: var(--accent);
-        font-size: clamp(12px, 1.5vh, 17px);
-        font-weight: 600;
-        letter-spacing: 0.16em;
-        text-transform: uppercase;
-      }
-      .help-hint {
-        margin: 0;
-        color: rgba(244, 239, 230, 0.55);
-        font-size: clamp(10px, 1.2vh, 13px);
-      }
-      /* One column of sections, each the full width; the panel scrolls
-         rather than squashing one. The header row is the exception: the
-         game's name on the left, the hint on the right of the same line
-         (stacked again on a narrow window). */
-      #help > * {
-        grid-column: 1 / -1;
-        min-width: 0;
-      }
-      #help > .help-game {
-        grid-column: 1;
-      }
-      #help > .help-hint {
-        grid-column: 2;
-        align-self: center;
-        text-align: right;
-      }
-      @media (max-width: 560px) {
-        #help > .help-game,
-        #help > .help-hint {
-          grid-column: 1 / -1;
-          text-align: left;
+
+      /* ==== Motion and the reader's preferences ============================
+         Motion: hover and focus only, colour and transform, at most
+         150 ms; press feedback is instant (the scale lands on
+         pointer-down); the switch's knob jumps (it moves by position, not
+         transform). Nothing inside the map's view transitions (the
+         toast's Undo only sinks), so a pan never waits on one. */
+      @media (prefers-reduced-motion: no-preference) {
+        button.help-row,
+        .help-cap,
+        .config-step,
+        .config-toggle,
+        .confirm-button,
+        .choice-row,
+        .choice-num,
+        .map-tool {
+          transition:
+            background-color 120ms ease-out,
+            color 120ms ease-out,
+            border-color 120ms ease-out,
+            transform 100ms ease-out;
+        }
+        .config-step:active,
+        .config-toggle:active,
+        .confirm-button:active,
+        .map-tool:active,
+        .map-undo:active {
+          transform: scale(0.96);
+        }
+        .choice-row:active {
+          transform: scale(0.985);
         }
       }
-      #help[hidden] {
-        display: none;
-      }
-      /* The keys fill across before going down (Phase 26): a grid whose
-         cells line up in rows and columns. Each entry is its key caps on
-         one line with the description beneath, so every description in a
-         row starts at the same height and every cell at its column's
-         edge. Six across on a wide window, four at 800 px, three, then
-         two; the column counts were picked to divide the twelve entries
-         evenly, so since Phase 31's `m` row the thirteenth sits alone on
-         the last line. */
-      .help-list {
-        display: grid;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-        gap: clamp(6px, 1.2vh, 22px) clamp(14px, 2vw, 28px);
-        margin: 0;
-      }
-      @media (min-width: 480px) {
-        .help-list {
-          grid-template-columns: repeat(3, minmax(0, 1fr));
+      /* Reduced transparency: no scene behind the choice, solid surfaces. */
+      @media (prefers-reduced-transparency: reduce) {
+        #app:has(> #choice:not([hidden])) > .stage {
+          filter: none;
+          transform: none;
+        }
+        #choice::before {
+          -webkit-backdrop-filter: none;
+          backdrop-filter: none;
+          background: var(--k-sheen), var(--k-sheet);
+        }
+        #confirm,
+        #choice {
+          -webkit-backdrop-filter: none;
+          backdrop-filter: none;
+          background: rgba(8, 8, 10, 0.95);
         }
       }
-      @media (min-width: 700px) {
-        .help-list {
-          grid-template-columns: repeat(4, minmax(0, 1fr));
+      /* More contrast: brighter secondary text, defined edges, the map's
+         connectors, unseen stretches and counts nearer the ink. */
+      @media (prefers-contrast: more) {
+        #help,
+        #branchmap,
+        #choice,
+        #confirm {
+          --k-t2: rgba(var(--k-ink), 0.86);
+          --k-t3: rgba(var(--k-ink), 0.7);
+          --k-hair: rgba(255, 255, 255, 0.22);
+          --k-cell: rgba(255, 255, 255, 0.1);
+          --k-ctl-edge: inset 0 0 0 1px rgba(255, 255, 255, 0.4), 0 0 0 0.5px rgba(0, 0, 0, 0.6);
         }
-      }
-      @media (min-width: 1100px) {
-        .help-list {
-          grid-template-columns: repeat(6, minmax(0, 1fr));
+        #help::before,
+        #confirm::before,
+        #choice::before {
+          box-shadow: inset 0 0 0 1.5px rgba(255, 255, 255, 0.5);
         }
-      }
-      .help-row {
-        display: flex;
-        flex-direction: column;
-        align-items: flex-start;
-        gap: clamp(3px, 0.6vh, 8px);
-        min-width: 0;
-        padding-top: clamp(4px, 0.8vh, 10px);
-        border-top: 1px solid rgba(244, 239, 230, 0.1);
-      }
-      /* The `m` row is a button (render/help.ts): it opens the branch
-         map in this screen's place. Drawn exactly like the other rows
-         until hovered or focused, when its rule and caps light up. */
-      button.help-row {
-        margin: 0;
-        padding-right: 0;
-        padding-bottom: 0;
-        padding-left: 0;
-        border-right: 0;
-        border-bottom: 0;
-        border-left: 0;
-        background: none;
-        color: inherit;
-        font: inherit;
-        text-align: left;
-        cursor: pointer;
-      }
-      /* The caps line: one cap per key word, a muted slash between
-         alternatives; always one line tall so the descriptions in a row
-         share a baseline. */
-      .help-key {
-        display: flex;
-        flex-wrap: wrap;
-        align-items: center;
-        gap: 0.35em;
-        font-size: clamp(11px, 1.4vh, 15px);
-      }
-      .help-cap {
-        box-sizing: border-box;
-        min-width: 2.2em;
-        padding: 0.1em 0.6em;
-        border: 1px solid rgba(244, 239, 230, 0.3);
-        border-bottom-width: 2px;
-        border-radius: 5px;
-        background: rgba(22, 22, 26, 0.95);
-        color: var(--ink);
-        font: inherit;
-        font-weight: 600;
-        line-height: 1.25;
-        letter-spacing: 0.04em;
-        text-align: center;
-      }
-      .help-or {
-        color: rgba(244, 239, 230, 0.45);
-      }
-      .help-desc {
-        color: rgba(244, 239, 230, 0.68);
-        font-size: clamp(11px, 1.45vh, 16px);
-        line-height: 1.3;
-      }
-      /* The `t` row's hover / focus cue (button.help-row above). */
-      button.help-row:hover,
-      button.help-row:focus-visible {
-        border-top-color: var(--accent);
-        outline: none;
-      }
-      button.help-row:hover .help-cap,
-      button.help-row:focus-visible .help-cap {
-        border-color: var(--accent);
-      }
-      button.help-row:hover .help-desc,
-      button.help-row:focus-visible .help-desc {
-        color: var(--ink);
-      }
-      /* The settings under the keys (Phase 26), set apart by a rule and
-         a band of space so the two areas read as two sections. */
-      #help > #config {
-        margin-top: clamp(2px, 1vh, 28px);
-        padding-top: clamp(6px, 1.6vh, 32px);
-        border-top: 1px solid rgba(244, 239, 230, 0.18);
-      }
-      /* Decision overlay (docs/plan.md Phase 13): the machine's open
-         choice drawn as a prompt over its numbered routes. z 5: the
-         branch map may open over it (z 6), and the Esc screen — the one screen that may open OVER a pending
-         choice — stays above it at z 6; #flash (z 10) is unaffected.
-         Rows are buttons so a pointer click is the row's own; the seen
-         marker rides at the row's end. Look is minimal like the panels
-         above: a later iteration with the user. */
-      #choice {
-        position: absolute;
-        inset: 0;
-        z-index: 5;
-        display: flex;
-        flex-direction: column;
-        justify-content: center;
-        gap: clamp(12px, 2.4vh, 28px);
-        padding: clamp(16px, 3vh, 36px) clamp(20px, 6vw, 88px);
-        background: rgba(8, 8, 10, 0.94);
-        color: var(--ink);
-        font-family: var(--ui-font);
-      }
-      #choice[hidden] {
-        display: none;
-      }
-      .choice-title {
-        margin: 0 auto;
-        max-width: 60ch;
-        color: var(--accent);
-        font-size: clamp(16px, 2.4vh, 26px);
-        font-weight: 600;
-        line-height: 1.35;
-        letter-spacing: 0.02em;
-        text-align: center;
-      }
-      .choice-hint {
-        margin: 0;
-        color: rgba(244, 239, 230, 0.55);
-        font-size: clamp(10px, 1.2vh, 13px);
-        text-align: center;
-      }
-      /* Rows are centered as whole rows (docs/plan.md Phase 16, Styling):
-         `align-items: center` shrinks each button to its content and puts
-         it on the panel's center line, so number badge, label and seen
-         marker stay inline as one centered unit.
-         Long lists (docs/progress.md, long choice lists): the list is the
-         panel's only shrinking part — a scroll container's minimum height
-         is 0, while the title, status and hint keep their content height —
-         so rows that do not fit scroll inside it and the panel never grows
-         past the window. The padding keeps a highlighted row's ring inside
-         the scroll clip; `overscroll-behavior` stops a scroll reaching the
-         page at either end. */
-      .choice-list {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        gap: clamp(6px, 1.2vh, 14px);
-        margin: 0 auto;
-        max-width: 72ch;
-        min-height: 0;
-        overflow-y: auto;
-        overscroll-behavior: contain;
-        padding: 4px 6px;
-      }
-      .choice-row {
-        flex: none;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        gap: clamp(10px, 2vw, 18px);
-        padding: clamp(8px, 1.6vh, 16px) clamp(12px, 2vw, 22px);
-        border: 1px solid rgba(244, 239, 230, 0.28);
-        border-radius: 8px;
-        background: rgba(18, 18, 22, 0.9);
-        color: var(--ink);
-        font: inherit;
-        font-size: clamp(14px, 1.9vh, 21px);
-        text-align: center;
-        cursor: pointer;
-      }
-      .choice-row:hover,
-      .choice-row:focus-visible,
-      .choice-cursor {
-        border-color: var(--accent);
-        background: rgba(30, 28, 24, 0.95);
-      }
-      /* The keyboard's row cursor (ArrowUp / ArrowDown, Enter picks):
-         an outline ring outside the border, so it reads apart from the
-         play-all / walk highlight, which it may sit on. */
-      .choice-cursor {
-        outline: 2px solid var(--accent);
-        outline-offset: 2px;
-      }
-      .choice-continue {
-        border-style: dashed;
-      }
-      .choice-num {
-        flex: none;
-        min-width: 2.2em;
-        padding: clamp(2px, 0.5vh, 5px) clamp(6px, 1.2vw, 12px);
-        border: 1px solid rgba(244, 239, 230, 0.28);
-        border-radius: 5px;
-        background: rgba(10, 10, 12, 0.9);
-        color: var(--accent);
-        font-size: clamp(11px, 1.4vh, 16px);
-        letter-spacing: 0.06em;
-        text-align: center;
-      }
-      .choice-label {
-        flex: 1;
-        line-height: 1.4;
-      }
-      .choice-seen {
-        flex: none;
-        color: rgba(244, 239, 230, 0.5);
-        font-size: clamp(10px, 1.2vh, 13px);
-        letter-spacing: 0.14em;
-        text-transform: uppercase;
-      }
-      /* Play all routes (docs/plan.md Phase 20): the row it will pick,
-         marked through the whole countdown — a softer form of the picked
-         look below, which takes over for the last moment. */
-      .choice-next {
-        border-color: var(--accent);
-        background: rgba(42, 35, 22, 0.95);
-        box-shadow: 0 0 0 1px var(--accent);
-      }
-      .choice-picked {
-        border-color: var(--accent);
-        background: rgba(60, 48, 26, 0.95);
-        box-shadow: 0 0 0 2px var(--accent);
-        font-weight: 600;
-      }
-      /* Play all routes (docs/plan.md Phase 18): the machine is about to
-         answer — a status line over a bar that drains to the pick. */
-      .choice-auto {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        gap: 8px;
-      }
-      .choice-auto[hidden] {
-        display: none;
-      }
-      .choice-auto-text {
-        margin: 0;
-        color: var(--ink);
-        font-size: clamp(12px, 1.6vh, 17px);
-        text-align: center;
-      }
-      .choice-auto-bar {
-        width: min(320px, 60vw);
-        height: 4px;
-        border-radius: 2px;
-        background: rgba(244, 239, 230, 0.18);
-        overflow: hidden;
-      }
-      .choice-auto-fill {
-        width: 100%;
-        height: 100%;
-        background: var(--accent);
+        #branchmap {
+          --k-line-conn: #d6d2cb;
+          --k-line-unseen: #bab7b3;
+        }
+        .map-svg .map-count {
+          fill: rgb(var(--k-ink));
+        }
       }
     </style>
   </head>

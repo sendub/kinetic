@@ -54,7 +54,7 @@ export default async function ({ check, open }) {
   const settings = await page.evaluate(READ_CONFIG_OVERLAY);
   const keys = new Set((help.rows ?? []).map((row) => row.key));
   check(
-    "fresh load shows the Esc screen over a black stage: the keymap (no c or t) and the settings under it",
+    "fresh load shows the Esc screen over a black stage: the keymap (no c or t) and the settings with it",
     s1.helpOpen === true &&
       s1.stageHidden === true &&
       help.coversViewport === true &&
@@ -64,7 +64,7 @@ export default async function ({ check, open }) {
       !keys.has("C") &&
       !keys.has("T") &&
       settings.hidden === false &&
-      settings.belowKeys === true &&
+      (settings.belowKeys === true || settings.besideKeys === true) &&
       settings.title === "Settings" &&
       s1.text === first.text &&
       s1.fsAttempts === 0,
