@@ -1608,6 +1608,11 @@ asked to compare both before choosing:
 - The user picks between a and b on game I staged with each, with
   screenshots side by side; b lands only if chosen.
 
+The user chose a (2026-11-08). b was built and compared: it removed 60-75% of
+the low-held line length on game I but not all (a line stays low
+after a cut until its first place to bend), its bends were steep, and dense
+trees looked busier. b was dropped and is not in the code.
+
 ## Later, waiting on the user
 
 - Overlay text styling iteration once the user can play with the demo.

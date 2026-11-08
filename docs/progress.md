@@ -2119,11 +2119,22 @@ truthful: an unchecked box means nothing was accepted.
       perf:map's 180-bookmark tree now fits at 0.116x, above the
       figures' 0.106x, so its Fit draws 4,562 texts: switch to Fit
       86-97 ms, cold open at Fit 106-125 ms (HEAD 70-77).)
-- [ ] Stepped lines, candidate b (docs/plan.md Phase 42, follow-up): on top of
+- [x] Stepped lines, candidate b (docs/plan.md Phase 42, follow-up): on top of
       item 1, each line at the lowest height it needs at each x, stepping by
       an S-bend where a card, count or node above needs room, nested routes
       stepping with it, no cut on a bend. Unit tests (no gap wider than its
       own band's content needs; lines join at cuts; no overlaps); game I staged with a and with b, with screenshots side by side for the
       user; landed only if the user picks b, otherwise noted here and dropped.
+      (2026-11-08: dropped, the user chose a. b was built uncommitted:
+      `lineProfiles` with S-bends 18 px wide, levels at least 168 px long,
+      a's heights kept as floors, bends also on join and return lines, cuts
+      kept off bends. game I: 6 bends; line held low with no card
+      in its own band 1,057 -> 263 px (2000 px) and 1,237 -> 481 px
+      (1440 px); some items moved to the next band. Orchestrator: npm test
+      753 pass, check clean, smoke 6/6, branchmap 65/65, bookmarkmap 29/29,
+      continueroute 8/8, screens 67 pass, 2 PARTIAL; both demos opened
+      headless with no errors. Layout 22.5-24.4 ms against a's 17.3-18.9 at
+      570 decisions with 180 bookmarks. Reverted; the working tree is a's
+      6f15a77.)
 - [ ] Phase-closer (Phase 42): full scenario suite, package-proof
       (rebuilds the demo); pytest not needed unless tools change.
