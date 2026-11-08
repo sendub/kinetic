@@ -5,7 +5,15 @@ import { describe, expect, it } from "vitest";
 import { createMachine } from "../machine/machine";
 import type { Branch, Item, Route } from "../machine/types";
 import { DEFAULT_SETTINGS } from "../machine/types";
-import { describeTarget, detailMarkup, skeletonMarkup } from "./branchmap";
+import {
+  describeTarget,
+  detailMarkup,
+  LINE_MIN_SCALE,
+  LINE_STEPS_PER_OCTAVE,
+  labelsMarkup,
+  lineScaleStyle,
+  skeletonMarkup,
+} from "./branchmap";
 import {
   bandOffsets,
   buildMapModel,
@@ -468,9 +476,9 @@ describe("buildMapModel: rows like lines of text, endings tucked in", () => {
     const route = model.routes[key];
     const reader = { visited: [], playedRoutes: [], cursor: 0 };
     const marks = markMap(model, { ...reader, spoilers: true });
-    expect(detailMarkup(model, marks)).toMatch(
+    expect(labelsMarkup(model, marks)).toMatch(
       new RegExp(
-        `data-r="${key}"[^>]*>.*?<text class="map-route-c"[^>]*>3</text>`,
+        `<text class="map-route-c [^"]*" data-pill="${key}"[^>]*>3</text>`,
       ),
     );
     expect(describeTarget(model, marks, { kind: "route", key }).title).toBe(
@@ -1335,6 +1343,7 @@ describe("Spoilers: text of decisions not reached stays hidden", () => {
     ].map(({ title, status }) => `${title}\n${status}`);
     return [
       detailMarkup(model, marks),
+      labelsMarkup(model, marks),
       skeletonMarkup(model, marks),
       ...tips,
     ].join("\n");
@@ -1403,6 +1412,7 @@ describe("Spoilers: text of decisions not reached stays hidden", () => {
     expect(shape(detailMarkup(model, off))).toBe(
       shape(detailMarkup(model, on)),
     );
+    expect(labelsMarkup(model, off)).toBe(labelsMarkup(model, on));
     expect(skeletonMarkup(model, off)).toBe(skeletonMarkup(model, on));
   });
 });
@@ -1763,9 +1773,19 @@ describe("map layout (docs/plan.md Phase 40)", () => {
     expect(markup).toContain(
       '<rect x="0" y="-14" width="52" height="28" rx="5"/><text class="map-dec-c" x="26" y="4.6">0/2</text>',
     );
-    expect(markup).toContain(
-      '<rect x="0" y="-12" width="32" height="24" rx="12"/><text class="map-route-c" x="16" y="4.6">2</text>',
+    // A pill is its rect; its number, centred on it the same way, is in
+    // the labels layer (out of the zoom's restyle).
+    const pill = routeKey(model, OUTER, 1);
+    const route = model.routes[pill];
+    expect(markup).toMatch(
+      new RegExp(
+        `data-r="${pill}"[^>]*><rect x="0" y="-12" width="32" height="24" rx="12"/></g>`,
+      ),
     );
+    expect(labelsMarkup(model, marks)).toContain(
+      `<text class="map-route-c map-route-unseen map-reached" data-pill="${pill}" aria-hidden="true" x="${route.x + 16}" y="${route.y + 4.6}">2</text>`,
+    );
+    expect(markup).not.toContain("map-route-c");
     expect(cssRule(/\.map-svg \.map-dec-c,\s*\.map-svg \.map-route-c/)).toMatch(
       /font-size: 13px;/,
     );
@@ -1823,6 +1843,133 @@ describe("map layout (docs/plan.md Phase 40)", () => {
     expect(cssRule(/\.bm-card/)).toContain(`height: ${CARD.h}px;`);
     expect(cssRule(/\.bm-thumb/)).toContain("height: 100%;");
     expect(indexHtml).not.toMatch(/\.bm-(cap|time|tag)\b/);
+  });
+});
+
+// Phase 40 ("Map lines"): the tree's strokes are screen pixels at every
+// zoom. The stage's CSS scale scales every stroke (`vector-effect` does
+// not undo it in Chrome), so each width and dash is written in --line-px,
+// a screen pixel in world units set per zoom step (`lineScaleStyle`); far
+// out it stops growing, so the strokes thin with the zoom there.
+describe("map lines (docs/plan.md Phase 40)", () => {
+  /** Every rule of the shipped styles: its selector list and declarations. */
+  const rules = Array.from(
+    (/<style>([\s\S]*?)<\/style>/.exec(indexHtml)?.[1] ?? "")
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .matchAll(/([^{}]+)\{([^{}]*)\}/g),
+    (m) => ({ selectors: m[1].trim(), body: m[2] }),
+  );
+  /** A stroke written in --line-px: its width in screen pixels. */
+  const linePx = /^calc\(([\d.]+)px \* var\(--line-px, 1\)\)$/;
+  const runRule = rules.find((r) => r.selectors === ".map-run");
+  const runPx = Number(
+    linePx.exec(
+      /stroke-width:\s*([^;]+);/.exec(runRule?.body ?? "")?.[1] ?? "",
+    )?.[1],
+  );
+  const linePxAt = (scale: number) =>
+    Number(lineScaleStyle(scale)["--line-px"]);
+  /** A stroke of `px` screen pixels as painted at `scale`. */
+  const painted = (px: number, scale: number) => px * linePxAt(scale) * scale;
+  /** Half a step: the most a stroke strays from its width, as a ratio. */
+  const halfStep = 2 ** (1 / (2 * LINE_STEPS_PER_OCTAVE));
+  /** Zooms from 0.5x to 3x, 1% apart. */
+  const sweep = Array.from(
+    { length: Math.ceil(Math.log(6) / Math.log(1.01)) + 1 },
+    (_, i) => Math.min(MAX_SCALE, LINE_MIN_SCALE * 1.01 ** i),
+  );
+
+  it("paints a stroke at its width in screen pixels from LINE_MIN_SCALE in, within half a step: the same at Fit, 100% and 3x", () => {
+    expect(runPx).toBe(5);
+    // Exactly at 100% (the approved look) and at LINE_MIN_SCALE.
+    expect(lineScaleStyle(1)).toEqual({ "--line-px": "1" });
+    expect(painted(runPx, LINE_MIN_SCALE)).toBe(runPx);
+    for (const scale of [...sweep, 0.6, 2.44]) {
+      expect(painted(runPx, scale)).toBeGreaterThanOrEqual(
+        runPx / halfStep - 1e-9,
+      );
+      expect(painted(runPx, scale)).toBeLessThanOrEqual(
+        runPx * halfStep + 1e-9,
+      );
+    }
+    // Eighths of an octave: a 5 px stroke paints 4.8-5.2 px.
+    expect(LINE_STEPS_PER_OCTAVE).toBe(8);
+    expect(runPx / halfStep).toBeGreaterThan(4.78);
+    expect(runPx * halfStep).toBeLessThan(5.23);
+  });
+
+  it("changes --line-px only when a zoom crosses a step, so most small zooms restyle nothing", () => {
+    for (const scale of sweep) {
+      const steps = Math.log2(linePxAt(scale)) * LINE_STEPS_PER_OCTAVE;
+      expect(Math.abs(steps - Math.round(steps))).toBeLessThan(1e-9);
+    }
+    // 0.5x to 3x is log2(6) = 2.6 octaves: 21 steps crossed, 22 values,
+    // over 181 zooms of 1%.
+    const changes = sweep.filter(
+      (scale, i) => i > 0 && linePxAt(scale) !== linePxAt(sweep[i - 1]),
+    ).length;
+    expect(sweep.length).toBe(182);
+    expect(changes).toBe(21);
+    expect(new Set(sweep.map(linePxAt)).size).toBe(22);
+  });
+
+  it("thins strokes with the zoom past LINE_MIN_SCALE, a stretch never over a quarter of the space between rows", () => {
+    expect(lineScaleStyle(0.25)).toEqual({
+      "--line-px": String(1 / LINE_MIN_SCALE),
+    });
+    for (const scale of [0.05, 0.18, 0.3, 0.45, LINE_MIN_SCALE]) {
+      expect(painted(runPx, scale)).toBeCloseTo(
+        (runPx * scale) / LINE_MIN_SCALE,
+        9,
+      );
+      expect(painted(runPx, scale)).toBeLessThanOrEqual(
+        (MAP_GEOMETRY.rowH * scale) / 4,
+      );
+    }
+  });
+
+  it("keeps the counts and pill numbers out of the nodes, so a zoom's restyle leaves them alone", () => {
+    const model = demoModel();
+    const marks = markMap(model, readerOf(demoMachine()));
+    const nodes = detailMarkup(model, marks);
+    const labels = labelsMarkup(model, marks);
+    expect(nodes).not.toMatch(/map-count|map-route-c/);
+    expect(labels.match(/class="map-count"/g)?.length).toBe(model.runs.length);
+    expect(labels.match(/class="map-route-c /g)?.length).toBe(
+      model.routes.length,
+    );
+    // A pill's number is hidden from assistive tech (its label says it).
+    expect(labels.match(/aria-hidden="true"/g)?.length).toBe(
+      model.routes.length,
+    );
+    // Labels draw no strokes, so they need no --line-px.
+    const labelRules = rules.filter((r) => r.selectors.includes("map-labels"));
+    expect(labelRules.length).toBeGreaterThan(0);
+    expect(labelRules.some((r) => /stroke/.test(r.body))).toBe(false);
+  });
+
+  it("writes every stroke width and dash of the tree in --line-px, with no vector-effect", () => {
+    // The tree's rules; not the marker's, which its own transform
+    // counter-scales.
+    const tree = rules.filter(
+      (r) =>
+        r.selectors.includes(".map-") && !r.selectors.includes(".map-here"),
+    );
+    const strokes = tree.flatMap((r) =>
+      Array.from(
+        r.body.matchAll(/(stroke-width|stroke-dasharray):\s*([^;]+);/g),
+        (m) => ({ rule: r.selectors, value: m[2].trim() }),
+      ),
+    );
+    // Lines, stations, end marks, node outlines, hover rings, far boxes.
+    expect(strokes.length).toBeGreaterThanOrEqual(20);
+    const unscaled = strokes.filter(
+      ({ value }) =>
+        value !== "none" &&
+        !value.split(/\s+(?=calc|0)/).every((v) => v === "0" || linePx.test(v)),
+    );
+    expect(unscaled).toEqual([]);
+    expect(tree.filter((r) => r.body.includes("vector-effect"))).toEqual([]);
   });
 });
 

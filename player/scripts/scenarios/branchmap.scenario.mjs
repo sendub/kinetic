@@ -28,9 +28,12 @@
 // nodes are compact (their full text in the label and tooltip), and the
 // view's transform is the stage's (lines, cards and marker share it).
 // Phase 40: decisions are 52 x 28 and route pills 32 x 24 world units,
-// their 13 px figures' digits centred in them (ink measured in the page).
-// Screenshots land in .tmp/branchmap-shots/fb-*.png, spoil-*.png,
-// mark-*.png, simp-*.png and hint-*.png.
+// their 13 px figures' digits centred in them (ink measured in the page);
+// a read stretch's line paints at its 5 screen pixels at Fit, 100% and 3x
+// (measured from screenshot pixels, within half a step of --line-px), and
+// the zoom's restyle skips the counts and pill numbers. Screenshots land in
+// .tmp/branchmap-shots/fb-*.png, spoil-*.png, mark-*.png, simp-*.png,
+// hint-*.png and lines-*.png.
 
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
@@ -58,7 +61,7 @@ import {
 } from "./harness.mjs";
 
 export const title =
-  "branch map: open, here-marker (endings too), zoom, pan, fit fills and refits on resize, no text selection, jumps, Esc, M over Esc, spoilers, five-button header, instant key hints, remembered view, marker on the start after reset";
+  "branch map: open, here-marker (endings too), zoom, pan, fit fills and refits on resize, no text selection, jumps, Esc, M over Esc, spoilers, five-button header, instant key hints, remembered view, marker on the start after reset, line widths at every zoom";
 
 const shots = join(repoRoot, ".tmp", "branchmap-shots");
 
@@ -183,25 +186,37 @@ async function click(cdp, x, y) {
 // Each drawn node's box in world units (its rect's bounding box) and its
 // figure: type size, horizontal anchor, and how far its digits' ink centre
 // sits from the node's centre line (canvas measureText in the node's own
-// font; the slash of "1/2" left out, it straddles the digits).
+// font; the slash of "1/2" left out, it straddles the digits). A route
+// pill's number is in the labels layer, in world units (Phase 40, map
+// lines): it is read relative to its pill's place.
 const READ_NODE_FIGURES = () =>
   Array.from(document.querySelectorAll("#branchmap .map-detail .map-node")).map(
     (node) => {
       const rect = node.querySelector("rect");
-      const text = node.querySelector("text");
+      const r = node.getAttribute("data-r");
+      const label =
+        r === null
+          ? null
+          : document.querySelector(`#branchmap .map-labels [data-pill="${r}"]`);
+      const text = label ?? node.querySelector("text");
+      const [, nx, ny] = (node.getAttribute("transform") ?? "")
+        .match(/translate\(([-\d.e]+) ([-\d.e]+)\)/)
+        .map(Number);
+      const at = label === null ? { x: 0, y: 0 } : { x: nx, y: ny };
       const box = rect.getBBox();
       const cs = getComputedStyle(text);
       const ctx = document.createElement("canvas").getContext("2d");
       ctx.font = `${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
       const ink = ctx.measureText(text.textContent.replace("/", ""));
-      const baseline = Number(text.getAttribute("y"));
+      const baseline = Number(text.getAttribute("y")) - at.y;
       return {
         kind: node.classList.contains("map-dec") ? "decision" : "route",
         w: box.width,
         h: box.height,
         top: box.y,
         fontSize: cs.fontSize,
-        anchorX: Number(text.getAttribute("x")) - (box.x + box.width / 2),
+        anchorX:
+          Number(text.getAttribute("x")) - at.x - (box.x + box.width / 2),
         anchor: cs.textAnchor,
         inkOffset:
           baseline -
@@ -590,6 +605,7 @@ export default async function ({ check, open }) {
   await header({ check, open });
   await hints({ check, open });
   await memory({ check, open });
+  await lineWidths({ check, open });
 }
 
 // The demo read through with play-all (everything seen): at the story's
@@ -1274,5 +1290,160 @@ async function memory({ check, open }) {
       ringOnStart(resetZoomed) &&
       resetZoomed.sc > 2.9,
     { afterReset, resetZoomed },
+  );
+}
+
+// Phase 40, map lines: a read stretch's line in the drawn layer, on
+// screen (the middle of its longest stretch inside the view) with its
+// stroke colour and the view's scale.
+const READ_SEEN_RUN = () => {
+  const panel = document.getElementById("branchmap");
+  const svg = panel.querySelector(".map-svg");
+  const layer = svg.classList.contains("map-far")
+    ? ".map-skeleton"
+    : ".map-detail";
+  const path = panel.querySelector(`${layer} .map-run-seen`);
+  if (path === null) return null;
+  const [tx, ty, s] = panel
+    .querySelector(".map-stage")
+    .dataset.view.split(" ")
+    .map(Number);
+  const vr = panel.querySelector(".map-view").getBoundingClientRect();
+  let best = null;
+  const d = path.getAttribute("d");
+  for (const m of d.matchAll(/M([-\d.e]+) ([-\d.e]+)H([-\d.e]+)/g)) {
+    const y = vr.y + ty + Number(m[2]) * s;
+    if (y < vr.y + 40 || y > vr.bottom - 40) continue;
+    const x0 = Math.max(vr.x + 10, vr.x + tx + Number(m[1]) * s);
+    const x1 = Math.min(vr.right - 10, vr.x + tx + Number(m[3]) * s);
+    if (x1 > x0 && (best === null || x1 - x0 > best.x1 - best.x0))
+      best = { x0, x1, y };
+  }
+  if (best === null) return null;
+  return {
+    x: (best.x0 + best.x1) / 2,
+    y: best.y,
+    scale: s,
+    stroke: getComputedStyle(path).stroke,
+  };
+};
+
+// Everything in the map but the read stretches hidden, so a column of
+// pixels across one holds only its line and the ground.
+const ONLY_SEEN_RUNS = `.map-node, .map-count, .map-labels, .map-cards, .map-top,
+  .map-svg path:not(.map-run-seen) { visibility: hidden !important; }`;
+
+// Where the zoom's restyle lands: the element carrying --line-px, and the
+// text inside it (decision figures only) and outside it (counts, pills).
+const READ_RESTYLED = () => {
+  const svg = document.querySelector("#branchmap .map-svg");
+  const holder = Array.from(svg.querySelectorAll("*")).find(
+    (el) => el.style.getPropertyValue("--line-px") !== "",
+  );
+  const texts = Array.from(svg.querySelectorAll("text"));
+  const inside = texts.filter((t) => holder?.contains(t));
+  return {
+    holder: holder?.getAttribute("class") ?? null,
+    onSvg: svg.style.getPropertyValue("--line-px") !== "",
+    inside: inside.map((t) => t.getAttribute("class")),
+    outside: texts.length - inside.length,
+  };
+};
+
+// A line's painted width in screen pixels from a screenshot (device scale
+// 1): down a column across it, each pixel's share of the line's colour
+// over the ground (read at the column's ends) summed, over 5 columns.
+const PAINTED_WIDTH = async (png, x, y, stroke) => {
+  const img = new Image();
+  img.src = `data:image/png;base64,${png}`;
+  await img.decode();
+  const canvas = document.createElement("canvas");
+  canvas.width = img.naturalWidth;
+  canvas.height = img.naturalHeight;
+  const ctx = canvas.getContext("2d");
+  ctx.drawImage(img, 0, 0);
+  const ink = stroke
+    .match(/[\d.]+/g)
+    .slice(0, 3)
+    .reduce((a, v) => a + Number(v), 0);
+  const reach = 30;
+  const widths = [];
+  for (let dx = -2; dx <= 2; dx += 1) {
+    const px = ctx.getImageData(
+      Math.round(x) + dx,
+      Math.round(y) - reach,
+      1,
+      2 * reach + 1,
+    ).data;
+    const lum = [];
+    for (let i = 0; i < px.length; i += 4)
+      lum.push(px[i] + px[i + 1] + px[i + 2]);
+    const ends = [...lum.slice(0, 6), ...lum.slice(-6)].sort((a, b) => a - b);
+    const ground = ends[Math.floor(ends.length / 2)];
+    widths.push(
+      lum.reduce(
+        (w, v) => w + Math.max(0, Math.min(1, (v - ground) / (ink - ground))),
+        0,
+      ),
+    );
+  }
+  return widths.reduce((a, b) => a + b, 0) / widths.length;
+};
+
+// Map lines (Phase 40): a read stretch keeps its 5 screen pixels at Fit
+// (the compact demo fits at about 2.4x), 100% and 3x, within half a step
+// of --line-px (2^(1/16), render/branchmap.ts LINE_STEPS_PER_OCTAVE 8:
+// 0.22 px) plus 0.5 px; the stage's CSS scale once scaled it (12 px at
+// that Fit, 15 px at 3x). The restyle a zoom brings skips the counts and
+// pill numbers.
+const LINE_ERROR_PX = 5 * (2 ** (1 / 16) - 1) + 0.5;
+async function lineWidths({ check, open }) {
+  const { page, cdp } = await open("lines", { closeHelp: true });
+  await page.setViewport({ width: 1280, height: 720 });
+  // The lead-in read through: its stretch is drawn as read.
+  await spaceTo(page, cdp, "branch-decide");
+  await openMap(page, cdp);
+  const measure = async (name) => {
+    await sleep(120);
+    await page.screenshot({ path: join(shots, `lines-${name}.png`) });
+    const run = await page.evaluate(READ_SEEN_RUN);
+    if (run === null) return { name, width: Number.NaN };
+    const hide = await page.addStyleTag({ content: ONLY_SEEN_RUNS });
+    await sleep(80);
+    const png = await page.screenshot({ encoding: "base64" });
+    await hide.evaluate((el) => el.remove());
+    const width = await page.evaluate(
+      PAINTED_WIDTH,
+      png,
+      run.x,
+      run.y,
+      run.stroke,
+    );
+    return { name, scale: run.scale, width: Number(width.toFixed(2)) };
+  };
+  await pressF(cdp);
+  const fit = await measure("fit");
+  await pressKey(cdp, "1", "Digit1", 49, "1");
+  const full = await measure("100");
+  for (let i = 0; i < 12; i += 1) await pressPlus(cdp);
+  const three = await measure("3x");
+  const widths = [fit, full, three].map((m) => m.width);
+  check(
+    "map lines keep their screen width (Phase 40): a read stretch paints 5 px wide at Fit, 100% and 3x, equal within --line-px's half step plus 0.5 px",
+    Math.abs(three.scale - 3) < 1e-9 &&
+      fit.scale > 1.5 &&
+      full.scale === 1 &&
+      widths.every((w) => Math.abs(w - 5) <= LINE_ERROR_PX) &&
+      Math.max(...widths) - Math.min(...widths) <= LINE_ERROR_PX,
+    { fit, full, three, tolerance: LINE_ERROR_PX },
+  );
+  const restyled = await page.evaluate(READ_RESTYLED);
+  check(
+    "a zoom restyles the world group (--line-px) holding the lines and nodes, with only the decision figures as text; counts and pill numbers sit outside it",
+    restyled.holder === "map-world" &&
+      !restyled.onSvg &&
+      restyled.inside.every((c) => c === "map-dec-c") &&
+      restyled.outside > 0,
+    restyled,
   );
 }

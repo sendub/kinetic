@@ -49,7 +49,10 @@
 // Clicks and hovers find their node from the layout (`hitTest`), so they
 // work at any zoom. The "you are here" marker is drawn at a fixed screen
 // size (scaled by the inverse of the zoom), so it stays findable at any
-// zoom.
+// zoom. The tree's strokes keep their screen width down to
+// `LINE_MIN_SCALE` and thin with the zoom past it (`lineScaleStyle`, set
+// on the world group, which a zoom then restyles; the counts and pill
+// numbers sit beside it, `labelsMarkup`, so it leaves them alone).
 //
 // All decisions are pure exports of mapmodel.ts and mapcards.ts; this file
 // only applies them.
@@ -162,6 +165,38 @@ export function cardScaleStyle(scale: number): Record<string, string> {
     "--del-scale": String(del / 24 / scale),
     "--hint-scale": String(24 / del),
   };
+}
+
+/**
+ * The zoom below which the map's strokes thin with it (docs/plan.md Phase
+ * 40, map lines). From here in, a stroke is its index.html width in screen
+ * pixels; further out it keeps the world width it had here, so a stretch
+ * (5 px) never takes more than about a quarter of the space between rows
+ * (42 world units, 21 px here), and a large tree at Fit looks as it did
+ * with world-unit widths doubled far out.
+ */
+export const LINE_MIN_SCALE = 0.5;
+
+/**
+ * `--line-px` moves in steps of 2^(1/8) (9%), so a zoom restyles the tree
+ * only when it crosses one: a stroke paints within 4.5% of its width (a
+ * 5 px line 4.8-5.2 px), and exactly at 100%.
+ */
+export const LINE_STEPS_PER_OCTAVE = 8;
+
+/**
+ * The tree's per-zoom style (index.html `.map-world`): a line's screen
+ * pixel in world units (`--line-px`, in `LINE_STEPS_PER_OCTAVE` steps), in
+ * which every stroke width and dash of the lines, stations, end marks and
+ * node outlines is written, so it keeps its screen width under the stage's
+ * CSS scale in any browser (`vector-effect: non-scaling-stroke` does not
+ * undo that scale in Chrome).
+ */
+export function lineScaleStyle(scale: number): Record<string, string> {
+  const octaves = Math.log2(1 / Math.max(scale, LINE_MIN_SCALE));
+  const step =
+    Math.round(octaves * LINE_STEPS_PER_OCTAVE) / LINE_STEPS_PER_OCTAVE;
+  return { "--line-px": String(2 ** step) };
 }
 
 /** A card's accessible name. */
@@ -403,12 +438,69 @@ export function countText(screens: number, bookmarks: number): string {
 export const NODE_FIGURE_BASELINE = 4.6;
 
 /**
- * The near view's nodes: decision nodes ("played/total", or "?" when not
- * reached), route pills (their choice number) and the stretches' counts
- * that touch `rect` (all of them for null), each node a focusable group
- * with its full text in its label (and the hover tooltip). Pure.
+ * The near view's nodes that touch `rect` (all of them for null):
+ * decision nodes ("played/total", or "?" when not reached) and route
+ * pills, each a focusable group with its full text in its label (and the
+ * hover tooltip). A route pill's number is drawn by `labelsMarkup`, out
+ * of the restyle a zoom brings (`lineScaleStyle`); a decision keeps its
+ * figure, which turns gold on its hover and focus. Pure.
  */
 export function detailMarkup(
+  model: MapModel,
+  marks: MapMarks,
+  rect: WorldRect | null = null,
+): string {
+  const g = MAP_GEOMETRY;
+  const out: string[] = [];
+  for (const node of model.decisions) {
+    const top = node.y - g.decH / 2;
+    if (!within(rect, node.x, top, node.x + g.decW, top + g.decH)) continue;
+    const reached = marks.reached[node.index];
+    const target: MapTarget = { kind: "decision", decision: node.index };
+    const { title, status } = describeTarget(model, marks, target);
+    const text = reached
+      ? `${marks.playedCount[node.index]}/${node.routes.length}`
+      : "?";
+    out.push(
+      `<g class="map-node map-dec${reached ? " map-reached" : " map-inert"}" data-d="${node.index}" transform="translate(${node.x} ${node.y})"${reached ? ' tabindex="0" role="button"' : ""} aria-label="${escapeXml(`${title}: ${status}`)}">` +
+        `<rect x="0" y="${-g.decH / 2}" width="${g.decW}" height="${g.decH}" rx="5"/>` +
+        `<text class="map-dec-c" x="${g.decW / 2}" y="${NODE_FIGURE_BASELINE}">${text}</text></g>`,
+    );
+  }
+  model.routes.forEach((route, key) => {
+    const top = route.y - g.routeH / 2;
+    if (!within(rect, route.x, top, route.x + g.routeW, top + g.routeH)) return;
+    const state = marks.routes[key];
+    const { title, status } = describeTarget(model, marks, {
+      kind: "route",
+      key,
+    });
+    out.push(
+      `<g class="map-node map-route ${routeClasses(marks, key, route.decision)}" data-r="${key}" data-state="${state}" transform="translate(${route.x} ${route.y})"${marks.reached[route.decision] ? ' tabindex="0" role="button"' : ""} aria-label="${escapeXml(`${title}: ${status}`)}">` +
+        `<rect x="0" y="${-g.routeH / 2}" width="${g.routeW}" height="${g.routeH}" rx="${g.routeH / 2}"/></g>`,
+    );
+  });
+  return out.join("");
+}
+
+/** A route's state classes: how much is read, reached or not, last pick. */
+function routeClasses(marks: MapMarks, key: number, decision: number): string {
+  const classes = [
+    `map-route-${marks.routes[key]}`,
+    marks.reached[decision] ? "map-reached" : "map-inert",
+  ];
+  if (marks.lastPick[key]) classes.push("map-last");
+  return classes.join(" ");
+}
+
+/**
+ * The near view's text outside the nodes, touching `rect` (all of it for
+ * null): the stretches' counts and the route pills' numbers (each with its
+ * route's state classes, its key in `data-pill`, hidden from assistive
+ * tech: the pill's label says it), drawn over the nodes, outside the
+ * element `lineScaleStyle` restyles, so a zoom leaves them alone. Pure.
+ */
+export function labelsMarkup(
   model: MapModel,
   marks: MapMarks,
   rect: WorldRect | null = null,
@@ -431,41 +523,11 @@ export function detailMarkup(
       );
     }
   }
-  for (const node of model.decisions) {
-    const top = node.y - g.decH / 2;
-    if (!within(rect, node.x, top, node.x + g.decW, top + g.decH)) continue;
-    const reached = marks.reached[node.index];
-    const target: MapTarget = { kind: "decision", decision: node.index };
-    const { title, status } = describeTarget(model, marks, target);
-    const text = reached
-      ? `${marks.playedCount[node.index]}/${node.routes.length}`
-      : "?";
-    out.push(
-      `<g class="map-node map-dec${reached ? " map-reached" : " map-inert"}" data-d="${node.index}" transform="translate(${node.x} ${node.y})"${reached ? ' tabindex="0" role="button"' : ""} aria-label="${escapeXml(`${title}: ${status}`)}">` +
-        `<rect x="0" y="${-g.decH / 2}" width="${g.decW}" height="${g.decH}" rx="5"/>` +
-        `<text class="map-dec-c" x="${g.decW / 2}" y="${NODE_FIGURE_BASELINE}">${text}</text></g>`,
-    );
-  }
   model.routes.forEach((route, key) => {
     const top = route.y - g.routeH / 2;
     if (!within(rect, route.x, top, route.x + g.routeW, top + g.routeH)) return;
-    const state = marks.routes[key];
-    const reached = marks.reached[route.decision];
-    const classes = [
-      "map-node",
-      "map-route",
-      `map-route-${state}`,
-      reached ? "map-reached" : "map-inert",
-    ];
-    if (marks.lastPick[key]) classes.push("map-last");
-    const { title, status } = describeTarget(model, marks, {
-      kind: "route",
-      key,
-    });
     out.push(
-      `<g class="${classes.join(" ")}" data-r="${key}" data-state="${state}" transform="translate(${route.x} ${route.y})"${reached ? ' tabindex="0" role="button"' : ""} aria-label="${escapeXml(`${title}: ${status}`)}">` +
-        `<rect x="0" y="${-g.routeH / 2}" width="${g.routeW}" height="${g.routeH}" rx="${g.routeH / 2}"/>` +
-        `<text class="map-route-c" x="${g.routeW / 2}" y="${NODE_FIGURE_BASELINE}">${route.route + 1}</text></g>`,
+      `<text class="map-route-c ${routeClasses(marks, key, route.decision)}" data-pill="${key}" aria-hidden="true" x="${route.x + g.routeW / 2}" y="${route.y + NODE_FIGURE_BASELINE}">${route.route + 1}</text>`,
     );
   });
   return out.join("");
@@ -573,13 +635,15 @@ export function mountBranchMap({
     return g;
   };
   // The world: the far view's whole tree (lines and skeleton boxes) and
-  // the near view's culled lines and nodes; over it the cards, and over
-  // them the marker.
+  // the near view's culled lines and nodes, which a zoom restyles
+  // (`lineScaleStyle`); beside it the near view's counts and pill numbers,
+  // which it does not; over them the cards, and over those the marker.
   const world = group("map-world");
   const skeleton = group("map-skeleton");
   const detail = group("map-detail");
+  const labels = group("map-labels");
   world.append(skeleton, detail);
-  svg.append(world);
+  svg.append(world, labels);
   const cardLayer = doc.createElement("div");
   cardLayer.className = "map-cards";
   const top = svgOf("map-svg map-top");
@@ -725,11 +789,16 @@ export function mountBranchMap({
       "transform",
       `translate(${marks.here.x} ${marks.here.y}) scale(${1 / s})`,
     );
-    // Only a zoom restyles the cards: a pan leaves their style alone.
+    // Only a zoom restyles the cards and the tree's strokes: a pan leaves
+    // their style alone, and the tree's only changes when the zoom crosses
+    // a step of `--line-px` (never far out, where it is fixed).
     if (s !== styledScale) {
       styledScale = s;
       for (const [name, value] of Object.entries(cardScaleStyle(s)))
         cardLayer.style.setProperty(name, value);
+      for (const [name, value] of Object.entries(lineScaleStyle(s)))
+        if (world.style.getPropertyValue(name) !== value)
+          world.style.setProperty(name, value);
     }
     const nowSmall = s < CARD_SMALL_SCALE;
     if (nowSmall !== small) {
@@ -762,6 +831,7 @@ export function mountBranchMap({
         };
         detail.innerHTML =
           linesMarkup(model, marks, drawn) + detailMarkup(model, marks, drawn);
+        labels.innerHTML = labelsMarkup(model, marks, drawn);
       }
     }
     svg.setAttribute("data-scale", String(s));
@@ -1312,6 +1382,7 @@ export function mountBranchMap({
     // styling. The deletes made are final now; the next open reads the
     // list again.
     detail.textContent = "";
+    labels.textContent = "";
     skeleton.textContent = "";
     cardLayer.replaceChildren();
     cards = [];
@@ -1363,6 +1434,7 @@ export function mountBranchMap({
       drawn = null;
       skeletonDrawn = false;
       detail.textContent = "";
+      labels.textContent = "";
       skeleton.textContent = "";
       cardLayer.replaceChildren();
       deletions = NO_DELETIONS;

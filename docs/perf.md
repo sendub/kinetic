@@ -142,3 +142,37 @@ Headless Chrome, `file://`, 64 seeded rows with captures: cards drawn
 first open and 13-20 ms on reopens. Safari was not measured: as in
 Phase 34, the safaridriver session never connects from this machine.
 
+## Map lines at every zoom (Phase 40)
+
+The tree's strokes keep their screen width (docs/plan.md Phase 40, map
+lines): `--line-px` on the SVG's world group, in steps of 2^(1/8), so a
+zoom restyles the lines and nodes only when it crosses a step (a stroke
+within 4.5% of its width, exact at 100%). Pans restyle nothing, and
+neither do zooms below 0.5, where the value is fixed. The counts and
+pill numbers sit in a group beside the world, out of that restyle; the
+decision figures stay in their nodes (their hover and focus colour).
+`npm run perf:map` on the final build, eight runs (2026-11-08):
+
+| build | opens | frames p95 (all phases) | frames > 33 ms |
+| --- | --- | --- | --- |
+| before (world-unit strokes), 3 runs | 54.6-67.4 ms | 16.7-16.8 ms | 0 of ~900 |
+| `--line-px`, 8 runs | 51.1-68.9 ms | 16.7-16.8 ms | 0-3 of ~900 at 33.4 ms (two frames); one 283 ms frame in one run, not seen again |
+
+Frame intervals are capped at the 60 Hz frame, so main-thread work per
+wheel step was measured as well (CDP Performance metrics before and
+after each of 360 wheel steps, three runs, the 570-decision tree at
+1920x1080, about 1,700 SVG elements drawn). The first build set an
+exact `--line-px` on the whole SVG every zoom frame:
+
+| zoom range | build | mean | p99 | worst | steps that restyle |
+| --- | --- | --- | --- | --- | --- |
+| 0.65-1.0 | before | 1.5-1.7 ms | 3.9-10.2 ms | 4.4-25.3 ms | 0 |
+| 0.65-1.0 | first | 5.6-5.8 ms | 11.4-14.5 ms | 34.0-35.6 ms | 306-323 of 360 |
+| 0.65-1.0 | final | 2.1 ms | 4.7-5.3 ms | 6.8-22.5 ms | 60 of 360 |
+| 1.0-1.54 | before | 1.5-1.7 ms | 3.2-4.3 ms | 3.7-21.9 ms | 0 |
+| 1.0-1.54 | first | 5.9-6.4 ms | 11.4-18.3 ms | 12.3-55.9 ms | 305-326 of 360 |
+| 1.0-1.54 | final | 2.1-2.2 ms | 5.7-6.1 ms | 7.1-18.8 ms | 60 of 360 |
+
+A step that restyles costs 3.7-3.9 ms in the final build (6.1-7.1 ms in
+the first). The worst step in every build is a culling redraw or a
+garbage collection, as the 20-25 ms worst steps before the change show.

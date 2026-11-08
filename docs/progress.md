@@ -1951,8 +1951,25 @@ truthful: an unchecked box means nothing was accepted.
       animation or transition on the 1,255 elements in `.map-view`;
       perf:map opens 52.5-67.8 ms, frames p95 16.7-16.8 ms (Phase 35:
       55-67, 16.7-16.8).)
-- [ ] Map lines keep their screen width at every zoom (docs/plan.md
+- [x] Map lines keep their screen width at every zoom (docs/plan.md
       Phase 40, last bullet), readable far out; measured widths at Fit,
       100% and 3x; `npm run perf:map` against docs/perf.md's numbers.
+      (2026-11-08: on HEAD a read stretch painted 12.4 px at the demo's
+      Fit (2.44x), 5.1 at 100%, 15.1 at 3x. Every map stroke width and
+      dash is now `calc(Npx * var(--line-px))`, `vector-effect`
+      removed; `lineScaleStyle` sets `--line-px` on the tree's SVG in
+      eighth-octave steps (within 4.4% of the designed width, exactly 1
+      at 100%) and stops below `LINE_MIN_SCALE` 0.5, where strokes thin
+      with the zoom so a large tree at Fit reads as before. Route
+      numbers and counts moved to a `.map-labels` group so a restyle
+      skips them. First round cost 5.6-6.4 ms of main-thread work per
+      near zoom frame (HEAD 1.5-1.7); sent back; now 2.1-2.2 ms mean,
+      60 of 360 wheel steps restyle (docs/perf.md, Phase 40 section).
+      Orchestrator: npm test 729 pass, check clean; smoke 6/6,
+      branchmap 52/52 (widths 5.14/5.12/5.16 px at Fit/100%/3x; the new
+      checks fail on HEAD per subagent), bookmarkmap 29/29; 100% shot
+      unchanged, Fit lines now as at 100%. Subagent: perf:map 8 runs
+      opens 51.1-68.9 ms, frames p95 16.7-16.8 ms, one unexplained
+      283 ms frame in one run, not seen again.)
 - [ ] Phase-closer (Phase 40): full scenario suite, package-proof
       (rebuilds the demo); pytest not needed unless tools change.

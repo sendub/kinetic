@@ -1571,7 +1571,11 @@
         display: block;
         overflow: visible;
       }
-      .map-top {
+      /* The marker, and the counts and pill numbers over the nodes
+         (render/branchmap.ts `labelsMarkup`): the pointer goes through
+         them to the nodes, so a pill's hover ring shows over its number. */
+      .map-top,
+      .map-labels {
         pointer-events: none;
       }
       /* The chart's figures in SF Rounded where there is one (Safari),
@@ -1585,6 +1589,7 @@
       /* Level of detail (render/branchmap.ts): near, the culled node
          groups with their text; far, only the skeleton's boxes. */
       .map-svg.map-far .map-detail,
+      .map-svg.map-far .map-labels,
       .map-svg:not(.map-far) .map-skeleton {
         display: none;
       }
@@ -1596,10 +1601,13 @@
       .map-view.map-pointing {
         cursor: pointer;
       }
-      /* Lines. Weights are a drawing's, in world units: bold against the
-         boxes at 100%, heavier again far out (below). (`vector-effect`
-         asks for screen pixels, but in Chrome the stage's CSS scale still
-         scales them: docs/plan.md Phase 40, map lines.) Colours are opaque
+      /* Lines. Every stroke width and dash of the tree (lines, stations,
+         end marks, node outlines) is screen pixels, written in --line-px
+         (a screen pixel in world units, set on `.map-world` per zoom step
+         by render/branchmap.ts `lineScaleStyle`), so it keeps its weight
+         under the stage's scale at any zoom (`vector-effect` does not undo
+         a CSS scale in Chrome: docs/plan.md Phase 40, map lines). Far out
+         it thins with the zoom, so rows stay apart. Colours are opaque
          (ink mixed onto the ground), so crossings and caps never double
          up. */
       .map-conn,
@@ -1609,7 +1617,6 @@
       .map-run {
         fill: none;
         stroke-linecap: round;
-        vector-effect: non-scaling-stroke;
       }
       /* Connectors: the branches out to each route and back, and a row's
          end to the next row's start (the main line wrapping like a line
@@ -1619,38 +1626,31 @@
       .map-wrap,
       .map-return {
         stroke: var(--k-line-conn);
-        stroke-width: 4;
+        stroke-width: calc(4px * var(--line-px, 1));
         stroke-linejoin: round;
       }
       .map-return {
-        stroke-dasharray: 7 9;
+        stroke-dasharray:
+          calc(7px * var(--line-px, 1))
+          calc(9px * var(--line-px, 1));
       }
       /* The stretches by how much is read: solid, dashed, a bead chain. */
       .map-run {
-        stroke-width: 5;
+        stroke-width: calc(5px * var(--line-px, 1));
       }
       .map-run-seen {
         stroke: rgb(var(--k-ink));
       }
       .map-run-partly {
         stroke: var(--k-line-partly);
-        stroke-dasharray: 11 10;
+        stroke-dasharray:
+          calc(11px * var(--line-px, 1))
+          calc(10px * var(--line-px, 1));
       }
       .map-run-unseen {
         stroke: var(--k-line-unseen);
-        stroke-width: 4.5;
-        stroke-dasharray: 0 10;
-      }
-      /* Far out (no labels) the lines double their weight, so the tree
-         still reads as lines, not hairlines; rows stay apart. */
-      .map-svg.map-far .map-run {
-        stroke-width: 10;
-      }
-      .map-svg.map-far .map-conn,
-      .map-svg.map-far .map-join,
-      .map-svg.map-far .map-wrap,
-      .map-svg.map-far .map-return {
-        stroke-width: 8;
+        stroke-width: calc(4.5px * var(--line-px, 1));
+        stroke-dasharray: 0 calc(10px * var(--line-px, 1));
       }
       /* Counts: secondary text, as everywhere. */
       .map-svg .map-count {
@@ -1671,14 +1671,14 @@
       .map-dot {
         fill: rgb(var(--k-ink));
         stroke: rgb(var(--k-ink));
-        stroke-width: 3;
+        stroke-width: calc(3px * var(--line-px, 1));
       }
       /* Ends: a solid stop block, corners rounded (opaque, so the stroke
          never doubles over the fill). */
       .map-end {
         fill: var(--k-line-end);
         stroke: var(--k-line-end);
-        stroke-width: 3;
+        stroke-width: calc(3px * var(--line-px, 1));
         stroke-linejoin: round;
       }
       /* Nodes: plates on the chart. Decisions: full capsules (`rx` half
@@ -1690,8 +1690,7 @@
       .map-box {
         fill: var(--k-sheet);
         stroke: rgba(var(--k-ink), 0.55);
-        stroke-width: 2;
-        vector-effect: non-scaling-stroke;
+        stroke-width: calc(2px * var(--line-px, 1));
       }
       .map-dec rect {
         rx: 14px;
@@ -1705,7 +1704,7 @@
       .map-dec.map-reached rect,
       .map-box.map-dec.map-reached {
         stroke: rgb(var(--k-ink));
-        stroke-width: 3;
+        stroke-width: calc(3px * var(--line-px, 1));
       }
       /* Compact nodes (Phase 35): a decision's "played/total", a route's
          choice number; the full text is in the tooltip. Their baseline
@@ -1719,21 +1718,23 @@
       .map-route.map-route-partly rect,
       .map-box.map-route-partly {
         stroke: rgb(var(--k-ink));
-        stroke-width: 2.5;
+        stroke-width: calc(2.5px * var(--line-px, 1));
       }
       .map-route.map-route-played rect,
       .map-box.map-route-played {
         fill: rgb(var(--k-ink));
         stroke: rgb(var(--k-ink));
-        stroke-width: 2.5;
+        stroke-width: calc(2.5px * var(--line-px, 1));
       }
-      .map-svg .map-route-played text {
+      .map-svg .map-route-c.map-route-played {
         fill: var(--k-stamp);
       }
       .map-route.map-route-unseen rect,
       .map-box.map-route-unseen {
         stroke: rgba(var(--k-ink), 0.6);
-        stroke-dasharray: 3 3;
+        stroke-dasharray:
+          calc(3px * var(--line-px, 1))
+          calc(3px * var(--line-px, 1));
       }
       /* The last pick at each decision, the route the wheel follows: the
          reader's own, in gold (the choice screen's walk route, too). */
@@ -1741,10 +1742,10 @@
       .map-box.map-last {
         fill: var(--k-gold);
         stroke: var(--k-gold);
-        stroke-width: 2.5;
+        stroke-width: calc(2.5px * var(--line-px, 1));
         stroke-dasharray: none;
       }
-      .map-svg .map-node.map-last text {
+      .map-svg .map-route-c.map-last {
         fill: var(--k-stamp);
       }
       /* Not reached yet: drawn, but faded and inert. Faded by colour,
@@ -1756,10 +1757,13 @@
       .map-box.map-inert {
         fill: rgba(var(--k-sheet-rgb), 0.6);
         stroke: rgba(var(--k-ink), 0.34);
-        stroke-width: 2;
-        stroke-dasharray: 3 4;
+        stroke-width: calc(2px * var(--line-px, 1));
+        stroke-dasharray:
+          calc(3px * var(--line-px, 1))
+          calc(4px * var(--line-px, 1));
       }
-      .map-svg .map-node.map-inert text {
+      .map-svg .map-node.map-inert text,
+      .map-svg .map-route-c.map-inert {
         fill: rgba(var(--k-ink), 0.6);
       }
       /* Far out the boxes carry no text: solid blocks read best there,
@@ -1768,7 +1772,7 @@
       .map-svg.map-far .map-box {
         fill: var(--k-line-partly);
         stroke: var(--k-line-partly);
-        stroke-width: 6;
+        stroke-width: calc(3px * var(--line-px, 1));
         stroke-linejoin: round;
       }
       .map-svg.map-far .map-box.map-dec.map-reached,
@@ -1793,7 +1797,7 @@
       .map-node.map-reached:hover rect,
       .map-node.map-reached:focus-visible rect {
         stroke: var(--k-gold);
-        stroke-width: 3.5;
+        stroke-width: calc(3.5px * var(--line-px, 1));
       }
       .map-dec.map-reached:hover rect,
       .map-dec.map-reached:focus-visible rect {
