@@ -1880,5 +1880,10 @@ truthful: an unchecked box means nothing was accepted.
       session fails on HEAD per subagent), branches 43/43, navigation
       21/21, reading 17/17, playall 27/27; with `lastPickJoin` always
       false the 2 new last-pick tests and the 2 rewritten ones fail.)
-- [ ] Phase-closer (Phase 39): full scenario suite, package-proof
+- [x] Phase-closer (Phase 39): full scenario suite, package-proof
       (rebuilds the demo); pytest not needed unless tools change.
+      (2026-11-08: first full run 14 scenarios, 317 checks: 314 pass,
+      2 PARTIAL (headless fullscreen Escapes), 1 FAIL = branchmap timing
+      out waiting after its window-size checks; branchmap alone 48/48
+      twice; full re-run 315 pass, 2 PARTIAL, 0 FAIL; package-proof
+      18/18, demo rebuilt; tools untouched.)
