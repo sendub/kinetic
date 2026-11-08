@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// Branch map perf check (docs/plan.md Phases 31, 35): a synthetic large
-// game — by default 30 top-level decisions nesting to depth 6 (570
+// Branch map perf check (docs/plan.md Phases 31, 35, 41): a synthetic
+// large game — by default 30 top-level decisions nesting to depth 6 (570
 // decisions, 1,710 routes) over ~90k items, the size of the largest real
 // game — is written to .tmp/perf-map/ with the CURRENT dist/ bundle, opened
 // in headless Chrome at 1920x1080, read a little (so there are marks), given
@@ -11,12 +11,17 @@
 //
 //   - open time: from the `m` keydown to the second animation frame after
 //     the map has drawn its cards (`data-ready`: layout + markup + cards +
-//     first paint), for the first open (which lays the tree out around the
-//     cards) and two more (layout cached);
-//   - frame intervals while the map zooms (wheel events at 60 Hz), pans at
-//     a readable zoom (a drag), pans at 100% (cards at full size), pans at
-//     the fitted zoom (its nodes merged, mapmodel.ts `mapDrawing`), and
-//     zooms back in; with Chrome's long-animation-frame entries (> 50 ms).
+//     first paint), for the first open, at Full size (which lays the tree
+//     out around the cards and cuts it at the view's width), and two more
+//     (cut cached);
+//   - frame intervals while Full size scrolls by the wheel (wheel events at
+//     60 Hz) and by a drag, with Chrome's long-animation-frame entries
+//     (> 50 ms);
+//   - the switch to Fit: from the F keydown to the second frame after
+//     (Fit's width chosen, the strip cut and the whole tree drawn);
+//   - opens at Fit: two with Fit's cut cached, then one after a reload (the
+//     remembered view is Fit), cold: the strip laid out, Fit's width chosen
+//     and the cut made in a fresh page.
 //
 // Run from player/: npm run build && npm run perf:map [-- top depth run bookmarks]
 // Output: a JSON summary on stdout (also .tmp/perf-map.json).
@@ -121,13 +126,36 @@ for (const file of ["index.html", "app.js"])
   copyFileSync(join(playerDir, "dist", file), join(dir, file));
 
 const INSTRUMENT = () => {
-  const perf = { opens: [], frames: [], loaf: [], recording: false };
+  const perf = {
+    opens: [],
+    switches: [],
+    frames: [],
+    loaf: [],
+    recording: false,
+  };
   window.__mapPerf = perf;
   let keyAt = 0;
+  // The F keydown, seen before the map's own handler (capture): two frames
+  // on from here the switched view has been drawn and painted.
+  const twoFrames = (from, done) =>
+    requestAnimationFrame(() =>
+      requestAnimationFrame(() => done(performance.now() - from)),
+    );
   document.addEventListener(
     "keydown",
     (event) => {
       if (event.key === "m") keyAt = performance.now();
+      if (event.key === "f")
+        twoFrames(performance.now(), (ms) =>
+          perf.switches.push({
+            ms,
+            view: document.querySelector(
+              '.map-tool[aria-pressed="true"][data-act="fit"]',
+            )
+              ? "fit"
+              : "full",
+          }),
+        );
     },
     true,
   );
@@ -154,6 +182,14 @@ const INSTRUMENT = () => {
               readyMs: readyAt - from,
               paintedMs: performance.now() - from,
               cards: panel.querySelectorAll(".bm-card").length,
+              view: panel.querySelector(
+                '.map-tool[aria-pressed="true"][data-act="fit"]',
+              )
+                ? "fit"
+                : "full",
+              scale: Number(
+                panel.querySelector(".map-svg")?.getAttribute("data-scale"),
+              ),
             }),
           ),
         );
@@ -305,17 +341,24 @@ try {
   const m = () => key(cdp, "m", "KeyM", 77);
   const isOpen = () =>
     page.evaluate(() => document.getElementById("branchmap")?.hidden === false);
-  for (let i = 0; i < 3; i += 1) {
+  const opensSoFar = () => page.evaluate(() => window.__mapPerf.opens.length);
+  const openOnce = async () => {
+    const n = await opensSoFar();
     await m();
     await page.waitForFunction(
-      (n) => window.__mapPerf.opens.length > n,
-      { timeout: 10000 },
-      i,
+      (k) => window.__mapPerf.opens.length > k,
+      { timeout: 15000 },
+      n,
     );
-    if (i < 2) {
-      await key(cdp, "Escape", "Escape", 27, "");
-      await sleep(200);
-    }
+  };
+  const closeMap = async () => {
+    await key(cdp, "Escape", "Escape", 27, "");
+    await sleep(200);
+  };
+  // Full size: the first open and two more.
+  for (let i = 0; i < 3; i += 1) {
+    await openOnce();
+    if (i < 2) await closeMap();
   }
   if (!(await isOpen())) throw new Error("map not open");
   result.drawnAtOpen = await page.evaluate(() => ({
@@ -323,7 +366,6 @@ try {
     routes: document.querySelectorAll("#branchmap [data-r]").length,
     svgElements: document.querySelectorAll("#branchmap svg *").length,
   }));
-  result.opens = await page.evaluate(() => window.__mapPerf.opens);
 
   const view = await page.evaluate(() => {
     const r = document.querySelector(".map-view").getBoundingClientRect();
@@ -342,7 +384,8 @@ try {
       deltaX: 0,
       deltaY: dy,
     });
-  const drag = async (steps, dx, dy) => {
+  // A vertical drag down and back, a full swing each way.
+  const drag = async (steps, dy) => {
     await cdp.send("Input.dispatchMouseEvent", {
       type: "mousePressed",
       x: view.x,
@@ -354,8 +397,8 @@ try {
     for (let i = 1; i <= steps; i += 1) {
       await cdp.send("Input.dispatchMouseEvent", {
         type: "mouseMoved",
-        x: view.x + dx * Math.sin((i / steps) * Math.PI * 2),
-        y: view.y + dy * Math.sin((i / steps) * Math.PI),
+        x: view.x,
+        y: view.y + dy * Math.sin((i / steps) * Math.PI * 2),
         button: "left",
         buttons: 1,
       });
@@ -371,33 +414,54 @@ try {
     });
   };
 
-  await phase("zoom (readable <-> fit)");
-  for (let i = 0; i < 90; i += 1) {
-    await wheelAt(i < 45 ? 60 : -60);
+  // Full size scrolling: the wheel down and back up (a notch a frame), and
+  // a drag; from the top, so the scroll has room.
+  await key(cdp, "Home", "Home", 36, "");
+  await sleep(100);
+  await phase("full size: wheel");
+  for (let i = 0; i < 120; i += 1) {
+    await wheelAt(i < 60 ? 100 : -100);
     await sleep(16);
   }
-  await phase("pan at readable zoom");
-  await drag(90, 700, 300);
-  await key(cdp, "1", "Digit1", 49);
-  await sleep(100);
-  await phase("pan at 100% (cards full size)");
-  await drag(90, 700, 300);
-  await key(cdp, "f", "KeyF", 70);
-  await sleep(100);
-  await phase("pan at fit");
-  await drag(90, 600, 200);
-  await phase("zoom in from fit");
-  for (let i = 0; i < 90; i += 1) {
-    await wheelAt(-40);
-    await sleep(16);
-  }
+  await phase("full size: drag");
+  await drag(120, 400);
   await page.evaluate(() => {
     window.__mapPerf.recording = false;
   });
+  // Read now: the reload below starts the page's records afresh.
   const { frames, loaf } = await page.evaluate(() => ({
     frames: window.__mapPerf.frames,
     loaf: window.__mapPerf.loaf,
   }));
+
+  // Fit: the switch (F), then opens at Fit with its cut cached, then a
+  // cold one after a reload (the remembered view is Fit).
+  await key(cdp, "f", "KeyF", 70);
+  await page.waitForFunction(() => window.__mapPerf.switches.length > 0, {
+    timeout: 15000,
+  });
+  result.fitScreenshot = join(repoRoot, ".tmp", "perf-map-fit.png");
+  await page.screenshot({ path: result.fitScreenshot });
+  result.switchToFit = await page.evaluate(() => window.__mapPerf.switches);
+  for (let i = 0; i < 2; i += 1) {
+    await closeMap();
+    await openOnce();
+  }
+  result.drawnAtFit = await page.evaluate(() => ({
+    decisions: document.querySelectorAll("#branchmap [data-d]").length,
+    svgElements: document.querySelectorAll("#branchmap svg *").length,
+    texts: document.querySelectorAll("#branchmap svg text").length,
+  }));
+  result.opens = await page.evaluate(() => window.__mapPerf.opens);
+  await closeMap();
+  await sleep(300);
+  await page.reload();
+  await page.waitForFunction(() => document.getElementById("branchmap"), {
+    timeout: 30000,
+  });
+  await sleep(500);
+  await openOnce();
+  result.coldFitOpen = await page.evaluate(() => window.__mapPerf.opens);
   const stats = (list) => {
     const s = list.map((f) => f.ms).sort((a, b) => a - b);
     const q = (p) => s[Math.min(s.length - 1, Math.floor(p * s.length))];

@@ -61,6 +61,7 @@ import {
   READ_HELP,
   READ_KEY_GRID,
   READ_MAP_CARDS,
+  READ_MAP_VIEW,
   readBookmarks,
   readSignature,
   SIGNATURE,
@@ -167,7 +168,7 @@ async function clickCardDelete(cdp, card) {
   await clickAt(cdp, x, y);
 }
 
-/** The map's own Fit key (F): the whole tree, every card in view. */
+/** The map's F: switches between Full size and Fit (the whole tree). */
 const pressF = (cdp) => pressKey(cdp, "f", "KeyF", 70, "f");
 
 /**
@@ -633,8 +634,10 @@ async function bookmarks({ check, open }) {
     { atOlder, atNewer, flash1, flash2, stored, flashGone },
   );
 
-  // The map opens at Fit (a fresh profile): both cards in its view.
+  // The map opens at Full size (a fresh profile; docs/plan.md Phase 41),
+  // centred on "you are here", the newer card: both cards in its view.
   const first = await openMap(page, cdp, { loaded: true });
+  const firstView = await page.evaluate(READ_MAP_VIEW);
   const cards = first.map.cards ?? [];
   const view = first.map.viewRect;
   const inView = (r) =>
@@ -644,8 +647,10 @@ async function bookmarks({ check, open }) {
     r.top >= view.top - 1 &&
     r.bottom <= view.bottom + 1;
   check(
-    "m opens the map with one card per bookmark in story order, in view, each showing its picture and timestamp, the newer one marked newest",
+    "m opens the map at Full size with one card per bookmark in story order, in view, each showing its picture and timestamp, the newer one marked newest",
     first.ready &&
+      firstView.view === "full" &&
+      firstView.scale === 1 &&
       cards.length === 2 &&
       cards[0].itemIndex === older &&
       cards[1].itemIndex === newer &&
@@ -683,7 +688,8 @@ async function bookmarks({ check, open }) {
       still.cards.length === 2,
     { sigBefore, sigAfter },
   );
-  // The wheel zoomed the map; its F fits it again, both cards in view.
+  // The wheel was the map's (this map is shorter than the view, so it
+  // stayed put); its F switches to Fit, both cards in view.
   await pressF(cdp);
   await sleep(150);
 
@@ -870,8 +876,9 @@ async function manyBookmarks({ check, open }) {
     await page.screenshot({ path: join(shots, "map-cards-1280x720.png") });
   }
   check(
-    "m at 1280x720 with eight bookmarks draws eight cards in story order, every picture in, all inside the map's view, only the latest marked newest",
+    "m at 1280x720 with eight bookmarks draws eight cards in story order at Full size, every picture in, all inside the map's view, only the latest marked newest",
     stored.length === 8 &&
+      wide.map.scale === 1 &&
       wide.ready &&
       cards.length === 8 &&
       cards.map((c) => c.itemIndex).join() === storyOrder.join() &&
@@ -1098,16 +1105,29 @@ async function bookmarkSpeed({ check, open }) {
   );
 
   // The old rows still restore: from a few items back, a click lands on
-  // the bookmarked item. At Fit sixty cards on one screen's stretch are
-  // tiny; the map's N (Newest bookmark) centres the newest at 100%, where
-  // a reader clicks it.
+  // the bookmarked item. Sixty cards on one screen's stretch run over many
+  // bands; the map's N (Newest bookmark) scrolls Full size to the newest
+  // (to the middle of the view, as near as the map's ends allow), where a
+  // reader clicks it.
   await wheel(cdp, true, 3);
   const before = await currentItemId(page);
   const again = await openMap(page, cdp);
   await pressKey(cdp, "n", "KeyN", 78, "n");
+  // Two frames: the scroll N asked for is painted.
+  await page.evaluate(
+    () =>
+      new Promise((done) =>
+        requestAnimationFrame(() => requestAnimationFrame(done)),
+      ),
+  );
   const centred = await waitFor(page, () => {
     const card = document.querySelector("#branchmap .bm-card.bm-newest");
-    return card !== null && card.getBoundingClientRect().width >= 270;
+    const view = document
+      .querySelector("#branchmap .map-view")
+      .getBoundingClientRect();
+    if (card === null) return false;
+    const r = card.getBoundingClientRect();
+    return r.width >= 270 && r.top >= view.top && r.bottom <= view.bottom;
   });
   const newest = (await page.evaluate(READ_MAP_CARDS)).cards?.find(
     (c) => c.newest,

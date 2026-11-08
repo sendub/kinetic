@@ -313,7 +313,8 @@ export function sanitizeState(raw: unknown): PersistedState | null {
   // value reads as absent — which means "not seen" and shows the help
   // once (helpSeenFrom, storage/types.ts).
   if (typeof source.helpSeen === "boolean") state.helpSeen = source.helpSeen;
-  // The branch map's view (Phase 33): a malformed one reads as Fit.
+  // The branch map's view (Phase 41): a malformed or older one reads as
+  // none (Full size, centred).
   const mapView = sanitizeMapView(source.mapView);
   if (mapView !== undefined) state.mapView = mapView;
   return state;
@@ -326,7 +327,8 @@ function stateValue(state: PersistedState): Record<string, unknown> {
   if (state.ctx !== undefined) record.ctx = state.ctx;
   if (state.settings !== undefined) record.settings = { ...state.settings };
   if (state.helpSeen !== undefined) record.helpSeen = state.helpSeen;
-  if (state.mapView !== undefined) record.mapView = { ...state.mapView };
+  // `mapView` is JSON-safe too (plain numbers, strings, null).
+  if (state.mapView !== undefined) record.mapView = state.mapView;
   return record;
 }
 

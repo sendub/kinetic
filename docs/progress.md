@@ -2038,7 +2038,7 @@ truthful: an unchecked box means nothing was accepted.
       73.5 ms against HEAD's 66.2 over 11 alternated pairs, a cold-path
       cost carried to the two-views item, whose Full size opens cut at
       the view width with no chooser.)
-- [ ] Two views (docs/plan.md Phase 41, "Two views" and "Remembered view"):
+- [x] Two views (docs/plan.md Phase 41, "Two views" and "Remembered view"):
       Full size with bands as wide as the view and vertical scrolling (wheel,
       scroll bar, drag, keys), Fit showing the whole map at once and not
       moving, one "Full size | Fit" button with F switching (the 100% button
@@ -2052,5 +2052,29 @@ truthful: an unchecked box means nothing was accepted.
       and width chooser, and the tree without bookmarks at 77-91 ms);
       `scripts/mapperf.mjs` measures opens, Full size scrolling and Fit;
       README, docs/verify-player.md and docs/perf.md updated.
+      (2026-11-08: header "Full size | Fit" (aria-pressed halves, both
+      hinting "shortcut: F"); free zoom, pan, the 100% button and the 1
+      and 0 keys removed. Full size is scale 1 cut at the view width
+      less 24 px a side (`fullSizeWidth`), scrolled by the stage
+      transform with a drawn scroll bar (wheel, thumb drag, track page,
+      map drag past 5 px, Up/Down, Page Up/Down, Home/End); just under
+      1x only where an uncut span is wider than the view (stacked cards,
+      `fullSizeScale`). Fit picks band width and scale together
+      (`fitWidth`, largest scale, up to 3x; the 1,280 px floor gone) and
+      draws the whole tree once. Record `{ view, layout, place }`, place
+      a strip position plus offset or null for centred (C); old records
+      read as none. Orchestrator: npm test 745 pass, check clean; smoke
+      6/6, branchmap 65/65, bookmarkmap 29/29, continueroute 8/8,
+      screens 67 pass, 2 PARTIAL (headless fullscreen Escapes);
+      screenshots of the demo and the 570-decision tree at Full size and
+      Fit, header on one line at 800x600; perf:map (load 7.4) with 180
+      bookmarks first open 69.4 ms, Fit opens 63-65, switch to Fit 48,
+      cold Fit open 69.5; without bookmarks first open 57.0, Fit opens
+      57-66, switch to Fit 95.9, cold Fit open 93.3; scroll p95
+      16.7-16.8 ms. The last two exceed the 52-69 ms guard; accepted by
+      the user (no map budget exists, both under the ~100 ms that reads
+      as immediate, on a synthetic tree about nine times the largest
+      real game; docs/perf.md "Two views"). Subagent: 34 new or changed
+      tests fail on HEAD's sources.)
 - [ ] Phase-closer (Phase 41): full scenario suite, package-proof
       (rebuilds the demo); pytest not needed unless tools change.

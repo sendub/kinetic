@@ -1,25 +1,26 @@
 // Bookmarks on the branch map (docs/plan.md Phase 35), on the demo with
 // bookmarks taken by `b`: each bookmark's card sits on the story line at
 // its screen's place (the "you are here" point for that screen is its
-// card's centre), in story order, the newest marked; 1 (100%) shows the
-// cards at the old `t` screen's size, a card its 280 x 158 thumbnail alone
-// (no caption strip, Phase 40; the newest outlined, its time in its label
-// and tooltip), the count line under them clear of the cards, no two
-// overlapping; a click
-// on a card opens the bookmark (the map closes, the reader lands on it); a
-// drag that starts on a card pans and opens nothing; Delete, Backspace and
-// Enter do nothing to a card; the × deletes at 100% and at Fit (drawn at a
-// usable screen size there), with its instant hint, a ghost with an Undo,
-// the undo toast and Z; deletes are final once the map closes. Hovering a
-// card at 100% or at Fit (the newest and a ghost too) shows the map
-// tooltip with only its timestamp (Phase 36); over its × or Undo no card
-// tooltip shows. `t` does nothing (over the story, the Esc screen or the
-// map), the Esc screen has no T row and its M row reads "branch map and
-// bookmarks". A series of drags keeps the cards and the lines together:
-// after each, the card layer and the SVG keep the same offset, and the
-// painted pixels show the line running through the gap between two cards
-// at their centre height (the prototype's bug: a drag moved only the
-// cards). Screenshots land in .tmp/bookmarkmap-shots/.
+// card's centre), in story order, the newest marked; Full size (Phase 41:
+// the first open, scale exactly 1) shows the cards at the old `t` screen's
+// size, a card its 280 x 158 thumbnail alone (no caption strip, Phase 40;
+// the newest outlined, its time in its label and tooltip), the count line
+// under them clear of the cards, no two overlapping; a click on a card
+// opens the bookmark (the map closes, the reader lands on it); a drag that
+// starts on a card scrolls Full size (in a window short enough to scroll)
+// and opens nothing; Delete, Backspace and Enter do nothing to a card; the
+// × deletes at Full size and at Fit (drawn at a usable screen size there),
+// with its instant hint, a ghost with an Undo, the undo toast and Z;
+// deletes are final once the map closes. Hovering a card at Full size or
+// at Fit (the newest and a ghost too) shows the map tooltip with only its
+// timestamp (Phase 36); over its × or Undo no card tooltip shows. `t` does
+// nothing (over the story, the Esc screen or the map), the Esc screen has
+// no T row and its M row reads "branch map and bookmarks". A series of
+// drags keeps the cards and the lines together: after each, every card has
+// moved with the view (up or down only), the card layer and the SVG keep
+// the same offset, and the painted pixels show the line running through
+// the gap between two cards at their centre height (the prototype's bug: a
+// drag moved only the cards). Screenshots land in .tmp/bookmarkmap-shots/.
 
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
@@ -35,22 +36,26 @@ import {
   pressEscape,
   pressKey,
   pressM,
+  pressNavKey,
   pressT,
   pressZ,
   READ_KEY_GRID,
   READ_MAP_CARDS,
+  READ_MAP_VIEW,
   readBookmarks,
   repoRoot,
+  showMapView,
   sleep,
   spaceTo,
 } from "./harness.mjs";
 
 export const title =
-  "bookmarks on the branch map: cards at their place in story order, newest marked, 100% at the t screen's size (thumbnail alone, count line clear), click opens, drag pans, no Del/Enter, × with undo (ghost, toast, Z) at 100% and Fit, hover tip only the timestamp at every zoom, t does nothing, no T row, drags keep cards and lines together";
+  "bookmarks on the branch map: cards at their place in story order, newest marked, Full size at the t screen's size (thumbnail alone, count line clear), click opens, drag scrolls, no Del/Enter, × with undo (ghost, toast, Z) at Full size and Fit, hover tip only the timestamp in both views, t does nothing, no T row, drags keep cards and lines together";
 
 const shots = join(repoRoot, ".tmp", "bookmarkmap-shots");
 
-const press1 = (cdp) => pressKey(cdp, "1", "Digit1", 49, "1");
+// Full size (Phase 41): F when Fit is on show.
+const showFull = (page, cdp) => showMapView(page, cdp, "full");
 // Delete, Backspace and Enter without the harness's nativeVirtualKeyCode:
 // in headless Chrome on macOS, Delete or Backspace sent with it stops the
 // page's animation frames for good (seen on a blank page too), which would
@@ -70,7 +75,6 @@ async function plainKey(cdp, key, code, keyCode, text = "") {
     windowsVirtualKeyCode: keyCode,
   });
 }
-const pressF = (cdp) => pressKey(cdp, "f", "KeyF", 70, "f");
 const pressN = (cdp) => pressKey(cdp, "n", "KeyN", 78, "n");
 
 // The map's tooltip as shown: its whole text and how many lines it has;
@@ -199,7 +203,7 @@ const BRIGHTEST = async (png, boxes) => {
 };
 
 // Three bookmarks on the lead stretch; the cards' place, order, newest
-// mark, 100% size, keys that do nothing, drags (and the cards and lines
+// mark, Full size, keys that do nothing, drags (and the cards and lines
 // together through them), a click that opens one.
 async function cards({ check, open }) {
   const { page, cdp } = await open("cards", {
@@ -260,15 +264,16 @@ async function cards({ check, open }) {
     { ring: view.ring, newest: newest?.rect, centreY },
   );
 
-  // 100%: the old t screen's card, 280 px wide, none overlapping.
-  await press1(cdp);
-  await sleep(120);
+  // Full size: the old t screen's card, 280 px wide, none overlapping.
+  const opened = await page.evaluate(READ_MAP_VIEW);
+  await showFull(page, cdp);
   const full = await page.evaluate(READ_MAP_CARDS);
-  await page.screenshot({ path: join(shots, "cards-100-1280x720.png") });
+  await page.screenshot({ path: join(shots, "cards-full-1280x720.png") });
   const fc = full.cards;
   check(
-    "1 (100%) shows the cards at the t screen's size: 280 px wide with their timestamp, none overlapping",
-    full.scale === 1 &&
+    "the map opens at Full size, which shows the cards at the t screen's size: 280 px wide with their timestamp, none overlapping",
+    opened.view === "full" &&
+      full.scale === 1 &&
       fc.every(
         (x) => Math.abs(x.rect.width - 280) < 1 && TIMESTAMP.test(x.time),
       ) &&
@@ -296,7 +301,7 @@ async function cards({ check, open }) {
   const under = countLines.find((l) => Math.abs(l.left - fc[0].rect.left) < 2);
   const cardsBottom = Math.max(...fc.map((x) => x.rect.bottom));
   check(
-    'at 100% a card is its 280 x 158 thumbnail alone (no caption), the newest outlined and labelled "(newest)", the count line under the cards clear of them',
+    'at Full size a card is its 280 x 158 thumbnail alone (no caption), the newest outlined and labelled "(newest)", the count line under the cards clear of them',
     fc.length === 3 &&
       fc.every(
         (x) =>
@@ -366,40 +371,56 @@ async function cards({ check, open }) {
     { v0, v1 },
   );
 
-  // A drag that starts on a card pans and opens nothing.
+  // A drag that starts on a card scrolls Full size by the distance moved
+  // up or down (in a window short enough for the map to scroll) and opens
+  // nothing.
+  await page.setViewport({ width: 1280, height: 400 });
+  await sleep(250);
+  await pressNavKey(cdp, "Home", 36);
+  await sleep(80);
+  const short = await page.evaluate(READ_MAP_VIEW);
+  const onCard = (await page.evaluate(READ_MAP_CARDS)).cards.find(
+    (x) =>
+      x.rect.top > short.viewRect.top + 10 &&
+      x.rect.bottom < short.viewRect.bottom - 10,
+  );
   const p0 = await page.evaluate(READ_VIEW);
-  await drag(cdp, mid(first.rect), -90, 40);
+  if (onCard !== undefined) await drag(cdp, mid(onCard.rect), -90, -40);
   await sleep(120);
   const p1 = await page.evaluate(READ_VIEW);
   check(
-    "a drag that starts on a card pans the map by the distance moved and opens nothing",
-    (await page.evaluate(MAP_OPEN)) &&
-      Math.abs(p1.x - p0.x + 90) < 2 &&
-      Math.abs(p1.y - p0.y - 40) < 2,
-    { p0, p1 },
+    "a drag that starts on a card scrolls the map by the distance moved up or down (never sideways) and opens nothing",
+    onCard !== undefined &&
+      short.height > short.vh &&
+      (await page.evaluate(MAP_OPEN)) &&
+      Math.abs(p1.x - p0.x) < 0.01 &&
+      Math.abs(p1.y - Math.max(short.vh - short.height, p0.y - 40)) < 0.01,
+    { short, p0, p1 },
   );
-  await press1(cdp);
-  await sleep(120);
   await pressEscape(cdp);
   await page.waitForFunction(MAP_CLOSED, { timeout: 3000 });
 
-  // Cards and lines together through a series of drags. The lead stretch
-  // is read to its end first, so its line is solid; at 100% the line runs
-  // through the 10 px gap between the first two cards at their centre
-  // height, and nowhere else in that gap.
+  // Cards and lines together through a series of drags (Full size in the
+  // short window, from its top). The lead stretch is read to its end first,
+  // so its line is solid; at Full size the line runs through the 10 px gap
+  // between the first two cards at their centre height, and nowhere else
+  // in that gap.
   await spaceTo(page, cdp, "branch-decide");
   await openMap(page, cdp);
-  await press1(cdp);
+  await showFull(page, cdp);
+  await pressNavKey(cdp, "Home", 36);
   await sleep(150);
+  const sv = await page.evaluate(READ_MAP_VIEW);
+  const lowest = sv.vh - sv.height;
   const drags = [
-    [140, 60],
-    [-90, 70],
-    [40, -110],
-    [-160, -30],
-    [70, 90],
-    [-50, -60],
-    [110, 20],
-    [-40, 100],
+    [140, -40],
+    [-90, 30],
+    [40, -50],
+    [-160, 20],
+    [70, -30],
+    [-50, 50],
+    [110, -20],
+    [-40, 40],
   ];
   const steps = [];
   for (const [i, [dx, dy]] of drags.entries()) {
@@ -420,6 +441,7 @@ async function cards({ check, open }) {
       i % 2 === 0 && onCard !== undefined
         ? onCard
         : { x: vr.left + vr.width * 0.5, y: vr.top + vr.height * 0.85 };
+    const v0 = await page.evaluate(READ_VIEW);
     await drag(cdp, from, dx, dy);
     // Off the cards (no hover ring), then two frames.
     await mouse(cdp, "mouseMoved", 5, 5, 0);
@@ -438,6 +460,9 @@ async function cards({ check, open }) {
     steps.push({
       dx,
       dy,
+      // The view's own move: the drag's, kept within the map's ends.
+      scrolled: v.y - v0.y,
+      want: Math.min(0, Math.max(lowest, v0.y + dy)) - v0.y,
       moved: [
         Math.round(A.rect.left - before.cards[0].rect.left),
         Math.round(A.rect.top - before.cards[0].rect.top),
@@ -458,25 +483,29 @@ async function cards({ check, open }) {
     path: join(shots, "cards-after-drags-1280x720.png"),
   });
   check(
-    "through 8 drags the cards and the lines move together: each card moves by the drag, keeps its offset from the SVG, and the painted line runs through the gap between two cards at their centre height",
-    steps.every(
-      (s, i) =>
-        Math.abs(s.moved[0] - s.dx) <= 1 &&
-        Math.abs(s.moved[1] - s.dy) <= 1 &&
-        s.offset[0] === steps[0].offset[0] &&
-        s.offset[1] === steps[0].offset[1] &&
-        // The ground is the Phase 40 grey (#46464d at its lightest, a
-        // fine grain over it): no channel above about 90 off the line.
-        (!s.inView || (s.onLine > 120 && s.above < 110 && s.below < 110)) &&
-        (i > 0 || s.inView),
-    ) && steps.filter((s) => s.fromCard).length >= 3,
+    "through 8 drags the cards and the lines move together: the view scrolls up or down by each drag (within the map's ends, never sideways), each card moves with it, keeps its offset from the SVG, and the painted line runs through the gap between two cards at their centre height",
+    sv.height > sv.vh &&
+      steps.filter((s) => Math.abs(s.scrolled) >= 10).length >= 4 &&
+      steps.every(
+        (s, i) =>
+          Math.abs(s.scrolled - s.want) < 0.01 &&
+          Math.abs(s.moved[0]) <= 1 &&
+          Math.abs(s.moved[1] - s.scrolled) <= 1 &&
+          s.offset[0] === steps[0].offset[0] &&
+          s.offset[1] === steps[0].offset[1] &&
+          // The ground is the Phase 40 grey (#46464d at its lightest, a
+          // fine grain over it): no channel above about 90 off the line.
+          (!s.inView || (s.onLine > 120 && s.above < 110 && s.below < 110)) &&
+          (i > 0 || s.inView),
+      ) &&
+      steps.filter((s) => s.fromCard).length >= 3,
     steps,
   );
 
   // A click on a card opens its bookmark: the map closes, the reader is on
   // its screen.
-  await press1(cdp);
-  await sleep(120);
+  await page.setViewport({ width: 1280, height: 720 });
+  await sleep(250);
   const now = await page.evaluate(READ_MAP_CARDS);
   const target = now.cards.find((x) => x.itemId === "text-narration");
   if (target !== undefined)
@@ -493,7 +522,7 @@ async function cards({ check, open }) {
 }
 
 // Ten bookmarks, and Fit in a smaller window, so Fit draws small cards;
-// the × at 100% and at Fit, the hint, the ghost's Undo, the toast's Undo
+// the × at Full size and at Fit, the hint, the ghost's Undo, the toast's Undo
 // and Z; deletes final on close; the Esc screen without a T row.
 async function deletes({ check, open }) {
   const { page, cdp } = await open("deletes", {
@@ -550,15 +579,14 @@ async function deletes({ check, open }) {
   await pressEscape(cdp);
   await page.waitForFunction(HELP_CLOSED, { timeout: 3000 });
 
-  // At 100%: hover a card (its tooltip), its × and its instant hint;
-  // delete; the ghost's Undo puts it back.
+  // At Full size (the first open): hover a card (its tooltip), its × and
+  // its instant hint; delete; the ghost's Undo puts it back.
   await openMap(page, cdp);
-  await press1(cdp);
-  await sleep(150);
+  await showFull(page, cdp);
   let m = await page.evaluate(READ_MAP_CARDS);
   const vr = m.viewRect;
   // Wholly in view: the band layout (docs/plan.md Phase 41) puts the ten
-  // cards on several lines, so some are above or below the view at 100%.
+  // cards on several lines, so some are above or below the view.
   const visible = (x) =>
     x.rect.left >= vr.left &&
     x.rect.right <= vr.right &&
@@ -574,7 +602,7 @@ async function deletes({ check, open }) {
   const tip100 = await page.evaluate(READ_TIP);
   await page.screenshot({ path: join(shots, "card-tip-100.png") });
   check(
-    "at 100% hovering a card's picture shows the map tooltip with only the card's timestamp",
+    "at Full size hovering a card's picture shows the map tooltip with only the card's timestamp",
     m.scale === 1 && tipIsTime(tip100, hovered),
     { scale: m.scale, tip: tip100, time: hovered?.time },
   );
@@ -605,7 +633,7 @@ async function deletes({ check, open }) {
   const xTip100 = await page.evaluate(READ_TIP);
   await page.screenshot({ path: join(shots, "delete-hint-100.png") });
   check(
-    "at 100% a hovered card shows its × (24 px, in its top-right corner) and the × its 'Delete this bookmark' hint within a frame, with no title attribute and no card tooltip over it",
+    "at Full size a hovered card shows its × (24 px, in its top-right corner) and the × its 'Delete this bookmark' hint within a frame, with no title attribute and no card tooltip over it",
     xTip100 === null &&
       hint.framed &&
       hint.shown === "visible" &&
@@ -626,7 +654,7 @@ async function deletes({ check, open }) {
   const afterDelete = await stored();
   await page.screenshot({ path: join(shots, "delete-ghost-100.png") });
   check(
-    "× at 100% deletes the bookmark: storage drops it, its card becomes a ghost in place and the undo toast shows; the map stays open",
+    "× at Full size deletes the bookmark: storage drops it, its card becomes a ghost in place and the undo toast shows; the map stays open",
     ghost?.deleted === true &&
       Math.abs(ghost.rect.left - hovered.rect.left) < 1 &&
       !afterDelete.includes(one.id) &&
@@ -650,7 +678,7 @@ async function deletes({ check, open }) {
   await sleep(60);
   const undoTip100 = await page.evaluate(READ_TIP);
   check(
-    "at 100% hovering a ghost shows the same tooltip, only its timestamp; over its Undo no card tooltip shows",
+    "at Full size hovering a ghost shows the same tooltip, only its timestamp; over its Undo no card tooltip shows",
     tipIsTime(ghostTip100, ghost) && undoTip100 === null,
     { ghostTip: ghostTip100, undoTip: undoTip100, time: ghost?.time },
   );
@@ -684,7 +712,7 @@ async function deletes({ check, open }) {
     { zGone },
   );
 
-  // The newest card at 100% (N centres it): the same tooltip, no "Newest".
+  // The newest card at Full size (N centres it): the same tooltip, no "Newest".
   await pressN(cdp);
   await sleep(200);
   m = await page.evaluate(READ_MAP_CARDS);
@@ -699,22 +727,19 @@ async function deletes({ check, open }) {
   await sleep(60);
   const newestTip100 = await page.evaluate(READ_TIP);
   check(
-    "at 100% hovering the newest card shows only its timestamp too (no Newest, no second line)",
+    "at Full size hovering the newest card shows only its timestamp too (no Newest, no second line)",
     m.scale === 1 && tipIsTime(newestTip100, newest100),
     { scale: m.scale, tip: newestTip100, time: newest100?.time },
   );
 
   // At Fit the cards are small and the × is still offered,
   // at a usable screen size, in the card's corner; the toast's Undo. A
-  // hovered card, the newest too, shows the same tooltip as at 100%. The
-  // bands (docs/plan.md Phase 41) stack the ten cards on two lines, which
-  // Fit shows at about 0.69x in 1280x720, barely under CARD_SMALL_SCALE;
-  // at 960x600 (about the same shape, so the same layout) it is about
-  // 0.51x.
-  await page.setViewport({ width: 960, height: 600 });
+  // hovered card, the newest too, shows the same tooltip as at Full size.
+  // Fit (docs/plan.md Phase 41) shows the ten cards under 0.7x
+  // (CARD_SMALL_SCALE) in an 800x500 window.
+  await page.setViewport({ width: 800, height: 500 });
   await sleep(200);
-  await pressF(cdp);
-  await sleep(200);
+  await showMapView(page, cdp, "fit");
   m = await page.evaluate(READ_MAP_CARDS);
   const newestFit = m.cards.find((x) => x.newest);
   await mouse(
@@ -734,7 +759,7 @@ async function deletes({ check, open }) {
   m = await page.evaluate(READ_MAP_CARDS);
   const atFit = m.cards.find((x) => x.id === small.id);
   check(
-    "at Fit hovering a card shows the same tooltip as at 100%: only its timestamp, for a card and for the newest",
+    "at Fit hovering a card shows the same tooltip as at Full size: only its timestamp, for a card and for the newest",
     m.scale < 0.7 &&
       !small.newest &&
       tipIsTime(tipFit, atFit) &&
@@ -879,9 +904,9 @@ async function deletes({ check, open }) {
       !(await stored()).includes(small.id),
     { cards: reopened.cards.length },
   );
-  // Clicking a card from Fit opens it too.
-  await pressF(cdp);
-  await sleep(150);
+  // The map reopened at Fit, as it was left; clicking a card there opens
+  // it too.
+  const reopenedAt = (await page.evaluate(READ_MAP_VIEW)).view;
   const fitMap = await page.evaluate(READ_MAP_CARDS);
   const pick = fitMap.cards.find((x) => x.itemId === "anim-orbit");
   await mouse(cdp, "mouseMoved", 5, 5, 0);
@@ -889,9 +914,11 @@ async function deletes({ check, open }) {
   const closed = await waitFor(page, MAP_CLOSED, 3000);
   await sleep(200);
   check(
-    "clicking a small card at Fit opens its bookmark",
-    closed && (await currentItemId(page)) === item("anim-orbit").id,
-    { closed, item: await currentItemId(page) },
+    "the map reopens at Fit, as it was left, and clicking a small card there opens its bookmark",
+    reopenedAt === "fit" &&
+      closed &&
+      (await currentItemId(page)) === item("anim-orbit").id,
+    { reopenedAt, closed, item: await currentItemId(page) },
   );
 }
 

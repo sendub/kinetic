@@ -232,6 +232,77 @@ const MAP_CLOSED = () => {
 };
 const mapOpen = (page) => page.evaluate(MAP_OPEN);
 
+// The branch map's view as the page shows it (docs/plan.md Phase 41): the
+// half of "Full size | Fit" pressed ("full" or "fit"), the stage's
+// transform, the map view's size, the layout's size (the SVG's), and
+// Full size's scroll bar and thumb on screen (null while hidden).
+const READ_MAP_VIEW = () => {
+  const panel = document.getElementById("branchmap");
+  const pressed = (act) =>
+    panel
+      ?.querySelector(`.map-tool[data-act="${act}"]`)
+      ?.getAttribute("aria-pressed") === "true";
+  const [x, y, scale] = (panel?.querySelector(".map-stage")?.dataset.view ?? "")
+    .split(" ")
+    .map(Number);
+  const rect = (el) => {
+    const r = el.getBoundingClientRect();
+    return {
+      top: r.top,
+      bottom: r.bottom,
+      left: r.left,
+      right: r.right,
+      width: r.width,
+      height: r.height,
+    };
+  };
+  const viewEl = panel?.querySelector(".map-view");
+  const svg = panel?.querySelector(".map-svg");
+  const bar = panel?.querySelector(".map-scroll");
+  const shown = bar !== null && bar !== undefined && !bar.hidden;
+  return {
+    view: pressed("full") ? "full" : pressed("fit") ? "fit" : null,
+    x,
+    y,
+    scale,
+    vw: viewEl?.clientWidth ?? 0,
+    vh: viewEl?.clientHeight ?? 0,
+    viewRect: viewEl ? rect(viewEl) : null,
+    width: Number(svg?.getAttribute("width")),
+    height: Number(svg?.getAttribute("height")),
+    bar: shown ? rect(bar) : null,
+    thumb: shown ? rect(bar.querySelector(".map-thumb")) : null,
+  };
+};
+
+/**
+ * Shows the branch map's `which` view ("full" or "fit"): F, when the other
+ * one is on show (F switches). Returns the view after.
+ */
+async function showMapView(page, cdp, which) {
+  if ((await page.evaluate(READ_MAP_VIEW)).view !== which) {
+    await pressKey(cdp, "f", "KeyF", 70, "f");
+    await sleep(120);
+  }
+  return page.evaluate(READ_MAP_VIEW);
+}
+
+/**
+ * A navigation key (the arrows, Page Up / Page Down, Home, End) sent
+ * without a native key code: in headless Chrome on macOS some keys sent
+ * with one stop the page's animation frames for good (bookmarkmap's
+ * Delete note), which would freeze the map's painting.
+ */
+async function pressNavKey(cdp, key, keyCode) {
+  for (const type of ["keyDown", "keyUp"])
+    await cdp.send("Input.dispatchKeyEvent", {
+      type,
+      key,
+      code: key,
+      windowsVirtualKeyCode: keyCode,
+    });
+}
+
 // The settings section of the Esc screen (Phase 26: Escape opens the one
 // screen holding the keys and every setting; `c` is gone) as the reader
 // sees it: the speed readout, the
@@ -1401,6 +1472,7 @@ export {
   pressH,
   pressKey,
   pressM,
+  pressNavKey,
   pressSpace,
   pressT,
   pressTab,
@@ -1413,12 +1485,14 @@ export {
   READ_HELP,
   READ_KEY_GRID,
   READ_MAP_CARDS,
+  READ_MAP_VIEW,
   readBranchLog,
   readSignature,
   SIGNATURE,
   SKIP_PROBE,
   sampleSignatures,
   setPlayAll,
+  showMapView,
   sleep,
   stepForward,
   transitions,

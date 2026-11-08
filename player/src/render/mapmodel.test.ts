@@ -16,25 +16,26 @@ import {
   labelsMarkup,
   lineScaleStyle,
   linesMarkup,
+  scrollThumb,
   tickClass,
   treeMarkup,
 } from "./branchmap";
 import {
-  bandWidthForAspect,
-  buildMapModel,
   CARD,
   CARD_ABOVE,
   CARD_BELOW,
   CARD_COUNT_DY,
   type CardSlot,
   cardSlots,
-  centreOn,
   cutBands,
   FIGURE_INK_PX,
   FIT_MARGIN_PX,
+  FULL_SIZE_INSET,
   figuresVisible,
   fitView,
+  fitWidth,
   fullSizeView,
+  fullSizeWidth,
   HERE_DECISION_GAP,
   HERE_REACH,
   HIDDEN_PROMPT,
@@ -43,30 +44,57 @@ import {
   itemPoint,
   jumpFor,
   layOutStrip,
-  layoutSignature,
   MAP_GEOMETRY,
   MAX_SCALE,
   type MapModel,
   type MapReader,
   type MapRun,
+  type MapStrip,
+  type MapView,
   mapDrawing,
   markMap,
   NODE_GROUP_MIN_SCALE,
   nodeGroupMinScale,
-  restoreView,
+  openingRecord,
+  placeOf,
+  placeY,
+  pointAlong,
+  remember,
   rowOffset,
   runAt,
   runJump,
   type SavedMapView,
   SMALL_NODE_GROUP_MIN_SCALE,
-  saveView,
+  scrollView,
+  stripSignature,
   tickBox,
   tickPaths,
-  viewAfterResize,
+  viewFor,
   visibleWorld,
-  zoomAt,
-  zoomLimits,
 } from "./mapmodel";
+
+/**
+ * The tree cut into bands for a layout `width` wide, its padding included
+ * (by default Full size's cut in a 1920 px map view).
+ */
+function buildMapModel(
+  items: readonly Item[],
+  branches: readonly Branch[] | undefined,
+  width = fullSizeWidth(1920),
+  bookmarkItems: readonly number[] = [],
+): MapModel {
+  return cutBands(layOutStrip(items, branches, bookmarkItems), width);
+}
+
+/** Fit's layout of `strip` for a vw x vh map view (`fitWidth`). */
+function fitCut(strip: MapStrip, vw: number, vh: number): MapModel {
+  return cutBands(strip, fitWidth(strip, vw, vh));
+}
+
+/** Full size's layout of `strip` for a map view `vw` wide. */
+function fullCut(strip: MapStrip, vw: number): MapModel {
+  return cutBands(strip, fullSizeWidth(vw));
+}
 
 // The branch map's pure half (docs/plan.md Phase 31): the tree laid out from
 // the decisions the machine resolves, the reader's marks over it, the
@@ -361,12 +389,18 @@ describe("buildMapModel: bands like a score's systems, endings tucked in", () =>
       .sort((a, b) => a.afterIndex - b.afterIndex);
   }
 
-  it("wraps a large game's main line into bands, in reading order, about the viewport's shape", () => {
+  it("wraps a large game's main line into bands, in reading order, about the view's shape at Fit", () => {
     const { items, branches } = synthetic(30, 6, 26);
-    for (const aspect of [16 / 9, 2, 4 / 3]) {
-      const model = buildMapModel(items, branches, aspect);
+    const strip = layOutStrip(items, branches);
+    for (const [vw, vh] of [
+      [1920, 1080],
+      [1920, 960],
+      [1440, 1080],
+    ]) {
+      const model = fitCut(strip, vw, vh);
       expect(model.bands.length).toBeGreaterThan(2);
       const shape = model.width / model.height;
+      const aspect = vw / vh;
       expect(shape / aspect).toBeGreaterThan(0.6);
       expect(shape / aspect).toBeLessThan(1.6);
       // Reading order: each top-level decision is right of the one before
@@ -388,7 +422,7 @@ describe("buildMapModel: bands like a score's systems, endings tucked in", () =>
 
   it("keeps boxes and lines apart, tucked endings included", () => {
     const { items, branches } = synthetic(12, 5, 10);
-    const model = buildMapModel(items, branches, 16 / 9);
+    const model = buildMapModel(items, branches);
     const boxes = boxesOf(model).sort((a, b) => a.x0 - b.x0);
     for (let i = 0; i < boxes.length; i += 1)
       for (let j = i + 1; j < boxes.length; j += 1) {
@@ -467,7 +501,7 @@ describe("buildMapModel: bands like a score's systems, endings tucked in", () =>
 
   it("keeps 'you are here' and hit testing on the wrapped layout", () => {
     const { items, branches } = synthetic(30, 6, 26);
-    const model = buildMapModel(items, branches, 16 / 9);
+    const model = buildMapModel(items, branches);
     const tops = topLevel(model);
     const deep = tops[tops.length - 1];
     expect(deep.y).toBeGreaterThan(tops[0].y);
@@ -483,11 +517,20 @@ describe("buildMapModel: bands like a score's systems, endings tucked in", () =>
     expect(run?.x1).toBe(deep.x);
     expect(marks.here.x).toBeGreaterThan(run?.x0 ?? 0);
     expect(marks.here.x).toBeLessThan(deep.x);
-    // With nothing remembered the map opens at Fit, not centred on it.
-    expect(restoreView(model, null, 1920, 960, marks.here)).toEqual({
-      view: fitView(model, 1920, 960, marks.here),
-      fit: true,
-    });
+    // With nothing remembered the map opens at Full size, centred on it.
+    const opened = viewFor(
+      model,
+      openingRecord(null, "any"),
+      marks.here,
+      1920,
+      960,
+    );
+    expect(opened).toEqual(fullSizeView(model, 1920, 960, marks.here.y));
+    expect(opened.scale).toBe(1);
+    // Near the map's bottom: as near the middle as the bottom allows.
+    const sy = marks.here.y + opened.y;
+    expect(sy).toBeGreaterThanOrEqual(480);
+    expect(sy).toBeLessThan(960 - HERE_REACH.down);
     for (const node of model.decisions.slice(0, 50))
       expect(hitTest(model, node.x + 5, node.y)).toEqual({
         kind: "decision",
@@ -500,11 +543,20 @@ describe("buildMapModel: bands like a score's systems, endings tucked in", () =>
       });
   });
 
-  it("lays the demo out as before, one row, whatever the viewport's shape", () => {
-    for (const aspect of [1, 4 / 3, 16 / 9, 3]) {
-      const model = buildMapModel(DEMO_ITEMS, DEMO_BRANCHES, aspect);
+  it("lays the demo out as one row at Full size in a map view 600 px wide or more, and at a Fit that reaches 3x", () => {
+    for (const width of [600, 800, 1280, 1920]) {
+      const model = buildMapModel(DEMO_ITEMS, DEMO_BRANCHES, width);
       expect(model.bands).toHaveLength(1);
       expect(model.ticks).toEqual([]);
+    }
+    const strip = layOutStrip(DEMO_ITEMS, DEMO_BRANCHES);
+    for (const [vw, vh] of [
+      [1920, 1000],
+      [2560, 1300],
+    ]) {
+      const fit = fitCut(strip, vw, vh);
+      expect(fit.bands).toHaveLength(1);
+      expect(fitView(fit, vw, vh).scale).toBe(MAX_SCALE);
     }
   });
 });
@@ -857,42 +909,19 @@ describe("jumpFor and runJump: clicks move through the machine's own operations"
   });
 });
 
-describe("view arithmetic", () => {
-  it("zooms around the pointer: the world point under it stays put", () => {
-    const view = { x: 40, y: -20, scale: 0.8 };
-    const next = zoomAt(view, 1.5, 300, 200, { min: 0.1, max: 3 });
-    const before = {
-      x: (300 - view.x) / view.scale,
-      y: (200 - view.y) / view.scale,
-    };
-    const after = {
-      x: (300 - next.x) / next.scale,
-      y: (200 - next.y) / next.scale,
-    };
-    expect(next.scale).toBeCloseTo(1.2);
-    expect(after.x).toBeCloseTo(before.x);
-    expect(after.y).toBeCloseTo(before.y);
-  });
-
-  it("clamps zoom to the limits", () => {
-    const view = { x: 0, y: 0, scale: 1 };
-    expect(zoomAt(view, 100, 0, 0, { min: 0.1, max: 3 }).scale).toBe(3);
-    expect(zoomAt(view, 0.0001, 0, 0, { min: 0.1, max: 3 }).scale).toBe(0.1);
-  });
-
-  it("fit shows the whole tree inside the viewport", () => {
+describe("Fit (docs/plan.md Phase 41, 'Two views')", () => {
+  it("shows the whole tree inside the view", () => {
     const { items, branches } = synthetic(4, 4, 20);
-    const model = buildMapModel(items, branches);
+    const model = fitCut(layOutStrip(items, branches), 1920, 1080);
     const view = fitView(model, 1920, 1080);
     const seen = visibleWorld(view, 1920, 1080);
     expect(seen.x0).toBeLessThanOrEqual(model.bounds.x0);
     expect(seen.y0).toBeLessThanOrEqual(model.bounds.y0);
     expect(seen.x1).toBeGreaterThanOrEqual(model.bounds.x1);
     expect(seen.y1).toBeGreaterThanOrEqual(model.bounds.y1);
-    expect(zoomLimits(model, 1920, 1080).min).toBeLessThanOrEqual(view.scale);
   });
 
-  it("fit fills the view, less a small margin, at any size, the demo included", () => {
+  it("fills the view, less a small margin, at any size, the demo included", () => {
     // What the map draws, measured here from its parts (not `bounds`).
     const g = MAP_GEOMETRY;
     const drawn = (model: MapModel) => {
@@ -918,6 +947,12 @@ describe("view arithmetic", () => {
         xs.push(l.x0, l.x1);
         ys.push(l.y0, l.y1);
       }
+      // The "continues" ticks at band cuts.
+      for (const t of model.ticks) {
+        const b = tickBox(t);
+        xs.push(b.x0, b.x1);
+        ys.push(b.y0, b.y1);
+      }
       return {
         x0: Math.min(...xs),
         y0: Math.min(...ys),
@@ -933,11 +968,12 @@ describe("view arithmetic", () => {
       [2560, 1300],
       [3840, 1980],
     ];
-    for (const model of [
-      demoModel(),
-      buildMapModel(items, branches, 1920 / 960),
+    for (const strip of [
+      layOutStrip(DEMO_ITEMS, DEMO_BRANCHES),
+      layOutStrip(items, branches),
     ])
       for (const [vw, vh] of sizes) {
+        const model = fitCut(strip, vw, vh);
         const view = fitView(model, vw, vh);
         const box = drawn(model);
         const sx0 = box.x0 * view.scale + view.x;
@@ -950,24 +986,20 @@ describe("view arithmetic", () => {
         expect(sx1).toBeLessThanOrEqual(vw - FIT_MARGIN_PX / 2);
         expect(sy1).toBeLessThanOrEqual(vh - FIT_MARGIN_PX / 2);
         // ...and filling it along the tighter axis, up to the margins,
-        // unless the zoom-in limit stops it first (the compact demo in a
-        // 4K window).
+        // unless the 3x limit stops it first (the compact demo in a big
+        // window).
         const m2 = 2 * FIT_MARGIN_PX;
         const fill = Math.max((sx1 - sx0) / (vw - m2), (sy1 - sy0) / (vh - m2));
         if (view.scale < MAX_SCALE)
           expect(fill, `${vw}x${vh}`).toBeGreaterThan(0.97);
         else expect(fill, `${vw}x${vh}`).toBeLessThanOrEqual(1);
-        // Zooming never undoes a fit.
-        expect(zoomLimits(model, vw, vh).max).toBeGreaterThanOrEqual(
-          view.scale,
-        );
       }
-    // A one-stretch story is not blown up past the zoom-in limit.
-    const tiny = buildMapModel([image("a")], []);
+    // A one-stretch story is not blown up past 3x.
+    const tiny = fitCut(layOutStrip([image("a")], []), 3840, 1980);
     expect(fitView(tiny, 3840, 1980).scale).toBe(MAX_SCALE);
   });
 
-  it("fit keeps the marker's ring and label inside the view", () => {
+  it("keeps the marker's ring and label inside the view", () => {
     // The marker is drawn in screen space at a fixed size: its ring and its
     // "you are here" label reach HERE_REACH pixels from its point.
     const inside = (
@@ -991,18 +1023,19 @@ describe("view arithmetic", () => {
       [1280, 630],
       [600, 900],
     ];
-    for (const [name, model] of [
-      ["demo", demoModel()],
-      ["synthetic", buildMapModel(items, branches, 16 / 9)],
+    for (const [name, strip] of [
+      ["demo", layOutStrip(DEMO_ITEMS, DEMO_BRANCHES)],
+      ["synthetic", layOutStrip(items, branches)],
     ] as const) {
-      const last = model.itemCount - 1;
-      const all = Array.from({ length: model.itemCount }, (_, i) => i);
-      for (const [where, reader] of [
-        ["start", { visited: [0], playedRoutes: [], cursor: 0 }],
-        ["end", { visited: all, playedRoutes: [], cursor: last }],
-      ] as const) {
-        const marks = markMap(model, reader);
-        for (const [vw, vh] of sizes) {
+      for (const [vw, vh] of sizes) {
+        const model = fitCut(strip, vw, vh);
+        const last = model.itemCount - 1;
+        const all = Array.from({ length: model.itemCount }, (_, i) => i);
+        for (const [where, reader] of [
+          ["start", { visited: [0], playedRoutes: [], cursor: 0 }],
+          ["end", { visited: all, playedRoutes: [], cursor: last }],
+        ] as const) {
+          const marks = markMap(model, reader);
           const at = `${name} ${where} ${vw}x${vh}`;
           const fit = fitView(model, vw, vh, marks.here);
           inside(fit, marks.here, vw, vh, `fit ${at}`);
@@ -1017,154 +1050,398 @@ describe("view arithmetic", () => {
             ((b.x1 - b.x0) * fit.scale) / vw,
             ((b.y1 - b.y0) * fit.scale) / vh,
           );
-          // (Unless the zoom-in limit stops it: the compact demo.)
+          // (Unless the 3x limit stops it: the compact demo.)
           if (fit.scale < MAX_SCALE)
             expect(fill, `fill ${at}`).toBeGreaterThan(0.75);
-          expect(zoomLimits(model, vw, vh, marks.here).min).toBeLessThanOrEqual(
-            fit.scale,
-          );
         }
       }
     }
   });
 
-  it("keeps the world point at the view's centre when the view is resized", () => {
-    const view = { x: -300, y: 40, scale: 0.8 };
-    const next = viewAfterResize(
-      view,
-      { w: 1280, h: 630 },
-      { w: 2560, h: 1300 },
-    );
-    expect(next.scale).toBe(0.8);
-    expect((1280 - next.x) / next.scale).toBeCloseTo((640 - view.x) / 0.8);
-    expect((650 - next.y) / next.scale).toBeCloseTo((315 - view.y) / 0.8);
+  it("chooses the band width and the scale together: no other width shows the whole map larger", () => {
+    const big = synthetic(30, 6, 26);
+    const cases: [string, MapStrip][] = [
+      ["570 decisions", layOutStrip(big.items, big.branches)],
+      [
+        "570 decisions, 180 bookmarks",
+        layOutStrip(big.items, big.branches, spreadOver(big.items, 180)),
+      ],
+      ["the demo", layOutStrip(DEMO_ITEMS, DEMO_BRANCHES)],
+      [
+        "the demo, 3 bookmarks",
+        layOutStrip(DEMO_ITEMS, DEMO_BRANCHES, [3, 3, 3]),
+      ],
+      [
+        "the demo, 10 bookmarks",
+        layOutStrip(DEMO_ITEMS, DEMO_BRANCHES, [0, 0, 0, 0, 0, 1, 1, 1, 1, 1]),
+      ],
+    ];
+    for (const [name, strip] of cases)
+      for (const [vw, vh] of [
+        [1920, 1000],
+        [1280, 650],
+        [600, 900],
+      ]) {
+        const at = `${name} in ${vw}x${vh}`;
+        const chosen = fitCut(strip, vw, vh);
+        const scale = fitView(chosen, vw, vh).scale;
+        expect(scale, at).toBeLessThanOrEqual(MAX_SCALE);
+        // Every other band width from 200 px to the whole strip on one
+        // band (24 of them, evenly spread in ratio) shows it no larger,
+        // within 2%: the chooser scores the laid-out size, Fit fills the
+        // drawn box.
+        const widest = strip.length + 2 * MAP_GEOMETRY.pad;
+        for (let i = 0; i <= 24; i += 1) {
+          const width = 200 * (widest / 200) ** (i / 24);
+          const other = fitView(cutBands(strip, width), vw, vh).scale;
+          expect(scale, `${at} against ${width.toFixed(0)} px`).toBeGreaterThan(
+            other * 0.98,
+          );
+        }
+      }
+  });
+
+  it("enlarges a small map up to 3x, on one band while that reaches 3x, and cuts it narrower than 1,280 px where that shows it larger", () => {
+    // The demo reaches 3x on one band in a big window: no cut (a tie goes
+    // to fewer bands).
+    const demo = layOutStrip(DEMO_ITEMS, DEMO_BRANCHES);
+    const big = fitCut(demo, 1920, 1000);
+    expect(big.bands).toHaveLength(1);
+    expect(fitView(big, 1920, 1000).scale).toBe(MAX_SCALE);
+    // Three cards on one screen in 1280x650: cut narrower than Phase 41's
+    // interim chooser allowed (bands of 1,280 px at the least), it shows
+    // larger than on one band or at that width.
+    const carded = layOutStrip(DEMO_ITEMS, DEMO_BRANCHES, [3, 3, 3]);
+    const fit = fitCut(carded, 1280, 650);
+    const scale = fitView(fit, 1280, 650).scale;
+    expect(fit.bands.length).toBeGreaterThan(1);
+    expect(fit.width).toBeLessThan(1280);
+    for (const width of [carded.length + 80, 1280])
+      expect(scale).toBeGreaterThan(
+        1.1 * fitView(cutBands(carded, width), 1280, 650).scale,
+      );
   });
 });
 
-describe("the remembered view (Phase 33)", () => {
-  const { items, branches } = synthetic(10, 3, 20);
-  const model = buildMapModel(items, branches);
-  const marks = markMap(model, {
-    visited: [0, 1, 2],
-    playedRoutes: [],
-    cursor: 2,
-  });
-  const layout = layoutSignature(model);
-  const world = (
-    view: { x: number; y: number; scale: number },
-    vw: number,
-    vh: number,
-  ) => ({
-    x: (vw / 2 - view.x) / view.scale,
-    y: (vh / 2 - view.y) / view.scale,
+describe("Full size (docs/plan.md Phase 41, 'Two views')", () => {
+  const big = synthetic(30, 6, 26);
+  const strip = layOutStrip(
+    big.items,
+    big.branches,
+    spreadOver(big.items, 180),
+  );
+
+  it("is scale exactly 1, the bands cut at the view's width so nothing runs off its sides", () => {
+    for (const vw of [1280, 1440, 1920]) {
+      const model = fullCut(strip, vw);
+      const view = fullSizeView(model, vw, 700, 0);
+      expect(view.scale).toBe(1);
+      expect(model.bands.length).toBeGreaterThan(10);
+      // Everything drawn (ticks included) across the view, cards too.
+      expect(view.x + model.bounds.x0).toBeGreaterThanOrEqual(0);
+      expect(view.x + model.bounds.x1).toBeLessThanOrEqual(vw);
+      const cards = model.runs.flatMap((run) =>
+        run.bookmarks.map((itemIndex, j) => ({ itemIndex, timestampMs: j })),
+      );
+      const slots = cardSlots(model, cards);
+      expect(slots.every((slot) => slot !== null)).toBe(true);
+      for (const slot of slots) {
+        expect(view.x + (slot?.x ?? -1)).toBeGreaterThanOrEqual(0);
+        expect(view.x + (slot?.x ?? vw) + CARD.w).toBeLessThanOrEqual(vw);
+      }
+    }
+    // The demo and the tree without bookmarks cut to any width from 600 px.
+    for (const plain of [
+      layOutStrip(DEMO_ITEMS, DEMO_BRANCHES),
+      layOutStrip(big.items, big.branches),
+    ])
+      for (const vw of [600, 800, 1000]) {
+        const model = fullCut(plain, vw);
+        expect(model.width).toBeLessThanOrEqual(fullSizeWidth(vw));
+        expect(fullSizeView(model, vw, 700, 0).scale).toBe(1);
+      }
   });
 
-  it("opens at Fit the first time (nothing remembered), not centred on here", () => {
+  it("keeps the marker's ring and label inside the view at a band's start and end", () => {
+    for (const plain of [
+      layOutStrip(DEMO_ITEMS, DEMO_BRANCHES),
+      layOutStrip(big.items, big.branches),
+    ])
+      for (const vw of [800, 1280]) {
+        const model = fullCut(plain, vw);
+        const last = model.itemCount - 1;
+        for (const reader of [
+          { visited: [0], playedRoutes: [], cursor: 0 },
+          {
+            visited: Array.from({ length: last + 1 }, (_, i) => i),
+            playedRoutes: [],
+            cursor: last,
+          },
+        ]) {
+          const here = markMap(model, reader).here;
+          const view = fullSizeView(model, vw, 600, here.y);
+          const sx = here.x * view.scale + view.x;
+          const sy = here.y * view.scale + view.y;
+          expect(sx - HERE_REACH.side).toBeGreaterThanOrEqual(0);
+          expect(sx + HERE_REACH.side).toBeLessThanOrEqual(vw);
+          expect(sy - HERE_REACH.up).toBeGreaterThanOrEqual(0);
+          expect(sy + HERE_REACH.down).toBeLessThanOrEqual(600);
+        }
+      }
+  });
+
+  it("shrinks just enough to bring the widest band inside the view where a stretch has no place to cut within its width", () => {
+    // Cards stacked on several rows over one span leave no cut within
+    // 800 px: the band runs on to the first place it may be cut.
+    const model = fullCut(strip, 800);
+    expect(model.width).toBeGreaterThan(fullSizeWidth(800));
+    const view = fullSizeView(model, 800, 700, 0);
+    expect(view.scale).toBeCloseTo(fullSizeWidth(800) / model.width, 12);
+    expect(view.scale).toBeLessThan(1);
+    expect(view.x).toBe(FULL_SIZE_INSET);
+    expect(view.x + model.bounds.x1 * view.scale).toBeLessThanOrEqual(800);
+    // It scrolls at that scale, top to bottom.
+    const bottom = scrollView(model, 700, view, Number.NEGATIVE_INFINITY);
+    expect(bottom.y).toBeCloseTo(700 - model.height * view.scale, 9);
+    // A place there comes back.
+    const mid = fullSizeView(model, 800, 700, model.bands[5].line);
+    expect(
+      fullSizeView(
+        model,
+        800,
+        700,
+        placeY(model, placeOf(model, mid, 800, 700)),
+      ).y,
+    ).toBeCloseTo(mid.y, 9);
+  });
+
+  it("scrolls up and down only, never past the map's top or bottom; a map no taller than the view sits still in its middle", () => {
+    const model = fullCut(strip, 1440);
+    const vh = 800;
+    const top = fullSizeView(model, 1440, vh, 0);
+    expect(top.y).toBe(0);
+    const bottom = scrollView(model, vh, top, Number.NEGATIVE_INFINITY);
+    expect(bottom).toEqual({ x: top.x, y: vh - model.height, scale: 1 });
+    expect(scrollView(model, vh, top, -1234.5)).toEqual({
+      ...top,
+      y: -1234.5,
+    });
+    expect(scrollView(model, vh, bottom, 50).y).toBe(0);
+    // The demo is shorter than the view: centred, and it does not move.
+    const demo = fullCut(layOutStrip(DEMO_ITEMS, DEMO_BRANCHES), 1280);
+    const still = fullSizeView(demo, 1280, 650, 0);
+    expect(still.y).toBe(Math.round((650 - demo.height) / 2));
+    expect(still.x).toBe(Math.round((1280 - demo.width) / 2));
+    expect(scrollView(demo, 650, still, -500)).toEqual(still);
+  });
+
+  it("puts a world height in the middle of the view, as near as the map's top and bottom allow", () => {
+    const model = fullCut(strip, 1440);
+    const cy = Math.round(model.height / 2);
+    expect(cy + fullSizeView(model, 1440, 800, cy).y).toBe(400);
+    expect(fullSizeView(model, 1440, 800, 10).y).toBe(0);
+    expect(fullSizeView(model, 1440, 800, model.height - 10).y).toBe(
+      800 - model.height,
+    );
+  });
+
+  it("keeps what was in the middle of the view there when the bands are cut at another width (a resize)", () => {
+    const at1440 = fullCut(strip, 1440);
+    // On the model it was taken on, a place comes back exactly, a band
+    // shorter than half the view (its middle past its end) too.
+    const short = at1440.bands.findIndex((b) => b.x1 - b.x0 < 700);
+    expect(short).toBeGreaterThanOrEqual(0);
+    for (const band of at1440.bands) {
+      const view = fullSizeView(at1440, 1440, 800, band.line + 10);
+      const again = placeY(at1440, placeOf(at1440, view, 1440, 800));
+      expect(fullSizeView(at1440, 1440, 800, again).y).toBeCloseTo(view.y, 9);
+    }
+    // Two full bands' main lines in the middle of the view, cut again.
+    const full = at1440.bands.filter((b) => b.x1 - b.x0 > 1200);
+    expect(full.length).toBeGreaterThan(8);
+    const picks = [
+      full[Math.floor(full.length / 4)],
+      full[Math.floor(full.length * 0.7)],
+    ];
+    for (const band of picks) {
+      const view = fullSizeView(at1440, 1440, 800, band.line + 10);
+      const place = placeOf(at1440, view, 1440, 800);
+      // The stretch nearest the view's middle, and how far along it.
+      const cx = 720 - view.x;
+      const cy = 400 - view.y;
+      let near = { run: 0, along: 0, d: Number.POSITIVE_INFINITY };
+      at1440.runs.forEach((run, i) => {
+        for (const p of run.pieces) {
+          const x = Math.min(p.x1, Math.max(p.x0, cx));
+          const d = Math.hypot(x - cx, p.y - cy);
+          if (d < near.d) near = { run: i, along: p.at + x - p.x0, d };
+        }
+      });
+      // (A decision's box and pills may sit right under the middle.)
+      expect(near.d).toBeLessThan(3 * MAP_GEOMETRY.rowH);
+      for (const vw of [1000, 1920]) {
+        const other = fullCut(strip, vw);
+        const moved = fullSizeView(other, vw, 800, placeY(other, place));
+        // The place's own point is at the middle height of the view...
+        const holder = [...other.bands]
+          .reverse()
+          .find((b) => b.start <= place.at);
+        expect(holder).toBeDefined();
+        // (At 1000 px a stretch has no cut within the width: Full size is
+        // a little under 1x there.)
+        const k = moved.scale;
+        expect(((holder?.line ?? 0) + place.dy) * k + moved.y).toBeCloseTo(
+          400,
+          6,
+        );
+        // ...and the stretch that was in the middle is near it, in view.
+        const p = pointAlong(other.runs[near.run], near.along);
+        expect(
+          Math.abs(p.y * k + moved.y - 400),
+          `${band.line} at ${vw}`,
+        ).toBeLessThan(200);
+        expect(p.x * k + moved.x).toBeGreaterThanOrEqual(0);
+        expect(p.x * k + moved.x).toBeLessThanOrEqual(vw);
+      }
+    }
+  });
+});
+
+describe("Full size's scroll bar (render/branchmap.ts)", () => {
+  it("sizes its thumb by the share of the map in view, never under 28 px, and places it by the scroll", () => {
+    expect(scrollThumb(600, 2400, 612, 0)).toEqual({ length: 153, offset: 0 });
+    expect(scrollThumb(600, 2400, 612, 612 - 2400)).toEqual({
+      length: 153,
+      offset: 447,
+    });
+    expect(scrollThumb(600, 2400, 612, (612 - 2400) / 2).offset).toBe(223.5);
+    expect(scrollThumb(600, 90000, 612, 0).length).toBe(28);
+    // Nothing to scroll: the thumb fills the track.
+    expect(scrollThumb(600, 300, 612, 0)).toEqual({ length: 600, offset: 0 });
+  });
+});
+
+describe("the remembered view (docs/plan.md Phase 41)", () => {
+  const { items, branches } = synthetic(10, 3, 20);
+  const bookmarks = [5, 60, 61, 300];
+  const strip = layOutStrip(items, branches, bookmarks);
+  // Made on first use, inside the tests.
+  let made: { layout: string; model: MapModel } | null = null;
+  const laid = () => {
+    made ??= { layout: stripSignature(strip), model: fullCut(strip, 1280) };
+    return made;
+  };
+  const all = (n: number) => Array.from({ length: n + 1 }, (_, i) => i);
+  const hereAt = (on: MapModel, cursor: number) =>
+    markMap(on, { visited: all(cursor), playedRoutes: [], cursor }).here;
+  // A JSON round trip: how the shell's state record keeps it.
+  const stored = (record: SavedMapView) =>
+    JSON.parse(JSON.stringify(record)) as SavedMapView;
+  const scrolledTo = (cy: number): MapView =>
+    fullSizeView(laid().model, 1280, 650, cy);
+
+  it("opens at Full size, centred on 'you are here', with nothing remembered: a first open, or after a reset", () => {
+    const { layout, model } = laid();
     for (const saved of [null, undefined]) {
-      const opened = restoreView(model, saved, 800, 600, marks.here);
-      expect(opened.fit).toBe(true);
-      expect(opened.view).toEqual(fitView(model, 800, 600, marks.here));
-      expect(opened.view).not.toEqual(
-        centreOn(marks.here.x, marks.here.y, 800, 600, opened.view.scale),
-      );
+      const record = openingRecord(saved, layout);
+      expect(record).toEqual({ view: "full", layout, place: null });
+      const here = hereAt(model, 150);
+      const view = viewFor(model, record, here, 1280, 650);
+      expect(view).toEqual(fullSizeView(model, 1280, 650, here.y));
+      expect(view.scale).toBe(1);
     }
   });
 
-  it("reopens a moved view exactly where it was, same window", () => {
-    const view = { x: -812.25, y: 133.5, scale: 1.37 };
-    const saved = saveView(layout, view, 1280, 640, false);
-    const opened = restoreView(model, saved, 1280, 640, marks.here);
-    expect(opened.fit).toBe(false);
-    expect(opened.view.scale).toBe(1.37);
-    expect(opened.view.x).toBeCloseTo(view.x, 9);
-    expect(opened.view.y).toBeCloseTo(view.y, 9);
-  });
-
-  it("survives a JSON round trip (the stored record) unchanged", () => {
-    const saved = saveView(
-      layout,
-      { x: 10, y: -3, scale: 0.9 },
-      900,
-      700,
-      false,
-    );
-    const back = JSON.parse(JSON.stringify(saved)) as SavedMapView;
-    expect(restoreView(model, back, 900, 700)).toEqual(
-      restoreView(model, saved, 900, 700),
-    );
-  });
-
-  it("a remembered Fit reopens as a fresh Fit for the window now", () => {
-    const fit = fitView(model, 800, 600, marks.here);
-    const saved = saveView(layout, fit, 800, 600, true);
-    const opened = restoreView(model, saved, 1920, 1080, marks.here);
-    expect(opened).toEqual({
-      view: fitView(model, 1920, 1080, marks.here),
-      fit: true,
+  it("C, then a scroll, then C again: centred, the place scrolled to, centred again; a centred open follows the reader", () => {
+    const { layout, model } = laid();
+    let record = remember(openingRecord(undefined, layout), {
+      kind: "centre",
     });
-  });
-
-  it("after a resize keeps the world centre and scale, the scale clamped to the zoom limits", () => {
-    const view = { x: -400, y: 50, scale: 1.2 };
-    const saved = saveView(layout, view, 1280, 640, false);
-    const opened = restoreView(model, saved, 1920, 1080, marks.here);
-    expect(opened.fit).toBe(false);
-    expect(opened.view.scale).toBe(1.2);
-    const before = world(view, 1280, 640);
-    const after = world(opened.view, 1920, 1080);
-    expect(after.x).toBeCloseTo(before.x, 9);
-    expect(after.y).toBeCloseTo(before.y, 9);
-    // Out of range either way: clamped, centre kept.
-    const limits = zoomLimits(model, 600, 400, marks.here);
-    const huge = restoreView(
-      model,
-      { ...saved, scale: 50 },
-      600,
-      400,
-      marks.here,
-    );
-    expect(huge.view.scale).toBe(limits.max);
-    const tiny = restoreView(
-      model,
-      { ...saved, scale: 1e-4 },
-      600,
-      400,
-      marks.here,
-    );
-    expect(tiny.view.scale).toBe(limits.min);
-    expect(world(tiny.view, 600, 400).x).toBeCloseTo(saved.cx, 9);
-    expect(world(huge.view, 600, 400).y).toBeCloseTo(saved.cy, 9);
-  });
-
-  it("a view taken on another layout (another game version, rows rewrapped) falls back to Fit", () => {
-    const saved = saveView(
-      layout,
-      { x: -400, y: 50, scale: 1.2 },
-      1280,
-      640,
-      false,
-    );
-    const other = synthetic(11, 3, 20);
-    const changed = buildMapModel(other.items, other.branches);
-    expect(layoutSignature(changed)).not.toBe(layout);
-    expect(restoreView(changed, saved, 1280, 640)).toEqual({
-      view: fitView(changed, 1280, 640),
-      fit: true,
+    expect(record).toEqual({ view: "full", layout, place: null });
+    // A scroll: the place where the reader left it, which a reopen shows
+    // wherever the reader has got to since.
+    const scrolled = scrolledTo(model.bands[3].line + 30);
+    record = remember(record, {
+      kind: "place",
+      place: placeOf(model, scrolled, 1280, 650),
     });
-    const rewrapped = buildMapModel(items, branches, 0.5);
-    expect(rewrapped.bands.length).not.toBe(model.bands.length);
-    expect(layoutSignature(rewrapped)).not.toBe(layout);
-    expect(restoreView(rewrapped, saved, 1280, 640).fit).toBe(true);
-    // The same manifest laid out again gives the same signature.
-    expect(layoutSignature(buildMapModel(items, branches))).toBe(layout);
+    const reopened = openingRecord(stored(record), layout);
+    const later = viewFor(model, reopened, hereAt(model, 400), 1280, 650);
+    expect(later.y).toBeCloseTo(scrolled.y, 9);
+    expect(later.scale).toBe(1);
+    // C again: centred, so the next open centres on the reader, wherever
+    // they are by then.
+    record = remember(reopened, { kind: "centre" });
+    expect(record.place).toBe(null);
+    for (const cursor of [30, 500]) {
+      const here = hereAt(model, cursor);
+      expect(
+        viewFor(model, openingRecord(stored(record), layout), here, 1280, 650),
+      ).toEqual(fullSizeView(model, 1280, 650, here.y));
+    }
   });
 
-  it("a reset (no remembered view: the record is gone) opens at Fit", () => {
-    // Reset deletes the state record (storage tests); with it the view.
-    expect(restoreView(model, undefined, 1024, 700, marks.here)).toEqual({
-      view: fitView(model, 1024, 700, marks.here),
-      fit: true,
+  it("reopens in the last view: Fit as a Fit for the window now; switching views keeps Full size's place", () => {
+    const { layout, model } = laid();
+    const scrolled = scrolledTo(model.bands[2].line);
+    const place = placeOf(model, scrolled, 1280, 650);
+    let record = remember(openingRecord(undefined, layout), {
+      kind: "place",
+      place,
     });
+    record = remember(record, { kind: "view", view: "fit" });
+    expect(record).toEqual({ view: "fit", layout, place });
+    const opened = openingRecord(stored(record), layout);
+    const fit = fitCut(strip, 1920, 1000);
+    const here = hereAt(fit, 150);
+    expect(viewFor(fit, opened, here, 1920, 1000)).toEqual(
+      fitView(fit, 1920, 1000, here),
+    );
+    // Back to Full size (F): where the reader left it.
+    const back = remember(opened, { kind: "view", view: "full" });
+    expect(back.view).toBe("full");
+    expect(viewFor(model, back, here, 1280, 650).y).toBeCloseTo(scrolled.y, 9);
+  });
+
+  it("centres a Full size open on 'you are here' once the layout has changed (a bookmark added or deleted), not for another band width", () => {
+    const { layout, model } = laid();
+    const place = placeOf(model, scrolledTo(model.bands[4].line), 1280, 650);
+    const record = remember(openingRecord(undefined, layout), {
+      kind: "place",
+      place,
+    });
+    // Laid out again for the same bookmarks, the same layout: any band
+    // width keeps the place.
+    const again = layOutStrip(items, branches, [...bookmarks].reverse());
+    expect(stripSignature(again)).toBe(layout);
+    expect(openingRecord(stored(record), layout).place).toEqual(place);
+    // A bookmark more, or one fewer: another layout, centred.
+    for (const marked of [
+      [...bookmarks, 420],
+      [5, 60, 300],
+    ]) {
+      const other = layOutStrip(items, branches, marked);
+      const otherLayout = stripSignature(other);
+      expect(otherLayout).not.toBe(layout);
+      const opened = openingRecord(stored(record), otherLayout);
+      expect(opened).toEqual({
+        view: "full",
+        layout: otherLayout,
+        place: null,
+      });
+      const cut = fullCut(other, 1280);
+      const here = hereAt(cut, 250);
+      expect(viewFor(cut, opened, here, 1280, 650)).toEqual(
+        fullSizeView(cut, 1280, 650, here.y),
+      );
+    }
+    // A Fit stays a Fit.
+    expect(openingRecord({ ...record, view: "fit" }, "other").view).toBe("fit");
+    // Another game version is another layout too.
+    const changed = synthetic(11, 3, 20);
+    expect(
+      stripSignature(layOutStrip(changed.items, changed.branches, bookmarks)),
+    ).not.toBe(layout);
   });
 });
 
@@ -1177,7 +1454,11 @@ describe("culling and hit testing", () => {
     expect(all).toBe(model.decisions.length + model.routes.length);
     // At 100% the compact tree's nodes are small: a view at 2x shows a
     // small part of this large tree.
-    const near = visibleWorld(centreOn(800, 400, 1920, 1080, 2), 1920, 1080);
+    const near = visibleWorld(
+      { scale: 2, x: 960 - 800 * 2, y: 540 - 400 * 2 },
+      1920,
+      1080,
+    );
     const culled = detailMarkup(model, marks, near).match(/<g /g)?.length ?? 0;
     expect(culled).toBeGreaterThan(0);
     expect(culled).toBeLessThan(all / 20);
@@ -1421,13 +1702,20 @@ describe("bookmark cards on the line (docs/plan.md Phase 35)", () => {
     const marks: { itemIndex: number; timestampMs: number }[] = [];
     for (let i = 3; i < items.length; i += 7) marks.push(bm(i, i * 10));
     marks.push(bm(3, 5)); // a second bookmark on item 3, taken earlier
-    const model = buildMapModel(
+    const strip = layOutStrip(
       items,
       branches,
-      16 / 9,
       marks.map((m) => m.itemIndex),
     );
-    return { items, branches, model, marks, slots: cardSlots(model, marks) };
+    const model = fullCut(strip, 1920);
+    return {
+      items,
+      branches,
+      strip,
+      model,
+      marks,
+      slots: cardSlots(model, marks),
+    };
   }
 
   it("keeps stretches without bookmarks compact and grows one with k bookmarks to k cards side by side", () => {
@@ -1466,7 +1754,7 @@ describe("bookmark cards on the line (docs/plan.md Phase 35)", () => {
       undefined,
       [-1, 99, 2.5],
     );
-    expect(layoutSignature(model)).toBe(layoutSignature(demoModel()));
+    expect(model).toEqual(demoModel());
     expect(cardSlots(model, [bm(-1), bm(99), bm(2.5)])).toEqual([
       null,
       null,
@@ -1659,67 +1947,63 @@ describe("bookmark cards on the line (docs/plan.md Phase 35)", () => {
     expect(slot?.cx).toBe(itemPoint(lead, lead.end).x);
   });
 
-  it("Fit shows every card scaled down with the tree; 100% is a card at the t screen's size, about the same centre", () => {
-    const { model, slots } = crowded();
-    const fit = fitView(model, 1920, 1080);
-    expect(fit.scale).toBeLessThan(1);
-    const seen = visibleWorld(fit, 1920, 1080);
-    for (const s of slots) {
+  it("Fit shows every card scaled down with the tree; Full size is a card at the t screen's size", () => {
+    const { strip, model: full } = crowded();
+    const fit = fitCut(strip, 1920, 1080);
+    const view = fitView(fit, 1920, 1080);
+    expect(view.scale).toBeLessThan(1);
+    const seen = visibleWorld(view, 1920, 1080);
+    const { marks } = crowded();
+    for (const s of cardSlots(fit, marks)) {
       if (s === null) continue;
       expect(s.x).toBeGreaterThanOrEqual(seen.x0);
       expect(s.x + CARD.w).toBeLessThanOrEqual(seen.x1);
       expect(s.y).toBeGreaterThanOrEqual(seen.y0);
       expect(s.y + CARD.h).toBeLessThanOrEqual(seen.y1);
     }
-    const limits = zoomLimits(model, 1920, 1080);
-    const full = fullSizeView(fit, 1920, 1080, limits);
-    expect(full.scale).toBe(1);
-    expect(CARD.w * full.scale).toBe(280);
-    const centre = (v: { x: number; y: number; scale: number }) => [
-      (960 - v.x) / v.scale,
-      (540 - v.y) / v.scale,
-    ];
-    expect(centre(full)[0]).toBeCloseTo(centre(fit)[0]);
-    expect(centre(full)[1]).toBeCloseTo(centre(fit)[1]);
-    // From further in, 100% zooms back out to the same size.
-    expect(
-      fullSizeView({ ...full, scale: 2.5 }, 1920, 1080, limits).scale,
-    ).toBe(1);
-    // Exactly 1 from any scale (a scale times its reciprocal is not always).
-    const odd = 0.7653061224489796;
-    expect(odd * (1 / odd)).not.toBe(1);
-    expect(
-      fullSizeView({ x: 3, y: 4, scale: odd }, 1280, 656, limits).scale,
-    ).toBe(1);
+    // Full size: exactly 1, a card 280 px wide, every one across the
+    // view (this tree's cards, a bookmark every 7 screens on rows of four
+    // depths, leave no cut within 2,400 px: a 2,560 px view).
+    const wide = fullCut(strip, 2560);
+    const at = fullSizeView(wide, 2560, 1300, 0);
+    expect(at.scale).toBe(1);
+    expect(CARD.w * at.scale).toBe(280);
+    for (const s of cardSlots(wide, marks)) {
+      if (s === null) continue;
+      expect(at.x + s.x).toBeGreaterThanOrEqual(0);
+      expect(at.x + s.x + CARD.w).toBeLessThanOrEqual(2560);
+    }
+    // At 1920 the same cards make it run past the width: Full size
+    // shrinks it to fit (`fullSizeScale`).
+    expect(fullSizeView(full, 1920, 1080, 0).scale).toBeCloseTo(
+      fullSizeWidth(1920) / full.width,
+      12,
+    );
   });
 
-  it("remembers a view across opens with the same bookmarks; another set of bookmarked screens is another layout (Fit)", () => {
-    const { items, branches, model, marks } = crowded();
-    const layout = layoutSignature(model);
-    const view = centreOn(900, 500, 1440, 860, 1);
-    const saved = saveView(layout, view, 1440, 860, false);
-    // Reopened with the same bookmarks: the same layout, the same view.
-    const again = buildMapModel(
+  it("remembers a place across opens with the same bookmarks; another set of bookmarked screens is another layout (centred)", () => {
+    const { items, branches, strip, model, marks } = crowded();
+    const layout = stripSignature(strip);
+    const view = fullSizeView(model, 1440, 860, model.bands[1].line);
+    const record = remember(openingRecord(undefined, layout), {
+      kind: "place",
+      place: placeOf(model, view, 1440, 860),
+    });
+    // Reopened with the same bookmarks: the same layout, the same place.
+    const again = layOutStrip(
       items,
       branches,
-      16 / 9,
       marks.map((m) => m.itemIndex),
     );
-    expect(layoutSignature(again)).toBe(layout);
-    expect(restoreView(again, saved, 1440, 860)).toEqual({
-      view,
-      fit: false,
-    });
-    // A bookmark more (or less) moves the stretches: a fresh Fit.
-    const more = buildMapModel(items, branches, 16 / 9, [
+    expect(stripSignature(again)).toBe(layout);
+    expect(openingRecord(record, stripSignature(again))).toEqual(record);
+    // A bookmark more (or less) moves the stretches: centred again.
+    const more = layOutStrip(items, branches, [
       ...marks.map((m) => m.itemIndex),
       5,
     ]);
-    expect(layoutSignature(more)).not.toBe(layout);
-    expect(restoreView(more, saved, 1440, 860)).toEqual({
-      view: fitView(more, 1440, 860),
-      fit: true,
-    });
+    expect(stripSignature(more)).not.toBe(layout);
+    expect(openingRecord(record, stripSignature(more)).place).toBe(null);
   });
 });
 
@@ -2129,9 +2413,9 @@ describe("one look at every zoom (docs/plan.md Phase 41)", () => {
     // about 1.8 px tall, drawn. With perf:map's 180 bookmarks spreading
     // its rows it fits at about 0.1x: under a pixel at 1x, drawn at 2x.
     const model = large();
-    expect(mapDrawing(model, fitView(model, 1920, 956).scale, 1)).toBe(
-      "merged",
-    );
+    const { items, branches } = synthetic(30, 6, 26);
+    const fit = fitCut(layOutStrip(items, branches), 1920, 956);
+    expect(mapDrawing(fit, fitView(fit, 1920, 956).scale, 1)).toBe("merged");
     expect(mapDrawing(model, 0.1, 1)).toBe("bare");
     expect(mapDrawing(model, 0.1, 2)).toBe("merged");
     const marks = markMap(model, { visited: [], playedRoutes: [], cursor: 0 });
@@ -2174,8 +2458,8 @@ describe("band layout (docs/plan.md Phase 41)", () => {
         layOut(big.items, big.branches, 1920, marked),
       ],
       [
-        "570 decisions, 180 bookmarks at 16:9",
-        buildMapModel(big.items, big.branches, 16 / 9, marked),
+        "570 decisions, 180 bookmarks at Fit in 1920x1080",
+        fitCut(layOutStrip(big.items, big.branches, marked), 1920, 1080),
       ],
     ];
   };
@@ -2609,42 +2893,54 @@ describe("band layout (docs/plan.md Phase 41)", () => {
     expect(whole.runs.every((r) => r.pieces.length === 1)).toBe(true);
   });
 
-  it("gives a layout cut at other places another signature, and the same cuts the same one", () => {
+  it("gives a strip one signature whatever width it is cut at, so a remembered place survives a resize", () => {
     const strip = layOutStrip(big.items, big.branches, spread(big.items, 60));
+    const layout = stripSignature(strip);
+    expect(
+      stripSignature(
+        layOutStrip(big.items, big.branches, spread(big.items, 60)),
+      ),
+    ).toBe(layout);
+    expect(
+      stripSignature(
+        layOutStrip(big.items, big.branches, spread(big.items, 61)),
+      ),
+    ).not.toBe(layout);
+    // A place taken at 1440 is restored at 1920, in the band holding it.
     const at1440 = cutBands(strip, 1440);
-    const at1920 = cutBands(strip, 1920);
-    expect(layoutSignature(at1920)).not.toBe(layoutSignature(at1440));
-    expect(layoutSignature(cutBands(strip, 1440))).toBe(
-      layoutSignature(at1440),
-    );
-    // A view remembered on one is not restored on the other.
-    const saved = saveView(
-      layoutSignature(at1440),
-      centreOn(700, 400, 1440, 800, 1),
+    const place = placeOf(
+      at1440,
+      fullSizeView(at1440, 1440, 800, at1440.bands[7].line),
       1440,
       800,
-      false,
     );
-    expect(restoreView(at1920, saved, 1920, 800).fit).toBe(true);
-    expect(restoreView(at1440, saved, 1440, 800).fit).toBe(false);
+    const record = remember(openingRecord(undefined, layout), {
+      kind: "place",
+      place,
+    });
+    expect(openingRecord(record, layout).place).toEqual(place);
+    const at1920 = cutBands(strip, 1920);
+    const band = at1920.bands.findIndex(
+      (b) => b.start <= place.at && place.at <= b.end,
+    );
+    expect(band).toBeGreaterThan(0);
+    expect(placeY(at1920, place)).toBe(at1920.bands[band].line + place.dy);
   });
 
-  it("chooses a width for a view's shape with no stub of a last band", () => {
-    for (const aspect of [16 / 9, 2, 4 / 3, 1]) {
-      const strip = layOutStrip(
-        big.items,
-        big.branches,
-        spread(big.items, 180),
-      );
-      const model = cutBands(strip, bandWidthForAspect(strip, aspect));
+  it("cuts even bands at Fit: no stub of a last band", () => {
+    const strip = layOutStrip(big.items, big.branches, spread(big.items, 180));
+    for (const [vw, vh] of [
+      [1920, 1080],
+      [1920, 960],
+      [1440, 1080],
+      [1000, 1000],
+    ]) {
+      const model = fitCut(strip, vw, vh);
       const widths = model.bands.map((b) => b.x1 - b.x0);
       expect(model.bands.length).toBeGreaterThan(1);
       expect(widths[widths.length - 1]).toBeGreaterThanOrEqual(
         Math.max(...widths) / 2,
       );
-      const shape = model.width / model.height;
-      expect(shape / aspect).toBeGreaterThan(0.7);
-      expect(shape / aspect).toBeLessThan(1.4);
     }
   });
 });
@@ -2706,4 +3002,14 @@ function synthetic(
   }
   add(run);
   return { items, branches };
+}
+
+/**
+ * `n - 1` bookmarks spread over the whole story (perf:map's way): on
+ * routes at every depth, often several on one stretch.
+ */
+function spreadOver(items: readonly Item[], n: number): number[] {
+  return Array.from({ length: n - 1 }, (_, i) =>
+    Math.floor(((i + 1) * (items.length - 1)) / n),
+  );
 }

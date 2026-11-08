@@ -1,63 +1,81 @@
-// The branch map screen (docs/plan.md Phases 31, 33, 35): `m` opens the
+// The branch map screen (docs/plan.md Phases 31, 33, 35, 41): `m` opens the
 // decision tree with the reader's marks and the bookmarks as cards on the
-// story line; drag pans, the wheel or a pinch zooms around the pointer, the
-// arrow keys pan and +/- zoom, F (or 0) fits the whole tree, 1 shows it at
-// 100% (a card at the old `t` screen's size), C centres on "you are here"
-// and N on the newest bookmark; S (or the header's switch) flips Spoilers,
-// off by default, which hides the text of decisions not reached
-// (mapmodel.ts `MapMarks.hidden`). Esc or M closes. The header is the title
-// and its buttons (Spoilers, Newest bookmark, Centre, 100%, Fit), each
-// naming its key in a hover/focus hint (index.html `[data-hint]`). A click
-// on a reached decision or one of its routes asks the shell to jump there
-// (the machine does the moving; see mapmodel.ts `runJump`).
+// story line, in one of two views (Phase 41), chosen by the header's
+// two-part "Full size | Fit" button, whose pressed half is the view on
+// show, or F, which switches:
+//
+// - Full size: scale 1 (a card at the old `t` screen's size), the tree cut
+//   into bands as wide as the map view, so nothing runs off its sides. A
+//   map taller than the view scrolls up and down: the wheel or trackpad,
+//   the scroll bar drawn at its right edge, a drag, the up and down arrows,
+//   Page Up / Page Down, Home and End. Nothing moves sideways.
+// - Fit: the whole map at once, its band width and scale chosen together
+//   so it shows as large as fits, up to 3x (mapmodel.ts `fitWidth`). It
+//   does not move (no scroll, no drag, the wheel does nothing), so it is
+//   drawn once, whole, as a still picture.
+//
+// Nothing zooms or pans otherwise: a pinch, + and - and the left and right
+// arrows do nothing. C switches to Full size centred on "you are here", N
+// to Full size centred on the newest bookmark; S (or the header's switch)
+// flips Spoilers, off by default, which hides the text of decisions not
+// reached (mapmodel.ts `MapMarks.hidden`). Esc or M closes. The header is
+// the title and its buttons (Spoilers, Newest bookmark, Centre, Full size,
+// Fit), each naming its key in a hover/focus hint (index.html
+// `[data-hint]`). A click on a reached decision or one of its routes asks
+// the shell to jump there (the machine does the moving; see mapmodel.ts
+// `runJump`).
 //
 // Bookmarks (Phase 35, replacing the `t` screen): each is a card centred
 // on its stretch's line at its screen's place (mapmodel.ts `cardSlots`),
 // its thumbnail alone (its time in the hover tooltip and its label), the
 // newest outlined. A click opens it (the shell restores it and closes the
-// map); a drag that starts on a card pans. Its × deletes it at any zoom
-// (drawn at a fixed screen size, so it stays usable at Fit); the card
+// map); a drag that starts on a card scrolls. Its × deletes it in either
+// view (drawn at a fixed screen size, so it stays usable at Fit); the card
 // stays as a ghost with an Undo (a click anywhere on it undoes too) until
 // the map closes, and Z undoes the latest delete. No key acts on a card.
 // Pictures load lazily, a few at a time, the cards in view first
 // (mapcards.ts `pictureOrder`); the shell shrinks a manifest still before
 // a card shows it (bookmarks.ts `shrinkStill`), as Safari needs.
 //
-// The view is remembered (Phase 33): the first open is a Fit; after that
-// the map reopens where it was left — a Fit as a fresh Fit for the window,
-// anything else at the same world centre and zoom — across closes and,
-// through the shell's state record, reloads (mapmodel.ts `restoreView`).
+// The view is remembered (mapmodel.ts `openingRecord`, `remember`): the
+// first open is Full size centred on "you are here"; after that the map
+// reopens in the view it was left in and, at Full size, where the reader
+// scrolled to, or centred on "you are here" again when their last move was
+// C, across closes and, through the shell's state record, reloads. A
+// window resize cuts the bands again for the new width: Full size keeps
+// what was in the middle of the view there, Fit fits again.
 //
 // Rendering: everything that moves with the view — the tree's SVG, the
 // cards and the marker — lives in ONE stage element carrying the view's
 // transform, so lines and cards can never drift apart (a separately
-// transformed card layer once did, in Safari). The layout is computed once
-// per manifest, view shape and set of bookmarked screens (mapmodel.ts);
-// each open lays the reader's marks over it. Pan and zoom rewrite the
-// stage's transform, once per animation frame. The tree looks the same at
-// every zoom (docs/plan.md Phase 41): a zoomed-out view is the 100% one
-// scaled down. Two things keep a game with hundreds of decisions quick:
+// transformed card layer once did, in Safari). The strip is laid out once
+// per manifest and set of bookmarked screens and cut into bands once per
+// view and view size (mapmodel.ts); each open lays the reader's marks over
+// it. A scroll rewrites the stage's transform, once per animation frame.
+// The tree looks the same at any scale (docs/plan.md Phase 41): Fit is the
+// Full size drawing scaled. Two things keep a game with hundreds of
+// decisions quick:
 //
-// - culling: only the lines, nodes, counts and figures within half a
-//   view's margin of the visible area exist, redrawn (one string, one
-//   parse) when the view leaves that area. Culling the lines matters as
-//   much as the nodes: a dashed stroke over a whole large tree's
-//   connectors costs its full length in dashes every frame;
-// - far out (scale < `nodeGroupMinScale`), where a view holds hundreds of
-//   nodes, they are drawn merged into a few paths, one per look, with
-//   their figures beside them (`boxesMarkup`, `figuresMarkup`), not as a
-//   focusable group each (`detailMarkup`): the same capsules, classes and
+// - culling at Full size: only the lines, nodes, counts and figures within
+//   half a view's margin of the visible area exist, redrawn (one string,
+//   one parse) when a scroll leaves that area. Culling the lines matters as
+//   much as the nodes: a dashed stroke over a whole large tree's connectors
+//   costs its full length in dashes;
+// - a Fit of a large map (scale < `nodeGroupMinScale`), where hundreds of
+//   nodes are in view, draws them merged into a few paths, one per look,
+//   with their figures beside them (`boxesMarkup`, `figuresMarkup`), not as
+//   a focusable group each (`detailMarkup`): the same capsules, classes and
 //   figures, so nothing changes but the cost. Where even the figures'
 //   digits would paint under a device pixel tall (`figuresVisible`), the
 //   counts and figures are left out: there they cannot be seen.
 //
 // Clicks and hovers find their node from the layout (`hitTest`), so they
-// work at any zoom. The "you are here" marker is drawn at a fixed screen
-// size (scaled by the inverse of the zoom), so it stays findable at any
-// zoom. The tree's strokes keep their screen width down to
-// `LINE_MIN_SCALE` and thin with the zoom past it (`lineScaleStyle`, set
-// on the world group, which a zoom then restyles; the counts and pill
-// numbers sit beside it, `labelsMarkup`, so it leaves them alone).
+// work in either view. The "you are here" marker is drawn at a fixed
+// screen size (scaled by the inverse of the scale), so it stays findable
+// at Fit. The tree's strokes keep their screen width down to
+// `LINE_MIN_SCALE` and thin with the scale past it (`lineScaleStyle`, set
+// on the world group; the counts and pill numbers sit beside it,
+// `labelsMarkup`, so it leaves them alone).
 //
 // All decisions are pure exports of mapmodel.ts and mapcards.ts; this file
 // only applies them.
@@ -79,51 +97,55 @@ import {
   CARD_COUNT_DY,
   type CardSlot,
   cardSlots,
-  centreOn,
   countText,
-  fitView,
+  cutBands,
+  fitWidth,
   fullSizeView,
+  fullSizeWidth,
   hitTest,
   jumpFor,
-  layoutSignature,
   MAP_GEOMETRY,
-  MAX_SCALE,
   type MapDecision,
   type MapDrawing,
   type MapJump,
   type MapMarks,
   type MapModel,
+  type MapMove,
   type MapReader,
+  type MapStrip,
   type MapTarget,
   type MapTick,
   type MapView,
   mapDrawing,
   markMap,
+  openingRecord,
+  placeOf,
   pointAlong,
   promptText,
-  restoreView,
+  remember,
   routeText,
   type SavedMapView,
-  saveView,
+  scrollView,
+  stripSignature,
   tickBox,
   tickPaths,
-  viewAfterResize,
+  viewFor,
   visibleWorld,
-  zoomAt,
-  zoomLimits,
 } from "./mapmodel";
 
 export const MAP_TITLE = "Branch map";
 
 /**
  * The header's buttons, in order: what each does, its text and the key its
- * hint names (the only help the header carries).
+ * hint names (the only help the header carries). The last two are the
+ * halves of one "Full size | Fit" button, the pressed half the view on
+ * show; F switches between them, so both name it.
  */
 export const MAP_TOOLS = [
   { act: "spoil", text: spoilersLabel(false), key: "S" },
   { act: "newest", text: "Newest bookmark", key: "N" },
   { act: "here", text: "Centre", key: "C" },
-  { act: "full", text: "100%", key: "1" },
+  { act: "full", text: "Full size", key: "F" },
   { act: "fit", text: "Fit", key: "F" },
 ] as const;
 
@@ -157,14 +179,14 @@ export const CARD_SMALL_SCALE = 0.7;
 /**
  * The size of a card's × in screen pixels at `scale`: 24 px, smaller on a
  * card under about 80 px wide (Fit on a large game), never under 14 px, so
- * it stays a usable target at any zoom without hiding a small card.
+ * it stays a usable target at any scale without hiding a small card.
  */
 export function deleteButtonPx(scale: number): number {
   return Math.max(14, Math.min(24, CARD.w * 0.3 * scale));
 }
 
 /**
- * The card layer's per-zoom style (index.html `.bm-card`, `.bm-del`): a
+ * The card layer's per-scale style (index.html `.bm-card`, `.bm-del`): a
  * screen pixel in world units (`--px`, for the hover ring and the newest's
  * outline), the × scaled to `deleteButtonPx` on screen (`--del-scale`; it
  * is 24 world units), and its hint brought back to its usual size
@@ -180,8 +202,8 @@ export function cardScaleStyle(scale: number): Record<string, string> {
 }
 
 /**
- * The zoom below which the map's strokes thin with it (docs/plan.md Phase
- * 40, map lines). From here in, a stroke is its index.html width in screen
+ * The scale below which the map's strokes thin with it (docs/plan.md Phase
+ * 40, map lines). From here up, a stroke is its index.html width in screen
  * pixels; further out it keeps the world width it had here, so a stretch
  * (5 px) never takes more than about a quarter of the space between rows
  * (42 world units, 21 px here), and a large tree at Fit looks as it did
@@ -190,14 +212,14 @@ export function cardScaleStyle(scale: number): Record<string, string> {
 export const LINE_MIN_SCALE = 0.5;
 
 /**
- * `--line-px` moves in steps of 2^(1/8) (9%), so a zoom restyles the tree
- * only when it crosses one: a stroke paints within 4.5% of its width (a
- * 5 px line 4.8-5.2 px), and exactly at 100%.
+ * `--line-px` moves in steps of 2^(1/8) (9%), so a change of scale
+ * restyles the tree only when it crosses one: a stroke paints within 4.5%
+ * of its width (a 5 px line 4.8-5.2 px), and exactly at Full size.
  */
 export const LINE_STEPS_PER_OCTAVE = 8;
 
 /**
- * The tree's per-zoom style (index.html `.map-world`): a line's screen
+ * The tree's per-scale style (index.html `.map-world`): a line's screen
  * pixel in world units (`--line-px`, in `LINE_STEPS_PER_OCTAVE` steps), in
  * which every stroke width and dash of the lines, stations, end marks and
  * node outlines is written, so it keeps its screen width under the stage's
@@ -234,9 +256,13 @@ export function spoilersLabel(on: boolean): string {
   return on ? "Spoilers: On" : "Spoilers: Off";
 }
 
-/** Pan per arrow press, in screen pixels; zoom per +/- press. */
-const KEY_PAN_PX = 90;
-const KEY_ZOOM = 1.25;
+/** Full size's scroll per up or down arrow press, in screen pixels. */
+const KEY_SCROLL_PX = 80;
+/**
+ * Page Up / Page Down scroll Full size by this share of the view's height,
+ * keeping a strip of what was in view, as a browser page does.
+ */
+const PAGE_SHARE = 0.875;
 /** Pointer travel that makes a press a drag rather than a click. */
 const DRAG_PX = 5;
 
@@ -244,11 +270,12 @@ export interface BranchMapOptions {
   /** The `#app` element; the panel is a sibling of the other panels. */
   root: HTMLElement;
   /**
-   * The tree laid out for a view of this aspect (width / height); called on
-   * the first open, and again only when the view's shape has changed a lot
-   * since (its bands are cut to it).
+   * The tree laid out as one strip around these bookmarked screens (item
+   * indices; mapmodel.ts `layOutStrip`); called on the first open, and
+   * again only when the bookmarked screens change. The map cuts it into
+   * bands for each view.
    */
-  model: (aspect: number, bookmarkItems: readonly number[]) => MapModel;
+  strip: (bookmarkItems: readonly number[]) => MapStrip;
   /** The bookmarks, drawn as cards on their stretches (Phase 35). */
   bookmarks?: MapBookmarks;
   /** The reader's state now; called on every open. */
@@ -496,8 +523,8 @@ export const NODE_FIGURE_BASELINE = 4.6;
  * ("played/total", or "?" when not reached) and route pills, each a
  * focusable group with its full text in its label (and the hover
  * tooltip). A route pill's number is drawn by `labelsMarkup`, out of the
- * restyle a zoom brings (`lineScaleStyle`); a decision keeps its figure,
- * which turns gold on its hover and focus. Pure.
+ * restyle a change of scale brings (`lineScaleStyle`); a decision keeps
+ * its figure, which turns gold on its hover and focus. Pure.
  */
 export function detailMarkup(
   model: MapModel,
@@ -549,7 +576,8 @@ function routeClasses(marks: MapMarks, key: number, decision: number): string {
  * null): the stretches' counts and the route pills' numbers (each with its
  * route's state classes, its key in `data-pill`, hidden from assistive
  * tech: the pill's label says it), drawn over the nodes, outside the
- * element `lineScaleStyle` restyles, so a zoom leaves them alone. Pure.
+ * element `lineScaleStyle` restyles, so a change of scale leaves them
+ * alone. Pure.
  */
 export function labelsMarkup(
   model: MapModel,
@@ -616,11 +644,11 @@ export function figuresMarkup(
 
 /**
  * The tree touching `rect` (all of it for null) as `drawing` draws it: the
- * lines and nodes (the world group, which a zoom restyles) and the counts
- * and figures (beside it). Nodes as focusable groups, or merged into a few
- * paths with their figures beside them; with the same look either way,
- * the counts and figures left out only where they cannot be seen
- * (mapmodel.ts `mapDrawing`). Pure.
+ * lines and nodes (the world group, which a change of scale restyles) and
+ * the counts and figures (beside it). Nodes as focusable groups, or merged
+ * into a few paths with their figures beside them; with the same look
+ * either way, the counts and figures left out only where they cannot be
+ * seen (mapmodel.ts `mapDrawing`). Pure.
  */
 export function treeMarkup(
   model: MapModel,
@@ -665,7 +693,10 @@ const SVG_NS = "http://www.w3.org/2000/svg";
 interface Card {
   row: BookmarkSummary;
   readonly index: number;
-  readonly slot: CardSlot;
+  /** Its bookmark's place in the open's list (what `cardSlots` returns by). */
+  readonly listedAt: number;
+  /** Where it sits on the model on show (a view's cut moves it). */
+  slot: CardSlot;
   readonly el: HTMLElement;
   deleted: boolean;
   /** The delete in flight or done: resolves to its undo (null: it failed). */
@@ -675,9 +706,38 @@ interface Card {
 /** Which part of a card a press landed on. */
 type CardPart = "del" | "undo" | "card";
 
+/**
+ * Full size's scroll bar (index.html `.map-scroll`): drawn by the map, as
+ * the view moves by its transform rather than by native scrolling. Its
+ * track keeps `inset` from the view's top and bottom; its thumb is never
+ * shorter than `minThumb` (all screen pixels).
+ */
+const SCROLL_BAR = { inset: 6, minThumb: 28 } as const;
+
+/**
+ * The scroll bar's thumb in a track `track` pixels long, for a map
+ * `height` tall in a view `vh` tall, scrolled to `y` (the layout top's
+ * screen y, 0 down to vh - height): its length, proportional to the share
+ * of the map in view, and its offset down the track. Pure.
+ */
+export function scrollThumb(
+  track: number,
+  height: number,
+  vh: number,
+  y: number,
+): { length: number; offset: number } {
+  const length = Math.min(
+    track,
+    Math.max(SCROLL_BAR.minThumb, (track * vh) / height),
+  );
+  const range = height - vh;
+  const share = range > 0 ? Math.min(1, Math.max(0, -y / range)) : 0;
+  return { length, offset: (track - length) * share };
+}
+
 export function mountBranchMap({
   root,
-  model: buildModel,
+  strip: layOutFor,
   bookmarks: bm,
   reader,
   onJump,
@@ -726,6 +786,11 @@ export function mountBranchMap({
   spoilButton.classList.add("map-spoil");
   spoilButton.setAttribute("aria-pressed", "false");
   const newestButton = buttons.get("newest") as HTMLButtonElement;
+  // "Full size | Fit": each half pressed while its view is on show.
+  const viewButtons = {
+    full: buttons.get("full") as HTMLButtonElement,
+    fit: buttons.get("fit") as HTMLButtonElement,
+  };
   head.append(title, tools);
 
   const viewport = doc.createElement("div");
@@ -744,9 +809,9 @@ export function mountBranchMap({
     g.setAttribute("class", cls);
     return g;
   };
-  // The world: the culled lines and nodes, which a zoom restyles
-  // (`lineScaleStyle`); beside it the counts and figures, which it does
-  // not; over them the cards, and over those the marker.
+  // The world: the drawn lines and nodes, which a change of scale
+  // restyles (`lineScaleStyle`); beside it the counts and figures, which
+  // it does not; over them the cards, and over those the marker.
   const world = group("map-world");
   const detail = group("map-detail");
   const labels = group("map-labels");
@@ -761,6 +826,15 @@ export function mountBranchMap({
     '<text class="map-here-label" y="32">you are here</text>';
   top.append(here);
   stage.append(svg, cardLayer, top);
+  // Full size's scroll bar (`SCROLL_BAR`), hidden from assistive tech: the
+  // keys scroll as well.
+  const bar = doc.createElement("div");
+  bar.className = "map-scroll";
+  bar.hidden = true;
+  bar.setAttribute("aria-hidden", "true");
+  const thumb = doc.createElement("div");
+  thumb.className = "map-thumb";
+  bar.append(thumb);
   const tip = doc.createElement("div");
   tip.className = "map-tip";
   tip.hidden = true;
@@ -775,17 +849,25 @@ export function mountBranchMap({
   toastUndo.className = "map-undo";
   toastUndo.textContent = "Undo (Z)";
   toast.append(toastText, toastUndo);
-  viewport.append(stage, tip, toast);
+  viewport.append(stage, bar, tip, toast);
   panel.append(head, viewport);
   root.appendChild(panel);
 
-  let model: MapModel | null = null;
-  let modelAspect = 0;
-  // The bookmarked screens the model was laid out for (a sorted list).
-  let modelItems = "";
-  // The model's layout signature (what a remembered view is checked
-  // against), computed once per layout.
+  // The strip, laid out for the bookmarked screens in `stripItems` (a
+  // sorted list), and its signature (what a remembered place is checked
+  // against), computed once per strip.
+  let strip: MapStrip | null = null;
+  let stripItems = "";
   let layout = "";
+  // The strip cut for each view, kept until what it was cut for changes:
+  // Full size at the view's width, Fit for the view's size (`fitWidth`).
+  // `model` is the one on show.
+  let fullCut: { vw: number; model: MapModel } | null = null;
+  let fitCut: { vw: number; vh: number; model: MapModel } | null = null;
+  let model: MapModel | null = null;
+  // The view memory (mapmodel.ts `remember`): the view on show and Full
+  // size's place (null: centred on "you are here").
+  let record: SavedMapView = { view: "full", layout: "", place: null };
   let marks: MapMarks | null = null;
   // Spoilers, as read at the open and flipped since (the marks carry it).
   let spoilers = false;
@@ -795,18 +877,15 @@ export function mountBranchMap({
   };
   const markNow = (m: MapModel) => markMap(m, { ...reader(), spoilers });
   let view: MapView = { x: 0, y: 0, scale: 1 };
-  // The view is Fit's (F, the button, or the opening Fit) and nothing has
-  // moved it since: a resize fits again rather than keeping the old size,
-  // and it is remembered as a Fit.
-  let fitted = false;
   let frame = 0;
-  // How the tree is drawn for this zoom (`mapDrawing`; none yet).
+  // How the tree is drawn at this scale (`mapDrawing`; none yet).
   let drawnAs: MapDrawing | null = null;
   let small = false;
-  // The scale the card layer's per-zoom style was last set for.
+  // The scale the card layer's per-scale style was last set for.
   let styledScale = 0;
-  // The world rectangle the tree is drawn for (null: none drawn).
-  let drawn: WorldRect | null = null;
+  // The world rectangle the tree is drawn for: "all" for the whole of it
+  // (Fit), null for none drawn.
+  let drawn: WorldRect | "all" | null = null;
   // The viewport size, read once per open and on resize: reading it per
   // frame would force a layout each time.
   let vw = 800;
@@ -830,59 +909,121 @@ export function mountBranchMap({
   // dropped.
   let opening = 0;
 
-  /**
-   * Lays the tree out again when the view's shape has moved well away from
-   * the one it was laid out for (its bands are cut to it), or the
-   * bookmarked screens changed; true when it did.
-   */
-  function layOut(): boolean {
-    const aspect = vw / Math.max(1, vh);
+  /** Lays the strip out again when the bookmarked screens have changed. */
+  function stripNow(): MapStrip {
     const items = listed.map((l) => l.index).sort((a, b) => a - b);
-    const itemsKey = items.join(",");
-    if (
-      model !== null &&
-      itemsKey === modelItems &&
-      Math.abs(Math.log(aspect / modelAspect)) <= 0.25
-    )
-      return false;
-    model = buildModel(aspect, items);
-    modelAspect = aspect;
-    modelItems = itemsKey;
-    layout = layoutSignature(model);
-    const size = (el: Element) => {
-      el.setAttribute("width", String(model?.width ?? 0));
-      el.setAttribute("height", String(model?.height ?? 0));
-    };
-    size(svg);
-    size(top);
-    stage.style.width = `${model.width}px`;
-    stage.style.height = `${model.height}px`;
-    placeCards();
-    return true;
+    const key = items.join(",");
+    if (strip === null || key !== stripItems) {
+      strip = layOutFor(items);
+      stripItems = key;
+      layout = stripSignature(strip);
+      fullCut = null;
+      fitCut = null;
+    }
+    return strip;
+  }
+
+  /**
+   * The strip cut for a view at the view's size now: Full size to its
+   * width (no chooser), Fit at the width that shows it largest.
+   */
+  function cutFor(which: "full" | "fit", from: MapStrip): MapModel {
+    if (which === "full") {
+      if (fullCut === null || fullCut.vw !== vw)
+        fullCut = { vw, model: cutBands(from, fullSizeWidth(vw)) };
+      return fullCut.model;
+    }
+    if (fitCut === null || fitCut.vw !== vw || fitCut.vh !== vh)
+      fitCut = { vw, vh, model: cutBands(from, fitWidth(from, vw, vh)) };
+    return fitCut.model;
+  }
+
+  /**
+   * Puts `next` on show: the reader's marks laid over it, the stage sized
+   * to it, the cards moved to their places on it, the tree to be drawn.
+   */
+  function useModel(next: MapModel): void {
+    if (next === model) return;
+    model = next;
+    marks = markNow(next);
+    for (const el of [svg, top]) {
+      el.setAttribute("width", String(next.width));
+      el.setAttribute("height", String(next.height));
+    }
+    stage.style.width = `${next.width}px`;
+    stage.style.height = `${next.height}px`;
+    positionCards();
+    drawn = null;
+    hideTip();
+  }
+
+  /** The halves of "Full size | Fit" say which view is on show. */
+  function showPressed(): void {
+    viewButtons.full.setAttribute(
+      "aria-pressed",
+      String(record.view === "full"),
+    );
+    viewButtons.fit.setAttribute("aria-pressed", String(record.view === "fit"));
+  }
+
+  /**
+   * Shows what the view memory says, at the view's size now: its view's
+   * cut, and Fit, or Full size at its place or centred on "you are here"
+   * (mapmodel.ts `viewFor`).
+   */
+  function showRecord(): void {
+    if (strip === null) return;
+    useModel(cutFor(record.view, strip));
+    if (model === null || marks === null) return;
+    showPressed();
+    setView(viewFor(model, record, marks.here, vw, vh));
+  }
+
+  /** A switch of view, C or the like: remembered, then shown. */
+  function move(next: MapMove): void {
+    record = remember(record, next);
+    showRecord();
   }
 
   // The view changed size while open (a window resize, entering or leaving
-  // fullscreen, the header rewrapping): a fitted view fits the new size, any
-  // other keeps the world point at its centre (or, laid out anew, centres
-  // on "you are here"). The viewport's own size is watched, so its final
-  // size after a fullscreen change is the one used.
+  // fullscreen, the header rewrapping): the bands are cut again for the
+  // new size; Full size keeps its place (the middle of the view, as the
+  // reader left it) or stays centred on "you are here", and Fit fits again.
+  // The viewport's own size is watched, so its final size after a
+  // fullscreen change is the one used.
   const resized = () => {
-    if (panel.hidden || model === null || marks === null) return;
+    if (panel.hidden || panel.dataset.ready !== "true") return;
     const from = { w: vw, h: vh };
     measure();
-    if (vw === from.w && vh === from.h) return;
-    if (layOut() && model !== null) {
-      marks = markNow(model);
-      drawn = null;
-      if (!fitted)
-        view = centreOn(marks.here.x, marks.here.y, vw, vh, view.scale);
-    } else if (!fitted) view = viewAfterResize(view, from, { w: vw, h: vh });
-    if (fitted) showWhole();
-    else setView(view);
+    if (vw !== from.w || vh !== from.h) showRecord();
   };
   const Observer = win?.ResizeObserver as typeof ResizeObserver | undefined;
   if (Observer !== undefined) new Observer(resized).observe(viewport);
   else win?.addEventListener("resize", resized);
+
+  /** How tall the map is on screen now. */
+  const shownHeight = () => (model === null ? 0 : model.height * view.scale);
+
+  /** Whether the view scrolls: Full size, on a map taller than the view. */
+  function scrolls(): boolean {
+    return record.view === "full" && shownHeight() > vh;
+  }
+
+  /** The scroll bar's thumb, where the view is now. */
+  function placeBar(): void {
+    const on = scrolls();
+    bar.hidden = !on;
+    viewport.classList.toggle("map-scrolls", on);
+    if (!on || model === null) return;
+    const { length, offset } = scrollThumb(
+      vh - 2 * SCROLL_BAR.inset,
+      shownHeight(),
+      vh,
+      view.y,
+    );
+    thumb.style.height = `${length}px`;
+    thumb.style.transform = `translateY(${offset}px)`;
+  }
 
   function paint(): void {
     frame = 0;
@@ -895,9 +1036,8 @@ export function mountBranchMap({
       "transform",
       `translate(${marks.here.x} ${marks.here.y}) scale(${1 / s})`,
     );
-    // Only a zoom restyles the cards and the tree's strokes: a pan leaves
-    // their style alone, and the tree's only changes when the zoom crosses
-    // a step of `--line-px` (never far out, where it is fixed).
+    // Only a change of scale (a switch of view) restyles the cards and the
+    // tree's strokes: a scroll leaves their style alone.
     if (s !== styledScale) {
       styledScale = s;
       for (const [name, value] of Object.entries(cardScaleStyle(s)))
@@ -911,58 +1051,75 @@ export function mountBranchMap({
       small = nowSmall;
       cardLayer.classList.toggle("map-cards-small", small);
     }
-    // How this zoom draws the tree (`mapDrawing`): a change redraws.
+    // How this scale draws the tree (`mapDrawing`): a change redraws.
     const nowAs = mapDrawing(model, s, win?.devicePixelRatio || 1);
     if (nowAs !== drawnAs) {
       drawnAs = nowAs;
       drawn = null;
     }
-    // Culling: the tree is drawn for the view plus a margin of half a view
-    // each way, and redrawn only once the view leaves that.
-    const seen = visibleWorld(view, vw, vh);
-    if (drawn === null || !containsRect(drawn, seen)) {
-      const w = (seen.x1 - seen.x0) / 2;
-      const h = (seen.y1 - seen.y0) / 2;
-      drawn = {
-        x0: seen.x0 - w,
-        y0: seen.y0 - h,
-        x1: seen.x1 + w,
-        y1: seen.y1 + h,
-      };
-      const markup = treeMarkup(model, marks, drawn, nowAs);
-      detail.innerHTML = markup.tree;
-      labels.innerHTML = markup.labels;
+    if (record.view === "fit") {
+      // Fit is a still picture: the whole tree, drawn once.
+      if (drawn !== "all") {
+        drawTree(null, nowAs);
+        drawn = "all";
+      }
+    } else {
+      // Full size culls: the tree is drawn for the view plus a margin of
+      // half a view each way, and drawn again only once a scroll leaves
+      // that.
+      const seen = visibleWorld(view, vw, vh);
+      if (drawn === null || drawn === "all" || !containsRect(drawn, seen)) {
+        const w = (seen.x1 - seen.x0) / 2;
+        const h = (seen.y1 - seen.y0) / 2;
+        drawn = {
+          x0: seen.x0 - w,
+          y0: seen.y0 - h,
+          x1: seen.x1 + w,
+          y1: seen.y1 + h,
+        };
+        drawTree(drawn, nowAs);
+      }
     }
     svg.setAttribute("data-scale", String(s));
+    placeBar();
     loadPictures();
-    onViewChange(saveView(layout, view, vw, vh, fitted));
+    onViewChange(record);
   }
 
-  function setView(next: MapView, fit = false): void {
+  function drawTree(rect: WorldRect | null, as: MapDrawing): void {
+    if (model === null || marks === null) return;
+    const markup = treeMarkup(model, marks, rect, as);
+    detail.innerHTML = markup.tree;
+    labels.innerHTML = markup.labels;
+  }
+
+  function setView(next: MapView): void {
     view = next;
-    fitted = fit;
     if (frame === 0 && win !== null) frame = win.requestAnimationFrame(paint);
     else if (win === null) paint();
   }
 
-  function limits() {
-    return model === null
-      ? { min: 0.1, max: MAX_SCALE }
-      : zoomLimits(model, vw, vh, marks?.here);
+  /** F, or a half of "Full size | Fit": that view, as it was left. */
+  function showView(which: "full" | "fit"): void {
+    if (record.view !== which) move({ kind: "view", view: which });
   }
 
-  function zoomBy(factor: number, px?: number, py?: number): void {
-    setView(zoomAt(view, factor, px ?? vw / 2, py ?? vh / 2, limits()));
+  /**
+   * Full size scrolled to `y` (the layout top's screen y; mapmodel.ts
+   * `scrollView` keeps it within the map), remembered as the reader's
+   * place. Nothing at Fit, which does not move.
+   */
+  function scrollTo(y: number): void {
+    if (record.view !== "full" || model === null) return;
+    const next = scrollView(model, vh, view, y);
+    if (next.y === view.y) return;
+    record = remember(record, {
+      kind: "place",
+      place: placeOf(model, next, vw, vh),
+    });
+    setView(next);
   }
-
-  function showWhole(): void {
-    if (model === null) return;
-    setView(fitView(model, vw, vh, marks?.here), true);
-  }
-
-  function fullSize(): void {
-    if (model !== null) setView(fullSizeView(view, vw, vh, limits()));
-  }
+  const scrollBy = (dy: number) => scrollTo(view.y - dy);
 
   // Spoilers flipped: the same layout and view (the boxes' sizes never
   // depend on their text), only the text redrawn.
@@ -978,20 +1135,23 @@ export function mountBranchMap({
     else if (win === null) paint();
   }
 
-  function recentre(): void {
-    if (marks !== null)
-      setView(centreOn(marks.here.x, marks.here.y, vw, vh, view.scale));
-  }
-
-  /** N (and the button): the newest bookmark's card, centred at 100%. */
+  /** N (and the button): Full size, the newest bookmark's card centred. */
   function showNewest(): void {
     const id = newestBookmarkId(
       cards.filter((c) => !c.deleted).map((c) => c.row),
     );
     const card = id === null ? undefined : cardById.get(id);
-    if (card === undefined || model === null) return;
-    const scale = Math.min(limits().max, Math.max(limits().min, 1));
-    setView(centreOn(card.slot.cx, card.slot.cy, vw, vh, scale));
+    if (card === undefined || strip === null) return;
+    useModel(cutFor("full", strip));
+    if (model === null) return;
+    // Its place is the card's own, so a resize keeps the card there.
+    const next = fullSizeView(model, vw, vh, card.slot.cy);
+    record = remember(record, {
+      kind: "place",
+      place: placeOf(model, next, vw, vh, card.slot.cx),
+    });
+    showPressed();
+    setView(next);
   }
 
   function activate(target: MapTarget): void {
@@ -1002,12 +1162,7 @@ export function mountBranchMap({
 
   // ---- Bookmark cards ----------------------------------------------------
 
-  function cardElement(
-    row: BookmarkSummary,
-    index: number,
-    slot: CardSlot,
-    newest: boolean,
-  ) {
+  function cardElement(row: BookmarkSummary, index: number, newest: boolean) {
     const el = doc.createElement("div");
     el.className = newest ? "bm-card bm-newest" : "bm-card";
     el.dataset.bm = row.id;
@@ -1015,8 +1170,6 @@ export function mountBranchMap({
     el.dataset.itemIndex = String(index);
     el.setAttribute("role", "img");
     el.setAttribute("aria-label", cardLabel(row.timestampMs, newest));
-    el.style.left = `${slot.x}px`;
-    el.style.top = `${slot.y}px`;
     const thumb = doc.createElement("div");
     thumb.className = "bm-thumb";
     const picture = pictures.get(row.id);
@@ -1050,18 +1203,28 @@ export function mountBranchMap({
     return el;
   }
 
-  /** The cards for the bookmarks listed, on the model laid out for them. */
-  function placeCards(): void {
-    cards = [];
-    cardById.clear();
-    if (model === null) return;
-    const slots = cardSlots(
-      model,
+  /** Each listed bookmark's card slot on `on` (null: none on the map). */
+  function slotsOn(on: MapModel): (CardSlot | null)[] {
+    return cardSlots(
+      on,
       listed.map((l) => ({
         itemIndex: l.index,
         timestampMs: l.row.timestampMs,
       })),
     );
+  }
+
+  /**
+   * The cards for the bookmarks listed, once per open, at their places on
+   * the model on show; a switch of view moves them (`positionCards`), so a
+   * ghost stays a ghost in either view. Which bookmarks have a card is the
+   * strip's to say, so it is the same on every cut.
+   */
+  function makeCards(): void {
+    cards = [];
+    cardById.clear();
+    if (model === null) return;
+    const slots = slotsOn(model);
     const newest = newestBookmarkId(listed.map((l) => l.row));
     listed.forEach((l, i) => {
       const slot = slots[i];
@@ -1069,20 +1232,39 @@ export function mountBranchMap({
       const card: Card = {
         row: l.row,
         index: l.index,
+        listedAt: i,
         slot,
-        el: cardElement(l.row, l.index, slot, l.row.id === newest),
+        el: cardElement(l.row, l.index, l.row.id === newest),
         deleted: false,
         removing: null,
       };
+      placeCard(card);
       cards.push(card);
       cardById.set(l.row.id, card);
     });
-    // DOM order: story order, as they read along the lines.
+    // DOM order: story order, as they read along the lines (bands keep it).
     const ordered = [...cards].sort(
       (a, b) => a.slot.cy - b.slot.cy || a.slot.cx - b.slot.cx,
     );
     cardLayer.replaceChildren(...ordered.map((c) => c.el));
     newestButton.disabled = cards.length === 0;
+  }
+
+  function placeCard(card: Card): void {
+    card.el.style.left = `${card.slot.x}px`;
+    card.el.style.top = `${card.slot.y}px`;
+  }
+
+  /** The cards moved to their places on the model now on show. */
+  function positionCards(): void {
+    if (model === null || cards.length === 0) return;
+    const slots = slotsOn(model);
+    for (const card of cards) {
+      const slot = slots[card.listedAt];
+      if (slot === null) continue;
+      card.slot = slot;
+      placeCard(card);
+    }
   }
 
   /**
@@ -1196,12 +1378,12 @@ export function mountBranchMap({
   }
 
   toastUndo.addEventListener("click", undoLatest);
-  // Never the browser's own drag of a picture: a drag pans.
+  // Never the browser's own drag of a picture: a drag scrolls.
   viewport.addEventListener("dragstart", (event) => event.preventDefault());
 
   // ---- Tooltip -----------------------------------------------------------
 
-  /** The node under a client point, from the layout (any zoom). */
+  /** The node under a client point, from the layout (either view). */
   function hitAt(clientX: number, clientY: number): MapTarget | null {
     if (model === null) return null;
     const outer = viewport.getBoundingClientRect();
@@ -1260,7 +1442,7 @@ export function mountBranchMap({
     );
   }
 
-  // A card's tip, the same at every zoom and on a ghost (Phase 36): only
+  // A card's tip, the same in either view and on a ghost (Phase 36): only
   // when the bookmark was made (a card has no caption, Phase 40).
   function showCardTip(card: Card, clientX: number, clientY: number): void {
     placeTip(
@@ -1280,8 +1462,9 @@ export function mountBranchMap({
 
   // ---- Pointer -----------------------------------------------------------
 
-  // A press that moves pans; one that does not is a click on the node or
-  // card it started on.
+  // A press that moves DRAG_PX is a drag, which scrolls Full size (and
+  // does nothing at Fit); one that does not is a click on the node or card
+  // it started on.
   let press: {
     id: number;
     x: number;
@@ -1292,8 +1475,8 @@ export function mountBranchMap({
     part: CardPart;
     dragged: boolean;
   } | null = null;
-  // A press on the map never starts a text selection (a drag pans, a
-  // double click zooms nothing): `user-select: none` on the panel, and the
+  // A press on the map never starts a text selection (a drag scrolls, a
+  // double click does nothing): `user-select: none` on the panel, and the
   // press's default (selection, in Safari too) prevented. Nothing in the
   // view takes focus from a press (the nodes are reached by Tab; a click
   // on one jumps), so focus and the keys are unaffected.
@@ -1301,7 +1484,7 @@ export function mountBranchMap({
   viewport.addEventListener("pointerdown", (event) => {
     if (event.button !== 0) return;
     const target = event.target as Element;
-    if (toast.contains(target)) return;
+    if (toast.contains(target) || bar.contains(target)) return;
     event.preventDefault();
     const card = cardOf(target);
     press = {
@@ -1323,8 +1506,10 @@ export function mountBranchMap({
   viewport.addEventListener("pointermove", (event) => {
     if (press === null || press.id !== event.pointerId) {
       const target = event.target as Element;
-      const card = toast.contains(target) ? null : cardOf(target);
-      const hit = card === null ? hitAt(event.clientX, event.clientY) : null;
+      const off = toast.contains(target) || bar.contains(target);
+      const card = off ? null : cardOf(target);
+      const hit =
+        off || card !== null ? null : hitAt(event.clientX, event.clientY);
       // Over a card's × or Undo, their own hint speaks (no card tooltip
       // under it).
       if (card !== null && partOf(target) === "card")
@@ -1346,10 +1531,10 @@ export function mountBranchMap({
     if (!press.dragged && Math.hypot(dx, dy) < DRAG_PX) return;
     if (!press.dragged) {
       press.dragged = true;
-      viewport.classList.add("map-dragging");
       hideTip();
+      if (scrolls()) viewport.classList.add("map-dragging");
     }
-    setView({ ...press.view, x: press.view.x + dx, y: press.view.y + dy });
+    scrollTo(press.view.y + dy);
   });
   const endPress = (event: PointerEvent, click: boolean) => {
     if (press === null || press.id !== event.pointerId) return;
@@ -1374,49 +1559,67 @@ export function mountBranchMap({
     if (press === null) hideTip();
   });
 
-  // The wheel zooms around the pointer; a trackpad pinch arrives as a
-  // ctrl+wheel (Chrome, Firefox) — finer steps, and the page must not zoom —
-  // and a sideways trackpad swipe pans. Every wheel event over the panel is
-  // the map's: the story never scrolls behind it.
+  // The scroll bar: its thumb drags (the map follows it, the thumb's
+  // travel standing for the map's), and a press on the track either side
+  // of it scrolls a page that way. Its presses are its own, never a
+  // press on the map.
+  let barPress: { id: number; y: number; from: number } | null = null;
+  bar.addEventListener("pointerdown", (event) => {
+    event.stopPropagation();
+    if (event.button !== 0 || model === null) return;
+    event.preventDefault();
+    if (event.target !== thumb) {
+      const above = event.clientY < thumb.getBoundingClientRect().top;
+      scrollBy((above ? -1 : 1) * vh * PAGE_SHARE);
+      return;
+    }
+    barPress = { id: event.pointerId, y: event.clientY, from: view.y };
+    bar.classList.add("map-scroll-held");
+    try {
+      bar.setPointerCapture(event.pointerId);
+    } catch {
+      // synthetic pointers cannot be captured; the drag still works
+    }
+  });
+  bar.addEventListener("pointermove", (event) => {
+    if (barPress === null || barPress.id !== event.pointerId || model === null)
+      return;
+    event.stopPropagation();
+    const track = vh - 2 * SCROLL_BAR.inset;
+    const height = shownHeight();
+    const { length } = scrollThumb(track, height, vh, view.y);
+    const travel = Math.max(1, track - length);
+    const dy = event.clientY - barPress.y;
+    scrollTo(barPress.from - (dy * (height - vh)) / travel);
+  });
+  const endBar = (event: PointerEvent) => {
+    event.stopPropagation();
+    if (barPress === null || barPress.id !== event.pointerId) return;
+    barPress = null;
+    bar.classList.remove("map-scroll-held");
+  };
+  bar.addEventListener("pointerup", endBar);
+  bar.addEventListener("pointercancel", endBar);
+
+  // The wheel or a trackpad scrolls Full size (a trackpad's momentum
+  // arrives as more wheel events); Fit does not move. Neither zooms: a
+  // trackpad pinch arrives as a ctrl+wheel (Chrome, Firefox) and as
+  // gesture events (Safari), and does nothing, the page not zooming
+  // either. Every wheel event over the panel is the map's: the story never
+  // scrolls behind it.
   panel.addEventListener(
     "wheel",
     (event) => {
       event.preventDefault();
-      if (model === null) return;
+      if (event.ctrlKey || record.view !== "full") return;
       const unit = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? vh : 1;
-      const dy = event.deltaY * unit;
-      const dx = event.deltaX * unit;
-      const outer = viewport.getBoundingClientRect();
       hideTip();
-      if (Math.abs(dx) > Math.abs(dy)) {
-        setView({ ...view, x: view.x - dx });
-        return;
-      }
-      const rate = event.ctrlKey ? 0.01 : 0.0018;
-      const factor = Math.exp(-Math.max(-300, Math.min(300, dy)) * rate);
-      zoomBy(factor, event.clientX - outer.left, event.clientY - outer.top);
+      scrollBy(event.deltaY * unit);
     },
     { passive: false },
   );
-  // Safari's pinch: gesture events with a running scale.
-  let gestureScale = 1;
-  const gesture = (event: Event & { scale?: number; clientX?: number }) => {
-    event.preventDefault();
-    const scale = typeof event.scale === "number" ? event.scale : 1;
-    if (event.type === "gesturestart") {
-      gestureScale = 1;
-      return;
-    }
-    const outer = viewport.getBoundingClientRect();
-    zoomBy(
-      scale / gestureScale,
-      typeof event.clientX === "number" ? event.clientX - outer.left : vw / 2,
-      vh / 2,
-    );
-    gestureScale = scale;
-  };
   for (const type of ["gesturestart", "gesturechange", "gestureend"])
-    panel.addEventListener(type, gesture as EventListener);
+    panel.addEventListener(type, (event) => event.preventDefault());
 
   tools.addEventListener("click", (event) => {
     const act = (event.target as Element)
@@ -1424,9 +1627,8 @@ export function mountBranchMap({
       ?.getAttribute("data-act");
     if (act === "spoil") toggleSpoilers();
     else if (act === "newest") showNewest();
-    else if (act === "here") recentre();
-    else if (act === "full") fullSize();
-    else if (act === "fit") showWhole();
+    else if (act === "here") move({ kind: "centre" });
+    else if (act === "full" || act === "fit") showView(act);
   });
 
   svg.addEventListener("focusin", (event) => {
@@ -1439,23 +1641,23 @@ export function mountBranchMap({
 
   // The map's own keys, live only while it is open. None of them is in the
   // story key table (render/keys.ts): like a choice's digits they belong to
-  // this one screen, and its buttons' hints name theirs. No key acts on a
+  // this one screen, and its buttons' hints name theirs. The scrolling keys
+  // move Full size only; nothing moves sideways or zooms. No key acts on a
   // bookmark card (Phase 35): a card is clicked, its × deletes it, Z undoes.
   doc.addEventListener("keydown", (event) => {
     if (panel.hidden) return;
     const key = event.key;
     const plain = !event.ctrlKey && !event.metaKey && !event.altKey;
-    const pan = event.shiftKey ? KEY_PAN_PX * 3 : KEY_PAN_PX;
     let handled = true;
-    if (key === "ArrowLeft") setView({ ...view, x: view.x + pan });
-    else if (key === "ArrowRight") setView({ ...view, x: view.x - pan });
-    else if (key === "ArrowUp") setView({ ...view, y: view.y + pan });
-    else if (key === "ArrowDown") setView({ ...view, y: view.y - pan });
-    else if (key === "+" || key === "=") zoomBy(KEY_ZOOM);
-    else if (key === "-" || key === "_") zoomBy(1 / KEY_ZOOM);
-    else if (key === "f" || key === "F" || key === "0") showWhole();
-    else if (key === "1") fullSize();
-    else if (key === "c" || key === "C") recentre();
+    if (key === "ArrowUp") scrollBy(-KEY_SCROLL_PX);
+    else if (key === "ArrowDown") scrollBy(KEY_SCROLL_PX);
+    else if (key === "PageUp") scrollBy(-vh * PAGE_SHARE);
+    else if (key === "PageDown") scrollBy(vh * PAGE_SHARE);
+    else if (key === "Home") scrollTo(0);
+    else if (key === "End") scrollTo(Number.NEGATIVE_INFINITY);
+    else if ((key === "f" || key === "F") && plain)
+      showView(record.view === "full" ? "fit" : "full");
+    else if ((key === "c" || key === "C") && plain) move({ kind: "centre" });
     else if ((key === "n" || key === "N") && plain) showNewest();
     else if ((key === "z" || key === "Z") && plain) undoLatest();
     else if ((key === "s" || key === "S") && plain) toggleSpoilers();
@@ -1474,6 +1676,8 @@ export function mountBranchMap({
     hideTip();
     showToast(false);
     press = null;
+    barPress = null;
+    bar.classList.remove("map-scroll-held");
     if (frame !== 0 && win !== null) win.cancelAnimationFrame(frame);
     frame = 0;
     // Drop the drawn nodes and cards: a closed map holds no DOM worth
@@ -1481,6 +1685,7 @@ export function mountBranchMap({
     // list again.
     detail.textContent = "";
     labels.textContent = "";
+    drawn = null;
     cardLayer.replaceChildren();
     cards = [];
     cardById.clear();
@@ -1496,23 +1701,20 @@ export function mountBranchMap({
       if (index >= 0) listed.push({ row, index });
     }
     measure();
-    if (!layOut()) placeCards();
+    const laid = stripNow();
     spoilers = spoilersSetting();
     showSpoilers();
-    if (model === null) return;
-    marks = markNow(model);
-    // The remembered view, or a Fit (mapmodel.ts `restoreView`). The
-    // marker shows wherever it is; only C centres on it.
-    const start = restoreView(
-      model,
-      rememberedView(),
-      vw,
-      vh,
-      marks.here,
-      layout,
-    );
-    view = start.view;
-    fitted = start.fit;
+    // The remembered view (mapmodel.ts `openingRecord`): Full size
+    // centred on "you are here" when there is none, or its place came
+    // from another layout. The marks are read afresh for this open, so
+    // the model is put on show anew even when its cut is the last open's.
+    record = openingRecord(rememberedView(), layout);
+    model = null;
+    useModel(cutFor(record.view, laid));
+    makeCards();
+    if (model === null || marks === null) return;
+    showPressed();
+    view = viewFor(model, record, marks.here, vw, vh);
     paint();
     panel.dataset.ready = "true";
   }

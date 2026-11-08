@@ -164,14 +164,32 @@ for (const [name, makeStorage] of ADAPTERS) {
       ]);
     });
 
-    it("round-trips the branch map's view, copied in and out (Phase 33)", async () => {
+    it("round-trips the branch map's view, its place copied in and out (Phase 41)", async () => {
       const storage = makeStorage();
-      const view = { layout: "9:x1", fit: false, cx: 12, cy: -4.5, scale: 2 };
+      const view = {
+        view: "full" as const,
+        layout: "9:x1",
+        place: { at: 1200.5, dy: -4.5 },
+      };
       await storage.saveState({ helpSeen: true, mapView: view });
       const loaded = await storage.loadState();
       expect(loaded).toEqual({ helpSeen: true, mapView: view });
-      (loaded?.mapView as { cx: number }).cx = 99;
-      expect((await storage.loadState())?.mapView).toEqual(view);
+      (loaded?.mapView?.place as { at: number }).at = 99;
+      (view.place as { dy: number }).dy = 7;
+      // Neither the caller's record nor the one handed out reaches the store.
+      expect((await storage.loadState())?.mapView).toEqual({
+        view: "full",
+        layout: "9:x1",
+        place: { at: 1200.5, dy: -4.5 },
+      });
+      // "Centred" (no place) and Fit round-trip too.
+      for (const other of [
+        { view: "full" as const, layout: "9:x1", place: null },
+        { view: "fit" as const, layout: "9:x1", place: { at: 3, dy: 0 } },
+      ]) {
+        await storage.saveState({ mapView: other });
+        expect((await storage.loadState())?.mapView).toEqual(other);
+      }
     });
 
     it("copies ctx in and out: callers cannot rewrite the stored context", async () => {
@@ -339,22 +357,44 @@ describe("helpSeenFrom — the key-help migration reads absent as not-seen (Phas
   });
 });
 
-describe("sanitizeMapView — the map view the shipped adapter reads back (Phase 33)", () => {
-  it("keeps a well-formed view and drops anything else (reads as Fit)", () => {
-    const view = { layout: "3:a", fit: true, cx: 1, cy: 2, scale: 0.5 };
-    expect(sanitizeMapView({ ...view, extra: 1 })).toEqual(view);
+describe("sanitizeMapView — the map view the shipped adapter reads back (Phase 41)", () => {
+  it("keeps a well-formed view, a fresh copy, and drops anything else (no record: Full size, centred)", () => {
+    const view = {
+      view: "full",
+      layout: "3:a",
+      place: { at: 412.25, dy: -18 },
+    };
+    const kept = sanitizeMapView({ ...view, extra: 1 });
+    expect(kept).toEqual(view);
+    expect(kept?.place).not.toBe(view.place);
+    for (const good of [
+      { view: "fit", layout: "3:a", place: null },
+      { view: "full", layout: "", place: null },
+      { view: "fit", layout: "3:a", place: { at: 0, dy: 0 } },
+    ])
+      expect(sanitizeMapView(good), JSON.stringify(good)).toEqual(good);
     for (const bad of [
       null,
       "view",
       [],
+      { ...view, view: "100%" },
+      { ...view, view: undefined },
       { ...view, layout: 3 },
-      { ...view, fit: "yes" },
-      { ...view, cx: Number.NaN },
-      { ...view, cy: "2" },
-      { ...view, scale: 0 },
-      { ...view, scale: Number.POSITIVE_INFINITY },
+      { ...view, place: undefined },
+      { ...view, place: [] },
+      { ...view, place: { at: Number.NaN, dy: 0 } },
+      { ...view, place: { at: 1, dy: "2" } },
+      { ...view, place: { at: Number.POSITIVE_INFINITY, dy: 0 } },
     ])
       expect(sanitizeMapView(bad), JSON.stringify(bad)).toBeUndefined();
+  });
+
+  it("reads a record in the older shape (Phase 33: fit, centre and scale) as no record", () => {
+    for (const old of [
+      { layout: "3:a", fit: true, cx: 1, cy: 2, scale: 0.5 },
+      { layout: "12:abc", fit: false, cx: 410.5, cy: 96, scale: 1.7 },
+    ])
+      expect(sanitizeMapView(old), JSON.stringify(old)).toBeUndefined();
   });
 });
 

@@ -1,43 +1,57 @@
 // The branch map (docs/plan.md Phase 31) on the demo: `m` opens it with a
-// "you are here" marker, the wheel zooms, a drag pans, F fits the whole
-// tree, an unreached decision is inert, a click on a reached route jumps
-// into it (closing the map), a click on a reached decision opens its choice
-// screen with the walk's route highlighted, Escape returns to the game, the
-// wheel never walks the story behind the map, and `m` over the Esc screen
-// replaces it so the next Escape goes back to the game. At an ending's last
-// screen (and the end state after it) the marker sits on that ending's end
-// mark; Fit fills the view (less a small margin) at any window size, and
-// again after a resize while the map is open (as entering or leaving
-// fullscreen does); a drag or a double click selects no text. The marker's
-// ring and "you are here" label stay inside the view on opening and after
-// F, at the story's start and at its end, at 800x600 and 1920x1080. Spoilers
-// (off by default): the question and route labels of a decision not
-// reached are not in the DOM at all (placeholders instead), a reached
-// decision's routes show their labels, S or the header button shows
-// everything without moving the tree, and the setting survives a reload.
-// Phase 33 (Phase 35 adds two): the header is the title and exactly five
-// buttons (Spoilers, Newest bookmark, Centre, 100%, Fit) hinting their
-// keys, on one line; the first open is a
-// Fit; a moved view reopens with the same transform after a close and
-// after a reload, a Fit reopens as a fresh Fit after a resize, a moved
-// view keeps its world centre and scale; after Reset progress the map
-// opens at Fit with the marker's ring centred on the start dot. Each
-// header button's key hint (no native title) shows within a frame of a
-// hover or keyboard focus, below the button and inside the window (a
-// bookmark card's delete x's: bookmarkmap.scenario.mjs). Phase 35: the
-// nodes are compact (their full text in the label and tooltip), and the
-// view's transform is the stage's (lines, cards and marker share it).
-// Phase 40: decisions are 52 x 28 and route pills 32 x 24 world units,
-// their 13 px figures' digits centred in them (ink measured in the page);
-// a read stretch's line paints at its 5 screen pixels at Fit, 100% and 3x
-// (measured from screenshot pixels, within half a step of --line-px), and
-// the zoom's restyle skips the counts and pill numbers. Phase 41: a node
-// looks the same just above and just below the zoom where the map stops
-// drawing node groups (0.3x on the demo): the same capsule, its figure in
-// it. Screenshots land in .tmp/branchmap-shots/fb-*.png, spoil-*.png,
-// mark-*.png, simp-*.png, hint-*.png, lines-*.png and look-*.png.
+// "you are here" marker, F switches to Fit, which shows the whole tree, an
+// unreached decision is inert, a click on a reached route jumps into it
+// (closing the map), a click on a reached decision opens its choice screen
+// with the walk's route highlighted, Escape returns to the game, the wheel
+// never walks the story behind the map, and `m` over the Esc screen replaces
+// it so the next Escape goes back to the game. At an ending's last screen
+// (and the end state after it) the marker sits on that ending's end mark;
+// Fit fills the view (less a small margin) at any window size, and again
+// after a resize while the map is open (as entering or leaving fullscreen
+// does); a drag or a double click selects no text. The marker's ring and
+// "you are here" label stay inside the view at Full size and at Fit, at the
+// story's start and at its end, at 800x600 and 1920x1080. Spoilers (off by
+// default): the question and route labels of a decision not reached are
+// not in the DOM at all (placeholders instead), a reached decision's routes
+// show their labels, S or the header button shows everything without moving
+// the tree, and the setting survives a reload. The header is the title and
+// its buttons (Spoilers, Newest bookmark, Centre, and the two halves of
+// "Full size | Fit", the pressed half the view on show, both hinting F),
+// each hinting its key, on one line. Each header button's key hint (no
+// native title) shows within a frame of a hover or keyboard focus, below
+// the button and inside the window (a bookmark card's delete x's:
+// bookmarkmap.scenario.mjs). Phase 35: the nodes are compact (their full
+// text in the label and tooltip), and the view's transform is the stage's
+// (lines, cards and marker share it). Phase 40: decisions are 52 x 28 and
+// route pills 32 x 24 world units, their 13 px figures' digits centred in
+// them (ink measured in the page); a read stretch's line paints at its 5
+// screen pixels at Fit, Full size and Fit at 3x (measured from screenshot
+// pixels, within half a step of --line-px), and a change of scale's restyle
+// skips the counts and pill numbers.
+//
+// Phase 41, two views: Full size is scale exactly 1 with the bands as wide
+// as the view (nothing off its sides), and a map taller than the view
+// scrolls up and down by the wheel, the scroll bar (its thumb dragged, a
+// press on its track paging), a drag of the map (a click still opens a
+// card), the up and down arrows, Page Up / Page Down, Home and End, while
+// sideways wheel, a pinch, + and -, the left and right arrows, 0 and 1 move
+// nothing; Fit does not move at all; the header's halves and F switch
+// between them; C and N switch to Full size centred on "you are here" or
+// the newest card. The view is remembered: the first open is Full size
+// centred on "you are here"; a scrolled place reopens after a close and a
+// reload; after C (and after C, a scroll, C again) the next open centres on
+// "you are here" wherever the reader has got to; a Fit reopens as a Fit for
+// the window now; a bookmark added since makes a Full size open centre on
+// "you are here"; a resize keeps what was in the middle of Full size there
+// and fits Fit again; after Reset progress the map opens at Full size with
+// the marker's ring on the start dot. One look at every scale (Phase 41,
+// item 1): on a 220-node tree, where Fit draws node groups from 0.6x and
+// merged capsules below, a node at Fit just above and just below 0.6x is the
+// same capsule with its figure. Screenshots land in .tmp/branchmap-shots/:
+// fb-*.png, spoil-*.png, mark-*.png, simp-*.png, hint-*.png, lines-*.png,
+// views-*.png and look-*.png.
 
-import { mkdirSync } from "node:fs";
+import { cpSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   branch,
@@ -46,6 +60,7 @@ import {
   CONFIRM_CONTROL,
   clickCenter,
   currentItemId,
+  demoDir,
   HELP_CLOSED,
   HELP_OPEN,
   helpOpen,
@@ -54,16 +69,21 @@ import {
   pressDigit,
   pressEscape,
   pressKey,
+  pressNavKey,
   pressSpace,
   READ_CHOICE,
+  READ_MAP_CARDS,
+  READ_MAP_VIEW,
+  readBookmarks,
   repoRoot,
+  showMapView,
   sleep,
   spaceTo,
   wheel,
 } from "./harness.mjs";
 
 export const title =
-  "branch map: open, here-marker (endings too), zoom, pan, fit fills and refits on resize, no text selection, jumps, Esc, M over Esc, spoilers, five-button header, instant key hints, remembered view, marker on the start after reset, line widths at every zoom, one look either side of 0.3x";
+  "branch map: open, here-marker (endings too), Full size scrolling (wheel, scroll bar, drag, keys) and nothing else moving, Fit still, the Full size | Fit button and F, C and N, fit fills and refits on resize, no text selection, jumps, Esc, M over Esc, spoilers, header, instant key hints, remembered view (C rule, reload, resize, layout change), marker on the start after reset, line widths in both views, one look either side of 0.6x";
 
 const shots = join(repoRoot, ".tmp", "branchmap-shots");
 
@@ -71,7 +91,9 @@ const pressM = (cdp) => pressKey(cdp, "m", "KeyM", 77, "m");
 const pressF = (cdp) => pressKey(cdp, "f", "KeyF", 70, "f");
 const pressS = (cdp) => pressKey(cdp, "s", "KeyS", 83, "s");
 const pressC = (cdp) => pressKey(cdp, "c", "KeyC", 67, "c");
+const pressN = (cdp) => pressKey(cdp, "n", "KeyN", 78, "n");
 const pressPlus = (cdp) => pressKey(cdp, "+", "Equal", 187, "+");
+const pressMinus = (cdp) => pressKey(cdp, "-", "Minus", 189, "-");
 
 const MAP_OPEN = () => {
   const p = document.getElementById("branchmap");
@@ -303,47 +325,49 @@ export default async function ({ check, open }) {
     { here: map.here, ends: map.ends },
   );
 
-  // Zoom: the wheel over the map zooms; the story does not move behind it.
+  // Full size (Phase 41): scale exactly 1, and the demo, shorter than the
+  // view, sits still in it: the wheel, a drag and the scrolling keys move
+  // nothing, nor do the old zoom and pan inputs.
+  const opened = await page.evaluate(READ_MAP_VIEW);
   const at = centre(map.view);
-  await cdp.send("Input.dispatchMouseEvent", {
-    type: "mouseWheel",
-    x: at.x,
-    y: at.y,
-    deltaX: 0,
-    deltaY: -300,
-  });
-  await sleep(80);
-  const zoomed = await page.evaluate(READ_MAP);
-  check(
-    "the wheel zooms in around the pointer",
-    zoomed.scale > map.scale * 1.3,
-    { before: map.scale, after: zoomed.scale },
-  );
-  await cdp.send("Input.dispatchMouseEvent", {
-    type: "mouseWheel",
-    x: at.x,
-    y: at.y,
-    deltaX: 0,
-    deltaY: 300,
-  });
-  await sleep(80);
-
-  // Drag pans by the distance moved.
-  const pre = await page.evaluate(READ_MAP);
-  const from = { x: pre.view.x + 20, y: pre.view.y + pre.view.h - 20 };
+  for (const [deltaX, deltaY] of [
+    [0, -300],
+    [0, 300],
+    [200, 0],
+  ])
+    await cdp.send("Input.dispatchMouseEvent", {
+      type: "mouseWheel",
+      x: at.x,
+      y: at.y,
+      deltaX,
+      deltaY,
+    });
+  const from = { x: map.view.x + 20, y: map.view.y + map.view.h - 20 };
   await mouse(cdp, "mouseMoved", from.x, from.y, 0);
   await mouse(cdp, "mousePressed", from.x, from.y, 1);
   for (let i = 1; i <= 5; i += 1)
     await mouse(cdp, "mouseMoved", from.x + 30 * i, from.y - 10 * i, 1);
   await mouse(cdp, "mouseReleased", from.x + 150, from.y - 50, 0);
-  await sleep(60);
+  for (const [key, code] of [
+    ["ArrowDown", 40],
+    ["PageDown", 34],
+    ["End", 35],
+    ["ArrowLeft", 37],
+  ])
+    await pressNavKey(cdp, key, code);
+  await pressPlus(cdp);
+  await sleep(80);
+  const still = await page.evaluate(READ_MAP_VIEW);
   const panned = await page.evaluate(READ_MAP);
   check(
-    "a drag pans the map by the distance moved",
-    Math.abs(panned.tx - pre.tx - 150) < 2 &&
-      Math.abs(panned.ty - pre.ty + 50) < 2 &&
-      panned.scale === pre.scale,
-    { pre: [pre.tx, pre.ty], panned: [panned.tx, panned.ty] },
+    "m opens the demo at Full size (the Full size half pressed), scale exactly 1, shorter than the view so still: the wheel, a drag, the scrolling keys and + move nothing",
+    opened.view === "full" &&
+      opened.scale === 1 &&
+      opened.bar === null &&
+      still.x === opened.x &&
+      still.y === opened.y &&
+      still.scale === 1,
+    { opened, still },
   );
   check(
     "the drag clicked nothing: the map is still open",
@@ -399,11 +423,18 @@ export default async function ({ check, open }) {
   await pressF(cdp);
   await sleep(60);
   const fit = await page.evaluate(READ_MAP);
+  const fitView = await page.evaluate(READ_MAP_VIEW);
   const all = [...fit.decisions, ...fit.routes];
   check(
-    "F fits the whole tree in the view",
-    all.length === 6 && all.every((n) => inside(n.box, fit.view)),
-    { view: fit.view, outside: all.filter((n) => !inside(n.box, fit.view)) },
+    "F switches to Fit (its half pressed), the whole tree in the view",
+    fitView.view === "fit" &&
+      all.length === 6 &&
+      all.every((n) => inside(n.box, fit.view)),
+    {
+      view: fit.view,
+      pressed: fitView.view,
+      outside: all.filter((n) => !inside(n.box, fit.view)),
+    },
   );
 
   // An unreached decision is inert: a click changes nothing.
@@ -430,19 +461,20 @@ export default async function ({ check, open }) {
   );
 
   // A click on a reached route enters it at its first screen and closes.
+  // The map reopens in the view it was left in: Fit.
   const again = await openMap(page, cdp);
-  await pressF(cdp);
-  await sleep(60);
+  const reopenedAt = (await page.evaluate(READ_MAP_VIEW)).view;
   const fitted = await page.evaluate(READ_MAP);
   const r1 = fitted.routes.find((r) => r.text.includes("Route 1"));
   await click(cdp, centre(r1.box).x, centre(r1.box).y);
   await sleep(150);
   check(
-    "clicking a reached route jumps to its first screen and closes the map",
+    "the map reopens at Fit, as it was left; clicking a reached route there jumps to its first screen and closes the map",
     again.open &&
+      reopenedAt === "fit" &&
       (await page.evaluate(MAP_CLOSED)) &&
       (await currentItemId(page)) === "route1-start",
-    { item: await currentItemId(page) },
+    { reopenedAt, item: await currentItemId(page) },
   );
   // The jump's route pill shows on the story, never over the map: the map
   // closed before it, and reopening the map at once drops it.
@@ -480,8 +512,7 @@ export default async function ({ check, open }) {
 
   // The map over a decision click: the outer choice screen, walk route lit.
   await openMap(page, cdp);
-  await pressF(cdp);
-  await sleep(60);
+  await showMapView(page, cdp, "fit");
   const m3 = await page.evaluate(READ_MAP);
   const outer3 = m3.decisions.find((d) => d.text.startsWith("Demo"));
   await click(cdp, centre(outer3.box).x, centre(outer3.box).y);
@@ -556,8 +587,7 @@ export default async function ({ check, open }) {
   await page.setViewport({ width: 1280, height: 720 });
   await sleep(100);
   await openMap(page, cdp);
-  await pressF(cdp);
-  await sleep(80);
+  await showMapView(page, cdp, "fit");
   const fit720 = await page.evaluate(READ_MAP);
   const fit1080 = await sized(1920, 1080);
   await page.screenshot({ path: join(shots, "fit-1920x1080.png") });
@@ -568,10 +598,11 @@ export default async function ({ check, open }) {
     path: join(shots, "fit-resized-back-1280x720.png"),
   });
   check(
-    "F fills the view at 1280x720 (or stops at the 3x zoom-in limit, centred), and stays so after resizes to 1920x1080, 2560x1440 and back",
+    "Fit fills the view at 1280x720 (or stops at the 3x limit, centred), and stays so after resizes to 1920x1080, 2560x1440 and back",
     [fit720, fit1080, fit1440, back720].every(fills) &&
-      fit1440.scale > fit720.scale &&
-      back720.scale === fit720.scale,
+      fit1440.scale >= fit720.scale &&
+      back720.scale === fit720.scale &&
+      JSON.stringify(back720.world) === JSON.stringify(fit720.world),
     {
       scales: [fit720, fit1080, fit1440, back720].map((m) => m.scale),
       world: [fit720, fit1080, fit1440, back720].map((m) => m.world),
@@ -584,12 +615,11 @@ export default async function ({ check, open }) {
   await page.setViewport({ width: 2560, height: 1440 });
   await sleep(100);
   await openMap(page, cdp);
-  await pressF(cdp);
-  await sleep(80);
+  await showMapView(page, cdp, "fit");
   const fitBig = await page.evaluate(READ_MAP);
   await page.screenshot({ path: join(shots, "fit-2560x1440.png") });
   check(
-    "F fills the view (or stops at 3x, centred) when opened at 2560x1440",
+    "Fit fills the view (or stops at 3x, centred) when opened at 2560x1440",
     fills(fitBig),
     {
       scale: fitBig.scale,
@@ -603,6 +633,7 @@ export default async function ({ check, open }) {
   await markerInView({ check, open });
   await header({ check, open });
   await hints({ check, open });
+  await fullSize({ check, open });
   await memory({ check, open });
   await lineWidths({ check, open });
   await oneLook({ check, open });
@@ -834,10 +865,11 @@ const READ_MARKER = () => {
   };
 };
 
-// The "you are here" marker is drawn at a fixed pixel size; opening the map
-// and Fit (F) keep its ring and label wholly inside the map view, with the
-// reader at the story's start (the left end of the first stretch) and at
-// its end (the end square), at a small and a large window.
+// The "you are here" marker is drawn at a fixed pixel size; Full size
+// (centred on it) and Fit keep its ring and label wholly inside the map
+// view, with the reader at the story's start (the start dot, at a band's
+// left edge) and at its end (the end square), at a small and a large
+// window.
 async function markerInView({ check, open }) {
   const { page, cdp } = await open("marker", { closeHelp: true });
   const sizes = [
@@ -849,20 +881,20 @@ async function markerInView({ check, open }) {
     for (const [width, height] of sizes) {
       await page.setViewport({ width, height });
       await sleep(150);
-      const opened = {
-        ...(await openMap(page, cdp)),
-        ...(await page.evaluate(READ_MARKER)),
-      };
-      await pressF(cdp);
+      await openMap(page, cdp);
+      await showMapView(page, cdp, "full");
+      await pressC(cdp);
       await sleep(100);
+      const full = await page.evaluate(READ_MARKER);
+      await showMapView(page, cdp, "fit");
       const fitted = await page.evaluate(READ_MARKER);
       if (width === 800)
         await page.screenshot({
           path: join(shots, `mark-${where}-${width}x${height}.png`),
         });
       for (const [when, m] of [
-        ["open", opened],
-        ["fit", fitted],
+        ["Full size", full],
+        ["Fit", fitted],
       ])
         seen.push({
           at: `${width}x${height} ${when}`,
@@ -883,23 +915,24 @@ async function markerInView({ check, open }) {
   };
   const start = await measure("start");
   check(
-    "at the story's start, on opening and after F, the marker's ring and label lie inside the map view (800x600, 1920x1080)",
+    "at the story's start, at Full size and at Fit, the marker's ring and label lie inside the map view (800x600, 1920x1080)",
     start.every((s) => s.ok),
     start,
   );
   const reached = await spaceTo(page, cdp, "after-end", 80);
   const end = await measure("end");
   check(
-    "at the story's end, on opening and after F, the marker's ring and label lie inside the map view (800x600, 1920x1080)",
+    "at the story's end, at Full size and at Fit, the marker's ring and label lie inside the map view (800x600, 1920x1080)",
     reached && end.every((s) => s.ok),
     { reached, end },
   );
 }
 
-// The header (Phase 33; Phase 35 added Newest bookmark and 100%): the
-// title and exactly five buttons, each hinting its key (data-hint, no
-// native title), on one line; no hint or legend text; the map gets the
-// rest.
+// The header (Phase 33; Phase 35 added Newest bookmark; Phase 41 made the
+// last two the halves of "Full size | Fit"): the title and exactly five
+// buttons, each hinting its key (data-hint, no native title), the halves
+// both F with the view on show pressed, on one line; no hint or legend
+// text; the map gets the rest.
 const READ_HEAD = () => {
   const panel = document.getElementById("branchmap");
   const head = panel?.querySelector(".map-head");
@@ -913,6 +946,7 @@ const READ_HEAD = () => {
       text: b.textContent,
       title: b.getAttribute("title"),
       hint: b.getAttribute("data-hint"),
+      pressed: b.getAttribute("aria-pressed"),
       box: rect(b),
     })),
     title: head?.querySelector(".map-title")?.textContent ?? null,
@@ -943,13 +977,18 @@ async function header({ check, open }) {
       ["spoil", "Spoilers: Off", "shortcut: S"],
       ["newest", "Newest bookmark", "shortcut: N"],
       ["here", "Centre", "shortcut: C"],
-      ["full", "100%", "shortcut: 1"],
+      ["full", "Full size", "shortcut: F"],
       ["fit", "Fit", "shortcut: F"],
     ];
+    const halves = h.buttons.slice(3).map((b) => b.pressed);
+    // The two halves touch: one button cut in two.
+    const [full, fit] = h.buttons.slice(3).map((b) => b.box);
     check(
-      `at ${width}x${height} the header is the title and exactly five buttons (Spoilers, Newest bookmark, Centre, 100%, Fit) hinting their keys (no title attribute), on one line, no hint or legend`,
+      `at ${width}x${height} the header is the title and exactly five buttons (Spoilers, Newest bookmark, Centre, and the halves of Full size | Fit, Full size pressed, both hinting F) hinting their keys (no title attribute), on one line, no hint or legend`,
       h.title === "Branch map" &&
         h.buttons.length === 5 &&
+        halves.join() === "true,false" &&
+        Math.abs(fit.x - (full.x + full.w)) <= 2 &&
         want.every(
           ([act, text, hint], i) =>
             h.buttons[i].act === act &&
@@ -1036,7 +1075,7 @@ async function hints({ check, open }) {
     ["spoil", "shortcut: S"],
     ["newest", "shortcut: N"],
     ["here", "shortcut: C"],
-    ["full", "shortcut: 1"],
+    ["full", "shortcut: F"],
     ["fit", "shortcut: F"],
   ];
   for (const [width, height] of [
@@ -1131,7 +1170,8 @@ const READ_VIEW = () => {
     ty,
     sc,
     // The map measures its view in whole pixels (clientWidth/Height).
-    view: { w: viewEl.clientWidth, h: viewEl.clientHeight },
+    view: { w: viewEl.clientWidth, h: viewEl.clientHeight, top: vr.top },
+    height: Number(panel.querySelector(".map-svg").getAttribute("height")),
     ring: { x: ring.x + ring.width / 2, y: ring.y + ring.height / 2 },
     start: m
       ? {
@@ -1149,12 +1189,354 @@ const sameView = (a, b) =>
 const ringOnStart = (v) =>
   v.start !== null &&
   Math.hypot(v.ring.x - v.start.x, v.ring.y - v.start.y) <= 2;
+// Full size centred on the marker: its ring at the view's middle height,
+// or as near as the map's top and bottom let it be (the view scrolled to
+// that end); a map no taller than the view sits still in its middle.
+const centredOnRing = (v) => {
+  if (v.height * v.sc <= v.view.h)
+    return Math.abs(v.ty - Math.round((v.view.h - v.height * v.sc) / 2)) < 0.01;
+  const mid = v.view.top + v.view.h / 2;
+  if (Math.abs(v.ring.y - mid) <= 1) return true;
+  const top = Math.abs(v.ty) < 0.01;
+  const bottom = Math.abs(v.ty - (v.view.h - v.height)) < 0.01;
+  return (top && v.ring.y < mid) || (bottom && v.ring.y > mid);
+};
 
-// The remembered view (Phase 33) and the marker after Reset progress.
+// Bookmarks on the demo's lead-in, so its map is taller than an 800x600
+// view at Full size and scrolls.
+async function bookmarked(page, cdp, ids) {
+  for (const id of ids) {
+    await spaceTo(page, cdp, id);
+    const before = (await readBookmarks(page)).length;
+    await pressB(cdp);
+    for (let i = 0; i < 40; i += 1) {
+      if ((await readBookmarks(page)).length > before) break;
+      await sleep(50);
+    }
+  }
+}
+const SCROLL_IDS = [
+  "text-speech",
+  "text-narration",
+  "text-bare",
+  "anim-orbit",
+  "video-chain",
+];
+
+async function wheelAt(cdp, x, y, deltaY, deltaX = 0, modifiers = 0) {
+  await cdp.send("Input.dispatchMouseEvent", {
+    type: "mouseWheel",
+    x,
+    y,
+    deltaX,
+    deltaY,
+    modifiers,
+  });
+}
+
+// Phase 41, two views: Full size scrolls up and down and nothing else
+// moves it; Fit does not move; the header's halves, F, C and N.
+async function fullSize({ check, open }) {
+  const { page, cdp } = await open("views", { closeHelp: true });
+  await page.setViewport({ width: 800, height: 600 });
+  await bookmarked(page, cdp, SCROLL_IDS);
+  const v = () => page.evaluate(READ_MAP_VIEW);
+  await openMap(page, cdp);
+  const first = await v();
+  const cards = await page.evaluate(READ_MAP_CARDS);
+  const world = await page.evaluate(() => {
+    const r = document
+      .querySelector("#branchmap .map-world")
+      .getBoundingClientRect();
+    return { left: r.left, right: r.right };
+  });
+  await page.screenshot({ path: join(shots, "views-full-800x600.png") });
+  check(
+    "Full size at 800x600: scale exactly 1, the bands as wide as the view (every card and line across it), taller than the view, with its scroll bar shown",
+    first.view === "full" &&
+      first.scale === 1 &&
+      first.height > first.vh &&
+      first.bar !== null &&
+      first.thumb.height < first.bar.height &&
+      world.left >= first.viewRect.left &&
+      world.right <= first.viewRect.right &&
+      cards.cards.length === 5 &&
+      cards.cards.every(
+        (c) =>
+          c.rect.left >= first.viewRect.left &&
+          c.rect.right <= first.viewRect.right,
+      ),
+    {
+      first,
+      world,
+      cards: cards.cards.map((c) => [c.rect.left, c.rect.right]),
+    },
+  );
+
+  // The wheel scrolls (a trackpad's swipe arrives the same way); sideways,
+  // or with ctrl (a pinch), it does nothing.
+  const mid = {
+    x: first.viewRect.left + first.vw / 2,
+    y: first.viewRect.top + first.vh / 2,
+  };
+  await pressNavKey(cdp, "Home", 36);
+  await sleep(60);
+  const top = await v();
+  await wheelAt(cdp, mid.x, mid.y, 100);
+  await sleep(60);
+  const wheeled = await v();
+  await wheelAt(cdp, mid.x, mid.y, 0, 150);
+  await wheelAt(cdp, mid.x, mid.y, -120, 0, 2);
+  await sleep(60);
+  const ignored = await v();
+  check(
+    "at Full size the wheel scrolls down by its delta; a sideways wheel and a ctrl+wheel (pinch) move nothing; the scale stays 1",
+    top.y === 0 &&
+      Math.abs(wheeled.y + 100) < 0.01 &&
+      wheeled.x === top.x &&
+      sameScroll(ignored, wheeled) &&
+      ignored.scale === 1,
+    { top: top.y, wheeled: wheeled.y, ignored },
+  );
+
+  // The keys: up and down 80 px, Page Up / Page Down most of a view, Home
+  // and End the top and bottom; left and right, + and -, 0 and 1 nothing.
+  const keyed = [];
+  for (const [key, code] of [
+    ["ArrowDown", 40],
+    ["ArrowUp", 38],
+    ["PageDown", 34],
+    ["End", 35],
+    ["PageUp", 33],
+    ["Home", 36],
+  ]) {
+    const before = await v();
+    await pressNavKey(cdp, key, code);
+    await sleep(60);
+    keyed.push({ key, before: before.y, after: (await v()).y });
+  }
+  const bottomY = first.vh - first.height;
+  const page7 = first.vh * 0.875;
+  const want = {
+    ArrowDown: (y) => y - 80,
+    ArrowUp: (y) => y + 80,
+    PageDown: (y) => Math.max(bottomY, y - page7),
+    End: () => bottomY,
+    PageUp: (y) => Math.min(0, y + page7),
+    Home: () => 0,
+  };
+  const beforeOthers = await v();
+  await pressNavKey(cdp, "ArrowLeft", 37);
+  await pressNavKey(cdp, "ArrowRight", 39);
+  await pressPlus(cdp);
+  await pressMinus(cdp);
+  await pressKey(cdp, "0", "Digit0", 48, "0");
+  await pressKey(cdp, "1", "Digit1", 49, "1");
+  await sleep(60);
+  const afterOthers = await v();
+  check(
+    "at Full size Up/Down scroll 80 px, Page Up/Page Down most of a view, Home/End the top and bottom; Left/Right, +/-, 0 and 1 move nothing",
+    keyed.every((k) => Math.abs(k.after - want[k.key](k.before)) < 0.01) &&
+      sameScroll(afterOthers, beforeOthers) &&
+      afterOthers.scale === 1 &&
+      afterOthers.view === "full",
+    { keyed, bottomY, beforeOthers, afterOthers },
+  );
+
+  // The scroll bar: its thumb dragged moves the map in proportion (the
+  // thumb's travel standing for the map's), and a press on the track
+  // below the thumb pages down.
+  const atTop = await v();
+  const grab = {
+    x: (atTop.thumb.left + atTop.thumb.right) / 2,
+    y: atTop.thumb.top + 6,
+  };
+  await mouse(cdp, "mouseMoved", grab.x, grab.y, 0);
+  await mouse(cdp, "mousePressed", grab.x, grab.y, 1);
+  for (let i = 1; i <= 4; i += 1)
+    await mouse(cdp, "mouseMoved", grab.x, grab.y + 10 * i, 1);
+  await mouse(cdp, "mouseReleased", grab.x, grab.y + 40, 0);
+  await sleep(80);
+  const barDragged = await v();
+  const travel = atTop.bar.height - atTop.thumb.height;
+  const expectY = Math.max(bottomY, -(40 * (atTop.height - atTop.vh)) / travel);
+  await pressNavKey(cdp, "Home", 36);
+  await sleep(60);
+  const home = await v();
+  const below = { x: grab.x, y: home.bar.bottom - 4 };
+  await mouse(cdp, "mouseMoved", below.x, below.y, 0);
+  await mouse(cdp, "mousePressed", below.x, below.y, 1);
+  await mouse(cdp, "mouseReleased", below.x, below.y, 0);
+  await sleep(80);
+  const paged = await v();
+  check(
+    "dragging the scroll bar's thumb 40 px scrolls the map in proportion, the thumb following; a press on the track below it pages down",
+    Math.abs(barDragged.y - expectY) < 0.6 &&
+      Math.abs(barDragged.thumb.top - atTop.thumb.top - 40) < 1.5 &&
+      Math.abs(paged.y - Math.max(bottomY, -page7)) < 0.01 &&
+      (await page.evaluate(MAP_OPEN)),
+    { atTop, barDragged, expectY, paged: paged.y },
+  );
+
+  // A drag of the map scrolls it by the distance moved up or down (never
+  // sideways); a press that moves under 5 px is a click and opens a card.
+  await pressNavKey(cdp, "Home", 36);
+  await sleep(60);
+  const pre = await v();
+  const start = { x: mid.x - 150, y: mid.y + 60 };
+  await mouse(cdp, "mouseMoved", start.x, start.y, 0);
+  await mouse(cdp, "mousePressed", start.x, start.y, 1);
+  for (let i = 1; i <= 5; i += 1)
+    await mouse(cdp, "mouseMoved", start.x + 12 * i, start.y - 14 * i, 1);
+  await mouse(cdp, "mouseReleased", start.x + 60, start.y - 70, 0);
+  await sleep(80);
+  const dragged = await v();
+  check(
+    "a drag of the map scrolls it by the distance moved up or down, never sideways, and opens nothing",
+    Math.abs(dragged.y - Math.max(bottomY, pre.y - 70)) < 0.01 &&
+      dragged.x === pre.x &&
+      (await page.evaluate(MAP_OPEN)),
+    { pre, dragged },
+  );
+  const visible = (await page.evaluate(READ_MAP_CARDS)).cards.find(
+    (c) =>
+      c.rect.top > first.viewRect.top + 10 &&
+      c.rect.bottom < first.viewRect.bottom - 10 &&
+      !c.newest,
+  );
+  const jiggle = visible && {
+    x: (visible.rect.left + visible.rect.right) / 2,
+    y: (visible.rect.top + visible.rect.bottom) / 2,
+  };
+  if (jiggle) {
+    await mouse(cdp, "mouseMoved", jiggle.x, jiggle.y, 0);
+    await mouse(cdp, "mousePressed", jiggle.x, jiggle.y, 1);
+    await mouse(cdp, "mouseMoved", jiggle.x + 2, jiggle.y + 3, 1);
+    await mouse(cdp, "mouseReleased", jiggle.x + 2, jiggle.y + 3, 0);
+  }
+  let closed = false;
+  try {
+    await page.waitForFunction(MAP_CLOSED, { timeout: 3000 });
+    closed = true;
+  } catch {}
+  await sleep(150);
+  check(
+    "after scrolling, a click on a card (a press moving under 5 px) still opens its bookmark: the map closes on its screen",
+    visible !== undefined &&
+      closed &&
+      (await currentItemId(page)) === visible.itemId,
+    { card: visible?.itemId, closed, item: await currentItemId(page) },
+  );
+
+  // Fit does not move: the wheel, a drag and the scrolling keys leave it
+  // as it is, with no scroll bar.
+  await openMap(page, cdp);
+  await showMapView(page, cdp, "fit");
+  const fit = await v();
+  await page.screenshot({ path: join(shots, "views-fit-800x600.png") });
+  await wheelAt(cdp, mid.x, mid.y, 200);
+  await mouse(cdp, "mouseMoved", mid.x, mid.y, 0);
+  await mouse(cdp, "mousePressed", mid.x, mid.y, 1);
+  for (let i = 1; i <= 4; i += 1)
+    await mouse(cdp, "mouseMoved", mid.x + 20 * i, mid.y - 25 * i, 1);
+  await mouse(cdp, "mouseReleased", mid.x + 80, mid.y - 100, 0);
+  for (const [key, code] of [
+    ["ArrowDown", 40],
+    ["PageDown", 34],
+    ["End", 35],
+    ["ArrowLeft", 37],
+  ])
+    await pressNavKey(cdp, key, code);
+  await pressPlus(cdp);
+  await sleep(80);
+  const fitAfter = await v();
+  check(
+    "Fit does not move: the wheel, a drag, the scrolling keys and + leave it where it was, with no scroll bar, the map still open",
+    fit.view === "fit" &&
+      fit.bar === null &&
+      sameScroll(fitAfter, fit) &&
+      fitAfter.x === fit.x &&
+      fitAfter.scale === fit.scale &&
+      (await page.evaluate(MAP_OPEN)),
+    { fit, fitAfter },
+  );
+
+  // The header's halves: each shows its view; the pressed one does nothing.
+  const half = (act) =>
+    page.evaluate((a) => {
+      const r = document
+        .querySelector(`.map-tool[data-act="${a}"]`)
+        .getBoundingClientRect();
+      return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+    }, act);
+  const clickHalf = async (act) => {
+    const at = await half(act);
+    await click(cdp, at.x, at.y);
+    await sleep(120);
+    return v();
+  };
+  const toFull = await clickHalf("full");
+  const fullAgain = await clickHalf("full");
+  const toFit = await clickHalf("fit");
+  const fitAgain = await clickHalf("fit");
+  await pressF(cdp);
+  await sleep(120);
+  const byF = await v();
+  await pressF(cdp);
+  await sleep(120);
+  const byFBack = await v();
+  check(
+    "the header's Full size and Fit halves show their view (the pressed half says which; pressing it again changes nothing), and F switches between them",
+    toFull.view === "full" &&
+      toFull.scale === 1 &&
+      sameScroll(fullAgain, toFull) &&
+      toFit.view === "fit" &&
+      sameScroll(fitAgain, toFit) &&
+      fitAgain.scale === toFit.scale &&
+      byF.view === "full" &&
+      byFBack.view === "fit",
+    { toFull, toFit, byF: byF.view, byFBack: byFBack.view },
+  );
+
+  // C and N from Fit: Full size, centred on "you are here" or the newest
+  // card (as near as the map's ends allow).
+  await pressC(cdp);
+  await sleep(120);
+  const byC = await v();
+  const cView = await page.evaluate(READ_VIEW);
+  await showMapView(page, cdp, "fit");
+  await pressN(cdp);
+  await sleep(120);
+  const byN = await v();
+  const newest = (await page.evaluate(READ_MAP_CARDS)).cards.find(
+    (c) => c.newest,
+  );
+  const newestMid = newest && (newest.rect.top + newest.rect.bottom) / 2;
+  const viewMid = byN.viewRect.top + byN.vh / 2;
+  check(
+    "C and N switch from Fit to Full size, centred on 'you are here' and on the newest card (as near as the map's top and bottom allow)",
+    byC.view === "full" &&
+      byC.scale === 1 &&
+      centredOnRing(cView) &&
+      byN.view === "full" &&
+      newest !== undefined &&
+      (Math.abs(newestMid - viewMid) <= 1 ||
+        Math.abs(byN.y) < 0.01 ||
+        Math.abs(byN.y - (byN.vh - byN.height)) < 0.01),
+    { byC: byC.y, cView, byN: byN.y, newestMid, viewMid },
+  );
+}
+
+// Two reads of the view show the same scroll (Full size moves only down).
+const sameScroll = (a, b) => Math.abs(a.y - b.y) < 0.01 && a.x === b.x;
+
+// The remembered view (Phase 41) and the marker after Reset progress.
 async function memory({ check, open }) {
   const { page, cdp } = await open("memory", { closeHelp: true });
-  await page.setViewport({ width: 1280, height: 720 });
-  await sleep(150);
+  await page.setViewport({ width: 800, height: 600 });
+  await bookmarked(page, cdp, SCROLL_IDS);
+  // The reader back on an early screen, under the cards' band: the map is
+  // taller than the view and "you are here" is not at its top.
   const readView = () => page.evaluate(READ_VIEW);
   const reopen = async () => {
     await pressM(cdp);
@@ -1163,42 +1545,41 @@ async function memory({ check, open }) {
     await openMap(page, cdp);
     return readView();
   };
+  const close = async () => {
+    await pressM(cdp);
+    await page.waitForFunction(MAP_CLOSED, { timeout: 3000 });
+    await sleep(100);
+  };
 
-  // First open: a Fit (F changes nothing).
+  // First open: Full size, centred on "you are here" (C changes nothing).
   await openMap(page, cdp);
   const first = await readView();
-  await pressF(cdp);
+  const firstView = await page.evaluate(READ_MAP_VIEW);
+  await pressC(cdp);
   await sleep(80);
-  const fitNow = await readView();
+  const centred = await readView();
   check(
-    "the first open is a Fit: pressing F then changes nothing",
-    sameView(first, fitNow),
-    { first, fitNow },
+    "the first open is Full size, centred on 'you are here' (C then changes nothing)",
+    firstView.view === "full" &&
+      first.sc === 1 &&
+      centredOnRing(first) &&
+      sameView(first, centred),
+    { first, centred },
   );
 
-  // Zoom and pan, close, reopen: the same transform.
-  await pressPlus(cdp);
-  await pressPlus(cdp);
-  await sleep(60);
-  const at = { x: 400, y: 400 };
-  await mouse(cdp, "mouseMoved", at.x, at.y, 0);
-  await mouse(cdp, "mousePressed", at.x, at.y, 1);
-  for (let i = 1; i <= 4; i += 1)
-    await mouse(cdp, "mouseMoved", at.x - 40 * i, at.y + 15 * i, 1);
-  await mouse(cdp, "mouseReleased", at.x - 160, at.y + 60, 0);
+  // A scroll, close, reopen: the same place; then after a reload too.
+  await pressNavKey(cdp, "Home", 36);
+  await pressNavKey(cdp, "ArrowDown", 40);
   await sleep(80);
-  const moved = await readView();
+  const scrolled = await readView();
   const reopened = await reopen();
   check(
-    "a zoomed and panned view reopens with the same transform after a close",
-    !sameView(moved, first) && sameView(moved, reopened),
-    { moved, reopened },
+    "a scrolled Full size view reopens with the same transform after a close",
+    !sameView(scrolled, first) && sameView(scrolled, reopened),
+    { scrolled, reopened },
   );
-
-  // Close, reload, reopen: the same transform.
-  await pressM(cdp);
-  await page.waitForFunction(MAP_CLOSED, { timeout: 3000 });
-  await sleep(300);
+  await close();
+  await sleep(200);
   await page.reload();
   await page.waitForFunction(() => document.getElementById("branchmap"), {
     timeout: 5000,
@@ -1209,59 +1590,141 @@ async function memory({ check, open }) {
   await page.screenshot({ path: join(shots, "simp-remembered.png") });
   check(
     "after a reload the map reopens with the same transform",
-    sameView(moved, reloaded),
-    { moved, reloaded },
+    sameView(scrolled, reloaded),
+    { scrolled, reloaded },
   );
 
-  // A moved view after a resize: the same world centre and scale.
-  await pressM(cdp);
-  await page.waitForFunction(MAP_CLOSED, { timeout: 3000 });
-  await page.setViewport({ width: 1600, height: 900 });
-  await sleep(200);
+  // C, then a scroll, then C again: each time C leaves it "centred", so
+  // the next open centres on "you are here" wherever the reader has got
+  // to, after a reload too.
+  await pressC(cdp);
+  await pressNavKey(cdp, "End", 35);
+  await sleep(60);
+  const afterScroll = await readView();
+  await pressC(cdp);
+  await sleep(60);
+  await close();
+  // Read on: the marker moves on along the story line, past the cards.
+  for (let i = 0; i < 6; i += 1) {
+    await pressSpace(cdp);
+    await sleep(120);
+  }
   await openMap(page, cdp);
-  const resized = await readView();
-  const centreOf = (v) => ({
-    x: (v.view.w / 2 - v.tx) / v.sc,
-    y: (v.view.h / 2 - v.ty) / v.sc,
+  const movedOn = await readView();
+  await close();
+  await page.reload();
+  await page.waitForFunction(() => document.getElementById("branchmap"), {
+    timeout: 5000,
   });
+  await sleep(500);
+  await openMap(page, cdp);
+  const afterReload = await readView();
   check(
-    "a moved view reopened at another window size keeps its world centre and scale",
-    Math.abs(resized.sc - moved.sc) < 1e-6 &&
-      Math.abs(centreOf(resized).x - centreOf(moved).x) < 0.05 &&
-      Math.abs(centreOf(resized).y - centreOf(moved).y) < 0.05,
-    { moved: centreOf(moved), resized: centreOf(resized) },
+    "C, a scroll, then C again: the next open (and after a reload) centres on 'you are here' where the reader has got to since, not the place scrolled to",
+    !sameView(afterScroll, first) &&
+      centredOnRing(movedOn) &&
+      !sameView(movedOn, afterScroll) &&
+      centredOnRing(afterReload) &&
+      sameView(afterReload, movedOn),
+    { afterScroll, movedOn, afterReload },
   );
 
-  // F, close, resize, reopen: a fresh Fit for the new size.
+  // A resize at Full size keeps what was in the middle of the view there:
+  // N puts the newest card there; after the resize (the bands cut again,
+  // three cards a band where there were two) the same card is in the
+  // middle, or as near it as the map's top and bottom allow.
+  await pressN(cdp);
+  await sleep(80);
+  const cardAt = async (id) => {
+    const m = await page.evaluate(READ_MAP_CARDS);
+    const c = m.cards.find((x) => x.newest || x.id === id);
+    const v = await readView();
+    return {
+      id: c?.id,
+      y: c ? (c.rect.top + c.rect.bottom) / 2 : Number.NaN,
+      left: c?.rect.left,
+      right: c?.rect.right,
+      top: c?.rect.top,
+      bottom: c?.rect.bottom,
+      mid: m.viewRect.top + m.viewRect.height / 2,
+      view: m.viewRect,
+      ends:
+        Math.abs(v.ty) < 0.01 || Math.abs(v.ty - (v.view.h - v.height)) < 0.01,
+    };
+  };
+  const before = await cardAt(null);
+  await page.setViewport({ width: 1100, height: 640 });
+  await sleep(300);
+  const after = await cardAt(before.id);
+  const middled = (c) =>
+    Math.abs(c.y - c.mid) <= 1 ||
+    (c.ends && c.top >= c.view.top && c.bottom <= c.view.bottom);
+  check(
+    "a window resize at Full size cuts the bands again for the new width and keeps what was in the middle of the view there (N's card)",
+    before.id !== undefined &&
+      middled(before) &&
+      after.id === before.id &&
+      middled(after) &&
+      after.left >= after.view.left &&
+      after.right <= after.view.right,
+    { before, after },
+  );
+
+  // F, a resize while open: Fit fits again; close, resize, reopen: a fresh
+  // Fit for that size (the same as switching to Full size and back).
+  await showMapView(page, cdp, "fit");
+  await page.setViewport({ width: 900, height: 700 });
+  await sleep(300);
+  const refitOpen = await readView();
   await pressF(cdp);
   await sleep(80);
-  const fit1600 = await readView();
-  await pressM(cdp);
-  await page.waitForFunction(MAP_CLOSED, { timeout: 3000 });
-  await page.setViewport({ width: 900, height: 700 });
+  await pressF(cdp);
+  await sleep(80);
+  const fit900 = await readView();
+  await close();
+  await page.setViewport({ width: 1000, height: 640 });
   await sleep(200);
   await openMap(page, cdp);
   const refit = await readView();
   await pressF(cdp);
   await sleep(80);
-  const fit900 = await readView();
+  await pressF(cdp);
+  await sleep(80);
+  const fit1000 = await readView();
   check(
-    "after F, a reopen at another window size is a fresh Fit for that size",
-    sameView(refit, fit900) && !sameView(refit, fit1600),
-    { fit1600, refit, fit900 },
+    "at Fit a resize fits again, and a Fit reopens as a fresh Fit for the window now",
+    sameView(refitOpen, fit900) &&
+      sameView(refit, fit1000) &&
+      !sameView(refit, fit900),
+    { refitOpen, fit900, refit, fit1000 },
   );
 
-  // A moved view, read on, then Reset progress: the map opens at Fit
-  // with the ring on the start dot, at Fit and zoomed in on it.
-  await pressPlus(cdp);
-  await pressPlus(cdp);
-  await sleep(60);
-  await pressM(cdp);
-  await page.waitForFunction(MAP_CLOSED, { timeout: 3000 });
-  for (let i = 0; i < 5; i += 1) {
-    await pressSpace(cdp);
-    await sleep(120);
-  }
+  // A bookmark added since: a Full size open centres on "you are here",
+  // not the place scrolled to before (the top, at 800x600, where the map
+  // scrolls).
+  await showMapView(page, cdp, "full");
+  await page.setViewport({ width: 800, height: 600 });
+  await sleep(250);
+  await pressNavKey(cdp, "Home", 36);
+  await sleep(80);
+  const atTop = await readView();
+  await close();
+  await pressB(cdp);
+  await sleep(400);
+  await openMap(page, cdp);
+  const relaid = await readView();
+  check(
+    "after a bookmark is added, a Full size open centres on 'you are here' rather than the place scrolled to",
+    atTop.ty === 0 &&
+      atTop.height > atTop.view.h &&
+      centredOnRing(relaid) &&
+      relaid.ty < -1,
+    { atTop, relaid },
+  );
+
+  // Reset progress: the record goes, and the map opens at Full size with
+  // the marker's ring on the start dot.
+  await close();
   await openSettings(page, cdp);
   await clickCenter(cdp, CONFIG_CONTROL.reset);
   await clickCenter(cdp, CONFIRM_CONTROL.confirm);
@@ -1272,21 +1735,18 @@ async function memory({ check, open }) {
   await sleep(200);
   await openMap(page, cdp);
   const afterReset = await readView();
+  const resetView = await page.evaluate(READ_MAP_VIEW);
   await page.screenshot({ path: join(shots, "simp-reset-start.png") });
-  await pressF(cdp);
-  await sleep(80);
+  await showMapView(page, cdp, "fit");
   const resetFit = await readView();
-  await pressC(cdp);
-  for (let i = 0; i < 6; i += 1) await pressPlus(cdp);
-  await sleep(80);
-  const resetZoomed = await readView();
   check(
-    "after Reset progress the map opens at Fit, the marker's ring centred within 2 px of the start dot (at Fit and zoomed in to 3x)",
-    sameView(afterReset, resetFit) &&
+    "after Reset progress the map opens at Full size, the marker's ring centred within 2 px of the start dot (at Fit too)",
+    resetView.view === "full" &&
+      afterReset.sc === 1 &&
       ringOnStart(afterReset) &&
-      ringOnStart(resetZoomed) &&
-      resetZoomed.sc > 2.9,
-    { afterReset, resetZoomed },
+      centredOnRing(afterReset) &&
+      ringOnStart(resetFit),
+    { afterReset, resetFit },
   );
 }
 
@@ -1384,12 +1844,12 @@ const PAINTED_WIDTH = async (png, x, y, stroke) => {
   return widths.reduce((a, b) => a + b, 0) / widths.length;
 };
 
-// Map lines (Phase 40): a read stretch keeps its 5 screen pixels at Fit
-// (the compact demo fits at about 2.4x), 100% and 3x, within half a step
-// of --line-px (2^(1/16), render/branchmap.ts LINE_STEPS_PER_OCTAVE 8:
-// 0.22 px) plus 0.5 px; the stage's CSS scale once scaled it (12 px at
-// that Fit, 15 px at 3x). The restyle a zoom brings skips the counts and
-// pill numbers.
+// Map lines (Phase 40): a read stretch keeps its 5 screen pixels at Fit in
+// 1280x720 (the compact demo fits at about 2.6x), Full size (1x) and Fit in
+// 1920x1080 (3x, the limit), within half a step of --line-px (2^(1/16),
+// render/branchmap.ts LINE_STEPS_PER_OCTAVE 8: 0.22 px) plus 0.5 px; the
+// stage's CSS scale once scaled it (12 px at that Fit, 15 px at 3x). The
+// restyle a change of scale brings skips the counts and pill numbers.
 const LINE_ERROR_PX = 5 * (2 ** (1 / 16) - 1) + 0.5;
 async function lineWidths({ check, open }) {
   const { page, cdp } = await open("lines", { closeHelp: true });
@@ -1415,15 +1875,16 @@ async function lineWidths({ check, open }) {
     );
     return { name, scale: run.scale, width: Number(width.toFixed(2)) };
   };
-  await pressF(cdp);
+  await showMapView(page, cdp, "fit");
   const fit = await measure("fit");
-  await pressKey(cdp, "1", "Digit1", 49, "1");
-  const full = await measure("100");
-  for (let i = 0; i < 12; i += 1) await pressPlus(cdp);
+  await showMapView(page, cdp, "full");
+  const full = await measure("full");
+  await page.setViewport({ width: 1920, height: 1080 });
+  await showMapView(page, cdp, "fit");
   const three = await measure("3x");
   const widths = [fit, full, three].map((m) => m.width);
   check(
-    "map lines keep their screen width (Phase 40): a read stretch paints 5 px wide at Fit, 100% and 3x, equal within --line-px's half step plus 0.5 px",
+    "map lines keep their screen width (Phase 40): a read stretch paints 5 px wide at Fit (1280x720), Full size and Fit at 3x (1920x1080), equal within --line-px's half step plus 0.5 px",
     Math.abs(three.scale - 3) < 1e-9 &&
       fit.scale > 1.5 &&
       full.scale === 1 &&
@@ -1433,7 +1894,7 @@ async function lineWidths({ check, open }) {
   );
   const restyled = await page.evaluate(READ_RESTYLED);
   check(
-    "a zoom restyles the world group (--line-px) holding the lines and nodes, with only the decision figures as text; counts and pill numbers sit outside it",
+    "a change of scale restyles the world group (--line-px) holding the lines and nodes, with only the decision figures as text; counts and pill numbers sit outside it",
     restyled.holder === "map-world" &&
       !restyled.onSvg &&
       restyled.inside.every((c) => c === "map-dec-c") &&
@@ -1442,12 +1903,14 @@ async function lineWidths({ check, open }) {
   );
 }
 
-// Phase 41: a node as seen in a screenshot of its box and a margin
-// (device pixels) with nothing else drawn: the mean colour of each cell of
-// a `cols` x `rows` grid over the box and an eighth of it around, so two
-// zooms compare cell by cell whatever their pixel sizes; and how far the
-// box's middle half strays from the node's fill (read inside it, left of
-// its figure): its figure's contrast.
+// Phase 41: a node as seen in a screenshot (device pixels) with nothing
+// else drawn near it: the box its ink covers (its outline's outer edge),
+// found within a quarter of its height around where the layout puts it,
+// as the page may draw it a fraction of a CSS pixel from there; the mean
+// colour of each cell of a `cols` x `rows` grid over that ink box and a
+// sixteenth of it around, so two scales compare cell by cell whatever their
+// pixel sizes; and how far the box's middle half strays from the node's
+// fill (read inside it, left of its figure): its figure's contrast.
 const NODE_GRID = async (png, box, cols, rows) => {
   const img = new Image();
   img.src = `data:image/png;base64,${png}`;
@@ -1468,15 +1931,40 @@ const NODE_GRID = async (png, box, cols, rows) => {
     return [data[i], data[i + 1], data[i + 2]];
   };
   const dist = (a, b) => Math.max(...a.map((v, i) => Math.abs(v - b[i])));
-  const mx = box.w / 8;
-  const my = box.h / 8;
+  // The ink: pixels well off the ground (the median of the search
+  // window's edge), inside the window.
+  const m = box.h / 4;
+  const wx0 = Math.max(0, Math.floor(box.x - m));
+  const wy0 = Math.max(0, Math.floor(box.y - m));
+  const wx1 = Math.min(width - 1, Math.ceil(box.x + box.w + m));
+  const wy1 = Math.min(height - 1, Math.ceil(box.y + box.h + m));
+  const edge = [];
+  for (let x = wx0; x <= wx1; x += 1) edge.push(at(x, wy0), at(x, wy1));
+  for (let y = wy0; y <= wy1; y += 1) edge.push(at(wx0, y), at(wx1, y));
+  edge.sort((p, q) => p[0] + p[1] + p[2] - (q[0] + q[1] + q[2]));
+  const ground = edge[Math.floor(edge.length / 2)];
+  let ix0 = Number.POSITIVE_INFINITY;
+  let iy0 = Number.POSITIVE_INFINITY;
+  let ix1 = Number.NEGATIVE_INFINITY;
+  let iy1 = Number.NEGATIVE_INFINITY;
+  for (let y = wy0 + 1; y < wy1; y += 1)
+    for (let x = wx0 + 1; x < wx1; x += 1)
+      if (dist(at(x, y), ground) > 60) {
+        ix0 = Math.min(ix0, x);
+        iy0 = Math.min(iy0, y);
+        ix1 = Math.max(ix1, x + 1);
+        iy1 = Math.max(iy1, y + 1);
+      }
+  const ink = { x: ix0, y: iy0, w: ix1 - ix0, h: iy1 - iy0 };
+  const mx = ink.w / 16;
+  const my = ink.h / 16;
   const grid = [];
   for (let r = 0; r < rows; r += 1)
     for (let c = 0; c < cols; c += 1) {
-      const x0 = box.x - mx + (c * (box.w + 2 * mx)) / cols;
-      const x1 = box.x - mx + ((c + 1) * (box.w + 2 * mx)) / cols;
-      const y0 = box.y - my + (r * (box.h + 2 * my)) / rows;
-      const y1 = box.y - my + ((r + 1) * (box.h + 2 * my)) / rows;
+      const x0 = ink.x - mx + (c * (ink.w + 2 * mx)) / cols;
+      const x1 = ink.x - mx + ((c + 1) * (ink.w + 2 * mx)) / cols;
+      const y0 = ink.y - my + (r * (ink.h + 2 * my)) / rows;
+      const y1 = ink.y - my + ((r + 1) * (ink.h + 2 * my)) / rows;
       const sum = [0, 0, 0];
       let n = 0;
       for (let y = Math.floor(y0); y < Math.ceil(y1); y += 1)
@@ -1493,22 +1981,22 @@ const NODE_GRID = async (png, box, cols, rows) => {
       grid.push(sum.map((v) => v / Math.max(n, 1e-9)));
     }
   const fill = at(
-    Math.round(box.x + box.w * 0.2),
-    Math.round(box.y + box.h / 2),
+    Math.round(ink.x + ink.w * 0.2),
+    Math.round(ink.y + ink.h / 2),
   );
   let figure = 0;
   for (
-    let y = Math.round(box.y + box.h / 4);
-    y < box.y + (3 * box.h) / 4;
+    let y = Math.round(ink.y + ink.h / 4);
+    y < ink.y + (3 * ink.h) / 4;
     y += 1
   )
     for (
-      let x = Math.round(box.x + box.w / 4);
-      x < box.x + (3 * box.w) / 4;
+      let x = Math.round(ink.x + ink.w / 4);
+      x < ink.x + (3 * ink.w) / 4;
       x += 1
     )
       figure = Math.max(figure, dist(at(x, y), fill));
-  return { grid, figure };
+  return { grid, figure, ink, expected: box };
 };
 
 // Everything but the nodes and their figures hidden (the lines, the marker).
@@ -1533,64 +2021,150 @@ const SCREEN_BOX = (world) => {
   };
 };
 
-// One look at every zoom (Phase 41): on the demo after Route 2 is played
-// (its pill gold, the last pick, "2" in it) the map stops drawing node
-// groups below 0.3x; just above (0.31x) and just below (0.29x) the pill
-// and the outer decision ("1/2") must be the same capsule, its figure in
-// it. Screenshots at 4x device pixels so a 10-pixel pill has detail; each
-// node is compared on a 10 x 8 grid of mean colours over its box, so the
-// two sizes line up.
+// The reached decision's and the last pick's world boxes as drawn: from
+// their groups, or, merged, from the first capsule of their look's path
+// (`M<x + r> <top>`, r half the height).
+const READ_LOOK_BOXES = () => {
+  const panel = document.getElementById("branchmap");
+  const ofGroup = (el) => {
+    const [, x, y] = el
+      .getAttribute("transform")
+      .match(/translate\(([-\d.e]+) ([-\d.e]+)\)/)
+      .map(Number);
+    const r = el.querySelector("rect");
+    const w = Number(r.getAttribute("width"));
+    const h = Number(r.getAttribute("height"));
+    return { x, y: y - h / 2, w, h };
+  };
+  const ofPath = (el, w, h) => {
+    const [, mx, top] = el
+      .getAttribute("d")
+      .match(/^M([-\d.e]+) ([-\d.e]+)/)
+      .map(Number);
+    return { x: mx - h / 2, y: top, w, h };
+  };
+  const dec = panel.querySelector(".map-node.map-dec.map-reached");
+  const pill = panel.querySelector(".map-node.map-route.map-last");
+  if (dec !== null && pill !== null)
+    return { decision: ofGroup(dec), pill: ofGroup(pill), merged: false };
+  const decPath = panel.querySelector("path.map-box.map-dec.map-reached");
+  const pillPath = panel.querySelector("path.map-box.map-route.map-last");
+  if (decPath === null || pillPath === null) return null;
+  return {
+    decision: ofPath(decPath, 52, 28),
+    pill: ofPath(pillPath, 32, 24),
+    merged: true,
+  };
+};
+
+// A tree of 220 nodes (11 top-level decisions nesting to depth 3, four
+// screens a stretch, the demo's stills), so the map draws node groups
+// only from 0.6x (mapmodel.ts `nodeGroupMinScale`).
+function lookTree() {
+  const items = [];
+  const branches = [];
+  let n = 0;
+  const add = (count) => {
+    const first = `i${n}`;
+    for (let i = 0; i < count; i += 1)
+      items.push({ id: `i${n++}`, type: "image", file: "branch-lead.jpg" });
+    return [first, `i${n - 1}`];
+  };
+  const body = (level, nest) => {
+    const [first] = add(4);
+    if (nest && level < 3) decision(level + 1);
+    const [, last] = add(4);
+    return [first, last];
+  };
+  const decision = (level) => {
+    const entry = {
+      id: `d${branches.length}`,
+      after: `i${n - 1}`,
+      prompt: `Decision ${branches.length} at level ${level}?`,
+      routes: [],
+    };
+    branches.push(entry);
+    const a = body(level, true);
+    const b = body(level, level < 1.5);
+    const c = body(level, false);
+    entry.routes = [
+      { id: "a", label: "Carry on", start: a[0], end: a[1] },
+      { id: "b", label: "Detour", start: b[0], end: b[1], result: "return" },
+      { id: "c", label: "End it", start: c[0], end: c[1] },
+    ];
+    entry.continuingRoute = "a";
+    entry.continueAt = `i${n}`;
+    add(1);
+  };
+  for (let t = 0; t < 11; t += 1) {
+    add(4);
+    decision(1);
+  }
+  add(4);
+  return {
+    schemaVersion: 1,
+    storyId: "look-tree",
+    title: "Look tree",
+    width: 1280,
+    height: 720,
+    items,
+    branches,
+  };
+}
+
+// One look at every scale (Phase 41, item 1): Fit draws node groups at
+// 0.6x and up and merged capsules below, so on the 220-node tree, with its
+// first decision reached and route 1 the last pick (a gold outline, "1" in
+// it), the window is sized so Fit lands just above (0.61x) and just below
+// (0.59x); the decision ("0/3") and the pill must be the same capsule with
+// its figure. Screenshots at 4x device pixels so a small node has detail;
+// each node is compared on a 10 x 8 grid of mean colours over its box, so
+// the two sizes line up.
 async function oneLook({ check, open }) {
+  const folder = join(demoDir, "..", "look-tree");
+  rmSync(folder, { recursive: true, force: true });
+  mkdirSync(folder, { recursive: true });
+  cpSync(demoDir, folder, { recursive: true });
+  const json = JSON.stringify(lookTree());
+  writeFileSync(join(folder, "manifest.json"), json);
+  writeFileSync(
+    join(folder, "manifest.js"),
+    `window.KINETIC_MANIFEST = ${json};\n`,
+  );
   const { page, cdp } = await open("look", {
     closeHelp: true,
     manualChoices: true,
+    folder,
   });
-  await page.setViewport({ width: 1280, height: 720, deviceScaleFactor: 4 });
-  await spaceTo(page, cdp, "branch-decide");
+  await page.setViewport({ width: 1600, height: 900, deviceScaleFactor: 4 });
+  await spaceTo(page, cdp, "i3");
   await pressSpace(cdp);
   await page.waitForFunction(CHOICE_OPEN, { timeout: 3000 });
-  await pressDigit(cdp, "2");
-  await sleep(100);
-  await spaceTo(page, cdp, "route2-end");
+  await pressDigit(cdp, "1");
+  await sleep(150);
   await openMap(page, cdp);
-  // The two nodes' world boxes, from their groups at the opening zoom.
-  const worlds = await page.evaluate(() => {
-    const of = (el) => {
-      const [, x, y] = el
-        .getAttribute("transform")
-        .match(/translate\(([-\d.e]+) ([-\d.e]+)\)/)
-        .map(Number);
-      const r = el.querySelector("rect");
-      const w = Number(r.getAttribute("width"));
-      const h = Number(r.getAttribute("height"));
-      return { x, y: y - h / 2, w, h };
-    };
-    const route2 = Array.from(document.querySelectorAll("[data-r]")).find(
-      (el) => (el.getAttribute("aria-label") ?? "").includes("Route 2"),
-    );
-    const outer = document.querySelector("[data-d]:not(.map-inert)");
-    return { pill: of(route2), decision: of(outer) };
-  });
-  // The wheel zooms by exp(-deltaY * 0.0018) around the pointer (here the
-  // pill, so it stays put); at 4x device pixels a dispatched delta arrives
-  // a quarter as large.
-  const zoomTo = async (target) => {
-    for (let i = 0; i < 20; i += 1) {
-      const now = await page.evaluate(SCREEN_BOX, worlds.pill);
-      const dy = -Math.log(target / now.scale) / 0.0018;
-      if (Math.abs(dy) < 1e-6) break;
-      await cdp.send("Input.dispatchMouseEvent", {
-        type: "mouseWheel",
-        x: now.x + now.w / 2,
-        y: now.y + now.h / 2,
-        deltaX: 0,
-        deltaY: 4 * Math.max(-300, Math.min(300, dy)),
+  await showMapView(page, cdp, "fit");
+  // Sizes the window (16:9) until Fit's scale is within [lo, hi]: scaled
+  // by the ratio of target to scale, then nudged a percent at a time.
+  const fitAt = async (lo, hi) => {
+    let width = 1600;
+    let scale = (await page.evaluate(READ_MAP_VIEW)).scale;
+    for (let i = 0; i < 40 && !(scale >= lo && scale <= hi); i += 1) {
+      const ratio =
+        i < 8 ? (lo + hi) / 2 / scale : scale < lo ? 1.01 : 1 / 1.01;
+      width = Math.max(600, Math.min(4000, Math.round(width * ratio)));
+      await page.setViewport({
+        width,
+        height: Math.round((width * 9) / 16),
+        deviceScaleFactor: 4,
       });
-      await sleep(80);
+      await sleep(200);
+      scale = (await page.evaluate(READ_MAP_VIEW)).scale;
     }
     // The pointer off the map: no hover ring, no tooltip.
     await mouse(cdp, "mouseMoved", 4, 4, 0);
     await sleep(150);
+    return scale;
   };
   const shoot = async (name, world) => {
     const box = await page.evaluate(SCREEN_BOX, world);
@@ -1627,16 +2201,19 @@ async function oneLook({ check, open }) {
     );
     return { ...measured, scale: box.scale, groups: box.groups };
   };
-  await zoomTo(0.31);
-  const above = {
-    pill: await shoot("pill-0.31", worlds.pill),
-    decision: await shoot("decision-0.31", worlds.decision),
+  const at = async (lo, hi, tag) => {
+    const scale = await fitAt(lo, hi);
+    const boxes = await page.evaluate(READ_LOOK_BOXES);
+    if (boxes === null) return { scale, boxes };
+    return {
+      scale,
+      merged: boxes.merged,
+      pill: await shoot(`pill-${tag}`, boxes.pill),
+      decision: await shoot(`decision-${tag}`, boxes.decision),
+    };
   };
-  await zoomTo(0.29);
-  const below = {
-    pill: await shoot("pill-0.29", worlds.pill),
-    decision: await shoot("decision-0.29", worlds.decision),
-  };
+  const above = await at(0.605, 0.62, "above");
+  const below = await at(0.58, 0.595, "below");
   // Cell by cell, the largest channel difference, as a share of 255.
   const compare = (a, b) => {
     const diffs = a.grid.map(
@@ -1650,23 +2227,31 @@ async function oneLook({ check, open }) {
       figureB: b.figure,
     };
   };
-  const pill = compare(above.pill, below.pill);
-  const decision = compare(above.decision, below.decision);
+  const ok = above.pill !== undefined && below.pill !== undefined;
+  const pill = ok ? compare(above.pill, below.pill) : null;
+  const decision = ok ? compare(above.decision, below.decision) : null;
   // The same picture (the capsule's ends and the figure included), and a
   // figure standing out of the fill on both.
   const same = (c) =>
-    c.mean < 0.03 && c.worst < 0.2 && c.figureA > 80 && c.figureB > 80;
+    c !== null &&
+    c.mean < 0.03 &&
+    c.worst < 0.2 &&
+    c.figureA > 80 &&
+    c.figureB > 80;
   check(
-    "one look at every zoom (Phase 41): Route 2's pill and the outer decision are the same capsule with their figure at 0.31x (node groups) and 0.29x (merged)",
-    Math.abs(above.pill.scale - 0.31) < 1e-6 &&
-      Math.abs(below.pill.scale - 0.29) < 1e-6 &&
+    "one look at every scale (Phase 41): on a 220-node tree, the reached decision and the last pick's pill are the same capsule with their figure at Fit just above 0.6x (node groups) and just below (merged)",
+    ok &&
+      above.scale >= 0.6 &&
+      below.scale < 0.6 &&
+      above.merged === false &&
+      below.merged === true &&
       above.pill.groups > 0 &&
       below.pill.groups === 0 &&
       same(pill) &&
       same(decision),
     {
-      scales: [above.pill.scale, below.pill.scale],
-      groups: [above.pill.groups, below.pill.groups],
+      scales: [above.scale, below.scale],
+      merged: [above.merged, below.merged],
       pill,
       decision,
     },

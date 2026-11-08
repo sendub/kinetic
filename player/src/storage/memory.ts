@@ -15,7 +15,7 @@ import type {
   SavedRouteSet,
   Storage,
 } from "./types";
-import { summarizeBookmark } from "./types";
+import { sanitizeMapView, summarizeBookmark } from "./types";
 
 /**
  * A deep copy of a stored context: the IndexedDB adapter structured-clones
@@ -62,7 +62,10 @@ function normalizeState(next: PersistedState): PersistedState {
   // The key-help flag (Phase 13b): a real boolean rides along; a foreign
   // value does not, which reads back as "not seen".
   if (typeof next.helpSeen === "boolean") state.helpSeen = next.helpSeen;
-  if (next.mapView !== undefined) state.mapView = { ...next.mapView };
+  // The map view, copied with its place (sanitizeMapView builds a fresh
+  // one), as the IndexedDB adapter's structured clone and read-back do.
+  const mapView = sanitizeMapView(next.mapView);
+  if (mapView !== undefined) state.mapView = mapView;
   return state;
 }
 

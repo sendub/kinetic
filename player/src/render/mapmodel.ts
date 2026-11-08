@@ -1,7 +1,8 @@
 // The branch map's pure half (docs/plan.md Phase 31): the decision tree laid
 // out once per manifest, the reader's marks laid over it on each open, the
-// view arithmetic of zoom and pan, and the click-to-jump rule. No DOM: the
-// screen (render/branchmap.ts) only draws what these return.
+// arithmetic of its two views (Full size and Fit, docs/plan.md Phase 41) and
+// the remembered view, and the click-to-jump rule. No DOM: the screen
+// (render/branchmap.ts) only draws what these return.
 //
 // Layout, a "subway map": the story runs left to right along a line. A
 // stretch of screens with no decision is ONE edge with its screen count. A
@@ -34,10 +35,9 @@
 //   as a piece per band (`MapRun.pieces`), and everything else, the "you are
 //   here" point and the cards included, follows its piece into its band.
 //   Where no cut lies within the width, the band runs on to the first one
-//   past it. Until the map's two views pass a width, `buildMapModel` uses
-//   `bandWidthForAspect`: the width whose whole map comes closest to the
-//   view's aspect with even bands (no stub of a last band), so a fit fills
-//   the screen.
+//   past it. The two views pass the width: Full size the map view's own
+//   width, so nothing runs off its sides; Fit the width at which the whole
+//   map shows largest in the view (`fitWidth`).
 // - Endings tuck in. Everything a route nests lies right of its nested
 //   decision's box, so the column under a tall route's pill is empty. An
 //   ending route (it draws no line to the join) goes on the first row under
@@ -64,14 +64,15 @@ import {
   resolveDecisions,
 } from "../machine/machine";
 import type { Branch, ContextFrame, Item, RouteSet } from "../machine/types";
-import type { SavedMapView } from "../storage/types";
+import type { MapPlace, SavedMapView } from "../storage/types";
 
-export type { SavedMapView };
+export type { MapPlace, SavedMapView };
 
 /**
- * Geometry in world units (CSS pixels at zoom 1). Compact (docs/plan.md
- * Phase 35; a size up in Phase 40, the figures 13 px in index.html): at
- * 100% a world unit is a screen pixel sized by the bookmark cards, so a
+ * Geometry in world units (CSS pixels at scale 1, Full size). Compact
+ * (docs/plan.md Phase 35; a size up in Phase 40, the figures 13 px in
+ * index.html): at Full size a world unit is a screen pixel sized by the
+ * bookmark cards, so a
  * decision is a small "played/total" node and a route a numbered pill;
  * their full text is in the hover tooltip.
  */
@@ -89,7 +90,7 @@ export const MAP_GEOMETRY = {
 } as const;
 
 /**
- * A bookmark's card (Phase 35), world units: at 100% zoom the old `t`
+ * A bookmark's card (Phase 35), world units: at Full size the old `t`
  * screen's thumbnail, 280 x 158, and nothing else (Phase 40: no caption;
  * its time is in the hover tooltip and its label). Cards sit centred on
  * their stretch's line, side by side in story order, `gap` apart, `inset`
@@ -138,17 +139,11 @@ const CUT_CLEAR = 4;
 const CUT_JOINT = 3;
 /** A count's width per character, a share of its type size (a wide digit). */
 const COUNT_EM = 0.62;
-/**
- * The narrowest band `bandWidthForAspect` tries, world units: about a
- * laptop's map view at 100%, so a small map is not cut into bands
- * narrower than a screen.
- */
-const MIN_CHOSEN_WIDTH = 1280;
 /** The least room a band gets for what it holds, whatever width is asked. */
 const MIN_BAND_ROOM = 120;
 
 /**
- * How far things reach above and below their row's line as drawn at 100%,
+ * How far things reach above and below their row's line as drawn at scale 1,
  * which is what a band's top and bottom are (bands sit `wrapGap` apart
  * between what they draw). The "you are here" ring (index.html
  * `.map-here-ring`: r 15, a 4 px stroke) can sit on any stretch, end mark
@@ -164,9 +159,6 @@ export const DRAWN_REACH = {
   join: 6.5,
   tick: TICK.rise + 2.5,
 } as const;
-
-/** The aspect (width / height) a layout aims for when none is given. */
-export const DEFAULT_MAP_ASPECT = 16 / 9;
 
 /** One collapsed stretch of screens between decisions. */
 export interface MapRun {
@@ -275,7 +267,7 @@ export interface MapTick {
 /**
  * One band's box, world units: from its left edge (where the story starts,
  * or its lines resume) to its right edge (where they are cut, or the story
- * ends), and from the top to the bottom of what it draws at 100%
+ * ends), and from the top to the bottom of what it draws at scale 1
  * (`DRAWN_REACH`: its cards with their rings, counts, nodes, ticks, and
  * the "you are here" ring wherever that can sit).
  */
@@ -284,6 +276,11 @@ export interface MapBand {
   readonly y0: number;
   readonly x1: number;
   readonly y1: number;
+  /** Where along the strip it starts and ends (`MapStrip`, x from 0). */
+  readonly start: number;
+  readonly end: number;
+  /** Its main line (row 0), world y. */
+  readonly line: number;
 }
 
 export interface MapModel {
@@ -589,22 +586,6 @@ export function layOutStrip(
       return i < run.start ? run.start : run.end;
     }),
   );
-}
-
-/**
- * Lays the decision tree out for a view of shape `aspect` (width / height),
- * bookmarks as `layOutStrip` takes them: the strip cut into bands of the
- * width `bandWidthForAspect` chooses for it. Pure; call once per manifest,
- * view shape and set of bookmarked screens.
- */
-export function buildMapModel(
-  items: readonly Item[],
-  branches: readonly Branch[] | undefined,
-  aspect: number = DEFAULT_MAP_ASPECT,
-  bookmarkItems: readonly number[] = [],
-): MapModel {
-  const strip = layOutStrip(items, branches, bookmarkItems);
-  return cutBands(strip, bandWidthForAspect(strip, aspect));
 }
 
 function stripOf(
@@ -1257,37 +1238,54 @@ export function bandsShape(
 }
 
 /**
- * The band width whose whole layout comes closest to `aspect` (width /
- * height). For one band, two, three and so on: the narrowest width that
- * still takes that many (the bands come out even), and a wider one, as
- * near the aspect as it gets while the last band stays at least half as
- * long as the others (no stub of a last band); until the even layout is
- * narrower than `aspect` twice or the bands would be under
- * `MIN_CHOSEN_WIDTH`. The first best is kept. Each count is a binary
- * search over cut counts (linear in windows) and two `bandsShape` calls.
+ * The band width (the layout's, its padding included) at which the whole
+ * of `strip` shows largest in a vw x vh view: Fit's (docs/plan.md Phase
+ * 41, "Two views"), the width and the scale chosen together. A width is
+ * scored by the scale at which its layout's size, less its padding, fits
+ * the view less `FIT_MARGIN_PX` a side, up to `MAX_SCALE`; a tie goes to
+ * the wider width (fewer bands, so a small map stays on one line once it
+ * reaches 3x). First, for one band, two, three and so on, the narrowest
+ * width that still takes that many (the bands come out even, the layout
+ * as narrow as that count allows); each band more makes the layout
+ * narrower and deeper, so once the scale its depth allows has fallen short
+ * of the best twice, no later count can win. Then, as where a cut falls
+ * moves cards and deep segments between bands (and so their heights), a
+ * few widths inside the best count's range and its neighbours' are tried
+ * too. Each count is a binary search over cut counts (linear in windows);
+ * each width tried one `bandsShape`. Pure.
  */
-export function bandWidthForAspect(strip: MapStrip, aspect: number): number {
+export function fitWidth(strip: MapStrip, vw: number, vh: number): number {
   const pad2 = 2 * MAP_GEOMETRY.pad;
+  const m2 = 2 * FIT_MARGIN_PX;
   const length = strip.length;
-  const floor = Math.max(MIN_BAND_ROOM, MIN_CHOSEN_WIDTH - pad2);
+  const across = Math.max(1, vw - m2);
+  const down = Math.max(1, vh - m2);
   const count = (room: number) =>
     cutPoints(strip.windows, length, room).cuts.length;
   let best = length + pad2;
-  let bestMiss = Number.POSITIVE_INFINITY;
-  const consider = (room: number) => {
+  let bestScale = 0;
+  // The scale bands `room` wide show the map at, and that its depth allows.
+  const score = (room: number) => {
     const shape = bandsShape(strip, room + pad2);
-    const miss = Math.abs(Math.log(shape.width / shape.height / aspect));
-    if (miss < bestMiss - 1e-9) {
+    const deep = down / Math.max(1, shape.height - pad2);
+    const scale = Math.min(
+      MAX_SCALE,
+      across / Math.max(1, shape.width - pad2),
+      deep,
+    );
+    if (scale > bestScale * (1 + 1e-9)) {
       best = room + pad2;
-      bestMiss = miss;
+      bestScale = scale;
     }
-    return shape;
+    return { scale, deep };
   };
-  let below = 0;
-  for (let k = 1; ; k += 1) {
-    // k even bands would be under the floor: no more.
-    if (k > 1 && length / k < floor) break;
-    let lo = Math.max(floor, length / k);
+  // Each count's narrowest room, widest (one band) first.
+  const rooms: number[] = [];
+  const most = count(MIN_BAND_ROOM);
+  let short = 0;
+  let at = -1;
+  for (let k = 1; k <= most && short < 2; k += 1) {
+    let lo = Math.max(MIN_BAND_ROOM, length / k);
     let hi = Math.max(lo, length);
     if (count(lo) <= k) hi = lo;
     while (hi - lo > 0.5) {
@@ -1295,19 +1293,29 @@ export function bandWidthForAspect(strip: MapStrip, aspect: number): number {
       if (count(mid) <= k) hi = mid;
       else lo = mid;
     }
-    const even = consider(hi);
-    const roomy = Math.min(length, length / (k - 0.5));
-    const want = aspect * even.height - pad2;
-    if (roomy > hi && want > hi) consider(Math.min(roomy, want));
-    if (even.width / even.height < aspect) below += 1;
-    if (below >= 2) break;
+    // No width takes exactly k bands: the same layout as a count before.
+    if (hi === rooms[rooms.length - 1]) continue;
+    rooms.push(hi);
+    const was = bestScale;
+    const { deep } = score(hi);
+    if (bestScale > was) {
+      at = rooms.length - 1;
+      short = 0;
+    } else if (deep < bestScale) short += 1;
   }
+  // Inside the best count's range of widths, and its neighbours': from
+  // its narrowest up to the next fewer bands' narrowest (one band's is
+  // the whole strip: wider is the same layout).
+  const tries = 4;
+  for (let i = Math.max(1, at - 1); i <= at + 1 && i < rooms.length; i += 1)
+    for (let j = 1; j <= tries; j += 1)
+      score(rooms[i] * (rooms[i - 1] / rooms[i]) ** (j / (tries + 1)));
   return best;
 }
 
 /**
  * The strip cut into bands for a layout `width` wide, its padding included
- * (at 100% that many CSS pixels; a band wider than asked only where no cut
+ * (at scale 1 that many CSS pixels; a band wider than asked only where no cut
  * lies within it): each band starts at the left padding, under the one
  * before, and everything is placed in the band that holds it, a line a cut
  * crosses as a piece per band with a "continues" tick pair at each cut.
@@ -1440,6 +1448,9 @@ export function cutBands(strip: MapStrip, width: number): MapModel {
     y0: plan.top[b],
     x1: wx(b, to[b]),
     y1: plan.bottom[b],
+    start: from[b],
+    end: to[b],
+    line: plan.mainY[b],
   }));
   const decisionAt: (MapDecision | undefined)[] = Array.from(
     { length: strip.decisionCount },
@@ -1885,56 +1896,18 @@ export interface MapView {
 }
 
 /**
- * The furthest the map zooms in, Fit included: 3x, where a card is three
- * times the old `t` screen's (100% is scale 1) and a tiny story (one
+ * The largest Fit enlarges a small map: 3x, where a card is three times
+ * its Full size (scale 1, the old `t` screen's size), so a tiny story (one
  * stretch) is not blown up further.
  */
 export const MAX_SCALE = 3;
-
-/**
- * The zoom limits for a model in a viewport: out to the whole tree (with
- * the marker at `here`, when given, as Fit shows it), in to `MAX_SCALE`.
- */
-export function zoomLimits(
-  model: MapModel,
-  vw: number,
-  vh: number,
-  here?: { x: number; y: number },
-): { min: number; max: number } {
-  const fit = fitView(model, vw, vh, here).scale;
-  return { min: Math.min(fit, 0.25), max: MAX_SCALE };
-}
-
-/** Zoom by `factor` keeping the world point under screen (px, py) still. */
-export function zoomAt(
-  view: MapView,
-  factor: number,
-  px: number,
-  py: number,
-  limits: { min: number; max: number },
-): MapView {
-  const scale = Math.min(limits.max, Math.max(limits.min, view.scale * factor));
-  const k = scale / view.scale;
-  return { scale, x: px - (px - view.x) * k, y: py - (py - view.y) * k };
-}
-
-/** The view that shows world point (wx, wy) at the viewport centre. */
-export function centreOn(
-  wx: number,
-  wy: number,
-  vw: number,
-  vh: number,
-  scale: number,
-): MapView {
-  return { scale, x: vw / 2 - wx * scale, y: vh / 2 - wy * scale };
-}
 
 /** Screen pixels Fit leaves between the tree and each edge of the view. */
 export const FIT_MARGIN_PX = 32;
 
 /**
  * How far the "you are here" marker reaches from its point, in screen
- * pixels at any zoom: its ring (r 13) above, its centred "you are here"
+ * pixels at any scale: its ring (r 13) above, its centred "you are here"
  * label (13 px, letter-spaced, 4 px halo, baseline 32 px below) to each
  * side and below, with a few pixels' slack. The branch map draws it in
  * screen space, so Fit leaves this room around it.
@@ -2008,7 +1981,10 @@ function wholeAxes(
   };
 }
 
-/** The whole-tree framing at `scale`, centred on what it keeps in view. */
+/**
+ * The whole-tree framing at `scale`, centred on what it keeps in view, at
+ * a whole screen pixel (so the still picture is not drawn between pixels).
+ */
 function framed(
   axes: { x: Axis; y: Axis },
   vw: number,
@@ -2017,8 +1993,8 @@ function framed(
 ): MapView {
   return {
     scale,
-    x: axisOffset(axes.x, scale, vw),
-    y: axisOffset(axes.y, scale, vh),
+    x: Math.round(axisOffset(axes.x, scale, vw)),
+    y: Math.round(axisOffset(axes.y, scale, vh)),
   };
 }
 
@@ -2028,9 +2004,9 @@ function framed(
  * view less `FIT_MARGIN_PX` a side along its tighter axis. With `here`
  * (the marker's world point), the marker's fixed-size ring and label stay
  * inside the view too: where it sits by an edge of the tree, the scale is
- * solved with its pixel reach as the extra margin on that side. Only the
- * zoom-in limit caps it, so a tiny story (one stretch) is not blown up
- * past `MAX_SCALE`.
+ * solved with its pixel reach as the extra margin on that side. Only
+ * `MAX_SCALE` caps it, so a tiny story (one stretch) is not blown up
+ * further. Fit's layout is cut at `fitWidth`'s width.
  */
 export function fitView(
   model: MapModel,
@@ -2048,32 +2024,130 @@ export function fitView(
 }
 
 /**
- * The view after the viewport went from `from` to `to` (a resize, or
- * entering or leaving fullscreen) with the map open: the world point at
- * the old view's centre stays at the centre, at the same scale. (A fitted
- * view is fitted again instead; the screen decides.)
+ * A Full size view scrolled to `y` (the screen y of the layout's top; its
+ * x and scale kept): never past the map's top or bottom, and a map no
+ * taller than the view sits still in the middle of it.
  */
-export function viewAfterResize(
+export function scrollView(
+  model: MapModel,
+  vh: number,
   view: MapView,
-  from: { w: number; h: number },
-  to: { w: number; h: number },
+  y: number,
 ): MapView {
-  const wx = (from.w / 2 - view.x) / view.scale;
-  const wy = (from.h / 2 - view.y) / view.scale;
-  return centreOn(wx, wy, to.w, to.h, view.scale);
+  const room = vh - model.height * view.scale;
+  return {
+    ...view,
+    y: room >= 0 ? Math.round(room / 2) : Math.min(0, Math.max(room, y)),
+  };
 }
 
 /**
- * A fingerprint of a model's layout: every stretch piece, box and pill
- * position and the item count, each to a hundredth, hashed (FNV-1a over
- * their 16-bit halves, 32 bits; no strings, so it is cheap). Two layouts with
- * the same signature put every world point in the same place, so a view
- * remembered on one is valid on the other; another game version, or bands
- * of another width cut at other places, gives another one (a width that
- * cuts at the same places is the same layout). Linear in runs, decisions
- * and routes.
+ * Screen pixels Full size keeps between the layout and each side of the
+ * view, past its own padding: room for the "you are here" marker's label
+ * (`HERE_REACH`) where the marker sits at a band's very start or end.
  */
-export function layoutSignature(model: MapModel): string {
+export const FULL_SIZE_INSET =
+  HERE_REACH.side + HERE_MARGIN_PX - MAP_GEOMETRY.pad;
+
+/**
+ * The layout width Full size cuts the bands at in a map view `vw` wide:
+ * the view's width less `FULL_SIZE_INSET` a side.
+ */
+export function fullSizeWidth(vw: number): number {
+  return vw - 2 * FULL_SIZE_INSET;
+}
+
+/**
+ * Full size's scale in a map view `vw` wide: exactly 1 (a card at the old
+ * `t` screen's size), the bands being cut to the view's width
+ * (`fullSizeWidth`). Where some stretch of the map has no place to cut
+ * within that width (the bands run past it: cards stacked on several rows
+ * over one span, in a narrow window), the scale that brings the widest
+ * band inside it, so nothing runs off the view's sides and nothing has to
+ * move sideways.
+ */
+export function fullSizeScale(model: MapModel, vw: number): number {
+  const room = fullSizeWidth(vw);
+  return model.width <= room ? 1 : room / model.width;
+}
+
+/**
+ * The Full size view (docs/plan.md Phase 41, "Two views"): at
+ * `fullSizeScale` (1 but where the layout cannot be cut to the view's
+ * width), the layout (cut at `fullSizeWidth`, `cutBands`) centred across
+ * the view, and scrolled so world y `cy` is at the view's middle, as near
+ * as its top and bottom allow (`scrollView`).
+ */
+export function fullSizeView(
+  model: MapModel,
+  vw: number,
+  vh: number,
+  cy: number,
+): MapView {
+  const scale = fullSizeScale(model, vw);
+  const x = Math.max(0, Math.round((vw - model.width * scale) / 2));
+  return scrollView(model, vh, { x, y: 0, scale }, vh / 2 - cy * scale);
+}
+
+/**
+ * Where a Full size view's middle is (`MapPlace`): the band nearest it,
+ * the place along the strip at world x `wx` (by default the view's middle
+ * across; N passes its card's), kept within that band, which may be
+ * shorter than half the view, and how far below the band's main line the
+ * middle is.
+ */
+export function placeOf(
+  model: MapModel,
+  view: MapView,
+  vw: number,
+  vh: number,
+  wx: number = (vw / 2 - view.x) / view.scale,
+): MapPlace {
+  const cy = (vh / 2 - view.y) / view.scale;
+  let band = model.bands[0];
+  let gap = Number.POSITIVE_INFINITY;
+  for (const b of model.bands) {
+    const d = cy < b.y0 ? b.y0 - cy : cy > b.y1 ? cy - b.y1 : 0;
+    if (d < gap) {
+      gap = d;
+      band = b;
+    }
+  }
+  // Within the band: its end is the next band's start.
+  const at = Math.min(
+    band.end - 0.5,
+    Math.max(band.start, band.start + wx - band.x0),
+  );
+  return { at, dy: cy - band.line };
+}
+
+/**
+ * The world y a place is at on `model`, cut at any width: in the band
+ * holding its place along the strip, as far below that band's main line,
+ * kept within the band and half the gap to its neighbours (its rows may
+ * be spread by other cards at another width; on the model it was taken on
+ * it comes back exactly).
+ */
+export function placeY(model: MapModel, place: MapPlace): number {
+  let band = model.bands[0];
+  for (const b of model.bands) if (b.start <= place.at) band = b;
+  const half = MAP_GEOMETRY.wrapGap / 2;
+  return Math.min(
+    band.y1 + half,
+    Math.max(band.y0 - half, band.line + place.dy),
+  );
+}
+
+/**
+ * A fingerprint of a strip (`layOutStrip`): every stretch, box and pill
+ * position on it and the item count, each to a hundredth, hashed (FNV-1a
+ * over their 16-bit halves, 32 bits; no strings, so it is cheap). Another
+ * game version, or another set of bookmarked screens, gives another one;
+ * the band width does not enter it, so a remembered place (`MapPlace`)
+ * stays valid across window sizes. Linear in stretches, decisions and
+ * routes.
+ */
+export function stripSignature(strip: MapStrip): string {
   let hash = 0x811c9dc5;
   // Each number to a hundredth, folded in as two 16-bit halves.
   const mix = (n: number) => {
@@ -2081,72 +2155,86 @@ export function layoutSignature(model: MapModel): string {
     hash = Math.imul(hash ^ (v & 0xffff), 0x01000193);
     hash = Math.imul(hash ^ (v >>> 16), 0x01000193);
   };
-  mix(model.itemCount);
-  for (const r of model.runs) {
+  mix(strip.itemCount);
+  for (const r of strip.runs) {
     mix(r.start);
     mix(r.end);
-    for (const p of r.pieces) {
-      mix(p.x0);
-      mix(p.x1);
-      mix(p.y);
-    }
+    mix(r.x0);
+    mix(r.x1);
+    mix(r.row);
   }
-  for (const d of model.decisions) {
+  for (const d of strip.nodes) {
     mix(d.index);
     mix(d.x);
-    mix(d.y);
+    mix(d.row);
   }
-  for (const r of model.routes) {
+  for (const r of strip.routes) {
     mix(r.decision);
     mix(r.x);
-    mix(r.y);
+    mix(r.row);
     mix(r.endX);
-    mix(r.endY);
   }
-  return `${model.itemCount}:${(hash >>> 0).toString(36)}`;
+  return `${strip.itemCount}:${(hash >>> 0).toString(36)}`;
 }
 
 /**
- * The view to remember for `view` in a vw x vh viewport, on the layout
- * whose signature is `layout`.
+ * The view memory an open starts from (docs/plan.md Phase 41,
+ * "Remembered view"), on the layout whose signature is `layout`: nothing
+ * remembered (a first open, a reset, an older record) is Full size,
+ * centred on "you are here"; else the remembered view, with its Full size
+ * place only if it was taken on this layout (a bookmark added or deleted
+ * since makes a Full size open centre on "you are here").
  */
-export function saveView(
+export function openingRecord(
+  saved: SavedMapView | null | undefined,
   layout: string,
-  view: MapView,
-  vw: number,
-  vh: number,
-  fit: boolean,
 ): SavedMapView {
+  if (saved == null) return { view: "full", layout, place: null };
   return {
+    view: saved.view,
     layout,
-    fit,
-    cx: (vw / 2 - view.x) / view.scale,
-    cy: (vh / 2 - view.y) / view.scale,
-    scale: view.scale,
+    place: saved.layout === layout ? saved.place : null,
   };
 }
 
 /**
- * The view the map opens at: a fresh Fit for this window (nothing
- * remembered, a remembered Fit, or one taken on another layout), else the
- * remembered world centre and scale, the scale clamped to the zoom limits
- * here (the window may have changed size since). `fit` says which, so a
- * resize of a fitted view fits again. The marker's place does not move the
- * view: C does that.
+ * A reader's move on the map: C ("centre": Full size, centred on "you are
+ * here"), a scroll, a drag or N ("place": Full size, its middle there),
+ * and F or the header's halves ("view").
  */
-export function restoreView(
+export type MapMove =
+  | { readonly kind: "centre" }
+  | { readonly kind: "place"; readonly place: MapPlace }
+  | { readonly kind: "view"; readonly view: "full" | "fit" };
+
+/**
+ * The view memory after a move: C and a place go to Full size, C as
+ * "centred" (null), so the next Full size open centres on "you are here"
+ * again; switching views keeps Full size's place, for when the reader
+ * comes back to it.
+ */
+export function remember(record: SavedMapView, move: MapMove): SavedMapView {
+  if (move.kind === "centre") return { ...record, view: "full", place: null };
+  if (move.kind === "place")
+    return { ...record, view: "full", place: move.place };
+  return { ...record, view: move.view };
+}
+
+/**
+ * The view `record` shows on `model` (cut for its view) in a vw x vh map
+ * view: Fit's (`fitView`, the marker kept inside), or Full size at its
+ * place, or centred on "you are here" (`here`) when it has none.
+ */
+export function viewFor(
   model: MapModel,
-  saved: SavedMapView | null | undefined,
+  record: SavedMapView,
+  here: { x: number; y: number },
   vw: number,
   vh: number,
-  here?: { x: number; y: number },
-  layout: string = layoutSignature(model),
-): { view: MapView; fit: boolean } {
-  if (saved == null || saved.fit || saved.layout !== layout)
-    return { view: fitView(model, vw, vh, here), fit: true };
-  const limits = zoomLimits(model, vw, vh, here);
-  const scale = Math.min(limits.max, Math.max(limits.min, saved.scale));
-  return { view: centreOn(saved.cx, saved.cy, vw, vh, scale), fit: false };
+): MapView {
+  if (record.view === "fit") return fitView(model, vw, vh, here);
+  const cy = record.place === null ? here.y : placeY(model, record.place);
+  return fullSizeView(model, vw, vh, cy);
 }
 
 /**
@@ -2154,9 +2242,9 @@ export function restoreView(
  * per look, rather than as a focusable group each (render/branchmap.ts
  * `boxesMarkup`, `figuresMarkup`): the same capsules, marks and figures,
  * so the look does not change (docs/plan.md Phase 41), only the cost of a
- * view holding hundreds of nodes. Out there a node takes no keyboard
- * focus and shows no hover ring; clicks and tooltips find it from the
- * layout (`hitTest`) as everywhere.
+ * view holding hundreds of nodes (a Fit of a large map). There a node
+ * takes no keyboard focus and shows no hover ring; clicks and tooltips
+ * find it from the layout (`hitTest`) as everywhere.
  */
 export const NODE_GROUP_MIN_SCALE = 0.6;
 /**
@@ -2175,7 +2263,7 @@ export function nodeGroupMinScale(model: MapModel): number {
 }
 
 /**
- * How tall the map's tallest digits paint at 100%, in CSS pixels: the
+ * How tall the map's tallest digits paint at scale 1, in CSS pixels: the
  * node figures' ink (13 px type, render/branchmap.ts
  * `NODE_FIGURE_BASELINE`); the counts' 12 and 11 px digits are smaller.
  */
@@ -2185,10 +2273,10 @@ export const FIGURE_INK_PX = 9.4;
  * Whether the counts and figures are drawn at this scale and device pixel
  * ratio: not where even the tallest digits would paint under one device
  * pixel tall, too small to read as figures (below about 0.106x on a 1x
- * screen: perf:map's 570-decision tree with 180 bookmarks fits at 0.103x).
- * Drawing them there would cost a large tree's open the first
- * rasterisation of thousands of sub-pixel strings (docs/perf.md, Phase
- * 41); at every other scale they are drawn, as at 100%.
+ * screen: perf:map's 570-decision tree with 180 bookmarks fits at 0.105x
+ * in 1920x1080). Drawing them there would cost a large tree's open the
+ * first rasterisation of thousands of sub-pixel strings (docs/perf.md,
+ * Phase 41); at every other scale they are drawn, as at Full size.
  */
 export function figuresVisible(scale: number, pixelRatio: number): boolean {
   return scale * pixelRatio * FIGURE_INK_PX >= 1;
@@ -2196,8 +2284,8 @@ export function figuresVisible(scale: number, pixelRatio: number): boolean {
 
 /**
  * How the map draws its tree at this scale and device pixel ratio, with
- * one look at every zoom (render/branchmap.ts `treeMarkup`): its nodes as
- * focusable groups ("groups"); further out merged into a few paths with
+ * one look at every scale (render/branchmap.ts `treeMarkup`): its nodes as
+ * focusable groups ("groups"); smaller, merged into a few paths with
  * their counts and figures beside them ("merged"); and where those could
  * not be seen (`figuresVisible`), without them ("bare").
  */
@@ -2227,8 +2315,9 @@ export function visibleWorld(
 }
 
 /**
- * The node under world point (wx, wy), or null: what a click or hover at a
- * far zoom, where no per-node element is drawn, lands on. Linear in nodes.
+ * The node under world point (wx, wy), or null: what a click or hover
+ * lands on, at any scale (a merged drawing has no per-node element).
+ * Linear in nodes.
  */
 export function hitTest(
   model: MapModel,
@@ -2267,7 +2356,7 @@ export interface CardSlot {
 }
 
 /**
- * Each bookmark's card, in the order given: on the stretch `buildMapModel`
+ * Each bookmark's card, in the order given: on the stretch `layOutStrip`
  * sized for it (the one holding its item, else the nearest before it),
  * side by side in story order (item order; on one screen, oldest first),
  * centred on the line, each on the piece of a cut stretch holding it
@@ -2305,25 +2394,4 @@ export function cardSlots(
     });
   }
   return out;
-}
-
-/**
- * 100% (key 1, Phase 35): scale 1, where a card is the old `t` screen's
- * size, zoomed about the view's centre (within the zoom limits). Exactly
- * 1, not the view's scale times its reciprocal (0.9999999999999999 for
- * some).
- */
-export function fullSizeView(
-  view: MapView,
-  vw: number,
-  vh: number,
-  limits: { min: number; max: number },
-): MapView {
-  const scale = Math.min(limits.max, Math.max(limits.min, 1));
-  const k = scale / view.scale;
-  return {
-    scale,
-    x: vw / 2 - (vw / 2 - view.x) * k,
-    y: vh / 2 - (vh / 2 - view.y) * k,
-  };
 }

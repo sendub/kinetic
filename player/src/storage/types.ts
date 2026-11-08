@@ -70,18 +70,31 @@ export interface SavedContext {
 }
 
 /**
- * The branch map's remembered view (docs/plan.md Phase 33): the layout it
- * was taken on (render/mapmodel.ts `layoutSignature`), whether it was a
- * Fit, and the world point at the view's centre with the scale. The map
- * reopens there (render/mapmodel.ts `restoreView`): a Fit, or a view taken
- * on another layout, reopens as a fresh Fit.
+ * Where a Full size view of the branch map was left (docs/plan.md Phase
+ * 41, "Remembered view"), in terms that survive a different band width:
+ * `at` is the place along the laid-out strip (render/mapmodel.ts
+ * `MapStrip`) at the middle of the view, which falls in one band at any
+ * width, and `dy` how far the view's middle was below that band's main
+ * line.
+ */
+export interface MapPlace {
+  readonly at: number;
+  readonly dy: number;
+}
+
+/**
+ * The branch map's remembered view (docs/plan.md Phase 41): the last of
+ * its two views ("full", Full size, or "fit"), the layout it was taken on
+ * (render/mapmodel.ts `stripSignature`: the manifest and the bookmarked
+ * screens, not the band width), and Full size's place: where the reader
+ * scrolled to, or null for "centred" (their last move was C, or there has
+ * been none), so a Full size open centres on "you are here" wherever the
+ * reader has got to since (render/mapmodel.ts `openingRecord`).
  */
 export interface SavedMapView {
+  readonly view: "full" | "fit";
   readonly layout: string;
-  readonly fit: boolean;
-  readonly cx: number;
-  readonly cy: number;
-  readonly scale: number;
+  readonly place: MapPlace | null;
 }
 
 /** Everything the player persists about reading progress and pacing. */
@@ -108,8 +121,9 @@ export interface PersistedState {
    */
   readonly helpSeen?: boolean;
   /**
-   * The branch map's last view (docs/plan.md Phase 33). Absent (a first
-   * load, a reset, any record written before it) means Fit.
+   * The branch map's last view (docs/plan.md Phase 41). Absent (a first
+   * load, a reset, any record written before it or in an older shape)
+   * means Full size, centred on "you are here".
    */
   readonly mapView?: SavedMapView;
 }
@@ -218,26 +232,24 @@ export function summarizeBookmark(
 }
 
 /**
- * A stored map view read defensively: the well-formed shape (a string
- * layout, a boolean fit, finite centre, a positive finite scale) or
- * undefined (reads as Fit). Never throws.
+ * A stored map view read defensively: the well-formed shape (a view of
+ * "full" or "fit", a string layout, a place of two finite numbers or null)
+ * as a fresh copy, or undefined (no record: Full size, centred). An older
+ * shape (Phase 33's `fit`, centre and scale) is no record. Never throws.
  */
 export function sanitizeMapView(raw: unknown): SavedMapView | undefined {
-  if (typeof raw !== "object" || raw === null || Array.isArray(raw))
-    return undefined;
-  const v = raw as Record<string, unknown>;
+  const record = (v: unknown): v is Record<string, unknown> =>
+    typeof v === "object" && v !== null && !Array.isArray(v);
+  if (!record(raw)) return undefined;
   const finite = (n: unknown): n is number =>
     typeof n === "number" && Number.isFinite(n);
-  if (
-    typeof v.layout !== "string" ||
-    typeof v.fit !== "boolean" ||
-    !finite(v.cx) ||
-    !finite(v.cy) ||
-    !finite(v.scale) ||
-    v.scale <= 0
-  )
+  const { view, layout, place } = raw;
+  if ((view !== "full" && view !== "fit") || typeof layout !== "string")
     return undefined;
-  return { layout: v.layout, fit: v.fit, cx: v.cx, cy: v.cy, scale: v.scale };
+  if (place === null) return { view, layout, place: null };
+  if (!record(place) || !finite(place.at) || !finite(place.dy))
+    return undefined;
+  return { view, layout, place: { at: place.at, dy: place.dy } };
 }
 
 /**

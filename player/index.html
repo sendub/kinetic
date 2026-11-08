@@ -1164,7 +1164,7 @@
         transform: scale(0.95);
       }
       /* The opaque map can open over a pending choice: no blurred layer is
-         kept under it while it pans. */
+         kept under it while it scrolls. */
       #app:has(> #branchmap:not([hidden])) > .stage {
         filter: none;
         transform: none;
@@ -1404,10 +1404,10 @@
          buttons, each naming its key in its hover hint; under it the view,
          taking all the height left, which owns every pointer and wheel
          event (touch-action: none: no browser pan or zoom). No text on it
-         is selectable, so a drag pan or a double click never selects any:
+         is selectable, so a drag or a double click never selects any:
          Safari reads only the -webkit- form. Inside the view: flat fills
          and strokes only (no filter, blend, soft shadow on the chart or
-         animation), so it pans at full rate. */
+         animation), so it scrolls at full rate. */
       #branchmap {
         /* Chart tones: the ink mixed onto the ground as opaque colours,
            so caps and crossings never double up. */
@@ -1450,8 +1450,8 @@
         margin: 0;
       }
       /* The tools in groups: the Spoilers switch, then Newest bookmark |
-         Centre, then 100% | Fit, each pair a segmented capsule (its parts
-         the single capsule, cut). */
+         Centre, then Full size | Fit, each pair a segmented capsule (its
+         parts the single capsule, cut). */
       .map-tools {
         display: flex;
         flex-wrap: wrap;
@@ -1472,6 +1472,17 @@
         margin-left: 1px;
         padding-left: calc(var(--k-ctl-padx) * 0.85);
         border-radius: 0 var(--k-r-pill) var(--k-r-pill) 0;
+      }
+      /* Full size | Fit: the half for the view on show is pressed
+         (aria-pressed), filled gold like the Spoilers switch when on; a
+         click on it does nothing, so it is no pointer. */
+      .map-tool[data-act="full"][aria-pressed="true"],
+      .map-tool[data-act="fit"][aria-pressed="true"] {
+        --k-ctl-fill: var(--k-gold);
+        --k-ctl-fill-hover: var(--k-gold);
+        --k-ctl-fill-press: var(--k-gold);
+        color: var(--k-stamp);
+        cursor: default;
       }
       /* A focused segment's ring over its neighbour. */
       .map-tool:focus-visible {
@@ -1543,11 +1554,50 @@
           );
         isolation: isolate;
         contain: paint;
-        cursor: grab;
         touch-action: none;
       }
-      .map-view.map-dragging {
+      /* Full size on a map taller than the view: a drag scrolls it. Fit
+         and a map that fits do not move, so they keep the arrow. */
+      .map-view.map-scrolls {
+        cursor: grab;
+      }
+      .map-view.map-scrolls.map-dragging {
         cursor: grabbing;
+      }
+      /* Full size's scroll bar (render/branchmap.ts `SCROLL_BAR`: the
+         track 6 px in from the view's top and bottom, the thumb at least
+         28 px), drawn by the map because the view moves by its transform:
+         a slim rounded thumb in the ink at the scrollbars' tone, fuller
+         while hovered or dragged, on a track that shows on hover. Wide
+         enough to grab; a press on the track pages. */
+      .map-scroll {
+        position: absolute;
+        top: 6px;
+        right: 4px;
+        bottom: 6px;
+        z-index: 2;
+        width: 12px;
+        border-radius: 6px;
+        cursor: default;
+      }
+      .map-scroll[hidden] {
+        display: none;
+      }
+      .map-scroll:hover,
+      .map-scroll.map-scroll-held {
+        background: rgba(var(--k-ink), 0.08);
+      }
+      .map-thumb {
+        position: absolute;
+        top: 0;
+        right: 2px;
+        left: 2px;
+        border-radius: 4px;
+        background: rgba(var(--k-ink), 0.32);
+      }
+      .map-scroll:hover .map-thumb,
+      .map-scroll.map-scroll-held .map-thumb {
+        background: rgba(var(--k-ink), 0.55);
       }
       /* The stage (render/branchmap.ts): everything that moves with the
          view, the tree's SVG, the bookmark cards and the marker, in world
@@ -1590,11 +1640,11 @@
       }
       /* Lines. Every stroke width and dash of the tree (lines, stations,
          end marks, node outlines) is screen pixels, written in --line-px
-         (a screen pixel in world units, set on `.map-world` per zoom step
+         (a screen pixel in world units, set on `.map-world` per scale step
          by render/branchmap.ts `lineScaleStyle`), so it keeps its weight
-         under the stage's scale at any zoom (`vector-effect` does not undo
+         under the stage's scale in either view (`vector-effect` does not undo
          a CSS scale in Chrome: docs/plan.md Phase 40, map lines). Far out
-         it thins with the zoom, so rows stay apart. Colours are opaque
+         it thins with the scale, so rows stay apart. Colours are opaque
          (ink mixed onto the ground), so crossings and caps never double
          up. */
       .map-conn,
@@ -1676,9 +1726,10 @@
          their height) on the sheet, a heavy ink ring once reached. Routes:
          solid ink once played, solid gold for the last pick, ink-outlined
          when partly read, dashed when unseen. Not reached: faint, dashed,
-         inert. Each look's rule styles a node group's rect and, far out,
-         the merged capsules of that look (`.map-box`, render/branchmap.ts
-         `boxesMarkup`) alike, so zooming changes nothing. */
+         inert. Each look's rule styles a node group's rect and, at a small
+         Fit, the merged capsules of that look (`.map-box`,
+         render/branchmap.ts `boxesMarkup`) alike, so the look is the same
+         in either view. */
       .map-node rect,
       .map-box {
         fill: var(--k-sheet);
@@ -1843,7 +1894,7 @@
         font-weight: var(--k-w-2);
       }
       /* Bookmark cards (Phase 35, replacing the `t` screen): in world
-         units on the stage, so at 100% a card is the old screen's 280 x
+         units on the stage, so at Full size a card is the old screen's 280 x
          158 px thumbnail (its time in the hover tooltip), and at Fit it
          shrinks with the tree. Tiles of the sheet on the grey: one dark
          hairline all round (the same on every side, so the silhouette
@@ -1862,7 +1913,7 @@
         cursor: pointer;
       }
       /* The hover ring and the newest's outline are 3 screen pixels of
-         gold at any zoom, so the newest stands out at Fit too. */
+         gold at any scale, so the newest stands out at Fit too. */
       .bm-card:hover,
       .bm-card.bm-newest {
         border-color: var(--k-gold);
@@ -1889,8 +1940,8 @@
         height: 100%;
         object-fit: cover;
       }
-      /* The delete x, at every zoom: shown on the card's hover, drawn at a
-         fixed screen size whatever the zoom (--del-scale, set per frame by
+      /* The delete x, in either view: shown on the card's hover, drawn at a
+         fixed screen size whatever the scale (--del-scale, set per scale by
          render/branchmap.ts), anchored to the card's top-right corner, so
          it stays a usable target at Fit. A small round capsule over the
          picture, red on hover (it deletes). The x is an inline SVG
@@ -1942,7 +1993,7 @@
         display: none;
       }
       /* Deleted while the map is open: a dashed ghost in its place (its
-         outline 1.5 screen pixels at any zoom) with an Undo, until the map
+         outline 1.5 screen pixels at any scale) with an Undo, until the map
          closes; a click anywhere on it undoes too. */
       .bm-card.bm-deleted {
         border: calc(1.5px * var(--px, 1)) dashed rgba(var(--k-ink), 0.6);
@@ -1980,13 +2031,13 @@
       .bm-undo:hover {
         background: var(--k-ctl-fill-hover);
       }
-      /* Far out a ghost's words are unreadable: it is just its dashed
+      /* At a small Fit a ghost's words are unreadable: it is just its dashed
          outline (a click on it, the toast's Undo or Z puts it back). */
       .map-cards-small .bm-card.bm-deleted .bm-ghost {
         visibility: hidden;
       }
       /* The undo toast: every delete offers it in screen space, so it is
-         usable at any zoom (a ghost's own Undo is tiny at Fit). */
+         usable in either view (a ghost's own Undo is tiny at Fit). */
       .map-toast {
         position: absolute;
         left: 50%;

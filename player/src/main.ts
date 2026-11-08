@@ -59,7 +59,7 @@ import { installFirstGestureFullscreen } from "./render/fullscreen";
 import { gameTitleOf, mountHelpOverlay, pageTitleFor } from "./render/help";
 import { installKeyMap, mapKeyAction, suspendTimeline } from "./render/keys";
 import { loadManifest } from "./render/manifest";
-import { buildMapModel, type MapModel, runJump } from "./render/mapmodel";
+import { layOutStrip, type MapStrip, runJump } from "./render/mapmodel";
 import { mountRouteAnnouncements } from "./render/routes";
 import { installWheelInput } from "./render/wheel";
 import { createIdbStorage, storageKeys, storyIdOf } from "./storage/idb";
@@ -191,10 +191,11 @@ function start(): void {
       // so existing readers meet the help exactly once more, then never
       // again. It rides along in every save below, so a close is durable.
       let helpSeen = helpSeenFrom(persisted);
-      // The branch map's last view (docs/plan.md Phase 33): absent on a
-      // first load and after a reset (the record is deleted), which opens
-      // the map at Fit. The map updates it as it moves; it rides in every
-      // state write, and the map's close issues one.
+      // The branch map's last view (docs/plan.md Phases 33, 41): absent on
+      // a first load and after a reset (the record is deleted), which opens
+      // the map at Full size, centred on "you are here". The map updates it
+      // as it moves; it rides in every state write, and the map's close
+      // issues one.
       let mapView: SavedMapView | undefined = persisted?.mapView;
       // The machine starts MANUAL (README advance bullet, docs/plan.md
       // Phase 13b): only the reader's presses move it until `a` turns
@@ -503,19 +504,19 @@ function start(): void {
       });
 
       // The branch map (docs/plan.md Phase 31): `m` opens the decision
-      // tree with the reader's marks. Its layout is computed on the first
-      // open and kept (it depends on the manifest and the view's shape,
-      // which its bands are cut to: render/branchmap.ts lays it out again
-      // only when that shape changes a lot); the marks are
-      // read fresh from the machine on every open. A click on a reached
+      // tree with the reader's marks. Its strip is laid out on the first
+      // open and kept until the bookmarked screens change (render/
+      // branchmap.ts cuts it into bands for each of its two views and the
+      // view's width); the marks are read fresh from the machine on every
+      // open. A click on a reached
       // decision or route closes the map and moves through the machine's
       // own operations (mapmodel.ts `runJump`): the choice screen as a
       // wheel step shows it — a walk, so no route pill — and a route
       // entered by a real pick from it, whose pill names the route.
-      let mapModel: MapModel | null = null;
-      const mapModelNow = (): MapModel => {
-        mapModel ??= buildMapModel(manifest.items, manifest.branches);
-        return mapModel;
+      let mapStrip: MapStrip | null = null;
+      const mapStripNow = (): MapStrip => {
+        mapStrip ??= layOutStrip(manifest.items, manifest.branches);
+        return mapStrip;
       };
       const itemIndexById = new Map(
         manifest.items.map((item, index) => [item.id, index]),
@@ -536,14 +537,13 @@ function start(): void {
       let picking = false;
       const map = mountBranchMap({
         root,
-        model: (aspect, bookmarkItems) => {
-          mapModel = buildMapModel(
+        strip: (bookmarkItems) => {
+          mapStrip = layOutStrip(
             manifest.items,
             manifest.branches,
-            aspect,
             bookmarkItems,
           );
-          return mapModel;
+          return mapStrip;
         },
         // The bookmarks as cards on the map (docs/plan.md Phase 35, which
         // replaced the `t` screen). The list is read fresh on every open
@@ -639,7 +639,7 @@ function start(): void {
             openChoice: () => {
               const open = machine.getState().choice;
               if (open === undefined) return -1;
-              return mapModelNow().decisionById.get(open.decisionId) ?? -1;
+              return mapStripNow().decisionById.get(open.decisionId) ?? -1;
             },
             walkedChoice: () =>
               machine.getState().choice?.walkRoute !== undefined,
@@ -825,8 +825,8 @@ function start(): void {
       );
       // Over a choice list too long for the window the wheel scrolls the
       // list, not the story; anywhere else it walks (render/choice.ts).
-      // While the branch map is up the wheel is the map's zoom, never a
-      // story step.
+      // While the branch map is up the wheel is the map's (it scrolls Full
+      // size), never a story step.
       installWheelInput(
         document,
         {
