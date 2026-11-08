@@ -176,3 +176,67 @@ exact `--line-px` on the whole SVG every zoom frame:
 A step that restyles costs 3.7-3.9 ms in the final build (6.1-7.1 ms in
 the first). The worst step in every build is a culling redraw or a
 garbage collection, as the 20-25 ms worst steps before the change show.
+
+## One look at every zoom (Phase 41)
+
+The map no longer swaps its pieces for plain rectangles below 0.6x (0.3x
+for a small tree). Below that zoom the nodes are still drawn merged into
+one path per look, with no element per node, but each path holds the
+groups' own capsules (traced from the same start point, so dashes fall
+the same) under the same classes and rules. The decision figures, pill
+numbers and counts are drawn beside them (mapmodel.ts `mapDrawing`,
+branchmap.ts `treeMarkup`). Culling now applies at every zoom. At the
+same zoom, merged and grouped drawings differ only in edge anti-aliasing
+(at most 56 of 255 on single edge pixels; the text is identical).
+
+Counts and figures are left out where the tallest digits (9.4 px at
+100%) would paint under one device pixel: below 0.106x at 1x, 0.053x at
+2x. perf:map's tree with 180 bookmarks fits at 0.103x. There, drawing
+them changes 0.12% of the pixels, by up to 84/255: specks under a pixel
+tall, with no figure to read. They would also cost the cold first open
+30-50 ms (87-112 ms measured), mostly first-time glyph rasterisation of
+about 4,750 sub-pixel strings. Without bookmarks the tree fits at
+0.196x, so its figures are drawn.
+
+`npm run perf:map`, same machine, 2026-11-08:
+
+| build | runs | first open | later opens | frames p95 (all phases) | frames > 33 ms |
+| --- | --- | --- | --- | --- | --- |
+| HEAD (Phase 40) | 6 | 52.0-60.6 ms | 51.1-64.4 ms | 16.7-16.8 ms | 0-1 of ~900 |
+| Phase 41 | 9 | 52.3-83.2 ms (3 over 69: 69.3, 74.3, 83.2) | 53.6-67.1 ms | 16.7-16.8 ms | 1-5 of ~900 |
+| HEAD, no bookmarks (`30 6 26 0`) | 2 | 54.1-54.2 ms | 55.9-62.7 ms | 16.7-16.8 ms | |
+| Phase 41, no bookmarks (figures drawn at Fit) | 2 | 77.1-90.8 ms | 54.9-64.1 ms | 16.7-16.8 ms | |
+
+The final build's three runs opened at 53.6-67.8 ms. Phase 41's first
+opens average about 9 ms over HEAD's: Fit now draws the capsules and the
+dashes. The extra slow frames come in the zoom phases, from the redraws
+on crossing 0.106x and 0.6x.
+
+Main-thread work per step was measured with CDP `Performance` metrics:
+`TaskDuration` before each wheel step or drag move and after two
+animation frames, on the 570-decision tree with 180 bookmarks at
+1920x1080. These figures are higher than Phase 40's because each step
+includes its frame's rendering, of which the 180 cards' per-zoom restyle
+is about 5 ms.
+
+| range | build | mean | worst |
+| --- | --- | --- | --- |
+| zoom 0.65-1.0, 360 steps, 3 runs | HEAD | 11.5-11.9 ms | 28.1-35.4 ms |
+| zoom 0.65-1.0, 360 steps, 3 runs | Phase 41 | 11.1-11.7 ms | 29.0-37.1 ms |
+| zoom 1.0-1.54, 360 steps, 3 runs | HEAD | 11.3-12.3 ms | 28.5-34.0 ms |
+| zoom 1.0-1.54, 360 steps, 3 runs | Phase 41 | 11.3-12.1 ms | 22.2-34.0 ms |
+| zoom Fit (0.103)-0.6, 360 steps | HEAD (3 runs) | 13.4-14.3 ms | 36.7-60.4 ms |
+| zoom Fit (0.103)-0.6, 360 steps | Phase 41 | 17.6 ms | 70.7 ms |
+| pan at Fit, 180 moves | HEAD (3 runs) | 5.5-6.1 ms | 11.0-36.4 ms |
+| pan at Fit, 180 moves | Phase 41 | 5.4 ms | 10.0 ms |
+| pan at 0.3x, 180 moves | HEAD (2 runs) | 5.7-5.9 ms | 10.2-16.5 ms |
+| pan at 0.3x, 180 moves | Phase 41 | 8.2 ms | 36.0 ms |
+| pan at 0.5x, 180 moves | HEAD (2 runs) | 6.0-7.1 ms | 11.6-22.3 ms |
+| pan at 0.5x, 180 moves | Phase 41 | 5.7 ms | 13.6 ms |
+
+The near range is unchanged, as is panning at Fit, where the figures
+are left out. Between Fit and 0.6x the map now draws every count and
+figure in view, so zooming there costs about 4 ms more per step on
+average. Its worst steps are the redraws on crossing 0.106x and 0.6x.
+Phase 41's next item replaces free zoom and pan with two views, so this
+range is not tuned.

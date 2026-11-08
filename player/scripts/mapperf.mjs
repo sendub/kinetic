@@ -15,8 +15,8 @@
 //     cards) and two more (layout cached);
 //   - frame intervals while the map zooms (wheel events at 60 Hz), pans at
 //     a readable zoom (a drag), pans at 100% (cards at full size), pans at
-//     the fitted, labels-off zoom, and zooms back in; with Chrome's
-//     long-animation-frame entries (> 50 ms).
+//     the fitted zoom (its nodes merged, mapmodel.ts `mapDrawing`), and
+//     zooms back in; with Chrome's long-animation-frame entries (> 50 ms).
 //
 // Run from player/: npm run build && npm run perf:map [-- top depth run bookmarks]
 // Output: a JSON summary on stdout (also .tmp/perf-map.json).
@@ -371,7 +371,7 @@ try {
     });
   };
 
-  await phase("zoom (readable <-> far)");
+  await phase("zoom (readable <-> fit)");
   for (let i = 0; i < 90; i += 1) {
     await wheelAt(i < 45 ? 60 : -60);
     await sleep(16);
@@ -384,7 +384,7 @@ try {
   await drag(90, 700, 300);
   await key(cdp, "f", "KeyF", 70);
   await sleep(100);
-  await phase("pan at fit (labels off)");
+  await phase("pan at fit");
   await drag(90, 600, 200);
   await phase("zoom in from fit");
   for (let i = 0; i < 90; i += 1) {

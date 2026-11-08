@@ -1976,3 +1976,55 @@ truthful: an unchecked box means nothing was accepted.
       (2026-11-08: 14 scenarios, 323 checks: 321 pass, 2 PARTIAL
       (headless fullscreen Escapes), 0 FAIL; package-proof 18/18, demo
       rebuilt; tools and converter untouched.)
+
+## Phase 41: One look at every zoom, two views (2026-11-08, user)
+
+- [x] No change of look when zoomed out (docs/plan.md Phase 41): nodes
+      and route pills keep their capsule shape, marks and figures, and
+      stretches their counts, at every zoom; the far view paints what
+      the near view would at the same zoom (a figure left out only
+      where a screenshot cannot tell). Screenshot comparisons across
+      the old threshold on the demo and the 570-decision tree; unit and
+      scenario checks that fail on HEAD's code; `npm run perf:map` opens
+      within docs/perf.md's numbers (far-out pan and zoom speed not
+      required: the two views remove them).
+      (2026-11-08: below `nodeGroupMinScale` the nodes are merged
+      capsule paths under the groups' own classes, with figures, pill
+      numbers and counts beside them (`mapDrawing`, `treeMarkup`); the
+      far-view CSS and skeleton are gone. Counts and figures are left
+      out only where their digits paint under one device pixel (below
+      0.106x at 1x), which perf:map's 180-bookmark tree reaches at Fit
+      (0.103x); there a 1:1 screenshot shows no difference. Orchestrator:
+      npm test 734 pass, check clean; smoke 6/6, branchmap 54/54,
+      bookmarkmap 29/29, continueroute 8/8; screenshots of the demo at
+      0.31x/0.29x and the 570-decision tree at 0.4x and Fit show
+      capsules, marks, figures and dashes where HEAD drew plain
+      rectangles; perf:map opens 79/58/57 ms, frames p95 16.8 ms.
+      Subagent: new unit and scenario checks fail on HEAD's sources;
+      perf:map first opens 52-83 ms over 9 runs (3 over 69; HEAD
+      52-61), 77-91 ms for the tree without bookmarks at Fit (figures
+      drawn). Opening at Fit within docs/perf.md's numbers moved to the
+      two-views item, where Fit becomes a still picture and the first
+      open is Full size.)
+- [ ] Band layout (docs/plan.md Phase 41, "Band layout"): the tree is
+      cut into bands of a given width at points where nothing straddles
+      any line, every line continuing from a tick at a band's right edge
+      to a tick at the next band's left; one wrap mark replaces the old
+      row connector. Until the two views land, the width comes from
+      today's aspect-based choice, so the free-zoom map keeps working.
+      Unit tests that fail on HEAD's code (no node, card or count across
+      a cut; every cut line continues; a 2,900 px stretch of cards fits
+      a 1,440 px band); `npm run perf:map` within docs/perf.md.
+- [ ] Two views (docs/plan.md Phase 41, "Two views" and "Remembered view"):
+      Full size with bands as wide as the view and vertical scrolling (wheel,
+      scroll bar, drag, keys), Fit showing the whole map at once and not
+      moving, one "Full size | Fit" button with F switching (the 100% button
+      and the 1 and 0 keys gone); free zoom and pan gone; C and N go to Full
+      size; the view and scroll position remembered, except that after C the
+      next Full size open centres on "you are here" again. Scenarios rewritten
+      for the new navigation (branchmap, bookmarkmap, screens' map checks);
+      opening at Fit within docs/perf.md's numbers with its counts and figures
+      drawn; `scripts/mapperf.mjs` measures opens, Full size scrolling and
+      Fit; README, docs/verify-player.md and docs/perf.md updated.
+- [ ] Phase-closer (Phase 41): full scenario suite, package-proof
+      (rebuilds the demo); pytest not needed unless tools change.

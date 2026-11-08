@@ -1483,6 +1483,84 @@ map node sizes live and chose the larger one.
   thicken past 100%. Far out, where rows come within a few pixels of
   each other, lines may thin with the zoom so the tree stays readable.
 
+## Phase 41: One look at every zoom, two views (2026-11-08, user)
+
+Zooming the branch map out past a threshold swaps its pieces: the
+capsule nodes and numbered route pills become plain rectangles with no
+figures, and the stretch counts go. The threshold is `labelMinScale`
+(0.6x for a tree of more than 200 nodes, 0.3x for a smaller one). The
+far view exists for speed: drawing every node as its own group made the
+570-decision tree's later opens take 80-95 ms and its fitted view pan
+at 50-80 ms frames (docs/perf.md, Phase 31), and the far view's one
+path per look fixed that. The user finds the swap ugly and sees no
+reason for it.
+
+- The map's pieces look the same at every zoom: decisions and route
+  pills keep their capsule shape, fill, outline, dashes, last-pick and
+  reached marks, and their figures; stretches keep their counts. A
+  zoomed-out view is the near view scaled down, with no change of look
+  at any zoom.
+- The far view may keep a cheaper way of drawing, but what it paints
+  must match the near view at the same zoom. Leaving a figure or count
+  out is allowed only where it would paint too small to see, so that a
+  screenshot of the two drawings at that zoom shows no difference.
+- Speed: opens stay within docs/perf.md's numbers for the 570-decision
+  tree, and the near view's zoom frames keep Phase 40's cost. Panning
+  and zooming between Fit and the old threshold need not stay fast:
+  the second request below removes free zoom and pan, so Fit becomes a
+  still picture.
+
+Second request, same day: drop free zoom and pan. The map has two
+views, and since neither pans freely, the fitted view no longer needs
+to stay fast while moving.
+
+- Band layout. At 100% a top-level segment of a big game is far wider
+  than any screen (about 5,000 px in the 570-decision tree; a stretch
+  holding 10 bookmarks is 2,900 px), so wrapping only between top-level
+  segments (Phase 31, "Layout for a large game") cannot fit a width.
+  The map wraps like the systems of a music score: the laid-out tree is
+  cut into bands of a given width, every parallel line cut at the same
+  x, and each band sits under the one before. A cut falls only where
+  nothing straddles it on any line: never through a node, a pill, a
+  card or a count; between two cards of a stretch is fine. A line cut
+  at a band's right edge ends in a small "continues" tick, and resumes
+  at the next band's left edge from a matching tick; the old
+  continuation connector between rows becomes the same ticks, so there
+  is one wrap mark. A band is as tall as what it holds; bands are
+  `wrapGap` apart. The "you are here" marker, hit testing, tooltips,
+  cards and counts follow their pieces into the bands.
+- Two views, in place of free zoom and pan, chosen by one two-part
+  header button, "Full size | Fit", whose pressed half is the current
+  view; F switches between them (its hint "shortcut: F" on both halves).
+  The 100% button and the 1 and 0 keys go.
+  - Full size: cards at their 100% size, the bands as wide as the map view,
+    so nothing runs off the sides. A map taller than the view scrolls up and
+    down: the wheel or trackpad, the scroll bar, dragging the map (a press
+    that moves 5 px is a drag, as now, so a click still opens a card or
+    picks a node), and the up and down arrows, Page Up / Page Down, Home and
+    End. Nothing moves sideways.
+  - Fit: the bands' width and the scale are chosen together so the whole map
+    is on screen at once, as large as fits, enlarging past 100% up to the
+    existing 3x limit for a small map. Fit does not move: no scroll, no
+    drag, the wheel does nothing. Its drawing may be optimised for a still
+    picture, and opening at Fit stays within docs/perf.md's numbers with its
+    counts and figures drawn (the first item left the 570-decision tree
+    without bookmarks at 77-91 ms for a first open at Fit).
+  - No zoom other than these two: the wheel, a pinch, + and - and the
+    left and right arrows no longer zoom or pan the map.
+  - C (Centre) and N (Newest bookmark) switch to Full size and scroll so
+    "you are here" or the newest card is in the middle of the view.
+- Remembered view: the first open is Full size, scrolled so "you are here" is
+  in the middle. The map remembers the last view (Full size or Fit) and, at
+  Full size, where the reader left it, across closes and reloads (the shell's
+  state record, as now): a scroll position if they scrolled since the last
+  centring, or "centred" if their last move was C (or nothing yet), so the
+  next Full size open centres on "you are here" again, wherever the reader has
+  got to since. When the layout changes (a bookmark added or deleted, or the
+  bookmarked screens otherwise different) a Full size open centres on "you are
+  here" too. A window resize lays the bands out again for the new width: at
+  Full size what was in the middle of the view stays there; Fit fits again.
+
 ## Later, waiting on the user
 
 - Overlay text styling iteration once the user can play with the demo.

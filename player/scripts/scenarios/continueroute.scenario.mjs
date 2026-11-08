@@ -175,10 +175,7 @@ const READ_STATUS = () => {
 // (one `M` per line in the layer on show) and end marks.
 const READ_MAP_LINES = () => {
   const panel = document.getElementById("branchmap");
-  const svg = panel?.querySelector(".map-svg");
-  const layer = svg?.classList.contains("map-far")
-    ? ".map-skeleton"
-    : ".map-detail";
+  const layer = ".map-detail";
   const count = (cls) =>
     Array.from(panel?.querySelectorAll(`${layer} path.${cls}`) ?? []).reduce(
       (n, path) =>

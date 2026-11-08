@@ -31,9 +31,11 @@
 // their 13 px figures' digits centred in them (ink measured in the page);
 // a read stretch's line paints at its 5 screen pixels at Fit, 100% and 3x
 // (measured from screenshot pixels, within half a step of --line-px), and
-// the zoom's restyle skips the counts and pill numbers. Screenshots land in
-// .tmp/branchmap-shots/fb-*.png, spoil-*.png, mark-*.png, simp-*.png,
-// hint-*.png and lines-*.png.
+// the zoom's restyle skips the counts and pill numbers. Phase 41: a node
+// looks the same just above and just below the zoom where the map stops
+// drawing node groups (0.3x on the demo): the same capsule, its figure in
+// it. Screenshots land in .tmp/branchmap-shots/fb-*.png, spoil-*.png,
+// mark-*.png, simp-*.png, hint-*.png, lines-*.png and look-*.png.
 
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
@@ -61,7 +63,7 @@ import {
 } from "./harness.mjs";
 
 export const title =
-  "branch map: open, here-marker (endings too), zoom, pan, fit fills and refits on resize, no text selection, jumps, Esc, M over Esc, spoilers, five-button header, instant key hints, remembered view, marker on the start after reset, line widths at every zoom";
+  "branch map: open, here-marker (endings too), zoom, pan, fit fills and refits on resize, no text selection, jumps, Esc, M over Esc, spoilers, five-button header, instant key hints, remembered view, marker on the start after reset, line widths at every zoom, one look either side of 0.3x";
 
 const shots = join(repoRoot, ".tmp", "branchmap-shots");
 
@@ -96,9 +98,7 @@ const READ_MAP = () => {
   const sv = panel?.querySelector(".map-stage")?.dataset.view;
   const t = sv ? [null, ...sv.split(" ")] : null;
   // The end marks' centres on screen, from the drawn layer's squares.
-  const layer = svg?.classList.contains("map-far")
-    ? ".map-skeleton"
-    : ".map-detail";
+  const layer = ".map-detail";
   const vr = panel?.querySelector(".map-view")?.getBoundingClientRect();
   const sc = Number(svg?.getAttribute("data-scale") ?? "NaN");
   const ends = [];
@@ -116,7 +116,6 @@ const READ_MAP = () => {
     ends,
     tx: t ? Number(t[1]) : Number.NaN,
     ty: t ? Number(t[2]) : Number.NaN,
-    far: svg?.classList.contains("map-far") ?? null,
     view: view ? { x: view.x, y: view.y, w: view.width, h: view.height } : null,
     here: here ? box(here.querySelector(".map-here-dot")) : null,
     decisions: Array.from(panel?.querySelectorAll("[data-d]") ?? []).map(
@@ -606,6 +605,7 @@ export default async function ({ check, open }) {
   await hints({ check, open });
   await memory({ check, open });
   await lineWidths({ check, open });
+  await oneLook({ check, open });
 }
 
 // The demo read through with play-all (everything seen): at the story's
@@ -1113,7 +1113,6 @@ async function hints({ check, open }) {
 // on screen (the start dot is the 6-unit circle in the drawn layer's dots).
 const READ_VIEW = () => {
   const panel = document.getElementById("branchmap");
-  const svg = panel.querySelector(".map-svg");
   const vr = panel.querySelector(".map-view").getBoundingClientRect();
   const t = [
     null,
@@ -1122,9 +1121,7 @@ const READ_VIEW = () => {
   const tx = Number(t[1]);
   const ty = Number(t[2]);
   const sc = Number(t[3]);
-  const layer = svg.classList.contains("map-far")
-    ? ".map-skeleton"
-    : ".map-detail";
+  const layer = ".map-detail";
   const d = panel.querySelector(`${layer} .map-dot`)?.getAttribute("d") ?? "";
   const m = d.match(/M([-\d.e]+) ([-\d.e]+)a6 6/);
   const ring = panel.querySelector(".map-here-ring").getBoundingClientRect();
@@ -1298,10 +1295,7 @@ async function memory({ check, open }) {
 // stroke colour and the view's scale.
 const READ_SEEN_RUN = () => {
   const panel = document.getElementById("branchmap");
-  const svg = panel.querySelector(".map-svg");
-  const layer = svg.classList.contains("map-far")
-    ? ".map-skeleton"
-    : ".map-detail";
+  const layer = ".map-detail";
   const path = panel.querySelector(`${layer} .map-run-seen`);
   if (path === null) return null;
   const [tx, ty, s] = panel
@@ -1445,5 +1439,236 @@ async function lineWidths({ check, open }) {
       restyled.inside.every((c) => c === "map-dec-c") &&
       restyled.outside > 0,
     restyled,
+  );
+}
+
+// Phase 41: a node as seen in a screenshot of its box and a margin
+// (device pixels) with nothing else drawn: the mean colour of each cell of
+// a `cols` x `rows` grid over the box and an eighth of it around, so two
+// zooms compare cell by cell whatever their pixel sizes; and how far the
+// box's middle half strays from the node's fill (read inside it, left of
+// its figure): its figure's contrast.
+const NODE_GRID = async (png, box, cols, rows) => {
+  const img = new Image();
+  img.src = `data:image/png;base64,${png}`;
+  await img.decode();
+  const canvas = document.createElement("canvas");
+  canvas.width = img.naturalWidth;
+  canvas.height = img.naturalHeight;
+  const ctx = canvas.getContext("2d");
+  ctx.drawImage(img, 0, 0);
+  const { data, width, height } = ctx.getImageData(
+    0,
+    0,
+    canvas.width,
+    canvas.height,
+  );
+  const at = (x, y) => {
+    const i = (y * width + x) * 4;
+    return [data[i], data[i + 1], data[i + 2]];
+  };
+  const dist = (a, b) => Math.max(...a.map((v, i) => Math.abs(v - b[i])));
+  const mx = box.w / 8;
+  const my = box.h / 8;
+  const grid = [];
+  for (let r = 0; r < rows; r += 1)
+    for (let c = 0; c < cols; c += 1) {
+      const x0 = box.x - mx + (c * (box.w + 2 * mx)) / cols;
+      const x1 = box.x - mx + ((c + 1) * (box.w + 2 * mx)) / cols;
+      const y0 = box.y - my + (r * (box.h + 2 * my)) / rows;
+      const y1 = box.y - my + ((r + 1) * (box.h + 2 * my)) / rows;
+      const sum = [0, 0, 0];
+      let n = 0;
+      for (let y = Math.floor(y0); y < Math.ceil(y1); y += 1)
+        for (let x = Math.floor(x0); x < Math.ceil(x1); x += 1) {
+          if (x < 0 || y < 0 || x >= width || y >= height) continue;
+          // Each pixel weighted by how much of it lies in the cell.
+          const w =
+            Math.max(0, Math.min(x + 1, x1) - Math.max(x, x0)) *
+            Math.max(0, Math.min(y + 1, y1) - Math.max(y, y0));
+          const px = at(x, y);
+          for (let k = 0; k < 3; k += 1) sum[k] += px[k] * w;
+          n += w;
+        }
+      grid.push(sum.map((v) => v / Math.max(n, 1e-9)));
+    }
+  const fill = at(
+    Math.round(box.x + box.w * 0.2),
+    Math.round(box.y + box.h / 2),
+  );
+  let figure = 0;
+  for (
+    let y = Math.round(box.y + box.h / 4);
+    y < box.y + (3 * box.h) / 4;
+    y += 1
+  )
+    for (
+      let x = Math.round(box.x + box.w / 4);
+      x < box.x + (3 * box.w) / 4;
+      x += 1
+    )
+      figure = Math.max(figure, dist(at(x, y), fill));
+  return { grid, figure };
+};
+
+// Everything but the nodes and their figures hidden (the lines, the marker).
+const NODES_ONLY = `.map-detail > path:not(.map-box), .map-top {
+  visibility: hidden !important; }`;
+
+// A node's world box on screen now (CSS pixels), from the stage's view.
+const SCREEN_BOX = (world) => {
+  const panel = document.getElementById("branchmap");
+  const [tx, ty, s] = panel
+    .querySelector(".map-stage")
+    .dataset.view.split(" ")
+    .map(Number);
+  const vr = panel.querySelector(".map-view").getBoundingClientRect();
+  return {
+    x: vr.x + tx + world.x * s,
+    y: vr.y + ty + world.y * s,
+    w: world.w * s,
+    h: world.h * s,
+    scale: s,
+    groups: panel.querySelectorAll(".map-node").length,
+  };
+};
+
+// One look at every zoom (Phase 41): on the demo after Route 2 is played
+// (its pill gold, the last pick, "2" in it) the map stops drawing node
+// groups below 0.3x; just above (0.31x) and just below (0.29x) the pill
+// and the outer decision ("1/2") must be the same capsule, its figure in
+// it. Screenshots at 4x device pixels so a 10-pixel pill has detail; each
+// node is compared on a 10 x 8 grid of mean colours over its box, so the
+// two sizes line up.
+async function oneLook({ check, open }) {
+  const { page, cdp } = await open("look", {
+    closeHelp: true,
+    manualChoices: true,
+  });
+  await page.setViewport({ width: 1280, height: 720, deviceScaleFactor: 4 });
+  await spaceTo(page, cdp, "branch-decide");
+  await pressSpace(cdp);
+  await page.waitForFunction(CHOICE_OPEN, { timeout: 3000 });
+  await pressDigit(cdp, "2");
+  await sleep(100);
+  await spaceTo(page, cdp, "route2-end");
+  await openMap(page, cdp);
+  // The two nodes' world boxes, from their groups at the opening zoom.
+  const worlds = await page.evaluate(() => {
+    const of = (el) => {
+      const [, x, y] = el
+        .getAttribute("transform")
+        .match(/translate\(([-\d.e]+) ([-\d.e]+)\)/)
+        .map(Number);
+      const r = el.querySelector("rect");
+      const w = Number(r.getAttribute("width"));
+      const h = Number(r.getAttribute("height"));
+      return { x, y: y - h / 2, w, h };
+    };
+    const route2 = Array.from(document.querySelectorAll("[data-r]")).find(
+      (el) => (el.getAttribute("aria-label") ?? "").includes("Route 2"),
+    );
+    const outer = document.querySelector("[data-d]:not(.map-inert)");
+    return { pill: of(route2), decision: of(outer) };
+  });
+  // The wheel zooms by exp(-deltaY * 0.0018) around the pointer (here the
+  // pill, so it stays put); at 4x device pixels a dispatched delta arrives
+  // a quarter as large.
+  const zoomTo = async (target) => {
+    for (let i = 0; i < 20; i += 1) {
+      const now = await page.evaluate(SCREEN_BOX, worlds.pill);
+      const dy = -Math.log(target / now.scale) / 0.0018;
+      if (Math.abs(dy) < 1e-6) break;
+      await cdp.send("Input.dispatchMouseEvent", {
+        type: "mouseWheel",
+        x: now.x + now.w / 2,
+        y: now.y + now.h / 2,
+        deltaX: 0,
+        deltaY: 4 * Math.max(-300, Math.min(300, dy)),
+      });
+      await sleep(80);
+    }
+    // The pointer off the map: no hover ring, no tooltip.
+    await mouse(cdp, "mouseMoved", 4, 4, 0);
+    await sleep(150);
+  };
+  const shoot = async (name, world) => {
+    const box = await page.evaluate(SCREEN_BOX, world);
+    // Whole CSS pixels, so the box's place in the capture is exact.
+    const pad = Math.ceil(Math.max(box.w, box.h) * 0.5);
+    const clip = {
+      x: Math.floor(box.x) - pad,
+      y: Math.floor(box.y) - pad,
+      width: Math.ceil(box.w) + 2 * pad + 1,
+      height: Math.ceil(box.h) + 2 * pad + 1,
+    };
+    // Not beyond the viewport: that resizes it for the capture, and the
+    // map follows a resize.
+    const opts = { clip, captureBeyondViewport: false };
+    await page.screenshot({ ...opts, path: join(shots, `look-${name}.png`) });
+    // Measured with the lines and the marker hidden, so the node stands
+    // on the bare ground.
+    const hide = await page.addStyleTag({ content: NODES_ONLY });
+    await sleep(80);
+    const png = await page.screenshot({ ...opts, encoding: "base64" });
+    await hide.evaluate((el) => el.remove());
+    const dpr = 4;
+    const measured = await page.evaluate(
+      NODE_GRID,
+      png,
+      {
+        x: (box.x - clip.x) * dpr,
+        y: (box.y - clip.y) * dpr,
+        w: box.w * dpr,
+        h: box.h * dpr,
+      },
+      10,
+      8,
+    );
+    return { ...measured, scale: box.scale, groups: box.groups };
+  };
+  await zoomTo(0.31);
+  const above = {
+    pill: await shoot("pill-0.31", worlds.pill),
+    decision: await shoot("decision-0.31", worlds.decision),
+  };
+  await zoomTo(0.29);
+  const below = {
+    pill: await shoot("pill-0.29", worlds.pill),
+    decision: await shoot("decision-0.29", worlds.decision),
+  };
+  // Cell by cell, the largest channel difference, as a share of 255.
+  const compare = (a, b) => {
+    const diffs = a.grid.map(
+      (cell, i) =>
+        Math.max(...cell.map((v, k) => Math.abs(v - b.grid[i][k]))) / 255,
+    );
+    return {
+      mean: +(diffs.reduce((p, q) => p + q, 0) / diffs.length).toFixed(3),
+      worst: +Math.max(...diffs).toFixed(3),
+      figureA: a.figure,
+      figureB: b.figure,
+    };
+  };
+  const pill = compare(above.pill, below.pill);
+  const decision = compare(above.decision, below.decision);
+  // The same picture (the capsule's ends and the figure included), and a
+  // figure standing out of the fill on both.
+  const same = (c) =>
+    c.mean < 0.03 && c.worst < 0.2 && c.figureA > 80 && c.figureB > 80;
+  check(
+    "one look at every zoom (Phase 41): Route 2's pill and the outer decision are the same capsule with their figure at 0.31x (node groups) and 0.29x (merged)",
+    Math.abs(above.pill.scale - 0.31) < 1e-6 &&
+      Math.abs(below.pill.scale - 0.29) < 1e-6 &&
+      above.pill.groups > 0 &&
+      below.pill.groups === 0 &&
+      same(pill) &&
+      same(decision),
+    {
+      scales: [above.pill.scale, below.pill.scale],
+      groups: [above.pill.groups, below.pill.groups],
+      pill,
+      decision,
+    },
   );
 }

@@ -1414,21 +1414,67 @@ export function restoreView(
   return { view: centreOn(saved.cx, saved.cy, vw, vh, scale), fit: false };
 }
 
-/** Below this scale labels are not drawn (level of detail). */
-export const LABEL_MIN_SCALE = 0.6;
 /**
- * A tree this small (decisions plus routes) keeps its labels further out,
- * down to `SMALL_LABEL_MIN_SCALE`: it costs nothing to draw, and its fitted
- * view is often just under the normal threshold.
+ * Below this scale the map draws its nodes merged into a few paths, one
+ * per look, rather than as a focusable group each (render/branchmap.ts
+ * `boxesMarkup`, `figuresMarkup`): the same capsules, marks and figures,
+ * so the look does not change (docs/plan.md Phase 41), only the cost of a
+ * view holding hundreds of nodes. Out there a node takes no keyboard
+ * focus and shows no hover ring; clicks and tooltips find it from the
+ * layout (`hitTest`) as everywhere.
+ */
+export const NODE_GROUP_MIN_SCALE = 0.6;
+/**
+ * A tree this small (decisions plus routes) keeps its node groups further
+ * out, down to `SMALL_NODE_GROUP_MIN_SCALE`: they cost little, and its
+ * fitted view is often just under the normal threshold.
  */
 export const SMALL_TREE_NODES = 200;
-export const SMALL_LABEL_MIN_SCALE = 0.3;
+export const SMALL_NODE_GROUP_MIN_SCALE = 0.3;
 
-/** The scale below which this model is drawn without labels. */
-export function labelMinScale(model: MapModel): number {
+/** The scale below which this model's nodes are drawn merged. */
+export function nodeGroupMinScale(model: MapModel): number {
   return model.decisions.length + model.routes.length <= SMALL_TREE_NODES
-    ? SMALL_LABEL_MIN_SCALE
-    : LABEL_MIN_SCALE;
+    ? SMALL_NODE_GROUP_MIN_SCALE
+    : NODE_GROUP_MIN_SCALE;
+}
+
+/**
+ * How tall the map's tallest digits paint at 100%, in CSS pixels: the
+ * node figures' ink (13 px type, render/branchmap.ts
+ * `NODE_FIGURE_BASELINE`); the counts' 12 and 11 px digits are smaller.
+ */
+export const FIGURE_INK_PX = 9.4;
+
+/**
+ * Whether the counts and figures are drawn at this scale and device pixel
+ * ratio: not where even the tallest digits would paint under one device
+ * pixel tall, too small to read as figures (below about 0.106x on a 1x
+ * screen: perf:map's 570-decision tree with 180 bookmarks fits at 0.103x).
+ * Drawing them there would cost a large tree's open the first
+ * rasterisation of thousands of sub-pixel strings (docs/perf.md, Phase
+ * 41); at every other scale they are drawn, as at 100%.
+ */
+export function figuresVisible(scale: number, pixelRatio: number): boolean {
+  return scale * pixelRatio * FIGURE_INK_PX >= 1;
+}
+
+/**
+ * How the map draws its tree at this scale and device pixel ratio, with
+ * one look at every zoom (render/branchmap.ts `treeMarkup`): its nodes as
+ * focusable groups ("groups"); further out merged into a few paths with
+ * their counts and figures beside them ("merged"); and where those could
+ * not be seen (`figuresVisible`), without them ("bare").
+ */
+export type MapDrawing = "groups" | "merged" | "bare";
+
+export function mapDrawing(
+  model: MapModel,
+  scale: number,
+  pixelRatio: number,
+): MapDrawing {
+  if (scale >= nodeGroupMinScale(model)) return "groups";
+  return figuresVisible(scale, pixelRatio) ? "merged" : "bare";
 }
 
 /** The world rectangle a view shows, for culling. */

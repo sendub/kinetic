@@ -1415,7 +1415,6 @@
         --k-line-partly: #c3bfb9;
         --k-line-unseen: #9a9794;
         --k-line-end: #d6d2cb;
-        --k-line-inert: #6e6d6f;
         /* An empty thumbnail (its picture still loading). */
         --k-thumb: rgb(46, 46, 52);
         /* The header's height, so the view can paint the ground's radial
@@ -1571,9 +1570,9 @@
         display: block;
         overflow: visible;
       }
-      /* The marker, and the counts and pill numbers over the nodes
-         (render/branchmap.ts `labelsMarkup`): the pointer goes through
-         them to the nodes, so a pill's hover ring shows over its number. */
+      /* The marker, and the counts and figures over the nodes
+         (render/branchmap.ts `treeMarkup`): the pointer goes through them
+         to the nodes, so a pill's hover ring shows over its number. */
       .map-top,
       .map-labels {
         pointer-events: none;
@@ -1585,18 +1584,6 @@
         font-family: var(--k-font-figure);
         font-size: 15px;
         font-weight: var(--k-w-bold);
-      }
-      /* Level of detail (render/branchmap.ts): near, the culled node
-         groups with their text; far, only the skeleton's boxes. */
-      .map-svg.map-far .map-detail,
-      .map-svg.map-far .map-labels,
-      .map-svg:not(.map-far) .map-skeleton {
-        display: none;
-      }
-      /* Far out a dash would cost its whole length in dashes per frame;
-         the marks read by brightness alone there. */
-      .map-svg.map-far path {
-        stroke-dasharray: none;
       }
       .map-view.map-pointing {
         cursor: pointer;
@@ -1685,7 +1672,9 @@
          their height) on the sheet, a heavy ink ring once reached. Routes:
          solid ink once played, solid gold for the last pick, ink-outlined
          when partly read, dashed when unseen. Not reached: faint, dashed,
-         inert. */
+         inert. Each look's rule styles a node group's rect and, far out,
+         the merged capsules of that look (`.map-box`, render/branchmap.ts
+         `boxesMarkup`) alike, so zooming changes nothing. */
       .map-node rect,
       .map-box {
         fill: var(--k-sheet);
@@ -1763,34 +1752,9 @@
           calc(4px * var(--line-px, 1));
       }
       .map-svg .map-node.map-inert text,
+      .map-svg .map-dec-c.map-inert,
       .map-svg .map-route-c.map-inert {
         fill: rgba(var(--k-ink), 0.6);
-      }
-      /* Far out the boxes carry no text: solid blocks read best there,
-         each in its state's colour, swelled by a stroke of the same
-         colour. */
-      .map-svg.map-far .map-box {
-        fill: var(--k-line-partly);
-        stroke: var(--k-line-partly);
-        stroke-width: calc(3px * var(--line-px, 1));
-        stroke-linejoin: round;
-      }
-      .map-svg.map-far .map-box.map-dec.map-reached,
-      .map-svg.map-far .map-box.map-route-played {
-        fill: rgb(var(--k-ink));
-        stroke: rgb(var(--k-ink));
-      }
-      .map-svg.map-far .map-box.map-route-unseen {
-        fill: var(--k-line-unseen);
-        stroke: var(--k-line-unseen);
-      }
-      .map-svg.map-far .map-box.map-last {
-        fill: var(--k-gold);
-        stroke: var(--k-gold);
-      }
-      .map-svg.map-far .map-box.map-inert {
-        fill: var(--k-line-inert);
-        stroke: var(--k-line-inert);
       }
       /* Hover / focus on anything clickable: the gold ring (ink on the
          gold pill), and a decision's figures turn gold. */

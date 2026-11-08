@@ -34,17 +34,22 @@
 // transformed card layer once did, in Safari). The layout is computed once
 // per manifest, view shape and set of bookmarked screens (mapmodel.ts);
 // each open lays the reader's marks over it. Pan and zoom rewrite the
-// stage's transform, once per animation frame. Two levels keep a game with
-// hundreds of decisions at frame rate:
+// stage's transform, once per animation frame. The tree looks the same at
+// every zoom (docs/plan.md Phase 41): a zoomed-out view is the 100% one
+// scaled down. Two things keep a game with hundreds of decisions quick:
 //
-// - near (scale >= `labelMinScale`): the decision nodes, route pills and
-//   screen counts as focusable groups with text, and the lines, CULLED —
-//   only what lies within half a view's margin of the visible area exists,
-//   redrawn (one string, one parse) when the view leaves that area. Culling
-//   the lines matters as much as the nodes: a dashed stroke over a whole
-//   large tree's connectors costs its full length in dashes every frame;
-// - far (level of detail): no text and no per-node element; the whole tree
-//   as one path per look (lines undashed, every box a rectangle).
+// - culling: only the lines, nodes, counts and figures within half a
+//   view's margin of the visible area exist, redrawn (one string, one
+//   parse) when the view leaves that area. Culling the lines matters as
+//   much as the nodes: a dashed stroke over a whole large tree's
+//   connectors costs its full length in dashes every frame;
+// - far out (scale < `nodeGroupMinScale`), where a view holds hundreds of
+//   nodes, they are drawn merged into a few paths, one per look, with
+//   their figures beside them (`boxesMarkup`, `figuresMarkup`), not as a
+//   focusable group each (`detailMarkup`): the same capsules, classes and
+//   figures, so nothing changes but the cost. Where even the figures'
+//   digits would paint under a device pixel tall (`figuresVisible`), the
+//   counts and figures are left out: there they cannot be seen.
 //
 // Clicks and hovers find their node from the layout (`hitTest`), so they
 // work at any zoom. The "you are here" marker is drawn at a fixed screen
@@ -79,16 +84,18 @@ import {
   fullSizeView,
   hitTest,
   jumpFor,
-  labelMinScale,
   layoutSignature,
   MAP_GEOMETRY,
   MAX_SCALE,
+  type MapDecision,
+  type MapDrawing,
   type MapJump,
   type MapMarks,
   type MapModel,
   type MapReader,
   type MapTarget,
   type MapView,
+  mapDrawing,
   markMap,
   promptText,
   restoreView,
@@ -387,16 +394,39 @@ export function linesMarkup(
 }
 
 /**
- * The far view's nodes (level of detail): every box as plain rectangles
- * in a few paths, one per look — no text, no per-node element — so a whole
- * large tree paints in a few draw calls. Pure.
+ * A node's outline as a path: the capsule a `<rect>` of this box draws
+ * with `rx` half its height (index.html `.map-dec rect`; a pill's own
+ * `rx`), traced as the rect's outline is (from (x + r, top), clockwise),
+ * so a dash pattern falls on it exactly as on the rect. Pure.
  */
-export function skeletonMarkup(model: MapModel, marks: MapMarks): string {
+export function capsulePath(
+  x: number,
+  top: number,
+  w: number,
+  h: number,
+): string {
+  const r = h / 2;
+  return `M${x + r} ${top}H${x + w - r}A${r} ${r} 0 0 1 ${x + w - r} ${top + h}H${x + r}A${r} ${r} 0 0 1 ${x + r} ${top}Z`;
+}
+
+/**
+ * The nodes touching `rect` (all of them for null) as a few paths, one per
+ * look, with no per-node element: what the map draws out where per-node
+ * groups would cost too much (`nodeGroupMinScale`). The same capsules,
+ * classes and so styles as `detailMarkup`'s, so it looks the same; their
+ * figures are `figuresMarkup`'s. Pure.
+ */
+export function boxesMarkup(
+  model: MapModel,
+  marks: MapMarks,
+  rect: WorldRect | null = null,
+): string {
   const g = MAP_GEOMETRY;
   const paths: Record<string, string[]> = {};
   const add = (cls: string, x: number, y: number, w: number, h: number) => {
+    if (!within(rect, x, y - h / 2, x + w, y + h / 2)) return;
     paths[cls] ??= [];
-    paths[cls].push(`M${x} ${y - h / 2}h${w}v${h}h${-w}z`);
+    paths[cls].push(capsulePath(x, y - h / 2, w, h));
   };
   for (const node of model.decisions)
     add(
@@ -407,17 +437,24 @@ export function skeletonMarkup(model: MapModel, marks: MapMarks): string {
       g.decH,
     );
   model.routes.forEach((route, key) => {
-    const cls = [
-      "map-route",
-      `map-route-${marks.routes[key]}`,
-      marks.reached[route.decision] ? "map-reached" : "map-inert",
-    ];
-    if (marks.lastPick[key]) cls.push("map-last");
-    add(cls.join(" "), route.x, route.y, g.routeW, g.routeH);
+    add(
+      `map-route ${routeClasses(marks, key, route.decision)}`,
+      route.x,
+      route.y,
+      g.routeW,
+      g.routeH,
+    );
   });
   return Object.entries(paths)
     .map(([cls, d]) => `<path class="map-box ${cls}" d="${d.join("")}"/>`)
     .join("");
+}
+
+/** A decision node's figure: "played/total", or "?" when not reached. */
+function decisionFigure(marks: MapMarks, node: MapDecision): string {
+  return marks.reached[node.index]
+    ? `${marks.playedCount[node.index]}/${node.routes.length}`
+    : "?";
 }
 
 /**
@@ -438,12 +475,13 @@ export function countText(screens: number, bookmarks: number): string {
 export const NODE_FIGURE_BASELINE = 4.6;
 
 /**
- * The near view's nodes that touch `rect` (all of them for null):
- * decision nodes ("played/total", or "?" when not reached) and route
- * pills, each a focusable group with its full text in its label (and the
- * hover tooltip). A route pill's number is drawn by `labelsMarkup`, out
- * of the restyle a zoom brings (`lineScaleStyle`); a decision keeps its
- * figure, which turns gold on its hover and focus. Pure.
+ * The nodes that touch `rect` (all of them for null) as groups, the
+ * drawing from `nodeGroupMinScale` in (mapmodel.ts): decision nodes
+ * ("played/total", or "?" when not reached) and route pills, each a
+ * focusable group with its full text in its label (and the hover
+ * tooltip). A route pill's number is drawn by `labelsMarkup`, out of the
+ * restyle a zoom brings (`lineScaleStyle`); a decision keeps its figure,
+ * which turns gold on its hover and focus. Pure.
  */
 export function detailMarkup(
   model: MapModel,
@@ -458,13 +496,10 @@ export function detailMarkup(
     const reached = marks.reached[node.index];
     const target: MapTarget = { kind: "decision", decision: node.index };
     const { title, status } = describeTarget(model, marks, target);
-    const text = reached
-      ? `${marks.playedCount[node.index]}/${node.routes.length}`
-      : "?";
     out.push(
       `<g class="map-node map-dec${reached ? " map-reached" : " map-inert"}" data-d="${node.index}" transform="translate(${node.x} ${node.y})"${reached ? ' tabindex="0" role="button"' : ""} aria-label="${escapeXml(`${title}: ${status}`)}">` +
         `<rect x="0" y="${-g.decH / 2}" width="${g.decW}" height="${g.decH}" rx="5"/>` +
-        `<text class="map-dec-c" x="${g.decW / 2}" y="${NODE_FIGURE_BASELINE}">${text}</text></g>`,
+        `<text class="map-dec-c" x="${g.decW / 2}" y="${NODE_FIGURE_BASELINE}">${decisionFigure(marks, node)}</text></g>`,
     );
   }
   model.routes.forEach((route, key) => {
@@ -494,7 +529,7 @@ function routeClasses(marks: MapMarks, key: number, decision: number): string {
 }
 
 /**
- * The near view's text outside the nodes, touching `rect` (all of it for
+ * The text outside the node groups, touching `rect` (all of it for
  * null): the stretches' counts and the route pills' numbers (each with its
  * route's state classes, its key in `data-pill`, hidden from assistive
  * tech: the pill's label says it), drawn over the nodes, outside the
@@ -531,6 +566,59 @@ export function labelsMarkup(
     );
   });
   return out.join("");
+}
+
+/**
+ * The decision figures touching `rect` (all of them for null), for
+ * `boxesMarkup`'s nodes, which have no group to carry them: each where
+ * `detailMarkup` puts it in its node, in its node's reached or inert
+ * colour. Pure.
+ */
+export function figuresMarkup(
+  model: MapModel,
+  marks: MapMarks,
+  rect: WorldRect | null = null,
+): string {
+  const g = MAP_GEOMETRY;
+  const out: string[] = [];
+  for (const node of model.decisions) {
+    const top = node.y - g.decH / 2;
+    if (!within(rect, node.x, top, node.x + g.decW, top + g.decH)) continue;
+    const look = marks.reached[node.index] ? "map-reached" : "map-inert";
+    out.push(
+      `<text class="map-dec-c ${look}" x="${node.x + g.decW / 2}" y="${node.y + NODE_FIGURE_BASELINE}">${decisionFigure(marks, node)}</text>`,
+    );
+  }
+  return out.join("");
+}
+
+/**
+ * The tree touching `rect` (all of it for null) as `drawing` draws it: the
+ * lines and nodes (the world group, which a zoom restyles) and the counts
+ * and figures (beside it). Nodes as focusable groups, or merged into a few
+ * paths with their figures beside them; with the same look either way,
+ * the counts and figures left out only where they cannot be seen
+ * (mapmodel.ts `mapDrawing`). Pure.
+ */
+export function treeMarkup(
+  model: MapModel,
+  marks: MapMarks,
+  rect: WorldRect | null,
+  drawing: MapDrawing,
+): { tree: string; labels: string } {
+  const lines = linesMarkup(model, marks, rect);
+  if (drawing === "groups")
+    return {
+      tree: lines + detailMarkup(model, marks, rect),
+      labels: labelsMarkup(model, marks, rect),
+    };
+  return {
+    tree: lines + boxesMarkup(model, marks, rect),
+    labels:
+      drawing === "merged"
+        ? labelsMarkup(model, marks, rect) + figuresMarkup(model, marks, rect)
+        : "",
+  };
 }
 
 /** The node a DOM event landed on, as a map target. */
@@ -634,15 +722,13 @@ export function mountBranchMap({
     g.setAttribute("class", cls);
     return g;
   };
-  // The world: the far view's whole tree (lines and skeleton boxes) and
-  // the near view's culled lines and nodes, which a zoom restyles
-  // (`lineScaleStyle`); beside it the near view's counts and pill numbers,
-  // which it does not; over them the cards, and over those the marker.
+  // The world: the culled lines and nodes, which a zoom restyles
+  // (`lineScaleStyle`); beside it the counts and figures, which it does
+  // not; over them the cards, and over those the marker.
   const world = group("map-world");
-  const skeleton = group("map-skeleton");
   const detail = group("map-detail");
   const labels = group("map-labels");
-  world.append(skeleton, detail);
+  world.append(detail);
   svg.append(world, labels);
   const cardLayer = doc.createElement("div");
   cardLayer.className = "map-cards";
@@ -692,14 +778,13 @@ export function mountBranchMap({
   // and it is remembered as a Fit.
   let fitted = false;
   let frame = 0;
-  let far = false;
+  // How the tree is drawn for this zoom (`mapDrawing`; none yet).
+  let drawnAs: MapDrawing | null = null;
   let small = false;
   // The scale the card layer's per-zoom style was last set for.
   let styledScale = 0;
-  // The world rectangle the near nodes are drawn for (null: none drawn),
-  // and whether the skeleton is drawn for the current marks.
+  // The world rectangle the tree is drawn for (null: none drawn).
   let drawn: WorldRect | null = null;
-  let skeletonDrawn = false;
   // The viewport size, read once per open and on resize: reading it per
   // frame would force a layout each time.
   let vw = 800;
@@ -767,7 +852,6 @@ export function mountBranchMap({
     if (layOut() && model !== null) {
       marks = markNow(model);
       drawn = null;
-      skeletonDrawn = false;
       if (!fitted)
         view = centreOn(marks.here.x, marks.here.y, vw, vh, view.scale);
     } else if (!fitted) view = viewAfterResize(view, from, { w: vw, h: vh });
@@ -805,34 +889,27 @@ export function mountBranchMap({
       small = nowSmall;
       cardLayer.classList.toggle("map-cards-small", small);
     }
-    const nowFar = s < labelMinScale(model);
-    if (nowFar !== far) {
-      far = nowFar;
-      svg.classList.toggle("map-far", far);
+    // How this zoom draws the tree (`mapDrawing`): a change redraws.
+    const nowAs = mapDrawing(model, s, win?.devicePixelRatio || 1);
+    if (nowAs !== drawnAs) {
+      drawnAs = nowAs;
+      drawn = null;
     }
-    if (far) {
-      if (!skeletonDrawn) {
-        skeleton.innerHTML =
-          linesMarkup(model, marks) + skeletonMarkup(model, marks);
-        skeletonDrawn = true;
-      }
-    } else {
-      // Culling: the near nodes are drawn for the view plus a margin of
-      // half a view each way, and redrawn only once the view leaves that.
-      const seen = visibleWorld(view, vw, vh);
-      if (drawn === null || !containsRect(drawn, seen)) {
-        const w = (seen.x1 - seen.x0) / 2;
-        const h = (seen.y1 - seen.y0) / 2;
-        drawn = {
-          x0: seen.x0 - w,
-          y0: seen.y0 - h,
-          x1: seen.x1 + w,
-          y1: seen.y1 + h,
-        };
-        detail.innerHTML =
-          linesMarkup(model, marks, drawn) + detailMarkup(model, marks, drawn);
-        labels.innerHTML = labelsMarkup(model, marks, drawn);
-      }
+    // Culling: the tree is drawn for the view plus a margin of half a view
+    // each way, and redrawn only once the view leaves that.
+    const seen = visibleWorld(view, vw, vh);
+    if (drawn === null || !containsRect(drawn, seen)) {
+      const w = (seen.x1 - seen.x0) / 2;
+      const h = (seen.y1 - seen.y0) / 2;
+      drawn = {
+        x0: seen.x0 - w,
+        y0: seen.y0 - h,
+        x1: seen.x1 + w,
+        y1: seen.y1 + h,
+      };
+      const markup = treeMarkup(model, marks, drawn, nowAs);
+      detail.innerHTML = markup.tree;
+      labels.innerHTML = markup.labels;
     }
     svg.setAttribute("data-scale", String(s));
     loadPictures();
@@ -874,7 +951,6 @@ export function mountBranchMap({
     if (panel.hidden || model === null) return;
     marks = markNow(model);
     drawn = null;
-    skeletonDrawn = false;
     hideTip();
     if (frame === 0 && win !== null) frame = win.requestAnimationFrame(paint);
     else if (win === null) paint();
@@ -1383,7 +1459,6 @@ export function mountBranchMap({
     // list again.
     detail.textContent = "";
     labels.textContent = "";
-    skeleton.textContent = "";
     cardLayer.replaceChildren();
     cards = [];
     cardById.clear();
@@ -1416,8 +1491,6 @@ export function mountBranchMap({
     );
     view = start.view;
     fitted = start.fit;
-    far = view.scale < labelMinScale(model);
-    svg.classList.toggle("map-far", far);
     paint();
     panel.dataset.ready = "true";
   }
@@ -1432,10 +1505,8 @@ export function mountBranchMap({
     open() {
       onOpenChange?.(true);
       drawn = null;
-      skeletonDrawn = false;
       detail.textContent = "";
       labels.textContent = "";
-      skeleton.textContent = "";
       cardLayer.replaceChildren();
       deletions = NO_DELETIONS;
       showToast(false);

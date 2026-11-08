@@ -6,13 +6,16 @@ import { createMachine } from "../machine/machine";
 import type { Branch, Item, Route } from "../machine/types";
 import { DEFAULT_SETTINGS } from "../machine/types";
 import {
+  boxesMarkup,
+  capsulePath,
   describeTarget,
   detailMarkup,
+  figuresMarkup,
   LINE_MIN_SCALE,
   LINE_STEPS_PER_OCTAVE,
   labelsMarkup,
   lineScaleStyle,
-  skeletonMarkup,
+  treeMarkup,
 } from "./branchmap";
 import {
   bandOffsets,
@@ -24,7 +27,9 @@ import {
   type CardSlot,
   cardSlots,
   centreOn,
+  FIGURE_INK_PX,
   FIT_MARGIN_PX,
+  figuresVisible,
   fitView,
   fullSizeView,
   HERE_DECISION_GAP,
@@ -34,19 +39,20 @@ import {
   hitTest,
   itemX,
   jumpFor,
-  LABEL_MIN_SCALE,
-  labelMinScale,
   layoutSignature,
   MAP_GEOMETRY,
   MAX_SCALE,
   type MapModel,
   type MapReader,
+  mapDrawing,
   markMap,
+  NODE_GROUP_MIN_SCALE,
+  nodeGroupMinScale,
   restoreView,
   runAt,
   runJump,
   type SavedMapView,
-  SMALL_LABEL_MIN_SCALE,
+  SMALL_NODE_GROUP_MIN_SCALE,
   saveView,
   viewAfterResize,
   visibleWorld,
@@ -1202,7 +1208,7 @@ describe("the remembered view (Phase 33)", () => {
   });
 });
 
-describe("level of detail, culling and hit testing", () => {
+describe("culling and hit testing", () => {
   it("draws only the nodes near the view when asked to cull", () => {
     const { items, branches } = synthetic(30, 6, 26);
     const model = buildMapModel(items, branches);
@@ -1217,24 +1223,28 @@ describe("level of detail, culling and hit testing", () => {
     expect(culled).toBeLessThan(all / 20);
   });
 
-  it("drops labels further out for a small tree than for a large one", () => {
+  it("keeps node groups further out for a small tree than for a large one", () => {
     const small = demoModel();
     const large = buildMapModel(
       synthetic(30, 6, 26).items,
       synthetic(30, 6, 26).branches,
     );
-    expect(labelMinScale(small)).toBe(SMALL_LABEL_MIN_SCALE);
-    expect(labelMinScale(large)).toBe(LABEL_MIN_SCALE);
-    expect(SMALL_LABEL_MIN_SCALE).toBeLessThan(LABEL_MIN_SCALE);
+    expect(nodeGroupMinScale(small)).toBe(SMALL_NODE_GROUP_MIN_SCALE);
+    expect(nodeGroupMinScale(large)).toBe(NODE_GROUP_MIN_SCALE);
+    expect(SMALL_NODE_GROUP_MIN_SCALE).toBeLessThan(NODE_GROUP_MIN_SCALE);
   });
 
-  it("draws the far view as a few paths, one per look, with no text", () => {
+  it("merges a large tree's nodes into a few paths, one per look, with no per-node element", () => {
     const { items, branches } = synthetic(30, 6, 26);
     const model = buildMapModel(items, branches);
     const marks = markMap(model, { visited: [], playedRoutes: [], cursor: 0 });
-    const markup = skeletonMarkup(model, marks);
-    expect(markup).not.toContain("<text");
+    const markup = boxesMarkup(model, marks);
+    expect(markup).not.toMatch(/<g |<rect |<text /);
     expect(markup.match(/<path /g)?.length ?? 0).toBeLessThanOrEqual(8);
+    // Every node is in it, as one capsule (one closed subpath) each.
+    expect(markup.match(/Z/g)?.length).toBe(
+      model.decisions.length + model.routes.length,
+    );
   });
 
   it("finds the node under a world point, or none", () => {
@@ -1344,7 +1354,8 @@ describe("Spoilers: text of decisions not reached stays hidden", () => {
     return [
       detailMarkup(model, marks),
       labelsMarkup(model, marks),
-      skeletonMarkup(model, marks),
+      boxesMarkup(model, marks),
+      figuresMarkup(model, marks),
       ...tips,
     ].join("\n");
   }
@@ -1413,7 +1424,8 @@ describe("Spoilers: text of decisions not reached stays hidden", () => {
       shape(detailMarkup(model, on)),
     );
     expect(labelsMarkup(model, off)).toBe(labelsMarkup(model, on));
-    expect(skeletonMarkup(model, off)).toBe(skeletonMarkup(model, on));
+    expect(boxesMarkup(model, off)).toBe(boxesMarkup(model, on));
+    expect(figuresMarkup(model, off)).toBe(figuresMarkup(model, on));
   });
 });
 
@@ -1789,12 +1801,12 @@ describe("map layout (docs/plan.md Phase 40)", () => {
     expect(cssRule(/\.map-svg \.map-dec-c,\s*\.map-svg \.map-route-c/)).toMatch(
       /font-size: 13px;/,
     );
-    // The far view's boxes are the same size.
-    const skeleton = skeletonMarkup(model, marks);
-    expect(skeleton).toMatch(
-      /class="map-box map-dec map-reached" d="M[\d.]+ [\d.]+h52v28h-52z/,
-    );
-    expect(skeleton).toMatch(/h32v24h-32z/);
+    // Merged far out (Phase 41), the nodes are the same size.
+    const outerNode = model.decisionAt[OUTER];
+    if (outerNode === undefined) throw new Error("no outer decision");
+    const boxes = boxesMarkup(model, marks);
+    expect(boxes).toContain(capsulePath(outerNode.x, outerNode.y - 14, 52, 28));
+    expect(boxes).toContain(capsulePath(route.x, route.y - 12, 32, 24));
     // Rows 42 apart, routes 22 right of their decision's box.
     const outer = model.decisionAt[OUTER];
     if (outer === undefined) throw new Error("no outer decision");
@@ -1961,8 +1973,8 @@ describe("map lines (docs/plan.md Phase 40)", () => {
         (m) => ({ rule: r.selectors, value: m[2].trim() }),
       ),
     );
-    // Lines, stations, end marks, node outlines, hover rings, far boxes.
-    expect(strokes.length).toBeGreaterThanOrEqual(20);
+    // Lines, stations, end marks, node outlines, hover rings.
+    expect(strokes.length).toBeGreaterThanOrEqual(16);
     const unscaled = strokes.filter(
       ({ value }) =>
         value !== "none" &&
@@ -1970,6 +1982,194 @@ describe("map lines (docs/plan.md Phase 40)", () => {
     );
     expect(unscaled).toEqual([]);
     expect(tree.filter((r) => r.body.includes("vector-effect"))).toEqual([]);
+  });
+});
+
+describe("one look at every zoom (docs/plan.md Phase 41)", () => {
+  const rules = Array.from(
+    (/<style>([\s\S]*?)<\/style>/.exec(indexHtml)?.[1] ?? "")
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .matchAll(/([^{}]+)\{([^{}]*)\}/g),
+    (m) => ({
+      selectors: m[1]
+        .trim()
+        .split(/\s*,\s*/)
+        .map((sel) => sel.trim()),
+      body: m[2],
+    }),
+  );
+  const large = () => {
+    const { items, branches } = synthetic(30, 6, 26);
+    return buildMapModel(items, branches);
+  };
+  // The demo with every look: the outer decision reached, its route 2
+  // played and the last pick, route 1 unseen; the nested decision and its
+  // routes not reached.
+  const demoMarks = (model: MapModel) => {
+    const m = demoMachine();
+    m.advance(); // decide
+    m.advance(); // the outer choice opens
+    m.choose(1);
+    while (m.getState().cursor < DEMO_ITEMS.length - 1 && !m.getState().choice)
+      m.advance();
+    return markMap(model, readerOf(m));
+  };
+  const count = (markup: string, re: RegExp) => markup.match(re)?.length ?? 0;
+
+  it("just below the old threshold (0.6x; 0.3x for a small tree) draws capsules with their figures, counts and pill numbers", () => {
+    for (const [model, scale] of [
+      [large(), 0.59],
+      [demoModel(), 0.29],
+    ] as const) {
+      const marks = markMap(model, {
+        visited: [],
+        playedRoutes: [],
+        cursor: 0,
+      });
+      const drawing = mapDrawing(model, scale, 1);
+      expect(drawing).toBe("merged");
+      const { tree, labels } = treeMarkup(model, marks, null, drawing);
+      // Capsules (arcs), never the old plain rectangles.
+      expect(tree).not.toMatch(/h52v28|h32v24/);
+      expect(count(tree, /A14 14 /g)).toBe(2 * model.decisions.length);
+      expect(count(tree, /A12 12 /g)).toBe(2 * model.routes.length);
+      // Every figure and count, as at 100%.
+      expect(count(labels, /class="map-dec-c /g)).toBe(model.decisions.length);
+      expect(count(labels, /class="map-route-c /g)).toBe(model.routes.length);
+      expect(count(labels, /class="map-count"/g)).toBe(model.runs.length);
+      // Just above, the same pieces as groups.
+      const near = treeMarkup(
+        model,
+        marks,
+        null,
+        mapDrawing(model, scale + 0.02, 1),
+      );
+      expect(count(near.tree, /<g class="map-node /g)).toBe(
+        model.decisions.length + model.routes.length,
+      );
+    }
+  });
+
+  it("traces each merged node as its group's rect outline: the same capsule (radius half the height) and start, with the same look classes", () => {
+    const model = demoModel();
+    const marks = demoMarks(model);
+    const groups = detailMarkup(model, marks);
+    const boxes = boxesMarkup(model, marks);
+    // The rects' radii: a decision's from index.html (its attribute is
+    // overridden), a pill's its own attribute; both half the height.
+    const decRx = rules
+      .find((r) => r.selectors.includes(".map-dec rect"))
+      ?.body.match(/rx:\s*([\d.]+)px/)?.[1];
+    expect(Number(decRx)).toBe(MAP_GEOMETRY.decH / 2);
+    expect(groups).toContain(`rx="${MAP_GEOMETRY.routeH / 2}"`);
+    // A rect's outline starts at (x + rx, top) and runs clockwise, so a
+    // dash pattern falls the same on either.
+    expect(capsulePath(10, 20, 32, 24)).toBe(
+      "M22 20H30A12 12 0 0 1 30 44H22A12 12 0 0 1 22 20Z",
+    );
+    const looks = new Set<string>();
+    const pathOf = (cls: string) =>
+      new RegExp(`<path class="map-box ${cls}" d="([^"]*)"`).exec(boxes)?.[1];
+    for (const node of model.decisions) {
+      const cls = /class="map-node (map-dec [^"]*)" data-d="(\d+)"/g;
+      const look = Array.from(groups.matchAll(cls)).find(
+        (m) => Number(m[2]) === node.index,
+      )?.[1];
+      if (look === undefined) throw new Error("no group");
+      looks.add(look);
+      expect(pathOf(look)).toContain(
+        capsulePath(node.x, node.y - MAP_GEOMETRY.decH / 2, 52, 28),
+      );
+    }
+    model.routes.forEach((route, key) => {
+      const look = new RegExp(
+        `class="map-node (map-route [^"]*)" data-r="${key}"`,
+      ).exec(groups)?.[1];
+      if (look === undefined) throw new Error("no group");
+      looks.add(look);
+      expect(pathOf(look)).toContain(
+        capsulePath(route.x, route.y - MAP_GEOMETRY.routeH / 2, 32, 24),
+      );
+    });
+    // Every look the demo has: reached and not, played, unseen, last pick.
+    expect([...looks].sort()).toEqual([
+      "map-dec map-inert",
+      "map-dec map-reached",
+      "map-route map-route-played map-reached map-last",
+      "map-route map-route-unseen map-inert",
+      "map-route map-route-unseen map-reached",
+    ]);
+  });
+
+  it("puts each merged decision figure where its group puts it, with its text and look", () => {
+    const model = demoModel();
+    const marks = demoMarks(model);
+    const groups = detailMarkup(model, marks);
+    const figures = figuresMarkup(model, marks);
+    for (const node of model.decisions) {
+      const group = new RegExp(
+        `data-d="${node.index}" transform="translate\\(([-\\d.]+) ([-\\d.]+)\\)"[^>]*>.*?<text class="map-dec-c" x="([-\\d.]+)" y="([-\\d.]+)">([^<]*)</text>`,
+      ).exec(groups);
+      if (group === null) throw new Error("no group figure");
+      const [, tx, ty, x, y, text] = group;
+      const look = marks.reached[node.index] ? "map-reached" : "map-inert";
+      expect(figures).toContain(
+        `<text class="map-dec-c ${look}" x="${Number(tx) + Number(x)}" y="${Number(ty) + Number(y)}">${text}</text>`,
+      );
+    }
+    // The inert figure's colour is the inert group's.
+    const inert = rules.find((r) =>
+      r.selectors.includes(".map-svg .map-node.map-inert text"),
+    );
+    expect(inert?.selectors).toContain(".map-svg .map-dec-c.map-inert");
+  });
+
+  it("styles every look by one rule for a group's rect and a merged capsule alike, with no far-only rule", () => {
+    const tree = rules.filter((r) =>
+      r.selectors.some((s) => s.includes(".map-")),
+    );
+    expect(
+      tree.filter((r) =>
+        r.selectors.some((s) => /map-far|map-skeleton/.test(s)),
+      ),
+    ).toEqual([]);
+    const boxRules = tree.filter((r) =>
+      r.selectors.some((s) => s.includes(".map-box")),
+    );
+    expect(boxRules.length).toBeGreaterThanOrEqual(6);
+    for (const rule of boxRules)
+      for (const sel of rule.selectors.filter((s) => s.includes(".map-box"))) {
+        // `.map-box.map-route-played` pairs with a rect rule of the same
+        // classes: `.map-route.map-route-played rect`, `.map-node... rect`.
+        const classes = sel.replace(".map-box", "").split(".").filter(Boolean);
+        const twin = rule.selectors.find(
+          (other) =>
+            other.endsWith(" rect") &&
+            classes.every((c) => other.includes(`.${c}`)),
+        );
+        expect(twin, `${sel} has a rect twin in its rule`).toBeDefined();
+      }
+  });
+
+  it("leaves the counts and figures out only where their digits paint under a device pixel tall", () => {
+    const edge = 1 / FIGURE_INK_PX;
+    expect(figuresVisible(edge, 1)).toBe(true);
+    expect(figuresVisible(edge * 0.99, 1)).toBe(false);
+    expect(figuresVisible(edge / 2, 2)).toBe(true);
+    expect(figuresVisible((edge * 0.99) / 2, 2)).toBe(false);
+    // The 570-decision tree at Fit in a 1920x1080 window: its digits are
+    // about 1.8 px tall, drawn. With perf:map's 180 bookmarks spreading
+    // its rows it fits at about 0.1x: under a pixel at 1x, drawn at 2x.
+    const model = large();
+    expect(mapDrawing(model, fitView(model, 1920, 956).scale, 1)).toBe(
+      "merged",
+    );
+    expect(mapDrawing(model, 0.1, 1)).toBe("bare");
+    expect(mapDrawing(model, 0.1, 2)).toBe("merged");
+    const marks = markMap(model, { visited: [], playedRoutes: [], cursor: 0 });
+    const bare = treeMarkup(model, marks, null, "bare");
+    expect(bare.labels).toBe("");
+    expect(bare.tree).toBe(treeMarkup(model, marks, null, "merged").tree);
   });
 });
 
