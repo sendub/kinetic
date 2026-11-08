@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { createMachine } from "../machine/machine";
 import type { Branch, Item, Route } from "../machine/types";
@@ -9,6 +12,7 @@ import {
   CARD,
   CARD_ABOVE,
   CARD_BELOW,
+  CARD_COUNT_DY,
   type CardSlot,
   cardSlots,
   centreOn,
@@ -1468,7 +1472,7 @@ describe("bookmark cards on the line (docs/plan.md Phase 35)", () => {
         expect(run.bookmarks).toEqual([]);
         expect(compact(run)).toBe(g.runW);
       }
-    // A card is the old t screen's at 100%: 280 px of thumbnail and caption.
+    // A card is the old t screen's thumbnail at 100%: 280 px wide, 16:9.
     expect(CARD.w).toBe(280);
     expect(CARD.thumbH).toBe(Math.round((280 * 9) / 16));
   });
@@ -1726,6 +1730,99 @@ describe("bookmark cards on the line (docs/plan.md Phase 35)", () => {
       view: fitView(more, 1440, 860),
       fit: true,
     });
+  });
+});
+
+// Phase 40 ("Map layout"): the nodes a size up, the cards their thumbnail
+// alone. The type size and the card's box live in CSS, so those assertions
+// read the shipped index.html, as fit.test.ts does; the card's DOM is the
+// bookmarkmap walk's (no browser here).
+const indexHtml = readFileSync(
+  join(dirname(fileURLToPath(import.meta.url)), "..", "..", "index.html"),
+  "utf8",
+);
+/** The declarations of the rule whose selector list matches `selector`. */
+function cssRule(selector: RegExp): string {
+  const found = new RegExp(
+    `(?:^|[}\\s])${selector.source}\\s*\\{([^}]*)\\}`,
+  ).exec(indexHtml);
+  if (found === null) throw new Error(`no rule ${selector}`);
+  return found[1];
+}
+
+describe("map layout (docs/plan.md Phase 40)", () => {
+  const g = MAP_GEOMETRY;
+
+  it("draws decisions 52 x 28 and route pills 32 x 24, their 13 px figures centred, on rows 42 apart", () => {
+    const model = demoModel();
+    const m = demoMachine();
+    m.advance(); // decide
+    m.advance(); // the outer choice opens
+    const marks = markMap(model, readerOf(m));
+    const markup = detailMarkup(model, marks);
+    expect(markup).toContain(
+      '<rect x="0" y="-14" width="52" height="28" rx="5"/><text class="map-dec-c" x="26" y="4.6">0/2</text>',
+    );
+    expect(markup).toContain(
+      '<rect x="0" y="-12" width="32" height="24" rx="12"/><text class="map-route-c" x="16" y="4.6">2</text>',
+    );
+    expect(cssRule(/\.map-svg \.map-dec-c,\s*\.map-svg \.map-route-c/)).toMatch(
+      /font-size: 13px;/,
+    );
+    // The far view's boxes are the same size.
+    const skeleton = skeletonMarkup(model, marks);
+    expect(skeleton).toMatch(
+      /class="map-box map-dec map-reached" d="M[\d.]+ [\d.]+h52v28h-52z/,
+    );
+    expect(skeleton).toMatch(/h32v24h-32z/);
+    // Rows 42 apart, routes 22 right of their decision's box.
+    const outer = model.decisionAt[OUTER];
+    if (outer === undefined) throw new Error("no outer decision");
+    const r1 = model.routes[routeKey(model, OUTER, 0)];
+    const r2 = model.routes[routeKey(model, OUTER, 1)];
+    expect(r2.y - r1.y).toBe(42);
+    expect(r1.x - (outer.x + 52)).toBe(22);
+    // A click lands on the whole bigger box, at any zoom.
+    expect(hitTest(model, outer.x + 51, outer.y + 13.5)).toEqual({
+      kind: "decision",
+      decision: OUTER,
+    });
+    expect(hitTest(model, r2.x + 31, r2.y - 11.5)).toEqual({
+      kind: "route",
+      key: routeKey(model, OUTER, 1),
+    });
+    expect(g).toMatchObject({ pad: 40, runW: 44, wrapGap: 40 });
+  });
+
+  it("makes a card its 280 x 158 thumbnail alone, centred on its line, its row only as roomy as that card needs", () => {
+    expect([CARD.w, CARD.h]).toEqual([280, 158]);
+    expect(CARD.h).toBe(CARD.thumbH);
+    // On nested route b's line (item 5), a row under the main line.
+    const plain = demoModel();
+    const model = buildMapModel(DEMO_ITEMS, DEMO_BRANCHES, undefined, [5]);
+    const [slot] = cardSlots(model, [{ itemIndex: 5, timestampMs: 1 }]);
+    const run = runAt(model.runs, 5);
+    if (slot == null || run === undefined) throw new Error("no card");
+    expect(slot).toMatchObject({ y: run.y - 79, cy: run.y });
+    // Room for the card: half of it and 10 above the line, half of it and
+    // 24 below (the count line), so that row sits 42 + 89 under the main
+    // line where it sat 42 under without the card.
+    expect([CARD_ABOVE, CARD_BELOW]).toEqual([89, 103]);
+    const main = model.decisionAt[OUTER];
+    const plainMain = plain.decisionAt[OUTER];
+    const plainRun = runAt(plain.runs, 5);
+    if (main === undefined || plainMain === undefined || !plainRun)
+      throw new Error("unset");
+    expect(plainRun.y - plainMain.y).toBe(42);
+    expect(run.y - main.y).toBe(42 + 89);
+    // The count line (11 px type, baseline CARD_COUNT_DY under the line)
+    // starts below the card's bottom edge, and the tree's box holds it.
+    expect(CARD_COUNT_DY - 11).toBeGreaterThanOrEqual(CARD.h / 2);
+    expect(model.bounds.y1).toBeGreaterThanOrEqual(run.y + CARD_COUNT_DY);
+    // The card's box is that thumbnail: no caption strip under it.
+    expect(cssRule(/\.bm-card/)).toContain(`height: ${CARD.h}px;`);
+    expect(cssRule(/\.bm-thumb/)).toContain("height: 100%;");
+    expect(indexHtml).not.toMatch(/\.bm-(cap|time|tag)\b/);
   });
 });
 

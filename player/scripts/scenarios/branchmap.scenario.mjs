@@ -27,6 +27,8 @@
 // bookmark card's delete x's: bookmarkmap.scenario.mjs). Phase 35: the
 // nodes are compact (their full text in the label and tooltip), and the
 // view's transform is the stage's (lines, cards and marker share it).
+// Phase 40: decisions are 52 x 28 and route pills 32 x 24 world units,
+// their 13 px figures' digits centred in them (ink measured in the page).
 // Screenshots land in .tmp/branchmap-shots/fb-*.png, spoil-*.png,
 // mark-*.png, simp-*.png and hint-*.png.
 
@@ -178,6 +180,38 @@ async function click(cdp, x, y) {
   await mouse(cdp, "mouseReleased", x, y, 0);
 }
 
+// Each drawn node's box in world units (its rect's bounding box) and its
+// figure: type size, horizontal anchor, and how far its digits' ink centre
+// sits from the node's centre line (canvas measureText in the node's own
+// font; the slash of "1/2" left out, it straddles the digits).
+const READ_NODE_FIGURES = () =>
+  Array.from(document.querySelectorAll("#branchmap .map-detail .map-node")).map(
+    (node) => {
+      const rect = node.querySelector("rect");
+      const text = node.querySelector("text");
+      const box = rect.getBBox();
+      const cs = getComputedStyle(text);
+      const ctx = document.createElement("canvas").getContext("2d");
+      ctx.font = `${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
+      const ink = ctx.measureText(text.textContent.replace("/", ""));
+      const baseline = Number(text.getAttribute("y"));
+      return {
+        kind: node.classList.contains("map-dec") ? "decision" : "route",
+        w: box.width,
+        h: box.height,
+        top: box.y,
+        fontSize: cs.fontSize,
+        anchorX: Number(text.getAttribute("x")) - (box.x + box.width / 2),
+        anchor: cs.textAnchor,
+        inkOffset:
+          baseline -
+          (ink.actualBoundingBoxAscent - ink.actualBoundingBoxDescent) / 2 -
+          (box.y + box.height / 2),
+        text: text.textContent,
+      };
+    },
+  );
+
 async function openMap(page, cdp) {
   await pressM(cdp);
   await page.waitForFunction(MAP_OPEN, { timeout: 3000 });
@@ -222,6 +256,23 @@ export default async function ({ check, open }) {
       route1?.state === "unseen" &&
       route1?.inert === false,
     { outerNode, nestedNode, route1, route2 },
+  );
+  const figures = await page.evaluate(READ_NODE_FIGURES);
+  check(
+    "nodes are a size up (Phase 40): decisions 52 x 28, route pills 32 x 24, their 13 px figures centred (digits' ink within 0.25 px of the node's centre line)",
+    figures.length === 6 &&
+      figures.every(
+        (f) =>
+          (f.kind === "decision"
+            ? f.w === 52 && f.h === 28
+            : f.w === 32 && f.h === 24) &&
+          f.top === -f.h / 2 &&
+          f.fontSize === "13px" &&
+          f.anchor === "middle" &&
+          f.anchorX === 0 &&
+          Math.abs(f.inkOffset) <= 0.25,
+      ),
+    { figures },
   );
   check(
     "the 'you are here' marker is drawn inside the view, on route 2's line",

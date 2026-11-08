@@ -1901,13 +1901,25 @@ truthful: an unchecked box means nothing was accepted.
       722 pass, check clean; smoke 6/6, screens 66 pass, 2 PARTIAL
       (headless fullscreen Escapes), 0 FAIL; subagent: branchmap
       48/48; the old texts survive only in plan.md/progress.md.)
-- [ ] Map layout (docs/plan.md Phase 40, second bullet): larger nodes
+- [x] Map layout (docs/plan.md Phase 40, second bullet): larger nodes
       (52x28 decisions, 32x24 route pills, rows 42, gap 22, 13 px
       figures centred) and cards without the caption strip (thumbnail
       only, newest outlined, timestamp in the hover tooltip, aria label
       unchanged), rows holding cards sized for the shorter card. Unit
       tests that fail on HEAD's code; `npm run perf:map` against
       docs/perf.md's numbers.
+      (2026-11-08: `MAP_GEOMETRY` and `CARD.h` 158 as planned; figure
+      baseline `NODE_FIGURE_BASELINE` 4.6, measured with canvas
+      `measureText` (digit ink 0.02-0.09 px off the node's centre);
+      card bands follow `CARD.h` (above 101 -> 89, below 115 -> 103,
+      count line 106 -> 94); the harness reads a card's time from its
+      label; README and docs/verify-player.md drop the NEWEST tag.
+      Orchestrator: npm test 724 pass, check clean; smoke 6/6,
+      branchmap 49/49, bookmarkmap 29/29; screenshots show centred
+      figures and caption-free cards. Subagent: new unit and scenario
+      checks fail on HEAD's sources; screens 66 pass, 2 PARTIAL
+      (headless fullscreen Escapes); perf:map with 180 bookmarks opens
+      51.7-64.1 ms (Phase 35: 55-67), frames p95 16.7-16.8 ms.)
 - [ ] Transit look (docs/plan.md Phase 40, third bullet): the sandbox
       skin's styles written into `player/index.html` as its own rules,
       with the user's changes (scene2 key caps and matching choice

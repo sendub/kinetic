@@ -13,15 +13,15 @@
 //
 // Bookmarks (Phase 35, replacing the `t` screen): each is a card centred
 // on its stretch's line at its screen's place (mapmodel.ts `cardSlots`),
-// its thumbnail over its timestamp, the newest outlined and tagged. A click
-// opens it (the shell restores it and closes the map); a drag that starts
-// on a card pans. Its × deletes it at any zoom (drawn at a fixed screen
-// size, so it stays usable at Fit); the card stays as a ghost with an Undo
-// (a click anywhere on it undoes too) until the map closes, and Z undoes
-// the latest delete. No key acts on a card. Pictures load lazily, a few at
-// a time, the cards in view first (mapcards.ts `pictureOrder`); the shell
-// shrinks a manifest still before a card shows it (bookmarks.ts
-// `shrinkStill`), as Safari needs.
+// its thumbnail alone (its time in the hover tooltip and its label), the
+// newest outlined. A click opens it (the shell restores it and closes the
+// map); a drag that starts on a card pans. Its × deletes it at any zoom
+// (drawn at a fixed screen size, so it stays usable at Fit); the card
+// stays as a ghost with an Undo (a click anywhere on it undoes too) until
+// the map closes, and Z undoes the latest delete. No key acts on a card.
+// Pictures load lazily, a few at a time, the cards in view first
+// (mapcards.ts `pictureOrder`); the shell shrinks a manifest still before
+// a card shows it (bookmarks.ts `shrinkStill`), as Safari needs.
 //
 // The view is remembered (Phase 33): the first open is a Fit; after that
 // the map reopens where it was left — a Fit as a fresh Fit for the window,
@@ -133,9 +133,9 @@ export interface MapBookmarks {
 }
 
 /**
- * Below this scale a card's caption (13 px type, so under 9 px here) is
- * unreadable: the thumbnail fills the card, its time left to the hover
- * tooltip (which gives it at every zoom).
+ * Below this scale a ghost's words (14 px type, so under 10 px here) are
+ * unreadable: a ghost is just its dashed outline (index.html
+ * `.map-cards-small`).
  */
 export const CARD_SMALL_SCALE = 0.7;
 
@@ -395,6 +395,14 @@ export function countText(screens: number, bookmarks: number): string {
 }
 
 /**
+ * The baseline of a node's figure (index.html `.map-dec-c`, `.map-route-c`,
+ * 13 px), below the node's centre line: its digits' ink is 9.2-9.4 px
+ * tall in the system UI font (measured with canvas `measureText` in
+ * Chrome), so this centres them in the node.
+ */
+export const NODE_FIGURE_BASELINE = 4.6;
+
+/**
  * The near view's nodes: decision nodes ("played/total", or "?" when not
  * reached), route pills (their choice number) and the stretches' counts
  * that touch `rect` (all of them for null), each node a focusable group
@@ -435,7 +443,7 @@ export function detailMarkup(
     out.push(
       `<g class="map-node map-dec${reached ? " map-reached" : " map-inert"}" data-d="${node.index}" transform="translate(${node.x} ${node.y})"${reached ? ' tabindex="0" role="button"' : ""} aria-label="${escapeXml(`${title}: ${status}`)}">` +
         `<rect x="0" y="${-g.decH / 2}" width="${g.decW}" height="${g.decH}" rx="5"/>` +
-        `<text class="map-dec-c" x="${g.decW / 2}" y="4">${text}</text></g>`,
+        `<text class="map-dec-c" x="${g.decW / 2}" y="${NODE_FIGURE_BASELINE}">${text}</text></g>`,
     );
   }
   model.routes.forEach((route, key) => {
@@ -457,7 +465,7 @@ export function detailMarkup(
     out.push(
       `<g class="${classes.join(" ")}" data-r="${key}" data-state="${state}" transform="translate(${route.x} ${route.y})"${reached ? ' tabindex="0" role="button"' : ""} aria-label="${escapeXml(`${title}: ${status}`)}">` +
         `<rect x="0" y="${-g.routeH / 2}" width="${g.routeW}" height="${g.routeH}" rx="${g.routeH / 2}"/>` +
-        `<text class="map-route-c" x="${g.routeW / 2}" y="4">${route.route + 1}</text></g>`,
+        `<text class="map-route-c" x="${g.routeW / 2}" y="${NODE_FIGURE_BASELINE}">${route.route + 1}</text></g>`,
     );
   });
   return out.join("");
@@ -845,18 +853,6 @@ export function mountBranchMap({
     thumb.className = "bm-thumb";
     const picture = pictures.get(row.id);
     if (picture) thumb.append(picture);
-    const caption = doc.createElement("div");
-    caption.className = "bm-cap";
-    const time = doc.createElement("span");
-    time.className = "bm-time";
-    time.textContent = formatTimestamp(row.timestampMs);
-    caption.append(time);
-    if (newest) {
-      const tag = doc.createElement("span");
-      tag.className = "bm-tag";
-      tag.textContent = "Newest";
-      caption.append(tag);
-    }
     // Pointer controls only: no key acts on a card (Phase 35), so neither
     // button takes focus (a press never focuses: pointerdown is cancelled).
     const del = doc.createElement("button");
@@ -876,7 +872,7 @@ export function mountBranchMap({
     undo.tabIndex = -1;
     undo.textContent = "Undo";
     ghost.append(gone, undo);
-    el.append(thumb, caption, del, ghost);
+    el.append(thumb, del, ghost);
     return el;
   }
 
@@ -1091,7 +1087,7 @@ export function mountBranchMap({
   }
 
   // A card's tip, the same at every zoom and on a ghost (Phase 36): only
-  // when the bookmark was made, the caption's text.
+  // when the bookmark was made (a card has no caption, Phase 40).
   function showCardTip(card: Card, clientX: number, clientY: number): void {
     placeTip(
       `b${card.row.id}`,

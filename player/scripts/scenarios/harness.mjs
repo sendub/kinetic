@@ -133,10 +133,13 @@ const READ_BOOKMARKS = async () => {
 // The branch map's bookmark cards as the reader sees them (docs/plan.md
 // Phase 35: the bookmarks live on the map; the `t` screen is gone): whether
 // the map is up and has drawn its cards, and per card, in DOM order (story
-// order, top to bottom then left to right), its item, timestamp text,
-// newest and deleted marks, where it is on screen, and whether its picture
-// resolved (the stored capture, or the manifest still shrunk into a canvas
-// that names its file, `data-still-src`).
+// order, top to bottom then left to right), its item, its timestamp (from
+// its label, "Bookmark <time>" with " (newest)" on the newest: a card has
+// no caption, Phase 40), newest and deleted marks, its parts (child
+// classes), its outline (box-shadow), where it and its thumbnail are on
+// screen, and whether its picture resolved (the stored capture, or the
+// manifest still shrunk into a canvas that names its file,
+// `data-still-src`).
 const READ_MAP_CARDS = () => {
   const panel = document.getElementById("branchmap");
   if (panel === null) return { present: false };
@@ -170,10 +173,14 @@ const READ_MAP_CARDS = () => {
         id: el.getAttribute("data-bm"),
         itemId: el.getAttribute("data-item-id"),
         itemIndex: Number(el.getAttribute("data-item-index")),
-        time: el.querySelector(".bm-time")?.textContent ?? "",
+        time: (el.getAttribute("aria-label") ?? "")
+          .replace(/^Bookmark /, "")
+          .replace(/ \(newest\)$/, ""),
         newest: el.classList.contains("bm-newest"),
         deleted: el.classList.contains("bm-deleted"),
         label: el.getAttribute("aria-label"),
+        parts: Array.from(el.children).map((c) => c.className),
+        outline: getComputedStyle(el).boxShadow,
         picTag: pic?.tagName ?? null,
         picSrcHead: pic
           ? (
@@ -189,6 +196,7 @@ const READ_MAP_CARDS = () => {
               ? pic.complete && pic.naturalWidth > 0
               : pic.width > 0,
         rect: rectOf(el),
+        thumbRect: rectOf(el.querySelector(".bm-thumb")),
         deleteRect: rectOf(el.querySelector(".bm-del")),
         deleteText: el.querySelector(".bm-del")?.textContent ?? null,
       };

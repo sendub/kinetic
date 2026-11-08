@@ -55,32 +55,34 @@ export type { SavedMapView };
 
 /**
  * Geometry in world units (CSS pixels at zoom 1). Compact (docs/plan.md
- * Phase 35): at 100% a world unit is a screen pixel sized by the bookmark
- * cards, so a decision is a small "played/total" node and a route a
- * numbered pill; their full text is in the hover tooltip.
+ * Phase 35; a size up in Phase 40, the figures 13 px in index.html): at
+ * 100% a world unit is a screen pixel sized by the bookmark cards, so a
+ * decision is a small "played/total" node and a route a numbered pill;
+ * their full text is in the hover tooltip.
  */
 export const MAP_GEOMETRY = {
   pad: 40,
-  rowH: 34,
+  rowH: 42,
   runW: 44,
-  decW: 40,
-  decH: 22,
-  routeW: 24,
-  routeH: 18,
-  gap: 20,
+  decW: 52,
+  decH: 28,
+  routeW: 32,
+  routeH: 24,
+  gap: 22,
   /** Space between wrapped rows, which the continuation connector runs through. */
   wrapGap: 40,
 } as const;
 
 /**
  * A bookmark's card (Phase 35), world units: at 100% zoom the old `t`
- * screen's card, a 280 x 158 thumbnail over a 24 px timestamp caption.
- * Cards sit centred on their stretch's line, side by side in story order,
- * `gap` apart, `inset` in from the stretch's ends.
+ * screen's thumbnail, 280 x 158, and nothing else (Phase 40: no caption;
+ * its time is in the hover tooltip and its label). Cards sit centred on
+ * their stretch's line, side by side in story order, `gap` apart, `inset`
+ * in from the stretch's ends.
  */
 export const CARD = {
   w: 280,
-  h: 182,
+  h: 158,
   thumbH: 158,
   gap: 10,
   pitch: 290,

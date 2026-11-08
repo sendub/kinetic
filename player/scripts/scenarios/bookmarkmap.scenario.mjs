@@ -2,7 +2,10 @@
 // bookmarks taken by `b`: each bookmark's card sits on the story line at
 // its screen's place (the "you are here" point for that screen is its
 // card's centre), in story order, the newest marked; 1 (100%) shows the
-// cards at the old `t` screen's size (280 px), no two overlapping; a click
+// cards at the old `t` screen's size, a card its 280 x 158 thumbnail alone
+// (no caption strip, Phase 40; the newest outlined, its time in its label
+// and tooltip), the count line under them clear of the cards, no two
+// overlapping; a click
 // on a card opens the bookmark (the map closes, the reader lands on it); a
 // drag that starts on a card pans and opens nothing; Delete, Backspace and
 // Enter do nothing to a card; the × deletes at 100% and at Fit (drawn at a
@@ -43,7 +46,7 @@ import {
 } from "./harness.mjs";
 
 export const title =
-  "bookmarks on the branch map: cards at their place in story order, newest marked, 100% at the t screen's size, click opens, drag pans, no Del/Enter, × with undo (ghost, toast, Z) at 100% and Fit, hover tip only the timestamp at every zoom, t does nothing, no T row, drags keep cards and lines together";
+  "bookmarks on the branch map: cards at their place in story order, newest marked, 100% at the t screen's size (thumbnail alone, count line clear), click opens, drag pans, no Del/Enter, × with undo (ghost, toast, Z) at 100% and Fit, hover tip only the timestamp at every zoom, t does nothing, no T row, drags keep cards and lines together";
 
 const shots = join(repoRoot, ".tmp", "bookmarkmap-shots");
 
@@ -267,6 +270,57 @@ async function cards({ check, open }) {
       ) &&
       fc.every((x, i) => i === 0 || x.rect.left >= fc[i - 1].rect.right + 5),
     { scale: full.scale, cards: fc.map((x) => [x.rect.width, x.time]) },
+  );
+  // Phase 40: a card is its thumbnail alone (no caption strip): 280 x 158,
+  // the thumbnail filling it inside its 1 px border, nothing but the
+  // thumbnail, the × and the ghost in it; the newest keeps its outline and
+  // " (newest)" in its label. The stretch's count line sits under the
+  // cards, clear of them.
+  const countLines = await page.evaluate(() =>
+    Array.from(document.querySelectorAll("#branchmap .map-count-cards")).map(
+      (el) => {
+        const r = el.getBoundingClientRect();
+        return {
+          top: r.top,
+          left: r.left,
+          right: r.right,
+          text: el.textContent,
+        };
+      },
+    ),
+  );
+  const under = countLines.find((l) => Math.abs(l.left - fc[0].rect.left) < 2);
+  const cardsBottom = Math.max(...fc.map((x) => x.rect.bottom));
+  check(
+    'at 100% a card is its 280 x 158 thumbnail alone (no caption), the newest outlined and labelled "(newest)", the count line under the cards clear of them',
+    fc.length === 3 &&
+      fc.every(
+        (x) =>
+          Math.abs(x.rect.height - 158) < 1 &&
+          x.thumbRect !== null &&
+          Math.abs(x.thumbRect.top - (x.rect.top + 1)) < 0.6 &&
+          Math.abs(x.thumbRect.bottom - (x.rect.bottom - 1)) < 0.6 &&
+          x.parts.join() === "bm-thumb,bm-del,bm-ghost" &&
+          x.label === `Bookmark ${x.time}${x.newest ? " (newest)" : ""}` &&
+          (x.outline !== "none") === x.newest,
+      ) &&
+      under !== undefined &&
+      / · \d+ bookmarks?$/.test(under.text) &&
+      under.top >= cardsBottom + 2,
+    {
+      cards: fc.map((x) => ({
+        h: x.rect.height,
+        thumb: x.thumbRect && [
+          x.thumbRect.top - x.rect.top,
+          x.rect.bottom - x.thumbRect.bottom,
+        ],
+        parts: x.parts,
+        label: x.label,
+        outline: x.outline,
+      })),
+      countLines,
+      cardsBottom,
+    },
   );
 
   // No key acts on a card: Delete, Backspace and Enter over a hovered card.
@@ -640,7 +694,7 @@ async function deletes({ check, open }) {
     { scale: m.scale, tip: newestTip100, time: newest100?.time },
   );
 
-  // At Fit the cards are small (no caption) and the × is still offered,
+  // At Fit the cards are small and the × is still offered,
   // at a usable screen size, in the card's corner; the toast's Undo. A
   // hovered card, the newest too, shows the same tooltip as at 100%.
   await pressF(cdp);
@@ -687,7 +741,7 @@ async function deletes({ check, open }) {
   await page.screenshot({ path: join(shots, "delete-fit-hover.png") });
   const d = atFit.deleteRect;
   check(
-    "at Fit the cards are small (caption hidden) yet a hovered card still shows its ×, 14-24 px on screen, inside the card's top-right corner",
+    "at Fit the cards are small yet a hovered card still shows its ×, 14-24 px on screen, inside the card's top-right corner",
     m.scale < 0.7 &&
       atFit.rect.width < 200 &&
       xShown === "visible" &&

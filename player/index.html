@@ -555,10 +555,11 @@
         stroke: rgba(244, 239, 230, 0.6);
       }
       /* Compact nodes (Phase 35): a decision's "played/total", a route's
-         choice number; the full text is in the tooltip. */
+         choice number; the full text is in the tooltip. Their baseline
+         (render/branchmap.ts) centres the figures in the node. */
       .map-svg .map-dec-c,
       .map-svg .map-route-c {
-        font-size: 11px;
+        font-size: 13px;
         font-weight: 600;
         text-anchor: middle;
       }
@@ -644,13 +645,13 @@
         font-size: 0.85em;
       }
       /* Bookmark cards (Phase 35, replacing the `t` screen): in world
-         units on the stage, so at 100% a card is the old screen's, a 280
-         px thumbnail over its timestamp, and at Fit it shrinks with the
-         tree. The newest has the accent border and a NEWEST tag. */
+         units on the stage, so at 100% a card is the old screen's 280 x
+         158 px thumbnail (its time in the hover tooltip), and at Fit it
+         shrinks with the tree. The newest has the accent border. */
       .bm-card {
         position: absolute;
         width: 280px;
-        height: 182px;
+        height: 158px;
         box-sizing: border-box;
         border: 1px solid rgba(244, 239, 230, 0.16);
         border-radius: 6px;
@@ -669,9 +670,9 @@
         box-shadow: 0 0 0 calc(2px * var(--px, 1)) var(--accent);
       }
       .bm-thumb {
-        height: 156px;
+        height: 100%;
         overflow: hidden;
-        border-radius: 5px 5px 0 0;
+        border-radius: 5px;
         background: rgb(32, 32, 38);
       }
       .bm-thumb > .bm-pic {
@@ -679,24 +680,6 @@
         width: 100%;
         height: 100%;
         object-fit: cover;
-      }
-      .bm-cap {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        height: 24px;
-        padding: 0 8px;
-        color: rgba(244, 239, 230, 0.82);
-        font-size: 13px;
-        font-variant-numeric: tabular-nums;
-        white-space: nowrap;
-      }
-      .bm-tag {
-        color: var(--accent);
-        font-size: 11px;
-        font-weight: 600;
-        letter-spacing: 0.08em;
-        text-transform: uppercase;
       }
       /* The delete x, at every zoom: shown on the card's hover, drawn at a
          fixed screen size whatever the zoom (--del-scale, set per frame by
@@ -770,17 +753,8 @@
         font: inherit;
         cursor: pointer;
       }
-      /* Far out the caption is unreadable: the thumbnail fills the card
-         (its time is in the hover tooltip). */
-      .map-cards-small .bm-cap {
-        display: none;
-      }
-      .map-cards-small .bm-thumb {
-        height: 100%;
-        border-radius: 5px;
-      }
-      /* ...and a ghost is just its dashed outline (a click on it, the
-         toast's Undo or Z puts it back). */
+      /* Far out a ghost's words are unreadable: it is just its dashed
+         outline (a click on it, the toast's Undo or Z puts it back). */
       .map-cards-small .bm-card.bm-deleted .bm-ghost {
         visibility: hidden;
       }
