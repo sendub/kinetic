@@ -190,7 +190,8 @@ const BRIGHTEST = async (png, boxes) => {
   const canvas = document.createElement("canvas");
   canvas.width = img.naturalWidth;
   canvas.height = img.naturalHeight;
-  const ctx = canvas.getContext("2d");
+  // Several reads from one canvas: without this Chrome warns on the console.
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
   ctx.drawImage(img, 0, 0);
   return boxes.map(({ x0, y0, x1, y1 }) => {
     const w = Math.max(1, Math.round(x1 - x0));

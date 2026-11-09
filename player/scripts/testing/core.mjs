@@ -82,22 +82,53 @@ export async function launchBrowser(
   return browser;
 }
 
+const FAILED_LOAD = "Failed to load resource: ";
+// The testing library's reporter (kinetic.mjs) names the file's URL after
+// FAILED_LOAD; Chrome's own line names a reason there instead
+// (net::ERR_FILE_NOT_FOUND, "the server responded with a status of 404").
+const REPORTED_URL = /^[a-z][a-z0-9+.-]*:\/\/\S*$/i;
+
 /**
  * The console errors and warnings and the page errors `page` reports from
  * now on, as `[error] text`, `[warning] text` and `[pageerror] message`,
- * in an array that keeps filling. Chrome's "Failed to load resource" line
- * names no file, so its URL is added.
+ * in an array that keeps filling. A warning is typed "warn" on Chrome and
+ * "warning" on WebKit; both are kept as `[warning]`.
+ *
+ * A failed load is listed once per URL. Chrome's own "Failed to load
+ * resource" line names no file, so its URL (the message's location) is
+ * added; the testing library's reporter names the URL itself. When both
+ * report one URL, Chrome's line, which carries the reason, is the one kept.
  */
 export function collectErrors(page) {
   const errors = [];
-  page.on("console", (msg) => {
-    if (msg.type() === "error" || msg.type() === "warning") {
-      const url = msg.location?.()?.url;
-      const failedLoad = msg.text().startsWith("Failed to load resource");
-      errors.push(
-        `[${msg.type()}] ${msg.text()}${failedLoad && url ? ` (${url})` : ""}`,
-      );
+  // Failed URL -> { line: the line listed for it, own: whether Chrome's }.
+  const failed = new Map();
+  const listFailedLoad = (url, own, line) => {
+    const listed = failed.get(url);
+    if (listed === undefined) {
+      failed.set(url, { line, own });
+      errors.push(line);
+    } else if (own && !listed.own) {
+      // Found by its text: a caller may have taken lines out (splice).
+      const at = errors.indexOf(listed.line);
+      if (at >= 0) errors[at] = line;
+      failed.set(url, { line, own });
     }
+  };
+  page.on("console", (msg) => {
+    const type = msg.type() === "warn" ? "warning" : msg.type();
+    if (type !== "error" && type !== "warning") return;
+    const text = msg.text();
+    if (type === "error" && text.startsWith(FAILED_LOAD)) {
+      const named = text.slice(FAILED_LOAD.length);
+      const own = !REPORTED_URL.test(named);
+      const url = own ? msg.location?.()?.url : named;
+      if (url) {
+        listFailedLoad(url, own, `[error] ${own ? `${text} (${url})` : text}`);
+        return;
+      }
+    }
+    errors.push(`[${type}] ${text}`);
   });
   page.on("pageerror", (err) => errors.push(`[pageerror] ${err.message}`));
   return errors;
@@ -250,6 +281,44 @@ export function matchItems(items, { text, file }) {
       hits.push(index);
   });
   return hits;
+}
+
+/**
+ * matchItems's answers without its scan of every item, for a large game:
+ * built once per manifest, then lookupItems gives the same hits in the same
+ * order. `byText` maps each line to the items with it; `byFile` maps each
+ * picture (an image's file, a video's file and poster, an animation's
+ * frames) to the items without a line that show it. Both in manifest
+ * order, one entry per item per key.
+ */
+export function indexItems(items) {
+  const byText = new Map();
+  const byFile = new Map();
+  const add = (map, key, index) => {
+    const hits = map.get(key);
+    if (hits === undefined) map.set(key, [index]);
+    else if (hits.at(-1) !== index) hits.push(index);
+  };
+  items.forEach((it, index) => {
+    if (it.text) {
+      add(byText, it.text, index);
+      return;
+    }
+    const frames = Array.isArray(it.frames) ? it.frames : [];
+    for (const file of [it.file, it.poster, ...frames]) {
+      if (typeof file === "string") add(byFile, file, index);
+    }
+  });
+  return { byText, byFile };
+}
+
+/** matchItems(items, screen), answered from `index` (indexItems(items)); a new array each call. */
+export function lookupItems(index, { text, file }) {
+  if (text) {
+    const hits = index.byText.get(text);
+    if (hits !== undefined) return [...hits];
+  }
+  return [...(index.byFile.get(file) ?? [])];
 }
 
 const HELP_OPEN = () => {

@@ -1837,7 +1837,8 @@ const PAINTED_WIDTH = async (png, x, y, stroke) => {
   const canvas = document.createElement("canvas");
   canvas.width = img.naturalWidth;
   canvas.height = img.naturalHeight;
-  const ctx = canvas.getContext("2d");
+  // Several reads from one canvas: without this Chrome warns on the console.
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
   ctx.drawImage(img, 0, 0);
   const ink = stroke
     .match(/[\d.]+/g)

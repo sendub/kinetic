@@ -3,14 +3,23 @@
 // be, the engine "auto" picks, and the checks openGame makes before it
 // starts anything. The scenario creator.scenario.mjs drives it end to end
 // on both engines.
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { DriverBuildError } from "../webkit/build.mjs";
 import {
   collectErrors,
+  indexItems,
   keyFor,
+  lookupItems,
   matchItems,
   pressDigit,
   pressEscape,
@@ -20,9 +29,12 @@ import {
 } from "./core.mjs";
 import {
   chooseEngine,
+  findItem,
   narrowItems,
   nearestAfter,
   openGame,
+  outsideLinks,
+  outsideLinksNote,
   summary,
 } from "./kinetic.mjs";
 
@@ -68,6 +80,79 @@ describe("collectErrors", () => {
       "[error] Failed to load resource: b.jpg",
       "[pageerror] boom",
     ]);
+  });
+
+  // puppeteer types console.warn "warn" on Chrome; the WebKit driver sends
+  // "warning". Both are kept, written the same way.
+  it("keeps Chrome's console.warn, typed warn, as a warning", () => {
+    const handlers = {};
+    const errors = collectErrors({ on: (event, fn) => (handlers[event] = fn) });
+    handlers.console({ type: () => "warn", text: () => "[kinetic] #start" });
+    handlers.console({ type: () => "warning", text: () => "[kinetic] other" });
+    expect(errors).toEqual([
+      "[warning] [kinetic] #start",
+      "[warning] [kinetic] other",
+    ]);
+  });
+
+  // The testing library's reporter logs `Failed to load resource: <URL>` on
+  // both engines; Chrome also logs a missing file itself, naming its reason,
+  // with the URL as the message's location.
+  describe("lists each failed URL once", () => {
+    const url = "file:///g/media/a.jpg";
+    const chromeOwn = {
+      type: () => "error",
+      text: () => "Failed to load resource: net::ERR_FILE_NOT_FOUND",
+      location: () => ({ url }),
+    };
+    // On Chrome the reporter's line carries the location of its own script.
+    const reporter = (at) => ({
+      type: () => "error",
+      text: () => `Failed to load resource: ${at}`,
+      location: () => ({ url: "" }),
+    });
+    const collect = (...messages) => {
+      const handlers = {};
+      const errors = collectErrors({
+        on: (event, fn) => (handlers[event] = fn),
+      });
+      for (const msg of messages) handlers.console(msg);
+      return errors;
+    };
+    const chromeLine = `[error] Failed to load resource: net::ERR_FILE_NOT_FOUND (${url})`;
+
+    it("keeps Chrome's own line, with its reason, whichever comes first", () => {
+      expect(collect(chromeOwn, reporter(url))).toEqual([chromeLine]);
+      expect(collect(reporter(url), chromeOwn)).toEqual([chromeLine]);
+    });
+
+    it("keeps the reporter's line alone, without its script's location", () => {
+      expect(
+        collect(reporter(url), {
+          ...reporter(url),
+          location: () => ({ url: "pptr:evaluateOnNewDocument" }),
+        }),
+      ).toEqual([`[error] Failed to load resource: ${url}`]);
+    });
+
+    it("leaves the other lines alone when a caller has taken one out", () => {
+      const handlers = {};
+      const errors = collectErrors({
+        on: (event, fn) => (handlers[event] = fn),
+      });
+      handlers.console(reporter(url));
+      handlers.console({ type: () => "error", text: () => "boom" });
+      errors.splice(0, 1);
+      handlers.console(chromeOwn);
+      expect(errors).toEqual(["[error] boom"]);
+    });
+
+    it("lists a URL Chrome logs twice once, and other URLs on their own lines", () => {
+      const other = "file:///g/media/b.webm";
+      expect(
+        collect(chromeOwn, reporter(other), chromeOwn, reporter(url)),
+      ).toEqual([chromeLine, `[error] Failed to load resource: ${other}`]);
+    });
   });
 });
 
@@ -208,6 +293,90 @@ describe("matchItems", () => {
   });
 });
 
+/**
+ * A generated story of `count` items drawn from small pools, so lines and
+ * pictures repeat: images with and without a line, lines with no picture,
+ * videos sharing files and posters, animations repeating a frame within
+ * themselves and across items, and lines that are empty strings.
+ */
+function generatedItems(count) {
+  let seed = 7;
+  const next = (n) => {
+    seed = (seed * 1103515245 + 12345) % 2147483648;
+    return seed % n;
+  };
+  const line = () => (next(5) === 0 ? "" : `Line ${next(40)}.`);
+  const pic = () => `p${next(30)}.jpg`;
+  return Array.from({ length: count }, (_, n) => {
+    const id = `g${n}`;
+    switch (next(5)) {
+      case 0:
+        return { id, type: "image", file: pic(), text: line() };
+      case 1:
+        return { id, type: "image", file: pic() };
+      case 2:
+        return { id, type: "text", text: `Line ${next(40)}.` };
+      case 3:
+        return {
+          id,
+          type: "video",
+          file: `v${next(4)}.mp4`,
+          poster: next(3) === 0 ? pic() : `v${next(6)}.poster.jpg`,
+          ...(next(2) === 0 ? { text: line() } : {}),
+        };
+      default: {
+        const frame = pic();
+        return { id, type: "animation", frames: [frame, pic(), frame] };
+      }
+    }
+  });
+}
+
+describe("indexItems and lookupItems", () => {
+  it("give matchItems's hits, in its order, for every item's screen of a story with repeats, and for screens no item makes", () => {
+    const story = generatedItems(3000);
+    const index = indexItems(story);
+    // Each item's screen as the player paints it: its line over its own
+    // picture, or over the last picture shown before it.
+    let shown = null;
+    const screens = story.map((it) => {
+      shown = it.file ?? it.poster ?? it.frames?.[1] ?? shown;
+      return {
+        text: it.text ?? "",
+        file: it.type === "video" ? it.poster : shown,
+      };
+    });
+    screens.push(
+      { text: "No item has this line.", file: "p3.jpg" },
+      { text: "No item has this line.", file: "zzz.jpg" },
+      { text: null, file: null },
+      { text: "", file: "" },
+    );
+    const repeats = screens.filter(
+      (s) => matchItems(story, s).length > 1,
+    ).length;
+    const differ = screens.filter(
+      (s) =>
+        JSON.stringify(lookupItems(index, s)) !==
+        JSON.stringify(matchItems(story, s)),
+    );
+    expect(repeats).toBeGreaterThan(1000);
+    expect(differ).toEqual([]);
+  });
+
+  it("matches the synthetic story's cases, and hands out copies", () => {
+    const index = indexItems(items);
+    expect(lookupItems(index, { text: "Hello.", file: "a.jpg" })).toEqual([
+      0, 4, 5,
+    ]);
+    expect(lookupItems(index, { text: "", file: "c.f001.jpg" })).toEqual([2]);
+    const hits = lookupItems(index, { text: null, file: "b.jpg" });
+    expect(hits).toEqual([1, 6]);
+    hits.push(99);
+    expect(lookupItems(index, { text: null, file: "b.jpg" })).toEqual([1, 6]);
+  });
+});
+
 describe("narrowItems", () => {
   it("keeps the items whose speaker is the one shown", () => {
     expect(
@@ -234,6 +403,82 @@ describe("nearestAfter", () => {
     expect(nearestAfter([1, 6], 2)).toBe(6);
     expect(nearestAfter([1, 6], 6)).toBe(6);
     expect(nearestAfter([1, 6], 9)).toBe(1);
+  });
+});
+
+describe("findItem", () => {
+  const ids = new Map(items.map((it, index) => [it.id, index]));
+  // What current() reads from the page: the stage's data-item and the
+  // screen (PAGE_STATE's fields that name an item).
+  const page = (dataItem, { text = "", speaker = "", img = "" } = {}) => ({
+    dataItem,
+    state: { text, speaker, imgSrc: img, imgVisible: img !== "", video: null },
+  });
+  const game = ({ saved = null } = {}) => {
+    const asked = { lookups: 0, saved: 0 };
+    const index = indexItems(items);
+    return {
+      asked,
+      items,
+      ids,
+      lookup: (screen) => {
+        asked.lookups += 1;
+        return lookupItems(index, screen);
+      },
+      savedAmong: async (hits) => {
+        asked.saved += 1;
+        return hits.includes(saved) ? saved : null;
+      },
+    };
+  };
+
+  it("takes the id from the player's data-item, without reading the screen", async () => {
+    const g = game();
+    expect(
+      await findItem(
+        g,
+        page("bare-again", { text: "Hello.", img: "a.jpg" }),
+        0,
+      ),
+    ).toEqual({ index: 6, foundBy: "player", ambiguous: [] });
+    expect(g.asked).toEqual({ lookups: 0, saved: 0 });
+  });
+
+  it("matches the screen when the stage has no data-item, or one this manifest lacks", async () => {
+    const g = game();
+    expect(await findItem(g, page(null, { img: "d.poster.jpg" }), 0)).toEqual({
+      index: 3,
+      foundBy: "screen",
+      ambiguous: [],
+    });
+    expect(
+      await findItem(g, page("gone", { text: "Hello.", speaker: "Ana" }), 0),
+    ).toEqual({ index: 4, foundBy: "screen", ambiguous: [] });
+    expect(g.asked.saved).toBe(0);
+  });
+
+  it("settles a tie by the saved place", async () => {
+    const g = game({ saved: 6 });
+    expect(await findItem(g, page(null, { img: "b.jpg" }), 0)).toEqual({
+      index: 6,
+      foundBy: "saved place",
+      ambiguous: [],
+    });
+  });
+
+  it("guesses the nearest ahead when the saved place is none of the tie, naming the tie", async () => {
+    const g = game({ saved: null });
+    expect(await findItem(g, page(null, { img: "b.jpg" }), 2)).toEqual({
+      index: 6,
+      foundBy: "guess",
+      ambiguous: ["bare", "bare-again"],
+    });
+  });
+
+  it("names nothing for a screen no item makes", async () => {
+    expect(
+      await findItem(game(), page(null, { text: "Not a line." }), 0),
+    ).toEqual({ index: -1, foundBy: "none", ambiguous: [] });
   });
 });
 
@@ -338,6 +583,176 @@ describe("openGame before it starts a browser", () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+
+  // A built folder whose manifest is in manifest.js (as the player reads
+  // it), manifest.json, or both.
+  const gameFolder = (files) => {
+    const dir = mkdtempSync(join(tmpdir(), "kinetic-open-"));
+    writeFileSync(join(dir, "index.html"), "<!doctype html>");
+    writeFileSync(join(dir, "app.js"), "");
+    for (const [name, text] of Object.entries(files)) {
+      writeFileSync(join(dir, name), text);
+    }
+    return dir;
+  };
+  const story = (...ids) =>
+    JSON.stringify({
+      items: ids.map((id) => ({ id, type: "text", text: id })),
+    });
+
+  it("refuses a startAt the folder's manifest lacks, naming it, before a browser starts", async () => {
+    const shim = gameFolder({
+      "manifest.js": `window.KINETIC_MANIFEST = ${story("a", "b")};\n`,
+    });
+    const json = gameFolder({ "manifest.json": story("a", "b") });
+    const logged = [];
+    try {
+      for (const dir of [shim, json]) {
+        await expect(
+          openGame(dir, {
+            engine: "chrome",
+            startAt: "late-1",
+            log: (line) => logged.push(line),
+          }),
+        ).rejects.toThrow(
+          `openGame: this game has no item "late-1" to start at (startAt)`,
+        );
+      }
+      expect(logged).toEqual([]);
+    } finally {
+      rmSync(shim, { recursive: true, force: true });
+      rmSync(json, { recursive: true, force: true });
+    }
+  });
+
+  it("checks startAt against manifest.js, which the player plays, before manifest.json", async () => {
+    const dir = gameFolder({
+      "manifest.js": `window.KINETIC_MANIFEST = ${story("a")};`,
+      "manifest.json": story("a", "only-in-json"),
+    });
+    try {
+      await expect(
+        openGame(dir, { engine: "chrome", startAt: "only-in-json" }),
+      ).rejects.toThrow('no item "only-in-json" to start at');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("refuses a startAt that is not an id, or a folder with no manifest to check it against", async () => {
+    const dir = gameFolder({});
+    try {
+      await expect(
+        openGame(dir, { engine: "chrome", startAt: 3 }),
+      ).rejects.toThrow("openGame: startAt must be an item id (a string)");
+      await expect(
+        openGame(dir, { engine: "chrome", startAt: "a" }),
+      ).rejects.toThrow(
+        /cannot check startAt "a": .* has no readable manifest\.js or manifest\.json/,
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("outsideLinks", () => {
+  const scratch = join(
+    dirname(fileURLToPath(import.meta.url)),
+    "..",
+    "..",
+    "..",
+    ".tmp",
+  );
+  // tmp/outside/{target.jpg, inner -> target.jpg}, and tmp/game holding
+  // links out of it, into it, and through linked folders.
+  const layout = () => {
+    mkdirSync(scratch, { recursive: true });
+    const tmp = mkdtempSync(join(scratch, "kinetic-links-"));
+    const outside = join(tmp, "outside");
+    const game = join(tmp, "game");
+    mkdirSync(outside);
+    writeFileSync(join(outside, "target.jpg"), "x");
+    symlinkSync("target.jpg", join(outside, "inner.jpg"));
+    for (const sub of ["media", "sub"])
+      mkdirSync(join(game, sub), { recursive: true });
+    writeFileSync(join(game, "media", "real.jpg"), "x");
+    symlinkSync(
+      join("..", "..", "outside", "target.jpg"),
+      join(game, "media", "out.jpg"),
+    );
+    symlinkSync(join(outside, "target.jpg"), join(game, "abs.jpg"));
+    symlinkSync(
+      join("..", "..", "outside", "target.jpg"),
+      join(game, "sub", "x.jpg"),
+    );
+    symlinkSync(join("media", "real.jpg"), join(game, "in.jpg"));
+    symlinkSync(join("..", "outside"), join(game, "linked-dir"));
+    symlinkSync(join("..", "sub"), join(game, "media", "sub-again"));
+    symlinkSync("game", join(tmp, "game-link"));
+    return { tmp, game };
+  };
+
+  it("names the links that resolve outside the folder, not those inside it, and does not follow linked folders", () => {
+    const { tmp, game } = layout();
+    try {
+      const want = ["abs.jpg", "linked-dir", "media/out.jpg", "sub/x.jpg"];
+      expect(outsideLinks(game)).toEqual(want);
+      // Reached through a link itself, the folder is judged by its real path.
+      expect(outsideLinks(join(tmp, "game-link"))).toEqual(want);
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("finds none in a folder without such links", () => {
+    const { tmp } = layout();
+    try {
+      rmSync(join(tmp, "game"), { recursive: true });
+      mkdirSync(join(tmp, "game", "media"), { recursive: true });
+      writeFileSync(join(tmp, "game", "media", "a.jpg"), "x");
+      symlinkSync(join("media", "a.jpg"), join(tmp, "game", "b.jpg"));
+      expect(outsideLinks(join(tmp, "game"))).toEqual([]);
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("skips a folder it cannot read instead of failing", () => {
+    const { tmp, game } = layout();
+    const locked = join(game, "locked");
+    try {
+      mkdirSync(locked);
+      symlinkSync(join(tmp, "outside", "target.jpg"), join(locked, "out.jpg"));
+      chmodSync(locked, 0o000);
+      expect(outsideLinks(game)).toEqual([
+        "abs.jpg",
+        "linked-dir",
+        "media/out.jpg",
+        "sub/x.jpg",
+      ]);
+    } finally {
+      chmodSync(locked, 0o755);
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("writes one note naming up to three links and the count, the engines they fail on, and the fix", () => {
+    const note = outsideLinksNote([
+      "a.jpg",
+      "media",
+      "b/c.jpg",
+      "d.jpg",
+      "e.jpg",
+    ]);
+    expect(note).toBe(
+      "openGame: 5 symbolic links in this folder point outside it (a.jpg, media, b/c.jpg and 2 more). WebKit and the macOS app cannot read files through such links (Chrome can); copy or hard-link the files into the folder instead.",
+    );
+    expect(outsideLinksNote(["media"])).toBe(
+      "openGame: 1 symbolic link in this folder points outside it (media). WebKit and the macOS app cannot read files through such links (Chrome can); copy or hard-link the files into the folder instead.",
+    );
+    expect(outsideLinksNote([])).toBeNull();
   });
 });
 

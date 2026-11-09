@@ -1281,8 +1281,8 @@ async function urlStartUnknownSession({ check, open }) {
       s.hash === "",
     { warned, s, help },
   );
-  // That warning is this check's to judge (collectErrors keeps it on
-  // WebKit only); the runner's console check still fails on anything else.
+  // That warning is this check's to judge; the runner's console check
+  // still fails on anything else.
   const kept = errors.findIndex((line) => line.includes(`"${missing}"`));
   if (warned.length === 1 && kept >= 0) errors.splice(kept, 1);
 }

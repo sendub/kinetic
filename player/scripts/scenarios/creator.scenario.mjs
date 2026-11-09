@@ -4,17 +4,26 @@
 // Space, waiting for an item, a choice and a route picked from it, a reload
 // and a reopen with a kept profile resuming the place, a fresh open at the
 // beginning, the first-load Esc screen left up when asked, a screenshot,
-// and no errors. Plus copies of the demo where two items share a line
-// (told apart by the player's saved place) and where a picture is missing
-// (named in errors()). The library opens its own browsers, so its errors()
-// check stands in for the runner's console check.
+// and no errors. The library opens its own browsers, so its errors() check
+// stands in for the runner's console check.
 //
-// Two more parts read the stage's `data-item` (docs/plan.md Phase 46, item
-// 2), the id of the item whose screen the player shows: through a whole
-// Space walk it names what current() finds (under every choice, the Esc
-// screen and the map too) and an empty-manifest folder names none, and
-// sampled on every animation frame and after every DOM change it never
-// names an item other than the one whose line and picture are on screen.
+// Two parts read the stage's `data-item` (docs/plan.md Phase 46, item 2),
+// the id of the item whose screen the player shows: through a whole Space
+// walk it names the item the screen shows (under every choice, the Esc
+// screen and the map too) and current() takes each step's id from it, an
+// empty-manifest folder names none, and sampled on every animation frame
+// and after every DOM change it never names an item other than the one
+// whose line and picture are on screen.
+//
+// The rest (Phase 46, item 4): a copy of the demo standing in for a player
+// from before `data-item` (a script in its index.html keeps the attribute
+// off the stage), where two items share a line, is named from the screen
+// and the tie by the saved place; `startAt` opens at an item, and a player
+// that ignores `#start=` or has no `data-item` is refused with the reason;
+// a symbolic link out of the folder gets one note, one inside it none; a
+// missing picture, an undecodable picture and an undecodable video passed
+// mid-walk each give one errors() line, and a page's console.warn is in
+// errors(), on both engines.
 
 import {
   cpSync,
@@ -22,17 +31,20 @@ import {
   mkdirSync,
   readFileSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { openGame } from "../testing/kinetic.mjs";
 import {
   branch,
+  currentItemId,
   demoDir,
   emptyDir,
   engine,
   item,
   manifest,
+  onWebKit,
   scenarioRoot,
 } from "./harness.mjs";
 
@@ -52,7 +64,84 @@ function pngFacts(path) {
 
 // Independent parts (each opens its own browsers); the runner runs them
 // side by side and prints their checks in this order.
-export const parts = [library, stageItemWalk, stageItemFrames];
+export const parts = [
+  library,
+  stageItemWalk,
+  stageItemFrames,
+  olderPlayer,
+  startAt,
+  symlinkNote,
+  failedLoads,
+];
+
+/** A fresh copy of the demo folder at `name` under the scenario root. */
+function demoCopy(name) {
+  const folder = join(scenarioRoot, name);
+  rmSync(folder, { recursive: true, force: true });
+  cpSync(demoDir, folder, { recursive: true });
+  return folder;
+}
+
+/**
+ * Adds the script `source` to the copy's index.html, as the file `file`
+ * run before the player's own scripts: the page behaviour of an older
+ * player, on either engine. (openGame loads the page itself, so a script
+ * added with page.evaluateOnNewDocument would come too late.)
+ */
+function addPageScript(folder, file, source) {
+  writeFileSync(join(folder, file), source);
+  const index = join(folder, "index.html");
+  const html = readFileSync(index, "utf8");
+  const at = html.indexOf('<script src="manifest.js">');
+  if (at < 0) throw new Error(`no manifest.js script in ${index}`);
+  writeFileSync(
+    index,
+    `${html.slice(0, at)}<script src="${file}"></script>\n    ${html.slice(at)}`,
+  );
+}
+
+// A player from before docs/plan.md Phase 46 item 2: no `data-item` on the
+// stage. The observer runs before any other task, so nothing reads it.
+const NO_DATA_ITEM = `new MutationObserver(() => {
+  for (const el of document.querySelectorAll("[data-item]"))
+    el.removeAttribute("data-item");
+}).observe(document.documentElement, {
+  subtree: true,
+  childList: true,
+  attributes: true,
+  attributeFilter: ["data-item"],
+});
+`;
+
+// A player that ignores #start= (before item 3): the hash is gone before
+// the player reads it.
+const NO_URL_START = `history.replaceState(null, "", location.pathname + location.search);
+`;
+
+/** The copy of the demo in which two items share a line (see olderPlayer). */
+function twinsCopy(name) {
+  const folder = demoCopy(name);
+  const twins = structuredClone(manifest);
+  twins.storyId = name;
+  twins.items[item("chain-still-3").index].text = item("video-chain-3").text;
+  const json = JSON.stringify(twins, null, 2);
+  writeFileSync(join(folder, "manifest.json"), json);
+  writeFileSync(
+    join(folder, "manifest.js"),
+    `window.KINETIC_MANIFEST = ${json};\n`,
+  );
+  return folder;
+}
+
+/** errors() once `ready(lines)` holds or 3 s pass, then 500 ms more for any late duplicate. */
+async function settledErrors(game, ready) {
+  const until = Date.now() + 3000;
+  while (!ready(game.errors()) && Date.now() < until) {
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  await new Promise((resolve) => setTimeout(resolve, 500));
+  return game.errors();
+}
 
 async function library({ check }) {
   const first = manifest.items[0];
@@ -194,70 +283,6 @@ async function library({ check }) {
     errors.push(...fresh.errors());
     await fresh.close();
 
-    // Two items with the same line, no speaker and no picture of their own:
-    // only the player's saved place tells them apart. A reopen starts the
-    // handle with nothing found yet, which alone would pick the first.
-    const twinFolder = join(scenarioRoot, "creator-twins");
-    const twinOf = item("video-chain-3");
-    const twin = item("chain-still-3");
-    rmSync(twinFolder, { recursive: true, force: true });
-    mkdirSync(twinFolder, { recursive: true });
-    cpSync(demoDir, twinFolder, { recursive: true });
-    const twins = structuredClone(manifest);
-    twins.storyId = "creator-twins";
-    twins.items[twin.index].text = twinOf.text;
-    const json = JSON.stringify(twins, null, 2);
-    writeFileSync(join(twinFolder, "manifest.json"), json);
-    writeFileSync(
-      join(twinFolder, "manifest.js"),
-      `window.KINETIC_MANIFEST = ${json};\n`,
-    );
-    const twinProfile = join(scenarioRoot, "profiles", "creator-twins");
-    rmSync(twinProfile, { recursive: true, force: true });
-    const walk = await open(twinFolder, { profile: twinProfile });
-    const firstTwin = await walk.spaceUntil(twinOf.id);
-    const secondTwin = await walk.spaceUntil(twin.id);
-    errors.push(...walk.errors());
-    await walk.close();
-    const back = await open(twinFolder, { profile: twinProfile });
-    const resumed = await back.current();
-    check(
-      "two items sharing a line are told apart by the player's saved place",
-      firstTwin.index === twinOf.index &&
-        secondTwin.index === twin.index &&
-        resumed.id === twin.id &&
-        resumed.ambiguous.length === 0,
-      { firstTwin: firstTwin.id, secondTwin: secondTwin.id, resumed },
-    );
-    errors.push(...back.errors());
-    await back.close();
-
-    // A picture missing from the folder: Chrome logs the failed load
-    // itself, and the library logs it on WebKit, which does not.
-    const gapFolder = join(scenarioRoot, "creator-missing");
-    const gap = item("text-bare");
-    rmSync(gapFolder, { recursive: true, force: true });
-    cpSync(demoDir, gapFolder, { recursive: true });
-    rmSync(join(gapFolder, gap.file));
-    const holed = await open(gapFolder, {});
-    await holed.spaceUntil(gap.id);
-    let reported = [];
-    for (let tries = 0; tries < 40 && reported.length === 0; tries += 1) {
-      await new Promise((resolve) => setTimeout(resolve, 50));
-      reported = holed.errors();
-    }
-    await holed.close();
-    check(
-      "errors() names a picture that failed to load",
-      reported.length > 0 &&
-        reported.every(
-          (line) =>
-            line.startsWith("[error] Failed to load resource") &&
-            line.includes(`/creator-missing/${gap.file}`),
-        ),
-      reported,
-    );
-
     check(
       "errors() stayed empty in every open of a whole folder",
       errors.length === 0,
@@ -275,18 +300,21 @@ const STAGE_ITEM = () =>
   document.getElementById("stage")?.getAttribute("data-item") ?? null;
 
 /**
- * One reading of the screen: `data-item` before and after current(). A
- * timer that changes the screen between them (play-all showing its pick,
- * then starting the route) makes the two differ, and the screen is read
- * again, so a reading is always of one screen.
+ * One reading of the screen: `data-item` before and after current() and
+ * the item the screen's own line or picture names (`screenId`: every demo
+ * line is unique, so this needs no `data-item`). A timer that changes the
+ * screen between them (play-all showing its pick, then starting the route)
+ * makes the two differ, and the screen is read again, so a reading is
+ * always of one screen.
  */
 async function readScreen(game) {
   for (let tries = 0; ; tries += 1) {
     const before = await game.page.evaluate(STAGE_ITEM);
     const now = await game.current();
+    const screenId = await currentItemId(game.page);
     const after = await game.page.evaluate(STAGE_ITEM);
     if (before === after || tries >= 5) {
-      return { dataItem: after, now, steady: before === after };
+      return { dataItem: after, now, screenId, steady: before === after };
     }
   }
 }
@@ -314,9 +342,11 @@ async function underPanels(game) {
   return { esc, map };
 }
 
-const brief = ({ dataItem, now, steady }) => ({
+const brief = ({ dataItem, now, screenId, steady }) => ({
   dataItem,
+  screenId,
   id: now.id,
+  foundBy: now.foundBy,
   choice: now.choice?.prompt ?? null,
   screen: now.screen,
   steady,
@@ -325,7 +355,8 @@ const brief = ({ dataItem, now, steady }) => ({
 // A Space walk through the whole demo with Play all routes on (a fresh
 // profile's default), as check-game walks a folder: every item, both
 // decisions, each route and each re-offer. The demo has no screen two
-// items could make, so current() names each step from the screen alone.
+// items could make, so the screen alone names each step's item, for
+// data-item to be checked against; current() takes it from data-item.
 async function stageItemWalk({ check }) {
   const game = await openGame(demoDir, {
     engine,
@@ -363,7 +394,13 @@ async function stageItemWalk({ check }) {
       await game.press("Space");
     }
     const disagree = steps.filter(
-      (step) => !step.steady || step.id === null || step.dataItem !== step.id,
+      (step) =>
+        !step.steady ||
+        step.screenId === null ||
+        step.dataItem !== step.screenId,
+    );
+    const notFromPlayer = steps.filter(
+      (step) => step.id !== step.dataItem || step.foundBy !== "player",
     );
     const shown = new Set(steps.map((step) => step.dataItem));
     const missed = manifest.items
@@ -376,7 +413,7 @@ async function stageItemWalk({ check }) {
     const outerUnder = new Set(under(outer.prompt));
     const nestedUnder = new Set(under(nested.prompt));
     check(
-      "data-item names the item current() finds at every step of a Space walk through every item, route and choice of the demo",
+      "data-item names the item the screen shows at every step of a Space walk through every item, route and choice of the demo",
       steps.length > manifest.items.length &&
         disagree.length === 0 &&
         missed.length === 0 &&
@@ -388,6 +425,11 @@ async function stageItemWalk({ check }) {
         missed,
         last: steps.at(-1),
       },
+    );
+    check(
+      "current() names every step of that walk from the player: its id is data-item's, foundBy player",
+      notFromPlayer.length === 0,
+      { steps: steps.length, notFromPlayer: notFromPlayer.slice(0, 5) },
     );
     check(
       "under an open choice data-item names the item it is drawn over: the decision's after item, and the route's last item at a re-offer",
@@ -403,7 +445,8 @@ async function stageItemWalk({ check }) {
           p[screen].steady &&
           p[screen].now.screen === screen &&
           p[screen].dataItem === p.beneath.dataItem &&
-          p[screen].now.id === p.beneath.dataItem,
+          p[screen].now.id === p.beneath.dataItem &&
+          p[screen].screenId === p.beneath.dataItem,
       );
     check(
       "the Esc screen and the map leave data-item on the item beneath (a chain line, an open choice)",
@@ -416,6 +459,19 @@ async function stageItemWalk({ check }) {
         esc: brief(p.esc),
         map: brief(p.map),
       })),
+    );
+    // Every picture, video and poster of the demo was shown (an animation
+    // at least by its first frame); checkMedia() confirms each, none failed.
+    const media = await game.checkMedia();
+    const shownFiles = new Set(
+      manifest.items.flatMap((it) =>
+        [it.file, it.poster, it.frames?.[0]].filter(Boolean),
+      ),
+    );
+    check(
+      "checkMedia() after the walk has followed every picture, video and poster shown, and found none failed",
+      media.files >= shownFiles.size && media.failed.length === 0,
+      { media, shown: shownFiles.size },
     );
     check(
       "errors() stayed empty through the data-item walk",
@@ -577,6 +633,299 @@ async function stageItemFrames({ check }) {
       "errors() stayed empty through the frame log walk",
       game.errors().length === 0,
       game.errors().join(" | "),
+    );
+  } finally {
+    await game.close();
+  }
+}
+
+// ---- Phase 46, item 4: older players, startAt, links, failed loads ----
+
+// A folder whose player puts no `data-item` on the stage, as one built
+// before Phase 46 item 2, on the copy where two items share a line, with
+// no speaker and no picture of their own: only the player's saved place
+// tells them apart. A reopen starts the handle with nothing found yet,
+// which alone would pick the first.
+async function olderPlayer({ check }) {
+  const folder = twinsCopy("creator-older-twins");
+  addPageScript(folder, "no-data-item.js", NO_DATA_ITEM);
+  const twinOf = item("video-chain-3");
+  const twin = item("chain-still-3");
+  const profile = join(scenarioRoot, "profiles", "creator-older-twins");
+  rmSync(profile, { recursive: true, force: true });
+  const opened = [];
+  const open = async () => {
+    const game = await openGame(folder, { engine, log: null, profile });
+    opened.push(game);
+    return game;
+  };
+  try {
+    const walk = await open();
+    const stage = await walk.page.evaluate(() => {
+      const el = document.getElementById("stage");
+      return el === null ? null : el.hasAttribute("data-item");
+    });
+    const steps = [];
+    const record = (target) => (now) => {
+      steps.push({
+        id: now.id,
+        foundBy: now.foundBy,
+        ambiguous: now.ambiguous,
+      });
+      return now.id === target;
+    };
+    await walk.spaceUntil(record(twinOf.id));
+    const firstTwin = steps.at(-1);
+    await walk.spaceUntil(record(twin.id));
+    const secondTwin = steps.at(-1);
+    const errors = walk.errors();
+    await walk.close();
+    const back = await open();
+    const resumed = await back.current();
+    errors.push(...back.errors());
+    await back.close();
+    const tied = new Set([twinOf.id, twin.id]);
+    const others = steps.filter((step) => !tied.has(step.id));
+    check(
+      "without data-item (an older player) current() names each step from the screen",
+      stage === false &&
+        others.length > 5 &&
+        others.every(
+          (step) => step.foundBy === "screen" && step.ambiguous.length === 0,
+        ) &&
+        others[0].id === manifest.items[0].id,
+      { stage, others },
+    );
+    check(
+      "without data-item two items sharing a line are told apart by the player's saved place, in a walk and on a reopen",
+      firstTwin.id === twinOf.id &&
+        firstTwin.foundBy === "saved place" &&
+        secondTwin.id === twin.id &&
+        secondTwin.foundBy === "saved place" &&
+        resumed.id === twin.id &&
+        resumed.foundBy === "saved place" &&
+        resumed.ambiguous.length === 0,
+      { firstTwin, secondTwin, resumed },
+    );
+    check(
+      "errors() stayed empty with the older player",
+      errors.length === 0,
+      errors.join(" | "),
+    );
+  } finally {
+    for (const game of opened) await game.close();
+  }
+}
+
+/** openGame's error for `folder` opened with `options`, or "" if it opened. */
+async function refusal(folder, options) {
+  try {
+    const game = await openGame(folder, { engine, log: null, ...options });
+    await game.close();
+    return "";
+  } catch (error) {
+    return error.message;
+  }
+}
+
+// openGame(folder, { startAt }) opens at that item (Phase 46 item 3's
+// `#start=`), and refuses a player that cannot.
+async function startAt({ check }) {
+  const target = item("route2-start");
+  const game = await openGame(demoDir, {
+    engine,
+    log: null,
+    startAt: target.id,
+  });
+  let at;
+  let next;
+  let errors;
+  try {
+    at = await game.current();
+    await game.press("Space");
+    next = await game.waitForItem("route2-end", { timeout: 3000 });
+    errors = game.errors();
+  } finally {
+    await game.close();
+  }
+  check(
+    "startAt opens at the item, with the Esc screen closed, and Space carries on from it",
+    at.id === target.id &&
+      at.foundBy === "player" &&
+      at.screen === null &&
+      at.text === target.text &&
+      next.id === "route2-end" &&
+      errors.length === 0,
+    { at, next: next.id, errors },
+  );
+
+  const ignores = demoCopy("creator-no-url-start");
+  addPageScript(ignores, "no-url-start.js", NO_URL_START);
+  const ignored = await refusal(ignores, { startAt: target.id });
+  const older = demoCopy("creator-no-data-item");
+  addPageScript(older, "no-data-item.js", NO_DATA_ITEM);
+  const unnamed = await refusal(older, { startAt: target.id });
+  const reason =
+    "openGame: the folder's player does not support starting at an item";
+  const fix = "rebuilding the folder with a current player fixes this";
+  check(
+    "startAt refuses a player that ignores #start= or puts no data-item on the stage, saying why and what fixes it",
+    ignored.startsWith(reason) &&
+      ignored.includes(
+        `asked for "${target.id}", it opened at "${manifest.items[0].id}"`,
+      ) &&
+      ignored.includes(fix) &&
+      unnamed.startsWith(reason) &&
+      unnamed.includes("its stage names no item") &&
+      unnamed.includes(fix),
+    { ignored, unnamed },
+  );
+}
+
+// A symbolic link out of the folder: one note, on either engine, naming
+// it. WebKit cannot read a picture through it (Chrome can); a link inside
+// the folder works on both and gets no note.
+async function symlinkNote({ check }) {
+  const shown = item("text-speech");
+  const elsewhere = join(scenarioRoot, "creator-link-elsewhere");
+  rmSync(elsewhere, { recursive: true, force: true });
+  mkdirSync(elsewhere, { recursive: true });
+  const out = demoCopy("creator-link-out");
+  cpSync(join(out, shown.file), join(elsewhere, shown.file));
+  rmSync(join(out, shown.file));
+  // Absolute: the scenario root may be given as a relative path.
+  symlinkSync(resolve(elsewhere, shown.file), join(out, shown.file));
+  const inside = demoCopy("creator-link-in");
+  mkdirSync(join(inside, "real"));
+  cpSync(join(inside, shown.file), join(inside, "real", shown.file));
+  rmSync(join(inside, shown.file));
+  symlinkSync(join("real", shown.file), join(inside, shown.file));
+
+  const visit = async (folder) => {
+    const notes = [];
+    const game = await openGame(folder, {
+      engine,
+      log: (line) => notes.push(line),
+    });
+    try {
+      await game.spaceUntil(shown.id);
+      await game.press("Space");
+      const errors = await settledErrors(
+        game,
+        (lines) => !onWebKit || folder !== out || lines.length > 0,
+      );
+      return { notes, errors };
+    } finally {
+      await game.close();
+    }
+  };
+  const outward = await visit(out);
+  const inward = await visit(inside);
+  const linkNotes = (notes) => notes.filter((n) => n.includes("symbolic link"));
+  const noted = linkNotes(outward.notes);
+  check(
+    "a symbolic link out of the folder is named in one note saying WebKit and the macOS app cannot read through it, and the fix",
+    noted.length === 1 &&
+      noted[0].includes(
+        `1 symbolic link in this folder points outside it (${shown.file})`,
+      ) &&
+      noted[0].includes("WebKit and the macOS app cannot read files") &&
+      noted[0].includes("copy or hard-link the files"),
+    outward.notes,
+  );
+  check(
+    "a symbolic link inside the folder gets no note",
+    linkNotes(inward.notes).length === 0,
+    inward.notes,
+  );
+  const failedOut = outward.errors.filter((line) =>
+    line.includes(`/creator-link-out/${shown.file}`),
+  );
+  check(
+    onWebKit
+      ? "WebKit cannot load the picture through the outside link (one errors() line), and loads it through the inside one"
+      : "Chrome loads the picture through either link",
+    (onWebKit
+      ? failedOut.length === 1 && outward.errors.length === 1
+      : outward.errors.length === 0) && inward.errors.length === 0,
+    { outward: outward.errors, inward: inward.errors },
+  );
+}
+
+// Bytes no decoder takes, stable from run to run.
+const junk = Buffer.from(
+  Array.from({ length: 4096 }, (_, n) => (n * 37 + 11) % 251),
+);
+
+// A missing picture, an undecodable picture, an undecodable video and an
+// undecodable video poster, each on an item a Space walk passes and leaves
+// at check-game's pace (Space and current(), no pause: the player replaces
+// a picture or video before its load can fail, and a poster, painted as a
+// CSS background too, fires no event at all): each is one errors() line
+// naming the file once checkMedia() has resolved, on each engine (Chrome
+// logs a missing file itself; the library reports the rest, and the
+// missing file once). Then a page's console.warn is listed, on Chrome as
+// on WebKit.
+async function failedLoads({ check }) {
+  const folder = demoCopy("creator-broken");
+  const missing = item("text-bare");
+  const badPicture = item("chain-still");
+  const badVideo = item("video-loops");
+  const badPoster = item("video-hold");
+  rmSync(join(folder, missing.file));
+  writeFileSync(join(folder, badPicture.file), junk);
+  writeFileSync(join(folder, badVideo.file), junk);
+  writeFileSync(join(folder, badPoster.poster), junk);
+  const files = [
+    missing.file,
+    badPicture.file,
+    badVideo.file,
+    badPoster.poster,
+  ];
+  const last = "floor-title";
+  const game = await openGame(folder, { engine, log: null });
+  try {
+    const walked = [];
+    let now = await game.current();
+    for (let presses = 0; presses < 200 && now.id !== last; presses += 1) {
+      await game.press("Space");
+      now = await game.current();
+      walked.push(now.id);
+    }
+    const media = await game.checkMedia();
+    const errors = game.errors();
+    const naming = Object.fromEntries(
+      files.map((file) => [
+        file,
+        errors.filter((line) => line.includes(`/creator-broken/${file}`))
+          .length,
+      ]),
+    );
+    check(
+      "a missing picture, an undecodable picture, an undecodable video and an undecodable poster, passed at check-game's pace, each give exactly one errors() line naming the file",
+      now.id === last &&
+        [missing, badPicture, badVideo, badPoster].every((it) =>
+          walked.includes(it.id),
+        ) &&
+        errors.length === files.length &&
+        errors.every((line) =>
+          line.startsWith("[error] Failed to load resource: "),
+        ) &&
+        files.every((file) => naming[file] === 1) &&
+        media.failed.length === files.length,
+      { naming, errors, media, walked },
+    );
+
+    const said = "creator: a warning from the page";
+    await game.page.evaluate((text) => console.warn(text), said);
+    const warned = await settledErrors(game, (lines) =>
+      lines.some((line) => line.includes(said)),
+    );
+    const warnings = warned.filter((line) => line.includes(said));
+    check(
+      "a console.warn from the page is listed in errors() as a warning",
+      warnings.length === 1 && warnings[0] === `[warning] ${said}`,
+      warned,
     );
   } finally {
     await game.close();

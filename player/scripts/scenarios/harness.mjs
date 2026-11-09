@@ -1110,8 +1110,9 @@ async function installRecordingHost(page, { kind, display }) {
  * (installRecordingHost; returned as `host`). `hash` is added to the page
  * URL (`"#start=<id>"`, docs/plan.md Phase 46, opens at that item).
  * `consoleLines` is every console line from the first load on, any type,
- * as `{ type, text }`: Chrome types `console.warn` "warn" and WebKit
- * "warning", and `errors` (collectErrors) keeps only WebKit's.
+ * as `{ type, text }` (Chrome types `console.warn` "warn" and WebKit
+ * "warning"); `errors` (collectErrors) keeps the errors and warnings of
+ * both, for the runner's console check.
  */
 export async function openScenario(name, options = {}) {
   // One WebKit driver process is one fresh, in-memory profile; Chrome

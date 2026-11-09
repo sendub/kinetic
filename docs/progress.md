@@ -2734,7 +2734,7 @@ truthful: an unchecked box means nothing was accepted.
       alone and in a full rerun), check clean, smoke 6/6; Chrome branches
       61, playall 29, progress 7, creator 19, navigation 24; WebKit
       branches 61; all pass.)
-- [ ] Testing library (item 4): `current()` reads `data-item`, else the
+- [x] Testing library (item 4): `current()` reads `data-item`, else the
       index (with the tie cache), and says how it found the id;
       `startAt`; the symlink note; failed loads reported once on both
       engines. Tests (kinetic.test.mjs and creator scenario parts on both
@@ -2749,6 +2749,37 @@ truthful: an unchecked box means nothing was accepted.
         one inside the folder is not;
       - a missing picture, an undecodable picture and an undecodable video,
         each mid-walk, give exactly one line on each engine.
+      (2026-11-09: `current()` reads `data-item` in the same round trip
+      and reports `foundBy` (player, screen, saved place, guess, none);
+      without it, core.mjs `indexItems`/`lookupItems` give `matchItems`'s
+      hits from two Maps built once per handle, then `narrowItems`, the
+      saved place and `nearestAfter` (pure `findItem`). No tie cache: the
+      orchestrator dropped it (plan amended). `openGame({ startAt })`
+      checks the id against manifest.js or manifest.json before any
+      launch and refuses a player that does not land there. The symlink
+      scan (53 ms on 50,000 files) logs one note on both engines. The
+      page tracks every img/video src and poster; a load that never
+      finished (aborted when the walk moved on) or a poster is checked
+      off the page when `await game.checkMedia()` drains; failures log
+      once per URL, merged with Chrome's own line. collectErrors now
+      keeps Chrome's `warn` (it only matched `warning`, so Chrome
+      warnings were never reported); the two warnings that exposed came
+      from the bookmarkmap and branchmap screenshot readers
+      (`willReadFrequently` added), none from the player. Tests ran red
+      first: unit tests for the index (3,000-item generated manifest),
+      `findItem`, `startAt` refusals and the scan; creator parts on both
+      engines for player naming, an older player (simulated) named from
+      the screen with twins by the saved place, `startAt` and its
+      refusals, the symlink note, and a missing picture, an undecodable
+      picture, video and poster walked past at check-game pace. The first
+      round met everything but a video passed at check-game pace (no
+      error on either engine); it went back for `checkMedia()`.
+      Orchestrator: npm test 986, check clean, smoke 6/6, full Chrome
+      verify 444/444 (first round), creator 29/29 on Chrome and WebKit,
+      WebKit bookmarkmap 29 and branchmap 65; a check-game-pace walk of a
+      broken demo copy past the faults (13, 20 and 31 steps) then
+      `checkMedia()` lists the three faults once each on both engines,
+      the clean demo none, in about 55 ms.)
 - [ ] check-game.mjs (item 5): `--steps all`, the end stop, the stuck
       stop, the heartbeat, the summary, `--start-at`, `--until`, exit
       codes 0/1/2/3. Tests (a scenario part running the CLI on demo

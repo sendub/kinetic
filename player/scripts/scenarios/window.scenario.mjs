@@ -450,7 +450,8 @@ async function exitInTab({ check, open }) {
   }
   const errors = [];
   tab.on("console", (msg) => {
-    if (msg.type() === "error" || msg.type() === "warning") {
+    // console.warn is "warn" on Chrome, "warning" on WebKit.
+    if (["error", "warn", "warning"].includes(msg.type())) {
       errors.push(msg.text());
     }
   });

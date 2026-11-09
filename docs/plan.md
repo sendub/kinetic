@@ -2177,8 +2177,10 @@ shown exits 3.
    - `current()` takes the id from `data-item` when the stage has one.
      For a folder with an older player it matches the screen through an
      index built once per handle (same hits and order as `matchItems`,
-     whose tests stay), and it reuses the last tie's answer while the
-     screen is unchanged. `current()` says how its id was found (player,
+     whose tests stay). No cache of a previous tie's answer (dropped while
+     implementing: with `data-item`, fast saves and the end stop it saves
+     nothing, and it could name two consecutive look-alike items as one on
+     an older player). `current()` says how its id was found (player,
      screen, saved place, guess); the field name is the implementor's.
    - `openGame(folder, { startAt })` opens with `#start=<id>`; an id not
      in the manifest throws before the browser starts; a player that
@@ -2191,7 +2193,10 @@ shown exits 3.
    - Failed loads: the reporter runs on both engines; a failure Chrome
      already logged is not listed twice. A missing, an undecodable picture
      and an undecodable video each give exactly one line on each engine,
-     including when the walk has moved past the item before the failure.
+     including when the walk has moved past the item before the failure
+     (an aborted load fires no error event, so files the page never
+     finished loading, and posters, are checked off the page when the
+     handle's `checkMedia()` is awaited).
 5. check-game.mjs.
    - `--steps all` presses until the story ends; any `--steps N` also
      stops there. The story has ended when a Space changes nothing while
