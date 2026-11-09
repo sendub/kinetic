@@ -2467,6 +2467,35 @@ truthful: an unchecked box means nothing was accepted.
       check clean, smoke 6/6 on Chrome and WebKit, window + reading Chrome
       50/50, WebKit 50 + 3 PARTIAL (element fullscreen), test_build_apps
       111.)
+- [x] The Esc screen's two columns end level again, and its notices never
+      move it (the user's second play check, 2026-11-09: a second Export
+      on Windows still named the first file; the Settings column ran well
+      past the Keys column, more so on Windows). The three notices become
+      the auto-forward-style pill: Export done ("Progress exported", no
+      file name, since the app or browser may rename it), an Import
+      refusal (held longer), and a tab that will not close; both message
+      lines go. Progress: "Progress · saved automatically" on its heading
+      line, the rest behind a "?" (hover or focus). Auto-forward speed:
+      its countdown note moves behind a "?" by the label, and the − slider
+      + row spans the cell's full width. Play all routes: a one-line note.
+      Game window: heading kept, Fullscreen | Window left and Exit right on
+      one row. The Keys card stretches to the Settings column's height, so
+      both end level whatever the system font. Docs stop saying ⌘H hides
+      the Mac app (it does nothing there; the user doesn't mind).
+      (2026-11-09: notices go through the pill queue with a per-message
+      hold (`NOTICE_LONG_MS` 4 s for an import refusal and the tab note)
+      and a visually hidden `#flash-status` region for screen readers;
+      the pill is solid over the Esc screen. "?" tips (`mountTip`) are
+      buttons with aria-describedby tips, shown on hover and focus, pinned
+      by a click; the glyph is a CSS mask, measured within 0.46 px of the
+      ring's centre on both engines. The speed row wraps its readout onto
+      its own line when narrow (700 px). Exit's right edge on the cards'
+      right edge. Plan item 12. Column bottoms (Keys / Settings, WebKit):
+      1920x1080 825 / 824, 1280x720 577 / 575, 800x600 513 / 499; at
+      700x900 Keys stretches to Settings. Orchestrator: npm test 911,
+      check clean, smoke 6/6 on Chrome and WebKit, screens progress window
+      menus reading Chrome 147/147, WebKit 145 + 5 PARTIAL (element
+      fullscreen); screenshots checked by eye, `.tmp/escbalance/`.)
 - [ ] Phase-closer (Phase 43): full scenario suite on Chrome and on WebKit,
       full pytest, package-proof; the user plays the demo's macOS app and
       Windows exe (fullscreen, Esc, reload, Export, Import, Exit, the

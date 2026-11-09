@@ -20,13 +20,15 @@ out of fullscreen, and anything else beeps. So the game window,
 reaches its `keyDown`, and its `cancelOperation` does nothing (an Esc the
 page did not take, or ⌘., arrives that way too).
 
-The menus' shortcuts (⌘H, ⌘Q, ⌘R, ⌃⌘F) work because the page leaves every
+The menus' shortcuts (⌘Q, ⌘R, ⌃⌘F) work because the page leaves every
 key held with ⌘. NSApp offers a key equivalent to the window's views
 before the main menu and before any keyDown reaches a window, and
 WKWebView claims it to give the page its turn. When the page leaves it,
 WebKit sends it through NSApp again, the web view lets it pass, and the
 main menu gets it. A key equivalent the page takes never reaches the menu:
-when the page took ⌘H as `h`, it hid the text and never the app.
+the page once took ⌘H as `h` and hid the text. The page leaves ⌘H now,
+but in the app it does nothing visible (the user's play check,
+2026-11-09), so it is not one of the shortcuts readers are told about.
 
 The driver's window is a `KineticWindow` too. Each key that comes back to
 it becomes a `windowkey` line, `dropped` where the window drops it and
@@ -37,7 +39,7 @@ no key-equivalent pass. Its NSApp, `DriverApplication`, makes that pass on
 the driver's window for a keydown held with ⌘ and reports the window's
 answer as a `keyequivalent` line. The `window` scenario's ⌘H check reads
 them: claimed for the page's turn, then unclaimed once the page leaves it,
-where the game app's menu would hide the app.
+where the game app's main menu is offered it.
 
 ## The page-to-host protocol
 

@@ -504,6 +504,7 @@
       .config-toggle:focus-visible,
       .config-step:focus-visible,
       .config-slider:focus-visible,
+      .config-tip:focus-visible,
       .confirm-button:focus-visible,
       .choice-row:focus-visible,
       .choice-cursor,
@@ -541,7 +542,9 @@
          lines. The whole screen fits without a scroll at 1280x720,
          700x900 and 800x600 (Phase 28; Reset in view at 800x600, Phases
          31, 35); a window smaller than that scrolls vertically inside the
-         screen, never across. */
+         screen, never across. Its notices (Export done, an Import refusal,
+         a tab that will not close) are the #flash pill above it, so
+         nothing on it moves when one shows (Phase 43 item 12). */
       #help {
         --g-out: clamp(12px, 3vw, 56px);
         --g-outv: clamp(10px, 3.2vh, 48px);
@@ -614,7 +617,10 @@
          stacked and one per row in the sidebar. Each row is menu-style: the
          description leading, its caps trailing on one line, as a Mac menu
          shows a shortcut; one cap per key word, a muted slash between
-         alternatives. */
+         alternatives. In the sidebar the card stretches to the settings
+         pane's height when that is taller, its rows sharing the extra
+         height evenly (auto rows stretch), so the two columns end level
+         whatever the system font (Phase 43 item 12; wide layout below). */
       .help-list {
         display: grid;
         grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -723,10 +729,13 @@
          window. It flows inside the #help panel, which owns the z-order,
          the ground and the vertical scroll. #config wraps so the Progress
          buttons can share a line (below); every other child keeps a full
-         line. */
+         line. Its lines pack at the top: beside a taller keys card its
+         grid area is taller than its content, and stretched lines would
+         spread the groups apart. */
       #config {
         display: flex;
         flex-flow: row wrap;
+        align-content: start;
       }
       #config[hidden] {
         display: none;
@@ -793,8 +802,10 @@
         white-space: nowrap;
       }
       /* Section labels ("When Tab skips", "Progress") sit outside their
-         group, aligned with the row text. */
+         group, aligned with the row text. Positioned: a "?" tip in one
+         hangs from it (below). */
       .config-section {
+        position: relative;
         margin: var(--g-group) 0 0;
         padding: 0 var(--g-cellpad) clamp(5px, 0.8vh, 8px);
         color: var(--k-t2);
@@ -803,6 +814,13 @@
         line-height: 1.3;
         letter-spacing: 0.004em;
       }
+      /* What a heading's line adds after its name ("· saved
+         automatically" after Progress): lighter, the space before the dot
+         kept. */
+      .config-section-aside {
+        font-weight: var(--k-w-2);
+        white-space: pre;
+      }
       .config-note {
         color: var(--k-t2);
         font-size: var(--k-t-small);
@@ -810,24 +828,11 @@
         line-height: 1.35;
         letter-spacing: 0.004em;
       }
-      /* A group's own note line (Phase 22), under its heading. */
-      .config-group-note {
-        margin: calc(-1 * clamp(2px, 0.5vh, 5px)) 0 0;
-        padding: 0 var(--g-cellpad) clamp(8px, 1.3vh, 12px);
-      }
-      /* The Progress group's message line (Phase 21): an import refusal
-         or an export's confirmation, under the group, in the accent. */
-      .config-message {
-        margin: 0;
-        padding: clamp(6px, 1vh, 10px) var(--g-cellpad) 0;
-        color: var(--k-gold);
-        font-size: var(--k-t-small);
-        font-weight: var(--k-w-2);
-      }
       /* Progress: the buttons say what they do (and carry aria-labels),
          so their row labels go and the three sit on one line under the
-         note. The Game window rows (Phase 43, `.config-inline`) sit the
-         same way: Fullscreen | Window, then Exit. */
+         heading. The Game window rows (Phase 43, `.config-inline`) sit the
+         same way on one line of their own: Fullscreen | Window at its
+         start, Exit at its end (below). */
       #config > .config-row:has(> [data-config-action$="-progress"]),
       #config > .config-inline {
         flex: 0 0 auto;
@@ -847,6 +852,11 @@
          on. */
       #config > .config-inline:has(> .config-display) {
         gap: 1px;
+      }
+      /* Exit ends the line, its right edge on the column's outer edge
+         where the cards end, mirroring Fullscreen on the left edge. */
+      #config > .config-inline:has(> .config-exit) {
+        margin: 0 0 0 auto;
       }
       .config-display {
         position: relative;
@@ -937,42 +947,130 @@
           0 0 0 0.5px rgba(0, 0, 0, 0.18),
           0 2px 5px rgba(0, 0, 0, 0.38);
       }
-      /* The speed cell: its label and readout on top, the slider between
-         its step buttons beneath, the note (Phase 24) closing the cell. */
+      /* The speed cell: its label (with its "?") and readout on the top
+         line, the readout at the cell's right; under them the slider
+         between its step buttons across the whole cell, - on its left
+         padding edge and + on its right (Phase 43 item 12: the readout
+         never sizes a column + sits in). One wrapping flex line: a readout
+         that cannot share the label's line drops to one of its own rather
+         than overlap it, and the break (::after, a full line wide, as tall
+         as the gap above the steps) keeps the steps and slider on their
+         own line. */
       .config-title + .config-row {
-        display: grid;
-        grid-template-columns: auto minmax(0, 1fr) auto;
-        grid-template-areas:
-          "label label value"
-          "down slider up";
-        row-gap: clamp(4px, 0.7vh, 8px);
+        --cell-top: clamp(8px, 1.2vh, 13px);
+        /* Where a tip hangs: under the label's line (the "?" is no taller
+           than it). */
+        --tip-top: calc(var(--cell-top) + var(--k-t-body) * 1.3 + 5px);
+        position: relative;
+        flex-wrap: wrap;
+        row-gap: 0;
         column-gap: clamp(10px, 1vw, 14px);
         margin-top: clamp(4px, 0.8vh, 10px);
-        padding-top: clamp(8px, 1.2vh, 13px);
-        padding-bottom: clamp(4px, 0.6vh, 7px);
-        border-bottom-left-radius: 0;
-        border-bottom-right-radius: 0;
+        padding-top: var(--cell-top);
+        padding-bottom: var(--cell-top);
       }
-      .config-title + .config-row > .config-label {
-        grid-area: label;
+      .config-title + .config-row::after {
+        content: "";
+        order: 2;
+        flex: 0 0 100%;
+        height: clamp(4px, 0.7vh, 8px);
       }
       .config-title + .config-row > .config-speed-value {
-        grid-area: value;
+        order: 1;
+        margin-left: auto;
       }
-      .config-step[data-config-action="speed-down"] {
-        grid-area: down;
-      }
-      .config-step[data-config-action="speed-up"] {
-        grid-area: up;
-      }
+      .config-title + .config-row > .config-step,
       .config-title + .config-row > .config-slider {
-        grid-area: slider;
+        order: 3;
       }
-      .config-speed-note {
+      /* The slider takes what the steps leave (a 100% width would wrap
+         it onto a line of its own). */
+      .config-title + .config-row > .config-slider {
+        flex: 1 1 0;
+        width: auto;
+      }
+
+      /* ---- The "?" tips (Phase 43 item 12): a small ring after a label
+         (Auto-forward speed) or a heading (Progress), a real button whose
+         tip is its description. The glyph is a mask drawn on the ring's
+         own box (`--k-qmark`: in its 16-unit square the ink spans 4.5-11.5
+         across and 2.3-13.7 down before the 0.86 scale about the centre,
+         so its ink box is centred on the ring's), not a font's "?", so it
+         sits centred whatever the system font (SF, Segoe UI) or engine.
+         The tip shows at once on hover or keyboard focus; a click or tap
+         pins it open or shut (`data-tip`, set by render/config.ts). It is
+         a chip of the sheet like the map's tooltip, hung under the label's
+         line at the cell's text edge and no wider than the cell, so it
+         stays inside the sheet. */
+      .config-tipwrap {
+        display: inline-flex;
+        margin-left: 0.4em;
+        vertical-align: middle;
+      }
+      .config-tip {
+        --k-qmark: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cg transform='translate(8 8) scale(.86) translate(-8 -8)'%3E%3Cpath d='M5.5 5.8A2.5 2.5 0 1 1 9.915 7.407Q8 8.3 8 9.2' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3Ccircle cx='8' cy='12.55' r='1.15'/%3E%3C/g%3E%3C/svg%3E");
+        position: relative;
+        flex: none;
+        width: clamp(14px, 1.7vh, 17px);
+        height: clamp(14px, 1.7vh, 17px);
         margin: 0;
-        padding: 0 var(--g-cellpad) clamp(9px, 1.3vh, 13px);
-        border-radius: 0 0 var(--k-r-md) var(--k-r-md);
-        background-color: var(--k-cell);
+        padding: 0;
+        border: 0;
+        border-radius: 50%;
+        background: transparent;
+        box-shadow: inset 0 0 0 1.25px rgba(var(--k-ink), 0.42);
+        color: var(--k-t2);
+        cursor: pointer;
+      }
+      .config-tip::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background: currentColor;
+        -webkit-mask: var(--k-qmark) center / 100% 100% no-repeat;
+        mask: var(--k-qmark) center / 100% 100% no-repeat;
+      }
+      /* A finger-sized target around the small ring. */
+      .config-tip::after {
+        content: "";
+        position: absolute;
+        inset: -7px;
+        border-radius: 50%;
+      }
+      .config-tipwrap:not([data-tip="shut"]) > .config-tip:hover,
+      .config-tip:focus-visible,
+      .config-tipwrap[data-tip="open"] > .config-tip {
+        background: var(--k-cell-hover);
+        box-shadow: inset 0 0 0 1.25px rgba(var(--k-ink), 0.72);
+        color: var(--k-t1);
+      }
+      .config-tip-text {
+        position: absolute;
+        top: var(--tip-top, 100%);
+        left: var(--g-cellpad);
+        z-index: 3;
+        width: max-content;
+        max-width: calc(100% - 2 * var(--g-cellpad));
+        padding: 8px 12px;
+        border-radius: var(--k-r-md);
+        background: var(--k-sheet);
+        box-shadow: var(--k-rim), var(--k-shadow-chip);
+        color: var(--k-t1);
+        font-size: var(--k-t-ctl);
+        font-weight: 400;
+        line-height: 1.35;
+        letter-spacing: -0.006em;
+        text-align: left;
+        white-space: normal;
+        pointer-events: none;
+        visibility: hidden;
+      }
+      .config-tipwrap[data-tip="open"] > .config-tip-text {
+        visibility: visible;
+      }
+      .config-tipwrap:not([data-tip="shut"]) > .config-tip:hover + .config-tip-text,
+      .config-tipwrap:not([data-tip="shut"]) > .config-tip:focus-visible + .config-tip-text {
+        visibility: visible;
       }
       /* Play all routes: its title over its description, the switch
          trailing. */
@@ -1074,10 +1172,13 @@
         #help > .help-title {
           grid-column: side-start / side-end;
         }
-        /* One key per row in the side column. */
+        /* One key per row in the side column, the card reaching the
+           settings pane's end when that is taller (its grid row grows to
+           the pane; the card's auto rows share the extra height). */
         #help > .help-list {
           grid-column: side-start / side-end;
           grid-template-columns: minmax(0, 1fr);
+          align-self: stretch;
         }
         .help-row:nth-child(2) {
           background-image: linear-gradient(var(--k-hair), var(--k-hair));
@@ -1086,6 +1187,24 @@
           grid-column: main-start / main-end;
           grid-row: keyshead / end;
         }
+      }
+
+      /* ---- The pill over the Esc screen (Phase 43 item 12): its notices
+         (Export done, an Import refusal, a tab that will not close) are
+         the #flash pill render/app.ts draws (styled inline, z 10). Over
+         the story its glass reads; here it may cross the sheet's title
+         line, so it is solid: a lit chip of the sheet with its rim and
+         shadow, the words under it covered rather than showing through.
+         The pill's inline background reads --k-pill-bg when it is set.
+         (The panel tokens live on the panels, not on #flash: values.) */
+      #help:not([hidden]) ~ #flash {
+        --k-pill-bg:
+          linear-gradient(rgba(255, 255, 255, 0.09), rgba(255, 255, 255, 0.09)),
+          rgb(30, 30, 35);
+        box-shadow:
+          inset 0 1px 0 rgba(255, 255, 255, 0.14),
+          0 0 0 0.5px rgba(0, 0, 0, 0.6),
+          0 10px 26px rgba(0, 0, 0, 0.38);
       }
 
       /* ==== The reset box (docs/plan.md Phase 16) =========================

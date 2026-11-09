@@ -13,6 +13,13 @@ import { createVisualLayer } from "./visual";
 export const ROUTE_PILL_MS = 1600;
 
 /**
+ * The hold of a notice the reader must read to the end or act on (an
+ * Import refusal, a tab that will not close itself): longer than a mode
+ * pill's, which names one word of state.
+ */
+export const NOTICE_LONG_MS = 4000;
+
+/**
  * The pill never covers a choice screen with news the reader did not ask
  * for (docs/progress.md): `#choice` fills the window, so no spot is clear
  * of its title, hint and rows. A choice opening drops the pill on screen
@@ -64,11 +71,15 @@ export function createPillGate(): PillGate {
 
 /**
  * One queued pill: its text, and whether it is a mode pill ("Skip on",
- * "Auto-forward off"…), which may cover a choice and leads its sequence.
+ * "Auto-forward off"…) or a notice answering the reader's own click on the
+ * Esc screen ("Progress exported"), either of which may cover a choice and
+ * leads its sequence. `holdMs`, when given, is how long it holds before
+ * the next message shows (the queue's hold otherwise).
  */
 export interface PillMessage {
   readonly text: string;
   readonly mode: boolean;
+  readonly holdMs?: number;
 }
 
 /** The timers and the pill itself, injected so the queue is testable. */
@@ -89,10 +100,11 @@ export interface PillQueueIo {
  * stopping a skip burst in auto-forward says "Skip off" then "Auto-forward
  * off", and a pick whose armed skip cannot run says "Skip off" then its
  * "Route: <label>". A later task's announcement still wins over whatever
- * is queued (Phase 18).
+ * is queued (Phase 18). A message given its own hold keeps the next one
+ * waiting that long.
  */
 export interface PillQueue {
-  add(messages: readonly string[], mode: boolean): void;
+  add(messages: readonly string[], mode: boolean, holdMs?: number): void;
   /** A choice opened: drop every queued message but the mode pills. */
   dropGated(): void;
   /** Drop every queued message (the map opened, unmount). */
@@ -125,23 +137,31 @@ export function createPillQueue(
       ...messages.filter((message) => message.mode),
       ...messages.filter((message) => !message.mode),
     ];
-    ordered.forEach((message, index) => {
+    let at = 0;
+    for (const message of ordered) {
       const entry = { handle: null as unknown, message };
       entry.handle = io.setTimer(() => {
         queued = queued.filter((other) => other !== entry);
         io.show(message);
-      }, index * holdMs);
+      }, at);
       queued.push(entry);
-    });
+      at += message.holdMs ?? holdMs;
+    }
   }
 
   return {
-    add(messages, mode) {
+    add(messages, mode, ownHoldMs) {
       if (batch === null) {
         batch = [];
         io.defer(start);
       }
-      for (const text of messages) batch.push({ text, mode });
+      for (const text of messages) {
+        batch.push(
+          ownHoldMs === undefined
+            ? { text, mode }
+            : { text, mode, holdMs: ownHoldMs },
+        );
+      }
     },
     dropGated() {
       if (batch !== null) batch = batch.filter((message) => message.mode);
@@ -191,6 +211,16 @@ export interface Shell {
     messages: readonly string[],
     options?: { mode?: boolean },
   ): void;
+  /**
+   * A notice answering the reader's own click on the Esc screen ("Progress
+   * exported", an Import refusal, a tab that will not close): the pill,
+   * queued as a mode pill is (it may show over the choice the screen
+   * covers, and leads its task's sequence), held `holdMs` (ROUTE_PILL_MS
+   * by default; NOTICE_LONG_MS for text to read to the end). The pill is
+   * hidden from assistive tech, so a polite status region says it too.
+   * Nothing on the Esc screen moves for it.
+   */
+  notify(message: string, options?: { holdMs?: number }): void;
   /**
    * A full-screen panel that the pill must not cover (the branch map) has
    * opened (true): the pill and its queued messages go, and no pill shows
@@ -268,7 +298,21 @@ export function mountShell({ root, manifest, machine }: ShellOptions): Shell {
     fontStyle: "italic",
     color: "rgba(244, 239, 230, 0.78)",
   });
-  root.replaceChildren(stage, overlay, endCard, notice);
+  // The notices' words for assistive tech (`notify`): a polite status
+  // region present from the start (one added with its text is not reliably
+  // read), visually hidden, so it takes no room anywhere.
+  const status = doc.createElement("div");
+  status.id = "flash-status";
+  status.setAttribute("role", "status");
+  Object.assign(status.style, {
+    position: "absolute",
+    width: "1px",
+    height: "1px",
+    overflow: "hidden",
+    clipPath: "inset(50%)",
+    whiteSpace: "nowrap",
+  });
+  root.replaceChildren(stage, overlay, endCard, notice, status);
 
   const visuals = createVisualLayer(stage, manifest, {
     // A standalone video's `ended` (or an autoplay rejection, see
@@ -385,7 +429,8 @@ export function mountShell({ root, manifest, machine }: ShellOptions): Shell {
     setTimer: (fn, ms) => globalThis.setTimeout(fn, ms),
     clearTimer: (handle) =>
       globalThis.clearTimeout(handle as ReturnType<typeof setTimeout>),
-    show: (message) => flash(message.text, ROUTE_PILL_MS, message.mode),
+    show: (message) =>
+      flash(message.text, message.holdMs ?? ROUTE_PILL_MS, message.mode),
   });
 
   function clearFlash(): void {
@@ -412,7 +457,9 @@ export function mountShell({ root, manifest, machine }: ShellOptions): Shell {
       transform: "translateX(-50%)",
       padding: "8px 18px",
       borderRadius: "999px",
-      background: "rgba(10, 10, 12, 0.72)",
+      // Glass over the story; index.html sets --k-pill-bg to a solid
+      // chip over the Esc screen, where the pill may cross its title.
+      background: "var(--k-pill-bg, rgba(10, 10, 12, 0.72))",
       border: "1px solid rgba(244, 239, 230, 0.22)",
       color: "#f4efe6",
       font: "500 clamp(13px, 1.6vh, 17px)/1.3 ui-sans-serif, system-ui, sans-serif",
@@ -443,6 +490,18 @@ export function mountShell({ root, manifest, machine }: ShellOptions): Shell {
     pills.add(messages, options.mode === true);
   }
 
+  let statusTimer: ReturnType<typeof setTimeout> | undefined;
+  function notify(message: string, options: { holdMs?: number } = {}): void {
+    pills.add([message], true, options.holdMs);
+    // Emptied first and refilled a moment later, so the same notice twice
+    // (a second Export) is read out twice.
+    globalThis.clearTimeout(statusTimer);
+    status.textContent = "";
+    statusTimer = globalThis.setTimeout(() => {
+      status.textContent = message;
+    }, 100);
+  }
+
   const unsubscribe = machine.subscribe(render);
   render(machine.getState());
 
@@ -465,6 +524,7 @@ export function mountShell({ root, manifest, machine }: ShellOptions): Shell {
     },
     flash,
     flashSequence,
+    notify,
     setPillsCovered(covered: boolean) {
       if (pillGate.coverChanged(covered)) {
         pills.dropAll();
@@ -479,6 +539,7 @@ export function mountShell({ root, manifest, machine }: ShellOptions): Shell {
       visuals.destroy();
       clearFlash();
       pills.dropAll();
+      globalThis.clearTimeout(statusTimer);
       root.replaceChildren();
     },
   };

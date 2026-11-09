@@ -138,7 +138,7 @@ export interface WindowEffects {
   closeTab(): void;
   /** Runs `run` after `ms`; used to see whether the tab really closed. */
   later(run: () => void, ms: number): void;
-  /** The tab is still here: say so on the Esc screen. */
+  /** The tab is still here: say so (the shell's pill, over the Esc screen). */
   tabStayed(): void;
 }
 

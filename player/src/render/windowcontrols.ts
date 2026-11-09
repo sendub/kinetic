@@ -1,11 +1,12 @@
 // The Esc screen's window controls (docs/plan.md Phase 43 item 9): the last
-// group of the settings, under its own heading, on one line like the
-// Progress buttons. A two-part Fullscreen | Window switch, drawn like the
-// branch map's Full size | Fit (its pressed half is the display mode now:
-// the game app's, or the browser tab's Display setting), and Exit, which
-// quits the game. Under them, a line for a browser tab that would not
-// close itself. What a click does lives in render/host.ts
-// (`windowActions`); this module only draws and reports.
+// group of the settings, under its own heading, on one line: a two-part
+// Fullscreen | Window switch at its left, drawn like the branch map's Full
+// size | Fit (its pressed half is the display mode now: the game app's, or
+// the browser tab's Display setting), and Exit at its right, which quits
+// the game (item 12). A browser tab that would not close itself says so in
+// the shell's pill (`CLOSE_TAB_NOTE`, main.ts), not on this screen. What a
+// click does lives in render/host.ts (`windowActions`); this module only
+// draws and reports.
 
 import type { DisplayMode } from "./host";
 
@@ -19,16 +20,14 @@ export const DISPLAY_TEXT: Readonly<Record<DisplayMode, string>> = {
 };
 export const EXIT_TEXT = "Exit";
 /**
- * The line for a browser tab the page may not close (render/host.ts
+ * The pill for a browser tab the page may not close (render/host.ts
  * `tabClosable`), or one that stayed open after `window.close()`.
  */
 export const CLOSE_TAB_NOTE =
-  "this browser keeps the tab open: close the tab to exit";
+  "This browser keeps the tab open: close the tab to exit.";
 export interface WindowControls {
   /** Repaints the switch from `display()`. */
   refresh(): void;
-  /** The line under the controls; empty text hides it. */
-  showNote(text: string): void;
 }
 
 export interface WindowControlsOptions {
@@ -53,9 +52,10 @@ export function mountWindowControls({
   heading.className = "config-section";
   heading.textContent = WINDOW_SECTION;
 
-  // Two rows on one line (index.html's `.config-inline`), each labelled
-  // for the screen's reading order like the Progress rows; the buttons name
-  // themselves, so the labels are not drawn.
+  // Two rows on one line (index.html's `.config-inline`): the switch at
+  // the line's start, Exit at its end. Each is labelled for the screen's
+  // reading order like the Progress rows; the buttons name themselves, so
+  // the labels are not drawn.
   const inlineRow = (label: string): HTMLElement => {
     const row = doc.createElement("div");
     row.className = "config-row config-option config-inline";
@@ -89,12 +89,7 @@ export function mountWindowControls({
   exitButton.addEventListener("click", () => onExit());
   exitRow.append(exitButton);
 
-  const note = doc.createElement("p");
-  note.className = "config-message config-window-note";
-  note.setAttribute("role", "status");
-  note.hidden = true;
-
-  root.append(heading, displayRow, exitRow, note);
+  root.append(heading, displayRow, exitRow);
 
   function refresh(): void {
     const shown = display();
@@ -104,11 +99,5 @@ export function mountWindowControls({
   }
   refresh();
 
-  return {
-    refresh,
-    showNote(text) {
-      note.textContent = text;
-      note.hidden = text === "";
-    },
-  };
+  return { refresh };
 }

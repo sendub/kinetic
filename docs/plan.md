@@ -1888,11 +1888,65 @@ The work, in order:
       code builds and passes `GOOS=windows go vet`. Running it on Windows
       is the user's check at the phase closer.
 
-Docs for items 7-11: CREATE.md (building the apps, their requirements, what
+12. The Esc screen's balance and notices (the user, 2026-11-09, after a
+    second play of the apps).
+    - The play check found two faults:
+      - The Settings column ran well past the bottom of the Keys card,
+        and further still on Windows, whose system font sets the text
+        wider.
+      - After a second Export the Windows app's message line still said
+        `Exported <name>.`, though the app had saved `<name> (2).json`.
+        The page cannot know the saved name. The line also pushed
+        everything under it down when it appeared.
+    - The notices become the pill the mode pills use (Phase 20, item 4),
+      shown above the Esc screen and solid there, with the pill rules
+      unchanged. Both message lines go, so nothing on the screen moves
+      when a notice shows. A polite status region says each notice to
+      assistive tech, since the pill is hidden from it.
+      - Export done says "Progress exported", with no file name.
+      - An Import refusal says its existing text and holds 4 s, longer
+        than a mode pill's 1.6 s. So does a failed import.
+      - In a browser tab that will not close itself, Exit says "This
+        browser keeps the tab open: close the tab to exit." (4 s).
+    - Progress: the heading line reads "Progress · saved automatically".
+      A "?" after it holds the rest of Phase 22's note: "Saved in this
+      browser as you read. Export and Import carry it to another
+      browser."
+    - Auto-forward speed: Phase 24's note moves behind a "?" after the
+      label ("Also times play-all's choice countdown."), and the cell gets
+      its rounded bottom back. The - slider + row spans the cell: - on its
+      left padding edge, + on its right, the slider between. The readout
+      no longer sizes the column + sits in; it shares the label's line and
+      takes a line of its own where both do not fit (700 px wide).
+    - Play all routes: its note is one line, "choices pick themselves on a
+      countdown".
+    - Game window: the heading stays; Fullscreen | Window sits at the start
+      of one line and Exit at its end, flush with the column's outer edges
+      where the cards start and end.
+      The rows keep their hidden labels for screen readers.
+    - The Keys card stretches to the Settings column's height when that is
+      taller, its rows sharing the extra height evenly, so the columns end
+      level whatever the font. When Settings is shorter nothing stretches
+      it (its lines pack at the top). The whole screen still fits 1280x720,
+      700x900 and 800x600 with no scroll.
+    - Each "?" is a button named "About …" whose tip is in the DOM as its
+      description (aria-describedby), never a `title`. The tip shows on
+      hover and on keyboard focus, as a chip of the sheet inside the
+      settings column. A click or tap pins it open, and a second one shuts
+      it. A click never closes the screen, asks for fullscreen or changes a
+      setting; Space and Escape still close the screen. The glyph is a
+      mask drawn on the ring's own box, so its ink sits centred whatever
+      the system font or engine (the user asked for this after the mock).
+    - The docs stop saying ⌘H hides the macOS app: in the real app it does
+      nothing visible, and the user does not mind. The key map is
+      unchanged.
+
+Docs for items 7-12: CREATE.md (building the apps, their requirements, what
 readers see, testing a game); docs/packaging.md; docs/stack.md (the
 Distribution decision now includes the two apps); README.md (Exit, the
-display toggle, the skip pill, the keys on a choice); AGENTS.md (the WebKit
-run and whatever item 1 changes in the test commands).
+display toggle, the skip pill, the keys on a choice, the Esc screen's "?"
+tips and notices); AGENTS.md (the WebKit run and whatever item 1 changes in
+the test commands); docs/verify-player.md (item 12's checks).
 
 ## Later, waiting on the user
 

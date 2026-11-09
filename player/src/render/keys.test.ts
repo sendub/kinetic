@@ -280,7 +280,7 @@ describe("installKeyMap leaves shortcuts to the browser and the host", () => {
     { altKey: true },
   ];
 
-  it("leaves ⌘H, Ctrl+H and Alt+H alone: no text toggle, default kept (⌘H hides the macOS app)", () => {
+  it("leaves ⌘H, Ctrl+H and Alt+H alone: no text toggle, default kept (the browser's or the app's)", () => {
     for (const modifiers of MODIFIERS) {
       expect(press("h", modifiers)).toEqual(NOTHING);
       expect(press("H", modifiers)).toEqual(NOTHING);

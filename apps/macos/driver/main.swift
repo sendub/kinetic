@@ -80,7 +80,7 @@ func reportWindowKey(_ event: NSEvent, _ fate: String) {
 /// claims every key equivalent it is offered, to give the page its turn;
 /// one the page leaves (no `preventDefault`) WebKit sends through NSApp
 /// again, and the web view's answer that time is the one that counts:
-/// unclaimed, the game app's main menu gets the key (⌘H hides the app). The
+/// unclaimed, the game app's main menu gets the key (⌘Q quits the app). The
 /// driver has no menu, so the key goes on to the window, as a key no menu
 /// item takes does in the app.
 final class DriverApplication: NSApplication {

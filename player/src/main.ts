@@ -38,7 +38,7 @@
 import { createMachine } from "./machine/machine";
 import type { MachineSettings } from "./machine/types";
 import { DEFAULT_SETTINGS } from "./machine/types";
-import { mountError, mountShell } from "./render/app";
+import { mountError, mountShell, NOTICE_LONG_MS } from "./render/app";
 import { mountAutoForwardAnnouncements } from "./render/autoforward";
 import {
   bookmarkRestoreTarget,
@@ -48,7 +48,13 @@ import {
 import { mountBranchMap } from "./render/branchmap";
 import { captureVisualThumbnail } from "./render/capture";
 import { inputOwnerFor, mountChoiceOverlay } from "./render/choice";
-import { isSettingsControl, mountConfigOverlay } from "./render/config";
+import {
+  EXPORT_DONE_NOTICE,
+  IMPORT_FAILED_NOTICE,
+  IMPORT_UNREADABLE_NOTICE,
+  isSettingsControl,
+  mountConfigOverlay,
+} from "./render/config";
 import {
   importRequest,
   mountConfirmOverlay,
@@ -362,7 +368,9 @@ function start(): void {
         },
         // Export (docs/plan.md Phase 21): the state as it stands this
         // moment — the same record the next write would save — and the
-        // stored bookmarks, downloaded as `<storyId>-progress.json`.
+        // stored bookmarks, downloaded as `<storyId>-progress.json`. The
+        // pill names no file (Phase 43 item 12): the browser or the app may
+        // save it under another name (the Windows app's `name (2).json`).
         onExport: () => {
           void storage
             .getBookmarks()
@@ -376,23 +384,25 @@ function start(): void {
                 now: new Date(),
               });
               downloadText(document, name, JSON.stringify(file, null, 2));
-              config.showMessage(`Exported ${name}.`);
+              shell.notify(EXPORT_DONE_NOTICE);
             });
         },
         // Import: the file is checked before anything is touched; a
-        // refusal is said in the panel, a good file asks the box.
+        // refusal is said in the pill, held long enough to read, and a good
+        // file asks the box.
         onImport: (file) => {
+          const refuse = (message: string): void =>
+            shell.notify(message, { holdMs: NOTICE_LONG_MS });
           file.text().then(
             (text) => {
               const parsed = parseProgressFile(text, story);
               if (!parsed.ok) {
-                config.showMessage(parsed.message);
+                refuse(parsed.message);
                 return;
               }
-              config.showMessage("");
               confirm.open(importRequest(gameTitle, () => runImport(parsed)));
             },
-            () => config.showMessage("That file could not be read."),
+            () => refuse(IMPORT_UNREADABLE_NOTICE),
           );
         },
       });
@@ -436,7 +446,8 @@ function start(): void {
         later: (run, ms) => {
           setTimeout(run, ms);
         },
-        tabStayed: () => windowControls.showNote(CLOSE_TAB_NOTE),
+        tabStayed: () =>
+          shell.notify(CLOSE_TAB_NOTE, { holdMs: NOTICE_LONG_MS }),
       });
       const windowControls = mountWindowControls({
         root: config.panel,
@@ -475,7 +486,7 @@ function start(): void {
       // A confirmed import (docs/plan.md Phase 21): writes stop as for a
       // reset (the reload's pagehide flush must not overwrite the import),
       // the replace commits, then the page reloads onto it. A failed
-      // replace changed nothing: writes resume and the panel says so.
+      // replace changed nothing: writes resume and the pill says so.
       function runImport(progress: ImportedProgress): void {
         resetting = true;
         void importProgress({
@@ -486,9 +497,7 @@ function start(): void {
         }).then((ok) => {
           if (ok) return;
           resetting = false;
-          config.showMessage(
-            "The import failed: this browser's storage refused it. Nothing was changed.",
-          );
+          shell.notify(IMPORT_FAILED_NOTICE, { holdMs: NOTICE_LONG_MS });
         });
       }
       // The Esc screen (docs/plan.md Phase 13b; Phase 26): the keymap's
@@ -501,9 +510,8 @@ function start(): void {
       const openHelp = (): void => {
         if (help.isOpen()) return;
         help.open();
-        config.open(); // the values in force, no stale message
+        config.open(); // the values in force, every "?" tip idle
         windowControls.refresh();
-        windowControls.showNote("");
         shell.setStageVisible(false);
         syncMenuPause(); // the black screen: no timers behind it
       };

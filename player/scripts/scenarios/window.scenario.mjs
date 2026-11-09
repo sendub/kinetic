@@ -14,7 +14,9 @@
 // reader leaves; Window leaves fullscreen and stops the asking, across a
 // reload; Fullscreen asks at once; nothing asks when the window already
 // fills the screen; Exit closes the tab where the browser lets a page close
-// itself, else says to close it. A host that appears after load takes over.
+// itself, else says to close it in the `#flash` pill over the Esc screen
+// (docs/plan.md Phase 43 item 12), nothing on the screen moving. A host
+// that appears after load takes over.
 // WebKit's web view has element fullscreen off, so the checks that need
 // the page to be fullscreen there are PARTIAL (as in screens and reading).
 //
@@ -53,6 +55,7 @@ import {
   pressH,
   pressShortcut,
   pressSpace,
+  READ_CONFIG_RECTS,
   sleep,
 } from "./harness.mjs";
 
@@ -65,14 +68,17 @@ const HALF = {
 };
 const EXIT = '[data-config-action="exit-game"]';
 
-/** The window controls and what the page knows about fullscreen. */
-const READ_WINDOW = () => {
+/**
+ * The window controls and what the page knows about fullscreen; `note` is
+ * the tab note when the `#flash` pill says it.
+ */
+const READ_WINDOW = (closeTabNote) => {
   const half = (mode) =>
     document.querySelector(`[data-config-action="display-${mode}"]`);
   const pressed = ["fullscreen", "window"].filter(
     (mode) => half(mode)?.getAttribute("aria-pressed") === "true",
   );
-  const note = document.querySelector(".config-window-note");
+  const pill = document.getElementById("flash")?.textContent ?? null;
   return {
     pressed: pressed.length === 1 ? pressed[0] : pressed.join("+") || null,
     visible:
@@ -80,13 +86,13 @@ const READ_WINDOW = () => {
       document
         .querySelector('[data-config-action="exit-game"]')
         ?.checkVisibility() === true,
-    note: note !== null && !note.hidden ? note.textContent : null,
+    note: pill === closeTabNote ? pill : null,
     fsAttempts: window.__fsAttempts ?? 0,
     fullscreen: document.fullscreenElement !== null,
     history: history.length,
   };
 };
-const readWindow = (page) => page.evaluate(READ_WINDOW);
+const readWindow = (page) => page.evaluate(READ_WINDOW, CLOSE_TAB_NOTE);
 /** Host messages as text, `type` first (the Swift side orders keys its own way). */
 const asText = (messages) =>
   messages
@@ -382,13 +388,12 @@ async function browserTab({ check, open }) {
   );
 }
 
-/** Clicks Exit and waits for the tab note; true once it shows. */
+/** Clicks Exit and waits for the pill to say the tab note; true once it does. */
 async function exitAndWaitForNote(page, cdp) {
   await clickCenter(cdp, EXIT);
   return waitFor(
     page,
-    (text) =>
-      document.querySelector(".config-window-note")?.textContent === text,
+    (text) => document.getElementById("flash")?.textContent === text,
     3000,
     CLOSE_TAB_NOTE,
   );
@@ -412,10 +417,15 @@ async function exitInTab({ check, open }) {
   }
   await openSettings(page, cdp);
   const before = await readWindow(page);
+  const rowsBefore = await page.evaluate(READ_CONFIG_RECTS);
   const said = await exitAndWaitForNote(page, cdp);
+  const rowsAfter = await page.evaluate(READ_CONFIG_RECTS);
   check(
-    "tab: where the browser will not let the page close its tab, Exit says to close the tab and the page stays",
-    before.history === 2 && said && page.isClosed() === false,
+    "tab: where the browser will not let the page close its tab, Exit says to close the tab in the pill, nothing on the Esc screen moves, and the page stays",
+    before.history === 2 &&
+      said &&
+      JSON.stringify(rowsAfter) === JSON.stringify(rowsBefore) &&
+      page.isClosed() === false,
     { history: before.history, said, closed: page.isClosed() },
   );
 

@@ -958,8 +958,8 @@ What Mac readers get and see:
 
 - They double-click `<title>.app` in the game folder, and the game opens
   fullscreen the first time. Exit on the Esc screen quits, as do ⌘Q and
-  closing the window. ⌘R reloads and ⌘H hides the game. Export on the
-  Esc screen saves to Downloads, and Import opens a file panel.
+  closing the window. ⌘R reloads. Export on the Esc screen saves to
+  Downloads, and Import opens a file panel.
 - The Esc screen's Fullscreen | Window switch, the green button and
   ⌃⌘F all switch between fullscreen and a window, and the switch shows
   whichever is in force. No other key leaves fullscreen or beeps:
@@ -1001,8 +1001,9 @@ What Windows readers get and see:
   size and place the reader gives the window, on that screen while it is
   connected. It stays sharp on high-resolution screens.
 - Export on the Esc screen saves into Downloads, never over a file there
-  (a second export becomes `<storyId>-progress (2).json`), and Import
-  opens Windows' file dialog.
+  (a second export becomes `<storyId>-progress (2).json`), and the
+  screen's pill says "Progress exported", naming no file. Import opens
+  Windows' file dialog.
 - Double-clicking the exe while the game is open brings its window to the
   front.
 - Progress is kept in a folder only this game uses,

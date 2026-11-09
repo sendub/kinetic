@@ -10,7 +10,8 @@ import {
 
 // The Esc screen's window controls (docs/plan.md Phase 43 item 9) over a
 // stub DOM, as the config panel's tests do: the group's parts, the
-// switch's pressed half, the clicks it reports and the tab note.
+// switch's pressed half, the clicks it reports, and the tab note's words
+// (the shell's pill says them since item 12; the group has no note line).
 
 class FakeElement {
   className = "";
@@ -94,9 +95,10 @@ function mount(initial: DisplayMode) {
 }
 
 describe("mountWindowControls", () => {
-  it("adds the Game window group: heading, Fullscreen | Window, Exit, a hidden note", () => {
+  it("adds the Game window group: heading, then Fullscreen | Window and Exit on one line, no note line", () => {
     const { root } = mount("fullscreen");
-    const [heading, displayRow, exitRow, note] = root.children;
+    expect(root.children).toHaveLength(3);
+    const [heading, displayRow, exitRow] = root.children;
     expect(heading?.textContent).toBe(WINDOW_SECTION);
     expect(heading?.className).toBe("config-section");
     expect(displayRow?.className).toContain("config-inline");
@@ -107,7 +109,10 @@ describe("mountWindowControls", () => {
         .map((el) => el.textContent),
     ).toEqual([DISPLAY_TEXT.fullscreen, DISPLAY_TEXT.window]);
     expect(byAction(root, "exit-game").textContent).toBe(EXIT_TEXT);
-    expect(note?.hidden).toBe(true);
+    // Each row keeps its hidden label for screen readers' reading order.
+    expect(displayRow?.children[0]?.className).toBe("config-label");
+    expect(displayRow?.children[0]?.textContent).toBe("Display");
+    expect(exitRow?.children[0]?.textContent).toBe("Exit the game");
   });
 
   it("presses the half for the display mode shown, and repaints on refresh", () => {
@@ -127,13 +132,11 @@ describe("mountWindowControls", () => {
     expect(view.exits()).toBe(1);
   });
 
-  it("shows and hides the tab note", () => {
+  it("words the tab note as a sentence for the pill", () => {
     const view = mount("window");
-    const note = view.root.children[3];
-    view.controls.showNote(CLOSE_TAB_NOTE);
-    expect(note?.hidden).toBe(false);
-    expect(note?.textContent).toBe(CLOSE_TAB_NOTE);
-    view.controls.showNote("");
-    expect(note?.hidden).toBe(true);
+    expect(CLOSE_TAB_NOTE).toBe(
+      "This browser keeps the tab open: close the tab to exit.",
+    );
+    expect("showNote" in view.controls).toBe(false);
   });
 });

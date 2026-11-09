@@ -315,9 +315,10 @@ export interface DecisionInput {
 
 /**
  * Whether a keydown is held with ⌘, Ctrl or Alt (Option): a shortcut of
- * the browser's or the host's (⌘H hides the macOS app, ⌘R reloads a tab),
- * never one of the player's keys. Shift is not among them: Shift+h is `H`,
- * one of the table's Caps Lock spellings, and Shift+Tab is still Tab.
+ * the browser's or the host's (⌘R reloads a tab or the macOS app, ⌘Q
+ * quits the app), never one of the player's keys. Shift is not among them:
+ * Shift+h is `H`, one of the table's Caps Lock spellings, and Shift+Tab is
+ * still Tab.
  */
 export function isShortcut(event: {
   metaKey?: boolean;
@@ -338,8 +339,8 @@ export function isShortcut(event: {
  * runs no command, takes no decision and keeps its default, so the browser
  * or the host acts on it. In the macOS app the web view offers a key
  * equivalent to the page first and hands it to the main menu only when the
- * page leaves it, so a ⌘H the page took would toggle the text and never
- * hide the app.
+ * page leaves it, so a shortcut the page took would never reach the menu
+ * (⌘H once toggled the text there).
  *
  * `decisions`, when given, receives decision keys (`decisionKeyFor`) for
  * keys no mapped command claims: the decision overlay's 1..9, 0, the arrows

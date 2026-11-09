@@ -10,11 +10,16 @@ import type { MachineSettings } from "../machine/types";
 import { DEFAULT_SETTINGS } from "../machine/types";
 import { createMemoryStorage } from "../storage/memory";
 import {
+  EXPORT_DONE_NOTICE,
+  IMPORT_FAILED_NOTICE,
+  IMPORT_UNREADABLE_NOTICE,
   isSettingsControl,
   mountConfigOverlay,
   PLAY_ALL_NOTE,
-  PROGRESS_NOTE,
+  PROGRESS_HEADING,
+  PROGRESS_SAVED,
   PROGRESS_SECTION,
+  PROGRESS_TIP,
   playAllLabel,
   SETTINGS_TITLE,
   SKIP_ALL_TEXT,
@@ -23,12 +28,14 @@ import {
   SPEED_LABEL,
   SPEED_MAX,
   SPEED_MIN,
-  SPEED_NOTE,
   SPEED_STEP,
+  SPEED_TIP,
   skipAllLabel,
   skipVideosLabel,
   speedLabel,
   stepSpeed,
+  tipAfterClick,
+  tipAfterLeave,
 } from "./config";
 import {
   importRequest,
@@ -111,12 +118,14 @@ describe("playAllLabel (the Phase 13 play-all-routes switch)", () => {
 class FakeElement {
   readonly tag: string;
   readonly children: FakeElement[] = [];
+  /** Every child in order, text included (`append` takes strings too). */
+  readonly childNodes: (FakeElement | string)[] = [];
   parent: FakeElement | null = null;
   id = "";
   className = "";
   type = "";
   hidden = false;
-  textContent = "";
+  private ownText = "";
   value = "";
   min = "";
   max = "";
@@ -135,6 +144,20 @@ class FakeElement {
     this.ownerDocument = doc;
   }
 
+  /** Its own text and its children's, in order, as the DOM's is. */
+  get textContent(): string {
+    return (
+      this.ownText +
+      this.childNodes
+        .map((node) => (typeof node === "string" ? node : node.textContent))
+        .join("")
+    );
+  }
+
+  set textContent(text: string) {
+    this.ownText = text;
+  }
+
   setAttribute(name: string, value: string): void {
     this.attributes.set(name, value);
   }
@@ -143,8 +166,10 @@ class FakeElement {
     return this.attributes.get(name) ?? null;
   }
 
-  append(...nodes: FakeElement[]): void {
+  append(...nodes: (FakeElement | string)[]): void {
     for (const node of nodes) {
+      this.childNodes.push(node);
+      if (typeof node === "string") continue;
       node.parent = this;
       this.children.push(node);
     }
@@ -215,6 +240,24 @@ function find(
   const el = walk(root).find(predicate);
   if (el === undefined) throw new Error(`no ${label}`);
   return el;
+}
+
+/**
+ * An element's own words as the screen shows them on its line: its text
+ * without the tip a "?" carries (that is the button's description, drawn
+ * only on hover, focus or a click).
+ */
+function words(el: FakeElement): string {
+  if (el.childNodes.length === 0) return el.textContent;
+  return el.childNodes
+    .map((node) =>
+      typeof node === "string"
+        ? node
+        : node.className === "config-tipwrap"
+          ? ""
+          : words(node),
+    )
+    .join("");
 }
 
 // className is matched as a token: the speed readout carries two classes.
@@ -297,10 +340,10 @@ describe("config panel (the reading-speed row: - slider + readout)", () => {
     ]);
   });
 
-  it("names the speed for auto-forward and notes it also times play-all's countdown", () => {
+  it("names the speed for auto-forward, its ? saying it also times play-all's countdown", () => {
     const { root } = mount(defaults);
     const row = byClass(root, "config-row");
-    expect(row.children[0].textContent).toBe(SPEED_LABEL);
+    expect(words(row.children[0])).toBe(SPEED_LABEL);
     expect(SPEED_LABEL).toBe("Auto-forward speed");
     expect(byAction(root, "speed-slider").getAttribute("aria-label")).toBe(
       "Auto-forward speed",
@@ -311,13 +354,26 @@ describe("config panel (the reading-speed row: - slider + readout)", () => {
     expect(byAction(root, "speed-up").getAttribute("aria-label")).toBe(
       "Increase auto-forward speed",
     );
-    // The note is its own indented line straight under the speed row.
-    const note = byClass(root, "config-speed-note");
-    expect(note.className).toBe("config-note config-option config-speed-note");
-    const siblings = root.children[0].children;
-    expect(siblings[siblings.indexOf(row) + 1]).toBe(note);
-    expect(note.textContent).toBe(SPEED_NOTE);
-    expect(SPEED_NOTE).toBe("also times play-all's choice countdown");
+    // The note that was a line under the row (Phase 24) is the tip of a
+    // "?" straight after the label's words (Phase 43 item 12): a button
+    // named for the speed, the tip its description, no title attribute.
+    const label = row.children[0];
+    expect(label.childNodes[0]).toBe(SPEED_LABEL);
+    const tip = byAction(root, "tip-speed");
+    expect(tip.tag).toBe("button");
+    expect(tip.type).toBe("button");
+    expect(tip.parent?.parent).toBe(label);
+    expect(tip.getAttribute("aria-label")).toBe("About auto-forward speed");
+    expect(tip.getAttribute("title")).toBeNull();
+    const body = walk(root).find(
+      (el) => el.id === tip.getAttribute("aria-describedby"),
+    );
+    expect(body?.getAttribute("role")).toBe("tooltip");
+    expect(body?.textContent).toBe(SPEED_TIP);
+    expect(SPEED_TIP).toBe("Also times play-all's choice countdown.");
+    expect(walk(root).some((el) => el.className.includes("speed-note"))).toBe(
+      false,
+    );
   });
 
   it("applies a drag live and refreshes the readout", () => {
@@ -415,25 +471,28 @@ describe("the panel layout: the skip settings read as options of Tab", () => {
     const { root } = mount(defaults);
     const panel = root.children[0];
     // Panel order IS the visual order: one text per heading or row label.
-    const lines = panel.children.map((el) =>
-      el.className === "config-section"
-        ? `# ${el.textContent}`
-        : el.className.includes("config-group-note")
-          ? `  ~ ${el.textContent}`
+    expect(panel.children[0].className).toBe("config-title");
+    const lines = panel.children
+      .slice(1)
+      .map((el) =>
+        el.className === "config-section"
+          ? `# ${words(el)}`
           : el.className.includes("config-row")
-            ? `${el.className.includes("config-option") ? "  " : ""}${
-                el.children[0].textContent
-              }`
+            ? `${el.className.includes("config-option") ? "  " : ""}${words(
+                el.children[0],
+              )}`
             : null,
-    );
-    expect(lines.filter((l) => l !== null)).toEqual([
+      );
+    // No note lines (Phase 43 item 12): the speed's and the Progress
+    // group's notes are tips, and the message line is gone.
+    expect(lines).not.toContain(null);
+    expect(lines).toEqual([
       "Auto-forward speed",
       `# ${SKIP_SECTION}`,
       `  ${SKIP_ALL_TEXT}`,
       `  ${SKIP_VIDEOS_TEXT}`,
       "Play all routes",
-      `# ${PROGRESS_SECTION}`,
-      `  ~ ${PROGRESS_NOTE}`,
+      `# ${PROGRESS_HEADING}`,
       "  Export progress",
       "  Import progress",
       "  Reset progress",
@@ -460,24 +519,94 @@ describe("the panel layout: the skip settings read as options of Tab", () => {
       "config-note",
     ]);
     expect(row?.children[2].textContent).toBe(PLAY_ALL_NOTE);
-    // Says what turning it On does, so it is true in the Off position too.
-    expect(PLAY_ALL_NOTE).toBe(
-      "when on, choices pick themselves after a countdown",
-    );
+    // Says what turning it On does, so it is true in the Off position too,
+    // and short enough for one line (Phase 43 item 12).
+    expect(PLAY_ALL_NOTE).toBe("choices pick themselves on a countdown");
   });
 
-  it("notes under the Progress heading that saving is automatic", () => {
+  it("heads Progress with 'Progress · saved automatically', the rest of the note behind its ?", () => {
     const { root } = mount(defaults);
-    const note = byClass(root, "config-group-note");
-    // Its own indented line straight under the heading, in the note style.
-    expect(note.className).toBe("config-note config-option config-group-note");
     const siblings = root.children[0].children;
-    const at = siblings.indexOf(note);
-    expect(siblings[at - 1].textContent).toBe(PROGRESS_SECTION);
-    expect(siblings[at + 1].children[0].textContent).toBe("Export progress");
-    expect(PROGRESS_NOTE).toBe(
-      "saved in this browser automatically; export or import only to switch browser",
+    const heading = siblings.find(
+      (el) =>
+        el.className === "config-section" &&
+        el.childNodes[0] === PROGRESS_SECTION,
     );
+    if (heading === undefined) throw new Error("no Progress heading");
+    expect(words(heading)).toBe(PROGRESS_HEADING);
+    expect(PROGRESS_HEADING).toBe("Progress · saved automatically");
+    expect(PROGRESS_SAVED).toBe("saved automatically");
+    // Export's row follows the heading straight away: no note line between.
+    expect(
+      siblings[siblings.indexOf(heading) + 1].children[0].textContent,
+    ).toBe("Export progress");
+    const tip = byAction(root, "tip-progress");
+    expect(tip.parent?.parent).toBe(heading);
+    expect(tip.getAttribute("aria-label")).toBe("About progress");
+    const body = walk(root).find(
+      (el) => el.id === tip.getAttribute("aria-describedby"),
+    );
+    expect(body?.textContent).toBe(PROGRESS_TIP);
+    expect(PROGRESS_TIP).toBe(
+      "Saved in this browser as you read. Export and Import carry it to another browser.",
+    );
+    expect(walk(root).some((el) => el.className.includes("group-note"))).toBe(
+      false,
+    );
+  });
+});
+
+// --- the "?" tips (docs/plan.md Phase 43 item 12): index.html shows a tip
+// on hover or keyboard focus; a click or tap toggles it, one tip at a time.
+// The state is the wrapper's `data-tip`, which the sheet's CSS reads. ---
+
+describe("tipAfterClick / tipAfterLeave (a click toggles; leaving re-arms)", () => {
+  it("opens an idle or shut tip and shuts an open one", () => {
+    expect(tipAfterClick("idle")).toBe("open");
+    expect(tipAfterClick("open")).toBe("shut");
+    expect(tipAfterClick("shut")).toBe("open");
+  });
+
+  it("puts a shut tip back to showing on hover or focus once those leave; an open one stays", () => {
+    expect(tipAfterLeave("shut")).toBe("idle");
+    expect(tipAfterLeave("open")).toBe("open");
+    expect(tipAfterLeave("idle")).toBe("idle");
+  });
+});
+
+describe("the ? tips on the panel", () => {
+  const state = (root: FakeElement, key: string): string | null =>
+    byAction(root, `tip-${key}`).parent?.getAttribute("data-tip") ?? null;
+
+  it("toggles on click, re-arms when the pointer leaves, and changes no setting", () => {
+    const { root, overlay, changes } = mount(defaults);
+    overlay.open();
+    expect(state(root, "speed")).toBe("idle");
+    const tip = byAction(root, "tip-speed");
+    tip.fire("click");
+    expect(state(root, "speed")).toBe("open");
+    tip.fire("click");
+    expect(state(root, "speed")).toBe("shut");
+    tip.parent?.fire("pointerleave");
+    expect(state(root, "speed")).toBe("idle");
+    tip.fire("click");
+    tip.fire("blur"); // focus leaving keeps an open tip open
+    expect(state(root, "speed")).toBe("open");
+    expect(changes).toHaveLength(0);
+    expect(overlay.isOpen()).toBe(true);
+    expect(isSettingsControl(tip as unknown as EventTarget)).toBe(true);
+  });
+
+  it("shows one tip at a time, and the screen reopens with every tip idle", () => {
+    const { root, overlay } = mount(defaults);
+    overlay.open();
+    byAction(root, "tip-speed").fire("click");
+    byAction(root, "tip-progress").fire("click");
+    expect(state(root, "speed")).toBe("idle");
+    expect(state(root, "progress")).toBe("open");
+    overlay.close();
+    overlay.open();
+    expect(state(root, "progress")).toBe("idle");
   });
 });
 
@@ -626,8 +755,8 @@ describe("the confirm box: cancel is a no-op, reset deletes and reloads", () => 
 
 // --- the Progress group's Export / Import rows (docs/plan.md Phase 21):
 // Export asks the shell for the download; Import opens the file picker
-// (a hidden file input), hands the chosen file to the shell, and shows the
-// shell's refusal in the panel itself. Neither changes a setting. ---
+// (a hidden file input) and hands the chosen file to the shell, which says
+// a refusal in its pill (Phase 43 item 12). Neither changes a setting. ---
 
 describe("the Progress rows: Export and Import progress (Phase 21)", () => {
   it("Export asks the shell for the download and touches no setting", () => {
@@ -672,21 +801,27 @@ describe("the Progress rows: Export and Import progress (Phase 21)", () => {
     expect(imports).toHaveLength(1);
   });
 
-  it("shows a refusal in the panel; reopening clears it", () => {
+  it("keeps no message line: the notices are the shell's pill, so nothing moves", () => {
     const { root, overlay } = mount(defaults);
     overlay.open();
-    const message = byClass(root, "config-message");
-    expect(message.hidden).toBe(true);
-    expect(message.getAttribute("role")).toBe("status");
-    overlay.showMessage("That file is not a Kinetic progress file.");
-    expect(message.hidden).toBe(false);
-    expect(message.textContent).toBe(
-      "That file is not a Kinetic progress file.",
+    expect(
+      walk(root).some(
+        (el) =>
+          el.className.includes("config-message") ||
+          el.getAttribute("role") === "status",
+      ),
+    ).toBe(false);
+    expect("showMessage" in overlay).toBe(false);
+  });
+
+  it("words the notices main.ts shows in the pill: no file name on Export", () => {
+    // The browser or the app may save the file under another name (the
+    // Windows app's `name (2).json`), so the pill names none.
+    expect(EXPORT_DONE_NOTICE).toBe("Progress exported");
+    expect(IMPORT_UNREADABLE_NOTICE).toBe("That file could not be read.");
+    expect(IMPORT_FAILED_NOTICE).toBe(
+      "The import failed: this browser's storage refused it. Nothing was changed.",
     );
-    overlay.close();
-    overlay.open();
-    expect(message.hidden).toBe(true);
-    expect(message.textContent).toBe("");
   });
 });
 

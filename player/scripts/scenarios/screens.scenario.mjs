@@ -16,7 +16,11 @@ import {
 } from "node:fs";
 import { dirname, join } from "node:path";
 import { DEFAULT_SETTINGS } from "../../src/machine/types.ts";
-import { speedLabel } from "../../src/render/config.ts";
+import {
+  PROGRESS_TIP,
+  SPEED_TIP,
+  speedLabel,
+} from "../../src/render/config.ts";
 import { EARLIER_UNSEEN_NOTICE } from "../../src/render/endcard.ts";
 import {
   CONFIG_CLOSED,
@@ -1287,11 +1291,14 @@ async function config({ check, open }) {
   // a group of its own after them; every shown row label and heading
   // starts on one edge (the Progress rows' labels are hidden: their
   // buttons name themselves), and the switches line up in one column at
-  // the rows' right end.
+  // the rows' right end. Phase 43 item 12: no note or message lines are
+  // left (the notes are "?" tips, the notices the pill), Progress's heading
+  // says saving is automatic, and Play all routes' note is one line.
   const shownLefts = first.labelLefts.filter((left) => left > 0);
   const [, skipRow, videoRow, playRow] = first.rowRects;
+  const playNote = first.playNoteRect;
   check(
-    "the config screen groups the skip options under When Tab skips and export, import, reset under Progress, labels and headings on one edge, the skip options one group apart from Play all routes, the switches in one column, with a note on play all routes",
+    "the config screen groups the skip options under When Tab skips and export, import, reset under 'Progress · saved automatically', labels and headings on one edge, the skip options one group apart from Play all routes, the switches in one column, a one-line note on play all routes, and no note or message lines",
     JSON.stringify(first.lines) ===
       JSON.stringify([
         "Auto-forward speed",
@@ -1299,8 +1306,7 @@ async function config({ check, open }) {
         "  Skip unseen content too",
         "  Play videos in full",
         "Play all routes",
-        "# Progress",
-        "  ~ saved in this browser automatically; export or import only to switch browser",
+        "# Progress · saved automatically",
         "  Export progress",
         "  Import progress",
         "  Reset progress",
@@ -1308,6 +1314,7 @@ async function config({ check, open }) {
         "  Display",
         "  Exit the game",
       ]) &&
+      first.noMessageLine &&
       shownLefts.length === 4 &&
       new Set(shownLefts).size === 1 &&
       first.headingTextLefts.length === 3 &&
@@ -1315,56 +1322,20 @@ async function config({ check, open }) {
       Math.abs(videoRow.top - skipRow.bottom) < 1 &&
       playRow.top - videoRow.bottom >= 8 &&
       Math.abs(first.skipRect.right - first.playRect.right) < 1 &&
-      first.playNote === "when on, choices pick themselves after a countdown" &&
+      first.playNote === "choices pick themselves on a countdown" &&
+      playNote !== null &&
+      playNote.bottom - playNote.top < 2 * first.playNoteFontPx &&
       first.hint === HELP_HINT,
     first,
   );
 
-  // The Progress note (Phase 22) between the heading and the buttons, its
-  // text on the rows' text edge; Export, Import and Reset share one line
-  // under it (Phase 40). In the settings pane's narrower column (Phase 40)
-  // the note takes two lines, as in the approved look at any width.
-  const noteRect = first.progressNoteRect;
+  // Export, Import and Reset share one line straight under the Progress
+  // heading (Phase 40; its note line went in Phase 43 item 12).
   check(
-    "the Progress note sits under its heading in at most two lines, on the rows' text edge, above Export, Import and Reset on one line",
-    noteRect !== null &&
-      noteRect.bottom - noteRect.top < 3 * first.progressNoteFontPx &&
-      Math.round(noteRect.left) === first.labelLefts[0] &&
-      noteRect.bottom <= first.exportRect.top &&
-      Math.abs(first.importRect.top - first.exportRect.top) < 1 &&
+    "Export, Import and Reset sit on one line straight under the Progress heading",
+    Math.abs(first.importRect.top - first.exportRect.top) < 1 &&
       Math.abs(first.resetRect.top - first.exportRect.top) < 1,
-    {
-      noteRect,
-      fontPx: first.progressNoteFontPx,
-      lefts: first.labelLefts,
-      buttons: [first.exportRect, first.importRect, first.resetRect],
-    },
-  );
-
-  // The speed row is named for auto-forward (Phase 24), and a note under
-  // it says it also times play-all's choice countdown: one line, indented
-  // with the options, between the speed row and the When Tab skips heading.
-  const speedNote = first.speedNoteRect;
-  check(
-    "the speed row reads Auto-forward speed with a one-line note under it, indented with the options",
-    first.lines[0] === "Auto-forward speed" &&
-      first.speedNote === "also times play-all's choice countdown" &&
-      speedNote !== null &&
-      speedNote.bottom - speedNote.top < 2 * first.speedNoteFontPx &&
-      Math.round(speedNote.left) === first.labelLefts[1] &&
-      speedNote.top >= first.speedValueRect.bottom &&
-      speedNote.bottom <= first.skipHeadingRect.top &&
-      first.speedValueRect.bottom - first.speedValueRect.top <
-        2 * first.speedNoteFontPx &&
-      speedNote.right <= first.viewportWidth,
-    {
-      speedNote,
-      fontPx: first.speedNoteFontPx,
-      value: first.speedValueRect,
-      heading: first.skipHeadingRect,
-      lefts: first.labelLefts,
-      vw: first.viewportWidth,
-    },
+    { buttons: [first.exportRect, first.importRect, first.resetRect] },
   );
 
   // (Space is the screen's closing key, checked in helpMidFlow.)
@@ -1494,6 +1465,511 @@ async function config({ check, open }) {
       persisted.skipPressed === "true" &&
       persisted.playPressed === "false",
     { sig, sigResumed, persisted },
+  );
+}
+
+// The Esc screen's two columns (docs/plan.md Phase 43 item 12) as the
+// reader sees them: where the Keys card and the Settings content end (the
+// content's last child, not #config's box, which its grid area may
+// stretch), each key row's height, the gap above "When Tab skips" against
+// that heading's own margin, and the rects of the speed cell and its parts
+// and of the Game window row.
+const READ_ESC_COLUMNS = () => {
+  const rect = (el) => {
+    if (el === null || el === undefined) return null;
+    const r = el.getBoundingClientRect();
+    return { left: r.left, right: r.right, top: r.top, bottom: r.bottom };
+  };
+  const config = document.getElementById("config");
+  const keys = document.querySelector("#help .help-list");
+  const kids = [...config.children].filter((el) => el.checkVisibility());
+  const speedRow = document.querySelector(".config-title + .config-row");
+  const speedCs = getComputedStyle(speedRow);
+  const skipHeading = document.querySelector(".config-section");
+  return {
+    keysBottom: keys.getBoundingClientRect().bottom,
+    settingsBottom: Math.max(
+      ...kids.map((el) => el.getBoundingClientRect().bottom),
+    ),
+    keysTop: keys.getBoundingClientRect().top,
+    configTop: config.getBoundingClientRect().top,
+    rowHeights: [...keys.querySelectorAll(".help-row")].map(
+      (el) => el.getBoundingClientRect().height,
+    ),
+    skipGap:
+      skipHeading.getBoundingClientRect().top -
+      speedRow.getBoundingClientRect().bottom,
+    skipMargin: Number.parseFloat(getComputedStyle(skipHeading).marginTop),
+    speed: {
+      row: rect(speedRow),
+      padLeft: Number.parseFloat(speedCs.paddingLeft),
+      padRight: Number.parseFloat(speedCs.paddingRight),
+      radius: Number.parseFloat(speedCs.borderBottomLeftRadius),
+      label: rect(speedRow.querySelector(".config-label")),
+      value: rect(speedRow.querySelector(".config-speed-value")),
+      down: rect(speedRow.querySelector('[data-config-action="speed-down"]')),
+      slider: rect(speedRow.querySelector(".config-slider")),
+      up: rect(speedRow.querySelector('[data-config-action="speed-up"]')),
+    },
+    fullscreen: rect(
+      document.querySelector('[data-config-action="display-fullscreen"]'),
+    ),
+    windowHalf: rect(
+      document.querySelector('[data-config-action="display-window"]'),
+    ),
+    exit: rect(document.querySelector('[data-config-action="exit-game"]')),
+  };
+};
+
+// A settings section made taller than the Keys card, as a system font with
+// wider text (Segoe UI on Windows) makes it: a block of `px` added to the
+// end of #config (0 takes it away).
+const PAD_SETTINGS = (px) => {
+  document.getElementById("esc-test-pad")?.remove();
+  if (px === 0) return;
+  const pad = document.createElement("div");
+  pad.id = "esc-test-pad";
+  pad.style.height = `${px}px`;
+  document.getElementById("config").append(pad);
+};
+
+/**
+ * The Esc screen's layout (docs/plan.md Phase 43 item 12): the two columns
+ * end level; a taller settings section stretches the Keys card, its rows
+ * sharing the extra height, and nothing stretches the settings; the − slider
+ * + row spans the speed cell; the Game window row has Fullscreen | Window
+ * at its start and Exit at its end.
+ */
+async function escLayout({ check, open }) {
+  const { page, cdp } = await open("esc-layout", { closeHelp: true });
+  await openSettings(page, cdp);
+  const at = async (width, height) => {
+    await page.setViewport({ width, height, deviceScaleFactor: 1 });
+    await sleep(150);
+    return page.evaluate(READ_ESC_COLUMNS);
+  };
+
+  // Level columns: the Keys card's bottom and the Settings content's
+  // bottom within 3 px (the mock this was approved from: 825 / 823 at
+  // 1920x1080, 577 / 573 at 1280x720).
+  const level = [];
+  for (const [width, height] of [
+    [1920, 1080],
+    [1280, 720],
+  ]) {
+    const c = await at(width, height);
+    level.push({
+      size: `${width}x${height}`,
+      keys: c.keysBottom,
+      settings: c.settingsBottom,
+    });
+  }
+  check(
+    "the Keys card and the Settings content end level (within 3 px) at 1920x1080 and 1280x720",
+    level.every((l) => Math.abs(l.keys - l.settings) <= 3),
+    level,
+  );
+
+  // A taller settings section (Windows' wider font, simulated with 120 px
+  // more at its end): the Keys card stretches to its end, every key row
+  // taking the same share of the extra height (within 1 px). Nothing
+  // stretches the settings: with Keys the taller (800x600), the gap above
+  // "When Tab skips" is that heading's own margin, so the groups stay
+  // packed at the top. Stacked under 700 px the card never stretches.
+  const wide = await at(1920, 1080);
+  await page.evaluate(PAD_SETTINGS, 120);
+  await sleep(100);
+  const padded = await page.evaluate(READ_ESC_COLUMNS);
+  await page.evaluate(PAD_SETTINGS, 0);
+  const grown = padded.rowHeights.map((h, i) => h - wide.rowHeights[i]);
+  const short = await at(800, 600);
+  const narrow = await at(600, 900);
+  await page.evaluate(PAD_SETTINGS, 120);
+  await sleep(100);
+  const narrowPadded = await page.evaluate(READ_ESC_COLUMNS);
+  await page.evaluate(PAD_SETTINGS, 0);
+  check(
+    "a taller settings section stretches the Keys card to its end, the key rows sharing the extra height evenly; with Keys the taller nothing stretches the settings; stacked under 700 px the card never stretches",
+    Math.abs(padded.keysBottom - padded.settingsBottom) <= 1 &&
+      padded.keysBottom - padded.keysTop - (wide.keysBottom - wide.keysTop) >
+        100 &&
+      Math.max(...grown) - Math.min(...grown) <= 1 &&
+      Math.min(...grown) > 0 &&
+      short.keysBottom > short.settingsBottom &&
+      Math.abs(short.skipGap - short.skipMargin) <= 1 &&
+      Math.abs(wide.skipGap - wide.skipMargin) <= 1 &&
+      narrow.configTop > narrow.keysBottom &&
+      Math.abs(narrowPadded.keysBottom - narrow.keysBottom) <= 0.5,
+    {
+      wide: [wide.keysTop, wide.keysBottom, wide.settingsBottom],
+      padded: [padded.keysTop, padded.keysBottom, padded.settingsBottom],
+      grown,
+      short: [short.keysBottom, short.settingsBottom],
+      gaps: [short.skipGap, short.skipMargin, wide.skipGap, wide.skipMargin],
+      narrow: [narrow.keysBottom, narrowPadded.keysBottom],
+    },
+  );
+
+  // The speed cell: − on its left padding edge, + on its right, the
+  // slider filling the space between, the readout's right edge on +'s and
+  // never over the label (it takes a line of its own when both cannot
+  // share one, as at 700 px wide), and the cell's rounded bottom back.
+  const spans = [];
+  for (const [width, height] of [
+    [1920, 1080],
+    [1280, 720],
+    [800, 600],
+    [700, 900],
+  ]) {
+    const { speed: sp } = await at(width, height);
+    spans.push({
+      size: `${width}x${height}`,
+      ok:
+        Math.abs(sp.down.left - (sp.row.left + sp.padLeft)) <= 0.5 &&
+        Math.abs(sp.up.right - (sp.row.right - sp.padRight)) <= 0.5 &&
+        sp.slider.left >= sp.down.right &&
+        sp.slider.right <= sp.up.left &&
+        sp.up.left - sp.slider.right < 20 &&
+        sp.slider.left - sp.down.right < 20 &&
+        Math.abs(sp.value.right - sp.up.right) <= 0.5 &&
+        (sp.value.left >= sp.label.right ||
+          sp.value.top >= sp.label.bottom - 0.5) &&
+        sp.radius > 0,
+      sp,
+    });
+  }
+  check(
+    "the - slider + row spans the speed cell: - on its left padding edge, + on its right, the slider between; the readout ends on +'s edge and never overlaps the label; the cell's bottom is rounded (1920x1080, 1280x720, 800x600, 700x900)",
+    spans.every((sp) => sp.ok),
+    spans,
+  );
+
+  // Game window: one line, Fullscreen | Window at its start and Exit at
+  // its end, flush with the column's outer edges where the cards (the
+  // speed cell) start and end.
+  const rows = [];
+  for (const [width, height] of [
+    [1920, 1080],
+    [1280, 720],
+    [800, 600],
+    [700, 900],
+  ]) {
+    const c = await at(width, height);
+    rows.push({
+      size: `${width}x${height}`,
+      ok:
+        Math.abs(c.fullscreen.left - c.speed.row.left) <= 1 &&
+        Math.abs(c.exit.right - c.speed.row.right) <= 1 &&
+        Math.abs(c.windowHalf.top - c.fullscreen.top) <= 0.5 &&
+        Math.abs(c.exit.top - c.fullscreen.top) <= 0.5 &&
+        c.exit.left > c.windowHalf.right,
+      c: {
+        fullscreen: c.fullscreen,
+        exit: c.exit,
+        card: c.speed.row,
+      },
+    });
+  }
+  check(
+    "Game window is one line: Fullscreen's left edge on the cards' left edge, Exit's right edge on the cards' right edge (1920x1080, 1280x720, 800x600, 700x900)",
+    rows.every((r) => r.ok),
+    rows,
+  );
+}
+
+// One "?" tip as the reader sees it, read one animation frame after the
+// hover, focus or click that changes it: its state, whether the tip shows,
+// its text and the button's description, its box against the settings
+// column and the window, and whether the "?" has keyboard focus.
+const READ_TIP = async (key) => {
+  const framed = await Promise.race([
+    new Promise((r) => requestAnimationFrame(() => r(true))),
+    new Promise((r) => setTimeout(() => r(false), 500)),
+  ]);
+  const button = document.querySelector(`[data-config-action="tip-${key}"]`);
+  const body = button.parentElement.querySelector(".config-tip-text");
+  const described = document.getElementById(
+    button.getAttribute("aria-describedby") ?? "",
+  );
+  const r = body.getBoundingClientRect();
+  const col = document.getElementById("config").getBoundingClientRect();
+  const b = button.getBoundingClientRect();
+  return {
+    framed,
+    state: button.parentElement.getAttribute("data-tip"),
+    shown: getComputedStyle(body).visibility === "visible",
+    text: body.textContent,
+    described: described?.textContent ?? null,
+    role: body.getAttribute("role"),
+    name: button.getAttribute("aria-label"),
+    title: button.getAttribute("title"),
+    tag: button.tagName,
+    focusVisible: button.matches(":focus-visible"),
+    inside:
+      r.left >= col.left - 0.5 &&
+      r.right <= col.right + 0.5 &&
+      r.top >= b.bottom &&
+      r.bottom <= col.bottom + 0.5 &&
+      r.bottom <= innerHeight,
+    box: { left: r.left, right: r.right, top: r.top, bottom: r.bottom },
+    centre: { x: (b.left + b.right) / 2, y: (b.top + b.bottom) / 2 },
+  };
+};
+
+const TIPS = [
+  ["speed", SPEED_TIP, "About auto-forward speed"],
+  ["progress", PROGRESS_TIP, "About progress"],
+];
+
+const tipShows = (t, text, name) =>
+  t.framed &&
+  t.shown &&
+  t.text === text &&
+  t.described === text &&
+  t.role === "tooltip" &&
+  t.name === name &&
+  t.title === null &&
+  t.tag === "BUTTON" &&
+  t.inside;
+
+async function hover(cdp, x, y) {
+  await cdp.send("Input.dispatchMouseEvent", {
+    type: "mouseMoved",
+    x,
+    y,
+    button: "none",
+    buttons: 0,
+  });
+}
+
+// The "?" glyph's ink against its ring's centre, in a screenshot (device
+// scale 1): the ring's box from the layout; the ground read at the box's
+// corners (outside the ring); each pixel's share of the glyph's colour over
+// that ground, within the ring's inner edge so the ring itself is left
+// out; the ink box's edges to a fraction of a pixel (an edge column's or
+// row's share); its centre's offset from the ring's centre in CSS pixels.
+const GLYPH_OFFSET = async (png, box) => {
+  const img = new Image();
+  img.src = `data:image/png;base64,${png}`;
+  await img.decode();
+  const canvas = document.createElement("canvas");
+  canvas.width = img.naturalWidth;
+  canvas.height = img.naturalHeight;
+  const ctx = canvas.getContext("2d");
+  ctx.drawImage(img, 0, 0);
+  const x0 = Math.floor(box.left);
+  const y0 = Math.floor(box.top);
+  const x1 = Math.ceil(box.right);
+  const y1 = Math.ceil(box.bottom);
+  const { data, width } = ctx.getImageData(x0, y0, x1 - x0, y1 - y0);
+  const lum = (x, y) => {
+    const i = ((y - y0) * width + (x - x0)) * 4;
+    return data[i] + data[i + 1] + data[i + 2];
+  };
+  const cx = (box.left + box.right) / 2;
+  const cy = (box.top + box.bottom) / 2;
+  // The ring is 1.25 px wide; a pixel more keeps its antialiasing out.
+  const inner = (box.right - box.left) / 2 - 2.25;
+  const inside = (x, y) => Math.hypot(x + 0.5 - cx, y + 0.5 - cy) <= inner;
+  const corners = [
+    lum(x0, y0),
+    lum(x1 - 1, y0),
+    lum(x0, y1 - 1),
+    lum(x1 - 1, y1 - 1),
+  ].sort((a, b) => a - b);
+  const ground = (corners[1] + corners[2]) / 2;
+  let peak = ground;
+  for (let y = y0; y < y1; y += 1)
+    for (let x = x0; x < x1; x += 1)
+      if (inside(x, y)) peak = Math.max(peak, lum(x, y));
+  const cols = new Map();
+  const rows = new Map();
+  for (let y = y0; y < y1; y += 1)
+    for (let x = x0; x < x1; x += 1) {
+      const c = inside(x, y)
+        ? Math.max(0, Math.min(1, (lum(x, y) - ground) / (peak - ground)))
+        : 0;
+      cols.set(x, Math.max(cols.get(x) ?? 0, c));
+      rows.set(y, Math.max(rows.get(y) ?? 0, c));
+    }
+  const edges = (m) => {
+    const inked = [...m.keys()].filter((k) => m.get(k) > 0.1);
+    const a = Math.min(...inked);
+    const b = Math.max(...inked);
+    return [a + (1 - m.get(a)), b + m.get(b)];
+  };
+  const [left, right] = edges(cols);
+  const [top, bottom] = edges(rows);
+  return {
+    dx: (left + right) / 2 - cx,
+    dy: (top + bottom) / 2 - cy,
+    ink: { left, right, top, bottom },
+    contrast: peak - ground,
+  };
+};
+
+/**
+ * The "?" tips (docs/plan.md Phase 43 item 12): each shows its tip (the
+ * note it replaced) on keyboard focus and on hover, inside the settings
+ * column; a click pins it open and a second click shuts it, without
+ * closing the screen, asking for fullscreen or changing a setting; Space
+ * and Escape with a "?" focused still close the screen; the glyph's ink is
+ * centred on its ring within 1 px.
+ */
+async function escTips({ check, open }) {
+  const { page, cdp } = await open("esc-tips", { closeHelp: true });
+  await page.setViewport({ width: 1280, height: 720, deviceScaleFactor: 1 });
+  await openSettings(page, cdp);
+
+  // Keyboard focus: Tab is the skip key (render/keys.ts), so it never
+  // walks onto the "?"; each is focused from script right after the
+  // Escape that opened the screen, which both engines take as keyboard
+  // focus (:focus-visible).
+  const focused = [];
+  for (const [key, text, name] of TIPS) {
+    await page.evaluate(
+      (k) => document.querySelector(`[data-config-action="tip-${k}"]`).focus(),
+      key,
+    );
+    const t = await page.evaluate(READ_TIP, key);
+    focused.push({ key, ok: t.focusVisible && tipShows(t, text, name), t });
+  }
+  await page.evaluate(() => document.activeElement?.blur());
+  check(
+    "keyboard focus on each ? (a button named About …, no title) shows its tip, the moved note, inside the settings column",
+    focused.every((f) => f.ok),
+    focused,
+  );
+
+  // Hover, at two widths (the narrow column at 700 px too).
+  const hovered = [];
+  for (const [width, height] of [
+    [1280, 720],
+    [700, 900],
+  ]) {
+    await page.setViewport({ width, height, deviceScaleFactor: 1 });
+    await sleep(150);
+    for (const [key, text, name] of TIPS) {
+      const { centre } = await page.evaluate(READ_TIP, key);
+      await hover(cdp, centre.x, centre.y);
+      const t = await page.evaluate(READ_TIP, key);
+      await hover(cdp, 5, 5);
+      const away = await page.evaluate(READ_TIP, key);
+      hovered.push({
+        size: `${width}x${height}`,
+        key,
+        ok: tipShows(t, text, name) && !away.shown,
+        t,
+        away: away.shown,
+      });
+    }
+  }
+  check(
+    "hovering each ? shows its tip within a frame, inside the settings column, and moving off hides it (1280x720, 700x900)",
+    hovered.every((h) => h.ok),
+    hovered,
+  );
+
+  // A click pins it open (it stays with the pointer gone), a second click
+  // shuts it even under the pointer; the screen stays open, nothing asks
+  // for fullscreen, no setting moves. One tip at a time.
+  await page.setViewport({ width: 1280, height: 720, deviceScaleFactor: 1 });
+  await sleep(150);
+  const before = await page.evaluate(READ_CONFIG_OVERLAY);
+  const asked = (await page.evaluate(PAGE_STATE)).fsAttempts;
+  const speedTip = '[data-config-action="tip-speed"]';
+  await clickCenter(cdp, speedTip);
+  await hover(cdp, 5, 5);
+  const pinned = await page.evaluate(READ_TIP, "speed");
+  const { centre } = pinned;
+  await clickCenter(cdp, speedTip);
+  const shut = await page.evaluate(READ_TIP, "speed");
+  await hover(cdp, 5, 5);
+  await hover(cdp, centre.x, centre.y);
+  const rearmed = await page.evaluate(READ_TIP, "speed");
+  await hover(cdp, 5, 5);
+  await clickCenter(cdp, speedTip);
+  await clickCenter(cdp, '[data-config-action="tip-progress"]');
+  await hover(cdp, 5, 5);
+  const one = [
+    await page.evaluate(READ_TIP, "speed"),
+    await page.evaluate(READ_TIP, "progress"),
+  ];
+  const after = await page.evaluate(READ_CONFIG_OVERLAY);
+  const askedAfter = (await page.evaluate(PAGE_STATE)).fsAttempts;
+  const settingsOf = (c) => [c.speedValue, c.skipPressed, c.playPressed];
+  check(
+    "a click on a ? pins its tip open, a second click shuts it under the pointer (hover shows it again once the pointer has left); one tip at a time; the screen stays open, no fullscreen asked, no setting changed",
+    pinned.state === "open" &&
+      pinned.shown &&
+      shut.state === "shut" &&
+      !shut.shown &&
+      rearmed.shown &&
+      !one[0].shown &&
+      one[1].shown &&
+      (await configOpen(page)) &&
+      askedAfter === asked &&
+      JSON.stringify(settingsOf(after)) === JSON.stringify(settingsOf(before)),
+    {
+      pinned: [pinned.state, pinned.shown],
+      shut: [shut.state, shut.shown],
+      rearmed: rearmed.shown,
+      one: one.map((t) => [t.state, t.shown]),
+      asked: [asked, askedAfter],
+      settings: [settingsOf(before), settingsOf(after)],
+    },
+  );
+
+  // The glyph is drawn on its ring's own box, so its ink sits on the
+  // ring's centre whatever the system font: within 1 px, both "?", at two
+  // sizes (the ring is 17 px at 1080 px tall, 14 px at 600).
+  const glyphs = [];
+  await closeSettings(page, cdp);
+  for (const [width, height] of [
+    [1920, 1080],
+    [800, 600],
+  ]) {
+    await page.setViewport({ width, height, deviceScaleFactor: 1 });
+    await openSettings(page, cdp); // reopened: every tip idle
+    await hover(cdp, 5, 5);
+    await sleep(200);
+    const png = await page.screenshot({ encoding: "base64" });
+    for (const [key] of TIPS) {
+      const box = await page.evaluate((k) => {
+        const r = document
+          .querySelector(`[data-config-action="tip-${k}"]`)
+          .getBoundingClientRect();
+        return { left: r.left, right: r.right, top: r.top, bottom: r.bottom };
+      }, key);
+      const g = await page.evaluate(GLYPH_OFFSET, png, box);
+      glyphs.push({ size: `${width}x${height}`, key, box, ...g });
+    }
+    await closeSettings(page, cdp);
+  }
+  check(
+    "each ?'s glyph is centred in its ring: its ink box's centre within 1 px of the ring's centre, across and down (1920x1080, 800x600)",
+    glyphs.every(
+      (g) => Math.abs(g.dx) <= 1 && Math.abs(g.dy) <= 1 && g.contrast > 150,
+    ),
+    glyphs,
+  );
+
+  // Space and Escape keep closing the screen with a "?" focused: the
+  // keymap takes them first, so the "?" is not pressed.
+  await page.setViewport({ width: 1280, height: 720, deviceScaleFactor: 1 });
+  await openSettings(page, cdp);
+  await page.evaluate((s) => document.querySelector(s).focus(), speedTip);
+  await pressSpace(cdp);
+  const spaceClosed = await waitFor(page, HELP_CLOSED, 2000);
+  await openSettings(page, cdp);
+  const idle = await page.evaluate(READ_TIP, "speed");
+  await page.evaluate((s) => document.querySelector(s).focus(), speedTip);
+  await pressEscape(cdp);
+  const escapeClosed = await waitFor(page, HELP_CLOSED, 2000);
+  check(
+    "Space and Escape with a ? focused close the screen, and the ? is not pressed",
+    spaceClosed && idle.state === "idle" && escapeClosed,
+    { spaceClosed, idle: idle.state, escapeClosed },
   );
 }
 
@@ -1997,6 +2473,8 @@ export const parts = [
   bookmarkSpeed,
   resume,
   config,
+  escLayout,
+  escTips,
   settingsImmediateReload,
   emptyFolder,
   reset,

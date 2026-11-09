@@ -6,7 +6,13 @@
 // (`createPillQueue`) is checked here with its timers injected.
 
 import { describe, expect, it } from "vitest";
-import { createPillGate, createPillQueue, type PillMessage } from "./app";
+import {
+  createPillGate,
+  createPillQueue,
+  NOTICE_LONG_MS,
+  type PillMessage,
+  ROUTE_PILL_MS,
+} from "./app";
 
 describe("createPillGate (no pill over a choice screen)", () => {
   it("lets pills show while no choice is open", () => {
@@ -171,6 +177,41 @@ describe("createPillQueue (docs/plan.md Phase 43: one task, one sequence)", () =
     later.queue.dropGated(); // a choice opens while it holds
     later.tick(HOLD * 3);
     expect(later.shown.map(([, text]) => text)).toEqual(["Skip on"]);
+  });
+
+  it("a message with its own hold keeps the next one waiting that long (a notice held to be read)", () => {
+    const { queue, shown, flush, tick } = harness();
+    queue.add(["That file could not be read."], true, HOLD * 2.5);
+    queue.add(["Route: A"], false);
+    flush();
+    tick(HOLD * 5);
+    expect(shown).toEqual([
+      [0, "That file could not be read.", true],
+      [HOLD * 2.5, "Route: A", false],
+    ]);
+  });
+
+  it("hands each message's own hold to the pill, and none for the default", () => {
+    const held: (number | undefined)[] = [];
+    let deferred: (() => void) | null = null;
+    const timers: (() => void)[] = [];
+    const queue = createPillQueue(
+      {
+        defer: (fn) => {
+          deferred = fn;
+        },
+        setTimer: (fn) => timers.push(fn),
+        clearTimer: () => {},
+        show: (message) => held.push(message.holdMs),
+      },
+      HOLD,
+    );
+    queue.add(["Progress exported"], true);
+    queue.add(["This browser keeps the tab open."], true, NOTICE_LONG_MS);
+    (deferred as (() => void) | null)?.();
+    for (const fn of timers) fn();
+    expect(held).toEqual([undefined, NOTICE_LONG_MS]);
+    expect(NOTICE_LONG_MS).toBeGreaterThan(ROUTE_PILL_MS);
   });
 
   it("dropAll drops everything queued, mode pills too", () => {

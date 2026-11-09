@@ -276,7 +276,8 @@ async function showMapView(page, cdp, which) {
 // skip-all and play-all-routes switches' aria state, the rects the driver
 // clicks, and the layout in reading order (each heading and row label, an
 // indented option marked by two leading spaces) with each row's first
-// control's left edge.
+// control's left edge. A label's or heading's words leave out the tip its
+// "?" carries (Phase 43 item 12: drawn only on hover, focus or a click).
 const READ_CONFIG_OVERLAY = () => {
   const panel = document.getElementById("config");
   if (panel === null) return { present: false };
@@ -285,6 +286,12 @@ const READ_CONFIG_OVERLAY = () => {
     if (el === null || el === undefined) return null;
     const r = el.getBoundingClientRect();
     return { top: r.top, bottom: r.bottom, left: r.left, right: r.right };
+  };
+  const words = (el) => {
+    if (el === null || el === undefined) return "";
+    const copy = el.cloneNode(true);
+    for (const tip of copy.querySelectorAll(".config-tip-text")) tip.remove();
+    return copy.textContent;
   };
   const toggle = document.querySelector(".config-skip-all");
   const playToggle = document.querySelector(".config-play-all");
@@ -330,29 +337,25 @@ const READ_CONFIG_OVERLAY = () => {
     // The Phase 16 "Reset progress" row: a control, so it has a rect too.
     resetLabel: document.querySelector(".config-reset")?.textContent ?? null,
     resetRect: rectOf(document.querySelector(".config-reset")),
-    // The Phase 21 Progress group: Export / Import and the message line.
+    // The Phase 21 Progress group: Export / Import. Its notices are the
+    // `#flash` pill (Phase 43 item 12; READ_PILL), not a line here.
     exportRect: rectOf(
       document.querySelector('[data-config-action="export-progress"]'),
     ),
     importRect: rectOf(
       document.querySelector('[data-config-action="import-progress"]'),
     ),
-    message: (() => {
-      const el = document.querySelector(".config-message");
-      return el === null || el.hidden ? null : el.textContent;
-    })(),
-    lines: [
-      ...panel.querySelectorAll(
-        ".config-section, .config-group-note, .config-row",
-      ),
-    ].map((el) =>
-      el.classList.contains("config-section")
-        ? `# ${el.textContent}`
-        : el.classList.contains("config-group-note")
-          ? `  ~ ${el.textContent}`
-          : `${el.classList.contains("config-option") ? "  " : ""}${
-              el.querySelector(".config-label")?.textContent ?? ""
-            }`,
+    noMessageLine:
+      document.querySelector(
+        ".config-message, .config-window-note, .config-group-note, .config-speed-note",
+      ) === null,
+    lines: [...panel.querySelectorAll(".config-section, .config-row")].map(
+      (el) =>
+        el.classList.contains("config-section")
+          ? `# ${words(el)}`
+          : `${el.classList.contains("config-option") ? "  " : ""}${words(
+              el.querySelector(".config-label"),
+            )}`,
     ),
     labelLefts: [...panel.querySelectorAll(".config-row .config-label")].map(
       (el) => Math.round(el.getBoundingClientRect().left),
@@ -374,38 +377,54 @@ const READ_CONFIG_OVERLAY = () => {
     playNote:
       document.querySelector(".config-play-all ~ .config-note")?.textContent ??
       null,
-    // The Phase 24 speed note under the speed row: its text box, its font
-    // size, the readout's and the next heading's boxes, and the viewport
-    // width it must fit in.
-    speedNote:
-      document.querySelector(".config-speed-note")?.textContent ?? null,
-    speedNoteRect: (() => {
-      const el = document.querySelector(".config-speed-note");
+    // The Play all routes note's own text box and font size (one line).
+    playNoteRect: (() => {
+      const el = document.querySelector(".config-play-all ~ .config-note");
       if (el === null) return null;
       const range = document.createRange();
       range.selectNodeContents(el);
       return rectOf(range);
     })(),
-    speedNoteFontPx: (() => {
-      const el = document.querySelector(".config-speed-note");
+    playNoteFontPx: (() => {
+      const el = document.querySelector(".config-play-all ~ .config-note");
       return el === null ? null : parseFloat(getComputedStyle(el).fontSize);
     })(),
     speedValueRect: rectOf(document.querySelector(".config-speed-value")),
     skipHeadingRect: rectOf(document.querySelector(".config-section")),
     viewportWidth: window.innerWidth,
-    // The Phase 22 Progress note: its rect, to check it is one line that
-    // fits the panel: the text's own box, past the indent padding.
-    progressNoteRect: (() => {
-      const el = document.querySelector(".config-group-note");
-      if (el === null) return null;
-      const range = document.createRange();
-      range.selectNodeContents(el);
-      return rectOf(range);
-    })(),
-    progressNoteFontPx: (() => {
-      const el = document.querySelector(".config-group-note");
-      return el === null ? null : parseFloat(getComputedStyle(el).fontSize);
-    })(),
+  };
+};
+
+// Every child of the settings section (`#config`) as a rect, in order: a
+// notice that pushed anything down would show as a difference.
+const READ_CONFIG_RECTS = () =>
+  [...(document.getElementById("config")?.children ?? [])].map((el) => {
+    const r = el.getBoundingClientRect();
+    return [el.className, r.left, r.top, r.width, r.height];
+  });
+
+// The `#flash` pill now: its text, whether it is fully shown (not fading),
+// and how it sits over the Esc screen: its z-index against the screen's,
+// its background colour (solid over the screen, Phase 43 item 12) and its
+// box inside the window.
+const READ_PILL = () => {
+  const pill = document.getElementById("flash");
+  if (pill === null) return null;
+  const cs = getComputedStyle(pill);
+  const help = document.getElementById("help");
+  const r = pill.getBoundingClientRect();
+  return {
+    text: pill.textContent,
+    shown: cs.opacity === "1",
+    z: Number(cs.zIndex),
+    helpZ: help === null ? null : Number(getComputedStyle(help).zIndex),
+    helpOpen: help !== null && !help.hidden,
+    background: cs.backgroundColor,
+    inWindow:
+      r.left >= 0 &&
+      r.top >= 0 &&
+      r.right <= innerWidth &&
+      r.bottom <= innerHeight,
   };
 };
 
@@ -1215,11 +1234,13 @@ export {
   READ_BOOKMARKS,
   READ_CHOICE,
   READ_CONFIG_OVERLAY,
+  READ_CONFIG_RECTS,
   READ_CONFIRM_OVERLAY,
   READ_HELP,
   READ_KEY_GRID,
   READ_MAP_CARDS,
   READ_MAP_VIEW,
+  READ_PILL,
   READ_PILLS,
   readBranchLog,
   readPills,

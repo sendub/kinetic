@@ -2,11 +2,16 @@
 // browser moves to another. The first browser reads a few items, bookmarks
 // one, sets 2.00x, and exports from the Esc screen's settings: a real download of
 // `<storyId>-progress.json`. A second, fresh browser profile opens the same
-// folder: another story's file is refused in the panel and changes
-// nothing; the real file asks to confirm, replaces this browser's progress
-// and reloads onto the same item, with the bookmark (its card on the branch
-// map, docs/plan.md Phase 35) and the speed. From
-// there saving is automatic again: one more item and a reload resume there.
+// folder: another story's file is refused and changes nothing; the real
+// file asks to confirm, replaces this browser's progress and reloads onto
+// the same item, with the bookmark (its card on the branch map,
+// docs/plan.md Phase 35) and the speed. From there saving is automatic
+// again: one more item and a reload resume there.
+//
+// Export's confirmation and an Import refusal are the `#flash` pill over
+// the Esc screen (docs/plan.md Phase 43 item 12): "Progress exported" with
+// no file name, a refusal held longer than a mode pill, and nothing on the
+// screen moving when either shows.
 
 import {
   existsSync,
@@ -17,7 +22,7 @@ import {
 } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { DEFAULT_SETTINGS } from "../../src/machine/types.ts";
-import { speedLabel } from "../../src/render/config.ts";
+import { EXPORT_DONE_NOTICE, speedLabel } from "../../src/render/config.ts";
 import {
   CONFIG_CONTROL,
   CONFIRM_CONTROL,
@@ -36,8 +41,10 @@ import {
   pressM,
   pressSpace,
   READ_CONFIG_OVERLAY,
+  READ_CONFIG_RECTS,
   READ_CONFIRM_OVERLAY,
   READ_MAP_CARDS,
+  READ_PILL,
   readBookmarks,
   sleep,
   spaceTo,
@@ -47,19 +54,30 @@ export const title =
   "export / import progress: move a reader's progress to a fresh browser";
 
 const SPEED_2X = speedLabel(2, DEFAULT_SETTINGS.msPerChar);
+// A mode pill's hold (render/app.ts ROUTE_PILL_MS, restated: app.ts imports
+// modules by extensionless paths node cannot resolve).
+const ROUTE_PILL_MS = 1600;
 const FLASH_SHOWN = () =>
   (document.getElementById("flash")?.textContent ?? "") === "Bookmarked";
 const PAINTED = () =>
   (document.getElementById("visual-image")?.getAttribute("src") ?? "") !== "";
 
-const waitFor = async (page, fn, timeout = 5000) => {
+const waitFor = async (page, fn, timeout = 5000, arg = undefined) => {
   try {
-    await page.waitForFunction(fn, { timeout });
+    await page.waitForFunction(fn, { timeout }, arg);
     return true;
   } catch {
     return false;
   }
 };
+/** Waits for the `#flash` pill to say `text`; true once it does. */
+const pillSays = (page, text) =>
+  waitFor(
+    page,
+    (t) => document.getElementById("flash")?.textContent === t,
+    5000,
+    text,
+  );
 
 /** Polls for a finished download (Chrome writes `.crdownload` first). */
 async function waitForFile(path, timeout = 8000) {
@@ -108,10 +126,13 @@ export default async function ({ check, open }) {
     await clickCenter(a.cdp, CONFIG_CONTROL.speedUp);
   }
   const cfgA = await a.page.evaluate(READ_CONFIG_OVERLAY);
+  const rowsBefore = await a.page.evaluate(READ_CONFIG_RECTS);
   await clickCenter(a.cdp, CONFIG_CONTROL.exportProgress);
   const exportedPath = join(downloads, fileName);
   const downloaded = await waitForFile(exportedPath);
-  await sleep(200);
+  const pillShown = await pillSays(a.page, EXPORT_DONE_NOTICE);
+  const pill = await a.page.evaluate(READ_PILL);
+  const rowsAfter = await a.page.evaluate(READ_CONFIG_RECTS);
   const afterExport = await a.page.evaluate(READ_CONFIG_OVERLAY);
   let file = null;
   try {
@@ -133,8 +154,7 @@ export default async function ({ check, open }) {
       file?.state?.helpSeen === true &&
       file?.bookmarks?.length === 1 &&
       file.bookmarks[0].itemId === marked.id &&
-      afterExport.hidden === false &&
-      afterExport.message === `Exported ${fileName}.`,
+      afterExport.hidden === false,
     {
       downloaded,
       kind: file?.kind,
@@ -142,8 +162,24 @@ export default async function ({ check, open }) {
       lastShown: file?.state?.ctx?.lastShown,
       speed: file?.state?.settings?.readingSpeed,
       marks: file?.bookmarks?.map((b) => b.itemId),
-      message: afterExport.message,
     },
+  );
+  // The confirmation is the pill, above the open Esc screen and solid
+  // there, naming no file (the browser or app may rename it); the screen
+  // has no message line, so every settings row stays where it was.
+  check(
+    'Export says "Progress exported" in the pill, solid above the open Esc screen, and moves nothing: every settings row keeps its place',
+    pillShown &&
+      pill?.text === "Progress exported" &&
+      pill.shown &&
+      pill.helpOpen &&
+      pill.z > pill.helpZ &&
+      pill.background === "rgb(30, 30, 35)" &&
+      pill.inWindow &&
+      afterExport.noMessageLine &&
+      rowsAfter.length === rowsBefore.length &&
+      JSON.stringify(rowsAfter) === JSON.stringify(rowsBefore),
+    { pill, rowsBefore, rowsAfter },
   );
 
   // 2. A fresh browser on the same folder, at the first item.
@@ -151,29 +187,38 @@ export default async function ({ check, open }) {
   const startId = await currentItemId(b.page);
   await openSettings(b.page, b.cdp);
 
-  // Another story's file is refused in the panel; nothing changes.
+  // Another story's file is refused in the pill; nothing changes, on the
+  // screen or in storage. The refusal holds longer than a mode pill
+  // (ROUTE_PILL_MS, then a fade): still fully shown 600 ms past that hold.
   const wrongPath = join(downloads, "other-tale-progress.json");
   writeFileSync(
     wrongPath,
     JSON.stringify({ ...file, storyId: "other-tale", title: "Other Tale" }),
   );
+  const refusal = `That file holds progress for "Other Tale", not "${manifest.title}".`;
+  const rowsBeforeWrong = await b.page.evaluate(READ_CONFIG_RECTS);
   await importFile(b.page, b.cdp, wrongPath);
-  await waitFor(
-    b.page,
-    () => !(document.querySelector(".config-message")?.hidden ?? true),
-  );
+  const refusedShown = await pillSays(b.page, refusal);
+  const shownAt = Date.now();
   const refused = await b.page.evaluate(READ_CONFIG_OVERLAY);
+  const rowsAfterWrong = await b.page.evaluate(READ_CONFIG_RECTS);
   const boxAfterWrong = await b.page.evaluate(CONFIRM_OPEN);
   const marksAfterWrong = await readBookmarks(b.page);
+  await sleep(Math.max(0, ROUTE_PILL_MS + 600 - (Date.now() - shownAt)));
+  const held = await b.page.evaluate(READ_PILL);
+  const heldMs = Date.now() - shownAt;
   check(
-    "another story's file is refused in the panel, naming it; no box, nothing stored",
+    "another story's file is refused in the pill, naming it, held longer than a mode pill; nothing on the screen moves; no box, nothing stored",
     startId === item("intro-title").id &&
+      refusedShown &&
       refused.hidden === false &&
-      refused.message ===
-        `That file holds progress for "Other Tale", not "${manifest.title}".` &&
+      held?.text === refusal &&
+      held.shown &&
+      heldMs >= ROUTE_PILL_MS + 600 &&
+      JSON.stringify(rowsAfterWrong) === JSON.stringify(rowsBeforeWrong) &&
       boxAfterWrong === false &&
       marksAfterWrong.length === 0,
-    { startId, message: refused.message, boxAfterWrong, marksAfterWrong },
+    { startId, refusedShown, held, heldMs, boxAfterWrong, marksAfterWrong },
   );
 
   // The real file: the box asks, Import replaces and reloads.
