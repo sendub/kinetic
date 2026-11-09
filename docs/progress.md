@@ -2565,10 +2565,10 @@ truthful: an unchecked box means nothing was accepted.
       other than the folder's own; `--remap` and `--out` are refused
       without `--fix`. 13 tests. Orchestrator: posters, ship,
       lossless-poster and rebuild tests 65 passed; npm test 912, check
-      clean. Real data, game I, read-only: 1504 video items,
-      1075 passed by ledger, 429 failed (428 episode 3 items whose
+      clean. Real data (a converted corpus game), read-only: 1504 video
+      items, 1075 passed by ledger, 429 failed (428 items whose
       posters were made about 3 s into their segment, 127 of them
-      starting at 0; one episode 4 item whose poster is a slide image),
+      starting at 0; one item whose poster is a slide image),
       392 s, mostly the pixel differences; the folder's files and mtimes
       unchanged. `--fix` on a scratch copy of five of those items with
       their decoder hook: 4 requests, remap applied, check exit 0, new
@@ -2588,10 +2588,15 @@ truthful: an unchecked box means nothing was accepted.
       stderr and exit codes identical to HEAD without `--ledger` on the
       demo, the branches example, a broken copy, a missing folder and
       schema. Orchestrator: validate_content, build_demo and poster tests
-      149 passed. Real data, game I, read-only: 428 warnings,
-      exactly the posters check's 428 episode 3 ledger failures (the
+      149 passed. Real data (the same game), read-only: 428 warnings,
+      exactly the posters check's 428 ledger failures (the
       slide-image poster on a start-0 item, which the ledger cannot
       judge, does not warn); ledger and warnings 1.4 s of a 506 s run
       that is the existing media checks on the external volume; folder
       unchanged.)
-- [ ] Phase-closer (Phase 44): full pytest, package-proof.
+- [x] Phase-closer (Phase 44): full pytest, package-proof.
+      (2026-11-09 on d1fe1f4: full pytest 673 passed in 55 s;
+      package-proof 18/18 after regenerating the deleted
+      .tmp/extract-demo with kinetic-extract on fixtures/renpy_demo. No
+      player change, so no scenario runs. Phase 44 names of the game the
+      request came from were taken out of plan.md and this file.)

@@ -1979,8 +1979,8 @@ the test commands); docs/verify-player.md (item 12's checks).
 
 ## Phase 44: Poster check and fix (2026-11-09, converting agent)
 
-The agent converting game I ships many videos whose items start
-partway into the file. Some of their posters were made at frame 0, so the
+A converting agent's game ships many videos whose items start partway
+into the file. Some of their posters were made at frame 0, so the
 manifest's poster is not the frame at the item's `startSeconds`, which
 docs/content-format.md "Video playback ranges" requires. The player shows the
 poster in skip, rewind and under text lines, so the reader sees a different
@@ -1989,8 +1989,8 @@ item's start. The agent found the faults by comparing frames by hand: 144
 items, 134 distinct starts in 60 files, 125 of them visibly different.
 `kinetic-media ship` already makes a poster at a request's `startSeconds`
 and reuses the video when re-shipping. Nothing finds the wrong posters or
-writes the requests that fix them; the agent hand-writes a request file per
-episode.
+writes the requests that fix them; the agent hand-writes a request file for
+each shipment.
 
 1. `kinetic-media posters <game_root> <folder> [--manifest FILE]
    [--ledger FILE] [--first-frame FILE ...] [--first-frame-all]
@@ -2011,7 +2011,7 @@ episode.
      the item has none). Both poster recipes, lossless and the older JPEG,
      record `startSeconds`. A recorded other start or other source fails.
      The agent confirmed (2026-11-09) that their frame-0 posters came from
-     kinetic-media ship requests with `startSeconds` 0.0 (episode 5), so
+     kinetic-media ship requests with `startSeconds` 0.0, so
      this ledger comparison is the whole check for them. A poster or
      video with no ledger entry, or a poster step without `startSeconds`
      (a hand-made or edited ledger), is checked by pixels instead:
