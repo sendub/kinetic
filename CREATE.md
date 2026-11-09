@@ -1031,6 +1031,175 @@ Keep each app inside its game folder. Upgrading the player (copying
 `index.html` and `app.js`, Upgrading to a newer Kinetic) needs no
 rebuild, since each app plays whichever `index.html` sits beside it.
 
+## Testing your game
+
+A script can play a built game folder with no window on screen, to
+check after each change that the game still plays as you expect. It
+opens the folder's own `index.html` and `app.js`, so it tests exactly
+what readers get. It presses the reader's keys and reads what the screen
+shows: the manifest item, its line and speaker, and any open choice.
+
+Two engines run it:
+
+- `webkit` is the Mac's own WebKit, set up the way the macOS app sets
+  up its web view. It stands for the macOS app and for Safari readers.
+  It needs macOS with Xcode or the Command Line Tools
+  (`xcode-select --install`). The first open builds a small helper
+  program into this repo's `.tmp/`, which takes a few seconds.
+- `chrome` is Google Chrome, headless. It stands for Chrome readers and
+  for the Windows app, which plays in Microsoft Edge (Chrome's engine).
+  It needs Chrome installed. `KINETIC_CHROME=<program>` names another
+  Chrome, Chromium or Edge.
+
+`auto`, the default, takes WebKit on a Mac that can build the helper,
+otherwise Chrome, and prints which. Test on both before a release.
+
+Nothing appears on screen with either engine, and neither takes the
+focus. Chrome runs headless. The WebKit helper is a background program
+with no Dock icon whose one window sits off every screen; it quits
+rather than show that window.
+
+### Setting up the tests
+
+Once per checkout of this repo, install the player's packages and build
+the player:
+
+```sh
+cd player && npm ci --cache ../.tmp/npm-cache && npm run build && cd ..
+```
+
+Tests open an assembled game folder (Playing the folder).
+
+### The quick check
+
+```sh
+node player/scripts/testing/check-game.mjs novel-play --steps 30
+```
+
+It opens the folder, presses Space 30 times (10 without `--steps`), and
+prints each item it reaches. At a choice, Space takes the highlighted
+route, as it does for a reader with Play all routes on. Then it prints
+any console or page errors, and exits with status 1 if there were any
+or the game did not open. `--engine webkit` or `--engine chrome` picks
+the engine. On the demo it starts:
+
+```text
+webkit: /Users/you/demo-play
+  0: intro-title "Kinetic demo. Every line explains what you are seeing. Sp..."
+  1: text-speech "Spoken dialogue: the speaker's name, Mei, sits above it."
+  2: text-thought "A thought: unspoken, so it is drawn differently from speech."
+```
+
+### A test script
+
+Write your test anywhere, as a Node script that imports
+`player/scripts/testing/kinetic.mjs` from this repo by its absolute
+path. This one tests the demo; assemble it with
+`.venv/bin/python tools/assemble_folder.py fixtures/demo demo-play`, and
+put your own game's ids and lines in place of the demo's:
+
+```js
+// test-demo.mjs: node test-demo.mjs <game-folder> [webkit|chrome]
+import assert from "node:assert/strict";
+import { rmSync } from "node:fs";
+import { openGame } from "/path/to/kinetic/player/scripts/testing/kinetic.mjs";
+
+const [folder, engine = "auto"] = process.argv.slice(2);
+const profile = "test-profile"; // keeps progress between the two opens
+rmSync(profile, { recursive: true, force: true }); // start as a new reader
+
+// Play all routes off, so the test answers the choice itself.
+const game = await openGame(folder, { engine, profile, playAll: false });
+assert.equal((await game.current()).id, "intro-title");
+
+// Walk to the first choice and take its second route.
+const atChoice = await game.spaceUntil((now) => now.choice !== null);
+assert.equal(atChoice.choice.prompt, "Demo decision: which route?");
+const route = await game.pickRoute(2);
+assert.equal(route.id, "route2-start");
+assert.equal(route.speaker, "Mei");
+assert.match(route.text, /^Route 2: a separate path/);
+
+await game.screenshot("shots/route-2.png");
+assert.deepEqual(game.errors(), []);
+await game.close();
+
+// Open again with the same profile: the game resumes on the same item.
+const again = await openGame(folder, { engine, profile });
+assert.equal((await again.current()).id, "route2-start");
+assert.deepEqual(again.errors(), []);
+await again.close();
+console.log(`${game.engine}: ok`);
+```
+
+`node test-demo.mjs demo-play webkit` and `node test-demo.mjs demo-play
+chrome` each print `ok`. A failed check stops the script with an error
+naming what was on screen.
+
+### What the library offers
+
+`openGame(folder, options)` resolves with the game. Its options:
+
+- `engine`: `"webkit"`, `"chrome"` or `"auto"` (the default).
+- `viewport`: `{ width, height }` in CSS pixels (1280 x 720 by default).
+- `profile`: a folder that keeps the reader's progress, bookmarks and
+  settings between opens. It is created if missing, and is yours to
+  delete. Without it every open is a new reader, whose profile is gone
+  at `close()`.
+- `closeHelp`: close the Esc screen a new reader first meets (`true` by
+  default).
+- `playAll`: `true` or `false` switches Play all routes through the Esc
+  screen, as a reader would. A new reader has it on, so at a choice
+  Space takes the highlighted route; turn it off to pick routes
+  yourself. Setting it leaves the Esc screen closed. Without it the
+  setting stays as the profile has it.
+- `log`: a function given openGame's note of the engine `auto` chose
+  (printed to stderr by default), or `null` for none.
+
+The game:
+
+- `current()` resolves with what the screen shows: `{ id, index, text,
+  speaker, file, choice, screen, ambiguous }`.
+  - `id` and `index` name the manifest item, or are `null` and -1 on a
+    screen no item makes.
+  - `text` and `speaker` are the line on screen (`null` when none).
+  - `file` is the picture or video on screen.
+  - `choice` is `null`, or `{ prompt, rows }` while a choice is open.
+    Each row is `{ number, label, seen, next, continue }`: `next` marks
+    the route Space takes, `continue` the "Return to main route" row.
+  - `screen` is `"esc"` or `"map"` while one is over the story.
+  - The item is found from the line and picture on screen. When two
+    items look the same (a repeated line over the same picture), the
+    player's saved place decides. If even that cannot, `ambiguous`
+    lists the candidates and `id` is the nearest one ahead.
+- `press(key, { times })` presses a key by name: `Space`, `Tab`,
+  `Escape`, `Enter`, a letter, a digit, `ArrowUp`, `ArrowDown`,
+  `ArrowLeft`, `ArrowRight`, `PageUp`, `PageDown`, `Home`, `End`,
+  `Delete` or `Backspace`.
+- `spaceUntil(target, { limit })` presses Space until `target`: an item
+  id, or a function given `current()` that returns true. It stops with
+  an error at a choice while Play all routes is off, when Space changes
+  nothing five times running, or after `limit` presses (100 by
+  default).
+- `waitForItem(target, { timeout })` and `waitForChoice({ timeout })`
+  wait without pressing anything (10 s by default), for timed play such
+  as auto-forward (`a`).
+- `pickRoute(n)` picks row `n` of the open choice with its digit key (1
+  to 9, or 0 for "Return to main route") and resolves with the route's
+  first screen. Rows past 9 take `press("ArrowDown")` and
+  `press("Enter")`.
+- `reload()` reloads the page, as a reader's reload does.
+- `screenshot(path)` saves a PNG of the page, making its folders.
+- `errors()` lists the console errors and warnings and the page errors
+  so far, including a picture, video or script that failed to load (on
+  WebKit the library reports these itself, since WebKit does not). A
+  load still under way reports a moment later.
+- `close()` closes the game; every open needs one.
+- `page` is the puppeteer page for anything else (`page.evaluate`,
+  `page.mouse.click(x, y)`). In WebKit it offers the subset the player's
+  own test suite uses.
+- `engine`, `folder` and `manifest` say what was opened.
+
 ## Upgrading to a newer Kinetic
 
 A game folder's player is two files, `index.html` and `app.js`; every

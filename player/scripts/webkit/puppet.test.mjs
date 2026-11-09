@@ -76,6 +76,52 @@ describe("launchWebKit", () => {
     await browser.close();
   });
 
+  it("hands the driver a profile folder to keep its storage in", async () => {
+    // The ready line echoes the arguments the stand-in was started with.
+    const command = [
+      process.execPath,
+      "-e",
+      `process.stdout.write(JSON.stringify({ event: "ready", hooks: ${JSON.stringify(hooks())}, argv: process.argv.slice(1) }) + "\\n");
+       require("node:readline").createInterface({ input: process.stdin }).on("line", (line) => {
+         const { id, cmd } = JSON.parse(line);
+         process.stdout.write(JSON.stringify({ id, ok: true, value: true }) + "\\n");
+         if (cmd === "quit") process.exit(0);
+       });`,
+      "--",
+    ];
+    const kept = await launchWebKit({ command, profile: "/tmp/kept" });
+    expect(kept.ready.argv).toEqual(["--profile=/tmp/kept"]);
+    await kept.close();
+    const fresh = await launchWebKit({ command });
+    expect(fresh.ready.argv).toEqual([]);
+    await fresh.close();
+  });
+
+  it("gives the page puppeteer's mouse: moves, presses and releases at a point", async () => {
+    const browser = await launchWebKit({
+      command: standIn({ event: "ready", hooks: hooks() }),
+    });
+    const page = await browser.newPage();
+    const sent = [];
+    const send = page.rpc.send;
+    page.rpc.send = (cmd, params) => {
+      sent.push({ cmd, ...params });
+      return send(cmd, params);
+    };
+    await page.mouse.click(30, 40);
+    await page.mouse.wheel({ deltaY: 100 });
+    page.rpc.send = send;
+    expect(
+      sent.map(({ cmd, type, x, y, deltaY }) => [cmd, type, x, y, deltaY]),
+    ).toEqual([
+      ["mouse", "mouseMoved", 30, 40, undefined],
+      ["mouse", "mousePressed", 30, 40, undefined],
+      ["mouse", "mouseReleased", 30, 40, undefined],
+      ["mouse", "mouseWheel", 30, 40, 100],
+    ]);
+    await browser.close();
+  });
+
   it("passes on the driver's fatal line (a window that would show)", async () => {
     const command = standIn({
       event: "fatal",

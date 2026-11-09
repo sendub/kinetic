@@ -249,6 +249,34 @@ class Page {
         await rpc.send("key", { ...p, type: "keyUp" });
       },
     };
+    // puppeteer's mouse (left button), for the creators' testing library
+    // (player/scripts/testing): the wheel and the button act where the
+    // last move left the pointer.
+    const at = { x: 0, y: 0 };
+    const mouse = (type, extra = {}) =>
+      rpc.send("mouse", { type, x: at.x, y: at.y, ...extra });
+    this.mouse = {
+      move: async (x, y) => {
+        at.x = x;
+        at.y = y;
+        await mouse("mouseMoved");
+      },
+      down: () => mouse("mousePressed"),
+      up: () => mouse("mouseReleased"),
+      click: async (x, y) => {
+        await this.mouse.move(x, y);
+        await mouse("mousePressed");
+        await mouse("mouseReleased");
+      },
+      // Divided by the device scale factor, as Chrome does (CDPShim).
+      wheel: ({ deltaX = 0, deltaY = 0 } = {}) => {
+        const scale = this.view.deviceScaleFactor ?? 1;
+        return mouse("mouseWheel", {
+          deltaX: deltaX / scale,
+          deltaY: deltaY / scale,
+        });
+      },
+    };
   }
   fire(event, value) {
     for (const fn of this.handlers.get(event) ?? []) fn(value);
@@ -402,12 +430,15 @@ class Page {
 
 /**
  * One driver process: one fresh profile and one page, like one
- * puppeteer.launch() with its first page. Throws, with the driver killed,
- * when the driver cannot start, would show its window, or lacks a hook.
+ * puppeteer.launch() with its first page. `profile` (a folder) keeps the
+ * page's storage on disk there instead, so a later launch with the same
+ * folder resumes it. Throws, with the driver killed, when the driver
+ * cannot start, would show its window, or lacks a hook.
  */
 export async function launchWebKit(options = {}) {
   // `command` stands in for the driver in the adapter's own tests.
   const [file, ...args] = options.command ?? [ensureDriver()];
+  if (options.profile) args.push(`--profile=${options.profile}`);
   const proc = spawn(file, args, {
     stdio: ["pipe", "pipe", "pipe"],
     detached: true,
@@ -454,7 +485,7 @@ export async function launchWebKit(options = {}) {
     target: () => ({ createCDPSession: async () => new CDPShim(page) }),
     // A fresh profile is a fresh driver process.
     createBrowserContext: async () => {
-      const other = await launchWebKit(options);
+      const other = await launchWebKit({ ...options, profile: undefined });
       contexts.add(other);
       return { newPage: () => other.newPage(), close: () => other.close() };
     },

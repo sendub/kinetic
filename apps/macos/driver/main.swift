@@ -4,8 +4,11 @@
 // one reply line per request on stdout ({"id","ok","value"|"error"}) plus
 // {"event":...} lines: ready, navigated, console, pageerror, hosterror,
 // download, filechooser, hostmessage, windowclose, fatal. One process is
-// one fresh profile (a non-persistent data store). player/scripts/webkit/
-// builds and drives it.
+// one fresh profile (a non-persistent data store), unless it is started
+// with `--profile=<dir>`: then its storage is kept on disk in that folder
+// (WebKit's private directory-rooted data store), so a later process given
+// the same folder finds it again. player/scripts/webkit/ builds and drives
+// it; player/scripts/testing/ opens creators' games in it.
 //
 // The `host` request installs the game app's own page-to-host bridge
 // (KineticHostBridge in ../WebViewSetup.swift) with a recording host: each
@@ -55,6 +58,36 @@ func setPrivateDouble(_ target: NSObject, _ name: String, _ value: Double) -> Bo
     typealias Setter = @convention(c) (AnyObject, Selector, Double) -> Void
     unsafeBitCast(target.method(for: sel), to: Setter.self)(target, sel, value)
     return true
+}
+
+/// A persistent data store kept wholly inside `dir`, through WebKit's
+/// private `-[_WKWebsiteDataStoreConfiguration initWithDirectory:]` and
+/// `+[WKWebsiteDataStore _storeWithConfiguration:]`; nil when this WebKit
+/// lacks either. (The public persistent stores live under ~/Library.)
+func folderStore(_ dir: URL) -> WKWebsiteDataStore? {
+    let initSel = NSSelectorFromString("initWithDirectory:")
+    let makeSel = NSSelectorFromString("_storeWithConfiguration:")
+    guard let cls = NSClassFromString("_WKWebsiteDataStoreConfiguration") as? NSObject.Type,
+        cls.instancesRespond(to: initSel), WKWebsiteDataStore.responds(to: makeSel),
+        let raw = cls.perform(NSSelectorFromString("alloc"))?.takeUnretainedValue()
+    else { return nil }
+    typealias Init = @convention(c) (AnyObject, Selector, NSURL) -> AnyObject?
+    let initialize = unsafeBitCast(class_getMethodImplementation(cls, initSel), to: Init.self)
+    guard let config = initialize(raw, initSel, dir as NSURL) else { return nil }
+    return WKWebsiteDataStore.perform(makeSel, with: config)?.takeUnretainedValue() as? WKWebsiteDataStore
+}
+
+/// The folder named by `--profile=<dir>`, created if need be; nil without
+/// the argument (a fresh in-memory profile).
+func profileFolder() -> URL? {
+    guard let arg = CommandLine.arguments.first(where: { $0.hasPrefix("--profile=") }) else { return nil }
+    let dir = URL(fileURLWithPath: String(arg.dropFirst("--profile=".count)), isDirectory: true)
+    do {
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    } catch {
+        fatal("cannot create the profile folder \(dir.path): \(error.localizedDescription)")
+    }
+    return dir
 }
 
 let outLock = NSLock()
@@ -143,6 +176,13 @@ final class Driver: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKScr
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         let config = KineticWebView.configuration(storage: .nonPersistent)
+        let profile = profileFolder()
+        if let profile {
+            guard let store = folderStore(profile) else {
+                fatal("this macOS's WebKit cannot keep a profile in a folder (it lacks the private _WKWebsiteDataStoreConfiguration initWithDirectory:); open without a profile, or on Chrome")
+            }
+            config.websiteDataStore = store
+        }
         // Test hooks: the page runs as if in front although no one sees it.
         var hooks: [String: Bool] = [:]
         for name in ["_setHiddenPageDOMTimerThrottlingEnabled:", "_setPageVisibilityBasedProcessSuppressionEnabled:"] {
@@ -197,7 +237,10 @@ final class Driver: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKScr
             NSApp.deactivate()
             emit(["event": "hosterror", "text": "the WebKit driver became the active app"])
         }
-        emit(["event": "ready", "hooks": hooks, "offscreen": "\(window.frame)", "pid": getpid()])
+        emit([
+            "event": "ready", "hooks": hooks, "offscreen": "\(window.frame)", "pid": getpid(),
+            "profile": profile?.path ?? NSNull(),
+        ])
 
         Thread.detachNewThread {
             while let line = readLine(strippingNewline: true) {

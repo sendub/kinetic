@@ -52,6 +52,11 @@ are implementing and docs/stack.md for settled decisions.
   `converter/tests/conftest.py`) at the system ffmpeg; never set it for a
   real conversion. The converter never uses PATH's ffmpeg, `cjxl` or
   `djxl`.
+- Play a built game folder with no window (WebKit or headless Chrome):
+  `node player/scripts/testing/check-game.mjs <folder> [--engine
+  webkit|chrome] [--steps N]`, or a script using `openGame` from
+  `player/scripts/testing/kinetic.mjs` (CREATE.md, "Testing your game");
+  never hand-roll puppeteer against `player/node_modules`.
 - ffmpeg and macOS `sips` are on PATH (fixture builders use them); there
   is no Rust toolchain.
 

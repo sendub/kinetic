@@ -2383,10 +2383,35 @@ truthful: an unchecked box means nothing was accepted.
       go vet` clean, test_build_apps 110 passed, npm test 867, check clean,
       window scenario 27/27 on Chrome. Exe now 3.7 MiB. Run time on Windows:
       the user's check at the phase closer.)
-- [ ] Testing a game with no window on screen (item 10): the library, its
+- [x] Testing a game with no window on screen (item 10): the library, its
       tests, and a CREATE.md worked example run against the demo on both
       engines.
+      (2026-11-09: `player/scripts/testing/kinetic.mjs` `openGame(folder,
+      {engine, viewport, profile, closeHelp, playAll})`: refuses a folder
+      without index.html and app.js; `auto` picks WebKit on macOS when the
+      driver builds, else Chrome, and says which. The handle: `page`,
+      `current()` (id, index, text, speaker, file, the open choice and its
+      rows), `press`, `spaceUntil`, `waitForItem`, `waitForChoice`,
+      `pickRoute`, `reload`, `screenshot`, `errors()`, `close`. No player
+      hook: the item is found from the screen plus the manifest, ties
+      broken by speaker, picture, then the saved place read from
+      IndexedDB. `check-game.mjs <folder> [--engine] [--steps]`. Launching,
+      keys and page readers moved from the harness into `testing/core.mjs`
+      (the harness re-exports them; no scenario changed). The driver
+      takes `--profile=<dir>` for a kept WebKit profile (private API,
+      fails loudly if missing; never used by the suite); on WebKit the
+      library reports failed media loads, which WebKit does not log.
+      CREATE.md "Testing your game" with a worked example, run as written
+      on both engines. Orchestrator: npm test 891 pass, check clean;
+      check-game on a fresh demo with both apps: no errors on WebKit and
+      Chrome; full suites below.)
 - [ ] Phase-closer (Phase 43): full scenario suite on Chrome and on WebKit,
       full pytest, package-proof; the user plays the demo's macOS app and
       Windows exe (fullscreen, Esc, reload, Export, Import, Exit, the
       Fullscreen / Window toggle).
+      (2026-11-09, automated part on the item 10 tree: full Chrome suite 16
+      scenarios, 387 checks, 387 pass, 0 PARTIAL, 0 fail, 138 s; full
+      WebKit suite 382 pass, 5 PARTIAL (element fullscreen, off in
+      WKWebView), 0 fail, 183 s; pytest 638 passed in 40 s; package-proof
+      18/18. Waiting on the user's play check of
+      `.tmp/p43close/demo/Kinetic demo.app` and `Kinetic demo.exe`.)

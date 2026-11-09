@@ -1,6 +1,8 @@
 // Shared harness for the scenario suite (docs/verify-player.md). The
 // page-side readers and input helpers came from the retired one-sequence
-// driver; each scenario now opens its own fresh browser.
+// driver; each scenario now opens its own fresh browser. What the creators'
+// testing library also uses (launching, keys, clicks, the generic readers,
+// the item lookup) lives in ../testing/core.mjs and is re-exported here.
 import { execFileSync } from "node:child_process";
 import {
   copyFileSync,
@@ -12,7 +14,6 @@ import {
 } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import puppeteer from "puppeteer-core";
 
 // The continue row's label, read from the module that draws it, so the
 // branch steps assert the same string the screen shows (as with fit.ts).
@@ -21,74 +22,59 @@ import { CONTINUE_LABEL } from "../../src/render/choice.ts";
 // straight from src (node runs the types away), so the driver's expectation
 // cannot drift from the rule the unit tests pin.
 import { containFit } from "../../src/render/fit.ts";
+import {
+  CHOICE_CLOSED,
+  CHOICE_OPEN,
+  CHROME_SCREEN,
+  CONFIG_CLOSED,
+  CONFIG_CONTROL,
+  CONFIG_OPEN,
+  choiceOpen,
+  chromePath,
+  clickAt,
+  clickCenter,
+  closeBrowser,
+  closeSettings,
+  collectErrors,
+  configOpen,
+  dismissHelp,
+  escapeUntil,
+  HELP_CLOSED,
+  HELP_OPEN,
+  helpOpen,
+  killBrowser,
+  killLiveBrowsers,
+  launchBrowser,
+  MAP_OPEN,
+  mapOpen,
+  matchItems,
+  openSettings,
+  PAGE_STATE,
+  pressA,
+  pressB,
+  pressC,
+  pressDigit,
+  pressE,
+  pressEnter,
+  pressEscape,
+  pressEscapeSeen,
+  pressH,
+  pressKey,
+  pressM,
+  pressNavKey,
+  pressSpace,
+  pressT,
+  pressTab,
+  pressU,
+  pressZ,
+  READ_CHOICE,
+  setPlayAll,
+  sleep,
+} from "../testing/core.mjs";
 
 // Expando stashed on the <video> element to prove the renderer reuses the
 // SAME element across a chain instead of re-creating it (docs Phase 6).
 const VIDEO_TOKEN = "kinetic-verify-video";
-
-// Serialised into the page; reads only what the renderer put in the DOM.
-const PAGE_STATE = () => {
-  const img = document.getElementById("visual-image");
-  const overlay = document.getElementById("overlay");
-  const app = document.getElementById("app");
-  const textEl = document.getElementById("overlay-text");
-  return {
-    appChildren: app ? Array.from(app.children).map((el) => el.id) : [],
-    imgSrc: img ? (img.getAttribute("src") ?? "") : null,
-    imgDecoded: img ? img.complete && img.naturalWidth > 0 : false,
-    imgWidth: img ? Math.round(img.getBoundingClientRect().width) : 0,
-    imgVisible: img ? getComputedStyle(img).display !== "none" : false,
-    video: (() => {
-      const v = document.getElementById("visual-video");
-      if (v === null) return null;
-      const cs = getComputedStyle(v);
-      return {
-        src: v.getAttribute("src") ?? "",
-        poster: v.getAttribute("poster") ?? "",
-        loop: v.loop,
-        paused: v.paused,
-        currentTime: Math.round(v.currentTime * 100) / 100,
-        readyState: v.readyState,
-        visible: cs.display !== "none",
-        posterPainted:
-          (v.getAttribute("poster") ?? "") !== "" &&
-          cs.backgroundImage.includes(v.getAttribute("poster") ?? "\u0000"),
-      };
-    })(),
-    placeholder: document.getElementById("placeholder")?.textContent ?? null,
-    emptyState: document.getElementById("empty-state")?.textContent ?? null,
-    overlayHidden: overlay ? overlay.hidden : null,
-    overlayChildren: overlay ? overlay.children.length : null,
-    speaker: document.getElementById("overlay-speaker")?.textContent ?? null,
-    text: textEl?.textContent ?? null,
-    // The renderer's speech/thought claim (`data-mode`, set on both the band
-    // and the line) and what CSS made of it. The computed font-style is the
-    // observable half of docs/plan.md Phase 7b: thought italic, dialogue
-    // upright. It resolves even while the band is [hidden].
-    overlayMode: overlay?.getAttribute("data-mode") ?? null,
-    textMode: textEl?.getAttribute("data-mode") ?? null,
-    textFontStyle: textEl ? getComputedStyle(textEl).fontStyle : null,
-    mapOpen: (() => {
-      const p = document.getElementById("branchmap");
-      return p === null ? null : !p.hidden;
-    })(),
-    // The key help screen and the black screen it puts the stage through
-    // (docs/plan.md Phase 13b): panel up/down, stage painted or not.
-    helpOpen: (() => {
-      const p = document.getElementById("help");
-      return p === null ? null : !p.hidden;
-    })(),
-    stageHidden: (() => {
-      const s = document.getElementById("stage");
-      return s === null ? null : getComputedStyle(s).display === "none";
-    })(),
-    fsAttempts: window.__fsAttempts ?? 0,
-    firstKeys: window.__firstKeys ?? [],
-    fullscreenElement: document.fullscreenElement
-      ? document.fullscreenElement.tagName.toLowerCase()
-      : null,
-  };
-};
 
 // The Phase 8 bookmark list, read back from IndexedDB inside the page: the
 // database is the player's own storage (src/storage/idb.ts — db `kinetic`,
@@ -209,10 +195,6 @@ const READ_MAP_CARDS = () => {
 // shows the moment `m` is pressed and draws its cards once the bookmark
 // list is read (`data-ready`): MAP_OPEN is the first, MAP_READY the
 // second, MAP_CARDS_LOADED waits until every card shows its picture too.
-const MAP_OPEN = () => {
-  const p = document.getElementById("branchmap");
-  return p !== null && !p.hidden;
-};
 const MAP_READY = () => {
   const p = document.getElementById("branchmap");
   return p !== null && !p.hidden && p.dataset.ready === "true";
@@ -230,7 +212,6 @@ const MAP_CLOSED = () => {
   const p = document.getElementById("branchmap");
   return p === null || p.hidden;
 };
-const mapOpen = (page) => page.evaluate(MAP_OPEN);
 
 // The branch map's view as the page shows it (docs/plan.md Phase 41): the
 // half of "Full size | Fit" pressed ("full" or "fit"), the stage's
@@ -285,22 +266,6 @@ async function showMapView(page, cdp, which) {
     await sleep(120);
   }
   return page.evaluate(READ_MAP_VIEW);
-}
-
-/**
- * A navigation key (the arrows, Page Up / Page Down, Home, End) sent
- * without a native key code: in headless Chrome on macOS some keys sent
- * with one stop the page's animation frames for good (bookmarkmap's
- * Delete note), which would freeze the map's painting.
- */
-async function pressNavKey(cdp, key, keyCode) {
-  for (const type of ["keyDown", "keyUp"])
-    await cdp.send("Input.dispatchKeyEvent", {
-      type,
-      key,
-      code: key,
-      windowsVirtualKeyCode: keyCode,
-    });
 }
 
 // The settings section of the Esc screen (Phase 26: Escape opens the one
@@ -477,137 +442,11 @@ const CONFIRM_OPEN = () => {
   return p !== null && !p.hidden;
 };
 
-const CONFIG_OPEN = () => {
-  const p = document.getElementById("config");
-  return p !== null && !p.hidden;
-};
-const CONFIG_CLOSED = () => {
-  const p = document.getElementById("config");
-  return p === null || p.hidden;
-};
-const configOpen = (page) => page.evaluate(CONFIG_OPEN);
-
-// Escape until `predicate` holds: the settings live on the Esc screen
-// (Phase 26), so Escape opens and closes them. Returns whether the
-// predicate held.
-// A predicate that already holds sends nothing: Escape toggles the screen,
-// so pressing it then would undo the state the caller asked for and leave
-// every later open/close one step out of phase.
-// Whether the browser keeps an Escape to leave fullscreen cannot be
-// predicted from `document.fullscreenElement`: in Chrome the player locks
-// Escape once fullscreen (Keyboard Lock, Phase 43), so a short Escape
-// reaches the page, but one sent in the moment before the lock takes hold
-// is the browser's. So each press is followed by asking the page whether
-// it saw the key: seen, the page acted on it and the predicate is awaited;
-// not seen, the browser kept it to leave fullscreen and one more press
-// goes to the page.
-async function escapeUntil(page, cdp, predicate) {
-  if (await page.evaluate(predicate)) return true;
-  for (let press = 0; press < 2; press += 1) {
-    if (await pressEscapeSeen(page, cdp)) break;
-    try {
-      await page.waitForFunction(() => document.fullscreenElement === null, {
-        timeout: CLICK_WAIT_MS,
-      });
-    } catch {
-      return false; // kept by the browser, yet still fullscreen
-    }
-  }
-  try {
-    await page.waitForFunction(predicate, { timeout: CLICK_WAIT_MS });
-    return true;
-  } catch {
-    return false;
-  }
-}
-/** Opens the Esc screen's settings (Phase 26). */
-const openSettings = (page, cdp) => escapeUntil(page, cdp, CONFIG_OPEN);
-/** Closes the Esc screen with its own key. */
-const closeSettings = (page, cdp) => escapeUntil(page, cdp, CONFIG_CLOSED);
-// The bounded wait for a control (or a screen) to be there before the
-// driver acts on it: a loaded machine running the whole suite can take
-// seconds to lay a panel out.
-const CLICK_WAIT_MS = 5000;
-// The Esc screen's settings controls and the reset box's buttons, as
-// clickCenter takes them: a selector is resolved when the click happens,
-// after waiting for the control, not from a rect read before it was drawn.
-const CONFIG_CONTROL = {
-  title: ".config-title",
-  skip: ".config-skip-all",
-  play: ".config-play-all",
-  speedUp: '[data-config-action="speed-up"]',
-  speedDown: '[data-config-action="speed-down"]',
-  reset: ".config-reset",
-  exportProgress: '[data-config-action="export-progress"]',
-  importProgress: '[data-config-action="import-progress"]',
-};
+// The reset box's buttons, as clickCenter takes them (the settings
+// controls are CONFIG_CONTROL).
 const CONFIRM_CONTROL = {
   confirm: '[data-confirm-action="confirm"]',
   cancel: '[data-confirm-action="cancel"]',
-};
-// The rect of the first element matching `selector` once it exists, is
-// visible (no hidden ancestor, no display:none or visibility:hidden) and
-// has a non-zero box; null until then.
-const visibleRect = async (cdp, selector) => {
-  const { result, exceptionDetails } = await cdp.send("Runtime.evaluate", {
-    expression: `(() => {
-      const el = document.querySelector(${JSON.stringify(selector)});
-      if (el === null || !el.checkVisibility({ visibilityProperty: true }))
-        return null;
-      // A control below the fold of a scrolling panel is scrolled to, as
-      // a reader would, before the click (the Esc screen's 13th key row
-      // pushed Reset below 600 px).
-      el.scrollIntoView({ block: "nearest" });
-      const r = el.getBoundingClientRect();
-      if (r.width <= 0 || r.height <= 0) return null;
-      return { top: r.top, bottom: r.bottom, left: r.left, right: r.right };
-    })()`,
-    returnByValue: true,
-  });
-  if (exceptionDetails !== undefined) {
-    throw new Error(
-      `clickCenter: cannot query "${selector}": ${exceptionDetails.text}`,
-    );
-  }
-  return result.value ?? null;
-};
-const isRect = (r) =>
-  r !== null &&
-  typeof r === "object" &&
-  [r.left, r.right, r.top, r.bottom].every(Number.isFinite) &&
-  r.right > r.left &&
-  r.bottom > r.top;
-/**
- * A trusted click at the centre of `target`: a CSS selector (preferred) is
- * waited for — present, visible, with a non-zero box — for up to
- * CLICK_WAIT_MS and then clicked where it is; a rect read earlier is
- * clicked as given. Either throws a clear error, naming the selector,
- * instead of clicking nowhere when the control is not there.
- */
-const clickCenter = async (cdp, target) => {
-  let rect = target;
-  if (typeof target === "string") {
-    const deadline = Date.now() + CLICK_WAIT_MS;
-    rect = await visibleRect(cdp, target);
-    while (rect === null && Date.now() < deadline) {
-      await sleep(50);
-      rect = await visibleRect(cdp, target);
-    }
-    if (rect === null) {
-      throw new Error(
-        `clickCenter: "${target}" not present, visible and laid out after ${CLICK_WAIT_MS} ms`,
-      );
-    }
-  } else if (!isRect(target)) {
-    throw new Error(
-      `clickCenter: no laid-out rect to click (got ${JSON.stringify(target)}); pass the control's selector so the click waits for it`,
-    );
-  }
-  await clickAt(
-    cdp,
-    Math.round((rect.left + rect.right) / 2),
-    Math.round((rect.top + rect.bottom) / 2),
-  );
 };
 
 // The `#help` key help screen (docs/plan.md Phase 13b) as the reader sees
@@ -665,50 +504,6 @@ const READ_KEY_GRID = () => {
     clientHeight: panel.clientHeight,
   };
 };
-const HELP_OPEN = () => {
-  const p = document.getElementById("help");
-  return p !== null && !p.hidden;
-};
-const HELP_CLOSED = () => {
-  const p = document.getElementById("help");
-  return p === null || p.hidden;
-};
-const helpOpen = (page) => page.evaluate(HELP_OPEN);
-
-// The `#choice` decision overlay (Phase 13) as the reader sees it: the
-// prompt, and each row's number, label, `seen` marker and whether it is
-// the unnumbered return offer. Purely the DOM render/choice.ts writes —
-// the driver asserts the screen, never machine state.
-const READ_CHOICE = () => {
-  const panel = document.getElementById("choice");
-  if (panel === null) return { present: false };
-  if (panel.hidden) return { present: true, hidden: true };
-  return {
-    present: true,
-    hidden: false,
-    prompt: document.querySelector(".choice-title")?.textContent ?? null,
-    rows: Array.from(document.querySelectorAll(".choice-row")).map((el) => ({
-      idx: el.getAttribute("data-choice-idx"),
-      isContinue: el.hasAttribute("data-choice-continue"),
-      number: el.querySelector(".choice-num")?.textContent ?? "",
-      label: el.querySelector(".choice-label")?.textContent ?? "",
-      seen: el.querySelector(".choice-seen")?.textContent ?? null,
-      // The play-all next pick, or the route a wheel walk takes through
-      // this screen (docs/plan.md Phase 27).
-      next: el.classList.contains("choice-next"),
-    })),
-  };
-};
-const CHOICE_OPEN = () => {
-  const p = document.getElementById("choice");
-  return p !== null && !p.hidden;
-};
-const CHOICE_CLOSED = () => {
-  const p = document.getElementById("choice");
-  return p === null || p.hidden;
-};
-const choiceOpen = (page) => page.evaluate(CHOICE_OPEN);
-
 // A page-side change log for the branch walk: every visible mutation
 // records one line of `img|overlay-text|choice-open?`, deduplicated. The
 // driver's own probes only ever see NOW; this log is what proves an
@@ -810,22 +605,6 @@ const CHAIN_PROBE = () => {
   ].join("|");
 };
 
-// The central "close the help if it is up" driver helper (Phase 13b):
-// every existing step that assumed first-run goes straight to item 1
-// dismisses the help through this, pressing Escape — the help's own key
-// and a closing action that touches nothing else (Enter is no key since
-// Phase 18's "Key help simplified"). Trusted either through CDP or puppeteer's own
-// keyboard (which openAtViewport, without a CDP session, still drives
-// through CDP); the wait after it proves the close happened.
-const dismissHelp = async (page, cdp) => {
-  await page.waitForFunction(() => document.getElementById("help") !== null, {
-    timeout: 5000,
-  });
-  if (!(await helpOpen(page))) return false;
-  await pressEscape(cdp);
-  await page.waitForFunction(HELP_CLOSED, { timeout: 5000 });
-  return true;
-};
 const dismissHelpByKeyboard = async (page) => {
   await page.waitForFunction(() => document.getElementById("help") !== null, {
     timeout: 5000,
@@ -955,85 +734,6 @@ const INSTRUMENT = () => {
     },
     true,
   );
-};
-
-async function pressKey(cdp, key, code, keyCode, text) {
-  await cdp.send("Input.dispatchKeyEvent", {
-    type: "keyDown",
-    key,
-    code,
-    windowsVirtualKeyCode: keyCode,
-    nativeVirtualKeyCode: keyCode,
-    text,
-    unmodifiedText: text,
-  });
-  await cdp.send("Input.dispatchKeyEvent", {
-    type: "keyUp",
-    key,
-    code,
-    windowsVirtualKeyCode: keyCode,
-    nativeVirtualKeyCode: keyCode,
-  });
-}
-const pressSpace = (cdp) => pressKey(cdp, " ", "Space", 32, " ");
-const pressH = (cdp) => pressKey(cdp, "h", "KeyH", 72, "h");
-const pressTab = (cdp) => pressKey(cdp, "Tab", "Tab", 9, "");
-const pressE = (cdp) => pressKey(cdp, "e", "KeyE", 69, "e");
-const pressU = (cdp) => pressKey(cdp, "u", "KeyU", 85, "u");
-const pressB = (cdp) => pressKey(cdp, "b", "KeyB", 66, "b");
-// `t` no longer does anything (Phase 35); scenarios press it to prove that.
-const pressT = (cdp) => pressKey(cdp, "t", "KeyT", 84, "t");
-const pressM = (cdp) => pressKey(cdp, "m", "KeyM", 77, "m");
-const pressZ = (cdp) => pressKey(cdp, "z", "KeyZ", 90, "z");
-// `c` opens nothing since Phase 26 (the settings live on the Esc screen);
-// the key stays here so a scenario can prove it inert.
-const pressC = (cdp) => pressKey(cdp, "c", "KeyC", 67, "c");
-const pressA = (cdp) => pressKey(cdp, "a", "KeyA", 65, "a");
-const pressEnter = (cdp) => pressKey(cdp, "Enter", "Enter", 13, "\r");
-const pressEscape = (cdp) => pressKey(cdp, "Escape", "Escape", 27, "");
-// Escape, then whether the page's own keydown saw it (true) or the browser
-// kept it, as it does to leave fullscreen (false). The CDP key dispatch
-// resolves once the page has handled the key, so the answer is final.
-const ARM_ESCAPE_PROBE = () => {
-  if (window.__escapeProbe !== true) {
-    window.__escapeProbe = true;
-    window.addEventListener(
-      "keydown",
-      (event) => {
-        if (event.key === "Escape") window.__escapeSeen = true;
-      },
-      true,
-    );
-  }
-  window.__escapeSeen = false;
-};
-const pressEscapeSeen = async (page, cdp) => {
-  await page.evaluate(ARM_ESCAPE_PROBE);
-  await pressEscape(cdp);
-  return page.evaluate(() => window.__escapeSeen === true);
-};
-// A decision route digit (Phase 13): the overlay takes 1..9 as its own
-// input (keys.ts's routeIndexForKey reads `key`).
-const pressDigit = (cdp, digit) =>
-  pressKey(cdp, digit, `Digit${digit}`, 48 + Number(digit), digit);
-
-// A trusted left click at page coordinates: a control is clicked the way a
-// reader clicks it, through CDP Input.
-const clickAt = async (cdp, x, y) => {
-  await cdp.send("Input.dispatchMouseEvent", {
-    type: "mousePressed",
-    x,
-    y,
-    button: "left",
-    clickCount: 1,
-  });
-  await cdp.send("Input.dispatchMouseEvent", {
-    type: "mouseReleased",
-    x,
-    y,
-    button: "left",
-    clickCount: 1,
-  });
 };
 
 // One deliberate wheel notch. `WHEEL_PX` is render/wheel.ts's step size and
@@ -1168,8 +868,6 @@ const waitImageDecoded = (page) =>
     { timeout: 5000 },
   );
 
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-
 const waitVideoPlaying = (page, timeout = 5000) =>
   page.waitForFunction(
     () => {
@@ -1200,17 +898,12 @@ export const playerDir = join(
 );
 export const repoRoot = join(playerDir, "..");
 // KINETIC_SCENARIO_ROOT lets parallel runs use separate folders.
-const scenarioRoot =
+export const scenarioRoot =
   process.env.KINETIC_SCENARIO_ROOT ?? join(repoRoot, ".tmp", "scenarios");
 export const demoDir = join(scenarioRoot, "demo");
 export const emptyDir = join(scenarioRoot, "demo-empty");
 export const tallDir = join(scenarioRoot, "demo-tall");
 export const TALL_ASSET = { width: 640, height: 960 };
-export const chromePath =
-  process.env.KINETIC_CHROME ??
-  "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
-/** The screen headless Chrome reports (`--screen-info`). */
-export const CHROME_SCREEN = { width: 1920, height: 1200 };
 
 // The engine every scenario browser runs on: headless Chrome (the default)
 // or, with KINETIC_ENGINE=webkit (the runner's --webkit), the system WebKit
@@ -1253,16 +946,12 @@ export function branch(id) {
  */
 export async function currentItemId(page) {
   const s = await page.evaluate(PAGE_STATE);
-  if (s.text) {
-    const hit = manifest.items.find((it) => it.text === s.text);
-    if (hit) return hit.id;
-  }
   const videoShown = s.video?.visible === true;
-  const file = videoShown ? s.video.poster : s.imgSrc;
-  const bare = manifest.items.find(
-    (it) => !it.text && (it.file === file || it.poster === file),
-  );
-  return bare?.id ?? null;
+  const [first] = matchItems(manifest.items, {
+    text: s.text,
+    file: videoShown ? s.video.poster : s.imgSrc,
+  });
+  return first === undefined ? null : manifest.items[first].id;
 }
 
 /**
@@ -1324,25 +1013,6 @@ export function assembleFolders() {
     tallAsset = false;
   }
   return { tallAsset };
-}
-
-/**
- * Set `Play all routes` through the Esc screen as a reader would (Phase
- * 26): open it with Escape, click the switch only when it is not already
- * `on`, close it with Escape (a click never closes it, docs/plan.md Phase
- * 24). Returns the screen as it read after the switch (`after`) and
- * whether it closed. Play all routes is on by default (docs/plan.md
- * Phase 24); a walk that makes its own choices turns it off with this.
- */
-async function setPlayAll(page, cdp, on) {
-  await openSettings(page, cdp);
-  const before = await page.evaluate(READ_CONFIG_OVERLAY);
-  if (before.playPressed !== String(on))
-    await clickCenter(cdp, CONFIG_CONTROL.play);
-  const after = await page.evaluate(READ_CONFIG_OVERLAY);
-  await closeSettings(page, cdp); // its key closes it (a click never does)
-  const closed = !(await page.evaluate(CONFIG_OPEN));
-  return { after, closed };
 }
 
 // A game app's host object for Chrome sessions opened with `host`: the
@@ -1427,45 +1097,15 @@ async function installRecordingHost(page, { kind, display }) {
  * (installRecordingHost; returned as `host`).
  */
 export async function openScenario(name, options = {}) {
-  const profile = join(scenarioRoot, "profiles", name);
-  const launch = async () => {
-    // One driver process is one fresh, in-memory profile.
-    if (onWebKit) return (await import("../webkit/puppet.mjs")).launchWebKit();
-    rmSync(profile, { recursive: true, force: true });
-    return puppeteer.launch({
-      executablePath: chromePath,
-      headless: true,
-      userDataDir: profile,
-      protocolTimeout: 30000,
-      args: [
-        "--no-sandbox",
-        "--disable-gpu",
-        "--disable-crash-reporter",
-        `--crash-dumps-dir=${join(scenarioRoot, "crashdumps")}`,
-        // A reader's browser window sits on a larger screen. Headless
-        // otherwise reports a screen the size of the window, which the
-        // player reads as a window that already fills the screen, and it
-        // would never ask for fullscreen (render/fullscreen.ts).
-        `--screen-info={${CHROME_SCREEN.width}x${CHROME_SCREEN.height}}`,
-      ],
-    });
-  };
-  // A Chrome killed before it is up (seen once on a loaded machine running
-  // scenarios side by side: no exit code, no output) gets one more try;
-  // nothing has been checked yet, so the retry hides no finding.
-  const browser = await launch().catch((error) => {
-    if (!String(error?.message).startsWith("Failed to launch")) throw error;
-    return launch();
+  // One WebKit driver process is one fresh, in-memory profile; Chrome
+  // gets an emptied profile folder of its own.
+  const browser = await launchBrowser(engine, {
+    profile: onWebKit ? null : join(scenarioRoot, "profiles", name),
+    fresh: true,
+    crashDumpsDir: join(scenarioRoot, "crashdumps"),
   });
-  liveBrowsers.add(browser);
   const page = await browser.newPage();
-  const errors = [];
-  page.on("console", (msg) => {
-    if (msg.type() === "error" || msg.type() === "warning") {
-      errors.push(`[${msg.type()}] ${msg.text()}`);
-    }
-  });
-  page.on("pageerror", (err) => errors.push(`[pageerror] ${err.message}`));
+  const errors = collectErrors(page);
   await page.evaluateOnNewDocument(INSTRUMENT);
   const host =
     options.host === undefined
@@ -1490,59 +1130,6 @@ export async function openScenario(name, options = {}) {
   return { browser, page, cdp, errors, url: page.url(), host };
 }
 
-// Every Chrome openScenario launched and nobody has closed yet, so the
-// runner can reap the ones a timed-out or crashed scenario left behind
-// (including one whose openScenario threw after the launch).
-const liveBrowsers = new Set();
-
-/**
- * Kill `browser`'s whole process tree now. puppeteer starts Chrome as a
- * process-group leader (detached), so the group kill takes its renderer,
- * GPU and utility children too; the plain kill is the fallback.
- */
-export function killBrowser(browser) {
-  liveBrowsers.delete(browser);
-  browser.disconnect().catch(() => {});
-  const proc = browser.process();
-  if (proc?.pid === undefined) return;
-  // The group outlives its leader while any helper is left, so it is
-  // killed even when Chrome itself already exited.
-  try {
-    process.kill(-proc.pid, "SIGKILL");
-  } catch {
-    if (proc.exitCode === null && proc.signalCode === null) {
-      try {
-        proc.kill("SIGKILL");
-      } catch {
-        // already gone
-      }
-    }
-  }
-}
-
-// How long a graceful close may take before the browser is killed:
-// puppeteer's close waits, unbounded, for the process to exit after
-// Browser.close was acknowledged.
-const CLOSE_WAIT_MS = 10000;
-
-/** Close `browser`, killing its process tree if the close does not finish. */
-export async function closeBrowser(browser) {
-  let timer;
-  await Promise.race([
-    browser.close().catch(() => {}),
-    new Promise((resolve) => {
-      timer = setTimeout(resolve, CLOSE_WAIT_MS);
-    }),
-  ]);
-  clearTimeout(timer);
-  killBrowser(browser);
-}
-
-/** Kill every browser still open (after a timeout, and before exit). */
-export function killLiveBrowsers() {
-  for (const browser of [...liveBrowsers]) killBrowser(browser);
-}
-
 /** Collects one scenario's checks; the runner prints and totals them. */
 export function recorder(scenario) {
   const checks = [];
@@ -1564,6 +1151,7 @@ export {
   CHAIN_PROBE,
   CHOICE_CLOSED,
   CHOICE_OPEN,
+  CHROME_SCREEN,
   CONFIG_CLOSED,
   CONFIG_CONTROL,
   CONFIG_OPEN,
@@ -1571,8 +1159,10 @@ export {
   CONFIRM_OPEN,
   CONTINUE_LABEL,
   choiceOpen,
+  chromePath,
   clickAt,
   clickCenter,
+  closeBrowser,
   closeSettings,
   configOpen,
   containFit,
@@ -1587,6 +1177,8 @@ export {
   INSTALL_PILL_LOG,
   INSTRUMENT,
   judgeFit,
+  killBrowser,
+  killLiveBrowsers,
   MAP_CARDS_LOADED,
   MAP_CLOSED,
   MAP_OPEN,
