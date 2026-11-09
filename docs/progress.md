@@ -2636,3 +2636,74 @@ truthful: an unchecked box means nothing was accepted.
       package-proof 18/18, with .tmp/extract-demo regenerated from
       fixtures/renpy_demo. There was no player change, so no scenario
       runs.)
+
+## Phase 46: Large-game checks and fast saves (2026-11-09, converting agent + user)
+
+- [ ] Player: fast saves that still flag inserted content (docs/plan.md
+      Phase 46, item 1): a screen change does no work in proportion to
+      the number of seen items, in the machine or in storage; old saves
+      and exported progress still load; inserted content stays unseen.
+      Tests:
+      - a unit test that a save on an advance writes only what changed
+        (the new seen id and the small state), not the seen list;
+      - an old-layout save (fixture) loads with every seen id, and the
+        next save and reload keep the same seen set;
+      - a progress file exported before the change imports;
+      - a save made against a manifest, opened with a copy that inserts
+        items into read content: the resume notice shows, `u` lands on the
+        first inserted item, skip stops at it, the end card counts it;
+      - Reset progress clears the seen records;
+      - measured (docs/perf.md): Space on WebKit and Chrome with 100 and
+        160,000 items seen, before and after; after, p95 under 10 ms at
+        160,000 seen on both engines (before: 49 ms on WebKit; 5 ms at
+        1,000 seen).
+- [ ] Player: the item on screen on the page (item 2): the stage's
+      `data-item` is the id of the item whose screen is shown. Tests
+      (creator scenario part, Chrome and WebKit): it matches each step of
+      a demo walk, an open choice, the Esc screen and the map; it changes
+      in the same frame as the screen.
+- [ ] Player: open at an item from the URL (item 3): `#start=<id>` opens
+      there, entering its routes as `u` does; the hash is removed after;
+      an unknown id warns and opens as usual. Tests (unit and a scenario
+      part on both engines):
+      - a main-line item, an item in a nested route (Space carries on
+        inside the route, the routes marked played), and a decision's
+        `after` item (Space opens the choice);
+      - a reload after the start resumes the saved place;
+      - an unknown id: one warning, the usual first screen.
+- [ ] Testing library (item 4): `current()` reads `data-item`, else the
+      index (with the tie cache), and says how it found the id;
+      `startAt`; the symlink note; failed loads reported once on both
+      engines. Tests (kinetic.test.mjs and creator scenario parts on both
+      engines):
+      - the existing `matchItems` cases pass; the index gives the same
+        hits on a generated manifest with repeated lines and pictures;
+      - a folder with the old player (its app.js from before item 2) is
+        named from the screen, ties by the saved place;
+      - `startAt` lands on the item; an unknown id throws before a browser
+        starts; a player without item 3 is refused with the reason;
+      - a symlink out of the folder is named in one note on both engines;
+        one inside the folder is not;
+      - a missing picture, an undecodable picture and an undecodable video,
+        each mid-walk, give exactly one line on each engine.
+- [ ] check-game.mjs (item 5): `--steps all`, the end stop, the stuck
+      stop, the heartbeat, the summary, `--start-at`, `--until`, exit
+      codes 0/1/2/3. Tests (a scenario part running the CLI on demo
+      copies, both engines):
+      - `--steps all` on the demo stops with `story ended at step N` at
+        the demo's last screen, exit 0, all items visited;
+      - `--steps 1000` on the demo stops at the same step;
+      - a linear copy stops at its last item;
+      - a copy with an item Play all routes never reaches exits 3 and
+        names it; with a console error as well, exit 1;
+      - `--start-at` a late item prints it first; `--until` stops there;
+        an unknown id exits 2; `--until` an item the run does not reach
+        exits 1;
+      - the heartbeat appears on stderr when its interval is shortened
+        for the test.
+- [ ] Docs (item 6): CREATE.md, docs/perf.md, docs/verify-player.md,
+      AGENTS.md.
+- [ ] Phase-closer (Phase 46): full pytest, the full `npm run verify` and
+      `npm run verify -- --webkit`, package-proof; a timed
+      `check-game --steps all` walk of the synthetic 160,000-item game on
+      both engines.

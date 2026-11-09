@@ -2087,6 +2087,144 @@ changes. Two additions:
 docs/extracting.md and CREATE.md ("Checking posters before delivery"),
 the media_cli.py usage text.
 
+## Phase 46: Large-game checks and fast saves (2026-11-09, converting agent + user)
+
+A converting agent ran `check-game.mjs --engine webkit` on its published
+game: 159,609 items, 399 routes. A full walk took 57.5 minutes and printed
+every item with no error. It reported seven problems: the run never stops
+at the story's end, it prints nothing for long stretches, ties between
+look-alike items are hidden, there is no coverage verdict, late content
+can only be reached by walking everything before it, a symlinked `media/`
+fails every load on WebKit, and an undecodable picture or video passes on
+Chrome.
+
+Measured on a synthetic 160,000-item manifest with ids as long as the real
+ones (28.5 characters on average), and read-only on the real manifest:
+
+- Most of a walk step is the player's own save. On every screen change
+  the player writes its whole saved context to IndexedDB, including the
+  ids of every item seen (about 4.5 MB once the real game is read). On
+  WebKit with 160,000 items seen a Space takes 9 ms at the median and
+  49 ms at p95, over the 41 ms navigation budget (docs/stack.md); with
+  1,000 seen, 1 ms and 5 ms. Chrome's profile puts the whole cost in
+  `visitedSorted`, `toSaved`, `saveState` and the `put`. Readers of large
+  games pay this on every Space, not just tests. A walk step (Space and
+  `current()`, mean ms over 60 steps on the synthetic manifest) grows with
+  the number of items seen:
+
+  | engine | 1,000 | 40,000 | 80,000 | 120,000 | 160,000 |
+  | --- | --- | --- | --- | --- | --- |
+  | WebKit | 3.6 | 11.8 | 14.9 | 17.1 | 21.3 |
+  | Chrome | 3.7 | 5.9 | 9.8 | 11.6 | 15.4 |
+
+- `matchItems` costs about 3 ms per step (a scan of every item). A Map
+  index gives the same hits on all 159,610 real screens in about 0.001 ms,
+  after a 43 ms build.
+- 29% of the real game's steps match several items after `narrowItems`.
+  Each tie reads the saved place, which clones the whole saved record
+  (about 30 ms at 160k seen ids). Ties settle on the first read: the
+  "500 ms per tied step" in the report was inferred, not measured. A step
+  past the end is about 80 ms (the save plus the read).
+- At the story's end, with Play all routes on, the player shows its end
+  card (`#end-card`, "You have seen everything."). A linear manifest whose
+  items have all been seen shows none.
+- WebKit refuses a symlink that resolves outside the game folder; a
+  symlink inside it loads. The macOS app shares the test driver's web
+  view setup (`WebViewSetup.load` grants read access to the folder only),
+  so the app has the same limit. Chrome follows both.
+- `REPORT_FAILED_LOADS` runs on WebKit only. On Chrome too, it reports an
+  undecodable picture and an undecodable video (one line each, as on
+  WebKit); a missing file then prints twice on Chrome (Chrome's own
+  `net::ERR_FILE_NOT_FOUND` line and the reporter's).
+
+Decisions (user, 2026-11-09): the save fix is part of this phase; the
+player puts the current item's id on the page and the library reads it;
+the player opens at an item named in the URL; a full walk with items never
+shown exits 3.
+
+1. Player: fast saves that still flag inserted content.
+   - Every save costs about the same however much has been read. Neither
+     the machine's export nor the storage write does work in proportion to
+     the number of seen items on a screen change. The default design: each
+     newly seen id is written as its own small record, keyed by story, and
+     the main state record keeps the reader's place, open routes, played
+     and completed routes and picks, with `ctx.lastShown` where the testing
+     library reads it. Any other design is fine that meets both acceptance
+     points.
+   - Items a content update inserts into already-read content still count
+     as unseen: the resume notice ("Earlier content you haven't seen -
+     press u.") shows, `u` lands on them, skip stops at them and the end
+     card counts them, as now.
+   - Old saves load with their seen set intact and move to the new layout
+     on first save; exported progress files from before still import;
+     Reset progress clears everything; a story's progress stays under its
+     story key (Phase 21). Bookmarks: check whether a bookmark's stored
+     context needs the seen list; if not, a bookmark stops carrying it.
+   - Measured: navigation on WebKit and Chrome with 100 and with 160,000
+     items seen, on a synthetic manifest (reuse `mapperf.mjs`'s generator,
+     ids padded to the real length), before and after, in docs/perf.md.
+2. Player: the item on screen, on the page. The stage carries
+   `data-item="<id>"`, the id of the item whose screen is shown (also
+   under an open choice, the Esc screen and the map), updated in the same
+   frame as the screen.
+3. Player: open at an item from the URL. `index.html#start=<id>` opens the
+   game at that item for this load, entering its enclosing routes as `u`
+   does (`framesAround`: routes marked played and picked, the item seen),
+   in place of the saved place. The hash is removed once applied, so a
+   reload resumes the saved place. An unknown id opens the game as usual
+   and logs one console warning naming it.
+4. Testing library (`kinetic.mjs`, `core.mjs`).
+   - `current()` takes the id from `data-item` when the stage has one.
+     For a folder with an older player it matches the screen through an
+     index built once per handle (same hits and order as `matchItems`,
+     whose tests stay), and it reuses the last tie's answer while the
+     screen is unchanged. `current()` says how its id was found (player,
+     screen, saved place, guess); the field name is the implementor's.
+   - `openGame(folder, { startAt })` opens with `#start=<id>`; an id not
+     in the manifest throws before the browser starts; a player that
+     ignores the hash (the first screen is not that item) throws, naming
+     why.
+   - Symlinks: `openGame` looks for links in the folder that resolve
+     outside it and, on either engine, logs one note naming up to three
+     and the count: WebKit and the macOS app cannot read files through
+     them; copy or hard-link the files.
+   - Failed loads: the reporter runs on both engines; a failure Chrome
+     already logged is not listed twice. A missing, an undecodable picture
+     and an undecodable video each give exactly one line on each engine,
+     including when the walk has moved past the item before the failure.
+5. check-game.mjs.
+   - `--steps all` presses until the story ends; any `--steps N` also
+     stops there. The story has ended when a Space changes nothing while
+     the end card is shown, or at the manifest's last item. Elsewhere,
+     Space changing nothing for 5 presses over at least 2 s is a stuck
+     player: the run stops and fails. `--steps all` gives up, and fails,
+     after twice the manifest's item count plus 1,000 presses.
+   - Prints `story ended at step N` (the step that first showed the last
+     screen), or `stopped after N steps`.
+   - A heartbeat on stderr every 30 s: step, items seen so far, the item
+     on screen.
+   - Summary: items visited out of the manifest's count; for an older
+     player, how many steps were named from the screen and how many of
+     those were guesses; after a full walk that reached the end, up to ten
+     ids never shown.
+   - `--start-at ID` (through `startAt`) and `--until ID` (stops when the
+     item first shows; exit 1 if the run ends without reaching it). An id
+     not in the manifest exits 2.
+   - Exit codes: 0; 1 for console or page errors, a game that would not
+     open, a stuck player, a walk past the cap or an `--until` not
+     reached; 2 for bad
+     arguments; 3 when a full walk from the opening (no `--start-at`)
+     reached the end with items never shown. 1 wins over 3.
+6. Docs: CREATE.md ("Testing your game": the quick check's new options,
+   summary, exit codes, the URL start, the symlink limit for the macOS
+   app; "Playing the folder" for `#start=`), docs/perf.md (item 1's
+   measurements), docs/verify-player.md (the creator scenario row),
+   AGENTS.md's check-game line.
+7. Phase-closer: full suites; a `check-game --steps all` walk of the
+   synthetic 160,000-item game on WebKit and on Chrome with the new
+   player: exit 0, every item visited, `story ended at step N`, and its
+   wall time beside this plan's step-time table.
+
 ## Later, waiting on the user
 
 - Overlay text styling iteration once the user can play with the demo.
