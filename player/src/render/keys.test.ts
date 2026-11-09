@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import type { DecisionKey, KeyCommands, TimelineCommands } from "./keys";
+import type {
+  DecisionKey,
+  KeyCommand,
+  KeyCommands,
+  TimelineCommands,
+} from "./keys";
 import {
   CLICKABLE_HELP_COMMANDS,
   commandForKey,
@@ -136,22 +141,29 @@ describe("decisionKeyFor (1..9 pick a route, 0 returns — Phase 18)", () => {
   });
 });
 
+/** A keydown event as the browser sends it: cancelable, with `repeat`. */
+function keydown(key: string, repeat: boolean): Event {
+  const event = new Event("keydown", { cancelable: true });
+  Object.assign(event, { key, repeat });
+  return event;
+}
+
 describe("installKeyMap's decision keys (long lists)", () => {
   function press(
-    taken: boolean,
+    taking: boolean,
     key: string,
+    repeat = false,
   ): { got: DecisionKey[]; prevented: boolean } {
     const target = new EventTarget();
     const got: DecisionKey[] = [];
     const commands = new Proxy({} as KeyCommands, {
       get: () => () => {},
     });
-    installKeyMap(target, commands, (decision) => {
-      got.push(decision);
-      return taken;
+    installKeyMap(target, commands, {
+      taking: () => taking,
+      take: (decision) => got.push(decision),
     });
-    const event = new Event("keydown", { cancelable: true });
-    Object.assign(event, { key, repeat: false });
+    const event = keydown(key, repeat);
     target.dispatchEvent(event);
     return { got, prevented: event.defaultPrevented };
   }
@@ -162,11 +174,82 @@ describe("installKeyMap's decision keys (long lists)", () => {
     expect(press(true, "Enter").got).toEqual(["pick"]);
   });
 
-  it("prevents a key's default only when the callback took it", () => {
+  it("prevents a key's default only while a choice takes it", () => {
     // No choice open: Enter must still activate a focused settings button.
-    expect(press(false, "Enter").prevented).toBe(false);
+    expect(press(false, "Enter")).toEqual({ got: [], prevented: false });
     expect(press(true, "Enter").prevented).toBe(true);
     expect(press(true, "3").prevented).toBe(true);
+  });
+
+  it("takes a held digit, 0 or Enter's repeats while a choice is open, picking nothing", () => {
+    for (const key of ["3", "0", "Enter"]) {
+      expect(press(true, key, true)).toEqual({ got: [], prevented: true });
+    }
+  });
+
+  it("walks the row cursor on a held arrow's repeats, each one taken", () => {
+    expect(press(true, "ArrowDown", true)).toEqual({
+      got: ["next"],
+      prevented: true,
+    });
+    expect(press(true, "ArrowUp", true)).toEqual({
+      got: ["prev"],
+      prevented: true,
+    });
+  });
+
+  it("leaves a held decision key's repeats to the page with no choice open", () => {
+    // The Esc screen: a held Enter keeps activating its focused control.
+    for (const key of ["Enter", "3", "0", "ArrowDown"]) {
+      expect(press(false, key, true)).toEqual({ got: [], prevented: false });
+    }
+  });
+});
+
+describe("installKeyMap's held keys", () => {
+  function hold(key: string, repeats: number) {
+    const target = new EventTarget();
+    const ran: KeyCommand[] = [];
+    const commands = new Proxy({} as KeyCommands, {
+      get: (_, name) => () => ran.push(name as KeyCommand),
+    });
+    installKeyMap(target, commands, {
+      taking: () => false,
+      take: () => {},
+    });
+    const prevented: boolean[] = [];
+    for (let n = 0; n <= repeats; n += 1) {
+      const event = keydown(key, n > 0);
+      target.dispatchEvent(event);
+      prevented.push(event.defaultPrevented);
+    }
+    return { ran, prevented };
+  }
+
+  it("takes every repeat of every mapped key, running its command once", () => {
+    for (const key of mappedKeys()) {
+      const { ran, prevented } = hold(key, 4);
+      expect(ran).toEqual([commandForKey(key, false)]);
+      expect(prevented).toEqual([true, true, true, true, true]);
+    }
+  });
+
+  it("takes a held Escape, Space and Tab (the macOS app's fullscreen keys)", () => {
+    expect(hold("Escape", 3)).toEqual({
+      ran: ["dismissOverlay"],
+      prevented: [true, true, true, true],
+    });
+    expect(hold(" ", 3).prevented).toEqual([true, true, true, true]);
+    expect(hold("Tab", 3).prevented).toEqual([true, true, true, true]);
+  });
+
+  it("leaves an unmapped key's presses and repeats to the page", () => {
+    for (const key of ["t", "z", "ArrowLeft", "F5"]) {
+      expect(hold(key, 2)).toEqual({
+        ran: [],
+        prevented: [false, false, false],
+      });
+    }
   });
 });
 

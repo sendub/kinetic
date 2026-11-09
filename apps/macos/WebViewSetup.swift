@@ -1,13 +1,38 @@
 // The web view both macOS hosts of the player use: the game app (docs/plan.md
 // Phase 43 item 7) and the scenario suite's WebKit driver (driver/main.swift).
 // Both compile this one file, so what the suite tests is what readers get.
-// Only what both hosts must agree on lives here (the web view's setup and
-// the page-to-host bridge); the app's window, menus and panels and the
-// driver's test hooks stay in their own sources.
+// Only what both hosts must agree on lives here (the web view's setup, the
+// page-to-host bridge, and what the window does with a key the page left
+// unhandled); the app's window frame, menus and panels and the driver's
+// test hooks stay in their own sources.
 //
 // Builds for macOS 12 and later (the app's minimum).
 
 import WebKit
+
+/// The window the game's web view sits in, in both hosts: it keeps every
+/// key for the game. A keydown the page does not take (no
+/// `preventDefault`) comes back from WKWebView through `NSApp.sendEvent`
+/// and up the responder chain to the window. NSWindow's own `keyDown`
+/// would run AppKit's keyboard interface on it (Tab moves the key view; in
+/// fullscreen, Esc can leave it) and then beep; this window drops it
+/// instead. Key equivalents are not keyDowns: NSApp offers them to the key
+/// window's views (the page first, through WKWebView) and then to the main
+/// menu before any keyDown reaches a window, so the menus' shortcuts (⌘Q,
+/// ⌘R, ⌃⌘F) still work.
+class KineticWindow: NSWindow {
+    /// Called with each key the window drops; the driver reports them.
+    var keyDropped: ((NSEvent) -> Void)?
+
+    override func keyDown(with event: NSEvent) {
+        keyDropped?(event)
+    }
+
+    // An Esc the page did not take also arrives as cancelOperation (WebKit
+    // passes the key's command up the responder chain), as does ⌘.: it must
+    // not leave fullscreen either.
+    override func cancelOperation(_ sender: Any?) {}
+}
 
 enum KineticWebView {
     /// Where the page's storage (IndexedDB, localStorage) lives.

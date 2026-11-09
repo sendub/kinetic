@@ -6,6 +6,26 @@ scenario suite's WebKit driver (`driver/`), which share
 Edge). `tools/build_apps.py` builds them into a game folder (CREATE.md,
 "Building the apps").
 
+## Keys in the macOS app
+
+The page takes every key it owns, a held key's repeats included
+(`player/src/render/keys.ts`, `installKeyMap`). WKWebView hands a keydown
+the page did not take back to AppKit (`NSApp.sendEvent`, then up the
+responder chain to the window), and NSWindow's own `keyDown` would run
+AppKit's keyboard interface on it: Tab moves the key view, Esc can take a
+fullscreen window out of fullscreen, and anything else beeps. So the game
+window, `KineticWindow` in `macos/WebViewSetup.swift`, drops every key
+that reaches its `keyDown`, and its `cancelOperation` does nothing (an
+Esc the page did not take, or ⌘., arrives that way too). The menus'
+shortcuts (⌘Q, ⌘R, ⌃⌘F) still work: NSApp offers a key equivalent to the
+window's views (the page first, through WKWebView) and then to the main
+menu before any keyDown reaches a window.
+
+The driver's window is a `KineticWindow` too. Each key that comes back to
+it becomes a `windowkey` line, `dropped` where the window drops it and
+`appkit` if it ever reaches NSWindow's own `keyDown`; the `window`
+scenario's held-keys checks read them (docs/verify-player.md).
+
 ## The page-to-host protocol
 
 One protocol serves both apps (docs/plan.md Phase 43 item 9). The page side

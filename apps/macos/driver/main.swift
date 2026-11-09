@@ -3,12 +3,12 @@
 // (../WebViewSetup.swift) and takes JSON-lines requests on stdin, writing
 // one reply line per request on stdout ({"id","ok","value"|"error"}) plus
 // {"event":...} lines: ready, navigated, console, pageerror, hosterror,
-// download, filechooser, hostmessage, windowclose, fatal. One process is
-// one fresh profile (a non-persistent data store), unless it is started
-// with `--profile=<dir>`: then its storage is kept on disk in that folder
-// (WebKit's private directory-rooted data store), so a later process given
-// the same folder finds it again. player/scripts/webkit/ builds and drives
-// it; player/scripts/testing/ opens creators' games in it.
+// download, filechooser, hostmessage, windowclose, windowkey, fatal. One
+// process is one fresh profile (a non-persistent data store), unless it is
+// started with `--profile=<dir>`: then its storage is kept on disk in that
+// folder (WebKit's private directory-rooted data store), so a later process
+// given the same folder finds it again. player/scripts/webkit/ builds and
+// drives it; player/scripts/testing/ opens creators' games in it.
 //
 // The `host` request installs the game app's own page-to-host bridge
 // (KineticHostBridge in ../WebViewSetup.swift) with a recording host: each
@@ -16,6 +16,12 @@
 // the host's display mode as the reader's green button would, so the page
 // gets its `kinetic-host` event. Without it the page runs as in a browser
 // tab, which may ask to close itself (a windowclose line).
+//
+// The window is the game app's own class (KineticWindow): a key the page
+// leaves unhandled comes back to it from the web view, and each one becomes
+// a windowkey line, "dropped" where KineticWindow drops it, "appkit" if it
+// ever reaches NSWindow's own keyDown. A `key` request with `autoRepeat`
+// sends a held key's repeat (isARepeat), as CDP's does.
 //
 // Nothing of it can be seen or take focus: an accessory app (no Dock icon,
 // no menu bar) that never activates, its one borderless window placed off
@@ -29,7 +35,9 @@
 import AppKit
 import WebKit
 
-final class DriverWindow: NSWindow {
+/// The game app's own window class (KineticWindow, ../WebViewSetup.swift),
+/// so its key handling is what the suite tests, placed off screen.
+final class DriverWindow: KineticWindow {
     override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect { frameRect }
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { true }
@@ -38,8 +46,22 @@ final class DriverWindow: NSWindow {
     // the app itself never activates, so the user's focus stays put.
     override var isKeyWindow: Bool { true }
     override var isMainWindow: Bool { true }
-    override func noResponder(for eventSelector: Selector) {}
-    override func cancelOperation(_ sender: Any?) {}
+    // Where NSWindow's own keyDown ends, after AppKit's keyboard interface,
+    // with a beep. KineticWindow never lets a key get here; one that does
+    // is reported (a windowkey line, "appkit") and makes no sound.
+    override func noResponder(for eventSelector: Selector) {
+        if eventSelector == #selector(NSResponder.keyDown(with:)), let event = NSApp.currentEvent {
+            reportWindowKey(event, "appkit")
+        }
+    }
+}
+
+/// A key that came back from the web view to the window: `fate` is
+/// "dropped" (KineticWindow kept it from AppKit) or "appkit" (it reached
+/// NSWindow's own keyDown).
+func reportWindowKey(_ event: NSEvent, _ fate: String) {
+    let code = Driver.keyCodes.first { $0.value == event.keyCode }?.key ?? "keyCode \(event.keyCode)"
+    emit(["event": "windowkey", "fate": fate, "code": code, "repeat": event.isARepeat])
 }
 
 /// Calls a private `-(void)sel:(BOOL)` setter when this WebKit has it.
@@ -196,6 +218,7 @@ final class Driver: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKScr
         window = DriverWindow(
             contentRect: offscreenFrame(size), styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
+        window.keyDropped = { reportWindowKey($0, "dropped") }
         window.hasShadow = false
         window.isExcludedFromWindowsMenu = true
         // Left out of Mission Control, Exposé and window cycling.
@@ -437,11 +460,12 @@ final class Driver: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKScr
         var flags = Driver.modifierFlags(r["modifiers"] as? Int ?? 0)
         if code.hasPrefix("Arrow") { flags.formUnion([.function, .numericPad]) }
         let isUp = type == "keyUp"
+        // CDP's autoRepeat: a held key's keydowns after the first.
         let event = NSEvent.keyEvent(
             with: isUp ? .keyUp : .keyDown, location: .zero, modifierFlags: flags,
             timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
             context: nil, characters: chars, charactersIgnoringModifiers: unmodified,
-            isARepeat: false, keyCode: keyCode)!
+            isARepeat: !isUp && (r["autoRepeat"] as? Bool ?? false), keyCode: keyCode)!
         delivered(isUp ? "keyup" : "keydown", limit: 2, { self.window.sendEvent(event) }, done)
     }
 

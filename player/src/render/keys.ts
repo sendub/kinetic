@@ -213,7 +213,8 @@ export function mapKeyAction(state: {
 /**
  * Pure mapping, so the interesting decisions are testable without a DOM.
  * A held-down key repeats; acting on each repeat would burst through the
- * timeline faster than any reader, so repeats are ignored.
+ * timeline faster than any reader, so a repeat runs no command (the key
+ * map still takes it: `installKeyMap`).
  */
 export function commandForKey(key: string, repeat: boolean): KeyCommand | null {
   if (repeat) return null;
@@ -302,36 +303,55 @@ export function suspendTimeline(
 }
 
 /**
+ * The decision overlay's side of the key map. The shell (main.ts) owns the
+ * context: whether a choice is open and nothing is over it.
+ */
+export interface DecisionInput {
+  /** Whether a choice takes its keys now. */
+  taking(): boolean;
+  /** One decision key; called only while `taking()`. */
+  take(key: DecisionKey): void;
+}
+
+/**
  * Installs the key map; returns a function that removes it. `preventDefault`
  * covers every mapped key: space would otherwise scroll the document behind
  * the player, and Tab would otherwise move focus out of it.
  *
- * `onDecisionKey`, when given, receives decision keys (`decisionKeyFor`)
- * for keys no mapped command claims — the decision overlay's 1..9, 0, the
- * arrows and Enter. The callback owns the context check: it returns false
- * for a key it dropped (no choice open), and only a key it took has its
- * default prevented — so Enter still activates a focused control on the
- * Esc screen, as it always did.
+ * `decisions`, when given, receives decision keys (`decisionKeyFor`) for
+ * keys no mapped command claims: the decision overlay's 1..9, 0, the arrows
+ * and Enter. Only while it is `taking()` is a decision key's default
+ * prevented, so Enter still activates a focused control on the Esc screen
+ * when no choice is open.
+ *
+ * A held key's repeats run no command (`commandForKey`, `decisionKeyFor`),
+ * but each has its default prevented whenever the key's first press would:
+ * the page has taken the key. A repeat left to the browser would scroll or
+ * move focus (Tab), and the macOS app's web view hands a key the page did
+ * not take back to AppKit, where a held Esc could take the window out of
+ * fullscreen.
  */
 export function installKeyMap(
   target: EventTarget,
   commands: KeyCommands,
-  onDecisionKey?: (key: DecisionKey) => boolean,
+  decisions?: DecisionInput,
 ): () => void {
   const onKeyDown = (event: Event): void => {
     const keydown = event as KeyboardEvent;
     if (typeof keydown.key !== "string") return;
     const repeat = keydown.repeat === true;
-    const command = commandForKey(keydown.key, repeat);
-    if (command !== null) {
+    if (commandForKey(keydown.key, false) !== null) {
       keydown.preventDefault();
-      commands[command]();
+      const command = commandForKey(keydown.key, repeat);
+      if (command !== null) commands[command]();
       return;
     }
-    if (onDecisionKey === undefined) return;
+    if (decisions === undefined) return;
+    if (decisionKeyFor(keydown.key, false) === null) return;
+    if (!decisions.taking()) return;
+    keydown.preventDefault();
     const decision = decisionKeyFor(keydown.key, repeat);
-    if (decision === null) return;
-    if (onDecisionKey(decision)) keydown.preventDefault();
+    if (decision !== null) decisions.take(decision);
   };
   target.addEventListener("keydown", onKeyDown);
   return () => target.removeEventListener("keydown", onKeyDown);

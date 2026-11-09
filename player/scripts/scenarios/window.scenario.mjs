@@ -17,6 +17,14 @@
 // itself, else says to close it. A host that appears after load takes over.
 // WebKit's web view has element fullscreen off, so the checks that need
 // the page to be fullscreen there are PARTIAL (as in screens and reading).
+//
+// Held keys under the macOS app's host (the user's play check, 2026-11-09:
+// holding Esc took the app out of fullscreen): the page takes every
+// keydown of a key it owns, repeats included, and acts on the first alone.
+// On WebKit the driver's window is the app's own class (KineticWindow), and
+// each key the page leaves unhandled comes back to it from the web view: a
+// held Esc, Space or Tab sends nothing back, and a key the page leaves
+// alone comes back, repeats included, and goes no further than the window.
 
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -26,7 +34,10 @@ import {
   clickAt,
   clickCenter,
   closeSettings,
+  currentItemId,
   demoDir,
+  helpOpen,
+  holdKey,
   onWebKit,
   openSettings,
   pressC,
@@ -445,4 +456,94 @@ async function exitInTab({ check, open }) {
   if (context !== null) await context.close();
 }
 
-export const parts = [macApp, windowsApp, browserTab, exitInTab];
+/** Repeats per held key: a key held about half a second. */
+const HELD_REPEATS = 5;
+
+/**
+ * Records every keydown the page sees as { key, repeat, taken }. On window
+ * in the bubble phase, so it runs after the key map's listener on document
+ * and `taken` (defaultPrevented) says whether the page took the key.
+ */
+const RECORD_KEYDOWNS = () => {
+  window.__keydowns = [];
+  window.addEventListener("keydown", (event) => {
+    window.__keydowns.push({
+      key: event.key,
+      repeat: event.repeat,
+      taken: event.defaultPrevented,
+    });
+  });
+};
+
+/** Whether `downs` is one held key: a press, then `repeats` repeats. */
+const isHold = (downs, repeats) =>
+  downs.length === repeats + 1 && downs.every((d, n) => d.repeat === n > 0);
+
+/**
+ * Held keys in the macOS app (header). On WebKit the key the page leaves
+ * alone is `z`, held last: the web view hands keys back in order, so once
+ * its repeats are back every earlier key that would come back has.
+ */
+async function heldKeys({ check, open }) {
+  const { page, cdp } = await open("held", {
+    closeHelp: true,
+    host: { kind: "mac-app", display: "fullscreen" },
+  });
+  await page.evaluate(RECORD_KEYDOWNS);
+  const startItem = await currentItemId(page);
+  await holdKey(cdp, "Escape", HELD_REPEATS);
+  await sleep(100);
+  const escOpened = await helpOpen(page);
+  await holdKey(cdp, "Space", HELD_REPEATS);
+  await sleep(100);
+  const spaceClosed = !(await helpOpen(page));
+  await holdKey(cdp, "Tab", HELD_REPEATS);
+  await sleep(100);
+  const endItem = await currentItemId(page);
+  await holdKey(cdp, "z", 2);
+  const downs = await page.evaluate(() => window.__keydowns);
+  const of = (key) => downs.filter((d) => d.key === key);
+  const owned = ["Escape", " ", "Tab"].map((key) => ({
+    key,
+    held: isHold(of(key), HELD_REPEATS),
+    allTaken: of(key).every((d) => d.taken),
+  }));
+  check(
+    "held Esc, Space and Tab under the macOS app's host: the page takes every keydown, repeats included, and acts on the first alone (Esc opens the Esc screen and it stays open; Space closes it and the story stays put)",
+    owned.every((o) => o.held && o.allTaken) &&
+      escOpened &&
+      spaceClosed &&
+      startItem !== null &&
+      endItem === startItem,
+    { owned, escOpened, spaceClosed, startItem, endItem },
+  );
+  const z = of("z");
+  check(
+    "a held key the page does not own (z) is left to the page, repeats included",
+    isHold(z, 2) && z.every((d) => !d.taken),
+    { z },
+  );
+  // Chrome has no app window behind the page: there the page check above
+  // is the whole story.
+  if (!onWebKit) return;
+  const until = Date.now() + 3000;
+  const zBack = () => page.windowKeys.filter((k) => k.code === "KeyZ");
+  while (zBack().length < 3 && Date.now() < until) await sleep(20);
+  const others = page.windowKeys.filter((k) => k.code !== "KeyZ");
+  check(
+    "WebKit: held Esc, Space and Tab send nothing back to the game app's window (the web view hands back only a key the page left unhandled)",
+    zBack().length === 3 && others.length === 0,
+    { others, zBack: zBack().length },
+  );
+  check(
+    "WebKit: the held z comes back to the game app's window, repeats included, and the window drops each one: none reaches AppKit's own keyDown",
+    zBack().length === 3 &&
+      zBack().every((k) => k.fate === "dropped") &&
+      zBack()
+        .map((k) => k.repeat)
+        .join() === "false,true,true",
+    { windowKeys: page.windowKeys },
+  );
+}
+
+export const parts = [macApp, windowsApp, browserTab, exitInTab, heldKeys];

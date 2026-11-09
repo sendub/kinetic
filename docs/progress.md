@@ -2405,6 +2405,28 @@ truthful: an unchecked box means nothing was accepted.
       on both engines. Orchestrator: npm test 891 pass, check clean;
       check-game on a fresh demo with both apps: no errors on WebKit and
       Chrome; full suites below.)
+- [x] Held keys never take the macOS app out of fullscreen (the user's
+      play check, 2026-11-09: holding Esc left fullscreen). The page
+      consumes a held key's repeats (a repeated mapped key has its default
+      prevented and still runs no command), so WebKit hands none back to
+      AppKit; and the app's window drops any key the page leaves, so none
+      reaches AppKit's own key handling (believed to be what left
+      fullscreen: NSWindow keyDown: runs AppKit's keyboard-UI step). The
+      WebKit suite checks that held Esc, Space and Tab send nothing back
+      to the window.
+      (2026-11-09: `installKeyMap` prevents every repeat of a key the map
+      owns and of a decision key while a choice takes keys, running no
+      command; `DecisionInput { taking, take }`. Shared `KineticWindow`
+      in WebViewSetup.swift drops unhandled keyDowns (cancelOperation stays
+      empty); the app and the driver both use it, and the driver reports
+      each key that comes back (`windowkey`: dropped or appkit) and sends
+      `autoRepeat` keys. Window scenario part `heldKeys`: before the fix
+      the 15 held repeats came back to the window and reached NSWindow's
+      own keyDown; reverting either fix fails its check. Key equivalents
+      (⌘Q, ⌘R, ⌃⌘F) still reach the menu. Orchestrator: npm test 898
+      pass, check clean, smoke 6/6, window + screens Chrome 99/99, WebKit
+      97 pass + 4 PARTIAL (element fullscreen), test_build_apps 110. Real
+      fullscreen: the user's check at the closer.)
 - [ ] Phase-closer (Phase 43): full scenario suite on Chrome and on WebKit,
       full pytest, package-proof; the user plays the demo's macOS app and
       Windows exe (fullscreen, Esc, reload, Export, Import, Exit, the

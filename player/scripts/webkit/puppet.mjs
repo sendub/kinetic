@@ -225,6 +225,14 @@ class Page {
     this.hostMessages = [];
     this.closedByPage = false;
     rpc.on("hostmessage", (m) => this.hostMessages.push(m.message));
+    // WebKit only: each key the page left unhandled, which came back from
+    // the web view to the game app's window class, as { fate, code,
+    // repeat }: fate "dropped" (the window kept it from AppKit) or
+    // "appkit" (it reached NSWindow's own keyDown).
+    this.windowKeys = [];
+    rpc.on("windowkey", ({ fate, code, repeat }) =>
+      this.windowKeys.push({ fate, code, repeat }),
+    );
     rpc.on("windowclose", () => {
       this.closedByPage = true;
       this.fire("close");

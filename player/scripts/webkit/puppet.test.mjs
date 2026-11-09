@@ -76,6 +76,50 @@ describe("launchWebKit", () => {
     await browser.close();
   });
 
+  it("passes a held key's autoRepeat on and collects the keys that came back to the window", async () => {
+    const browser = await launchWebKit({
+      command: standIn(
+        { event: "ready", hooks: hooks() },
+        {
+          key: [
+            {
+              event: "windowkey",
+              fate: "dropped",
+              code: "KeyZ",
+              repeat: true,
+            },
+          ],
+        },
+      ),
+    });
+    const page = await browser.newPage();
+    const sent = [];
+    const send = page.rpc.send;
+    page.rpc.send = (cmd, params) => {
+      sent.push({ cmd, ...params });
+      return send(cmd, params);
+    };
+    const cdp = await page.createCDPSession();
+    await cdp.send("Input.dispatchKeyEvent", {
+      type: "keyDown",
+      key: "z",
+      code: "KeyZ",
+      text: "z",
+      autoRepeat: true,
+    });
+    page.rpc.send = send;
+    await send("noop"); // the event line lands before this reply
+    expect(sent[0]).toMatchObject({
+      cmd: "key",
+      code: "KeyZ",
+      autoRepeat: true,
+    });
+    expect(page.windowKeys).toEqual([
+      { fate: "dropped", code: "KeyZ", repeat: true },
+    ]);
+    await browser.close();
+  });
+
   it("hands the driver a profile folder to keep its storage in", async () => {
     // The ready line echoes the arguments the stand-in was started with.
     const command = [

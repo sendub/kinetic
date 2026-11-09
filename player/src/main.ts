@@ -888,15 +888,16 @@ function start(): void {
         // no choice open a decision key is inert — and left to the page,
         // so Enter still activates a focused control on the Esc screen —
         // and with help up help owns the screen.
-        (key) => {
-          if (owner() !== "choice" || anyPanelOpen()) return false;
-          if (key === "prev" || key === "next") choice.moveCursor(key);
-          else if (key === "pick") choice.pickCursor();
-          else if (key !== "return") machine.choose(key);
-          else if (machine.getState().choice?.continueOption === true) {
-            machine.chooseContinue();
-          }
-          return true;
+        {
+          taking: () => owner() === "choice" && !anyPanelOpen(),
+          take: (key) => {
+            if (key === "prev" || key === "next") choice.moveCursor(key);
+            else if (key === "pick") choice.pickCursor();
+            else if (key !== "return") machine.choose(key);
+            else if (machine.getState().choice?.continueOption === true) {
+              machine.chooseContinue();
+            }
+          },
         },
       );
       // Over a choice list too long for the window the wheel scrolls the

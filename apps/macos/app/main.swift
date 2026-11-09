@@ -3,8 +3,11 @@
 // ../WebViewSetup.swift into `<title>.app` inside a game folder. The app
 // shows the folder it sits in through the system WebKit (the engine Safari
 // uses, on every Mac): its own name and Dock icon, Esc and reload wholly
-// the game's. The bundle holds only this binary, its icon and Info.plist;
-// the media stays in the folder beside it.
+// the game's. Every key but the menus' shortcuts is the game's: one the
+// page leaves unhandled goes nowhere (KineticWindow), so no key, held or
+// not, beeps or takes the window out of fullscreen. The bundle holds only
+// this binary, its icon and Info.plist; the media stays in the folder
+// beside it.
 //
 // It reopens the way it was left, fullscreen (the first launch) or in a
 // window, with no fullscreen flash when it opens windowed. The page's Esc
@@ -40,24 +43,14 @@ func firstContentSize() -> NSSize {
     return width >= 1 && height >= 1 ? NSSize(width: width, height: height) : NSSize(width: 1280, height: 720)
 }
 
-/// The game's one window. Keys the page leaves unhandled travel up the
-/// responder chain to the window, whose default is a system beep; a reader
-/// presses space hundreds of times, so the window swallows them instead.
-final class GameWindow: NSWindow {
-    override func noResponder(for eventSelector: Selector) {
-        if eventSelector == #selector(NSResponder.keyDown(with:)) { return }
-        super.noResponder(for: eventSelector)
-    }
-
-    // Esc that the page did not consume arrives here as cancelOperation:
-    // it must neither beep nor leave fullscreen.
-    override func cancelOperation(_ sender: Any?) {}
-}
-
 final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNavigationDelegate,
     WKUIDelegate, WKDownloadDelegate
 {
-    var window: GameWindow!
+    /// The game's one window: a KineticWindow (../WebViewSetup.swift),
+    /// which drops every key the page leaves unhandled, so no key beeps or
+    /// takes it out of fullscreen. Only the Esc screen's switch, the green
+    /// button, the View menu and ⌃⌘F change its mode.
+    var window: KineticWindow!
     var webView: WKWebView!
     var bridge: KineticHostBridge!
     var titleObservation: NSKeyValueObservation?
@@ -94,7 +87,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         webView.navigationDelegate = self
         webView.uiDelegate = self
 
-        window = GameWindow(contentRect: content, styleMask: Self.style, backing: .buffered, defer: false)
+        window = KineticWindow(contentRect: content, styleMask: Self.style, backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.title = gameTitle
         window.backgroundColor = .black

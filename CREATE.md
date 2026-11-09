@@ -961,8 +961,10 @@ What Mac readers get and see:
   Esc screen saves to Downloads, and Import opens a file panel.
 - The Esc screen's Fullscreen | Window switch, the green button and
   ⌃⌘F all switch between fullscreen and a window, and the switch shows
-  whichever is in force. The app reopens the way it was left, so a
-  reader who chose a window gets a window, with no fullscreen first.
+  whichever is in force. No other key leaves fullscreen or beeps:
+  holding Esc only opens the Esc screen. The app reopens the way it was
+  left, so a reader who chose a window gets a window, with no fullscreen
+  first.
 - The first window takes the size and shape of the game's first graphic,
   scaled down to fit the screen and centred. After that the app keeps
   the size and place the reader gives the window.

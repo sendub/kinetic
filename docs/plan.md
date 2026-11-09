@@ -1744,7 +1744,8 @@ The work, in order:
      macOS 12 or later. Its bundle id comes from the `storyId`, its name
      from the manifest `title`.
    - It behaves as the prototype did:
-     - fullscreen from launch, and Esc never beeps or leaves fullscreen;
+     - fullscreen from launch, and no key, Esc held or not, beeps or
+       leaves fullscreen (the user, 2026-11-09);
      - ⌘Q quits, ⌘R reloads, ⌃⌘F toggles fullscreen;
      - Export saves to Downloads and Import opens a file panel;
      - progress persists across launches;

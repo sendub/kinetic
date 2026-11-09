@@ -593,6 +593,32 @@ function pressNamed(cdp, name) {
     ? pressNavKey(cdp, k.key, k.keyCode)
     : pressKey(cdp, k.key, k.code, k.keyCode, k.text);
 }
+/**
+ * Holds the key `name` (keyFor) down: its keydown, `repeats` more keydowns
+ * as auto-repeats (CDP's `autoRepeat`, so the page sees `repeat: true` and
+ * the WebKit driver sends `isARepeat`), then its keyup.
+ */
+async function holdKey(cdp, name, repeats) {
+  const k = keyFor(name);
+  const ids = k.nav
+    ? { key: k.key, code: k.key, windowsVirtualKeyCode: k.keyCode }
+    : {
+        key: k.key,
+        code: k.code,
+        windowsVirtualKeyCode: k.keyCode,
+        nativeVirtualKeyCode: k.keyCode,
+      };
+  const typed = k.nav ? {} : { text: k.text, unmodifiedText: k.text };
+  for (let n = 0; n <= repeats; n += 1) {
+    await cdp.send("Input.dispatchKeyEvent", {
+      type: "keyDown",
+      ...ids,
+      ...typed,
+      autoRepeat: n > 0,
+    });
+  }
+  await cdp.send("Input.dispatchKeyEvent", { type: "keyUp", ...ids });
+}
 const pressSpace = (cdp) => pressNamed(cdp, "Space");
 const pressH = (cdp) => pressNamed(cdp, "h");
 const pressTab = (cdp) => pressNamed(cdp, "Tab");
@@ -671,6 +697,7 @@ export {
   HELP_CLOSED,
   HELP_OPEN,
   helpOpen,
+  holdKey,
   MAP_OPEN,
   mapOpen,
   openSettings,
