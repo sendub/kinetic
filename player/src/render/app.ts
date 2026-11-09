@@ -361,8 +361,17 @@ export function mountShell({ root, manifest, machine }: ShellOptions): Shell {
     // The visual is the machine's, so a `text` item keeps the earlier media
     // on screen; the caption is the cursor's own line. Playback mode
     // (still / loop-once / loop-forever) derives from the same state.
+    const shown = manifest.items[state.cursor];
     visuals.update(manifest.items[machine.visualIndex()], state);
-    captions.update(manifest.items[state.cursor]);
+    captions.update(shown);
+    // The item whose screen this is, for tests (docs/plan.md Phase 46): the
+    // cursor's, whose line and picture were just applied, so no painted
+    // frame pairs one item's screen with another's id. Under a choice it is
+    // the item the choice is drawn over (the decision's `after`, or the
+    // route's last item at a re-offer); the Esc screen and the map leave it
+    // alone. No item (an empty manifest): no attribute.
+    if (shown === undefined) stage.removeAttribute("data-item");
+    else stage.setAttribute("data-item", shown.id);
     choiceOpen = state.choice !== undefined;
     if (pillGate.choiceChanged(choiceOpen)) {
       // The pill on screen is old news; a mode pill still queued may show

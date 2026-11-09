@@ -2685,11 +2685,28 @@ truthful: an unchecked box means nothing was accepted.
       partials. perf:save rerun: at 160,000 seen press p50/p95 1.2/2.6 ms
       on WebKit and 1.0/3.0 ms on Chrome (before 6.9/42.9 and 9.0/11.0);
       the one-time move adds about 30-100 ms to the first load.)
-- [ ] Player: the item on screen on the page (item 2): the stage's
+- [x] Player: the item on screen on the page (item 2): the stage's
       `data-item` is the id of the item whose screen is shown. Tests
       (creator scenario part, Chrome and WebKit): it matches each step of
       a demo walk, an open choice, the Esc screen and the map; it changes
       in the same frame as the screen.
+      (2026-11-09: render/app.ts sets `data-item` from
+      `manifest.items[state.cursor]` in the same synchronous render that
+      applies the visual and the caption, and removes it when no item is
+      shown (the empty manifest). Under a choice it names the cursor: the
+      decision's `after` item on a first offer, the route's last item at a
+      re-offer, which is what the screen shows and what `current()`
+      infers; the Esc screen and the map leave it alone. Tests ran red
+      first: 4 app.test.ts units (real shell and machine over a fake
+      document); creator parts `stageItemWalk` (all 32 demo ids equal
+      `current().id` step by step, under choices and re-offers, the Esc
+      screen and the map, no attribute in the empty folder) and
+      `stageItemFrames` (every rAF frame and MutationObserver batch pairs
+      the id with its own line and picture). Setting the id one frame
+      late, in rAF or setTimeout(0), failed all four checks on Chrome and
+      WebKit. Orchestrator: npm test 943, check clean, smoke 6/6; Chrome
+      creator 19, reading 17, branches 47, playall 29; WebKit creator 19;
+      all pass.)
 - [ ] Player: open at an item from the URL (item 3): `#start=<id>` opens
       there, entering its routes as `u` does; the hash is removed after;
       an unknown id warns and opens as usual. Tests (unit and a scenario

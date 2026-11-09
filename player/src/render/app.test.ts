@@ -3,12 +3,19 @@
 // the mode pills (docs/plan.md Phase 43) may. The DOM half (app.ts's shell
 // drops the pill element and its queued messages) is checked in the
 // browser by scripts/scenarios/choicelist.scenario.mjs. The pill queue
-// (`createPillQueue`) is checked here with its timers injected.
+// (`createPillQueue`) is checked here with its timers injected. The stage's
+// `data-item` (docs/plan.md Phase 46, item 2) is checked here on the real
+// shell over a small fake document; scripts/scenarios/creator.scenario.mjs
+// checks it in both browsers, frame by frame.
 
 import { describe, expect, it } from "vitest";
+import { createMachine, visualIndexFor } from "../machine/machine";
+import type { Branch, Item, MachineState, Manifest } from "../machine/types";
+import { DEFAULT_SETTINGS } from "../machine/types";
 import {
   createPillGate,
   createPillQueue,
+  mountShell,
   NOTICE_LONG_MS,
   type PillMessage,
   ROUTE_PILL_MS,
@@ -224,5 +231,222 @@ describe("createPillQueue (docs/plan.md Phase 43: one task, one sequence)", () =
     queue.dropAll();
     tick(HOLD * 3);
     expect(shown).toEqual([]);
+  });
+});
+
+// --------------------------------------------------------------------------
+// The item on screen, on the page (docs/plan.md Phase 46, item 2).
+// --------------------------------------------------------------------------
+
+/** Just enough of an element for mountShell, its overlay and an image visual. */
+class FakeElement {
+  [field: string]: unknown;
+  id = "";
+  className = "";
+  hidden = false;
+  style: Record<string, string> = {};
+  children: FakeElement[] = [];
+  private attributes = new Map<string, string>();
+  private ownText = "";
+  constructor(readonly ownerDocument: FakeDocument) {}
+  get textContent(): string {
+    return this.children.length > 0
+      ? this.children.map((child) => child.textContent).join("")
+      : this.ownText;
+  }
+  set textContent(text: string) {
+    this.children = [];
+    this.ownText = text;
+  }
+  setAttribute(name: string, value: string): void {
+    this.attributes.set(name, String(value));
+  }
+  getAttribute(name: string): string | null {
+    return this.attributes.get(name) ?? null;
+  }
+  hasAttribute(name: string): boolean {
+    return this.attributes.has(name);
+  }
+  removeAttribute(name: string): void {
+    this.attributes.delete(name);
+  }
+  append(...nodes: FakeElement[]): void {
+    this.children.push(...nodes);
+  }
+  appendChild(node: FakeElement): FakeElement {
+    this.children.push(node);
+    return node;
+  }
+  replaceChildren(...nodes: FakeElement[]): void {
+    this.children = [...nodes];
+  }
+  remove(): void {}
+}
+
+class FakeDocument {
+  createElement(): FakeElement {
+    return new FakeElement(this);
+  }
+  addEventListener(): void {}
+  removeEventListener(): void {}
+}
+
+/** The attached element with `id` under `root`, as getElementById finds it. */
+function byId(root: FakeElement, id: string): FakeElement | null {
+  for (const child of root.children) {
+    if (child.id === id) return child;
+    const found = byId(child, id);
+    if (found !== null) return found;
+  }
+  return null;
+}
+
+const picture = (id: string, text?: string): Item =>
+  text === undefined
+    ? { id, type: "image", file: `${id}.jpg` }
+    : { id, type: "image", file: `${id}.jpg`, text };
+
+/**
+ * One decision off a picture with no line, two routes that each come back
+ * to it (the second play closes it), then the aftermath:
+ * open said | decide | r1 | r2 | after
+ */
+const ITEMS: readonly Item[] = [
+  picture("open", "The opening line."),
+  {
+    id: "said",
+    type: "text",
+    text: "A line over the same picture.",
+    speaker: "Mei",
+  },
+  picture("decide"),
+  picture("r1", "Route one."),
+  picture("r2", "Route two."),
+  picture("after", "The aftermath."),
+];
+const BRANCHES: readonly Branch[] = [
+  {
+    id: "d",
+    after: "decide",
+    prompt: "Which route?",
+    routes: [
+      { id: "one", label: "One", start: "r1", end: "r1", result: "return" },
+      { id: "two", label: "Two", start: "r2", end: "r2", result: "return" },
+    ],
+  },
+];
+
+/** What the page shows at one moment: the stage's id, the line, the picture. */
+interface Seen {
+  dataItem: string | null;
+  text: string;
+  file: string | null;
+}
+
+function mountOver(items: readonly Item[], branches?: readonly Branch[]) {
+  const doc = new FakeDocument();
+  const root = doc.createElement();
+  const manifest = {
+    schemaVersion: 1,
+    width: 1280,
+    height: 720,
+    items,
+    ...(branches === undefined ? {} : { branches }),
+  } as Manifest;
+  const machine = createMachine({
+    items,
+    branches,
+    settings: { ...DEFAULT_SETTINGS, playAllRoutes: false },
+    autoAdvance: false,
+  });
+  const shell = mountShell({
+    root: root as unknown as HTMLElement,
+    manifest,
+    machine,
+  });
+  const stage = byId(root, "stage") as FakeElement;
+  const overlay = byId(root, "overlay") as FakeElement;
+  const seen = (): Seen => ({
+    dataItem: stage.getAttribute("data-item"),
+    text: byId(overlay, "overlay-text")?.textContent ?? "",
+    file: (byId(stage, "visual-image")?.src as string | undefined) ?? null,
+  });
+  /** What a state of the machine must put on the page. */
+  const wanted = (state: MachineState): Seen => {
+    const item = items[state.cursor];
+    const visual = items[visualIndexFor(items, state.cursor)];
+    return {
+      dataItem: item.id,
+      text: item.text ?? "",
+      file: visual !== undefined && "file" in visual ? visual.file : null,
+    };
+  };
+  // Subscribed after the shell, so it runs as soon as the shell has
+  // rendered each state change, before anything the render deferred.
+  const rendered: { state: MachineState; seen: Seen }[] = [];
+  machine.subscribe((state) => rendered.push({ state, seen: seen() }));
+  return { machine, shell, stage, seen, wanted, rendered };
+}
+
+describe("mountShell: the stage names the item on screen (data-item)", () => {
+  it("names the first item at mount, before any state change", () => {
+    const { machine, seen, wanted, shell } = mountOver(ITEMS, BRANCHES);
+    expect(seen()).toEqual(wanted(machine.getState()));
+    expect(seen().dataItem).toBe("open");
+    shell.unmount();
+  });
+
+  it("changes in the same render as the line and the picture, at every step of a walk", () => {
+    const { machine, seen, wanted, rendered, shell } = mountOver(
+      ITEMS,
+      BRANCHES,
+    );
+    const at: (string | null)[] = [];
+    const step = (act: () => void) => {
+      act();
+      at.push(seen().dataItem);
+    };
+    step(() => machine.advance()); // open -> said: a line over the same picture
+    step(() => machine.advance()); // said -> decide: a picture with no line
+    step(() => machine.advance()); // the decision opens over decide
+    step(() => machine.choose(0)); // route one
+    step(() => machine.advance()); // its end: the choice again, over r1
+    step(() => machine.choose(1)); // route two
+    step(() => machine.advance()); // its end closes the decision: the aftermath
+    expect(at).toEqual(["said", "decide", "decide", "r1", "r1", "r2", "after"]);
+    expect(rendered.length).toBeGreaterThanOrEqual(at.length);
+    for (const { state, seen: shown } of rendered) {
+      expect(shown).toEqual(wanted(state));
+    }
+    shell.unmount();
+  });
+
+  it("under an open choice names the item the choice is drawn over", () => {
+    const { machine, seen, shell } = mountOver(ITEMS, BRANCHES);
+    machine.advance();
+    machine.advance();
+    machine.advance(); // fires the decision off `decide`
+    expect(machine.getState().choice?.decisionId).toBe("d");
+    expect(seen()).toEqual({
+      dataItem: "decide",
+      text: "",
+      file: "decide.jpg",
+    });
+    machine.choose(0);
+    machine.advance(); // route one's end offers the choice again
+    expect(machine.getState().choice?.decisionId).toBe("d");
+    expect(seen()).toEqual({
+      dataItem: "r1",
+      text: "Route one.",
+      file: "r1.jpg",
+    });
+    shell.unmount();
+  });
+
+  it("names no item when there is none to show (an empty manifest)", () => {
+    const { seen, stage, shell } = mountOver([]);
+    expect(seen().dataItem).toBeNull();
+    expect(stage.hasAttribute("data-item")).toBe(false);
+    shell.unmount();
   });
 });
