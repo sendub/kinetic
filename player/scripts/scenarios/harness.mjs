@@ -347,7 +347,7 @@ const READ_CONFIG_OVERLAY = () => {
     ),
     noMessageLine:
       document.querySelector(
-        ".config-message, .config-window-note, .config-group-note, .config-speed-note",
+        ".config-message, .config-window-note, .config-group-note, .config-speed-note, .config-note",
       ) === null,
     lines: [...panel.querySelectorAll(".config-section, .config-row")].map(
       (el) =>
@@ -374,31 +374,21 @@ const READ_CONFIG_OVERLAY = () => {
         row.querySelector("button, input")?.getBoundingClientRect().left ?? -1,
       ),
     ),
-    playNote:
-      document.querySelector(".config-play-all ~ .config-note")?.textContent ??
-      null,
-    // The Play all routes note's own text box and font size (one line).
-    playNoteRect: (() => {
-      const el = document.querySelector(".config-play-all ~ .config-note");
-      if (el === null) return null;
-      const range = document.createRange();
-      range.selectNodeContents(el);
-      return rectOf(range);
-    })(),
-    playNoteFontPx: (() => {
-      const el = document.querySelector(".config-play-all ~ .config-note");
-      return el === null ? null : parseFloat(getComputedStyle(el).fontSize);
-    })(),
     speedValueRect: rectOf(document.querySelector(".config-speed-value")),
     skipHeadingRect: rectOf(document.querySelector(".config-section")),
     viewportWidth: window.innerWidth,
   };
 };
 
-// Every child of the settings section (`#config`) as a rect, in order: a
-// notice that pushed anything down would show as a difference.
+// Every child of the settings section (`#config`) and of each of its
+// groups (each heading and row) as a rect, in order: a notice that pushed
+// anything down would show as a difference.
 const READ_CONFIG_RECTS = () =>
-  [...(document.getElementById("config")?.children ?? [])].map((el) => {
+  [
+    ...(document
+      .getElementById("config")
+      ?.querySelectorAll(":scope > *, :scope > .config-group > *") ?? []),
+  ].map((el) => {
     const r = el.getBoundingClientRect();
     return [el.className, r.left, r.top, r.width, r.height];
   });

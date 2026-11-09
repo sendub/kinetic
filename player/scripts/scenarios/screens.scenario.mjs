@@ -17,9 +17,9 @@ import {
 import { dirname, join } from "node:path";
 import { DEFAULT_SETTINGS } from "../../src/machine/types.ts";
 import {
+  PLAY_ALL_TIP,
   PROGRESS_TIP,
   SPEED_TIP,
-  speedLabel,
 } from "../../src/render/config.ts";
 import { EARLIER_UNSEEN_NOTICE } from "../../src/render/endcard.ts";
 import {
@@ -84,8 +84,10 @@ export const title =
   "help, bookmarks on the map, resume, config, empty folder, reset";
 
 // Player UI strings. render/help.ts imports modules by extensionless paths
-// node cannot resolve, so these two are restated; the speed readout comes
-// from config.ts itself.
+// node cannot resolve, so these two are restated. The speed readout is
+// written out as the reader sees it (Phase 43 item 12: the per-character
+// figure in parentheses), not taken from config.ts, so a change to its
+// format fails here too.
 const HELP_TITLE = "Keys";
 const HELP_HINT = "Esc or Space closes";
 // The main interaction keys, one row each (Phase 18, "Key help
@@ -107,8 +109,8 @@ const HELP_KEYS = [
 const EMPTY_NOTICE = "No content yet — this folder has an empty manifest.";
 const MS_PER_CHAR = DEFAULT_SETTINGS.msPerChar;
 const MIN_HOLD = DEFAULT_SETTINGS.minHoldMs;
-const SPEED_1X = speedLabel(1, MS_PER_CHAR);
-const SPEED_2X = speedLabel(2, MS_PER_CHAR);
+const SPEED_1X = "1.00x (~60 ms/char)";
+const SPEED_2X = "2.00x (~30 ms/char)";
 const TIME_RE = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/;
 
 const FLASH_SHOWN = () =>
@@ -1270,7 +1272,7 @@ async function config({ check, open }) {
   const opened = await openSettings(page, cdp);
   const first = await page.evaluate(READ_CONFIG_OVERLAY);
   check(
-    "c opens nothing; Escape opens the Esc screen with the settings showing the defaults",
+    "c opens nothing; Escape opens the Esc screen with the settings showing the defaults, the speed readout reading 1.00x (~60 ms/char)",
     cInert &&
       opened &&
       (await helpOpen(page)) &&
@@ -1293,12 +1295,13 @@ async function config({ check, open }) {
   // buttons name themselves), and the switches line up in one column at
   // the rows' right end. Phase 43 item 12: no note or message lines are
   // left (the notes are "?" tips, the notices the pill), Progress's heading
-  // says saving is automatic, and Play all routes' note is one line.
+  // says saving is automatic, and Play all routes is one line like the
+  // skip switches (its note behind its "?").
   const shownLefts = first.labelLefts.filter((left) => left > 0);
   const [, skipRow, videoRow, playRow] = first.rowRects;
-  const playNote = first.playNoteRect;
+  const heightOf = (r) => r.bottom - r.top;
   check(
-    "the config screen groups the skip options under When Tab skips and export, import, reset under 'Progress · saved automatically', labels and headings on one edge, the skip options one group apart from Play all routes, the switches in one column, a one-line note on play all routes, and no note or message lines",
+    "the config screen groups the skip options under When Tab skips and export, import, reset under 'Progress · saved automatically', labels and headings on one edge, the skip options one group apart from Play all routes, the switches in one column, Play all routes one line as tall as a skip switch's row, and no note or message lines",
     JSON.stringify(first.lines) ===
       JSON.stringify([
         "Auto-forward speed",
@@ -1322,9 +1325,7 @@ async function config({ check, open }) {
       Math.abs(videoRow.top - skipRow.bottom) < 1 &&
       playRow.top - videoRow.bottom >= 8 &&
       Math.abs(first.skipRect.right - first.playRect.right) < 1 &&
-      first.playNote === "choices pick themselves on a countdown" &&
-      playNote !== null &&
-      playNote.bottom - playNote.top < 2 * first.playNoteFontPx &&
+      Math.abs(heightOf(playRow) - heightOf(skipRow)) < 1 &&
       first.hint === HELP_HINT,
     first,
   );
@@ -1414,7 +1415,7 @@ async function config({ check, open }) {
   const stayed = (await page.evaluate(PAGE_STATE)).fullscreenElement !== null;
   const closed = await closeSettings(page, cdp);
   check(
-    "four + clicks show 2.00x; one short Escape closes the settings, in fullscreen too, which stays",
+    "four + clicks show 2.00x (~30 ms/char); one short Escape closes the settings, in fullscreen too, which stays",
     fast.speedValue === SPEED_2X &&
       fast.skipPressed === "true" &&
       seen &&
@@ -1469,11 +1470,12 @@ async function config({ check, open }) {
 }
 
 // The Esc screen's two columns (docs/plan.md Phase 43 item 12) as the
-// reader sees them: where the Keys card and the Settings content end (the
-// content's last child, not #config's box, which its grid area may
-// stretch), each key row's height, the gap above "When Tab skips" against
-// that heading's own margin, and the rects of the speed cell and its parts
-// and of the Game window row.
+// reader sees them: each column's width; where the Keys card and the
+// Settings content end (the content's last child, not #config's box,
+// which its grid area may stretch); each key row's height; each settings
+// group's box, with its children's offsets from its top; the skip options'
+// rows; and the rects of the speed cell and its parts and of the Game
+// window row.
 const READ_ESC_COLUMNS = () => {
   const rect = (el) => {
     if (el === null || el === undefined) return null;
@@ -1483,10 +1485,15 @@ const READ_ESC_COLUMNS = () => {
   const config = document.getElementById("config");
   const keys = document.querySelector("#help .help-list");
   const kids = [...config.children].filter((el) => el.checkVisibility());
-  const speedRow = document.querySelector(".config-title + .config-row");
+  const speedRow = document.querySelector(".config-speed");
   const speedCs = getComputedStyle(speedRow);
-  const skipHeading = document.querySelector(".config-section");
+  // The first option under a heading: Skip unseen content too.
+  const skipRow = document.querySelector(
+    ".config-section + .config-row.config-option",
+  );
   return {
+    keysWidth: keys.getBoundingClientRect().width,
+    configWidth: config.getBoundingClientRect().width,
     keysBottom: keys.getBoundingClientRect().bottom,
     settingsBottom: Math.max(
       ...kids.map((el) => el.getBoundingClientRect().bottom),
@@ -1496,10 +1503,20 @@ const READ_ESC_COLUMNS = () => {
     rowHeights: [...keys.querySelectorAll(".help-row")].map(
       (el) => el.getBoundingClientRect().height,
     ),
-    skipGap:
-      skipHeading.getBoundingClientRect().top -
-      speedRow.getBoundingClientRect().bottom,
-    skipMargin: Number.parseFloat(getComputedStyle(skipHeading).marginTop),
+    groups: [...config.querySelectorAll(":scope > .config-group")].map(
+      (group) => {
+        const g = group.getBoundingClientRect();
+        return {
+          top: g.top,
+          bottom: g.bottom,
+          kids: [...group.children].map(
+            (el) => el.getBoundingClientRect().top - g.top,
+          ),
+        };
+      },
+    ),
+    skip: rect(skipRow),
+    video: rect(skipRow?.nextElementSibling),
     speed: {
       row: rect(speedRow),
       padLeft: Number.parseFloat(speedCs.paddingLeft),
@@ -1521,24 +1538,49 @@ const READ_ESC_COLUMNS = () => {
   };
 };
 
-// A settings section made taller than the Keys card, as a system font with
-// wider text (Segoe UI on Windows) makes it: a block of `px` added to the
-// end of #config (0 takes it away).
-const PAD_SETTINGS = (px) => {
+// One column made taller than the other: a block of `px` added to the end
+// of the Settings section (`"settings"`, as a system font with wider text,
+// Segoe UI on Windows, makes it) or of the Keys card (`"keys"`); 0 takes
+// it away.
+const PAD_COLUMN = ([which, px]) => {
   document.getElementById("esc-test-pad")?.remove();
   if (px === 0) return;
   const pad = document.createElement("div");
   pad.id = "esc-test-pad";
   pad.style.height = `${px}px`;
-  document.getElementById("config").append(pad);
+  const column =
+    which === "keys"
+      ? document.querySelector("#help .help-list")
+      : document.getElementById("config");
+  column.append(pad);
 };
 
+// Stretching off (`true`) or back on: each column at the start of its grid
+// area, its natural height, so neither the Keys card's rows nor the
+// Settings' group gaps take up any difference.
+const NATURAL_COLUMNS = (on) => {
+  document.getElementById("esc-test-natural")?.remove();
+  if (!on) return;
+  const style = document.createElement("style");
+  style.id = "esc-test-natural";
+  style.textContent =
+    "#help > .help-list, #help > #config { align-self: start !important; }";
+  document.head.append(style);
+};
+
+// The gaps between consecutive settings groups beyond their own padding
+// (the auto margins that take up a shorter column's spare height).
+const groupGaps = (c) =>
+  c.groups.slice(1).map((g, i) => g.top - c.groups[i].bottom);
+
 /**
- * The Esc screen's layout (docs/plan.md Phase 43 item 12): the two columns
- * end level; a taller settings section stretches the Keys card, its rows
- * sharing the extra height, and nothing stretches the settings; the − slider
- * + row spans the speed cell; the Game window row has Fullscreen | Window
- * at its start and Exit at its end.
+ * The Esc screen's layout (docs/plan.md Phase 43 item 12): from 700 px the
+ * two columns are the same width; their natural heights are within 20 px
+ * and they end level; a taller settings section stretches the Keys card,
+ * its rows sharing the extra height, and a taller Keys card stretches the
+ * settings, its group gaps sharing it; the − slider + row spans the speed
+ * cell; the Game window row has Fullscreen | Window at its start and Exit
+ * at its end.
  */
 async function escLayout({ check, open }) {
   const { page, cdp } = await open("esc-layout", { closeHelp: true });
@@ -1548,65 +1590,140 @@ async function escLayout({ check, open }) {
     await sleep(150);
     return page.evaluate(READ_ESC_COLUMNS);
   };
-
-  // Level columns: the Keys card's bottom and the Settings content's
-  // bottom within 3 px (the mock this was approved from: 825 / 823 at
-  // 1920x1080, 577 / 573 at 1280x720).
-  const level = [];
-  for (const [width, height] of [
+  const BALANCED = [
     [1920, 1080],
     [1280, 720],
-  ]) {
+    [800, 600],
+  ];
+
+  // Same widths: one width rule for both columns, so the Keys card and the
+  // Settings section are within 1 px of each other's width (700 px wide
+  // too, the narrowest two-column window).
+  const widths = [];
+  for (const [width, height] of [...BALANCED, [700, 900]]) {
     const c = await at(width, height);
-    level.push({
+    widths.push({
       size: `${width}x${height}`,
-      keys: c.keysBottom,
-      settings: c.settingsBottom,
+      keys: c.keysWidth,
+      settings: c.configWidth,
     });
   }
   check(
-    "the Keys card and the Settings content end level (within 3 px) at 1920x1080 and 1280x720",
-    level.every((l) => Math.abs(l.keys - l.settings) <= 3),
-    level,
+    "the Keys card and the Settings section are the same width, within 1 px (1920x1080, 1280x720, 800x600, 700x900)",
+    widths.every((w) => Math.abs(w.keys - w.settings) <= 1),
+    widths,
+  );
+
+  // Balanced heights: with stretching off, the two columns' natural
+  // bottoms are within 20 px, so stretching only takes up a small
+  // remainder; with it on they end level within 2 px.
+  const heights = [];
+  for (const [width, height] of BALANCED) {
+    await at(width, height);
+    await page.evaluate(NATURAL_COLUMNS, true);
+    const natural = await page.evaluate(READ_ESC_COLUMNS);
+    await page.evaluate(NATURAL_COLUMNS, false);
+    const stretched = await page.evaluate(READ_ESC_COLUMNS);
+    heights.push({
+      size: `${width}x${height}`,
+      natural: [natural.keysBottom, natural.settingsBottom],
+      stretched: [stretched.keysBottom, stretched.settingsBottom],
+      ok:
+        Math.abs(natural.keysBottom - natural.settingsBottom) <= 20 &&
+        Math.abs(stretched.keysBottom - stretched.settingsBottom) <= 2,
+    });
+  }
+  check(
+    "the columns' natural heights (stretching off) end within 20 px of each other, and with stretching on the Keys card and the Settings content end level within 2 px (1920x1080, 1280x720, 800x600)",
+    heights.every((h) => h.ok),
+    heights,
   );
 
   // A taller settings section (Windows' wider font, simulated with 120 px
   // more at its end): the Keys card stretches to its end, every key row
-  // taking the same share of the extra height (within 1 px). Nothing
-  // stretches the settings: with Keys the taller (800x600), the gap above
-  // "When Tab skips" is that heading's own margin, so the groups stay
-  // packed at the top. Stacked under 700 px the card never stretches.
+  // taking the same share of the extra height (within 1 px).
   const wide = await at(1920, 1080);
-  await page.evaluate(PAD_SETTINGS, 120);
+  await page.evaluate(PAD_COLUMN, ["settings", 120]);
   await sleep(100);
   const padded = await page.evaluate(READ_ESC_COLUMNS);
-  await page.evaluate(PAD_SETTINGS, 0);
+  await page.evaluate(PAD_COLUMN, ["settings", 0]);
   const grown = padded.rowHeights.map((h, i) => h - wide.rowHeights[i]);
-  const short = await at(800, 600);
-  const narrow = await at(600, 900);
-  await page.evaluate(PAD_SETTINGS, 120);
-  await sleep(100);
-  const narrowPadded = await page.evaluate(READ_ESC_COLUMNS);
-  await page.evaluate(PAD_SETTINGS, 0);
   check(
-    "a taller settings section stretches the Keys card to its end, the key rows sharing the extra height evenly; with Keys the taller nothing stretches the settings; stacked under 700 px the card never stretches",
+    "a taller settings section (120 px more) stretches the Keys card to its end, the key rows sharing the extra height evenly (1920x1080)",
     Math.abs(padded.keysBottom - padded.settingsBottom) <= 1 &&
       padded.keysBottom - padded.keysTop - (wide.keysBottom - wide.keysTop) >
         100 &&
       Math.max(...grown) - Math.min(...grown) <= 1 &&
-      Math.min(...grown) > 0 &&
-      short.keysBottom > short.settingsBottom &&
-      Math.abs(short.skipGap - short.skipMargin) <= 1 &&
-      Math.abs(wide.skipGap - wide.skipMargin) <= 1 &&
-      narrow.configTop > narrow.keysBottom &&
-      Math.abs(narrowPadded.keysBottom - narrow.keysBottom) <= 0.5,
+      Math.min(...grown) > 0,
     {
       wide: [wide.keysTop, wide.keysBottom, wide.settingsBottom],
       padded: [padded.keysTop, padded.keysBottom, padded.settingsBottom],
       grown,
-      short: [short.keysBottom, short.settingsBottom],
-      gaps: [short.skipGap, short.skipMargin, wide.skipGap, wide.skipMargin],
-      narrow: [narrow.keysBottom, narrowPadded.keysBottom],
+    },
+  );
+
+  // A taller Keys card (120 px more at its end, as a longer key list or a
+  // wider font in the Keys rows would make it): the settings stretch to
+  // its end, the four gaps between groups sharing the extra height evenly
+  // (within 1 px), and nothing inside a group moves (each child's offset
+  // from its group's top within 0.5 px, the skip options' rows still
+  // touching). The speed cell's top stays level with the Keys card's.
+  await page.evaluate(NATURAL_COLUMNS, true);
+  const unstretched = await page.evaluate(READ_ESC_COLUMNS);
+  await page.evaluate(NATURAL_COLUMNS, false);
+  await page.evaluate(PAD_COLUMN, ["keys", 120]);
+  await sleep(100);
+  const tall = await page.evaluate(READ_ESC_COLUMNS);
+  await page.evaluate(PAD_COLUMN, ["keys", 0]);
+  const gaps = groupGaps(tall);
+  const moved = tall.groups.flatMap((g, i) =>
+    g.kids.map((top, k) => Math.abs(top - unstretched.groups[i].kids[k])),
+  );
+  check(
+    "a taller Keys card (120 px more) stretches the settings to its end, the four gaps between groups sharing the extra height evenly and nothing inside a group moving; the speed cell's top stays level with the card's (1920x1080)",
+    Math.abs(tall.keysBottom - tall.settingsBottom) <= 1 &&
+      gaps.length === 4 &&
+      Math.max(...gaps) - Math.min(...gaps) <= 1 &&
+      Math.min(...gaps) > 25 &&
+      Math.max(...moved) <= 0.5 &&
+      Math.abs(tall.video.top - tall.skip.bottom) < 1 &&
+      Math.abs(tall.speed.row.top - tall.keysTop) <= 0.5,
+    {
+      tall: [tall.keysTop, tall.keysBottom, tall.settingsBottom],
+      gaps,
+      moved: Math.max(...moved),
+      skipRows: [tall.skip.bottom, tall.video.top],
+      tops: [tall.speed.row.top, tall.keysTop],
+    },
+  );
+
+  // Stacked under 700 px neither column stretches: the Keys card keeps its
+  // height with the settings padded (the sheet, centred in the window, may
+  // move as a whole), and the settings' group gaps stay at nothing beyond
+  // their padding with the Keys card padded.
+  const narrow = await at(600, 900);
+  await page.evaluate(PAD_COLUMN, ["settings", 120]);
+  await sleep(100);
+  const narrowSettings = await page.evaluate(READ_ESC_COLUMNS);
+  await page.evaluate(PAD_COLUMN, ["keys", 120]);
+  await sleep(100);
+  const narrowKeys = await page.evaluate(READ_ESC_COLUMNS);
+  await page.evaluate(PAD_COLUMN, ["keys", 0]);
+  check(
+    "stacked under 700 px neither column stretches: the settings below the Keys card, the card's height unchanged by taller settings, the settings' group gaps unchanged by a taller card (600x900)",
+    narrow.configTop > narrow.keysBottom &&
+      Math.abs(
+        narrowSettings.keysBottom -
+          narrowSettings.keysTop -
+          (narrow.keysBottom - narrow.keysTop),
+      ) <= 0.5 &&
+      groupGaps(narrowKeys).every((gap) => Math.abs(gap) <= 0.5),
+    {
+      keys: [
+        [narrow.keysTop, narrow.keysBottom],
+        [narrowSettings.keysTop, narrowSettings.keysBottom],
+      ],
+      gaps: groupGaps(narrowKeys),
     },
   );
 
@@ -1615,12 +1732,7 @@ async function escLayout({ check, open }) {
   // never over the label (it takes a line of its own when both cannot
   // share one, as at 700 px wide), and the cell's rounded bottom back.
   const spans = [];
-  for (const [width, height] of [
-    [1920, 1080],
-    [1280, 720],
-    [800, 600],
-    [700, 900],
-  ]) {
+  for (const [width, height] of [...BALANCED, [700, 900]]) {
     const { speed: sp } = await at(width, height);
     spans.push({
       size: `${width}x${height}`,
@@ -1648,12 +1760,7 @@ async function escLayout({ check, open }) {
   // its end, flush with the column's outer edges where the cards (the
   // speed cell) start and end.
   const rows = [];
-  for (const [width, height] of [
-    [1920, 1080],
-    [1280, 720],
-    [800, 600],
-    [700, 900],
-  ]) {
+  for (const [width, height] of [...BALANCED, [700, 900]]) {
     const c = await at(width, height);
     rows.push({
       size: `${width}x${height}`,
@@ -1718,6 +1825,7 @@ const READ_TIP = async (key) => {
 
 const TIPS = [
   ["speed", SPEED_TIP, "About auto-forward speed"],
+  ["play-all", PLAY_ALL_TIP, "About play all routes"],
   ["progress", PROGRESS_TIP, "About progress"],
 ];
 
@@ -1808,13 +1916,131 @@ const GLYPH_OFFSET = async (png, box) => {
   };
 };
 
+// The first capital of the text a "?" follows (its label or heading) and
+// the ring, as layout boxes: the screenshot they are read with gives the
+// ink.
+const READ_RING_LINE = (key) => {
+  const box = (r) => ({
+    left: r.left,
+    right: r.right,
+    top: r.top,
+    bottom: r.bottom,
+  });
+  const button = document.querySelector(`[data-config-action="tip-${key}"]`);
+  const line = button.closest(".config-label, .config-section");
+  const walker = document.createTreeWalker(line, NodeFilter.SHOW_TEXT);
+  let node = walker.nextNode();
+  while (node !== null && !/[A-Z]/.test(node.data)) node = walker.nextNode();
+  const at = node.data.search(/[A-Z]/);
+  const range = document.createRange();
+  range.setStart(node, at);
+  range.setEnd(node, at + 1);
+  return {
+    letter: node.data[at],
+    letterBox: box(range.getBoundingClientRect()),
+    ring: box(button.getBoundingClientRect()),
+  };
+};
+
+// A box's ink in a screenshot (device scale 1), top to bottom: the ground
+// read at the box's corners, each row's strongest pixel as a share of the
+// box's peak over that ground, and the ink's top and bottom edges to a
+// fraction of a pixel (an edge row's share), as GLYPH_OFFSET reads edges.
+// Over a capital with no descender, the bottom edge is the baseline and
+// the top its cap height.
+const INK_ROWS = async (png, box) => {
+  const img = new Image();
+  img.src = `data:image/png;base64,${png}`;
+  await img.decode();
+  const canvas = document.createElement("canvas");
+  canvas.width = img.naturalWidth;
+  canvas.height = img.naturalHeight;
+  const ctx = canvas.getContext("2d");
+  ctx.drawImage(img, 0, 0);
+  const x0 = Math.floor(box.left);
+  const y0 = Math.floor(box.top);
+  const x1 = Math.ceil(box.right);
+  const y1 = Math.ceil(box.bottom);
+  const { data, width } = ctx.getImageData(x0, y0, x1 - x0, y1 - y0);
+  const lum = (x, y) => {
+    const i = ((y - y0) * width + (x - x0)) * 4;
+    return data[i] + data[i + 1] + data[i + 2];
+  };
+  const corners = [
+    lum(x0, y0),
+    lum(x1 - 1, y0),
+    lum(x0, y1 - 1),
+    lum(x1 - 1, y1 - 1),
+  ].sort((a, b) => a - b);
+  const ground = (corners[1] + corners[2]) / 2;
+  let peak = ground;
+  for (let y = y0; y < y1; y += 1)
+    for (let x = x0; x < x1; x += 1) peak = Math.max(peak, lum(x, y));
+  const rows = new Map();
+  for (let y = y0; y < y1; y += 1) {
+    let share = 0;
+    for (let x = x0; x < x1; x += 1)
+      share = Math.max(share, (lum(x, y) - ground) / (peak - ground));
+    rows.set(y, Math.max(0, Math.min(1, share)));
+  }
+  const inked = [...rows.keys()].filter((y) => rows.get(y) > 0.1);
+  const a = Math.min(...inked);
+  const b = Math.max(...inked);
+  return {
+    top: a + (1 - rows.get(a)),
+    bottom: b + rows.get(b),
+    contrast: peak - ground,
+  };
+};
+
+// One ring against its text, from a screenshot: the capital's baseline and
+// cap height (its ink), the ring's painted top and bottom (its stroke's ink
+// in a strip across each, at its centre column, clear of the glyph), and
+// the ring's centre's offset from half the cap height above the baseline
+// (positive: lower). The layout centre comes along for the record.
+async function ringOnCap(page, png, key) {
+  const { letter, letterBox, ring } = await page.evaluate(READ_RING_LINE, key);
+  const cap = await page.evaluate(INK_ROWS, png, letterBox);
+  const cx = (ring.left + ring.right) / 2;
+  const strip = (top, bottom) => ({
+    left: cx - 1.5,
+    right: cx + 1.5,
+    top,
+    bottom,
+  });
+  const ringTop = await page.evaluate(
+    INK_ROWS,
+    png,
+    strip(ring.top - 1.5, ring.top + 1.5),
+  );
+  const ringBottom = await page.evaluate(
+    INK_ROWS,
+    png,
+    strip(ring.bottom - 1.5, ring.bottom + 1.5),
+  );
+  const capMid = (cap.top + cap.bottom) / 2;
+  const ringMid = (ringTop.top + ringBottom.bottom) / 2;
+  return {
+    key,
+    letter,
+    baseline: cap.bottom,
+    capHeight: cap.bottom - cap.top,
+    ring: ringBottom.bottom - ringTop.top,
+    offset: ringMid - capMid,
+    layoutOffset: (ring.top + ring.bottom) / 2 - capMid,
+    contrast: Math.min(cap.contrast, ringTop.contrast, ringBottom.contrast),
+  };
+}
+
 /**
  * The "?" tips (docs/plan.md Phase 43 item 12): each shows its tip (the
  * note it replaced) on keyboard focus and on hover, inside the settings
  * column; a click pins it open and a second click shuts it, without
  * closing the screen, asking for fullscreen or changing a setting; Space
  * and Escape with a "?" focused still close the screen; the glyph's ink is
- * centred on its ring within 1 px.
+ * centred on its ring within 1 px; each ring's centre is within 1 px of
+ * half its text's cap height above the baseline, and the ring is 1.3 to
+ * 1.7 cap heights across.
  */
 async function escTips({ check, open }) {
   const { page, cdp } = await open("esc-tips", { closeHelp: true });
@@ -1921,9 +2147,12 @@ async function escTips({ check, open }) {
   );
 
   // The glyph is drawn on its ring's own box, so its ink sits on the
-  // ring's centre whatever the system font: within 1 px, both "?", at two
-  // sizes (the ring is 17 px at 1080 px tall, 14 px at 600).
+  // ring's centre whatever the system font: within 1 px, every "?", at two
+  // sizes (the label's ring is 17 px at 1080 px tall, 14 px at 600; the
+  // Progress heading's 14 and 12). The same screenshots give each ring
+  // against its text (ringOnCap).
   const glyphs = [];
+  const rings = [];
   await closeSettings(page, cdp);
   for (const [width, height] of [
     [1920, 1080],
@@ -1931,6 +2160,12 @@ async function escTips({ check, open }) {
   ]) {
     await page.setViewport({ width, height, deviceScaleFactor: 1 });
     await openSettings(page, cdp); // reopened: every tip idle
+    // The idle rings: the "?" the click test left focused may keep focus
+    // across the close (Chrome clears focus from a hidden element in a
+    // later task, which a quick reopen can beat), and the Escape pressed
+    // then lights its focus ring, whose gold reaches the ring box's
+    // corners, where the ground is read.
+    await page.evaluate(() => document.activeElement?.blur());
     await hover(cdp, 5, 5);
     await sleep(200);
     const png = await page.screenshot({ encoding: "base64" });
@@ -1943,6 +2178,10 @@ async function escTips({ check, open }) {
       }, key);
       const g = await page.evaluate(GLYPH_OFFSET, png, box);
       glyphs.push({ size: `${width}x${height}`, key, box, ...g });
+      rings.push({
+        size: `${width}x${height}`,
+        ...(await ringOnCap(page, png, key)),
+      });
     }
     await closeSettings(page, cdp);
   }
@@ -1952,6 +2191,23 @@ async function escTips({ check, open }) {
       (g) => Math.abs(g.dx) <= 1 && Math.abs(g.dy) <= 1 && g.contrast > 150,
     ),
     glyphs,
+  );
+  // Each ring sits in its line as an SF Symbol does in text: its painted
+  // centre within 1 px of half the cap height above the baseline, both
+  // read from the text's first capital's ink in the same screenshot; and
+  // sized from the text, 1.3 to 1.7 cap heights across, so the Progress
+  // heading's ring is as much smaller as its text.
+  check(
+    "each ? ring's centre is within 1 px of half its text's cap height above the baseline (the ink of the label's or heading's first capital), and the ring is 1.3 to 1.7 cap heights across (1920x1080, 800x600)",
+    rings.length === 2 * TIPS.length &&
+      rings.every(
+        (r) =>
+          Math.abs(r.offset) <= 1 &&
+          r.ring >= 1.3 * r.capHeight &&
+          r.ring <= 1.7 * r.capHeight &&
+          r.contrast > 60,
+      ),
+    rings,
   );
 
   // Space and Escape keep closing the screen with a "?" focused: the

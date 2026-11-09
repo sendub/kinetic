@@ -15,7 +15,8 @@ import {
   IMPORT_UNREADABLE_NOTICE,
   isSettingsControl,
   mountConfigOverlay,
-  PLAY_ALL_NOTE,
+  PLAY_ALL_TEXT,
+  PLAY_ALL_TIP,
   PROGRESS_HEADING,
   PROGRESS_SAVED,
   PROGRESS_SECTION,
@@ -68,18 +69,18 @@ describe("stepSpeed (README: configurable reading speed)", () => {
 });
 
 describe("speedLabel (multiplier and its ms/char)", () => {
-  it("shows the multiplier and the per-code-point allowance it gives", () => {
-    expect(speedLabel(1.0, 60)).toBe("1.00x — ~60 ms/char");
-    expect(speedLabel(2.0, 60)).toBe("2.00x — ~30 ms/char");
-    expect(speedLabel(3.0, 60)).toBe("3.00x — ~20 ms/char");
-    expect(speedLabel(0.25, 60)).toBe("0.25x — ~240 ms/char");
+  it("shows the multiplier and, in parentheses, the per-code-point allowance it gives", () => {
+    expect(speedLabel(1.0, 60)).toBe("1.00x (~60 ms/char)");
+    expect(speedLabel(2.0, 60)).toBe("2.00x (~30 ms/char)");
+    expect(speedLabel(3.0, 60)).toBe("3.00x (~20 ms/char)");
+    expect(speedLabel(0.25, 60)).toBe("0.25x (~240 ms/char)");
   });
 
   it("rounds a fractional allowance to a whole ms", () => {
     // 60 / 0.75 = 80 exactly; 0.25-step values against the 60 ms base are
     // exact, but the label stays a rounded integer whatever the inputs.
-    expect(speedLabel(0.75, 60)).toBe("0.75x — ~80 ms/char");
-    expect(speedLabel(1.0, 61)).toBe("1.00x — ~61 ms/char");
+    expect(speedLabel(0.75, 60)).toBe("0.75x (~80 ms/char)");
+    expect(speedLabel(1.0, 61)).toBe("1.00x (~61 ms/char)");
   });
 });
 
@@ -331,6 +332,7 @@ describe("config panel (the reading-speed row: - slider + readout)", () => {
     // Row order IS the visual order: the flex row lays its children out left
     // to right, so this is the - / slider / + / readout layout.
     const row = byClass(root, "config-row");
+    expect(row).toBe(byClass(root, "config-speed"));
     expect(row.children.map((el) => `${el.tag} ${el.className}`)).toEqual([
       "span config-label",
       "button config-step",
@@ -466,25 +468,35 @@ const byConfirm = (root: FakeElement, action: string): FakeElement =>
     (el) => el.getAttribute("data-confirm-action") === action,
   );
 
+/** The panel's groups in order, each as one text per heading or row. */
+function groupLines(root: FakeElement): (string | null)[][] {
+  const panel = root.children[0];
+  return panel.children
+    .slice(1)
+    .map((group) =>
+      group.className === "config-group"
+        ? group.children.map((el) =>
+            el.className === "config-section"
+              ? `# ${words(el)}`
+              : el.className.includes("config-row")
+                ? `${el.className.includes("config-option") ? "  " : ""}${words(
+                    el.children[0],
+                  )}`
+                : null,
+          )
+        : [null],
+    );
+}
+
 describe("the panel layout: the skip settings read as options of Tab", () => {
   it("puts both skip options, indented, under a When Tab skips heading", () => {
     const { root } = mount(defaults);
     const panel = root.children[0];
     // Panel order IS the visual order: one text per heading or row label.
     expect(panel.children[0].className).toBe("config-title");
-    const lines = panel.children
-      .slice(1)
-      .map((el) =>
-        el.className === "config-section"
-          ? `# ${words(el)}`
-          : el.className.includes("config-row")
-            ? `${el.className.includes("config-option") ? "  " : ""}${words(
-                el.children[0],
-              )}`
-            : null,
-      );
-    // No note lines (Phase 43 item 12): the speed's and the Progress
-    // group's notes are tips, and the message line is gone.
+    const lines = groupLines(root).flat();
+    // No note lines (Phase 43 item 12): the notes of the speed, Play all
+    // routes and the Progress group are tips, and the message line is gone.
     expect(lines).not.toContain(null);
     expect(lines).toEqual([
       "Auto-forward speed",
@@ -510,23 +522,61 @@ describe("the panel layout: the skip settings read as options of Tab", () => {
     );
   });
 
-  it("notes beside Play all routes what turning it on does", () => {
+  it("makes each group one element after the heading, so spare height goes only between groups", () => {
+    const { root } = mount(defaults);
+    // The heading, then one `.config-group` per group: index.html shares a
+    // taller column's spare height between the gaps between groups, so
+    // nothing inside a group (the skip options' shared hairline, the
+    // Progress buttons' line) ever moves apart.
+    expect(groupLines(root)).toEqual([
+      ["Auto-forward speed"],
+      [`# ${SKIP_SECTION}`, `  ${SKIP_ALL_TEXT}`, `  ${SKIP_VIDEOS_TEXT}`],
+      ["Play all routes"],
+      [
+        `# ${PROGRESS_HEADING}`,
+        "  Export progress",
+        "  Import progress",
+        "  Reset progress",
+      ],
+    ]);
+  });
+
+  it("keeps Play all routes to one line, what turning it on does behind its ?", () => {
     const { root } = mount(defaults);
     const row = byAction(root, "play-all").parent;
+    // One line like the skip switches: the label (its words and its "?"),
+    // the switch trailing; no note line under it (Phase 43 item 12).
     expect(row?.children.map((el) => el.className)).toEqual([
       "config-label",
       "config-toggle config-play-all",
-      "config-note",
     ]);
-    expect(row?.children[2].textContent).toBe(PLAY_ALL_NOTE);
-    // Says what turning it On does, so it is true in the Off position too,
-    // and short enough for one line (Phase 43 item 12).
-    expect(PLAY_ALL_NOTE).toBe("choices pick themselves on a countdown");
+    const label = row?.children[0];
+    expect(label?.childNodes[0]).toBe(PLAY_ALL_TEXT);
+    expect(words(label as FakeElement)).toBe("Play all routes");
+    const tip = byAction(root, "tip-play-all");
+    expect(tip.tag).toBe("button");
+    expect(tip.parent?.parent).toBe(label);
+    expect(tip.getAttribute("aria-label")).toBe("About play all routes");
+    expect(tip.getAttribute("title")).toBeNull();
+    const body = walk(root).find(
+      (el) => el.id === tip.getAttribute("aria-describedby"),
+    );
+    expect(body?.getAttribute("role")).toBe("tooltip");
+    expect(body?.textContent).toBe(PLAY_ALL_TIP);
+    // Says what turning it On does, so it is true in the Off position too
+    // (Phase 22).
+    expect(PLAY_ALL_TIP).toBe(
+      "When on, choices pick themselves on a countdown.",
+    );
+    expect(walk(root).some((el) => el.className === "config-note")).toBe(false);
   });
 
   it("heads Progress with 'Progress · saved automatically', the rest of the note behind its ?", () => {
     const { root } = mount(defaults);
-    const siblings = root.children[0].children;
+    const siblings = walk(root.children[0]).find((el) =>
+      el.children.some((child) => child.childNodes[0] === PROGRESS_SECTION),
+    )?.children;
+    if (siblings === undefined) throw new Error("no Progress group");
     const heading = siblings.find(
       (el) =>
         el.className === "config-section" &&
@@ -601,8 +651,11 @@ describe("the ? tips on the panel", () => {
     const { root, overlay } = mount(defaults);
     overlay.open();
     byAction(root, "tip-speed").fire("click");
-    byAction(root, "tip-progress").fire("click");
+    byAction(root, "tip-play-all").fire("click");
     expect(state(root, "speed")).toBe("idle");
+    expect(state(root, "play-all")).toBe("open");
+    byAction(root, "tip-progress").fire("click");
+    expect(state(root, "play-all")).toBe("idle");
     expect(state(root, "progress")).toBe("open");
     overlay.close();
     overlay.open();

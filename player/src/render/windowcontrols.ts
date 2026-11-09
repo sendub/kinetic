@@ -1,9 +1,10 @@
 // The Esc screen's window controls (docs/plan.md Phase 43 item 9): the last
-// group of the settings, under its own heading, on one line: a two-part
-// Fullscreen | Window switch at its left, drawn like the branch map's Full
-// size | Fit (its pressed half is the display mode now: the game app's, or
-// the browser tab's Display setting), and Exit at its right, which quits
-// the game (item 12). A browser tab that would not close itself says so in
+// group of the settings (a `.config-group` like the others, render/
+// config.ts), under its own heading, on one line: a two-part Fullscreen |
+// Window switch at its left, drawn like the branch map's Full size | Fit
+// (its pressed half is the display mode now: the game app's, or the browser
+// tab's Display setting), and Exit at its right, which quits the game
+// (item 12). A browser tab that would not close itself says so in
 // the shell's pill (`CLOSE_TAB_NOTE`, main.ts), not on this screen. What a
 // click does lives in render/host.ts (`windowActions`); this module only
 // draws and reports.
@@ -89,7 +90,10 @@ export function mountWindowControls({
   exitButton.addEventListener("click", () => onExit());
   exitRow.append(exitButton);
 
-  root.append(heading, displayRow, exitRow);
+  const group = doc.createElement("div");
+  group.className = "config-group";
+  group.append(heading, displayRow, exitRow);
+  root.append(group);
 
   function refresh(): void {
     const shown = display();

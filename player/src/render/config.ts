@@ -9,7 +9,7 @@
 // so neither reads as a switch that starts skipping (docs/plan.md Phase
 // 18): "Skip unseen content too" (the `skipAll` boolean) and "Play videos
 // in full" (`skipPlaysVideos`); then Phase 13's `playAllRoutes`
-// zero-interactivity route playback with a one-line note, plus
+// zero-interactivity route playback, its note behind a "?", plus
 // the "Progress" group (docs/plan.md Phase 21): "Export progress" (the
 // shell downloads `<storyId>-progress.json` and says "Progress exported"
 // in the pill), "Import progress" (a file picker; the shell checks the
@@ -18,11 +18,16 @@
 // (render/confirm.ts). The three are actions and change no setting
 // themselves. No other UI.
 //
-// The speed's and the Progress group's longer notes sit behind a "?"
-// (docs/plan.md Phase 43 item 12, `mountTip`): a button whose tip shows on
-// hover or keyboard focus, and a click or tap toggles it. The screen keeps
-// no message line: a notice is the shell's pill (render/app.ts `notify`),
-// so nothing on the screen moves when one shows.
+// The notes of the speed, Play all routes and the Progress group sit
+// behind a "?" (docs/plan.md Phase 43 item 12, `mountTip`): a button whose
+// tip shows on hover or keyboard focus, and a click or tap toggles it. The
+// screen keeps no message line: a notice is the shell's pill (render/app.ts
+// `notify`), so nothing on the screen moves when one shows.
+//
+// Each group (the speed cell, the skip options under their heading, Play
+// all routes, Progress; render/windowcontrols.ts adds Game window) is one
+// `.config-group` element, so index.html can share any spare height of the
+// settings column between the gaps between groups and nowhere else.
 //
 // Every control click produces the full next settings through `onChange`,
 // so the shell applies it live (machine.setSettings) and persists it from
@@ -53,13 +58,13 @@ export function stepSpeed(current: number, delta: number): number {
 
 /**
  * The readout at the row's right (smaller than the row's label): the
- * multiplier and the approximate milliseconds per code point it gives (base
- * `msPerChar` / speed) — the hold rule of docs/content-format.md, "Timing",
- * in one line.
+ * multiplier and, in parentheses, the approximate milliseconds per code
+ * point it gives (base `msPerChar` / speed) — the hold rule of
+ * docs/content-format.md, "Timing", in one line: `1.00x (~60 ms/char)`.
  */
 export function speedLabel(readingSpeed: number, msPerChar: number): string {
   const perChar = Math.round(msPerChar / readingSpeed);
-  return `${readingSpeed.toFixed(2)}x — ~${String(perChar)} ms/char`;
+  return `${readingSpeed.toFixed(2)}x (~${String(perChar)} ms/char)`;
 }
 
 /**
@@ -84,11 +89,13 @@ export const PROGRESS_HEADING = `${PROGRESS_SECTION} · ${PROGRESS_SAVED}`;
  */
 export const PROGRESS_TIP =
   "Saved in this browser as you read. Export and Import carry it to another browser.";
+/** The Play all routes switch's label (Phase 13). */
+export const PLAY_ALL_TEXT = "Play all routes";
 /**
- * The line beside Play all routes: what turning it On does, so it reads true
- * in either position (Phase 22), on one line (Phase 43 item 12).
+ * The tip behind Play all routes' "?" (Phase 43 item 12): what turning it
+ * On does, so it reads true in either position (Phase 22).
  */
-export const PLAY_ALL_NOTE = "choices pick themselves on a countdown";
+export const PLAY_ALL_TIP = "When on, choices pick themselves on a countdown.";
 
 /** Export done (the pill): no file name, as the browser or app may rename it. */
 export const EXPORT_DONE_NOTICE = "Progress exported";
@@ -282,8 +289,16 @@ export function mountConfigOverlay({
     return tip.element;
   };
 
+  // One group of the column (index.html's `.config-group`).
+  const group = (...children: HTMLElement[]): HTMLElement => {
+    const el = doc.createElement("div");
+    el.className = "config-group";
+    el.append(...children);
+    return el;
+  };
+
   const speedRow = doc.createElement("div");
-  speedRow.className = "config-row";
+  speedRow.className = "config-row config-speed";
   // The label's words, then its "?" (Phase 43 item 12): the note on what
   // else the speed paces, which used to be a line under the row.
   const speedLabelEl = doc.createElement("span");
@@ -352,21 +367,23 @@ export function mountConfigOverlay({
   skipVideoRow.append(skipVideoLabelEl, skipVideoToggle);
 
   // `Play all routes` (docs/plan.md Phase 13): zero-interactivity route
-  // playback, its own persisted setting like skip-all.
+  // playback, its own persisted setting like skip-all. One line like the
+  // skip switches: its note, what On does, is behind its "?" (Phase 43
+  // item 12).
   const playRow = doc.createElement("div");
   playRow.className = "config-row";
   const playLabelEl = doc.createElement("span");
   playLabelEl.className = "config-label";
-  playLabelEl.textContent = "Play all routes";
+  playLabelEl.append(
+    PLAY_ALL_TEXT,
+    tipFor("play-all", PLAY_ALL_TEXT.toLowerCase(), PLAY_ALL_TIP),
+  );
   const playToggle = doc.createElement("button");
   playToggle.className = "config-toggle config-play-all";
   playToggle.type = "button";
   playToggle.setAttribute("role", "switch");
   playToggle.setAttribute("data-config-action", "play-all");
-  const playNote = doc.createElement("span");
-  playNote.className = "config-note";
-  playNote.textContent = PLAY_ALL_NOTE;
-  playRow.append(playLabelEl, playToggle, playNote);
+  playRow.append(playLabelEl, playToggle);
 
   // The Progress group (docs/plan.md Phase 21): Export, Import and Reset,
   // indented under their heading like the skip options, every control in
@@ -444,15 +461,10 @@ export function mountConfigOverlay({
 
   panel.append(
     title,
-    speedRow,
-    skipHeading,
-    skipRow,
-    skipVideoRow,
-    playRow,
-    progressHeading,
-    exportRow,
-    importRow,
-    resetRow,
+    group(speedRow),
+    group(skipHeading, skipRow, skipVideoRow),
+    group(playRow),
+    group(progressHeading, exportRow, importRow, resetRow),
   );
   root.appendChild(panel);
 

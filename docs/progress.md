@@ -2496,6 +2496,28 @@ truthful: an unchecked box means nothing was accepted.
       check clean, smoke 6/6 on Chrome and WebKit, screens progress window
       menus reading Chrome 147/147, WebKit 145 + 5 PARTIAL (element
       fullscreen); screenshots checked by eye, `.tmp/escbalance/`.)
+- [x] Esc screen follow-up (the user's look at `.tmp/p43play3/demo`,
+      2026-11-09; Windows looks the same). The "?" ring sits too low beside
+      its text, most visibly by "Auto-forward speed": centre it on the
+      text's cap height. The speed readout reads "1.00x (~60 ms/char)",
+      not a dash. Play all routes' note moves behind a "?" too. The two
+      columns get similar widths, and their heights are balanced again.
+      (2026-11-09: the ring is 1.5cap across and rises (1cap - 1ex) / 2
+      from vertical-align middle, from the label's own font, with an em
+      fallback for older WebKit; measured within 0.78 px of the cap centre
+      for all three tips on both engines (before: up to 1.86 px low).
+      `speedLabel` gives `1.00x (~60 ms/char)`. Play all routes is a
+      one-line row with its tip. Both columns `minmax(0, 430px)`; each
+      settings group is one `.config-group` and a shorter Settings shares
+      its spare height across the gaps between groups, as a shorter Keys
+      card shares it across its rows. Widths 430/430 at 1920 and 1280,
+      346/346 at 800x600; natural bottoms within 2.2, 9.8 and 3.3 px,
+      level once stretched. A Chrome-only flake in the glyph check (focus
+      ring kept across a quick reopen) fixed in the check. Orchestrator:
+      npm test 912, check clean, smoke 6/6 on Chrome and WebKit, screens
+      progress window menus reading Chrome 151/151, WebKit 149 + 5
+      PARTIAL (element fullscreen); ring crops checked by eye,
+      `.tmp/escfollow/`.)
 - [ ] Phase-closer (Phase 43): full scenario suite on Chrome and on WebKit,
       full pytest, package-proof; the user plays the demo's macOS app and
       Windows exe (fullscreen, Esc, reload, Export, Import, Exit, the

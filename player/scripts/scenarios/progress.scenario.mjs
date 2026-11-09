@@ -21,8 +21,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { DEFAULT_SETTINGS } from "../../src/machine/types.ts";
-import { EXPORT_DONE_NOTICE, speedLabel } from "../../src/render/config.ts";
+import { EXPORT_DONE_NOTICE } from "../../src/render/config.ts";
 import {
   CONFIG_CONTROL,
   CONFIRM_CONTROL,
@@ -53,7 +52,8 @@ import {
 export const title =
   "export / import progress: move a reader's progress to a fresh browser";
 
-const SPEED_2X = speedLabel(2, DEFAULT_SETTINGS.msPerChar);
+// The readout as the reader sees it at 2.00x (Phase 43 item 12).
+const SPEED_2X = "2.00x (~30 ms/char)";
 // A mode pill's hold (render/app.ts ROUTE_PILL_MS, restated: app.ts imports
 // modules by extensionless paths node cannot resolve).
 const ROUTE_PILL_MS = 1600;

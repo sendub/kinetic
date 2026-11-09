@@ -1917,18 +1917,28 @@ The work, in order:
       its rounded bottom back. The - slider + row spans the cell: - on its
       left padding edge, + on its right, the slider between. The readout
       no longer sizes the column + sits in; it shares the label's line and
-      takes a line of its own where both do not fit (700 px wide).
-    - Play all routes: its note is one line, "choices pick themselves on a
-      countdown".
+      takes a line of its own where both do not fit (700 px wide). It
+      reads `1.00x (~60 ms/char)`, the per-character figure in
+      parentheses (follow-up below).
+    - Play all routes: one line like the skip switches. Its note moves
+      behind a "?" after the label (follow-up below): "When on, choices
+      pick themselves on a countdown." It still says what On does, so it
+      reads true in either position (Phase 22).
     - Game window: the heading stays; Fullscreen | Window sits at the start
       of one line and Exit at its end, flush with the column's outer edges
       where the cards start and end.
       The rows keep their hidden labels for screen readers.
-    - The Keys card stretches to the Settings column's height when that is
-      taller, its rows sharing the extra height evenly, so the columns end
-      level whatever the font. When Settings is shorter nothing stretches
-      it (its lines pack at the top). The whole screen still fits 1280x720,
-      700x900 and 800x600 with no scroll.
+    - From 700 px wide the two columns share one width rule, so they are
+      the same width (about 300 px each at 700 px, 346 at 800, 430 from
+      about 1000). Their natural heights come out within about 20 px at
+      1920x1080, 1280x720 and 800x600 (follow-up below).
+    - Whichever column is shorter stretches to the other's end, so the
+      columns end level whatever the font. A shorter Keys card's rows share
+      the extra height evenly. A shorter Settings column shares it evenly
+      between the gaps between its groups (each group is one element), and
+      nothing inside a group moves apart. Stacked under 700 px neither
+      stretches. The whole screen still fits 1280x720, 700x900 and 800x600
+      with no scroll, Reset in view at 800x600.
     - Each "?" is a button named "About …" whose tip is in the DOM as its
       description (aria-describedby), never a `title`. The tip shows on
       hover and on keyboard focus, as a chip of the sheet inside the
@@ -1937,6 +1947,25 @@ The work, in order:
       setting; Space and Escape still close the screen. The glyph is a
       mask drawn on the ring's own box, so its ink sits centred whatever
       the system font or engine (the user asked for this after the mock).
+      The ring sits in its line as an SF Symbol sits in text: 1.5 cap
+      heights across, its centre half a cap height above the baseline.
+      Both come from the text's own font metrics in CSS (`cap` and `ex`
+      units, with an em fallback where `cap` is missing), so they hold on
+      SF, Segoe UI or any other system font, in WebKit and Chrome alike.
+    - Follow-up (the user, 2026-11-09, after looking at the rebuilt apps;
+      Windows looks the same as macOS):
+      - The "?" ring sat too low beside its text, most visibly by
+        "Auto-forward speed", and the Progress heading's ring loomed over
+        its smaller text. The ring is now placed and sized from the cap
+        height, as above.
+      - The speed readout's dash goes: `1.00x (~60 ms/char)`.
+      - Play all routes' note moves behind a "?", as above.
+      - The columns were 332 and 430 px wide at 1280x720 (Keys
+        `clamp(300px, 26vw, 400px)`, Settings up to 430 px). They now
+        share one width. With the wider Keys rows wrapping less and the
+        Play all routes note line gone, the natural heights end within
+        3 px at 1920x1080, 10 px at 1280x720 and 4 px at 800x600, and the
+        stretch rule above became symmetric.
     - The docs stop saying ⌘H hides the macOS app: in the real app it does
       nothing visible, and the user does not mind. The key map is
       unchanged.

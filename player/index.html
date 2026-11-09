@@ -617,10 +617,14 @@
          stacked and one per row in the sidebar. Each row is menu-style: the
          description leading, its caps trailing on one line, as a Mac menu
          shows a shortcut; one cap per key word, a muted slash between
-         alternatives. In the sidebar the card stretches to the settings
-         pane's height when that is taller, its rows sharing the extra
-         height evenly (auto rows stretch), so the two columns end level
-         whatever the system font (Phase 43 item 12; wide layout below). */
+         alternatives. In the side column the card stretches to the
+         settings pane's height when that is taller, its rows sharing the
+         extra height evenly (auto rows stretch), as the settings' group
+         gaps share it when the card is the taller, so the two columns end
+         level whatever the system font (Phase 43 item 12; wide layout
+         below). Their natural heights come out within about 20px at
+         1920x1080, 1280x720 and 800x600, so either stretch takes up only a
+         small remainder. */
       .help-list {
         display: grid;
         grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -644,7 +648,7 @@
         align-items: center;
         column-gap: clamp(8px, 0.9vw, 12px);
         min-width: 0;
-        min-height: clamp(30px, 3.6vh, 40px);
+        min-height: clamp(30px, 3.7vh, 40px);
         margin: 0 -8px;
         padding: clamp(3px, 0.5vh, 6px) 8px;
         border-radius: var(--k-r-sm);
@@ -724,26 +728,45 @@
          #help, under the keys, and dropped `c`): the auto-forward speed
          slider with its step buttons, the "When Tab skips" options (skip
          unseen content too, play videos in full), the play-all-routes
-         switch and the Progress group (export, import, reset; Phase 21) —
-         and nothing else. Inset-grouped lists, like a native settings
-         window. It flows inside the #help panel, which owns the z-order,
-         the ground and the vertical scroll. #config wraps so the Progress
-         buttons can share a line (below); every other child keeps a full
-         line. Its lines pack at the top: beside a taller keys card its
-         grid area is taller than its content, and stretched lines would
-         spread the groups apart. */
+         switch, the Progress group (export, import, reset; Phase 21) and
+         the Game window group (Phase 43) — and nothing else. Inset-grouped
+         lists, like a native settings window. It flows inside the #help
+         panel, which owns the z-order, the ground and the vertical scroll.
+         #config is a column: its heading, then one `.config-group` per
+         group (render/config.ts), each `--g-group` below the last. A
+         group wraps, so the Progress buttons can share a line (below);
+         every other child keeps a full line. Beside a taller keys card
+         (from 700px wide) the column's grid area is taller than its
+         content: the extra height goes to the gaps between groups, shared
+         evenly (auto margins), so the column ends level with the card and
+         nothing inside a group moves apart (Phase 43 item 12). */
       #config {
         display: flex;
-        flex-flow: row wrap;
-        align-content: start;
+        flex-direction: column;
       }
       #config[hidden] {
         display: none;
       }
       #config > * {
-        flex: 1 0 100%;
+        flex: none;
       }
+      .config-group {
+        display: flex;
+        flex-flow: row wrap;
+        align-content: start;
+      }
+      #config > .config-group + .config-group {
+        margin-top: auto;
+        padding-top: var(--g-group);
+      }
+      /* Each heading and row of a group takes a line of its own (the
+         Progress buttons and the Game window rows share one: below). */
       .config-row {
+        /* Where a "?" tip in the row hangs: just under the cell (the speed
+           cell's hangs under its label's line instead, below). */
+        --tip-top: calc(100% + 4px);
+        flex: 1 0 100%;
+        position: relative;
         display: flex;
         align-items: center;
         justify-content: space-between;
@@ -759,25 +782,17 @@
         background-position: var(--g-cellpad) 0;
         background-size: calc(100% - var(--g-cellpad)) 1px;
       }
-      /* Group edges: rounded where a group starts and ends. */
+      /* Group edges: rounded where a group's rows start and end (the
+         skip options are one group under their own heading, so they read
+         as options of Tab rather than switches that start a skip; Play
+         all routes is its own group after them). */
+      .config-row:first-child,
       :not(.config-row) + .config-row {
         border-top-left-radius: var(--k-r-md);
         border-top-right-radius: var(--k-r-md);
       }
+      .config-row:last-child,
       .config-row:has(+ :not(.config-row)) {
-        border-bottom-left-radius: var(--k-r-md);
-        border-bottom-right-radius: var(--k-r-md);
-      }
-      /* The skip options are one group under their own heading, so they
-         read as options of Tab rather than switches that start a skip;
-         Play all routes is its own group after them. */
-      .config-option + .config-row:not(.config-option) {
-        margin-top: var(--g-group);
-        border-top-left-radius: var(--k-r-md);
-        border-top-right-radius: var(--k-r-md);
-        background-image: none;
-      }
-      .config-option:has(+ .config-row:not(.config-option)) {
         border-bottom-left-radius: var(--k-r-md);
         border-bottom-right-radius: var(--k-r-md);
       }
@@ -791,7 +806,7 @@
       }
       /* The current speed is a readout, not a control (docs/plan.md
          Phase 16): secondary text at the cell's top right, on one line at
-         any width ("1.00x — ~60 ms/char" wrapped at 700x900, Phase 24). */
+         any width ("1.00x (~60 ms/char)"; Phase 24, Phase 43 item 12). */
       .config-speed-value {
         flex: none;
         min-width: 0;
@@ -802,11 +817,12 @@
         white-space: nowrap;
       }
       /* Section labels ("When Tab skips", "Progress") sit outside their
-         group, aligned with the row text. Positioned: a "?" tip in one
-         hangs from it (below). */
+         rows, at the top of their group, aligned with the row text.
+         Positioned, like a row: a "?" tip in one hangs from it (below). */
       .config-section {
+        flex: 1 0 100%;
         position: relative;
-        margin: var(--g-group) 0 0;
+        margin: 0;
         padding: 0 var(--g-cellpad) clamp(5px, 0.8vh, 8px);
         color: var(--k-t2);
         font-size: var(--k-t-small);
@@ -821,20 +837,13 @@
         font-weight: var(--k-w-2);
         white-space: pre;
       }
-      .config-note {
-        color: var(--k-t2);
-        font-size: var(--k-t-small);
-        font-weight: var(--k-w-2);
-        line-height: 1.35;
-        letter-spacing: 0.004em;
-      }
       /* Progress: the buttons say what they do (and carry aria-labels),
          so their row labels go and the three sit on one line under the
          heading. The Game window rows (Phase 43, `.config-inline`) sit the
          same way on one line of their own: Fullscreen | Window at its
          start, Exit at its end (below). */
-      #config > .config-row:has(> [data-config-action$="-progress"]),
-      #config > .config-inline {
+      .config-group > .config-row:has(> [data-config-action$="-progress"]),
+      .config-group > .config-inline {
         flex: 0 0 auto;
         min-height: 0;
         margin: 0 8px 0 0;
@@ -850,12 +859,12 @@
          Full size | Fit, its parts the single capsule, cut; the half for
          the display mode now is pressed, filled gold like a switch that is
          on. */
-      #config > .config-inline:has(> .config-display) {
+      .config-group > .config-inline:has(> .config-display) {
         gap: 1px;
       }
       /* Exit ends the line, its right edge on the column's outer edge
          where the cards end, mirroring Fullscreen on the left edge. */
-      #config > .config-inline:has(> .config-exit) {
+      .config-group > .config-inline:has(> .config-exit) {
         margin: 0 0 0 auto;
       }
       .config-display {
@@ -956,12 +965,11 @@
          than overlap it, and the break (::after, a full line wide, as tall
          as the gap above the steps) keeps the steps and slider on their
          own line. */
-      .config-title + .config-row {
+      .config-speed {
         --cell-top: clamp(8px, 1.2vh, 13px);
         /* Where a tip hangs: under the label's line (the "?" is no taller
            than it). */
         --tip-top: calc(var(--cell-top) + var(--k-t-body) * 1.3 + 5px);
-        position: relative;
         flex-wrap: wrap;
         row-gap: 0;
         column-gap: clamp(10px, 1vw, 14px);
@@ -969,39 +977,51 @@
         padding-top: var(--cell-top);
         padding-bottom: var(--cell-top);
       }
-      .config-title + .config-row::after {
+      .config-speed::after {
         content: "";
         order: 2;
         flex: 0 0 100%;
         height: clamp(4px, 0.7vh, 8px);
       }
-      .config-title + .config-row > .config-speed-value {
+      .config-speed > .config-speed-value {
         order: 1;
         margin-left: auto;
       }
-      .config-title + .config-row > .config-step,
-      .config-title + .config-row > .config-slider {
+      .config-speed > .config-step,
+      .config-speed > .config-slider {
         order: 3;
       }
       /* The slider takes what the steps leave (a 100% width would wrap
          it onto a line of its own). */
-      .config-title + .config-row > .config-slider {
+      .config-speed > .config-slider {
         flex: 1 1 0;
         width: auto;
       }
 
       /* ---- The "?" tips (Phase 43 item 12): a small ring after a label
-         (Auto-forward speed) or a heading (Progress), a real button whose
-         tip is its description. The glyph is a mask drawn on the ring's
-         own box (`--k-qmark`: in its 16-unit square the ink spans 4.5-11.5
-         across and 2.3-13.7 down before the 0.86 scale about the centre,
-         so its ink box is centred on the ring's), not a font's "?", so it
-         sits centred whatever the system font (SF, Segoe UI) or engine.
+         (Auto-forward speed, Play all routes) or a heading (Progress), a
+         real button whose tip is its description. The glyph is a mask
+         drawn on the ring's own box (`--k-qmark`: in its 16-unit square
+         the ink spans 4.5-11.5 across and 2.3-13.7 down before the 0.86
+         scale about the centre, so its ink box is centred on the ring's),
+         not a font's "?", so it sits centred whatever the system font (SF,
+         Segoe UI) or engine.
+         The ring sits in its line as an SF Symbol does in text, sized and
+         placed from the text's own font metrics, so it holds on any system
+         font: 1.5 cap heights across (SF Symbols' circle beside text), so
+         a small heading gets a small ring, and its centre half a cap
+         height above the baseline. The wrap's `vertical-align: middle`
+         puts the centre half an x-height above the baseline; the ring then
+         rises by half the difference, (1cap - 1ex) / 2, in the label's own
+         font (`font: inherit`, so the units are the text's). An engine
+         without the `cap` unit (WebKit before Safari 17.2) skips the
+         @supports block and takes 0.7em for the cap height (SF 0.705,
+         Segoe UI 0.7).
          The tip shows at once on hover or keyboard focus; a click or tap
          pins it open or shut (`data-tip`, set by render/config.ts). It is
          a chip of the sheet like the map's tooltip, hung under the label's
-         line at the cell's text edge and no wider than the cell, so it
-         stays inside the sheet. */
+         line (under the row, or the heading's line) at the cell's text
+         edge and no wider than the cell, so it stays inside the sheet. */
       .config-tipwrap {
         display: inline-flex;
         margin-left: 0.4em;
@@ -1010,9 +1030,10 @@
       .config-tip {
         --k-qmark: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cg transform='translate(8 8) scale(.86) translate(-8 -8)'%3E%3Cpath d='M5.5 5.8A2.5 2.5 0 1 1 9.915 7.407Q8 8.3 8 9.2' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3Ccircle cx='8' cy='12.55' r='1.15'/%3E%3C/g%3E%3C/svg%3E");
         position: relative;
+        top: calc((1ex - 0.7em) / 2);
         flex: none;
-        width: clamp(14px, 1.7vh, 17px);
-        height: clamp(14px, 1.7vh, 17px);
+        width: 1.06em;
+        height: 1.06em;
         margin: 0;
         padding: 0;
         border: 0;
@@ -1020,7 +1041,15 @@
         background: transparent;
         box-shadow: inset 0 0 0 1.25px rgba(var(--k-ink), 0.42);
         color: var(--k-t2);
+        font: inherit;
         cursor: pointer;
+      }
+      @supports (width: 1cap) {
+        .config-tip {
+          top: calc((1ex - 1cap) / 2);
+          width: 1.5cap;
+          height: 1.5cap;
+        }
       }
       .config-tip::before {
         content: "";
@@ -1072,27 +1101,6 @@
       .config-tipwrap:not([data-tip="shut"]) > .config-tip:focus-visible + .config-tip-text {
         visibility: visible;
       }
-      /* Play all routes: its title over its description, the switch
-         trailing. */
-      .config-row:has(> span.config-note) {
-        display: grid;
-        grid-template-columns: minmax(0, 1fr) auto;
-        grid-template-areas:
-          "label toggle"
-          "note toggle";
-        row-gap: 2px;
-        padding-top: clamp(7px, 1vh, 10px);
-        padding-bottom: clamp(7px, 1vh, 10px);
-      }
-      .config-row:has(> span.config-note) > .config-label {
-        grid-area: label;
-      }
-      .config-row:has(> span.config-note) > .config-toggle {
-        grid-area: toggle;
-      }
-      .config-row:has(> span.config-note) > .config-note {
-        grid-area: note;
-      }
 
       /* ---- Placement on the sheet's grid (narrow; wide below). The
          header row: the game's name on the left, the hint on the right
@@ -1135,21 +1143,27 @@
         grid-row: config;
       }
 
-      /* ---- From 700px wide: a sidebar of keys beside the settings pane,
+      /* ---- From 700px wide: a column of keys beside the settings pane,
          under a title bar across the sheet (the game's name, the hint
          trailing). Side by side, the screen fits a short window (800x600)
          that the stacked one overflows; under 1000px the gutter between
          the two narrows with the window, so the settings' rows keep their
-         one-line labels down to 700px. */
+         one-line labels down to 700px. The two columns share one width
+         rule (Phase 43 item 12): both grow alike from nothing up to
+         `--g-col`, so they are the same width at any window size (about
+         300px each at 700px wide, 346 at 800, `--g-col` from about 1000).
+         At 430px every Keys row but the decision keys' is one line at
+         1920x1080. */
       @media (min-width: 700px) {
         #help {
           --g-gut: clamp(16px, 2.8vw, 48px);
+          --g-col: 430px;
           grid-template-columns:
             [full-start] minmax(var(--g-out), 1fr)
             [sheet-start] var(--g-pad)
-            [side-start] clamp(300px, 26vw, 400px)
+            [side-start] minmax(0, var(--g-col))
             [side-end] var(--g-gut)
-            [main-start] minmax(0, 430px)
+            [main-start] minmax(0, var(--g-col))
             [main-end] var(--g-pad)
             [sheet-end] minmax(var(--g-out), 1fr) [full-end];
           grid-template-rows:
@@ -1174,7 +1188,10 @@
         }
         /* One key per row in the side column, the card reaching the
            settings pane's end when that is taller (its grid row grows to
-           the pane; the card's auto rows share the extra height). */
+           the pane; the card's auto rows share the extra height). The
+           pane spans the same rows, so when the card is the taller the
+           pane's box grows to the card's end and its group gaps share the
+           difference (Settings, above). */
         #help > .help-list {
           grid-column: side-start / side-end;
           grid-template-columns: minmax(0, 1fr);

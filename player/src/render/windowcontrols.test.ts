@@ -97,8 +97,13 @@ function mount(initial: DisplayMode) {
 describe("mountWindowControls", () => {
   it("adds the Game window group: heading, then Fullscreen | Window and Exit on one line, no note line", () => {
     const { root } = mount("fullscreen");
-    expect(root.children).toHaveLength(3);
-    const [heading, displayRow, exitRow] = root.children;
+    // One group element at the section's end, like the settings' own
+    // groups (index.html shares spare height between the groups' gaps).
+    expect(root.children).toHaveLength(1);
+    const [group] = root.children;
+    expect(group?.className).toBe("config-group");
+    expect(group?.children).toHaveLength(3);
+    const [heading, displayRow, exitRow] = group?.children ?? [];
     expect(heading?.textContent).toBe(WINDOW_SECTION);
     expect(heading?.className).toBe("config-section");
     expect(displayRow?.className).toContain("config-inline");
