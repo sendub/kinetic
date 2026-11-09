@@ -1,7 +1,7 @@
 """``kinetic-media posters``: find the video items whose poster is not the
 frame at their ``startSeconds``, and plan the ship requests that fix
 them (docs/extracting.md, "kinetic-media posters"; docs/plan.md
-Phase 44).
+Phases 44 and 45).
 
 docs/content-format.md ("Video playback ranges") makes a video item's
 poster the frame at its ``startSeconds`` (0 when unset). The check:
@@ -19,9 +19,12 @@ poster the frame at its ``startSeconds`` (0 when unset). The check:
   the ledger names it and it is still under the game root, else from
   the folder's video file. Above ``POSTER_TOLERANCE`` it fails. A poster
   that passes by ledger is never decoded; one that fails by ledger is,
-  for the report's difference.
+  for the report's difference and the two frames' mean luma (a start
+  below ``DARK_START_LUMA`` is a dark start).
 
-The check writes nothing but scratch files under ``work``. ``plan_fix``
+``read_items`` and ``select_items`` limit the check to the item ids a
+``--items`` file lists. The check writes nothing but scratch files
+under ``work``. ``plan_fix``
 turns the failures into ship requests, one per distinct (video source
 sha256, startSeconds), from the ledger's source refs; ``media_cli``
 ships them with the code ``kinetic-media ship`` runs.
@@ -36,7 +39,7 @@ from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 from . import assets, media_tools
 from .decoders import Decoder, describe
@@ -65,6 +68,23 @@ MANIFEST_NAME = "manifest.json"
 # patterns (96x54, 160x90) push a correct JPEG q90 poster to 3-9; such
 # a poster fails, and --fix only ships a lossless one in its place.
 POSTER_TOLERANCE = 3.0
+
+# A FAIL line says "dark start" when the frame at the item's start has a
+# mean Rec. 601 luma (0-255) below this. Measured with the pinned tools
+# (2026-11-09), frames taken as the poster recipe takes them:
+# - black or near-black starts: frame 0 of a fade-in from black 0.0
+#   (three synthetic 640x360 clips, one corpus cutscene); a corpus
+#   video's near-black first 0.25 s 1.7; one frame into a synthetic
+#   1.5-2 s fade at 24 fps 1.5-2.4 (two frames in: 2.9-5.2);
+# - real pictures, 452 videos from two corpus games, frames in the
+#   first 1-3 s: a credits video 9.9-11.9; 73 videos named as night
+#   scenes 10.8 at the darkest (median 36); every other frame 13.1 and
+#   up (medians 64 and 90); a synthetic dim night scene 17.1.
+# 6.0 sits in the gap between 2.4 and 9.9.
+DARK_START_LUMA = 6.0
+
+# Rec. 601 luma weights for R, G, B.
+_LUMA = (0.299, 0.587, 0.114)
 
 # Finding.status values.
 BY_LEDGER, BY_PIXELS, FAILED, SKIPPED = "ledger", "pixels", "failed", \
@@ -129,6 +149,51 @@ def video_items(manifest: dict[str, Any]) -> list[dict[str, Any]]:
             if isinstance(item, dict) and item.get("type") == "video"]
 
 
+_UNKNOWN_IDS_NAMED = 10  # an unknown-ids error names at most this many
+
+
+def read_items(path: Path) -> list[str]:
+    """The item ids a ``--items`` file lists: a JSON array of strings
+    when its first non-blank character is ``[``, else one id per line
+    (stripped; blank lines and lines starting with ``#`` ignored)."""
+    try:
+        text = path.read_text(encoding="utf-8-sig")
+    except (OSError, UnicodeDecodeError) as exc:
+        raise InputError(f"{path}: cannot read the items file: {exc}") \
+            from exc
+    if not text.lstrip().startswith("["):
+        return [line for line in (raw.strip() for raw in text.splitlines())
+                if line and not line.startswith("#")]
+    try:
+        ids = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise InputError(f"{path}: not a JSON array of item ids: {exc}") \
+            from exc
+    if not isinstance(ids, list) or not all(isinstance(i, str)
+                                            for i in ids):
+        raise InputError(f"{path}: not a JSON array of item ids (strings)")
+    return ids
+
+
+def select_items(manifest: dict[str, Any], path: Path) -> set[str]:
+    """The ids the ``--items`` file `path` lists, InputError naming
+    those that are no manifest item's id, so a typo cannot select
+    nothing. Ids of items that are not videos select nothing."""
+    ids = read_items(path)
+    known = {item["id"] for item in manifest["items"]
+             if isinstance(item, dict) and isinstance(item.get("id"), str)}
+    unknown = [i for i in dict.fromkeys(ids) if i not in known]
+    if unknown:
+        named = ", ".join(json.dumps(i) for i in
+                          unknown[:_UNKNOWN_IDS_NAMED])
+        more = len(unknown) - _UNKNOWN_IDS_NAMED
+        are = "id is not a manifest item id" if len(unknown) == 1 else \
+            "ids are not manifest item ids"
+        raise InputError(f"{path}: {len(unknown)} listed {are}: {named}"
+                         + (f" and {more} more" if more > 0 else ""))
+    return set(ids)
+
+
 def _number(value: Any) -> int | float | None:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return None
@@ -166,7 +231,7 @@ class Finding:
     status: str = ""
     recorded: list[int | float] = field(default_factory=list)
     why: str = ""
-    difference: float | None = None
+    pixels: Comparison | None = None
 
     @property
     def id(self) -> str:
@@ -185,12 +250,20 @@ class Finding:
     def line(self) -> str:
         recorded = ", ".join(dict.fromkeys(json.dumps(v)
                                            for v in self.recorded))
-        difference = ("unknown" if self.difference is None
-                      else f"{self.difference:.2f}")
+        pixels = self.pixels
+        if pixels is None:
+            difference = "unknown"
+            luma = "start luma unknown, poster luma unknown"
+        else:
+            difference = f"{pixels.difference:.2f}"
+            luma = (f"start luma {pixels.start_luma:.1f}, poster luma "
+                    f"{pixels.poster_luma:.1f}"
+                    + (", dark start" if pixels.start_luma < DARK_START_LUMA
+                       else ""))
         return (f"FAIL {self.id}: file {self.file}, startSeconds "
                 f"{json.dumps(self.start)}, poster startSeconds "
                 f"{recorded or 'none'}, difference {difference} "
-                f"({self.why})")
+                f"({self.why}), {luma}")
 
 
 def _by_ledger(finding: Finding, index: dict[str, list[dict]]) -> None:
@@ -229,11 +302,14 @@ def _by_ledger(finding: Finding, index: dict[str, list[dict]]) -> None:
 def check(manifest: dict[str, Any], index: dict[str, list[dict]],
           folder: Path, root: Path, decoders: list[Decoder],
           first_frame: set[str], first_frame_all: bool, jobs: int,
-          work: Path) -> list[Finding]:
-    """A finding per video item, in manifest order. `index` is
+          work: Path, items: set[str] | None = None) -> list[Finding]:
+    """A finding per video item, in manifest order: every one, or those
+    whose id `items` holds (``select_items``). `index` is
     ``made_index`` of the ledgers; `work` an empty scratch dir."""
     findings: list[Finding] = []
     for item in video_items(manifest):
+        if items is not None and item.get("id") not in items:
+            continue
         finding = Finding(item, _number(item.get("startSeconds")) or 0)
         if first_frame_all or finding.file in first_frame:
             finding.status = SKIPPED
@@ -246,11 +322,15 @@ def check(manifest: dict[str, Any], index: dict[str, list[dict]],
     return findings
 
 
-def summary(findings: list[Finding]) -> str:
+def summary(findings: list[Finding], of: int | None = None) -> str:
+    """The summary line; `of` is the manifest's video item count when
+    ``--items`` selected `findings` from them."""
     counts = Counter(f.status for f in findings)
     checked = len(findings) - counts[SKIPPED]
     passed = counts[BY_LEDGER] + counts[BY_PIXELS]
-    return (f"posters: {len(findings)} video items: {checked} checked, "
+    items = (f"{len(findings)} video items" if of is None else
+             f"{len(findings)} of {of} video items selected")
+    return (f"posters: {items}: {checked} checked, "
             f"{passed} passed ({counts[BY_LEDGER]} by ledger, "
             f"{counts[BY_PIXELS]} by pixels), {counts[FAILED]} failed, "
             f"{counts[SKIPPED]} skipped (first frame)")
@@ -277,14 +357,29 @@ def _rgb(path: Path) -> Any:
                          f"{type(exc).__name__}: {exc}") from exc
 
 
-def pixel_difference(poster: Path, video: Path, start: int | float,
-                     work: Path) -> float:
-    """Mean absolute difference per channel (0-255) between `poster` and
-    the frame of `video` at `start`, both 8-bit RGB. The frame is
-    the one the poster recipe takes (``assets.frame_args``, pinned
-    ffmpeg). A frame one column or row bigger (a transcode pads an odd
-    source) is cropped to the poster. PixelError when either cannot be
-    decoded or the sizes differ otherwise."""
+class Comparison(NamedTuple):
+    """A poster against the frame at its item's start, both 0-255:
+    their mean absolute difference per channel, and the mean Rec. 601
+    luma of each."""
+
+    difference: float
+    start_luma: float
+    poster_luma: float
+
+
+def _mean_luma(rgb: Any) -> float:
+    import numpy
+
+    return float((rgb.astype(numpy.float64) @ _LUMA).mean())
+
+
+def compare_pixels(poster: Path, video: Path, start: int | float,
+                   work: Path) -> Comparison:
+    """`poster` against the frame of `video` at `start`, both 8-bit RGB.
+    The frame is the one the poster recipe takes (``assets.frame_args``,
+    pinned ffmpeg). A frame one column or row bigger (a transcode pads
+    an odd source) is cropped to the poster. PixelError when either
+    cannot be decoded or the sizes differ otherwise."""
     import numpy
 
     picture = _rgb(poster)
@@ -303,8 +398,9 @@ def pixel_difference(poster: Path, video: Path, start: int | float,
             raise PixelError(f"poster is {width}x{height}, the frame "
                              f"{fw}x{fh}")
         frame = frame[:height, :width]
-    return float(numpy.abs(picture.astype(numpy.int16)
-                           - frame.astype(numpy.int16)).mean())
+    difference = float(numpy.abs(picture.astype(numpy.int16)
+                                 - frame.astype(numpy.int16)).mean())
+    return Comparison(difference, _mean_luma(frame), _mean_luma(picture))
 
 
 class _FrameSources:
@@ -381,9 +477,9 @@ class _FrameSources:
 
 def _compare(pending: list[Finding], sources: _FrameSources, folder: Path,
              jobs: int, work: Path) -> None:
-    """Fill in each finding's pixel difference, and settle _UNKNOWN ones
-    by it. Each distinct (poster, frame source, start) is compared once,
-    up to `jobs` at a time."""
+    """Fill in each finding's pixel comparison, and settle _UNKNOWN ones
+    by its difference. Each distinct (poster, frame source, start) is
+    compared once, up to `jobs` at a time."""
     groups: dict[tuple[Any, ...], list[Finding]] = {}
     for finding in pending:
         poster = folder / finding.poster if finding.poster else None
@@ -391,32 +487,32 @@ def _compare(pending: list[Finding], sources: _FrameSources, folder: Path,
                finding.start)
         groups.setdefault(key, []).append(finding)
 
-    def one(key: tuple[Any, ...]) -> tuple[float | None, str]:
+    def one(key: tuple[Any, ...]) -> tuple[Comparison | None, str]:
         poster, video, _, start = key
         if poster is None or not poster.is_file():
             return None, "poster file not in the folder"
         if video is None:
             return None, "video file not in the folder"
         try:
-            return pixel_difference(poster, video, start, work), ""
+            return compare_pixels(poster, video, start, work), ""
         except PixelError as exc:
             return None, str(exc)
 
     keys = list(groups)
     with ThreadPoolExecutor(max(1, jobs)) as pool:
         results = list(pool.map(one, keys))
-    for key, (difference, problem) in zip(keys, results):
+    for key, (pixels, problem) in zip(keys, results):
         for finding in groups[key]:
-            finding.difference = difference
+            finding.pixels = pixels
             if problem:
                 finding.why += f", {problem}"
             if finding.status != _UNKNOWN:
                 continue
-            if difference is not None and difference <= POSTER_TOLERANCE:
+            if pixels is not None and pixels.difference <= POSTER_TOLERANCE:
                 finding.status = BY_PIXELS
             else:
                 finding.status = FAILED
-                if difference is not None:
+                if pixels is not None:
                     finding.why += f", above {POSTER_TOLERANCE}"
 
 

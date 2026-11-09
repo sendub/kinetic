@@ -780,8 +780,11 @@ draft manifest kept outside the folder, add `--manifest
 path/to/manifest.json`. A good run exits 0 and ends `posters: N video
 items: N checked, N passed (...), 0 failed, 0 skipped (first frame)`.
 Exit 1 lists each wrong poster on a `FAIL <id>: ...` line with the
-item's `startSeconds`, the start the ledger records for its poster and
-the pixel difference. The check writes nothing.
+item's `startSeconds`, the start the ledger records for its poster,
+the pixel difference and the mean luma of the start frame and of the
+poster; `dark start` there means the item starts on a black or nearly
+black frame, so the poster may have been moved past a fade-in on
+purpose. The check writes nothing.
 
 To fix them, add `--fix` and say where the remap goes:
 
@@ -801,6 +804,15 @@ regenerate `manifest.js`, and run the check again, which now exits 0.
 Running `--fix` again before you apply the remap changes nothing. An
 item it cannot fix (`NOT FIXABLE <id>: ...`, for example a video the
 ledger has no entry for) makes it exit 1; fix that item by hand.
+
+To gate a single shipment rather than the whole folder, list its item
+ids in a file (a JSON array of strings, or one id per line, with `#`
+comment lines) and add `--items ~/games/rainy-kinetic/ep3-items.txt`.
+Only those items are checked, and with `--fix` only they are shipped
+and remapped. The summary starts `posters: 12 of 1504 video items
+selected:`. The list may hold the shipment's text and image items too,
+which are ignored, but an id that is not in the manifest stops the run
+(exit 2) so a typo cannot pass the gate.
 
 A hand-made folder that cannot decode to seek may keep first-frame
 posters (docs/content-format.md, "Video playback ranges"): name those

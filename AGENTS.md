@@ -43,7 +43,8 @@ are implementing and docs/stack.md for settled decisions.
   matches).
 - Check that each video item's poster is the frame at its
   `startSeconds`: `.venv/bin/kinetic-media posters <game_root> <folder>
-  [--manifest FILE]` (writes nothing; exit 1 lists the wrong ones);
+  [--manifest FILE] [--items FILE]` (writes nothing; exit 1 lists the
+  wrong ones; `--items` limits it to listed ids);
   `--fix --remap FILE` ships the right ones and writes item id -> new
   poster for the caller to apply (docs/extracting.md, "kinetic-media
   posters").

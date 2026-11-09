@@ -1,4 +1,4 @@
-"""`kinetic-media posters` (docs/plan.md Phase 44, item 1).
+"""`kinetic-media posters` (docs/plan.md Phase 44, item 1; Phase 45).
 
 A video item's poster must be the frame at its ``startSeconds``
 (docs/content-format.md, "Video playback ranges"). The check passes a
@@ -8,6 +8,11 @@ cannot say. It writes nothing. ``--fix`` ships one poster per distinct
 (video source, startSeconds) through the ship code and writes the remap
 (item id -> new poster) and the requests it shipped; a second ``--fix``
 changes nothing, and the remapped manifest passes.
+
+Phase 45: ``--items FILE`` limits the check and the fix to the listed
+item ids, and each ``FAIL`` line ends with the mean Rec. 601 luma of the
+start frame and of the poster, plus ``dark start`` when the start frame
+is below ``DARK_START_LUMA``.
 """
 
 from __future__ import annotations
@@ -16,6 +21,7 @@ import json
 import subprocess
 from pathlib import Path
 
+import numpy
 import pytest
 
 import extra_hook
@@ -126,11 +132,21 @@ def summary(out: str) -> str:
     return line
 
 
-def frame_pixels(video_path: Path, start: float, tmp: Path) -> bytes:
+def frame_image(video_path: Path, start: float, tmp: Path):
     frame = tmp / f"frame-{video_path.stem}-{start}.png"
     assert assets.ffmpeg_error(assets.frame_args(start), video_path,
                                frame) is None
-    return open_image(frame).convert("RGB").tobytes()
+    return open_image(frame).convert("RGB")
+
+
+def frame_pixels(video_path: Path, start: float, tmp: Path) -> bytes:
+    return frame_image(video_path, start, tmp).tobytes()
+
+
+def mean_luma(image) -> float:
+    """Mean Rec. 601 luma (0.299 R + 0.587 G + 0.114 B, 0-255)."""
+    pixels = numpy.asarray(image.convert("RGB"), dtype=numpy.float64)
+    return float((pixels @ [0.299, 0.587, 0.114]).mean())
 
 
 def spy_ffmpeg(monkeypatch: pytest.MonkeyPatch) -> list[list[str]]:
@@ -278,8 +294,8 @@ def test_poster_of_another_video_fails(root: Path, tmp_path: Path,
     found = fails(capsys.readouterr().out)
     assert list(found) == ["mixed"]
     assert "poster startSeconds 1.0" in found["mixed"]
-    assert found["mixed"].endswith("(ledger: poster made from another "
-                                   "source)")
+    assert "(ledger: poster made from another source), start luma " in \
+        found["mixed"]
     remap = tmp_path / "remap.json"
     assert run(root, folder, "--fix", "--remap", str(remap)) == 0
     assert json.loads(remap.read_text("utf-8")) == {"mixed": a1["poster"]}
@@ -465,10 +481,13 @@ def test_pixel_difference_is_zero_for_the_exact_frame(
     frame0.write_bytes(jpeg_poster(a, 0.0, tmp_path))
     work = tmp_path / "work"
     work.mkdir()
-    assert posters.pixel_difference(lossless, a, 1.0, work) == 0.0
-    assert posters.pixel_difference(jpeg, a, 1.0, work) \
+    exact = posters.compare_pixels(lossless, a, 1.0, work)
+    assert exact.difference == 0.0
+    assert exact.start_luma == exact.poster_luma == mean_luma(
+        open_image(lossless))
+    assert posters.compare_pixels(jpeg, a, 1.0, work).difference \
         <= posters.POSTER_TOLERANCE
-    assert posters.pixel_difference(frame0, a, 1.0, work) \
+    assert posters.compare_pixels(frame0, a, 1.0, work).difference \
         > posters.POSTER_TOLERANCE
 
 
@@ -581,3 +600,238 @@ def test_cannot_start_exits_2(root: Path, tmp_path: Path,
         assert media_main(["posters", *case]) == 2, case
         assert capsys.readouterr().err.strip(), case
     assert snapshot(tmp_path) == before
+
+
+# --- 7. --items: one shipment's items ----------------------------------------
+
+def items_file(path: Path, ids: list[str], as_json: bool = True) -> Path:
+    path.write_text(json.dumps(ids) if as_json else "\n".join(ids) + "\n",
+                    encoding="utf-8")
+    return path
+
+
+def poster_starts(folder: Path) -> list[float]:
+    """Every poster startSeconds the folder's media ledger records."""
+    return sorted(step["startSeconds"]
+                  for entry in ledger_of(folder)["media"].values()
+                  for step in entry.get("steps", [])
+                  if step.get("step") == "poster")
+
+
+def test_items_limits_the_check_and_the_fix_to_the_listed_items(
+        root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str]) -> None:
+    """x1, x2, x3 and y1 all fail; only x1 and y1 are listed. x2 needs
+    the very poster x1's fix ships, and x3 one of its own: neither is
+    reported, shipped or remapped."""
+    folder, manifest = frame0_folder(root, tmp_path)
+    listed = items_file(tmp_path / "shipment.json", ["x1", "y1"])
+    before = snapshot(tmp_path)
+    capsys.readouterr()
+
+    assert run(root, folder, "--items", str(listed)) == 1
+
+    out = capsys.readouterr().out
+    assert sorted(fails(out)) == ["x1", "y1"]
+    assert summary(out) == ("posters: 2 of 5 video items selected: "
+                            "2 checked, 0 passed (0 by ledger, 0 by "
+                            "pixels), 2 failed, 0 skipped (first frame)")
+    assert snapshot(tmp_path) == before
+
+    # --first-frame still applies inside the selection.
+    items = {i["id"]: i for i in json.loads(manifest.read_text())["items"]}
+    assert run(root, folder, "--items", str(listed),
+               "--first-frame", items["x1"]["file"]) == 1
+    out = capsys.readouterr().out
+    assert list(fails(out)) == ["y1"]
+    assert summary(out) == ("posters: 2 of 5 video items selected: "
+                            "1 checked, 0 passed (0 by ledger, 0 by "
+                            "pixels), 1 failed, 1 skipped (first frame)")
+
+    monkeypatch.setenv("KINETIC_MEDIA_CACHE", "off")
+    steps = spy_file_steps(monkeypatch)
+    remap_file, out_file = tmp_path / "remap.json", tmp_path / "requests.json"
+    assert run(root, folder, "--items", str(listed), "--fix",
+               "--remap", str(remap_file), "--out", str(out_file)) == 0
+    assert steps == ["poster", "poster"]
+    assert json.loads(out_file.read_text("utf-8")) == [at(A, 1.0),
+                                                       at(B, 1.0)]
+    remap = json.loads(remap_file.read_text("utf-8"))
+    assert list(remap) == ["x1", "y1"]
+    assert 2.0 not in poster_starts(folder)  # x3's poster was not made
+
+    # The listed items now pass; the unlisted ones still fail.
+    apply_remap(manifest, remap)
+    capsys.readouterr()
+    assert run(root, folder, "--items", str(listed)) == 0
+    assert run(root, folder) == 1
+    assert sorted(fails(capsys.readouterr().out)) == ["x2", "x3"]
+
+
+def test_items_file_may_be_json_or_one_id_per_line(
+        root: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+        ) -> None:
+    folder, _ = frame0_folder(root, tmp_path)
+    as_json = tmp_path / "items.json"
+    as_json.write_text('\n  [\n "x3", "ok", "x3"\n]\n', encoding="utf-8")
+    as_lines = tmp_path / "items.txt"
+    as_lines.write_text("# shipment 3\n\n  x3  \n\tok\n   # not an id\n\n",
+                        encoding="utf-8")
+    reports = []
+    for listed in (as_json, as_lines):
+        capsys.readouterr()
+        assert run(root, folder, "--items", str(listed)) == 1
+        reports.append(capsys.readouterr().out)
+    assert reports[0] == reports[1]
+    assert list(fails(reports[0])) == ["x3"]
+    assert summary(reports[0]).startswith(
+        "posters: 2 of 5 video items selected: 2 checked, 1 passed ")
+
+
+def test_unknown_item_ids_exit_2_and_are_named(
+        root: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+        ) -> None:
+    folder, _ = frame0_folder(root, tmp_path)
+    typo = items_file(tmp_path / "typo.json", ["x1", "xl", "pick"])
+    many = items_file(tmp_path / "many.txt",
+                      ["x1", *(f"u{n:02}" for n in range(1, 13))],
+                      as_json=False)
+    remap = tmp_path / "remap.json"
+    before = snapshot(tmp_path)
+
+    capsys.readouterr()
+    assert run(root, folder, "--items", str(typo)) == 2
+    err = capsys.readouterr().err
+    # "pick" is a branch id, not an item id.
+    assert '"xl"' in err and '"pick"' in err and '"x1"' not in err
+    assert str(typo) in err
+
+    assert run(root, folder, "--items", str(many), "--fix",
+               "--remap", str(remap)) == 2
+    err = capsys.readouterr().err
+    assert all(f'"u{n:02}"' in err for n in range(1, 11))
+    assert '"u11"' not in err and '"u12"' not in err
+    assert "12" in err and "2 more" in err
+    assert snapshot(tmp_path) == before
+
+
+def test_non_video_item_ids_are_ignored(
+        root: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+        ) -> None:
+    folder, manifest = frame0_folder(root, tmp_path)
+    data = json.loads(manifest.read_text("utf-8"))
+    data["items"].insert(0, {"id": "say", "type": "text",
+                             "text": "It was raining."})
+    manifest.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    capsys.readouterr()
+
+    assert run(root, folder, "--items",
+               str(items_file(tmp_path / "mixed.json", ["say", "x1"]))) == 1
+    out = capsys.readouterr().out
+    assert list(fails(out)) == ["x1"]
+    assert summary(out).startswith("posters: 1 of 5 video items selected: "
+                                   "1 checked, ")
+
+    # Only non-video ids: nothing selected, which is not an error.
+    text_only = items_file(tmp_path / "text.txt", ["say"], as_json=False)
+    before = contents(folder)
+    for extra in ([], ["--fix", "--remap", str(tmp_path / "remap.json")]):
+        capsys.readouterr()
+        assert run(root, folder, "--items", str(text_only), *extra) == 0
+        out = capsys.readouterr().out
+        assert fails(out) == {}
+        assert summary(out) == ("posters: 0 of 5 video items selected: "
+                                "0 checked, 0 passed (0 by ledger, 0 by "
+                                "pixels), 0 failed, 0 skipped (first "
+                                "frame)")
+    assert json.loads((tmp_path / "remap.json").read_text("utf-8")) == {}
+    assert contents(folder) == before
+
+
+@pytest.mark.parametrize("text", ['["x1", "y1"', '["x1", 3]',
+                                  '[["x1"]]', '  [{"id": "x1"}]'])
+def test_malformed_json_items_file_exits_2(
+        root: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str],
+        text: str) -> None:
+    folder, _ = frame0_folder(root, tmp_path)
+    listed = tmp_path / "items.json"
+    listed.write_text(text, encoding="utf-8")
+    capsys.readouterr()
+    assert run(root, folder, "--items", str(listed)) == 2
+    err = capsys.readouterr().err
+    assert str(listed) in err
+    assert run(root, folder, "--items", str(tmp_path / "none.json")) == 2
+
+
+def test_fix_with_items_twice_changes_nothing(
+        root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    folder, _ = frame0_folder(root, tmp_path)
+    listed = items_file(tmp_path / "items.txt", ["x1", "x3"], as_json=False)
+    first_remap, first_out = tmp_path / "remap1.json", tmp_path / "out1.json"
+    assert run(root, folder, "--items", str(listed), "--fix",
+               "--remap", str(first_remap), "--out", str(first_out)) == 0
+    assert list(json.loads(first_remap.read_text("utf-8"))) == ["x1", "x3"]
+    after_first = contents(folder)
+
+    monkeypatch.setenv("KINETIC_MEDIA_CACHE", "off")
+    steps = spy_file_steps(monkeypatch)
+    remap, out = tmp_path / "remap2.json", tmp_path / "out2.json"
+    assert run(root, folder, "--items", str(listed), "--fix",
+               "--remap", str(remap), "--out", str(out)) == 0
+    assert steps == []
+    assert contents(folder) == after_first
+    assert remap.read_bytes() == first_remap.read_bytes()
+    assert out.read_bytes() == first_out.read_bytes()
+
+
+# --- 8. luma on FAIL lines ---------------------------------------------------
+
+FADE = {"source": {"path": "clips/fade.mp4"}, "kind": "video"}
+
+
+def luma_fields(start: float, poster: float) -> str:
+    return f", start luma {start:.1f}, poster luma {poster:.1f}"
+
+
+def test_fail_lines_end_with_lumas_and_flag_a_dark_start(
+        root: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+        ) -> None:
+    """A clip that fades in from black, its item starting at 0 with a
+    poster made after the fade: a dark start next to a brighter poster.
+    A frame-0 poster on a later start of a normal clip: lumas, no dark
+    start. A poster that is not in the folder: no frame, so unknown."""
+    _encode(root / "clips" / "fade.mp4", 7, "-vf", "fade=t=in:st=0:d=1",
+            "-c:v", "libx264", "-pix_fmt", "yuv420p")
+    folder = tmp_path / "folder"
+    f0, f2, a0 = ship(root, folder, [FADE, at(FADE, 2.0), A])
+    missing = "media/00/" + "0" * 64 + ".png"
+    write_manifest(folder / "manifest.json", [
+        dict(video("lead-in", f0), poster=f2["poster"]),
+        video("late", a0, 1.0),
+        dict(video("lost", a0, 1.0), poster=missing)])
+    capsys.readouterr()
+
+    assert run(root, folder) == 1
+
+    found = fails(capsys.readouterr().out)
+    assert sorted(found) == ["late", "lead-in", "lost"]
+
+    dark = mean_luma(frame_image(root / "clips" / "fade.mp4", 0.0, tmp_path))
+    bright = mean_luma(open_image(folder / f2["poster"]))
+    assert dark < posters.DARK_START_LUMA < bright
+    assert found["lead-in"].startswith(
+        f"file {f0['file']}, startSeconds 0, poster startSeconds 2.0, "
+        "difference ")
+    assert found["lead-in"].endswith(
+        "(ledger: poster made at another start)"
+        + luma_fields(dark, bright) + ", dark start")
+
+    start = mean_luma(frame_image(root / "clips" / "a.mp4", 1.0, tmp_path))
+    poster = mean_luma(open_image(folder / a0["poster"]))
+    assert start >= posters.DARK_START_LUMA
+    assert found["late"].endswith("(ledger: poster made at another start)"
+                                  + luma_fields(start, poster))
+
+    assert "difference unknown (" in found["lost"]
+    assert found["lost"].endswith(
+        "), start luma unknown, poster luma unknown")

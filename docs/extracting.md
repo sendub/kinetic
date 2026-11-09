@@ -748,13 +748,13 @@ Exit codes:
 Checks that every video item's poster is the frame at the item's
 `startSeconds`, as docs/content-format.md ("Video playback ranges")
 requires, and with `--fix` ships the posters that are not
-(docs/plan.md Phase 44):
+(docs/plan.md Phases 44 and 45):
 
 ```sh
 .venv/bin/kinetic-media posters <game_root> <folder> [--manifest FILE] \
-    [--ledger FILE] [--first-frame FILE ...] [--first-frame-all] \
-    [--decoder MODULE:FUNC ...] [--fix --remap FILE] [--out FILE] \
-    [--jobs N] [--video-jobs N]
+    [--ledger FILE] [--items FILE] [--first-frame FILE ...] \
+    [--first-frame-all] [--decoder MODULE:FUNC ...] \
+    [--fix --remap FILE] [--out FILE] [--jobs N] [--video-jobs N]
 ```
 
 - `<game_root>`: the root the folder's media was shipped from. Ledger
@@ -767,6 +767,8 @@ requires, and with `--fix` ships the posters that are not
 - `--ledger FILE`: check against that ledger alone. The default is the
   folder's `build-ledger.json` and/or `media-ledger.json`, read together
   as `rebuild` reads them.
+- `--items FILE`: check, and fix, only the items it lists (Checking one
+  shipment, below).
 - `--decoder`: the hooks the media was shipped with, in the same order.
 - `--jobs N`: up to N pixel comparisons at once. `--fix` ships with
   `--jobs` and `--video-jobs` (Parallel workers, above).
@@ -824,20 +826,47 @@ lossless one in its place.
 One line per failing item, then a summary:
 
 ```text
-FAIL ep2-17: file media/3f/3f…e1.webm, startSeconds 2.5, poster startSeconds 0.0, difference 31.42 (ledger: poster made at another start)
+FAIL ep2-17: file media/3f/3f…e1.webm, startSeconds 2.5, poster startSeconds 0.0, difference 31.42 (ledger: poster made at another start), start luma 48.3, poster luma 52.0
+FAIL ep2-30: file media/8a/8a…07.webm, startSeconds 0, poster startSeconds 3.0, difference 71.06 (ledger: poster made at another start), start luma 0.0, poster luma 71.1, dark start
 posters: 144 video items: 144 checked, 10 passed (10 by ledger, 0 by pixels), 134 failed, 0 skipped (first frame)
 ```
 
 A `FAIL` line gives the item's id, `file` and `startSeconds`, the
 poster's recorded `startSeconds` (`none` when the ledger records none),
 the pixel difference (`unknown` when the poster or the frame cannot be
-decoded), and why:
+decoded), why, and the two frames' luma:
 
-- `ledger: poster made at another start` or `ledger: poster made from
-  another source`;
-- `pixels: poster not in the ledger`, `pixels: video not in the
-  ledger` or `pixels: the ledger records no poster startSeconds`,
-  followed by `above 3.0` or what could not be decoded.
+- why: `ledger: poster made at another start` or `ledger: poster made
+  from another source`; or `pixels: poster not in the ledger`,
+  `pixels: video not in the ledger` or `pixels: the ledger records no
+  poster startSeconds`, followed by `above 3.0` or what could not be
+  decoded.
+- `start luma` and `poster luma`: the mean Rec. 601 luma (0.299 R +
+  0.587 G + 0.114 B, 0-255) of the frame at the item's start and of the
+  poster, from the frames the pixel difference decoded (no extra
+  decoding). With no difference, both are `unknown`.
+- `dark start`, when the start frame's luma is below 6.0.
+
+A dark start next to a brighter poster suggests the poster was moved
+past a black or fade-in lead-in on purpose. The check still fails it:
+docs/content-format.md makes the poster the frame at the item's start,
+black or not.
+
+The threshold (`DARK_START_LUMA`, `converter/kinetic_extract/posters.py`)
+was measured with the pinned tools on synthetic fade-in clips and on
+452 videos from two corpus games (2026-11-09):
+
+| Frame | Mean luma |
+| --- | --- |
+| frame 0 of a fade-in from black (three synthetic clips, one game cutscene) | 0.0 |
+| a game video's near-black first 0.25 s (26 after it) | 1.7 |
+| one frame into a synthetic 1.5-2 s fade at 24 fps (two frames in) | 1.5-2.4 (2.9-5.2) |
+| a game's credits video | 9.9-11.9 |
+| 73 game videos named as night scenes | 10.8 at the darkest, median 36 |
+| every other game frame measured (first 1-3 s) | 13.1 and up, medians 64 and 90 |
+
+6.0 sits in the gap between the brightest near-black start (2.4) and
+the darkest real picture (9.9).
 
 `checked` counts the items not skipped; it is `passed` plus `failed`.
 
@@ -848,7 +877,8 @@ Exit codes:
 - 2: it cannot start: no manifest or ledger, a bad game root, media
   tools not ready, or bad arguments (`--fix` without `--remap`,
   `--remap` or `--out` without `--fix`, `--fix` with a `--ledger` other
-  than `<folder>/media-ledger.json`).
+  than `<folder>/media-ledger.json`, an `--items` file that cannot be
+  read or parsed, or one listing an id that is no manifest item).
 
 The check writes nothing: not the folder, a ledger or the reuse cache.
 Frames are decoded in a temporary directory that is deleted afterwards.
@@ -861,6 +891,46 @@ a manifest video `file` value) skips that file's items, and
 `--first-frame-all` skips every video item. Skipped items count under
 `skipped` and are never reported or fixed. The ledger format does not
 change.
+
+### Checking one shipment: --items
+
+`--items FILE` limits the check, and `--fix`, to the items it lists,
+for a delivery gate that checks only the shipment being delivered. The
+file is either:
+
+- a JSON array of item id strings, when its first non-blank character
+  is `[` (anything else in a file that starts that way, such as a
+  number in the array or a JSON syntax error, exits 2); or
+- one id per line: each line is stripped, and blank lines and lines
+  starting with `#` are ignored.
+
+```text
+# shipment 3
+ep3-001
+ep3-002
+```
+
+Rules:
+
+- An id that is no manifest item's id exits 2 and is named (the first
+  10, then how many more), so a typo cannot gate nothing. Branch and
+  route ids are not item ids.
+- The id of an item that is not a video is ignored, so the file can be
+  a shipment's full item list.
+- `--first-frame` and `--first-frame-all` still apply to the selected
+  items.
+- Items not listed are not checked, decoded, reported or fixed, and
+  never reach the remap or `--out`.
+- Selecting no video item is not an error: the run exits 0.
+
+The summary then says how many video items were selected out of the
+manifest's:
+
+```text
+posters: 12 of 1504 video items selected: 12 checked, 12 passed (12 by ledger, 0 by pixels), 0 failed, 0 skipped (first frame)
+```
+
+`--fix --items FILE` is idempotent like the unrestricted fix.
 
 ### Fixing: --fix
 

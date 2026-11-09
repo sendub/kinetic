@@ -12,8 +12,9 @@ Usage:
                           [--decoder MODULE:FUNC ...] [--out DIR]
                           [--jobs N] [--video-jobs N]
     kinetic-media posters <game_root> <folder> [--manifest FILE]
-                          [--ledger FILE] [--first-frame FILE ...]
-                          [--first-frame-all] [--decoder MODULE:FUNC ...]
+                          [--ledger FILE] [--items FILE]
+                          [--first-frame FILE ...] [--first-frame-all]
+                          [--decoder MODULE:FUNC ...]
                           [--fix --remap FILE] [--out FILE]
                           [--jobs N] [--video-jobs N]
 
@@ -59,7 +60,11 @@ tools, tools not ready).
 poster (``posters.py``): by the ledger's ``poster`` step (the folder's
 build and/or media ledger, or ``--ledger FILE``), else by comparing
 pixels within ``posters.POSTER_TOLERANCE``. It prints a ``FAIL`` line
-per wrong poster and a summary, and writes nothing. ``--first-frame
+per wrong poster, ending with the mean luma of the start frame and of
+the poster (``dark start`` below ``posters.DARK_START_LUMA``), and a
+summary, and writes nothing. ``--items FILE`` (a JSON array of ids, or
+one per line) limits the check and ``--fix`` to those items; an id that
+is no manifest item exits 2. ``--first-frame
 FILE`` and ``--first-frame-all`` skip items allowed a first-frame
 poster. ``--fix`` ships one poster per failing (video source,
 startSeconds) into ``<folder>`` through ``ship_requests``, the same code
@@ -67,8 +72,9 @@ as ``ship``, writes item id -> new poster to ``--remap FILE`` and the
 requests to ``--out FILE``; the caller applies the remap. Exit 0 when
 nothing fails (with ``--fix``: everything was fixed), 1 when anything
 fails (or is not fixable), 2 when it cannot start (no manifest or
-ledger, tools not ready, bad arguments, ``--fix`` with a ``--ledger``
-other than ``<folder>/media-ledger.json``).
+ledger, tools not ready, bad arguments, a bad ``--items`` file or an
+unknown id in it, ``--fix`` with a ``--ledger`` other than
+``<folder>/media-ledger.json``).
 """
 
 from __future__ import annotations
@@ -270,6 +276,8 @@ def posters_cmd(args: argparse.Namespace) -> int:
     try:
         manifest = posters.load_manifest(
             args.manifest or folder / posters.MANIFEST_NAME)
+        items = (None if args.items is None
+                 else posters.select_items(manifest, args.items))
         index = posters.made_index(posters.load_media(folder, args.ledger))
     except posters.InputError as exc:
         return _fail(str(exc), 2)
@@ -277,11 +285,13 @@ def posters_cmd(args: argparse.Namespace) -> int:
     with tempfile.TemporaryDirectory(prefix="kinetic-posters-") as work:
         findings = posters.check(manifest, index, folder, root.resolve(),
                                  args.decoder, set(args.first_frame),
-                                 args.first_frame_all, jobs, Path(work))
+                                 args.first_frame_all, jobs, Path(work),
+                                 items)
     failures = [f for f in findings if f.status == posters.FAILED]
     for finding in failures:
         print(finding.line())
-    print(posters.summary(findings))
+    print(posters.summary(findings, None if items is None
+                          else len(posters.video_items(manifest))))
     if not args.fix:
         return 1 if failures else 0
 
@@ -406,6 +416,13 @@ def main(argv: list[str] | None = None) -> int:
                           help="check against this ledger only (default: "
                                "<folder>/build-ledger.json and/or "
                                "media-ledger.json, as rebuild reads them)")
+    postersp.add_argument("--items", type=Path, default=None,
+                          metavar="FILE",
+                          help="check (and --fix) only these item ids: a "
+                               "JSON array of strings, or one id per line "
+                               "(# comments); an id that is no manifest "
+                               "item exits 2, a non-video item's is "
+                               "ignored")
     postersp.add_argument("--first-frame", action="append", default=[],
                           metavar="FILE",
                           help="a manifest video file whose items may keep "

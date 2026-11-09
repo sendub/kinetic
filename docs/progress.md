@@ -2603,7 +2603,7 @@ truthful: an unchecked box means nothing was accepted.
 
 ## Phase 45: Poster check by item, and dark starts (2026-11-09, converting agent)
 
-- [ ] `kinetic-media posters --items FILE` and luma columns
+- [x] `kinetic-media posters --items FILE` and luma columns
       (docs/plan.md Phase 45, items 1-2): `--items` (JSON array or one id
       per line) limits the check and `--fix` to those ids, exits 2 on ids
       not in the manifest, ignores non-video ids; each `FAIL` line ends
@@ -2614,4 +2614,21 @@ truthful: an unchecked box means nothing was accepted.
       clip that starts black and fades in reports a dark start and a
       brighter poster, a normal clip reports neither; `--fix` twice still
       changes nothing.
+      (2026-11-09: `read_items` and `select_items` filter before the
+      first-frame skip. The summary reads `N of M video items selected`.
+      Unknown ids are named, at most ten. `compare_pixels` returns the
+      difference and both Rec. 601 lumas from the frames it already
+      decodes. `DARK_START_LUMA` 6.0: fade-in starts measured 0.0-2.4,
+      the darkest real pictures 9.9 (credits) and 10.8 (night scenes)
+      across 452 corpus videos. The luma fields follow the `(why)`. Tests
+      ran red before the code (12 failed); faults with Rec. 709 weights
+      and with the poster's luma for the start were both caught. 23
+      posters tests. Orchestrator: posters, ship, lossless-poster and
+      rebuild tests 75 passed; npm test 912, check clean. Real data (a
+      converted corpus game), read-only: an unknown id exits 2 and is
+      named; a four-id list reports `4 of 1504 video items selected`.
+      The full run gives the same 429 failures in 431 s and leaves the
+      folder unchanged. None has a dark start: the lowest start luma is
+      17.8, and 30.3 among the 128 that start at 0 (median 84.9).
+      AGENTS.md's posters bullet now names `--items`.)
 - [ ] Phase-closer (Phase 45): full pytest, package-proof.
