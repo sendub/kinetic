@@ -17,6 +17,10 @@ decision; this file is the practical sheet.
 - The media the manifest references, plus unreferenced extras the
   converter leaves behind (such as `build-ledger.json`), which the
   player and the validator ignore.
+- Optionally `<title>.app`, the macOS app that plays the folder, built
+  only when the author asks: `tools/build_apps.py <folder> --mac`, or
+  `--mac` on `tools/assemble_folder.py` (CREATE.md, "Building the
+  apps").
 
 ## Building one
 
@@ -62,7 +66,9 @@ zip -r novel.zip novel-play
 
 The reader unzips anywhere and double-clicks `index.html`. Locally
 generated files carry no quarantine flag, so nothing prompts
-(docs/stack.md § Distribution decision).
+(docs/stack.md § Distribution decision). A downloaded zip is
+quarantined, so the macOS app in it will not open there; its readers
+use `index.html` (CREATE.md, "Building the apps").
 
 ## Size expectations
 
@@ -82,14 +88,14 @@ files, about 440 KB; the extracted one-video slice to 13 files, about
 - There is no audio by design (README.md), and videos are muted; nothing
   a reader plugs in changes that.
 
-## Tauri and signing: revisit trigger, not built
+## Tauri: superseded by the game apps
 
-If a signed `.app` is wanted later (own icon in Applications, Spotlight
-results), the path from docs/stack.md § Revisit triggers is a Tauri v2
-wrapper: a small Rust binary over the system webview that ships these
-same static files, with nothing inside the app changing. It needs a Rust
-toolchain the user installs, and the current folder shape already
-satisfies distribution, so it stays unbuilt until that trigger fires.
+This section once held a Tauri v2 wrapper in reserve for the day a real
+`.app` was wanted (docs/stack.md § Revisit triggers). The per-game apps
+replace it (docs/plan.md Phase 43): the macOS app is a small Swift
+program over the system WebKit that `tools/build_apps.py` compiles
+with Xcode or the Command Line Tools and signs ad hoc, so no Rust
+toolchain is needed and the folder's files stay as they are beside it.
 
 ## Proof
 

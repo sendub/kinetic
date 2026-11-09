@@ -4,10 +4,11 @@
 Usage:
 
     python tools/assemble_folder.py <content-dir> <out-folder> [--force]
+        [--mac [--icon IMAGE]]
 
 Exit status: 0 on success, 1 when the output folder is non-empty without
---force or a required input is missing, 2 when the arguments or paths are
-unusable.
+--force, a required input is missing or the app cannot be built, 2 when
+the arguments or paths are unusable.
 
 The output folder holds exactly what this script places in it, so a novel
 double-clicks open over `file://` with nothing else on disk:
@@ -23,6 +24,10 @@ double-clicks open over `file://` with nothing else on disk:
   in CREATE.md and checked by tools/validate_content.py.
 
 Prints the assembled folder's file count and total size.
+
+`--mac` (and `--icon IMAGE`) then add the macOS app to the folder with
+tools/build_apps.py's build, checked before anything is copied (the
+manifest's storyId, the Swift toolchain, the icon picture).
 """
 
 from __future__ import annotations
@@ -32,6 +37,8 @@ import json
 import shutil
 import sys
 from pathlib import Path
+
+import build_apps
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 BUNDLE_NAMES = ("index.html", "app.js")
@@ -81,12 +88,23 @@ def main(argv: list[str]) -> None:
     parser.add_argument("out_folder", help="self-contained folder to create")
     parser.add_argument("--force", action="store_true",
                         help="replace a non-empty output folder")
+    parser.add_argument("--mac", action="store_true",
+                        help="then add <title>.app (tools/build_apps.py)")
+    parser.add_argument("--icon", type=Path, metavar="IMAGE",
+                        help="the app's icon (tools/build_apps.py --icon)")
     args = parser.parse_args(argv[1:])
 
     content = Path(args.content_dir)
     if not content.is_dir():
         fail(2, f"content dir {content} is not a directory")
     out = Path(args.out_folder)
+    if args.icon is not None and not args.mac:
+        fail(2, "--icon goes with --mac")
+    if args.mac:
+        try:
+            build_apps.prepare_mac(content, args.icon)
+        except build_apps.BuildError as exc:
+            fail(1, str(exc))
 
     dist = REPO_ROOT / "player" / "dist"
     for name in BUNDLE_NAMES:
@@ -117,6 +135,12 @@ def main(argv: list[str]) -> None:
     print(f"assembled {out}: {count} files, {size} bytes "
           f"({size / (1024 * 1024):.2f} MiB)"
           + ("; generated manifest.js" if generated else ""))
+
+    if args.mac:
+        try:
+            build_apps.build_mac_app(out, args.icon)
+        except build_apps.BuildError as exc:
+            fail(1, str(exc))
 
 
 if __name__ == "__main__":

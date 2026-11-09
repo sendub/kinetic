@@ -22,6 +22,11 @@ are implementing and docs/stack.md for settled decisions.
   <out>`; it refuses to start until that setup has passed. Tests
   `.venv/bin/pytest converter/ tools/ -q -n auto` (pytest-xdist, one
   worker per core, about 45 s; a single file runs fine without `-n`).
+- Game apps: `.venv/bin/python tools/build_apps.py <game-folder> --mac
+  [--icon IMAGE]` adds `<title>.app` (needs macOS and a Swift
+  toolchain); `tools/assemble_folder.py` takes the same flags (CREATE.md,
+  "Building the apps"). Never launch a built app on the user's screen
+  unasked.
 - Media only, no story parse: `.venv/bin/kinetic-media ship <game_root>
   <out> --list requests.json` (format: docs/extracting.md). Both
   `ship` and `rebuild` take `--jobs N` (default: one per core) and

@@ -2269,12 +2269,33 @@ truthful: an unchecked box means nothing was accepted.
       pass, check clean; full WebKit suite 348 checks, 345 pass, 3 PARTIAL
       (element fullscreen, off in WKWebView), 0 fail, 176 s; full Chrome
       suite 346 pass, 2 PARTIAL, 0 fail, 137 s.)
-- [ ] The macOS app (item 7): `tools/build_apps.py --mac [--icon]` and the
+- [x] The macOS app (item 7): `tools/build_apps.py --mac [--icon]` and the
       same flags on `assemble_folder.py`; pytest for the options, the
-      non-Mac error and the icon; the demo built with the app, opened through
-      the driver-free path (the app's own launch) with fullscreen, Esc,
-      reload, Export and Import checked; CREATE.md, docs/packaging.md and
-      docs/stack.md.
+      non-Mac error and the icon; the demo built with the app; CREATE.md,
+      docs/packaging.md and docs/stack.md. The user's launch check
+      (fullscreen, Esc, reload, Export, Import) moved to the phase closer,
+      after item 9 changes the app again.
+      (2026-11-09: `apps/macos/app/main.swift` compiles the shared
+      `WebViewSetup.swift` with persistent storage; the prototype's
+      behaviour without its test hooks, title from Info.plist
+      `KineticTitle`, an explaining alert when index.html is not beside
+      it, a reload if the page's process crashes. `tools/build_apps.py`:
+      `--mac` required (usage, exit 2, without it), `storyId` required
+      (bundle id `org.kinetic.game.<storyId>`), safe file name from the
+      title, arm64 macOS 12+, ad-hoc signed, built in a hidden folder
+      beside the game folder and renamed into place, replaces only an app
+      it built; one error and nothing written without macOS and a Swift
+      toolchain (`xcode-select -p` checked before `xcrun`). Icon from
+      `--icon` (PNG, JPEG, WebP, GIF, JPEG XL via imagecodecs) or the
+      first picture in the manifest, centred square, ICNS 32-1024 px.
+      48 pytest tests including one real build (codesign --verify
+      --strict, plutil -lint, arm64 only, minos 12.0, the shared source
+      linked in), three injected faults caught. Orchestrator: pytest
+      test_build_apps and test_validate_content 169 passed; package-proof
+      18/18; npm test 821 pass, check clean; WebKit smoke 6/6; the demo
+      app at `.tmp/p43i7/demo/Kinetic demo.app` is signed ad hoc as
+      `org.kinetic.game.kinetic-demo`. Not launched: the user is at the
+      machine.)
 - [ ] The Windows app (item 8): `--windows` builds `<title>.exe` with its
       icon; Go unit tests (file URL, browser lookup), pytest for the option
       and the missing-Go error; the PE's icon resource read back in a test;
@@ -2289,4 +2310,6 @@ truthful: an unchecked box means nothing was accepted.
       tests, and a CREATE.md worked example run against the demo on both
       engines.
 - [ ] Phase-closer (Phase 43): full scenario suite on Chrome and on WebKit,
-      full pytest, package-proof.
+      full pytest, package-proof; the user plays the demo's macOS app and
+      Windows exe (fullscreen, Esc, reload, Export, Import, Exit, the
+      Fullscreen / Window toggle).

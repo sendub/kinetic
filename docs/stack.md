@@ -37,7 +37,7 @@ From README.md:
 | Option | Verdict | Reason |
 | --- | --- | --- |
 | Electron | Rejected | Ships Chromium (~100 MB+): a runtime dependency and a gatekeeper-sized binary. Everything else it buys, the browser gives free. |
-| Tauri v2 | Deferred | ~5 MB Rust binary over system WKWebView; the best native story, and v2 is current (verified at v2.tauri.app). Needs a Rust install this machine lacks, plus two toolchains to operate. Kept as an optional packaging phase. |
+| Tauri v2 | Superseded | ~5 MB Rust binary over system WKWebView; the best native story, and v2 is current (verified at v2.tauri.app). Needs a Rust install this machine lacks, plus two toolchains to operate. Was kept as an optional packaging phase; the per-game apps (Distribution decision) replace it with no Rust. |
 | Swift / AppKit | Rejected | Smallest footprint, most work: windowing, text layout, image caching, video layer, and build tooling all hand-written. Slowest loop for implementing subagents. |
 | Godot / LÖVE / pygame-ce | Rejected | Game-loop frameworks; video needs third-party bindings, overlay text and bookmark-list UI are awkward, unsigned app bundles draw gatekeeper attention. Overkill for a keyed slideshow. |
 | Static web app in an installed browser | Chosen | README explicitly allows browser display. Every needed capability is a native web API: `HTMLVideoElement` (hardware H.264), `createImageBitmap` for pre-decode, IndexedDB for bookmarks/config, keyboard and wheel events, Fullscreen API. Zero added runtime; content is plain files, so gatekeeper checks nothing but the browser. Dev loop is `npm run dev` plus reload. |
@@ -143,11 +143,34 @@ above (classic script bundle, generated `manifest.js` shim, media via
 relative tag loads) are what make this work; IndexedDB is available on
 `file://` in Chrome and Safari.
 
+Per-game apps (docs/plan.md Phase 43, the user, 2026-11-08) are now part
+of distribution, built only when the author asks (CREATE.md, "Building
+the apps"). The game is still a self-contained folder, and `index.html`
+stays the route everywhere.
+
+- macOS: `<title>.app` inside the game folder shows the folder through
+  the system WebKit (WKWebView) with its own name and Dock icon,
+  fullscreen from launch. It is arm64 only, needs macOS 12 or later and
+  is signed ad hoc by `tools/build_apps.py`. It holds only its binary,
+  so no check reads the media beside it.
+- Windows comes next: an exe that opens the folder in a Microsoft Edge
+  app window.
+
+Gatekeeper assesses only files that carry the quarantine flag. A folder
+the author builds locally has none, so the app opens with no check. A
+folder downloaded as a zip is quarantined: its ad-hoc signed app is then
+refused, and App Translocation would run it away from its folder, so
+readers of a download use `index.html` or clear the flag. The first time
+the app opens from Documents, Desktop or Downloads, macOS asks once for
+access to that folder. An ad-hoc signature changes with every build, so
+a rebuilt app asks again.
+
 ## Revisit triggers
 
-- User later wants a real .app (own icon in Applications, Spotlight
-  results): add a Tauri packaging phase (needs `rustup` installed by the
-  user; nothing in the app changes, Tauri wraps the same static files).
+- User later wants a real .app: superseded by the per-game apps in the
+  Distribution decision above (a Swift WebKit host on macOS, built with
+  Xcode or the Command Line Tools), so no Tauri packaging phase and no
+  Rust.
 - Measured navigation p95 above 41 ms on real content: revisit bitmap
   counts, tiling, or a WebGL presenter before touching anything else.
 - A real Ren'Py input needs constructs beyond the parse subset: extend the

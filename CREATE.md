@@ -886,6 +886,75 @@ play through once. A media item followed by `text` items holds for its
 text alone while its animation or video loops underneath, and each
 `text` item holds for the length of its text.
 
+On a Mac the folder can also hold an app that readers open instead of
+`index.html` (Building the apps, below).
+
+## Building the apps
+
+A game folder can also hold a macOS app, `<title>.app`. A reader
+double-clicks it instead of `index.html`, and it shows the game through
+the Mac's own WebKit (the engine Safari uses) with the game's name and
+Dock icon, fullscreen from the start, with Esc and reload left to the
+game. The app holds only a small program. It plays the `index.html`,
+`app.js` and media beside it, so nothing is copied into it and no macOS
+check reads the media. `index.html` keeps working everywhere and stays
+the route for every other reader. A Windows app comes next.
+
+Add the app to an assembled folder, or assemble with it:
+
+```sh
+.venv/bin/python tools/build_apps.py novel-play --mac
+.venv/bin/python tools/assemble_folder.py my-novel novel-play --mac --icon cover.png
+```
+
+- `--mac` adds `<title>.app`, named from the manifest `title`, with `/`
+  and `:` written as `-` (the folder's name when there is no title). The
+  manifest needs a `storyId` (Manifest, above), since the app keeps
+  readers' progress under its bundle id, `org.kinetic.game.<storyId>`
+  (`_` written as `-`). The build refuses a manifest without one.
+  Building again replaces the app the build made before, and a failed
+  build leaves the folder as it was. After a title change the build names
+  the app left under the old title; delete it yourself.
+- `--icon IMAGE` names the icon picture: a PNG, JPEG, WebP, GIF or JPEG
+  XL file, cut to the largest square in its middle. Without it the icon
+  is the game's first graphic: the first item with a picture, which is an
+  image, an animation's first frame or a video's poster. A picture that
+  cannot be read stops the build and names the file.
+- With no `--mac`, `build_apps.py` prints its usage and builds nothing.
+  `assemble_folder.py` checks the `storyId`, the toolchain and the icon
+  before it copies anything.
+
+Building needs a Mac with a Swift toolchain: Xcode, or the Command Line
+Tools (`xcode-select --install`). On any other system, or without the
+toolchain, `--mac` stops with one error saying so and writes nothing.
+No Apple ID or certificate is needed, since the app is signed ad hoc.
+
+What readers get and see:
+
+- They double-click `<title>.app` in the game folder, and the game opens
+  fullscreen. ⌘Q quits, and so does closing the window. ⌘R reloads, ⌃⌘F
+  leaves or re-enters fullscreen, and ⌘H hides the game. Export on the
+  Esc screen saves to Downloads, and Import opens a file panel.
+- Progress is kept per app, under its bundle id (so a rebuild keeps it)
+  and apart from any browser's. A reader who played `index.html` in a
+  browser starts over in the app, or moves the progress across with
+  Export and Import.
+- The first time the app opens from Documents, Desktop or Downloads,
+  macOS asks once whether it may use that folder. A rebuilt app asks
+  again, because its ad-hoc signature changes with every build.
+- A folder downloaded as a zip carries macOS's quarantine flag, and the
+  app will not open there: macOS refuses it, or runs it away from its
+  folder, where it finds no game and says so. Readers of a download open
+  `index.html` instead, or clear the flag first with
+  `xattr -dr com.apple.quarantine <folder>`. A folder you build or copy
+  on your own Mac has no flag, so its app opens with no check.
+- The app runs on Apple silicon Macs with macOS 12 or later. Intel Macs
+  use `index.html`.
+
+Keep the app inside its game folder. Upgrading the player (copying
+`index.html` and `app.js`, Upgrading to a newer Kinetic) needs no
+rebuild, since the app plays whichever `index.html` sits beside it.
+
 ## Upgrading to a newer Kinetic
 
 A game folder's player is two files, `index.html` and `app.js`; every
@@ -906,7 +975,8 @@ validator then reports that it does not equal `manifest.json`), and
 stays as it is, since it is generated from your `manifest.json`, not
 from the player; regenerate it only when you edit `manifest.json`
 (Generating manifest.js). The validator checks the folder against
-the newer rules; a clean run prints nothing.
+the newer rules; a clean run prints nothing. An app in the folder
+(Building the apps) keeps working without a rebuild.
 
 Readers keep their progress. The player saves it in each reader's
 browser under the manifest's `storyId`, not inside the folder, so the
