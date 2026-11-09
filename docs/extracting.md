@@ -904,6 +904,23 @@ fix creates `media-ledger.json`. That new ledger does not hold the
 folder's transcoded videos yet, so their first fix takes them from the
 reuse cache or transcodes them again, to the same bytes.
 
+### The validator's cheap check
+
+`tools/validate_content.py <folder> --ledger FILE` applies the ledger
+half of the pass rule without the game, the media tools or any
+decoding: it reads the manifest and one ledger with a `media` object
+(`build-ledger.json` or `media-ledger.json`) as JSON. It warns on a
+video item whose poster's records name only other starts, or the
+item's start made from another source, whatever the start. Where the
+ledger cannot say (no entry for the poster or the video, or no poster
+`startSeconds`) it warns only when the item starts after 0, since a
+start-0 item may keep a hand-made first-frame poster. Each warning is a
+`warning: ` line on stderr, such as `warning: manifest.json:
+items[15].poster: startSeconds 1.0, poster startSeconds 0.0 (poster
+made at another start)`, followed by a count. Warnings leave stdout's
+problem lines and the exit status alone. `kinetic-media posters`
+settles what the warning cannot, by pixels, and fixes.
+
 ## Reuse cache
 
 Encoding is the slow part of a conversion: lossless JPEG XL at effort 9

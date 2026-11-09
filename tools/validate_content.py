@@ -4,11 +4,20 @@
 Usage:
 
     python tools/validate_content.py <content-dir> [--schema docs/content-schema.json]
+        [--ledger FILE]
 
 Exit status: 0 when the folder is valid, 1 when it has problems, 2 when the
-arguments or the schema file are unusable. Each problem is printed as one line
-on stdout: `<file>: <location>: <reason>`, where the location is a manifest
-JSON path such as `items[2].frames[1]`.
+arguments, the schema file or the `--ledger` file are unusable. Each problem
+is printed as one line on stdout: `<file>: <location>: <reason>`, where the
+location is a manifest JSON path such as `items[2].frames[1]`.
+
+`--ledger FILE` (a build-ledger.json or media-ledger.json) adds poster
+warnings, `poster_warnings`: one `warning: <file>: <location>: <reason>` line
+on stderr per video item whose poster the ledger does not record as made at
+the item's `startSeconds` from the item's video source, then a count. It
+reads JSON only and decodes nothing; warnings never change the exit status.
+Without `--ledger` the output is as before. See docs/extracting.md, "The
+validator's cheap check".
 
 Two layers of checking, per docs/content-format.md §Rules and validator
 invariants:
@@ -659,6 +668,11 @@ def _read_json(path: Path, label: str) -> tuple[Any, list[str]]:
 
 def validate_folder(content_dir: Path, schema_path: Path = DEFAULT_SCHEMA) -> list[str]:
     """Return one problem line per violation; an empty list means valid."""
+    return _validate(content_dir, schema_path)[1]
+
+
+def _validate(content_dir: Path, schema_path: Path) -> tuple[Any, list[str]]:
+    """(the parsed manifest or None, validate_folder's problem lines)."""
     content_dir = Path(content_dir)
     schema_path = Path(schema_path)
 
@@ -686,7 +700,130 @@ def validate_folder(content_dir: Path, schema_path: Path = DEFAULT_SCHEMA) -> li
     if (content_dir / SHIM_NAME).exists():
         problems += shim_problems(content_dir, manifest)
 
-    return list(dict.fromkeys(problems))
+    return manifest, list(dict.fromkeys(problems))
+
+
+# ---------------------------------------------------------------------------
+# Poster warnings (--ledger)
+# ---------------------------------------------------------------------------
+
+WARNING_PREFIX = "warning: "
+
+
+def read_ledger_media(path: Path) -> tuple[dict[str, Any] | None, str]:
+    """A ledger's `media` object, or None and one line saying why not.
+
+    Any ledger with a `media` object will do: a build-ledger.json or a
+    media-ledger.json (docs/extracting.md, "Build ledger")."""
+    ledger, problems = _read_json(path, str(path))
+    if problems:
+        return None, problems[0]
+    media = ledger.get("media") if isinstance(ledger, dict) else None
+    if not isinstance(media, dict):
+        return None, f'{path}: no "media" object (not a build or media ledger)'
+    return media, ""
+
+
+def _ledger_records(media: dict[str, Any], path: Any) -> list[dict[str, Any]]:
+    """Every ledger record that made the media file at `path`: its entry,
+    then its `alsoFrom` records. One dict lookup, whatever the ledger's
+    size."""
+    entry = media.get(path) if isinstance(path, str) else None
+    if not isinstance(entry, dict):
+        return []
+    also = entry.get("alsoFrom")
+    return [entry, *(record for record in (also if isinstance(also, list)
+                                           else [])
+                     if isinstance(record, dict))]
+
+
+def _source_sha(record: dict[str, Any]) -> str | None:
+    source = record.get("source")
+    sha = source.get("sha256") if isinstance(source, dict) else None
+    return sha if isinstance(sha, str) else None
+
+
+def _poster_start(record: dict[str, Any]) -> tuple[bool, int | float | None]:
+    """(the record has a `poster` step, that step's startSeconds or None)."""
+    steps = record.get("steps")
+    for step in steps if isinstance(steps, list) else []:
+        if isinstance(step, dict) and step.get("step") == "poster":
+            return True, _numeric_field(step, "startSeconds")
+    return False, None
+
+
+def _start_key(value: int | float) -> str:
+    """A start as the poster recipe takes it, to six decimals (the rule
+    `kinetic-media posters` applies)."""
+    return f"{float(value):.6f}"
+
+
+def poster_warnings(manifest: Any, media: dict[str, Any]) -> list[str]:
+    """One warning line per video item whose poster the ledger does not
+    show made at the item's start.
+
+    `media` is a ledger's `media` object. Reads JSON only, decodes
+    nothing. The item's start is its `startSeconds`, 0 when absent. The
+    poster passes when one of its ledger records (the entry or an
+    `alsoFrom`) has a `poster` step at that start, compared to six
+    decimals, made from a source whose sha256 also made the item's video
+    file: the ledger rule of `kinetic-media posters`
+    (docs/extracting.md). Records naming only other starts, or the start
+    from another source, warn whatever the start. When the ledger cannot
+    say (no entry for the poster or the video, or no poster
+    `startSeconds`), only an item starting after 0 warns: a start-0 item
+    may carry a hand-made first-frame poster.
+    """
+    items = manifest.get("items") if isinstance(manifest, dict) else None
+    if not isinstance(items, list):
+        return []
+    warnings: list[str] = []
+    for i, item in enumerate(items):
+        if not isinstance(item, dict) or item.get("type") != "video":
+            continue
+        poster = item.get("poster")
+        if not isinstance(poster, str):
+            continue  # the schema reports a missing or non-string poster
+        start = _numeric_field(item, "startSeconds") or 0
+        key = _start_key(start)
+        sources = {sha for record in _ledger_records(media, item.get("file"))
+                   if (sha := _source_sha(record))}
+        poster_records = _ledger_records(media, poster)
+        recorded: list[int | float] = []
+        unknown = other_source = passed = False
+        for record in poster_records:
+            is_poster, made_at = _poster_start(record)
+            if not is_poster:
+                continue
+            if made_at is None:
+                unknown = True
+                continue
+            recorded.append(made_at)
+            if _start_key(made_at) == key:
+                if _source_sha(record) in sources:
+                    passed = True
+                    break
+                other_source = True
+        if passed:
+            continue
+        if not poster_records:
+            why = "poster not in the ledger"
+        elif not sources:
+            why = "video not in the ledger"
+        elif unknown or not recorded:
+            why = "the ledger records no poster startSeconds"
+        else:
+            why = ("poster made from another source" if other_source
+                   else "poster made at another start")
+        cannot_say = not (poster_records and sources and recorded) or unknown
+        if cannot_say and not start > 0:
+            continue
+        starts = ", ".join(dict.fromkeys(json.dumps(v) for v in recorded))
+        warnings.append(WARNING_PREFIX + _line(
+            f"items[{i}].poster",
+            f"startSeconds {json.dumps(start)}, poster startSeconds "
+            f"{starts or 'none'} ({why})"))
+    return warnings
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -696,6 +833,11 @@ def main(argv: list[str] | None = None) -> int:
                         help="folder holding manifest.json and its media")
     parser.add_argument("--schema", type=Path, default=DEFAULT_SCHEMA,
                         help=f"manifest JSON Schema (default: {DEFAULT_SCHEMA})")
+    parser.add_argument("--ledger", type=Path, metavar="FILE",
+                        help="also warn, on stderr and without changing the "
+                             "exit status, about video items whose poster "
+                             "this build or media ledger does not record as "
+                             "made at the item's startSeconds")
     args = parser.parse_args(argv)
 
     if not args.content_dir.is_dir():
@@ -704,15 +846,26 @@ def main(argv: list[str] | None = None) -> int:
     if not args.schema.is_file():
         print(f"{args.schema}: no such schema file", file=sys.stderr)
         return 2
+    media = None
+    if args.ledger is not None:
+        media, why = read_ledger_media(args.ledger)
+        if media is None:
+            print(why, file=sys.stderr)
+            return 2
 
-    problems = validate_folder(args.content_dir, args.schema)
+    manifest, problems = _validate(args.content_dir, args.schema)
     for problem in problems:
         print(problem)
     if problems:
         print(f"{args.content_dir}: {len(problems)} problem"
               f"{'s' if len(problems) != 1 else ''}", file=sys.stderr)
-        return 1
-    return 0
+    if media is not None:
+        warnings = poster_warnings(manifest, media)
+        for warning in warnings:
+            print(warning, file=sys.stderr)
+        print(f"{args.content_dir}: {len(warnings)} poster warning"
+              f"{'s' if len(warnings) != 1 else ''}", file=sys.stderr)
+    return 1 if problems else 0
 
 
 if __name__ == "__main__":

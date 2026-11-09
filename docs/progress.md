@@ -2574,9 +2574,24 @@ truthful: an unchecked box means nothing was accepted.
       their decoder hook: 4 requests, remap applied, check exit 0, new
       posters 0.00 from the frame at their start, a second `--fix`
       byte-identical.)
-- [ ] Validator poster warning (item 2): `validate_content.py --ledger
+- [x] Validator poster warning (item 2): `validate_content.py --ledger
       FILE` warns, without failing, on a later-start video item whose
       poster's ledger entry records another or no `startSeconds`; output
       unchanged without `--ledger`. Tests for warn, no warn and no
       `--ledger`.
+      (2026-11-09: `poster_warnings` applies item 1's ledger rule from a
+      local lookup (no converter import): a recorded other start or
+      source warns at any start, start-0 items included; no entry or no
+      recorded start warns only after 0. Warnings and their count go to
+      stderr, so stdout stays problem lines; exit codes unchanged; a bad
+      ledger exits 2. `validate_folder` unchanged. Subagent: stdout,
+      stderr and exit codes identical to HEAD without `--ledger` on the
+      demo, the branches example, a broken copy, a missing folder and
+      schema. Orchestrator: validate_content, build_demo and poster tests
+      149 passed. Real data, game I, read-only: 428 warnings,
+      exactly the posters check's 428 episode 3 ledger failures (the
+      slide-image poster on a start-0 item, which the ledger cannot
+      judge, does not warn); ledger and warnings 1.4 s of a 506 s run
+      that is the existing media checks on the external volume; folder
+      unchanged.)
 - [ ] Phase-closer (Phase 44): full pytest, package-proof.

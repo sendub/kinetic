@@ -116,8 +116,8 @@ def test_empty_items_list_is_valid(folder: Path) -> None:
     assert proc.returncode == 0, proc.stdout + proc.stderr
 
 
-def run_cli(folder: Path) -> subprocess.CompletedProcess[str]:
-    return subprocess.run([sys.executable, str(VALIDATOR), str(folder)],
+def run_cli(folder: Path, *args: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run([sys.executable, str(VALIDATOR), str(folder), *args],
                           capture_output=True, text=True)
 
 
@@ -1293,3 +1293,249 @@ def test_bad_title_is_rejected(folder: Path, title: object) -> None:
     problems = problems_of(folder)
     assert len(problems) == 1, problems
     assert problems[0].startswith("manifest.json: title:"), problems
+
+
+# ---------------------------------------------------------------------------
+# Poster warnings (--ledger; docs/plan.md Phase 44 item 2): a video item's
+# poster whose ledger records do not show it made at the item's start, from
+# the item's video source. Warnings go to stderr and never change the exit.
+# ---------------------------------------------------------------------------
+
+RANGE_B = 15  # range-b: startSeconds 1.0; VIDEO (video-chain) has none
+
+
+def test_demo_poster_roles_match_ids(demo: Path) -> None:
+    items = read_manifest(demo)["items"]
+    assert (items[VIDEO]["id"], items[RANGE_B]["id"]) == (
+        "video-chain", "range-b")
+    assert "startSeconds" not in items[VIDEO]
+    assert items[RANGE_B]["startSeconds"] == 1.0
+
+
+def matching_ledger(manifest: dict[str, Any]) -> dict[str, Any]:
+    """A media ledger in which every video item's poster was made at the
+    item's start from the source that made the item's video file."""
+    media: dict[str, Any] = {}
+    for item in manifest["items"]:
+        if item.get("type") != "video":
+            continue
+        source = {"path": f"game/movies/{item['file']}", "bytes": 1000,
+                  "sha256": f"sha-{item['file']}"}
+        media[item["file"]] = {
+            "kind": "video", "source": source,
+            "steps": [{"step": "preserve", "codec": "h264"}]}
+        media[item["poster"]] = {
+            "kind": "poster", "source": dict(source),
+            "steps": [{"step": "poster",
+                       "startSeconds": item.get("startSeconds", 0.0),
+                       "args": [], "frameFormat": "png", "mode": "RGB",
+                       "png": {"optimize": True}},
+                      {"step": "preserve"}]}
+    return {"mediaTools": {}, "media": media}
+
+
+def poster_entry(ledger: dict[str, Any], manifest: dict[str, Any],
+                 index: int) -> dict[str, Any]:
+    return ledger["media"][manifest["items"][index]["poster"]]
+
+
+def write_ledger(folder: Path, ledger: Any) -> Path:
+    path = folder / "media-ledger.json"
+    path.write_text(json.dumps(ledger), encoding="utf-8")
+    return path
+
+
+def warning_lines(proc: subprocess.CompletedProcess[str]) -> list[str]:
+    return [line for line in proc.stderr.splitlines()
+            if line.startswith("warning: ")]
+
+
+def run_with_ledger(folder: Path, ledger: dict[str, Any]
+                    ) -> subprocess.CompletedProcess[str]:
+    return run_cli(folder, "--ledger", str(write_ledger(folder, ledger)))
+
+
+def test_matching_posters_give_no_warning(folder: Path) -> None:
+    proc = run_with_ledger(folder, matching_ledger(read_manifest(folder)))
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert proc.stdout == ""
+    assert proc.stderr == f"{folder}: 0 poster warnings\n"
+
+
+def test_later_start_poster_made_at_zero_warns(folder: Path) -> None:
+    manifest = read_manifest(folder)
+    ledger = matching_ledger(manifest)
+    poster_entry(ledger, manifest, RANGE_B)["steps"][0]["startSeconds"] = 0.0
+    proc = run_with_ledger(folder, ledger)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert proc.stdout == ""
+    assert warning_lines(proc) == [
+        "warning: manifest.json: items[15].poster: startSeconds 1.0, "
+        "poster startSeconds 0.0 (poster made at another start)"]
+    assert proc.stderr.endswith(f"{folder}: 1 poster warning\n")
+
+
+def test_start_zero_poster_made_later_warns(folder: Path) -> None:
+    """The converting agent's case: start-0 items whose posters were made
+    3 s in."""
+    manifest = read_manifest(folder)
+    ledger = matching_ledger(manifest)
+    poster_entry(ledger, manifest, VIDEO)["steps"][0]["startSeconds"] = 3.0
+    proc = run_with_ledger(folder, ledger)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert warning_lines(proc) == [
+        "warning: manifest.json: items[6].poster: startSeconds 0, "
+        "poster startSeconds 3.0 (poster made at another start)"]
+
+
+def test_later_start_poster_not_in_ledger_warns(folder: Path) -> None:
+    manifest = read_manifest(folder)
+    ledger = matching_ledger(manifest)
+    del ledger["media"][manifest["items"][RANGE_B]["poster"]]
+    proc = run_with_ledger(folder, ledger)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert warning_lines(proc) == [
+        "warning: manifest.json: items[15].poster: startSeconds 1.0, "
+        "poster startSeconds none (poster not in the ledger)"]
+
+
+def test_start_zero_poster_not_in_ledger_is_fine(folder: Path) -> None:
+    """A hand-made poster on an item that starts at 0 is the first frame."""
+    manifest = read_manifest(folder)
+    ledger = matching_ledger(manifest)
+    del ledger["media"][manifest["items"][VIDEO]["poster"]]
+    proc = run_with_ledger(folder, ledger)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert warning_lines(proc) == []
+
+
+def test_poster_step_without_start_warns_on_a_later_start(
+        folder: Path) -> None:
+    manifest = read_manifest(folder)
+    ledger = matching_ledger(manifest)
+    for index in (VIDEO, RANGE_B):
+        del poster_entry(ledger, manifest, index)["steps"][0]["startSeconds"]
+    proc = run_with_ledger(folder, ledger)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert warning_lines(proc) == [
+        "warning: manifest.json: items[15].poster: startSeconds 1.0, "
+        "poster startSeconds none (the ledger records no poster "
+        "startSeconds)"]
+
+
+@pytest.mark.parametrize("index, start", [(VIDEO, "0"), (RANGE_B, "1.0")])
+def test_matching_start_from_another_source_warns(
+        folder: Path, index: int, start: str) -> None:
+    manifest = read_manifest(folder)
+    ledger = matching_ledger(manifest)
+    poster_entry(ledger, manifest, index)["source"]["sha256"] = "sha-other"
+    proc = run_with_ledger(folder, ledger)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    recorded = "0.0" if index == VIDEO else "1.0"
+    assert warning_lines(proc) == [
+        f"warning: manifest.json: items[{index}].poster: startSeconds "
+        f"{start}, poster startSeconds {recorded} (poster made from "
+        "another source)"]
+
+
+def test_an_also_from_record_can_pass_the_poster() -> None:
+    """The entry and its alsoFrom records all count, for the poster and
+    for the video's sources."""
+    manifest = {"items": [{"id": "v", "type": "video", "file": "v.mp4",
+                           "poster": "v.poster.png", "startSeconds": 2.5}]}
+    poster_at = [{"step": "poster", "startSeconds": 0.0}]
+    media = {
+        "v.mp4": {"source": {"sha256": "a"},
+                  "alsoFrom": [{"source": {"sha256": "b"}, "steps": []}]},
+        "v.poster.png": {
+            "source": {"sha256": "a"}, "steps": poster_at,
+            "alsoFrom": [{"source": {"sha256": "b"},
+                          "steps": [{"step": "poster",
+                                     "startSeconds": 2.5}]}]},
+    }
+    assert validate_content.poster_warnings(manifest, media) == []
+    del media["v.poster.png"]["alsoFrom"]
+    assert validate_content.poster_warnings(manifest, media) == [
+        "warning: manifest.json: items[0].poster: startSeconds 2.5, "
+        "poster startSeconds 0.0 (poster made at another start)"]
+
+
+@pytest.mark.parametrize("item_start, warns", [
+    (2.0000004, False), (2, False), (2.00001, True)])
+def test_starts_are_compared_at_six_decimals(item_start: float,
+                                             warns: bool) -> None:
+    """As kinetic-media posters and the poster recipe use them."""
+    manifest = {"items": [{"id": "v", "type": "video", "file": "v.mp4",
+                           "poster": "v.poster.png",
+                           "startSeconds": item_start}]}
+    media = {"v.mp4": {"source": {"sha256": "a"}},
+             "v.poster.png": {"source": {"sha256": "a"},
+                              "steps": [{"step": "poster",
+                                         "startSeconds": 2.0}]}}
+    found = validate_content.poster_warnings(manifest, media)
+    assert bool(found) is warns, found
+
+
+def test_video_not_in_ledger_warns_only_on_a_later_start(
+        folder: Path) -> None:
+    """With no record of the video, the ledger cannot say which source the
+    poster should come from: as with a poster not in the ledger, only a
+    later start warns."""
+    manifest = read_manifest(folder)
+    ledger = matching_ledger(manifest)
+    for index in (VIDEO, RANGE_B):
+        ledger["media"].pop(manifest["items"][index]["file"], None)
+    proc = run_with_ledger(folder, ledger)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert warning_lines(proc) == [
+        "warning: manifest.json: items[15].poster: startSeconds 1.0, "
+        "poster startSeconds 1.0 (video not in the ledger)"]
+
+
+def test_without_ledger_output_is_unchanged(folder: Path) -> None:
+    """No --ledger: no warnings, and ledgers in the folder are not read."""
+    manifest = read_manifest(folder)
+    ledger = matching_ledger(manifest)
+    poster_entry(ledger, manifest, RANGE_B)["steps"][0]["startSeconds"] = 0.0
+    write_ledger(folder, ledger)
+    (folder / "build-ledger.json").write_text(json.dumps(ledger),
+                                              encoding="utf-8")
+    proc = run_cli(folder)
+    assert (proc.returncode, proc.stdout, proc.stderr) == (0, "", "")
+
+    (folder / manifest["items"][0]["file"]).unlink()
+    problems = problems_of(folder)
+    assert len(problems) == 1
+    proc = run_cli(folder)
+    assert proc.returncode == 1
+    assert proc.stdout == problems[0] + "\n"
+    assert proc.stderr == f"{folder}: 1 problem\n"
+
+
+@pytest.mark.parametrize("content", [
+    None, "{not json", "[]", '{"sources": []}', '{"media": []}'])
+def test_bad_ledger_exits_2(folder: Path, content: str | None) -> None:
+    path = folder / "media-ledger.json"
+    if content is not None:
+        path.write_text(content, encoding="utf-8")
+    proc = run_cli(folder, "--ledger", str(path))
+    assert proc.returncode == 2, proc.stdout + proc.stderr
+    assert proc.stdout == ""
+    assert len(proc.stderr.splitlines()) == 1, proc.stderr
+    assert proc.stderr.startswith(f"{path}: ")
+
+
+def test_warnings_leave_problem_lines_and_exit_one_alone(
+        folder: Path) -> None:
+    manifest = read_manifest(folder)
+    ledger = matching_ledger(manifest)
+    poster_entry(ledger, manifest, RANGE_B)["steps"][0]["startSeconds"] = 0.0
+    (folder / manifest["items"][0]["file"]).unlink()
+    without = run_cli(folder)
+    proc = run_with_ledger(folder, ledger)
+    assert (proc.returncode, without.returncode) == (1, 1)
+    assert proc.stdout == without.stdout
+    assert "warning" not in proc.stdout
+    assert len(warning_lines(proc)) == 1
+    assert proc.stderr == (without.stderr + warning_lines(proc)[0] + "\n"
+                           + f"{folder}: 1 poster warning\n")

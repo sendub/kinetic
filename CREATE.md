@@ -807,7 +807,16 @@ posters (docs/content-format.md, "Video playback ranges"): name those
 videos with `--first-frame FILE` (a manifest `file` value, repeatable),
 or pass `--first-frame-all`, and they are skipped.
 
-Reference: docs/extracting.md, "kinetic-media posters".
+For a quick look without the game files, add `--ledger
+~/games/RainyDay-Kinetic/media-ledger.json` to the validator: it reads
+the ledger only, decodes nothing, and prints a `warning:` line on
+stderr for each poster the ledger records at another start or from
+another source, and for each item starting after 0 whose poster it
+records no start for. Warnings never change the exit status; the
+`kinetic-media posters` check above settles them.
+
+Reference: docs/extracting.md, "kinetic-media posters" (the
+validator's warning is under "The validator's cheap check").
 
 ### The reuse cache
 
