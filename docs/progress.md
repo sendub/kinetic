@@ -2600,3 +2600,18 @@ truthful: an unchecked box means nothing was accepted.
       .tmp/extract-demo with kinetic-extract on fixtures/renpy_demo. No
       player change, so no scenario runs. Phase 44 names of the game the
       request came from were taken out of plan.md and this file.)
+
+## Phase 45: Poster check by item, and dark starts (2026-11-09, converting agent)
+
+- [ ] `kinetic-media posters --items FILE` and luma columns
+      (docs/plan.md Phase 45, items 1-2): `--items` (JSON array or one id
+      per line) limits the check and `--fix` to those ids, exits 2 on ids
+      not in the manifest, ignores non-video ids; each `FAIL` line ends
+      with the start frame's and the poster's mean luma, and says when the
+      start is dark. Tests: a selected subset is the only thing checked,
+      reported and fixed (remap and requests hold only listed items); an
+      unknown id exits 2; a non-video id is ignored; both file formats; a
+      clip that starts black and fades in reports a dark start and a
+      brighter poster, a normal clip reports neither; `--fix` twice still
+      changes nothing.
+- [ ] Phase-closer (Phase 45): full pytest, package-proof.

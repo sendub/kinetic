@@ -2055,6 +2055,38 @@ and the validator option), CREATE.md ("Converting a Ren'Py project": the
 check and fix as a delivery step), AGENTS.md's command list, and the
 media_cli.py usage text.
 
+## Phase 45: Poster check by item, and dark starts (2026-11-09, converting agent)
+
+On the converting agent's published folder, Phase 44's check failed 429
+items. 428 of them have posters made about 3 s into their segment, 127 of
+those on items that start at 0. The agent will fix them all with `--fix`,
+in a correction separate from the shipment it is delivering now. Its
+delivery gate checks only the shipment being delivered. Bookmarks survive a
+poster swap: they key on item, story and route ids, and only `poster`
+changes. Two additions:
+
+1. `--items FILE` limits the check, and `--fix`, to the listed item ids.
+   - The file is a JSON array of strings, or one id per line (blank lines
+     and lines starting with `#` ignored).
+   - A listed id that is not a manifest item exits 2 and names the ids, so
+     a typo cannot gate nothing.
+   - A listed id that is a manifest item but not a video is ignored, so
+     the file can be a shipment's full item list.
+   - Items not listed are neither checked, reported, nor fixed. The
+     summary says how many video items were selected out of how many.
+2. Each `FAIL` line reports the mean luma (Rec. 601, 0-255) of the frame
+   at the item's start and of the poster, from the frames the pixel
+   difference already decodes, so no extra decoding. When the start frame
+   is dark (below a measured threshold, a named constant), the line also
+   says so. A dark start next to a brighter poster suggests the poster was
+   moved past a black or fade-in lead-in on purpose. The agent asked this
+   about the 127 start-0 items. Existing `FAIL` line fields keep their
+   order; the new ones come at the end.
+
+`--fix` stays idempotent and the remap stays as Phase 44 made it. Docs:
+docs/extracting.md and CREATE.md ("Checking posters before delivery"),
+the media_cli.py usage text.
+
 ## Later, waiting on the user
 
 - Overlay text styling iteration once the user can play with the demo.
