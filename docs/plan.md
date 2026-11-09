@@ -2220,12 +2220,20 @@ shown exits 3.
      reached; 2 for bad
      arguments; 3 when a full walk from the opening (no `--start-at`)
      reached the end with items never shown. 1 wins over 3.
-6. Docs: CREATE.md ("Testing your game": the quick check's new options,
+6. Player: videos always fill the stage (user, 2026-11-09). A video
+   sometimes plays smaller than the stage instead of filling it as its
+   poster and pictures do. The trigger is unknown; scrolling back and
+   pressing Space usually makes it fill. Find the trigger, reproduce it
+   in a test that fails before the fix, on the engine(s) where it
+   happens, and fix the cause, so a video fills the stage every time it
+   plays, however it was reached (Space, the wheel, skip, a jump, a
+   restore, a resize or a fullscreen change).
+7. Docs: CREATE.md ("Testing your game": the quick check's new options,
    summary, exit codes, the URL start, the symlink limit for the macOS
    app; "Playing the folder" for `#start=`), docs/perf.md (item 1's
    measurements), docs/verify-player.md (the creator scenario row),
    AGENTS.md's check-game line.
-7. Phase-closer: full suites; a `check-game --steps all` walk of the
+8. Phase-closer: full suites; a `check-game --steps all` walk of the
    synthetic 160,000-item game on WebKit and on Chrome with the new
    player: exit 0, every item visited, `story ended at step N`, and its
    wall time beside this plan's step-time table.

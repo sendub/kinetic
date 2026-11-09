@@ -2795,7 +2795,16 @@ truthful: an unchecked box means nothing was accepted.
         exits 1;
       - the heartbeat appears on stderr when its interval is shortened
         for the test.
-- [ ] Docs (item 6): CREATE.md, docs/perf.md, docs/verify-player.md,
+- [ ] Player: videos always fill the stage (item 6, user): a video
+      sometimes plays smaller than the stage; scrolling back and Space
+      usually fixes it; trigger unknown. Find the trigger and fix the
+      cause. Tests (a scenario part on the engine(s) where it happens,
+      red before the fix):
+      - the reproduced trigger, with the video's painted box measured
+        against the stage, as its poster and pictures fill it;
+      - the same check after Space, the wheel, skip, a jump, a restore,
+        a resize and a fullscreen change onto a video item.
+- [ ] Docs (item 7): CREATE.md, docs/perf.md, docs/verify-player.md,
       AGENTS.md.
 - [ ] Phase-closer (Phase 46): full pytest, the full `npm run verify` and
       `npm run verify -- --webkit`, package-proof; a timed
