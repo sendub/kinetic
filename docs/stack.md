@@ -153,8 +153,13 @@ stays the route everywhere.
   fullscreen from launch. It is arm64 only, needs macOS 12 or later and
   is signed ad hoc by `tools/build_apps.py`. It holds only its binary,
   so no check reads the media beside it.
-- Windows comes next: an exe that opens the folder in a Microsoft Edge
-  app window.
+- Windows: `<title>.exe` inside the game folder is a small Go program
+  (x86-64, a GUI program, so no console window) that opens `index.html`
+  in a Microsoft Edge app window (no tabs or toolbar), fullscreen from
+  the start, under a browser profile only this game uses; Chrome, then
+  the default browser, stand in when Edge is missing. Edge ships with
+  Windows 10 and 11. `tools/build_apps.py` builds it with Go from any
+  system and links in its icon and version resource. It is unsigned.
 
 Gatekeeper assesses only files that carry the quarantine flag. A folder
 the author builds locally has none, so the app opens with no check. A
@@ -164,6 +169,12 @@ readers of a download use `index.html` or clear the flag. The first time
 the app opens from Documents, Desktop or Downloads, macOS asks once for
 access to that folder. An ad-hoc signature changes with every build, so
 a rebuilt app asks again.
+
+On Windows, SmartScreen checks only files that carry the Mark of the
+Web. A folder the author builds locally has none, so the exe starts with
+no prompt. A downloaded zip carries the mark, and extracting it with
+Windows passes the mark to the exe, whose first run then asks the
+reader to confirm (More info, Run anyway).
 
 ## Revisit triggers
 

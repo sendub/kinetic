@@ -3,29 +3,45 @@
 
 Usage:
 
-    python tools/build_apps.py <game-folder> --mac [--icon IMAGE]
+    python tools/build_apps.py <game-folder> [--mac] [--windows] [--icon IMAGE]
 
 The game folder is an assembled one (tools/assemble_folder.py): it holds
-`index.html` and `manifest.json`, and the app goes in beside them.
+`index.html` and `manifest.json`, and the apps go in beside them. Each
+app is named from the manifest `title` (the folder's name without one)
+and keeps the reader's progress under the manifest's `storyId`, so a
+manifest without a `storyId` is refused.
 
-`--mac` adds `<title>.app`, named from the manifest `title` (the folder's
-name without one): the WebKit host in apps/macos/app/ compiled with the
-web view setup the scenario suite's WebKit driver also uses
+`--mac` adds `<title>.app`: the WebKit host in apps/macos/app/ compiled
+with the web view setup the scenario suite's WebKit driver also uses
 (apps/macos/WebViewSetup.swift), arm64 only, macOS 12 or later, ad-hoc
 signed. Its bundle id is `org.kinetic.game.<storyId>` (`_` written as
-`-`, which bundle ids do not allow), so a manifest without a `storyId` is
-refused: the app keeps the reader's progress under that id. Building
-needs macOS with a Swift toolchain (Xcode or the Command Line Tools).
-An app this script built before under the same name is replaced; the
-build happens in a temporary folder beside the game folder and is moved
-into place, so a failed build leaves no half app.
+`-`, which bundle ids do not allow). Building needs macOS with a Swift
+toolchain (Xcode or the Command Line Tools).
+
+`--windows` adds `<title>.exe` (with the characters Windows forbids in a
+file name written as `-`): the Go program in apps/windows/, built for
+Windows x86-64 as a GUI program (so no console window opens), which
+opens the folder's index.html in a Microsoft Edge app window, fullscreen,
+under a browser profile only this game uses. The storyId and the title
+are linked in (`-ldflags -X`); the icon and a version resource (the
+title as its description, which Task Manager shows, and the storyId,
+which marks the exe as this script's) go in as Windows resources, from
+the COFF object tools/windows_resources.py writes into a copy of the
+package (`rsrc_windows_amd64.syso`, which the Go linker links). Building
+needs Go at the version apps/windows/go.mod names or later, on any OS;
+Go's caches stay under `.tmp/windows-app-build/`.
+
+An app or exe this script built before under the same name is replaced;
+each is built in a temporary folder beside the game folder and moved
+into place, so a failed build leaves no half app. With both flags every
+requirement is checked before either is built.
 
 `--icon IMAGE` (PNG, JPEG, WebP, GIF or JPEG XL) is cut to a centred
-square for the app's icon; without it the icon is the game's first
+square for the apps' icon; without it the icon is the game's first
 graphic: the first item with a picture (an image, an animation's first
 frame, or a video's poster).
 
-Exit status: 0 when the app is built, 1 when the folder, its manifest,
+Exit status: 0 when the apps are built, 1 when the folder, its manifest,
 the icon or the build tools are not what the build needs, 2 when the
 arguments are unusable (no app asked for, no such folder).
 """
@@ -35,6 +51,7 @@ from __future__ import annotations
 import argparse
 import io
 import json
+import os
 import plistlib
 import re
 import shutil
@@ -42,11 +59,14 @@ import subprocess
 import sys
 import tempfile
 import unicodedata
+import urllib.parse
 import xml.parsers.expat
 from dataclasses import dataclass
 from pathlib import Path
 
 from PIL import Image, ImageOps
+
+import windows_resources
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SCHEMA = REPO_ROOT / "docs" / "content-schema.json"
@@ -75,8 +95,28 @@ MAC_NEEDS = ("--mac needs macOS with a Swift toolchain: Xcode or the "
 ICNS_SIZES = (32, 64, 128, 256, 512, 1024)
 ICON_FORMATS = "a PNG, JPEG, WebP, GIF or JPEG XL image"
 PILLOW_ICON_FORMATS = {"PNG", "JPEG", "WEBP", "GIF"}
-# A ".app" name, like any file name, is at most 255 bytes.
+# A ".app" or ".exe" name, like any file name, is at most 255 bytes.
 MAX_NAME_BYTES = 255 - len(".app")
+
+WINDOWS_PACKAGE = REPO_ROOT / "apps" / "windows"
+GO_CACHE = REPO_ROOT / ".tmp" / "windows-app-build"
+GO_DOWNLOAD = "https://go.dev/dl/"
+# The name the Go linker links for windows/amd64 (a _GOOS_GOARCH suffix).
+SYSO_NAME = "rsrc_windows_amd64.syso"
+EXE_VERSION = (1, 0, 0, 0)
+# The version resource's own key, valued with the storyId: it marks an exe
+# this script built.
+EXE_STORY_KEY = "KineticStoryId"
+EXE_STORY = re.compile(
+    re.escape((EXE_STORY_KEY + "\0").encode("utf-16-le"))
+    + rb"(?:\x00\x00)?((?:[a-z0-9_-]\x00){1,64})\x00\x00")
+MAX_EXE_BYTES = 64 * 1024 * 1024
+# What Windows refuses in a file name beyond the `/` and `:` that
+# safe_file_name already writes as `-`, and its reserved device names.
+WINDOWS_FORBIDDEN = '<>"\\|?*'
+WINDOWS_RESERVED = {"CON", "PRN", "AUX", "NUL",
+                    *(f"COM{n}" for n in range(1, 10)),
+                    *(f"LPT{n}" for n in range(1, 10))}
 
 
 class BuildError(Exception):
@@ -85,11 +125,12 @@ class BuildError(Exception):
 
 @dataclass(frozen=True)
 class Identity:
-    """What names an app: its title, file name and bundle id."""
+    """What names an app: its title, file name, bundle id and storyId."""
 
     title: str
     app_name: str
     bundle_id: str
+    story_id: str
 
 
 # --- the game ----------------------------------------------------------------
@@ -152,7 +193,8 @@ def identity(manifest: dict, folder: Path) -> Identity:
     app_name = (safe_file_name(title) or safe_file_name(folder.name)
                 or "Kinetic")
     return Identity(title=title or app_name, app_name=app_name,
-                    bundle_id=BUNDLE_ID_PREFIX + story.replace("_", "-"))
+                    bundle_id=BUNDLE_ID_PREFIX + story.replace("_", "-"),
+                    story_id=story)
 
 
 def first_graphic(manifest: dict, folder: Path) -> Path:
@@ -267,9 +309,11 @@ def check_mac_toolchain() -> None:
         raise BuildError(MAC_NEEDS)
 
 
-def _run(command: list[str], what: str) -> None:
+def _run(command: list[str], what: str, **options) -> None:
+    """Run a build step (`options` go to subprocess.run: cwd, env)."""
     try:
-        proc = subprocess.run(command, capture_output=True, text=True)
+        proc = subprocess.run(command, capture_output=True, text=True,
+                              **options)
     except OSError as exc:
         raise BuildError(f"{what} failed: {exc}") from None
     if proc.returncode != 0:
@@ -322,44 +366,178 @@ def read_app_info(app: Path) -> dict | None:
     return None
 
 
-def prepare_mac(folder: Path,
-                icon: Path | None) -> tuple[Identity, Image.Image, Path]:
-    """Everything the build checks before it writes anything: the
-    manifest's storyId, the toolchain and the icon picture."""
+# --- the Windows build -------------------------------------------------------
+
+def go_minimum() -> str:
+    """The `go` line of apps/windows/go.mod: the oldest Go that builds the
+    exe."""
+    mod = WINDOWS_PACKAGE / "go.mod"
+    match = re.search(r"^go\s+(\d+\.\d+(?:\.\d+)?)\s*$",
+                      mod.read_text(encoding="utf-8"), re.MULTILINE)
+    if match is None:
+        raise BuildError(f"{mod} has no go line")
+    return match.group(1)
+
+
+def version_key(version: str) -> tuple[int, ...]:
+    """"1.27" -> (1, 27, 0), for comparing Go versions."""
+    parts = [int(part) for part in version.split(".")]
+    return tuple(parts + [0] * (3 - len(parts)))
+
+
+def windows_needs() -> str:
+    return (f"--windows needs Go {go_minimum()} or later on PATH "
+            f"(from {GO_DOWNLOAD})")
+
+
+def find_go() -> str | None:
+    return shutil.which("go")
+
+
+def go_env() -> dict[str, str]:
+    """The environment for go: a Windows x86-64 build for any x86-64 CPU,
+    no cgo, the installed toolchain only (never a download), no module
+    downloads, no workspace, and the caches under .tmp/."""
+    return {**os.environ,
+            "GOOS": "windows", "GOARCH": "amd64", "GOAMD64": "v1",
+            "CGO_ENABLED": "0", "GOTOOLCHAIN": "local", "GOPROXY": "off",
+            "GOWORK": "off",
+            "GOCACHE": str(GO_CACHE / "go-cache"),
+            "GOPATH": str(GO_CACHE / "go-path"),
+            "GOMODCACHE": str(GO_CACHE / "go-mod-cache")}
+
+
+def go_version(go: str) -> str | None:
+    """The version `go version` reports ("1.27.1"), or None when it does
+    not run."""
+    try:
+        proc = subprocess.run([go, "version"], capture_output=True, text=True,
+                              timeout=60, env=go_env(), cwd=REPO_ROOT)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    match = re.search(r"\bgo(\d+\.\d+(?:\.\d+)?)", proc.stdout)
+    return match.group(1) if proc.returncode == 0 and match else None
+
+
+def check_go() -> str:
+    """The `go` to build with, which is at least go.mod's version."""
+    go = find_go()
+    if go is None:
+        raise BuildError(windows_needs())
+    version = go_version(go)
+    if version is None:
+        raise BuildError(f"{windows_needs()}; `{go} version` failed")
+    if version_key(version) < version_key(go_minimum()):
+        raise BuildError(f"{windows_needs()}; found go{version}")
+    return go
+
+
+def exe_name(ident: Identity) -> str:
+    """`<title>.exe`: the app's name with what Windows refuses in a file
+    name written as `-`, and no trailing dot or space."""
+    stem = "".join("-" if ch in WINDOWS_FORBIDDEN else ch
+                   for ch in ident.app_name).rstrip(". ") or "Kinetic"
+    if stem.split(".")[0].strip().upper() in WINDOWS_RESERVED:
+        stem += " game"
+    return f"{stem}.exe"
+
+
+def go_ldflags(ident: Identity) -> str:
+    """-H windowsgui: a GUI program, so no console window opens; -s -w: no
+    symbol or debug tables; -X: the storyId, and the title percent-encoded
+    (go build splits -ldflags at spaces and reads no escapes in quotes)."""
+    title = urllib.parse.quote(ident.title, safe="")
+    return (f"-H windowsgui -s -w -X main.storyID={ident.story_id} "
+            f"-X main.titleEscaped={title}")
+
+
+def compile_windows(go: str, package: Path, exe: Path, ident: Identity) -> None:
+    """Build the exe from the package copy at `package`."""
+    _run([go, "build", "-trimpath", "-buildvcs=false", "-ldflags",
+          go_ldflags(ident), "-o", str(exe), "."],
+         "compiling the Windows app", cwd=package, env=go_env())
+
+
+def exe_resources(square: Image.Image, ident: Identity,
+                  name: str) -> list[windows_resources.Resource]:
+    """The exe's icon and its version resource (title, file name, storyId)."""
+    version = ".".join(str(part) for part in EXE_VERSION)
+    return [
+        *windows_resources.icon_resources(square),
+        windows_resources.version_resource({
+            "FileDescription": ident.title,
+            "FileVersion": version,
+            "OriginalFilename": name,
+            "ProductName": ident.title,
+            "ProductVersion": version,
+            EXE_STORY_KEY: ident.story_id,
+        }, EXE_VERSION),
+    ]
+
+
+def read_exe_story(exe: Path) -> str | None:
+    """The storyId of an exe this script built, else None."""
+    try:
+        with exe.open("rb") as handle:
+            if handle.read(2) != b"MZ":
+                return None
+            data = handle.read(MAX_EXE_BYTES)
+    except OSError:
+        return None
+    match = EXE_STORY.search(data)
+    return match.group(1).decode("utf-16-le") if match else None
+
+
+# --- both --------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class Prepared:
+    """What the builds need, checked before anything is written."""
+
+    ident: Identity
+    square: Image.Image
+    icon_source: Path
+    go: str | None
+
+
+def prepare(folder: Path, icon: Path | None, *, mac: bool = False,
+            windows: bool = False) -> Prepared:
+    """Check everything the asked-for builds need before any writes: the
+    manifest's storyId, each build's tools and the icon picture."""
     manifest = load_manifest(folder)
     ident = identity(manifest, folder)
-    check_mac_toolchain()
+    if mac:
+        check_mac_toolchain()
+    go = check_go() if windows else None
     source = icon if icon is not None else first_graphic(manifest, folder)
-    return ident, load_icon(source), source
+    return Prepared(ident, load_icon(source), source, go)
 
 
-def build_mac_app(folder: Path, icon: Path | None = None) -> Path:
-    """Build `<title>.app` into the game folder; returns its path."""
-    folder = folder.resolve()
-    require_game_folder(folder)
-    ident, square, source = prepare_mac(folder, icon)
-    target = folder / f"{ident.app_name}.app"
-    if (target.exists() or target.is_symlink()) and read_app_info(target) is None:
-        raise BuildError(
-            f"{target} exists and is not an app tools/build_apps.py "
-            "built; move it out of the folder first")
-
-    # Beside the game folder, on its file system, so the finished app is
-    # renamed into place whole.
+def _staging(folder: Path, name: str) -> Path:
+    """A temporary build folder beside the game folder, on its file
+    system, so the finished app is renamed into place whole."""
     try:
-        staging = Path(tempfile.mkdtemp(prefix=f".{target.name}-build-",
-                                        dir=folder.parent))
+        return Path(tempfile.mkdtemp(prefix=f".{name}-build-",
+                                     dir=folder.parent))
     except OSError as exc:
         raise BuildError(
             f"cannot make a temporary build folder in {folder.parent}: "
             f"{exc.strerror or exc}") from None
+
+
+def build_mac_app(folder: Path, prepared: Prepared) -> Path:
+    """Build `<title>.app` into the game folder; returns its path."""
+    ident = prepared.ident
+    target = folder / f"{ident.app_name}.app"
+    staging = _staging(folder, target.name)
     try:
         app = staging / target.name
         contents = app / "Contents"
         (contents / "MacOS").mkdir(parents=True)
         (contents / "Resources").mkdir()
         compile_mac(contents / "MacOS" / MAC_EXECUTABLE)
-        write_icns(square, contents / "Resources" / f"{MAC_ICON_NAME}.icns")
+        write_icns(prepared.square,
+                   contents / "Resources" / f"{MAC_ICON_NAME}.icns")
         (contents / "Info.plist").write_bytes(plistlib.dumps(info_plist(ident)))
         sign_mac(app)
         replaced = staging / "replaced.app"
@@ -377,13 +555,68 @@ def build_mac_app(folder: Path, icon: Path | None = None) -> Path:
         shutil.rmtree(staging, ignore_errors=True)
 
     print(f"built {target}: arm64, macOS {MAC_MINIMUM_SYSTEM}+, ad-hoc "
-          f"signed, bundle id {ident.bundle_id}, icon from {source}")
+          f"signed, bundle id {ident.bundle_id}, icon from "
+          f"{prepared.icon_source}")
     for other in sorted(folder.glob("*.app")):
         info = read_app_info(other) if other != target else None
         if info and info.get("CFBundleIdentifier") == ident.bundle_id:
             print(f"note: {other.name} is an earlier build for this story "
                   "(under another title); remove it if it is stale")
     return target
+
+
+def build_windows_exe(folder: Path, prepared: Prepared) -> Path:
+    """Build `<title>.exe` into the game folder; returns its path."""
+    ident = prepared.ident
+    target = folder / exe_name(ident)
+    staging = _staging(folder, target.name)
+    try:
+        package = staging / "src"
+        shutil.copytree(WINDOWS_PACKAGE, package,
+                        ignore=shutil.ignore_patterns("*_test.go", "*.syso"))
+        (package / SYSO_NAME).write_bytes(windows_resources.coff_object(
+            exe_resources(prepared.square, ident, target.name)))
+        exe = staging / target.name
+        compile_windows(prepared.go, package, exe, ident)
+        os.replace(exe, target)
+    except OSError as exc:
+        raise BuildError(f"building {target} failed: {exc}") from None
+    finally:
+        shutil.rmtree(staging, ignore_errors=True)
+
+    print(f"built {target}: Windows x86-64 (Edge app window, profile "
+          f"%LOCALAPPDATA%\\Kinetic\\Browser\\{ident.story_id}), icon from "
+          f"{prepared.icon_source}")
+    for other in sorted(folder.glob("*.exe")):
+        if other != target and read_exe_story(other) == ident.story_id:
+            print(f"note: {other.name} is an earlier build for this story "
+                  "(under another title); remove it if it is stale")
+    return target
+
+
+def build(folder: Path, icon: Path | None = None, *, mac: bool = False,
+          windows: bool = False) -> list[Path]:
+    """Build the asked-for apps into the game folder; returns their paths.
+    Every requirement of every asked-for app is checked first."""
+    folder = folder.resolve()
+    require_game_folder(folder)
+    prepared = prepare(folder, icon, mac=mac, windows=windows)
+    targets = []
+    if mac:
+        app = folder / f"{prepared.ident.app_name}.app"
+        if (app.exists() or app.is_symlink()) and read_app_info(app) is None:
+            raise BuildError(
+                f"{app} exists and is not an app tools/build_apps.py "
+                "built; move it out of the folder first")
+        targets.append(build_mac_app)
+    if windows:
+        exe = folder / exe_name(prepared.ident)
+        if (exe.exists() or exe.is_symlink()) and read_exe_story(exe) is None:
+            raise BuildError(
+                f"{exe} exists and is not an exe tools/build_apps.py "
+                "built; move it out of the folder first")
+        targets.append(build_windows_exe)
+    return [build_one(folder, prepared) for build_one in targets]
 
 
 def main(argv: list[str]) -> int:
@@ -394,21 +627,25 @@ def main(argv: list[str]) -> int:
                              "manifest.json)")
     parser.add_argument("--mac", action="store_true",
                         help="add <title>.app (macOS 12+, Apple silicon)")
+    parser.add_argument("--windows", action="store_true",
+                        help="add <title>.exe (Windows 10 and 11, x86-64; "
+                             "opens the game in an Edge app window)")
     parser.add_argument("--icon", type=Path, metavar="IMAGE",
                         help="the apps' icon (PNG, JPEG, WebP, GIF or JPEG "
                              "XL, cut to a centred square); default: the "
                              "game's first graphic")
     args = parser.parse_args(argv)
-    if not args.mac:
+    if not (args.mac or args.windows):
         parser.print_usage(sys.stderr)
-        print("build_apps: say which app to build: --mac", file=sys.stderr)
+        print("build_apps: say which app to build: --mac, --windows or both",
+              file=sys.stderr)
         return 2
     if not args.game_folder.is_dir():
         print(f"build_apps: {args.game_folder} is not a folder",
               file=sys.stderr)
         return 2
     try:
-        build_mac_app(args.game_folder, args.icon)
+        build(args.game_folder, args.icon, mac=args.mac, windows=args.windows)
     except BuildError as exc:
         print(f"build_apps: {exc}", file=sys.stderr)
         return 1

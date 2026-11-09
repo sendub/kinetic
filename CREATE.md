@@ -886,25 +886,27 @@ play through once. A media item followed by `text` items holds for its
 text alone while its animation or video loops underneath, and each
 `text` item holds for the length of its text.
 
-On a Mac the folder can also hold an app that readers open instead of
-`index.html` (Building the apps, below).
+The folder can also hold a macOS app and a Windows program that readers
+open instead of `index.html` (Building the apps, below).
 
 ## Building the apps
 
-A game folder can also hold a macOS app, `<title>.app`. A reader
-double-clicks it instead of `index.html`, and it shows the game through
-the Mac's own WebKit (the engine Safari uses) with the game's name and
-Dock icon, fullscreen from the start, with Esc and reload left to the
-game. The app holds only a small program. It plays the `index.html`,
-`app.js` and media beside it, so nothing is copied into it and no macOS
-check reads the media. `index.html` keeps working everywhere and stays
-the route for every other reader. A Windows app comes next.
+A game folder can also hold a macOS app, `<title>.app`, and a Windows
+program, `<title>.exe`. A reader double-clicks one instead of
+`index.html`. The Mac app shows the game through the Mac's own WebKit
+(the engine Safari uses) with the game's name and Dock icon. The Windows
+program opens it in a Microsoft Edge window of its own. Both start
+fullscreen and leave Esc and reload to the game. Each holds only a small
+program. It plays the `index.html`, `app.js` and media beside it, so
+nothing is copied into it and no macOS check reads the media.
+`index.html` keeps working everywhere and stays the route for every
+other reader.
 
-Add the app to an assembled folder, or assemble with it:
+Add the apps to an assembled folder, or assemble with them:
 
 ```sh
-.venv/bin/python tools/build_apps.py novel-play --mac
-.venv/bin/python tools/assemble_folder.py my-novel novel-play --mac --icon cover.png
+.venv/bin/python tools/build_apps.py novel-play --mac --windows
+.venv/bin/python tools/assemble_folder.py my-novel novel-play --windows --icon cover.png
 ```
 
 - `--mac` adds `<title>.app`, named from the manifest `title`, with `/`
@@ -912,24 +914,38 @@ Add the app to an assembled folder, or assemble with it:
   manifest needs a `storyId` (Manifest, above), since the app keeps
   readers' progress under its bundle id, `org.kinetic.game.<storyId>`
   (`_` written as `-`). The build refuses a manifest without one.
-  Building again replaces the app the build made before, and a failed
-  build leaves the folder as it was. After a title change the build names
-  the app left under the old title; delete it yourself.
-- `--icon IMAGE` names the icon picture: a PNG, JPEG, WebP, GIF or JPEG
-  XL file, cut to the largest square in its middle. Without it the icon
-  is the game's first graphic: the first item with a picture, which is an
-  image, an animation's first frame or a video's poster. A picture that
-  cannot be read stops the build and names the file.
-- With no `--mac`, `build_apps.py` prints its usage and builds nothing.
-  `assemble_folder.py` checks the `storyId`, the toolchain and the icon
-  before it copies anything.
+- `--windows` adds `<title>.exe`, named the same way, with the other
+  characters Windows refuses in a file name (`\ * ? " < > |`) also
+  written as `-`. It keeps readers' progress under the `storyId` too, so
+  it needs one as well.
+- Building again replaces the app or exe the build made before, and a
+  failed build leaves the folder as it was. After a title change the
+  build names the app or exe left under the old title; delete it
+  yourself.
+- `--icon IMAGE` names the icon picture for both: a PNG, JPEG, WebP, GIF
+  or JPEG XL file, cut to the largest square in its middle. Without it
+  the icon is the game's first graphic: the first item with a picture,
+  which is an image, an animation's first frame or a video's poster. A
+  picture that cannot be read stops the build and names the file.
+- With neither `--mac` nor `--windows`, `build_apps.py` prints its usage
+  and builds nothing. Asked for both, it checks everything both need
+  before it builds either. `assemble_folder.py` checks the `storyId`,
+  the tools and the icon before it copies anything.
 
-Building needs a Mac with a Swift toolchain: Xcode, or the Command Line
-Tools (`xcode-select --install`). On any other system, or without the
-toolchain, `--mac` stops with one error saying so and writes nothing.
-No Apple ID or certificate is needed, since the app is signed ad hoc.
+Building the Mac app needs a Mac with a Swift toolchain: Xcode, or the
+Command Line Tools (`xcode-select --install`). On any other system, or
+without the toolchain, `--mac` stops with one error saying so and writes
+nothing. No Apple ID or certificate is needed, since the app is signed
+ad hoc.
 
-What readers get and see:
+Building the Windows program needs Go 1.27 or later
+(https://go.dev/dl/), on macOS, Linux or Windows: Go builds the Windows
+program on any of them, with nothing else installed. Without `go` on
+PATH, or with an older one, `--windows` stops with one error saying so
+and writes nothing. The build downloads nothing and keeps Go's caches in
+`.tmp/windows-app-build/`.
+
+What Mac readers get and see:
 
 - They double-click `<title>.app` in the game folder, and the game opens
   fullscreen. ⌘Q quits, and so does closing the window. ⌘R reloads, ⌃⌘F
@@ -951,9 +967,37 @@ What readers get and see:
 - The app runs on Apple silicon Macs with macOS 12 or later. Intel Macs
   use `index.html`.
 
-Keep the app inside its game folder. Upgrading the player (copying
+What Windows readers get and see:
+
+- They double-click `<title>.exe` in the game folder, and the game opens
+  fullscreen in a Microsoft Edge window of its own, with no tabs or
+  toolbar. Esc belongs to the game. F11 leaves or re-enters fullscreen,
+  and Alt+F4 closes the game. Double-clicking the exe while the game is
+  open closes its window and opens it again fullscreen, where the reader
+  was.
+- Progress is kept in an Edge profile only this game uses,
+  `%LOCALAPPDATA%\Kinetic\Browser\<storyId>`, apart from the reader's
+  own Edge and from any browser that played `index.html` (Export and
+  Import move progress across). A rebuild keeps it.
+- Edge ships with Windows 10 and 11. Where it is missing the exe uses
+  Google Chrome the same way, and without either it opens `index.html`
+  in the default browser.
+- The exe runs on 64-bit Windows 10 and 11 on Intel and AMD processors.
+  Windows 11 on Arm runs it through its x64 emulation. Windows 10 on Arm
+  cannot run it, so readers there use `index.html`.
+- The exe is not signed. A zip downloaded from the internet carries
+  Windows's Mark of the Web, and Windows's own Extract All passes it to
+  the exe. Its first run then stops at SmartScreen's "Windows protected
+  your PC": the reader chooses More info, then Run anyway. To skip that,
+  readers can unblock the zip before extracting it (right-click it,
+  Properties, tick Unblock). With Smart App Control on (Windows 11),
+  Windows may block an unsigned download outright; those readers open
+  `index.html`. A folder you build or copy on your own PC carries no
+  mark, so its exe starts with no prompt.
+
+Keep each app inside its game folder. Upgrading the player (copying
 `index.html` and `app.js`, Upgrading to a newer Kinetic) needs no
-rebuild, since the app plays whichever `index.html` sits beside it.
+rebuild, since each app plays whichever `index.html` sits beside it.
 
 ## Upgrading to a newer Kinetic
 

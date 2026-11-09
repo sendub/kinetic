@@ -17,10 +17,11 @@ decision; this file is the practical sheet.
 - The media the manifest references, plus unreferenced extras the
   converter leaves behind (such as `build-ledger.json`), which the
   player and the validator ignore.
-- Optionally `<title>.app`, the macOS app that plays the folder, built
-  only when the author asks: `tools/build_apps.py <folder> --mac`, or
-  `--mac` on `tools/assemble_folder.py` (CREATE.md, "Building the
-  apps").
+- Optionally `<title>.app`, the macOS app that plays the folder, and
+  `<title>.exe`, the Windows program that opens it in an Edge app
+  window, built only when the author asks: `tools/build_apps.py <folder>
+  --mac --windows` (either flag alone builds one), or the same flags on
+  `tools/assemble_folder.py` (CREATE.md, "Building the apps").
 
 ## Building one
 
@@ -68,7 +69,10 @@ The reader unzips anywhere and double-clicks `index.html`. Locally
 generated files carry no quarantine flag, so nothing prompts
 (docs/stack.md § Distribution decision). A downloaded zip is
 quarantined, so the macOS app in it will not open there; its readers
-use `index.html` (CREATE.md, "Building the apps").
+use `index.html`. On Windows a downloaded zip carries the Mark of the
+Web, so the unsigned exe in it first meets SmartScreen's "Windows
+protected your PC" (More info, Run anyway), unless the reader unblocks
+the zip before extracting it (CREATE.md, "Building the apps").
 
 ## Size expectations
 
@@ -94,8 +98,10 @@ This section once held a Tauri v2 wrapper in reserve for the day a real
 `.app` was wanted (docs/stack.md § Revisit triggers). The per-game apps
 replace it (docs/plan.md Phase 43): the macOS app is a small Swift
 program over the system WebKit that `tools/build_apps.py` compiles
-with Xcode or the Command Line Tools and signs ad hoc, so no Rust
-toolchain is needed and the folder's files stay as they are beside it.
+with Xcode or the Command Line Tools and signs ad hoc, and the Windows
+exe is a small Go program (`apps/windows/`) that opens the folder in
+Edge, which Go builds for Windows from any system. No Rust toolchain is
+needed and the folder's files stay as they are beside them.
 
 ## Proof
 

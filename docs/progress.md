@@ -2296,10 +2296,28 @@ truthful: an unchecked box means nothing was accepted.
       app at `.tmp/p43i7/demo/Kinetic demo.app` is signed ad hoc as
       `org.kinetic.game.kinetic-demo`. Not launched: the user is at the
       machine.)
-- [ ] The Windows app (item 8): `--windows` builds `<title>.exe` with its
+- [x] The Windows app (item 8): `--windows` builds `<title>.exe` with its
       icon; Go unit tests (file URL, browser lookup), pytest for the option
       and the missing-Go error; the PE's icon resource read back in a test;
       docs. Running it on Windows is the user's check.
+      (2026-11-09: `apps/windows/` Go package, no third-party modules:
+      platform-neutral `launch.go` (file URL, Edge in all three install
+      folders before Chrome, profile folder, arguments) tested on macOS,
+      `main_windows.go` the prototype's behaviour split into functions
+      (`startBrowser` returns the process for item 9). storyId and the
+      percent-encoded title baked in with `-X`. `tools/windows_resources.py`
+      writes the `.syso` (one `.rsrc` section: 7 RT_ICON sizes 16-256, the
+      256 as PNG, RT_GROUP_ICON, VERSIONINFO with the title and a
+      `KineticStoryId` marker that also marks the exe as ours to replace).
+      Exe names also replace `\ * ? " < > |` and avoid device names. One
+      error and nothing written without Go 1.27+; with both flags every
+      requirement is checked first. 51 new pytest tests including a real
+      build read back by a PE parser (AMD64, GUI subsystem, baked values,
+      each icon decoded at its size, mask bits); 13 injected faults
+      caught. Orchestrator: go test ok, `GOOS=windows go vet` clean,
+      test_build_apps 99 passed, npm test 821, check clean; the demo exe
+      `.tmp/p43i8/demo/Kinetic demo.exe` is PE32+ GUI x86-64, 1.9 MiB. Run
+      time unverified here: the user's check at the phase closer.)
 - [ ] The game's own window controls (item 9): Exit and the Fullscreen /
       Window toggle on the Esc screen in the macOS app, the Edge app (the
       exe steering Edge over DevTools, tested against Chrome here) and a

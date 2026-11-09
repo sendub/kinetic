@@ -4,7 +4,7 @@
 Usage:
 
     python tools/assemble_folder.py <content-dir> <out-folder> [--force]
-        [--mac [--icon IMAGE]]
+        [--mac] [--windows] [--icon IMAGE]
 
 Exit status: 0 on success, 1 when the output folder is non-empty without
 --force, a required input is missing or the app cannot be built, 2 when
@@ -25,9 +25,10 @@ double-clicks open over `file://` with nothing else on disk:
 
 Prints the assembled folder's file count and total size.
 
-`--mac` (and `--icon IMAGE`) then add the macOS app to the folder with
-tools/build_apps.py's build, checked before anything is copied (the
-manifest's storyId, the Swift toolchain, the icon picture).
+`--mac` and `--windows` (and `--icon IMAGE`) then add the macOS app and
+the Windows exe to the folder with tools/build_apps.py's build, checked
+before anything is copied (the manifest's storyId, the Swift toolchain,
+Go, the icon picture).
 """
 
 from __future__ import annotations
@@ -90,19 +91,22 @@ def main(argv: list[str]) -> None:
                         help="replace a non-empty output folder")
     parser.add_argument("--mac", action="store_true",
                         help="then add <title>.app (tools/build_apps.py)")
+    parser.add_argument("--windows", action="store_true",
+                        help="then add <title>.exe (tools/build_apps.py)")
     parser.add_argument("--icon", type=Path, metavar="IMAGE",
-                        help="the app's icon (tools/build_apps.py --icon)")
+                        help="the apps' icon (tools/build_apps.py --icon)")
     args = parser.parse_args(argv[1:])
 
     content = Path(args.content_dir)
     if not content.is_dir():
         fail(2, f"content dir {content} is not a directory")
     out = Path(args.out_folder)
-    if args.icon is not None and not args.mac:
-        fail(2, "--icon goes with --mac")
-    if args.mac:
+    apps = {"mac": args.mac, "windows": args.windows}
+    if args.icon is not None and not any(apps.values()):
+        fail(2, "--icon goes with --mac or --windows")
+    if any(apps.values()):
         try:
-            build_apps.prepare_mac(content, args.icon)
+            build_apps.prepare(content, args.icon, **apps)
         except build_apps.BuildError as exc:
             fail(1, str(exc))
 
@@ -136,9 +140,9 @@ def main(argv: list[str]) -> None:
           f"({size / (1024 * 1024):.2f} MiB)"
           + ("; generated manifest.js" if generated else ""))
 
-    if args.mac:
+    if any(apps.values()):
         try:
-            build_apps.build_mac_app(out, args.icon)
+            build_apps.build(out, args.icon, **apps)
         except build_apps.BuildError as exc:
             fail(1, str(exc))
 
