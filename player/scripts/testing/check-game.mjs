@@ -35,10 +35,11 @@
 // tests).
 //
 // Exit codes: 0 passed; 1 console or page errors, a game that would not
-// open, a stuck player, the --steps all cap or an --until not reached; 2
-// bad arguments, including an id the manifest lacks (checked before any
-// browser starts); 3 a walk from the opening reached the story's end with
-// items never shown. 1 wins over 3.
+// open, a stuck player, the --steps all cap, an --until not reached or a
+// media check that stalled; 2 bad arguments (a bad --engine or --steps,
+// an id the manifest lacks), all checked before any browser starts; 3 a
+// walk from the opening reached the story's end with items never shown. 1
+// wins over 3.
 import { resolve } from "node:path";
 import { performance } from "node:perf_hooks";
 import { openGame, readManifestFile, summary } from "./kinetic.mjs";

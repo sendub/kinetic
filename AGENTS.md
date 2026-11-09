@@ -60,7 +60,12 @@ are implementing and docs/stack.md for settled decisions.
   `djxl`.
 - Play a built game folder with no window (WebKit or headless Chrome):
   `node player/scripts/testing/check-game.mjs <folder> [--engine
-  webkit|chrome] [--steps N]`, or a script using `openGame` from
+  webkit|chrome] [--steps N|all] [--start-at ID] [--until ID]` (any
+  walk stops at the story's end; exit 0 passed, 1 errors, a stuck
+  player, the `all` cap, `--until` not reached or a stalled media check,
+  2 bad arguments (a bad `--engine` too), 3 a walk from the opening
+  reached the end with items never shown; 1 wins over 3), or a script
+  using `openGame` from
   `player/scripts/testing/kinetic.mjs` (CREATE.md, "Testing your game");
   never hand-roll puppeteer against `player/node_modules`.
 - ffmpeg and macOS `sips` are on PATH (fixture builders use them); there

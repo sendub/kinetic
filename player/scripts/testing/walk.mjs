@@ -61,6 +61,11 @@ export function readArgs(argv) {
       error: folders.length === 0 ? "no game folder" : "one game folder only",
     };
   }
+  if (!["webkit", "chrome", "auto"].includes(options.engine)) {
+    return {
+      error: `--engine takes webkit, chrome or auto, not ${options.engine}`,
+    };
+  }
   const steps = options.steps === "all" ? "all" : Number(options.steps);
   if (
     steps !== "all" &&

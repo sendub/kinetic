@@ -367,9 +367,11 @@ describe("readArgs", () => {
     expect(readArgs(["game", "--steps", "0"]).steps).toBe(0);
   });
 
-  it("refuses a missing folder, a bad --steps, an option without a value or an unknown option", () => {
+  it("refuses a missing folder, a bad --engine, a bad --steps, an option without a value or an unknown option", () => {
     for (const argv of [
       [],
+      ["game", "--engine", "safari"],
+      ["game", "--engine", "WebKit"],
       ["game", "--steps", "x"],
       ["game", "--steps", "-1"],
       ["game", "--steps", "1.5"],

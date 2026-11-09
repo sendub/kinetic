@@ -950,6 +950,18 @@ settings).
 
 The controls are listed in README.md ("Playing").
 
+To look at one item without reading up to it, add `#start=<id>` to the
+page's address, such as `index.html#start=route1-start` for the demo's
+first Route 1 line. The game opens at that item for that load, entering
+the routes around it as `u` does, so Space reads on inside the route.
+This counts as reading there: the item is marked seen, its routes
+played, and the saved place moves to it. The player then removes
+`#start=` from the address, so a reload resumes the saved place as usual
+instead of jumping again. An id the game does not have opens the game
+as usual, with one console warning naming it. The player reads the
+address only as the page loads: typed onto a page that is already open,
+`#start=` needs a reload to take effect.
+
 In auto mode (`a`) the player advances at the configured auto-forward
 speed ("Auto-forward speed" in the Esc screen's settings):
 images hold for their text, animations complete their loops, and videos
@@ -1050,6 +1062,11 @@ What Mac readers get and see:
   `index.html` instead, or clear the flag first with
   `xattr -dr com.apple.quarantine <folder>`. A folder you build or copy
   on your own Mac has no flag, so its app opens with no check.
+- The app reads only files inside the game folder. A symbolic link in
+  the folder that points outside it (media linked from another disk,
+  say) loads nothing in the app, though Chrome follows it; copy or
+  hard-link those files into the folder instead. The testing library
+  names such links when it opens the folder (Testing your game).
 - The app runs on Apple silicon Macs with macOS 12 or later. Intel Macs
   use `index.html`.
 
@@ -1148,15 +1165,58 @@ Tests open an assembled game folder (Playing the folder).
 ### The quick check
 
 ```sh
-node player/scripts/testing/check-game.mjs novel-play --steps 30
+node player/scripts/testing/check-game.mjs novel-play --steps all
 ```
 
-It opens the folder, presses Space 30 times (10 without `--steps`), and
-prints each item it reaches. At a choice, Space takes the highlighted
-route, as it does for a reader with Play all routes on. Then it prints
-any console or page errors, and exits with status 1 if there were any
-or the game did not open. `--engine webkit` or `--engine chrome` picks
-the engine. On the demo it starts:
+It opens the folder and presses Space, printing a line each time the
+screen changes: the step, the item's id, the start of its line, and any
+choice or screen open over it. At a choice, Space takes the highlighted
+route, as it does for a reader with Play all routes on, so a walk to the
+end plays every route. `--engine webkit` or `--engine chrome` picks the
+engine. The other options:
+
+- `--steps N` presses Space at most N times (10 without `--steps`).
+  `--steps all` presses until the story ends, giving up after twice the
+  manifest's item count plus 1,000 presses.
+- `--start-at ID` opens the game at item ID, as step 0, entering its
+  routes as `u` does (the URL start, Playing the folder).
+- `--until ID` stops when item ID first shows.
+
+Any walk stops at the story's end, whatever `--steps` says. The story
+has ended when Space changes nothing (the same item, line, picture,
+choice and screen) while the player's end card shows, or on the
+manifest's last item. Anywhere else, Space changing nothing five times
+running over at least 2 s means the player is stuck: the walk stops and
+names the screen.
+
+After the walk it prints how the walk stopped: `story ended at step N`,
+N being the step that first showed the last screen, or `stopped after N
+steps`, followed by the reason when there is one (`reached ID
+(--until)`, a stuck player, the `--steps all` limit). Then a summary:
+
+- `visited X of Y items`: how many of the manifest's items the walk
+  showed.
+- For a folder with an older player, one that does not name the item on
+  screen, how many steps the check named from the screen instead and
+  how many of those were guesses between look-alike items. Upgrading
+  the folder's player (Upgrading to a newer Kinetic) ends the guessing.
+- After a walk from the opening (no `--start-at`) that reached the
+  story's end, `never shown:` and up to ten ids of items it never
+  showed, in manifest order.
+
+Then it checks every picture and video the walk passed, including those
+it moved past before they finished loading (`checkMedia()`, What the
+library offers), and lists any console or page errors, among them each
+file that failed to load or decode. From 100 media files on, a note on
+stderr says how many it is checking. During the walk a line on stderr
+every 30 s names the step, the items seen so far and the screen, so a
+long walk shows it is still going:
+
+```text
+check-game: step 30; 28 items seen; on screen: nest-return "Nested 1b: when it ends, the nested decision is offered a..."
+```
+
+On the demo, `--steps all` starts:
 
 ```text
 webkit: /Users/you/demo-play
@@ -1164,6 +1224,79 @@ webkit: /Users/you/demo-play
   1: text-speech "Spoken dialogue: the speaker's name, Mei, sits above it."
   2: text-thought "A thought: unspoken, so it is drawn differently from speech."
 ```
+
+and ends, on WebKit and Chrome alike:
+
+```text
+  33: route1-end "Route 1 again, after the nested decision. Its end leads t..."
+  34: after-start "Shared aftermath: reached by finishing Route 1. Return to..."
+  35: after-end "The end. Also try: u for unseen content, e for the end of..."
+story ended at step 35
+visited 32 of 32 items
+no console or page errors
+```
+
+The exit status says how it went:
+
+| Status | Meaning |
+| --- | --- |
+| 0 | Passed. |
+| 1 | Console or page errors, a game that would not open, a stuck player, the `--steps all` limit, an `--until` item not reached, or a media check that stalled. |
+| 2 | Bad arguments: an unknown option, an `--engine` other than `webkit`, `chrome` or `auto`, a `--steps` that is neither a number nor `all`, or an id the manifest does not have (checked before anything opens). |
+| 3 | A walk from the opening reached the story's end with items never shown. |
+
+1 wins over 3: a walk with errors and items never shown exits 1.
+
+To check content late in a long game without walking everything before
+it, start at the first item of the scene, and stop where it ends or
+after a number of steps (`--steps N`):
+
+```sh
+node player/scripts/testing/check-game.mjs demo-play --start-at route1-start --until after-start
+```
+
+```text
+webkit: /Users/you/demo-play
+  0: route1-start "Route 1, first line. A nested decision opens after the ne..."
+  1: route1-nest "Route 1, second line: the nested decision hangs off this ..."
+  2: route1-nest "Route 1, second line: the nested decision hangs off this ..." with the choice "Nested decision inside Route 1:" open
+  3: nest-return "Nested 1b: when it ends, the nested decision is offered a..."
+  4: nest-return "Nested 1b: when it ends, the nested decision is offered a..." with the choice "Nested decision inside Route 1:" open
+  5: nest-continue "Nested 1a: when it ends, Route 1 carries on."
+  6: route1-end "Route 1 again, after the nested decision. Its end leads t..."
+  7: after-start "Shared aftermath: reached by finishing Route 1. Return to..."
+stopped after 7 steps: reached after-start (--until)
+visited 6 of 32 items
+no console or page errors
+```
+
+A walk that ends without reaching its `--until` item (at the story's
+end, or when the steps run out) says `never reached ID (--until)` and
+exits 1. An id the game does not have exits 2 before anything opens:
+
+```text
+check-game: this game has no item "nowhere" (--start-at)
+```
+
+A walk from `--start-at` skips whatever came before it, so it names no
+items never shown and never exits 3.
+
+To check that every item can be reached, run `--steps all` from the
+opening: a new reader has Play all routes on, so the walk plays every
+route. Exit 3 means it reached the end without showing some items, and
+the summary names them. A copy of the demo with an extra item between
+Route 2's end and the aftermath, in no route (the validator accepts
+that), ends:
+
+```text
+story ended at step 35
+visited 32 of 33 items
+never shown: aside-unreached
+no console or page errors
+```
+
+Play all routes never reaches such an item: put it in a route or on the
+main line, or remove it.
 
 ### A test script
 
@@ -1196,6 +1329,7 @@ assert.equal(route.speaker, "Mei");
 assert.match(route.text, /^Route 2: a separate path/);
 
 await game.screenshot("shots/route-2.png");
+await game.checkMedia(); // every picture and video the walk passed
 assert.deepEqual(game.errors(), []);
 await game.close();
 
@@ -1209,7 +1343,10 @@ console.log(`${game.engine}: ok`);
 
 `node test-demo.mjs demo-play webkit` and `node test-demo.mjs demo-play
 chrome` each print `ok`. A failed check stops the script with an error
-naming what was on screen.
+naming what was on screen. Await `checkMedia()` before reading
+`errors()` after any walk: a walk faster than a reader moves past
+pictures and videos before they finish loading, and a load cut short
+reports no error, so a broken file would otherwise pass.
 
 ### What the library offers
 
@@ -1228,13 +1365,31 @@ naming what was on screen.
   Space takes the highlighted route; turn it off to pick routes
   yourself. Setting it leaves the Esc screen closed. Without it the
   setting stays as the profile has it.
-- `log`: a function given openGame's note of the engine `auto` chose
-  (printed to stderr by default), or `null` for none.
+- `startAt`: an item id. The game opens at that item instead of the
+  saved place, entering its routes as `u` does (the URL start, Playing
+  the folder). An id the manifest does not have throws before the
+  browser starts. A folder whose player is too old to start at an item
+  throws once it has opened, saying so; upgrade its player (Upgrading to
+  a newer Kinetic).
+- `log`: a function given openGame's notes (the engine `auto` chose,
+  and any links out of the folder, below), printed to stderr by default,
+  or `null` for none.
+
+On either engine, `openGame` notes any symbolic links in the folder that
+point outside it, naming up to three:
+
+```text
+openGame: 2 symbolic links in this folder point outside it (chain-still.jpg, text-bare.jpg). WebKit and the macOS app cannot read files through such links (Chrome can); copy or hard-link the files into the folder instead.
+```
+
+A file behind such a link fails to load on WebKit and in the macOS app,
+so copy or hard-link your media into the folder rather than linking it
+from elsewhere. A link that stays inside the folder is fine.
 
 The game:
 
 - `current()` resolves with what the screen shows: `{ id, index, text,
-  speaker, file, choice, screen, ambiguous }`.
+  speaker, file, choice, screen, foundBy, ambiguous, endCard }`.
   - `id` and `index` name the manifest item, or are `null` and -1 on a
     screen no item makes.
   - `text` and `speaker` are the line on screen (`null` when none).
@@ -1243,10 +1398,18 @@ The game:
     Each row is `{ number, label, seen, next, continue }`: `next` marks
     the route Space takes, `continue` the "Return to main route" row.
   - `screen` is `"esc"` or `"map"` while one is over the story.
-  - The item is found from the line and picture on screen. When two
-    items look the same (a repeated line over the same picture), the
-    player's saved place decides. If even that cannot, `ambiguous`
-    lists the candidates and `id` is the nearest one ahead.
+  - `endCard` is the words of the player's end card while it shows, at
+    the story's end (`"You have seen everything."` once every route has
+    been played), else `null`.
+  - `foundBy` says how the item was named. A folder with a current
+    player puts the id of the item on screen on the page, and the
+    library reads it: `"player"`. With an older player the library
+    finds the item from the line and picture on screen: `"screen"` when
+    only one item makes that screen. When two items look the same (a
+    repeated line over the same picture), the player's saved place
+    decides (`"saved place"`); if even that cannot, `foundBy` is
+    `"guess"`, `ambiguous` lists the candidates and `id` is the nearest
+    one ahead. On a screen no item makes it is `"none"`.
 - `press(key, { times })` presses a key by name: `Space`, `Tab`,
   `Escape`, `Enter`, a letter, a digit, `ArrowUp`, `ArrowDown`,
   `ArrowLeft`, `ArrowRight`, `PageUp`, `PageDown`, `Home`, `End`,
@@ -1265,10 +1428,24 @@ The game:
   `press("Enter")`.
 - `reload()` reloads the page, as a reader's reload does.
 - `screenshot(path)` saves a PNG of the page, making its folders.
+- `checkMedia({ stall, onWaiting })` waits until every picture, video
+  and poster the page has been given is confirmed loaded or listed in
+  `errors()` as failed, and resolves with `{ files, failed }`: how many
+  media files the page was given, and the URLs that failed. Await it
+  before reading `errors()` after a walk. A walk faster than a reader
+  moves past files before they finish loading, and a load cut short
+  fires no error, so the page loads and decodes each such file off
+  screen, and every poster too, since a poster reports nothing when it
+  fails. It throws if `stall` ms (20 s by default) pass with no file
+  answered. `onWaiting(count)`, if given, is called once before it
+  waits, with how many files are left to check.
 - `errors()` lists the console errors and warnings and the page errors
-  so far, including a picture, video or script that failed to load (on
-  WebKit the library reports these itself, since WebKit does not). A
-  load still under way reports a moment later.
+  so far, as `[error] ...`, `[warning] ...` and `[pageerror] ...`. A
+  picture, video, poster or script that failed to load or decode is
+  listed once per file, on both engines: the library reports these
+  itself, since WebKit reports no failed load and Chrome reports a
+  missing file but not one it cannot decode. After a walk, await
+  `checkMedia()` first.
 - `close()` closes the game; every open needs one.
 - `page` is the puppeteer page for anything else (`page.evaluate`,
   `page.mouse.click(x, y)`). In WebKit it offers the subset the player's
@@ -1303,6 +1480,31 @@ browser under the manifest's `storyId`, not inside the folder, so the
 new player picks it up on the next open. A manifest without a `storyId`
 keys progress by the folder's location instead; add one (see Manifest)
 and the first open carries that progress over to it.
+
+The player saves the items a reader has seen apart from the rest of
+their progress, so a save on a screen change costs the same however
+much they have read. Older players kept the seen items in the main
+record and rewrote it on every screen change. The browser database kept
+its version through that change, so folders with older players still
+open, and the first open with the new player moves a reader's old
+progress over. A reader who goes back to a folder of the same story
+with an older player, in the same browser, sees fewer items marked as
+seen there; their place and played routes are intact, and nothing is
+lost when they come back to the new player. Reset progress and Import
+in the older player cannot reach the seen marks the new one keeps, so
+after a Reset there and some reading, the new player still marks the
+earlier items seen.
+
+Your test scripts may notice the newer Kinetic too. A script that read
+the player's saved state directly finds the state record's
+`ctx.visited` list empty; for a coverage verdict, run
+`check-game.mjs --steps all` (The quick check) instead. The testing
+library now lists Chrome's console warnings, which it used to miss, and
+fails a picture or video Chrome cannot decode, which used to pass there,
+so a test that passed on Chrome may now report them. A folder with an
+older player still tests, but the library names its items from the
+screen, and `startAt` and `--start-at` refuse it; upgrading its player
+fixes both.
 
 Re-extract instead when the fix is in the converter (`kinetic-extract`)
 rather than the player, or when the validator rejects a folder the

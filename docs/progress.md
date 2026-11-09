@@ -2829,8 +2829,26 @@ truthful: an unchecked box means nothing was accepted.
         against the stage, as its poster and pictures fill it;
       - the same check after Space, the wheel, skip, a jump, a restore,
         a resize and a fullscreen change onto a video item.
-- [ ] Docs (item 7): CREATE.md, docs/perf.md, docs/verify-player.md,
+- [x] Docs (item 7): CREATE.md, docs/perf.md, docs/verify-player.md,
       AGENTS.md.
+      (2026-11-09: CREATE.md "The quick check" rewritten (options, how the
+      end is recognised, stop and summary lines, heartbeat, media check,
+      an exit-code table, real demo output on both engines, a late-content
+      example with `--start-at`/`--until`, a coverage example exiting 3);
+      the library reference gains `startAt`, `foundBy`, `endCard`,
+      `checkMedia()` and the symlink note, and the sample script awaits
+      `checkMedia()`; "Playing the folder" describes `#start=`; the Mac
+      app bullets note that links out of the folder load nothing; the
+      upgrade guide covers the new progress layout (older players see
+      fewer items seen, nothing lost) and that `ctx.visited` is now empty
+      for scripts that read it. AGENTS.md's check-game line has the new
+      options and exit codes. docs/perf.md, docs/stack.md and
+      docs/verify-player.md were updated by items 1-5. Writing the docs
+      found a bad `--engine` exiting 1 and a media-check stall missing
+      from the exit list; item 5's subagent fixed both (readArgs refuses
+      the engine, exit 2, test red first). Orchestrator: npm test 1014,
+      check clean; `--engine safari` exits 2 with no browser; the
+      documented demo outputs match real runs.)
 - [ ] Phase-closer (Phase 46): full pytest, the full `npm run verify` and
       `npm run verify -- --webkit`, package-proof; a timed
       `check-game --steps all` walk of the synthetic 160,000-item game on
