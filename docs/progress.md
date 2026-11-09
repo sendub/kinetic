@@ -2531,6 +2531,7 @@ truthful: an unchecked box means nothing was accepted.
       The second (`.tmp/p43play2/demo`, b088c4b) passed on both apps but
       for the export notice and the Esc screen's uneven columns, fixed
       above; ⌘H still does nothing in the macOS app, which the user does
-      not mind. Waiting on the user's look at `.tmp/p43play3/demo` (both
-      apps, built on 75b1c9a); the automated suites rerun before the
+      not mind. The look at `.tmp/p43play3/demo` asked for the follow-up
+      above. Waiting on the user's look at `.tmp/p43play4/demo` (both
+      apps, built on a1ceb1a); the automated suites rerun before the
       closing commit.)
