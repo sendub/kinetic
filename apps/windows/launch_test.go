@@ -79,19 +79,35 @@ func TestProfileDir(t *testing.T) {
 	}
 }
 
-func TestBrowserArgs(t *testing.T) {
-	got := browserArgs(`C:\Users\Zoë\AppData\Local\Kinetic\Browser\rainy-day`,
-		`D:\Games\Rainy Day\index.html`)
-	want := []string{
+func TestBrowserArgsInEachStartMode(t *testing.T) {
+	profile := `C:\Users\Zoë\AppData\Local\Kinetic\Browser\rainy-day`
+	page := fileURL(`D:\Games\Rainy Day\index.html`)
+	head := []string{
 		`--user-data-dir=C:\Users\Zoë\AppData\Local\Kinetic\Browser\rainy-day`,
 		"--app=file:///D:/Games/Rainy%20Day/index.html",
-		"--start-fullscreen",
+	}
+	tail := []string{
+		"--remote-debugging-port=0",
 		"--no-first-run",
 		"--no-default-browser-check",
 		"--hide-crash-restore-bubble",
 	}
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("browserArgs =\n%q\nwant\n%q", got, want)
+	cases := []struct {
+		name  string
+		start start
+		mode  []string
+	}{
+		{"fullscreen", start{Fullscreen: true, Bounds: windowBounds{1, 2, 3, 4}}, []string{"--start-fullscreen"}},
+		{"a remembered window", start{Bounds: windowBounds{Left: -1200, Top: 40, Width: 1100, Height: 640}},
+			[]string{"--window-size=1100,640", "--window-position=-1200,40"}},
+		{"the first window", start{Bounds: windowBounds{Left: 120, Top: 66, Width: 1296, Height: 761}, First: true},
+			[]string{"--window-size=1296,761", "--window-position=120,66"}},
+	}
+	for _, c := range cases {
+		want := append(append(append([]string{}, head...), c.mode...), tail...)
+		if got := browserArgs(profile, page, c.start); !reflect.DeepEqual(got, want) {
+			t.Errorf("%s: browserArgs =\n%q\nwant\n%q", c.name, got, want)
+		}
 	}
 }
 

@@ -899,9 +899,10 @@ program, `<title>.exe`. A reader double-clicks one instead of
 `index.html`. The Mac app shows the game through the Mac's own WebKit
 (the engine Safari uses) with the game's name and Dock icon. The Windows
 program opens it in a Microsoft Edge window of its own. Both start
-fullscreen and leave Esc and reload to the game. Each holds only a small
-program. It plays the `index.html`, `app.js` and media beside it, so
-nothing is copied into it and no macOS check reads the media.
+fullscreen, reopen the way the reader left them, and leave Esc and reload
+to the game. Each holds only a small program. It plays the `index.html`,
+`app.js` and media beside it, so nothing is copied into it and no macOS
+check reads the media.
 `index.html` keeps working everywhere and stays the route for every
 other reader.
 
@@ -923,7 +924,8 @@ Add the apps to an assembled folder, or assemble with them:
 - `--windows` adds `<title>.exe`, named the same way, with the other
   characters Windows refuses in a file name (`\ * ? " < > |`) also
   written as `-`. It keeps readers' progress under the `storyId` too, so
-  it needs one as well.
+  it needs one as well. It bakes in the same first-window size as the
+  Mac app, and prints it.
 - Building again replaces the app or exe the build made before, and a
   failed build leaves the folder as it was. After a title change the
   build names the app or exe left under the old title; delete it
@@ -983,15 +985,32 @@ What Mac readers get and see:
 What Windows readers get and see:
 
 - They double-click `<title>.exe` in the game folder, and the game opens
-  fullscreen in a Microsoft Edge window of its own, with no tabs or
-  toolbar. Esc belongs to the game. F11 leaves or re-enters fullscreen,
-  and Alt+F4 closes the game. Double-clicking the exe while the game is
-  open closes its window and opens it again fullscreen, where the reader
-  was.
+  fullscreen the first time, in a Microsoft Edge window of its own, with
+  no tabs or toolbar. Esc belongs to the game. Exit on the Esc screen
+  closes the game, as does Alt+F4.
+- The Esc screen's Fullscreen | Window switch and F11 both switch between
+  fullscreen and a window, and the switch shows whichever is in force.
+  The exe reopens the game the way it was left, so a reader who chose a
+  window gets a window, with no fullscreen first.
+- The first window takes the size and shape of the game's first graphic,
+  scaled down to fit the screen and centred. After that the exe keeps the
+  size and place the reader gives the window.
+- Double-clicking the exe while the game is open closes its window and
+  opens it again, the way it was left, where the reader was.
+- While the game is open the exe keeps running with no window of its own
+  (Task Manager lists it under the game's name). It steers the game's
+  Edge window through Edge's debugging connection, which listens only on
+  the PC itself (127.0.0.1), on a port Edge picks, and exists only while
+  the game runs. The exe ends when the game closes. On a PC where a policy
+  turns that connection off, the game still plays, and its Fullscreen |
+  Window switch and Exit then work as in a browser tab.
 - Progress is kept in an Edge profile only this game uses,
   `%LOCALAPPDATA%\Kinetic\Browser\<storyId>`, apart from the reader's
   own Edge and from any browser that played `index.html` (Export and
-  Import move progress across). A rebuild keeps it.
+  Import move progress across). A rebuild keeps it. The window's mode
+  and place are kept in that folder too (`kinetic-window.json`), with a
+  log of the exe's last run (`kinetic-host.log`) to ask for when a
+  reader reports a window problem.
 - Edge ships with Windows 10 and 11. Where it is missing the exe uses
   Google Chrome the same way, and without either it opens `index.html`
   in the default browser.

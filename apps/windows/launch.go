@@ -1,15 +1,20 @@
 // Kinetic's Windows app. tools/build_apps.py --windows builds this package
 // into <title>.exe inside a game folder. Double-clicked, it opens the
 // folder's index.html in a Microsoft Edge app window (its own window, no
-// tabs or toolbar), fullscreen from the start, under an Edge profile used
-// only by this game. Edge ships with Windows 10 and 11; Chrome stands in
-// when Edge is missing, then the default browser.
+// tabs or toolbar), under an Edge profile used only by this game,
+// fullscreen or as the window the reader left. Edge ships with Windows 10
+// and 11; Chrome stands in when Edge is missing, then the default browser.
+// The exe then stays running, with no window of its own, and steers the
+// game window over the browser's DevTools connection for the page's
+// Fullscreen | Window switch and Exit (controller.go), until the browser
+// closes.
 //
 // This file holds the steps that are plain string work, so they build and
 // test on any OS (launch_test.go). main_windows.go runs them on Windows.
 package main
 
 import (
+	"fmt"
 	"net/url"
 	"strings"
 )
@@ -92,15 +97,27 @@ func profileDir(getenv func(string) string, story string) string {
 	return winJoin(root, "Kinetic", "Browser", story)
 }
 
-// browserArgs opens page as an app window (no tabs or toolbar), fullscreen
-// from the start, under profile, with none of a new profile's prompts.
-func browserArgs(profile, page string) []string {
-	return []string{
-		"--user-data-dir=" + profile,
-		"--app=" + fileURL(page),
-		"--start-fullscreen",
+// browserArgs opens pageURL as an app window (no tabs or toolbar) under
+// profile, fullscreen or as a window at its place and size (so a window
+// never flashes fullscreen first), with none of a new profile's prompts.
+// --remote-debugging-port=0 opens the DevTools connection the exe steers
+// the window over, on a free loopback port the browser writes to
+// DevToolsActivePort in the profile; Edge and Chrome allow it with a
+// profile of the exe's own (--user-data-dir).
+func browserArgs(profile, pageURL string, s start) []string {
+	args := []string{"--user-data-dir=" + profile, "--app=" + pageURL}
+	if s.Fullscreen {
+		args = append(args, "--start-fullscreen")
+	} else {
+		args = append(args,
+			fmt.Sprintf("--window-size=%d,%d", s.Bounds.Width, s.Bounds.Height),
+			fmt.Sprintf("--window-position=%d,%d", s.Bounds.Left, s.Bounds.Top))
+	}
+
+	return append(args,
+		"--remote-debugging-port=0",
 		"--no-first-run",
 		"--no-default-browser-check",
 		"--hide-crash-restore-bubble",
-	}
+	)
 }

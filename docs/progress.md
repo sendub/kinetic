@@ -2354,13 +2354,35 @@ truthful: an unchecked box means nothing was accepted.
       observable), 0 fail; full WebKit suite 370 pass, 5 PARTIAL (element
       fullscreen, off in WKWebView), 0 fail. The app's on-screen window
       switching waits for the user's check at the phase closer.)
-- [ ] The game's own window controls in the Edge app (item 9, second
+- [x] The game's own window controls in the Edge app (item 9, second
       part): the exe stays running while the game is open and steers its
       Edge over DevTools (binding `kineticHost`, `Browser.setWindowBounds`,
       `Browser.close`), its display memory in the game's profile folder, the
       first window size from the first graphic; a Go client tested against
       headless Chrome on macOS; docs. Running it on Windows is the user's
       check.
+      (2026-11-09: standard-library WebSocket (`websocket.go`) and CDP
+      (`cdp.go`) clients and a platform-neutral controller: the exe
+      launches Edge with `--remote-debugging-port=0` (stale
+      `DevToolsActivePort` removed), in the remembered mode
+      (`--start-fullscreen`, or the remembered or first window bounds),
+      attaches to the page (Runtime and Page enabled, binding
+      `__kineticHostSend`, the apps/README.md host script on new documents
+      and once in the current one), closes the browser on `quit`, sets
+      `Browser.setWindowBounds` on `display`, polls the window once a
+      second for the reader's own switches, keeps mode and window bounds in
+      `kinetic-window.json` in the profile, and exits with Edge; no
+      connection within 10 s leaves the page playing as a tab. First
+      window from the baked first-graphic size fitted to the work area.
+      A per-launch `kinetic-host.log` in the profile for testing on
+      Windows. 30 Go tests, 5 against headless Chrome launched with the
+      exe's own arguments (host object before and after reload, page and
+      outside switches, memory, quit, a killed browser), 12 injected
+      controller faults caught; headless cannot show minimize, slow
+      resizes or Edge's real frame. Orchestrator: go test ok, `GOOS=windows
+      go vet` clean, test_build_apps 110 passed, npm test 867, check clean,
+      window scenario 27/27 on Chrome. Exe now 3.7 MiB. Run time on Windows:
+      the user's check at the phase closer.)
 - [ ] Testing a game with no window on screen (item 10): the library, its
       tests, and a CREATE.md worked example run against the demo on both
       engines.

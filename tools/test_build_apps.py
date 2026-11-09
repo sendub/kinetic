@@ -820,9 +820,11 @@ def stub_go(monkeypatch: pytest.MonkeyPatch) -> list[dict]:
     monkeypatch.setattr(build_apps, "find_go", lambda: "/stub/bin/go")
     monkeypatch.setattr(build_apps, "go_version", lambda go: "1.27.1")
 
-    def compile_windows(go: str, package: Path, exe: Path, ident) -> None:
+    def compile_windows(go: str, package: Path, exe: Path, ident,
+                        window) -> None:
         syso = (package / build_apps.SYSO_NAME).read_bytes()
         builds.append({"go": go, "exe": exe, "ident": ident, "syso": syso,
+                       "window": window,
                        "files": sorted(p.name for p in package.iterdir())})
         exe.write_bytes(b"MZ" + f" stub build {len(builds)} ".encode() + syso)
 
@@ -845,6 +847,8 @@ def test_windows_flag_builds_the_exe_with_the_default_icon(
     assert build_apps.read_exe_story(exe) == "rainy-day"
     (record,) = stub_go
     assert record["go"] == "/stub/bin/go"
+    # The first window: the first graphic's pixel size (make_game's 64x48).
+    assert record["window"] == (64, 48)
     # The build copies the package without its tests and adds the .syso,
     # in a temporary folder beside the game folder that is gone after.
     package = REPO_ROOT / "apps" / "windows"
@@ -860,12 +864,15 @@ def test_windows_flag_builds_the_exe_with_the_default_icon(
         assert_green(picture.getpixel((picture.width // 2, picture.height // 2)))
     out = capsys.readouterr().out
     assert f"built {exe}" in out and "first.png" in out
+    assert "first window 64x48" in out
 
 
 def test_windows_build_uses_the_named_icon(tmp_path, stub_go) -> None:
     folder = make_game(tmp_path)
     icon = write_picture(tmp_path / "art" / "icon.jxl", stripes((40, 120)))
     assert build_apps.main([str(folder), "--windows", "--icon", str(icon)]) == 0
+    # The window still takes the game's first graphic, not the icon.
+    assert stub_go[0]["window"] == (64, 48)
     pictures = icons(syso_resources(stub_go[0]["syso"]))
     # Squashed instead of cut, the top and bottom would be red and blue.
     assert_green(pictures[256].getpixel((128, 40)))
@@ -999,10 +1006,11 @@ def test_the_go_build_command(tmp_path, monkeypatch) -> None:
                         lambda command, what, **options: runs.append((command, options)))
     ident = build_apps.identity({"storyId": "rainy_day", "title": "Zoë's \"Day\" 100%"},
                                 Path("x"))
-    build_apps.compile_windows("/x/go", tmp_path / "src", tmp_path / "out.exe", ident)
+    build_apps.compile_windows("/x/go", tmp_path / "src", tmp_path / "out.exe", ident,
+                               (1920, 1080))
     ((command, options),) = runs
     assert command == ["/x/go", "build", "-trimpath", "-buildvcs=false",
-                       "-ldflags", build_apps.go_ldflags(ident),
+                       "-ldflags", build_apps.go_ldflags(ident, (1920, 1080)),
                        "-o", str(tmp_path / "out.exe"), "."]
     assert options["cwd"] == tmp_path / "src"
     env = options["env"]
@@ -1014,12 +1022,24 @@ def test_the_go_build_command(tmp_path, monkeypatch) -> None:
         assert Path(env[key]).is_relative_to(REPO_ROOT / ".tmp")
     # go build splits -ldflags at spaces and reads no escapes in quotes, so
     # the title travels percent-encoded, with neither.
-    flags = build_apps.go_ldflags(ident).split(" ")
+    flags = build_apps.go_ldflags(ident, (1920, 1080)).split(" ")
     assert flags[:4] == ["-H", "windowsgui", "-s", "-w"]
     assert flags[4:] == ["-X", "main.storyID=rainy_day", "-X",
-                         f"main.titleEscaped={flags[7].split('=', 1)[1]}"]
+                         f"main.titleEscaped={flags[7].split('=', 1)[1]}",
+                         "-X", "main.firstWindowSize=1920x1080"]
     assert not set("'\" ") & set(flags[7])
     assert urllib.parse.unquote(flags[7].split("=", 1)[1]) == "Zoë's \"Day\" 100%"
+    # A game with no readable picture bakes no size: the exe opens 16:9.
+    assert build_apps.go_ldflags(ident, None).split(" ") == flags[:8]
+
+
+def test_a_windows_game_with_no_picture_bakes_no_first_window(
+        tmp_path, capsys, stub_go) -> None:
+    folder = make_game(tmp_path, items=[{"id": "t", "type": "text", "text": "x"}])
+    icon = solid(tmp_path / "icon.png", GREEN)
+    assert build_apps.main([str(folder), "--windows", "--icon", str(icon)]) == 0
+    assert stub_go[0]["window"] is None
+    assert "first window 16:9" in capsys.readouterr().out
 
 
 @pytest.mark.parametrize("title, name", [
@@ -1068,7 +1088,7 @@ def test_a_failed_windows_build_leaves_the_folder_as_it_was(
     assert build_apps.main([str(folder), "--windows"]) == 0
     before = listing(tmp_path)
 
-    def broken(go, package, exe, ident) -> None:
+    def broken(go, package, exe, ident, window) -> None:
         exe.write_bytes(b"MZ half")
         raise build_apps.BuildError("compiling the Windows app failed:\nboom")
 
@@ -1208,6 +1228,8 @@ def test_real_windows_build(tmp_path) -> None:
     program = b"".join(data for name, (_, data) in pe.sections.items()
                        if name != ".rsrc")
     assert b"rainy-day" in program and b"Rainy%20Day%3A%20Two%3F" in program
+    # The first window's size: the first graphic's (make_game's 64x48).
+    assert b"64x48" in program
     tree = exe_resources(pe)
     assert set(tree) == ({(3, n, LANG) for n in range(1, 8)}
                          | {(14, 1, LANG), (16, 1, LANG)})

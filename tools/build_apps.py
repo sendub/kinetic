@@ -21,9 +21,11 @@ toolchain (Xcode or the Command Line Tools).
 `--windows` adds `<title>.exe` (with the characters Windows forbids in a
 file name written as `-`): the Go program in apps/windows/, built for
 Windows x86-64 as a GUI program (so no console window opens), which
-opens the folder's index.html in a Microsoft Edge app window, fullscreen,
-under a browser profile only this game uses. The storyId and the title
-are linked in (`-ldflags -X`); the icon and a version resource (the
+opens the folder's index.html in a Microsoft Edge app window, fullscreen
+or as the window the reader left, under a browser profile only this game
+uses, then steers that window over Edge's DevTools connection until the
+game closes (apps/README.md). The storyId, the title and the first
+window's size are linked in (`-ldflags -X`); the icon and a version resource (the
 title as its description, which Task Manager shows, and the storyId,
 which marks the exe as this script's) go in as Windows resources, from
 the COFF object tools/windows_resources.py writes into a copy of the
@@ -40,7 +42,8 @@ requirement is checked before either is built.
 square for the apps' icon; without it the icon is the game's first
 graphic: the first item with a picture (an image, an animation's first
 frame, or a video's poster). The first graphic's pixel size, whatever
-the icon, goes into the Mac app's Info.plist (`KineticWindowSize`): the
+the icon, goes into the Mac app's Info.plist (`KineticWindowSize`) and
+into the exe (`-ldflags -X main.firstWindowSize=<width>x<height>`): each
 app's first window takes that size and shape, scaled down to fit the
 screen (a 16:9 window when the game has no readable picture).
 
@@ -283,8 +286,8 @@ def graphic_size(path: Path) -> tuple[int, int] | None:
 
 
 def window_size(manifest: dict, folder: Path) -> tuple[int, int] | None:
-    """The size the Mac app's first window takes: the first graphic's
-    pixel size, or None when the game has no readable picture."""
+    """The size the apps' first window takes: the first graphic's pixel
+    size, or None when the game has no readable picture."""
     try:
         return graphic_size(first_graphic(manifest, folder))
     except BuildError:
@@ -485,19 +488,25 @@ def exe_name(ident: Identity) -> str:
     return f"{stem}.exe"
 
 
-def go_ldflags(ident: Identity) -> str:
+def go_ldflags(ident: Identity, window: tuple[int, int] | None) -> str:
     """-H windowsgui: a GUI program, so no console window opens; -s -w: no
-    symbol or debug tables; -X: the storyId, and the title percent-encoded
-    (go build splits -ldflags at spaces and reads no escapes in quotes)."""
+    symbol or debug tables; -X: the storyId, the title percent-encoded (go
+    build splits -ldflags at spaces and reads no escapes in quotes), and
+    the first graphic's pixel size as `<width>x<height>` for the first
+    window (none without a readable picture: the exe then opens 16:9)."""
     title = urllib.parse.quote(ident.title, safe="")
-    return (f"-H windowsgui -s -w -X main.storyID={ident.story_id} "
-            f"-X main.titleEscaped={title}")
+    flags = (f"-H windowsgui -s -w -X main.storyID={ident.story_id} "
+             f"-X main.titleEscaped={title}")
+    if window is not None:
+        flags += f" -X main.firstWindowSize={window[0]}x{window[1]}"
+    return flags
 
 
-def compile_windows(go: str, package: Path, exe: Path, ident: Identity) -> None:
+def compile_windows(go: str, package: Path, exe: Path, ident: Identity,
+                    window: tuple[int, int] | None) -> None:
     """Build the exe from the package copy at `package`."""
     _run([go, "build", "-trimpath", "-buildvcs=false", "-ldflags",
-          go_ldflags(ident), "-o", str(exe), "."],
+          go_ldflags(ident, window), "-o", str(exe), "."],
          "compiling the Windows app", cwd=package, env=go_env())
 
 
@@ -559,6 +568,13 @@ def prepare(folder: Path, icon: Path | None, *, mac: bool = False,
                     window_size(manifest, folder))
 
 
+def first_window(prepared: Prepared) -> str:
+    """The first window's size, as the build reports it."""
+    if prepared.window is None:
+        return "16:9 (no readable first graphic)"
+    return f"{prepared.window[0]}x{prepared.window[1]}"
+
+
 def _staging(folder: Path, name: str) -> Path:
     """A temporary build folder beside the game folder, on its file
     system, so the finished app is renamed into place whole."""
@@ -601,11 +617,9 @@ def build_mac_app(folder: Path, prepared: Prepared) -> Path:
     finally:
         shutil.rmtree(staging, ignore_errors=True)
 
-    window = ("16:9 (no readable first graphic)" if prepared.window is None
-              else f"{prepared.window[0]}x{prepared.window[1]}")
     print(f"built {target}: arm64, macOS {MAC_MINIMUM_SYSTEM}+, ad-hoc "
           f"signed, bundle id {ident.bundle_id}, icon from "
-          f"{prepared.icon_source}, first window {window}")
+          f"{prepared.icon_source}, first window {first_window(prepared)}")
     for other in sorted(folder.glob("*.app")):
         info = read_app_info(other) if other != target else None
         if info and info.get("CFBundleIdentifier") == ident.bundle_id:
@@ -626,7 +640,7 @@ def build_windows_exe(folder: Path, prepared: Prepared) -> Path:
         (package / SYSO_NAME).write_bytes(windows_resources.coff_object(
             exe_resources(prepared.square, ident, target.name)))
         exe = staging / target.name
-        compile_windows(prepared.go, package, exe, ident)
+        compile_windows(prepared.go, package, exe, ident, prepared.window)
         os.replace(exe, target)
     except OSError as exc:
         raise BuildError(f"building {target} failed: {exc}") from None
@@ -635,7 +649,7 @@ def build_windows_exe(folder: Path, prepared: Prepared) -> Path:
 
     print(f"built {target}: Windows x86-64 (Edge app window, profile "
           f"%LOCALAPPDATA%\\Kinetic\\Browser\\{ident.story_id}), icon from "
-          f"{prepared.icon_source}")
+          f"{prepared.icon_source}, first window {first_window(prepared)}")
     for other in sorted(folder.glob("*.exe")):
         if other != target and read_exe_story(other) == ident.story_id:
             print(f"note: {other.name} is an earlier build for this story "

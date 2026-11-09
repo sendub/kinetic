@@ -156,10 +156,14 @@ stays the route everywhere.
 - Windows: `<title>.exe` inside the game folder is a small Go program
   (x86-64, a GUI program, so no console window) that opens `index.html`
   in a Microsoft Edge app window (no tabs or toolbar), fullscreen from
-  the start, under a browser profile only this game uses; Chrome, then
-  the default browser, stand in when Edge is missing. Edge ships with
-  Windows 10 and 11. `tools/build_apps.py` builds it with Go from any
-  system and links in its icon and version resource. It is unsigned.
+  the start or as the window the reader left, under a browser profile
+  only this game uses; Chrome, then the default browser, stand in when
+  Edge is missing. Edge ships with Windows 10 and 11. While the game is
+  open the exe stays running, hidden, and steers that window over Edge's
+  local DevTools connection for the page's Fullscreen | Window and Exit
+  (the user's choice, 2026-11-08; apps/README.md). `tools/build_apps.py`
+  builds it with Go from any system and links in its icon and version
+  resource. It is unsigned.
 
 Gatekeeper assesses only files that carry the quarantine flag. A folder
 the author builds locally has none, so the app opens with no check. A
