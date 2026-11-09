@@ -1539,3 +1539,372 @@ def test_warnings_leave_problem_lines_and_exit_one_alone(
     assert len(warning_lines(proc)) == 1
     assert proc.stderr == (without.stderr + warning_lines(proc)[0] + "\n"
                            + f"{folder}: 1 poster warning\n")
+
+
+# ---------------------------------------------------------------------------
+# Audio (docs/content-format.md § Audio; docs/plan.md Phase 47 item 1): the
+# top-level `audio.tracks` and per-item `audio`. The validator checks that
+# track files exist and pass the path rule, and decodes nothing, so the test
+# tracks are small dummy files.
+# ---------------------------------------------------------------------------
+
+RANGE_A = 14  # range-a: a video item playing seconds 0 to 1 of a 2 s file
+
+AUDIO_FILES = {
+    "theme": "media/au/theme.m4a", "rain": "rain.webm", "wind": "wind.flac",
+    "sting": "sting.wav", "door": "door.mp3", "line": "line.mp3",
+    "clip": "clip.webm",
+}
+
+
+def test_demo_audio_roles_match_ids(demo: Path) -> None:
+    items = read_manifest(demo)["items"]
+    assert (items[RANGE_A]["id"], items[RANGE_A]["endSeconds"],
+            items[RANGE_A]["durationSeconds"]) == ("range-a", 1.0, 2.0)
+    assert (items[VIDEO]["durationSeconds"], items[2]["type"],
+            items[9]["type"], items[12]["type"]) == (2.0, "text", "image",
+                                                     "video")
+    assert not any("audio" in item for item in items)
+
+
+def with_audio(folder: Path) -> dict[str, Any]:
+    """The demo manifest with every audio field in use, its track files
+    written as dummies. Every track is used, so nothing warns."""
+    for path in AUDIO_FILES.values():
+        (folder / path).parent.mkdir(parents=True, exist_ok=True)
+        (folder / path).write_bytes(b"not decoded by the validator")
+    manifest = read_manifest(folder)
+    manifest["audio"] = {"tracks": {
+        "theme": {"file": AUDIO_FILES["theme"], "durationSeconds": 120.0,
+                  "startSeconds": 2.5, "loopStartSeconds": 10.0,
+                  "loop": True, "volume": 0.8},
+        "rain": {"file": AUDIO_FILES["rain"], "durationSeconds": 30.0},
+        "wind": {"file": AUDIO_FILES["wind"], "durationSeconds": 20.0,
+                 "volume": 0},
+        "sting": {"file": AUDIO_FILES["sting"], "durationSeconds": 3.0,
+                  "loop": False},
+        "door": {"file": AUDIO_FILES["door"], "durationSeconds": 1.5},
+        "door-late": {"file": AUDIO_FILES["door"], "durationSeconds": 1.5,
+                      "startSeconds": 0.5},
+        "line": {"file": AUDIO_FILES["line"], "durationSeconds": 2.0},
+        "clip": {"file": AUDIO_FILES["clip"], "durationSeconds": 2.0},
+    }}
+    items = manifest["items"]
+    items[0]["audio"] = {"music": "theme", "ambience": ["rain", "wind"],
+                         "fadeMs": 1500}
+    items[1]["audio"] = {"sfx": [
+        {"track": "door", "delayMs": 250, "channel": "door"},
+        {"track": "door-late"}]}
+    items[2]["audio"] = {"voice": "line"}
+    items[ANIM]["audio"] = {"ambience": ["wind"], "fadeMs": 0}
+    items[VIDEO]["audio"] = {"videoSound": {"track": "clip", "duck": 0.5}}
+    items[9]["audio"] = {"music": None, "ambience": []}
+    items[12]["audio"] = {"music": "sting"}
+    return manifest
+
+
+def only_problem(folder: Path, manifest: dict[str, Any]) -> str:
+    write_manifest(folder, manifest)
+    problems = problems_of(folder)
+    assert len(problems) == 1, problems
+    return problems[0]
+
+
+def test_manifest_using_every_audio_field_passes(folder: Path) -> None:
+    write_manifest(folder, with_audio(folder))
+    assert problems_of(folder) == []
+    proc = run_cli(folder)
+    assert (proc.returncode, proc.stdout, proc.stderr) == (0, "", "")
+
+
+def test_missing_track_file_is_reported(folder: Path) -> None:
+    manifest = with_audio(folder)
+    (folder / AUDIO_FILES["rain"]).unlink()
+    problem = only_problem(folder, manifest)
+    assert problem.startswith("manifest.json: audio.tracks.rain.file:")
+    assert "does not exist" in problem
+
+
+def test_track_file_breaking_the_path_rule_is_reported(folder: Path) -> None:
+    manifest = with_audio(folder)
+    manifest["audio"]["tracks"]["rain"]["file"] = "../rain.webm"
+    problem = only_problem(folder, manifest)
+    assert problem.startswith("manifest.json: audio.tracks.rain.file:")
+    assert '".."' in problem
+
+
+def test_track_file_with_another_extension_is_rejected(folder: Path) -> None:
+    manifest = with_audio(folder)
+    (folder / "rain.aiff").write_bytes(b"x")
+    manifest["audio"]["tracks"]["rain"]["file"] = "rain.aiff"
+    problem = only_problem(folder, manifest)
+    assert problem.startswith("manifest.json: audio.tracks.rain.file:")
+
+
+def test_track_id_must_be_id_shaped(folder: Path) -> None:
+    manifest = with_audio(folder)
+    tracks = manifest["audio"]["tracks"]
+    tracks["rain.ogg"] = tracks.pop("rain")
+    for item in manifest["items"]:
+        audio = item.get("audio", {})
+        if "ambience" in audio:
+            audio["ambience"] = [t for t in audio["ambience"] if t != "rain"]
+    problem = only_problem(folder, manifest)
+    assert problem.startswith("manifest.json: audio.tracks:")
+    assert "'rain.ogg'" in problem
+
+
+@pytest.mark.parametrize("where, value", [
+    ("music", "nope"), ("ambience", "nope"), ("sfx", "nope"),
+    ("voice", "nope"), ("videoSound", "nope")])
+def test_unknown_track_id_is_reported(folder: Path, where: str,
+                                      value: str) -> None:
+    manifest = with_audio(folder)
+    items = manifest["items"]
+    index, loc = {
+        "music": (0, "music"), "ambience": (0, "ambience[1]"),
+        "sfx": (1, "sfx[1].track"), "voice": (2, "voice"),
+        "videoSound": (VIDEO, "videoSound.track")}[where]
+    audio = items[index]["audio"]
+    if where == "ambience":
+        audio["ambience"][1] = value
+    elif where == "sfx":
+        audio["sfx"][1]["track"] = value
+    elif where == "videoSound":
+        audio["videoSound"]["track"] = value
+    else:
+        audio[where] = value
+    problem = only_problem(folder, manifest)
+    assert problem.startswith(f"manifest.json: items[{index}].audio.{loc}:")
+    assert "'nope'" in problem
+
+
+def test_unknown_id_left_unused_track_warns(folder: Path) -> None:
+    """The renamed reference fails, and the track it no longer names
+    warns as unused."""
+    manifest = with_audio(folder)
+    manifest["items"][2]["audio"]["voice"] = "nope"
+    write_manifest(folder, manifest)
+    proc = run_cli(folder)
+    assert proc.returncode == 1
+    assert warning_lines(proc) == [
+        "warning: manifest.json: audio.tracks.line: no item uses this "
+        "track"]
+
+
+def test_video_sound_on_an_image_item_is_rejected(folder: Path) -> None:
+    manifest = with_audio(folder)
+    manifest["items"][IMAGE]["audio"] = {"videoSound": {"track": "clip"}}
+    problem = only_problem(folder, manifest)
+    assert problem.startswith(f"manifest.json: items[{IMAGE}].audio:")
+    assert "videoSound" in problem
+
+
+@pytest.mark.parametrize("index", [ANIM, 2])
+def test_video_sound_only_on_video_items(folder: Path, index: int) -> None:
+    manifest = with_audio(folder)
+    manifest["items"][index]["audio"] = {"videoSound": {"track": "clip"}}
+    problem = only_problem(folder, manifest)
+    assert problem.startswith(f"manifest.json: items[{index}].audio:")
+    assert "videoSound" in problem
+
+
+def test_video_sound_track_shorter_than_the_video_is_rejected(
+        folder: Path) -> None:
+    manifest = with_audio(folder)
+    manifest["audio"]["tracks"]["clip"]["durationSeconds"] = 1.9
+    problem = only_problem(folder, manifest)
+    assert problem.startswith(
+        f"manifest.json: items[{VIDEO}].audio.videoSound.track:")
+    assert "1.9" in problem and "2.0" in problem
+
+
+def test_video_sound_track_within_the_slack_passes(folder: Path) -> None:
+    manifest = with_audio(folder)
+    manifest["audio"]["tracks"]["clip"]["durationSeconds"] = 1.96
+    write_manifest(folder, manifest)
+    assert problems_of(folder) == []
+
+
+def test_video_sound_track_is_measured_against_the_range_end(
+        folder: Path) -> None:
+    """range-a ends at 1.0 s of a 2.0 s file: a 1.0 s track is long
+    enough, a 0.9 s one is not."""
+    manifest = with_audio(folder)
+    manifest["items"][RANGE_A]["audio"] = {"videoSound": {"track": "clip"}}
+    manifest["audio"]["tracks"]["clip"]["durationSeconds"] = 1.0
+    del manifest["items"][VIDEO]["audio"]
+    write_manifest(folder, manifest)
+    assert problems_of(folder) == []
+    manifest["audio"]["tracks"]["clip"]["durationSeconds"] = 0.9
+    problem = only_problem(folder, manifest)
+    assert problem.startswith(
+        f"manifest.json: items[{RANGE_A}].audio.videoSound.track:")
+
+
+def test_duplicate_ambience_id_is_rejected(folder: Path) -> None:
+    manifest = with_audio(folder)
+    manifest["items"][0]["audio"]["ambience"] = ["rain", "wind", "rain"]
+    problem = only_problem(folder, manifest)
+    assert problem.startswith("manifest.json: items[0].audio.ambience[2]:")
+    assert "duplicate" in problem and "'rain'" in problem
+
+
+@pytest.mark.parametrize("path, value, loc", [
+    (("audio", "tracks", "theme", "volume"), 1.5,
+     "audio.tracks.theme.volume"),
+    (("audio", "tracks", "theme", "volume"), -0.1,
+     "audio.tracks.theme.volume"),
+    (("audio", "tracks", "theme", "durationSeconds"), 0,
+     "audio.tracks.theme.durationSeconds"),
+    (("audio", "tracks", "theme", "startSeconds"), -1,
+     "audio.tracks.theme.startSeconds"),
+    (("audio", "tracks", "theme", "loop"), "yes",
+     "audio.tracks.theme.loop"),
+    (("items", VIDEO, "audio", "videoSound", "duck"), 1.5,
+     f"items[{VIDEO}].audio.videoSound.duck"),
+    (("items", 0, "audio", "fadeMs"), -1, "items[0].audio.fadeMs"),
+    (("items", 1, "audio", "sfx", 0, "delayMs"), -1,
+     "items[1].audio.sfx[0].delayMs"),
+])
+def test_audio_numbers_out_of_range_are_rejected(
+        folder: Path, path: tuple[Any, ...], value: object, loc: str) -> None:
+    manifest = with_audio(folder)
+    target: Any = manifest
+    for key in path[:-1]:
+        target = target[key]
+    target[path[-1]] = value
+    problem = only_problem(folder, manifest)
+    assert problem.startswith(f"manifest.json: {loc}:")
+
+
+def test_volume_above_one_names_the_limit(folder: Path) -> None:
+    manifest = with_audio(folder)
+    manifest["audio"]["tracks"]["theme"]["volume"] = 1.5
+    assert only_problem(folder, manifest) == (
+        "manifest.json: audio.tracks.theme.volume: must be at most 1 "
+        "(found 1.5)")
+
+
+@pytest.mark.parametrize("field", ["startSeconds", "loopStartSeconds"])
+def test_track_start_must_lie_inside_its_duration(folder: Path,
+                                                  field: str) -> None:
+    manifest = with_audio(folder)
+    manifest["audio"]["tracks"]["theme"][field] = 120.0
+    problem = only_problem(folder, manifest)
+    assert problem == (
+        f"manifest.json: audio.tracks.theme.{field}: must be less than "
+        "durationSeconds 120.0 (found 120.0)")
+
+
+def test_item_audio_without_tracks_is_rejected(folder: Path) -> None:
+    manifest = read_manifest(folder)
+    manifest["items"][0]["audio"] = {"fadeMs": 500}
+    problem = only_problem(folder, manifest)
+    assert problem.startswith("manifest.json: items[0].audio:")
+    assert "audio.tracks" in problem
+
+
+def test_item_audio_with_empty_tracks_is_rejected_once(folder: Path) -> None:
+    """With no tracks at all the item says so once, not once per id."""
+    manifest = read_manifest(folder)
+    manifest["audio"] = {"tracks": {}}
+    manifest["items"][0]["audio"] = {"music": "theme", "voice": "line"}
+    problem = only_problem(folder, manifest)
+    assert problem.startswith("manifest.json: items[0].audio:")
+
+
+@pytest.mark.parametrize("ext", [".ogg", ".oga", ".opus"])
+def test_ogg_track_warns_and_leaves_the_exit_alone(folder: Path,
+                                                   ext: str) -> None:
+    manifest = with_audio(folder)
+    (folder / AUDIO_FILES["rain"]).rename(folder / f"rain{ext}")
+    manifest["audio"]["tracks"]["rain"]["file"] = f"rain{ext}"
+    write_manifest(folder, manifest)
+    assert problems_of(folder) == []
+    proc = run_cli(folder)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert proc.stdout == ""
+    [warning] = warning_lines(proc)
+    assert warning.startswith(
+        "warning: manifest.json: audio.tracks.rain.file: ")
+    assert all(word in warning for word in ("WebKit", "macOS 15.4", "WebM",
+                                            "kinetic-media"))
+    assert proc.stderr == f"{warning}\n{folder}: 1 audio warning\n"
+
+
+def test_ogg_warning_leaves_problem_lines_and_exit_one_alone(
+        folder: Path) -> None:
+    manifest = with_audio(folder)
+    (folder / manifest["items"][0]["file"]).unlink()
+    write_manifest(folder, manifest)
+    without = run_cli(folder)
+    (folder / AUDIO_FILES["rain"]).rename(folder / "rain.ogg")
+    manifest["audio"]["tracks"]["rain"]["file"] = "rain.ogg"
+    write_manifest(folder, manifest)
+    proc = run_cli(folder)
+    assert (proc.returncode, without.returncode) == (1, 1)
+    assert proc.stdout == without.stdout
+    assert len(warning_lines(proc)) == 1
+    assert proc.stderr == (without.stderr + warning_lines(proc)[0] + "\n"
+                           + f"{folder}: 1 audio warning\n")
+
+
+def test_unused_track_warns(folder: Path) -> None:
+    manifest = with_audio(folder)
+    manifest["audio"]["tracks"]["spare"] = {"file": AUDIO_FILES["door"],
+                                            "durationSeconds": 1.5}
+    write_manifest(folder, manifest)
+    assert problems_of(folder) == []
+    proc = run_cli(folder)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert proc.stdout == ""
+    assert proc.stderr == (
+        "warning: manifest.json: audio.tracks.spare: no item uses this "
+        f"track\n{folder}: 1 audio warning\n")
+
+
+def test_audio_warnings_come_before_poster_warnings(folder: Path) -> None:
+    manifest = with_audio(folder)
+    manifest["audio"]["tracks"]["spare"] = {"file": AUDIO_FILES["door"],
+                                            "durationSeconds": 1.5}
+    write_manifest(folder, manifest)
+    proc = run_with_ledger(folder, matching_ledger(manifest))
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert proc.stderr.splitlines()[1:] == [
+        f"{folder}: 1 audio warning", f"{folder}: 0 poster warnings"]
+
+
+@pytest.mark.parametrize("path", [DEMO_DIR, BRANCH_EXAMPLE])
+def test_output_without_audio_is_unchanged(demo: Path, path: Path) -> None:
+    """Captured before audio existed: both folders printed nothing and
+    exited 0."""
+    proc = run_cli(path)
+    assert (proc.returncode, proc.stdout, proc.stderr) == (0, "", "")
+    assert validate_content.audio_warnings(read_manifest(path)) == []
+
+
+def test_audio_rules_reported_without_schema() -> None:
+    """The cross-field audio rules hold without the schema, and malformed
+    values the schema reports do not crash them."""
+    manifest = {"audio": {"tracks": {
+        "a": {"file": "a.mp3", "durationSeconds": 1.0, "startSeconds": 2},
+        "b": "not a track"}},
+        "items": [
+            {"id": "v", "type": "video", "durationSeconds": 3.0,
+             "audio": {"videoSound": {"track": "a"},
+                       "ambience": ["a", "a", 7], "sfx": [None, {}],
+                       "music": 3}},
+            {"id": "i", "type": "image", "audio": "not an object"},
+            "not an item"]}
+    assert validate_content.audio_problems(manifest) == [
+        "manifest.json: audio.tracks.a.startSeconds: must be less than "
+        "durationSeconds 1.0 (found 2)",
+        "manifest.json: items[0].audio.ambience[1]: duplicate ambience id "
+        "'a' (first at ambience[0])",
+        "manifest.json: items[0].audio.videoSound.track: track 'a' "
+        "durationSeconds 1.0 is shorter than the item's range end 3.0 by "
+        "more than 0.05 s",
+    ]
+    assert validate_content.audio_warnings(manifest) == [
+        "warning: manifest.json: audio.tracks.b: no item uses this track"]

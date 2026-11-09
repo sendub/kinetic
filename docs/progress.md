@@ -2899,7 +2899,7 @@ truthful: an unchecked box means nothing was accepted.
 
 ## Phase 47: Audio (2026-11-09, user + converting agent)
 
-- [ ] Audio in the content format (docs/plan.md Phase 47, item 1):
+- [x] Audio in the content format (docs/plan.md Phase 47, item 1):
       top-level `audio.tracks` and per-item `audio` (`music`, `ambience`,
       `fadeMs`, `sfx` with `delayMs` and `channel`, `voice`,
       `videoSound` with `duck`). Covered in docs/content-format.md
@@ -2914,6 +2914,22 @@ truthful: an unchecked box means nothing was accepted.
       - an unused track warns;
       - the validator's output on fixtures/demo and the branches example
         is unchanged.
+      (2026-11-09: the schema keeps `videoSound` to video items through
+      a shared field list and `unevaluatedProperties: false`; track ids
+      have the item id shape; `iter_media_paths` yields track files, so
+      they get the existing existence and path-rule checks.
+      `audio_problems` covers track ranges, item `audio` without tracks
+      (one problem per item), unknown ids in all five places, duplicate
+      ambience and a `videoSound` track short of the range end by over
+      0.05 s. `audio_warnings` covers Ogg and unused tracks, as
+      `warning:` lines plus a count on stderr; exit and stdout are
+      unchanged. A track's `loopStartSeconds` defaults to its
+      `startSeconds` (plan amended: a Ren'Py `<from N>` loop restarts at
+      N). 41 new tests, 40 red against HEAD. Orchestrator:
+      test_validate_content and test_build_demo 184 passed; HEAD and the
+      new validator give identical stdout, stderr and exit on 13 folders
+      without audio (the demo, the branches example, 11 broken
+      variants); npm test 912, check clean.)
 - [ ] kinetic-media `audio` kind (item 2): keep MP3, M4A, WAV, FLAC and
       WebM; copy Ogg Vorbis or Opus into WebM without re-encoding;
       re-encode the rest to Opus in WebM; audio from a video, with a

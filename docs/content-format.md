@@ -146,7 +146,8 @@ Per type:
   below covers all three. Measured 2026-11-02 (Safari 26.6.2 on an
   M2, headless Chrome 156; a probe page of container x codec samples
   counting decoded frames), video track only, since the player plays
-  videos muted:
+  videos muted (a video's sound is a separate track, `videoSound` under
+  Audio):
 
   | Video codec | Both play it in | Fails in at least one |
   | --- | --- | --- |
@@ -580,6 +581,145 @@ content:
   and counted passes from `startSeconds`, and the `ended` condition
   stays in force there (docs/plan.md Phase 16).
 
+## Audio
+
+Sound is optional. A manifest with no top-level `audio` and no item
+`audio` plays silent and validates as before. Every audio field is
+optional, and `schemaVersion` stays 1. Tracks are declared once at the
+top level, and items name them by id:
+
+```jsonc
+{
+  "audio": {
+    "tracks": {
+      "theme": { "file": "media/theme.m4a", "durationSeconds": 184.2,
+                 "loopStartSeconds": 12.5 },
+      "rain": { "file": "media/rain.webm", "durationSeconds": 30,
+                "volume": 0.6 },
+      "door": { "file": "media/door.mp3", "durationSeconds": 1.4 },
+      "mei-01": { "file": "media/mei-01.mp3", "durationSeconds": 2.8 },
+      "hum": { "file": "media/hum.m4a", "durationSeconds": 18.4 }
+    }
+  },
+  "items": [
+    {
+      "id": "street-001", "type": "image", "file": "street-001.jpg",
+      "audio": { "music": "theme", "ambience": ["rain"],
+                 "sfx": [{ "track": "door", "delayMs": 400 }] }
+    },
+    {
+      "id": "line-002", "type": "text", "speaker": "Mei",
+      "text": "You're early today.", "audio": { "voice": "mei-01" }
+    },
+    {
+      "id": "intro-003", "type": "video", "file": "intro-003.mp4",
+      "poster": "intro-003.poster.jpg", "durationSeconds": 18.4,
+      "audio": { "music": null, "fadeMs": 2000,
+                 "videoSound": { "track": "hum", "duck": 0.3 } }
+    }
+  ]
+}
+```
+
+### Tracks
+
+`audio.tracks` is an object from track id to track. A track id has the
+item id shape, `[A-Za-z0-9][A-Za-z0-9_-]{0,63}`. A track has:
+
+- `file` (required): a media path (Naming conventions) ending in `.mp3`,
+  `.m4a`, `.wav`, `.flac` or `.webm`. Ogg (`.ogg`, `.oga`, `.opus`) is
+  accepted with a warning, below.
+- `durationSeconds` (required, greater than 0): the track's length.
+  It is authoritative: the player never reads the audio element's own
+  duration, because WebKit misreports Ogg durations.
+- `startSeconds` (at least 0, default 0): where a play starts, Ren'Py's
+  `<from N>`. It is less than `durationSeconds`.
+- `loopStartSeconds` (at least 0, default: the track's `startSeconds`):
+  where a loop restarts, Ren'Py's `<loop N>`. Without it a loop restarts
+  where the track started, as Ren'Py's `<from N>` without `<loop M>`
+  does. It is less than `durationSeconds`.
+- `loop` (boolean, default true): whether the track loops. It applies
+  only when the track is music or ambience.
+- `volume` (0 to 1, default 1): the author's level for the track.
+
+Several ids may share one file, for example to start one file at two
+points.
+
+Ogg is accepted with a validator warning because its timing is wrong.
+Measured 2026-11-09 with a 12.000 s Vorbis tone in headless Chrome 157
+and the WebKit driver on macOS 27.2: in WebKit the file reports 12.34 s
+and its clock runs 4-7% slower than M4A, MP3 and WebM, and in Chrome it
+plays 0.8 s past its end. Safari plays Ogg only from Safari 18.4 on
+macOS 15.4. The same Vorbis or Opus stream copied into WebM plays right
+in both engines, so kinetic-media copies Ogg Vorbis and Opus into WebM
+without re-encoding.
+
+### Item audio
+
+Any item type may carry an `audio` object. Every field is optional:
+
+- `music`: a track id, or `null` to stop the music. One music track
+  plays at a time; a change crossfades.
+- `ambience`: the whole set of ambience loops from this item on, an
+  array of distinct track ids. `[]` stops them all. A loop in both the
+  old set and the new one plays on unbroken.
+- `fadeMs` (at least 0, default 1000): the fade, in milliseconds, for
+  this item's music and ambience changes.
+- `sfx`: one-shots, an array of `{track, delayMs?, channel?}`. `track`
+  is a track id, and `delayMs` (at least 0, default 0) delays the start
+  by that many milliseconds. A one-shot with a `channel` name stops the
+  one-shot already playing on that channel, as Ren'Py's `play sound`
+  does. One-shots without a channel overlap.
+- `voice`: a track id, the item's voice line.
+- `videoSound`: video items only, `{track, duck?}`. Videos play muted,
+  so a video's own soundtrack is a separate track. The track's time is
+  the video's media time, so it follows the item's range and loop
+  restart point (Video playback ranges). The track lasts at least to
+  the item's range end, `endSeconds` or else `durationSeconds`, within
+  0.05 s. `duck` (0 to 1, default 1) scales music and ambience while it
+  plays.
+
+### What plays at an item
+
+Music and ambience are resolved separately. At each item, a channel
+plays the value set by the nearest item at or before it, following the
+story back the way the reader came: through the route last picked at
+each decision, the path the wheel walks back (Branches, the timeline
+note). If nothing on the way back to item 0 sets a channel, that
+channel is silent.
+
+- A route's first item inherits from its decision's `after` item.
+- A join, the decision's `continueAt` item, inherits from the route
+  last picked there.
+- An item that sets both `music` and `ambience` pins the state, whatever
+  the path.
+- One-shots and voice belong to their own item and never carry over.
+
+So no item has to carry a full snapshot, and there is no per-route
+table. An example: a decision after `ask` has route `a` (`a-1` to
+`a-2`) and route `b` (`b-1`), and both join at `join`.
+
+| Item | Sets | Music there | Ambience there |
+| --- | --- | --- | --- |
+| `intro` | `music: "theme"`, `ambience: ["rain"]` | theme | rain |
+| `ask` | nothing | theme | rain |
+| `a-1` | nothing | theme | rain |
+| `a-2` | `music: "tense"` | tense | rain |
+| `b-1` | `ambience: []` | theme | none |
+| `join`, `a` picked last | nothing | tense | rain |
+| `join`, `b` picked last | nothing | theme | none |
+| `night` | `music: "night"`, `ambience: ["crickets"]` | night | crickets |
+
+`b-1` comes after `a-2` in the item array, but it starts route `b`, so
+it inherits from `ask` and `tense` never reaches it. At `join` each
+channel walks back through the route last picked: after `a`, the music
+is `a-2`'s and the ambience is still `intro`'s. `night` sets both
+channels, so it sounds the same whichever route came before it.
+
+How the player applies this, its fades and what it does on a wheel
+step, a jump or a skip, is player behaviour (docs/plan.md Phase 47,
+items 4 to 6).
+
 ## Naming conventions
 
 The converter names every file it ships, posters included, by the
@@ -650,12 +790,16 @@ Format rules:
 - Images carry the extension `.png`, `.jpg`, `.jpeg`, `.webp`, `.gif`,
   or `.jxl` (the schema pins these on image fields); a video file may
   carry any extension.
+- Audio track files carry `.mp3`, `.m4a`, `.wav`, `.flac` or `.webm`,
+  or Ogg's `.ogg`, `.oga` or `.opus`, which pass the schema with a
+  validator warning (Audio).
 - Every media value matches the path pattern.
 
 The validator checks the schema plus these invariants:
 
 1. `manifest.json` validates against `docs/content-schema.json`.
-2. Every path in the manifest resolves to an existing file in the folder.
+2. Every path in the manifest, audio track files included, resolves to
+   an existing file in the folder.
 3. Item ids are unique.
 4. `schemaVersion` is 1; `storyId`, when present, is a slug as above;
    `title`, when present, is non-blank text of at most 200 characters;
@@ -663,7 +807,9 @@ The validator checks the schema plus these invariants:
    honestly-empty folder, see Manifest); `frames` has at least two
    entries; `loopCount` is at least 1; `fps` and `durationSeconds` are
    greater than 0; `minPlaySeconds`, when present, is greater than 0;
-   `width` and `height` are at least 1. The schema enforces
+   `width` and `height` are at least 1; a track's `startSeconds` and
+   `loopStartSeconds` are at least 0; `volume` and `duck` are in
+   [0, 1]; `fadeMs` and `delayMs` are at least 0. The schema enforces
    all of these.
 5. When `manifest.js` is present, the embedded JSON parses equal to
    `manifest.json`.
@@ -695,3 +841,19 @@ The validator checks the schema plus these invariants:
     without both is a problem too: there is no join to continue to.
 12. A decision `prompt` is shorter than 200 characters and every
     route `label` shorter than 120.
+13. A track's `startSeconds` and `loopStartSeconds` are less than its
+    `durationSeconds`.
+14. Audio references resolve: every track id an item's `audio` names
+    (`music`, each `ambience` entry, each `sfx` `track`, `voice`, the
+    `videoSound` `track`) is a key of `audio.tracks`, and one item's
+    `ambience` ids are distinct. An item `audio` with no top-level
+    tracks is one problem for that item.
+15. `videoSound` is only on video items (the schema allows it nowhere
+    else), and its track's `durationSeconds` is at least the item's
+    range end, `endSeconds ?? durationSeconds`, less 0.05 s.
+
+The validator also warns about two things that are not problems: an
+Ogg track file (Audio says why) and a track no item uses. Each warning
+is one `warning: manifest.json: <location>: <reason>` line on stderr,
+followed by a count. Warnings leave stdout and the exit status alone,
+and a manifest without audio prints none.

@@ -47,12 +47,135 @@
       "minItems": 0,
       "description": "optional table of branch decisions over the item array; a decision fires on the forward settle of its `after` item and offers 2..N contiguous route spans; see docs/content-format.md § Branches",
       "items": { "$ref": "#/$defs/branch" }
+    },
+    "audio": {
+      "type": "object",
+      "required": ["tracks"],
+      "additionalProperties": false,
+      "description": "optional sound; a manifest without it plays silent; see docs/content-format.md § Audio",
+      "properties": {
+        "tracks": {
+          "type": "object",
+          "description": "track id -> track; items name tracks by these ids, which the validator resolves; several ids may share one file",
+          "propertyNames": { "$ref": "#/$defs/id" },
+          "additionalProperties": { "$ref": "#/$defs/track" }
+        }
+      }
     }
   },
   "$defs": {
     "id": {
       "type": "string",
       "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$"
+    },
+    "track": {
+      "type": "object",
+      "required": ["file", "durationSeconds"],
+      "additionalProperties": false,
+      "properties": {
+        "file": { "$ref": "#/$defs/audioPath" },
+        "durationSeconds": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "the track's length; authoritative, the player never reads the audio element's duration (WebKit misreports Ogg durations)"
+        },
+        "startSeconds": {
+          "type": "number",
+          "minimum": 0,
+          "description": "where a play starts; default 0; less than durationSeconds, which the validator enforces"
+        },
+        "loopStartSeconds": {
+          "type": "number",
+          "minimum": 0,
+          "description": "where a loop restarts; default: the track's startSeconds, so a loop restarts where the track started; less than durationSeconds, which the validator enforces"
+        },
+        "loop": {
+          "type": "boolean",
+          "description": "whether the track loops when it plays as music or ambience; default true"
+        },
+        "volume": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "the author's level; default 1"
+        }
+      }
+    },
+    "itemAudioFields": {
+      "type": "object",
+      "description": "the audio fields every item type takes; itemAudio and videoItemAudio close the set",
+      "properties": {
+        "music": {
+          "type": ["string", "null"],
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$",
+          "description": "the music from this item on: a track id, or null to stop it; the validator resolves the id"
+        },
+        "ambience": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/id" },
+          "description": "the whole set of ambience loops from this item on, distinct track ids (the validator enforces both); [] stops them all"
+        },
+        "fadeMs": {
+          "type": "number",
+          "minimum": 0,
+          "description": "fade for this item's music and ambience changes, in milliseconds; default 1000"
+        },
+        "sfx": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/sfx" }
+        },
+        "voice": {
+          "$ref": "#/$defs/id",
+          "description": "track id of the item's voice line; the validator resolves it"
+        }
+      }
+    },
+    "itemAudio": {
+      "$ref": "#/$defs/itemAudioFields",
+      "unevaluatedProperties": false
+    },
+    "videoItemAudio": {
+      "$ref": "#/$defs/itemAudioFields",
+      "properties": {
+        "videoSound": { "$ref": "#/$defs/videoSound" }
+      },
+      "unevaluatedProperties": false
+    },
+    "sfx": {
+      "type": "object",
+      "required": ["track"],
+      "additionalProperties": false,
+      "properties": {
+        "track": {
+          "$ref": "#/$defs/id",
+          "description": "track id of the one-shot; the validator resolves it"
+        },
+        "delayMs": {
+          "type": "number",
+          "minimum": 0,
+          "description": "wait before the one-shot starts, in milliseconds; default 0"
+        },
+        "channel": {
+          "type": "string",
+          "minLength": 1,
+          "description": "a one-shot on a channel stops the one already playing on it; without a channel, one-shots overlap"
+        }
+      }
+    },
+    "videoSound": {
+      "type": "object",
+      "required": ["track"],
+      "additionalProperties": false,
+      "description": "a video item's own sound, played as a separate track whose time is the video's media time; the track must be at least as long as the item's range end, within 0.05 s, which the validator enforces",
+      "properties": {
+        "track": { "$ref": "#/$defs/id" },
+        "duck": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "scales music and ambience while the video sound plays; default 1"
+        }
+      }
     },
     "branch": {
       "type": "object",
@@ -118,7 +241,7 @@
     },
     "path": {
       "type": "string",
-      "description": "a media file's path relative to the content folder root, forward-slash separated. Every segment is [A-Za-z0-9._-] and starts with a letter or digit, so there are no empty or dot-leading segments, no \"..\", no absolute path, no backslash, no drive letter or URL scheme, and no whitespace. Subfolders (the converter writes `media/<h[:2]>/<h>.<ext>`, `h` the sha256 of the shipped bytes) are allowed and optional; the last segment is still a flat file name — an id-shaped stem (a 64-hex digest fits), at most one derivative suffix (`.fNNN`, `.poster`, `.thumb`), then the extension. `imagePath` adds the browser image format extension list; `videoPath` adds none.",
+      "description": "a media file's path relative to the content folder root, forward-slash separated. Every segment is [A-Za-z0-9._-] and starts with a letter or digit, so there are no empty or dot-leading segments, no \"..\", no absolute path, no backslash, no drive letter or URL scheme, and no whitespace. Subfolders (the converter writes `media/<h[:2]>/<h>.<ext>`, `h` the sha256 of the shipped bytes) are allowed and optional; the last segment is still a flat file name — an id-shaped stem (a 64-hex digest fits), at most one derivative suffix (`.fNNN`, `.poster`, `.thumb`), then the extension. `imagePath` adds the browser image format extension list, `audioPath` the audio one; `videoPath` adds none.",
       "pattern": "^(?!.*\\.\\.)(?:[A-Za-z0-9][A-Za-z0-9._-]*/)*[A-Za-z0-9][A-Za-z0-9_-]{0,63}(?:\\.(?:f[0-9]{3}|poster|thumb))?\\.[A-Za-z0-9]+$"
     },
     "imagePath": {
@@ -131,6 +254,13 @@
       "description": "a video file: any extension. There is no video extension list of our own; the converter ships whatever its measured playability rule keeps (docs/plan.md Phase 26) at the true container's usual extension (mp4, mov, m4v, 3gp, webm, mkv).",
       "allOf": [
         { "$ref": "#/$defs/path" }
+      ]
+    },
+    "audioPath": {
+      "description": "an audio file: mp3, m4a, wav, flac or webm. Ogg (ogg, oga, opus) passes the schema, and the validator warns about it: its timing is wrong in WebKit and Safari plays it only from macOS 15.4.",
+      "allOf": [
+        { "$ref": "#/$defs/path" },
+        { "pattern": "\\.(mp3|m4a|wav|flac|webm|ogg|oga|opus)$" }
       ]
     },
     "imageItem": {
@@ -146,7 +276,8 @@
         "thought": {
           "type": "boolean",
           "description": "true marks text as the speaker's unspoken thought rather than spoken dialogue; requires a non-empty text, which the validator enforces"
-        }
+        },
+        "audio": { "$ref": "#/$defs/itemAudio" }
       }
     },
     "animationItem": {
@@ -174,7 +305,8 @@
         "thought": {
           "type": "boolean",
           "description": "true marks text as the speaker's unspoken thought rather than spoken dialogue; requires a non-empty text, which the validator enforces"
-        }
+        },
+        "audio": { "$ref": "#/$defs/itemAudio" }
       }
     },
     "videoItem": {
@@ -225,7 +357,8 @@
         "thought": {
           "type": "boolean",
           "description": "true marks text as the speaker's unspoken thought rather than spoken dialogue; requires a non-empty text, which the validator enforces"
-        }
+        },
+        "audio": { "$ref": "#/$defs/videoItemAudio" }
       }
     },
     "textItem": {
@@ -240,7 +373,8 @@
         "thought": {
           "type": "boolean",
           "description": "true marks text as the speaker's unspoken thought rather than spoken dialogue; requires a non-empty text, which the validator enforces"
-        }
+        },
+        "audio": { "$ref": "#/$defs/itemAudio" }
       }
     }
   }

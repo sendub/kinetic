@@ -19,6 +19,11 @@ reads JSON only and decodes nothing; warnings never change the exit status.
 Without `--ledger` the output is as before. See docs/extracting.md, "The
 validator's cheap check".
 
+Audio warnings, `audio_warnings`, need no flag: one `warning: <file>:
+<location>: <reason>` line on stderr per Ogg track file and per track no
+item uses, then a count, printed before any poster warnings. They never
+change the exit status, and a manifest without audio prints none.
+
 Two layers of checking, per docs/content-format.md §Rules and validator
 invariants:
 
@@ -35,8 +40,9 @@ invariants:
    `startSeconds` and no greater than `durationSeconds`); the optional
    `branches` table obeys its reference, span, continuingRoute/
    continueAt, and `"continue"` result rules (docs/content-format.md
-   § Branches); and a present `manifest.js` shim embeds JSON equal to
-   `manifest.json`.
+   § Branches); the optional audio obeys its track range, id, ambience
+   and `videoSound` length rules (docs/content-format.md § Audio); and a
+   present `manifest.js` shim embeds JSON equal to `manifest.json`.
 """
 
 from __future__ import annotations
@@ -159,8 +165,14 @@ def _decorate(error: jsonschema.ValidationError,
         return f"must be at least {error.validator_value} (found {value!r})"
     if kind == "exclusiveMinimum":
         return f"must be greater than {error.validator_value} (found {value!r})"
+    if kind == "maximum":
+        return f"must be at most {error.validator_value} (found {value!r})"
     if kind == "minItems" and isinstance(value, list):
         return f"must have at least {error.validator_value} entries (found {len(value)})"
+    if kind == "pattern" and "propertyNames" in error.absolute_schema_path:
+        # The error sits on the object; only the message can name the key.
+        return (f"name {value!r} does not match pattern "
+                f"{error.validator_value}")
     if kind == "pattern":
         return f"does not match pattern {error.validator_value}"
     return error.message
@@ -238,10 +250,16 @@ def schema_problems(manifest: Any, schema: Any) -> list[tuple[list[Any], str]]:
 # ---------------------------------------------------------------------------
 
 def iter_media_paths(manifest: Any) -> Iterator[tuple[str, Any]]:
-    """(location, value) for every media path the manifest references."""
+    """(location, value) for every media path the manifest references:
+    the items' files, frames and posters, then the audio track files."""
     items = manifest.get("items") if isinstance(manifest, dict) else None
-    if not isinstance(items, list):
-        return
+    yield from _item_media_paths(items if isinstance(items, list) else [])
+    for track_id, track in _audio_tracks(manifest).items():
+        if isinstance(track, dict) and "file" in track:
+            yield f"audio.tracks.{track_id}.file", track["file"]
+
+
+def _item_media_paths(items: list[Any]) -> Iterator[tuple[str, Any]]:
     for i, item in enumerate(items):
         if not isinstance(item, dict):
             continue
@@ -590,6 +608,168 @@ def video_range_problems(manifest: Any,
     return problems
 
 
+# ---------------------------------------------------------------------------
+# Audio (docs/content-format.md § Audio)
+# ---------------------------------------------------------------------------
+
+# How much shorter than a video item's range end its videoSound track may be.
+VIDEO_SOUND_SLACK_SECONDS = 0.05
+OGG_EXTENSIONS = (".ogg", ".oga", ".opus")
+OGG_WARNING = ("its timing is wrong in WebKit and Safari plays it only from "
+               "macOS 15.4; kinetic-media copies Ogg Vorbis and Opus into "
+               "WebM, which plays right in both")
+
+
+def _audio_tracks(manifest: Any) -> dict[str, Any]:
+    """The manifest's `audio.tracks` object; {} when absent or malformed
+    (the schema reports a malformed one)."""
+    audio = manifest.get("audio") if isinstance(manifest, dict) else None
+    tracks = audio.get("tracks") if isinstance(audio, dict) else None
+    return tracks if isinstance(tracks, dict) else {}
+
+
+def _item_track_refs(audio: dict[str, Any]) -> Iterator[tuple[str, Any]]:
+    """(location suffix, value) for every track id an item's `audio`
+    names: music, ambience, one-shots, voice and video sound."""
+    if audio.get("music") is not None:
+        yield ".music", audio["music"]
+    ambience = audio.get("ambience")
+    for j, track_id in enumerate(ambience if isinstance(ambience, list)
+                                 else []):
+        yield f".ambience[{j}]", track_id
+    sfx = audio.get("sfx")
+    for j, shot in enumerate(sfx if isinstance(sfx, list) else []):
+        if isinstance(shot, dict) and "track" in shot:
+            yield f".sfx[{j}].track", shot["track"]
+    if "voice" in audio:
+        yield ".voice", audio["voice"]
+    video_sound = audio.get("videoSound")
+    if isinstance(video_sound, dict) and "track" in video_sound:
+        yield ".videoSound.track", video_sound["track"]
+
+
+def _track_range_problems(tracks: dict[str, Any]) -> list[str]:
+    """A track's `startSeconds` and `loopStartSeconds` lie inside its
+    `durationSeconds`."""
+    problems: list[str] = []
+    for track_id, track in tracks.items():
+        if not isinstance(track, dict):
+            continue  # the schema reports non-object tracks
+        duration = _numeric_field(track, "durationSeconds")
+        if duration is None or duration <= 0:
+            continue  # the schema reports it; nothing to measure against
+        for field in ("startSeconds", "loopStartSeconds"):
+            value = _numeric_field(track, field)
+            if value is not None and value >= duration:
+                problems.append(_line(
+                    f"audio.tracks.{track_id}.{field}",
+                    f"must be less than durationSeconds {duration!r} "
+                    f"(found {value!r})"))
+    return problems
+
+
+def _ambience_duplicates(audio: dict[str, Any], loc: str) -> list[str]:
+    ambience = audio.get("ambience")
+    first: dict[str, int] = {}
+    problems: list[str] = []
+    for j, track_id in enumerate(ambience if isinstance(ambience, list)
+                                 else []):
+        if not isinstance(track_id, str):
+            continue  # the schema reports non-string ids
+        if track_id in first:
+            problems.append(_line(
+                f"{loc}.ambience[{j}]",
+                f"duplicate ambience id {track_id!r} (first at "
+                f"ambience[{first[track_id]}])"))
+        else:
+            first[track_id] = j
+    return problems
+
+
+def _video_sound_problems(item: dict[str, Any], audio: dict[str, Any],
+                          tracks: dict[str, Any], loc: str) -> list[str]:
+    """A video item's `videoSound` track lasts to the item's range end
+    (`endSeconds`, else `durationSeconds`), within the slack."""
+    video_sound = audio.get("videoSound")
+    track_id = video_sound.get("track") if isinstance(video_sound,
+                                                      dict) else None
+    track = tracks.get(track_id) if isinstance(track_id, str) else None
+    if not isinstance(track, dict):
+        return []  # absent, or reported as an unknown id
+    length = _numeric_field(track, "durationSeconds")
+    end = _numeric_field(item, "endSeconds")
+    end = end if end is not None else _numeric_field(item, "durationSeconds")
+    if length is None or end is None \
+            or length >= end - VIDEO_SOUND_SLACK_SECONDS:
+        return []
+    return [_line(f"{loc}.videoSound.track",
+                  f"track {track_id!r} durationSeconds {length!r} is shorter "
+                  f"than the item's range end {end!r} by more than "
+                  f"{VIDEO_SOUND_SLACK_SECONDS} s")]
+
+
+def audio_problems(manifest: Any) -> list[str]:
+    """Cross-field rules for audio that the schema cannot express.
+
+    Per docs/content-format.md § Audio: a track's `startSeconds` and
+    `loopStartSeconds` are less than its `durationSeconds`; an item's
+    `audio` needs top-level tracks (said once per item, with no id
+    checks); every track id an item names resolves; an item's ambience
+    ids are distinct; and a video item's `videoSound` track is at least
+    as long as the item's range end, within 0.05 s. The schema keeps
+    `videoSound` to video items. Track files go through
+    `media_problems` with every other media path.
+    """
+    tracks = _audio_tracks(manifest)
+    problems = _track_range_problems(tracks)
+    items = manifest.get("items") if isinstance(manifest, dict) else None
+    for i, item in enumerate(items if isinstance(items, list) else []):
+        if not isinstance(item, dict) or "audio" not in item:
+            continue
+        loc = f"items[{i}].audio"
+        if not tracks:
+            problems.append(_line(loc, "needs top-level audio.tracks to "
+                                       "name its tracks"))
+            continue
+        audio = item["audio"]
+        if not isinstance(audio, dict):
+            continue  # the schema reports a non-object audio
+        problems += _ambience_duplicates(audio, loc)
+        for suffix, track_id in _item_track_refs(audio):
+            if isinstance(track_id, str) and track_id not in tracks:
+                problems.append(_line(loc + suffix,
+                                      f"no track has id {track_id!r}"))
+        if item.get("type") == "video":
+            problems += _video_sound_problems(item, audio, tracks, loc)
+    return problems
+
+
+def audio_warnings(manifest: Any) -> list[str]:
+    """One warning line per Ogg track file and per track no item uses.
+
+    Ogg passes the schema, but its timing is wrong in WebKit and Safari
+    plays it only from macOS 15.4. A manifest without audio gets none.
+    """
+    tracks = _audio_tracks(manifest)
+    items = manifest.get("items") if isinstance(manifest, dict) else None
+    used = {track_id
+            for item in (items if isinstance(items, list) else [])
+            if isinstance(item, dict) and isinstance(item.get("audio"), dict)
+            for _suffix, track_id in _item_track_refs(item["audio"])
+            if isinstance(track_id, str)}
+    warnings: list[str] = []
+    for track_id, track in tracks.items():
+        file = track.get("file") if isinstance(track, dict) else None
+        if isinstance(file, str) and file.endswith(OGG_EXTENSIONS):
+            warnings.append(WARNING_PREFIX + _line(
+                f"audio.tracks.{track_id}.file",
+                f"Ogg audio {file!r}: {OGG_WARNING}"))
+        if track_id not in used:
+            warnings.append(WARNING_PREFIX + _line(
+                f"audio.tracks.{track_id}", "no item uses this track"))
+    return warnings
+
+
 def _first_difference(a: Any, b: Any, path: str = "") -> str | None:
     """Manifest location of the first structural difference, or None if equal."""
     where = path or "<root>"
@@ -696,6 +876,7 @@ def _validate(content_dir: Path, schema_path: Path) -> tuple[Any, list[str]]:
         problems += thought_problems(manifest)
         problems += video_range_problems(manifest, schema_locs)
         problems += branches_problems(manifest)
+        problems += audio_problems(manifest)
 
     if (content_dir / SHIM_NAME).exists():
         problems += shim_problems(content_dir, manifest)
@@ -859,6 +1040,12 @@ def main(argv: list[str] | None = None) -> int:
     if problems:
         print(f"{args.content_dir}: {len(problems)} problem"
               f"{'s' if len(problems) != 1 else ''}", file=sys.stderr)
+    sound = audio_warnings(manifest)
+    for warning in sound:
+        print(warning, file=sys.stderr)
+    if sound:
+        print(f"{args.content_dir}: {len(sound)} audio warning"
+              f"{'s' if len(sound) != 1 else ''}", file=sys.stderr)
     if media is not None:
         warnings = poster_warnings(manifest, media)
         for warning in warnings:

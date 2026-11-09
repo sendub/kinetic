@@ -2329,7 +2329,8 @@ For the converting agent, compared with their request:
      - `durationSeconds`: required, > 0. WebKit misreports Ogg
        durations, so the player never reads the element's;
      - `startSeconds`: where a play starts (Ren'Py `<from N>`), default 0;
-     - `loopStartSeconds`: where a loop restarts (`<loop N>`), default 0;
+     - `loopStartSeconds`: where a loop restarts (`<loop N>`), default
+       `startSeconds`, as a Ren'Py `<from N>` loop restarts at N;
      - `loop`: music and ambience only, default true;
      - `volume`: the author's level, 0-1, default 1.
 
