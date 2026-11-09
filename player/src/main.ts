@@ -80,7 +80,7 @@ import { CLOSE_TAB_NOTE, mountWindowControls } from "./render/windowcontrols";
 import { createIdbStorage, storageKeys, storyIdOf } from "./storage/idb";
 import { createContextCodec, resumeOptionsFor } from "./storage/ids";
 import { createNoopStorage } from "./storage/noop";
-import { createImmediateWriter } from "./storage/persist";
+import { createStateWriter } from "./storage/saves";
 import {
   buildProgressFile,
   type ImportedProgress,
@@ -231,26 +231,28 @@ function start(): void {
       const shell = mountShell({ root, manifest, machine });
 
       // Persistence: every machine move can change the resume point —
-      // the ctx carries the seen set, the open route, and the last shown
-      // item — and so does every settings change on the Esc screen. A
-      // change ISSUES its write at once (docs/plan.md Phase 14): the old
-      // 250 ms debounce left the newest position simply unwritten when a
-      // reload came a moment after an advance, and the flushes below could
-      // not rescue an unwritten one — IndexedDB promises nothing about a
-      // transaction opened while the document is going away. So timing
-      // coalesces nothing; only concurrency does: createImmediateWriter
-      // keeps one write in flight and at most one pending snapshot, so a
-      // skip burst still costs one write per burst-pause without a queue
-      // that grows with the reader.
+      // the ctx carries the open route and the last shown item, and the
+      // items newly seen ride with it — and so does every settings change
+      // on the Esc screen. A change ISSUES its write at once (docs/plan.md
+      // Phase 14): the old 250 ms debounce left the newest position simply
+      // unwritten when a reload came a moment after an advance, and the
+      // flushes below could not rescue an unwritten one — IndexedDB
+      // promises nothing about a transaction opened while the document is
+      // going away. So timing coalesces nothing; only concurrency does: the
+      // writer (storage/persist.ts) keeps one write in flight and at most
+      // one pending snapshot, so a skip burst still costs one write per
+      // burst-pause without a queue that grows with the reader.
+      // A save carries the PLACE, not the seen set (docs/plan.md Phase 46):
+      // the writer adds the ids seen since the last write
+      // (storage/saves.ts) and the adapter appends them to the story's seen
+      // records, so a save costs the same however much has been read.
       const stateRecord = (): PersistedState => ({
-        ctx: codec.toSaved(machine.exportContext()),
+        ctx: codec.toSaved(machine.exportPlace()),
         settings: currentSettings,
         helpSeen,
         ...(mapView === undefined ? {} : { mapView }),
       });
-      const writeState = createImmediateWriter((state: PersistedState) =>
-        storage.saveState(state),
-      );
+      const writeState = createStateWriter({ storage, machine, codec });
       const persistNow = (): Promise<void> => writeState(stateRecord());
       // A confirmed "Reset progress" (Phase 16) sets this: from that
       // moment every state write stops, or the `pagehide` flush of the
@@ -292,7 +294,11 @@ function start(): void {
       // map's card renders from even without a thumb (render/bookmarks.ts
       // falls back to the manifest item's still). The ctx rides along so
       // the later restore can re-enter the route context the bookmark was
-      // taken in (`bookmarkRestoreTarget`).
+      // taken in (`bookmarkRestoreTarget`). It is the place without the
+      // seen set (docs/plan.md Phase 46): a restore merges the bookmark's
+      // seen set into the reader's (`mergeProgress`), which already holds
+      // everything seen when it was taken, so its list (empty, kept for
+      // older builds' readers) adds nothing.
       // Phase 14 adds the ORDER: the bookmark record and a state write are
       // both issued, and the flash waits for BOTH to commit. The state write
       // is the one the last advance already issued (usually long done), and
@@ -302,7 +308,7 @@ function start(): void {
       const takeBookmark = async (): Promise<void> => {
         const blob = await captureVisualThumbnail(shell.currentVisual());
         const thumbDataUrl = blob === null ? null : await blobToDataUrl(blob);
-        const ctx = codec.toSaved(machine.exportContext());
+        const ctx = codec.toSaved(machine.exportPlace());
         const bookmark: Bookmark = {
           id: newBookmarkId(),
           timestampMs: Date.now(),
@@ -367,7 +373,8 @@ function start(): void {
           confirm.open(resetRequest(runReset));
         },
         // Export (docs/plan.md Phase 21): the state as it stands this
-        // moment — the same record the next write would save — and the
+        // moment — the record the next write would save, with the whole
+        // seen set (the file's format is unchanged by Phase 46) — and the
         // stored bookmarks, downloaded as `<storyId>-progress.json`. The
         // pill names no file (Phase 43 item 12): the browser or the app may
         // save it under another name (the Windows app's `name (2).json`).
@@ -379,7 +386,10 @@ function start(): void {
               const name = progressFileName(story.storyId);
               const file = buildProgressFile({
                 ...story,
-                state: stateRecord(),
+                state: {
+                  ...stateRecord(),
+                  ctx: codec.toSaved(machine.exportContext()),
+                },
                 bookmarks,
                 now: new Date(),
               });

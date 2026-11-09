@@ -21,7 +21,10 @@ import {
   PROGRESS_TIP,
   SPEED_TIP,
 } from "../../src/render/config.ts";
-import { EARLIER_UNSEEN_NOTICE } from "../../src/render/endcard.ts";
+import {
+  ALL_SEEN_TEXT,
+  EARLIER_UNSEEN_NOTICE,
+} from "../../src/render/endcard.ts";
 import {
   CONFIG_CLOSED,
   CONFIG_CONTROL,
@@ -2526,7 +2529,9 @@ async function reset({ check, open }) {
   );
 }
 
-// The reading-state record as IndexedDB holds it (src/storage/idb.ts).
+// The reading-state record as IndexedDB holds it (src/storage/idb.ts),
+// and the ids in the story's seen records (docs/plan.md Phase 46): `{
+// record, seen }`.
 const READ_STATE = async () => {
   // The player's storage key (src/storage/idb.ts storageKeys): the
   // manifest's story ID when it has a valid one, else the folder URL.
@@ -2541,14 +2546,17 @@ const READ_STATE = async () => {
     open.onerror = () => reject(open.error);
   });
   try {
-    return await new Promise((resolve, reject) => {
-      const req = db
-        .transaction("state", "readonly")
-        .objectStore("state")
-        .get(content);
-      req.onsuccess = () => resolve(req.result ?? null);
-      req.onerror = () => reject(req.error);
-    });
+    const store = db.transaction("state", "readonly").objectStore("state");
+    const read = (req) =>
+      new Promise((resolve, reject) => {
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error);
+      });
+    const record = await read(store.get(content));
+    const seenRecords = await read(
+      store.getAll(IDBKeyRange.bound(["seen", content], ["seen", content, []])),
+    );
+    return { record: record ?? null, seen: seenRecords.flat() };
   } finally {
     db.close();
   }
@@ -2572,22 +2580,25 @@ async function contentUpdate({ check, open }) {
   const flashed = await waitFor(page, FLASH_SHOWN);
   const walked2 = await spaceTo(page, cdp, "chain-still-3");
   await sleep(300);
-  const record = await page.evaluate(READ_STATE);
+  const { record, seen } = await page.evaluate(READ_STATE);
   check(
-    "the save names items by id, not position",
+    "the save names items by id, not position (the seen ids in their own records)",
     walked1 &&
       flashed &&
       walked2 &&
       record?.ctx?.lastShown === "chain-still-3" &&
       Array.isArray(record?.ctx?.visited) &&
-      record.ctx.visited.includes("intro-title") &&
-      record.ctx.visited.every((id) => typeof id === "string") &&
+      record.ctx.visited.length === 0 &&
+      seen.includes("intro-title") &&
+      seen.includes("chain-still-3") &&
+      seen.every((id) => typeof id === "string") &&
       !("frontier" in (record ?? {})),
     {
       walked1,
       flashed,
       walked2,
       ctx: record?.ctx,
+      seen,
     },
   );
 
@@ -2636,10 +2647,6 @@ async function contentUpdate({ check, open }) {
     resumedId === "chain-still-3" && resumed.helpOpen === false,
     { resumedId, help: resumed.helpOpen, nowAt: newIndex("chain-still-3") },
   );
-  const READ_NOTICE = () => {
-    const n = document.getElementById("notice");
-    return { shown: n !== null && !n.hidden, text: n?.textContent ?? null };
-  };
   const notice = await page.evaluate(READ_NOTICE);
   check(
     "the resume shows the quiet earlier-unseen notice (the prequel is unseen)",
@@ -2717,6 +2724,170 @@ async function contentUpdate({ check, open }) {
   );
 }
 
+// Phase 46, item 1: the seen set lives in records of its own, not in the
+// state record, and a save carries only what was newly seen. Items a
+// content update inserts INTO content already read still count as unseen,
+// as before: read the whole demo (play-all), step back one screen, insert
+// two items between two read screens, reload. The resume notice shows,
+// the end card one screen on counts them and offers u (the notice yields
+// to the end card, so it is read off the story's end), u lands on the
+// first, and skip from a bookmark before them stops short of the one still
+// unseen.
+const READ_END = () => {
+  const card = document.getElementById("end-card");
+  const hint = card?.querySelector(".end-card-hint");
+  return {
+    shown: card !== null && !card.hidden,
+    title: card?.querySelector(".end-card-title")?.textContent ?? null,
+    hint: hint && !hint.hidden ? hint.textContent : null,
+  };
+};
+const READ_NOTICE = () => {
+  const n = document.getElementById("notice");
+  return { shown: n !== null && !n.hidden, text: n?.textContent ?? null };
+};
+
+async function insertedContent({ check, open }) {
+  const folder = join(dirname(demoDir), "demo-insert");
+  rmSync(folder, { recursive: true, force: true });
+  cpSync(demoDir, folder, { recursive: true });
+  const { page, cdp } = await open("insert", { closeHelp: true, folder });
+
+  const walked1 = await spaceTo(page, cdp, "text-speech");
+  await pressB(cdp);
+  const flashed = await waitFor(page, FLASH_SHOWN);
+  const walked2 = await spaceTo(page, cdp, "after-end", 80);
+  await sleep(300);
+  const before = await page.evaluate(READ_END);
+  await wheel(cdp, true, 1);
+  await sleep(300);
+  const steppedBack = await currentItemId(page);
+  const { record, seen } = await page.evaluate(READ_STATE);
+  check(
+    "read through: the end card says everything has been seen; the state record holds the place, every seen id sits in the seen records",
+    walked1 &&
+      flashed &&
+      walked2 &&
+      before.shown &&
+      before.title === ALL_SEEN_TEXT &&
+      steppedBack === "after-start" &&
+      record?.ctx?.lastShown === "after-start" &&
+      Array.isArray(record?.ctx?.visited) &&
+      record.ctx.visited.length === 0 &&
+      manifest.items.every((it) => seen.includes(it.id)),
+    {
+      walked1,
+      flashed,
+      walked2,
+      before,
+      steppedBack,
+      ctx: record?.ctx,
+      seen: seen.length,
+    },
+  );
+
+  // The update: two items between text-narration and text-bare, both read.
+  const updated = JSON.parse(
+    readFileSync(join(folder, "manifest.json"), "utf8"),
+  );
+  const inserted = [
+    {
+      id: "inserted-1",
+      type: "image",
+      file: "branch-title.jpg",
+      text: "Inserted one: a content update added this inside read content.",
+    },
+    {
+      id: "inserted-2",
+      type: "image",
+      file: "after-start.jpg",
+      text: "Inserted two: also added by the update, also unseen.",
+    },
+  ];
+  updated.items.splice(
+    updated.items.findIndex((it) => it.id === "text-bare"),
+    0,
+    ...inserted,
+  );
+  const json = JSON.stringify(updated, null, 2);
+  writeFileSync(join(folder, "manifest.json"), `${json}\n`);
+  writeFileSync(
+    join(folder, "manifest.js"),
+    `window.KINETIC_MANIFEST = ${json};\n`,
+  );
+  // The inserted ids are not in the harness's demo manifest: by text.
+  const insertedId = async () => {
+    const text = (await page.evaluate(PAGE_STATE)).text;
+    return inserted.find((it) => it.text === text)?.id ?? null;
+  };
+
+  await page.reload();
+  await waitFor(
+    page,
+    () =>
+      (document.getElementById("visual-image")?.getAttribute("src") ?? "") !==
+      "",
+  );
+  await sleep(500);
+  const resumedId = await currentItemId(page);
+  const notice = await page.evaluate(READ_NOTICE);
+  check(
+    "after the update the reload resumes on after-start and the resume notice shows",
+    resumedId === "after-start" &&
+      notice.shown &&
+      notice.text === EARLIER_UNSEEN_NOTICE,
+    { resumedId, notice },
+  );
+  await pressSpace(cdp);
+  await sleep(300);
+  const endId = await currentItemId(page);
+  const after = await page.evaluate(READ_END);
+  check(
+    "one screen on, at the story's end, the end card counts the unseen content and offers u",
+    endId === "after-end" &&
+      after.shown &&
+      after.title === "Some content is still unseen." &&
+      after.hint === "Press u for the next one.",
+    { endId, after },
+  );
+
+  await pressU(cdp);
+  await sleep(300);
+  const uId = await insertedId();
+  check("u lands on the first inserted item", uId === "inserted-1", { uId });
+
+  // Back to the bookmark on text-speech (its card on the map), then Tab:
+  // the burst reads on through inserted-1, now seen, and stops on it, short
+  // of inserted-2; Space shows inserted-2.
+  const shown = await openMap(page, cdp);
+  const cards = shown.map.cards ?? [];
+  if (cards.length > 0) await clickCard(cdp, cards[0]);
+  await waitFor(page, MAP_CLOSED);
+  await sleep(300);
+  const restoredId = await currentItemId(page);
+  await pressTab(cdp);
+  const passed = new Set();
+  for (let t = 0; t < 30; t += 1) {
+    await sleep(50);
+    passed.add((await insertedId()) ?? (await currentItemId(page)));
+  }
+  await sleep(500);
+  const stopId = await insertedId();
+  await pressSpace(cdp);
+  await sleep(300);
+  const nextId = await insertedId();
+  check(
+    "skip from the bookmark stops on inserted-1, short of inserted-2 (still unseen); Space then shows inserted-2",
+    cards.length === 1 &&
+      restoredId === "text-speech" &&
+      stopId === "inserted-1" &&
+      !passed.has("inserted-2") &&
+      !passed.has("text-bare") &&
+      nextId === "inserted-2",
+    { cards: cards.length, restoredId, stopId, passed: [...passed], nextId },
+  );
+}
+
 // Independent parts (each opens its own browser); the runner runs them
 // side by side and prints their checks in this order. A part that throws
 // gets a FAIL "<part> completed" and the others still run.
@@ -2735,4 +2906,5 @@ export const parts = [
   emptyFolder,
   reset,
   contentUpdate,
+  insertedContent,
 ];

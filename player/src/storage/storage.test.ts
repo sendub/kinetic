@@ -56,17 +56,58 @@ for (const [name, makeStorage] of ADAPTERS) {
       expect(await storage.getBookmarks()).toEqual([]);
     });
 
-    it("round-trips the context, and a later save overwrites the slot", async () => {
+    it("round-trips the context: a later save replaces the place, and the seen set only grows (Phase 46)", async () => {
       const storage = makeStorage();
       await storage.saveState({ ctx: context("x-4", ["x-4"]) });
       expect(await storage.loadState()).toEqual({
         ctx: context("x-4", ["x-4"]),
       });
+      // A save's `visited` is what was seen since the last one: it joins
+      // the stored seen set. The rest of the record is the last save's.
       await storage.saveState({ ctx: context("x-9", ["x-9"]) });
-      // A singleton state, not a log: the resume point is the last save.
       expect(await storage.loadState()).toEqual({
-        ctx: context("x-9", ["x-9"]),
+        ctx: context("x-9", ["x-4", "x-9"]),
       });
+      // Nothing new seen: the place moves, the seen set stays.
+      await storage.saveState({ ctx: context("x-2", []) });
+      expect(await storage.loadState()).toEqual({
+        ctx: context("x-2", ["x-4", "x-9"]),
+      });
+    });
+
+    it("an id handed over again is stored once", async () => {
+      const storage = makeStorage();
+      await storage.saveState({ ctx: context("x-1", ["x-0", "x-1"]) });
+      await storage.saveState({ ctx: context("x-2", ["x-0", "x-1", "x-2"]) });
+      expect((await storage.loadState())?.ctx?.visited).toEqual([
+        "x-0",
+        "x-1",
+        "x-2",
+      ]);
+    });
+
+    it("deleteState drops the seen set with the record; replaceProgress makes it exactly the import's", async () => {
+      const storage = makeStorage();
+      await storage.saveState({ ctx: context("x-3", ["x-0", "x-3"]) });
+      await storage.deleteState();
+      expect(await storage.loadState()).toBeNull();
+      await storage.saveState({ ctx: context("x-5", ["x-5"]) });
+      expect((await storage.loadState())?.ctx?.visited).toEqual(["x-5"]);
+      await storage.replaceProgress(
+        { ctx: context("x-8", ["x-1", "x-8"]), helpSeen: true },
+        [],
+      );
+      expect(await storage.loadState()).toEqual({
+        ctx: context("x-8", ["x-1", "x-8"]),
+        helpSeen: true,
+      });
+      // And it grows from there.
+      await storage.saveState({ ctx: context("x-9", ["x-9"]) });
+      expect((await storage.loadState())?.ctx?.visited).toEqual([
+        "x-1",
+        "x-8",
+        "x-9",
+      ]);
     });
 
     it("persists the contract's fields only — nothing else can ride along", async () => {
@@ -119,13 +160,16 @@ for (const [name, makeStorage] of ADAPTERS) {
       });
     });
 
-    it("a later save without a ctx drops the stored one", async () => {
+    it("a later save without a ctx drops the stored one, seen set included", async () => {
       const storage = makeStorage();
       await storage.saveState({ ctx: context("x-7", ["x-0", "x-7"]) });
       // The state is a singleton record, ctx included: a later save
       // without one overwrites it too — what persists is the last save.
       await storage.saveState({ helpSeen: true });
       expect((await storage.loadState())?.ctx).toBeUndefined();
+      // The seen set went with it: a context saved later starts afresh.
+      await storage.saveState({ ctx: context("x-1", ["x-1"]) });
+      expect((await storage.loadState())?.ctx?.visited).toEqual(["x-1"]);
     });
 
     it("round-trips a context's completed routes, last picks and open choice", async () => {

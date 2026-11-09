@@ -62,6 +62,27 @@ const READ_STATE_AT = async (key) => {
   }
 };
 
+/** The ids in the seen records under `key` (docs/plan.md Phase 46). */
+const READ_SEEN_AT = async (key) => {
+  const db = await new Promise((resolve, reject) => {
+    const open = indexedDB.open("kinetic", 1);
+    open.onsuccess = () => resolve(open.result);
+    open.onerror = () => reject(open.error);
+  });
+  try {
+    return await new Promise((resolve, reject) => {
+      const req = db
+        .transaction("state", "readonly")
+        .objectStore("state")
+        .getAll(IDBKeyRange.bound(["seen", key], ["seen", key, []]));
+      req.onsuccess = () => resolve(req.result.flat());
+      req.onerror = () => reject(req.error);
+    });
+  } finally {
+    db.close();
+  }
+};
+
 const FOLDER_URL = () => new URL(".", document.baseURI).href;
 
 function writeManifest(folder, value) {
@@ -101,6 +122,7 @@ export default async function ({ check, open }) {
   await sleep(300);
   const oldUrl = await page.evaluate(FOLDER_URL);
   const legacyRecord = await page.evaluate(READ_STATE_AT, oldUrl);
+  const legacySeen = await page.evaluate(READ_SEEN_AT, oldUrl);
   await page.reload();
   const painted1 = await waitFor(page, PAINTED);
   const legacyResume = await currentItemId(page);
@@ -113,6 +135,8 @@ export default async function ({ check, open }) {
       flashed &&
       walked2 &&
       legacyRecord?.ctx?.lastShown === reached.id &&
+      legacySeen.includes(marked.id) &&
+      legacySeen.includes(reached.id) &&
       painted1 &&
       legacyResume === reached.id &&
       legacyMarks.length === 1 &&
@@ -120,6 +144,7 @@ export default async function ({ check, open }) {
     {
       storyId,
       legacyRecord: legacyRecord?.ctx?.lastShown,
+      legacySeen,
       legacyResume,
       legacyMarks,
     },
@@ -134,19 +159,25 @@ export default async function ({ check, open }) {
   const carriedMarks = await readBookmarks(page);
   const storyRecord = await page.evaluate(READ_STATE_AT, `story:${storyId}`);
   const leftUnderUrl = await page.evaluate(READ_STATE_AT, oldUrl);
+  const storySeen = await page.evaluate(READ_SEEN_AT, `story:${storyId}`);
+  const seenLeftUnderUrl = await page.evaluate(READ_SEEN_AT, oldUrl);
   check(
-    "the first load with a storyId carries the folder's progress and bookmark over to the story",
+    "the first load with a storyId carries the folder's progress, seen records and bookmark over to the story",
     painted2 &&
       carriedResume === reached.id &&
       carriedMarks.length === 1 &&
       carriedMarks[0].itemId === marked.id &&
       storyRecord?.ctx?.lastShown === reached.id &&
-      leftUnderUrl === null,
+      legacySeen.every((id) => storySeen.includes(id)) &&
+      leftUnderUrl === null &&
+      seenLeftUnderUrl.length === 0,
     {
       carriedResume,
       carriedMarks,
       storyRecord: storyRecord?.ctx?.lastShown,
+      storySeen,
       leftUnderUrl,
+      seenLeftUnderUrl,
     },
   );
 

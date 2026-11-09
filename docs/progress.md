@@ -2639,7 +2639,7 @@ truthful: an unchecked box means nothing was accepted.
 
 ## Phase 46: Large-game checks and fast saves (2026-11-09, converting agent + user)
 
-- [ ] Player: fast saves that still flag inserted content (docs/plan.md
+- [x] Player: fast saves that still flag inserted content (docs/plan.md
       Phase 46, item 1): a screen change does no work in proportion to
       the number of seen items, in the machine or in storage; old saves
       and exported progress still load; inserted content stays unseen.
@@ -2657,6 +2657,34 @@ truthful: an unchecked box means nothing was accepted.
         160,000 items seen, before and after; after, p95 under 10 ms at
         160,000 seen on both engines (before: 49 ms on WebKit; 5 ms at
         1,000 seen).
+      (2026-11-09: the seen set has records of its own in the existing
+      `state` store (database still version 1, no new store or index),
+      keyed `["seen", <storage key>, <page>, <n>]`, at most 500 ids each,
+      written only by the page load that saw them. The machine keeps a
+      seen log (`exportPlace()` without `visited`, `seenSince(from)`);
+      storage/saves.ts takes the new ids when a write goes out, so the
+      writer's coalescing drops none. The state record keeps the small
+      context and `ctx.lastShown`, with `visited: []`. The first load
+      moves an old `ctx.visited` list (an old save, an older build's write,
+      an import) into seen records in one transaction, merges part-filled
+      records past 32 and drops seen records with no state record; an
+      older build then shows fewer seen items, documented in idb.ts.
+      Bookmarks store `visited: []` (a restore only unions it); the export
+      file is unchanged; routes.ts no longer sorts the seen set on every
+      state change. Tests ran red first: a save writes the same bytes at
+      100 and 10,000 seen; a 650-id pre-change fixture loads whole and
+      moves to 500 + 150 records; a pre-change export imports; the content
+      update in unit tests and a new screens part `insertedContent`
+      (notice, end card, `u`, Tab); Reset clears the seen records;
+      carry-over moves them. New harness `npm run perf:save`
+      (saveperf.mjs, 161,000 screens, 28-character ids); docs/perf.md
+      "Saves at scale". Orchestrator: npm test 939, check clean, smoke
+      6/6; Chrome progress, storyid, screens, bookmarkmap, reading,
+      branches, playall, continueroute, navigation 304/304; WebKit
+      progress, storyid 11/11, screens 87 pass and the 2 usual fullscreen
+      partials. perf:save rerun: at 160,000 seen press p50/p95 1.2/2.6 ms
+      on WebKit and 1.0/3.0 ms on Chrome (before 6.9/42.9 and 9.0/11.0);
+      the one-time move adds about 30-100 ms to the first load.)
 - [ ] Player: the item on screen on the page (item 2): the stage's
       `data-item` is the id of the item whose screen is shown. Tests
       (creator scenario part, Chrome and WebKit): it matches each step of

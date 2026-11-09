@@ -1,8 +1,10 @@
 // The shipped IndexedDB adapter's story-ID keying and its one-time carry-
 // over of progress saved under the folder URL (docs/plan.md Phase 21), run
-// against a small in-test IndexedDB fake. The fake implements only what
-// idb.ts calls (open/upgrade, get/getKey/put/add/delete, an index's getAll
-// and cursor with update/delete/continue, transaction completion) with
+// against a small in-test IndexedDB fake, and (Phase 46) the seen set's
+// own records. The fake implements only what idb.ts calls (open/upgrade,
+// get/getKey/put/add/delete, a store's getAll/getAllKeys and a delete over
+// a key range, an index's getAll and cursor with update/delete/continue,
+// transaction completion, array keys in IndexedDB's key order) with
 // IndexedDB's ordering: requests run in issue order, a transaction
 // completes once no request is pending, values are structured-cloned.
 // Each test gets a fresh database and re-imports idb.ts; "reloading the
@@ -18,20 +20,73 @@ import { createMachine } from "../machine/machine";
 import type { Branch, Item } from "../machine/types";
 import { DEFAULT_SETTINGS } from "../machine/types";
 import { bookmarkRestoreTarget, mergeProgress } from "../render/bookmarks";
+import { resetProgress } from "../render/confirm";
 import { createContextCodec, resumeOptionsFor } from "./ids";
+import { createStateWriter } from "./saves";
 import { importProgress, parseProgressFile } from "./transfer";
 import type { Bookmark, SavedContext, Storage } from "./types";
 
-type Key = string | number;
-type Range = { only: Key };
+type Key = string | number | Key[];
+/** A key range: `only(key)` is a range from the key to itself. */
+interface Range {
+  lower: Key;
+  upper: Key;
+  lowerOpen: boolean;
+  upperOpen: boolean;
+}
+
+/**
+ * IndexedDB's key order: numbers before strings before arrays; arrays
+ * element by element, a prefix first.
+ */
+function compareKeys(a: Key, b: Key): number {
+  const rank = (k: Key) =>
+    typeof k === "number" ? 0 : typeof k === "string" ? 1 : 2;
+  if (rank(a) !== rank(b)) return rank(a) - rank(b);
+  if (Array.isArray(a) && Array.isArray(b)) {
+    for (let i = 0; i < Math.min(a.length, b.length); i += 1) {
+      const c = compareKeys(a[i], b[i]);
+      if (c !== 0) return c;
+    }
+    return a.length - b.length;
+  }
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
+function inRange(key: Key, range: Range): boolean {
+  const low = compareKeys(key, range.lower);
+  const high = compareKeys(key, range.upper);
+  return (
+    (range.lowerOpen ? low > 0 : low >= 0) &&
+    (range.upperOpen ? high < 0 : high <= 0)
+  );
+}
+
+const isRange = (value: unknown): value is Range =>
+  typeof value === "object" &&
+  value !== null &&
+  !Array.isArray(value) &&
+  "lower" in value;
+
+// The records map holds a string or number key as itself (so a test can
+// read `records.get("bookmark-list:...")`) and an array key encoded.
+const ARRAY_KEY = "\u0001array:";
+const storedKey = (key: Key): string | number =>
+  Array.isArray(key) ? `${ARRAY_KEY}${JSON.stringify(key)}` : key;
+const keyOf = (stored: string | number): Key =>
+  typeof stored === "string" && stored.startsWith(ARRAY_KEY)
+    ? (JSON.parse(stored.slice(ARRAY_KEY.length)) as Key)
+    : stored;
 
 interface StoreData {
   /** How many record values were read (and so deserialized). */
   reads: number;
+  /** Every value written, in order, with its key: what a save wrote. */
+  writes: { key: Key; value: unknown }[];
   keyPath?: string;
   autoIncrement: boolean;
   next: number;
-  records: Map<Key, unknown>;
+  records: Map<string | number, unknown>;
   indexes: Map<string, string>;
 }
 
@@ -51,8 +106,15 @@ class FakeTransaction {
   onerror: (() => void) | null = null;
   onabort: (() => void) | null = null;
   error: Error | null = null;
+  /** Each store's records as they were, when this transaction is to fail. */
+  private readonly before: Map<StoreData, Map<string | number, unknown>> | null;
 
-  constructor(private readonly db: FakeDatabase) {}
+  constructor(private readonly db: FakeDatabase) {
+    this.before = db.failNext
+      ? new Map([...db.stores.values()].map((d) => [d, new Map(d.records)]))
+      : null;
+    db.failNext = false;
+  }
 
   commit(): void {}
 
@@ -96,14 +158,21 @@ class FakeTransaction {
     setTimeout(() => {
       if (this.pending === 0 && !this.done) {
         this.done = true;
-        this.oncomplete?.();
+        if (this.before === null) {
+          this.oncomplete?.();
+          return;
+        }
+        // Aborted: nothing it wrote stays.
+        for (const [data, records] of this.before) data.records = records;
+        this.error = new Error("aborted (test)");
+        this.onabort?.();
       }
     });
   }
 }
 
-function sortedKeys(records: Map<Key, unknown>): Key[] {
-  return [...records.keys()].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+function sortedKeys(records: Map<string | number, unknown>): Key[] {
+  return [...records.keys()].map(keyOf).sort(compareKeys);
 }
 
 class FakeObjectStore {
@@ -117,14 +186,31 @@ class FakeObjectStore {
   }
 
   private read(key: Key): unknown {
-    if (this.data.records.has(key)) this.data.reads += 1;
-    return structuredClone(this.data.records.get(key));
+    const stored = storedKey(key);
+    if (this.data.records.has(stored)) this.data.reads += 1;
+    return structuredClone(this.data.records.get(stored));
+  }
+
+  private keysIn(range?: Range): Key[] {
+    return sortedKeys(this.data.records).filter(
+      (key) => range === undefined || inRange(key, range),
+    );
   }
 
   getKey(key: Key) {
     return this.tx.request(() =>
-      this.data.records.has(key) ? key : undefined,
+      this.data.records.has(storedKey(key)) ? key : undefined,
     );
+  }
+
+  getAll(range?: Range) {
+    return this.tx.request(() =>
+      this.keysIn(range).map((key) => this.read(key)),
+    );
+  }
+
+  getAllKeys(range?: Range) {
+    return this.tx.request(() => this.keysIn(range));
   }
 
   put(value: unknown, key?: Key) {
@@ -135,9 +221,17 @@ class FakeObjectStore {
     return this.tx.request(() => this.write(value));
   }
 
-  delete(key: Key) {
+  delete(key: Key | Range) {
     return this.tx.request(() => {
-      this.data.records.delete(key);
+      const keys = isRange(key) ? this.keysIn(key) : [key];
+      for (const one of keys) this.data.records.delete(storedKey(one));
+      return undefined;
+    });
+  }
+
+  clear() {
+    return this.tx.request(() => {
+      this.data.records.clear();
       return undefined;
     });
   }
@@ -146,10 +240,11 @@ class FakeObjectStore {
     const field = this.data.indexes.get(name);
     if (field === undefined) throw new Error(`no index ${name}`);
     const matching = (range: Range) =>
-      sortedKeys(this.data.records).filter(
-        (key) =>
-          (this.data.records.get(key) as Record<string, unknown>)[field] ===
-          range.only,
+      sortedKeys(this.data.records).filter((key) =>
+        inRange(
+          (this.data.records.get(storedKey(key)) as Record<string, Key>)[field],
+          range,
+        ),
       );
     return {
       getAll: (range: Range) =>
@@ -163,11 +258,11 @@ class FakeObjectStore {
           keys ??= matching(range);
           while (keys.length > 0) {
             const key = keys.shift() as Key;
-            if (!this.data.records.has(key)) continue;
+            if (!this.data.records.has(storedKey(key))) continue;
             return {
               value: this.read(key),
               delete: () =>
-                this.tx.request(() => this.data.records.delete(key)),
+                this.tx.request(() => this.data.records.delete(storedKey(key))),
               update: (value: unknown) =>
                 this.tx.request(() => this.write(value)),
               continue: () =>
@@ -195,13 +290,16 @@ class FakeObjectStore {
       }
     }
     if (storeKey === undefined) throw new Error("no key");
-    this.data.records.set(storeKey, copy);
+    this.data.records.set(storedKey(storeKey), copy);
+    this.data.writes.push({ key: storeKey, value: copy });
     return storeKey;
   }
 }
 
 class FakeDatabase {
   readonly stores = new Map<string, StoreData>();
+  /** The next transaction aborts, keeping nothing it wrote. */
+  failNext = false;
   readonly objectStoreNames = {
     contains: (name: string) => this.stores.has(name),
   };
@@ -212,6 +310,7 @@ class FakeDatabase {
   ) {
     const data: StoreData = {
       reads: 0,
+      writes: [],
       keyPath: options.keyPath,
       autoIncrement: options.autoIncrement ?? false,
       next: 1,
@@ -233,7 +332,20 @@ class FakeDatabase {
 function installFakeIndexedDb(): FakeDatabase {
   const db = new FakeDatabase();
   let created = false;
-  vi.stubGlobal("IDBKeyRange", { only: (key: Key): Range => ({ only: key }) });
+  vi.stubGlobal("IDBKeyRange", {
+    only: (key: Key): Range => ({
+      lower: key,
+      upper: key,
+      lowerOpen: false,
+      upperOpen: false,
+    }),
+    bound: (
+      lower: Key,
+      upper: Key,
+      lowerOpen = false,
+      upperOpen = false,
+    ): Range => ({ lower, upper, lowerOpen, upperOpen }),
+  });
   vi.stubGlobal("indexedDB", {
     open: () => {
       const request = new FakeRequest<FakeDatabase>();
@@ -836,5 +948,501 @@ describe("IndexedDB adapter — the t list reads summaries, not whole rows", () 
       ],
     });
     expect([...parsed.keys()]).toEqual([1, 2]);
+  });
+});
+
+// docs/plan.md Phase 46, item 1: the seen set lives in its own `state`
+// records, a few hundred ids each, keyed by story; the state record keeps
+// the place with an empty `ctx.visited`. A save writes the place and the
+// ids newly seen, so it costs the same however much has been read; an old
+// save (the whole seen list in the record) moves over at its first load.
+// The fixture is a progress file in the layout the player wrote before
+// this phase: 650 items seen of an 800-item story with one decision, two
+// bookmarks; its `state` is also the old state record itself.
+describe("IndexedDB adapter — the seen set in its own records (Phase 46)", () => {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const fixtureText = readFileSync(
+    join(here, "fixtures", "pre46-progress.json"),
+    "utf8",
+  );
+  const fixture = JSON.parse(fixtureText) as {
+    state: { ctx: SavedContext; settings: object; helpSeen: boolean };
+    bookmarks: Bookmark[];
+  };
+  const KEY46 = "story:pre46";
+  const ids = Array.from(
+    { length: 800 },
+    (_, n) => `line-${String(n).padStart(4, "0")}`,
+  );
+  const imageItems = (list: readonly string[]): Item[] =>
+    list.map((id) => ({ id, type: "image", file: `${id}.jpg` }));
+  const items = imageItems(ids);
+  const branches: Branch[] = [
+    {
+      id: "d1",
+      after: "line-0009",
+      prompt: "Which way?",
+      routes: [
+        { id: "r-a", label: "A", start: "line-0010", end: "line-0019" },
+        {
+          id: "r-b",
+          label: "B",
+          start: "line-0020",
+          end: "line-0029",
+          result: "return",
+        },
+      ],
+      continuingRoute: "r-a",
+      continueAt: "line-0030",
+    },
+  ];
+  const oldSeen = [...fixture.state.ctx.visited].sort();
+
+  /** The state record as an older player left it, written straight in. */
+  async function seedRecord(
+    db: FakeDatabase,
+    key: string,
+    record: unknown,
+  ): Promise<void> {
+    await (await open(key)).loadState(); // opens (and creates) the database
+    db.stores.get("state")?.records.set(key, structuredClone(record));
+  }
+
+  /** The story's seen records, in key order: each record's ids. */
+  function seenRecords(db: FakeDatabase, key: string): string[][] {
+    const data = db.stores.get("state");
+    if (data === undefined) return [];
+    return sortedKeys(data.records)
+      .filter((k) => Array.isArray(k) && k[0] === "seen" && k[1] === key)
+      .map((k) => data.records.get(storedKey(k)) as string[]);
+  }
+
+  /**
+   * A page load as main.ts does it: storage read, codec, machine, and the
+   * state writer; `save()` is the write a screen change issues.
+   */
+  async function boot(
+    key = KEY46,
+    list: readonly Item[] = items,
+    table: readonly Branch[] = branches,
+  ) {
+    const storage = await open(key);
+    const codec = createContextCodec(list, table);
+    const persisted = await storage.loadState();
+    const machine = createMachine({
+      items: list,
+      branches: table,
+      settings: { ...DEFAULT_SETTINGS, ...persisted?.settings },
+      ...resumeOptionsFor(persisted, codec),
+    });
+    const write = createStateWriter({ storage, machine, codec });
+    const save = () =>
+      write({
+        ctx: codec.toSaved(machine.exportPlace()),
+        settings: persisted?.settings ?? {},
+        helpSeen: true,
+      });
+    const seenIds = () => machine.visitedList().map((i) => list[i].id);
+    return { storage, codec, persisted, machine, save, seenIds };
+  }
+
+  it("a save writes the place and the newly seen ids, never the seen list: the same at 100 and at 10,000 seen", async () => {
+    const padded = Array.from(
+      { length: 10_200 },
+      (_, n) => `s${String(n).padStart(7, "0")}-route-segment-line-xx`,
+    );
+    const big = imageItems(padded);
+    const written: string[][] = [];
+    for (const seen of [100, 10_000]) {
+      const db = installFakeIndexedDb();
+      await seedRecord(db, KEY46, {
+        ctx: {
+          lastShown: padded[seen - 1],
+          visited: padded.slice(0, seen),
+          stack: [],
+          playedRoutes: [],
+          completedRoutes: [],
+        },
+        helpSeen: true,
+      });
+      const { machine, save } = await boot(KEY46, big, []);
+      machine.advance();
+      await save();
+      const states = db.stores.get("state");
+      if (states === undefined) throw new Error("no state store");
+      states.writes.length = 0;
+      machine.advance();
+      await save();
+      // One state record, with the place and no seen list, and one seen
+      // record: this page's, holding the ids it has seen.
+      const [record, seenRecord, ...rest] = states.writes;
+      expect(rest).toEqual([]);
+      expect(record.key).toBe(KEY46);
+      expect(record.value).toMatchObject({
+        ctx: { lastShown: padded[seen + 1], visited: [] },
+      });
+      expect(Array.isArray(seenRecord.key)).toBe(true);
+      expect(seenRecord.value).toEqual([padded[seen], padded[seen + 1]]);
+      written.push(states.writes.map((write) => JSON.stringify(write.value)));
+      machine.destroy();
+    }
+    // The same bytes whatever had been read before.
+    expect(written[1].map((v) => v.length)).toEqual(
+      written[0].map((v) => v.length),
+    );
+  });
+
+  it("an old save loads with every seen id, moves to its own records, and the next save and reload keep the set", async () => {
+    const db = installFakeIndexedDb();
+    await seedRecord(db, KEY46, fixture.state);
+    const first = await boot();
+    expect([...(first.persisted?.ctx?.visited ?? [])].sort()).toEqual(oldSeen);
+    expect(first.seenIds().sort()).toEqual(oldSeen);
+    expect(first.machine.getState().cursor).toBe(ids.indexOf("line-0649"));
+    expect(first.persisted?.settings).toEqual(fixture.state.settings);
+    // Moved at the load: the record keeps everything but the list, and
+    // the ids sit in seen records of at most 500.
+    const record = db.stores.get("state")?.records.get(KEY46) as {
+      ctx: SavedContext;
+      settings: object;
+    };
+    expect(record.ctx).toEqual({ ...fixture.state.ctx, visited: [] });
+    expect(record.settings).toEqual(fixture.state.settings);
+    const chunks = seenRecords(db, KEY46);
+    expect(chunks.map((chunk) => chunk.length)).toEqual([500, 150]);
+    expect(chunks.flat().sort()).toEqual(oldSeen);
+
+    first.machine.advance();
+    await first.save();
+    first.machine.destroy();
+    const second = await boot();
+    expect(second.seenIds().sort()).toEqual([...oldSeen, "line-0650"].sort());
+    expect(second.machine.getState().cursor).toBe(ids.indexOf("line-0650"));
+    // Nothing moved twice: the old ids are stored once.
+    expect(seenRecords(db, KEY46).flat().sort()).toEqual(
+      [...oldSeen, "line-0650"].sort(),
+    );
+    second.machine.destroy();
+  });
+
+  it("a save that fails loses no seen id: the next one writes it again", async () => {
+    const db = installFakeIndexedDb();
+    await seedRecord(db, KEY46, fixture.state);
+    const first = await boot();
+    first.machine.advance(); // line-0650
+    db.failNext = true;
+    await expect(first.save()).rejects.toThrow();
+    first.machine.advance(); // line-0651
+    await first.save();
+    first.machine.destroy();
+    const second = await boot();
+    expect(second.seenIds().sort()).toEqual(
+      [...oldSeen, "line-0650", "line-0651"].sort(),
+    );
+    expect(second.machine.getState().cursor).toBe(ids.indexOf("line-0651"));
+    second.machine.destroy();
+    // A failed write that filled a record: the next write, which starts a
+    // new record, puts the full one again too.
+    const story = await open("story:fill");
+    const place = (visited: string[]): SavedContext => ({
+      ...context(ids[0]),
+      visited,
+    });
+    db.failNext = true;
+    await expect(
+      story.saveState({ ctx: place(ids.slice(0, 500)) }),
+    ).rejects.toThrow();
+    await story.saveState({ ctx: place([ids[500]]) });
+    const reloaded = await (await open("story:fill")).loadState();
+    expect(reloaded?.ctx?.visited).toEqual(ids.slice(0, 501));
+  });
+
+  it("a load whose move fails (a full disk) still reads every seen id, and the next save moves them with the record", async () => {
+    const db = installFakeIndexedDb();
+    await seedRecord(db, KEY46, fixture.state);
+    db.failNext = true; // the load's own transaction
+    const first = await boot();
+    expect(first.seenIds().sort()).toEqual(oldSeen);
+    // Nothing moved: the old record still holds its list.
+    const untouched = db.stores.get("state")?.records.get(KEY46) as {
+      ctx: SavedContext;
+    };
+    expect(untouched.ctx.visited).toEqual(fixture.state.ctx.visited);
+    expect(seenRecords(db, KEY46)).toEqual([]);
+    first.machine.advance();
+    await first.save();
+    first.machine.destroy();
+    const stored = db.stores.get("state")?.records.get(KEY46) as {
+      ctx: SavedContext;
+    };
+    expect(stored.ctx.visited).toEqual([]);
+    const second = await boot();
+    expect(second.seenIds().sort()).toEqual([...oldSeen, "line-0650"].sort());
+    second.machine.destroy();
+  });
+
+  it("merges the seen list an older build wrote after this one", async () => {
+    const db = installFakeIndexedDb();
+    await seedRecord(db, KEY46, fixture.state);
+    const first = await boot();
+    first.machine.advance();
+    await first.save();
+    first.machine.destroy();
+    // An older build opens the story: it reads an empty list (it shows
+    // fewer seen marks, the accepted cost), reads on, and saves its own.
+    const record = db.stores.get("state")?.records.get(KEY46) as {
+      ctx: SavedContext;
+    };
+    db.stores.get("state")?.records.set(KEY46, {
+      ...record,
+      ctx: {
+        ...record.ctx,
+        lastShown: "line-0652",
+        visited: ["line-0650", "line-0651", "line-0652"],
+      },
+    });
+    const second = await boot();
+    expect(second.seenIds().sort()).toEqual(
+      [...oldSeen, "line-0650", "line-0651", "line-0652"].sort(),
+    );
+    expect(second.machine.getState().cursor).toBe(ids.indexOf("line-0652"));
+    const rewritten = db.stores.get("state")?.records.get(KEY46) as
+      | { ctx: SavedContext }
+      | undefined;
+    expect(rewritten?.ctx.visited).toEqual([]);
+    second.machine.destroy();
+  });
+
+  it("a progress file exported before the change imports with every seen id, then saves in the new layout", async () => {
+    const db = installFakeIndexedDb();
+    const parsed = parseProgressFile(fixtureText, {
+      storyId: "pre46",
+      title: "Before Phase 46",
+    });
+    if (!parsed.ok) throw new Error(parsed.message);
+    const ok = await importProgress({
+      flush: async () => {},
+      storage: await open(KEY46),
+      reload: () => {},
+      progress: parsed,
+    });
+    expect(ok).toBe(true);
+    const first = await boot();
+    expect(first.seenIds().sort()).toEqual(oldSeen);
+    expect(first.machine.getState().cursor).toBe(ids.indexOf("line-0649"));
+    expect(seenRecords(db, KEY46).flat().sort()).toEqual(oldSeen);
+    // Its bookmarks restore, their own seen lists merged with the reader's.
+    const bookmarks = await first.storage.getBookmarks();
+    expect(bookmarks.map((b) => b.id)).toEqual(["bm-early", "bm-route"]);
+    const target = first.codec.fromSaved(
+      bookmarkRestoreTarget(bookmarks[1]).ctx,
+    );
+    if (target === undefined) throw new Error("bookmark did not resolve");
+    first.machine.importContext(
+      mergeProgress(target, first.machine.exportContext()),
+    );
+    expect(first.machine.getState().cursor).toBe(ids.indexOf("line-0015"));
+    expect(first.seenIds().sort()).toEqual(oldSeen);
+    first.machine.advance();
+    await first.save();
+    first.machine.destroy();
+    const second = await boot();
+    expect(second.seenIds().sort()).toEqual(oldSeen);
+    expect(second.machine.getState().cursor).toBe(ids.indexOf("line-0016"));
+    second.machine.destroy();
+  });
+
+  it("a bookmark taken now carries no seen list, and restoring it keeps everything seen", async () => {
+    const db = installFakeIndexedDb();
+    await seedRecord(db, KEY46, fixture.state);
+    const first = await boot();
+    first.machine.goTo(ids.indexOf("line-0100"));
+    // What main.ts's `b` stores.
+    const ctx = first.codec.toSaved(first.machine.exportPlace());
+    await first.storage.addBookmark({
+      id: "bm-new",
+      timestampMs: 1,
+      itemId: ctx.lastShown,
+      ctx,
+      thumbDataUrl: null,
+    });
+    first.machine.jumpToEnd();
+    first.machine.advance(); // line-0650, newly seen after the bookmark
+    await first.save();
+    first.machine.destroy();
+    const second = await boot();
+    const [stored] = await second.storage.getBookmarks();
+    expect(stored.ctx.visited).toEqual([]);
+    const target = second.codec.fromSaved(bookmarkRestoreTarget(stored).ctx);
+    if (target === undefined) throw new Error("bookmark did not resolve");
+    second.machine.importContext(
+      mergeProgress(target, second.machine.exportContext()),
+    );
+    expect(second.machine.getState().cursor).toBe(ids.indexOf("line-0100"));
+    expect(second.seenIds().sort()).toEqual([...oldSeen, "line-0650"].sort());
+    second.machine.destroy();
+  });
+
+  it("items a content update inserts into read content stay unseen: the notice, u, skip and the end card find them", async () => {
+    installFakeIndexedDb();
+    const before = Array.from(
+      { length: 20 },
+      (_, n) => `a-${String(n).padStart(2, "0")}`,
+    );
+    const first = await boot(KEY46, imageItems(before), []);
+    await first.save();
+    for (let n = 1; n < before.length; n += 1) {
+      first.machine.advance();
+      await first.save();
+    }
+    expect(first.machine.getState().endCard).toBeUndefined(); // all seen
+    first.machine.destroy();
+    // The update: two items inside what was read, between a-09 and a-10.
+    const after = imageItems([
+      ...before.slice(0, 10),
+      "new-1",
+      "new-2",
+      ...before.slice(10),
+    ]);
+    const at = (id: string) => after.findIndex((item) => item.id === id);
+    const second = await boot(KEY46, after, []);
+    expect(second.machine.getState().cursor).toBe(at("a-19"));
+    // The resume notice's question (main.ts shows the notice on it).
+    expect(second.machine.hasEarlierUnseen()).toBe(true);
+    // The end card counts them: unseen content outside any route, and `u`
+    // has somewhere to go.
+    expect(second.machine.getState().endCard).toEqual({
+      unseenRoutes: 0,
+      otherUnseen: true,
+      nextUnseen: true,
+    });
+    second.machine.jumpToUnseen();
+    expect(second.machine.getState().cursor).toBe(at("new-1"));
+    second.machine.destroy();
+    // Skip from earlier read content stops at them: on the last item read
+    // before them (skip never reveals, docs/plan.md Phase 18), and Space
+    // then shows the first inserted item.
+    const third = await boot(KEY46, after, []);
+    third.machine.goTo(at("a-05"));
+    vi.useFakeTimers();
+    try {
+      third.machine.toggleSkip();
+      vi.advanceTimersByTime(DEFAULT_SETTINGS.skipDwellMs * 20);
+      expect(third.machine.getState()).toMatchObject({
+        cursor: at("a-09"),
+        skipping: false,
+      });
+      third.machine.advance();
+      expect(third.machine.getState().cursor).toBe(at("new-1"));
+    } finally {
+      vi.useRealTimers();
+      third.machine.destroy();
+    }
+  });
+
+  it("Reset progress clears the seen records; an older build's reset leaves none to come back", async () => {
+    const db = installFakeIndexedDb();
+    await seedRecord(db, KEY46, fixture.state);
+    const first = await boot();
+    first.machine.advance();
+    await first.save();
+    first.machine.destroy();
+    expect(seenRecords(db, KEY46).length).toBeGreaterThan(0);
+    await resetProgress({
+      flush: async () => {},
+      storage: first.storage,
+      reload: () => {},
+    });
+    expect(seenRecords(db, KEY46)).toEqual([]);
+    expect(await (await open(KEY46)).loadState()).toBeNull();
+
+    // An older build's Reset deletes only the state record: the next load
+    // drops the seen records it could not see, so a fresh read starts
+    // with nothing seen.
+    await seedRecord(db, KEY46, fixture.state);
+    const again = await boot();
+    again.machine.destroy();
+    expect(seenRecords(db, KEY46).length).toBeGreaterThan(0);
+    db.stores.get("state")?.records.delete(KEY46);
+    const fresh = await boot();
+    expect(fresh.persisted).toBeNull();
+    expect(seenRecords(db, KEY46)).toEqual([]);
+    await fresh.save();
+    fresh.machine.destroy();
+    const reloaded = await boot();
+    expect(reloaded.seenIds()).toEqual(["line-0000"]);
+    reloaded.machine.destroy();
+  });
+
+  it("the carry-over to the story key moves the seen records too", async () => {
+    const db = installFakeIndexedDb();
+    // A folder without a storyId keyed its progress by the folder URL.
+    const folder = await boot(OLD_FOLDER);
+    await folder.save();
+    for (let n = 0; n < 12; n += 1) {
+      folder.machine.advance();
+      await folder.save();
+    }
+    const read = folder.seenIds();
+    folder.machine.destroy();
+    expect(seenRecords(db, OLD_FOLDER).flat()).toEqual(read);
+    // The content update named the story.
+    const storage = await open(STORY, OLD_FOLDER);
+    const persisted = await storage.loadState();
+    expect([...(persisted?.ctx?.visited ?? [])].sort()).toEqual(
+      [...read].sort(),
+    );
+    expect(seenRecords(db, OLD_FOLDER)).toEqual([]);
+    expect(seenRecords(db, STORY).flat().sort()).toEqual([...read].sort());
+  });
+
+  it("keeps the seen set's contract as the memory fake does (storage.test.ts)", async () => {
+    installFakeIndexedDb();
+    const seenCtx = (lastShown: string, visited: string[]): SavedContext => ({
+      ...context(lastShown),
+      visited,
+    });
+    const storage = await open(KEY46);
+    await storage.saveState({ ctx: seenCtx("x-4", ["x-4"]) });
+    await storage.saveState({ ctx: seenCtx("x-9", ["x-4", "x-9"]) });
+    await storage.saveState({ ctx: seenCtx("x-2", []) });
+    expect((await (await open(KEY46)).loadState())?.ctx).toEqual(
+      seenCtx("x-2", ["x-4", "x-9"]),
+    );
+    // A save without a context drops the seen set with it.
+    const later = await open(KEY46);
+    await later.loadState();
+    await later.saveState({ helpSeen: true });
+    await later.saveState({ ctx: seenCtx("x-1", ["x-1"]) });
+    expect((await (await open(KEY46)).loadState())?.ctx?.visited).toEqual([
+      "x-1",
+    ]);
+  });
+
+  it("many short sessions' seen records are merged at a load, none lost", async () => {
+    const db = installFakeIndexedDb();
+    const first = await boot(KEY46, items, []);
+    await first.save();
+    first.machine.destroy();
+    // Forty page loads, each reading one new item: each page writes a
+    // record of its own, and the load that finds 32 part-filled ones
+    // merges them into one.
+    const counts: number[] = [];
+    for (let n = 0; n < 40; n += 1) {
+      const page = await boot(KEY46, items, []);
+      page.machine.advance();
+      await page.save();
+      page.machine.destroy();
+      counts.push(seenRecords(db, KEY46).length);
+    }
+    const { SEEN_MERGE_AT } = await loadIdb();
+    expect(Math.max(...counts)).toBe(SEEN_MERGE_AT);
+    const lengths = seenRecords(db, KEY46).map((record) => record.length);
+    expect(lengths.sort((a, b) => b - a)).toEqual([
+      32, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+    ]);
+    const after = await boot(KEY46, items, []);
+    expect(after.seenIds()).toEqual(ids.slice(0, 41));
+    after.machine.destroy();
   });
 });

@@ -113,7 +113,9 @@ export function mountRouteAnnouncements({
   const labels = routeStartLabels(manifest);
 
   function observe(): RouteObservation {
-    const stack = machine.exportContext().stack;
+    // The place, not the whole context: this runs on every state change,
+    // and the seen set is no part of it (docs/plan.md Phase 46).
+    const stack = machine.exportPlace().stack;
     const top = stack[stack.length - 1];
     const state = machine.getState();
     return {

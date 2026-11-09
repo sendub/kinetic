@@ -520,3 +520,30 @@ function wheelForwardTo(m: ReturnType<typeof machine>, screen: string): void {
     m.wheelForward();
   }
 }
+
+// docs/plan.md Phase 46: a save carries the place, not the seen set; the
+// seen items reach storage as ids, a few at a time.
+describe("the place and the newly seen ids (docs/plan.md Phase 46)", () => {
+  it("a place converts with an empty seen list; a full context with all of it", () => {
+    const codec = createContextCodec(V1.items, V1.branches);
+    const m = createMachine({ ...V1, settings: SETTINGS });
+    m.advance();
+    m.advance();
+    const place = codec.toSaved(m.exportPlace());
+    const full = codec.toSaved(m.exportContext());
+    expect(place.visited).toEqual([]);
+    expect(full.visited).toEqual(["lead-1", "aside", "lead-2"]);
+    expect({ ...place, visited: full.visited }).toEqual(full);
+    m.destroy();
+  });
+
+  it("idsOf names item indices by id, dropping any this manifest lacks", () => {
+    const codec = createContextCodec(V1.items, V1.branches);
+    expect(codec.idsOf([3, 0, 11, 12, -1])).toEqual([
+      "decide",
+      "lead-1",
+      "after-2",
+    ]);
+    expect(codec.idsOf([])).toEqual([]);
+  });
+});

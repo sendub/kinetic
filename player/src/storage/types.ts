@@ -25,11 +25,21 @@
 // `historyPos`, entries with `passRoutes` / `gap`) load silently. The
 // sanitizer (storage/idb.ts) derives the last pick at each decision from
 // that record and the open frames, keeps the choice screen that was up,
-// and drops the record; nothing writes it again.
+// and drops the record; nothing writes it again. And since Phase 46 a
+// save's whole seen list in the state record (`ctx.visited`) moves to the
+// seen records at its first load (storage/idb.ts).
 //
 // IndexedDB schema note: `ctx` rides inside the value objects the `state`
-// and `bookmarks` stores already hold, so no keyPath or store changes are
-// needed and the database stays at version 1.
+// and `bookmarks` stores already hold, and the seen set (docs/plan.md Phase
+// 46) in records of its own in the `state` store, so no keyPath or store
+// changes are needed and the database stays at version 1 (storage/idb.ts).
+//
+// The seen set grows (docs/plan.md Phase 46): a save hands storage only
+// the ids seen since the last save, in `ctx.visited`, and storage adds them
+// to what it holds; a load hands back the whole set. So no save carries the
+// whole list, and every save costs about the same however much has been
+// read. Only a save without a context, "Reset progress" and "Import
+// progress" replace it.
 
 import type { MachineSettings } from "../machine/types";
 
@@ -47,8 +57,11 @@ export interface SavedRouteSet {
 
 /**
  * The persisted route-play context (the machine's `MachineContext`, keyed
- * by id): `lastShown` the item on screen, `visited` the seen set,
- * `stack` the open frames outermost first, `playedRoutes` /
+ * by id): `lastShown` the item on screen, `visited` seen items (the whole
+ * seen set from `loadState`, in an export file and an import; in a save,
+ * the ids seen since the last one; empty in a bookmark taken since Phase
+ * 46, whose restore merges the reader's own set), `stack` the open frames
+ * outermost first, `playedRoutes` /
  * `completedRoutes` per decision, `lastPicks` the route last picked at
  * each decision (one frame per decision), and `choice` the decision whose
  * choice screen is up (docs/plan.md Phase 27).
@@ -177,7 +190,14 @@ export interface BookmarkSummary {
  * reading).
  */
 export interface Storage {
+  /** The stored state, its `ctx.visited` the whole seen set (header). */
   loadState(): Promise<PersistedState | null>;
+  /**
+   * Store `state` in place of the last one, except that its `ctx.visited`
+   * JOINS the stored seen set (header comment): the caller hands over the
+   * ids seen since its last save (storage/saves.ts), and an id handed over
+   * again is stored once. A state without a `ctx` drops the seen set too.
+   */
   saveState(state: PersistedState): Promise<void>;
   addBookmark(bookmark: Bookmark): Promise<BookmarkSummary[]>;
   getBookmarks(): Promise<Bookmark[]>;
@@ -195,20 +215,21 @@ export interface Storage {
   /**
    * "Reset progress" (docs/plan.md Phase 16): drop this content's state
    * row / rows, as if it had never been read. `deleteState` removes the
-   * one `state` record and `deleteBookmarks` every `bookmarks` row of
-   * this content; both resolve only once the deletion is COMMITTED, so a
-   * caller can reload right after and never see a half-deleted record
-   * (the verify-step-40 lesson: an uncommitted delete plus a reload
-   * strands the next boot). Deleting again is a no-op.
+   * `state` record with the seen set and `deleteBookmarks` every
+   * `bookmarks` row of this content; both resolve only once the deletion
+   * is COMMITTED, so a caller can reload right after and never see a
+   * half-deleted record (the verify-step-40 lesson: an uncommitted delete
+   * plus a reload strands the next boot). Deleting again is a no-op.
    */
   deleteState(): Promise<void>;
   deleteBookmarks(): Promise<void>;
   /**
    * "Import progress" (docs/plan.md Phase 21): make this content's
    * progress exactly `state` and `bookmarks` (in that order) — the state
-   * record is overwritten and every existing bookmark row removed — in one
-   * transaction where the adapter has them, resolving once COMMITTED, so
-   * the reload that follows reads the import whole or not at all.
+   * record is overwritten, the seen set becomes `state.ctx.visited` and
+   * every existing bookmark row is removed — in one transaction where the
+   * adapter has them, resolving once COMMITTED, so the reload that
+   * follows reads the import whole or not at all.
    */
   replaceProgress(
     state: PersistedState,

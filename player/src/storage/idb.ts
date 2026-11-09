@@ -5,7 +5,9 @@
 // Schema — one database for the whole app, `kinetic` (version 1):
 //   - store `state`: no keyPath; one record per novel, stored under the
 //     novel's storage key (below), value `{ ctx?, settings?, helpSeen?, mapView? }`
-//     (`ctx` is the id-keyed route-play context, `SavedContext`;
+//     (`ctx` is the id-keyed route-play context, `SavedContext`, its
+//     `visited` written empty since Phase 46 — the seen set has records of
+//     its own, below;
 //     `settings` is the partial the Esc screen's settings changed; absent or
 //     malformed fields simply fall back at load — a malformed or
 //     index-based `ctx` reads as no progress (a first boot), a malformed
@@ -34,6 +36,41 @@
 //     player's `open("kinetic", 1)` then fails with a VersionError — every
 //     older game folder on the origin would lose its progress.
 //
+//   - the seen records (docs/plan.md Phase 46), also in the `state` store
+//     for the same reason: the ids of every item the reader has seen, at
+//     most SEEN_CHUNK (500) per record, each an array of ids under the key
+//     `["seen", <storage key>, <page>, <n>]`. Until Phase 46 the whole
+//     list rode in the state record's `ctx.visited`, so every save on
+//     every screen change rewrote it: about 4.5 MB on a 160,000-item game
+//     once read, 49 ms per Space at p95 on WebKit (docs/perf.md, "Saves
+//     at scale"). Now a save (`saveState`) writes the state record and
+//     only this page's seen records that have changed: `<page>` is a name
+//     of this adapter's own, new at every load, so a save rewrites at most
+//     the 500 ids of the page's newest record, whatever has been read
+//     before — and no other page or build ever writes the same record. Array keys sort after
+//     every string key, so one key range (`seenRange`) holds a novel's
+//     seen records and no one else's. A load (`loadState`) reads the
+//     state record and them in one readwrite transaction that also
+//     settles them (`settleSeen`), all or nothing:
+//       - no state record: they are leftovers (an older build's Reset
+//         progress deleted only the record) and are deleted;
+//       - a list in the record's `ctx.visited` — a save from before Phase
+//         46, one an older build wrote since, or an import — joins them
+//         (new records of this page) and the record is rewritten with it
+//         empty;
+//       - once SEEN_MERGE_AT (32) records are part-filled (one per page
+//         load that saw something new), they are merged into full ones.
+//     If that transaction fails (a full disk), the load reads without it
+//     and the first save moves the list, with the record that drops it.
+//     Older builds on the same origin and story key read only
+//     `ctx.visited`, which this player leaves empty, so they show fewer
+//     items as seen (accepted, docs/plan.md Phase 46); what they write
+//     there this player merges at its next load, so moving between builds
+//     never loses an item seen in this one. Their Reset and Import cannot
+//     see the seen records: with no state record left the next load drops
+//     them, but once an older build has saved a new record they are
+//     merged with it.
+//
 // The stored values changed shape over time but no keyPath or store did,
 // so the database stays at version 1 with no upgrade step; old-shape
 // values are dropped at read (`storage/types.ts`, "No migration").
@@ -55,7 +92,9 @@
 // again after "Reset progress" deletes the story's record, resurrecting
 // the progress the reader just cleared. Once a story key has a record the
 // carry-over never runs again for it (a second old folder's progress of
-// the same story stays where it was).
+// the same story stays where it was). The folder URL's seen records move
+// with its record (a manifest without a storyId kept them there), and any
+// seen records the story key had without a record go first.
 
 import type { MachineSettings } from "../machine/types";
 import { DEFAULT_SETTINGS } from "../machine/types";
@@ -76,6 +115,12 @@ const DB_VERSION = 1;
 const STATE_STORE = "state";
 const BOOKMARKS_STORE = "bookmarks";
 const CONTENT_INDEX = "content";
+/** The first element of a seen record's key (header comment). */
+const SEEN = "seen";
+/** The most ids one seen record holds (header comment). */
+export const SEEN_CHUNK = 500;
+/** A load merges the story's part-filled seen records once there are this many. */
+export const SEEN_MERGE_AT = 32;
 
 /**
  * The signature identifying the novel a page belongs to: the directory of
@@ -125,6 +170,36 @@ export function storageKeys(
 /** The `state` key of a novel's bookmark-list cache (header comment). */
 export function listCacheKey(contentKey: string): string {
   return `bookmark-list:${contentKey}`;
+}
+
+/**
+ * Every seen record of a novel, as a key range (header comment): the keys
+ * `["seen", contentKey, <page>, <n>]`. An array sorts after every string
+ * and number, so `["seen", contentKey, []]` bounds them all.
+ */
+function seenRange(contentKey: string): IDBKeyRange {
+  return IDBKeyRange.bound([SEEN, contentKey], [SEEN, contentKey, []]);
+}
+
+/** A seen record's ids; anything else in one reads as none. */
+function seenIdsOf(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter(isString) : [];
+}
+
+/**
+ * The seen list a state record carries in its `ctx` when its context is
+ * one this player reads: an older build's whole list, or an import's; this
+ * player writes it empty. Empty for anything else.
+ */
+function listedSeen(raw: unknown): readonly string[] {
+  if (typeof raw !== "object" || raw === null) return [];
+  const ctx = sanitizeContext((raw as Record<string, unknown>).ctx);
+  return ctx?.visited ?? [];
+}
+
+/** A page's own name for its seen records: unique per adapter, per load. */
+function newPageName(): string {
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
 /** A cached row: its summary, or a mark that the row is not listed. */
@@ -320,11 +395,21 @@ export function sanitizeState(raw: unknown): PersistedState | null {
   return state;
 }
 
-/** The value a `state` record stores for `state`. */
-function stateValue(state: PersistedState): Record<string, unknown> {
+/**
+ * The value a `state` record stores for `state`. A save's `ctx.visited`
+ * goes to the seen records, so the record holds it empty (still an array:
+ * an older build reads no context without one); an import keeps the whole
+ * list (`keepSeen`), which its next load moves (header comment).
+ */
+function stateValue(
+  state: PersistedState,
+  keepSeen = false,
+): Record<string, unknown> {
   const record: Record<string, unknown> = {};
   // `ctx` is JSON-safe by contract; the structured clone copies it.
-  if (state.ctx !== undefined) record.ctx = state.ctx;
+  if (state.ctx !== undefined) {
+    record.ctx = keepSeen ? state.ctx : { ...state.ctx, visited: [] };
+  }
   if (state.settings !== undefined) record.settings = { ...state.settings };
   if (state.helpSeen !== undefined) record.helpSeen = state.helpSeen;
   // `mapView` is JSON-safe too (plain numbers, strings, null).
@@ -542,7 +627,11 @@ export function createIdbStorage(
     return carried;
   }
 
-  /** Move `from`'s state record and bookmarks to this novel's key. */
+  /**
+   * Move `from`'s state record, seen records and bookmarks to this novel's
+   * key; seen records this key has without a record of its own (an older
+   * build's reset) go first.
+   */
   function carryOver(db: IDBDatabase, from: string): Promise<void> {
     const tx = db.transaction([STATE_STORE, BOOKMARKS_STORE], "readwrite");
     const states = tx.objectStore(STATE_STORE);
@@ -550,10 +639,18 @@ export function createIdbStorage(
     own.onsuccess = () => {
       if (own.result !== undefined) return; // already has its own record
       const old = states.get(from);
-      old.onsuccess = () => {
+      const seenKeys = states.getAllKeys(seenRange(from));
+      const seenValues = states.getAll(seenRange(from));
+      seenValues.onsuccess = () => {
         if (old.result === undefined) return;
         states.put(old.result, contentKey);
         states.delete(from);
+        states.delete(seenRange(contentKey));
+        seenKeys.result.forEach((key, i) => {
+          const rest = Array.isArray(key) ? key.slice(2) : [];
+          states.put(seenValues.result[i], [SEEN, contentKey, ...rest]);
+        });
+        states.delete(seenRange(from));
       };
       const index = tx.objectStore(BOOKMARKS_STORE).index(CONTENT_INDEX);
       const cursorRequest = index.openCursor(IDBKeyRange.only(from));
@@ -571,6 +668,163 @@ export function createIdbStorage(
   }
 
   const cacheKey = listCacheKey(contentKey);
+
+  // This page's seen records (header comment): the ids handed to it, in
+  // records of at most SEEN_CHUNK under this page's own name, so no other
+  // page or build ever writes the same record. A record stays `unsaved`
+  // until a write of all its ids has committed, and every write puts the
+  // unsaved ones again, so a failed write loses nothing.
+  interface SeenRecord {
+    readonly key: IDBValidKey;
+    readonly ids: string[];
+    saved: number;
+  }
+  let page = newPageName();
+  let pageRecords = 0;
+  let filling: SeenRecord | null = null;
+  const unsaved = new Set<SeenRecord>();
+  // Ids this page has taken, so a caller handing the same ids again (the
+  // whole set, as before Phase 46) stores them once per page.
+  const taken = new Set<string>();
+
+  /** Add `ids` to this page's seen records (in memory, unsaved). */
+  function takeSeen(ids: readonly string[], fromLoad = false): void {
+    for (const id of ids) {
+      if (!isString(id)) continue;
+      if (!fromLoad) {
+        if (taken.has(id)) continue;
+        taken.add(id);
+      }
+      if (filling === null || filling.ids.length >= SEEN_CHUNK) {
+        filling = {
+          key: [SEEN, contentKey, page, pageRecords],
+          ids: [],
+          saved: 0,
+        };
+        pageRecords += 1;
+      }
+      filling.ids.push(id);
+      unsaved.add(filling);
+    }
+  }
+
+  /**
+   * Put every unsaved seen record in `store`'s transaction; the returned
+   * function, called once it commits, marks what it wrote as saved.
+   */
+  function putUnsaved(store: IDBObjectStore): () => void {
+    const written = [...unsaved].map((record) => {
+      store.put(record.ids, record.key);
+      return { record, length: record.ids.length };
+    });
+    return () => {
+      for (const { record, length } of written) {
+        if (length > record.saved) record.saved = length;
+        if (record.saved >= record.ids.length) unsaved.delete(record);
+      }
+    };
+  }
+
+  /** Forget this page's seen records: the stored ones were replaced. */
+  function startPageOver(): void {
+    page = newPageName();
+    pageRecords = 0;
+    filling = null;
+    unsaved.clear();
+    taken.clear();
+  }
+
+  /**
+   * A load's work on the seen records, in its own transaction once the
+   * record and the seen records are read (header comment): with no state
+   * record, any seen records are an older build's leftovers and go; a list
+   * in the record (an older build's, an import's) joins the seen records
+   * and leaves the record; part-filled records are merged once there are
+   * SEEN_MERGE_AT of them. Returns every seen id, once each, and the
+   * commit's bookkeeping. With no `store` (a read-only load, after that
+   * work failed) nothing is written: the list's ids become this page's
+   * unsaved records, so the next save writes them with the record that
+   * drops the list, in one transaction.
+   */
+  function settleSeen(
+    store: IDBObjectStore | null,
+    raw: unknown,
+    keys: readonly IDBValidKey[],
+    values: readonly unknown[],
+  ): { seen: string[]; committed: () => void } {
+    if (raw === undefined) {
+      if (keys.length > 0) store?.delete(seenRange(contentKey));
+      return { seen: [], committed: () => {} };
+    }
+    const seen = new Set<string>();
+    const partial: { key: IDBValidKey; ids: string[] }[] = [];
+    keys.forEach((key, i) => {
+      const ids = seenIdsOf(values[i]);
+      if (ids.length < SEEN_CHUNK) partial.push({ key, ids });
+      else for (const id of ids) seen.add(id);
+    });
+    const merge = store !== null && partial.length >= SEEN_MERGE_AT;
+    const moved: string[] = [];
+    for (const record of partial) {
+      for (const id of record.ids) {
+        if (seen.has(id)) continue;
+        seen.add(id);
+        if (merge) moved.push(id);
+      }
+    }
+    const listed = listedSeen(raw);
+    for (const id of listed) {
+      if (seen.has(id)) continue;
+      seen.add(id);
+      moved.push(id);
+    }
+    takeSeen(moved, true);
+    let committed = () => {};
+    if (store !== null) {
+      if (merge) for (const record of partial) store.delete(record.key);
+      if (listed.length > 0) {
+        const record = raw as Record<string, unknown>;
+        const ctx = record.ctx as Record<string, unknown>;
+        store.put({ ...record, ctx: { ...ctx, visited: [] } }, contentKey);
+      }
+      committed = putUnsaved(store);
+    }
+    // What this page sees from now on starts a record of its own, so a
+    // save rewrites only ids this page has seen.
+    filling = null;
+    return { seen: [...seen], committed };
+  }
+
+  /** `loadState`'s read, settling the seen records when `mode` allows. */
+  async function readState(
+    db: IDBDatabase,
+    mode: IDBTransactionMode,
+  ): Promise<PersistedState | null> {
+    const tx = db.transaction(STATE_STORE, mode);
+    const store = tx.objectStore(STATE_STORE);
+    const recordRequest = store.get(contentKey);
+    const keysRequest = store.getAllKeys(seenRange(contentKey));
+    const valuesRequest = store.getAll(seenRange(contentKey));
+    let raw: unknown;
+    let seen: string[] = [];
+    let committed = () => {};
+    valuesRequest.onsuccess = () => {
+      raw = recordRequest.result;
+      ({ seen, committed } = settleSeen(
+        mode === "readwrite" ? store : null,
+        raw,
+        keysRequest.result,
+        valuesRequest.result,
+      ));
+    };
+    await transactionDone(tx);
+    committed();
+    // Read defensively: a foreign or half-written record reads as no
+    // persisted state (a first-ever load), never as a broken resume.
+    const state = sanitizeState(raw);
+    if (state?.ctx === undefined) return state;
+    return { ...state, ctx: { ...state.ctx, visited: seen } };
+  }
 
   // One listing at a time: a second waits for the first, then finds the
   // cache it wrote, so rows are never read in full twice over.
@@ -643,21 +897,34 @@ export function createIdbStorage(
   }
 
   return {
+    // The record and the seen records in one readwrite transaction, which
+    // also settles the seen records (`settleSeen`) — all or nothing. Should
+    // that fail (a full disk, say), a read-only load still hands back
+    // everything: a failed move must never read as a first boot, whose
+    // saves would then overwrite the old record and its list.
     async loadState(): Promise<PersistedState | null> {
       const db = await database();
-      const tx = db.transaction(STATE_STORE, "readonly");
-      const stored = await requestPromise(
-        tx.objectStore(STATE_STORE).get(contentKey),
-      );
-      // Read defensively: a foreign or half-written record reads as no
-      // persisted state (a first-ever load), never as a broken resume.
-      return sanitizeState(stored);
+      try {
+        return await readState(db, "readwrite");
+      } catch {
+        startPageOver();
+        return readState(db, "readonly");
+      }
     },
 
+    // `ctx.visited` holds the ids seen since the last save (storage/
+    // saves.ts): they join this page's seen records here, before anything
+    // can fail, and go out with the record. A state without a context
+    // has no seen set: the stored one goes.
     async saveState(state: PersistedState): Promise<void> {
+      if (state.ctx === undefined) startPageOver();
+      else takeSeen(state.ctx.visited);
       const db = await database();
       const tx = db.transaction(STATE_STORE, "readwrite");
-      tx.objectStore(STATE_STORE).put(stateValue(state), contentKey);
+      const store = tx.objectStore(STATE_STORE);
+      store.put(stateValue(state), contentKey);
+      if (state.ctx === undefined) store.delete(seenRange(contentKey));
+      const committed = putUnsaved(store);
       // Ask for the commit now instead of when the put's success event
       // has made the round trip back to this page (docs/plan.md Phase 18,
       // "Settings survive an immediate reload"): a reload a moment after
@@ -665,6 +932,7 @@ export function createIdbStorage(
       // transaction whose commit was never requested is then aborted.
       commitNow(tx);
       await transactionDone(tx);
+      committed();
     },
 
     async addBookmark(bookmark: Bookmark): Promise<BookmarkSummary[]> {
@@ -723,7 +991,9 @@ export function createIdbStorage(
       const db = await database();
       const tx = db.transaction(STATE_STORE, "readwrite");
       tx.objectStore(STATE_STORE).delete(contentKey);
+      tx.objectStore(STATE_STORE).delete(seenRange(contentKey));
       await transactionDone(tx);
+      startPageOver();
     },
 
     async deleteBookmarks(): Promise<void> {
@@ -757,7 +1027,11 @@ export function createIdbStorage(
     ): Promise<void> {
       const db = await database();
       const tx = db.transaction([STATE_STORE, BOOKMARKS_STORE], "readwrite");
-      tx.objectStore(STATE_STORE).put(stateValue(state), contentKey);
+      // The imported seen list stays in the record, where the next load
+      // (the reload that follows) finds it and moves it, as for a save an
+      // older build wrote; the story's seen records go.
+      tx.objectStore(STATE_STORE).put(stateValue(state, true), contentKey);
+      tx.objectStore(STATE_STORE).delete(seenRange(contentKey));
       tx.objectStore(STATE_STORE).delete(cacheKey);
       const store = tx.objectStore(BOOKMARKS_STORE);
       const cursorRequest = store
@@ -775,6 +1049,7 @@ export function createIdbStorage(
         }
       };
       await transactionDone(tx);
+      startPageOver();
     },
   };
 }

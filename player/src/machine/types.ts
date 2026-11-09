@@ -395,6 +395,14 @@ export interface MachineContext {
 }
 
 /**
+ * The route-play context without its seen set (docs/plan.md Phase 46,
+ * `Machine.exportPlace`): the reader's place, open frames, route records
+ * and picks. Its size is bounded by the manifest's decisions, so a save on
+ * every screen change can carry it whatever has been read.
+ */
+export type MachinePlace = Omit<MachineContext, "visited">;
+
+/**
  * How the item under the cursor became current. `advance` is a forward step
  * the reader took or the auto timer took — a space press or the auto-advance
  * firing — so the item is being READ now and its media plays. `nav` is an

@@ -117,6 +117,7 @@ import type {
   EndCard,
   Item,
   MachineContext,
+  MachinePlace,
   MachineSettings,
   MachineState,
   RouteResult,
@@ -184,12 +185,15 @@ export interface Machine {
   visualIndex(): number;
   /**
    * Sorted copy of the seen set — every item index that has been shown,
-   * across every route visited (docs/plan.md Phase 13). This is what
-   * persistence stores; `MachineState.frontier` is the derived legacy value.
+   * across every route visited (docs/plan.md Phase 13); `MachineState.
+   * frontier` is the derived legacy value. Its cost grows with the set:
+   * a save on every screen change takes the set's growth instead
+   * (`seenSince`, docs/plan.md Phase 46).
    */
   visitedList(): number[];
   /**
-   * Route-play context for persistence: `lastShown` (the item on screen),
+   * Route-play context (an export file, a bookmark restore's merge, the
+   * map's marks): `lastShown` (the item on screen),
    * `visitedList()`, the open decision stack, the routes played, completed
    * and played this pass per decision, the last pick at each decision, and
    * the open choice screen's decision — all JSON-safe.
@@ -201,6 +205,23 @@ export interface Machine {
    * (a prequel, a new route, a reorder) keeps saves valid.
    */
   exportContext(): MachineContext;
+  /**
+   * `exportContext()` without `visited` (docs/plan.md Phase 46): what a
+   * save on every screen change writes, and what a bookmark keeps. Its
+   * cost is bounded by the manifest's decisions, not by how much has been
+   * read; the seen set reaches storage as it grows (`seenSince`).
+   */
+  exportPlace(): MachinePlace;
+  /**
+   * The seen set's growth (docs/plan.md Phase 46): the item indices that
+   * joined it from position `from` of its join log on, each once, in the
+   * order they joined. A load's restored set is not logged — only what is
+   * seen after it (the landing included when the restored set lacked it)
+   * and what a restore (`importContext`) adds. A caller keeps its own
+   * position and moves it on by the length returned, so each save hands
+   * storage just the newly seen items.
+   */
+  seenSince(from: number): readonly number[];
   /**
    * The bookmark-restore move: replaces the seen set, decision stack,
    * played, completed and played-this-pass routes and last picks with a
@@ -895,6 +916,12 @@ export function createMachine(options: MachineOptions): Machine {
   let transition: TransitionKind = "nav";
   /** Every item index shown so far, in any route (the seen set). */
   const visited = new Set<number>();
+  /**
+   * The seen set's join log (docs/plan.md Phase 46, `seenSince`): each
+   * index in the order it joined `visited` in this machine. A load's
+   * restored set is not in it; a restore's additions are.
+   */
+  const seenLog: number[] = [];
   /** `max(visited)`, -1 when nothing has been shown: the wheel's ceiling. */
   let highestSeen = -1;
   /**
@@ -1037,7 +1064,7 @@ export function createMachine(options: MachineOptions): Machine {
   // the first-ever load: item 0, shown, so the frontier is one past it.
   if (count > 0) {
     if (options.resumeContext !== undefined) {
-      applyContext(options.resumeContext);
+      applyContext(options.resumeContext, false);
       reopenChoice(options.resumeContext);
       settled = true; // a resume landing was already read, as with a frontier
       autoPickLiveChoice(); // play-all carries on from a live choice
@@ -1444,7 +1471,10 @@ export function createMachine(options: MachineOptions): Machine {
 
   /** The marking rule: shown now, so seen from now on. */
   function markShown(index: number): void {
-    visited.add(index);
+    if (!visited.has(index)) {
+      visited.add(index);
+      seenLog.push(index);
+    }
     if (index > highestSeen) highestSeen = index;
   }
 
@@ -2516,7 +2546,7 @@ export function createMachine(options: MachineOptions): Machine {
     showScreen(target);
   }
 
-  /** Sorted view of the seen set: what persistence stores. */
+  /** Sorted view of the seen set (`visitedList`, `exportContext`). */
   function visitedSorted(): number[] {
     return [...visited].sort((a, b) => a - b);
   }
@@ -2530,17 +2560,24 @@ export function createMachine(options: MachineOptions): Machine {
    * is the restored maximum, not the landing item — otherwise a resumed
    * reader would find the wheel's forward ceiling (and the persisted
    * frontier) shrunk down to wherever the reading happened to sit.
+   * `logJoins` (a restore, not a load) logs the items the context adds to
+   * the seen set (`seenSince`), so persistence writes them.
    */
-  function applyContext(context: MachineContext): void {
-    visited.clear();
+  function applyContext(context: MachineContext, logJoins: boolean): void {
+    const next = new Set<number>();
     let seenMax = -1;
     for (const index of context.visited ?? []) {
       const value = asIndex(index, -1);
       if (value >= 0 && value < count) {
-        visited.add(value);
+        next.add(value);
         if (value > seenMax) seenMax = value;
       }
     }
+    if (logJoins) {
+      for (const index of next) if (!visited.has(index)) seenLog.push(index);
+    }
+    visited.clear();
+    for (const index of next) visited.add(index);
     highestSeen = seenMax;
     played.clear();
     for (const entry of context.playedRoutes ?? []) {
@@ -2679,6 +2716,39 @@ export function createMachine(options: MachineOptions): Machine {
     };
   }
 
+  /**
+   * The route-play context without the seen set (`Machine.exportPlace`):
+   * every field is bounded by the manifest's decisions, never by how much
+   * has been read.
+   */
+  function exportPlace(): MachinePlace {
+    return Object.freeze({
+      lastShown: cursor,
+      stack: Object.freeze(
+        stack.map((frame) =>
+          Object.freeze({ decision: frame.decision, route: frame.route }),
+        ),
+      ),
+      playedRoutes: routeSets(played),
+      // The Phase 18 completion tracking: which routes were played through
+      // to their end. Exported alongside `playedRoutes` even when empty —
+      // an ABSENT field (a save written before this shape) restores
+      // conservatively: nothing reads as completed, so the return row stays
+      // hidden until the continuing route is finished once in the new
+      // session.
+      completedRoutes: routeSets(completed),
+      // Played this pass (docs/plan.md Phase 22): the flow's record.
+      passRoutes: passNow(),
+      // The timeline's last picks (docs/plan.md Phase 27).
+      lastPicks: exportPicks(),
+      // A live choice only: a walked-to one is browsing, and a reload
+      // lands on the item under it instead.
+      ...(pendingChoice === null || pendingChoice.walk !== undefined
+        ? {}
+        : { choice: pendingChoice.decision }),
+    });
+  }
+
   /** The last picks as JSON-safe frames, by decision. */
   function exportPicks(): readonly ContextFrame[] {
     return Object.freeze(
@@ -2702,38 +2772,20 @@ export function createMachine(options: MachineOptions): Machine {
     },
 
     exportContext() {
-      return Object.freeze({
-        lastShown: cursor,
-        visited: visitedSorted(),
-        stack: Object.freeze(
-          stack.map((frame) =>
-            Object.freeze({ decision: frame.decision, route: frame.route }),
-          ),
-        ),
-        playedRoutes: routeSets(played),
-        // The Phase 18 completion tracking: which routes were played through
-        // to their end. Exported alongside `playedRoutes` even when empty —
-        // an ABSENT field (a save written before this shape) restores
-        // conservatively: nothing reads as completed, so the return row stays
-        // hidden until the continuing route is finished once in the new
-        // session.
-        completedRoutes: routeSets(completed),
-        // Played this pass (docs/plan.md Phase 22): the flow's record.
-        passRoutes: passNow(),
-        // The timeline's last picks (docs/plan.md Phase 27).
-        lastPicks: exportPicks(),
-        // A live choice only: a walked-to one is browsing, and a reload
-        // lands on the item under it instead.
-        ...(pendingChoice === null || pendingChoice.walk !== undefined
-          ? {}
-          : { choice: pendingChoice.decision }),
-      });
+      const { lastShown, ...rest } = exportPlace();
+      return Object.freeze({ lastShown, visited: visitedSorted(), ...rest });
+    },
+
+    exportPlace,
+
+    seenSince(from) {
+      return Object.freeze(seenLog.slice(Math.max(0, Math.trunc(from) || 0)));
     },
 
     importContext(context) {
       if (destroyed || count === 0) return;
       cancelAutoPick();
-      applyContext(context);
+      applyContext(context, true);
       skipping = false; // a restore is manual navigation, like `goTo()`
       skipArmed = false; // and leaves any choice unanswered
       // UNSETTLED arrival: the item replays under its hold.

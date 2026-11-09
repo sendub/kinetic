@@ -11,6 +11,9 @@
 //     exportedAt: "<ISO time>",
 //     state: { ctx?, settings?, helpSeen? },   // PersistedState
 //     bookmarks: [ { id, timestampMs, itemId, ctx, thumbDataUrl? }, … ] }
+// `state.ctx.visited` is the whole seen set: the player keeps it in seen
+// records of its own (docs/plan.md Phase 46) and builds the list for the
+// file, so files from before and after that phase are the same format.
 //
 // An import never trusts the file: everything it keeps passes the same
 // sanitizers the IndexedDB adapter applies at load (storage/idb.ts), and

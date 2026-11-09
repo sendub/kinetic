@@ -2646,6 +2646,123 @@ describe("subscribe, timers, and destroy()", () => {
   });
 });
 
+// docs/plan.md Phase 46, item 1: a save on a screen change carries the
+// place (`exportPlace`) and only the items newly seen (`seenSince`), never
+// the whole seen set, so its cost does not grow with the reading.
+describe("the place and the seen log: what a save needs (docs/plan.md Phase 46)", () => {
+  const items = Array.from({ length: 10 }, (_, n) => ({
+    ...image(),
+    id: `img-${String(n)}`,
+  }));
+  const branched: Item[] = ["m0", "m1", "a1", "a2", "b1", "b2", "m2"].map(
+    (id) => ({ ...image(), id }),
+  );
+  const branches: Branch[] = [
+    {
+      id: "d",
+      after: "m1",
+      prompt: "Which?",
+      routes: [
+        { id: "a", label: "A", start: "a1", end: "a2" },
+        { id: "b", label: "B", start: "b1", end: "b2", result: "return" },
+      ],
+      continuingRoute: "a",
+      continueAt: "m2",
+    },
+  ];
+
+  it("exportPlace is exportContext without the seen set", () => {
+    const m = createMachine({ items: branched, branches, settings: SETTINGS });
+    m.advance(); // m1, settled: the choice opens
+    m.choose(1); // into route b
+    m.advance(); // b2
+    const { visited, ...place } = m.exportContext();
+    expect(visited.length).toBeGreaterThan(0);
+    expect(m.exportPlace()).toEqual(place);
+    expect(m.exportPlace()).not.toHaveProperty("visited");
+    m.destroy();
+  });
+
+  it("logs each item once, as it joins the seen set; the wheel and e add nothing", () => {
+    const m = machine(items, { auto: false });
+    expect(m.seenSince(0)).toEqual([0]);
+    m.advance();
+    m.advance();
+    expect(m.seenSince(0)).toEqual([0, 1, 2]);
+    expect(m.seenSince(1)).toEqual([1, 2]);
+    expect(m.seenSince(3)).toEqual([]);
+    m.wheelBack();
+    m.wheelBack();
+    m.jumpToEnd();
+    m.wheelBack();
+    m.wheelForward();
+    expect(m.seenSince(3)).toEqual([]);
+    m.advance(); // item 3, unseen
+    expect(m.seenSince(3)).toEqual([3]);
+    m.destroy();
+  });
+
+  it("a resume logs nothing it restored: only the landing when new, then what is read", () => {
+    const resumed = (visited: number[], lastShown: number) =>
+      createMachine({
+        items,
+        settings: SETTINGS,
+        resumeContext: {
+          lastShown,
+          visited,
+          stack: [],
+          playedRoutes: [],
+        },
+      });
+    const m = resumed([0, 1, 2, 3, 4, 5, 6], 6);
+    expect(m.seenSince(0)).toEqual([]);
+    m.advance();
+    expect(m.seenSince(0)).toEqual([7]);
+    m.destroy();
+    // A landing the restored set lacks (content changed under the save).
+    const gap = resumed([0, 1, 2], 5);
+    expect(gap.seenSince(0)).toEqual([5]);
+    gap.destroy();
+  });
+
+  it("a restore logs the items it adds, not those already seen", () => {
+    const m = machine(items, { auto: false });
+    m.advance(); // 0, 1 seen
+    const from = m.seenSince(0).length;
+    m.importContext({
+      lastShown: 4,
+      visited: [0, 1, 3, 4],
+      stack: [],
+      playedRoutes: [],
+    });
+    expect(m.seenSince(from)).toEqual([3, 4]);
+    m.importContext({
+      lastShown: 1,
+      visited: [0, 1, 3, 4],
+      stack: [],
+      playedRoutes: [],
+    });
+    expect(m.seenSince(from)).toEqual([3, 4]);
+    m.destroy();
+  });
+
+  it("skip logs every item its burst shows", () => {
+    vi.useFakeTimers();
+    const m = machine(items, {
+      auto: false,
+      settings: { ...SETTINGS, skipAll: true },
+    });
+    m.toggleSkip();
+    vi.advanceTimersByTime(SETTINGS.skipDwellMs * 3);
+    const cursor = m.getState().cursor;
+    expect(cursor).toBeGreaterThanOrEqual(3);
+    expect(m.seenSince(0)).toEqual(
+      Array.from({ length: cursor + 1 }, (_, n) => n),
+    );
+    m.destroy();
+  });
+});
+
 describe("resume from persisted storage (docs/plan.md Phase 8, memory fake)", () => {
   it("the persisted id-keyed ctx resumes: lands where the reader was, e stays there, one advance enters unseen", async () => {
     const storage = createMemoryStorage();

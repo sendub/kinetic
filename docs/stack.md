@@ -77,8 +77,14 @@ Known constraints of the browser host, both accepted:
   keep saves valid). Each story's record is stored under the manifest's
   `storyId` (`story:<id>`; the folder URL when a manifest has none, carried
   over once one is added), so moving or renaming the folder keeps
-  progress. Moving to another browser is an explicit Export / Import of
-  a per-story JSON file on the Esc screen. No server, no
+  progress. The seen set has records of its own in the same database
+  (docs/plan.md Phase 46): a save writes the reader's place and only the
+  items newly seen, so a save costs the same on a 160,000-item game read
+  to the end as on its first screen (docs/perf.md, "Saves at scale"). The
+  database stays `kinetic` version 1 with its two stores: a new store or
+  index would need a version 2, which every older player on the origin
+  would fail to open. Moving to another browser is an explicit Export /
+  Import of a per-story JSON file on the Esc screen. No server, no
   files-from-browser problem.
 
 ## Content format decision

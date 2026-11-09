@@ -446,3 +446,65 @@ is synthetic, about nine times the largest real game. perf:map renders at
 this tree's Fit very likely drew them before Phase 42 too (not measured
 at 2x). The still-picture fallback above stays the remedy if a real game's
 Fit is ever slow.
+
+## Saves at scale (Phase 46)
+
+The player saves on every screen change. Until Phase 46 that save carried
+the id of every item seen (`ctx.visited` in the state record), so on a
+160,000-item game read to the end each Space rewrote about 4.5 MB: the
+machine sorted the seen set, the codec mapped it to ids, and IndexedDB
+cloned and wrote it. The seen set now has records of its own in the same
+`state` store, at most 500 ids each, written only by the page that saw
+them (`player/src/storage/idb.ts`); a save writes the reader's place and
+the page's newest seen record, never the whole list.
+
+`player/scripts/saveperf.mjs` (`npm run perf:save` from `player/`, after
+`npm run build`; options `--player FILE`, `--engines`, `--seen`,
+`--steps`, `--items`, `--out`) writes a synthetic game of 161,000 screens
+to `.tmp/perf-save/`: three decisions at the start (the shape of
+`mapperf.mjs`'s generator), then one main line of `text` lines with a
+picture every 200, every id 28 characters (the real game's average is
+28.5). For each engine and seen count it opens the game with `openGame`,
+seeds a state record in the pre-Phase-46 layout (the first N ids seen,
+the reader on the Nth), loads over it, presses Space once (untimed), and
+times 100 Spaces: the press alone and the walk step (the press and a
+`current()` read). The same seed is the migration path for the new
+layout, so before and after start alike. Output: JSON on stdout and
+`.tmp/perf-save.json`.
+
+Space, p50 / p95 ms, 100 presses each, 2026-11-09 (shared machine, load
+average 6-15):
+
+| engine | seen | before: press | after: press | before: walk step | after: walk step |
+| --- | --- | --- | --- | --- | --- |
+| WebKit | 100 | 0.7 / 1.1 | 0.7 / 1.2 | 2.2 / 2.7 | 2.2 / 2.7 |
+| WebKit | 160,000 | 6.9 / 42.9 | 0.8 / 1.8 | 9.4 / 46.2 | 2.6 / 5.1 |
+| Chrome | 100 | 0.5 / 0.9 | 0.5 / 0.8 | 2.1 / 2.5 | 2.0 / 2.3 |
+| Chrome | 160,000 | 9.0 / 11.0 | 0.5 / 0.8 | 12.0 / 12.7 | 2.1 / 2.9 |
+
+"Before" is the player as of commit 6d35bf6, "after" this phase's
+(`.tmp/perf-save-before.json` and `.tmp/perf-save.json`). At 160,000
+seen the mean press fell from 16.5 to 1.1 ms on WebKit and from 8.2 to
+0.6 ms on Chrome; at 100 seen nothing changed. Two earlier runs agreed:
+WebKit at 160,000 seen 8.1-10.1 / 41.3-50.7 ms before, 0.9-1.3 /
+2.3-4.6 ms after; Chrome 11.9-12.8 / 14.1-15.6 before, 0.7-1.0 /
+1.5-1.7 after.
+
+Loading costs about the same. The player is up (storage read, the reader
+placed; the page's own clock from its navigation start) in 182 ms on
+WebKit and 262 ms on Chrome at 160,000 seen after this phase, against 197
+and 255 ms before (median of three reloads; most of it is the 12 MB
+manifest). An old save moves to the new layout once, inside the load:
+the load over the seeded 160,000-id record took 180 ms on WebKit and 252
+ms on Chrome, against 146 and 221 ms for the same load before (one
+sample each; an earlier run gave 272 against 168 and 355 against 277).
+So the move costs about 30-100 ms, once. The first Space after it is an
+ordinary save: 1.6 ms on WebKit, where the old player's first was 34.9
+ms.
+
+Before choosing the layout, a probe in both engines compared one record
+per seen id with records of 500. Writing 160,000 one-id records took 5.7
+s on WebKit and 9.4 s on Chrome, reading their keys back 257 and 405 ms,
+and deleting them (Reset progress) 3.2 and 1.4 s; 320 records of 500
+took 65 and 66 ms to write and 13 and 18 ms to read. Records of 500 it
+is.

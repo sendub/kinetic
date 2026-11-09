@@ -24,6 +24,7 @@ import type {
   ContextFrame,
   Item,
   MachineContext,
+  MachinePlace,
 } from "../machine/types";
 import type {
   PersistedState,
@@ -33,8 +34,15 @@ import type {
 } from "./types";
 
 export interface ContextCodec {
-  /** The machine's index context as the id-keyed form storage holds. */
-  toSaved(context: MachineContext): SavedContext;
+  /**
+   * The machine's index context as the id-keyed form storage holds. A
+   * place (`machine.exportPlace()`, docs/plan.md Phase 46) has no seen set
+   * and converts with an empty `visited`: what a save writes, the seen
+   * items going to storage on their own (storage/saves.ts).
+   */
+  toSaved(context: MachinePlace | MachineContext): SavedContext;
+  /** Item indices as their ids, in order; an index this manifest lacks is dropped. */
+  idsOf(indices: readonly number[]): string[];
   /**
    * A stored id-keyed context as the machine's index context for THIS
    * manifest, with every unknown id dropped (see the header); undefined
@@ -63,6 +71,8 @@ export function createContextCodec(
   };
 
   const itemId = (index: number): string | undefined => items[index]?.id;
+  const idsOf = (indices: readonly number[]): string[] =>
+    indices.map(itemId).filter((id): id is string => id !== undefined);
   const savedFrame = (frame: ContextFrame): SavedFrame | undefined => {
     const decision = decisions[frame.decision];
     const route = decision?.routes[frame.route];
@@ -112,9 +122,7 @@ export function createContextCodec(
         .filter((frame): frame is SavedFrame => frame !== undefined);
       return {
         lastShown: itemId(context.lastShown) ?? "",
-        visited: context.visited
-          .map(itemId)
-          .filter((id): id is string => id !== undefined),
+        visited: "visited" in context ? idsOf(context.visited) : [],
         stack,
         playedRoutes: savedSets(context.playedRoutes),
         completedRoutes: savedSets(context.completedRoutes ?? []),
@@ -134,6 +142,8 @@ export function createContextCodec(
           : { choice: decisions[context.choice].id }),
       };
     },
+
+    idsOf,
 
     fromSaved(saved) {
       const visited = new Set<number>();

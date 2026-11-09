@@ -3,7 +3,10 @@
 // without a browser, and the behaviour matches the IndexedDB adapter —
 // optional id-keyed ctx + optional settings + optional helpSeen state,
 // append-ordered bookmarks, and copies in and out so a caller can never
-// mutate what the store holds.
+// mutate what the store holds. The seen set is kept apart from the record,
+// as the IndexedDB adapter keeps it in its own records (docs/plan.md Phase
+// 46): a save's `ctx.visited` joins it, a load hands it back whole, a save
+// without a ctx, a reset and an import replace it.
 
 import type { MachineSettings } from "../machine/types";
 import type {
@@ -75,6 +78,8 @@ function copyBookmark(bookmark: Bookmark): Bookmark {
 
 export function createMemoryStorage(): Storage {
   let state: PersistedState | null = null;
+  // The stored seen set, in the order ids arrived.
+  const seen = new Set<string>();
   // Each bookmark under its key, in insertion order; keys never repeat,
   // like the IndexedDB rows' auto-increment `seq`.
   const bookmarks: { key: number; bookmark: Bookmark }[] = [];
@@ -95,11 +100,32 @@ export function createMemoryStorage(): Storage {
 
   return {
     loadState() {
-      return Promise.resolve(state === null ? null : normalizeState(state));
+      if (state === null) {
+        seen.clear();
+        return Promise.resolve(null);
+      }
+      // An imported list joins the seen set at the load, as the IndexedDB
+      // adapter moves one out of its record.
+      if (state.ctx !== undefined && state.ctx.visited.length > 0) {
+        for (const id of state.ctx.visited) seen.add(id);
+        state = { ...state, ctx: { ...state.ctx, visited: [] } };
+      }
+      const loaded = normalizeState(state);
+      return Promise.resolve(
+        loaded.ctx === undefined
+          ? loaded
+          : { ...loaded, ctx: { ...loaded.ctx, visited: [...seen] } },
+      );
     },
 
     saveState(next) {
-      state = normalizeState(next);
+      if (next.ctx === undefined) {
+        seen.clear();
+        state = normalizeState(next);
+      } else {
+        for (const id of next.ctx.visited) seen.add(id);
+        state = normalizeState({ ...next, ctx: { ...next.ctx, visited: [] } });
+      }
       return Promise.resolve();
     },
 
@@ -131,6 +157,7 @@ export function createMemoryStorage(): Storage {
 
     deleteState() {
       state = null;
+      seen.clear();
       return Promise.resolve();
     },
 
@@ -141,6 +168,7 @@ export function createMemoryStorage(): Storage {
 
     replaceProgress(next, imported) {
       state = normalizeState(next);
+      seen.clear();
       bookmarks.length = 0;
       for (const bookmark of imported) append(bookmark);
       return Promise.resolve();
