@@ -154,16 +154,22 @@ stays the route everywhere.
   is signed ad hoc by `tools/build_apps.py`. It holds only its binary,
   so no check reads the media beside it.
 - Windows: `<title>.exe` inside the game folder is a small Go program
-  (x86-64, a GUI program, so no console window) that opens `index.html`
-  in a Microsoft Edge app window (no tabs or toolbar), fullscreen from
-  the start or as the window the reader left, under a browser profile
-  only this game uses; Chrome, then the default browser, stand in when
-  Edge is missing. Edge ships with Windows 10 and 11. While the game is
-  open the exe stays running, hidden, and steers that window over Edge's
-  local DevTools connection for the page's Fullscreen | Window and Exit
-  (the user's choice, 2026-11-08; apps/README.md). `tools/build_apps.py`
-  builds it with Go from any system and links in its icon and version
-  resource. It is unsigned.
+  (x86-64, a GUI program, so no console window) that opens a window of
+  its own and shows `index.html` in it through WebView2, the Edge engine
+  Windows provides to apps, fullscreen from the start or as the window
+  the reader left. Fullscreen is the window without its frame covering
+  the monitor, so there is no fullscreen notice and every key is the
+  game's (the user's choice, 2026-11-09, after an Edge app window showed
+  Edge's notice and let a held Esc leave fullscreen; apps/README.md). It
+  finds the installed WebView2 Runtime itself, with no loader DLL beside
+  it, keeps the game's data in `%LOCALAPPDATA%\Kinetic\WebView2\<storyId>`,
+  and opens `index.html` in the default browser where the runtime is
+  missing. Microsoft preinstalls the runtime on all Windows 11 devices
+  and installed it on all eligible Windows 10 devices
+  ([Microsoft](https://learn.microsoft.com/microsoft-edge/webview2/concepts/evergreen-vs-fixed-version#windows-11-devices-and-windows-10-devices)).
+  `tools/build_apps.py` builds it from Go's standard library on any
+  system and links in its icon, version resource and DPI manifest. It is
+  unsigned.
 
 Gatekeeper assesses only files that carry the quarantine flag. A folder
 the author builds locally has none, so the app opens with no check. A

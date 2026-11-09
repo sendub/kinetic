@@ -19,6 +19,7 @@ import struct
 import subprocess
 import sys
 import urllib.parse
+import xml.etree.ElementTree as ElementTree
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -862,9 +863,11 @@ def test_windows_flag_builds_the_exe_with_the_default_icon(
     tree = syso_resources(record["syso"])
     for picture in icons(tree).values():
         assert_green(picture.getpixel((picture.width // 2, picture.height // 2)))
+    assert_dpi_manifest(tree[windows_resources.RT_MANIFEST, 1, LANG])
     out = capsys.readouterr().out
     assert f"built {exe}" in out and "first.png" in out
     assert "first window 64x48" in out
+    assert "WebView2" in out and "Kinetic\\WebView2\\rainy-day" in out
 
 
 def test_windows_build_uses_the_named_icon(tmp_path, stub_go) -> None:
@@ -1191,6 +1194,33 @@ def test_version_resource_parses_back() -> None:
     assert fixed[8:10] == (0x00040004, 1)  # Windows NT, an application
 
 
+MANIFEST_NS = "{urn:schemas-microsoft-com:asm.v1}"
+ASMV3_NS = "{urn:schemas-microsoft-com:asm.v3}"
+SMI_2005 = "{http://schemas.microsoft.com/SMI/2005/WindowsSettings}"
+SMI_2016 = "{http://schemas.microsoft.com/SMI/2016/WindowsSettings}"
+
+
+def assert_dpi_manifest(data: bytes) -> None:
+    """An application manifest Windows reads: UTF-8 starting at its XML
+    declaration (no BOM, no blank first), an asm.v1 assembly whose
+    windowsSettings make the process per-monitor DPI aware (v2, with the
+    per-monitor fallback for Windows before 10 1607)."""
+    assert data.startswith(b'<?xml version="1.0" encoding="UTF-8" standalone="yes"?>')
+    root = ElementTree.fromstring(data)
+    assert root.tag == MANIFEST_NS + "assembly"
+    assert root.get("manifestVersion") == "1.0"
+    settings = root.find(f"{ASMV3_NS}application/{ASMV3_NS}windowsSettings")
+    assert settings is not None
+    assert settings.findtext(SMI_2016 + "dpiAwareness") == "PerMonitorV2"
+    assert settings.findtext(SMI_2005 + "dpiAware") == "true/pm"
+
+
+def test_manifest_resource() -> None:
+    resource = windows_resources.manifest_resource()
+    assert (resource.type_id, resource.name_id, resource.language) == (24, 1, LANG)
+    assert_dpi_manifest(resource.data)
+
+
 def test_the_exe_resources() -> None:
     ident = build_apps.identity({"storyId": "rainy-day", "title": "Rainy Day"},
                                 Path("x"))
@@ -1202,6 +1232,7 @@ def test_the_exe_resources() -> None:
     assert strings == {"FileDescription": "Rainy Day", "FileVersion": "1.0.0.0",
                        "OriginalFilename": "Rainy Day.exe", "ProductName": "Rainy Day",
                        "ProductVersion": "1.0.0.0", "KineticStoryId": "rainy-day"}
+    assert_dpi_manifest(tree[24, 1, LANG])
 
 
 # --- the Windows exe: a real build -------------------------------------------
@@ -1232,7 +1263,8 @@ def test_real_windows_build(tmp_path) -> None:
     assert b"64x48" in program
     tree = exe_resources(pe)
     assert set(tree) == ({(3, n, LANG) for n in range(1, 8)}
-                         | {(14, 1, LANG), (16, 1, LANG)})
+                         | {(14, 1, LANG), (16, 1, LANG), (24, 1, LANG)})
+    assert_dpi_manifest(tree[24, 1, LANG])
     for picture in icons(tree).values():
         assert_green(picture.getpixel((picture.width // 2, picture.height // 2)))
     _, strings, _ = version_info(tree[16, 1, LANG])

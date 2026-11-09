@@ -275,7 +275,7 @@ describe("chooseEngine", () => {
     };
     expect(chooseEngine("auto", log, system)).toBe("chrome");
     expect(logged).toEqual([
-      "openGame: testing on Chrome (Chrome and the Windows Edge app). no Swift toolchain",
+      "openGame: testing on Chrome (Chrome and the Windows app). no Swift toolchain",
     ]);
   });
 

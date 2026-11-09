@@ -2427,6 +2427,34 @@ truthful: an unchecked box means nothing was accepted.
       pass, check clean, smoke 6/6, window + screens Chrome 99/99, WebKit
       97 pass + 4 PARTIAL (element fullscreen), test_build_apps 110. Real
       fullscreen: the user's check at the closer.)
+- [x] The Windows exe on WebView2 (item 11; the user's play check,
+      2026-11-09: Edge's fullscreen notice, Esc held left fullscreen, the
+      Window half failed until then). Its own window over WebView2;
+      fullscreen is the frameless window covering its monitor, so no notice
+      and every key is the game's. Same kineticHost protocol; F11 toggles;
+      Export to Downloads with no bubble; second launch brings the window
+      forward; no runtime falls back to the default browser. Standard-
+      library Go, offline build; the Edge launch and DevTools controller go.
+      (2026-11-09: controller, CDP and WebSocket code and their headless
+      Chrome tests removed; new platform-neutral host.go, runtime.go,
+      guid.go, log.go with tests, and Windows-only win32, COM, WebView2,
+      window and registry files. The runtime is found from the registry
+      (ClientState EBWebView, then Clients pv) and the environment made
+      through EmbeddedBrowserWebView.dll's export, as the open-source
+      loaders do; vtable indices and interface ids transcribed from
+      WebView2 SDK 1.0.4314.35's header, rechecked against its IDL.
+      windows_resources.py adds a Per-Monitor-V2 DPI manifest. Window
+      memory keeps `maximized`. Orchestrator: go test ok, `GOOS=windows`
+      vet and build clean, `go list -deps` standard only, go.mod with no
+      requirements; test_build_apps 111; npm test 898, check clean; window
+      scenario Chrome 30/30, WebKit 30 + 2 PARTIAL. Run time on Windows:
+      the user's check at the closer.)
+- [ ] ⌘H hides the macOS app (the user, 2026-11-09; found while fixing
+      held keys). The key map takes ⌘H as `h` and toggles the text, so the
+      app's Hide item never fires, though CREATE.md says ⌘H hides the game.
+      The key map leaves a key held with ⌘, Ctrl or Alt to the browser or
+      host, as the fullscreen gesture code already does; the plain key
+      still works. A WebKit check shows ⌘H reaching the app's menu.
 - [ ] Phase-closer (Phase 43): full scenario suite on Chrome and on WebKit,
       full pytest, package-proof; the user plays the demo's macOS app and
       Windows exe (fullscreen, Esc, reload, Export, Import, Exit, the

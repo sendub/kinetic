@@ -338,9 +338,10 @@ async function browserTab({ check, open }) {
     { filled, screen },
   );
 
-  // A host that appears after load takes over (the Edge app's arrives
-  // that way): the switch shows its mode, its halves and Exit go to it,
-  // and nothing asks for element fullscreen.
+  // A host that appears after load takes over (the protocol allows a
+  // late host; both apps define theirs as the document starts): the
+  // switch shows its mode, its halves and Exit go to it, and nothing asks
+  // for element fullscreen.
   await page.evaluate(() => {
     window.__late = [];
     Object.defineProperty(window, "kineticHost", {

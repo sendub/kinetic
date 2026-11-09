@@ -10,8 +10,8 @@
 //    holding it is how a reader leaves on purpose, and the Esc screen's
 //    Window half is how they stay out.
 // 2. Skipped when the window already fills the screen (a browser in its own
-//    fullscreen, an Edge app window started fullscreen): element fullscreen
-//    on top would only add a layer that Esc and reload strip away.
+//    fullscreen, as after F11): element fullscreen on top would only add a
+//    layer that Esc and reload strip away.
 // 3. Keyboard Lock (Chromium): once in element fullscreen, a short Esc
 //    reaches the game (its Esc screen) and only holding Esc leaves.
 //

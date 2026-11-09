@@ -8,10 +8,12 @@ section (three directory levels, type, then id, then language; then the
 data entries; then the data), with one relocation per data entry so the
 linker turns each entry's section offset into an image-relative address.
 
-`icon_resources` and `version_resource` make the resources the exe
-carries: the icon as RT_ICON images plus the RT_GROUP_ICON directory
-Explorer and the taskbar read, and a VERSIONINFO whose description Task
-Manager shows.
+`icon_resources`, `version_resource` and `manifest_resource` make the
+resources the exe carries: the icon as RT_ICON images plus the
+RT_GROUP_ICON directory Explorer, the taskbar and the game window read, a
+VERSIONINFO whose description Task Manager shows, and the application
+manifest that makes the exe per-monitor DPI aware (v2), so Windows does
+not stretch its window on a high-DPI screen.
 """
 
 from __future__ import annotations
@@ -26,6 +28,10 @@ from PIL import Image
 RT_ICON = 3
 RT_GROUP_ICON = 14
 RT_VERSION = 16
+RT_MANIFEST = 24
+# The manifest id Windows reads when it starts an exe
+# (CREATEPROCESS_MANIFEST_RESOURCE_ID).
+CREATEPROCESS_MANIFEST_ID = 1
 LANG_EN_US = 0x0409
 CODEPAGE_UNICODE = 1200
 
@@ -249,3 +255,31 @@ def version_resource(strings: dict[str, str], version: tuple[int, int, int, int]
         [_version_block("StringFileInfo", b"", 0, True, [table]),
          _version_block("VarFileInfo", b"", 0, True, [translation])])
     return Resource(RT_VERSION, 1, language, root)
+
+
+# --- the application manifest ------------------------------------------------
+
+# Microsoft's per-monitor v2 sample ("Setting the default DPI awareness for
+# a process", learn.microsoft.com/windows/win32/hidpi, 2025-07-14), with
+# dpiAware set to true/pm, the per-monitor setting for Windows before 10
+# version 1607, which ignores dpiAwareness. The manifest rather than a
+# call at startup, as that page recommends.
+APP_MANIFEST = """\
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0" \
+xmlns:asmv3="urn:schemas-microsoft-com:asm.v3">
+  <asmv3:application>
+    <asmv3:windowsSettings>
+      <dpiAware xmlns="http://schemas.microsoft.com/SMI/2005/WindowsSettings">true/pm</dpiAware>
+      <dpiAwareness xmlns="http://schemas.microsoft.com/SMI/2016/WindowsSettings">PerMonitorV2</dpiAwareness>
+    </asmv3:windowsSettings>
+  </asmv3:application>
+</assembly>
+"""
+
+
+def manifest_resource(language: int = LANG_EN_US) -> Resource:
+    """The application manifest as the RT_MANIFEST resource Windows reads
+    when it starts the exe, in UTF-8."""
+    return Resource(RT_MANIFEST, CREATEPROCESS_MANIFEST_ID, language,
+                    APP_MANIFEST.encode("utf-8"))

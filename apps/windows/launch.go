@@ -1,20 +1,19 @@
 // Kinetic's Windows app. tools/build_apps.py --windows builds this package
-// into <title>.exe inside a game folder. Double-clicked, it opens the
-// folder's index.html in a Microsoft Edge app window (its own window, no
-// tabs or toolbar), under an Edge profile used only by this game,
-// fullscreen or as the window the reader left. Edge ships with Windows 10
-// and 11; Chrome stands in when Edge is missing, then the default browser.
-// The exe then stays running, with no window of its own, and steers the
-// game window over the browser's DevTools connection for the page's
-// Fullscreen | Window switch and Exit (controller.go), until the browser
-// closes.
+// into <title>.exe inside a game folder. Double-clicked, it opens a window
+// of its own and shows the folder's index.html in it through WebView2, the
+// Edge engine Windows provides to apps: fullscreen (the window without its
+// frame, covering its monitor) or as the window the reader left. It gives
+// the page the host object of the page-to-host protocol (apps/README.md)
+// for the Esc screen's Fullscreen | Window switch and Exit.
 //
-// This file holds the steps that are plain string work, so they build and
-// test on any OS (launch_test.go). main_windows.go runs them on Windows.
+// The decisions live in platform-neutral files that build and test on any
+// OS: this file (names and paths), window.go (the window's place, size and
+// memory), host.go (the host script, the page's messages, keys and
+// downloads), runtime.go (finding the WebView2 Runtime) and log.go. The
+// *_windows.go files carry them out on Windows.
 package main
 
 import (
-	"fmt"
 	"net/url"
 	"strings"
 )
@@ -27,11 +26,17 @@ var (
 	titleEscaped string
 )
 
-// fallbackTitle captions a message box when the title is missing.
-const fallbackTitle = "Kinetic"
+const (
+	// fallbackTitle captions the window and message boxes when the title
+	// is missing.
+	fallbackTitle = "Kinetic"
+	pageName      = "index.html"
+	// logFile is the exe's log, in the game's data folder.
+	logFile = "kinetic-host.log"
+)
 
-// gameTitle is the game's title, for message box captions (which end at
-// a NUL).
+// gameTitle is the game's title, for the window and message box captions
+// (which end at a NUL).
 func gameTitle() string {
 	title, err := url.PathUnescape(titleEscaped)
 	if err != nil || strings.TrimSpace(title) == "" || strings.ContainsRune(title, 0) {
@@ -41,7 +46,7 @@ func gameTitle() string {
 	return title
 }
 
-// fileURL turns a Windows path into the file:// URL Edge's --app wants:
+// fileURL turns a Windows path into a file:// URL:
 // C:\Games\My Game\index.html becomes file:///C:/Games/My%20Game/index.html,
 // and \\server\share\x.html becomes file://server/share/x.html.
 func fileURL(windowsPath string) string {
@@ -60,64 +65,26 @@ func winJoin(root string, parts ...string) string {
 	return strings.Join(append([]string{strings.TrimRight(root, `\/`)}, parts...), `\`)
 }
 
-// The browsers tried, in order, each under every root in browserRoots.
-var browserExes = [][]string{
-	{"Microsoft", "Edge", "Application", "msedge.exe"},
-	{"Google", "Chrome", "Application", "chrome.exe"},
-}
-
-// The environment variables naming where browsers install: machine-wide
-// (32-bit and 64-bit Program Files), then per user.
-var browserRoots = []string{"ProgramFiles(x86)", "ProgramFiles", "LOCALAPPDATA"}
-
-// browserPaths lists where Edge installs, then where Chrome does, from the
-// environment values getenv returns; unset roots are skipped.
-func browserPaths(getenv func(string) string) []string {
-	var out []string
-
-	for _, exe := range browserExes {
-		for _, variable := range browserRoots {
-			if root := getenv(variable); root != "" {
-				out = append(out, winJoin(root, exe...))
-			}
-		}
-	}
-
-	return out
-}
-
-// profileDir is the browser profile only this game uses,
-// %LOCALAPPDATA%\Kinetic\Browser\<storyId>, or "" without LOCALAPPDATA.
-func profileDir(getenv func(string) string, story string) string {
+// dataDir is the game's WebView2 user data folder,
+// %LOCALAPPDATA%\Kinetic\WebView2\<storyId>, which also holds the window
+// memory and the log; "" without LOCALAPPDATA or a story.
+func dataDir(getenv func(string) string, story string) string {
 	root := getenv("LOCALAPPDATA")
 	if root == "" || story == "" {
 		return ""
 	}
 
-	return winJoin(root, "Kinetic", "Browser", story)
+	return winJoin(root, "Kinetic", "WebView2", story)
 }
 
-// browserArgs opens pageURL as an app window (no tabs or toolbar) under
-// profile, fullscreen or as a window at its place and size (so a window
-// never flashes fullscreen first), with none of a new profile's prompts.
-// --remote-debugging-port=0 opens the DevTools connection the exe steers
-// the window over, on a free loopback port the browser writes to
-// DevToolsActivePort in the profile; Edge and Chrome allow it with a
-// profile of the exe's own (--user-data-dir).
-func browserArgs(profile, pageURL string, s start) []string {
-	args := []string{"--user-data-dir=" + profile, "--app=" + pageURL}
-	if s.Fullscreen {
-		args = append(args, "--start-fullscreen")
-	} else {
-		args = append(args,
-			fmt.Sprintf("--window-size=%d,%d", s.Bounds.Width, s.Bounds.Height),
-			fmt.Sprintf("--window-position=%d,%d", s.Bounds.Left, s.Bounds.Top))
-	}
+// windowClass is the game window's class name. A second launch finds the
+// open game's window by it.
+func windowClass(story string) string {
+	return "KineticGame-" + story
+}
 
-	return append(args,
-		"--remote-debugging-port=0",
-		"--no-first-run",
-		"--no-default-browser-check",
-		"--hide-crash-restore-bubble",
-	)
+// mutexName names the mutex the running game holds, in the reader's
+// session, so a second launch knows the game is open.
+func mutexName(story string) string {
+	return `Local\KineticGame-` + story
 }

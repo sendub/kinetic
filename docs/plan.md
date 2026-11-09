@@ -1631,6 +1631,7 @@ played on macOS and on Windows, settled the shape:
 - Windows: a small exe inside the game folder that opens `index.html` in a
   Microsoft Edge app window (no tabs or toolbar), fullscreen from the start,
   under a profile used only by this game. Edge ships with Windows 10 and 11.
+  Item 11 replaces the Edge window with the exe's own window over WebView2.
 - `index.html` stays the fallback everywhere. A macOS Chrome launcher was
   built and dropped (the user, 2026-11-08): macOS gets the app or
   `index.html`, Windows the exe or `index.html`.
@@ -1762,7 +1763,7 @@ The work, in order:
    `<title>.exe` to the folder.
    - It is an x86-64 GUI exe built with Go, which cross-compiles from macOS,
      Linux or Windows.
-   - It behaves as the prototype did:
+   - It behaves as the prototype did (item 11 replaces the Edge window):
      - Edge app window, fullscreen, game-only profile;
      - a second launch while open closes the game's Edge and starts it
        fresh;
@@ -1793,6 +1794,7 @@ The work, in order:
        Edge on Exit. The exe ends when Edge does. The debugging port is
        local-only and lives only while the game runs. The core is tested
        against Chrome on macOS; running it on Windows is the user's check.
+       Item 11 replaces this with the exe's own window.
    - The `index.html` route takes the prototype's fullscreen changes:
      - a key or click while windowed asks for fullscreen again when the
        setting is Fullscreen, and Escape never asks;
@@ -1833,8 +1835,60 @@ The work, in order:
     - CREATE.md documents it with a worked example. Creator sessions today
       write their own puppeteer scripts against this repo's
       `node_modules`; this replaces that.
+11. The Windows exe on WebView2 (the user, 2026-11-09, after playing item
+    8's exe).
+    - The play check of the Edge app window found three faults:
+      - Going fullscreen always showed Edge's notice ("To exit full screen,
+        move mouse to top of screen"). Nothing outside Edge turns it off.
+      - Holding Esc left fullscreen. This is Edge's own exit from its
+        F11-style fullscreen, which the page cannot refuse.
+      - The Window half did nothing until that exit. The window then came
+        back at Edge's default size, likely because Edge reported its
+        start-up fullscreen to the exe as a plain window.
+    - The user chose to own the window. The exe opens its own window and
+      shows `index.html` in it through WebView2, the Edge engine Windows
+      provides to apps. Fullscreen is that window without its frame,
+      covering the whole monitor it is on. WebView2 does not treat this as
+      fullscreen, so there is no notice, and every key, Esc held or not, is
+      the game's.
+    - The page-to-host protocol is unchanged (`kind: "windows-app"`).
+      - A script WebView2 runs at document creation defines the host
+        object. `send` posts with `window.chrome.webview.postMessage`.
+      - The exe tells the page a new mode by running script, and swaps the
+        creation script so a reload starts in that mode.
+    - It behaves like the macOS app:
+      - It launches in the remembered mode with no flash, fullscreen the
+        first time.
+      - The first window is the first graphic's size, scaled to fit the
+        work area. After that the reader's size and place are kept, and
+        restored on that monitor while it is still connected.
+      - F11 toggles the mode, as ⌃⌘F does on macOS. Exit, or closing the
+        window, ends the exe. F5 and Ctrl+R reload in the same mode.
+      - Export saves into Downloads, never over a file there (`name
+        (2).json`), with no download bubble. Import opens Windows' file
+        dialog.
+      - A crashed page reloads. The window's title follows the page's, and
+        its icon is the build's.
+      - It shows black, with no white flash. It is sharp on high-DPI
+        screens (per-monitor DPI aware).
+      - No context menu, no zoom (Ctrl+wheel, Ctrl+plus), and no browser
+        shortcuts beyond reload (no find, print or dev tools).
+    - A second launch while the game is open brings its window forward and
+      starts nothing new.
+    - Progress lives in the WebView2 data folder
+      `%LOCALAPPDATA%\Kinetic\WebView2\<storyId>`, with the window memory
+      and `kinetic-host.log` beside it. The old Edge profile is left alone.
+    - Without the WebView2 runtime, the exe opens `index.html` in the
+      default browser, as a double-click would.
+    - It is built from standard-library Go only (`syscall`, no cgo, no
+      downloaded modules), so `build_apps.py --windows` still builds
+      offline from any OS with Go. The Edge launch, the DevTools
+      controller, its WebSocket client and their Chrome-based tests go.
+    - `go test` covers the platform-neutral logic on any OS. The Windows
+      code builds and passes `GOOS=windows go vet`. Running it on Windows
+      is the user's check at the phase closer.
 
-Docs for items 7-10: CREATE.md (building the apps, their requirements, what
+Docs for items 7-11: CREATE.md (building the apps, their requirements, what
 readers see, testing a game); docs/packaging.md; docs/stack.md (the
 Distribution decision now includes the two apps); README.md (Exit, the
 display toggle, the skip pill, the keys on a choice); AGENTS.md (the WebKit

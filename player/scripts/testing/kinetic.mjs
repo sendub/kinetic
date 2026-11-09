@@ -10,7 +10,7 @@
 //
 // It plays the folder's own index.html and app.js, so it tests what ships,
 // in the hidden WebKit driver (the engine of the macOS app and Safari) or
-// in headless Chrome (Chrome and the Windows Edge app). Neither shows a
+// in headless Chrome (Chrome, and the Windows app's WebView2). Neither shows a
 // window. check-game.mjs beside it is a small example in use.
 import {
   existsSync,
@@ -51,7 +51,7 @@ const scratch = join(
 /** What each engine stands for, as openGame reports its choice. */
 export const ENGINE_NAMES = {
   webkit: "WebKit (the macOS app and Safari)",
-  chrome: "Chrome (Chrome and the Windows Edge app)",
+  chrome: "Chrome (Chrome and the Windows app)",
 };
 
 const DEFAULT_VIEWPORT = { width: 1280, height: 720 };

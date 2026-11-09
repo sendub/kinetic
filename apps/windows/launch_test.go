@@ -1,7 +1,6 @@
 package main
 
 import (
-	"reflect"
 	"testing"
 )
 
@@ -30,84 +29,32 @@ func environment(values map[string]string) func(string) string {
 	return func(name string) string { return values[name] }
 }
 
-func TestBrowserPathsTryEdgeEverywhereThenChrome(t *testing.T) {
-	got := browserPaths(environment(map[string]string{
-		"ProgramFiles(x86)": `C:\Program Files (x86)`,
-		"ProgramFiles":      `C:\Program Files\`,
-		"LOCALAPPDATA":      `C:\Users\Zoë\AppData\Local`,
-	}))
-	want := []string{
-		`C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe`,
-		`C:\Program Files\Microsoft\Edge\Application\msedge.exe`,
-		`C:\Users\Zoë\AppData\Local\Microsoft\Edge\Application\msedge.exe`,
-		`C:\Program Files (x86)\Google\Chrome\Application\chrome.exe`,
-		`C:\Program Files\Google\Chrome\Application\chrome.exe`,
-		`C:\Users\Zoë\AppData\Local\Google\Chrome\Application\chrome.exe`,
+func TestDataDir(t *testing.T) {
+	local := environment(map[string]string{"LOCALAPPDATA": `C:\Users\Zoë\AppData\Local\`})
+	if got, want := dataDir(local, "rainy-day"), `C:\Users\Zoë\AppData\Local\Kinetic\WebView2\rainy-day`; got != want {
+		t.Errorf("dataDir = %q, want %q", got, want)
 	}
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("browserPaths =\n%q\nwant\n%q", got, want)
+
+	if got := dataDir(environment(nil), "rainy-day"); got != "" {
+		t.Errorf("dataDir without LOCALAPPDATA = %q, want empty", got)
+	}
+
+	if got := dataDir(local, ""); got != "" {
+		t.Errorf("dataDir without a story = %q, want empty", got)
 	}
 }
 
-func TestBrowserPathsSkipUnsetRoots(t *testing.T) {
-	got := browserPaths(environment(map[string]string{"ProgramFiles": `C:\Program Files`}))
-	want := []string{
-		`C:\Program Files\Microsoft\Edge\Application\msedge.exe`,
-		`C:\Program Files\Google\Chrome\Application\chrome.exe`,
-	}
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("browserPaths = %q, want %q", got, want)
+func TestEachGameHasItsOwnWindowClassAndMutex(t *testing.T) {
+	if got, want := windowClass("rainy-day"), "KineticGame-rainy-day"; got != want {
+		t.Errorf("windowClass = %q, want %q", got, want)
 	}
 
-	if got := browserPaths(environment(nil)); len(got) != 0 {
-		t.Errorf("browserPaths with no environment = %q, want none", got)
-	}
-}
-
-func TestProfileDir(t *testing.T) {
-	local := environment(map[string]string{"LOCALAPPDATA": `C:\Users\Zoë\AppData\Local`})
-	if got, want := profileDir(local, "rainy-day"), `C:\Users\Zoë\AppData\Local\Kinetic\Browser\rainy-day`; got != want {
-		t.Errorf("profileDir = %q, want %q", got, want)
+	if got, want := mutexName("rainy-day"), `Local\KineticGame-rainy-day`; got != want {
+		t.Errorf("mutexName = %q, want %q", got, want)
 	}
 
-	if got := profileDir(environment(nil), "rainy-day"); got != "" {
-		t.Errorf("profileDir without LOCALAPPDATA = %q, want empty", got)
-	}
-
-	if got := profileDir(local, ""); got != "" {
-		t.Errorf("profileDir without a story = %q, want empty", got)
-	}
-}
-
-func TestBrowserArgsInEachStartMode(t *testing.T) {
-	profile := `C:\Users\Zoë\AppData\Local\Kinetic\Browser\rainy-day`
-	page := fileURL(`D:\Games\Rainy Day\index.html`)
-	head := []string{
-		`--user-data-dir=C:\Users\Zoë\AppData\Local\Kinetic\Browser\rainy-day`,
-		"--app=file:///D:/Games/Rainy%20Day/index.html",
-	}
-	tail := []string{
-		"--remote-debugging-port=0",
-		"--no-first-run",
-		"--no-default-browser-check",
-		"--hide-crash-restore-bubble",
-	}
-	cases := []struct {
-		name  string
-		start start
-		mode  []string
-	}{
-		{"fullscreen", start{Fullscreen: true, Bounds: windowBounds{1, 2, 3, 4}}, []string{"--start-fullscreen"}},
-		{"a remembered window", start{Bounds: windowBounds{Left: -1200, Top: 40, Width: 1100, Height: 640}},
-			[]string{"--window-size=1100,640", "--window-position=-1200,40"}},
-		{"the first window", start{Bounds: windowBounds{Left: 120, Top: 66, Width: 1296, Height: 761}, First: true},
-			[]string{"--window-size=1296,761", "--window-position=120,66"}},
-	}
-	for _, c := range cases {
-		want := append(append(append([]string{}, head...), c.mode...), tail...)
-		if got := browserArgs(profile, page, c.start); !reflect.DeepEqual(got, want) {
-			t.Errorf("%s: browserArgs =\n%q\nwant\n%q", c.name, got, want)
-		}
+	if windowClass("a") == windowClass("b") || mutexName("a") == mutexName("b") {
+		t.Error("two stories share a window class or mutex")
 	}
 }
 

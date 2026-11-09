@@ -21,17 +21,18 @@ toolchain (Xcode or the Command Line Tools).
 `--windows` adds `<title>.exe` (with the characters Windows forbids in a
 file name written as `-`): the Go program in apps/windows/, built for
 Windows x86-64 as a GUI program (so no console window opens), which
-opens the folder's index.html in a Microsoft Edge app window, fullscreen
-or as the window the reader left, under a browser profile only this game
-uses, then steers that window over Edge's DevTools connection until the
-game closes (apps/README.md). The storyId, the title and the first
-window's size are linked in (`-ldflags -X`); the icon and a version resource (the
-title as its description, which Task Manager shows, and the storyId,
-which marks the exe as this script's) go in as Windows resources, from
+opens a window of its own and shows the folder's index.html in it
+through the WebView2 Runtime Windows provides, fullscreen or as the
+window the reader left (apps/README.md). The storyId, the title and the
+first window's size are linked in (`-ldflags -X`); the icon, a version
+resource (the title as its description, which Task Manager shows, and
+the storyId, which marks the exe as this script's) and an application
+manifest (per-monitor DPI awareness) go in as Windows resources, from
 the COFF object tools/windows_resources.py writes into a copy of the
-package (`rsrc_windows_amd64.syso`, which the Go linker links). Building
-needs Go at the version apps/windows/go.mod names or later, on any OS;
-Go's caches stay under `.tmp/windows-app-build/`.
+package (`rsrc_windows_amd64.syso`, which the Go linker links). The
+package uses Go's standard library alone, so building needs only Go at
+the version apps/windows/go.mod names or later, on any OS, and downloads
+nothing; Go's caches stay under `.tmp/windows-app-build/`.
 
 An app or exe this script built before under the same name is replaced;
 each is built in a temporary folder beside the game folder and moved
@@ -512,10 +513,12 @@ def compile_windows(go: str, package: Path, exe: Path, ident: Identity,
 
 def exe_resources(square: Image.Image, ident: Identity,
                   name: str) -> list[windows_resources.Resource]:
-    """The exe's icon and its version resource (title, file name, storyId)."""
+    """The exe's icon, its version resource (title, file name, storyId)
+    and its application manifest."""
     version = ".".join(str(part) for part in EXE_VERSION)
     return [
         *windows_resources.icon_resources(square),
+        windows_resources.manifest_resource(),
         windows_resources.version_resource({
             "FileDescription": ident.title,
             "FileVersion": version,
@@ -647,9 +650,10 @@ def build_windows_exe(folder: Path, prepared: Prepared) -> Path:
     finally:
         shutil.rmtree(staging, ignore_errors=True)
 
-    print(f"built {target}: Windows x86-64 (Edge app window, profile "
-          f"%LOCALAPPDATA%\\Kinetic\\Browser\\{ident.story_id}), icon from "
-          f"{prepared.icon_source}, first window {first_window(prepared)}")
+    print(f"built {target}: Windows x86-64 (its own window over WebView2, "
+          f"data in %LOCALAPPDATA%\\Kinetic\\WebView2\\{ident.story_id}), "
+          f"icon from {prepared.icon_source}, first window "
+          f"{first_window(prepared)}")
     for other in sorted(folder.glob("*.exe")):
         if other != target and read_exe_story(other) == ident.story_id:
             print(f"note: {other.name} is an earlier build for this story "
@@ -692,7 +696,8 @@ def main(argv: list[str]) -> int:
                         help="add <title>.app (macOS 12+, Apple silicon)")
     parser.add_argument("--windows", action="store_true",
                         help="add <title>.exe (Windows 10 and 11, x86-64; "
-                             "opens the game in an Edge app window)")
+                             "shows the game in its own window over "
+                             "WebView2)")
     parser.add_argument("--icon", type=Path, metavar="IMAGE",
                         help="the apps' icon (PNG, JPEG, WebP, GIF or JPEG "
                              "XL, cut to a centred square); default: the "

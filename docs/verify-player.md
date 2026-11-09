@@ -57,7 +57,9 @@ Off on the Esc screen first (`harness.setPlayAll`). `branches` does this.
 shows it, with a recording host (`harness.installRecordingHost`, returned
 as `host`: `messages()`, `waitForMessages(n)`, `setDisplay(mode)`). On
 WebKit that is the macOS app's own bridge; in Chrome it is a small
-stand-in of the same shape. Headless Chrome runs with `--screen-info`
+stand-in of the same shape as that bridge and the Windows exe's creation
+script (`apps/windows/host.go`, whose behaviour its `go test` checks in
+Node). Headless Chrome runs with `--screen-info`
 reporting a 1920x1200 screen (`harness.CHROME_SCREEN`), larger than its
 window as a reader's is; otherwise the player would read every window as
 filling the screen and never ask for fullscreen.

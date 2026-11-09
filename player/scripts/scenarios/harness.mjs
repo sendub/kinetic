@@ -1018,10 +1018,12 @@ export function assembleFolders() {
 
 // A game app's host object for Chrome sessions opened with `host`: the
 // same `window.kineticHost` and `kinetic-host` event the macOS app's bridge
-// gives the page (apps/macos/WebViewSetup.swift, KineticHostBridge),
-// recording each message instead of acting on it; like the bridge, its
-// script is swapped on every change, so a reload starts in the mode in
-// force. Kept this small on purpose: the WebKit run installs the real
+// (apps/macos/WebViewSetup.swift, KineticHostBridge) and the Windows exe's
+// creation script (apps/windows/host.go, hostScript) give the page: a
+// frozen object, not enumerable, with its display setter beside it.
+// Messages go through JSON, as WebView2's postMessage sends them, and are
+// recorded instead of acted on; like both hosts, its script is swapped on
+// every change, so a reload starts in the mode in force. Kept this small on purpose: the WebKit run installs the real
 // Swift bridge with a recording host instead (apps/macos/driver), so the
 // page meets the real one there.
 const EMULATED_HOST = (kind, display) => {

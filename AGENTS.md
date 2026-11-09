@@ -30,9 +30,8 @@ are implementing and docs/stack.md for settled decisions.
   the apps"). The exe's Go tests, from `apps/windows/`:
   `GOCACHE=$PWD/../../.tmp/windows-app-build/go-cache GOTOOLCHAIN=local
   go test ./...` (and `GOOS=windows go vet ./...` with the same
-  variables); the controller tests start headless Chrome (profiles under
-  `.tmp/windows-app-tests/`) and skip without it. Never launch a built
-  app on the user's screen unasked.
+  variables); the host script test runs the script in Node and skips
+  without it. Never launch a built app on the user's screen unasked.
 - Media only, no story parse: `.venv/bin/kinetic-media ship <game_root>
   <out> --list requests.json` (format: docs/extracting.md). Both
   `ship` and `rebuild` take `--jobs N` (default: one per core) and

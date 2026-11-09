@@ -18,8 +18,8 @@ decision; this file is the practical sheet.
   converter leaves behind (such as `build-ledger.json`), which the
   player and the validator ignore.
 - Optionally `<title>.app`, the macOS app that plays the folder, and
-  `<title>.exe`, the Windows program that opens it in an Edge app
-  window, built only when the author asks: `tools/build_apps.py <folder>
+  `<title>.exe`, the Windows program that shows it in a window of its
+  own over WebView2, built only when the author asks: `tools/build_apps.py <folder>
   --mac --windows` (either flag alone builds one), or the same flags on
   `tools/assemble_folder.py` (CREATE.md, "Building the apps").
 
@@ -99,8 +99,8 @@ This section once held a Tauri v2 wrapper in reserve for the day a real
 replace it (docs/plan.md Phase 43): the macOS app is a small Swift
 program over the system WebKit that `tools/build_apps.py` compiles
 with Xcode or the Command Line Tools and signs ad hoc, and the Windows
-exe is a small Go program (`apps/windows/`) that opens the folder in
-Edge, which Go builds for Windows from any system. No Rust toolchain is
+exe is a small Go program (`apps/windows/`) that shows the folder
+through WebView2, which Go builds for Windows from any system. No Rust toolchain is
 needed and the folder's files stay as they are beside them. The page
 talks to either app over one small protocol (apps/README.md): the Esc
 screen's Exit and Fullscreen | Window.
