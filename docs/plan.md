@@ -1977,6 +1977,76 @@ display toggle, the skip pill, the keys on a choice, the Esc screen's "?"
 tips and notices); AGENTS.md (the WebKit run and whatever item 1 changes in
 the test commands); docs/verify-player.md (item 12's checks).
 
+## Phase 44: Poster check and fix (2026-11-09, converting agent)
+
+The agent converting game I ships many videos whose items start
+partway into the file. Some of their posters were made at frame 0, so the
+manifest's poster is not the frame at the item's `startSeconds`, which
+docs/content-format.md "Video playback ranges" requires. The player shows the
+poster in skip, rewind and under text lines, so the reader sees a different
+shot from the one that plays. The validator never compares a poster with its
+item's start. The agent found the faults by comparing frames by hand: 144
+items, 134 distinct starts in 60 files, 125 of them visibly different.
+`kinetic-media ship` already makes a poster at a request's `startSeconds`
+and reuses the video when re-shipping. Nothing finds the wrong posters or
+writes the requests that fix them; the agent hand-writes a request file per
+episode.
+
+1. `kinetic-media posters <game_root> <folder> [--manifest FILE]
+   [--ledger FILE] [--first-frame FILE ...] [--first-frame-all]
+   [--decoder MODULE:FUNC ...] [--fix --remap FILE] [--out FILE]
+   [--jobs N] [--video-jobs N]`.
+   - Inputs: `--manifest` defaults to `<folder>/manifest.json` (the agent
+     checks a staged manifest, which may live elsewhere). `--ledger`
+     defaults to `<folder>/media-ledger.json`, else
+     `<folder>/build-ledger.json`; both hold the same `media` section.
+   - Check (the default; writes nothing): every video item, in routes too.
+     The poster passes when its ledger entry (the main source or any
+     `alsoFrom` source) records a `poster` step made from the same source
+     sha256 as the item's video file, at the item's `startSeconds` (0 when
+     the item has none). Both poster recipes, lossless and the older JPEG,
+     record `startSeconds`. A recorded other start or other source fails.
+     A poster or video with no ledger entry is checked by pixels instead:
+     decode the poster and the frame at `startSeconds` (from the original
+     source when the ledger names it, else from the folder's video file)
+     and fail beyond a tolerance that a correct JPEG q90 poster, or a
+     comparison against the shipped transcode, stays within.
+   - Report: one line per failing item with its id, file, `startSeconds`,
+     the poster's recorded `startSeconds` (or none) and a pixel difference
+     (mean absolute difference per channel, 0-255), then a summary
+     (checked, passed, failed, skipped). Exit 0 when nothing fails, 1 when
+     anything fails, 2 when it cannot start (no manifest or ledger, media
+     tools not ready, bad arguments).
+   - First-frame exception: content-format.md lets a folder that cannot
+     decode to seek keep first-frame posters. `--first-frame FILE`
+     (repeatable, a manifest video `file`) and `--first-frame-all` skip
+     those items; they count as skipped in the summary and are never
+     reported or fixed. The ledger format does not change.
+   - Fix (`--fix`, which needs `--remap FILE`): dedupe the failures by
+     (video source sha256, `startSeconds`), make one ship request per pair
+     from the ledger's source ref, and ship them into `<folder>` through
+     the existing ship code: same recipe, tools, encode cache, ledger
+     merge and `--decoder` hooks, so the videos are reused and only
+     posters are made. Old posters stay, unreferenced, as ship leaves
+     them. `--remap FILE` gets item id -> new poster (a manifest `poster`
+     value) for every failing item; `--out FILE` gets the requests shipped
+     (ship's `--list` format). The tool does not rewrite the manifest; the
+     caller applies the remap. A failure whose video source the ledger
+     cannot name is reported as not fixable, and the fix then exits 1.
+     Running `--fix` again on the same manifest encodes nothing and writes
+     the same ledger and remap.
+2. Validator warning: `tools/validate_content.py --ledger FILE` warns, and
+   does not fail, on a video item with `startSeconds > 0` whose poster's
+   ledger entry records a different or missing `startSeconds` (or has no
+   entry). It decodes nothing. Warnings print on their own prefixed lines
+   and leave the exit code alone; without `--ledger` the output is
+   unchanged.
+
+Docs: docs/extracting.md ("kinetic-media posters" beside ship and rebuild,
+and the validator option), CREATE.md ("Converting a Ren'Py project": the
+check and fix as a delivery step), AGENTS.md's command list, and the
+media_cli.py usage text.
+
 ## Later, waiting on the user
 
 - Overlay text styling iteration once the user can play with the demo.

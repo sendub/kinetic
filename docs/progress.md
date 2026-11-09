@@ -2537,3 +2537,24 @@ truthful: an unchecked box means nothing was accepted.
       Chrome suite 16 scenarios, 408 checks, 408 pass, 0 fail; full WebKit
       suite 406 pass, 5 PARTIAL (element fullscreen, off in WKWebView), 0
       fail; pytest 639 passed in 69 s; package-proof 18/18.)
+
+## Phase 44: Poster check and fix (2026-11-09, converting agent)
+
+- [ ] `kinetic-media posters` (docs/plan.md Phase 44, item 1): check a
+      manifest's video posters against the ledger (pixels when the ledger
+      has no entry), report and exit 1 on a mismatch, `--first-frame` /
+      `--first-frame-all` skips, and `--fix --remap FILE [--out FILE]`
+      ships one poster per distinct (video source, start) through ship's
+      code. Tests on small ffmpeg-made videos with distinct frames: a
+      manifest whose posters are the frames at `startSeconds` exits 0 and
+      writes nothing; frame-0 posters on later-start items are each
+      listed, exit 1, and `--fix` ships exactly one poster per distinct
+      pair, after which the remapped manifest passes; a second `--fix`
+      changes no file; first-frame flags skip; a poster without a ledger
+      entry is caught by pixels. Docs per the plan.
+- [ ] Validator poster warning (item 2): `validate_content.py --ledger
+      FILE` warns, without failing, on a later-start video item whose
+      poster's ledger entry records another or no `startSeconds`; output
+      unchanged without `--ledger`. Tests for warn, no warn and no
+      `--ledger`.
+- [ ] Phase-closer (Phase 44): full pytest, package-proof.
