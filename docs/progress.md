@@ -2475,5 +2475,8 @@ truthful: an unchecked box means nothing was accepted.
       scenarios, 387 checks, 387 pass, 0 PARTIAL, 0 fail, 138 s; full
       WebKit suite 382 pass, 5 PARTIAL (element fullscreen, off in
       WKWebView), 0 fail, 183 s; pytest 638 passed in 40 s; package-proof
-      18/18. Waiting on the user's play check of
-      `.tmp/p43close/demo/Kinetic demo.app` and `Kinetic demo.exe`.)
+      18/18. The user's first play check found the held-Esc exit on macOS
+      and the Edge faults on Windows, fixed by the three items above.
+      Waiting on the user's play check of `.tmp/p43play2/demo/Kinetic
+      demo.app` and `Kinetic demo.exe`, built on b088c4b; the automated
+      suites rerun before the closing commit.)
