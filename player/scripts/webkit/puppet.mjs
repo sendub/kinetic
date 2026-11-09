@@ -233,6 +233,14 @@ class Page {
     rpc.on("windowkey", ({ fate, code, repeat }) =>
       this.windowKeys.push({ fate, code, repeat }),
     );
+    // WebKit only: each time a keydown held with ⌘ was offered to the
+    // window as a key equivalent, as { code, claimed }. The web view claims
+    // it to give the page its turn; a key the page leaves comes back
+    // unclaimed, where the game app's main menu gets it.
+    this.keyEquivalents = [];
+    rpc.on("keyequivalent", ({ code, claimed }) =>
+      this.keyEquivalents.push({ code, claimed }),
+    );
     rpc.on("windowclose", () => {
       this.closedByPage = true;
       this.fire("close");

@@ -21,6 +21,8 @@
 // no user activation behind it; a refused request is swallowed, since
 // staying windowed is a valid outcome.
 
+import { isShortcut } from "./keys";
+
 const GESTURES = ["keydown", "pointerdown"] as const;
 
 export interface GestureFullscreenOptions {
@@ -53,9 +55,7 @@ export function installGestureFullscreen(
     const key = event as KeyboardEvent;
     if (key.key === "Escape") return;
     // A shortcut (⌘W, ⌘R, Ctrl+Tab) is the browser's, not a reading key.
-    if (key.metaKey === true || key.ctrlKey === true || key.altKey === true) {
-      return;
-    }
+    if (isShortcut(key)) return;
     if (!hasUserActivation(doc)) return;
     if (options.ignore?.(event) === true) return;
     if (!options.wanted()) return;

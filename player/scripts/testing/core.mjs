@@ -593,14 +593,9 @@ function pressNamed(cdp, name) {
     ? pressNavKey(cdp, k.key, k.keyCode)
     : pressKey(cdp, k.key, k.code, k.keyCode, k.text);
 }
-/**
- * Holds the key `name` (keyFor) down: its keydown, `repeats` more keydowns
- * as auto-repeats (CDP's `autoRepeat`, so the page sees `repeat: true` and
- * the WebKit driver sends `isARepeat`), then its keyup.
- */
-async function holdKey(cdp, name, repeats) {
-  const k = keyFor(name);
-  const ids = k.nav
+/** A key's identity fields for CDP's Input.dispatchKeyEvent (pressNavKey's note). */
+function keyIds(k) {
+  return k.nav
     ? { key: k.key, code: k.key, windowsVirtualKeyCode: k.keyCode }
     : {
         key: k.key,
@@ -608,6 +603,34 @@ async function holdKey(cdp, name, repeats) {
         windowsVirtualKeyCode: k.keyCode,
         nativeVirtualKeyCode: k.keyCode,
       };
+}
+/** CDP's `modifiers` bit for each shortcut modifier. */
+const SHORTCUT_MODIFIERS = { Alt: 1, Control: 2, Meta: 4 };
+/**
+ * One press of the key `name` (keyFor) held with `modifier`: "Meta" (⌘),
+ * "Control" or "Alt", sent as CDP's `modifiers`, so the page's keydown
+ * carries metaKey, ctrlKey or altKey. A shortcut types no text. On WebKit a
+ * keydown held with ⌘ is offered to the window as a key equivalent first,
+ * as AppKit does in the macOS app (`page.keyEquivalents`).
+ */
+async function pressShortcut(cdp, modifier, name) {
+  const modifiers = SHORTCUT_MODIFIERS[modifier];
+  if (modifiers === undefined)
+    throw new Error(
+      `no modifier named ${JSON.stringify(modifier)}: name Meta, Control or Alt`,
+    );
+  const ids = keyIds(keyFor(name));
+  for (const type of ["keyDown", "keyUp"])
+    await cdp.send("Input.dispatchKeyEvent", { type, ...ids, modifiers });
+}
+/**
+ * Holds the key `name` (keyFor) down: its keydown, `repeats` more keydowns
+ * as auto-repeats (CDP's `autoRepeat`, so the page sees `repeat: true` and
+ * the WebKit driver sends `isARepeat`), then its keyup.
+ */
+async function holdKey(cdp, name, repeats) {
+  const k = keyFor(name);
+  const ids = keyIds(k);
   const typed = k.nav ? {} : { text: k.text, unmodifiedText: k.text };
   for (let n = 0; n <= repeats; n += 1) {
     await cdp.send("Input.dispatchKeyEvent", {
@@ -715,6 +738,7 @@ export {
   pressM,
   pressNamed,
   pressNavKey,
+  pressShortcut,
   pressSpace,
   pressT,
   pressTab,

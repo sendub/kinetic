@@ -314,9 +314,32 @@ export interface DecisionInput {
 }
 
 /**
+ * Whether a keydown is held with ⌘, Ctrl or Alt (Option): a shortcut of
+ * the browser's or the host's (⌘H hides the macOS app, ⌘R reloads a tab),
+ * never one of the player's keys. Shift is not among them: Shift+h is `H`,
+ * one of the table's Caps Lock spellings, and Shift+Tab is still Tab.
+ */
+export function isShortcut(event: {
+  metaKey?: boolean;
+  ctrlKey?: boolean;
+  altKey?: boolean;
+}): boolean {
+  return (
+    event.metaKey === true || event.ctrlKey === true || event.altKey === true
+  );
+}
+
+/**
  * Installs the key map; returns a function that removes it. `preventDefault`
  * covers every mapped key: space would otherwise scroll the document behind
  * the player, and Tab would otherwise move focus out of it.
+ *
+ * A key held with ⌘, Ctrl or Alt (`isShortcut`) is not the player's: it
+ * runs no command, takes no decision and keeps its default, so the browser
+ * or the host acts on it. In the macOS app the web view offers a key
+ * equivalent to the page first and hands it to the main menu only when the
+ * page leaves it, so a ⌘H the page took would toggle the text and never
+ * hide the app.
  *
  * `decisions`, when given, receives decision keys (`decisionKeyFor`) for
  * keys no mapped command claims: the decision overlay's 1..9, 0, the arrows
@@ -339,6 +362,7 @@ export function installKeyMap(
   const onKeyDown = (event: Event): void => {
     const keydown = event as KeyboardEvent;
     if (typeof keydown.key !== "string") return;
+    if (isShortcut(keydown)) return;
     const repeat = keydown.repeat === true;
     if (commandForKey(keydown.key, false) !== null) {
       keydown.preventDefault();

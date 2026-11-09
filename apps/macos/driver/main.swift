@@ -3,12 +3,12 @@
 // (../WebViewSetup.swift) and takes JSON-lines requests on stdin, writing
 // one reply line per request on stdout ({"id","ok","value"|"error"}) plus
 // {"event":...} lines: ready, navigated, console, pageerror, hosterror,
-// download, filechooser, hostmessage, windowclose, windowkey, fatal. One
-// process is one fresh profile (a non-persistent data store), unless it is
-// started with `--profile=<dir>`: then its storage is kept on disk in that
-// folder (WebKit's private directory-rooted data store), so a later process
-// given the same folder finds it again. player/scripts/webkit/ builds and
-// drives it; player/scripts/testing/ opens creators' games in it.
+// download, filechooser, hostmessage, windowclose, windowkey, keyequivalent,
+// fatal. One process is one fresh profile (a non-persistent data store),
+// unless it is started with `--profile=<dir>`: then its storage is kept on
+// disk in that folder (WebKit's private directory-rooted data store), so a
+// later process given the same folder finds it again. player/scripts/webkit/
+// builds and drives it; player/scripts/testing/ opens creators' games in it.
 //
 // The `host` request installs the game app's own page-to-host bridge
 // (KineticHostBridge in ../WebViewSetup.swift) with a recording host: each
@@ -21,7 +21,10 @@
 // leaves unhandled comes back to it from the web view, and each one becomes
 // a windowkey line, "dropped" where KineticWindow drops it, "appkit" if it
 // ever reaches NSWindow's own keyDown. A `key` request with `autoRepeat`
-// sends a held key's repeat (isARepeat), as CDP's does.
+// sends a held key's repeat (isARepeat), as CDP's does. A keyDown held with
+// ⌘ (CDP's `modifiers` bit 4) goes through NSApp, where DriverApplication
+// offers it to the window as a key equivalent first, as AppKit does in the
+// game app, and reports the window's answer as a keyequivalent line.
 //
 // Nothing of it can be seen or take focus: an accessory app (no Dock icon,
 // no menu bar) that never activates, its one borderless window placed off
@@ -56,12 +59,41 @@ final class DriverWindow: KineticWindow {
     }
 }
 
+/// A key event's code as CDP names it (KeyH, Escape).
+func codeName(_ event: NSEvent) -> String {
+    Driver.keyCodes.first { $0.value == event.keyCode }?.key ?? "keyCode \(event.keyCode)"
+}
+
 /// A key that came back from the web view to the window: `fate` is
 /// "dropped" (KineticWindow kept it from AppKit) or "appkit" (it reached
 /// NSWindow's own keyDown).
 func reportWindowKey(_ event: NSEvent, _ fate: String) {
-    let code = Driver.keyCodes.first { $0.value == event.keyCode }?.key ?? "keyCode \(event.keyCode)"
-    emit(["event": "windowkey", "fate": fate, "code": code, "repeat": event.isARepeat])
+    emit(["event": "windowkey", "fate": fate, "code": codeName(event), "repeat": event.isARepeat])
+}
+
+/// The driver's NSApp. In the game app AppKit offers a keyDown held with ⌘
+/// to the key window as a key equivalent (`performKeyEquivalent`: the page
+/// first, through WKWebView), then to the main menu, and only then sends it
+/// to the window as a keyDown. An app that never activates has no key
+/// window, so AppKit skips that pass here; this class makes it on the
+/// driver's window and reports the answer as a keyequivalent line. WKWebView
+/// claims every key equivalent it is offered, to give the page its turn;
+/// one the page leaves (no `preventDefault`) WebKit sends through NSApp
+/// again, and the web view's answer that time is the one that counts:
+/// unclaimed, the game app's main menu gets the key (⌘H hides the app). The
+/// driver has no menu, so the key goes on to the window, as a key no menu
+/// item takes does in the app.
+final class DriverApplication: NSApplication {
+    override func sendEvent(_ event: NSEvent) {
+        if event.type == .keyDown, event.modifierFlags.contains(.command),
+            let window = (delegate as? Driver)?.window, event.windowNumber == window.windowNumber
+        {
+            let claimed = window.performKeyEquivalent(with: event)
+            emit(["event": "keyequivalent", "code": codeName(event), "claimed": claimed])
+            if claimed { return }
+        }
+        super.sendEvent(event)
+    }
 }
 
 /// Calls a private `-(void)sel:(BOOL)` setter when this WebKit has it.
@@ -466,7 +498,13 @@ final class Driver: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKScr
             timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
             context: nil, characters: chars, charactersIgnoringModifiers: unmodified,
             isARepeat: !isUp && (r["autoRepeat"] as? Bool ?? false), keyCode: keyCode)!
-        delivered(isUp ? "keyup" : "keydown", limit: 2, { self.window.sendEvent(event) }, done)
+        // A typed key reaches NSApp first; one held with ⌘ takes that path
+        // (DriverApplication) so the window is offered it as a key
+        // equivalent. Any other key NSApp would hand straight to the window.
+        let viaApp = !isUp && flags.contains(.command)
+        delivered(isUp ? "keyup" : "keydown", limit: 2, {
+            if viaApp { NSApp.sendEvent(event) } else { self.window.sendEvent(event) }
+        }, done)
     }
 
     var buttonDown = false
@@ -616,7 +654,7 @@ final class Driver: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKScr
     }
 }
 
-let app = NSApplication.shared
+let app = DriverApplication.shared
 let driver = Driver()
 app.delegate = driver
 app.setActivationPolicy(.accessory)

@@ -253,6 +253,83 @@ describe("installKeyMap's held keys", () => {
   });
 });
 
+describe("installKeyMap leaves shortcuts to the browser and the host", () => {
+  type Modifiers = Partial<
+    Record<"metaKey" | "ctrlKey" | "altKey" | "shiftKey", boolean>
+  >;
+  function press(key: string, modifiers: Modifiers, taking = false) {
+    const target = new EventTarget();
+    const ran: KeyCommand[] = [];
+    const took: DecisionKey[] = [];
+    const commands = new Proxy({} as KeyCommands, {
+      get: (_, name) => () => ran.push(name as KeyCommand),
+    });
+    installKeyMap(target, commands, {
+      taking: () => taking,
+      take: (decision) => took.push(decision),
+    });
+    const event = keydown(key, false);
+    Object.assign(event, modifiers);
+    target.dispatchEvent(event);
+    return { ran, took, prevented: event.defaultPrevented };
+  }
+  const NOTHING = { ran: [], took: [], prevented: false };
+  const MODIFIERS: Modifiers[] = [
+    { metaKey: true },
+    { ctrlKey: true },
+    { altKey: true },
+  ];
+
+  it("leaves ⌘H, Ctrl+H and Alt+H alone: no text toggle, default kept (⌘H hides the macOS app)", () => {
+    for (const modifiers of MODIFIERS) {
+      expect(press("h", modifiers)).toEqual(NOTHING);
+      expect(press("H", modifiers)).toEqual(NOTHING);
+    }
+  });
+
+  it("leaves every mapped key alone when it is held with ⌘, Ctrl or Alt", () => {
+    for (const key of mappedKeys()) {
+      for (const modifiers of MODIFIERS) {
+        expect(press(key, modifiers)).toEqual(NOTHING);
+      }
+    }
+  });
+
+  it("leaves a decision key held with ⌘, Ctrl or Alt alone while a choice is open", () => {
+    for (const key of ["1", "0", "Enter", "ArrowDown", "ArrowUp"]) {
+      for (const modifiers of MODIFIERS) {
+        expect(press(key, modifiers, true)).toEqual(NOTHING);
+      }
+    }
+  });
+
+  it("still toggles the text on a plain h", () => {
+    expect(press("h", {})).toEqual({
+      ran: ["toggleText"],
+      took: [],
+      prevented: true,
+    });
+  });
+
+  it("keeps Shift: Shift+h (H) toggles the text and Shift+Tab skips, both taken", () => {
+    expect(press("H", { shiftKey: true })).toEqual({
+      ran: ["toggleText"],
+      took: [],
+      prevented: true,
+    });
+    expect(press("Tab", { shiftKey: true })).toEqual({
+      ran: ["toggleSkip"],
+      took: [],
+      prevented: true,
+    });
+    expect(press("ArrowDown", { shiftKey: true }, true)).toEqual({
+      ran: [],
+      took: ["next"],
+      prevented: true,
+    });
+  });
+});
+
 describe("suspendTimeline (the t overlay takes precedence, Phase 8)", () => {
   function spy(): { calls: string[]; commands: TimelineCommands } {
     const calls: string[] = [];

@@ -2449,12 +2449,24 @@ truthful: an unchecked box means nothing was accepted.
       requirements; test_build_apps 111; npm test 898, check clean; window
       scenario Chrome 30/30, WebKit 30 + 2 PARTIAL. Run time on Windows:
       the user's check at the closer.)
-- [ ] ⌘H hides the macOS app (the user, 2026-11-09; found while fixing
+- [x] ⌘H hides the macOS app (the user, 2026-11-09; found while fixing
       held keys). The key map takes ⌘H as `h` and toggles the text, so the
       app's Hide item never fires, though CREATE.md says ⌘H hides the game.
       The key map leaves a key held with ⌘, Ctrl or Alt to the browser or
       host, as the fullscreen gesture code already does; the plain key
       still works. A WebKit check shows ⌘H reaching the app's menu.
+      (2026-11-09: `isShortcut` in keys.ts, shared with fullscreen.ts;
+      `installKeyMap` returns before commands and decision keys on it;
+      Shift unchanged. The driver's `DriverApplication` makes AppKit's
+      key-equivalent pass for ⌘ keys and reports `keyequivalent` lines;
+      window part `commandH`: WebKit sees ⌘H claimed by the web view, then
+      unclaimed after the page leaves it (where AppKit asks the menu).
+      Reverting the page fix fails 3 unit tests, 2 Chrome and 3 WebKit
+      checks. The branch map's own arrows and paging keys still ignore
+      modifiers (no menu item uses them). Orchestrator: npm test 904,
+      check clean, smoke 6/6 on Chrome and WebKit, window + reading Chrome
+      50/50, WebKit 50 + 3 PARTIAL (element fullscreen), test_build_apps
+      111.)
 - [ ] Phase-closer (Phase 43): full scenario suite on Chrome and on WebKit,
       full pytest, package-proof; the user plays the demo's macOS app and
       Windows exe (fullscreen, Esc, reload, Export, Import, Exit, the

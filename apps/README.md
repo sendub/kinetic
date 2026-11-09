@@ -9,22 +9,35 @@ game folder (CREATE.md, "Building the apps").
 ## Keys in the macOS app
 
 The page takes every key it owns, a held key's repeats included
-(`player/src/render/keys.ts`, `installKeyMap`). WKWebView hands a keydown
-the page did not take back to AppKit (`NSApp.sendEvent`, then up the
-responder chain to the window), and NSWindow's own `keyDown` would run
-AppKit's keyboard interface on it: Tab moves the key view, Esc can take a
-fullscreen window out of fullscreen, and anything else beeps. So the game
-window, `KineticWindow` in `macos/WebViewSetup.swift`, drops every key
-that reaches its `keyDown`, and its `cancelOperation` does nothing (an
-Esc the page did not take, or ⌘., arrives that way too). The menus'
-shortcuts (⌘Q, ⌘R, ⌃⌘F) still work: NSApp offers a key equivalent to the
-window's views (the page first, through WKWebView) and then to the main
-menu before any keyDown reaches a window.
+(`player/src/render/keys.ts`, `installKeyMap`). A key held with ⌘, Ctrl or
+Alt is never one of them: the page runs nothing on it and leaves it, so the
+browser or the app acts on it. WKWebView hands a keydown the page did not
+take back to AppKit (`NSApp.sendEvent`, then up the responder chain to the
+window), and NSWindow's own `keyDown` would run AppKit's keyboard
+interface on it: Tab moves the key view, Esc can take a fullscreen window
+out of fullscreen, and anything else beeps. So the game window,
+`KineticWindow` in `macos/WebViewSetup.swift`, drops every key that
+reaches its `keyDown`, and its `cancelOperation` does nothing (an Esc the
+page did not take, or ⌘., arrives that way too).
+
+The menus' shortcuts (⌘H, ⌘Q, ⌘R, ⌃⌘F) work because the page leaves every
+key held with ⌘. NSApp offers a key equivalent to the window's views
+before the main menu and before any keyDown reaches a window, and
+WKWebView claims it to give the page its turn. When the page leaves it,
+WebKit sends it through NSApp again, the web view lets it pass, and the
+main menu gets it. A key equivalent the page takes never reaches the menu:
+when the page took ⌘H as `h`, it hid the text and never the app.
 
 The driver's window is a `KineticWindow` too. Each key that comes back to
 it becomes a `windowkey` line, `dropped` where the window drops it and
 `appkit` if it ever reaches NSWindow's own `keyDown`; the `window`
-scenario's held-keys checks read them (docs/verify-player.md).
+scenario's held-keys checks read them (docs/verify-player.md). The driver
+never becomes the active app, so AppKit gives it no key window and makes
+no key-equivalent pass. Its NSApp, `DriverApplication`, makes that pass on
+the driver's window for a keydown held with ⌘ and reports the window's
+answer as a `keyequivalent` line. The `window` scenario's ⌘H check reads
+them: claimed for the page's turn, then unclaimed once the page leaves it,
+where the game app's menu would hide the app.
 
 ## The page-to-host protocol
 

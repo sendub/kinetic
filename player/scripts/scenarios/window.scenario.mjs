@@ -25,6 +25,13 @@
 // each key the page leaves unhandled comes back to it from the web view: a
 // held Esc, Space or Tab sends nothing back, and a key the page leaves
 // alone comes back, repeats included, and goes no further than the window.
+//
+// ⌘H under the macOS app's host (the user's play check, 2026-11-09: ⌘H hid
+// the text, never the app): a key held with ⌘ is the host's, so the page
+// runs nothing on ⌘H and leaves it, while a plain h still hides the text.
+// On WebKit the web view claims ⌘H as a key equivalent only to give the
+// page its turn, then hands it back unclaimed, where NSApp offers it to the
+// app's main menu (Hide is ⌘H).
 
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -40,8 +47,11 @@ import {
   holdKey,
   onWebKit,
   openSettings,
+  PAGE_STATE,
   pressC,
   pressEscape,
+  pressH,
+  pressShortcut,
   pressSpace,
   sleep,
 } from "./harness.mjs";
@@ -461,9 +471,10 @@ async function exitInTab({ check, open }) {
 const HELD_REPEATS = 5;
 
 /**
- * Records every keydown the page sees as { key, repeat, taken }. On window
- * in the bubble phase, so it runs after the key map's listener on document
- * and `taken` (defaultPrevented) says whether the page took the key.
+ * Records every keydown the page sees as { key, repeat, meta, taken }. On
+ * window in the bubble phase, so it runs after the key map's listener on
+ * document and `taken` (defaultPrevented) says whether the page took the
+ * key.
  */
 const RECORD_KEYDOWNS = () => {
   window.__keydowns = [];
@@ -471,6 +482,7 @@ const RECORD_KEYDOWNS = () => {
     window.__keydowns.push({
       key: event.key,
       repeat: event.repeat,
+      meta: event.metaKey,
       taken: event.defaultPrevented,
     });
   });
@@ -547,4 +559,69 @@ async function heldKeys({ check, open }) {
   );
 }
 
-export const parts = [macApp, windowsApp, browserTab, exitInTab, heldKeys];
+/**
+ * ⌘H in the macOS app (header). The plain h presses come after ⌘H, so on
+ * WebKit every key equivalent line is ⌘H's: a plain key is offered as none.
+ */
+async function commandH({ check, open }) {
+  const { page, cdp } = await open("cmdh", {
+    closeHelp: true,
+    host: { kind: "mac-app", display: "fullscreen" },
+  });
+  await page.evaluate(RECORD_KEYDOWNS);
+  const textHidden = async () =>
+    (await page.evaluate(PAGE_STATE)).overlayHidden;
+  const hDowns = async () =>
+    (await page.evaluate(() => window.__keydowns)).filter((d) => d.key === "h");
+  const before = await textHidden();
+  await pressShortcut(cdp, "Meta", "h");
+  await sleep(100);
+  const afterCommand = await textHidden();
+  const command = await hDowns();
+  check(
+    "⌘H under the macOS app's host: the page leaves it (no preventDefault) and the text stays shown",
+    before === false &&
+      afterCommand === false &&
+      command.length === 1 &&
+      command[0].meta === true &&
+      command[0].taken === false,
+    { before, afterCommand, command },
+  );
+  await pressH(cdp);
+  await sleep(100);
+  const afterH = await textHidden();
+  const plain = (await hDowns()).slice(1);
+  await pressH(cdp);
+  await sleep(100);
+  const restored = await textHidden();
+  check(
+    "a plain h still hides the text, taken by the page; h again brings it back",
+    plain.length === 1 &&
+      plain[0].meta === false &&
+      plain[0].taken === true &&
+      afterH === true &&
+      restored === false,
+    { plain, afterH, restored },
+  );
+  if (!onWebKit) return;
+  const until = Date.now() + 3000;
+  while (page.keyEquivalents.length < 2 && Date.now() < until) await sleep(20);
+  const hBack = page.windowKeys.filter((k) => k.code === "KeyH");
+  check(
+    "WebKit: the web view claims ⌘H as a key equivalent to give the page its turn, then hands it back unclaimed, so NSApp offers it to the app's main menu (Hide); the driver has no menu, and its window drops it",
+    page.keyEquivalents.map((k) => `${k.code} ${k.claimed}`).join() ===
+      "KeyH true,KeyH false" &&
+      hBack.length === 1 &&
+      hBack[0].fate === "dropped",
+    { keyEquivalents: page.keyEquivalents, windowKeys: page.windowKeys },
+  );
+}
+
+export const parts = [
+  macApp,
+  windowsApp,
+  browserTab,
+  exitInTab,
+  heldKeys,
+  commandH,
+];

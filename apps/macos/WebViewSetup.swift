@@ -18,8 +18,9 @@ import WebKit
 /// fullscreen, Esc can leave it) and then beep; this window drops it
 /// instead. Key equivalents are not keyDowns: NSApp offers them to the key
 /// window's views (the page first, through WKWebView) and then to the main
-/// menu before any keyDown reaches a window, so the menus' shortcuts (⌘Q,
-/// ⌘R, ⌃⌘F) still work.
+/// menu before any keyDown reaches a window. The page leaves every key held
+/// with ⌘ (player/src/render/keys.ts), so the menus' shortcuts (⌘H, ⌘Q,
+/// ⌘R, ⌃⌘F) still work; one the page took would never reach the menu.
 class KineticWindow: NSWindow {
     /// Called with each key the window drops; the driver reports them.
     var keyDropped: ((NSEvent) -> Void)?

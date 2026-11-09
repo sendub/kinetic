@@ -120,6 +120,42 @@ describe("launchWebKit", () => {
     await browser.close();
   });
 
+  it("passes a key's modifiers on and collects its key equivalent answers", async () => {
+    const browser = await launchWebKit({
+      command: standIn(
+        { event: "ready", hooks: hooks() },
+        {
+          key: [
+            { event: "keyequivalent", code: "KeyH", claimed: true },
+            { event: "keyequivalent", code: "KeyH", claimed: false },
+          ],
+        },
+      ),
+    });
+    const page = await browser.newPage();
+    const sent = [];
+    const send = page.rpc.send;
+    page.rpc.send = (cmd, params) => {
+      sent.push({ cmd, ...params });
+      return send(cmd, params);
+    };
+    const cdp = await page.createCDPSession();
+    await cdp.send("Input.dispatchKeyEvent", {
+      type: "keyDown",
+      key: "h",
+      code: "KeyH",
+      modifiers: 4,
+    });
+    page.rpc.send = send;
+    await send("noop"); // the event lines land before this reply
+    expect(sent[0]).toMatchObject({ cmd: "key", code: "KeyH", modifiers: 4 });
+    expect(page.keyEquivalents).toEqual([
+      { code: "KeyH", claimed: true },
+      { code: "KeyH", claimed: false },
+    ]);
+    await browser.close();
+  });
+
   it("hands the driver a profile folder to keep its storage in", async () => {
     // The ready line echoes the arguments the stand-in was started with.
     const command = [
