@@ -2506,6 +2506,9 @@ truthful: an unchecked box means nothing was accepted.
       WKWebView), 0 fail, 183 s; pytest 638 passed in 40 s; package-proof
       18/18. The user's first play check found the held-Esc exit on macOS
       and the Edge faults on Windows, fixed by the three items above.
-      Waiting on the user's play check of `.tmp/p43play2/demo/Kinetic
-      demo.app` and `Kinetic demo.exe`, built on b088c4b; the automated
-      suites rerun before the closing commit.)
+      The second (`.tmp/p43play2/demo`, b088c4b) passed on both apps but
+      for the export notice and the Esc screen's uneven columns, fixed
+      above; ⌘H still does nothing in the macOS app, which the user does
+      not mind. Waiting on the user's look at `.tmp/p43play3/demo` (both
+      apps, built on 75b1c9a); the automated suites rerun before the
+      closing commit.)
