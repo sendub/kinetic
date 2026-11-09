@@ -1,5 +1,6 @@
 """kinetic-media CLI: Kinetic's media work without a story parse
-(docs/extracting.md, "kinetic-media ship" and "kinetic-media rebuild").
+(docs/extracting.md, "kinetic-media ship", "kinetic-media rebuild" and
+"kinetic-media posters").
 
 Usage:
 
@@ -9,6 +10,11 @@ Usage:
                        [--jobs N] [--video-jobs N]
     kinetic-media rebuild <game_root> [<game_root> ...] <folder>
                           [--decoder MODULE:FUNC ...] [--out DIR]
+                          [--jobs N] [--video-jobs N]
+    kinetic-media posters <game_root> <folder> [--manifest FILE]
+                          [--ledger FILE] [--first-frame FILE ...]
+                          [--first-frame-all] [--decoder MODULE:FUNC ...]
+                          [--fix --remap FILE] [--out FILE]
                           [--jobs N] [--video-jobs N]
 
 ``FILE`` is a JSON array of requests; each names a source relative to
@@ -47,6 +53,22 @@ tree there. Exit 0 when
 everything matches, 1 when anything is missing, unsupported or
 mismatched (each named), 2 when it cannot start (no ledger, other media
 tools, tools not ready).
+
+``posters`` checks that every video item of the manifest (default
+``<folder>/manifest.json``) has the frame at its ``startSeconds`` as its
+poster (``posters.py``): by the ledger's ``poster`` step (the folder's
+build and/or media ledger, or ``--ledger FILE``), else by comparing
+pixels within ``posters.POSTER_TOLERANCE``. It prints a ``FAIL`` line
+per wrong poster and a summary, and writes nothing. ``--first-frame
+FILE`` and ``--first-frame-all`` skip items allowed a first-frame
+poster. ``--fix`` ships one poster per failing (video source,
+startSeconds) into ``<folder>`` through ``ship_requests``, the same code
+as ``ship``, writes item id -> new poster to ``--remap FILE`` and the
+requests to ``--out FILE``; the caller applies the remap. Exit 0 when
+nothing fails (with ``--fix``: everything was fixed), 1 when anything
+fails (or is not fixable), 2 when it cannot start (no manifest or
+ledger, tools not ready, bad arguments, ``--fix`` with a ``--ledger``
+other than ``<folder>/media-ledger.json``).
 """
 
 from __future__ import annotations
@@ -54,13 +76,14 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import tempfile
 from pathlib import Path
 from typing import Any
 
-from . import __version__
+from . import __version__, posters
 from .assets import run_asset_pass
 from .cli import decoder_option, sorted_keys
-from .decoders import DecoderError
+from .decoders import Decoder, DecoderError
 from .media import ExistingFileError, write_whole
 from .media_cache import open_cache
 from .media_tools import MediaToolsError, run_tools
@@ -90,44 +113,59 @@ def ship(args: argparse.Namespace) -> int:
         requests = read_list(args.list)
     except ListError as exc:
         return _fail(f"{args.list}: {exc}", 2)
-    out_dir: Path = args.out_dir
+    code, _, _ = ship_requests(root.resolve(), args.out_dir, requests,
+                               args.decoder, *_limits(args),
+                               delete_unreferenced=
+                               args.delete_unreferenced_posters)
+    return code
+
+
+def ship_requests(root: Path, out_dir: Path,
+                  requests: list[dict[str, Any]], decoders: list[Decoder],
+                  jobs: int, video_jobs: int,
+                  delete_unreferenced: bool = False,
+                  ) -> tuple[int, list[dict[str, Any]], dict[str, Any]]:
+    """Ship validated `requests` (``read_list``/``parse_requests``) from
+    `root` into `out_dir`, merging into its media ledger, and print the
+    summary: what ``kinetic-media ship`` does after reading its list,
+    and what ``posters --fix`` ships through. Returns the exit code, the
+    shipped requests' ledger entries (request and result, in order) and
+    the ledger written (both empty when nothing was written)."""
     tools = run_tools(__version__)
     try:
         existing = load_ledger(out_dir)
         if existing is not None:
             check_same_tools(existing, tools, out_dir)
     except LedgerError as exc:
-        return _fail(str(exc), 1)
+        return _fail(str(exc), 1), [], {}
     existing = existing or {}
 
-    jobs, video_jobs = _limits(args)
-    records = request_records(requests, root.resolve(), jobs)
+    records = request_records(requests, root, jobs)
     workers = Workers(jobs, video_jobs) if jobs > 1 else None
     progress = Progress("progress", len(records), sys.stderr,
                         PROGRESS_SECONDS)
     try:
-        skipped, media = run_asset_pass(records, out_dir, tools,
-                                        args.decoder,
+        skipped, media = run_asset_pass(records, out_dir, tools, decoders,
                                         media=existing.get("media"),
                                         cache=open_cache(tools),
                                         workers=workers,
                                         progress=progress)
     except (DecoderError, ExistingFileError) as exc:
-        return _fail(str(exc), 1)
+        return _fail(str(exc), 1), [], {}
     entries = [{"request": request, "result": request_result(record,
                                                              out_dir)}
                for request, record in zip(requests, records)]
-    decoders = merge_decoders(existing.get("decoders", []),
-                              [sorted_keys(d.record()) for d in args.decoder])
+    hooks = merge_decoders(existing.get("decoders", []),
+                           [sorted_keys(d.record()) for d in decoders])
     ledger: dict[str, Any] = {
         "generatedBy": f"{PROG} {__version__}",
         "mediaTools": sorted_keys(tools),
     }
-    if decoders:
-        ledger["decoders"] = decoders
+    if hooks:
+        ledger["decoders"] = hooks
     requests_out = merge_requests(existing.get("requests", []), entries)
     stale = unreferenced_posters(media, requests_out, out_dir)
-    if args.delete_unreferenced_posters:
+    if delete_unreferenced:
         for ref in stale:
             del media[ref]
     ledger["media"] = sorted_keys(media)
@@ -135,15 +173,15 @@ def ship(args: argparse.Namespace) -> int:
     text = json.dumps(ledger, indent=2, ensure_ascii=False) + "\n"
     write_whole(out_dir / LEDGER_NAME,
                 lambda tmp: tmp.write_text(text, encoding="utf-8"))
-    if args.delete_unreferenced_posters:
+    if delete_unreferenced:
         delete_posters(out_dir, stale)
     _print_summary(records, entries, skipped)
     if stale:
         print(f"unreferenced posters: {len(stale)} "
-              + ("deleted" if args.delete_unreferenced_posters else
+              + ("deleted" if delete_unreferenced else
                  "kept (no request names them any more; "
                  "--delete-unreferenced-posters removes them)"))
-    return 0
+    return 0, entries, ledger
 
 
 PROGRESS_SECONDS = 10.0
@@ -202,6 +240,73 @@ def rebuild_cmd(args: argparse.Namespace) -> int:
     print("rebuild OK" + (f": media written to {args.out}" if args.out
                           else ""))
     return 0
+
+
+def _write_json(path: Path, value: Any) -> None:
+    text = json.dumps(value, indent=2, ensure_ascii=False) + "\n"
+    write_whole(path, lambda tmp: tmp.write_text(text, encoding="utf-8"))
+
+
+def posters_cmd(args: argparse.Namespace) -> int:
+    root: Path = args.game_root.expanduser()
+    if not root.is_dir():
+        return _fail(f"{root}: game root is not a directory", 2)
+    if args.fix and args.remap is None:
+        return _fail("--fix needs --remap FILE (it gets item id -> new "
+                     "poster)", 2)
+    if not args.fix and (args.remap or args.out):
+        return _fail("--remap and --out go with --fix (the check writes "
+                     "nothing)", 2)
+    for path in (args.remap, args.out):
+        if path is not None and not path.parent.is_dir():
+            return _fail(f"{path}: no such directory to write it in", 2)
+    folder: Path = args.folder
+    own = folder / LEDGER_NAME
+    if args.fix and args.ledger is not None \
+            and args.ledger.resolve() != own.resolve():
+        return _fail(f"--fix ships into {own}, so it checks only that "
+                     f"ledger (or the folder's default ones), not "
+                     f"{args.ledger}", 2)
+    try:
+        manifest = posters.load_manifest(
+            args.manifest or folder / posters.MANIFEST_NAME)
+        index = posters.made_index(posters.load_media(folder, args.ledger))
+    except posters.InputError as exc:
+        return _fail(str(exc), 2)
+    jobs, video_jobs = _limits(args)
+    with tempfile.TemporaryDirectory(prefix="kinetic-posters-") as work:
+        findings = posters.check(manifest, index, folder, root.resolve(),
+                                 args.decoder, set(args.first_frame),
+                                 args.first_frame_all, jobs, Path(work))
+    failures = [f for f in findings if f.status == posters.FAILED]
+    for finding in failures:
+        print(finding.line())
+    print(posters.summary(findings))
+    if not args.fix:
+        return 1 if failures else 0
+
+    plan = posters.plan_fix(failures, index)
+    remap: dict[str, str] = {}
+    unfixed = list(plan.unfixable)
+    if plan.requests:
+        code, entries, ledger = ship_requests(root.resolve(), folder,
+                                              plan.requests, args.decoder,
+                                              jobs, video_jobs)
+        if code:
+            return code
+        remap, missed = posters.fixed_posters(plan, entries, ledger["media"],
+                                              failures)
+        unfixed += missed
+    for finding, why in unfixed:
+        print(f"NOT FIXABLE {finding.id}: {why}")
+    _write_json(args.remap, remap)
+    if args.out is not None:
+        _write_json(args.out, plan.requests)
+    print(f"fix: {len(failures)} failing items, {len(plan.requests)} "
+          f"requests shipped (one per video source and startSeconds), "
+          f"{len(remap)} items remapped in {args.remap}"
+          + (f", {len(unfixed)} not fixable" if unfixed else ""))
+    return 1 if unfixed else 0
 
 
 def _positive(value: str) -> int:
@@ -280,9 +385,53 @@ def main(argv: list[str] | None = None) -> int:
                           help="also write the rebuilt media/ tree into "
                                "DIR (default: verify only)")
     _add_limits(rebuildp)
+    postersp = sub.add_parser(
+        "posters", help="check that every video item's poster is the "
+                        "frame at its startSeconds; --fix ships the "
+                        "posters that are not")
+    postersp.add_argument("game_root", type=Path,
+                          help="the root the folder's media was shipped "
+                               "from: ledger source paths are relative to "
+                               "it")
+    postersp.add_argument("folder", type=Path,
+                          help="the Kinetic folder holding media/ and its "
+                               "ledger(s); --fix ships into it")
+    postersp.add_argument("--manifest", type=Path, default=None,
+                          metavar="FILE",
+                          help="the manifest to check (default: "
+                               "<folder>/manifest.json); its media paths "
+                               "are read from <folder>")
+    postersp.add_argument("--ledger", type=Path, default=None,
+                          metavar="FILE",
+                          help="check against this ledger only (default: "
+                               "<folder>/build-ledger.json and/or "
+                               "media-ledger.json, as rebuild reads them)")
+    postersp.add_argument("--first-frame", action="append", default=[],
+                          metavar="FILE",
+                          help="a manifest video file whose items may keep "
+                               "a first-frame poster: skipped; repeatable")
+    postersp.add_argument("--first-frame-all", action="store_true",
+                          help="skip every video item (a folder that "
+                               "cannot decode to seek)")
+    postersp.add_argument("--decoder", type=decoder_option, action="append",
+                          default=[], metavar="MODULE:FUNC",
+                          help="the decoder hooks the media was shipped "
+                               "with, in the same order; repeatable")
+    postersp.add_argument("--fix", action="store_true",
+                          help="ship a poster per failing (video source, "
+                               "startSeconds) into <folder>, as ship does; "
+                               "needs --remap")
+    postersp.add_argument("--remap", type=Path, default=None, metavar="FILE",
+                          help="with --fix: write item id -> new poster "
+                               "here (JSON)")
+    postersp.add_argument("--out", type=Path, default=None, metavar="FILE",
+                          help="with --fix: write the requests it shipped "
+                               "here (ship's --list format)")
+    _add_limits(postersp)
     args = argp.parse_args(argv)
     try:
         ensure_ready()
     except MediaToolsError as exc:
         return _fail(str(exc), 2)
-    return ship(args) if args.command == "ship" else rebuild_cmd(args)
+    command = {"ship": ship, "rebuild": rebuild_cmd, "posters": posters_cmd}
+    return command[args.command](args)

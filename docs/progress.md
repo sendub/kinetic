@@ -2540,7 +2540,7 @@ truthful: an unchecked box means nothing was accepted.
 
 ## Phase 44: Poster check and fix (2026-11-09, converting agent)
 
-- [ ] `kinetic-media posters` (docs/plan.md Phase 44, item 1): check a
+- [x] `kinetic-media posters` (docs/plan.md Phase 44, item 1): check a
       manifest's video posters against the ledger (pixels when the ledger
       has no entry), report and exit 1 on a mismatch, `--first-frame` /
       `--first-frame-all` skips, and `--fix --remap FILE [--out FILE]`
@@ -2552,6 +2552,28 @@ truthful: an unchecked box means nothing was accepted.
       pair, after which the remapped manifest passes; a second `--fix`
       changes no file; first-frame flags skip; a poster without a ledger
       entry is caught by pixels. Docs per the plan.
+      (2026-11-09: `posters.py` builds one ledger lookup (entry plus
+      `alsoFrom`, the folder's build and media ledgers merged as
+      `rebuild` reads them), passes a poster whose `poster` step at the
+      item's start (six decimals) came from the video's source sha256,
+      fails a recorded other start or source, and compares pixels when
+      the ledger cannot say, including a step without `startSeconds`.
+      `POSTER_TOLERANCE` 3.0, mean absolute difference per channel,
+      measured on corpus 1080p videos and synthetic clips (correct posters
+      up to 2.31, wrong frames 0.75-150). `--fix` goes through
+      `ship_requests`, now the body of `ship`; it refuses a `--ledger`
+      other than the folder's own; `--remap` and `--out` are refused
+      without `--fix`. 13 tests. Orchestrator: posters, ship,
+      lossless-poster and rebuild tests 65 passed; npm test 912, check
+      clean. Real data, game I, read-only: 1504 video items,
+      1075 passed by ledger, 429 failed (428 episode 3 items whose
+      posters were made about 3 s into their segment, 127 of them
+      starting at 0; one episode 4 item whose poster is a slide image),
+      392 s, mostly the pixel differences; the folder's files and mtimes
+      unchanged. `--fix` on a scratch copy of five of those items with
+      their decoder hook: 4 requests, remap applied, check exit 0, new
+      posters 0.00 from the frame at their start, a second `--fix`
+      byte-identical.)
 - [ ] Validator poster warning (item 2): `validate_content.py --ledger
       FILE` warns, without failing, on a later-start video item whose
       poster's ledger entry records another or no `startSeconds`; output

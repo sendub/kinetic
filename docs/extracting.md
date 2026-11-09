@@ -743,6 +743,167 @@ Exit codes:
   no `media` section, other media tools, a bad game root, or tools that
   are not ready.
 
+## kinetic-media posters
+
+Checks that every video item's poster is the frame at the item's
+`startSeconds`, as docs/content-format.md ("Video playback ranges")
+requires, and with `--fix` ships the posters that are not
+(docs/plan.md Phase 44):
+
+```sh
+.venv/bin/kinetic-media posters <game_root> <folder> [--manifest FILE] \
+    [--ledger FILE] [--first-frame FILE ...] [--first-frame-all] \
+    [--decoder MODULE:FUNC ...] [--fix --remap FILE] [--out FILE] \
+    [--jobs N] [--video-jobs N]
+```
+
+- `<game_root>`: the root the folder's media was shipped from. Ledger
+  source paths are relative to it (for a kinetic-extract folder, the
+  project folder holding `game/`).
+- `<folder>`: the Kinetic folder holding `media/` and its ledgers.
+- `--manifest FILE`: the manifest to check (default
+  `<folder>/manifest.json`), for example a staged draft kept elsewhere.
+  Its `file` and `poster` paths are read from `<folder>`.
+- `--ledger FILE`: check against that ledger alone. The default is the
+  folder's `build-ledger.json` and/or `media-ledger.json`, read together
+  as `rebuild` reads them.
+- `--decoder`: the hooks the media was shipped with, in the same order.
+- `--jobs N`: up to N pixel comparisons at once. `--fix` ships with
+  `--jobs` and `--video-jobs` (Parallel workers, above).
+
+The pinned tools' self-test runs first. The ledgers are read once into
+one lookup by media path: 10,000 items against a 174 MB ledger of
+113,000 entries took about 1 s.
+
+### The pass rule
+
+Every `video` item is checked. Route items are spans of the one
+`items` array (docs/content-format.md, "Branches"), so this covers every
+route. An item without `startSeconds` starts at 0.
+
+- By ledger: the poster passes when a ledger record that made it (its
+  `media` entry or any `alsoFrom` source) has a `poster` step at the
+  item's `startSeconds`, made from a source whose sha256 also made the
+  item's video file. Both poster recipes, lossless and the older JPEG,
+  record `startSeconds`. Starts are compared as the recipe uses them, to
+  six decimals. A recorded other start or other source fails. An item
+  that passes this way is not decoded.
+- By pixels, when the ledger cannot say: the poster or the video has no
+  ledger entry, or the poster's steps record no `startSeconds` (a
+  hand-made or edited ledger; a missing start is not read as 0). The
+  poster and the frame at `startSeconds` are decoded with the pinned
+  tools and compared as 8-bit RGB. The frame comes from the video's
+  original source when a ledger record names it and it is still under
+  `<game_root>` with the recorded sha256 (after the decoder hooks), else
+  from the folder's video file. A frame one column or row bigger (a
+  transcode pads an odd size) is cropped to the poster. The poster
+  passes when the mean absolute difference per channel (0-255) is at
+  most 3.0.
+
+The limit (`POSTER_TOLERANCE`, `converter/kinetic_extract/posters.py`)
+comes from measurements with the pinned tools on five 1080p VP9 videos
+from two corpus games, a 1080p VP8 video, and synthetic test patterns
+and gradients (2026-11-09):
+
+| Comparison | 1080p game video | Synthetic 640x360 |
+| --- | --- | --- |
+| a correct older JPEG q90 poster against the exact frame | 0.02-1.36 | up to 2.04 |
+| the frame of the folder's H.264 transcode against the source's | 0.04-1.23 | up to 0.96 |
+| a correct JPEG q90 poster against the transcode's frame | up to 1.51 | up to 2.31 |
+| frame 0 against the frame at a later start | 0.75-108 | 5.5-150 |
+
+3.0 passes every correct case at 640x360 and up. Of the 19 real later
+starts measured, 15 differ from frame 0 by more than 3; the other four
+are a near-static logo fade (0.75) and slow loops of one moving figure
+(2.53-2.74). Tiny, sharp test patterns (96x54, 160x90) push a correct
+JPEG q90 poster to 3-9; such a poster fails, and `--fix` only ships a
+lossless one in its place.
+
+### Report and exit codes
+
+One line per failing item, then a summary:
+
+```text
+FAIL ep2-17: file media/3f/3f…e1.webm, startSeconds 2.5, poster startSeconds 0.0, difference 31.42 (ledger: poster made at another start)
+posters: 144 video items: 144 checked, 10 passed (10 by ledger, 0 by pixels), 134 failed, 0 skipped (first frame)
+```
+
+A `FAIL` line gives the item's id, `file` and `startSeconds`, the
+poster's recorded `startSeconds` (`none` when the ledger records none),
+the pixel difference (`unknown` when the poster or the frame cannot be
+decoded), and why:
+
+- `ledger: poster made at another start` or `ledger: poster made from
+  another source`;
+- `pixels: poster not in the ledger`, `pixels: video not in the
+  ledger` or `pixels: the ledger records no poster startSeconds`,
+  followed by `above 3.0` or what could not be decoded.
+
+`checked` counts the items not skipped; it is `passed` plus `failed`.
+
+Exit codes:
+
+- 0: nothing fails.
+- 1: anything fails (with `--fix`: anything is not fixable).
+- 2: it cannot start: no manifest or ledger, a bad game root, media
+  tools not ready, or bad arguments (`--fix` without `--remap`,
+  `--remap` or `--out` without `--fix`, `--fix` with a `--ledger` other
+  than `<folder>/media-ledger.json`).
+
+The check writes nothing: not the folder, a ledger or the reuse cache.
+Frames are decoded in a temporary directory that is deleted afterwards.
+
+### First-frame posters
+
+docs/content-format.md lets a folder that cannot decode to seek keep
+the file's first frame as the poster. `--first-frame FILE` (repeatable,
+a manifest video `file` value) skips that file's items, and
+`--first-frame-all` skips every video item. Skipped items count under
+`skipped` and are never reported or fixed. The ledger format does not
+change.
+
+### Fixing: --fix
+
+`--fix` needs `--remap FILE`. It:
+
+1. Groups the failing items by (video source sha256, `startSeconds`)
+   and makes one ship request per pair from the ledger's source ref for
+   the video: `{"source": {...}, "kind": "video", "startSeconds": S}`,
+   with no `id`, and no `startSeconds` when it is 0.
+2. Ships them into `<folder>` through the code `kinetic-media ship`
+   runs: the same recipe, tools, reuse cache, merge into
+   `<folder>/media-ledger.json`, `--decoder` hooks and limits. Each
+   video is reused from the ledger, so only posters are made. Old
+   posters stay in `media/` and in the ledger, as ship leaves them.
+3. Writes `--remap FILE`, a JSON object of item id -> new poster (a
+   manifest `poster` value) for every failing item it fixed, in
+   manifest order. `--out FILE` gets the requests it shipped, in ship's
+   `--list` format.
+
+It does not edit the manifest: set each remapped item's `poster`, then
+run the check again, which exits 0. The run ends `fix: N failing items,
+M requests shipped (one per video source and startSeconds), K items
+remapped in FILE`.
+
+A failing item it cannot fix is a `NOT FIXABLE <id>: <why>` line: the
+ledger has no entry for its video (so names no source to ship), its
+source is in project N of a several-project build, the ship skipped the
+request (its notes say why), or the file at the source path under
+`<game_root>` is not the one the ledger records. The other items are
+still fixed and remapped, and the run exits 1.
+
+The requests have no `id`, and ship replaces an identical earlier
+request in place, so running `--fix` again on the same manifest finds
+the same failures, encodes nothing and leaves the ledger, the media and
+the remap byte-identical.
+
+`--fix` ships into `<folder>/media-ledger.json`, so it refuses (exit 2)
+a `--ledger` naming any other file; the check alone accepts any ledger.
+On a kinetic-extract folder, which has only `build-ledger.json`, the
+fix creates `media-ledger.json`. That new ledger does not hold the
+folder's transcoded videos yet, so their first fix takes them from the
+reuse cache or transcodes them again, to the same bytes.
+
 ## Reuse cache
 
 Encoding is the slow part of a conversion: lossless JPEG XL at effort 9

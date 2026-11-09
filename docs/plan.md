@@ -1997,16 +1997,24 @@ episode.
    [--decoder MODULE:FUNC ...] [--fix --remap FILE] [--out FILE]
    [--jobs N] [--video-jobs N]`.
    - Inputs: `--manifest` defaults to `<folder>/manifest.json` (the agent
-     checks a staged manifest, which may live elsewhere). `--ledger`
-     defaults to `<folder>/media-ledger.json`, else
-     `<folder>/build-ledger.json`; both hold the same `media` section.
+     checks a staged manifest, which may live elsewhere and hard-link the
+     folder's media). By default the folder's ledgers are read as
+     `rebuild` reads them: `build-ledger.json` and/or `media-ledger.json`,
+     merged by media key. `--ledger FILE` replaces that default for the
+     check; `--fix` refuses (exit 2) a ledger other than the folder's own,
+     since ship merges into `<folder>/media-ledger.json`. Their ledger
+     holds about 113k media entries, so lookups are built once.
    - Check (the default; writes nothing): every video item, in routes too.
      The poster passes when its ledger entry (the main source or any
      `alsoFrom` source) records a `poster` step made from the same source
      sha256 as the item's video file, at the item's `startSeconds` (0 when
      the item has none). Both poster recipes, lossless and the older JPEG,
      record `startSeconds`. A recorded other start or other source fails.
-     A poster or video with no ledger entry is checked by pixels instead:
+     The agent confirmed (2026-11-09) that their frame-0 posters came from
+     kinetic-media ship requests with `startSeconds` 0.0 (episode 5), so
+     this ledger comparison is the whole check for them. A poster or
+     video with no ledger entry, or a poster step without `startSeconds`
+     (a hand-made or edited ledger), is checked by pixels instead:
      decode the poster and the frame at `startSeconds` (from the original
      source when the ledger names it, else from the folder's video file)
      and fail beyond a tolerance that a correct JPEG q90 poster, or a

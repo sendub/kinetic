@@ -41,6 +41,12 @@ are implementing and docs/stack.md for settled decisions.
   files: `.venv/bin/kinetic-media rebuild <game_root> <folder>
   [--decoder MODULE:FUNC ...] [--out DIR]` (exit 0 only when every hash
   matches).
+- Check that each video item's poster is the frame at its
+  `startSeconds`: `.venv/bin/kinetic-media posters <game_root> <folder>
+  [--manifest FILE]` (writes nothing; exit 1 lists the wrong ones);
+  `--fix --remap FILE` ships the right ones and writes item id -> new
+  poster for the caller to apply (docs/extracting.md, "kinetic-media
+  posters").
 - Step-by-step use of all of this (decoder hooks, a game-specific helper
   shipping per episode, rebuild on another machine, troubleshooting):
   CREATE.md, "Converting a Ren'Py project".

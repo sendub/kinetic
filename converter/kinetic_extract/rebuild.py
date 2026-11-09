@@ -65,21 +65,22 @@ class Report:
         self.failures.append(f"{ref}: {problem}")
 
 
+def read_ledger(path: Path) -> dict[str, Any]:
+    """A build or media ledger with a ``media`` section, or RebuildError."""
+    try:
+        ledger = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise RebuildError(f"{path}: cannot read: {exc}") from exc
+    if not isinstance(ledger, dict) or not isinstance(
+            ledger.get("media"), dict):
+        raise RebuildError(f"{path}: no \"media\" section to rebuild")
+    return ledger
+
+
 def load_ledgers(folder: Path) -> list[tuple[str, dict[str, Any]]]:
     """(file name, ledger) for each ledger in `folder`, build first."""
-    found: list[tuple[str, dict[str, Any]]] = []
-    for name in LEDGER_NAMES:
-        path = folder / name
-        if not path.exists():
-            continue
-        try:
-            ledger = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as exc:
-            raise RebuildError(f"{path}: cannot read: {exc}") from exc
-        if not isinstance(ledger, dict) or not isinstance(
-                ledger.get("media"), dict):
-            raise RebuildError(f"{path}: no \"media\" section to rebuild")
-        found.append((name, ledger))
+    found = [(name, read_ledger(folder / name)) for name in LEDGER_NAMES
+             if (folder / name).exists()]
     if not found:
         raise RebuildError(f"{folder}: no {BUILD_LEDGER} or {MEDIA_LEDGER}")
     return found
@@ -209,7 +210,7 @@ class _Sources:
         return self.hashes[path]
 
 
-def _source_ref(source: dict[str, Any]) -> dict[str, Any] | None:
+def source_ref(source: dict[str, Any]) -> dict[str, Any] | None:
     """The bare source ref the hooks are called with, or None when the
     ledger source has neither shape."""
     if isinstance(source.get("path"), str):
@@ -229,7 +230,7 @@ def rebuild_one(entry: dict[str, Any], made: dict[str, Any],
     the entry's sha256; otherwise reports through `fail` and returns
     None."""
     source = made.get("source") or {}
-    bare = _source_ref(source)
+    bare = source_ref(source)
     if bare is None:
         fail(f"unsupported source {json.dumps(source, sort_keys=True)}")
         return None
@@ -358,7 +359,7 @@ def _rebuild_entry(ref: str, entry: dict[str, Any], sources: _Sources,
     for n, made in enumerate([entry, *entry.get("alsoFrom", [])]):
         label = ref
         if n:
-            src = _source_ref(made.get("source") or {})
+            src = source_ref(made.get("source") or {})
             label = f"{ref} (also from {describe(src) if src else '?'})"
         report.sources += 1
         with tempfile.TemporaryDirectory(prefix="kinetic-rebuild-") as td:

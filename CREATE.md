@@ -762,6 +762,53 @@ reproduces a folder's media from its ledger and the game alone.
 
 Reference: docs/extracting.md, "kinetic-media rebuild".
 
+### Checking posters before delivery
+
+A video item's poster must be the frame at its `startSeconds`: the
+player shows it in skip, rewind and under text lines. A helper that
+ships a video once (at 0) and then uses it for items starting later
+gets frame-0 posters on those items. Before you deliver a folder, check
+every video item's poster against the ledger:
+
+```sh
+PYTHONPATH=~/games/rainy-kinetic .venv/bin/kinetic-media posters \
+    ~/games/RainyDay ~/games/RainyDay-Kinetic --decoder rainy_unwrap:decode
+```
+
+Use the same game root and `--decoder` hooks as the ship. To check a
+draft manifest kept outside the folder, add `--manifest
+path/to/manifest.json`. A good run exits 0 and ends `posters: N video
+items: N checked, N passed (...), 0 failed, 0 skipped (first frame)`.
+Exit 1 lists each wrong poster on a `FAIL <id>: ...` line with the
+item's `startSeconds`, the start the ledger records for its poster and
+the pixel difference. The check writes nothing.
+
+To fix them, add `--fix` and say where the remap goes:
+
+```sh
+PYTHONPATH=~/games/rainy-kinetic .venv/bin/kinetic-media posters \
+    ~/games/RainyDay ~/games/RainyDay-Kinetic --decoder rainy_unwrap:decode \
+    --fix --remap ~/games/rainy-kinetic/poster-remap.json \
+    --out ~/games/rainy-kinetic/poster-requests.json
+```
+
+It ships one poster per distinct video and `startSeconds` into the
+folder, as `kinetic-media ship` would (videos are reused, only posters
+are made), and writes the remap: item id -> new poster. `--out` keeps
+the requests it shipped. It does not touch your manifest: set each
+remapped item's `poster` (or have your helper use the new results),
+regenerate `manifest.js`, and run the check again, which now exits 0.
+Running `--fix` again before you apply the remap changes nothing. An
+item it cannot fix (`NOT FIXABLE <id>: ...`, for example a video the
+ledger has no entry for) makes it exit 1; fix that item by hand.
+
+A hand-made folder that cannot decode to seek may keep first-frame
+posters (docs/content-format.md, "Video playback ranges"): name those
+videos with `--first-frame FILE` (a manifest `file` value, repeatable),
+or pass `--first-frame-all`, and they are skipped.
+
+Reference: docs/extracting.md, "kinetic-media posters".
+
 ### The reuse cache
 
 Encoding (lossless JPEG XL at effort 9, transcodes, posters) is the
