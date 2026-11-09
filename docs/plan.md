@@ -2238,6 +2238,430 @@ shown exits 3.
    player: exit 0, every item visited, `story ended at step N`, and its
    wall time beside this plan's step-time table.
 
+## Phase 47: Audio (2026-11-09, user + converting agent)
+
+Kinetic has had no audio (README.md, docs/stack.md, docs/packaging.md).
+A converting agent asked for optional sound: music, ambience loops,
+one-shot effects, and a looping sound synced to a video clip. They derive
+the cues from their Ren'Py sources themselves and would hand Kinetic a
+manifest. A survey of 59 corpus games (51 with audio) found the same needs
+and three more:
+
+- voice lines: 4 games, none fully voiced;
+- several loops at once: 14 games reach 3 or more;
+- sound inside the video files: 452 of 986 probed videos carry an audio
+  stream, but only 131 are audible, the rest digital silence.
+
+Audio files there are mostly MP3 (6,874 files in 42 games), then Ogg
+(3,546 in 33), WAV (1,492 in 16) and Opus (117 in 7). kinetic-extract reads
+no audio and has two faults. It turns `voice "file"` into dialogue spoken by
+a character called `voice`. It rejects a menu whose choice block holds a
+`play` or `stop`.
+
+The user's decisions (2026-11-09):
+
+- One phase: the format, the player, the validator, kinetic-media and
+  kinetic-extract.
+- Media rule b (item 2): keep what every engine plays, copy Vorbis and
+  Opus out of Ogg into WebM without re-encoding, and re-encode the rest
+  to Opus in WebM. The measurements behind the rule used a 12.000 s
+  Vorbis tone made with the pinned ffmpeg, in headless Chrome 157 and
+  the WebKit driver on macOS 27.2, two runs each:
+  - in WebKit the Ogg file reports 12.34 s, and its clock runs 4-7%
+    slower than M4A, MP3 and WebM in the same engine;
+  - in Chrome it plays 0.8 s past its end;
+  - the same stream copied into WebM is right in both engines;
+  - the copy decodes to the same samples, and two runs give the same
+    bytes.
+
+  Safari plays Ogg only from Safari 18.4 on macOS 15.4. It plays Vorbis
+  and Opus in WebM from Safari 15-17.4, inside the Safari 17 baseline
+  JPEG XL already sets.
+- What plays at an item follows the reader's path back (item 1). No
+  item has to carry a full snapshot, and there is no per-route table.
+- Controls: `v` turns sound on or off. Music, Effects and Voice volumes
+  sit in a Volumes pop-out on the Esc screen, which is rebalanced
+  (item 7).
+- All sound pauses under the Esc screen. Music and ambience play again
+  only while the Volumes pop-out is open (items 5 and 7).
+- The Windows app starts sound at launch with no hint, like the Mac app,
+  if WebView2 allows it (Settled list below).
+
+Settled here, open to revisit:
+
+- **HTMLAudioElement only.** Under file:// in Chrome, Web Audio fed from
+  an element outputs zeros, and fetch of a sibling file fails (measured).
+  Bytes embedded in a script would add a third to the file size, plus
+  decoded PCM of about 69 MB for a 3-minute stereo track. Chrome leaves
+  a 3-11 ms seam at each loop (measured); that is accepted.
+- **Videos stay muted.** An unmuted video may be refused autoplay and
+  would stall. A video's own soundtrack plays as a separate track
+  synced to it.
+- **Mac app.** It keeps `mediaTypesRequiringUserActionForPlayback = []`,
+  so its sound starts at launch.
+- **Windows app.** It passes Chromium's
+  `--autoplay-policy=no-user-gesture-required` to WebView2, so its sound
+  starts at launch like the Mac app's. The flag goes in through the
+  environment options' `AdditionalBrowserArguments`, or through the
+  `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` variable WebView2 reads.
+  Microsoft lists the flag but discourages browser flags in production
+  apps. It is not verified on Windows. If WebView2 refuses a play anyway,
+  the hint shows as it does in a browser.
+
+For the converting agent, compared with their request:
+
+- Per-item `music` and `ambience` replace `state` and `set`.
+- No item needs a full snapshot. An item that sets both channels still
+  pins the state, so their planned keyframes stay valid.
+- `stateByRoute` is not needed: a join plays what the route read last
+  left.
+- Tracks carry no `kind`: the field that names a track decides its use.
+- `videoSound` is `{track, duck}`.
+- kinetic-media measures the durations, and it copies Ogg files into
+  WebM.
+
+1. Content format, schema and validator (docs/content-format.md, a new
+   "Audio" section; docs/content-schema.json; tools/validate_content.py).
+   Every field is optional, and a manifest without `audio` is unchanged.
+   `schemaVersion` stays 1.
+   - Top level `audio.tracks`, an object from id to track. A track has:
+     - `file`: the path rule, an audio extension;
+     - `durationSeconds`: required, > 0. WebKit misreports Ogg
+       durations, so the player never reads the element's;
+     - `startSeconds`: where a play starts (Ren'Py `<from N>`), default 0;
+     - `loopStartSeconds`: where a loop restarts (`<loop N>`), default 0;
+     - `loop`: music and ambience only, default true;
+     - `volume`: the author's level, 0-1, default 1.
+
+     Several ids may share one file.
+   - Per item, an optional `audio` with:
+     - `music`: a track id, or null to stop. One track at a time; a
+       change crossfades.
+     - `ambience`: the whole set of loops from here on, an array of
+       distinct ids; `[]` stops them all. A loop in both the old and the
+       new set plays on unbroken.
+     - `fadeMs`: the fade for this item's music and ambience changes,
+       default 1000.
+     - `sfx`: one-shots, `[{track, delayMs?, channel?}]`. A `channel`
+       name stops the one-shot already playing on that channel, as Ren'Py's
+       `play sound` does. Without one, one-shots overlap.
+     - `voice`: a track id, the item's voice line.
+     - `videoSound`: video items only, `{track, duck?}`. The track's time
+       is the video's media time, so it follows the item's range and
+       loop restart point. `duck` (0-1, default 1) scales music and
+       ambience while it plays.
+   - What plays at an item is resolved for music and for ambience
+     separately. It is the value set by the nearest item at or before it,
+     following the story back the way the reader came: through the route
+     last picked at each decision, the path the wheel walks back
+     (machine.ts `backwardOf`). Nothing set on the way back to item 0
+     means silence.
+     - A route's first item inherits from its decision's `after` item. A
+       join inherits from the route read last.
+     - An item that sets both channels pins the state whatever the path.
+     - One-shots and voice belong to their own item and never carry over.
+   - Validator rules:
+     - Track files exist and pass the path rule.
+     - Extensions are `.mp3 .m4a .wav .flac .webm`. Ogg (`.ogg .oga
+       .opus`) is accepted with a warning: stderr, exit code unchanged,
+       like the poster warning. The warning says the timing is wrong in
+       WebKit, Safari needs macOS 15.4, and kinetic-media copies Ogg into
+       WebM.
+     - `durationSeconds` > 0, with `startSeconds` and `loopStartSeconds`
+       inside it.
+     - `volume` and `duck` are in [0, 1]; `fadeMs` and `delayMs` are
+       >= 0.
+     - Every id resolves, and ambience ids are distinct.
+     - `videoSound` is only on video items. Its track is at least as long
+       as the item's range end (`endSeconds`, else the video's
+       `durationSeconds`), within 0.05 s.
+     - An item `audio` without top-level tracks is an error. A track no
+       item uses warns.
+2. kinetic-media `audio` (converter ship, rebuild and ledger;
+   docs/extracting.md). A request kind `audio`, with the same `source`
+   forms as image and video. The probe goes by container and codec, never
+   by name:
+   - Keep the bytes: MP3; AAC in MP4/M4A (shipped as `.m4a`); WAV PCM;
+     FLAC; Vorbis or Opus in WebM.
+   - Vorbis or Opus in Ogg: copy the stream into WebM without
+     re-encoding (`-map 0:a:0 -c:a copy -f webm` plus the bitexact output
+     flags).
+   - Anything else: re-encode to Opus in WebM at a fixed 128 kb/s.
+   - Audio from a video: when the source has a video stream, ship its
+     first audio stream by the same rule (AAC to M4A, Vorbis or Opus to
+     WebM, MP3 as it is, else re-encoded). Loudness is measured first,
+     as ffmpeg `volumedetect`'s maximum level.
+     - Below a threshold, it ships nothing and the result says `silent`.
+       The threshold is a named constant, measured on corpus videos:
+       digital silence against the quietest audible stream.
+     - A source with no audio stream says `no audio`.
+     - Neither is an error, so a converter can ask for every video's
+       sound.
+   - `durationSeconds` comes from decoding the shipped file: samples over
+     rate, 6 decimals. Container headers can be wrong for VBR MP3. A file
+     that will not decode fails its request; there is never a placeholder
+     (`set_video_duration`'s 1.0 is not used for audio).
+   - The ledger:
+     - Kind `audio`, with steps `preserve`, `remux`, `transcode` and
+       `extract` carrying full parameters.
+     - `alsoFrom`, the encode cache, `--jobs`, decoder hooks and
+       `rebuild` work as they do for video. `run_steps` gets an
+       extension per audio step; it no longer assumes `.mp4`.
+   - The self-test gets samples and cases for the remux, the re-encode and
+     the extract from a video. Their goldens are recorded from the
+     installed pinned tools with `tools/setup_media_tools.py --repin
+     CASE`, as the odd-size transcode golden was.
+3. `fixtures/audio-demo`, a guided tour of sound, built by
+   `fixtures/build_audio_demo.py`. It shares build_demo.py's helpers and
+   makes distinct tones from the PATH ffmpeg's `sine` and `anoisesrc`. The
+   builder validates its output like the demo builder, with a test in
+   `tools/`. Every line of text says what the reader should hear:
+   - music starting; a crossfade; a track that starts partway, with a
+     loop restart point;
+   - two ambience loops starting, then one stopping while the other plays
+     on;
+   - one-shots: a delayed one, two on one channel (the second cuts the
+     first), two without a channel (they overlap);
+   - voice lines on a text chain, one longer than its text, so
+     auto-forward waits for it;
+   - a decision whose two routes leave different music, joining at
+     `continueAt`, where the music is the route read last;
+   - a video with a range and a loop restart point, its synced sound
+     ducking the music, with a text chain over it.
+
+   Tracks are a mix of WebM, M4A, MP3 and WAV. fixtures/demo stays silent,
+   so tests also show that a silent game has no sound controls.
+4. Player: what should play, and how the cursor arrived (machine;
+   Vitest).
+   - render/manifest.ts parses `audio` and checks its paths like `file`.
+     A manifest without it creates nothing for audio.
+   - The machine exposes the target sound for the screen on show:
+     - the music, a track id or none;
+     - the ambience set;
+     - the item's voice;
+     - for a video visual, its `videoSound`.
+
+     It is resolved as item 1 says, through the current last picks. Lift
+     `backwardOf` out of the `createMachine` closure if needed. Choice
+     screens, the play-all countdown and the end card keep the sound of
+     the screen before them.
+   - Each arrival carries a kind:
+     - `read`: Space; auto-forward; a pick on a choice screen, including
+       play-all's, entering the route's first item; the join or close
+       reached by reading on.
+     - `skip`: Tab's steps.
+     - `walk`: the wheel.
+     - `jump`: `e`, `u`, a bookmark, the branch map, load, reload, Import,
+       Reset.
+
+     Today `u` reports `transition` `advance` and picks report `nav`. The
+     new field changes neither `transition` nor anything that reads it.
+   - Speed: on a synthetic manifest of 160,000 items, 400 decisions and
+     5,000 music changes, resolving takes under 1 ms per arrival (p95),
+     recorded in docs/perf.md. Nothing in it delays a paint.
+5. Player: playback (a new render module, main.ts wiring).
+   - Elements are made on first need and reused:
+     - two for music, for the crossfade;
+     - one per playing ambience loop;
+     - a pool of 6 for one-shots, the oldest stolen;
+     - one for voice;
+     - one for video sound (item 6).
+
+     A manifest without audio makes none.
+   - Volume is the track's `volume` x the reader's group volume x duck x
+     fade. The groups: Music for music and ambience, Effects for
+     one-shots and video sound, Voice for voice. Fades step
+     `element.volume` on animation frames.
+   - By arrival kind:
+     - `read`: apply the target at once with the item's `fadeMs`, start
+       its voice, and fire its one-shots after `delayMs`. A pending
+       one-shot is dropped if the cursor leaves the item first.
+     - `walk` and `jump`: once the cursor has rested 250 ms (a named
+       constant), apply the target with a 250 ms fade and start the
+       voice. Fire no one-shots; playing ones fade out.
+     - `skip`: nothing changes while skipping. When skip stops, the item
+       it stopped on is applied as after a rest.
+   - Track rules:
+     - Voice stops when the cursor leaves its item.
+     - A music or ambience track that is still wanted plays on and is
+       never restarted.
+     - A non-looping music track plays once, then stays silent until the
+       music changes.
+   - Menus and visibility:
+     - Under the Esc screen every element pauses: music, ambience, voice,
+       one-shots and video sound.
+     - While the Volumes pop-out (item 7) is open, music and ambience
+       play. Closing it pauses them again.
+     - Closing the Esc screen resumes everything that was playing.
+     - Music and ambience play on under the branch map and a choice
+       screen. Voice pauses under the map and resumes on close.
+     - While the page is hidden, every element pauses; they resume when
+       it is shown.
+   - Unlock:
+     - The first key or click that counts as a user activation (not Esc,
+       not a Cmd/Ctrl/Alt shortcut) starts every element the game needs,
+       inside that handler. Then the target applies, and the key still
+       does its own job.
+     - Until then, when sound is on, the manifest has audio and the
+       browser refused to play, a quiet hint "Press any key for sound"
+       shows. It is styled like the pills, moves nothing, and goes on the
+       first gesture.
+     - In a browser, nothing plays after a reload before a gesture.
+     - The Mac and Windows apps allow sound with no gesture (Settled
+       list), so they play at launch and show no hint. The Windows app's
+       Go tests check that the flag reaches the environment it creates.
+     - The WebKit driver gains a test-only option that requires a gesture
+       for audio (`.audio`), so the unlock is tested in WebKit too.
+   - Auto-forward waits for the item's voice line to end when the voice
+     is audible: sound on, Voice above 0, unlocked. docs/content-format.md
+     "Timing" says so.
+   - Warm-up: the one-shots and voice of the next 3 items in story order
+     get preloaded elements, capped, like the image warm-up.
+   - Test hook: a hidden `#audio` element.
+     - Its children are the live elements, each with `data-slot`
+       (`music`, `ambience`, `sfx`, `voice` or `video`) and `data-track`.
+       Tests read `paused`, `currentTime` and `volume` from them.
+     - It carries `data-target` (the resolved target, as JSON) and
+       `data-unlocked`.
+     - `openGame` and `current()` in player/scripts/testing/kinetic.mjs
+       report all this as `audio`, so a converter can check the sound per
+       item with no window (CREATE.md, "Testing your game").
+6. Player: video sound (render/visual.ts and the audio module).
+   - It plays only while the video really plays: after its `playing`
+     event, not paused, not a poster.
+     - Under a text chain the clip plays on, and so does its sound.
+     - During a skip with "Play videos in full", a playing video has its
+       sound.
+     - On posters (skip, walking back over seen content) it is silent.
+   - Sync:
+     - It starts at the video's `currentTime`.
+     - It seeks at every range wrap (`passBoundary`) and at every native
+       loop wrap, detected as `currentTime` moving back.
+     - It re-seeks when it is more than 80 ms from the video. The
+       constant is named and measured: the converting agent found a
+       steady 16-43 ms behind, and 200-340 ms off right after a seek in
+       Chrome.
+   - It pauses and resumes with the video, under menus and on a hidden
+     page. Chrome itself pauses a muted video in a hidden tab.
+   - `duck` fades music and ambience down while it plays, and back up
+     after.
+7. Player: sound controls and the rebalanced Esc screen
+   (render/keys.ts, config.ts, help.ts, index.html, machine/types.ts).
+   - Settings: `soundOn` (default true), and `musicVolume`,
+     `effectsVolume` and `voiceVolume` (0-1, default 1, steps of 0.1).
+     They are saved per story and exported like the other numbers and
+     booleans.
+   - `v` turns sound on or off, with a "Sound on" or "Sound off" pill
+     like Tab's and `a`'s.
+     - In a game without audio it does nothing and shows nothing.
+     - Turning sound on applies the current target, with no one-shots and
+       no voice restart.
+   - The Esc screen changes only when the manifest has audio:
+     - The Keys card gains a `v` row, "Sound on/off".
+     - Settings gains one "Sound" row: an on/off switch (the same setting
+       as `v`) and a "Volumes..." button.
+     - The button opens a small sheet over the Esc screen, styled and
+       handled like the reset box: centred, focus kept inside, Esc closes
+       the sheet alone.
+     - The sheet has a `- slider +` row per volume, like auto-forward
+       speed: Music, Effects, and Voice only when some item has `voice`.
+     - Changes are heard at once and saved. Music and ambience play while
+       the sheet is open (item 5). An Effects or Voice change plays a
+       sample of at most 2 s at the new level: the last one-shot fired,
+       else the game's first one-shot track; the current item's voice,
+       else the game's first voice track.
+   - Balance:
+     - In the wide layout, the Keys card and the Settings section are the
+       same width within 1 px, and their natural heights are within
+       20 px. This holds at 1920x1080, 1280x720 and 800x600, for both
+       fixtures/demo and fixtures/audio-demo.
+     - For both, the whole screen fits without a scroll at 1280x720,
+       700x900 and 800x600, with Reset in view at 800x600.
+     - keys.test's check that every command has a row allows the `v` row
+       to be absent in a silent game.
+8. kinetic-extract reads Ren'Py audio (converter parser and timeline;
+   docs/extracting.md).
+   - What it reads:
+     - Statements: `play`, `queue` and `stop` on `music`, `sound`,
+       `audio`, `voice`, and on channels registered with
+       `renpy.music.register_channel` or `renpy.audio.register_channel`.
+       Their literal arguments (name, mixer, loop default) are read from
+       the scripts.
+     - `voice "file"`.
+     - `$ renpy.music.play/queue/stop(...)` and `renpy.sound.play(...)`
+       with literal arguments.
+     - Clauses: `fadein`/`fadeout` become `fadeMs`; `loop`, `noloop` and
+       `if_changed`; `volume` becomes the track's `volume`.
+     - File names given as strings, `define audio.x = "file"` names, and
+       the automatic `audio.` names (a file's base name).
+     - The partial-file specs `<from N>` and `<loop N>` become a track's
+       `startSeconds` and `loopStartSeconds`.
+   - Mapping:
+     - The `music` channel becomes music.
+     - A looping play on any other channel adds that channel's loop to
+       ambience, and stopping the channel removes it.
+     - A non-looping play becomes a one-shot whose `channel` is the
+       Ren'Py channel. On `audio`, one-shots have no channel, so they
+       overlap.
+     - `voice` becomes the item's voice.
+     - Each cue attaches to the next item emitted. The converting agent
+       derived theirs this way, matching an engine trace 99.7% / 99.8%.
+     - Music and ambience changes become the item's `music` and
+       `ambience` (the whole ambience set).
+     - A cue after the last item is reported.
+   - Not converted, each reported with its statement:
+     - playlists, and `queue` beyond the first track (the first plays);
+     - `<silence>`;
+     - `set_volume`;
+     - expressions and variables naming a file;
+     - creator-defined statements;
+     - audio inside screens, ATL, and Python other than the literal calls
+       above;
+     - a voice file that is missing (its cue is dropped).
+   - Fixes:
+     - `voice "file"` no longer becomes dialogue.
+     - Audio statements inside a choice block no longer reject the menu;
+       they attach to the route's first item.
+9. kinetic-extract ships the sound (converter assets; fixtures/renpy_demo).
+   - Every audio file a cue names ships through item 2's `audio` kind into
+     `media/` and the ledger, loose or from `.rpa`.
+   - `audio.tracks` gets one id per distinct file, `startSeconds`,
+     `loopStartSeconds` and `volume`, with the measured duration.
+   - Each video item's file is also requested as `audio`. An audible
+     soundtrack becomes the item's `videoSound` (`duck` 1). Silent and
+     absent ones are skipped and counted in the summary.
+   - fixtures/renpy_demo gains music, an ambience loop, a one-shot, a voice
+     line, an audio statement inside a menu choice, and a movie with an
+     audible soundtrack. generate_assets.py keeps `-an` for every other
+     video. The golden manifest is updated.
+10. Docs:
+    - README: sound under Content, `v` under Playing, the Volumes pop-out
+      on the Esc screen, the audio demo under The demo; "Audio" leaves
+      Not supported.
+    - docs/stack.md: the requirements line; why videos stay muted; an
+      audio decision covering formats, HTMLAudioElement, the file:// facts
+      and the app hosts.
+    - docs/packaging.md.
+    - CREATE.md: sound in a hand-written folder; audio in kinetic-extract
+      and in kinetic-media ship lists; the `audio` state in "Testing your
+      game"; the note that a remuxed video has no audio track points to
+      video soundtracks.
+    - docs/verify-player.md: the audio scenario rows, and a manual
+      listening checklist that walks fixtures/audio-demo step by step,
+      saying what to hear.
+    - AGENTS.md's command list.
+    - apps/README.md: both apps play sound at launch, the Windows app
+      through the autoplay flag.
+    - docs/perf.md: navigation p95 with audio, on the audio demo and on
+      item 4's large synthetic manifest, within 41 ms.
+11. The user runs the listening checklist once, on fixtures/audio-demo, in
+    real Safari, desktop Chrome and a Mac app built for it. Agents cannot
+    hear. What the user reports becomes fixes before the phase closes.
+
+Not verified, and not verifiable on this machine: WebM Vorbis and Opus in
+Safari 15-17 (caniuse and WebKit bug 183852 say yes), WebView2's autoplay,
+and Firefox.
+
 ## Later, waiting on the user
 
 - Overlay text styling iteration once the user can play with the demo.

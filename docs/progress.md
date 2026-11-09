@@ -2896,3 +2896,136 @@ truthful: an unchecked box means nothing was accepted.
       phase a step on that game grew from 3.6 to 21.3 ms on WebKit as the
       reading went on (plan table), and the converting agent's 159,609-item
       walk took 57.5 minutes.)
+
+## Phase 47: Audio (2026-11-09, user + converting agent)
+
+- [ ] Audio in the content format (docs/plan.md Phase 47, item 1):
+      top-level `audio.tracks` and per-item `audio` (`music`, `ambience`,
+      `fadeMs`, `sfx` with `delayMs` and `channel`, `voice`,
+      `videoSound` with `duck`). Covered in docs/content-format.md
+      ("Audio", with path-following resolution), the schema and the
+      validator. Tests:
+      - a manifest using every field passes;
+      - each rule fails its own case: a missing file, an unknown id,
+        `videoSound` on an image item, a `videoSound` track shorter than
+        the range, a duplicate ambience id, a volume of 1.5, item `audio`
+        with no tracks;
+      - an Ogg track warns on stderr and leaves the exit code alone;
+      - an unused track warns;
+      - the validator's output on fixtures/demo and the branches example
+        is unchanged.
+- [ ] kinetic-media `audio` kind (item 2): keep MP3, M4A, WAV, FLAC and
+      WebM; copy Ogg Vorbis or Opus into WebM without re-encoding;
+      re-encode the rest to Opus in WebM; audio from a video, with a
+      loudness check (`silent` and `no audio` results); durations by
+      decoding; ledger steps, rebuild, cache and `--jobs`; self-test
+      cases with goldens recorded by `--repin`. Tests:
+      - each keep format ships byte-identical;
+      - an Ogg Vorbis and an Ogg Opus source ship as WebM that decodes to
+        the source's samples;
+      - an AIFF source ships as Opus WebM;
+      - a VBR MP3 whose header misstates its length gets its decoded
+        duration;
+      - a video with a tone ships the tone, one with a silent track says
+        `silent`, one with none says `no audio`;
+      - shipping twice is byte-identical, and the second run encodes
+        nothing;
+      - `rebuild` reproduces every audio file, and a changed byte fails
+        it.
+- [ ] `fixtures/audio-demo` guided tour (item 3), built and validated by
+      `fixtures/build_audio_demo.py`, every line saying what to hear.
+      Tests: a fresh build validates; building twice gives identical
+      files; the manifest exercises every audio field.
+- [ ] Player: target sound and arrival kinds in the machine (item 4).
+      Tests (Vitest):
+      - a route start inherits from its decision's `after` item;
+      - a join follows the last pick and changes when the pick changes;
+      - an item that sets both channels ignores the path;
+      - silence before any change;
+      - choice screens and the end card keep the previous sound;
+      - every move gets its arrival kind: Space, auto-forward, a pick,
+        play-all's pick and a join are `read`; Tab is `skip`; the wheel
+        is `walk`; `e`, `u`, a bookmark, a map click and a reload are
+        `jump`;
+      - `transition` is unchanged everywhere;
+      - resolution on the 160,000-item synthetic manifest takes under
+        1 ms per arrival (p95).
+- [ ] Player: playback (item 5): elements, crossfade, the ambience set,
+      one-shots, voice, the 250 ms rest, menus, hidden page, unlock and
+      hint, voice holding auto-forward, warm-up, the `#audio` hook, and
+      `audio` in kinetic.mjs's `current()`; a WebKit driver option that
+      requires a gesture for audio; the Windows app's autoplay flag.
+      Tests:
+      - Vitest for the volume product, the one-shot pool (steal oldest,
+        `channel` cuts) and the rest timer.
+      - `audio.scenario.mjs` on fixtures/audio-demo, in Chrome and
+        WebKit:
+        - Space, the wheel, `e`, `u`, a bookmark, a reload and skip each
+          land on the item's resolved target, read through the hook;
+        - one-shots fire only on `read` arrivals;
+        - the join's music follows the route read last;
+        - after a reload nothing plays before a gesture, the hint shows,
+          and one key unlocks it (in WebKit with the gesture option);
+        - a hidden page pauses and a shown one resumes;
+        - the Esc screen pauses every element, and closing it resumes
+          them;
+        - music and ambience play on under the branch map;
+        - auto-forward waits for a long voice line only while it is
+          audible;
+      - fixtures/demo creates no audio element.
+      - The Windows app's Go tests: the environment is created with the
+        autoplay flag; `GOOS=windows go vet` is clean.
+- [ ] Player: video sound (item 6): it plays only while the video plays,
+      syncs at range and native loop wraps, re-seeks past 80 ms, pauses
+      with the video, and ducks. Tests (scenario parts on the audio
+      demo's video, in Chrome and WebKit):
+      - silent on posters, playing while the video plays;
+      - within 80 ms of the video across three range wraps and after a
+        seek;
+      - playing on under the text chain;
+      - the duck applied and lifted;
+      - paused under the Esc screen.
+- [ ] Player: sound controls and the Esc screen (item 7): `soundOn` and
+      the three volumes, saved and exported; `v` with its pill; the Keys
+      row, the Sound row and the Volumes pop-out, only when the manifest
+      has audio; the rebalanced layout. Tests (screens scenario parts for
+      both fixtures):
+      - the existing layout checks pass for each;
+      - widths within 1 px and natural heights within 20 px at
+        1920x1080, 1280x720 and 800x600;
+      - no scroll at 1280x720, 700x900 and 800x600, with Reset in view;
+      - the pop-out opens, works from the keyboard, and Esc closes only
+        it;
+      - a volume change shows on the hook element's `volume` and
+        survives a reload;
+      - music and ambience play while the pop-out is open and pause
+        again when it closes;
+      - an Effects or Voice change plays a sample of at most 2 s;
+      - `v` and its pill;
+      - fixtures/demo shows neither row, and `v` does nothing there.
+- [ ] kinetic-extract reads Ren'Py audio (item 8): the statements,
+      channels, names and specs it lists, mapped to music, ambience,
+      one-shots and voice on the next item; the unconverted cases
+      reported; the `voice` and menu faults fixed. Tests:
+      - a synthetic `.rpy` case for each statement and mapping;
+      - the `voice` and menu regressions, red before the fix;
+      - a report line for each unconverted form.
+- [ ] kinetic-extract ships the sound (item 9): audio through the
+      `audio` kind, tracks with measured durations, and audible video
+      soundtracks as `videoSound`. fixtures/renpy_demo gains the cases
+      the plan lists. Tests:
+      - the renpy_demo golden;
+      - converting twice gives identical folders;
+      - `rebuild` reproduces the audio;
+      - the converted folder validates and plays its sound in
+        `check-game.mjs` (read through the hook).
+- [ ] Docs (item 10): README, docs/stack.md, docs/packaging.md, CREATE.md,
+      docs/verify-player.md (scenario rows and the listening checklist),
+      AGENTS.md, apps/README.md, and docs/perf.md, with navigation p95
+      with audio measured on both manifests.
+- [ ] User: the listening checklist (item 11), on fixtures/audio-demo in
+      real Safari, desktop Chrome and a Mac app built for it. The
+      orchestrator does not tick this; the user reports, and any finding
+      becomes a fix first.
+- [ ] Phase-closer (Phase 47): full pytest, the full `npm run verify` and
+      `npm run verify -- --webkit`, package-proof.
