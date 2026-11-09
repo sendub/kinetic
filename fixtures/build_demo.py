@@ -160,6 +160,15 @@ def extract_poster(mp4: Path, seconds: float, poster: Path) -> None:
 # to; the scenario suite (player/scripts/scenarios/) finds items by id.
 
 
+def scene(out: Path, name: str, top, bottom, *shapes) -> None:
+    """Save `<name>.jpg`: a gradient with circles ("c", (cx, cy, r), color)
+    and rectangles ("r", (x0, y0, x1, y1), color) drawn in order."""
+    img = new_canvas(top, bottom)
+    for kind, args, color in shapes:
+        (circle if kind == "c" else rect)(img, *args, color)
+    save_jpeg(img, out / f"{name}.jpg")
+
+
 def card(out: Path, item_id: str, text: str) -> dict:
     """A section title card: near-black canvas with a thin accent rule."""
     img = new_canvas((14, 14, 18), (24, 22, 26))
@@ -412,25 +421,19 @@ def section_branches(out: Path) -> tuple[list[dict], list[dict]]:
     """Two decisions: an outer one with a continuing route (containing a
     nested continuing/return pair) and an ending route, then aftermath."""
 
-    def scene(name: str, top, bottom, *shapes) -> None:
-        img = new_canvas(top, bottom)
-        for kind, args, color in shapes:
-            (circle if kind == "c" else rect)(img, *args, color)
-        save_jpeg(img, out / f"{name}.jpg")
-
-    scene("branch-lead", (70, 58, 96), (196, 178, 150),
+    scene(out, "branch-lead", (70, 58, 96), (196, 178, 150),
           ("r", (320, 170, 640, 390), (250, 236, 208)),
           ("r", (452, 260, 508, 390), (120, 96, 70)))
-    scene("branch-decide", (40, 52, 82), (150, 130, 92),
+    scene(out, "branch-decide", (40, 52, 82), (150, 130, 92),
           ("c", (WIDTH // 2, 280, 120), (232, 204, 150)),
           ("r", (380, 280, 580, 430), (90, 70, 56)))
-    scene("route1-start", (58, 70, 48), (178, 190, 150),
+    scene(out, "route1-start", (58, 70, 48), (178, 190, 150),
           ("r", (250, 240, 710, 300), (226, 214, 190)),
           ("r", (430, 210, 530, 240), (250, 244, 226)))
-    scene("route2-start", (52, 40, 40), (158, 120, 108),
+    scene(out, "route2-start", (52, 40, 40), (158, 120, 108),
           ("r", (0, 380, WIDTH, HEIGHT), (60, 46, 44)),
           ("c", (480, 200, 60), (244, 226, 198)))
-    scene("after-start", (90, 96, 130), (210, 204, 178),
+    scene(out, "after-start", (90, 96, 130), (210, 204, 178),
           ("c", (700, 130, 64), (254, 246, 214)),
           ("r", (0, 420, WIDTH, HEIGHT), (96, 108, 92)))
 
@@ -553,6 +556,34 @@ def reset_dir(out: Path) -> None:
     out.mkdir(parents=True)
 
 
+def write_manifest(out: Path, manifest: dict) -> None:
+    """Write manifest.json and its manifest.js shim."""
+    manifest_text = json.dumps(manifest, indent=2, ensure_ascii=True)
+    (out / "manifest.json").write_text(manifest_text + "\n",
+                                       encoding="utf-8")
+    (out / "manifest.js").write_text(
+        validate_content.SHIM_PREFIX + manifest_text + ";\n",
+        encoding="utf-8")
+
+
+def folder_problems(out: Path, items: list[dict]) -> list[str]:
+    """The validator's problems plus any image not WIDTH x HEIGHT."""
+    return (validate_content.validate_folder(out)
+            + image_size_problems(out, items))
+
+
+def report(out: Path, problems: list[str]) -> None:
+    """Exit 1 with one line per problem, else say what was written."""
+    if problems:
+        for problem in problems:
+            print(f"schema check FAIL: {problem}", file=sys.stderr)
+        sys.exit(1)
+
+    names = sorted(p.name for p in out.iterdir())
+    print(f"wrote {len(names)} files to {out}")
+    print("schema check OK")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Generate the Kinetic feature demo content folder.")
@@ -586,23 +617,8 @@ def main() -> None:
         "branches": branches,
     }
 
-    manifest_text = json.dumps(manifest, indent=2, ensure_ascii=True)
-    (out / "manifest.json").write_text(manifest_text + "\n",
-                                       encoding="utf-8")
-    (out / "manifest.js").write_text(
-        validate_content.SHIM_PREFIX + manifest_text + ";\n",
-        encoding="utf-8")
-
-    problems = validate_content.validate_folder(out)
-    problems += image_size_problems(out, items)
-    if problems:
-        for problem in problems:
-            print(f"schema check FAIL: {problem}", file=sys.stderr)
-        sys.exit(1)
-
-    names = sorted(p.name for p in out.iterdir())
-    print(f"wrote {len(names)} files to {out}")
-    print("schema check OK")
+    write_manifest(out, manifest)
+    report(out, folder_problems(out, items))
 
 
 if __name__ == "__main__":

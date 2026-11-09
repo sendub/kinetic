@@ -2972,10 +2972,28 @@ truthful: an unchecked box means nothing was accepted.
       left the ledger byte-identical. Not changed: a pre-existing
       video-path ledger note that drops on re-ship when two sources
       give identical transcodes; fixed on the audio path only.)
-- [ ] `fixtures/audio-demo` guided tour (item 3), built and validated by
+- [x] `fixtures/audio-demo` guided tour (item 3), built and validated by
       `fixtures/build_audio_demo.py`, every line saying what to hear.
       Tests: a fresh build validates; building twice gives identical
       files; the manifest exercises every audio field.
+      (2026-11-09: 35 items in sections for music (a 4 s crossfade, a
+      fanfare with `loop: false`, a track with `startSeconds` 6 and
+      `loopStartSeconds` 3, `music: null`), ambience (two loops, the set
+      shrinking, `[]`), one-shots (`delayMs`, a channel cut, an
+      overlap), voice (an 8.4 s line that outlasts its text), a
+      decision whose continuing and `continue` routes set different
+      music and join at a `continueAt` that sets none, a ranged video
+      with a synced `videoSound` ducking to 0.3, and an item pinning
+      both channels. 15 tracks in M4A, WebM Opus, WebM Vorbis, MP3 and
+      WAV, durations from decoded samples; 1.4 MB. build_demo.py's
+      helpers became module-level for reuse; its output is unchanged
+      (all 28 file hashes). fixtures/audio-demo is gitignored like
+      fixtures/demo. 26 tests, red first (no builder). Orchestrator:
+      build_audio_demo, build_demo and validate_content tests 210
+      passed; the demo rebuilt to the same hashes; the audio demo
+      assembled with tools/assemble_folder.py plays 36 screens in
+      check-game.mjs with no console or page errors in Chrome and
+      WebKit.)
 - [ ] Player: target sound and arrival kinds in the machine (item 4).
       Tests (Vitest):
       - a route start inherits from its decision's `after` item;
