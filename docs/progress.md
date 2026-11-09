@@ -2780,7 +2780,7 @@ truthful: an unchecked box means nothing was accepted.
       broken demo copy past the faults (13, 20 and 31 steps) then
       `checkMedia()` lists the three faults once each on both engines,
       the clean demo none, in about 55 ms.)
-- [ ] check-game.mjs (item 5): `--steps all`, the end stop, the stuck
+- [x] check-game.mjs (item 5): `--steps all`, the end stop, the stuck
       stop, the heartbeat, the summary, `--start-at`, `--until`, exit
       codes 0/1/2/3. Tests (a scenario part running the CLI on demo
       copies, both engines):
@@ -2795,6 +2795,31 @@ truthful: an unchecked box means nothing was accepted.
         exits 1;
       - the heartbeat appears on stderr when its interval is shortened
         for the test.
+      (2026-11-09: the walk's decisions are a pure module, walk.mjs
+      (`readArgs`, `startWalk().see()`, `exitCode`, cap `2n+1000`, stuck at
+      5 unchanged presses over 2 s), driven by a rewritten check-game.mjs
+      whose `  N: <summary>` lines are unchanged. The end is an unchanged
+      press with the end card up (`current().endCard`, new) or on the
+      manifest's last item. After an unchanged press it waits 100 ms, so a
+      stuck player is ~20 presses. The heartbeat (stderr, 30 s,
+      `KINETIC_CHECK_GAME_HEARTBEAT_MS` for tests) names the step, items
+      seen and screen; `checkMedia()` runs before errors are read, with a
+      stderr note from 100 files. Ids are checked against the manifest
+      before any browser starts (`readManifestFile`, now exported). Tests
+      ran red first: walk.test.mjs 28 (each of 9 injected faults caught);
+      new checkgame.scenario.mjs, 16 checks per engine (demo `--steps
+      all` ends at step 35 with 32 of 32 visited; `--steps 1000` the same;
+      a linear copy; an unreachable item between `route2-end` and
+      `after-start`, which the validator accepts, exits 3, and 1 with a
+      missing picture; `--start-at`/`--until`; unknown ids exit 2; the
+      heartbeat; a pure-choice ending stopped by the end card alone; a
+      stuck player). A 5,000-item generated game walked to the end in
+      4.8 s on Chrome and 8.6 s on WebKit. Orchestrator: npm test 1014,
+      check clean, smoke 6/6; checkgame 16/16 and creator 29/29 on both
+      engines; on an assembled demo `--steps all` ends at step 35, exit 0
+      on both engines, a random-bytes video gives one error line and exit
+      1, `--start-at route1-start --until after-start` stops there, an
+      unknown id exits 2.)
 - [ ] Player: videos always fill the stage (item 6, user): a video
       sometimes plays smaller than the stage; scrolling back and Space
       usually fixes it; trigger unknown. Find the trigger and fix the

@@ -182,10 +182,22 @@ export async function findItem(game, now, lastIndex) {
 const STAGE_ITEM = () =>
   document.getElementById("stage")?.getAttribute("data-item") ?? null;
 
+// The player's end card (`#end-card`, docs/plan.md Phase 18) when it shows:
+// its words (the title, then the hint when there is one); else null.
+const END_CARD = () => {
+  const card = document.getElementById("end-card");
+  if (card === null || card.hidden) return null;
+  const words = Array.from(card.children, (el) =>
+    el.hidden ? "" : (el.textContent ?? "").trim(),
+  ).filter((text) => text !== "");
+  return words.length > 0 ? words.join(" ") : (card.textContent ?? "").trim();
+};
+
 // Everything current() reports, read in one round trip.
 const READ_NOW = `({
   state: (${PAGE_STATE})(),
   dataItem: (${STAGE_ITEM})(),
+  endCard: (${END_CARD})(),
   choice: (${READ_CHOICE})(),
   map: (${MAP_OPEN})(),
   playAll: document.querySelector(".config-play-all")?.getAttribute("aria-pressed") ?? null,
@@ -495,11 +507,12 @@ async function checkStartedAt(page, id) {
 const SHIM_PREFIX = "window.KINETIC_MANIFEST = ";
 
 /**
- * The folder's manifest as the player reads it: manifest.js (`window.
+ * The folder `dir`'s manifest as the player reads it: manifest.js (`window.
  * KINETIC_MANIFEST = {...};`, generated from manifest.json) first, else
- * manifest.json. Null when neither holds one.
+ * manifest.json. Null when neither holds one. Reads files only, so a
+ * script can check ids before it opens the game.
  */
-function readManifestFile(dir) {
+export function readManifestFile(dir) {
   try {
     const shim = readFileSync(join(dir, "manifest.js"), "utf8").trim();
     if (shim.startsWith(SHIM_PREFIX)) {
@@ -784,6 +797,7 @@ function gameHandle({ page, cdp, errors, manifest, closeHelp }, fields) {
       screen: s.helpOpen ? "esc" : now.map ? "map" : null,
       foundBy,
       ambiguous,
+      endCard: now.endCard,
     };
   };
 
@@ -843,10 +857,13 @@ function gameHandle({ page, cdp, errors, manifest, closeHelp }, fields) {
     },
     /**
      * What the screen shows: `{ id, index, text, speaker, file, choice,
-     * screen, foundBy, ambiguous }`. `id` and `index` name the item on
-     * screen (null and -1 for none); `foundBy` says how it was named
-     * ("player", "screen", "saved place", "guess" or "none", findItem);
-     * `ambiguous` lists the look-alike items' ids behind a guess, else [].
+     * screen, foundBy, ambiguous, endCard }`. `id` and `index` name the
+     * item on screen (null and -1 for none); `foundBy` says how it was
+     * named ("player", "screen", "saved place", "guess" or "none",
+     * findItem); `ambiguous` lists the look-alike items' ids behind a
+     * guess, else []; `endCard` is the words of the player's end card
+     * when it shows (at the story's end, docs/content-format.md "End
+     * card"), else null.
      */
     current,
     /** Waits for an item id, or for `fn(current())` to be true. */
@@ -960,15 +977,20 @@ function gameHandle({ page, cdp, errors, manifest, closeHelp }, fields) {
      * errors() after a walk. Resolves with `{ files, failed }`: how many
      * media files the page was given and the URLs that failed. Throws if
      * `stall` ms pass with no file answered (default 20 s; a video check
-     * gives up, as failed, after 15 s).
+     * gives up, as failed, after 15 s). `onWaiting(count)`, if given, is
+     * called once before it waits, with how many files are still to
+     * check (not at all when none are).
      */
-    async checkMedia({ stall = 20000 } = {}) {
+    async checkMedia({ stall = 20000, onWaiting = null } = {}) {
       let fewest = Infinity;
       let since = Date.now();
+      let first = true;
       for (;;) {
         const status = await page.evaluate(() =>
           window.__kineticMedia.settle(),
         );
+        if (first && status.open > 0) onWaiting?.(status.open);
+        first = false;
         if (status.open === 0) {
           // The failures' console lines can trail the page's answer.
           const until = Date.now() + 3000;
