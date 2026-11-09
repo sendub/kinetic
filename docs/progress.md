@@ -2631,4 +2631,8 @@ truthful: an unchecked box means nothing was accepted.
       folder unchanged. None has a dark start: the lowest start luma is
       17.8, and 30.3 among the 128 that start at 0 (median 84.9).
       AGENTS.md's posters bullet now names `--items`.)
-- [ ] Phase-closer (Phase 45): full pytest, package-proof.
+- [x] Phase-closer (Phase 45): full pytest, package-proof.
+      (2026-11-09 on d2e349f: full pytest 683 passed in 81 s;
+      package-proof 18/18, with .tmp/extract-demo regenerated from
+      fixtures/renpy_demo. There was no player change, so no scenario
+      runs.)
