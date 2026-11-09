@@ -64,6 +64,7 @@ import {
   HELP_CLOSED,
   HELP_OPEN,
   helpOpen,
+  onWebKit,
   openSettings,
   pressB,
   pressDigit,
@@ -420,10 +421,13 @@ async function mainView({ check, open }) {
   });
   const afterDblTitle = await dbl(titleBox.x, titleBox.y);
   const afterDblMap = await dbl(v0.x + 10, v0.y + 10);
-  const userSelect = await page.evaluate(() => {
+  // WebKit has only the prefixed property: its userSelect is undefined.
+  const userSelect = await page.evaluate((prefixedOnly) => {
     const s = getComputedStyle(document.getElementById("branchmap"));
-    return [s.userSelect, s.webkitUserSelect];
-  });
+    return prefixedOnly
+      ? [s.webkitUserSelect]
+      : [s.userSelect, s.webkitUserSelect];
+  }, onWebKit);
   check(
     "dragging or double-clicking on the map selects no text (user-select: none, -webkit- too)",
     afterDrag === "" &&

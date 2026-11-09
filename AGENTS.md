@@ -76,10 +76,13 @@ Per checklist item, run only what the item can break:
   `KINETIC_SCENARIO_ROOT=../.tmp/scenarios-<x>` when runs may overlap.
   Each file or part has a wall-clock limit (FAIL, Chrome killed, run
   continues); `KINETIC_SCENARIO_TIMEOUT_MS` overrides the default.
+- Rendering, input, fullscreen, media or the macOS host (`apps/macos/`):
+  also run those scenario files on WebKit,
+  `npm run verify -- --webkit <name>` (docs/verify-player.md, "WebKit").
 - Python change: `pytest` on the touched test file only.
-- The full suite (`npm run verify` with no filter, full pytest,
-  `package-proof`) runs ONCE when the current phase is believed
-  complete, before its closing commit.
+- The full suite (`npm run verify` and `npm run verify -- --webkit` with
+  no filter, full pytest, `package-proof`) runs ONCE when the current
+  phase is believed complete, before its closing commit.
 
 ## Workflow
 

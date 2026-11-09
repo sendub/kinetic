@@ -1,8 +1,10 @@
 # Verify the Player
 
 End-to-end checks of the built player against the real demo
-(`fixtures/demo`) in headless Chrome. Unit tests (`npm test`) pin the
-machine and renderer rules; these scenarios prove them on screen.
+(`fixtures/demo`) in headless Chrome, or with `--webkit` in the system
+WebKit the macOS game app uses ([WebKit](#webkit)). Unit tests
+(`npm test`) pin the machine and renderer rules; these scenarios prove
+them on screen.
 
 ## Run it
 
@@ -15,6 +17,9 @@ From `player/`:
   `node scripts/scenarios/run.mjs` directly.
 - `npm run verify -- --smoke` runs only `smoke.scenario.mjs`: one quick
   check per area in about 5 s, for per-change runs.
+- `npm run verify -- --webkit [filters]` (or `node scripts/scenarios/run.mjs
+  --webkit ...`) runs the same files on WebKit instead of Chrome; the
+  runner's first and last lines name the engine.
 - `npm run verify -- --jobs=<n>` (or `KINETIC_SCENARIO_JOBS=<n>`) sets how
   many files or parts run side by side, each in its own process (default
   half the cores, at most 4, which keeps the timing checks steady on a
@@ -60,6 +65,47 @@ Off on the Esc screen first (`harness.setPlayAll`). `branches` does this.
 | `bookmarkmap` | bookmarks on the branch map (docs/plan.md Phase 35) on the demo with bookmarks taken by `b`: `t` doing nothing over the story, the Esc screen (no T row, 11 rows, M the only button, its M row reading "branch map and bookmarks") and the map; cards in story order along the line with their pictures, only the newest marked, the newest card centred on the "you are here" point for its screen and the others on the same line; the map opening at Full size (Phase 41), which shows them 280 px wide with their timestamps, none overlapping, each its 280 x 158 thumbnail alone (no caption strip, Phase 40; the newest outlined and labelled "(newest)"), the count line under them clear of the cards; Delete, Backspace and Enter doing nothing to a hovered card; in a 1280x400 window, where Full size scrolls, a drag that starts on a card scrolling up or down by the distance moved (never sideways) and opening nothing, and through 8 drags the view scrolling by each drag within the map's ends, each card moving with it, keeping its offset from the SVG, and the painted line running through the gap between two cards at their centre height (a screenshot read back pixel by pixel); a card click opening its bookmark; hovering a card at Full size and at Fit (a card, the newest, a ghost) showing the map tooltip whose whole text is the card's timestamp (Phase 36); at Full size a hovered card's × (24 px, its instant "Delete this bookmark" hint, no card tooltip over it), deleting into a ghost with the toast, no card tooltip over the ghost's Undo, the ghost's Undo, Z; at Fit (cards small: taken at 800x500, under 0.7x) the × still shown at 14-24 px in the card's corner, no card tooltip over it, a ghost a dashed outline of at least a screen pixel, a click on the ghost or the toast's Undo restoring it; a delete standing at close being final; the map reopening at Fit as it was left and a small card's click there opening it; screenshots `.tmp/bookmarkmap-shots/` |
 | `storyid` | progress keyed by the manifest's `storyId`: a manifest without one stores under the folder URL, adding the id carries progress and bookmarks over to `story:<id>` (folder-URL record gone), and a moved and renamed folder resumes where it was with its bookmark |
 | `progress` | export / import progress: one browser reads, bookmarks, sets 2.00x and exports (a real download of `<storyId>-progress.json`, checked field by field); a fresh profile on the same folder refuses another story's file in the Esc screen's settings (no box, nothing stored), then imports the real file through the confirm box and reloads onto the same item with the bookmark, 2.00x and help closed; one more item survives a reload (saving automatic again) |
+
+## WebKit
+
+`--webkit` sets `KINETIC_ENGINE=webkit`, which the runner's child
+processes inherit; `harness.openScenario` then starts a WebKit driver
+instead of Chrome. Each driver process is a fresh profile, as each Chrome
+launch is. The default stays 4 at a time (full suite about 3 minutes);
+units start longest first by `.tmp/scenario-times-webkit.json`.
+
+- What runs: `apps/macos/driver/main.swift`, a WKWebView host set up by
+  `apps/macos/WebViewSetup.swift`, the one source the macOS game app also
+  compiles (file access, media autoplay, file loading, the download
+  policy). `player/scripts/webkit/puppet.mjs` gives the harness the
+  puppeteer and CDP calls it makes; scenario files are unchanged.
+- Build: the first run compiles the driver into
+  `.tmp/webkit-driver-build/<hash>/` (about 6 s, ad-hoc signed); later
+  runs reuse it until a Swift source changes. It needs macOS and Xcode or
+  the Command Line Tools (`xcode-select --install`); without them the run
+  stops with that message.
+- Nothing on screen: the driver is an accessory app (no Dock icon, never active)
+  whose one borderless window sits off every screen. It checks that
+  before showing the window and whenever the displays change, and quits
+  rather than show it; if it ever became the active app it hands focus
+  back and fails the session's console check. It writes nothing under
+  `~/Library/WebKit`.
+- Private WebKit hooks keep the hidden page running as if in front (no
+  occlusion, no hidden-page throttling, a 1x scale override) and feed it
+  mouse moves and layer-tree waits. The driver's ready line reports each;
+  if a macOS update removes one, the run stops naming it rather than
+  give wrong results.
+- Covered: the app's engine and web view configuration. Not covered:
+  Safari itself (same WebKit, its own settings and window); the app's
+  persistent storage (each driver keeps its store in memory); Retina
+  (pages render at 1x, as in headless Chrome, unless a scenario sets
+  `deviceScaleFactor`); fullscreen (WKWebView has element fullscreen
+  off, so the three fullscreen checks are PARTIAL; Chrome has two).
+- A check that branches on `onWebKit` (from the harness) does so only
+  where WebKit's own behaviour differs, with the reason beside it:
+  `branchmap` reads only `webkitUserSelect` (WebKit has no unprefixed
+  `userSelect`), and `screens` focuses the settings button by script
+  before Space (WebKit on macOS does not focus a button on click).
 
 ## Old driver steps
 

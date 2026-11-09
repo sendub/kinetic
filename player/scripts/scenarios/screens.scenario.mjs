@@ -40,6 +40,7 @@ import {
   MAP_READY,
   manifest,
   mapOpen,
+  onWebKit,
   openSettings,
   PAGE_STATE,
   PAINT_SIG,
@@ -356,6 +357,13 @@ async function helpMidFlow({ check, open }) {
   // Space closes the screen even with a settings button focused (a click
   // focuses it): the keymap's Space wins, the button does not flip.
   await clickCenter(cdp, CONFIG_CONTROL.skip);
+  // WebKit on macOS, like Safari, does not focus a button on click: focus
+  // it as the keyboard would, so Space still meets a focused button.
+  if (onWebKit)
+    await page.evaluate(
+      (s) => document.querySelector(s).focus(),
+      CONFIG_CONTROL.skip,
+    );
   const flipped = await page.evaluate(READ_CONFIG_OVERLAY);
   const focused = await page.evaluate(
     () => document.activeElement?.className ?? "",

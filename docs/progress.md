@@ -2246,10 +2246,29 @@ truthful: an unchecked box means nothing was accepted.
 - [x] Esc and M on a choice screen (item 5): dropped (the user,
       2026-11-08). On HEAD both work over a pending choice in Chrome and
       WebKit (probe 2026-11-08, demo outer decision, play-all off).
-- [ ] WebKit in the scenario suite (item 6): driver and adapter in the repo,
+- [x] WebKit in the scenario suite (item 6): driver and adapter in the repo,
       `npm run verify -- --webkit`, shared web view setup source, loud
       failure on a missing private hook; the full suite on WebKit with every
       remaining engine-aware check explained; Chrome results unchanged.
+      (2026-11-09: `apps/macos/WebViewSetup.swift` (one web view setup for
+      the app and the driver, macOS 12+), `apps/macos/driver/main.swift`,
+      `player/scripts/webkit/` (build on first use into
+      `.tmp/webkit-driver-build/<source hash>/`, about 6 s, reused after;
+      one plain error without macOS and a Swift toolchain; the puppeteer
+      subset adapter). `--webkit` sets `KINETIC_ENGINE=webkit` for the
+      runner's children; a preflight builds and starts the driver once and
+      stops the run on a missing toolchain, a missing private hook (all six
+      reported on the ready line) or a window that would intersect a
+      screen; the driver never activates and hands focus back if it ever
+      does (front app sampled every 2 s over two runs: never the driver).
+      Two checks made engine-aware, each with its reason: branchmap
+      user-select (WebKit has only the prefixed property) and screens'
+      Space over a focused settings button (macOS WebKit does not focus a
+      button on click, so the test focuses it as the keyboard would).
+      Nothing written under ~/Library/WebKit. Orchestrator: npm test 821
+      pass, check clean; full WebKit suite 348 checks, 345 pass, 3 PARTIAL
+      (element fullscreen, off in WKWebView), 0 fail, 176 s; full Chrome
+      suite 346 pass, 2 PARTIAL, 0 fail, 137 s.)
 - [ ] The macOS app (item 7): `tools/build_apps.py --mac [--icon]` and the
       same flags on `assemble_folder.py`; pytest for the options, the
       non-Mac error and the icon; the demo built with the app, opened through

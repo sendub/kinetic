@@ -1206,6 +1206,18 @@ export const chromePath =
   process.env.KINETIC_CHROME ??
   "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 
+// The engine every scenario browser runs on: headless Chrome (the default)
+// or, with KINETIC_ENGINE=webkit (the runner's --webkit), the system WebKit
+// set up as the macOS game app sets it up (player/scripts/webkit).
+export const ENGINES = { chrome: "Chrome", webkit: "WebKit" };
+export const engine = process.env.KINETIC_ENGINE || "chrome";
+if (!(engine in ENGINES)) {
+  throw new Error(
+    `KINETIC_ENGINE must be one of ${Object.keys(ENGINES).join(", ")}, got "${engine}"`,
+  );
+}
+export const onWebKit = engine === "webkit";
+
 /** The demo manifest, read from fixtures/demo: ids, texts and order. */
 export const manifest = JSON.parse(
   readFileSync(join(repoRoot, "fixtures", "demo", "manifest.json"), "utf8"),
@@ -1337,7 +1349,9 @@ async function setPlayAll(page, cdp, on) {
  */
 export async function openScenario(name, options = {}) {
   const profile = join(scenarioRoot, "profiles", name);
-  const launch = () => {
+  const launch = async () => {
+    // One driver process is one fresh, in-memory profile.
+    if (onWebKit) return (await import("../webkit/puppet.mjs")).launchWebKit();
     rmSync(profile, { recursive: true, force: true });
     return puppeteer.launch({
       executablePath: chromePath,

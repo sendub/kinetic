@@ -25,20 +25,15 @@
 //   node scripts/scenarios/run.mjs branches   only files whose name matches
 //   node scripts/scenarios/run.mjs --smoke    the ~5 s smoke file only
 //   node scripts/scenarios/run.mjs --jobs=1   one unit at a time
+//   node scripts/scenarios/run.mjs --webkit branches
+//                                             on WebKit (KINETIC_ENGINE=webkit,
+//                                             which the children inherit)
 
 import { fork } from "node:child_process";
 import { readdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { availableParallelism } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import {
-  assembleFolders,
-  closeBrowser,
-  killLiveBrowsers,
-  openScenario,
-  recorder,
-  repoRoot,
-} from "./harness.mjs";
 
 // Kept from when playall ran as one ~97 s unit (about 3x that); the slowest
 // part now takes under 50 s even in a full parallel run. A hang still ends
@@ -58,7 +53,10 @@ const limitMs = positiveInt(
 // every check passing, against 450 s one at a time. With other sessions
 // loading the machine (load average 30-50), 8 at a time failed timing
 // checks and once lost a Chrome at launch, and 4 at a time once missed the
-// 300 ms map open by 10 ms. --jobs=8 suits a quiet machine.
+// 300 ms map open by 10 ms. --jobs=8 suits a quiet machine. WebKit takes
+// the same default: 4 drivers side by side ran the full suite in about
+// 175 s (Chrome 131 s) with every check passing at load average 7-19
+// (2026-11-09).
 const DEFAULT_JOBS = Math.max(
   1,
   Math.min(4, Math.floor(availableParallelism() / 2)),
@@ -68,6 +66,20 @@ const here = dirname(fileURLToPath(import.meta.url));
 const args = process.argv.slice(2);
 const option = (name) =>
   args.find((a) => a.startsWith(`--${name}=`))?.slice(name.length + 3);
+
+// The engine travels as KINETIC_ENGINE, which the children inherit, so the
+// harness (which reads it) is imported only once --webkit has set it.
+if (args.includes("--webkit")) process.env.KINETIC_ENGINE = "webkit";
+const {
+  assembleFolders,
+  closeBrowser,
+  ENGINES,
+  engine,
+  killLiveBrowsers,
+  openScenario,
+  recorder,
+  repoRoot,
+} = await import("./harness.mjs");
 
 function positiveInt(label, raw, fallback) {
   if (raw === undefined || raw === "") return fallback;
@@ -225,7 +237,18 @@ async function runAll() {
       });
     });
   }
-  const timesFile = join(repoRoot, ".tmp", "scenario-times.json");
+  if (engine === "webkit") await preflightWebKit();
+  console.log(
+    `${ENGINES[engine]}: ${files.length} scenario files, ${units.length} units, ${jobs} at a time`,
+  );
+  // Each engine orders its units by its own last times.
+  const timesFile = join(
+    repoRoot,
+    ".tmp",
+    engine === "chrome"
+      ? "scenario-times.json"
+      : `scenario-times-${engine}.json`,
+  );
   const times = readTimes(timesFile);
   units.sort((a, b) => (times[b.key] ?? Infinity) - (times[a.key] ?? Infinity));
 
@@ -278,9 +301,32 @@ async function runAll() {
   const unitWord = units.length === 1 ? "unit" : "units";
   console.log(`\n(${units.length} ${unitWord}, ${jobs} at a time, ${wall} s)`);
   console.log(
-    `${files.length} scenarios, ${all.length} checks: ${count("PASS")} pass, ${count("PARTIAL")} partial, ${count("FAIL")} fail`,
+    `${ENGINES[engine]}: ${files.length} scenarios, ${all.length} checks: ${count("PASS")} pass, ${count("PARTIAL")} partial, ${count("FAIL")} fail`,
   );
   process.exitCode = count("FAIL") > 0 ? 1 : 0;
+}
+
+/**
+ * Before any unit starts: build the WebKit driver if its sources changed
+ * (once, here, not in every child) and start it once, so a missing
+ * toolchain, a missing private hook or a window that would show stops the
+ * run with one plain error instead of failing every unit.
+ */
+async function preflightWebKit() {
+  const { ensureDriver } = await import("../webkit/build.mjs");
+  const { launchWebKit } = await import("../webkit/puppet.mjs");
+  try {
+    const t0 = Date.now();
+    const driver = ensureDriver();
+    const browser = await launchWebKit();
+    await browser.close();
+    console.log(
+      `WebKit driver ${driver} ready in ${((Date.now() - t0) / 1000).toFixed(1)} s, window off screen at ${browser.ready.offscreen}`,
+    );
+  } catch (error) {
+    console.error(error.message);
+    process.exit(2);
+  }
 }
 
 /**
