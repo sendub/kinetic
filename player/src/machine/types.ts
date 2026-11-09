@@ -18,15 +18,80 @@ interface OverlayFields {
   thought?: boolean;
 }
 
+/**
+ * A sound file the items name by id (docs/content-format.md, "Tracks").
+ * Several ids may share one file.
+ */
+export interface AudioTrack {
+  /** A media path (Naming conventions) with an audio extension. */
+  file: string;
+  /** Authoritative length: the player never reads the element's own. */
+  durationSeconds: number;
+  /** Where a play starts, default 0. */
+  startSeconds?: number;
+  /** Where a loop restarts, default `startSeconds`. */
+  loopStartSeconds?: number;
+  /** Music and ambience only: whether the track loops, default true. */
+  loop?: boolean;
+  /** The author's level, 0 to 1, default 1. */
+  volume?: number;
+}
+
+/** The manifest's top-level `audio` (docs/content-format.md, "Audio"). */
+export interface ManifestAudio {
+  /** Track id to track. */
+  tracks: Readonly<Record<string, AudioTrack>>;
+}
+
+/** One one-shot of an item (`ItemAudio.sfx`). */
+export interface SfxCue {
+  track: string;
+  /** Wait before it starts, in ms, default 0. */
+  delayMs?: number;
+  /** A one-shot on a channel stops the one already playing on it. */
+  channel?: string;
+}
+
+/** A video item's own soundtrack, played as a separate synced track. */
+export interface VideoSound {
+  track: string;
+  /** Scales music and ambience while it plays, 0 to 1, default 1. */
+  duck?: number;
+}
+
+/**
+ * An item's sound (docs/content-format.md, "Item audio"). Music and
+ * ambience carry on to later items (`Machine.targetSound`); one-shots and
+ * voice belong to this item alone.
+ */
+export interface ItemAudio {
+  /** The music from this item on: a track id, or null to stop it. */
+  music?: string | null;
+  /** The whole set of ambience loops from this item on; `[]` stops them. */
+  ambience?: readonly string[];
+  /** The fade for this item's music and ambience changes, ms, default 1000. */
+  fadeMs?: number;
+  sfx?: readonly SfxCue[];
+  /** Track id of the item's voice line. */
+  voice?: string;
+}
+
+/** A video item's sound: the common fields plus its own soundtrack. */
+export interface VideoItemAudio extends ItemAudio {
+  videoSound?: VideoSound;
+}
+
 export interface ImageItem extends OverlayFields {
   id: string;
   type: "image";
   file: string;
+  audio?: ItemAudio;
 }
 
 export interface AnimationItem extends OverlayFields {
   id: string;
   type: "animation";
+  audio?: ItemAudio;
   /** Ordered frames, at least two. */
   frames: readonly string[];
   fps: number;
@@ -40,6 +105,7 @@ export interface VideoItem extends OverlayFields {
   file: string;
   poster: string;
   durationSeconds: number;
+  audio?: VideoItemAudio;
   /**
    * Times the video plays before auto-advance, integer at least 1, default 1
    * (docs/content-format.md, "Items"). The gate is the later of the
@@ -106,6 +172,7 @@ export interface VideoItem extends OverlayFields {
 export interface TextItem extends OverlayFields {
   id: string;
   type: "text";
+  audio?: ItemAudio;
 }
 
 export type Item = ImageItem | AnimationItem | VideoItem | TextItem;
@@ -179,6 +246,8 @@ export interface Manifest {
   items: readonly Item[];
   /** Optional branch decisions over the same item array; absent is linear. */
   branches?: readonly Branch[];
+  /** Optional sound; absent plays silent (docs/content-format.md, "Audio"). */
+  audio?: ManifestAudio;
 }
 
 /** Player-side pacing settings (docs/content-format.md, "Timing"). */
@@ -414,6 +483,56 @@ export type MachinePlace = Omit<MachineContext, "visited">;
  * replays (docs/content-format.md, "Timing"; `playbackModeFor`).
  */
 export type TransitionKind = "advance" | "nav";
+
+/**
+ * How the reader reached the screen on show (docs/plan.md Phase 47, item
+ * 4), for the sound: a different split from `TransitionKind`, which it
+ * leaves as it is.
+ *
+ * - `read`: Space, auto-forward, a pick on a choice screen (a number key,
+ *   Enter, a click, `0`'s return row, play-all's pick) entering where it
+ *   leads, and a join or a pure choice's close reached by reading on.
+ * - `skip`: each step of a Tab skip burst, a join or close it passes
+ *   included.
+ * - `walk`: a wheel step.
+ * - `jump`: `e`, `u`, a bookmark, a branch-map click (a decision, or a
+ *   route: `choose(route, "map")`), and the load, which a reload, Import
+ *   and Reset all go through.
+ */
+export type ArrivalKind = "read" | "skip" | "walk" | "jump";
+
+/**
+ * One arrival (`Machine.arrival`). `number` grows by one on every arrival,
+ * a re-arrival at the same item or a wheel step onto the choice screen
+ * over it included, and never on a re-emit (a settle, a choice opening, a
+ * skip or settings flip). The load is arrival 1.
+ */
+export interface Arrival {
+  readonly kind: ArrivalKind;
+  readonly number: number;
+}
+
+/**
+ * What should sound on the screen on show (`Machine.targetSound`;
+ * docs/content-format.md, "What plays at an item").
+ */
+export interface TargetSound {
+  /** The music track id, or null for none. */
+  readonly music: string | null;
+  /**
+   * The ambience loops, as the item that set them lists them (the same
+   * array object for the same set); empty for none.
+   */
+  readonly ambience: readonly string[];
+  /** The voice line of the item on show; null when it has none. */
+  readonly voice: string | null;
+  /**
+   * The soundtrack of the video the screen shows (the item's own, or the
+   * one under its text chain), `duck` defaulted to 1; null when the
+   * visual is no video or the video has none.
+   */
+  readonly videoSound: { readonly track: string; readonly duck: number } | null;
+}
 
 /**
  * Observable machine state. `cursor` indexes the shown item; `frontier` is a

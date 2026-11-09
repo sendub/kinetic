@@ -1,6 +1,7 @@
 // Timeline state machine core (docs/plan.md Phases 3-4, 13). Pure TypeScript:
-// no DOM, no imports beyond ./types and ./choicetext. Commands in, state out; time enters
-// through an injected Scheduler so tests are deterministic.
+// no DOM, no imports beyond ./types, ./choicetext and ./sound. Commands in,
+// state out; time enters through an injected Scheduler so tests are
+// deterministic.
 //
 // Seen set (Phase 13): `visited` is the set of item indices that have been
 // SHOWN, and it is the source of truth for "seen". MARKING RULE — an item is
@@ -54,6 +55,14 @@
 // `cursor` and `frontier` so a re-read below the seen edge plays its video
 // while scrubbing back over the same items holds posters
 // (docs/content-format.md, "Timing").
+//
+// Arrival kind (`Machine.arrival`, docs/plan.md Phase 47): `showItem` and
+// `showScreen`, the only ways the screen on show changes after the load,
+// also record how the reader arrived, for the sound (`read`, `skip`, `walk`
+// or `jump`), and number each arrival.
+// The target sound (`Machine.targetSound`) resolves music and ambience back
+// along the wheel's own path (`stepBack`); machine/sound.ts keeps the
+// answers.
 //
 // `frontier` stays in `MachineState` as a DERIVED legacy value for the
 // renderer and for resume persistence: 1 past the highest index ever shown.
@@ -109,7 +118,17 @@ import {
   choiceRowCount,
   choiceScreenText,
 } from "./choicetext";
+import {
+  ambienceOf,
+  createSoundResolver,
+  hasItemAudio,
+  musicOf,
+  SILENCE,
+  type SoundResolver,
+} from "./sound";
 import type {
+  Arrival,
+  ArrivalKind,
   AutoPickView,
   Branch,
   ChoiceRoute,
@@ -124,6 +143,7 @@ import type {
   RouteResult,
   RouteSet,
   Scheduler,
+  TargetSound,
   TransitionKind,
   VideoItem,
 } from "./types";
@@ -249,6 +269,39 @@ export interface Machine {
   importContext(context: MachineContext): void;
   /** Receives every state change; returns an unsubscribe function. */
   subscribe(listener: (state: MachineState) => void): () => void;
+  /**
+   * How the reader reached the screen on show (`ArrivalKind`; docs/plan.md
+   * Phase 47, item 4): `read`, `skip`, `walk` or `jump`, and its number.
+   * The number grows by one on every arrival, also at the same item again,
+   * and stays on a re-emit (a settle, a choice opening, a skip or settings
+   * flip), so a subscriber compares it to tell an arrival from a re-emit.
+   * The object is the same until the next arrival. Not in `MachineState`,
+   * whose shape stays as it was.
+   */
+  arrival(): Arrival;
+  /**
+   * What should sound on the screen on show (`TargetSound`;
+   * docs/content-format.md, "What plays at an item"), computed when asked
+   * and kept for the arrival (the same object until the next one), so a
+   * subscriber that ignores skip arrivals costs nothing during a burst.
+   *
+   * - `music` and `ambience`, each separately: the value set by the
+   *   nearest item at or before the item on show, following the story back
+   *   along the path the wheel walks (through the route last picked at each
+   *   decision, over unseen items too); silence when nothing sets it back
+   *   to the start. So a route's first item inherits from its decision's
+   *   `after` item, a join from the route last picked there, and an item
+   *   setting both pins them.
+   * - `voice`: the item on show's own voice line.
+   * - `videoSound`: the soundtrack of the video the screen shows
+   *   (`visualIndex()`), on the video item and its text chain.
+   *
+   * A choice screen, play-all's countdown and the end card stand over an
+   * item and give that item's target: a choice opened by reading, or the
+   * end card, is no arrival and changes nothing. A manifest whose items
+   * carry no `audio` gets the silent target and builds nothing for sound.
+   */
+  targetSound(): TargetSound;
   /**
    * Space press. In MANUAL mode — the player's start — one press is one
    * step: the current item's wait ends AND the cursor moves on the same
@@ -399,9 +452,11 @@ export interface Machine {
    * open or the index is out of range. Skip armed on the choice
    * (`toggleSkip()`) starts on the route's first item, or turns off when it
    * has nothing seen to run through; auto-forward, if on, arms that item's
-   * hold as for any arrival.
+   * hold as for any arrival. `source` `"map"` marks a branch-map route
+   * click (render/mapmodel.ts `runJump`): the same pick, arriving as a
+   * `jump` (`Machine.arrival`) where a pick on the choice screen is `read`.
    */
-  choose(routeIdx: number): void;
+  choose(routeIdx: number, source?: "map"): void;
   /**
    * "Return to main route" on a decision whose CONTINUING route has
    * completed: proceed to the decision's `continueAt`. Inert unless the open
@@ -841,6 +896,13 @@ interface Join {
   readonly route: number;
 }
 
+/**
+ * The arrival kind of a forward step (`ArrivalKind`): Space and auto-forward
+ * `read`, a skip burst's dwell `skip`. The join or close the step reaches
+ * arrives the same way.
+ */
+type Flow = "read" | "skip";
+
 export function createMachine(options: MachineOptions): Machine {
   const { items } = options;
   // Copied, and copied again on every setSettings(): the caller keeps
@@ -929,6 +991,12 @@ export function createMachine(options: MachineOptions): Machine {
   // arrival like any other, not an advance — and it is at the seen edge, so
   // the renderer plays it either way.
   let transition: TransitionKind = "nav";
+  /**
+   * How the screen on show was reached, for the sound (`Machine.arrival`):
+   * set by `showItem` and `showScreen`, the only arrivals after the load,
+   * which is arrival 1, a jump.
+   */
+  let arrival: Arrival = Object.freeze({ kind: "jump", number: 1 });
   /** Every item index shown so far, in any route (the seen set). */
   const visited = new Set<number>();
   /**
@@ -944,6 +1012,20 @@ export function createMachine(options: MachineOptions): Machine {
    * a play-all auto-pick or a `u` landing sets it; the wheel follows it.
    */
   const lastPick = new Map<number, number>();
+  /**
+   * The music and ambience resolver (machine/sound.ts), built on the first
+   * `targetSound()` of a manifest whose items carry audio; null before
+   * that and always without audio. It walks the wheel's own path back
+   * (`stepBack`), so it forgets its answers when the inputs of that path
+   * change: a last pick (`setLastPick`), a replaced seen set, a first sight
+   * of an item (`markShown`).
+   */
+  let sound: SoundResolver | null = null;
+  /** Whether any item carries audio: settled by the first `targetSound()`. */
+  let audible: boolean | null = null;
+  /** The target for the arrival it was resolved at. */
+  let soundFor: { arrival: Arrival; target: TargetSound } | null = null;
+
   /**
    * The played-this-pass record as it stood when the current walk began
    * (the first wheel step or `e` since reading last moved), or null while
@@ -1253,7 +1335,7 @@ export function createMachine(options: MachineOptions): Machine {
     pendingChoice = null;
     closeFramesFor(held.decision);
     if (!elapsed) skipArmed = false; // Space stops skip, as everywhere
-    enterRoute(decisions[held.decision], held.toRoute);
+    enterRoute(decisions[held.decision], held.toRoute, "read");
     settleArm();
   }
 
@@ -1508,10 +1590,72 @@ export function createMachine(options: MachineOptions): Machine {
   /** The marking rule: shown now, so seen from now on. */
   function markShown(index: number): void {
     if (!visited.has(index)) {
+      sound?.seen(index);
       visited.add(index);
       seenLog.push(index);
     }
     if (index > highestSeen) highestSeen = index;
+  }
+
+  /** A new arrival of `kind` (`Machine.arrival`). */
+  function arrive(kind: ArrivalKind): void {
+    arrival = Object.freeze({ kind, number: arrival.number + 1 });
+  }
+
+  /** Records the route last picked at a decision (header, "Timeline"). */
+  function setLastPick(decisionIndex: number, routeIdx: number): void {
+    lastPick.set(decisionIndex, routeIdx);
+    sound?.invalidate();
+  }
+
+  /**
+   * The item before item `index` on the wheel's path back, or -1. A choice
+   * screen on the way stands over an item, and its step back is that item.
+   */
+  function itemBefore(index: number): number {
+    let screen = stepBack(itemScreen(index));
+    if (screen?.kind === "choice") screen = stepBack(screen);
+    return screen?.kind === "item" ? screen.index : -1;
+  }
+
+  /**
+   * Whether the step back from item `index` is always `index - 1`
+   * (`backwardOf`): no route starts there, nothing joins into it, and the
+   * step forward from `index - 1` lands on it.
+   */
+  function linearBack(index: number): boolean {
+    const frame = innermost[index];
+    if (
+      frame !== null &&
+      decisions[frame.decision].routes[frame.route].startIndex === index
+    )
+      return false;
+    if (joinsTo(index).length > 0) return false;
+    const step = forwardOf(itemScreen(index - 1));
+    return step?.kind === "item" && step.index === index;
+  }
+
+  /** The target sound at the cursor (`Machine.targetSound`). */
+  function resolveSound(): TargetSound {
+    audible ??= hasItemAudio(items);
+    if (!audible || count === 0) return SILENCE;
+    sound ??= createSoundResolver(items, {
+      linear: linearBack,
+      back: itemBefore,
+    });
+    const setters = sound.at(cursor);
+    const voice = items[cursor].audio?.voice ?? null;
+    const visual = items[visualIndexFor(items, cursor)];
+    const own = visual.type === "video" ? visual.audio?.videoSound : undefined;
+    return Object.freeze({
+      music: musicOf(items, setters.music),
+      ambience: ambienceOf(items, setters.ambience),
+      voice,
+      videoSound:
+        own === undefined
+          ? null
+          : Object.freeze({ track: own.track, duck: own.duck ?? 1 }),
+    });
   }
 
   /** The played-this-pass record now, frozen. */
@@ -1549,8 +1693,9 @@ export function createMachine(options: MachineOptions): Machine {
    * same moment (the header's marking rule), and why it ends any walk: the
    * played-this-pass record the walk rewound to is the reading's from here.
    * `kind` is the forward step's `advance` or any other route's `nav`
-   * arrival (see `TransitionKind`). A wheel step or `e` (`showScreen`) does
-   * not come through here.
+   * arrival (see `TransitionKind`); `arrives` is the arrival kind for the
+   * sound (`ArrivalKind`), a different split. A wheel step or `e`
+   * (`showScreen`) does not come through here.
    *
    * Skip armed on a choice (docs/plan.md Phase 43) is taken here: only an
    * answer can show an item while it is set (every other way off a choice
@@ -1559,10 +1704,15 @@ export function createMachine(options: MachineOptions): Machine {
    * nothing to run through (`skipCanStart`), which turns the mode off. One emit
    * carries the outcome, so the renderer never sees a half-started burst.
    */
-  function showItem(index: number, kind: TransitionKind): void {
+  function showItem(
+    index: number,
+    kind: TransitionKind,
+    arrives: ArrivalKind,
+  ): void {
     const keepsChain = index === cursor + 1 && chainHeadAt !== null;
     cursor = index;
     transition = kind;
+    arrive(arrives);
     chainHeadAt = chainHeadMarkFor(index, keepsChain);
     markShown(index);
     passBase = null;
@@ -1831,24 +1981,31 @@ export function createMachine(options: MachineOptions): Machine {
   }
 
   /**
-   * Where a back notch lands (docs/plan.md Phases 27, 39): the step back
-   * `backwardOf` takes from read content, when the screen it reaches is
-   * seen (a last-picked route's join may reach an unseen end); otherwise
-   * the story-order step back taken whether seen or not. Either is
-   * repeated through unseen screens (content added since the reader
-   * passed, or skipped by a jump) to the nearest seen one. Null when no
-   * seen screen lies behind. A screen met twice ends the search: a
-   * malformed table can make the steps loop, and there are finitely many
-   * screens.
+   * One step of the wheel's path back (docs/plan.md Phases 27, 39): the
+   * step `backwardOf` takes from read content, when the screen it reaches
+   * is seen (a last-picked route's join may reach an unseen end);
+   * otherwise the story-order step back taken whether seen or not. Null at
+   * the start. The target sound walks this same path (`itemBefore`).
+   */
+  function stepBack(screen: Screen): Screen | null {
+    const seen = backwardOf(screen, true);
+    if (seen !== null && screenSeen(seen)) return seen;
+    return backwardOf(screen, false);
+  }
+
+  /**
+   * Where a back notch lands: `stepBack` repeated through unseen screens
+   * (content added since the reader passed, or skipped by a jump) to the
+   * nearest seen one. Null when no seen screen lies behind. A screen met
+   * twice ends the search: a malformed table can make the steps loop, and
+   * there are finitely many screens.
    */
   function seenBehind(here: Screen): Screen | null {
     const passed = new Set<string>();
     let screen: Screen | null = here;
     while (screen !== null && !passed.has(screenKey(screen))) {
       passed.add(screenKey(screen));
-      const seen = backwardOf(screen, true);
-      if (seen !== null && screenSeen(seen)) return seen;
-      screen = backwardOf(screen, false);
+      screen = stepBack(screen);
       if (screen !== null && screenSeen(screen)) return screen;
     }
     return null;
@@ -1891,7 +2048,7 @@ export function createMachine(options: MachineOptions): Machine {
    * highlighted, waiting for a pick. Nothing is marked seen or played; the
    * played-this-pass record rewinds to it.
    */
-  function showScreen(screen: Screen): void {
+  function showScreen(screen: Screen, arrives: "walk" | "jump"): void {
     skipping = false;
     skipArmed = false;
     cancelAutoPick();
@@ -1908,6 +2065,7 @@ export function createMachine(options: MachineOptions): Machine {
     );
     cursor = anchor;
     transition = "nav";
+    arrive(arrives);
     chainHeadAt = chainHeadMarkFor(cursor, false);
     if (screen.kind === "item") {
       pendingChoice = null;
@@ -1984,9 +2142,9 @@ export function createMachine(options: MachineOptions): Machine {
    */
   function moveForward(): void {
     if (count === 0 || destroyed) return;
-    if (fireDecision()) return;
+    if (fireDecision("read")) return;
     if (atRouteEnd()) {
-      handleRouteEnd();
+      handleRouteEnd("read");
       return;
     }
     if (nothingFollows()) {
@@ -1995,7 +2153,7 @@ export function createMachine(options: MachineOptions): Machine {
       emit();
       return;
     }
-    showItem(cursor + 1, "advance");
+    showItem(cursor + 1, "advance", "read");
   }
 
   /**
@@ -2017,9 +2175,9 @@ export function createMachine(options: MachineOptions): Machine {
       emit();
       return;
     }
-    if (fireDecision()) return;
+    if (fireDecision("skip")) return;
     if (atRouteEnd()) {
-      handleRouteEnd();
+      handleRouteEnd("skip");
       return;
     }
     if (nothingFollows()) {
@@ -2045,7 +2203,7 @@ export function createMachine(options: MachineOptions): Machine {
     // A dwell step is a fast traverse, not a read: it arrives as nav, and the
     // burst ends at the seen edge (or on the last item), so the item it hands
     // back to normal timing plays either way.
-    showItem(next, "nav"); // arms a dwell if skipping, else the item's normal hold
+    showItem(next, "nav", "skip"); // arms a dwell if skipping, else the item's normal hold
   }
 
   /**
@@ -2170,13 +2328,18 @@ export function createMachine(options: MachineOptions): Machine {
 
   /**
    * Marks the route played and last picked, pushes its frame, and enters its
-   * first item.
+   * first item: a `read` arrival from the choice screen, a `jump` from the
+   * branch map.
    */
-  function enterRoute(decision: ResolvedDecision, routeIdx: number): void {
+  function enterRoute(
+    decision: ResolvedDecision,
+    routeIdx: number,
+    arrives: "read" | "jump",
+  ): void {
     markPlayed(decision.index, routeIdx);
-    lastPick.set(decision.index, routeIdx);
+    setLastPick(decision.index, routeIdx);
     stack.push({ decision: decision.index, route: routeIdx });
-    showItem(decision.routes[routeIdx].startIndex, "nav");
+    showItem(decision.routes[routeIdx].startIndex, "nav", arrives);
   }
 
   /**
@@ -2282,14 +2445,14 @@ export function createMachine(options: MachineOptions): Machine {
    * `playAllRoutes` counting down to its next route in play order, or —
    * every route played — play-all resolves it at once.
    */
-  function fireDecision(): boolean {
+  function fireDecision(flow: Flow): boolean {
     const index = relevantDecision(cursor);
     if (index < 0) return false;
     const decision = decisions[index];
-    if (closeIfPureAndComplete(decision)) return true;
+    if (closeIfPureAndComplete(decision, flow)) return true;
     if (settings.playAllRoutes) {
       if (nextAutoRoute(decision) >= 0) openChoice(decision.index, -1, true);
-      else autoResolve(decision);
+      else autoResolve(decision, flow);
       return true;
     }
     openChoice(decision.index, -1, false);
@@ -2301,13 +2464,13 @@ export function createMachine(options: MachineOptions): Machine {
    * choice shows its auto-pick instead): `continueAt`, else — for a
    * pure-choice decision — the all-played close below.
    */
-  function autoResolve(decision: ResolvedDecision): void {
+  function autoResolve(decision: ResolvedDecision, flow: Flow): void {
     closeFramesFor(decision.index);
     if (decision.continueAt >= 0) {
-      join(decision);
+      join(decision, flow);
       return;
     }
-    closeIfPureAndComplete(decision);
+    closeIfPureAndComplete(decision, flow);
   }
 
   /**
@@ -2323,7 +2486,10 @@ export function createMachine(options: MachineOptions): Machine {
    * never a fall-through into the parent's next route. Returns true when the
    * decision closed, so the caller neither pauses nor re-offers.
    */
-  function closeIfPureAndComplete(decision: ResolvedDecision): boolean {
+  function closeIfPureAndComplete(
+    decision: ResolvedDecision,
+    flow: Flow,
+  ): boolean {
     if (decision.continuingRoute >= 0 || nextAutoRoute(decision) >= 0)
       return false;
     closeFramesFor(decision.index);
@@ -2334,7 +2500,7 @@ export function createMachine(options: MachineOptions): Machine {
       frame.decision === decision.parent &&
       next > decisions[frame.decision].routes[frame.route].endIndex
     ) {
-      handleRouteEnd();
+      handleRouteEnd(flow);
       return true;
     }
     if (next >= count) {
@@ -2343,7 +2509,7 @@ export function createMachine(options: MachineOptions): Machine {
       emit();
       return true;
     }
-    showItem(next, "nav");
+    showItem(next, "nav", flow);
     return true;
   }
 
@@ -2356,7 +2522,7 @@ export function createMachine(options: MachineOptions): Machine {
    * rather than leaving a stale frame open (docs/plan.md Phase 13, Nested
    * branches).
    */
-  function join(decision: ResolvedDecision): void {
+  function join(decision: ResolvedDecision, flow: Flow): void {
     const frame = stack[stack.length - 1];
     if (
       frame !== undefined &&
@@ -2364,10 +2530,10 @@ export function createMachine(options: MachineOptions): Machine {
       decision.continueAt >
         decisions[frame.decision].routes[frame.route].endIndex
     ) {
-      handleRouteEnd();
+      handleRouteEnd(flow);
       return;
     }
-    showItem(decision.continueAt, "nav");
+    showItem(decision.continueAt, "nav", flow);
   }
 
   /** True when the cursor is on the last item of the innermost open route. */
@@ -2406,7 +2572,7 @@ export function createMachine(options: MachineOptions): Machine {
     stack.length = 0;
     for (const frame of framesAround(index)) {
       markPlayed(frame.decision, frame.route);
-      lastPick.set(frame.decision, frame.route);
+      setLastPick(frame.decision, frame.route);
       stack.push(frame);
     }
   }
@@ -2557,14 +2723,14 @@ export function createMachine(options: MachineOptions): Machine {
    * it closes and flow continues past the whole menu region (docs/plan.md
    * Phase 13), ending the story when the region runs to the last item.
    */
-  function handleRouteEnd(): void {
+  function handleRouteEnd(flow: Flow): void {
     const frame = stack[stack.length - 1];
     const decision = decisions[frame.decision];
     completedOf(decision.index).add(frame.route);
-    if (closeIfPureAndComplete(decision)) return;
+    if (closeIfPureAndComplete(decision, flow)) return;
     stack.pop();
     if (endJoins(decision, frame.route)) {
-      join(decision);
+      join(decision, flow);
       return;
     }
     // The same pause as `fireDecision`: a skip burst stops at this re-offer
@@ -2572,7 +2738,7 @@ export function createMachine(options: MachineOptions): Machine {
     if (settings.playAllRoutes) {
       if (nextAutoRoute(decision) >= 0)
         openChoice(decision.index, frame.route, true);
-      else autoResolve(decision);
+      else autoResolve(decision, flow);
       return;
     }
     openChoice(decision.index, frame.route, false);
@@ -2600,7 +2766,7 @@ export function createMachine(options: MachineOptions): Machine {
       }
       return;
     }
-    showScreen(target);
+    showScreen(target, "walk");
   }
 
   /** Sorted view of the seen set (`visitedList`, `exportContext`). */
@@ -2676,6 +2842,7 @@ export function createMachine(options: MachineOptions): Machine {
     restorePass(validRouteSets(context.passRoutes ?? context.playedRoutes));
     passBase = null;
     lastPick.clear();
+    sound?.invalidate(); // a new seen set and new picks
     for (const frame of Array.isArray(context.lastPicks)
       ? context.lastPicks
       : []) {
@@ -2846,7 +3013,7 @@ export function createMachine(options: MachineOptions): Machine {
       skipping = false; // a restore is manual navigation, like `goTo()`
       skipArmed = false; // and leaves any choice unanswered
       // UNSETTLED arrival: the item replays under its hold.
-      showItem(cursor, "nav");
+      showItem(cursor, "nav", "jump");
     },
 
     subscribe(listener) {
@@ -2854,6 +3021,16 @@ export function createMachine(options: MachineOptions): Machine {
       return () => {
         listeners.delete(listener);
       };
+    },
+
+    arrival() {
+      return arrival;
+    },
+
+    targetSound() {
+      if (soundFor?.arrival !== arrival)
+        soundFor = { arrival, target: resolveSound() };
+      return soundFor.target;
     },
 
     advance() {
@@ -2885,7 +3062,7 @@ export function createMachine(options: MachineOptions): Machine {
         exitSkip();
         settled = true;
         cancelTimer();
-        if (!fireDecision()) emit();
+        if (!fireDecision("read")) emit();
         if (wasAuto) reportAuto(false);
         return;
       }
@@ -2943,19 +3120,22 @@ export function createMachine(options: MachineOptions): Machine {
       if (destroyed || count === 0) return;
       // The furthest point read; already there, nothing to do.
       if (highestSeen < 0 || cursor === highestSeen) return;
-      showScreen(itemScreen(highestSeen));
+      showScreen(itemScreen(highestSeen), "jump");
     },
 
     showChoice(decisionIndex) {
       if (destroyed || count === 0) return;
       const decision = decisions[decisionIndex];
       if (decision === undefined || !visited.has(decision.afterIndex)) return;
-      showScreen({
-        kind: "choice",
-        decision: decision.index,
-        next: pickFor(decision),
-        via: -1,
-      });
+      showScreen(
+        {
+          kind: "choice",
+          decision: decision.index,
+          next: pickFor(decision),
+          via: -1,
+        },
+        "jump",
+      );
     },
 
     jumpToUnseen() {
@@ -2964,7 +3144,7 @@ export function createMachine(options: MachineOptions): Machine {
       if (target < 0) return;
       enterRoutesAround(target);
       // A read of new content, so its media plays wherever the edge is.
-      showItem(target, "advance");
+      showItem(target, "advance", "jump");
     },
 
     hasEarlierUnseen() {
@@ -2987,10 +3167,10 @@ export function createMachine(options: MachineOptions): Machine {
       // may move either way — backward, or forward back to the edge of what
       // has been shown.)
       skipping = false; // manual navigation ends skip mode
-      showItem(clamp(index, 0, Math.max(0, highestSeen)), "nav");
+      showItem(clamp(index, 0, Math.max(0, highestSeen)), "nav", "jump");
     },
 
-    choose(routeIdx) {
+    choose(routeIdx, source) {
       if (destroyed || count === 0 || pendingChoice === null) return;
       const decision = decisions[pendingChoice.decision];
       if (!Number.isInteger(routeIdx) || routeIdx < 0) return;
@@ -3004,7 +3184,7 @@ export function createMachine(options: MachineOptions): Machine {
       // A burst the decision stopped never restarts by itself (docs/plan.md
       // Phase 16); skip armed on the choice (Tab, Phase 43) starts on the
       // route's first item (`showItem`).
-      enterRoute(decision, routeIdx);
+      enterRoute(decision, routeIdx, source === "map" ? "jump" : "read");
       settleArm();
     },
 
@@ -3018,7 +3198,7 @@ export function createMachine(options: MachineOptions): Machine {
       pendingChoice = null;
       // Joining the aftermath replays none of the continuing route's items,
       // so the route is not marked played by this.
-      join(decision);
+      join(decision, "read");
       settleArm();
     },
 

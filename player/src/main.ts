@@ -746,7 +746,8 @@ function start(): void {
               machine.getState().choice?.walkRoute !== undefined,
             showChoice: (decision) =>
               walk(() => machine.showChoice(decision))(),
-            choose: (route) => machine.choose(route),
+            // A map click arrives as a jump, not a read (Machine.arrival).
+            choose: (route) => machine.choose(route, "map"),
           });
           syncMenuPause();
         },

@@ -2994,7 +2994,7 @@ truthful: an unchecked box means nothing was accepted.
       assembled with tools/assemble_folder.py plays 36 screens in
       check-game.mjs with no console or page errors in Chrome and
       WebKit.)
-- [ ] Player: target sound and arrival kinds in the machine (item 4).
+- [x] Player: target sound and arrival kinds in the machine (item 4).
       Tests (Vitest):
       - a route start inherits from its decision's `after` item;
       - a join follows the last pick and changes when the pick changes;
@@ -3008,6 +3008,30 @@ truthful: an unchecked box means nothing was accepted.
       - `transition` is unchanged everywhere;
       - resolution on the 160,000-item synthetic manifest takes under
         1 ms per arrival (p95).
+      (2026-11-09: accessors beside `subscribe`, not state fields, so
+      whole-state test comparisons stay valid: `arrival()` gives
+      `{kind, number}` (the load is arrival 1, a `jump`) and
+      `targetSound()` gives `{music, ambience, voice, videoSound}`,
+      cached per arrival. machine/sound.ts resolves along `stepBack`,
+      lifted out of `seenBehind` so the wheel and sound share one path;
+      runs whose step back is always the item before get the nearest
+      setter precomputed, and a walk steps back only at a run's first
+      item. Kept answers drop on a new last pick, an applied context
+      and a first sighting at a run edge. Kinds pass from `moveForward`
+      and `skipTick` through decisions, route ends, joins and closes;
+      `choose(..., "map")` is a `jump`. Choice screens carry the target
+      of the item under them. A continuing route started after a
+      returning route takes the sound that route left, as Ren'Py's
+      menus do. 37 new tests, 32 red first; two property tests
+      (resolution equals a wheel walk for random picks, and a reloaded
+      machine after every move); 5 injected faults all caught after the
+      detour test. `npm run perf:sound` (M2, loaded): p95 0.0002 ms
+      reading, 0.0011-0.0015 ms on random jumps, 0.15 ms with a new
+      pick before every jump; table build 17-23 ms on first use;
+      docs/perf.md "Target sound (Phase 47)". Orchestrator: npm test
+      949, check clean, perf:sound p95 0.15 ms on the stress series,
+      full Chrome scenario suite 408 of 408 (machine paths for picks,
+      joins, skip and the wheel changed).)
 - [ ] Player: playback (item 5): elements, crossfade, the ambience set,
       one-shots, voice, the 250 ms rest, menus, hidden page, unlock and
       hint, voice holding auto-forward, warm-up, the `#audio` hook, and

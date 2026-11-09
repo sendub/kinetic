@@ -129,17 +129,43 @@ export function parseManifest(value: unknown, contentRoot: string): Manifest {
     throw new Error("manifest needs a width and height of at least 1");
   }
   candidate.items.forEach((item, index) => {
-    for (const path of declaredPaths(item)) {
-      try {
-        // Checked, never rewritten: the renderer assigns the declared path to
-        // `src` verbatim, and the browser applies this same resolution.
-        resolveMediaPath(path, contentRoot);
-      } catch (error) {
-        throw new Error(`items[${index}]: ${(error as Error).message}`);
-      }
-    }
+    checkPaths(`items[${index}]`, declaredPaths(item), contentRoot);
   });
+  if (candidate.audio !== undefined) checkTracks(candidate.audio, contentRoot);
   return candidate as Manifest;
+}
+
+function checkPaths(
+  where: string,
+  paths: readonly string[],
+  contentRoot: string,
+): void {
+  for (const path of paths) {
+    try {
+      // Checked, never rewritten: the renderer assigns the declared path to
+      // `src` verbatim, and the browser applies this same resolution.
+      resolveMediaPath(path, contentRoot);
+    } catch (error) {
+      throw new Error(`${where}: ${(error as Error).message}`);
+    }
+  }
+}
+
+/**
+ * The top-level `audio` (docs/content-format.md, "Audio"): a `tracks`
+ * object whose every `file` is a media path like an item's. Item `audio`
+ * fields name tracks by id and hold no paths.
+ */
+function checkTracks(audio: unknown, contentRoot: string): void {
+  const tracks = (audio as { tracks?: unknown } | null)?.tracks;
+  if (typeof tracks !== "object" || tracks === null || Array.isArray(tracks)) {
+    throw new Error("audio.tracks is not an object of tracks");
+  }
+  for (const [id, track] of Object.entries(tracks)) {
+    const file = (track as { file?: unknown } | null)?.file;
+    if (typeof file === "string")
+      checkPaths(`audio.tracks.${id}`, [file], contentRoot);
+  }
 }
 
 /**

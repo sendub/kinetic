@@ -168,3 +168,57 @@ describe("media path resolution", () => {
     expect(() => parseManifest(manifest, ROOT)).toThrow(/^items\[1\]: /);
   });
 });
+
+/**
+ * Track files (docs/content-format.md, "Audio"): `audio.tracks.<id>.file`
+ * is a media path like an item's `file`, checked the same way and kept as
+ * declared; the item `audio` fields name tracks by id and hold no paths.
+ */
+describe("audio track paths", () => {
+  function withTrack(file: string) {
+    return {
+      schemaVersion: 1,
+      width: 960,
+      height: 540,
+      audio: {
+        tracks: {
+          theme: { file: "media/ab/theme.m4a", durationSeconds: 184.2 },
+          door: { file, durationSeconds: 1.4 },
+        },
+      },
+      items: [
+        {
+          id: "street-001",
+          type: "image",
+          file: "street-001.jpg",
+          audio: { music: "theme", sfx: [{ track: "door", delayMs: 400 }] },
+        },
+      ],
+    };
+  }
+
+  it("accepts track files at bucket subpaths and keeps them as declared", () => {
+    const manifest = withTrack("door.mp3");
+    const parsed = parseManifest(manifest, ROOT);
+    expect(parsed).toBe(manifest);
+    expect(parsed.audio?.tracks.theme.file).toBe("media/ab/theme.m4a");
+    expect(parsed.items[0].audio?.music).toBe("theme");
+  });
+
+  it.each([
+    ["an absolute path", "/door.mp3"],
+    ["a parent segment", "media/../door.mp3"],
+    ["a backslash path", "media\\door.mp3"],
+    ["a URL scheme", "https://example.com/door.mp3"],
+    ["whitespace", "media/door 1.mp3"],
+  ])("rejects %s as a track file, naming the track", (_label, file) => {
+    expect(() => parseManifest(withTrack(file), ROOT)).toThrow(
+      /^audio\.tracks\.door: media path /,
+    );
+  });
+
+  it("rejects an audio object without a tracks object", () => {
+    const manifest = { ...withTrack("door.mp3"), audio: { tracks: [] } };
+    expect(() => parseManifest(manifest, ROOT)).toThrow(/audio\.tracks/);
+  });
+});

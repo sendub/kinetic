@@ -508,3 +508,61 @@ s on WebKit and 9.4 s on Chrome, reading their keys back 257 and 405 ms,
 and deleting them (Reset progress) 3.2 and 1.4 s; 320 records of 500
 took 65 and 66 ms to write and 13 and 18 ms to read. Records of 500 it
 is.
+
+## Target sound (Phase 47)
+
+`Machine.targetSound()` resolves the music and ambience for the screen on
+show (docs/content-format.md, "What plays at an item"). The bound
+(docs/plan.md Phase 47, item 4) is under 1 ms per arrival, p95, on a
+synthetic story of 160,000 items, 400 decisions and 5,000 music changes.
+`player/scripts/soundperf.mjs` (`npm run perf:sound` from `player/`)
+bundles `src/machine/soundbench.ts` for Node, builds that story and times
+every `targetSound()` call that follows an arrival. It prints JSON and
+writes `.tmp/perf-sound.json`. `src/machine/soundperf.test.ts` checks the
+same bound inside `npm test`.
+
+The story has 100 top-level decisions, each nesting three more down its
+first route, so 400 decisions four deep. They cycle through four shapes: a
+continuing, a returning and an ending route; a continuing and a `continue`
+route; a pure choice of two; a continuing and a returning route. Every
+32nd item sets the music. Only item 0 sets ambience, so the ambience at
+every later item resolves all the way back to the start, the longest walk.
+
+The series:
+
+- first call: the load's first `targetSound()`, which builds the per-item
+  tables;
+- reading: Space from item 0 to the end, play-all taking every route;
+- jumps: 10,000 bookmark jumps (`goTo`) to random items after the reading;
+- re-pick jumps: 10,000 branch-map route clicks at random decisions, each
+  followed by a jump to a random item, both arrivals timed. Every click is
+  a new last pick, which drops every kept answer, so most of these walk
+  cold.
+
+| series (2026-11-09) | arrivals | p50 ms | p95 ms | max ms |
+| --- | --- | --- | --- | --- |
+| first call | 1 | 17-23 | | |
+| reading | 159,999 | 0.0001 | 0.0002 | 1.8-6.6 |
+| jumps | 10,000 | 0.0005-0.0007 | 0.0011-0.0015 | 0.02-0.06 |
+| re-pick jumps | 20,000 | 0.031-0.036 | 0.158-0.164 | 2.2-77 |
+
+Three runs on an Apple M2 (8 cores, 16 GB), macOS 27.2, Node 24.13.1, at
+load average 24-36 from other work on the machine.
+
+Most of the path back is item i to item i - 1. Those stretches are static,
+so machine/sound.ts precomputes, per item, the nearest setter inside its
+stretch, and walks the path one stretch at a time. It asks the machine for
+a step back (`stepBack`, the wheel's own step) only at a stretch's first
+item, and keeps the answer there until a last pick changes, the seen set
+is replaced, or an item at a stretch's edge is seen for the first time.
+Reading on then costs one lookup. In one probe of the reading, 1,102
+arrivals came right after such a drop and took 0.1-0.5 ms, and 1,453 took
+10-100 us. A cold walk from the story's end takes 0.3-0.5 ms with the code
+warm, 1.4 ms in a machine built moments before.
+
+The maxima do not repeat. In one probe the two slowest re-pick arrivals
+(16.6 and 2.4 ms) took 0.24-0.58 ms when timed again at the same
+positions, and p99.9 over its 20,000 arrivals was 0.68 ms, so the spikes
+are garbage collection or the loaded machine, not the walk. The first call
+costs less than building the machine for this story (26-45 ms), once per
+load, and a manifest whose items carry no audio never makes the tables.
