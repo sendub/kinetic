@@ -309,6 +309,25 @@ def test_webp_jxl_case_runs_the_converter_recipe() -> None:
     assert cases["imagecodecs.jxl-lossless-webp"] == selftest._sha(made)
 
 
+def test_audio_cases_run_the_converter_recipes(tmp_path: Path) -> None:
+    """Phase 47: the Ogg remux into WebM, the re-encode to Opus and a
+    video's sound extract are self-test cases, hashing what the
+    converter's own audio steps make; so are the decoded durations of
+    those outputs and the video sound's loudness."""
+    cases = selftest.run_cases()
+    for case, name, kind in (
+            ("ffmpeg.audio-remux-webm", "sample.ogg", "remux"),
+            ("ffmpeg.audio-transcode-opus", "sample.aiff", "transcode"),
+            ("ffmpeg.audio-extract-m4a", "sample.mp4", "extract")):
+        source = selftest.SAMPLES_DIR / name
+        step = assets.audio_step(assets.probe_audio(source))
+        assert step is not None and step["step"] == kind
+        made = tmp_path / f"{case}.{assets.file_step_ext(step)}"
+        assert assets.run_file_step(step, source, made) is None
+        assert cases[case] == selftest._sha(made.read_bytes())
+    assert {"ffmpeg.audio-duration", "ffmpeg.audio-loudness"} <= set(cases)
+
+
 def test_pin_file_lists_every_case() -> None:
     """Every case the self-test runs has a golden entry (null until
     pinned), so a new case cannot pass unnoticed."""

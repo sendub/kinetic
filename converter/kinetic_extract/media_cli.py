@@ -20,8 +20,10 @@ Usage:
 
 ``FILE`` is a JSON array of requests; each names a source relative to
 ``<game_root>`` (a loose path, or an ``.rpa`` archive plus member) and a
-kind (``image`` or ``video``), optionally a video's ``startSeconds`` and
-the caller's own ``id``. Outputs land at ``<out_dir>/media/<h[:2]>/<h>.<ext>``
+kind (``image``, ``video`` or ``audio``), optionally a video's
+``startSeconds`` and the caller's own ``id``. An ``audio`` request of a
+video ships its sound, or nothing when that is ``silent`` or there is
+``no audio``. Outputs land at ``<out_dir>/media/<h[:2]>/<h>.<ext>``
 by the same code as kinetic-extract; ``<out_dir>/media-ledger.json`` holds
 ``mediaTools``, ``decoders``, ``media`` and a ``requests`` list giving each
 request's result. Shipping into a folder that already has a media ledger
@@ -33,16 +35,18 @@ are counted in the summary and kept, or deleted with
 ``--delete-unreferenced-posters``.
 
 ``--jobs N`` (default: one per core) encodes up to N outputs at once on
-worker threads, transcodes and remuxes at most ``--video-jobs`` of them
-(default: a quarter of N); ``--jobs 1`` runs everything in order on
-one thread. Either way the outputs and the ledger are the same; the
-ledger is written once, at the end, through a temporary file. Progress
-(``progress: done/total requests``) goes to stderr at most every 10 s.
+worker threads, transcodes, remuxes and audio extracts at most
+``--video-jobs`` of them (default: a quarter of N); ``--jobs 1`` runs
+everything in order on one thread. Either way the outputs and the
+ledger are the same; the ledger is written once, at the end, through a
+temporary file. Progress (``progress: done/total requests``) goes to
+stderr at most every 10 s.
 
 Exit codes: 0 when every request ran (missing or unusable sources are
-reported as skipped results and in the summary), 1 when a decoder hook
-fails or the existing ledger cannot be merged into, 2 for a bad list or
-game root, or media tools that are not ready.
+reported as skipped results and in the summary, a video's silent or
+missing sound under ``no sound``), 1 when a decoder hook fails or the
+existing ledger cannot be merged into, 2 for a bad list or game root,
+or media tools that are not ready.
 
 ``rebuild`` makes every output listed in ``<folder>``'s
 ``build-ledger.json`` and/or ``media-ledger.json`` again from the
@@ -87,7 +91,7 @@ from pathlib import Path
 from typing import Any
 
 from . import __version__, posters
-from .assets import run_asset_pass
+from .assets import NO_SOUND, run_asset_pass
 from .cli import decoder_option, sorted_keys
 from .decoders import Decoder, DecoderError
 from .media import ExistingFileError, write_whole
@@ -200,8 +204,10 @@ def _limits(args: argparse.Namespace) -> tuple[int, int]:
 
 
 def _print_summary(records, entries, skipped: int) -> None:
-    print(f"requests: {len(entries)}; shipped: {len(entries) - skipped}; "
-          f"skipped: {skipped}")
+    quiet = sum(e["result"]["decision"] in NO_SOUND for e in entries)
+    print(f"requests: {len(entries)}; shipped: "
+          f"{len(entries) - skipped - quiet}; skipped: {skipped}"
+          + (f"; no sound: {quiet}" if quiet else ""))
     for n, (record, entry) in enumerate(zip(records, entries), start=1):
         result = entry["result"]
         if "file" not in result:
@@ -339,9 +345,9 @@ def _add_limits(parser: argparse.ArgumentParser) -> None:
                              "the same either way")
     parser.add_argument("--video-jobs", type=_positive, default=None,
                         metavar="N",
-                        help="of those, at most N video transcodes or "
-                             "remuxes (default: a quarter of --jobs, at "
-                             "least 1)")
+                        help="of those, at most N video or audio "
+                             "transcodes, remuxes or extracts (default: a "
+                             "quarter of --jobs, at least 1)")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -360,7 +366,7 @@ def main(argv: list[str] | None = None) -> int:
     shipp.add_argument("--list", type=Path, required=True, metavar="FILE",
                        help="JSON array of requests: {\"source\": {\"path\": "
                             "...} | {\"archive\": ..., \"member\": ...}, "
-                            "\"kind\": \"image\"|\"video\", "
+                            "\"kind\": \"image\"|\"video\"|\"audio\", "
                             "\"startSeconds\"?: N, \"id\"?: ...}")
     shipp.add_argument("--decoder", type=decoder_option, action="append",
                        default=[], metavar="MODULE:FUNC",

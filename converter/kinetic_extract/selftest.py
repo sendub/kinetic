@@ -29,7 +29,7 @@ from .media_tools import MediaToolsError
 
 SAMPLES_DIR = media_tools.CONVERTER_DIR / "tests" / "data" / "selftest"
 SAMPLES = ("sample.png", "sample.jpg", "sample.webp", "sample.gif",
-           "sample.mp4", "sample-odd.mp4")
+           "sample.mp4", "sample-odd.mp4", "sample.ogg", "sample.aiff")
 CACHE_FILE = "selftest-cache.json"
 POSTER_SECONDS = 0.5
 FAILED = "FAILED"
@@ -110,7 +110,37 @@ def run_cases(samples_dir: Path = SAMPLES_DIR) -> dict[str, str]:
         ok = assets.transcode_video(odd, padded, assets.probe_video(odd))
         out["ffmpeg.transcode-odd-mp4"] = (_file_hash(padded) if ok
                                            else FAILED)
+        out.update(_audio_cases(samples_dir, tmp))
     return dict(sorted(out.items()))
+
+
+# Audio cases: name -> the sample whose ``audio_step`` they run.
+_AUDIO_CASES = {"ffmpeg.audio-remux-webm": "sample.ogg",
+                "ffmpeg.audio-transcode-opus": "sample.aiff",
+                "ffmpeg.audio-extract-m4a": "sample.mp4"}
+
+
+def _audio_cases(samples_dir: Path, tmp: Path) -> dict[str, str]:
+    """The converter's audio recipes on the samples: the Ogg remux into
+    WebM, the AIFF re-encode to Opus, the extract of the video's AAC,
+    then the decoded duration of each output and the video sound's
+    volumedetect maximum."""
+    out: dict[str, str] = {}
+    durations: dict[str, float | None] = {}
+    for case, name in _AUDIO_CASES.items():
+        source = samples_dir / name
+        probe = assets.probe_audio(source)
+        step = assets.audio_step(probe) if probe else None
+        made = tmp / f"{case}.{assets.file_step_ext(step or {})}"
+        ok = step is not None \
+            and assets.run_file_step(step, source, made) is None
+        out[case] = _file_hash(made) if ok else FAILED
+        durations[case] = assets.decoded_duration(made) if ok else None
+    out["ffmpeg.audio-duration"] = _sha(
+        json.dumps(durations, sort_keys=True).encode())
+    loudness = assets.max_volume(samples_dir / "sample.mp4")
+    out["ffmpeg.audio-loudness"] = _sha(json.dumps(loudness).encode())
+    return out
 
 
 def unpinned_cases(golden: dict[str, str | None]) -> list[str]:

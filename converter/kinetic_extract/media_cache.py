@@ -12,13 +12,15 @@ it):
 
 - ``memo/<k[:2]>/<k>.json``: one decision. ``k`` is the sha256 of a
   canonical JSON key: the cache ``FORMAT``, the operation (``image``,
-  ``transcode``, ``poster``), the sha256 of the bytes entering the
-  encode (after any decoder hook and carve), the recipe (every step
-  dict and parameter the operation can choose from), and the run's whole
-  ``mediaTools`` (tool versions and binary hashes). The value is the
-  outcome: for an image the chosen ext, decision, notes, ledger steps
-  and output sha256, so the candidate comparison ("is the JPEG XL
-  smaller?") is skipped too, not just the encode.
+  ``transcode``, ``remux``, ``extract``, ``poster``, or the audio
+  measurements ``audio-duration`` and ``audio-loudness``), the sha256
+  of the bytes entering the encode (after any decoder hook and carve),
+  the recipe (every step dict and parameter the operation can choose
+  from), and the run's whole ``mediaTools`` (tool versions and binary
+  hashes). The value is the outcome: for an image the chosen ext,
+  decision, notes, ledger steps and output sha256, so the candidate
+  comparison ("is the JPEG XL smaller?") is skipped too, not just the
+  encode; for a measurement its ``value`` (seconds, or dBFS).
 - ``objects/<h[:2]>/<h>``: output bytes by their sha256. An output equal
   to its input (a kept original) stores no object.
 

@@ -6,8 +6,9 @@ Each request becomes one ``ItemRecord`` and goes through the same
 ``assets.run_asset_pass`` kinetic-extract runs on the items its story walk
 made, so the same sources give the same output paths and the same ledger
 ``media`` entries. Requests are validated in full before anything runs;
-a source that is missing or not a usable image/video is a result
-(``decision`` plus notes), not an error.
+a source that is missing or not a usable image, video or audio file is a
+result (``decision`` plus notes), not an error, and so is a video's
+sound that is ``silent`` or absent (``no audio``).
 """
 
 from __future__ import annotations
@@ -23,7 +24,7 @@ from .rpa import RpaError, extract_cached, open_archive
 from .timeline import ItemRecord, set_video_duration
 
 LEDGER_NAME = "media-ledger.json"
-KINDS = ("image", "video")
+KINDS = ("image", "video", "audio")
 _KEYS = {"source", "kind", "startSeconds", "id"}
 _SOURCE_SHAPE = 'either {"path"} or {"archive", "member"}'
 
@@ -72,7 +73,8 @@ def _check_request(entry: Any) -> dict[str, Any]:
     request: dict[str, Any] = {"source": _check_source(entry["source"])}
     kind = entry.get("kind")
     if kind not in KINDS:
-        raise ListError(f"kind must be \"image\" or \"video\", got {kind!r}")
+        raise ListError("kind must be \"image\", \"video\" or \"audio\", "
+                        f"got {kind!r}")
     request["kind"] = kind
     if "startSeconds" in entry:
         start = entry["startSeconds"]
@@ -189,18 +191,21 @@ _META_KEYS = ("sniffedFormat", "codec", "file", "poster", "warning")
 
 
 def request_result(record: ItemRecord, out_dir: Path) -> dict[str, Any]:
-    """What the helper needs for its manifest item: ``file`` (and a
-    video's ``poster`` and ``durationSeconds``), the display size
-    (``width``/``height``, of the image or the poster frame), the
-    decision and notes; a skipped request has no ``file``."""
+    """What the helper needs for its manifest item or track: ``file``
+    (and a video's ``poster``, a video's or audio file's
+    ``durationSeconds``), the display size (``width``/``height``, of the
+    image or the poster frame), the decision and notes; a request that
+    shipped nothing has no ``file``."""
     meta = record.asset_meta
     result: dict[str, Any] = {"decision": meta.get("decision"),
                               "notes": list(record.notes)}
     result.update({k: meta[k] for k in _META_KEYS if k in meta})
     if record.skipped or "file" not in meta:
         return result
-    if record.item["type"] == "video":
+    if record.item["type"] in ("video", "audio"):
         result["durationSeconds"] = record.item["durationSeconds"]
+    if record.item["type"] == "audio":
+        return result
     size = image_size(out_dir / (meta.get("poster") or meta["file"]))
     if size is not None:
         result["width"], result["height"] = size

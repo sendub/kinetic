@@ -275,9 +275,10 @@ def rebuild(folder: Path, game_roots: list[Path], decoders: list[Decoder],
     under `game_roots` (one per project, in order); write matching
     outputs under `out_dir` when given; check the folder's ``media/``
     (always without `out_dir`, else when the folder has a ``media/``).
-    ``workers`` rebuilds several entries at once (transcodes and remuxes
-    in its video lane); the report lists them in the same order either
-    way. ``progress`` is called with the number of entries done."""
+    ``workers`` rebuilds several entries at once (transcodes, remuxes
+    and audio extracts in its video lane); the report lists them in the
+    same order either way. ``progress`` is called with the number of
+    entries done."""
     report = Report()
     for line in decoder_differences(ledgers, decoders):
         report.fail("decoders", line)
@@ -320,9 +321,11 @@ def rebuild(folder: Path, game_roots: list[Path], decoders: list[Decoder],
 
 
 def _is_video_work(entry: Any) -> bool:
-    """Whether rebuilding `entry` runs a transcode or remux."""
+    """Whether rebuilding `entry` runs a transcode, remux or extract
+    (video or audio)."""
     return isinstance(entry, dict) and any(
-        isinstance(s, dict) and s.get("step") in ("transcode", "remux")
+        isinstance(s, dict) and s.get("step") in ("transcode", "remux",
+                                                   "extract")
         for s in entry.get("steps") or [])
 
 

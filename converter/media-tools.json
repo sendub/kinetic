@@ -54,6 +54,11 @@
   },
   "selftest": {
     "golden": {
+      "ffmpeg.audio-duration": "e5a7e3e646571c3cad61d49d63759ff87c9e732af98128ee52ff1dac2cfbc1e3",
+      "ffmpeg.audio-extract-m4a": "72dc599363ca9876d014bf40d53fea53347721eefaa93307312a5e0e9c9ef1bd",
+      "ffmpeg.audio-loudness": "11a68be99e8c26aabc0b8f35727cf647aac798a6f3beccde0350b0b7d8a344f8",
+      "ffmpeg.audio-remux-webm": "69e0b40f72ac9cc279e460d7f4d1b45f0f552e56ebfda075b0560dfb4e071a04",
+      "ffmpeg.audio-transcode-opus": "6d4cf83d0c83b1a60c6cf14dfcf3c628a5047f231e67e179057d32c899041de0",
       "ffmpeg.poster-frame": "301bbb348d0f775e8bb569e30b3fa2aec76d3362d64d52e2e072f4edd5ed10e8",
       "ffmpeg.transcode-mp4": "ea67152ecb98746b73136111917e5435063e0ba1fde2fe471f411cb40d1f4a41",
       "ffmpeg.transcode-odd-mp4": "34d81edd1c62d0a9a34df909e09a4dcdb1e1676596e6c59eb18942d504da441a",

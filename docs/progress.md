@@ -2930,7 +2930,7 @@ truthful: an unchecked box means nothing was accepted.
       new validator give identical stdout, stderr and exit on 13 folders
       without audio (the demo, the branches example, 11 broken
       variants); npm test 912, check clean.)
-- [ ] kinetic-media `audio` kind (item 2): keep MP3, M4A, WAV, FLAC and
+- [x] kinetic-media `audio` kind (item 2): keep MP3, M4A, WAV, FLAC and
       WebM; copy Ogg Vorbis or Opus into WebM without re-encoding;
       re-encode the rest to Opus in WebM; audio from a video, with a
       loudness check (`silent` and `no audio` results); durations by
@@ -2948,6 +2948,30 @@ truthful: an unchecked box means nothing was accepted.
         nothing;
       - `rebuild` reproduces every audio file, and a changed byte fails
         it.
+      (2026-11-09: `probe_audio` ignores `attached_pic` cover art;
+      KEEP_AUDIO and COPY_AUDIO mirror the video tables; a copied MP3
+      gets `-write_xing 0 -id3v2_version 0`, since with a Xing header
+      ffmpeg trims 529 samples the source never trimmed; a re-encode of
+      more than 2 channels downmixes to stereo. `run_steps` takes each
+      step's extension from its muxer. Durations are decoded samples
+      over rate, cached with loudness; a file that will not decode is
+      skipped. SILENT_MAX_VOLUME_DB -70: 9,470 loose corpus videos,
+      2,309 with an audio stream, 1,666 of them silent at -91.0 or
+      -90.3 dB, the other 643 at -45.4 dB or louder. Self-test cases
+      ffmpeg.audio-remux-webm, -transcode-opus, -extract-m4a, -duration
+      and -loudness, recorded by the orchestrator with `--repin` (the
+      user's choice, 2026-11-09; AGENTS.md now says so): 69e0b40f,
+      6d4cf83d, 72dc5993, e5a7e3e6, 11a68be9; setup's self-test passes
+      21 cases. 58 audio tests, red first (`audio` refused as a kind);
+      4 of 5 injected faults caught (dropping the early silent return
+      only wastes an encode). Subagent: full pytest 783. Orchestrator:
+      audio, ship, media-tools and setup tests 128 passed; npm test
+      912, check clean; real `kinetic-media ship` with the pinned tools
+      on 81 corpus requests (60 audio files, 21 videos; read-only,
+      output in .tmp) exit 0, `rebuild` 70 of 70 matched, a second ship
+      left the ledger byte-identical. Not changed: a pre-existing
+      video-path ledger note that drops on re-ship when two sources
+      give identical transcodes; fixed on the audio path only.)
 - [ ] `fixtures/audio-demo` guided tour (item 3), built and validated by
       `fixtures/build_audio_demo.py`, every line saying what to hear.
       Tests: a fresh build validates; building twice gives identical

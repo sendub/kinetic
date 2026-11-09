@@ -158,8 +158,8 @@ files (docs/plan.md Phase 25), which `kinetic-media rebuild` reads:
   override, whose output is not reproducible).
 - `media`: one entry per shipped file, keyed by its path
   (`media/<h[:2]>/<h>.<ext>`), posters included:
-  - `kind`: `image`, `video` or `poster`; `sha256` and `bytes` of the
-    shipped file.
+  - `kind`: `image`, `video`, `poster` or `audio`; `sha256` and `bytes`
+    of the shipped file.
   - `source`: where the bytes come from, relative to the project root
     (the folder holding `game/`, so a ledger works against any copy of
     the game): `{"path": "game/images/a.png"}` for a loose file, or
@@ -183,8 +183,8 @@ files (docs/plan.md Phase 25), which `kinetic-media rebuild` reads:
     - `{"step": "preserve"}`: ship the bytes unchanged. For an image
       that could have become JPEG XL, `reason` says why it did not
       (Image policy, below), e.g. `"jxl 10048 >= original 1306 bytes"`;
-      a copied video's `codec` is its ffprobe video codec name (Video
-      policy, below);
+      a copied video's or audio file's `codec` is its ffprobe codec name
+      (Video policy and Audio policy, below);
     - `{"step": "convert", "format": "png"|"jpeg", "params": {...}}`:
       decode with Pillow and save with these save parameters (`jpeg`
       also names the `mode` it converts to first);
@@ -204,7 +204,13 @@ files (docs/plan.md Phase 25), which `kinetic-media rebuild` reads:
       an even-sized source gets neither;
     - `{"step": "remux", "args": [...], "reason": "..."}`: a stream
       copy into MP4 (Video policy below), `args` as for `transcode`,
-      `reason` why the source container or tag could not ship;
+      `reason` why the source container or tag could not ship. An audio
+      `remux` copies the first audio stream into WebM, M4A or MP3, and
+      an audio `transcode` re-encodes it to Opus in WebM (Audio policy,
+      below); both carry a `reason`;
+    - `{"step": "extract", "args": [...], "reason": "..."}`: the first
+      audio stream of a video, copied or re-encoded by the same rule
+      (Audio policy, below);
     - `{"step": "poster", "startSeconds": S, "args": [...],
       "frameFormat": "png", "mode": "RGB", "png": {"optimize": true}}`:
       the poster frame. ffmpeg runs `args` (`{input}` the video,
@@ -352,6 +358,63 @@ and counts it under `items skipped`. A dropped item is handled like any
 other skipped one (a decision with a route item dropped is withdrawn).
 The video never stands in as its own poster.
 
+## Audio policy
+
+docs/plan.md Phase 47, item 2. An `audio` request (kinetic-media ship,
+below) ships a file that Chrome and WebKit both play and time right.
+ffprobe gives the container, named as for video (an M4A is `mp4`),
+and the first audio stream's codec; the file name never decides. A
+stream with disposition `attached_pic` (MP3 or M4A cover art) is not a
+video, so such a file is an audio file. Two tables in
+`kinetic_extract/assets.py` hold the rule: `KEEP_AUDIO` (container ->
+codecs kept there) and `COPY_AUDIO` (codec -> the container its stream
+is copied into).
+
+| Decision | When | Shipped | Ledger |
+| --- | --- | --- | --- |
+| keep (`copy`) | MP3 in MP3; AAC in MP4/M4A; PCM (`pcm_u8`, `pcm_s16le`, `pcm_s24le`, `pcm_s32le`, `pcm_f32le`) in WAV; FLAC in FLAC; Vorbis or Opus in WebM | byte-identical, at `.mp3`, `.m4a`, `.wav`, `.flac` or `.webm` | `{"step": "preserve", "codec": ...}` |
+| `remux` | Vorbis or Opus in any other container (Ogg `.ogg`/`.oga`/`.opus`, CAF, Matroska), AAC elsewhere (ADTS, MOV, 3GP), MP3 elsewhere (WAV, Matroska) | the stream copied unchanged into `.webm`, `.m4a` (faststart) or `.mp3` | `{"step": "remux", "args": [...], "reason": ...}` |
+| `transcode` | anything else: AIFF, ADPCM or big-endian PCM, ALAC, WMA, AC-3, MP2, FLAC outside FLAC, ... | Opus in `.webm` at 128 kb/s; more than 2 channels downmixed to stereo (`-ac 2` in `args`) | `{"step": "transcode", "args": [...], "reason": ...}` |
+
+Ogg is never kept. Measured 2026-11-09 with a 12.000 s Vorbis tone in
+headless Chrome 157 and the WebKit driver on macOS 27.2: in WebKit the
+Ogg file reports 12.34 s and its clock runs 4-7% slow, and Chrome plays
+it 0.8 s past its end, while the same stream copied into WebM is right
+in both. Every copy uses `-map 0:a:0 -c:a copy -f <muxer>` plus the
+bitexact output flags, and decodes to exactly the source's samples. An
+MP3 copy gets `-write_xing 0 -id3v2_version 0`: with the Xing header
+ffmpeg writes, its decoder would trim 529 samples the source never
+trimmed.
+
+Audio from a video: an `audio` request whose source has a real video
+stream ships its first audio stream by the same codec rule, as an
+`extract` step: AAC copied into `.m4a`, Vorbis or Opus into `.webm`,
+MP3 into `.mp3`, anything else re-encoded to Opus in `.webm` (stereo
+at most, as above). First
+ffmpeg's `volumedetect` measures the stream's maximum level:
+
+- below `SILENT_MAX_VOLUME_DB` (-70 dB), nothing ships and the
+  decision is `silent`;
+- no audio stream at all gives `no audio`, for any source.
+
+Neither is an error, and neither changes the exit status, so a
+converter can request every video's sound. The threshold comes from
+the corpus, measured 2026-11-09 with the pinned ffmpeg on the 9,470
+loose video files of 22 game folders: 2,309 carry an audio stream;
+1,666 of those are digital silence, peaking at -91.0 dB (1,646) or
+-90.3 dB (20), and the other 643 peak at -45.4 dB or louder, with
+nothing in between.
+
+`durationSeconds` comes from decoding the shipped file: ffmpeg decodes
+its first audio stream to PCM, and the sample count over the sample
+rate, to 6 decimals, is the duration. Container headers can be wrong:
+a VBR MP3 without a Xing header gives ffprobe a length from its first
+frame's bitrate (2.93 s for a 2.04 s test file). A source that probes
+but decodes to no samples (a WAV header with no data, say) is
+`skipped` with a note; there is never a placeholder. ffprobe failing
+on the source is `skipped` too (`unprobeable audio`), as is a failed
+copy or re-encode.
+
 ## Decoder hooks
 
 Some games wrap or obfuscate their media. Kinetic carves a plain wrapper
@@ -369,9 +432,10 @@ and passes it with `--decoder MODULE:FUNC` (docs/plan.md Phase 25):
   imported, or no such function, is a usage error (exit 2) before any
   work.
 - `FUNC(data: bytes, source: dict) -> bytes | None` is called once per
-  media source the asset pass reads (images and videos), loose file or
-  `.rpa` member, with the source's COMPLETE bytes (a wrapper's layout may
-  depend on the file length), before format detection and carving.
+  media source the asset pass reads (images, videos and audio), loose
+  file or `.rpa` member, with the source's COMPLETE bytes (a wrapper's
+  layout may depend on the file length), before format detection and
+  carving.
   `source` is a copy of the ledger source ref: `{"path":
   "game/images/a.png"}` or `{"archive": "game/images.rpa", "member":
   "images/a.png"}`.
@@ -418,7 +482,7 @@ ship"):
 ```
 
 Each request goes through the same asset pass as kinetic-extract: the
-decoder hooks, the Image and Video policies, posters, and
+decoder hooks, the Image, Video and Audio policies, posters, and
 content-addressed placement under `<out>/media/`. The same sources give
 the same paths and `media` entries as kinetic-extract. The pinned tools'
 self-test runs first, as for kinetic-extract.
@@ -432,14 +496,19 @@ in POSIX form, and may not be absolute or contain `..`:
   {"source": {"archive": "game/images.rpa", "member": "bg/room.jpg"},
    "kind": "image"},
   {"source": {"path": "areas/intro.webm"}, "kind": "video",
-   "startSeconds": 2.5}
+   "startSeconds": 2.5},
+  {"source": {"path": "game/audio/rain.ogg"}, "kind": "audio",
+   "id": "rain"},
+  {"source": {"path": "areas/intro.webm"}, "kind": "audio",
+   "id": "intro-sound"}
 ]
 ```
 
 - `source`: `{"path"}` for a loose file, or `{"archive", "member"}` for
   an `.rpa` member (the archive path, and the member key exactly as the
   archive stores it).
-- `kind`: `"image"` or `"video"`.
+- `kind`: `"image"`, `"video"` or `"audio"`. An `audio` request of a
+  video ships its sound (Audio policy, above).
 - `startSeconds` (videos only, a number >= 0): the poster is the frame
   at that time. The default is 0.
 - `id` (optional, a non-empty string): the helper's own key. It must be
@@ -447,7 +516,7 @@ in POSIX form, and may not be absolute or contain `..`:
 
 A malformed list is refused before any work. The run exits 2 and
 names each bad entry by its position, e.g. `request 2: kind must be
-"image" or "video", got 'audio'`.
+"image", "video" or "audio", got 'sound'`.
 
 `<out>/media-ledger.json` holds `generatedBy`, then `mediaTools`,
 `decoders` and `media` exactly as in the build ledger (Build ledger,
@@ -463,22 +532,38 @@ normalized, and paired with its result:
             "sniffedFormat": "webm", "width": 1280}}
 ```
 
+An audio request's result, for an Ogg Vorbis file:
+
+```json
+{"request": {"id": "rain", "kind": "audio",
+             "source": {"path": "game/audio/rain.ogg"}},
+ "result": {"codec": "vorbis", "decision": "remux",
+            "durationSeconds": 30.002, "file": "media/5c/5c...a2.webm",
+            "notes": ["vorbis in ogg is not kept: copied into webm"],
+            "sniffedFormat": "ogg"}}
+```
+
 - `file`, plus `poster` and `durationSeconds` for a video: the values
-  for the manifest item.
+  for the manifest item. An audio request's `file` and
+  `durationSeconds` (decoded, Audio policy above) are the values for
+  its track.
 - `width`/`height`: the display size, read from the shipped image or
-  from the poster frame.
+  from the poster frame; an audio result has none.
 - `decision`, `sniffedFormat`, `codec`, `notes` and `warning`: as in a
   build-ledger item entry.
-- A request with no `file` was skipped. Its `decision` is
+- A request with no `file` shipped nothing. Its `decision` is
   `missing-source` (no such file, `archive not found`, `member not in
-  archive`) or `skipped` (not a usable image or video, or a failed
-  poster), and its notes say why. The helper drops that item.
+  archive`), `skipped` (not a usable image, video or audio file, audio
+  that does not decode, or a failed poster), or, for an `audio`
+  request, `silent` or `no audio`; its notes say why. The helper drops
+  that item or track.
 
 Exit codes:
 
 - 0: every request ran. Skipped requests do not fail the run; the
   summary line `requests: N; shipped: M; skipped: K` lists each one
-  with its reason.
+  with its reason. Audio requests that were `silent` or `no audio` are
+  added as `; no sound: S` and listed too.
 - 1: a decoder hook raised (the ledger is not written), or the folder's
   existing ledger cannot be merged into.
 - 2: a bad list or game root, or media tools that are not ready.
@@ -519,10 +604,10 @@ into it, so a helper can ship once per episode into one folder:
 - `--jobs N`: run up to N encodes at once (default: one per core,
   `os.cpu_count()`). `--jobs 1` runs everything in order on one
   thread, as before.
-- `--video-jobs N`: of those, at most N transcodes or remuxes (default:
-  a quarter of `--jobs`, at least 1). A waiting transcode takes the
-  next free slot before any waiting still image, so long transcodes
-  start early instead of last.
+- `--video-jobs N`: of those, at most N transcodes or remuxes, video
+  or audio, and audio extracts (default: a quarter of `--jobs`, at
+  least 1). A waiting transcode takes the next free slot before any
+  waiting still image, so long transcodes start early instead of last.
 
 The folder is the same whatever the limits: the same files, the same
 bytes, and a byte-identical `media-ledger.json`. How `ship` keeps it
@@ -530,10 +615,12 @@ so (`converter/kinetic_extract/workers.py`, `assets._plan_ahead`):
 
 - First one coordinator walks the requests in order. It reads and
   hashes each source, runs the decoder hooks, sniffs images and probes
-  videos (each file once), and queues every encode the requests need:
-  an image decision, a poster, a transcode or a remux. Each is keyed
-  by what it encodes (the input's sha256, plus `startSeconds` for a
-  poster), so an encode many requests share is queued once. An output
+  videos and audio (each file once), and queues every encode the
+  requests need: an image decision, a poster, a transcode or a remux.
+  An audio source's task is its whole slow part: a video's loudness
+  check, the copy or re-encode, and the decode for the duration. Each
+  is keyed by what it encodes (the input's sha256, plus `startSeconds`
+  for a poster), so an encode many requests share is queued once. An output
   the folder's ledger already records is not queued.
 - Worker threads run the queue. libjxl, zlib and ffmpeg release
   Python's lock, so threads run truly in parallel and no frame is
@@ -702,9 +789,11 @@ sources:
 2. Run its recorded `steps` in order through `assets.run_steps`. This
    is the same step code the converter makes its outputs with: each
    candidate is made by running the step dict that is then recorded,
-   so recipe and code cannot drift. The decoder hooks run first, as in
-   the asset pass, and the `decode` steps they make must equal the
-   recorded ones.
+   so recipe and code cannot drift. Audio entries run their
+   `preserve`, `remux`, `transcode` or `extract` step like any other,
+   each written at its muxer's extension. The decoder hooks run first,
+   as in the asset pass, and the `decode` steps they make must equal
+   the recorded ones.
 3. Check the output's sha256 against the entry's.
 
 The folder's `media/` is then checked against all entries. It is
@@ -1007,17 +1096,21 @@ nothing already made from the same bytes, recipe and tools.
 - What is remembered: one record per decision. For an image that is the
   whole choice: ext, decision, notes, ledger steps and output sha256,
   so the JPEG XL attempt and the "is it smaller?" comparison are both
-  skipped. For a transcode, remux or poster it is the output sha256.
+  skipped. For a transcode, remux, audio extract or poster it is the
+  output sha256. An audio file's decoded duration (keyed by the sha256
+  of the file that ships) and a video sound's `volumedetect` maximum
+  are remembered as values, so a warm run decodes no audio either.
   Output bytes are stored once by sha256 (`objects/<h[:2]>/<h>`); a
-  kept original stores none. A failed transcode, remux or poster is not
-  remembered.
+  kept original stores none. A failed transcode, remux, extract,
+  poster or decode is not remembered.
 - Key: the sha256 of the bytes entering the encode (after any decoder
   hook and carve), the recipe (every step dict and parameter the encode
   can use: PNG and JPEG convert params, JPEG XL effort, the transcode,
-  remux and poster ffmpeg args, the poster's start time and PNG params), the
-  run's whole `mediaTools` (tool versions and binary sha256s, extractor
-  version), and a cache format number that is bumped when the choosing
-  code changes. Any difference is a miss.
+  remux, extract, poster, duration and loudness ffmpeg args, the
+  poster's start time and PNG params), the run's whole `mediaTools`
+  (tool versions and binary sha256s, extractor version), and a cache
+  format number that is bumped when the choosing code changes. Any
+  difference is a miss.
 - Decoder hooks always run, and the ledger's `decode` steps come from
   this run's hooks. The key is the decoded bytes, not the hook's
   identity: a changed hook that decodes differently misses, and one

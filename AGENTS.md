@@ -18,8 +18,12 @@ are implementing and docs/stack.md for settled decisions.
   ffmpeg/ffprobe named in `converter/media-tools.json` into the
   gitignored `.media-tools/<platform>/` and runs the golden-hash
   self-test; `--pin` records null checksums and goldens, which the user
-  runs, not agents). Run `.venv/bin/kinetic-extract <renpy_project>
-  <out>`; it refuses to start until that setup has passed. Tests
+  runs, not agents; the orchestrator, not a subagent, records the golden
+  of a newly added self-test case with `--repin CASE` from the installed
+  pinned tools while every other case still matches, and lists the hash
+  in the item's evidence note). Run `.venv/bin/kinetic-extract
+  <renpy_project> <out>`; it refuses to start until that setup has
+  passed. Tests
   `.venv/bin/pytest converter/ tools/ -q -n auto` (pytest-xdist, one
   worker per core, about 45 s; a single file runs fine without `-n`).
 - Game apps: `.venv/bin/python tools/build_apps.py <game-folder> [--mac]

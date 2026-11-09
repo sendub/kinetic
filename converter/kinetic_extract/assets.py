@@ -37,6 +37,20 @@ file extensions - corpus extensions lie. Policies:
   and every other codec transcodes to bitexact H.264 faststart MP4.
   Audio never decides (videos play muted). A copied video's
   ``preserve`` step records its ``codec``.
+- Audio (``kind: "audio"`` requests; docs/plan.md Phase 47): ffprobe's
+  container and first audio stream decide, never the name. A codec
+  every engine plays in its container (``KEEP_AUDIO``) ships
+  byte-identical; Vorbis, Opus, AAC or MP3 elsewhere is copied
+  unchanged into WebM, M4A or MP3 (``COPY_AUDIO``, ``remux``); anything
+  else becomes Opus in WebM at 128 kb/s, stereo at most (``transcode``).
+  Cover art (an attached picture) is not a video. A source with a real
+  video stream ships its first audio stream by the same copy-or-Opus
+  rule
+  (``extract``), unless its ``volumedetect`` maximum is below
+  ``SILENT_MAX_VOLUME_DB`` (decision ``silent``) or it has no audio
+  stream (``no audio``): neither ships anything. ``durationSeconds`` is
+  the shipped file's decoded samples over its rate; a file that does
+  not decode is skipped, never given a placeholder.
 - Every tool is the pinned one (``media_tools``): ffmpeg/ffprobe from
   ``.media-tools/<platform>/``, single-threaded and bitexact; Pillow save
   parameters are spelled out in full.
@@ -82,11 +96,12 @@ import hashlib
 import itertools
 import json
 import os
+import re
 import shutil
 import subprocess
 import tempfile
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from io import BytesIO
 from pathlib import Path
 from typing import Any
@@ -94,8 +109,8 @@ from typing import Any
 from . import decoders as decoder_hooks
 from . import media_tools
 from .media_cache import MediaCache
-from .media import (content_ref, image_size, probe_duration_seconds,
-                    reuse_existing, sha256_file)
+from .media import (HASH_CHUNK, content_ref, image_size,
+                    probe_duration_seconds, reuse_existing, sha256_file)
 from .timeline import ItemRecord
 from .workers import Workers
 
@@ -149,6 +164,38 @@ HEVC_TAG = "hvc1"
 _3GP_BRANDS = ("3gp", "3ge", "3gg", "3gr", "3gs")
 
 KEEP, REMUX, TRANSCODE = "keep", "remux", "transcode"
+
+# The audio rule (docs/plan.md Phase 47, item 2; docs/extracting.md,
+# "Audio policy"). KEEP_AUDIO: container (as `_container` names it) ->
+# (audio codecs every engine plays there, the extension it ships at);
+# such a file ships byte-identical. Ogg is never kept: WebKit misreads
+# its duration and runs its clock 4-7% slow, and Chrome plays it past
+# its end (measured 2026-11-09).
+KEEP_AUDIO = {
+    "mp3": ({"mp3"}, "mp3"),
+    "mp4": ({"aac"}, "m4a"),
+    "wav": ({"pcm_u8", "pcm_s16le", "pcm_s24le", "pcm_s32le",
+             "pcm_f32le"}, "wav"),
+    "flac": ({"flac"}, "flac"),
+    "webm": ({"vorbis", "opus"}, "webm"),
+}
+# Codec -> (ffmpeg muxer, extension) its stream is copied into, unchanged,
+# from any other container (Ogg, CAF, Matroska, ADTS, WAV, a video...).
+# Every other codec is re-encoded to Opus in WebM at AUDIO_BITRATE.
+COPY_AUDIO = {"vorbis": ("webm", "webm"), "opus": ("webm", "webm"),
+              "aac": ("ipod", "m4a"), "mp3": ("mp3", "mp3")}
+AUDIO_BITRATE = "128k"
+# A video's sound whose volumedetect max_volume is below this ships
+# nothing (decision SILENT). Measured 2026-11-09 with the pinned ffmpeg
+# on the 9,470 loose video files of 22 corpus game folders (converter
+# output folders left out): 2,309 carry an audio stream. 1,666 of those
+# are digital silence, max_volume -91.0 dB (1,646) or -90.3 dB (20);
+# the other 643 peak at -45.4 dB or louder, with nothing in between.
+# -70 dB sits about 20 dB above the silence and 25 dB below the quietest
+# audible stream.
+SILENT_MAX_VOLUME_DB = -70.0
+COPY, EXTRACT, SILENT, NO_AUDIO = "copy", "extract", "silent", "no audio"
+NO_SOUND = (SILENT, NO_AUDIO)
 
 
 @dataclass(frozen=True)
@@ -295,27 +342,76 @@ def probe_video(path: Path) -> VideoProbe | None:
         return None
     codec = stream.get("codec_name")
     tag = stream.get("codec_tag_string")
-    fmt = info.get("format", {})
+    container = _container(info.get("format", {}), path,
+                           codec in {"vp8", "vp9", "av1"})
+    return VideoProbe(container, codec, tag, _dimension(stream, "width"),
+                      _dimension(stream, "height"))
+
+
+def _container(fmt: dict[str, Any], path: Path, webm_codec: bool) -> str:
+    """The true container from ffprobe's ``format`` section: ``mp4``,
+    ``m4v``, ``3gp`` or ``mov`` by the ISO-BMFF major brand, ``webm`` or
+    ``mkv`` by the EBML DocType (``webm`` only when `webm_codec`, the
+    stream's codec being one WebM allows), else ffprobe's first format
+    name."""
     names = (fmt.get("format_name") or "").split(",")
     tokens = set(names)
     if tokens & {"mp4", "mov", "m4a", "3gp", "mj2"}:
         brand = ((fmt.get("tags") or {}).get("major_brand") or "").strip()
         # A QuickTime file has brand "qt" or no ftyp box at all.
-        container = ("mov" if brand in {"", "qt"}
-                     else "m4v" if brand.upper().startswith("M4V")
-                     else "3gp" if brand.lower().startswith(_3GP_BRANDS)
-                     else "mp4")
-    elif tokens & {"matroska", "webm"}:
+        return ("mov" if brand in {"", "qt"}
+                else "m4v" if brand.upper().startswith("M4V")
+                else "3gp" if brand.lower().startswith(_3GP_BRANDS)
+                else "mp4")
+    if tokens & {"matroska", "webm"}:
         # ffprobe names every Matroska file "matroska,webm"; the EBML
         # DocType tells WebM from MKV. A WebM DocType around a codec WebM
         # does not allow is plain Matroska to a browser: call it MKV.
-        webm = matroska_doctype(path) == "webm" \
-            and codec in {"vp8", "vp9", "av1"}
-        container = "webm" if webm else "mkv"
-    else:
-        container = names[0] or "unknown"
-    return VideoProbe(container, codec, tag, _dimension(stream, "width"),
-                      _dimension(stream, "height"))
+        webm = matroska_doctype(path) == "webm" and webm_codec
+        return "webm" if webm else "mkv"
+    return names[0] or "unknown"
+
+
+@dataclass(frozen=True)
+class AudioProbe:
+    """What ffprobe found for an audio request: the true container
+    (``_container``), the first audio stream's codec (None when there is
+    no audio stream), whether a real video stream is present (cover
+    art, a stream with disposition ``attached_pic``, is not one) and the
+    first audio stream's channel count (None when unknown)."""
+
+    container: str
+    codec: str | None
+    video: bool
+    channels: int | None = None
+
+
+def probe_audio(path: Path) -> AudioProbe | None:
+    """`path`'s container, first audio codec and whether it is a video,
+    via ffprobe; None when ffprobe cannot read it."""
+    proc = _run([*media_tools.ffprobe_cmd(),
+                 "-show_entries", "format=format_name:format_tags=major_brand",
+                 "-show_entries", "stream=codec_type,codec_name,channels"
+                 ":stream_disposition=attached_pic",
+                 "-of", "json", str(path)])
+    if proc is None or proc.returncode != 0:
+        return None
+    try:
+        info = json.loads(proc.stdout)
+    except json.JSONDecodeError:
+        return None
+    streams = info.get("streams", [])
+    audio = next((s for s in streams if s.get("codec_type") == "audio"),
+                 None)
+    codec = audio.get("codec_name") if audio else None
+    video = any(s.get("codec_type") == "video"
+                and not (s.get("disposition") or {}).get("attached_pic")
+                for s in streams)
+    channels = audio.get("channels") if audio else None
+    return AudioProbe(_container(info.get("format", {}), path,
+                                 codec in {"vorbis", "opus"}),
+                      codec, video,
+                      channels if isinstance(channels, int) else None)
 
 
 def _dimension(stream: dict[str, Any], key: str) -> int | None:
@@ -905,6 +1001,241 @@ def extract_poster(source: Path, start_seconds: float,
     return Poster(ext, out, [step, *image_steps])
 
 
+# --- audio -------------------------------------------------------------------
+
+def audio_copy_args(codec: str) -> list[str]:
+    """Copy the first audio stream, unchanged, into `codec`'s COPY_AUDIO
+    container, bitexact. M4A gets faststart, as MP4 video does. MP3 gets
+    no Xing/LAME header: from it ffmpeg's decoder would trim 529 samples
+    the source never trimmed, and the copy must decode to the source's
+    samples. No ID3 tag either: the bytes are the MPEG frames alone."""
+    muxer, _ = COPY_AUDIO[codec]
+    extra = {"ipod": ["-movflags", "+faststart"],
+             "mp3": ["-write_xing", "0", "-id3v2_version", "0"]}.get(
+        muxer, [])
+    return [*media_tools.FFMPEG_GLOBAL, "-y",
+            *media_tools.FFMPEG_DECODE, "-i", INPUT,
+            "-map", "0:a:0", "-c:a", "copy",
+            *media_tools.FFMPEG_ENCODE, *extra, "-f", muxer, OUTPUT]
+
+
+def audio_transcode_args(channels: int | None = None) -> list[str]:
+    """The first audio stream re-encoded to Opus in WebM, bitexact, at
+    AUDIO_BITRATE (libopus resamples what is not an Opus rate to 48 kHz).
+    A source of more than 2 `channels` is downmixed to stereo (``-ac
+    2``); mono and stereo keep theirs, with the plain recipe."""
+    downmix = ["-ac", "2"] if channels is not None and channels > 2 \
+        else []
+    return [*media_tools.FFMPEG_GLOBAL, "-y",
+            *media_tools.FFMPEG_DECODE, "-i", INPUT,
+            "-map", "0:a:0", *downmix, "-c:a", "libopus",
+            "-b:a", AUDIO_BITRATE,
+            *media_tools.FFMPEG_ENCODE, "-f", "webm", OUTPUT]
+
+
+def audio_step(probe: AudioProbe) -> dict[str, Any] | None:
+    """The ledger recipe (``run_file_step`` runs it) that makes a file
+    every engine plays from `probe`'s first audio stream, or None when
+    the source ships as it is (``preserve``)."""
+    codec = probe.codec or "unknown"
+    kept = KEEP_AUDIO.get(probe.container, (set(), ""))[0]
+    if not probe.video and codec in kept:
+        return None
+    copy = codec in COPY_AUDIO
+    args = audio_copy_args(codec) if copy \
+        else audio_transcode_args(probe.channels)
+    target = (f"copied into {COPY_AUDIO[codec][1]}" if copy else
+              f"re-encoded to opus webm at {AUDIO_BITRATE}b/s")
+    if probe.video:
+        return {"step": EXTRACT, "args": args,
+                "reason": f"{codec} sound of a {probe.container} video: "
+                          f"{target}"}
+    return {"step": REMUX if copy else TRANSCODE, "args": args,
+            "reason": f"{codec} in {probe.container} is not kept: {target}"}
+
+
+_MUXER_EXTS = {"mp4": "mp4", "webm": "webm", "ipod": "m4a", "mp3": "mp3"}
+
+
+def file_step_ext(step: dict[str, Any]) -> str:
+    """The extension of the file a file step writes: a poster's image
+    format; for ffmpeg steps the ``-f`` muxer's (``ipod`` is ``.m4a``),
+    and ``mp4`` for a video transcode, which names no muxer."""
+    if step.get("step") == "poster":
+        return {"png": "png", "jpeg": "jpg"}[poster_format(step)]
+    args = step.get("args") or []
+    at = args.index("-f") + 1 if "-f" in args else len(args)
+    muxer = args[at] if at < len(args) else "mp4"
+    return _MUXER_EXTS.get(muxer, muxer)
+
+
+def audio_ext(probe: AudioProbe, step: dict[str, Any] | None) -> str:
+    """The extension `probe`'s audio ships at, after `step` (None: kept)."""
+    if step is None:
+        return KEEP_AUDIO[probe.container][1]
+    return file_step_ext(step)
+
+
+# volumedetect reports its levels at the info log level.
+_LOUDNESS_GLOBAL = ["-nostdin", "-hide_banner", "-nostats", "-v", "info",
+                    "-filter_threads", "1"]
+_MAX_VOLUME = re.compile(r"max_volume: (-?(?:inf|\d+(?:\.\d+)?)) dB")
+
+
+def loudness_args() -> list[str]:
+    """volumedetect over the first audio stream, nothing written."""
+    return [*_LOUDNESS_GLOBAL, *media_tools.FFMPEG_DECODE, "-i", INPUT,
+            "-map", "0:a:0", "-af", "volumedetect", "-f", "null", "-"]
+
+
+def duration_args() -> list[str]:
+    """The first audio stream decoded to 8-bit mono PCM WAV on stdout:
+    the fmt chunk gives the rate the decoder produced, the data chunk
+    one block per sample."""
+    return [*media_tools.FFMPEG_GLOBAL, *media_tools.FFMPEG_DECODE,
+            "-i", INPUT, "-map", "0:a:0", "-ac", "1", "-c:a", "pcm_u8",
+            *media_tools.FFMPEG_ENCODE, "-f", "wav", "-"]
+
+
+def _ffmpeg_with(args: list[str], source: Path) -> list[str]:
+    return [str(media_tools.tool_path("ffmpeg")),
+            *(str(source) if a == INPUT else a for a in args)]
+
+
+def max_volume(path: Path) -> float | None:
+    """volumedetect's max_volume (dBFS) of `path`'s first audio stream,
+    or None when ffmpeg decodes no samples from it."""
+    proc = _run(_ffmpeg_with(loudness_args(), path))
+    if proc is None or proc.returncode != 0:
+        return None
+    found = _MAX_VOLUME.findall(proc.stderr)
+    return float(found[-1]) if found else None
+
+
+_WAV_HEAD = 4096  # far more than ffmpeg's RIFF, fmt and data headers
+
+
+def decoded_duration(path: Path) -> float | None:
+    """Decoded samples over sample rate of `path`'s first audio stream,
+    to 6 decimals, counted from what ffmpeg decodes (container headers
+    can misstate it: a VBR MP3 without a Xing header); None when it does
+    not decode to any sample."""
+    head, total = b"", 0
+    try:
+        with subprocess.Popen(_ffmpeg_with(duration_args(), path),
+                              stdout=subprocess.PIPE,
+                              stderr=subprocess.DEVNULL) as proc:
+            assert proc.stdout is not None
+            while chunk := proc.stdout.read(HASH_CHUNK):
+                head += chunk[:_WAV_HEAD - len(head)]
+                total += len(chunk)
+    except OSError:
+        return None
+    layout = _wav_layout(head)
+    if proc.returncode != 0 or layout is None:
+        return None
+    rate, block, data_at = layout
+    samples = (total - data_at) // block
+    return round(samples / rate, 6) if samples > 0 and rate > 0 else None
+
+
+def _wav_layout(head: bytes) -> tuple[int, int, int] | None:
+    """(sample rate, block align, offset of the sample data) from a WAV
+    header, or None. The data chunk's size field is not trusted: on a
+    pipe ffmpeg cannot fill it in."""
+    if head[:4] != b"RIFF" or head[8:12] != b"WAVE":
+        return None
+    at, fmt = 12, None
+    while at + 8 <= len(head):
+        chunk = head[at:at + 4]
+        size = int.from_bytes(head[at + 4:at + 8], "little")
+        if chunk == b"fmt " and at + 22 <= len(head):
+            fmt = (int.from_bytes(head[at + 12:at + 16], "little"),
+                   int.from_bytes(head[at + 20:at + 22], "little"))
+        elif chunk == b"data":
+            return (*fmt, at + 8) if fmt and fmt[1] > 0 else None
+        at += 8 + size + (size & 1)
+    return None
+
+
+def _measured(cache: MediaCache | None, op: str, digest: str,
+              args: list[str], measure: Callable[[], float | None],
+              ) -> float | None:
+    """`measure()` of the bytes whose sha256 is `digest`, through the
+    reuse cache (keyed by `op` and its ffmpeg `args`): a hit decodes
+    nothing. A failure is not remembered."""
+    if cache is None:
+        return measure()
+    key = cache.key(op, digest, {"args": args})
+    memo = cache.get(key)
+    if memo is not None and isinstance(memo.get("value"), (int, float)):
+        return float(memo["value"])
+    value = measure()
+    if value is not None:
+        cache.put(key, {"value": value})
+    return value
+
+
+@dataclass
+class AudioWork:
+    """The slow part of shipping one audio source, made the same way by
+    the in-order pass and by a worker: a video's sound ``max_volume``
+    (None for an audio file), then, unless that is silent, the file the
+    step made (None when the source, or an earlier output, ships) and
+    the decoded ``duration`` of what ships; or the ``error`` that
+    stopped it."""
+
+    max_volume: float | None = None
+    made: Path | None = None
+    duration: float | None = None
+    error: str | None = None
+
+    def silent(self) -> bool:
+        return self.max_volume is not None \
+            and self.max_volume < SILENT_MAX_VOLUME_DB
+
+
+def audio_work(source: Path, probe: AudioProbe, step: dict[str, Any] | None,
+               digest: str, cache: MediaCache | None, out: Path,
+               reuse: Path | None = None) -> AudioWork:
+    """Measure a video's loudness, run `step` (None: the source ships)
+    from `source` (bytes sha256 `digest`) to `out`, and decode what
+    ships for its duration. `reuse` is an earlier ledger's output of
+    `step`, still in the folder: it ships instead, and is only
+    decoded."""
+    work = AudioWork()
+    if probe.video:
+        work.max_volume = _measured(cache, "audio-loudness", digest,
+                                    loudness_args(),
+                                    lambda: max_volume(source))
+        if work.max_volume is None:
+            work.error = "its sound does not decode"
+            return work
+        if work.silent():
+            return work
+    if reuse is not None:
+        ships, ships_sha = reuse, reuse.stem
+    elif step is None:
+        ships, ships_sha = source, digest
+    else:
+        error = file_step_cached(cache, step, source, digest, out)
+        if error is not None:
+            out.unlink(missing_ok=True)
+            work.error = f"{step['step']} failed: {error}"
+            return work
+        ships, ships_sha = out, sha256_file(out)
+        work.made = out
+    work.duration = _measured(cache, "audio-duration", ships_sha,
+                              duration_args(),
+                              lambda: decoded_duration(ships))
+    if work.duration is None:
+        if work.made is not None:
+            work.made.unlink(missing_ok=True)
+            work.made = None
+        work.error = "it does not decode to any audio sample"
+    return work
+
+
 # --- step runner -------------------------------------------------------------
 #
 # A ledger ``steps`` list is executed by these functions and nothing else:
@@ -913,7 +1244,7 @@ def extract_poster(source: Path, start_seconds: float,
 # ``run_steps``. A recipe and the code that ran it cannot drift apart.
 
 IMAGE_STEPS = ("carve", "preserve", "convert", "jxl")
-FILE_STEPS = ("transcode", "remux", "poster")
+FILE_STEPS = ("transcode", "remux", "extract", "poster")
 _PIL_SAVE = {"png": "PNG", "jpeg": "JPEG"}
 
 
@@ -968,11 +1299,11 @@ def run_image_step(step: dict[str, Any], data: bytes) -> bytes:
 
 def run_file_step(step: dict[str, Any], source: Path,
                   out: Path) -> str | None:
-    """One file ledger step (transcode, remux, poster) from `source` to
-    `out`: None on success, else what failed. StepError when
+    """One file ledger step (transcode, remux, extract, poster) from
+    `source` to `out`: None on success, else what failed. StepError when
     unsupported."""
     name = step.get("step")
-    if name in ("transcode", "remux"):
+    if name in ("transcode", "remux", "extract"):
         error = ffmpeg_error(step["args"], source, out)
         return None if error is None else f"ffmpeg: {error}"
     if name == "poster":
@@ -1040,9 +1371,7 @@ def run_steps(steps: list[dict[str, Any]], source: Path,
             current = work / f"step-{n}"
             current.write_bytes(out)
         elif name in FILE_STEPS:
-            ext = ({"png": "png", "jpeg": "jpg"}[poster_format(step)]
-                   if name == "poster" else "mp4")
-            made_file = work / f"step-{n}.{ext}"
+            made_file = work / f"step-{n}.{file_step_ext(step)}"
             error = run_file_step(step, current, made_file)
             if error is not None:
                 raise StepError(f"step {name} failed: {error}")
@@ -1060,7 +1389,7 @@ def _step_tools(step: dict[str, Any]) -> tuple[str, ...]:
                 if step["mode"] == "jpeg-recompression"
                 else ("Pillow", "numpy", "imagecodecs", "libjxl"))
     return {"convert": ("Pillow",), "transcode": ("ffmpeg",),
-            "remux": ("ffmpeg",),
+            "remux": ("ffmpeg",), "extract": ("ffmpeg",),
             "poster": ("ffmpeg", "Pillow")}.get(name, ())
 
 
@@ -1333,10 +1662,12 @@ def run_asset_pass(records: list[ItemRecord], out_dir: Path,
     making one of its outputs again joins that entry (``alsoFrom``) or,
     when it is the entry's own source, changes nothing. ``cache`` is the
     reuse cache (``media_cache.open_cache``): image decisions,
-    transcodes and posters it remembers for the same input bytes, recipe
-    and tools are not made again. ``workers`` (``kinetic-media ship
-    --jobs``) makes the encodes (image decisions, posters, transcodes and
-    remuxes) ahead of time on worker threads, each distinct one once;
+    transcodes, remuxes, posters and audio measurements it remembers for
+    the same input bytes, recipe and tools are not made again.
+    ``workers`` (``kinetic-media ship --jobs``) makes the encodes (image
+    decisions, posters, transcodes, remuxes and each audio source's
+    ``audio_work``) ahead of time on worker threads, each distinct one
+    once;
     the records are still placed and recorded one by one in order, by
     the same code, so the outputs and the ledger are the same as
     without. ``progress`` is called with the number of records done
@@ -1375,10 +1706,12 @@ def run_asset_pass(records: list[ItemRecord], out_dir: Path,
 class _Pass:
     """One asset pass's state. The share maps make identical inputs
     encode once: effective-source sha256 -> (shipped ref, decision,
-    steps) for images and videos; ``<video sha256>@<startSeconds>`` ->
-    (poster ref, its steps after any decode steps) or (None, error) for
-    posters. ``inputs``, ``sniffs`` and ``probes`` remember per-source
-    reads (``_read_input``, ``sniff_image``, ``probe_video``)."""
+    steps) for images and videos, -> the outcome for audio;
+    ``<video sha256>@<startSeconds>`` -> (poster ref, its steps after
+    any decode steps) or (None, error) for posters. ``inputs``,
+    ``sniffs``, ``probes`` and ``audio_probes`` remember per-source
+    reads (``_read_input``, ``sniff_image``, ``probe_video``,
+    ``probe_audio``)."""
 
     placed: _Placed
     scratch: Path
@@ -1390,9 +1723,11 @@ class _Pass:
         self.image_share: dict[str, tuple[str, str, list[dict]]] = {}
         self.video_share: dict[str, tuple[str, str, list[dict]]] = {}
         self.poster_share: dict[str, tuple[str | None, Any]] = {}
+        self.audio_share: dict[str, _AudioOutcome] = {}
         self.inputs: dict[tuple[str, ...], _Input] = {}
         self.sniffs: dict[Path, tuple[str | None, int, str]] = {}
         self.probes: dict[Path, VideoProbe | None] = {}
+        self.audio_probes: dict[Path, AudioProbe | None] = {}
 
     def input(self, record: ItemRecord) -> _Input | None:
         """The record's source (after the hooks), or None when missing."""
@@ -1418,12 +1753,20 @@ class _Pass:
             self.probes[found.path] = probe_video(found.path)
         return self.probes[found.path]
 
+    def audio_probe(self, found: _Input) -> AudioProbe | None:
+        if found.path not in self.audio_probes:
+            self.audio_probes[found.path] = probe_audio(found.path)
+        return self.audio_probes[found.path]
+
+
+MEDIA_TYPES = ("image", "video", "audio")
+
 
 def _ship_record(record: ItemRecord, run: _Pass,
                  decoded_sizes: list[tuple[int, int]] | None) -> int:
     """Place one record's media (in record order); 1 when skipped."""
     kind = record.item.get("type")
-    if kind not in ("image", "video"):
+    if kind not in MEDIA_TYPES:
         return 0
     found = run.input(record)
     if found is None:
@@ -1434,6 +1777,8 @@ def _ship_record(record: ItemRecord, run: _Pass,
         return 1
     if kind == "video":
         return _ship_video(record, found, run)
+    if kind == "audio":
+        return _ship_audio(record, found, run)
     skipped = _ship_image(record, found, run)
     if found.steps and decoded_sizes is not None and not record.skipped:
         _add_size(found.path, decoded_sizes)
@@ -1520,6 +1865,19 @@ class _Ahead:
         key = ("video", digest)
         return self.workers.result(key) if self.workers.has(key) else None
 
+    def audio(self, source: Path, probe: AudioProbe,
+              step: dict[str, Any] | None, digest: str) -> None:
+        """``audio_work`` on a worker: in the video lane when it runs an
+        ffmpeg step, else (a kept file's decode) with the stills."""
+        self.workers.submit(("audio", digest), audio_work, source, probe,
+                            step, digest, self.cache,
+                            self._file(audio_ext(probe, step)),
+                            video=step is not None)
+
+    def take_audio(self, digest: str) -> AudioWork | None:
+        key = ("audio", digest)
+        return self.workers.result(key) if self.workers.has(key) else None
+
 
 def _take_file(path: Path) -> bytes:
     data = path.read_bytes()
@@ -1537,12 +1895,16 @@ def _plan_ahead(records: list[ItemRecord], run: _Pass) -> None:
     assert ahead is not None
     planned_posters: set[str] = set()
     planned_videos: set[str] = set()
+    planned_audio: set[str] = set()
     for record in records:
         kind = record.item.get("type")
-        if kind not in ("image", "video"):
+        if kind not in MEDIA_TYPES:
             continue
         found = run.input(record)
         if found is None:
+            continue
+        if kind == "audio":
+            _plan_audio(found, run, planned_audio)
             continue
         if kind == "image":
             data = found.path.read_bytes()
@@ -1571,6 +1933,20 @@ def _plan_ahead(records: list[ItemRecord], run: _Pass) -> None:
         if not run.placed.recorded("video", found.sha256,
                                    found.steps + [step]):
             ahead.video(step, found.path, digest)
+
+
+def _plan_audio(found: _Input, run: _Pass, planned: set[str]) -> None:
+    """Queue an audio source's ``audio_work`` once per input sha256,
+    unless an earlier ledger already records its step's output."""
+    probe = run.audio_probe(found)
+    if probe is None or probe.codec is None or found.digest in planned:
+        return
+    planned.add(found.digest)
+    step = audio_step(probe)
+    if step is None or not run.placed.recorded("audio", found.sha256,
+                                               found.steps + [step]):
+        assert run.ahead is not None
+        run.ahead.audio(found.path, probe, step, found.digest)
 
 
 def _shared_note(record: ItemRecord, shipped: str) -> None:
@@ -1720,6 +2096,104 @@ def _ship_video(record: ItemRecord, found: _Input, run: _Pass) -> int:
     _set_media(record.item, shipped, poster)
     meta["poster"] = poster
     return 0
+
+
+@dataclass
+class _AudioOutcome:
+    """What one audio input became: its ``decision``, the ``shipped`` ref
+    (None when nothing shipped), the ledger ``steps`` after any decode
+    steps, the decoded ``duration``, a ``note``, and whether the bytes
+    were ``already`` placed by another source this run."""
+
+    decision: str
+    shipped: str | None = None
+    steps: list[dict[str, Any]] | None = None
+    duration: float | None = None
+    note: str | None = None
+    already: bool = False
+
+
+def _ship_audio(record: ItemRecord, found: _Input, run: _Pass) -> int:
+    meta: dict[str, Any] = record.asset_meta
+    probe = run.audio_probe(found)
+    meta["sniffedFormat"] = probe.container if probe else "unknown"
+    if probe is None:
+        meta["codec"] = "unknown"
+        outcome = _AudioOutcome("skipped", note=(
+            f"unprobeable audio {found.path.name}: nothing shipped"))
+    elif probe.codec is None:
+        outcome = _AudioOutcome(NO_AUDIO, note=(
+            f"no audio stream in {found.path.name}: nothing shipped"))
+    else:
+        meta["codec"] = probe.codec
+        outcome = run.audio_share.get(found.digest)
+        if outcome is None:
+            outcome = _audio_outcome(found, probe, run)
+            run.audio_share[found.digest] = outcome
+        elif outcome.shipped is not None:
+            outcome = replace(outcome, already=True)
+    meta["decision"] = outcome.decision
+    if outcome.note:
+        record.notes.append(outcome.note)
+    if outcome.decision == "skipped":
+        record.skipped = True
+        return 1
+    if outcome.shipped is None:
+        return 0
+    run.placed.record(outcome.shipped, "audio",
+                      _source(record, found.sha256, found.size),
+                      found.steps + (outcome.steps or []))
+    _set_media(record.item, outcome.shipped)
+    record.item["durationSeconds"] = outcome.duration
+    meta["file"] = outcome.shipped
+    if outcome.already:
+        _shared_note(record, outcome.shipped)
+    return 0
+
+
+def _audio_outcome(found: _Input, probe: AudioProbe,
+                   run: _Pass) -> _AudioOutcome:
+    """Make (or take from the workers, or from an earlier ledger) what
+    `found`'s audio ships as, and place it."""
+    placed = run.placed
+    step = audio_step(probe)
+    ext = audio_ext(probe, step)
+    prior, seen = None, set[str]()
+    if step is not None:
+        steps = found.steps + [step]
+        # Placed this run by another source: the same note either way.
+        seen = {ref for ref, _ in placed.recorded("audio", found.sha256,
+                                                  steps)
+                if ref in placed.written}
+        prior = placed.prior("audio", found.sha256, steps)
+    work = run.ahead.take_audio(found.digest) \
+        if run.ahead and prior is None else None
+    if work is None:
+        reuse = None if prior is None else placed.out_dir / prior[0]
+        work = audio_work(found.path, probe, step, found.digest, run.cache,
+                          run.scratch / f"audio.{ext}", reuse)
+    if work.error is not None:
+        return _AudioOutcome("skipped", note=(
+            f"{found.path.name}: {work.error}: nothing shipped"))
+    loud = (f"max_volume {work.max_volume:.1f} dB"
+            if work.max_volume is not None else "")
+    if work.silent():
+        return _AudioOutcome(SILENT, note=(
+            f"{loud} is below the {SILENT_MAX_VOLUME_DB:.1f} dB silence "
+            "threshold: nothing shipped"))
+    if step is None:
+        shipped, already = placed.copy_file(found.path, found.digest, ext)
+        return _AudioOutcome(COPY, shipped,
+                             [{**PRESERVE_STEP, "codec": probe.codec}],
+                             work.duration, already=already)
+    if prior is not None:
+        shipped, already = prior[0], prior[0] in seen
+    else:
+        assert work.made is not None
+        shipped, already = placed.move_file(work.made, ext)
+    note = step["reason"] + (f"; {loud}" if loud else "")
+    return _AudioOutcome(step["step"], shipped, [step], work.duration,
+                         note, already)
 
 
 _DURATION_PLACEHOLDER = "durationSeconds placeholder 1.0"

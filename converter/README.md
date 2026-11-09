@@ -163,18 +163,20 @@ episodes, one game".
 
 This runs the media work without a story parse, for helpers that build
 the story themselves. The list is a JSON array of `{"source": {"path":
-...} | {"archive": ..., "member": ...}, "kind": "image"|"video",
-"startSeconds"?: N, "id"?: "..."}`, with paths relative to
-`<game_root>`. Outputs land in `<out_dir>/media/` by the same code as
-kinetic-extract. `<out_dir>/media-ledger.json` holds `mediaTools`,
-`decoders`, `media` and a `requests` list giving each request's
-`file`/`poster`/`width`/`height`/`durationSeconds`, decision and notes.
-Requests with a missing or unusable source come back without a `file`,
-and the run still exits 0. A hook failure exits 1, and a bad list exits
-2. Shipping into the same folder again merges into its ledger; to ship
-several episodes into one folder, use the folder holding all of them as
-`<game_root>` every time, so one root rebuilds them all. The format and
-merge rules are in docs/extracting.md, "kinetic-media ship".
+...} | {"archive": ..., "member": ...}, "kind":
+"image"|"video"|"audio", "startSeconds"?: N, "id"?: "..."}`, with paths
+relative to `<game_root>`. Outputs land in `<out_dir>/media/` by the
+same code as kinetic-extract. `<out_dir>/media-ledger.json` holds
+`mediaTools`, `decoders`, `media` and a `requests` list giving each
+request's `file`/`poster`/`width`/`height`/`durationSeconds`, decision
+and notes. Requests with a missing or unusable source come back without
+a `file`, as do audio requests of a video whose sound is `silent` or
+absent (`no audio`), and the run still exits 0. A hook failure exits
+1, and a bad list exits 2. Shipping into the same folder again merges
+into its ledger; to ship several episodes into one folder, use the
+folder holding all of them as `<game_root>` every time, so one root
+rebuilds them all. The format and merge rules are in
+docs/extracting.md, "kinetic-media ship".
 
 ### kinetic-media rebuild
 
