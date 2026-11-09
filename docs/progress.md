@@ -2518,7 +2518,7 @@ truthful: an unchecked box means nothing was accepted.
       progress window menus reading Chrome 151/151, WebKit 149 + 5
       PARTIAL (element fullscreen); ring crops checked by eye,
       `.tmp/escfollow/`.)
-- [ ] Phase-closer (Phase 43): full scenario suite on Chrome and on WebKit,
+- [x] Phase-closer (Phase 43): full scenario suite on Chrome and on WebKit,
       full pytest, package-proof; the user plays the demo's macOS app and
       Windows exe (fullscreen, Esc, reload, Export, Import, Exit, the
       Fullscreen / Window toggle).
@@ -2532,6 +2532,8 @@ truthful: an unchecked box means nothing was accepted.
       for the export notice and the Esc screen's uneven columns, fixed
       above; ⌘H still does nothing in the macOS app, which the user does
       not mind. The look at `.tmp/p43play3/demo` asked for the follow-up
-      above. Waiting on the user's look at `.tmp/p43play4/demo` (both
-      apps, built on a1ceb1a); the automated suites rerun before the
-      closing commit.)
+      above. The user's look at `.tmp/p43play4/demo` (both apps, built on
+      a1ceb1a): "Looks good now". Final automated runs on a1ceb1a: full
+      Chrome suite 16 scenarios, 408 checks, 408 pass, 0 fail; full WebKit
+      suite 406 pass, 5 PARTIAL (element fullscreen, off in WKWebView), 0
+      fail; pytest 639 passed in 69 s; package-proof 18/18.)
