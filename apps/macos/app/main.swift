@@ -1,10 +1,19 @@
-// The macOS game app (docs/plan.md Phase 43 item 7; CREATE.md, "Building
-// the apps"). tools/build_apps.py compiles this file with
+// The macOS game app (docs/plan.md Phase 43 items 7 and 9; CREATE.md,
+// "Building the apps"). tools/build_apps.py compiles this file with
 // ../WebViewSetup.swift into `<title>.app` inside a game folder. The app
 // shows the folder it sits in through the system WebKit (the engine Safari
-// uses, on every Mac): its own name and Dock icon, fullscreen from launch,
-// Esc and reload wholly the game's. The bundle holds only this binary, its
-// icon and Info.plist; the media stays in the folder beside it.
+// uses, on every Mac): its own name and Dock icon, Esc and reload wholly
+// the game's. The bundle holds only this binary, its icon and Info.plist;
+// the media stays in the folder beside it.
+//
+// It reopens the way it was left, fullscreen (the first launch) or in a
+// window, with no fullscreen flash when it opens windowed. The page's Esc
+// screen asks it to quit or to switch between the two over the shared
+// bridge (KineticHostBridge, apps/README.md), and every switch, the
+// reader's own green button, menu item or ⌃⌘F included, reaches the page.
+// The first window is the game's first graphic's size and shape (baked
+// into Info.plist by build_apps.py), scaled down to fit the screen; after
+// that the reader's size and place are kept.
 
 import AppKit
 import WebKit
@@ -15,6 +24,21 @@ let gameTitle =
     Bundle.main.object(forInfoDictionaryKey: "KineticTitle") as? String
     ?? Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String
     ?? "Kinetic"
+
+/// UserDefaults keys (under the app's bundle id): the display mode it was
+/// left in, and its window's frame the last time it was a window.
+let displayKey = "KineticDisplay"
+let frameKey = "KineticWindowFrame"
+
+/// The game window's first content size: the first graphic's pixel size,
+/// which build_apps.py writes as Info.plist `KineticWindowSize` ({Width,
+/// Height}); 16:9 at 1280 x 720 when the build had none.
+func firstContentSize() -> NSSize {
+    let baked = Bundle.main.object(forInfoDictionaryKey: "KineticWindowSize") as? [String: Any]
+    let width = (baked?["Width"] as? NSNumber)?.doubleValue ?? 0
+    let height = (baked?["Height"] as? NSNumber)?.doubleValue ?? 0
+    return width >= 1 && height >= 1 ? NSSize(width: width, height: height) : NSSize(width: 1280, height: 720)
+}
 
 /// The game's one window. Keys the page leaves unhandled travel up the
 /// responder chain to the window, whose default is a system beep; a reader
@@ -30,12 +54,18 @@ final class GameWindow: NSWindow {
     override func cancelOperation(_ sender: Any?) {}
 }
 
-final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate,
+final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNavigationDelegate,
     WKUIDelegate, WKDownloadDelegate
 {
     var window: GameWindow!
     var webView: WKWebView!
+    var bridge: KineticHostBridge!
     var titleObservation: NSKeyValueObservation?
+    /// From the moment the window starts into fullscreen until it is a
+    /// window again: its frame then is not the reader's to keep.
+    var fullScreen = false
+
+    static let style: NSWindow.StyleMask = [.titled, .closable, .miniaturizable, .resizable]
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         buildMenu()
@@ -47,36 +77,134 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate,
             return
         }
 
+        let remembered = UserDefaults.standard.string(forKey: displayKey)
+            .flatMap(KineticHostBridge.Display.init(rawValue:)) ?? .fullscreen
+
         // On disk under this app's bundle id, so progress survives a quit.
-        // A page-to-app message handler (the Esc screen's Exit and
-        // Fullscreen / Window, docs/plan.md Phase 43 item 9) is added to
-        // `config.userContentController` here.
         let config = KineticWebView.configuration(storage: .persistent)
-        let frame = NSScreen.main?.frame ?? NSRect(x: 0, y: 0, width: 1280, height: 800)
-        webView = KineticWebView.make(frame: frame, configuration: config)
+        // The page's Exit and Fullscreen / Window (the Esc screen).
+        bridge = KineticHostBridge(
+            kind: "mac-app", display: remembered,
+            onQuit: { NSApp.terminate(nil) },
+            onDisplay: { [weak self] mode in self?.show(mode) })
+        bridge.install(on: config.userContentController)
+
+        let content = NSWindow.contentRect(forFrameRect: windowedFrame(), styleMask: Self.style)
+        webView = KineticWebView.make(frame: NSRect(origin: .zero, size: content.size), configuration: config)
         webView.navigationDelegate = self
         webView.uiDelegate = self
 
-        window = GameWindow(
-            contentRect: frame,
-            styleMask: [.titled, .closable, .miniaturizable, .resizable],
-            backing: .buffered, defer: false)
+        window = GameWindow(contentRect: content, styleMask: Self.style, backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.title = gameTitle
         window.backgroundColor = .black
+        window.contentMinSize = NSSize(width: 480, height: 270)
         window.collectionBehavior = [.fullScreenPrimary]
         window.contentView = webView
+        window.delegate = self
         window.makeKeyAndOrderFront(nil)
         window.makeFirstResponder(webView)
         // Fullscreen as a window, not the page's element fullscreen, so Esc
-        // and reload keep it.
-        window.toggleFullScreen(nil)
+        // and reload keep it. Left windowed, it opens as a window.
+        if remembered == .fullscreen { window.toggleFullScreen(nil) }
         titleObservation = webView.observe(\.title) { [weak self] view, _ in
             if let title = view.title, !title.isEmpty { self?.window.title = title }
         }
         KineticWebView.load(webView, page: page)
         NSApp.activate(ignoringOtherApps: true)
     }
+
+    /// The page asked for a display mode.
+    func show(_ mode: KineticHostBridge.Display) {
+        let isFull = window.styleMask.contains(.fullScreen)
+        if (mode == .fullscreen) != isFull {
+            window.toggleFullScreen(nil)
+        } else {
+            bridge.setDisplay(isFull ? .fullscreen : .window, in: webView)
+        }
+    }
+
+    // MARK: the window's place, size and mode
+
+    /// The window's frame as a window: where the reader left it, or the
+    /// first size, centred on the main screen.
+    func windowedFrame() -> NSRect {
+        if let saved = UserDefaults.standard.string(forKey: frameKey).map(NSRectFromString),
+            saved.width >= 200, saved.height >= 150,
+            NSScreen.screens.contains(where: {
+                let shared = $0.visibleFrame.intersection(saved)
+                return shared.width >= 100 && shared.height >= 100
+            })
+        {
+            return saved
+        }
+        return firstFrame()
+    }
+
+    /// The first graphic's size and shape, scaled down to fit the screen's
+    /// visible area with a margin, centred.
+    func firstFrame() -> NSRect {
+        let visible = (NSScreen.main ?? NSScreen.screens.first)?.visibleFrame
+            ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
+        let margin = max(24, min(visible.width, visible.height) * 0.04)
+        let content = firstContentSize()
+        let chrome = NSWindow.frameRect(forContentRect: NSRect(origin: .zero, size: content), styleMask: Self.style)
+            .size
+        let extraW = chrome.width - content.width, extraH = chrome.height - content.height
+        let scale = min(
+            1, (visible.width - 2 * margin - extraW) / content.width,
+            (visible.height - 2 * margin - extraH) / content.height)
+        let size = NSSize(
+            width: (content.width * scale).rounded(.down) + extraW,
+            height: (content.height * scale).rounded(.down) + extraH)
+        return NSRect(
+            x: (visible.midX - size.width / 2).rounded(), y: (visible.midY - size.height / 2).rounded(),
+            width: size.width, height: size.height)
+    }
+
+    func keepFrame() {
+        guard !fullScreen, window != nil else { return }
+        UserDefaults.standard.set(NSStringFromRect(window.frame), forKey: frameKey)
+    }
+
+    func remember(_ mode: KineticHostBridge.Display) {
+        UserDefaults.standard.set(mode.rawValue, forKey: displayKey)
+    }
+
+    // The page hears of a switch as it starts, whoever asked for it; the
+    // app remembers it once it is done.
+    func windowWillEnterFullScreen(_ notification: Notification) {
+        fullScreen = true
+        bridge.setDisplay(.fullscreen, in: webView)
+    }
+
+    func windowDidEnterFullScreen(_ notification: Notification) {
+        remember(.fullscreen)
+    }
+
+    func windowDidFailToEnterFullScreen(_ window: NSWindow) {
+        fullScreen = false
+        bridge.setDisplay(.window, in: webView)
+    }
+
+    func windowWillExitFullScreen(_ notification: Notification) {
+        bridge.setDisplay(.window, in: webView)
+    }
+
+    func windowDidExitFullScreen(_ notification: Notification) {
+        fullScreen = false
+        remember(.window)
+        keepFrame()
+    }
+
+    func windowDidFailToExitFullScreen(_ window: NSWindow) {
+        bridge.setDisplay(.fullscreen, in: webView)
+    }
+
+    func windowDidMove(_ notification: Notification) { keepFrame() }
+    func windowDidResize(_ notification: Notification) { keepFrame() }
+
+    // MARK: launch and close
 
     /// The app plays the index.html beside it. Moved out of its folder, or
     /// opened from a quarantined download (which macOS runs from a hidden
@@ -93,8 +221,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate,
         alert.runModal()
     }
 
-    // Closing the window ends the game, so the next double-click starts it
-    // fullscreen again; a double-click while it runs just brings it forward.
+    // Closing the window ends the game; a double-click while it runs just
+    // brings it forward.
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         true
     }

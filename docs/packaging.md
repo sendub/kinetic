@@ -101,7 +101,9 @@ program over the system WebKit that `tools/build_apps.py` compiles
 with Xcode or the Command Line Tools and signs ad hoc, and the Windows
 exe is a small Go program (`apps/windows/`) that opens the folder in
 Edge, which Go builds for Windows from any system. No Rust toolchain is
-needed and the folder's files stay as they are beside them.
+needed and the folder's files stay as they are beside them. The page
+talks to either app over one small protocol (apps/README.md): the Esc
+screen's Exit and Fullscreen | Window.
 
 ## Proof
 

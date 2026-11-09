@@ -228,6 +228,17 @@ export interface MachineSettings {
    * with exported progress); the machine itself never reads it.
    */
   mapSpoilers: boolean;
+  /**
+   * The browser tab's Display setting (docs/plan.md Phase 43): Fullscreen
+   * (true, the default) or Window, set on the Esc screen. While on, a key
+   * or click made while windowed asks for fullscreen again
+   * (render/fullscreen.ts).
+   * A game app owns its own display mode instead (render/host.ts), so
+   * there the page neither reads nor changes it. Stored with the others
+   * (so it persists and travels with exported progress; a record or file
+   * from before it reads as Fullscreen); the machine never reads it.
+   */
+  fullscreen: boolean;
 }
 
 export const DEFAULT_SETTINGS: MachineSettings = {
@@ -241,6 +252,7 @@ export const DEFAULT_SETTINGS: MachineSettings = {
   skipPlaysVideos: false,
   playAllRoutes: true,
   mapSpoilers: false,
+  fullscreen: true,
 };
 
 /**

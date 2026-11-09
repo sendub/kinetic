@@ -306,6 +306,43 @@ def test_info_plist_contents() -> None:
     }
 
 
+def test_info_plist_carries_the_first_window_size() -> None:
+    ident = build_apps.identity({"storyId": "rainy-day"}, Path("x"))
+    info = plistlib.loads(plistlib.dumps(build_apps.info_plist(ident, (1920, 1080))))
+    assert info["KineticWindowSize"] == {"Width": 1920, "Height": 1080}
+    assert "KineticWindowSize" not in build_apps.info_plist(ident)
+
+
+# --- the first window's size -------------------------------------------------
+
+@pytest.mark.parametrize("suffix", [".png", ".jpg", ".webp", ".gif", ".jxl"])
+def test_window_size_is_the_first_graphics_pixel_size(tmp_path, suffix) -> None:
+    folder = tmp_path / "g"
+    write_picture(folder / f"first{suffix}", stripes((300, 100)))
+    manifest = {"items": [{"id": "t", "type": "text", "text": "x"},
+                          {"id": "a", "type": "image", "file": f"first{suffix}"}]}
+    assert build_apps.window_size(manifest, folder) == (300, 100)
+
+
+def test_window_size_follows_an_exif_quarter_turn(tmp_path) -> None:
+    path = tmp_path / "turned.jpg"
+    exif = Image.Exif()
+    exif[0x0112] = 6  # shown rotated 90 degrees: 40 wide, 120 high
+    Image.fromarray(stripes((120, 40))).save(path, exif=exif.tobytes())
+    assert build_apps.graphic_size(path) == (40, 120)
+
+
+@pytest.mark.parametrize("content", [b"not a picture", None])
+def test_no_window_size_without_a_readable_first_graphic(tmp_path, content) -> None:
+    folder = tmp_path / "g"
+    folder.mkdir()
+    if content is not None:
+        (folder / "first.png").write_bytes(content)
+    manifest = {"items": [{"id": "a", "type": "image", "file": "first.png"}]}
+    assert build_apps.window_size(manifest, folder) is None
+    assert build_apps.window_size({"items": []}, folder) is None
+
+
 # --- the icon ----------------------------------------------------------------
 
 ICNS_ENTRIES = {(16, 16, 2), (32, 32, 2), (128, 128, 1), (128, 128, 2),
@@ -404,9 +441,11 @@ def test_build_writes_the_bundle_with_the_default_icon(tmp_path, capsys,
         "Contents/_CodeSignature/CodeResources"]
     info = plistlib.loads((app / "Contents" / "Info.plist").read_bytes())
     assert info["CFBundleIdentifier"] == "org.kinetic.game.rainy-day"
+    # The first window: the first graphic's pixel size (make_game's 64x48).
+    assert info["KineticWindowSize"] == {"Width": 64, "Height": 48}
     assert_green(icns_pixels(app / "Contents" / "Resources" / "AppIcon.icns")
                  .getpixel((512, 512)))
-    assert "built" in capsys.readouterr().out
+    assert "first window 64x48" in capsys.readouterr().out
     # Built in a temporary folder beside the game folder (never inside the
     # folder that ships), which is gone afterwards.
     (binary,) = stub_toolchain
@@ -418,6 +457,21 @@ def test_build_uses_the_named_icon(tmp_path, stub_toolchain) -> None:
     folder = make_game(tmp_path)
     icon = write_picture(tmp_path / "art" / "icon.jxl", stripes((120, 40)))
     assert build_apps.main([str(folder), "--mac", "--icon", str(icon)]) == 0
+    info = plistlib.loads(
+        (folder / "Rainy Day.app" / "Contents" / "Info.plist").read_bytes())
+    # The window still takes the game's first graphic, not the icon.
+    assert info["KineticWindowSize"] == {"Width": 64, "Height": 48}
+
+
+def test_a_game_with_no_picture_builds_a_16_9_first_window(tmp_path, capsys,
+                                                          stub_toolchain) -> None:
+    folder = make_game(tmp_path, items=[{"id": "t", "type": "text", "text": "x"}])
+    icon = solid(tmp_path / "icon.png", GREEN)
+    assert build_apps.main([str(folder), "--mac", "--icon", str(icon)]) == 0
+    info = plistlib.loads(
+        (folder / "Rainy Day.app" / "Contents" / "Info.plist").read_bytes())
+    assert "KineticWindowSize" not in info
+    assert "first window 16:9" in capsys.readouterr().out
     icns = folder / "Rainy Day.app" / "Contents" / "Resources" / "AppIcon.icns"
     assert_green(icns_pixels(icns).getpixel((824, 200)))
 
@@ -522,6 +576,9 @@ def test_real_build_on_this_mac(tmp_path) -> None:
     assert "Signature=adhoc" in run("codesign", "-dv", str(app)).stderr
     lint = run("plutil", "-lint", str(app / "Contents" / "Info.plist"))
     assert lint.stdout.strip().endswith("OK")
+    size = run("plutil", "-extract", "KineticWindowSize", "json", "-o", "-",
+               str(app / "Contents" / "Info.plist"))
+    assert json.loads(size.stdout) == {"Width": 64, "Height": 48}
     assert run("xcrun", "lipo", "-archs", str(binary)).stdout.split() == ["arm64"]
     assert "minos 12.0" in run("xcrun", "vtool", "-show-build", str(binary)).stdout
     # A string only apps/macos/WebViewSetup.swift holds: the shared setup
@@ -529,6 +586,8 @@ def test_real_build_on_this_mac(tmp_path) -> None:
     assert b"allowFileAccessFromFileURLs" in binary.read_bytes()
     assert b"allowFileAccessFromFileURLs" not in (
         REPO_ROOT / "apps" / "macos" / "app" / "main.swift").read_bytes()
+    # The page-to-host bridge comes from the shared file too.
+    assert b"__kineticHostSetDisplay" in binary.read_bytes()
     # macOS itself reads the icon, up to 1024 px.
     iconset = tmp_path / "AppIcon.iconset"
     run("iconutil", "-c", "iconset", "-o", str(iconset),

@@ -3,8 +3,16 @@
 // (../WebViewSetup.swift) and takes JSON-lines requests on stdin, writing
 // one reply line per request on stdout ({"id","ok","value"|"error"}) plus
 // {"event":...} lines: ready, navigated, console, pageerror, hosterror,
-// download, filechooser, fatal. One process is one fresh profile (a
-// non-persistent data store). player/scripts/webkit/ builds and drives it.
+// download, filechooser, hostmessage, windowclose, fatal. One process is
+// one fresh profile (a non-persistent data store). player/scripts/webkit/
+// builds and drives it.
+//
+// The `host` request installs the game app's own page-to-host bridge
+// (KineticHostBridge in ../WebViewSetup.swift) with a recording host: each
+// message the page sends becomes a hostmessage line, and `hostDisplay` sets
+// the host's display mode as the reader's green button would, so the page
+// gets its `kinetic-host` event. Without it the page runs as in a browser
+// tab, which may ask to close itself (a windowclose line).
 //
 // Nothing of it can be seen or take focus: an accessory app (no Dock icon,
 // no menu bar) that never activates, its one borderless window placed off
@@ -95,6 +103,7 @@ final class Driver: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKScr
     var downloadDir: URL?
     var chooserFiles: [URL]?
     var pendingChooser: (([URL]?) -> Void)?
+    var bridge: KineticHostBridge?
 
     // MARK: placement
 
@@ -267,6 +276,28 @@ final class Driver: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKScr
                 chooserFiles = files
             }
             reply(id, .success(true))
+        case "host":
+            // Before the first goto: the bridge's user script runs at
+            // document start.
+            guard bridge == nil,
+                let display = KineticHostBridge.Display(rawValue: r["display"] as? String ?? "fullscreen")
+            else {
+                reply(id, .failure(DriverError(description: "host: already installed, or a bad display")))
+                return
+            }
+            let recorder = KineticHostBridge(
+                kind: r["kind"] as? String ?? "mac-app", display: display,
+                onQuit: { emit(["event": "hostmessage", "message": ["type": "quit"]]) },
+                onDisplay: { emit(["event": "hostmessage", "message": ["type": "display", "mode": $0.rawValue]]) })
+            recorder.install(on: webView.configuration.userContentController)
+            bridge = recorder
+            reply(id, .success(true))
+        case "hostDisplay":
+            guard let bridge, let mode = KineticHostBridge.Display(rawValue: r["mode"] as? String ?? "") else {
+                reply(id, .failure(DriverError(description: "hostDisplay: no host installed, or a bad mode")))
+                return
+            }
+            bridge.setDisplay(mode, in: webView) { self.reply(id, .success(true)) }
         case "quit":
             reply(id, .success(true))
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { NSApp.terminate(nil) }
@@ -459,6 +490,10 @@ final class Driver: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKScr
     }
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
         emit(["event": "pageerror", "text": "web content process terminated"])
+    }
+    /// The page's window.close() was allowed (a browser tab would close).
+    func webViewDidClose(_ webView: WKWebView) {
+        emit(["event": "windowclose"])
     }
 
     func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {

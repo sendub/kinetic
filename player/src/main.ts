@@ -29,7 +29,9 @@
 // browsers: export downloads it as a file (storage/transfer.ts); import
 // checks a picked file, confirms in the same box, replaces this story's
 // state and bookmarks (committed), and reloads — saving is automatic again
-// from there.
+// from there. Phase 43's window controls end the Esc screen: Fullscreen |
+// Window and Exit, through a game app's host object when there is one
+// (render/host.ts) and the Fullscreen API in a browser tab.
 // Composition only — rendering lives in src/render/, timing in
 // src/machine/, storage adapters in src/storage/.
 
@@ -46,7 +48,7 @@ import {
 import { mountBranchMap } from "./render/branchmap";
 import { captureVisualThumbnail } from "./render/capture";
 import { inputOwnerFor, mountChoiceOverlay } from "./render/choice";
-import { mountConfigOverlay } from "./render/config";
+import { isSettingsControl, mountConfigOverlay } from "./render/config";
 import {
   importRequest,
   mountConfirmOverlay,
@@ -55,14 +57,20 @@ import {
 } from "./render/confirm";
 import { downloadText } from "./render/download";
 import { EARLIER_UNSEEN_NOTICE } from "./render/endcard";
-import { installFirstGestureFullscreen } from "./render/fullscreen";
+import {
+  enterFullscreen,
+  exitFullscreen,
+  installGestureFullscreen,
+} from "./render/fullscreen";
 import { gameTitleOf, mountHelpOverlay, pageTitleFor } from "./render/help";
+import { connectHost, type DisplayMode, windowActions } from "./render/host";
 import { installKeyMap, mapKeyAction, suspendTimeline } from "./render/keys";
 import { loadManifest } from "./render/manifest";
 import { layOutStrip, type MapStrip, runJump } from "./render/mapmodel";
 import { mountRouteAnnouncements } from "./render/routes";
 import { mountSkipAnnouncements } from "./render/skip";
 import { installWheelInput } from "./render/wheel";
+import { CLOSE_TAB_NOTE, mountWindowControls } from "./render/windowcontrols";
 import { createIdbStorage, storageKeys, storyIdOf } from "./storage/idb";
 import { createContextCodec, resumeOptionsFor } from "./storage/ids";
 import { createNoopStorage } from "./storage/noop";
@@ -141,8 +149,10 @@ function start(): void {
   if (root === null) {
     return; // index.html without a mount point: nothing to draw into.
   }
-  // Fullscreen needs a user gesture; the first key press or click supplies it.
-  installFirstGestureFullscreen(document);
+  // A game app's host object (render/host.ts, docs/plan.md Phase 43): read
+  // now and on every `kinetic-host` event, since it may arrive after load.
+  // None in a browser tab.
+  const hostLink = connectHost(window);
   // The manifest contract, with the sources injected so it is testable:
   //   window.KINETIC_MANIFEST ?? await fetch("manifest.json").then(r => r.json())
   // `document.baseURI` is the content folder's own `index.html`, so it is both
@@ -401,6 +411,59 @@ function start(): void {
         // Cancel: close, and nothing else was ever touched.
         onCancel: () => {},
       });
+      // The window controls (docs/plan.md Phase 43 item 9), the last group
+      // of the settings: Fullscreen | Window and Exit. A game app owns its
+      // display mode and quits itself (render/host.ts); in a browser tab
+      // the page keeps the Display setting with the others (persisted and
+      // exported like Spoilers; the machine never reads it, so no
+      // setSettings) and uses the Fullscreen API.
+      const windowAct = windowActions({
+        link: hostLink,
+        setting: (): DisplayMode =>
+          currentSettings.fullscreen ? "fullscreen" : "window",
+        saveSetting: (mode) => {
+          currentSettings = {
+            ...currentSettings,
+            fullscreen: mode === "fullscreen",
+          };
+          persistUrgently();
+        },
+        isFullscreen: () => document.fullscreenElement != null,
+        enterFullscreen: () => enterFullscreen(document),
+        exitFullscreen: () => exitFullscreen(document),
+        tabClosable: () => window.history.length <= 1 || window.opener != null,
+        closeTab: () => window.close(),
+        later: (run, ms) => {
+          setTimeout(run, ms);
+        },
+        tabStayed: () => windowControls.showNote(CLOSE_TAB_NOTE),
+      });
+      const windowControls = mountWindowControls({
+        root: config.panel,
+        display: () => windowAct.shown(),
+        onDisplay: (mode) => {
+          windowAct.choose(mode);
+          windowControls.refresh();
+        },
+        onExit: () => {
+          // Saved first (unless a reset or import is reloading): an app
+          // that quits takes its page with it.
+          void (resetting ? Promise.resolve() : persistNow())
+            .catch(() => {})
+            .then(() => windowAct.exit());
+        },
+      });
+      // A host's change (the page's own request, or the reader's green
+      // button, menu or shortcut) repaints the switch.
+      hostLink.subscribe(() => windowControls.refresh());
+      // In a browser tab with Display on Fullscreen, a key or click while
+      // windowed asks for fullscreen (render/fullscreen.ts); one on a
+      // settings control is left to the control (Import's file picker
+      // needs the gesture, the Window half must not be undone).
+      installGestureFullscreen(document, {
+        wanted: () => hostLink.host() === null && currentSettings.fullscreen,
+        ignore: (event) => isSettingsControl(event.target),
+      });
       function runReset(): void {
         resetting = true;
         void resetProgress({
@@ -439,6 +502,8 @@ function start(): void {
         if (help.isOpen()) return;
         help.open();
         config.open(); // the values in force, no stale message
+        windowControls.refresh();
+        windowControls.showNote("");
         shell.setStageVisible(false);
         syncMenuPause(); // the black screen: no timers behind it
       };
@@ -732,9 +797,8 @@ function start(): void {
         document,
         {
           // Space over the Esc screen closes it and is consumed — no
-          // advance (and on the first load it is also the first gesture,
-          // so fullscreen gets its request like any other first press;
-          // render/fullscreen.ts). It closes even with a settings button
+          // advance (it is still a gesture, so fullscreen gets its request
+          // like any other press when wanted; render/fullscreen.ts). It closes even with a settings button
           // focused: the keymap's preventDefault stops the browser's own
           // Space activation of that button (Phase 26), so Space always
           // means one thing; Enter, unmapped, still activates a focused

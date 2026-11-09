@@ -2318,12 +2318,49 @@ truthful: an unchecked box means nothing was accepted.
       test_build_apps 99 passed, npm test 821, check clean; the demo exe
       `.tmp/p43i8/demo/Kinetic demo.exe` is PE32+ GUI x86-64, 1.9 MiB. Run
       time unverified here: the user's check at the phase closer.)
-- [ ] The game's own window controls (item 9): Exit and the Fullscreen /
-      Window toggle on the Esc screen in the macOS app, the Edge app (the
-      exe steering Edge over DevTools, tested against Chrome here) and a
-      browser tab; window size from the first
-      graphic; the `index.html` fullscreen changes; unit tests and scenario
-      checks; README.
+- [x] The game's own window controls in the player, the macOS app and a
+      browser tab (item 9, first part): Exit and the Fullscreen / Window
+      toggle on the Esc screen; the `kineticHost` protocol, its macOS side
+      in the shared `WebViewSetup.swift`; the app's display memory and its
+      first window size from the first graphic (baked by `build_apps.py`);
+      the `index.html` fullscreen changes (re-asked unless the setting is
+      Window, skipped when the window fills the screen, Keyboard Lock for
+      Escape in Chromium). Unit tests; scenario checks on Chrome and on
+      WebKit with the driver's recording host; README and CREATE.md.
+      (2026-11-09: `render/host.ts` reads `window.kineticHost` at start and
+      on each `kinetic-host` event and sends `{type:"quit"}` and
+      `{type:"display", mode}`; with a host the page never asks for element
+      fullscreen. The Esc screen's last group, "Game window": a Fullscreen
+      | Window switch and Exit (a tab closes only when it can close itself,
+      else the screen asks the reader to close it). In a tab the new
+      `fullscreen` setting (default on, travels with exported progress,
+      old exports read as on) drives re-asking on trusted keys and clicks
+      (not Escape, shortcuts, settings controls or a screen-filling
+      window) and Keyboard Lock for Escape. `KineticHostBridge` in
+      `WebViewSetup.swift` (handler `kineticHost`, document-start script,
+      host closures); the app switches window fullscreen on `display`,
+      reports the reader's own switches, remembers the mode and its
+      windowed frame in UserDefaults and launches in that mode, first
+      window from Info.plist `KineticWindowSize` (the first graphic's
+      pixel size, written by `build_apps.py`) fitted to the screen with a
+      margin. The driver installs the same bridge with a recording host;
+      Chrome scenarios use a tiny stand-in. New `window` scenario (host
+      and tab parts, 23 checks); screens checks rewritten where Keyboard
+      Lock now hands a short Esc to the game. Import's file picker bug
+      (a settings click spending the gesture on fullscreen) found by the
+      full run and fixed. Orchestrator: npm test 867 pass, check clean;
+      test_build_apps 109 passed; full Chrome suite 15 scenarios, 375
+      checks, 375 pass, 0 PARTIAL (Keyboard Lock makes the old two
+      observable), 0 fail; full WebKit suite 370 pass, 5 PARTIAL (element
+      fullscreen, off in WKWebView), 0 fail. The app's on-screen window
+      switching waits for the user's check at the phase closer.)
+- [ ] The game's own window controls in the Edge app (item 9, second
+      part): the exe stays running while the game is open and steers its
+      Edge over DevTools (binding `kineticHost`, `Browser.setWindowBounds`,
+      `Browser.close`), its display memory in the game's profile folder, the
+      first window size from the first graphic; a Go client tested against
+      headless Chrome on macOS; docs. Running it on Windows is the user's
+      check.
 - [ ] Testing a game with no window on screen (item 10): the library, its
       tests, and a CREATE.md worked example run against the demo on both
       engines.

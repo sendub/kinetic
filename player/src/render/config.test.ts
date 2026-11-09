@@ -10,6 +10,7 @@ import type { MachineSettings } from "../machine/types";
 import { DEFAULT_SETTINGS } from "../machine/types";
 import { createMemoryStorage } from "../storage/memory";
 import {
+  isSettingsControl,
   mountConfigOverlay,
   PLAY_ALL_NOTE,
   PROGRESS_NOTE,
@@ -730,5 +731,24 @@ describe("the confirm box asks about an import in its own words", () => {
     expect(byClass(root, "confirm-message").textContent).toBe(
       "Replace this browser's progress for this story with the imported file?",
     );
+  });
+});
+
+describe("isSettingsControl (Phase 43: gestures fullscreen leaves alone)", () => {
+  it("is true on and inside a control, false elsewhere on the screen", () => {
+    const { root } = mount(DEFAULT_SETTINGS);
+    const skip = byAction(root, "skip-all");
+    expect(isSettingsControl(skip as unknown as EventTarget)).toBe(true);
+    expect(
+      isSettingsControl(
+        byAction(root, "import-file") as unknown as EventTarget,
+      ),
+    ).toBe(true);
+    expect(
+      isSettingsControl(
+        byClass(root, "config-title") as unknown as EventTarget,
+      ),
+    ).toBe(false);
+    expect(isSettingsControl(null)).toBe(false);
   });
 });

@@ -4,14 +4,19 @@
 import { describe, expect, it } from "vitest";
 import { launchWebKit, REQUIRED_HOOKS } from "./puppet.mjs";
 
-/** A stand-in driver whose first line is `first`; it answers every request. */
-const standIn = (first) => [
+/**
+ * A stand-in driver whose first line is `first`; it answers every request,
+ * then writes `after[cmd]` (event lines) if given.
+ */
+const standIn = (first, after = {}) => [
   process.execPath,
   "-e",
-  `process.stdout.write(${JSON.stringify(`${JSON.stringify(first)}\n`)});
+  `const after = ${JSON.stringify(after)};
+   process.stdout.write(${JSON.stringify(`${JSON.stringify(first)}\n`)});
    require("node:readline").createInterface({ input: process.stdin }).on("line", (line) => {
      const { id, cmd } = JSON.parse(line);
      process.stdout.write(JSON.stringify({ id, ok: true, value: true }) + "\\n");
+     for (const event of after[cmd] ?? []) process.stdout.write(JSON.stringify(event) + "\\n");
      if (cmd === "quit") process.exit(0);
    });`,
 ];
@@ -40,6 +45,35 @@ describe("launchWebKit", () => {
     await expect(
       launchWebKit({ command: standIn({ event: "ready" }) }),
     ).rejects.toThrow(REQUIRED_HOOKS.join(", "));
+  });
+
+  it("collects the recording host's messages and a page's own close", async () => {
+    const browser = await launchWebKit({
+      command: standIn(
+        { event: "ready", hooks: hooks() },
+        {
+          host: [
+            {
+              event: "hostmessage",
+              message: { type: "display", mode: "window" },
+            },
+            { event: "hostmessage", message: { type: "quit" } },
+            { event: "windowclose" },
+          ],
+        },
+      ),
+    });
+    const page = await browser.newPage();
+    const closed = new Promise((resolve) => page.on("close", resolve));
+    expect(page.isClosed()).toBe(false);
+    await page.installHost("mac-app", "fullscreen");
+    await closed;
+    expect(page.hostMessages).toEqual([
+      { type: "display", mode: "window" },
+      { type: "quit" },
+    ]);
+    expect(page.isClosed()).toBe(true);
+    await browser.close();
   });
 
   it("passes on the driver's fatal line (a window that would show)", async () => {

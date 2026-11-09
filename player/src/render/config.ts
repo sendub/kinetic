@@ -104,7 +104,27 @@ export function playAllLabel(playAllRoutes: boolean): string {
   return playAllRoutes ? "On" : "Off";
 }
 
+/**
+ * Whether `target` is one of the settings' controls (every one carries
+ * `data-config-action`, the window controls included). A key or click on
+ * one never asks for fullscreen (render/fullscreen.ts): a request would
+ * spend the gesture the control may need itself (Import's file picker) or
+ * race its own effect (the Window half).
+ */
+export function isSettingsControl(target: EventTarget | null): boolean {
+  const el = target as { closest?: (selector: string) => unknown } | null;
+  return (
+    typeof el?.closest === "function" &&
+    el.closest("[data-config-action]") != null
+  );
+}
+
 export interface ConfigOverlay {
+  /**
+   * The section's element: the window controls (render/windowcontrols.ts,
+   * Phase 43) mount at its end.
+   */
+  readonly panel: HTMLElement;
   isOpen(): boolean;
   /** Shows the panel, filled with the current settings, no message. */
   open(): void;
@@ -415,6 +435,7 @@ export function mountConfigOverlay({
   paint(current);
 
   return {
+    panel,
     isOpen() {
       return !panel.hidden;
     },

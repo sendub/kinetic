@@ -494,13 +494,13 @@ const configOpen = (page) => page.evaluate(CONFIG_OPEN);
 // so pressing it then would undo the state the caller asked for and leave
 // every later open/close one step out of phase.
 // Whether the browser keeps an Escape to leave fullscreen cannot be
-// predicted from `document.fullscreenElement`: headless Chrome enters
-// fullscreen on the first gesture and drops it again on its own tens to
-// hundreds of ms later, and an Escape sent while it is still up reaches
-// the page (it toggles the screen) instead of being kept. So each press is
-// followed by asking the page whether it saw the key: seen, the page acted
-// on it and the predicate is awaited; not seen, the browser kept it to
-// leave fullscreen and one more press goes to the page.
+// predicted from `document.fullscreenElement`: in Chrome the player locks
+// Escape once fullscreen (Keyboard Lock, Phase 43), so a short Escape
+// reaches the page, but one sent in the moment before the lock takes hold
+// is the browser's. So each press is followed by asking the page whether
+// it saw the key: seen, the page acted on it and the predicate is awaited;
+// not seen, the browser kept it to leave fullscreen and one more press
+// goes to the page.
 async function escapeUntil(page, cdp, predicate) {
   if (await page.evaluate(predicate)) return true;
   for (let press = 0; press < 2; press += 1) {
@@ -882,9 +882,8 @@ const openAtViewport = async (
   await page.setViewport({ width, height, deviceScaleFactor: 1 });
   await page.goto(pathToFileURL(join(dir, "index.html")).href);
   // First load shows the key help (Phase 13b) over a hidden stage — there
-  // is no media geometry to measure behind it. Closing the help with
-  // Escape is this page's first gesture, so fullscreen gets its request as
-  // it would for any reader's first action; then the stage paints.
+  // is no media geometry to measure behind it. Escape closes it (Escape
+  // never asks for fullscreen, Phase 43); then the stage paints.
   await dismissHelpByKeyboard(page);
   await waitImageDecoded(page);
   return page;
@@ -932,8 +931,9 @@ function judgeFit(state) {
   };
 }
 
-// Records requestFullscreen calls and the first keydowns' trust, before the
-// page scripts run. The wrapper keeps the real request; it only observes.
+// Records requestFullscreen calls and the first keydowns' trust (and whether
+// the page was fullscreen as each arrived), before the page scripts run.
+// The wrapper keeps the real request; it only observes.
 const INSTRUMENT = () => {
   window.__fsAttempts = 0;
   window.__firstKeys = [];
@@ -946,7 +946,11 @@ const INSTRUMENT = () => {
     "keydown",
     (event) => {
       if (window.__firstKeys.length < 12) {
-        window.__firstKeys.push({ key: event.key, trusted: event.isTrusted });
+        window.__firstKeys.push({
+          key: event.key,
+          trusted: event.isTrusted,
+          fullscreen: document.fullscreenElement !== null,
+        });
       }
     },
     true,
@@ -1205,6 +1209,8 @@ export const TALL_ASSET = { width: 640, height: 960 };
 export const chromePath =
   process.env.KINETIC_CHROME ??
   "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
+/** The screen headless Chrome reports (`--screen-info`). */
+export const CHROME_SCREEN = { width: 1920, height: 1200 };
 
 // The engine every scenario browser runs on: headless Chrome (the default)
 // or, with KINETIC_ENGINE=webkit (the runner's --webkit), the system WebKit
@@ -1339,13 +1345,86 @@ async function setPlayAll(page, cdp, on) {
   return { after, closed };
 }
 
+// A game app's host object for Chrome sessions opened with `host`: the
+// same `window.kineticHost` and `kinetic-host` event the macOS app's bridge
+// gives the page (apps/macos/WebViewSetup.swift, KineticHostBridge),
+// recording each message instead of acting on it; like the bridge, its
+// script is swapped on every change, so a reload starts in the mode in
+// force. Kept this small on purpose: the WebKit run installs the real
+// Swift bridge with a recording host instead (apps/macos/driver), so the
+// page meets the real one there.
+const EMULATED_HOST = (kind, display) => {
+  let mode = display;
+  const host = Object.freeze({
+    kind,
+    get display() {
+      return mode;
+    },
+    send(message) {
+      window.__kineticHostRecord(JSON.stringify(message));
+    },
+  });
+  Object.defineProperty(window, "kineticHost", { value: host });
+  Object.defineProperty(window, "__kineticHostSetDisplay", {
+    value(next) {
+      if (next === mode) return;
+      mode = next;
+      window.dispatchEvent(new Event("kinetic-host"));
+    },
+  });
+  window.dispatchEvent(new Event("kinetic-host"));
+};
+
+/**
+ * Gives `page` a recording host before its first navigation, on either
+ * engine: `messages()` lists what the page sent, `waitForMessages(n)`
+ * waits until it has sent at least n, and `setDisplay(mode)` changes the
+ * host's mode as the reader's own control would (the page gets
+ * `kinetic-host`).
+ */
+async function installRecordingHost(page, { kind, display }) {
+  let script = null;
+  if (onWebKit) {
+    await page.installHost(kind, display);
+  } else {
+    const recorded = [];
+    await page.exposeFunction("__kineticHostRecord", (json) => {
+      recorded.push(JSON.parse(json));
+    });
+    script = await page.evaluateOnNewDocument(EMULATED_HOST, kind, display);
+    page.hostMessages = recorded;
+  }
+  const messages = () => [...page.hostMessages];
+  return {
+    messages,
+    async waitForMessages(count, timeout = 3000) {
+      const until = Date.now() + timeout;
+      while (page.hostMessages.length < count && Date.now() < until) {
+        await sleep(20);
+      }
+      return messages();
+    },
+    async setDisplay(mode) {
+      if (onWebKit) {
+        await page.setHostDisplay(mode);
+        return;
+      }
+      await page.removeScriptToEvaluateOnNewDocument(script.identifier);
+      script = await page.evaluateOnNewDocument(EMULATED_HOST, kind, mode);
+      await page.evaluate((m) => window.__kineticHostSetDisplay(m), mode);
+    },
+  };
+}
+
 /**
  * One scenario's browser: a FRESH profile (first-ever load), console and
  * page errors captured, the INSTRUMENT shim installed, and the demo opened
  * with the key help up (pass `closeHelp: true` to dismiss it by keyboard).
  * `manualChoices: true` (with `closeHelp`) then turns Play all routes off
  * on the Esc screen, so the walk answers every decision itself; it throws if the
- * switch did not end Off with the screen closed.
+ * switch did not end Off with the screen closed. `host: { kind, display }`
+ * opens the page as a game app would show it, with a recording host
+ * (installRecordingHost; returned as `host`).
  */
 export async function openScenario(name, options = {}) {
   const profile = join(scenarioRoot, "profiles", name);
@@ -1363,6 +1442,11 @@ export async function openScenario(name, options = {}) {
         "--disable-gpu",
         "--disable-crash-reporter",
         `--crash-dumps-dir=${join(scenarioRoot, "crashdumps")}`,
+        // A reader's browser window sits on a larger screen. Headless
+        // otherwise reports a screen the size of the window, which the
+        // player reads as a window that already fills the screen, and it
+        // would never ask for fullscreen (render/fullscreen.ts).
+        `--screen-info={${CHROME_SCREEN.width}x${CHROME_SCREEN.height}}`,
       ],
     });
   };
@@ -1383,6 +1467,10 @@ export async function openScenario(name, options = {}) {
   });
   page.on("pageerror", (err) => errors.push(`[pageerror] ${err.message}`));
   await page.evaluateOnNewDocument(INSTRUMENT);
+  const host =
+    options.host === undefined
+      ? null
+      : await installRecordingHost(page, options.host);
   const cdp = await page.createCDPSession();
   const folder = options.folder ?? demoDir;
   await page.goto(pathToFileURL(join(folder, "index.html")).href);
@@ -1399,7 +1487,7 @@ export async function openScenario(name, options = {}) {
       );
     }
   }
-  return { browser, page, cdp, errors, url: page.url() };
+  return { browser, page, cdp, errors, url: page.url(), host };
 }
 
 // Every Chrome openScenario launched and nobody has closed yet, so the

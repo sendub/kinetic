@@ -1,8 +1,9 @@
 // The web view both macOS hosts of the player use: the game app (docs/plan.md
 // Phase 43 item 7) and the scenario suite's WebKit driver (driver/main.swift).
 // Both compile this one file, so what the suite tests is what readers get.
-// Only what both hosts must agree on lives here; the app's window, menus and
-// panels and the driver's test hooks stay in their own sources.
+// Only what both hosts must agree on lives here (the web view's setup and
+// the page-to-host bridge); the app's window, menus and panels and the
+// driver's test hooks stay in their own sources.
 //
 // Builds for macOS 12 and later (the app's minimum).
 
@@ -56,5 +57,130 @@ enum KineticWebView {
     /// A response the view cannot show is saved rather than dropped.
     static func policy(for response: WKNavigationResponse) -> WKNavigationResponsePolicy {
         response.canShowMIMEType ? .allow : .download
+    }
+}
+
+/// The macOS side of the page-to-host protocol (docs/plan.md Phase 43 item
+/// 9; apps/README.md). A user script at document start gives the page
+/// `window.kineticHost = { kind, display, send(message) }`; `send` posts to
+/// the `kineticHost` message handler, which passes `{ type: "quit" }` and
+/// `{ type: "display", mode }` to the host's closures. `setDisplay` tells
+/// the page a new mode (the page's own request carried out, or the reader's
+/// green button, menu or shortcut): the live object changes and the page
+/// gets a `kinetic-host` event. The user script is swapped on every change,
+/// so a reload starts with the mode in force.
+///
+/// Both hosts install this: the game app with closures that quit and switch
+/// its window, the scenario suite's driver with ones that record.
+final class KineticHostBridge: NSObject, WKScriptMessageHandler {
+    static let handlerName = "kineticHost"
+    /// Where the user script keeps its setter (not enumerable).
+    static let setterName = "__kineticHostSetDisplay"
+
+    enum Display: String {
+        case fullscreen
+        case window
+    }
+
+    let kind: String
+    private(set) var display: Display
+    private let onQuit: () -> Void
+    private let onDisplay: (Display) -> Void
+    private weak var controller: WKUserContentController?
+    private var script: WKUserScript?
+
+    init(kind: String, display: Display, onQuit: @escaping () -> Void,
+         onDisplay: @escaping (Display) -> Void)
+    {
+        self.kind = kind
+        self.display = display
+        self.onQuit = onQuit
+        self.onDisplay = onDisplay
+    }
+
+    /// Adds the user script and the message handler. The controller keeps
+    /// the bridge (the handler), so the closures must not hold the web view
+    /// strongly.
+    func install(on controller: WKUserContentController) {
+        self.controller = controller
+        controller.add(self, name: Self.handlerName)
+        let fresh = makeScript()
+        controller.addUserScript(fresh)
+        script = fresh
+    }
+
+    /// Records `display` as the mode now and tells the page, if it differs.
+    /// `done` runs once the page has it.
+    func setDisplay(_ next: Display, in webView: WKWebView?, done: (() -> Void)? = nil) {
+        guard next != display else {
+            done?()
+            return
+        }
+        display = next
+        swapScript()
+        guard let webView else {
+            done?()
+            return
+        }
+        let call = "window.\(Self.setterName) && window.\(Self.setterName)(\(Self.literal(next.rawValue)));"
+        webView.evaluateJavaScript(call) { _, _ in done?() }
+    }
+
+    func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
+        // Only the game's own page speaks for it (the user script is
+        // main-frame only, but the handler is reachable from any frame).
+        guard message.frameInfo.isMainFrame, let body = message.body as? [String: Any] else { return }
+        switch body["type"] as? String {
+        case "quit":
+            onQuit()
+        case "display":
+            if let mode = (body["mode"] as? String).flatMap(Display.init(rawValue:)) { onDisplay(mode) }
+        default:
+            break
+        }
+    }
+
+    /// The user script for the mode now.
+    private func makeScript() -> WKUserScript {
+        let source = """
+            (() => {
+              const handler = window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.\(Self.handlerName);
+              if (!handler || window.kineticHost) return;
+              let display = \(Self.literal(display.rawValue));
+              const host = Object.freeze({
+                kind: \(Self.literal(kind)),
+                get display() { return display; },
+                send(message) { handler.postMessage(message); },
+              });
+              Object.defineProperty(window, "kineticHost", { value: host });
+              Object.defineProperty(window, "\(Self.setterName)", {
+                value(mode) {
+                  if (mode === display) return;
+                  display = mode;
+                  window.dispatchEvent(new Event("kinetic-host"));
+                },
+              });
+              window.dispatchEvent(new Event("kinetic-host"));
+            })();
+            """
+        return WKUserScript(source: source, injectionTime: .atDocumentStart, forMainFrameOnly: true)
+    }
+
+    /// Replaces the user script with one for the mode now, keeping every
+    /// other script the host added in its place.
+    private func swapScript() {
+        guard let controller, let old = script else { return }
+        let fresh = makeScript()
+        let scripts = controller.userScripts.map { $0 === old ? fresh : $0 }
+        controller.removeAllUserScripts()
+        scripts.forEach(controller.addUserScript)
+        script = fresh
+    }
+
+    /// `text` as a JavaScript string literal.
+    private static func literal(_ text: String) -> String {
+        let data = (try? JSONSerialization.data(withJSONObject: [text])) ?? Data("[\"\"]".utf8)
+        let array = String(decoding: data, as: UTF8.self)
+        return String(array.dropFirst().dropLast())
     }
 }

@@ -19,6 +19,7 @@ import { DEFAULT_SETTINGS } from "../../src/machine/types.ts";
 import { speedLabel } from "../../src/render/config.ts";
 import { EARLIER_UNSEEN_NOTICE } from "../../src/render/endcard.ts";
 import {
+  CONFIG_CLOSED,
   CONFIG_CONTROL,
   CONFIRM_CONTROL,
   CONFIRM_OPEN,
@@ -173,35 +174,23 @@ async function clickCardDelete(cdp, card) {
 const pressF = (cdp) => pressKey(cdp, "f", "KeyF", 70, "f");
 
 /**
- * The first gesture requests fullscreen. When the browser granted it, Chrome
- * keeps the first Escape for leaving fullscreen and the page never sees it.
- * Headless Chrome drops fullscreen on its own soon after, and an Escape sent
- * before that reaches the page (it opens the Esc screen) instead of being
- * kept; that Escape is then undone with one more, and `kept: false` says the
- * browser's keeping could not be observed. Returns what happened, so callers
- * can assert the windowed state that follows; `wasFullscreen: false` means
- * headless never entered it (or had already left).
+ * A short Escape while fullscreen (docs/plan.md Phase 43): the player locks
+ * Escape once fullscreen (Keyboard Lock, Chromium), so the key reaches the
+ * page, which opens the Esc screen, and fullscreen stays; holding Escape is
+ * what leaves. One more Escape closes the screen again. Returns what
+ * happened; `wasFullscreen: false` means the page was windowed (WebKit,
+ * whose web view has element fullscreen off).
  */
-async function leaveFullscreen(page, cdp) {
+async function escapeInFullscreen(page, cdp) {
   const before = await page.evaluate(PAGE_STATE);
   if (before.fullscreenElement === null) {
-    return { wasFullscreen: false, ok: true, before };
+    return { wasFullscreen: false, ok: true };
   }
-  const kept = !(await pressEscapeSeen(page, cdp));
-  if (!kept) await escapeUntil(page, cdp, HELP_CLOSED);
-  await page
-    .waitForFunction(() => document.fullscreenElement === null, {
-      timeout: 5000,
-    })
-    .catch(() => {});
-  const after = await page.evaluate(PAGE_STATE);
-  return {
-    wasFullscreen: true,
-    kept,
-    ok: after.fullscreenElement === null && after.helpOpen === false,
-    before,
-    after,
-  };
+  const seen = await pressEscapeSeen(page, cdp);
+  const opened = seen && (await waitFor(page, HELP_OPEN, 2000));
+  const stayed = (await page.evaluate(PAGE_STATE)).fullscreenElement !== null;
+  const closed = await escapeUntil(page, cdp, HELP_CLOSED);
+  return { wasFullscreen: true, seen, opened, stayed, ok: closed };
 }
 
 // Phase 24: on the first load a click does not close the help (its
@@ -225,12 +214,17 @@ async function helpFirstLoadClick({ check, open }) {
   await pressSpace(cdp);
   await sleep(150);
   const closed = await page.evaluate(PAGE_STATE);
+  // Every gesture made while windowed asks again (Phase 43), so Space asks
+  // a second time only if the page was no longer fullscreen when it came
+  // (as in WebKit, whose web view has element fullscreen off).
+  const space = closed.firstKeys.find((k) => k.key === " ");
   check(
-    "first load: Space then closes the help without advancing, no second fullscreen request",
+    "first load: Space then closes the help without advancing; it asks for fullscreen again only if the page was not fullscreen",
     closed.helpOpen === false &&
       closed.stageHidden === false &&
       closed.text === start.text &&
-      closed.fsAttempts === 1,
+      space !== undefined &&
+      closed.fsAttempts === (space.fullscreen ? 1 : 2),
     closed,
   );
 }
@@ -238,10 +232,15 @@ async function helpFirstLoadClick({ check, open }) {
 // Old step 20: Escape opens the key help mid-flow.
 async function helpMidFlow({ check, open }) {
   const { page, cdp } = await open("help", { closeHelp: true });
-  const fs = await leaveFullscreen(page, cdp);
+  // Escape closed the first-load help and never asks for fullscreen; `c`
+  // (no key) is a gesture that does. The lock follows the request.
+  await pressC(cdp);
+  await waitFor(page, () => document.fullscreenElement !== null, 2000);
+  await sleep(150);
+  const fs = await escapeInFullscreen(page, cdp);
   check(
-    "the first Escape while fullscreen is the browser's: it leaves fullscreen and opens nothing",
-    fs.ok ? (fs.wasFullscreen && fs.kept ? true : "PARTIAL") : false,
+    "a short Escape while fullscreen reaches the game (Keyboard Lock): it opens the Esc screen and fullscreen stays",
+    fs.wasFullscreen ? fs.seen && fs.opened && fs.stayed && fs.ok : "PARTIAL",
     fs,
   );
 
@@ -260,7 +259,7 @@ async function helpMidFlow({ check, open }) {
       -1,
   );
   check(
-    "windowed Escape opens the help mid-flow: a black screen over the same item",
+    "Escape opens the help mid-flow: a black screen over the same item",
     opened &&
       s.stageHidden === true &&
       imgBox === 0 &&
@@ -446,7 +445,6 @@ async function helpMidFlow({ check, open }) {
 // of the hovered M entry.
 async function escToMap({ check, open }) {
   const { page, cdp } = await open("esc-m", { closeHelp: true });
-  await leaveFullscreen(page, cdp);
   const NEITHER = () =>
     (document.getElementById("help")?.hidden ?? true) &&
     (document.getElementById("branchmap")?.hidden ?? true);
@@ -608,7 +606,6 @@ async function escToMap({ check, open }) {
 // Phase 35, which retired the `t` list).
 async function bookmarks({ check, open }) {
   const { page, cdp } = await open("bookmarks", { closeHelp: true });
-  const fs = await leaveFullscreen(page, cdp);
 
   // Seen 0..11, then bookmark item 8 and item 11 (three notches apart).
   const walked = await spaceTo(page, cdp, "chain-still-3");
@@ -739,31 +736,29 @@ async function bookmarks({ check, open }) {
     },
   );
 
-  // Ways out: a windowed Escape, and m again.
+  // Ways out: one Escape (the game's in fullscreen too: Keyboard Lock,
+  // Phase 43), and m again.
   const reopened = await openMap(page, cdp);
+  const fullscreen = await page.evaluate(
+    () => document.fullscreenElement !== null,
+  );
   await pressEscape(cdp);
   await sleep(80);
   const afterEscape = await mapOpen(page);
-  const windowed = await page.evaluate(
-    () => document.fullscreenElement === null,
-  );
   await openMap(page, cdp);
   await pressM(cdp);
   await sleep(80);
   const afterM = await mapOpen(page);
   check(
-    "m reopens the map with both cards; one windowed Escape and m again each close it",
-    fs.ok &&
-      reopened.ready &&
+    "m reopens the map with both cards; one Escape (fullscreen or not) and m again each close it",
+    reopened.ready &&
       reopened.map.cards?.length === 2 &&
       afterEscape === false &&
-      windowed &&
       afterM === false,
     {
-      fs: fs.wasFullscreen,
       reopened: reopened.map.cards?.length,
+      fullscreen,
       afterEscape,
-      windowed,
       afterM,
     },
   );
@@ -848,7 +843,6 @@ async function bookmarks({ check, open }) {
 // names a folder for a screenshot at 1280x720.
 async function manyBookmarks({ check, open }) {
   const { page, cdp } = await open("many-bookmarks", { closeHelp: true });
-  await leaveFullscreen(page, cdp);
   const shots = process.env.KINETIC_MAPCARDS_SHOTS;
   if (shots) mkdirSync(shots, { recursive: true });
 
@@ -1050,7 +1044,6 @@ const ARM_SPEED_CLOCK = () => {
 
 async function bookmarkSpeed({ check, open }) {
   const { page, cdp } = await open("bookmark-speed", { closeHelp: true });
-  await leaveFullscreen(page, cdp);
   await page.setViewport({ width: 1280, height: 720, deviceScaleFactor: 1 });
   await spaceTo(page, cdp, "chain-still-3");
   await pressB(cdp);
@@ -1311,9 +1304,13 @@ async function config({ check, open }) {
         "  Export progress",
         "  Import progress",
         "  Reset progress",
+        "# Game window",
+        "  Display",
+        "  Exit the game",
       ]) &&
       shownLefts.length === 4 &&
       new Set(shownLefts).size === 1 &&
+      first.headingTextLefts.length === 3 &&
       first.headingTextLefts.every((left) => left === shownLefts[0]) &&
       Math.abs(videoRow.top - skipRow.bottom) < 1 &&
       playRow.top - videoRow.bottom >= 8 &&
@@ -1436,36 +1433,29 @@ async function config({ check, open }) {
     await clickCenter(cdp, CONFIG_CONTROL.speedUp);
   }
   const fast = await page.evaluate(READ_CONFIG_OVERLAY);
-  // The page went fullscreen on the first gesture: Chrome keeps the first
-  // Escape, so the panel stays open and the second Escape closes it.
-  // Headless Chrome may instead hand that Escape to the page (it drops
-  // fullscreen on its own), which closes the panel at once: PARTIAL, the
-  // keeping was not observable.
+  // The page went fullscreen on the first Space, and a short Escape there
+  // is the game's (Keyboard Lock, Phase 43): it closes the screen at once
+  // and fullscreen stays. WebKit's web view has element fullscreen off, so
+  // there the page is windowed and only the closing is seen: PARTIAL.
   const wasFullscreen = (await page.evaluate(PAGE_STATE)).fullscreenElement;
-  const kept = !(await pressEscapeSeen(page, cdp));
-  const afterFirstEsc = await configOpen(page);
-  const windowed = await page
-    .waitForFunction(() => document.fullscreenElement === null, {
-      timeout: 5000,
-    })
-    .then(
-      () => true,
-      () => false,
-    );
+  const seen = await pressEscapeSeen(page, cdp);
+  const closedAtOnce = await waitFor(page, CONFIG_CLOSED, 2000);
+  const stayed = (await page.evaluate(PAGE_STATE)).fullscreenElement !== null;
   const closed = await closeSettings(page, cdp);
   check(
-    "four + clicks show 2.00x; Escape closes config (the first one leaves fullscreen when fullscreen)",
+    "four + clicks show 2.00x; one short Escape closes the settings, in fullscreen too, which stays",
     fast.speedValue === SPEED_2X &&
       fast.skipPressed === "true" &&
-      windowed &&
+      seen &&
+      closedAtOnce &&
       closed &&
-      (wasFullscreen !== null && kept ? afterFirstEsc === true : "PARTIAL"),
+      (wasFullscreen !== null ? stayed : "PARTIAL"),
     {
       speed: fast.speedValue,
       wasFullscreen,
-      kept,
-      afterFirstEsc,
-      windowed,
+      seen,
+      closedAtOnce,
+      stayed,
       closed,
     },
   );
@@ -1572,7 +1562,6 @@ async function emptyFolder({ check, open }) {
   );
   await pressEscape(cdp);
   const helpClosed = await waitFor(page, HELP_CLOSED);
-  const fs = await leaveFullscreen(page, cdp);
   // `t` is no key since the bookmarks moved onto the map (Phase 35).
   await pressT(cdp);
   await sleep(150);
@@ -1584,7 +1573,6 @@ async function emptyFolder({ check, open }) {
   check(
     "t opens nothing there; m opens the branch map with no bookmark cards, and Escape closes it",
     helpClosed &&
-      fs.ok &&
       afterT.mapOpen === false &&
       afterT.helpOpen === false &&
       shown.ready &&
@@ -1592,7 +1580,6 @@ async function emptyFolder({ check, open }) {
       closed,
     {
       helpClosed,
-      fs: fs.wasFullscreen,
       afterT: { map: afterT.mapOpen, help: afterT.helpOpen },
       ready: shown.ready,
       cards: shown.map.cards?.length,
@@ -1847,7 +1834,6 @@ async function contentUpdate({ check, open }) {
   rmSync(folder, { recursive: true, force: true });
   cpSync(demoDir, folder, { recursive: true });
   const { page, cdp } = await open("update", { closeHelp: true, folder });
-  await leaveFullscreen(page, cdp);
 
   const walked1 = await spaceTo(page, cdp, "video-chain-3");
   await pressB(cdp);

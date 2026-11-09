@@ -826,8 +826,10 @@
       }
       /* Progress: the buttons say what they do (and carry aria-labels),
          so their row labels go and the three sit on one line under the
-         note. */
-      #config > .config-row:has(> [data-config-action$="-progress"]) {
+         note. The Game window rows (Phase 43, `.config-inline`) sit the
+         same way: Fullscreen | Window, then Exit. */
+      #config > .config-row:has(> [data-config-action$="-progress"]),
+      #config > .config-inline {
         flex: 0 0 auto;
         min-height: 0;
         margin: 0 8px 0 0;
@@ -835,8 +837,37 @@
         border-radius: 0;
         background: none;
       }
-      .config-row:has(> [data-config-action$="-progress"]) > .config-label {
+      .config-row:has(> [data-config-action$="-progress"]) > .config-label,
+      .config-row.config-inline > .config-label {
         display: none;
+      }
+      /* Fullscreen | Window (Phase 43): a segmented capsule like the map's
+         Full size | Fit, its parts the single capsule, cut; the half for
+         the display mode now is pressed, filled gold like a switch that is
+         on. */
+      #config > .config-inline:has(> .config-display) {
+        gap: 1px;
+      }
+      .config-display {
+        position: relative;
+      }
+      .config-display-fullscreen {
+        padding-right: calc(var(--k-ctl-padx) * 0.85);
+        border-radius: var(--k-r-pill) 0 0 var(--k-r-pill);
+      }
+      .config-display-window {
+        padding-left: calc(var(--k-ctl-padx) * 0.85);
+        border-radius: 0 var(--k-r-pill) var(--k-r-pill) 0;
+      }
+      .config-display[aria-pressed="true"] {
+        --k-ctl-fill: var(--k-gold);
+        --k-ctl-fill-hover: var(--k-gold-hi);
+        --k-ctl-fill-press: var(--k-gold-press);
+        color: var(--k-stamp);
+      }
+      /* A focused half's ring over its neighbour. */
+      .config-display:focus-visible {
+        z-index: 1;
       }
       .config-toggle:not([role="switch"]) {
         min-width: 6.4em;

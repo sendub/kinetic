@@ -874,8 +874,11 @@ a missing `manifest.js`, and prints the folder size (docs/packaging.md).
 Run `npm run build` in `player/` first if the bundle is not current.
 
 Double-click `index.html` to open the novel in your default browser.
-The first keypress or click puts the player in fullscreen, so that first
-keypress can simply be space, the advance key.
+The first keypress or click other than Esc puts the player in
+fullscreen, so that first keypress can simply be space, the advance key.
+A reader who leaves fullscreen goes back on their next key or click,
+unless they choose Window on the Esc screen (kept with the other
+settings).
 
 The controls are listed in README.md ("Playing").
 
@@ -913,7 +916,10 @@ Add the apps to an assembled folder, or assemble with them:
   and `:` written as `-` (the folder's name when there is no title). The
   manifest needs a `storyId` (Manifest, above), since the app keeps
   readers' progress under its bundle id, `org.kinetic.game.<storyId>`
-  (`_` written as `-`). The build refuses a manifest without one.
+  (`_` written as `-`). The build refuses a manifest without one. It
+  also reads the pixel size of the game's first graphic (see `--icon`)
+  into the app, for its first window, and prints it; a game with no
+  readable picture gets a 16:9 first window.
 - `--windows` adds `<title>.exe`, named the same way, with the other
   characters Windows refuses in a file name (`\ * ? " < > |`) also
   written as `-`. It keeps readers' progress under the `storyId` too, so
@@ -948,9 +954,16 @@ and writes nothing. The build downloads nothing and keeps Go's caches in
 What Mac readers get and see:
 
 - They double-click `<title>.app` in the game folder, and the game opens
-  fullscreen. ⌘Q quits, and so does closing the window. ⌘R reloads, ⌃⌘F
-  leaves or re-enters fullscreen, and ⌘H hides the game. Export on the
+  fullscreen the first time. Exit on the Esc screen quits, as do ⌘Q and
+  closing the window. ⌘R reloads and ⌘H hides the game. Export on the
   Esc screen saves to Downloads, and Import opens a file panel.
+- The Esc screen's Fullscreen | Window switch, the green button and
+  ⌃⌘F all switch between fullscreen and a window, and the switch shows
+  whichever is in force. The app reopens the way it was left, so a
+  reader who chose a window gets a window, with no fullscreen first.
+- The first window takes the size and shape of the game's first graphic,
+  scaled down to fit the screen and centred. After that the app keeps
+  the size and place the reader gives the window.
 - Progress is kept per app, under its bundle id (so a rebuild keeps it)
   and apart from any browser's. A reader who played `index.html` in a
   browser starts over in the app, or moves the progress across with

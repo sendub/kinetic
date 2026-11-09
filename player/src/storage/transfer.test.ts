@@ -217,6 +217,23 @@ describe("the map's Spoilers setting travels with the progress file", () => {
   });
 });
 
+describe("the Display setting travels with the progress file", () => {
+  it("exports and imports Window like the other settings", () => {
+    const text = exported({ state: { settings: { fullscreen: false } } });
+    expect(parseProgressFile(text, HERE)).toMatchObject({
+      ok: true,
+      state: { settings: { fullscreen: false } },
+    });
+  });
+
+  it("imports a file from before the setting: it carries none (Fullscreen)", () => {
+    const text = exported({ state: { settings: { readingSpeed: 2 } } });
+    const parsed = parseProgressFile(text, HERE);
+    // No `fullscreen` field: main.ts merges the default, Fullscreen.
+    expect(parsed.ok && parsed.state.settings).toEqual({ readingSpeed: 2 });
+  });
+});
+
 describe("importProgress (a confirmed import replaces, then reloads)", () => {
   async function filled() {
     const storage = createMemoryStorage();

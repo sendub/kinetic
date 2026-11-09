@@ -219,6 +219,16 @@ class Page {
     this.view = { width: 800, height: 600, deviceScaleFactor: 1 };
     this.currentUrl = "about:blank";
     this.styleTags = 0;
+    // Beyond puppeteer (harness.mjs uses them on both engines): what the
+    // page sent the game app's bridge with its recording host installed
+    // (installHost), and whether the page closed its own tab.
+    this.hostMessages = [];
+    this.closedByPage = false;
+    rpc.on("hostmessage", (m) => this.hostMessages.push(m.message));
+    rpc.on("windowclose", () => {
+      this.closedByPage = true;
+      this.fire("close");
+    });
     rpc.on("console", (m) =>
       this.fire("console", { type: () => m.type, text: () => m.text }),
     );
@@ -272,6 +282,22 @@ class Page {
   }
   url() {
     return this.currentUrl;
+  }
+  /** True once the page's window.close() was allowed (a tab would go). */
+  isClosed() {
+    return this.closedByPage;
+  }
+  /**
+   * The game app's page-to-host bridge (apps/macos/WebViewSetup.swift)
+   * with a recording host, before the first goto: `display` is the mode
+   * it starts in; each message the page sends lands in hostMessages.
+   */
+  async installHost(kind, display) {
+    await this.rpc.send("host", { kind, display });
+  }
+  /** The host's display mode changed, as the reader's own control would. */
+  async setHostDisplay(mode) {
+    await this.rpc.send("hostDisplay", { mode });
   }
   async evaluate(fn, ...args) {
     return unwrap(

@@ -1798,6 +1798,28 @@ The work, in order:
      - no request when the window already fills the screen;
      - Keyboard Lock in Chromium, so a short Esc reaches the game and only
        holding Esc leaves fullscreen.
+   - One page-to-host protocol serves both apps (orchestrator's design,
+     2026-11-09):
+     - The host gives the page `window.kineticHost = { kind, display,
+       send(message) }`: `kind` is `"mac-app"` or `"windows-app"`, and
+       `display` is `"fullscreen"` or `"window"`. Whenever the object
+       appears, or its `display` changes, the host fires a `kinetic-host`
+       event on `window`. That includes a change the reader makes with the
+       system's own controls. The object may arrive after the page loads.
+     - The page sends `{ type: "quit" }` and `{ type: "display", mode }`.
+     - The host owns the display mode and its memory, so an app reopens
+       the way it was left with no flash. It launches in that mode. The
+       first window size comes from the game's first graphic, read at
+       build time and baked into the app. A size the reader sets is kept.
+     - With a host present the page never asks for element fullscreen.
+       With none (a browser tab), the page owns the setting, keeps it with
+       the other settings, and uses the Fullscreen API.
+     - The macOS side of the bridge (user script and message handler name)
+       lives in the shared `WebViewSetup.swift`. The test driver therefore
+       installs the same bridge with a recording host, and the scenarios
+       test the page against the real Swift side.
+   - Two checklist items: first the player, the macOS app and a browser
+     tab; then the Edge app.
 10. Testing a game with no window on screen (the user, "if possible").
     - A small library opens a built game folder in the hidden WebKit driver
       (macOS) or headless Chrome. It offers the puppeteer-style page, key

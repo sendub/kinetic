@@ -39,7 +39,10 @@ requirement is checked before either is built.
 `--icon IMAGE` (PNG, JPEG, WebP, GIF or JPEG XL) is cut to a centred
 square for the apps' icon; without it the icon is the game's first
 graphic: the first item with a picture (an image, an animation's first
-frame, or a video's poster).
+frame, or a video's poster). The first graphic's pixel size, whatever
+the icon, goes into the Mac app's Info.plist (`KineticWindowSize`): the
+app's first window takes that size and shape, scaled down to fit the
+screen (a 16:9 window when the game has no readable picture).
 
 Exit status: 0 when the apps are built, 1 when the folder, its manifest,
 the icon or the build tools are not what the build needs, 2 when the
@@ -87,6 +90,11 @@ MODULE_CACHE = REPO_ROOT / ".tmp" / "mac-app-build" / "module-cache"
 BUNDLE_ID_PREFIX = "org.kinetic.game."
 # Info.plist key the app reads for its menus (apps/macos/app/main.swift).
 TITLE_KEY = "KineticTitle"
+# Info.plist key the app reads for its first window's size: the first
+# graphic's pixel size, {Width, Height} (apps/macos/app/main.swift).
+WINDOW_SIZE_KEY = "KineticWindowSize"
+# EXIF orientations that turn a picture on its side (width and height swap).
+SIDEWAYS_ORIENTATIONS = {5, 6, 7, 8}
 APP_VERSION = "1.0"
 MAC_NEEDS = ("--mac needs macOS with a Swift toolchain: Xcode or the "
              "Command Line Tools (xcode-select --install)")
@@ -252,6 +260,37 @@ def _decode(data: bytes) -> Image.Image:
         return ImageOps.exif_transpose(image).convert("RGBA")
 
 
+def graphic_size(path: Path) -> tuple[int, int] | None:
+    """A picture's pixel size as shown (an EXIF quarter turn swaps it), or
+    None when it is missing or not a picture the icon could be."""
+    try:
+        data = path.read_bytes()
+    except OSError:
+        return None
+    try:
+        if _is_jpeg_xl(data):
+            return _decode_jpeg_xl(data).size
+        with Image.open(io.BytesIO(data)) as image:
+            if image.format not in PILLOW_ICON_FORMATS:
+                return None
+            width, height = image.size
+            if image.getexif().get(0x0112) in SIDEWAYS_ORIENTATIONS:
+                width, height = height, width
+            return width, height
+    except (OSError, ValueError, RuntimeError, EOFError, SyntaxError,
+            Image.DecompressionBombError):
+        return None
+
+
+def window_size(manifest: dict, folder: Path) -> tuple[int, int] | None:
+    """The size the Mac app's first window takes: the first graphic's
+    pixel size, or None when the game has no readable picture."""
+    try:
+        return graphic_size(first_graphic(manifest, folder))
+    except BuildError:
+        return None
+
+
 def centred_square(image: Image.Image) -> Image.Image:
     """The largest square in the middle of `image`."""
     side = min(image.size)
@@ -336,7 +375,10 @@ def sign_mac(app: Path) -> None:
     _run(["codesign", "--force", "--sign", "-", str(app)], "signing the app")
 
 
-def info_plist(ident: Identity) -> dict:
+def info_plist(ident: Identity,
+               window: tuple[int, int] | None = None) -> dict:
+    sized = ({} if window is None
+             else {WINDOW_SIZE_KEY: {"Width": window[0], "Height": window[1]}})
     return {
         "CFBundleDisplayName": ident.app_name,
         "CFBundleExecutable": MAC_EXECUTABLE,
@@ -350,6 +392,7 @@ def info_plist(ident: Identity) -> dict:
         "LSMinimumSystemVersion": MAC_MINIMUM_SYSTEM,
         "NSHighResolutionCapable": True,
         TITLE_KEY: ident.title,
+        **sized,
     }
 
 
@@ -498,6 +541,8 @@ class Prepared:
     square: Image.Image
     icon_source: Path
     go: str | None
+    # The first graphic's pixel size, for the apps' first window.
+    window: tuple[int, int] | None
 
 
 def prepare(folder: Path, icon: Path | None, *, mac: bool = False,
@@ -510,7 +555,8 @@ def prepare(folder: Path, icon: Path | None, *, mac: bool = False,
         check_mac_toolchain()
     go = check_go() if windows else None
     source = icon if icon is not None else first_graphic(manifest, folder)
-    return Prepared(ident, load_icon(source), source, go)
+    return Prepared(ident, load_icon(source), source, go,
+                    window_size(manifest, folder))
 
 
 def _staging(folder: Path, name: str) -> Path:
@@ -538,7 +584,8 @@ def build_mac_app(folder: Path, prepared: Prepared) -> Path:
         compile_mac(contents / "MacOS" / MAC_EXECUTABLE)
         write_icns(prepared.square,
                    contents / "Resources" / f"{MAC_ICON_NAME}.icns")
-        (contents / "Info.plist").write_bytes(plistlib.dumps(info_plist(ident)))
+        (contents / "Info.plist").write_bytes(
+            plistlib.dumps(info_plist(ident, prepared.window)))
         sign_mac(app)
         replaced = staging / "replaced.app"
         if target.exists() or target.is_symlink():
@@ -554,9 +601,11 @@ def build_mac_app(folder: Path, prepared: Prepared) -> Path:
     finally:
         shutil.rmtree(staging, ignore_errors=True)
 
+    window = ("16:9 (no readable first graphic)" if prepared.window is None
+              else f"{prepared.window[0]}x{prepared.window[1]}")
     print(f"built {target}: arm64, macOS {MAC_MINIMUM_SYSTEM}+, ad-hoc "
           f"signed, bundle id {ident.bundle_id}, icon from "
-          f"{prepared.icon_source}")
+          f"{prepared.icon_source}, first window {window}")
     for other in sorted(folder.glob("*.app")):
         info = read_app_info(other) if other != target else None
         if info and info.get("CFBundleIdentifier") == ident.bundle_id:

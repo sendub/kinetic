@@ -458,6 +458,15 @@ describe("sanitizeSettings — the settings the shipped adapter reads back", () 
     expect(sanitizeSettings({ mapSpoilers: "on" })).toBeUndefined();
   });
 
+  it("keeps the browser tab's Display setting (Fullscreen by default)", () => {
+    expect(DEFAULT_SETTINGS.fullscreen).toBe(true);
+    // Window is a stored false: a real value, not an absent field.
+    expect(sanitizeSettings({ fullscreen: false })).toEqual({
+      fullscreen: false,
+    });
+    expect(sanitizeSettings({ fullscreen: "window" })).toBeUndefined();
+  });
+
   it("accepts exactly the DEFAULT_SETTINGS fields — nothing is missed", () => {
     const all = Object.fromEntries(
       Object.entries(DEFAULT_SETTINGS).map(([field, value]) => [
