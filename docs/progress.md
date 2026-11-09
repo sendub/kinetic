@@ -2707,7 +2707,7 @@ truthful: an unchecked box means nothing was accepted.
       WebKit. Orchestrator: npm test 943, check clean, smoke 6/6; Chrome
       creator 19, reading 17, branches 47, playall 29; WebKit creator 19;
       all pass.)
-- [ ] Player: open at an item from the URL (item 3): `#start=<id>` opens
+- [x] Player: open at an item from the URL (item 3): `#start=<id>` opens
       there, entering its routes as `u` does; the hash is removed after;
       an unknown id warns and opens as usual. Tests (unit and a scenario
       part on both engines):
@@ -2716,6 +2716,24 @@ truthful: an unchecked box means nothing was accepted.
         `after` item (Space opens the choice);
       - a reload after the start resumes the saved place;
       - an unknown id: one warning, the usual first screen.
+      (2026-11-09: machine.ts's new `enterRoutesAround(index)` holds what
+      `u` did inline (frames from `framesAround`, routes played and picked)
+      and `jumpToUnseen` calls it; a new construction option `startAt`
+      restores as usual, then enters the start item in place of the
+      landing, so a fresh profile does not mark item 0 seen and a stored
+      choice is not reopened. render/urlstart.ts parses `#start=<id>`
+      (URL-decoded; undecodable counts as unknown), removes the hash with
+      `replaceState` keeping path and query, and warns once for an
+      unknown id. main.ts saves right after a start and shows no resume
+      notice on one. The WebKit driver keeps the fragment, so no driver
+      change. Tests ran red first: 5 machine units, 15 urlstart units, 4
+      branches parts (main line, nested route `nest-continue`, decision
+      `branch-decide`, unknown id; hash gone, reload resumes the saved
+      place). Orchestrator: npm test 967 (one mapmodel timing test
+      failed once at load average ~90 from other sessions and passed
+      alone and in a full rerun), check clean, smoke 6/6; Chrome branches
+      61, playall 29, progress 7, creator 19, navigation 24; WebKit
+      branches 61; all pass.)
 - [ ] Testing library (item 4): `current()` reads `data-item`, else the
       index (with the tie cache), and says how it found the id;
       `startAt`; the symlink note; failed loads reported once on both

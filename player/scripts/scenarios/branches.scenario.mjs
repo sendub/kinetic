@@ -12,23 +12,36 @@
 // that decision's CONTINUING route has been completed at least once.
 // Tab and `a` on a choice screen (docs/plan.md Phase 43) show their pill
 // over it and move nothing; after the pick the mode set runs the route.
+// `index.html#start=<id>` (docs/plan.md Phase 46, item 3) opens at that
+// item, entering its routes as `u` does: a main-line item, 1a inside
+// Route 1 and the decision's own item, each named by the stage's
+// `data-item`, with Space going on from there; the hash goes once read, so
+// a reload resumes the saved place; no resume notice on a URL start; an
+// unknown id gives one console warning and the usual first screen.
 
 import { CHOICE_HINT, CONTINUE_HINT } from "../../src/render/choice.ts";
-import { ALL_SEEN_TEXT } from "../../src/render/endcard.ts";
+import {
+  ALL_SEEN_TEXT,
+  EARLIER_UNSEEN_NOTICE,
+} from "../../src/render/endcard.ts";
 import {
   branch,
   CHOICE_OPEN,
   CONTINUE_LABEL,
   currentItemId,
+  HELP_CLOSED,
+  HELP_OPEN,
   INSTALL_BRANCH_LOG,
   INSTALL_PILL_LOG,
   item,
+  manifest,
   PAGE_STATE,
   PAINT_SIG,
   pressA,
   pressDigit,
   pressE,
   pressEnter,
+  pressEscape,
   pressSpace,
   pressTab,
   pressU,
@@ -151,6 +164,10 @@ export const parts = [
   skipSession,
   rewindManualSession,
   choiceModesSession,
+  urlStartMainSession,
+  urlStartRouteSession,
+  urlStartDecisionSession,
+  urlStartUnknownSession,
 ];
 
 // ------------------------------------------------------------------
@@ -1025,4 +1042,247 @@ async function choiceModesSession({ check, open }) {
       autoPills.join("|") === "Auto-forward on",
     { again, autoShown, autoStayed, autoPicked, autoRan, pills: autoPills },
   );
+}
+
+// ------------------------------------------------------------------
+// Sessions "urlstart-*" (docs/plan.md Phase 46, item 3):
+// `index.html#start=<id>` opens the game at that item for the load,
+// entering its routes as `u` does, in place of the saved place. The hash
+// goes once read, so a reload resumes the saved place; an unknown id opens
+// as usual with one console warning; a URL start shows no resume notice.
+// ------------------------------------------------------------------
+
+// What a start leaves on the page: the stage's `data-item` (the item the
+// player shows), the URL's hash, path and query, and the resume notice's
+// text while it shows.
+const READ_START = () => {
+  const notice = document.getElementById("notice");
+  return {
+    item: document.getElementById("stage")?.getAttribute("data-item") ?? null,
+    hash: location.hash,
+    path: location.pathname,
+    search: location.search,
+    notice: notice !== null && !notice.hidden ? notice.textContent : null,
+  };
+};
+const readStart = (page) => page.evaluate(READ_START);
+
+// The player's saved state for the demo (src/storage/idb.ts): the state
+// record's place (`ctx`, keyed by ids) and every id in the story's seen
+// records, sorted; null place before any write.
+const READ_SAVED = async () => {
+  const content = `story:${window.KINETIC_MANIFEST.storyId}`;
+  const db = await new Promise((resolve, reject) => {
+    const open = indexedDB.open("kinetic", 1);
+    open.onsuccess = () => resolve(open.result);
+    open.onerror = () => reject(open.error);
+  });
+  try {
+    const store = db.transaction("state", "readonly").objectStore("state");
+    const read = (req) =>
+      new Promise((resolve, reject) => {
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error);
+      });
+    const record = await read(store.get(content));
+    const seen = await read(
+      store.getAll(IDBKeyRange.bound(["seen", content], ["seen", content, []])),
+    );
+    return { ctx: record?.ctx ?? null, seen: seen.flat().sort() };
+  } finally {
+    db.close();
+  }
+};
+
+/** Polls until the saved place is on item `id`; the last reading. */
+async function waitSaved(page, id, timeout = 3000) {
+  const until = Date.now() + timeout;
+  for (;;) {
+    const saved = await page.evaluate(READ_SAVED);
+    if (saved.ctx?.lastShown === id || Date.now() > until) return saved;
+    await sleep(40);
+  }
+}
+
+/** Polls until the stage names item `id` (a load included); true when it did. */
+async function waitStage(page, id, timeout = 5000) {
+  const until = Date.now() + timeout;
+  for (;;) {
+    const named = await readStart(page)
+      .then((s) => s.item)
+      .catch(() => null);
+    if (named === id) return true;
+    if (Date.now() > until) return false;
+    await sleep(40);
+  }
+}
+
+async function urlStartMainSession({ check, open }) {
+  const start = item("chain-still");
+  const { page, cdp } = await open("urlstart-main", {
+    hash: `#start=${start.id}`,
+  });
+  const opened = await readStart(page);
+  const help = await page.evaluate(HELP_OPEN);
+  check(
+    "#start=chain-still in a fresh profile opens at chain-still (data-item) under the first-load Esc screen; the hash is gone, the path kept",
+    opened.item === start.id &&
+      help &&
+      opened.hash === "" &&
+      opened.path.endsWith("/index.html"),
+    { opened, help },
+  );
+  const saved = await waitSaved(page, start.id);
+  check(
+    "the start is saved at once, before any key: the place is chain-still, the only item seen (not the first item, never shown)",
+    saved.ctx?.lastShown === start.id &&
+      saved.ctx.stack.length === 0 &&
+      saved.seen.join() === start.id,
+    saved,
+  );
+  await pressEscape(cdp);
+  await page.waitForFunction(HELP_CLOSED, { timeout: 5000 });
+  const shown = await currentItemId(page);
+  await pressSpace(cdp);
+  const read2 = await waitOn(page, "chain-still-2");
+  await pressSpace(cdp);
+  const read3 = await waitOn(page, "chain-still-3");
+  const moved = await readStart(page);
+  check(
+    "the screen is chain-still's, and Space reads on from it: chain-still-2, then chain-still-3",
+    shown === start.id && read2 && read3 && moved.item === "chain-still-3",
+    { shown, read2, read3, moved },
+  );
+  await page.reload();
+  const resumed = await waitStage(page, "chain-still-3");
+  const back = await readStart(page);
+  const screen = await currentItemId(page);
+  check(
+    "a reload resumes the saved place (chain-still-3), not the start; the hash stays empty; a resume past unread content shows the earlier-unseen notice",
+    resumed &&
+      screen === "chain-still-3" &&
+      back.hash === "" &&
+      back.notice === EARLIER_UNSEEN_NOTICE,
+    { back, screen },
+  );
+}
+
+async function urlStartRouteSession({ check, open }) {
+  const { page, cdp, url } = await open("urlstart-route", { closeHelp: true });
+  // The Esc screen closed on the first item, so the next load is a resume
+  // with everything after that first item unread: one the notice would
+  // otherwise point at `u` from. A new query makes the load a real one.
+  const base = url.split(/[?#]/)[0];
+  await page.goto(`${base}?from=test#start=${nestA.start}`);
+  const opened = await waitStage(page, nestA.start);
+  const s = await readStart(page);
+  const screen = await currentItemId(page);
+  check(
+    "#start=nest-continue (1a, inside Route 1) opens there (data-item, screen) with no resume notice though everything before it is unread; the hash is gone, path and query kept",
+    opened &&
+      screen === nestA.start &&
+      s.notice === null &&
+      s.hash === "" &&
+      s.search === "?from=test" &&
+      s.path.endsWith("/index.html"),
+    { s, screen },
+  );
+  const saved = await waitSaved(page, nestA.start);
+  const asSet = (sets) =>
+    (sets ?? [])
+      .map((set) => `${set.decision}:${[...set.routes].sort()}`)
+      .sort()
+      .join();
+  check(
+    "the start is saved with its routes entered as u enters them: frames Route 1 then 1a, both played and the last picks; seen: the first item and nest-continue",
+    saved.ctx?.lastShown === nestA.start &&
+      JSON.stringify(saved.ctx.stack) ===
+        JSON.stringify([
+          { decision: outer.id, route: route1.id },
+          { decision: nested.id, route: nestA.id },
+        ]) &&
+      asSet(saved.ctx.playedRoutes) ===
+        `${nested.id}:${nestA.id},${outer.id}:${route1.id}` &&
+      asSet(
+        saved.ctx.lastPicks?.map((f) => ({
+          decision: f.decision,
+          routes: [f.route],
+        })),
+      ) === `${nested.id}:${nestA.id},${outer.id}:${route1.id}` &&
+      saved.seen.join() === [manifest.items[0].id, nestA.start].sort().join(),
+    saved,
+  );
+  await pressSpace(cdp);
+  const carried = await waitOn(page, nested.continueAt);
+  const moved = await readStart(page);
+  check(
+    "Space carries on inside Route 1: 1a's end joins route1-end",
+    carried && moved.item === nested.continueAt,
+    moved,
+  );
+  await page.reload();
+  const resumed = await waitStage(page, nested.continueAt);
+  const back = await readStart(page);
+  await pressSpace(cdp);
+  const joined = await waitOn(page, outer.continueAt);
+  check(
+    "a reload resumes route1-end (the saved place, not the start; the hash still empty) inside Route 1: Space joins the aftermath",
+    resumed && back.hash === "" && joined,
+    { back, joined, now: await currentItemId(page) },
+  );
+}
+
+async function urlStartDecisionSession({ check, open }) {
+  const { page, cdp } = await open("urlstart-decide", {
+    hash: `#start=${outer.after}`,
+    closeHelp: true,
+    manualChoices: true,
+  });
+  const opened = await readStart(page);
+  const screen = await currentItemId(page);
+  await pressSpace(cdp);
+  const fired = await waitChoice(page, true);
+  const s = await snap(page);
+  const under = await readStart(page);
+  check(
+    "#start=branch-decide opens on the decision's item; Space opens its choice over it (prompt, both routes unseen, no Return row)",
+    opened.item === outer.after &&
+      screen === outer.after &&
+      opened.hash === "" &&
+      fired &&
+      choiceIs(s.choice, s.hints, outer, [], false) &&
+      under.item === outer.after,
+    { opened, screen, s, under },
+  );
+}
+
+async function urlStartUnknownSession({ check, open }) {
+  const missing = "no-such-item";
+  const { page, errors, consoleLines } = await open("urlstart-unknown", {
+    hash: `#start=${missing}`,
+  });
+  const warnings = () =>
+    consoleLines.filter((m) => m.type === "warn" || m.type === "warning");
+  // WebKit forwards console lines asynchronously: wait for the first, then
+  // long enough for a second to show.
+  const until = Date.now() + 3000;
+  while (warnings().length === 0 && Date.now() < until) await sleep(20);
+  await sleep(300);
+  const s = await readStart(page);
+  const help = await page.evaluate(HELP_OPEN);
+  const warned = warnings();
+  check(
+    "#start=no-such-item: exactly one console warning, naming the id; the usual first screen (the Esc screen over the first item); the hash is gone",
+    warned.length === 1 &&
+      warned[0].text.startsWith("[kinetic] ") &&
+      warned[0].text.includes(`"${missing}"`) &&
+      s.item === manifest.items[0].id &&
+      help &&
+      s.hash === "",
+    { warned, s, help },
+  );
+  // That warning is this check's to judge (collectErrors keeps it on
+  // WebKit only); the runner's console check still fails on anything else.
+  const kept = errors.findIndex((line) => line.includes(`"${missing}"`));
+  if (warned.length === 1 && kept >= 0) errors.splice(kept, 1);
 }

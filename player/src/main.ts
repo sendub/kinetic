@@ -31,7 +31,8 @@
 // state and bookmarks (committed), and reloads — saving is automatic again
 // from there. Phase 43's window controls end the Esc screen: Fullscreen |
 // Window and Exit, through a game app's host object when there is one
-// (render/host.ts) and the Fullscreen API in a browser tab.
+// (render/host.ts) and the Fullscreen API in a browser tab. Phase 46's
+// `index.html#start=<id>` opens one load at an item (render/urlstart.ts).
 // Composition only — rendering lives in src/render/, timing in
 // src/machine/, storage adapters in src/storage/.
 
@@ -75,6 +76,7 @@ import { loadManifest } from "./render/manifest";
 import { layOutStrip, type MapStrip, runJump } from "./render/mapmodel";
 import { mountRouteAnnouncements } from "./render/routes";
 import { mountSkipAnnouncements } from "./render/skip";
+import { takeUrlStart } from "./render/urlstart";
 import { installWheelInput } from "./render/wheel";
 import { CLOSE_TAB_NOTE, mountWindowControls } from "./render/windowcontrols";
 import { createIdbStorage, storageKeys, storyIdOf } from "./storage/idb";
@@ -222,11 +224,19 @@ function start(): void {
       // "Branches"): the machine resolves it once and drops any decision
       // whose references do not resolve; absent branches stay a linear
       // novel, exactly as before.
+      // A URL start (docs/plan.md Phase 46): `index.html#start=<id>` opens
+      // this load at that item in place of the saved place, entering its
+      // routes as `u` does; everything else restores as usual. The hash
+      // goes as it is read (render/urlstart.ts), so a reload resumes the
+      // saved place; an unknown id opens as usual, with a console warning.
+      const urlStart = takeUrlStart(window, manifest.items);
+      const startAt = urlStart?.index ?? -1;
       const machine = createMachine({
         items: manifest.items,
         branches: manifest.branches,
         settings: currentSettings,
         ...resumeOptionsFor(persisted, codec),
+        ...(startAt >= 0 ? { startAt } : {}),
       });
       const shell = mountShell({ root, manifest, machine });
 
@@ -276,6 +286,9 @@ function start(): void {
         writeState(stateRecord(), true).catch(() => {});
       };
       machine.subscribe(persistQuietly);
+      // A URL start moved the reader with no state change to save it:
+      // saved now, so a reload straight after resumes on the start item.
+      if (startAt >= 0) persistQuietly();
       // Belt and braces for the microseconds one transaction is in flight:
       // these re-issue the CURRENT snapshot (so a write that failed earlier
       // gets one more chance before the page goes), which is all a page in
@@ -964,8 +977,9 @@ function start(): void {
       // The resume notice (docs/plan.md Phase 18): a restored position with
       // passed-over unseen content before it (a prequel a content update
       // added, say) gets one quiet line pointing at `u`. A first load sits
-      // on item 0, where nothing is earlier.
-      else if (machine.hasEarlierUnseen()) {
+      // on item 0, where nothing is earlier. A URL start is the place the
+      // reader asked for, not a resume: no notice there.
+      else if (startAt < 0 && machine.hasEarlierUnseen()) {
         shell.showNotice(EARLIER_UNSEEN_NOTICE);
       }
     },

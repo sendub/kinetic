@@ -1107,7 +1107,11 @@ async function installRecordingHost(page, { kind, display }) {
  * on the Esc screen, so the walk answers every decision itself; it throws if the
  * switch did not end Off with the screen closed. `host: { kind, display }`
  * opens the page as a game app would show it, with a recording host
- * (installRecordingHost; returned as `host`).
+ * (installRecordingHost; returned as `host`). `hash` is added to the page
+ * URL (`"#start=<id>"`, docs/plan.md Phase 46, opens at that item).
+ * `consoleLines` is every console line from the first load on, any type,
+ * as `{ type, text }`: Chrome types `console.warn` "warn" and WebKit
+ * "warning", and `errors` (collectErrors) keeps only WebKit's.
  */
 export async function openScenario(name, options = {}) {
   // One WebKit driver process is one fresh, in-memory profile; Chrome
@@ -1119,6 +1123,10 @@ export async function openScenario(name, options = {}) {
   });
   const page = await browser.newPage();
   const errors = collectErrors(page);
+  const consoleLines = [];
+  page.on("console", (msg) =>
+    consoleLines.push({ type: msg.type(), text: msg.text() }),
+  );
   await page.evaluateOnNewDocument(INSTRUMENT);
   const host =
     options.host === undefined
@@ -1126,7 +1134,9 @@ export async function openScenario(name, options = {}) {
       : await installRecordingHost(page, options.host);
   const cdp = await page.createCDPSession();
   const folder = options.folder ?? demoDir;
-  await page.goto(pathToFileURL(join(folder, "index.html")).href);
+  await page.goto(
+    pathToFileURL(join(folder, "index.html")).href + (options.hash ?? ""),
+  );
   await page.waitForFunction(HELP_OPEN, { timeout: 5000 });
   if (options.closeHelp) {
     await pressEscape(cdp);
@@ -1140,7 +1150,7 @@ export async function openScenario(name, options = {}) {
       );
     }
   }
-  return { browser, page, cdp, errors, url: page.url(), host };
+  return { browser, page, cdp, errors, consoleLines, url: page.url(), host };
 }
 
 /** Collects one scenario's checks; the runner prints and totals them. */

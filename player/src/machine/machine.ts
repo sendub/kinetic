@@ -46,7 +46,8 @@
 //
 // Transition kind (`MachineState.transition`): the same funnel that marks an
 // item also records HOW it became current — `advance` for the forward step
-// (a space press or the auto timer moving one item on), `nav` for every other
+// (a space press or the auto timer moving one item on) and for an item
+// entered as new reading (a `u` landing, a URL start), `nav` for every other
 // route to it (a wheel or `e` replay, a bookmark `goTo()` or restore, a
 // route entry, a route-end join, skip's dwell step, and the load-time
 // landing). Timing is identical either way; the renderer reads the kind with
@@ -163,6 +164,20 @@ export interface MachineOptions {
    * `after` item.
    */
   resumeContext?: MachineContext;
+  /**
+   * The item to open at for this load (`index.html#start=<id>`,
+   * docs/plan.md Phase 46), in place of the resume landing. The restore
+   * (`resumeContext`) brings everything else — the seen set, the routes
+   * played, completed and played this pass, the last picks — and the item
+   * is then entered as `jumpToUnseen()` enters its target: the open frames
+   * become the item's enclosing route frames, each of those routes marked
+   * played and made its decision's last pick, and the item is shown as a
+   * forward read (seen, unsettled, its media playing). A stored open
+   * choice is not reopened, and nothing before the item is marked seen
+   * (a first load does not see item 0). An index that is not a position
+   * in `items` is ignored.
+   */
+  startAt?: number;
   /**
    * Auto-forward mode (docs/plan.md Phase 13b, README `a` bullet). ABSENT
    * OR FALSE means manual — the documented default: no hold timer is
@@ -1062,20 +1077,41 @@ export function createMachine(options: MachineOptions): Machine {
   // (under its open choice, if any) is where the reader left off. Otherwise a persisted frontier marks a seen
   // prefix, and the load starts on its last shown item. With neither, this is
   // the first-ever load: item 0, shown, so the frontier is one past it.
+  // A URL start (`startAt`) replaces only the landing: the restore runs as
+  // ever, then the item is entered as `u` enters its target.
+  const { startAt } = options;
+  const urlStart =
+    startAt !== undefined &&
+    Number.isInteger(startAt) &&
+    startAt >= 0 &&
+    startAt < count
+      ? startAt
+      : -1;
   if (count > 0) {
     if (options.resumeContext !== undefined) {
       applyContext(options.resumeContext, false);
-      reopenChoice(options.resumeContext);
-      settled = true; // a resume landing was already read, as with a frontier
-      autoPickLiveChoice(); // play-all carries on from a live choice
+      if (urlStart < 0) {
+        reopenChoice(options.resumeContext);
+        settled = true; // a resume landing was already read, as with a frontier
+        autoPickLiveChoice(); // play-all carries on from a live choice
+      }
     } else if (options.resumeFrontier !== undefined) {
       const frontier = clamp(options.resumeFrontier, 1, count);
       for (let index = 0; index < frontier; index += 1) visited.add(index);
       highestSeen = frontier - 1;
       cursor = frontier - 1;
       settled = true;
-    } else {
+    } else if (urlStart < 0) {
       markShown(0);
+    }
+    if (urlStart >= 0) {
+      // `showItem` without its emit: nothing listens yet, and the state
+      // snapshot below is the first.
+      enterRoutesAround(urlStart);
+      cursor = urlStart;
+      transition = "advance";
+      settled = false;
+      markShown(urlStart);
     }
   }
   // The start position is an arrival like any other (Phase 15): a chain
@@ -2355,6 +2391,27 @@ export function createMachine(options: MachineOptions): Machine {
   }
 
   /**
+   * Enters item `index` as if each route enclosing it had been picked
+   * (`jumpToUnseen`, `MachineOptions.startAt`): skip ends, armed skip too
+   * (a jump, not an answer), any open choice is left, and the open frames
+   * become the item's own, each route marked played and made its
+   * decision's last pick, so a forward press carries on inside the route
+   * and the route rows' seen marks agree. The caller shows the item.
+   */
+  function enterRoutesAround(index: number): void {
+    cancelAutoPick();
+    skipping = false;
+    skipArmed = false;
+    pendingChoice = null;
+    stack.length = 0;
+    for (const frame of framesAround(index)) {
+      markPlayed(frame.decision, frame.route);
+      lastPick.set(frame.decision, frame.route);
+      stack.push(frame);
+    }
+  }
+
+  /**
    * Whether flow has gone past a decision's menu region: a route that joins
    * at its `continueAt` completed (the continuing route, or a `continue`
    * one), or — a pure choice — every route played (the all-played close).
@@ -2905,18 +2962,7 @@ export function createMachine(options: MachineOptions): Machine {
       if (destroyed || count === 0) return;
       const target = unseenTarget();
       if (target < 0) return;
-      cancelAutoPick();
-      skipping = false;
-      skipArmed = false; // a jump, not an answer: armed skip goes too
-      pendingChoice = null;
-      // Entering as if each enclosing route were picked: frames open, routes
-      // played, so a forward press carries on inside the route.
-      stack.length = 0;
-      for (const frame of framesAround(target)) {
-        markPlayed(frame.decision, frame.route);
-        lastPick.set(frame.decision, frame.route);
-        stack.push(frame);
-      }
+      enterRoutesAround(target);
       // A read of new content, so its media plays wherever the edge is.
       showItem(target, "advance");
     },

@@ -47,6 +47,8 @@ function machine(
   opts: {
     resumeFrontier?: number;
     resumeContext?: MachineContext;
+    /** The URL start (`index.html#start=<id>`, docs/plan.md Phase 46). */
+    startAt?: number;
     settings?: MachineSettings;
     /** Opt into AUTO-forward, for the tests a hold firing on the timer drives. */
     auto?: boolean;
@@ -59,6 +61,7 @@ function machine(
     settings: opts.settings ?? SETTINGS,
     resumeFrontier: opts.resumeFrontier,
     resumeContext: opts.resumeContext,
+    startAt: opts.startAt,
     // Manual — the player's start and the machine default (Phase 13b):
     // one press is one step, and a press on a decision's after item fires
     // it. Tests a hold firing on the timer drives opt into auto.
@@ -5023,5 +5026,133 @@ describe("where a pure choice's close ends the story (docs/plan.md Phase 43)", (
     m.jumpToUnseen();
     expect(m.getState().cursor).toBe(4);
     m.destroy();
+  });
+});
+
+describe("opening at an item from the URL (docs/plan.md Phase 46)", () => {
+  it("a main-line item: the load starts there as a forward read, and nothing before it is seen", () => {
+    const m = machine(CANON, { startAt: 1 });
+    expect(m.getState()).toMatchObject({
+      cursor: 1,
+      transition: "advance", // its media plays, wherever the seen edge is
+      settled: false,
+      skipping: false,
+    });
+    expect(m.getState().choice).toBeUndefined();
+    expect(m.visitedList()).toEqual([1]); // item 0 was never shown
+    expect(m.seenSince(0)).toEqual([1]); // the next save writes just it
+    expect(m.exportContext().stack).toEqual([]);
+    m.advance();
+    expect(m.getState().cursor).toBe(2);
+    m.destroy();
+  });
+
+  it("an item in a nested route: its frames open, its routes are played and picked, Space carries on inside the route", () => {
+    const m = machine(NESTED, { startAt: 6 }); // y-1: Y inside A
+    const ctx = m.exportContext();
+    expect(m.getState()).toMatchObject({ cursor: 6, transition: "advance" });
+    expect(ctx.stack).toEqual([
+      { decision: 0, route: 0 },
+      { decision: 1, route: 1 },
+    ]);
+    expect(ctx.playedRoutes).toEqual([
+      { decision: 0, routes: [0] },
+      { decision: 1, routes: [1] },
+    ]);
+    expect(ctx.passRoutes).toEqual(ctx.playedRoutes);
+    expect(ctx.lastPicks).toEqual([
+      { decision: 0, route: 0 },
+      { decision: 1, route: 1 },
+    ]);
+    expect(m.visitedList()).toEqual([6]);
+    m.advance(); // 6 -> 7, Y's end
+    expect(m.getState().cursor).toBe(7);
+    m.advance(); // Y continues: it joins A at a-cont
+    expect(m.getState().cursor).toBe(8);
+    expect(m.exportContext().stack).toEqual([{ decision: 0, route: 0 }]);
+    m.advance(); // on inside A
+    expect(m.getState().cursor).toBe(9);
+    m.destroy();
+  });
+
+  it("a decision's `after` item: Space opens the choice", () => {
+    const m = machine(CANON, { startAt: 2 });
+    expect(m.getState()).toMatchObject({ cursor: 2, settled: false });
+    m.advance();
+    expect(m.getState().cursor).toBe(2);
+    expect(m.getState().choice?.decisionId).toBe("d1");
+    m.destroy();
+    const nested = machine(NESTED, { startAt: 3 }); // a-decide, inside A
+    expect(nested.exportContext().stack).toEqual([{ decision: 0, route: 0 }]);
+    nested.advance();
+    expect(nested.getState().choice?.decisionId).toBe("d2");
+    nested.destroy();
+  });
+
+  it("play all routes behaves as always from there: a route's end offers the next unplayed route", () => {
+    const m = machine(CANON, {
+      startAt: 4, // a-2, route A's end
+      settings: { ...SETTINGS, playAllRoutes: true },
+    });
+    m.advance(); // off A's end: d1 re-offers, play-all counting down to B
+    expect(m.getState().choice?.decisionId).toBe("d1");
+    expect(m.getState().choice?.autoPick?.routeIdx).toBe(1);
+    m.destroy();
+  });
+
+  it("replaces the restored place and keeps the rest of the restore", () => {
+    const m = machine(CANON, {
+      resumeContext: {
+        lastShown: 2,
+        visited: [0, 1, 2, 7, 8, 9, 10],
+        stack: [],
+        playedRoutes: [{ decision: 0, routes: [2] }],
+        completedRoutes: [{ decision: 0, routes: [2] }],
+        lastPicks: [{ decision: 0, route: 2 }],
+        choice: 0, // an open choice: not reopened on a URL start
+      },
+      startAt: 3, // a-1, route A
+    });
+    const ctx = m.exportContext();
+    expect(m.getState()).toMatchObject({ cursor: 3, transition: "advance" });
+    expect(m.getState().choice).toBeUndefined();
+    expect(m.visitedList()).toEqual([0, 1, 2, 3, 7, 8, 9, 10]);
+    expect(m.seenSince(0)).toEqual([3]); // the restored set is not logged
+    expect(ctx.stack).toEqual([{ decision: 0, route: 0 }]);
+    expect(ctx.playedRoutes).toEqual([{ decision: 0, routes: [0, 2] }]);
+    expect(ctx.completedRoutes).toEqual([{ decision: 0, routes: [2] }]);
+    expect(ctx.lastPicks).toEqual([{ decision: 0, route: 0 }]);
+    m.advance(); // 3 -> 4
+    m.advance(); // A's end re-offers d1, C completed: the return row too
+    expect(m.getState().choice).toMatchObject({
+      decisionId: "d1",
+      continueOption: true,
+    });
+    m.destroy();
+  });
+
+  it.each([
+    ["before the first item", -1],
+    ["past the last item", 11],
+    ["not a whole number", 1.5],
+    ["NaN", Number.NaN],
+  ])("an index %s is ignored: the load starts as without one", (_name, at) => {
+    const fresh = machine(CANON, { startAt: at });
+    expect(fresh.getState()).toMatchObject({ cursor: 0, transition: "nav" });
+    expect(fresh.visitedList()).toEqual([0]);
+    fresh.destroy();
+    const resumed = machine(CANON, {
+      resumeContext: {
+        lastShown: 2,
+        visited: [0, 1, 2],
+        stack: [],
+        playedRoutes: [],
+        choice: 0,
+      },
+      startAt: at,
+    });
+    expect(resumed.getState()).toMatchObject({ cursor: 2, settled: true });
+    expect(resumed.getState().choice?.decisionId).toBe("d1");
+    resumed.destroy();
   });
 });
