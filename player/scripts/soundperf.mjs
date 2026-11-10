@@ -10,10 +10,16 @@
 //
 // Run from player/: npm run perf:sound
 // Output: JSON on stdout (also .tmp/perf-sound.json), times in ms.
+//
+// `npm run perf:sound -- --folder DIR` writes the same story as a game
+// folder instead, for `npm run perf -- DIR` (docs/perf.md, "Navigation with
+// sound"): item i shows `media/p<i mod 500>.jpg`, copies of one picture
+// from fixtures/demo (build it first), so 500 items in a row each load a
+// file not loaded before; the nine tracks are digitally silent WAV files.
 
-import { mkdirSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { cpus, loadavg } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import esbuild from "esbuild";
 
@@ -34,6 +40,82 @@ const { measureTargetSound, syntheticSoundStory } = await import(
 );
 
 const story = syntheticSoundStory();
+
+/** A mono 16-bit WAV of `seconds` of zeros at 8 kHz. */
+function silentWav(seconds) {
+  const rate = 8000;
+  const data = rate * seconds * 2;
+  const wav = Buffer.alloc(44 + data);
+  wav.write("RIFF", 0);
+  wav.writeUInt32LE(36 + data, 4);
+  wav.write("WAVEfmt ", 8);
+  wav.writeUInt32LE(16, 16);
+  wav.writeUInt16LE(1, 20); // PCM
+  wav.writeUInt16LE(1, 22); // mono
+  wav.writeUInt32LE(rate, 24);
+  wav.writeUInt32LE(rate * 2, 28);
+  wav.writeUInt16LE(2, 32);
+  wav.writeUInt16LE(16, 34);
+  wav.write("data", 36);
+  wav.writeUInt32LE(data, 40);
+  return wav;
+}
+
+/** Writes the story into `dir` as a game folder (see the header). */
+function writeGame(dir, { items, branches }) {
+  const PICTURES = 500;
+  const picture = join(
+    playerDir,
+    "..",
+    "fixtures",
+    "demo",
+    "branch-decide.jpg",
+  );
+  rmSync(dir, { recursive: true, force: true });
+  mkdirSync(join(dir, "media"), { recursive: true });
+  for (let p = 0; p < PICTURES; p += 1) {
+    copyFileSync(picture, join(dir, "media", `p${String(p)}.jpg`));
+  }
+  const tracks = {};
+  for (const id of new Set(
+    items.flatMap((item) => [
+      ...(item.audio?.music ? [item.audio.music] : []),
+      ...(item.audio?.ambience ?? []),
+    ]),
+  )) {
+    writeFileSync(join(dir, "media", `${id}.wav`), silentWav(2));
+    tracks[id] = { file: `media/${id}.wav`, durationSeconds: 2 };
+  }
+  const manifest = {
+    schemaVersion: 1,
+    storyId: "perf-sound",
+    title: "Sound perf",
+    width: 960,
+    height: 540,
+    audio: { tracks },
+    items: items.map((item, i) => ({
+      ...item,
+      file: `media/p${String(i % PICTURES)}.jpg`,
+    })),
+    branches,
+  };
+  const json = JSON.stringify(manifest);
+  writeFileSync(join(dir, "manifest.json"), json);
+  writeFileSync(
+    join(dir, "manifest.js"),
+    `window.KINETIC_MANIFEST = ${json};\n`,
+  );
+  console.log(
+    `wrote ${dir}: ${String(items.length)} items, ${String(branches.length)} decisions, ${String(Object.keys(tracks).length)} tracks`,
+  );
+}
+
+const folderAt = process.argv.indexOf("--folder");
+if (folderAt >= 0) {
+  writeGame(resolve(process.argv[folderAt + 1]), story);
+  process.exit(0);
+}
+
 const timings = measureTargetSound(story, 10_000);
 const round = (series) =>
   Object.fromEntries(

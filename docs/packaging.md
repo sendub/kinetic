@@ -14,9 +14,14 @@ decision; this file is the practical sheet.
 - `manifest.js`: the generated shim that hands the manifest to the page
   without a fetch, since `file://` blocks it; the validator rejects a
   shim that differs from `manifest.json`.
-- The media the manifest references, plus unreferenced extras the
-  converter leaves behind (such as `build-ledger.json`), which the
-  player and the validator ignore.
+- The media the manifest references: pictures, animation frames, videos
+  and their posters, and the audio track files of a game with sound
+  (`.mp3`, `.m4a`, `.wav`, `.flac` or `.webm`; docs/content-format.md,
+  "Audio"). A hand-made folder may keep them anywhere inside it;
+  kinetic-extract and kinetic-media put every one under
+  `media/<h[:2]>/<h>.<ext>`, named by its content.
+- Unreferenced extras the converter leaves behind (such as
+  `build-ledger.json`), which the player and the validator ignore.
 - Optionally `<title>.app`, the macOS app that plays the folder, and
   `<title>.exe`, the Windows program that shows it in a window of its
   own over WebView2, built only when the author asks: `tools/build_apps.py <folder>
@@ -76,11 +81,17 @@ the zip before extracting it (CREATE.md, "Building the apps").
 
 ## Size expectations
 
-The bundle is about 155 KB (`app.js` about 130 KB, `index.html` about
-24 KB); everything else is media, so a novel's size is its media's size.
-Measured proof folders (2026-11-02): the demo fixture assembles to 30
-files, about 440 KB; the extracted one-video slice to 13 files, about
-290 KB.
+The bundle is about 415 KB (`app.js` about 325 KB, `index.html` about
+90 KB, measured 2026-11-10); everything else is media, so a novel's size
+is its media's size. The demo fixture assembles to 30 files, about 650
+KB, and the audio demo to 45 files, about 1.8 MB, of which its 15 short
+mono tracks are 1.1 MB (2026-11-10). The extracted one-video slice
+assembled to 13 files, about 290 KB, with the smaller bundle of
+2026-11-02.
+
+Sound costs what its files cost. MP3, AAC or Opus at 96-128 kb/s takes
+about 1 MB a minute, while PCM WAV, which kinetic-media keeps
+byte-identical, takes about 10 MB a minute at 16-bit stereo 44.1 kHz.
 
 ## Honest caveats
 
@@ -89,8 +100,15 @@ files, about 440 KB; the extracted one-video slice to 13 files, about
   Chromium-class; the full matrix is docs/content-format.md § Items.
   When a reader's browser lacks a format, the fix is content-side:
   re-encode to a format it plays.
-- There is no audio by design (README.md), and videos are muted; nothing
-  a reader plugs in changes that.
+- In a browser, sound starts with the reader's first key or click, and a
+  pill says "Press any key for sound" until then (README.md, "Playing").
+  The macOS app plays sound at launch. The Windows exe asks WebView2 to
+  do the same, which is not verified on Windows.
+- Videos always play muted: a video's own sound ships as a separate audio
+  track, its item's `videoSound` (docs/content-format.md, "Audio").
+- Ogg tracks (`.ogg`, `.oga`, `.opus`) pass the validator with a warning:
+  WebKit times them wrong and Safari before 18.4 does not play them.
+  Ship them through kinetic-media, which copies the stream into WebM.
 
 ## Tauri: superseded by the game apps
 

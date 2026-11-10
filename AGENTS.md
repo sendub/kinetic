@@ -77,7 +77,20 @@ are implementing and docs/stack.md for settled decisions.
   (`--disable-audio-output`; biome blocks other `puppeteer-core`
   imports), the WebKit driver mutes its page, and that file's key helpers
   give Chrome no native key code except for Escape, so an unhandled key
-  cannot beep.
+  cannot beep. The driver allows sound with no key, as the macOS app does;
+  `requireGestureForAudio: true` (`launchBrowser`, or a scenario's
+  `open`) passes it `--require-gesture-for-audio`, so it waits for a key
+  as Safari does. Headless Chrome always waits.
+- `fixtures/demo` and `fixtures/audio-demo` are gitignored builds:
+  `.venv/bin/python fixtures/build_demo.py` and
+  `.venv/bin/python fixtures/build_audio_demo.py` (both need PATH
+  ffmpeg). Scenario parts on the audio demo FAIL with that hint when it
+  is missing.
+- Perf, from `player/` after `npm run build` (docs/perf.md): `npm run
+  perf` (navigation p95 in Chrome; `-- DIR... [--start ID]` walks other
+  folders), `perf:map`, `perf:save`, and `perf:sound` (target sound in
+  Node; `-- --folder DIR` writes its 160,000-item story as a game folder
+  for `perf`).
 - ffmpeg and macOS `sips` are on PATH (fixture builders use them); there
   is no Rust toolchain.
 
@@ -89,7 +102,8 @@ are implementing and docs/stack.md for settled decisions.
   (`.tmp/` and `.venv/` are gitignored and available).
 - Headless Chrome for `file://` checks:
   `"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
-  --headless=new --no-sandbox --disable-gpu --disable-crash-reporter
+  --headless=new --no-sandbox --disable-gpu --disable-audio-output
+  --disable-crash-reporter
   --crash-dumps-dir=$PWD/.tmp/crashdumps --user-data-dir=$PWD/.tmp/
   chrome-profile --enable-logging=stderr --v=1 --dump-dom <file-url>`;
   grep stderr for `CONSOLE` to find page errors.
@@ -113,8 +127,10 @@ Per checklist item, run only what the item can break:
   `KINETIC_SCENARIO_ROOT=../.tmp/scenarios-<x>` when runs may overlap.
   Each file or part has a wall-clock limit (FAIL, Chrome killed, run
   continues); `KINETIC_SCENARIO_TIMEOUT_MS` overrides the default.
-- Rendering, input, fullscreen, media or the macOS host (`apps/macos/`):
-  also run those scenario files on WebKit,
+- Sound change: the scenario files `audio` and `videosound`, and
+  `screens` for the sound controls.
+- Rendering, input, fullscreen, media, sound or the macOS host
+  (`apps/macos/`): also run those scenario files on WebKit,
   `npm run verify -- --webkit <name>` (docs/verify-player.md, "WebKit").
 - Python change: `pytest` on the touched test file only.
 - The full suite (`npm run verify` and `npm run verify -- --webkit` with

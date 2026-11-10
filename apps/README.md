@@ -41,6 +41,28 @@ answer as a `keyequivalent` line. The `window` scenario's ⌘H check reads
 them: claimed for the page's turn, then unclaimed once the page leaves it,
 where the game app's main menu is offered it.
 
+## Sound at launch
+
+Both apps let the page play sound with no key or click first, so a game
+with sound plays it from launch and never shows the "Press any key for
+sound" hint a browser needs (docs/stack.md, "Audio decision").
+
+- macOS: `macos/WebViewSetup.swift` sets
+  `mediaTypesRequiringUserActionForPlayback = []`. The WebKit driver
+  shares that setup; its test-only `--require-gesture-for-audio` sets
+  `.audio` there instead, so the scenarios test the hint as Safari shows
+  it (docs/verify-player.md).
+- Windows: before it creates the WebView2 environment, the exe sets
+  `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS`, which the WebView2 runtime
+  reads at that point, to the reader's own value of the variable followed
+  by Chromium's `--autoplay-policy=no-user-gesture-required`. A reader's
+  value that already names an `--autoplay-policy` is kept as it is
+  (`windows/launch.go`, `webViewEnvironment`). Microsoft lists the flag
+  but discourages browser flags in production apps. `go test` checks the
+  variable the exe sets; that WebView2 then plays sound at launch is not
+  verified on Windows. If it refuses a play, the page shows its hint as
+  in a browser.
+
 ## The page-to-host protocol
 
 One protocol serves both apps (docs/plan.md Phase 43 item 9). The page side
@@ -121,5 +143,6 @@ the page in it through WebView2, the Edge engine Windows provides to apps.
 
 `go test` in `windows/` covers the decisions on any OS: the window plan
 and memory, the host script (run in Node when it is installed), the
-message and sender checks, the keys, download names and finding the
-runtime. Running the exe on Windows is a manual check.
+message and sender checks, the keys, download names, finding the
+runtime and the environment variables it sets for WebView2. Running the
+exe on Windows is a manual check.

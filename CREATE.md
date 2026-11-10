@@ -25,6 +25,7 @@ my-novel/
   manifest.js      # generated shim, one command, see below
   *.jpg, *.mp4     # media, named per the conventions shown below
                    # (optionally under a subfolder: media/ab/window-004.jpg)
+  *.m4a, *.mp3     # sound, if the game has any (Sound, below)
 ```
 
 `index.html` and `app.js` are the player bundle, copied in as the last
@@ -300,6 +301,38 @@ start or end — the format needs no transition field. The validator
 accepts this manifest; `tools/data/branches-example` carries exactly
 this folder.
 
+### Sound
+
+Sound is optional; a manifest without it plays silent and shows no sound
+controls. Declare each audio file once as a track under a top-level
+`audio.tracks`, with its `file` and `durationSeconds`, then name tracks
+from an item's `audio`: its `music`, its `ambience` (the whole set of
+loops from that item on), one-shots in `sfx`, a `voice` line, and on a
+video item the video's own soundtrack as `videoSound`, since videos always
+play muted. docs/content-format.md, "Audio", has every field, an example,
+and the rule for what plays at an item after a decision: no item needs to
+repeat the sound of the one before it.
+
+Use `.mp3`, `.m4a` (AAC), `.wav`, `.flac` or `.webm` (Vorbis or Opus)
+files. An Ogg file passes the validator with a warning, because WebKit
+times it wrong; copy its stream into WebM instead, which changes no
+sample:
+
+```sh
+ffmpeg -i rain.ogg -map 0:a:0 -c:a copy rain.webm
+```
+
+`durationSeconds` is the track's length as decoded; the player never
+reads the file's own. It sets how long a voice line holds auto-forward
+and where a track with a start or loop point loops. A header can misstate
+it: a VBR MP3's can be far off (docs/extracting.md, "Audio policy"), and
+ffprobe's `format=duration` read the demo's MP3 tracks 24-32 ms over and
+its WebM tracks 2-8 ms over. `kinetic-media ship` with `"kind": "audio"`
+requests measures it by decoding, and copies Ogg into WebM for you
+(Writing your own converter: kinetic-media ship, below).
+`fixtures/audio-demo`, built by `.venv/bin/python
+fixtures/build_audio_demo.py`, is a worked folder with every field.
+
 ### Preparing the media
 
 Every image, frame, and poster must be exactly the manifest's width and
@@ -377,8 +410,10 @@ per problem, shaped like
 problem count on stderr, and exits 1. The validator checks the schema
 plus the filesystem invariants in docs/content-format.md: every
 referenced file exists inside the folder, item ids are unique, each
-video's playback range fits inside its `durationSeconds`, and a
-present `manifest.js` embeds JSON equal to `manifest.json`.
+video's playback range fits inside its `durationSeconds`, every track an
+item names exists, and a present `manifest.js` embeds JSON equal to
+`manifest.json`. An Ogg track and a track no item uses each print a
+`warning:` line on stderr, which leaves the exit status alone.
 
 ## Converting a Ren'Py project
 
@@ -430,7 +465,7 @@ on committed samples and each output's sha256 must equal the pinned
 "golden" value. A good run ends:
 
 ```text
-setup_media_tools: self-test passed (15 cases)
+setup_media_tools: self-test passed (21 cases)
 setup_media_tools: media tools ready in .../.media-tools/macos-arm64
 ```
 
@@ -469,7 +504,21 @@ cp player/dist/index.html player/dist/app.js ~/games/RainyDay-Kinetic/
    one line per statement it skipped and per item note (`jxl 131 <
    original 602`, `shares shipped file ...`). Read the
    `items skipped` count and any `warning:` lines (When something
-   fails, below).
+   fails, below). Two lines count the sound, here for
+   fixtures/renpy_demo:
+
+   ```text
+   audio: 5 items carry sound; 6 tracks shipped (5 copy, 1 extract), 0 dropped
+   video soundtracks: 1 audible, 0 silent, 1 absent
+   ```
+
+   The extractor asks for every video's own sound: an audible one becomes
+   its item's `videoSound`, and a `silent` one (digital silence) or an
+   `absent` one (no audio stream) is skipped, which is no error. A track
+   that did not ship drops its cues, and each audio statement it could
+   not convert (a playlist, `set_volume`, a file named by a variable) is
+   listed (docs/extracting.md, "Reading Ren'Py audio" and "Shipping the
+   sound").
 2. The validator prints nothing and exits 0 on a good folder.
 3. The `cp` adds the player (run `npm run build` in `player/` first if
    `player/dist/` is missing or stale). Double-click `index.html` to
@@ -630,13 +679,23 @@ be unique across episodes. A request list per episode,
   {"id": "ep1-room", "kind": "image",
    "source": {"path": "Ep1/game/data/bg-room.png"}},
   {"id": "ep1-clip", "kind": "video", "startSeconds": 0.5,
+   "source": {"path": "Ep1/game/data/clip.mp4"}},
+  {"id": "ep1-rain", "kind": "audio",
+   "source": {"path": "Ep1/game/audio/rain.ogg"}},
+  {"id": "ep1-clip-sound", "kind": "audio",
    "source": {"path": "Ep1/game/data/clip.mp4"}}
 ]
 ```
 
 A source inside an `.rpa` archive is
 `{"archive": "Ep1/game/images.rpa", "member": "bg/room.jpg"}`. A
-video's poster is the frame at `startSeconds` (default 0).
+video's poster is the frame at `startSeconds` (default 0). An `audio`
+request ships a sound file for a track by kinetic-extract's rule: MP3,
+M4A, WAV, FLAC and WebM as they are, Ogg Vorbis or Opus copied into
+WebM, anything else re-encoded to Opus in WebM. Its result's
+`durationSeconds` is measured by decoding the shipped file. An `audio`
+request of a video, here `ep1-clip-sound`, ships the video's own
+soundtrack, for that item's `videoSound`.
 `requests-ep2.json` lists episode 2's sources the same way. Ship each
 episode into the same folder, from the helper's folder:
 
@@ -662,44 +721,65 @@ stderr every 10 seconds. A killed ship writes no ledger. With the
 reuse cache on (the default), a restart re-encodes nothing it
 finished before. `rebuild` takes the same two options.
 
-Each run prints `requests: 2; shipped: 2; skipped: 0` and merges into
+Each run prints `requests: 4; shipped: 4; skipped: 0` and merges into
 `~/games/RainyDay-Kinetic/media-ledger.json`; shipping the same list
 again changes nothing. That ledger's `requests` pair each request with
 its `result`. A result with a `file` gives the manifest item's media
-fields; one without a `file` was skipped, and its `decision` and
-`notes` say why. Your helper drops a skipped item. A sketch of reading
-it (`media_items.py`):
+fields, or the track's; one without a `file` shipped nothing, and its
+`decision` and `notes` say why. Your helper drops that item or track.
+
+An audio request of a video ships nothing when the video has no audio
+stream (decision `no audio`) or when its soundtrack is digital silence,
+below -70 dB at its loudest (decision `silent`). Neither is an error:
+the run still exits 0, the summary gains `; no sound: 1`, and a line
+names the request:
+
+```text
+requests: 4; shipped: 3; skipped: 0; no sound: 1
+  request 4 (Ep1/game/data/clip.mp4): no audio: no audio stream in clip.mp4: nothing shipped
+```
+
+So ask for every video's sound, and give `videoSound` only to the items
+whose sound shipped and lasts to the item's range end (the validator
+allows 0.05 s short). A sketch of reading the ledger
+(`media_items.py`):
 
 ```python
 import json
 
 
 def media_items(folder):
-    """Request id -> the media fields of its manifest item."""
+    """Request id -> the media fields of its manifest item, and request
+    id -> its audio track."""
     with open(f"{folder}/media-ledger.json", encoding="utf-8") as f:
         ledger = json.load(f)
-    items = {}
+    items, tracks = {}, {}
     for entry in ledger["requests"]:
         request, result = entry["request"], entry["result"]
-        if "file" not in result:      # skipped: drop the item, say why
-            print("skipped", request.get("id"), result["decision"],
+        if "file" not in result:      # nothing shipped: say why
+            print("not shipped", request.get("id"), result["decision"],
                   result["notes"])
             continue
         if request["kind"] == "image":
             items[request["id"]] = {"type": "image", "file": result["file"]}
+        elif request["kind"] == "audio":
+            tracks[request["id"]] = {
+                "file": result["file"],
+                "durationSeconds": result["durationSeconds"]}
         else:
             items[request["id"]] = {
                 "type": "video", "file": result["file"],
                 "poster": result["poster"],
                 "durationSeconds": result["durationSeconds"],
                 "startSeconds": request.get("startSeconds", 0)}
-    return items
+    return items, tracks
 ```
 
 The result's `width` and `height` give the display size. The helper
-then writes `manifest.json` with these items in story order, generates
-`manifest.js` (Generating manifest.js), and the folder is validated,
-played and rebuilt like any other:
+then writes `manifest.json` with these items in story order and the
+tracks under `audio.tracks`, names the tracks from its items' `audio`
+(Sound, above), generates `manifest.js` (Generating manifest.js), and the
+folder is validated, played and rebuilt like any other:
 
 ```sh
 cd ~/src/kinetic
@@ -892,7 +972,10 @@ poster). Fix the start time or the source.
 stream into MP4 (remux: H.264, HEVC or VP9 in a container Safari or
 Chrome refuses) or re-encode it to H.264 (any other codec). Usually the
 file is damaged; check that it plays in a desktop player, then replace
-it. A remuxed video has no audio track: the player plays video muted.
+it. A remuxed video has no audio track, since the player plays videos
+muted: the video's own sound ships separately as an audio track, its
+item's `videoSound`, which kinetic-extract requests for every video
+(Converting, checking and playing one game, above).
 
 **`kinetic-extract: <folder>/media/ab/ab12….png: existing file's sha256
 is …, not the one its name gives; not replaced (remove it, or use
@@ -946,6 +1029,9 @@ Run `npm run build` in `player/` first if the bundle is not current.
 Double-click `index.html` to open the novel in your default browser.
 The first keypress or click other than Esc puts the player in
 fullscreen, so that first keypress can simply be space, the advance key.
+It also starts a game's sound: a browser plays none before it, so after
+each load or reload a game with sound shows "Press any key for sound"
+until then.
 A reader who leaves fullscreen goes back on their next key or click,
 unless they choose Window on the Esc screen (kept with the other
 settings).
@@ -1051,6 +1137,8 @@ What Mac readers get and see:
 - The first window takes the size and shape of the game's first graphic,
   scaled down to fit the screen and centred. After that the app keeps
   the size and place the reader gives the window.
+- A game with sound plays it from launch, with no key or click first and
+  no "Press any key for sound" hint.
 - Progress is kept per app, under its bundle id (so a rebuild keeps it)
   and apart from any browser's. A reader who played `index.html` in a
   browser starts over in the app, or moves the progress across with
@@ -1093,6 +1181,10 @@ What Windows readers get and see:
   Windows' file dialog.
 - Double-clicking the exe while the game is open brings its window to the
   front.
+- The exe asks WebView2 to play a game's sound from launch, as the Mac app
+  does (apps/README.md, "Sound at launch"). This is not yet checked on
+  Windows; if WebView2 refuses, the reader's first key starts the sound,
+  as in a browser.
 - Progress is kept in a folder only this game uses,
   `%LOCALAPPDATA%\Kinetic\WebView2\<storyId>`, apart from the reader's
   browsers and any browser that played `index.html` (Export and Import
@@ -1352,6 +1444,52 @@ naming what was on screen. Await `checkMedia()` before reading
 pictures and videos before they finish loading, and a load cut short
 reports no error, so a broken file would otherwise pass.
 
+### Checking the sound
+
+`current()` reports the game's sound as `audio` (What the library
+offers, below), so a test can check what plays at each item with no
+window and nothing heard: both engines play the sound, Chrome to no audio
+device and the WebKit helper muted. This one checks the audio demo's first
+music; assemble it with `.venv/bin/python tools/assemble_folder.py
+fixtures/audio-demo audio-demo-play`:
+
+```js
+// test-sound.mjs: node test-sound.mjs <game-folder> [webkit|chrome]
+import assert from "node:assert/strict";
+import { openGame } from "/path/to/kinetic/player/scripts/testing/kinetic.mjs";
+
+const [folder, engine = "auto"] = process.argv.slice(2);
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const game = await openGame(folder, { engine });
+
+// Read on to the first music: the target names what should sound there.
+const now = await game.spaceUntil("music-start");
+assert.deepEqual(now.audio.target, {
+  music: "calm", ambience: [], voice: null, videoSound: null,
+});
+
+// After its 1 s fade-in, the tune plays at its full level.
+await sleep(1500);
+const { unlocked, elements } = (await game.current()).audio;
+assert.ok(unlocked);
+const calm = elements.find((e) => e.slot === "music" && e.track === "calm");
+assert.ok(calm && !calm.paused && calm.volume > 0.98);
+assert.deepEqual(game.errors(), []);
+await game.close();
+console.log(`${game.engine}: ok`);
+```
+
+`node test-sound.mjs audio-demo-play webkit` and `node test-sound.mjs
+audio-demo-play chrome` each print `ok`. Chrome, like any browser, plays
+nothing until the reader presses a key or clicks, and `unlocked` stays
+false until a play succeeds, though `target` is already set. WebKit,
+like the macOS app, plays from the start. Reading on (Space,
+auto-forward or a pick) applies an item's sound at once; after a wheel
+step, a jump or a reload the player waits 250 ms first, so wait a little
+longer before reading `target` there. A one-shot is listed (slot `sfx`)
+only from its `delayMs` on, and only when the walk reads onto its item:
+the wheel, jumps and skip never fire one.
+
 ### What the library offers
 
 `openGame(folder, options)` resolves with the game. Its options:
@@ -1393,7 +1531,7 @@ from elsewhere. A link that stays inside the folder is fine.
 The game:
 
 - `current()` resolves with what the screen shows: `{ id, index, text,
-  speaker, file, choice, screen, foundBy, ambiguous, endCard }`.
+  speaker, file, choice, screen, foundBy, ambiguous, endCard, audio }`.
   - `id` and `index` name the manifest item, or are `null` and -1 on a
     screen no item makes.
   - `text` and `speaker` are the line on screen (`null` when none).
@@ -1405,6 +1543,21 @@ The game:
   - `endCard` is the words of the player's end card while it shows, at
     the story's end (`"You have seen everything."` once every route has
     been played), else `null`.
+  - `audio` is the sound, `{ unlocked, target, elements }`, or `null` for
+    a game without sound or a player older than sound (Checking the
+    sound, above). `unlocked` turns true once the browser lets the game
+    play. `target` is what should sound on this screen, `{ music,
+    ambience, voice, videoSound }` naming tracks by id
+    (docs/content-format.md, "What plays at an item"), and `null` while
+    sound is off (`v`).
+    `elements` lists each audio element holding a track as `{ slot,
+    track, paused, currentTime, volume }`: `slot` is `"music"`,
+    `"ambience"`, `"sfx"` (a one-shot), `"voice"`, `"video"` (a video's
+    own sound) or `"sample"` (the Volumes box trying a level). One plays
+    while `paused` is false; a track that played to its end stays listed,
+    paused. `volume` is the track's `volume` times the reader's volume for
+    its group, moving through each fade, and lowered under a video's
+    `videoSound` duck.
   - `foundBy` says how the item was named. A folder with a current
     player puts the id of the item on screen on the page, and the
     library reads it: `"player"`. With an older player the library

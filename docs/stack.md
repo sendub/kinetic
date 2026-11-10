@@ -14,13 +14,16 @@ From README.md:
 - Keys: space (advance), tab (fast skip), h (hide text), b (bookmark),
   m (branch map, with the bookmarks on it: docs/plan.md Phases 31 and
   35; `t`, the old bookmark list, is gone), e (jump to the furthest
-  point read), u (next unseen), Esc (settings). Scroll wheel walks the
-  story back and forward (docs/plan.md Phase 27).
+  point read), u (next unseen), v (sound on or off, docs/plan.md Phase
+  47), Esc (settings). Scroll wheel walks the story back and forward
+  (docs/plan.md Phase 27).
 - Navigation latency under 1/24 s (41 ms). Pre-decode and pre-size are the
   mechanisms; runtime video decode must never gate a navigation.
 - macOS, no runtime dependencies except browser-related stuff, no
   gatekeeper friction (no binary, or a tiny one).
-- No audio, no menus, always fullscreen.
+- Optional sound: music, ambience loops, one-shots, voice lines and a
+  video's own soundtrack (docs/plan.md Phase 47; Audio decision below).
+  No menus, always fullscreen.
 - An extractor from Ren'Py project files to our format.
 
 ## Environment facts (verified 2025-10-31)
@@ -64,8 +67,11 @@ Known constraints of the browser host, both accepted:
   and key handling verify through a documented manual checklist against the
   demo fixture.
 - Video: H.264 MP4 (`yuv420p`, faststart), `<video muted playsinline>`.
-  Muted autoplay is exempt from browser autoplay policies, and Kinetic has
-  no audio anyway, so videos play without special handling.
+  Muted autoplay is exempt from browser autoplay policies, so videos play
+  without special handling. They stay muted now that Kinetic has sound:
+  an unmuted video may be refused autoplay before the reader's first key
+  and would stall the story. A video's own soundtrack plays as a separate
+  track kept in step with it (`videoSound`, Audio decision below).
 - Speed: converter pre-generates display-resolution images, per-frame
   animation strips, video poster frames, and bookmark source thumbnails.
   Runtime preloads cursor +/- a few items as `ImageBitmap` with an LRU
@@ -86,6 +92,46 @@ Known constraints of the browser host, both accepted:
   would fail to open. Moving to another browser is an explicit Export /
   Import of a per-story JSON file on the Esc screen. No server, no
   files-from-browser problem.
+
+## Audio decision
+
+Settled in docs/plan.md Phase 47 (the user, 2026-11-09). Sound is
+optional: a manifest without `audio` plays and validates as before
+(docs/content-format.md, "Audio").
+
+- Formats (media rule b): keep what Chrome and WebKit both play and time
+  right, which is MP3, AAC in M4A, PCM WAV, FLAC, and Vorbis or Opus in
+  WebM. Vorbis or Opus in Ogg is copied into WebM without re-encoding,
+  and anything else is re-encoded to Opus in WebM. In WebKit an Ogg file
+  misreports its duration and its clock runs 4-7% slow, Chrome plays it
+  0.8 s past its end, and Safari plays Ogg only from 18.4 (macOS 15.4).
+  The same stream in WebM is right in both engines, and Safari has played
+  Vorbis and Opus in WebM since 15-17.4, inside the Safari 17 baseline
+  JPEG XL already sets. The measurements and the full table are in
+  docs/extracting.md, "Audio policy".
+- HTMLAudioElement only. Under `file://` in Chrome, Web Audio fed from a
+  media element outputs zeros, and `fetch` of a sibling file fails, so
+  Web Audio cannot decode the files either (both measured). Embedding the
+  bytes in a script would add a third to the file size, plus about 69 MB
+  of decoded PCM for a 3-minute stereo track. Chrome leaves a 3-11 ms seam
+  at each loop restart; that is accepted.
+- The unlock: a browser refuses `play()` until the reader's first key or
+  click that counts as an activation (not Esc, not a Cmd, Ctrl or Alt
+  shortcut). The player starts every element the game needs inside that
+  handler, since WebKit then lets an element play for good but refuses
+  one first played seconds later. Until then a pill says "Press any key
+  for sound".
+- The Mac app keeps `mediaTypesRequiringUserActionForPlayback = []`
+  (`apps/macos/WebViewSetup.swift`), so its sound starts at launch with
+  no hint.
+- The Windows app passes Chromium's
+  `--autoplay-policy=no-user-gesture-required` to WebView2 through the
+  `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` variable, after any arguments
+  the reader set there, whose own `--autoplay-policy` wins
+  (`apps/windows/launch.go`), so its sound should start at launch too.
+  Microsoft lists the flag but discourages browser flags in production
+  apps. It is not verified on Windows; if WebView2 refuses a play anyway,
+  the hint shows as in a browser.
 
 ## Content format decision
 

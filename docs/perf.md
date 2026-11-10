@@ -3,20 +3,23 @@
 The budget (docs/stack.md): navigation latency under 41 ms (1/24 s),
 p95, measured not assumed. The harness is `player/scripts/perf.mjs`
 (`npm run perf` from `player/`, after `npm run build`); it prints per-folder
-JSON and writes `.tmp/perf-<name>.json`. The preload lives in
+JSON and writes `.tmp/perf-<name>.json`. `npm run perf -- DIR... [--start
+ID]` walks other content folders (Navigation with sound). The preload lives in
 `player/src/render/visual.ts` (+ its idle schedule in `app.ts`).
 
 ## What is measured
 
 One cold first-read pass per folder in headless Chrome 156 over `file://`,
 in a fresh storage context, driven by trusted CDP keypresses through the
-real manual walk (settle-press, advance-press; each decision answered with
-its first unplayed route). In-page instrumentation timestamps every
-trusted keydown and every rAF frame; a measured navigation runs from the
-keypress the machine treated as a cursor move to the first frame on which
-the NEW visual is decoded and paintable (`img.complete` with a natural
-size; a video item's first paint is its poster, probed through an
-`Image()`). The first two navigations are dropped as run-in. `text` items
+real manual walk (each decision answered with its first unplayed route).
+Phase 12's walk pressed twice per item, a settle press and an advance
+press; since Phase 16 each Space moves one item, and the walk counts every
+press since 2026-11-10 (Navigation with sound). In-page instrumentation
+timestamps every trusted keydown and every rAF frame; a measured
+navigation runs from the keypress the machine treated as a cursor move to
+the first frame on which the NEW visual is decoded and paintable
+(`img.complete` with a natural size; a video item's first paint is its
+poster, probed through an `Image()`). The first two navigations are dropped as run-in. `text` items
 change no visual and animation frame-cycles inside one item are not
 navigations, so the sample counts equal the visual-change navigations the
 fixtures contain (demo 10, extract 8) — the "≈40 navigations" of the plan
@@ -566,3 +569,64 @@ positions, and p99.9 over its 20,000 arrivals was 0.68 ms, so the spikes
 are garbage collection or the loaded machine, not the walk. The first call
 costs less than building the machine for this story (26-45 ms), once per
 load, and a manifest whose items carry no audio never makes the tables.
+
+## Navigation with sound (Phase 47)
+
+docs/plan.md Phase 47 item 10: navigation p95 with sound playing, measured
+as above, on fixtures/audio-demo and on item 4's synthetic story (Target
+sound, above) written out as a game folder. The scripts changed for it:
+
+- perf.mjs counted only every second Space as a cursor move, Phase 12's
+  settle-and-advance walk. A picture reached by the other press paired
+  with the press before it, 90 ms earlier, so the demo read p95 115.4 ms
+  (2026-11-10, before the fix). Every Space now counts.
+- `npm run perf -- DIR...` walks the content folders given, each
+  assembled into `.tmp/perf-<name>`, and `--start ID` opens each at item
+  ID through `#start=`.
+- `npm run perf:sound -- --folder DIR` writes the story (160,000 items, 400
+  decisions, 5,000 music changes, the ambience set at item 0) as a game
+  folder instead of timing it. Item i shows `media/p<i mod 500>.jpg`,
+  copies of one demo picture, so each of 500 items in a row loads a file
+  not loaded before. The nine tracks are 2 s digitally silent WAV files.
+  The walk's 400 presses change the music about 12 times, each a 1 s
+  crossfade.
+
+The first run on that folder found a player fault. `mountAudio` spread
+every item into `Math.max` to size its ambience elements, and Chrome threw
+`RangeError: Maximum call stack size exceeded` on 160,000 arguments (it
+took 120,000; WebKit took 160,000). A game that size showed its first
+picture and answered no key. render/audio.ts `largestAmbienceSet` loops
+instead.
+
+The control is the same folder with every `audio` field removed. A probe
+walked 120 items at the walk's pace with `openGame`, from item 0 and from
+`i158793`, and read `current().audio`: the music crossfaded through four
+or five tracks and the ambience played, unlocked by the first Space, as in
+the walk.
+
+| folder (2026-11-10) | n | p50 ms | p95 ms | max ms | p95 < 41 |
+| --- | --- | --- | --- | --- | --- |
+| fixtures/demo (no sound) | 14 | 24.1-25.8 | 33.0-36.3 | 33.0-36.3 | MET |
+| fixtures/audio-demo | 21 | 25.0-27.7 | 33.2-35.0 | 33.8-37.9 | MET |
+| sound story, from item 0 | 395 | 26.1-26.4 | 34.1-34.9 | 36.7-51.9 | MET |
+| the control, from item 0 | 395 | 26.3-26.7 | 34.1-34.6 | 35.8-37.3 | MET |
+| sound story, `--start i158793` | 397 | 26.2-27.1 | 33.8-34.7 | 36.7-40.6 | MET |
+| the control, `--start i158793` | 397 | 25.9-26.3 | 34.2-34.9 | 35.6-51.7 | MET |
+
+Three runs of each in headless Chrome 157 on an Apple M2 (8 cores, 16 GB),
+macOS 27.2, at load average 1.9-4.7. `i158793` starts the last decision's
+first route, four decisions deep near the story's end, where the
+ambience resolves back across the whole story. perf.mjs drives Chrome only,
+so WebKit was not measured.
+
+Sound adds nothing measurable: the p95 ranges with and without audio
+overlap, 34.1-34.9 against 34.1-34.6 ms from item 0 and 33.8-34.7 against
+34.2-34.9 ms deep in the story. Two runs had one sample over 41 ms each,
+51.9 ms with sound and 51.7 ms without.
+
+The p50 sits near 25 ms where Phase 12's table shows 3.5-12 ms. The decode
+preload (app.ts `schedulePreload`) runs only on a settled item or during a
+skip, and Phase 12's settle press gave it a gap before each move. Now each
+press arrives on an unsettled item, so most measured pictures decode cold.
+This was not investigated further, since every p95 here is under 41 ms.
+

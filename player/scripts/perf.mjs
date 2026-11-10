@@ -10,10 +10,9 @@
 // pairs them afterwards.
 //
 // What counts as a measured navigation:
-//   - a keypress the machine treats as a cursor move (the SECOND space on an
-//     item — the first completes it in place, machine Phase 3 — and a route
-//     digit at a decision). The driver models this while walking and tags
-//     every key advancing/non-advancing; the page only records raw keydowns.
+//   - a keypress the machine treats as a cursor move: every space (one
+//     press, one item since docs/plan.md Phase 16) and a route digit at a
+//     decision. The page only records raw keydowns.
 //   - the change event: the first rAF tick where the painted surface
 //     (visible `<img>` src, or the `<video>`'s poster via an Image probe)
 //     shows a NEW file, decoded (img.complete && naturalWidth > 0). A
@@ -35,7 +34,10 @@
 // and, when present, .tmp/extract-demo (the extracted 19-item folder incl.
 // .jxl images and its own pure two-ending decision). Each folder is reassembled into .tmp/perf-* from the CURRENT
 // dist/ bundle; the content's manifest.js is never overwritten. Run from
-// player/:  npm run perf   (npm run build first). Output: per-folder JSON
+// player/:  npm run perf   (npm run build first). `npm run perf -- DIR...`
+// walks the content folders given instead, each into .tmp/perf-<name>, and
+// `--start ID` opens each at item ID (`#start=`) rather than at its start
+// (docs/perf.md, "Navigation with sound"). Output: per-folder JSON
 // on stdout (also .tmp/perf-<name>.json) with n/p50/p95/max + the raw list,
 // plus a headless-Chrome capability probe (img.decode / createImageBitmap
 // on a file:// <img>) used to pick the preload design (docs/perf.md).
@@ -50,7 +52,7 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
-import { dirname, join } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { chromePath, launchChrome, pressKey } from "./testing/core.mjs";
 
@@ -66,22 +68,39 @@ const PAIR_WINDOW_MS = 1500; // a change pairs only with a press this close.
 const MAX_KEYS = 400; // walk budget; the demo needs ~60.
 const STATIC_STOP = 4; // presses with nothing observable changing = content end.
 
-const FOLDERS = [
-  {
-    name: "demo",
-    label: "fixtures/demo (24 items, branch fixture)",
-    src: join(repoRoot, "fixtures", "demo"),
-    dir: join(repoRoot, ".tmp", "perf-demo"),
-    optional: false,
-  },
-  {
-    name: "extract",
-    label: ".tmp/extract-demo (19 items incl. .jxl)",
-    src: join(repoRoot, ".tmp", "extract-demo"),
-    dir: join(repoRoot, ".tmp", "perf-extract-demo"),
-    optional: true,
-  },
-];
+const startAt = (() => {
+  const at = process.argv.indexOf("--start");
+  return at < 0 ? null : process.argv[at + 1];
+})();
+const given = process.argv
+  .slice(2)
+  .filter((arg, i, args) => arg !== "--start" && args[i - 1] !== "--start");
+
+const FOLDERS =
+  given.length > 0
+    ? given.map((arg) => ({
+        name: basename(resolve(arg)),
+        label: arg,
+        src: resolve(arg),
+        dir: join(repoRoot, ".tmp", `perf-${basename(resolve(arg))}`),
+        optional: false,
+      }))
+    : [
+        {
+          name: "demo",
+          label: "fixtures/demo (24 items, branch fixture)",
+          src: join(repoRoot, "fixtures", "demo"),
+          dir: join(repoRoot, ".tmp", "perf-demo"),
+          optional: false,
+        },
+        {
+          name: "extract",
+          label: ".tmp/extract-demo (19 items incl. .jxl)",
+          src: join(repoRoot, ".tmp", "extract-demo"),
+          dir: join(repoRoot, ".tmp", "perf-extract-demo"),
+          optional: true,
+        },
+      ];
 
 function assemble(folder) {
   for (const file of ["index.html", "app.js"]) {
@@ -241,7 +260,10 @@ async function walk(browser, folder) {
   page.on("pageerror", (error) => pageErrors.push(String(error)));
   await page.evaluateOnNewDocument(INSTRUMENT);
   const cdp = await page.createCDPSession();
-  await page.goto(pathToFileURL(join(folder.dir, "index.html")).href);
+  const start = startAt === null ? "" : `#start=${startAt}`;
+  await page.goto(
+    `${pathToFileURL(join(folder.dir, "index.html")).href}${start}`,
+  );
   await page.waitForFunction(
     () => document.getElementById("overlay") !== null,
     { timeout: 5000 },
@@ -266,11 +288,11 @@ async function walk(browser, folder) {
     { timeout: 5000 },
   );
 
-  // The driver models the machine's manual semantics to tag advancing keys:
-  // the first space on an item completes it in place, the next moves; a
-  // route digit answers an open decision and enters its span (an arrival).
+  // Every key the walk presses moves the cursor (an arrival), or opens a
+  // decision or does nothing at the end, which shows no new visual: a space
+  // steps one item, and a route digit answers an open decision and enters
+  // its span.
   const sequence = []; // { advancing } in press order (space/digit only)
-  let itemSettled = false;
   let prev = snapKey(await page.evaluate(SNAPSHOT));
   let statics = 0;
   const startedAt = Date.now();
@@ -291,12 +313,9 @@ async function walk(browser, folder) {
         await pressDigit(cdp, "0");
       else await pressDigit(cdp, "1");
       sequence.push({ advancing: true });
-      itemSettled = false; // a route entry is an unsettled arrival
     } else {
-      const advancing = itemSettled;
       await pressSpace(cdp);
-      sequence.push({ advancing });
-      itemSettled = !advancing;
+      sequence.push({ advancing: true });
     }
     await sleep(PRESS_GAP_MS);
     const after = snapKey(await page.evaluate(SNAPSHOT));

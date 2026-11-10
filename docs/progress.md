@@ -3286,10 +3286,42 @@ truthful: an unchecked box means nothing was accepted.
       dropped` and `video soundtracks: 1 audible, 0 silent, 1 absent`,
       rebuilds 15 of 15, converts byte-identical twice, and walks 20 of
       20 items clean in Chrome and WebKit.)
-- [ ] Docs (item 10): README, docs/stack.md, docs/packaging.md, CREATE.md,
+- [x] Docs (item 10): README, docs/stack.md, docs/packaging.md, CREATE.md,
       docs/verify-player.md (scenario rows and the listening checklist),
       AGENTS.md, apps/README.md, and docs/perf.md, with navigation p95
       with audio measured on both manifests.
+      (2026-11-10: README gains sound under Content, `v`, the Sound row
+      and Volumes box, the unlock hint, the apps and the audio demo, and
+      "Audio" leaves Not supported; docs/stack.md an "Audio decision"
+      section; docs/packaging.md audio in `media/` with sizes; CREATE.md
+      a "Sound" subsection, the `audio` kind's results, `videoSound`
+      after a remux, "Checking the sound" and `current().audio`;
+      docs/verify-player.md rows for `audio` and `videosound`, the sound
+      parts of `screens`, and a 49-step listening checklist for item 11;
+      AGENTS.md the builders, perf commands and the gesture option;
+      apps/README.md "Sound at launch". perf.mjs counted every second
+      Space, a leftover from before one press made one step; it now
+      counts every press and takes a folder and `--start ID`;
+      soundperf.mjs `--folder DIR` writes item 4's story as a game.
+      Navigation p95, headless Chrome, three runs: fixtures/demo
+      33.0-36.3 ms, the audio demo 33.2-35.0, the 160,000-item story
+      with audio 34.1-34.9 from item 0 and 33.8-34.7 deep, without
+      audio 34.1-34.6 and 34.2-34.9, all under 41 ms; WebKit not
+      measured (perf.mjs drives Chrome). Corrected on the way: the
+      self-test case count (21) and the bundle size (about 415 KB). The
+      160,000-item measurement crashed the player in Chrome; that fix is
+      item 13. Orchestrator: npm test 1150, check clean, smoke 6/6,
+      Chrome `audio` 56/56; the checklist read through and matches the
+      demo's items.)
+- [ ] No argument spread over a story-sized list (item 13, added
+      2026-11-10; found measuring item 10): `Math.max(...list)` and the
+      like throw in Chrome past about 120,000 arguments, so a
+      160,000-item game never answered a key (render/audio.ts, its
+      ambience cap), and storage/ids.ts does the same over the seen set
+      when a saved place no longer exists. Tests:
+      - a Vitest case per fixed site with 200,000 entries, red first;
+      - a sweep of player/src for spreads into calls over story-sized
+        lists, each fixed or shown bounded.
 - [ ] User: the listening checklist (item 11), on fixtures/audio-demo in
       real Safari, desktop Chrome and a Mac app built for it. The
       orchestrator does not tick this; the user reports, and any finding

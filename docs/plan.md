@@ -2676,6 +2676,14 @@ For the converting agent, compared with their request:
       that is not possible, and the report says which each engine got.
     - Probes use digitally silent files, so a mechanism that fails is
       still not heard.
+13. No argument spread over a story-sized list (added 2026-11-10, found
+    measuring item 10). A spread into a call, such as
+    `Math.max(...items.map(...))`, passes one argument per element, and
+    Chrome throws past about 120,000. render/audio.ts did this for its
+    ambience cap, so a 160,000-item game never answered a key, and
+    storage/ids.ts does it over the seen set when a saved place no longer
+    exists. Both become loops, and a sweep of player/src finds any other
+    spread over a list that grows with the story.
 
 Not verified, and not verifiable on this machine: WebM Vorbis and Opus in
 Safari 15-17 (caniuse and WebKit bug 183852 say yes), WebView2's autoplay,

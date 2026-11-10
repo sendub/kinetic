@@ -324,7 +324,8 @@ The poster is cut from the source, so it keeps the odd size. Even-sized
 transcodes, and every remux (odd-sized H.264, HEVC or VP9 is copied, not
 re-encoded), are unchanged. A remux keeps only the first
 video stream (`-map 0:v:0 -c:v copy -an -sn -dn`): audio is dropped
-because the player plays videos muted, and one recipe with no
+because the player plays videos muted (a video's sound ships on its own,
+Audio policy below), and one recipe with no
 per-audio-codec table cannot fail on an audio, subtitle or attachment
 track MP4 cannot hold (an MKV's fonts, a TS file's ADTS AAC). The same
 video stream with different audio tracks therefore remuxes to one
