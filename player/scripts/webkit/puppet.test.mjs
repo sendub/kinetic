@@ -2,7 +2,7 @@
 // "WebKit"): a stand-in driver, a node one-liner speaking the driver's
 // JSON-lines protocol, sends the ready or fatal line under test.
 import { describe, expect, it } from "vitest";
-import { launchWebKit, REQUIRED_HOOKS } from "./puppet.mjs";
+import { launchWebKit, MUTE_HOOK, REQUIRED_HOOKS } from "./puppet.mjs";
 
 /**
  * A stand-in driver whose first line is `first`; it answers every request,
@@ -21,7 +21,9 @@ const standIn = (first, after = {}) => [
    });`,
 ];
 const hooks = (missing = []) =>
-  Object.fromEntries(REQUIRED_HOOKS.map((h) => [h, !missing.includes(h)]));
+  Object.fromEntries(
+    [...REQUIRED_HOOKS, MUTE_HOOK].map((h) => [h, !missing.includes(h)]),
+  );
 
 describe("launchWebKit", () => {
   it("starts when the ready line reports every hook", async () => {
@@ -39,6 +41,20 @@ describe("launchWebKit", () => {
     await expect(launchWebKit({ command })).rejects.toThrow(
       "lacks the private hooks _setOverrideDeviceScaleFactor:, _simulateMouseMove:",
     );
+  });
+
+  it("refuses a driver that could not mute its page, so no run plays sound aloud", async () => {
+    for (const ready of [
+      { event: "ready", hooks: hooks([MUTE_HOOK]) },
+      {
+        event: "ready",
+        hooks: Object.fromEntries(REQUIRED_HOOKS.map((h) => [h, true])),
+      },
+    ]) {
+      await expect(launchWebKit({ command: standIn(ready) })).rejects.toThrow(
+        "lacks the private hook _setPageMuted:, which keeps the WebKit engine silent",
+      );
+    }
   });
 
   it("refuses a ready line with no hook report at all", async () => {

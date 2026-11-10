@@ -1149,7 +1149,9 @@ otherwise Chrome, and prints which. Test on both before a release.
 Nothing appears on screen with either engine, and neither takes the
 focus. Chrome runs headless. The WebKit helper is a background program
 with no Dock icon whose one window sits off every screen; it quits
-rather than show that window.
+rather than show that window. `openGame` and check-game make no sound
+either: Chrome plays to no audio device and the WebKit helper mutes its
+page, while the game's sound still plays and `current().audio` reports it.
 
 ### Setting up the tests
 

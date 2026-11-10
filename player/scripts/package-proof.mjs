@@ -28,14 +28,11 @@ import { execFileSync } from "node:child_process";
 import { existsSync, readdirSync, rmSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import puppeteer from "puppeteer-core";
+import { launchChrome, pressKey } from "./testing/core.mjs";
 
 const playerDir = join(dirname(fileURLToPath(import.meta.url)), "..");
 const repoRoot = join(playerDir, "..");
 const python = join(repoRoot, ".venv", "bin", "python");
-const chromePath =
-  process.env.KINETIC_CHROME ??
-  "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 
 const TARGETS = [
   {
@@ -114,24 +111,6 @@ function listFiles(dir, prefix = "") {
 }
 
 // Trusted key input, the same CDP path docs/verify-player.md uses.
-async function pressKey(cdp, key, code, keyCode, text) {
-  await cdp.send("Input.dispatchKeyEvent", {
-    type: "keyDown",
-    key,
-    code,
-    windowsVirtualKeyCode: keyCode,
-    nativeVirtualKeyCode: keyCode,
-    text,
-    unmodifiedText: text,
-  });
-  await cdp.send("Input.dispatchKeyEvent", {
-    type: "keyUp",
-    key,
-    code,
-    windowsVirtualKeyCode: keyCode,
-    nativeVirtualKeyCode: keyCode,
-  });
-}
 const pressSpace = (cdp) => pressKey(cdp, " ", "Space", 32, " ");
 const pressEscape = (cdp) => pressKey(cdp, "Escape", "Escape", 27, "");
 
@@ -206,9 +185,7 @@ async function proveTarget(target) {
   rmSync(profile, { recursive: true, force: true });
   const consoleErrors = [];
   const pageErrors = [];
-  const browser = await puppeteer.launch({
-    executablePath: chromePath,
-    headless: true,
+  const browser = await launchChrome({
     userDataDir: profile,
     protocolTimeout: 30000,
     args: [

@@ -72,6 +72,12 @@ are implementing and docs/stack.md for settled decisions.
   using `openGame` from
   `player/scripts/testing/kinetic.mjs` (CREATE.md, "Testing your game");
   never hand-roll puppeteer against `player/node_modules`.
+- Automated browsers make no sound: Chrome starts only through
+  `launchChrome` in `player/scripts/testing/core.mjs`
+  (`--disable-audio-output`; biome blocks other `puppeteer-core`
+  imports), the WebKit driver mutes its page, and that file's key helpers
+  give Chrome no native key code except for Escape, so an unhandled key
+  cannot beep.
 - ffmpeg and macOS `sips` are on PATH (fixture builders use them); there
   is no Rust toolchain.
 

@@ -29,15 +29,12 @@
 import { copyFileSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import puppeteer from "puppeteer-core";
+import { launchChrome } from "./testing/core.mjs";
 
 const playerDir = join(dirname(fileURLToPath(import.meta.url)), "..");
 const repoRoot = join(playerDir, "..");
 const dir = join(repoRoot, ".tmp", "perf-map");
 const profile = join(repoRoot, ".tmp", "perf-map-profile");
-const chromePath =
-  process.env.KINETIC_CHROME ??
-  "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 
 const [top = 30, depth = 6, run = 26, bookmarks = 180] = process.argv
   .slice(2)
@@ -305,9 +302,7 @@ const key = (cdp, k, code, keyCode, text = k) =>
     );
 
 rmSync(profile, { recursive: true, force: true });
-const browser = await puppeteer.launch({
-  executablePath: chromePath,
-  headless: true,
+const browser = await launchChrome({
   userDataDir: profile,
   args: ["--no-sandbox", "--disable-crash-reporter"],
 });

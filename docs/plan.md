@@ -2658,6 +2658,24 @@ For the converting agent, compared with their request:
 11. The user runs the listening checklist once, on fixtures/audio-demo, in
     real Safari, desktop Chrome and a Mac app built for it. Agents cannot
     hear. What the user reports becomes fixes before the phase closes.
+12. Silent automated runs (added 2026-11-10, done after item 5). The user
+    heard the item 5 and 6 scenarios play the demo's tones aloud. Every
+    browser the tools launch makes no sound: the scenario runner, the
+    smoke check, the testing library (`openGame`, check-game.mjs),
+    package-proof and the perf and timing scripts, in Chrome and in the
+    WebKit driver. The Mac and Windows apps are unchanged.
+    - Playback goes on as before: elements play, `currentTime` advances,
+      and `playing` and `ended` fire, so the audio checks still read
+      `current().audio` the same way.
+    - The gesture rule stays real: Chrome still refuses a play before a
+      key, and so does the WebKit driver with
+      `--require-gesture-for-audio`.
+    - Preferred: the engine opens no audio output at all (in Chrome a
+      fake output stream, `--disable-audio-output`), checked by whether
+      the process opens a Core Audio output. Muting is the fallback where
+      that is not possible, and the report says which each engine got.
+    - Probes use digitally silent files, so a mechanism that fails is
+      still not heard.
 
 Not verified, and not verifiable on this machine: WebM Vorbis and Opus in
 Safari 15-17 (caniuse and WebKit bug 183852 say yes), WebView2's autoplay,

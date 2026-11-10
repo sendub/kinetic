@@ -3086,6 +3086,45 @@ truthful: an unchecked box means nothing was accepted.
       clean, smoke 6/6, Chrome `audio screens menus media navigation
       checkgame` 206/206, WebKit `audio menus media navigation` 101/101.
       Not verified: WebView2 on Windows, real Safari, Firefox, listening.)
+- [ ] Silent automated runs (item 12, added 2026-11-10; user report:
+      the scenarios played the demo's tones aloud): every browser the
+      tools launch, Chrome and the WebKit driver, makes no sound, while
+      playback, `current().audio` and the gesture rule work as before.
+      Tests:
+      - probes on digitally silent files: no Core Audio output opened, or
+        muted where that cannot be had, in both engines;
+      - the Vitest and `node --test` checks of the launch options;
+      - `npm run verify -- audio` on Chrome and WebKit, run only after
+        the user says continue;
+      - the scenario files of every changed launcher.
+      (2026-11-10, box left open until the audio scenario has run:
+      Chrome starts only through core.mjs `launchChrome`, which adds
+      `--disable-audio-output`, a fake output stream; puppeteer's own
+      `--mute-audio` was measured still opening a Core Audio output and
+      playing zeros. biome.json rejects a `puppeteer-core` import outside
+      core.mjs. WKWebView has no fake output, so the test driver mutes
+      its page (`_setPageMuted:`, read back through `_mediaMutedState`;
+      puppet.mjs refuses a driver that does not report it); its output
+      still runs, playing zeros. The Mac and Windows apps are unchanged.
+      Signal: Core Audio's per-process objects polled every 50 ms, with
+      coreaudiod's `pmset -g assertions` as a cross-check; positive
+      control Chrome without the flag and the unmuted driver, negative
+      control a page with no media. Silent probes: media advances in real
+      time, `playing`, `timeupdate` and `ended` fire, and play() before a
+      key is refused in Chrome and in the driver with
+      `--require-gesture-for-audio`. Found on the way: headless Chrome
+      played the macOS alert sound for each key the page left unhandled
+      when CDP sent it with `nativeVirtualKeyCode` (about 40 alerts from
+      test runs in the 3 hours before, and 4 more from this item's first
+      probes); core.mjs now sends the native code for Escape alone.
+      bookmark-timing's Safari mode cannot be silenced through WebDriver
+      and says so. npm test 1107 (5 red first). Orchestrator: npm test
+      1107, check clean, the probe through `launchBrowser` shows no Core
+      Audio output where the stock launch shows one, smoke 6/6, Chrome
+      `screens menus media checkgame bookmarkmap window` 200/200, WebKit
+      `menus media screens` 120 pass and 2 known fullscreen partials.
+      Waiting on the user's continue: `npm run verify -- audio` on both
+      engines.)
 - [ ] Player: video sound (item 6): it plays only while the video plays,
       syncs at range and native loop wraps, re-seeks past 80 ms, pauses
       with the video, and ducks. Tests (scenario parts on the audio

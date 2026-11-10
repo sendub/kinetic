@@ -17,13 +17,16 @@ import { describe, expect, it } from "vitest";
 import { DriverBuildError } from "../webkit/build.mjs";
 import {
   collectErrors,
+  holdKey,
   indexItems,
   keyFor,
   lookupItems,
   matchItems,
   pressDigit,
   pressEscape,
+  pressKey,
   pressNamed,
+  pressShortcut,
   pressSpace,
   pressT,
 } from "./core.mjs";
@@ -200,7 +203,10 @@ describe("keyFor", () => {
 });
 
 describe("pressNamed", () => {
-  it("sends a typed key with its native code, as the scenarios always have", async () => {
+  // A native key code would let headless Chrome's browser process see the
+  // key, and one the page leaves unhandled then plays the macOS alert
+  // sound: a typed key goes to the page alone.
+  it("sends a typed key without a native code, so headless Chrome cannot beep", async () => {
     const cdp = recordingCdp();
     await pressSpace(cdp);
     expect(cdp.sent).toEqual([
@@ -210,7 +216,6 @@ describe("pressNamed", () => {
         key: " ",
         code: "Space",
         windowsVirtualKeyCode: 32,
-        nativeVirtualKeyCode: 32,
         text: " ",
         unmodifiedText: " ",
       },
@@ -220,9 +225,29 @@ describe("pressNamed", () => {
         key: " ",
         code: "Space",
         windowsVirtualKeyCode: 32,
-        nativeVirtualKeyCode: 32,
       },
     ]);
+    for (const send of [
+      (c) => pressShortcut(c, "Meta", "h"),
+      (c) => holdKey(c, "t", 2),
+      (c) => pressKey(c, "f", "KeyF", 70, "f"),
+    ]) {
+      const other = recordingCdp();
+      await send(other);
+      expect(other.sent.every((e) => !("nativeVirtualKeyCode" in e))).toBe(
+        true,
+      );
+    }
+  });
+
+  it("sends Escape with its native code: the browser's own Escape (leaving fullscreen) is under test", async () => {
+    for (const send of [pressEscape, (c) => holdKey(c, "Escape", 1)]) {
+      const cdp = recordingCdp();
+      await send(cdp);
+      expect(cdp.sent.map((e) => e.nativeVirtualKeyCode)).toEqual(
+        cdp.sent.map(() => 27),
+      );
+    }
   });
 
   it("gives the old one-key helpers the same events", async () => {

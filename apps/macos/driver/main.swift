@@ -18,7 +18,8 @@
 // tab, which may ask to close itself (a windowclose line).
 //
 // Started with `--require-gesture-for-audio` (test only), sound waits for a
-// key or click as in Safari; the game app needs none. The `visible` request
+// key or click as in Safari; the game app needs none. The page is always
+// muted, so nothing the driver plays is heard. The `visible` request
 // hides or shows the page (document.visibilityState), as minimising the
 // game app's window would.
 //
@@ -117,6 +118,20 @@ func setPrivateDouble(_ target: NSObject, _ name: String, _ value: Double) -> Bo
     typealias Setter = @convention(c) (AnyObject, Selector, Double) -> Void
     unsafeBitCast(target.method(for: sel), to: Setter.self)(target, sel, value)
     return true
+}
+
+/// Mutes the page's sound through WebKit's private `-[WKWebView
+/// _setPageMuted:]` (`_WKMediaAudioMuted`, bit 0), read back through
+/// `_mediaMutedState`; false when this WebKit lacks either or the bit did
+/// not stick.
+func mutePageAudio(_ webView: WKWebView) -> Bool {
+    let setSel = NSSelectorFromString("_setPageMuted:")
+    let getSel = NSSelectorFromString("_mediaMutedState")
+    guard webView.responds(to: setSel), webView.responds(to: getSel) else { return false }
+    typealias Setter = @convention(c) (AnyObject, Selector, Int) -> Void
+    typealias Getter = @convention(c) (AnyObject, Selector) -> Int
+    unsafeBitCast(webView.method(for: setSel), to: Setter.self)(webView, setSel, 1)
+    return unsafeBitCast(webView.method(for: getSel), to: Getter.self)(webView, getSel) & 1 != 0
 }
 
 /// A persistent data store kept wholly inside `dir`, through WebKit's
@@ -272,6 +287,14 @@ final class Driver: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKScr
         webView.uiDelegate = self
         hooks["_setWindowOcclusionDetectionEnabled:"] =
             setPrivateBool(webView, "_setWindowOcclusionDetectionEnabled:", false)
+        // No test makes a sound. WebKit offers no fake output stream (as
+        // Chrome's --disable-audio-output is), so the page is muted: each
+        // player is muted before it starts and its Core Audio output plays
+        // zeros. Elements still play, their clocks and events run, and
+        // `muted`, `volume` and the gesture rule (which reads the element's
+        // own muted and volume) are unchanged (measured on macOS 27.2,
+        // 2026-11-10). The game app plays sound.
+        hooks["_setPageMuted:"] = mutePageAudio(webView)
         // Headless Chrome renders at 1x; match it so screenshots and the
         // device-pixel logic compare (setViewport may ask for another).
         hooks["_setOverrideDeviceScaleFactor:"] = setPrivateDouble(webView, "_setOverrideDeviceScaleFactor:", 1)

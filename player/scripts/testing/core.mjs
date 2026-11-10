@@ -37,7 +37,27 @@ export const chromePath =
 export const CHROME_SCREEN = { width: 1920, height: 1200 };
 
 /**
- * Starts one browser with no window on `engine` ("chrome" or "webkit").
+ * puppeteer.launch for every Chrome the tools start (headless, at
+ * chromePath, unless `options` says otherwise), so none makes a sound:
+ * `--disable-audio-output` gives Chrome's audio service a fake output
+ * stream. Media plays, its clock runs in real time and its events fire, the
+ * autoplay rule still refuses play() before a key or click, but Chrome
+ * opens no Core Audio output (puppeteer's own `--mute-audio` still opens
+ * one and plays zeros; measured on macOS 27.2, 2026-11-10). biome.json
+ * keeps every other script off puppeteer-core.
+ */
+export function launchChrome(options = {}) {
+  return puppeteer.launch({
+    executablePath: chromePath,
+    headless: true,
+    ...options,
+    args: [...(options.args ?? []), "--disable-audio-output"],
+  });
+}
+
+/**
+ * Starts one browser with no window and no sound on `engine` ("chrome" or
+ * "webkit": launchChrome; the WebKit driver mutes its page).
  * Chrome runs headless on the profile folder `profile`, emptied first when
  * `fresh`. The WebKit driver keeps its storage in memory (a fresh profile)
  * unless `profile` names a folder to keep it in. `requireGestureForAudio`
@@ -64,9 +84,7 @@ export async function launchBrowser(
       });
     }
     if (fresh) rmSync(profile, { recursive: true, force: true });
-    return puppeteer.launch({
-      executablePath: chromePath,
-      headless: true,
+    return launchChrome({
       userDataDir: profile,
       protocolTimeout: 30000,
       args: [
@@ -563,13 +581,26 @@ async function setPlayAll(page, cdp, on) {
 // same calls).
 // --------------------------------------------------------------------------
 
+/**
+ * CDP's native key code for `key`, sent for Escape alone. With one, Chrome's
+ * browser process sees the key too: before the page, where it leaves
+ * fullscreen on Escape (the player's Keyboard Lock is tested against
+ * that), and after it, when the page leaves the key unhandled. In headless
+ * Chrome on macOS such a key then plays the system alert sound (each
+ * unhandled key one beep, measured 2026-11-10), and Delete or Backspace
+ * stop the page's animation frames for good (bookmarkmap's note). Without
+ * one, the key reaches the page alone. The player takes every Escape.
+ */
+const nativeCode = (key, keyCode) =>
+  key === "Escape" ? { nativeVirtualKeyCode: keyCode } : {};
+
 async function pressKey(cdp, key, code, keyCode, text) {
   await cdp.send("Input.dispatchKeyEvent", {
     type: "keyDown",
     key,
     code,
     windowsVirtualKeyCode: keyCode,
-    nativeVirtualKeyCode: keyCode,
+    ...nativeCode(key, keyCode),
     text,
     unmodifiedText: text,
   });
@@ -578,15 +609,13 @@ async function pressKey(cdp, key, code, keyCode, text) {
     key,
     code,
     windowsVirtualKeyCode: keyCode,
-    nativeVirtualKeyCode: keyCode,
+    ...nativeCode(key, keyCode),
   });
 }
 
 /**
- * A navigation key (the arrows, Page Up / Page Down, Home, End) sent
- * without a native key code: in headless Chrome on macOS some keys sent
- * with one stop the page's animation frames for good (bookmarkmap's
- * Delete note), which would freeze the map's painting.
+ * A navigation key (the arrows, Page Up / Page Down, Home, End, Delete,
+ * Backspace), sent with no native key code (nativeCode).
  */
 async function pressNavKey(cdp, key, keyCode) {
   for (const type of ["keyDown", "keyUp"])
@@ -606,8 +635,6 @@ const TYPED_KEYS = {
   Enter: ["Enter", "Enter", 13, "\r"],
   Escape: ["Escape", "Escape", 27, ""],
 };
-// Delete and Backspace too: sent with a native key code, either can stop
-// headless Chrome's animation frames on macOS (bookmarkmap's note).
 const NAV_KEYS = {
   ArrowLeft: 37,
   ArrowUp: 38,
@@ -673,7 +700,7 @@ function pressNamed(cdp, name) {
     ? pressNavKey(cdp, k.key, k.keyCode)
     : pressKey(cdp, k.key, k.code, k.keyCode, k.text);
 }
-/** A key's identity fields for CDP's Input.dispatchKeyEvent (pressNavKey's note). */
+/** A key's identity fields for CDP's Input.dispatchKeyEvent (nativeCode). */
 function keyIds(k) {
   return k.nav
     ? { key: k.key, code: k.key, windowsVirtualKeyCode: k.keyCode }
@@ -681,7 +708,7 @@ function keyIds(k) {
         key: k.key,
         code: k.code,
         windowsVirtualKeyCode: k.keyCode,
-        nativeVirtualKeyCode: k.keyCode,
+        ...nativeCode(k.key, k.keyCode),
       };
 }
 /** CDP's `modifiers` bit for each shortcut modifier. */

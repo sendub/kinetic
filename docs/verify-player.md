@@ -49,7 +49,12 @@ harness (`harness.mjs`: `item(id)`, `branch(id)`, `currentItemId`), so a
 demo text edit never breaks them. What the creators' testing library
 also uses (launching either engine, the key and click helpers, the
 generic page readers and the item lookup) lives in
-`player/scripts/testing/core.mjs`, which the harness re-exports. A fresh profile has Play all routes
+`player/scripts/testing/core.mjs`, which the harness re-exports. No run
+makes a sound: every Chrome starts with `--disable-audio-output` (media
+plays to a fake output stream, so no audio device opens), and the key
+helpers send Chrome no native key code except for Escape, so a key the
+page leaves unhandled never reaches headless Chrome's app, which would
+play the macOS alert sound. A fresh profile has Play all routes
 On (its default); a session that answers decisions itself opens with
 `open(name, { closeHelp: true, manualChoices: true })`, which turns it
 Off on the Esc screen first (`harness.setPlayAll`). `branches` does this.
@@ -138,6 +143,10 @@ units start longest first by `.tmp/scenario-times-webkit.json`.
   mouse moves and layer-tree waits. The driver's ready line reports each;
   if a macOS update removes one, the run stops naming it rather than
   give wrong results.
+- Silent: WebKit has no fake output stream, so the driver mutes its page
+  (`_setPageMuted:`). Media still plays, its clocks and events run, and
+  the gesture rule holds; the muted output plays zeros. A driver that
+  cannot mute stops the run.
 - Covered: the app's engine and web view configuration. Not covered:
   Safari itself (same WebKit, its own settings and window); the app's
   persistent storage (each driver keeps its store in memory); Retina

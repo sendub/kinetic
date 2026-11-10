@@ -52,14 +52,11 @@ import {
 } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import puppeteer from "puppeteer-core";
+import { chromePath, launchChrome, pressKey } from "./testing/core.mjs";
 
 const playerDir = join(dirname(fileURLToPath(import.meta.url)), "..");
 const repoRoot = join(playerDir, "..");
 const chromeProfile = join(repoRoot, ".tmp", "perf-chrome-profile");
-const chromePath =
-  process.env.KINETIC_CHROME ??
-  "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 
 const PRESS_GAP_MS = 90; // ~one second of real reading compressed: tight enough
 // to be a pessimistic preload window, loose enough that every press's frame
@@ -228,24 +225,6 @@ const snapKey = (s) =>
 
 // --- CDP input (same trusted-input path as verify.mjs) ----------------------
 
-async function pressKey(cdp, key, code, keyCode, text) {
-  await cdp.send("Input.dispatchKeyEvent", {
-    type: "keyDown",
-    key,
-    code,
-    windowsVirtualKeyCode: keyCode,
-    nativeVirtualKeyCode: keyCode,
-    text,
-    unmodifiedText: text,
-  });
-  await cdp.send("Input.dispatchKeyEvent", {
-    type: "keyUp",
-    key,
-    code,
-    windowsVirtualKeyCode: keyCode,
-    nativeVirtualKeyCode: keyCode,
-  });
-}
 const pressSpace = (cdp) => pressKey(cdp, " ", "Space", 32, " ");
 const pressEscape = (cdp) => pressKey(cdp, "Escape", "Escape", 27, "");
 const pressDigit = (cdp, digit) =>
@@ -405,9 +384,7 @@ async function main() {
   console.log(
     `driver: ${execFileSync(chromePath, ["--version"], { encoding: "utf8" }).trim()}`,
   );
-  const browser = await puppeteer.launch({
-    executablePath: chromePath,
-    headless: true,
+  const browser = await launchChrome({
     userDataDir: chromeProfile,
     protocolTimeout: 30000,
     args: [

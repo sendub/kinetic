@@ -7,7 +7,7 @@
   },
   "files": {
     "ignoreUnknown": false,
-    "includes": ["**", "!dist", "!.vitest"]
+    "includes": ["**", "!dist", "!.vitest", "!.tmp"]
   },
   "formatter": {
     "enabled": true,
@@ -17,9 +17,25 @@
   "linter": {
     "enabled": true,
     "rules": {
-      "preset": "recommended"
+      "preset": "recommended",
+      "style": {
+        "noRestrictedImports": {
+          "level": "error",
+          "options": {
+            "paths": {
+              "puppeteer-core": "Start Chrome with launchChrome or launchBrowser from scripts/testing/core.mjs, which keep it silent."
+            }
+          }
+        }
+      }
     }
   },
+  "overrides": [
+    {
+      "includes": ["scripts/testing/core.mjs"],
+      "linter": { "rules": { "style": { "noRestrictedImports": "off" } } }
+    }
+  ],
   "javascript": {
     "formatter": {
       "quoteStyle": "double"

@@ -18,6 +18,13 @@ export const REQUIRED_HOOKS = [
   "_doAfterNextPresentationUpdate:",
 ];
 
+/**
+ * The hook that keeps the driver silent: it mutes its page (`_setPageMuted:`,
+ * apps/macos/driver/main.swift). Without it a run would play a game's sound
+ * aloud, so the adapter refuses that driver too.
+ */
+export const MUTE_HOOK = "_setPageMuted:";
+
 const PROTOCOL_TIMEOUT_MS = 30000;
 const START_TIMEOUT_MS = 15000;
 
@@ -494,6 +501,11 @@ export async function launchWebKit(options = {}) {
     if (missing.length > 0) {
       throw new Error(
         `WebKit driver: this macOS's WebKit lacks the private hook${missing.length > 1 ? "s" : ""} ${missing.join(", ")}, which the WebKit engine needs to give true results. Run the suite on Chrome (without --webkit).`,
+      );
+    }
+    if (ready.hooks?.[MUTE_HOOK] !== true) {
+      throw new Error(
+        `WebKit driver: this macOS's WebKit lacks the private hook ${MUTE_HOOK}, which keeps the WebKit engine silent; it would play sound aloud. Run on Chrome (without --webkit).`,
       );
     }
   } catch (error) {

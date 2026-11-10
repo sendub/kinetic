@@ -22,7 +22,9 @@
 //   WINDOW=WxH     Safari window (default 1600x1000)
 //   VISITED_PAD / HISTORY  extra context weight per seeded row
 // Safari needs "Allow Remote Automation" (Develop menu); the script starts
-// and quits its own safaridriver.
+// and quits its own safaridriver. Unlike the Chrome run, Safari is not kept
+// silent (WebDriver has no switch for it): time only pages with no sound,
+// as the demo is.
 
 import { execFileSync, spawn } from "node:child_process";
 import {
@@ -482,14 +484,10 @@ async function safariDriver() {
 }
 
 async function chromeDriver() {
-  const { default: puppeteer } = await import("puppeteer-core");
+  const { launchChrome } = await import("./testing/core.mjs");
   const profile = join(repoRoot, ".tmp", "bookmark-timing", "chrome-profile");
   rmSync(profile, { recursive: true, force: true });
-  const b = await puppeteer.launch({
-    executablePath:
-      process.env.KINETIC_CHROME ??
-      "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-    headless: true,
+  const b = await launchChrome({
     userDataDir: profile,
     args: ["--no-sandbox", "--disable-gpu", "--window-size=1280,800"],
   });

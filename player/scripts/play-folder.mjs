@@ -39,13 +39,10 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import puppeteer from "puppeteer-core";
+import { launchChrome } from "./testing/core.mjs";
 
 const playerDir = join(dirname(fileURLToPath(import.meta.url)), "..");
 const repoRoot = join(playerDir, "..");
-const chromePath =
-  process.env.KINETIC_CHROME ??
-  "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 
 const folder = process.argv[2];
 if (!folder) {
@@ -81,9 +78,7 @@ const mediaFiles = [
 
 const profile = mkdtempSync(join(tmpdir(), "kinetic-play-"));
 const errors = [];
-const browser = await puppeteer.launch({
-  executablePath: chromePath,
-  headless: "new",
+const browser = await launchChrome({
   args: [
     "--no-sandbox",
     "--disable-gpu",

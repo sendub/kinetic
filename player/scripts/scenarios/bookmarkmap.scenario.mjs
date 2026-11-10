@@ -57,10 +57,11 @@ mkdirSync(shots, { recursive: true });
 
 // Full size (Phase 41): F when Fit is on show.
 const showFull = (page, cdp) => showMapView(page, cdp, "full");
-// Delete, Backspace and Enter without the harness's nativeVirtualKeyCode:
-// in headless Chrome on macOS, Delete or Backspace sent with it stops the
-// page's animation frames for good (seen on a blank page too), which would
-// freeze the map's painting for the rest of the session.
+// Delete, Backspace and Enter with no nativeVirtualKeyCode (as the
+// harness's keys, core.mjs nativeCode): in headless Chrome on macOS,
+// Delete or Backspace sent with one stops the page's animation frames for
+// good (seen on a blank page too), which would freeze the map's painting
+// for the rest of the session.
 async function plainKey(cdp, key, code, keyCode, text = "") {
   await cdp.send("Input.dispatchKeyEvent", {
     type: "keyDown",
