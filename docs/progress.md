@@ -3086,7 +3086,7 @@ truthful: an unchecked box means nothing was accepted.
       clean, smoke 6/6, Chrome `audio screens menus media navigation
       checkgame` 206/206, WebKit `audio menus media navigation` 101/101.
       Not verified: WebView2 on Windows, real Safari, Firefox, listening.)
-- [ ] Silent automated runs (item 12, added 2026-11-10; user report:
+- [x] Silent automated runs (item 12, added 2026-11-10; user report:
       the scenarios played the demo's tones aloud): every browser the
       tools launch, Chrome and the WebKit driver, makes no sound, while
       playback, `current().audio` and the gesture rule work as before.
@@ -3097,8 +3097,7 @@ truthful: an unchecked box means nothing was accepted.
       - `npm run verify -- audio` on Chrome and WebKit, run only after
         the user says continue;
       - the scenario files of every changed launcher.
-      (2026-11-10, box left open until the audio scenario has run:
-      Chrome starts only through core.mjs `launchChrome`, which adds
+      (2026-11-10: Chrome starts only through core.mjs `launchChrome`, which adds
       `--disable-audio-output`, a fake output stream; puppeteer's own
       `--mute-audio` was measured still opening a Core Audio output and
       playing zeros. biome.json rejects a `puppeteer-core` import outside
@@ -3123,8 +3122,9 @@ truthful: an unchecked box means nothing was accepted.
       Audio output where the stock launch shows one, smoke 6/6, Chrome
       `screens menus media checkgame bookmarkmap window` 200/200, WebKit
       `menus media screens` 120 pass and 2 known fullscreen partials.
-      Waiting on the user's continue: `npm run verify -- audio` on both
-      engines.)
+      After the user's continue: `npm run verify -- audio` 44/44 on
+      Chrome, with no process starting Core Audio output during the run,
+      and 44/44 on WebKit.)
 - [ ] Player: video sound (item 6): it plays only while the video plays,
       syncs at range and native loop wraps, re-seeks past 80 ms, pauses
       with the video, and ducks. Tests (scenario parts on the audio
