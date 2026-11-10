@@ -8,7 +8,9 @@
 // (the crossfade), one per ambience loop (up to twice the largest set, so a
 // whole set can fade out while the next fades in), a pool of six for
 // one-shots, one for voice, and one for a video's sound (the `video`
-// channel). A manifest without audio makes none: `mountAudio` returns null.
+// channel), and one for the Volumes pop-out's sample of a one-shot or a
+// voice line (the `sample` channel, item 7). A manifest without audio makes
+// none: `mountAudio` returns null.
 // An element's volume is the track's `volume` x its group's volume x the
 // duck x its fade (audiorules.ts `elementVolume`); fades step
 // `element.volume` on animation frames.
@@ -31,11 +33,11 @@
 // shows its poster.
 //
 // What may sound (audiorules.ts `maySound`): under the Esc screen nothing,
-// except music and ambience while its Volumes pop-out is open
-// (`setVolumesOpen`, item 7); under the branch map everything but the
-// voice; nothing while the page is hidden. A held element keeps its place,
-// a fade on it waits, and it plays on when allowed again; one that has
-// played out stays silent.
+// except music, ambience and the pop-out's sample while its Volumes
+// pop-out is open (`setVolumesOpen`, item 7); under the branch map
+// everything but the voice; nothing while the page is hidden. A held
+// element keeps its place, a fade on it waits, and it plays on when
+// allowed again; one that has played out stays silent.
 //
 // The unlock: a browser refuses `play()` until the reader's first key or
 // click. Chrome then lets any element play for the life of the document
@@ -53,9 +55,10 @@
 // apps let sound start with no gesture, so they never show it.
 //
 // The test hook: the hidden `#audio` holds the live elements, each with
-// `data-slot` (music, ambience, sfx, voice, video) and `data-track` (its
-// track id; empty while idle); `#audio` carries `data-target` (the target
-// in force, as JSON, set each time one applies) and `data-unlocked`.
+// `data-slot` (music, ambience, sfx, voice, video, sample) and
+// `data-track` (its track id; empty while idle); `#audio` carries
+// `data-target` (the target in force, as JSON, set each time one applies)
+// and `data-unlocked`.
 
 import type { Machine } from "../machine/machine";
 import type {
@@ -78,7 +81,9 @@ import {
   type PlayPlan,
   playPlan,
   REST_FADE_MS,
+  SAMPLE_MS,
   SFX_POOL_SIZE,
+  sampleTrack,
   stepVideoSync,
   VIDEO_SYNC_START,
   type VideoSync,
@@ -156,6 +161,13 @@ export interface AudioPlayer {
    * they pause again with everything else there.
    */
   setVolumesOpen(open: boolean): void;
+  /**
+   * The Volumes pop-out changed the Effects or Voice volume (item 7):
+   * play a sample of at most `SAMPLE_MS` at the new level, the last
+   * one-shot fired (else the game's first one-shot track) or the current
+   * item's voice line (else the game's first), from its start.
+   */
+  sample(group: "effects" | "voice"): void;
   /**
    * The reader's settings changed (main.ts's `setSettings` path): sound on
    * or off and the three volumes act at once.
@@ -266,6 +278,17 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
   let voiceItem = -1;
   /** A video's own sound (item 6); made by the unlock when a video has one. */
   let video: Channel | null = null;
+  /**
+   * The Volumes pop-out's sample (item 7), apart from the elements whose
+   * place it would lose; made by the unlock when there is anything to
+   * sample. It takes the volume of the group it samples, and stops after
+   * `SAMPLE_MS` (`sampleTimer`).
+   */
+  let sampler: Channel | null = null;
+  let sampleOf: "sfx" | "voice" = "sfx";
+  let sampleTimer: ReturnType<typeof setTimeout> | undefined;
+  /** The track of the last one-shot fired, which an Effects sample plays. */
+  let lastSfx: string | null = null;
   /** The stage's video (`setVideo`), null when none shows. */
   let stage: StageVideo | null = null;
   /** Its `playing` came, and no pause or stall since: it really plays. */
@@ -302,6 +325,7 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
     for (const ch of sfx) if (ch !== undefined) all.push(ch);
     if (voice !== null) all.push(voice);
     if (video !== null) all.push(video);
+    if (sampler !== null) all.push(sampler);
     return all;
   }
 
@@ -319,7 +343,7 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
     const bed = ch.slot === "music" || ch.slot === "ambience";
     ch.el.volume = elementVolume({
       track: ch.track === null ? 1 : tracks?.[ch.track]?.volume,
-      group: groupVolume(ch.slot, settings),
+      group: groupVolume(ch.slot === "sample" ? sampleOf : ch.slot, settings),
       duck: bed ? duck : 1,
       fade: ch.fade,
     });
@@ -577,6 +601,10 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
       releaseSfx(ch);
       return;
     }
+    if (ch.slot === "sample") {
+      release(ch);
+      return;
+    }
     // Music with `loop: false` stays silent until the music changes; a
     // voice stays its item's, so it does not start again there.
     ch.wanted = false;
@@ -653,6 +681,7 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
 
   function fire(cue: SfxCue): void {
     if (tracks?.[cue.track] === undefined) return;
+    lastSfx = cue.track;
     const { slot, stop } = pool.take(cue.channel);
     for (const cut of stop) {
       const ch = sfx[cut];
@@ -671,7 +700,13 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
     for (const ch of [...music, ...ambience]) release(ch);
     for (const ch of sfx) if (ch !== undefined) releaseSfx(ch);
     stopVoice();
+    stopSample();
     musicId = null;
+  }
+
+  function stopSample(): void {
+    clearTimeout(sampleTimer);
+    if (sampler !== null) release(sampler);
   }
 
   // --- a video's sound (item 6) ---------------------------------------------
@@ -829,6 +864,7 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
     }
     if (needsVoice) voice ??= makeChannel("voice");
     if (needsVideo) video ??= makeChannel("video");
+    if (needsSfx || needsVoice) sampler ??= makeChannel("sample");
     for (const ch of channels()) {
       if (!ch.el.paused || (ch.wanted && allowed(ch.slot))) continue;
       ch.el.play()?.catch(() => undefined);
@@ -915,7 +951,24 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
     },
     setVolumesOpen(open) {
       volumesOpen = open;
+      if (!open) stopSample();
       sync();
+    },
+    sample(group) {
+      const id = sampleTrack(group, {
+        items,
+        tracks: tracks ?? {},
+        cursor: machine.getState().cursor,
+        lastSfx,
+      });
+      if (id === null || !settings.soundOn) return;
+      stopSample();
+      sampleOf = group === "effects" ? "sfx" : "voice";
+      sampler ??= makeChannel("sample");
+      load(sampler, id, 1);
+      syncChannel(sampler);
+      const ch = sampler;
+      sampleTimer = setTimeout(() => release(ch), SAMPLE_MS);
     },
     setSettings(next) {
       const wasOn = settings.soundOn;
@@ -951,6 +1004,7 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
       }
       stage = null;
       if (video !== null) release(video);
+      clearTimeout(sampleTimer);
       duckFade = null;
       director.destroy();
       unsubscribeWarm();

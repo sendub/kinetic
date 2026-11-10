@@ -14,6 +14,7 @@ import {
   mapKeyAction,
   mappedKeys,
   routeIndexForKey,
+  SOUND_COMMANDS,
   suspendTimeline,
   UNLISTED_COMMANDS,
 } from "./keys";
@@ -59,6 +60,13 @@ describe("commandForKey", () => {
   it("maps a to auto-forward (Phase 13b)", () => {
     expect(commandForKey("a", false)).toBe("toggleAutoForward");
     expect(commandForKey("A", false)).toBe("toggleAutoForward");
+  });
+
+  it("maps v to sound on / off, and ignores its repeats (Phase 47)", () => {
+    expect(commandForKey("v", false)).toBe("toggleSound");
+    expect(commandForKey("V", false)).toBe("toggleSound");
+    expect(commandForKey("v", true)).toBeNull();
+    expect([...SOUND_COMMANDS]).toEqual(["toggleSound"]);
   });
 
   it("maps no command to Enter — one key per action (Phase 18)", () => {
@@ -389,18 +397,26 @@ describe("keyHelpEntries (the help lists the map itself, Phase 13b)", () => {
     return new Set(keyHelpEntries().flatMap((entry) => entry.keys));
   }
 
-  it("lists every mapped key except the reset box's own", () => {
-    const listed = listedLabels();
-    for (const key of mappedKeys()) {
-      const command = commandForKey(key, false);
-      if (command !== null && UNLISTED_COMMANDS.has(command)) continue;
-      const label =
-        key === " " ? "Space" : key.length === 1 ? key.toLowerCase() : key;
-      expect(listed.has(label)).toBe(true);
+  // A game with sound lists every mapped key but the reset box's; a silent
+  // game also leaves out `v`, which does nothing there (Phase 47 item 7).
+  it("lists every mapped key except the reset box's own, and v only in a game with sound", () => {
+    for (const sound of [true, false]) {
+      const listed = new Set(
+        keyHelpEntries({ sound }).flatMap((entry) => entry.keys),
+      );
+      for (const key of mappedKeys()) {
+        const command = commandForKey(key, false);
+        if (command !== null && UNLISTED_COMMANDS.has(command)) continue;
+        const label =
+          key === " " ? "Space" : key.length === 1 ? key.toLowerCase() : key;
+        expect(listed.has(label)).toBe(
+          sound || command === null || !SOUND_COMMANDS.has(command),
+        );
+      }
     }
   });
 
-  it("lists every command the map can issue, each with a description", () => {
+  it("lists every command the map can issue, each with a description; a silent game has no sound row", () => {
     const commands = new Set(
       mappedKeys()
         .map((key) => commandForKey(key, false))
@@ -408,14 +424,34 @@ describe("keyHelpEntries (the help lists the map itself, Phase 13b)", () => {
           (command): command is NonNullable<typeof command> => command !== null,
         ),
     );
-    const entries = keyHelpEntries();
-    for (const command of commands) {
-      if (UNLISTED_COMMANDS.has(command)) continue;
-      const row = entries.find((entry) => entry.command === command);
-      expect(row).toBeDefined();
-      expect((row?.description ?? "").length).toBeGreaterThan(0);
-      expect(row?.keys.length ?? 0).toBeGreaterThan(0);
+    for (const sound of [true, false]) {
+      const entries = keyHelpEntries({ sound });
+      for (const command of commands) {
+        if (UNLISTED_COMMANDS.has(command)) continue;
+        const row = entries.find((entry) => entry.command === command);
+        if (!sound && SOUND_COMMANDS.has(command)) {
+          expect(row).toBeUndefined();
+          continue;
+        }
+        expect(row).toBeDefined();
+        expect((row?.description ?? "").length).toBeGreaterThan(0);
+        expect(row?.keys.length ?? 0).toBeGreaterThan(0);
+      }
     }
+    // Absent options are a silent game: the screen a game without audio
+    // draws.
+    expect(keyHelpEntries()).toEqual(keyHelpEntries({ sound: false }));
+  });
+
+  it("puts v with the other mode keys in a game with sound: after h, before b", () => {
+    const labels = keyHelpEntries({ sound: true }).map((entry) =>
+      entry.keys.join(" / "),
+    );
+    expect(labels.slice(5, 9)).toEqual(["a", "h", "v", "b"]);
+    const row = keyHelpEntries({ sound: true }).find(
+      (entry) => entry.command === "toggleSound",
+    );
+    expect(row?.description).toBe("sound on / off");
   });
 
   it("lists the wheel — not a key, but a control all the same", () => {

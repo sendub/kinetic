@@ -36,6 +36,12 @@ export interface KeyCommands {
    */
   toggleAutoForward(): void;
   /**
+   * `v`: sound on or off (docs/plan.md Phase 47 item 7), with its pill. A
+   * game without audio does nothing with it and lists no row for it
+   * (`SOUND_COMMANDS`).
+   */
+  toggleSound(): void;
+  /**
    * `y`: confirm while the reset box is open (Phase 16, "Reset
    * progress"). Inert with no box open. The box shows its own buttons,
    * so the help screen does not list `y`/`n` (`UNLISTED_COMMANDS`).
@@ -69,6 +75,8 @@ const KEY_TABLE = new Map<string, KeyCommand>([
   ["M", "toggleMap"],
   ["a", "toggleAutoForward"],
   ["A", "toggleAutoForward"],
+  ["v", "toggleSound"],
+  ["V", "toggleSound"],
   ["Escape", "dismissOverlay"],
   ["y", "confirmReset"],
   ["Y", "confirmReset"],
@@ -86,6 +94,12 @@ export const UNLISTED_COMMANDS: ReadonlySet<KeyCommand> = new Set([
   "confirmReset",
   "confirmCancel",
 ]);
+
+/**
+ * Commands that only a game with sound lists (docs/plan.md Phase 47 item
+ * 7): a silent game's help has no row for them, and `v` does nothing there.
+ */
+export const SOUND_COMMANDS: ReadonlySet<KeyCommand> = new Set(["toggleSound"]);
 
 /** Every key the table maps — the key help's coverage guard reads this. */
 export function mappedKeys(): string[] {
@@ -127,9 +141,10 @@ export interface KeyHelpEntry {
  * The rows, one short line per main interaction key (docs/plan.md Phase
  * 18, "Key help simplified"): the cursor first (space, wheel, e, u, tab),
  * then the modes, then the screens, then the decision keys. Every command
- * the table maps has a row unless it is in `UNLISTED_COMMANDS` —
- * `keys.test.ts` asserts both directions, so adding a key or command
- * without a row fails a test (docs/plan.md Phase 13b).
+ * the table maps has a row unless it is in `UNLISTED_COMMANDS`, and a
+ * silent game leaves out the `SOUND_COMMANDS` rows — `keys.test.ts`
+ * asserts both directions, so adding a key or command without a row fails
+ * a test (docs/plan.md Phase 13b).
  */
 const HELP_ROWS: ReadonlyArray<{
   command: KeyCommand | null;
@@ -151,6 +166,7 @@ const HELP_ROWS: ReadonlyArray<{
   { command: "toggleSkip", description: "skip what you have seen" },
   { command: "toggleAutoForward", description: "auto-forward on / off" },
   { command: "toggleText", description: "hide / show the text" },
+  { command: "toggleSound", description: "sound on / off" },
   { command: "bookmark", description: "bookmark this moment" },
   { command: "toggleMap", description: "branch map and bookmarks" },
   {
@@ -168,10 +184,19 @@ const HELP_ROWS: ReadonlyArray<{
  * The help screen's content, built FROM the key table (docs/plan.md Phase
  * 13b): each row's keys are the table's own keys for its command. This is
  * the single source the `#help` overlay renders — `render/help.ts` only
- * draws it.
+ * draws it. `sound` says the game has audio; without it the sound rows
+ * are left out.
  */
-export function keyHelpEntries(): KeyHelpEntry[] {
-  return HELP_ROWS.map((row) => ({
+export function keyHelpEntries(
+  options: { sound?: boolean } = {},
+): KeyHelpEntry[] {
+  const rows = HELP_ROWS.filter(
+    (row) =>
+      options.sound === true ||
+      row.command === null ||
+      !SOUND_COMMANDS.has(row.command),
+  );
+  return rows.map((row) => ({
     command: row.command,
     keys:
       row.command === null

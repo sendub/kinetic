@@ -3165,7 +3165,7 @@ truthful: an unchecked box means nothing was accepted.
       media videofit` 107/107, Chrome `videosound audio media screens
       videofit` 196/196. Not verified: listening, real Safari, unmuted
       WebKit output, Windows, Firefox.)
-- [ ] Player: sound controls and the Esc screen (item 7): `soundOn` and
+- [x] Player: sound controls and the Esc screen (item 7): `soundOn` and
       the three volumes, saved and exported; `v` with its pill; the Keys
       row, the Sound row and the Volumes pop-out, only when the manifest
       has audio; the rebalanced layout. Tests (screens scenario parts for
@@ -3183,6 +3183,32 @@ truthful: an unchecked box means nothing was accepted.
       - an Effects or Voice change plays a sample of at most 2 s;
       - `v` and its pill;
       - fixtures/demo shows neither row, and `v` does nothing there.
+      (2026-11-10: with audio only, `v` turns sound on or off with a
+      "Sound on"/"Sound off" pill, works over the story, a choice, the map
+      (no pill there) and the Esc screen, and is held by the reset box and
+      the sheet; the Keys card gains "Sound on / off" after H; Play all
+      routes' card gains a second row, "Sound", a "Volumes..." button and
+      the switch. render/volumes.ts is the sheet, made like the reset
+      box: focus to Music on open, Tab kept inside, focus back to the
+      button on close, Escape, Done or a click outside close it alone.
+      Volumes step in tenths (`stepVolume`), read as percentages, are
+      heard at once and saved straight away without `machine.setSettings`
+      (an auto-forward hold is not restarted). A `sample` slot in audio.ts
+      plays at most 2 s (`SAMPLE_MS`) of the last one-shot or the current
+      voice, else the game's first. Balance, Keys against Settings,
+      natural heights before -> after (demo / audio demo): 1920x1080
+      2 -> 2 / 9, 1280x720 10 -> 10 / 18, 800x600 3 -> 3 / 5, 700x900
+      14 -> 14 / 8 px; widths equal; no scroll at 1280x720, 700x900 and
+      800x600, Reset ends at 462 of 600. A Sound card of its own would
+      have made 1280x720 about 33 px. 22 Vitest tests and 8 scenario
+      checks red first; 4 unit and 5 scenario faults turned 9 tests and 9
+      checks red (the no-save fault first passed through the unload
+      flush, so the checks now read the stored record). Orchestrator:
+      npm test 1148, check clean, smoke 6/6, Chrome `screens audio
+      videosound menus` 193/193 and `window progress creator reading`
+      86/86, WebKit `screens audio menus` 172 pass and 2 known fullscreen
+      partials; screenshots of the Esc screen and the sheet at 1280x720
+      looked balanced. Not verified: listening, real Safari, Windows.)
 - [ ] kinetic-extract reads Ren'Py audio (item 8): the statements,
       channels, names and specs it lists, mapped to music, ambience,
       one-shots and voice on the next item; the unconverted cases

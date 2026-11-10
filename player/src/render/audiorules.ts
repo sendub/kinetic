@@ -64,15 +64,31 @@ export const VIDEO_LEAD_MAX_S = 0.75;
  */
 export const DUCK_FADE_MS = 250;
 
-/** What an audio element plays (the test hook's `data-slot`). */
-export type AudioSlot = "music" | "ambience" | "sfx" | "voice" | "video";
+/**
+ * How long the Volumes sheet's sample of an Effects or Voice change plays
+ * at most (docs/plan.md Phase 47 item 7).
+ */
+export const SAMPLE_MS = 2000;
+
+/**
+ * What an audio element plays (the test hook's `data-slot`): `sample` is
+ * the Volumes sheet's sample of a one-shot or a voice line.
+ */
+export type AudioSlot =
+  | "music"
+  | "ambience"
+  | "sfx"
+  | "voice"
+  | "video"
+  | "sample";
 
 /**
  * The reader's volume for a slot's group: Music for music and ambience,
- * Effects for one-shots and video sound, Voice for voice.
+ * Effects for one-shots and video sound, Voice for voice. A sample takes
+ * the group of what it samples.
  */
 export function groupVolume(
-  slot: AudioSlot,
+  slot: Exclude<AudioSlot, "sample">,
   settings: MachineSettings,
 ): number {
   switch (slot) {
@@ -101,19 +117,56 @@ export interface SoundGate {
 }
 
 /**
- * Whether an element of `slot` may sound (docs/plan.md Phase 47, item 5):
- * nothing with sound off or the page hidden; under the Esc screen nothing,
- * except music and ambience while its Volumes pop-out is open; under the
- * branch map everything but the voice; over the story and a choice screen
- * everything. An element held here pauses where it is and plays on once
- * it may again.
+ * Whether an element of `slot` may sound (docs/plan.md Phase 47, items 5
+ * and 7): nothing with sound off or the page hidden; under the Esc screen
+ * nothing, except music, ambience and a volume's sample while its Volumes
+ * pop-out is open; under the branch map everything but the voice; over the
+ * story and a choice screen everything. An element held here pauses where
+ * it is and plays on once it may again.
  */
 export function maySound(slot: AudioSlot, gate: SoundGate): boolean {
   if (!gate.soundOn || gate.hidden) return false;
   if (gate.esc) {
-    return gate.volumesOpen && (slot === "music" || slot === "ambience");
+    return (
+      gate.volumesOpen &&
+      (slot === "music" || slot === "ambience" || slot === "sample")
+    );
   }
   return !(gate.map && slot === "voice");
+}
+
+/**
+ * What the Volumes sheet samples for a change of `group` (item 7): for
+ * Effects the last one-shot fired (`lastSfx`), else the game's first
+ * one-shot track in story order; for Voice the item at `cursor`'s voice
+ * line, else the game's first. Only tracks the manifest has; null when
+ * there is none.
+ */
+export function sampleTrack(
+  group: "effects" | "voice",
+  game: {
+    items: readonly Item[];
+    tracks: Readonly<Record<string, AudioTrack>>;
+    cursor: number;
+    lastSfx: string | null;
+  },
+): string | null {
+  const known = (id: string | null | undefined): id is string =>
+    id != null && game.tracks[id] !== undefined;
+  if (group === "effects") {
+    if (known(game.lastSfx)) return game.lastSfx;
+    for (const item of game.items) {
+      const cue = item.audio?.sfx?.find((c) => known(c.track));
+      if (cue !== undefined) return cue.track;
+    }
+    return null;
+  }
+  const own = game.items[game.cursor]?.audio?.voice;
+  if (known(own)) return own;
+  for (const item of game.items) {
+    if (known(item.audio?.voice)) return item.audio?.voice ?? null;
+  }
+  return null;
 }
 
 const unit = (value: number): number => Math.min(1, Math.max(0, value));

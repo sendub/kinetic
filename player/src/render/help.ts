@@ -85,6 +85,11 @@ export interface HelpOverlayOptions {
    * would over this screen. Absent: no row is a control.
    */
   onEntry?: (command: KeyCommand) => void;
+  /**
+   * The game has audio (docs/plan.md Phase 47 item 7): the keys list `v`.
+   * Absent or false: no row for it, as `v` does nothing there.
+   */
+  sound?: boolean;
 }
 
 /**
@@ -109,13 +114,16 @@ export function helpKeyLabel(key: string): string {
   return key.length === 1 ? key.toUpperCase() : key;
 }
 
-/** The rows to draw, from the keymap's entries. Pure. */
-export function helpRows(): {
+/**
+ * The rows to draw, from the keymap's entries; `sound` says the game has
+ * audio, which adds the `v` row. Pure.
+ */
+export function helpRows(options: { sound?: boolean } = {}): {
   command: KeyCommand | null;
   keys: string[];
   description: string;
 }[] {
-  return keyHelpEntries().map((entry) => ({
+  return keyHelpEntries(options).map((entry) => ({
     command: entry.command,
     keys: entry.keys.map(helpKeyLabel),
     description: entry.description,
@@ -126,6 +134,7 @@ export function mountHelpOverlay({
   root,
   gameTitle,
   onEntry,
+  sound = false,
 }: HelpOverlayOptions): HelpOverlay {
   const doc = root.ownerDocument;
 
@@ -146,7 +155,7 @@ export function mountHelpOverlay({
   // `.help-list` sizes its columns with auto-fill.
   const list = doc.createElement("div");
   list.className = "help-list";
-  for (const row of helpRows()) {
+  for (const row of helpRows({ sound })) {
     // A clickable row is a button (focusable, Enter activates it) drawn
     // like the others; index.html's `button.help-row` adds only the
     // hover/focus cue.

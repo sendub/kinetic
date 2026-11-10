@@ -25,9 +25,11 @@ import {
   playPlan,
   REST_FADE_MS,
   REST_MS,
+  SAMPLE_MS,
   type SeekKind,
   SFX_POOL_SIZE,
   type SoundOutput,
+  sampleTrack,
   stepVideoSync,
   VIDEO_LAND_MS,
   VIDEO_LEAD_MAX_S,
@@ -118,6 +120,88 @@ describe("what may sound under the screens over the story", () => {
     expect(sounding({ hidden: true, esc: true, volumesOpen: true })).toEqual(
       [],
     );
+  });
+
+  // The Volumes sheet's sample (item 7): heard over the Esc screen only
+  // while the sheet is open, and never with sound off or the page hidden.
+  it("lets a volume sample sound under the Esc screen only while the pop-out is open", () => {
+    const sample = (over: Partial<typeof story>) =>
+      maySound("sample", { ...story, ...over });
+    expect(sample({ esc: true, volumesOpen: true })).toBe(true);
+    expect(sample({ esc: true })).toBe(false);
+    expect(sample({ esc: true, volumesOpen: true, soundOn: false })).toBe(
+      false,
+    );
+    expect(sample({ esc: true, volumesOpen: true, hidden: true })).toBe(false);
+  });
+});
+
+describe("the Volumes sheet's sample (item 7)", () => {
+  const items: Item[] = [
+    { id: "a", type: "image", file: "a.jpg" },
+    { id: "b", type: "image", file: "b.jpg", audio: { voice: "lost" } },
+    {
+      id: "c",
+      type: "image",
+      file: "c.jpg",
+      audio: { sfx: [{ track: "lost" }, { track: "knock" }] },
+    },
+    { id: "d", type: "image", file: "d.jpg", audio: { voice: "mei" } },
+    {
+      id: "e",
+      type: "image",
+      file: "e.jpg",
+      audio: { sfx: [{ track: "bell" }] },
+    },
+    { id: "f", type: "image", file: "f.jpg", audio: { voice: "theo" } },
+  ];
+  const known = new Set(["knock", "bell", "mei", "theo"]);
+  const tracks = Object.fromEntries(
+    [...known].map((id) => [id, { file: `${id}.webm`, durationSeconds: 3 }]),
+  );
+
+  it("plays at most two seconds", () => {
+    expect(SAMPLE_MS).toBe(2000);
+  });
+
+  it("Effects: the last one-shot fired, else the game's first one-shot track", () => {
+    expect(
+      sampleTrack("effects", { items, tracks, cursor: 0, lastSfx: null }),
+    ).toBe(
+      "knock", // "lost" names no track, so the first known one
+    );
+    expect(
+      sampleTrack("effects", { items, tracks, cursor: 0, lastSfx: "bell" }),
+    ).toBe("bell");
+  });
+
+  it("Voice: the current item's voice, else the game's first voice track", () => {
+    expect(
+      sampleTrack("voice", { items, tracks, cursor: 5, lastSfx: null }),
+    ).toBe("theo");
+    expect(
+      sampleTrack("voice", { items, tracks, cursor: 0, lastSfx: null }),
+    ).toBe(
+      "mei", // "lost" names no track
+    );
+    expect(
+      sampleTrack("voice", { items, tracks, cursor: 1, lastSfx: null }),
+    ).toBe("mei");
+  });
+
+  it("is none when the game has nothing for that group", () => {
+    const silent: Item[] = [{ id: "a", type: "image", file: "a.jpg" }];
+    expect(
+      sampleTrack("effects", {
+        items: silent,
+        tracks,
+        cursor: 0,
+        lastSfx: null,
+      }),
+    ).toBeNull();
+    expect(
+      sampleTrack("voice", { items: silent, tracks, cursor: 0, lastSfx: null }),
+    ).toBeNull();
   });
 });
 

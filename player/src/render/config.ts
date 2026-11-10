@@ -16,7 +16,10 @@
 // file and either says its refusal in the pill or asks the confirmation
 // box) and Phase 16's "Reset progress", which opens the confirmation box
 // (render/confirm.ts). The three are actions and change no setting
-// themselves. No other UI.
+// themselves. A game with audio adds one Sound row under Play all routes
+// (docs/plan.md Phase 47 item 7): sound on or off, the setting `v` turns,
+// and "Volumes...", which opens the volumes sheet (render/volumes.ts). No
+// other UI.
 //
 // The notes of the speed, Play all routes and the Progress group sit
 // behind a "?" (docs/plan.md Phase 43 item 12, `mountTip`): a button whose
@@ -132,6 +135,13 @@ export function playAllLabel(playAllRoutes: boolean): string {
 }
 
 /**
+ * The Sound row's label (docs/plan.md Phase 47 item 7): its switch is the
+ * `soundOn` setting `v` turns, and its Volumes... button opens the sheet
+ * (render/volumes.ts).
+ */
+export const SOUND_TEXT = "Sound";
+
+/**
  * The state a "?" tip is in (`mountTip`): `idle` shows it only while the
  * "?" is hovered or has keyboard focus; `open` keeps it shown (a click or
  * tap); `shut` keeps it hidden even under the pointer or focus that would
@@ -235,6 +245,8 @@ export interface ConfigOverlay {
   isOpen(): boolean;
   /** Shows the panel, filled with the current settings, every tip idle. */
   open(): void;
+  /** Repaints from the settings in force (`v` turned sound on or off). */
+  refresh(): void;
   close(): void;
 }
 
@@ -258,6 +270,13 @@ export interface ConfigOverlayOptions {
    * checks it, then says a refusal in the pill or asks to confirm.
    */
   onImport(file: File): void;
+  /**
+   * The game has audio (docs/plan.md Phase 47 item 7): a Sound row joins
+   * Play all routes' group, its switch the `soundOn` setting and its
+   * Volumes... button `onVolumes`, given the button (focus goes back to it
+   * when the sheet closes). Absent: no Sound row.
+   */
+  sound?: { onVolumes(opener: HTMLElement): void };
 }
 
 export function mountConfigOverlay({
@@ -267,6 +286,7 @@ export function mountConfigOverlay({
   onReset,
   onExport,
   onImport,
+  sound,
 }: ConfigOverlayOptions): ConfigOverlay {
   const doc = root.ownerDocument;
 
@@ -298,7 +318,7 @@ export function mountConfigOverlay({
   };
 
   const speedRow = doc.createElement("div");
-  speedRow.className = "config-row config-speed";
+  speedRow.className = "config-row config-slide config-speed";
   // The label's words, then its "?" (Phase 43 item 12): the note on what
   // else the speed paces, which used to be a line under the row.
   const speedLabelEl = doc.createElement("span");
@@ -385,6 +405,29 @@ export function mountConfigOverlay({
   playToggle.setAttribute("data-config-action", "play-all");
   playRow.append(playLabelEl, playToggle);
 
+  // Sound (docs/plan.md Phase 47 item 7), for a game with audio only: one
+  // row under Play all routes, in its group, its Volumes... button before
+  // its switch so the switch lines up with the others.
+  const soundRow = doc.createElement("div");
+  soundRow.className = "config-row";
+  const soundLabelEl = doc.createElement("span");
+  soundLabelEl.className = "config-label";
+  soundLabelEl.textContent = SOUND_TEXT;
+  const volumesButton = doc.createElement("button");
+  volumesButton.className = "config-toggle config-volumes";
+  volumesButton.type = "button";
+  volumesButton.textContent = "Volumes…";
+  volumesButton.setAttribute("aria-label", "Music, effects and voice volumes");
+  volumesButton.setAttribute("aria-haspopup", "dialog");
+  volumesButton.setAttribute("data-config-action", "volumes");
+  const soundToggle = doc.createElement("button");
+  soundToggle.className = "config-toggle config-sound";
+  soundToggle.type = "button";
+  soundToggle.setAttribute("role", "switch");
+  soundToggle.setAttribute("aria-label", SOUND_TEXT);
+  soundToggle.setAttribute("data-config-action", "sound");
+  soundRow.append(soundLabelEl, volumesButton, soundToggle);
+
   // The Progress group (docs/plan.md Phase 21): Export, Import and Reset,
   // indented under their heading like the skip options, every control in
   // the same column. The heading's line says saving is automatic, and its
@@ -463,7 +506,7 @@ export function mountConfigOverlay({
     title,
     group(speedRow),
     group(skipHeading, skipRow, skipVideoRow),
-    group(playRow),
+    sound === undefined ? group(playRow) : group(playRow, soundRow),
     group(progressHeading, exportRow, importRow, resetRow),
   );
   root.appendChild(panel);
@@ -482,6 +525,8 @@ export function mountConfigOverlay({
     skipVideoToggle.setAttribute("aria-pressed", String(next.skipPlaysVideos));
     playToggle.textContent = playAllLabel(next.playAllRoutes);
     playToggle.setAttribute("aria-pressed", String(next.playAllRoutes));
+    soundToggle.textContent = next.soundOn ? "On" : "Off";
+    soundToggle.setAttribute("aria-pressed", String(next.soundOn));
   }
 
   function move(next: MachineSettings): void {
@@ -509,6 +554,10 @@ export function mountConfigOverlay({
       move({ ...current, skipPlaysVideos: !current.skipPlaysVideos });
     } else if (action === "play-all") {
       move({ ...current, playAllRoutes: !current.playAllRoutes });
+    } else if (action === "sound") {
+      move({ ...current, soundOn: !current.soundOn });
+    } else if (action === "volumes") {
+      sound?.onVolumes(volumesButton);
     } else if (action === "reset-progress") {
       // An action, not a settings move: the box confirms, the reset
       // reloads — the panel simply asks.
@@ -552,6 +601,9 @@ export function mountConfigOverlay({
       paint(settings()); // always the values now in force, never a stale copy
       for (const tip of tips) tip.reset();
       panel.hidden = false;
+    },
+    refresh() {
+      paint(settings());
     },
     close,
   };

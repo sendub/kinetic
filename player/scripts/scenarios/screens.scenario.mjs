@@ -26,6 +26,7 @@ import {
   EARLIER_UNSEEN_NOTICE,
 } from "../../src/render/endcard.ts";
 import {
+  audioDemoDir,
   CONFIG_CLOSED,
   CONFIG_CONTROL,
   CONFIRM_CONTROL,
@@ -41,6 +42,7 @@ import {
   HELP_CLOSED,
   HELP_OPEN,
   helpOpen,
+  INSTALL_PILL_LOG,
   item,
   MAP_CARDS_LOADED,
   MAP_CLOSED,
@@ -61,17 +63,20 @@ import {
   pressEscapeSeen,
   pressKey,
   pressM,
+  pressNavKey,
   pressSpace,
   pressT,
   pressTab,
   pressU,
   READ_CONFIG_OVERLAY,
+  READ_CONFIG_RECTS,
   READ_CONFIRM_OVERLAY,
   READ_HELP,
   READ_KEY_GRID,
   READ_MAP_CARDS,
   READ_MAP_VIEW,
   readBookmarks,
+  readPills,
   readSignature,
   SIGNATURE,
   sampleSignatures,
@@ -109,6 +114,43 @@ const HELP_KEYS = [
   "Esc",
   "1-9 0 ↑↓ Enter",
 ];
+// A game with sound (docs/plan.md Phase 47 item 7) adds V, "sound on /
+// off", with the other mode keys.
+const HELP_KEYS_SOUND = [
+  ...HELP_KEYS.slice(0, HELP_KEYS.indexOf("H") + 1),
+  "V",
+  ...HELP_KEYS.slice(HELP_KEYS.indexOf("H") + 1),
+];
+// The settings' lines (READ_CONFIG_OVERLAY `lines`): a game with sound
+// has a Sound row under Play all routes, in its group.
+const CONFIG_LINES = [
+  "Auto-forward speed",
+  "# When Tab skips",
+  "  Skip unseen content too",
+  "  Play videos in full",
+  "Play all routes",
+  "# Progress · saved automatically",
+  "  Export progress",
+  "  Import progress",
+  "  Reset progress",
+  "# Game window",
+  "  Display",
+  "  Exit the game",
+];
+const CONFIG_LINES_SOUND = [
+  ...CONFIG_LINES.slice(0, CONFIG_LINES.indexOf("Play all routes") + 1),
+  "Sound",
+  ...CONFIG_LINES.slice(CONFIG_LINES.indexOf("Play all routes") + 1),
+];
+// fixtures/audio-demo is built, not committed (.gitignore).
+const AUDIO_BUILD_HINT =
+  "fixtures/audio-demo is missing: build it with .venv/bin/python fixtures/build_audio_demo.py";
+/** False, with the build hint as evidence, when the audio demo is missing. */
+function audioBuilt({ check, folders }) {
+  if (folders.audioDemo) return true;
+  check("fixtures/audio-demo is built", false, AUDIO_BUILD_HINT);
+  return false;
+}
 const EMPTY_NOTICE = "No content yet — this folder has an empty manifest.";
 const MS_PER_CHAR = DEFAULT_SETTINGS.msPerChar;
 const MIN_HOLD = DEFAULT_SETTINGS.minHoldMs;
@@ -1305,21 +1347,7 @@ async function config({ check, open }) {
   const heightOf = (r) => r.bottom - r.top;
   check(
     "the config screen groups the skip options under When Tab skips and export, import, reset under 'Progress · saved automatically', labels and headings on one edge, the skip options one group apart from Play all routes, the switches in one column, Play all routes one line as tall as a skip switch's row, and no note or message lines",
-    JSON.stringify(first.lines) ===
-      JSON.stringify([
-        "Auto-forward speed",
-        "# When Tab skips",
-        "  Skip unseen content too",
-        "  Play videos in full",
-        "Play all routes",
-        "# Progress · saved automatically",
-        "  Export progress",
-        "  Import progress",
-        "  Reset progress",
-        "# Game window",
-        "  Display",
-        "  Exit the game",
-      ]) &&
+    JSON.stringify(first.lines) === JSON.stringify(CONFIG_LINES) &&
       first.noMessageLine &&
       shownLefts.length === 4 &&
       new Set(shownLefts).size === 1 &&
@@ -1585,8 +1613,11 @@ const groupGaps = (c) =>
  * cell; the Game window row has Fullscreen | Window at its start and Exit
  * at its end.
  */
-async function escLayout({ check, open }) {
-  const { page, cdp } = await open("esc-layout", { closeHelp: true });
+async function escLayoutOn({ check: record, open }, { folder, session, tag }) {
+  const { page, cdp } = await open(session, { folder, closeHelp: true });
+  // The audio demo's checks carry its name, so the two runs read apart.
+  const check = (name, ok, evidence) =>
+    record(tag === "" ? name : `${name} (${tag})`, ok, evidence);
   await openSettings(page, cdp);
   const at = async (width, height) => {
     await page.setViewport({ width, height, deviceScaleFactor: 1 });
@@ -1785,6 +1816,102 @@ async function escLayout({ check, open }) {
     rows.every((r) => r.ok),
     rows,
   );
+  return { page, cdp, check };
+}
+
+const escLayout = (args) =>
+  escLayoutOn(args, { folder: demoDir, session: "esc-layout", tag: "" });
+
+/**
+ * The same layout for a game with sound (docs/plan.md Phase 47 item 7):
+ * its Keys card has the `v` row and its settings the Sound row, and the
+ * columns still balance and the whole screen still fits.
+ */
+async function escLayoutAudio(args) {
+  if (!audioBuilt(args)) return;
+  const { page, check } = await escLayoutOn(args, {
+    folder: audioDemoDir,
+    session: "esc-layout-audio",
+    tag: "audio demo",
+  });
+  await checkEscFits(page, check, HELP_KEYS_SOUND);
+}
+
+/**
+ * The Esc screen at its smallest promised sizes (Phase 28; Reset in view
+ * at 800x600, Phases 31, 35): with `keys` (the key rows' labels) as its
+ * key rows, it fits without any scroll at 1280x720, 700x900 and 800x600,
+ * and nothing in it scrolls across. Leaves the viewport as it found it.
+ */
+async function checkEscFits(page, check, keys) {
+  const viewport = page.viewport();
+  await page.setViewport({ width: 800, height: 600, deviceScaleFactor: 1 });
+  await sleep(150);
+  const small = await page.evaluate((selector) => {
+    const reset = document.querySelector(selector)?.getBoundingClientRect();
+    const help = document.getElementById("help");
+    return {
+      bottom: reset?.bottom ?? Number.POSITIVE_INFINITY,
+      height: innerHeight,
+      scrolled: (help?.scrollTop ?? 0) + document.scrollingElement.scrollTop,
+      rows: document.querySelectorAll("#help .help-row").length,
+    };
+  }, CONFIG_CONTROL.reset);
+  check(
+    `at 800x600 the Esc screen's ${keys.length} key rows leave Reset in view without scrolling`,
+    small.rows === keys.length &&
+      small.bottom <= small.height &&
+      small.scrolled === 0,
+    small,
+  );
+  // The whole Esc screen fits without any scroll at every size Phase 28
+  // promised (1280x720, 700x900, 800x600), and nothing in it ever
+  // scrolls across: the screen's content is no taller or wider than the
+  // screen, the page itself does not scroll, Reset is in the window.
+  const fits = [];
+  for (const [width, height] of [
+    [1280, 720],
+    [700, 900],
+    [800, 600],
+  ]) {
+    await page.setViewport({ width, height, deviceScaleFactor: 1 });
+    await sleep(150);
+    fits.push(
+      await page.evaluate(
+        (selector, size) => {
+          const help = document.getElementById("help");
+          const reset = document
+            .querySelector(selector)
+            ?.getBoundingClientRect();
+          return {
+            size,
+            down: help.scrollHeight - help.clientHeight,
+            across: help.scrollWidth - help.clientWidth,
+            page:
+              document.scrollingElement.scrollHeight -
+              document.scrollingElement.clientHeight,
+            resetBottom: reset?.bottom ?? Number.POSITIVE_INFINITY,
+            height: innerHeight,
+          };
+        },
+        CONFIG_CONTROL.reset,
+        `${width}x${height}`,
+      ),
+    );
+  }
+  check(
+    "the whole Esc screen fits without scrolling at 1280x720, 700x900 and 800x600, Reset in view, nothing scrolling across",
+    fits.every(
+      (f) =>
+        f.down <= 0 &&
+        f.across <= 0 &&
+        f.page <= 0 &&
+        f.resetBottom <= f.height,
+    ),
+    fits,
+  );
+  if (viewport !== null) await page.setViewport(viewport);
+  await sleep(150);
 }
 
 // One "?" tip as the reader sees it, read one animation frame after the
@@ -2336,75 +2463,7 @@ async function reset({ check, open }) {
   // At 800x600 the whole Esc screen fits: Reset is on screen without a
   // scroll (Phase 31: the decision keys share one row; Phase 35 dropped
   // the T row, 11 rows in all).
-  const viewport = page.viewport();
-  await page.setViewport({ width: 800, height: 600, deviceScaleFactor: 1 });
-  await sleep(150);
-  const small = await page.evaluate((selector) => {
-    const reset = document.querySelector(selector)?.getBoundingClientRect();
-    const help = document.getElementById("help");
-    return {
-      bottom: reset?.bottom ?? Number.POSITIVE_INFINITY,
-      height: innerHeight,
-      scrolled: (help?.scrollTop ?? 0) + document.scrollingElement.scrollTop,
-      rows: document.querySelectorAll("#help .help-row").length,
-    };
-  }, CONFIG_CONTROL.reset);
-  check(
-    `at 800x600 the Esc screen's ${HELP_KEYS.length} key rows leave Reset in view without scrolling`,
-    small.rows === HELP_KEYS.length &&
-      small.bottom <= small.height &&
-      small.scrolled === 0,
-    small,
-  );
-  // The whole Esc screen fits without any scroll at every size Phase 28
-  // promised (1280x720, 700x900, 800x600), and nothing in it ever
-  // scrolls across: the screen's content is no taller or wider than the
-  // screen, the page itself does not scroll, Reset is in the window.
-  const fits = [];
-  for (const [width, height] of [
-    [1280, 720],
-    [700, 900],
-    [800, 600],
-  ]) {
-    await page.setViewport({ width, height, deviceScaleFactor: 1 });
-    await sleep(150);
-    fits.push(
-      await page.evaluate(
-        (selector, size) => {
-          const help = document.getElementById("help");
-          const reset = document
-            .querySelector(selector)
-            ?.getBoundingClientRect();
-          return {
-            size,
-            down: help.scrollHeight - help.clientHeight,
-            across: help.scrollWidth - help.clientWidth,
-            page:
-              document.scrollingElement.scrollHeight -
-              document.scrollingElement.clientHeight,
-            resetBottom: reset?.bottom ?? Number.POSITIVE_INFINITY,
-            height: innerHeight,
-          };
-        },
-        CONFIG_CONTROL.reset,
-        `${width}x${height}`,
-      ),
-    );
-  }
-  check(
-    "the whole Esc screen fits without scrolling at 1280x720, 700x900 and 800x600, Reset in view, nothing scrolling across",
-    fits.every(
-      (f) =>
-        f.down <= 0 &&
-        f.across <= 0 &&
-        f.page <= 0 &&
-        f.resetBottom <= f.height,
-    ),
-    fits,
-  );
-
-  if (viewport !== null) await page.setViewport(viewport);
-  await sleep(150);
+  await checkEscFits(page, check, HELP_KEYS);
   for (let i = 0; i < 4; i += 1) {
     await clickCenter(cdp, CONFIG_CONTROL.speedUp);
   }
@@ -2888,6 +2947,265 @@ async function insertedContent({ check, open }) {
   );
 }
 
+// ---- Sound controls on the Esc screen (docs/plan.md Phase 47 item 7) ----
+
+/** `v`: sound on or off (render/keys.ts). */
+const pressV = (cdp) => pressKey(cdp, "v", "KeyV", 86, "v");
+/** Shift+Tab, sent like every key here: no native key code. */
+async function pressShiftTab(cdp) {
+  for (const type of ["keyDown", "keyUp"])
+    await cdp.send("Input.dispatchKeyEvent", {
+      type,
+      key: "Tab",
+      code: "Tab",
+      windowsVirtualKeyCode: 9,
+      modifiers: 8,
+    });
+}
+
+const VOLUMES_BUTTON = '[data-config-action="volumes"]';
+const VOLUMES_OPEN = () => {
+  const sheet = document.getElementById("volumes");
+  return sheet !== null && !sheet.hidden;
+};
+
+// The Volumes sheet as the reader sees it: open or not, its title, each
+// row's label, readout and slider value, its content's centre against the
+// window's, where keyboard focus is (a control's `data-config-action`,
+// else the focused element's tag) and whether that is inside the sheet,
+// and whether the Esc screen is still up under it.
+const READ_VOLUMES = () => {
+  const sheet = document.getElementById("volumes");
+  const help = document.getElementById("help");
+  const active = document.activeElement;
+  const focus =
+    active?.getAttribute?.("data-config-action") ?? active?.tagName ?? null;
+  const helpUp = help !== null && !help.hidden;
+  if (sheet === null || sheet.hidden) return { open: false, focus, helpUp };
+  const boxes = [...sheet.children].map((el) => el.getBoundingClientRect());
+  const left = Math.min(...boxes.map((b) => b.left));
+  const right = Math.max(...boxes.map((b) => b.right));
+  const top = Math.min(...boxes.map((b) => b.top));
+  const bottom = Math.max(...boxes.map((b) => b.bottom));
+  return {
+    open: true,
+    helpUp,
+    focus,
+    focusInside: sheet.contains(active),
+    title: sheet.querySelector(".volumes-title")?.textContent ?? null,
+    rows: [...sheet.querySelectorAll(".volume-row")].map((row) => ({
+      label: row.querySelector(".config-label")?.textContent ?? null,
+      value: row.querySelector(".config-value")?.textContent ?? null,
+      slider: row.querySelector("input")?.value ?? null,
+    })),
+    offCentre: [
+      Math.round((left + right) / 2 - innerWidth / 2),
+      Math.round((top + bottom) / 2 - innerHeight / 2),
+    ],
+    inWindow:
+      left >= 0 && top >= 0 && right <= innerWidth && bottom <= innerHeight,
+  };
+};
+
+/**
+ * A game with sound: the Keys card's `v` row and the settings' Sound row
+ * (its switch, then Volumes...), and the Volumes sheet over the Esc screen:
+ * centred, focus kept inside, its keys, and Esc, Done or a click outside
+ * closing the sheet alone.
+ */
+async function soundScreen(args) {
+  if (!audioBuilt(args)) return;
+  const { check, open } = args;
+  const { page, cdp } = await open("sound-screen", {
+    folder: audioDemoDir,
+    closeHelp: true,
+  });
+  await page.setViewport({ width: 1280, height: 720, deviceScaleFactor: 1 });
+  await openSettings(page, cdp);
+  const help = await page.evaluate(READ_HELP);
+  const cfg = await page.evaluate(READ_CONFIG_OVERLAY);
+  const row = await page.evaluate(() => {
+    const r = (el) => el?.getBoundingClientRect().toJSON() ?? null;
+    const sound = document.querySelector('[data-config-action="sound"]');
+    return {
+      sound: r(sound),
+      label: sound?.textContent ?? null,
+      pressed: sound?.getAttribute("aria-pressed") ?? null,
+      volumes: r(document.querySelector('[data-config-action="volumes"]')),
+      volumesText:
+        document.querySelector('[data-config-action="volumes"]')?.textContent ??
+        null,
+      row: r(sound?.parentElement),
+      play: r(document.querySelector(".config-play-all")?.parentElement),
+    };
+  });
+  const vRow = help.rows.find((r) => r.key === "V");
+  check(
+    "a game with sound: the Keys card has V, sound on / off, after H; Settings has a Sound row in Play all routes' group, Volumes… then its switch (On), the switch under Play all routes'",
+    JSON.stringify(help.rows.map((r) => r.key)) ===
+      JSON.stringify(HELP_KEYS_SOUND) &&
+      vRow?.desc === "sound on / off" &&
+      JSON.stringify(cfg.lines) === JSON.stringify(CONFIG_LINES_SOUND) &&
+      row.label === "On" &&
+      row.pressed === "true" &&
+      row.volumesText === "Volumes…" &&
+      Math.abs(row.sound.right - cfg.playRect.right) < 1 &&
+      Math.abs(row.row.top - row.play.bottom) < 1 &&
+      row.volumes.right < row.sound.left &&
+      Math.abs(
+        (row.volumes.top + row.volumes.bottom) / 2 -
+          (row.sound.top + row.sound.bottom) / 2,
+      ) < 1,
+    { keys: help.rows.map((r) => r.key), vRow, lines: cfg.lines, row },
+  );
+
+  // Volumes... opens the sheet, focus on its first slider.
+  await clickCenter(cdp, VOLUMES_BUTTON);
+  const opened = await waitFor(page, VOLUMES_OPEN, 2000);
+  const sheet = await page.evaluate(READ_VOLUMES);
+  check(
+    "Volumes… opens a sheet centred over the Esc screen: Volumes, with Music, Effects and Voice each at 100%, focus on the Music slider",
+    opened &&
+      sheet.helpUp &&
+      sheet.title === "Volumes" &&
+      JSON.stringify(sheet.rows.map((r) => [r.label, r.value])) ===
+        JSON.stringify([
+          ["Music", "100%"],
+          ["Effects", "100%"],
+          ["Voice", "100%"],
+        ]) &&
+      sheet.focus === "volume-music-slider" &&
+      Math.abs(sheet.offCentre[0]) <= 2 &&
+      Math.abs(sheet.offCentre[1]) <= 2 &&
+      sheet.inWindow,
+    sheet,
+  );
+
+  // The keyboard: the arrows step the focused slider, Tab and Shift+Tab
+  // move through the sheet's controls and wrap, Enter presses a button.
+  await pressNavKey(cdp, "ArrowLeft", 37);
+  const stepped = await page.evaluate(READ_VOLUMES);
+  await pressTab(cdp);
+  const onPlus = (await page.evaluate(READ_VOLUMES)).focus;
+  await pressEnter(cdp);
+  const pressed = await page.evaluate(READ_VOLUMES);
+  const tour = [];
+  for (let n = 0; n < 8; n += 1) {
+    await pressTab(cdp);
+    const now = await page.evaluate(READ_VOLUMES);
+    tour.push(now.focusInside ? now.focus : `outside:${now.focus}`);
+  }
+  await pressShiftTab(cdp);
+  const back = await page.evaluate(READ_VOLUMES);
+  check(
+    "the sheet works from the keyboard: ← steps Music to 90%, Tab reaches its + and Enter steps it back to 100%; Tab cycles through the sheet's controls to Done and wraps, Shift+Tab wraps back, focus never leaving the sheet",
+    stepped.rows[0].value === "90%" &&
+      stepped.rows[0].slider === "0.9" &&
+      onPlus === "volume-music-up" &&
+      pressed.rows[0].value === "100%" &&
+      JSON.stringify(tour) ===
+        JSON.stringify([
+          "volume-effects-down",
+          "volume-effects-slider",
+          "volume-effects-up",
+          "volume-voice-down",
+          "volume-voice-slider",
+          "volume-voice-up",
+          "volumes-done",
+          "volume-music-down",
+        ]) &&
+      back.focus === "volumes-done" &&
+      back.focusInside,
+    { stepped: stepped.rows[0], onPlus, pressed: pressed.rows[0], tour, back },
+  );
+
+  // Space and m do nothing under the sheet; Escape closes it alone.
+  await pressSpace(cdp);
+  await pressM(cdp);
+  await sleep(200);
+  const underKeys = await page.evaluate(READ_VOLUMES);
+  const mapUp = await mapOpen(page);
+  await pressEscape(cdp);
+  await sleep(200);
+  const escaped = await page.evaluate(READ_VOLUMES);
+  check(
+    "under the sheet Space and m do nothing; Escape closes the sheet alone, the Esc screen staying up with focus back on Volumes…",
+    underKeys.open &&
+      underKeys.helpUp &&
+      !mapUp &&
+      !escaped.open &&
+      escaped.helpUp &&
+      escaped.focus === "volumes",
+    { underKeys: underKeys.open, mapUp, escaped },
+  );
+
+  // Done, and a click outside the sheet (as on the reset box), close it.
+  await clickCenter(cdp, VOLUMES_BUTTON);
+  await waitFor(page, VOLUMES_OPEN, 2000);
+  await clickCenter(cdp, '[data-config-action="volumes-done"]');
+  await sleep(150);
+  const done = await page.evaluate(READ_VOLUMES);
+  await clickCenter(cdp, VOLUMES_BUTTON);
+  await waitFor(page, VOLUMES_OPEN, 2000);
+  await clickAt(cdp, 8, 8);
+  await sleep(150);
+  const outside = await page.evaluate(READ_VOLUMES);
+  await pressEscape(cdp);
+  const closedScreen = await waitFor(page, HELP_CLOSED, 2000);
+  check(
+    "Done and a click outside the sheet each close it, the Esc screen staying up; Escape then closes the Esc screen",
+    !done.open &&
+      done.helpUp &&
+      !outside.open &&
+      outside.helpUp &&
+      closedScreen,
+    { done, outside, closedScreen },
+  );
+}
+
+/**
+ * A game without audio (fixtures/demo): its Esc screen has neither the `v`
+ * row nor the Sound row, and `v` does nothing anywhere: no pill, no
+ * change, no audio element.
+ */
+async function silentGame({ check, open }) {
+  const { page, cdp } = await open("silent-game", { closeHelp: true });
+  await spaceTo(page, cdp, "text-narration");
+  await page.evaluate(INSTALL_PILL_LOG);
+  const before = await page.evaluate(SIGNATURE);
+  await pressV(cdp);
+  await sleep(400);
+  const after = await page.evaluate(SIGNATURE);
+  await openSettings(page, cdp);
+  const help = await page.evaluate(READ_HELP);
+  const cfg = await page.evaluate(READ_CONFIG_OVERLAY);
+  const screenBefore = await page.evaluate(READ_CONFIG_RECTS);
+  await pressV(cdp);
+  await sleep(400);
+  const screenAfter = await page.evaluate(READ_CONFIG_RECTS);
+  const page_ = await page.evaluate(() => ({
+    hook: document.getElementById("audio") !== null,
+    audio: document.querySelectorAll("audio").length,
+    soundControls: document.querySelectorAll(
+      '[data-config-action="sound"], [data-config-action="volumes"], #volumes',
+    ).length,
+  }));
+  const pills = await readPills(page);
+  check(
+    "a game without audio: v shows no pill and changes nothing, over the story or the Esc screen; there is no audio element, and the Esc screen has no V row and no Sound row",
+    after === before &&
+      pills.length === 0 &&
+      JSON.stringify(screenAfter) === JSON.stringify(screenBefore) &&
+      !page_.hook &&
+      page_.audio === 0 &&
+      page_.soundControls === 0 &&
+      JSON.stringify(help.rows.map((r) => r.key)) ===
+        JSON.stringify(HELP_KEYS) &&
+      JSON.stringify(cfg.lines) === JSON.stringify(CONFIG_LINES),
+    { before, after, pills, page: page_, keys: help.rows.map((r) => r.key) },
+  );
+}
+
 // Independent parts (each opens its own browser); the runner runs them
 // side by side and prints their checks in this order. A part that throws
 // gets a FAIL "<part> completed" and the others still run.
@@ -2901,6 +3219,9 @@ export const parts = [
   resume,
   config,
   escLayout,
+  escLayoutAudio,
+  soundScreen,
+  silentGame,
   escTips,
   settingsImmediateReload,
   emptyFolder,

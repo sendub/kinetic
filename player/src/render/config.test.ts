@@ -26,6 +26,7 @@ import {
   SKIP_ALL_TEXT,
   SKIP_SECTION,
   SKIP_VIDEOS_TEXT,
+  SOUND_TEXT,
   SPEED_LABEL,
   SPEED_MAX,
   SPEED_MIN,
@@ -274,15 +275,29 @@ const byAction = (root: FakeElement, action: string): FakeElement =>
     (el) => el.getAttribute("data-config-action") === action,
   );
 
-/** Mounts the panel over a mutable settings source, collecting onChange. */
-function mount(initial: MachineSettings) {
+/**
+ * Mounts the panel over a mutable settings source, collecting onChange;
+ * `sound` mounts it for a game with sound, collecting each Volumes... ask
+ * (the button it came from).
+ */
+function mount(initial: MachineSettings, { sound = false } = {}) {
   const root = new FakeDocument().createElement("div");
   let inForce = initial;
   const changes: MachineSettings[] = [];
   const resets: number[] = [];
   const exports: number[] = [];
   const imports: unknown[] = [];
+  const volumes: unknown[] = [];
   const overlay = mountConfigOverlay({
+    ...(sound
+      ? {
+          sound: {
+            onVolumes: (opener: HTMLElement) => {
+              volumes.push(opener);
+            },
+          },
+        }
+      : {}),
     root: root as unknown as HTMLElement,
     settings: () => inForce,
     onChange: (next) => {
@@ -305,6 +320,7 @@ function mount(initial: MachineSettings) {
     resets,
     exports,
     imports,
+    volumes,
     overlay,
     setInForce: (next: MachineSettings): void => {
       inForce = next;
@@ -938,5 +954,75 @@ describe("isSettingsControl (Phase 43: gestures fullscreen leaves alone)", () =>
       ),
     ).toBe(false);
     expect(isSettingsControl(null)).toBe(false);
+  });
+});
+
+describe("the Sound row (docs/plan.md Phase 47 item 7)", () => {
+  it("is drawn only for a game with sound, as a second row of Play all routes' group", () => {
+    const silent = mount(defaults);
+    expect(
+      walk(silent.root).some(
+        (el) =>
+          el.getAttribute("data-config-action") === "sound" ||
+          el.getAttribute("data-config-action") === "volumes",
+      ),
+    ).toBe(false);
+    const { root } = mount(defaults, { sound: true });
+    expect(groupLines(root)).toEqual([
+      ["Auto-forward speed"],
+      [`# ${SKIP_SECTION}`, `  ${SKIP_ALL_TEXT}`, `  ${SKIP_VIDEOS_TEXT}`],
+      ["Play all routes", SOUND_TEXT],
+      [
+        `# ${PROGRESS_HEADING}`,
+        "  Export progress",
+        "  Import progress",
+        "  Reset progress",
+      ],
+    ]);
+    expect(SOUND_TEXT).toBe("Sound");
+    // The label, then Volumes..., then the switch trailing like every
+    // other switch, so it lines up under Play all routes'.
+    const row = byAction(root, "sound").parent;
+    expect(row?.children.map((el) => el.className)).toEqual([
+      "config-label",
+      "config-toggle config-volumes",
+      "config-toggle config-sound",
+    ]);
+    expect(byAction(root, "volumes").textContent).toBe("Volumes…");
+    expect(byAction(root, "sound").getAttribute("role")).toBe("switch");
+  });
+
+  it("its switch is the soundOn setting, saved through onChange like every switch", () => {
+    const { root, changes } = mount(defaults, { sound: true });
+    const sound = byAction(root, "sound");
+    expect(sound.textContent).toBe("On");
+    expect(sound.getAttribute("aria-pressed")).toBe("true");
+    sound.fire("click");
+    expect(changes).toEqual([{ ...defaults, soundOn: false }]);
+    expect(sound.textContent).toBe("Off");
+    expect(sound.getAttribute("aria-pressed")).toBe("false");
+    sound.fire("click");
+    expect(changes[1]).toEqual(defaults);
+  });
+
+  it("Volumes... asks for the sheet with its own button and changes no setting", () => {
+    const { root, changes, volumes } = mount(defaults, { sound: true });
+    const button = byAction(root, "volumes");
+    button.fire("click");
+    expect(volumes).toEqual([button]);
+    expect(changes).toHaveLength(0);
+    expect(button.getAttribute("aria-label")).toBe(
+      "Music, effects and voice volumes",
+    );
+  });
+
+  it("repaints from the settings in force on refresh (v pressed over the screen)", () => {
+    const holder = mount(defaults, { sound: true });
+    holder.overlay.open();
+    holder.setInForce({ ...defaults, soundOn: false });
+    holder.overlay.refresh();
+    expect(byAction(holder.root, "sound").getAttribute("aria-pressed")).toBe(
+      "false",
+    );
   });
 });

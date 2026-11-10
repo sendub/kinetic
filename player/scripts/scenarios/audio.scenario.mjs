@@ -46,6 +46,7 @@ import {
   closeSettings,
   demoDir,
   engine,
+  INSTALL_PILL_LOG,
   MAP_CLOSED,
   MAP_OPEN,
   MAP_READY,
@@ -56,12 +57,15 @@ import {
   pressDigit,
   pressE,
   pressEscape,
+  pressH,
+  pressKey,
   pressM,
   pressSpace,
   pressTab,
   pressU,
   pressZ,
   READ_MAP_CARDS,
+  readPills,
   repoRoot,
   scenarioRoot,
   setPageVisible,
@@ -1076,6 +1080,392 @@ async function library({ check, folders }) {
   );
 }
 
+// ---- The sound controls (docs/plan.md Phase 47 item 7) ----------------
+
+/** `v`: sound on or off. */
+const pressV = (cdp) => pressKey(cdp, "v", "KeyV", 86, "v");
+const VOLUMES_OPEN = () => {
+  const sheet = document.getElementById("volumes");
+  return sheet !== null && !sheet.hidden;
+};
+/** Opens the Esc screen and its Volumes sheet; true once the sheet is up. */
+async function openVolumes(page, cdp) {
+  await openSettings(page, cdp);
+  await clickCenter(cdp, '[data-config-action="volumes"]');
+  return page
+    .waitForFunction(VOLUMES_OPEN, { timeout: 2000 })
+    .then(() => true)
+    .catch(() => false);
+}
+/** A volume row's readout ("90%") in the open sheet. */
+const READ_VOLUME = (name) =>
+  document.querySelector(`[data-volume="${name}"] .config-value`)
+    ?.textContent ?? null;
+const percent = (text) => Number.parseInt(text ?? "", 10) / 100;
+
+// The settings in the player's saved state record (src/storage/idb.ts),
+// under the story's storage key; null before any write.
+const READ_SAVED_SETTINGS = async () => {
+  const story = window.KINETIC_MANIFEST?.storyId;
+  const key =
+    typeof story === "string" && /^[a-z0-9][a-z0-9_-]{0,63}$/.test(story)
+      ? `story:${story}`
+      : new URL(".", document.baseURI).href;
+  const db = await new Promise((resolve, reject) => {
+    const open = indexedDB.open("kinetic", 1);
+    open.onsuccess = () => resolve(open.result);
+    open.onerror = () => reject(open.error);
+  });
+  try {
+    const record = await new Promise((resolve, reject) => {
+      const req = db.transaction("state").objectStore("state").get(key);
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+    return record?.settings ?? null;
+  } finally {
+    db.close();
+  }
+};
+
+/** Polls the saved settings until `ok(settings)` (1 s); the last reading. */
+async function waitSaved(page, ok) {
+  const until = Date.now() + 1000;
+  for (;;) {
+    const saved = await page.evaluate(READ_SAVED_SETTINGS);
+    if ((saved !== null && ok(saved)) || Date.now() > until) return saved;
+    await sleep(40);
+  }
+}
+
+/**
+ * Music and ambience play while the Volumes sheet is open and pause again
+ * when it closes; a Music change is on the elements' volume at once, and
+ * survives a reload.
+ */
+async function volumesSound({ check, open, folders }) {
+  if (!built(check, folders)) return;
+  // `pin` sets music and ambience both; Space reads on to `end`, which
+  // keeps them, and unlocks sound.
+  const { page, cdp } = await openDemo(open, "volumes-sound", {
+    hash: "#start=pin",
+  });
+  await pressSpace(cdp);
+  const bed = expectedTarget("end");
+  const level = (s, slot) => playing(s, slot).map((e) => e.v);
+  const full = await waitSound(page, (s) => bedMatches(s, bed));
+  await openSettings(page, cdp);
+  await sleep(300);
+  const underEsc = await readSound(page);
+  const sheetUp = await openVolumes(page, cdp);
+  const a = (await waitSound(page, (s) => bedMatches(s, bed))).s;
+  await sleep(600);
+  const b = await readSound(page);
+  const clockMoved = (slot) =>
+    playing(b, slot).every((e) => {
+      const before = a.els[e.n];
+      return before?.track === e.track && e.t > before.t + 0.3;
+    });
+  check(
+    "music and ambience pause under the Esc screen, play while the Volumes sheet is open (their clocks moving), and nothing else does",
+    full.ok &&
+      playing(underEsc).length === 0 &&
+      sheetUp &&
+      bedMatches(a, bed) &&
+      bedMatches(b, bed) &&
+      clockMoved("music") &&
+      clockMoved("ambience") &&
+      playing(b).every((e) => e.slot === "music" || e.slot === "ambience"),
+    { underEsc: evidence(underEsc), a: evidence(a), b: evidence(b) },
+  );
+
+  // Music down to 50%: five presses of its - button.
+  for (let n = 0; n < 5; n += 1) {
+    await clickCenter(cdp, '[data-config-action="volume-music-down"]');
+  }
+  const music = percent(await page.evaluate(READ_VOLUME, "musicVolume"));
+  // Saved at once, with the sheet still open: the stored record has it.
+  const saved = await waitSaved(page, (st) => st.musicVolume === 0.5);
+  const halved = await waitSound(
+    page,
+    (s) =>
+      level(s, "music").every((v) => Math.abs(v - music) < 0.02) &&
+      level(s, "ambience").every(
+        (v) => Math.abs(v - music * (tracks().rain.volume ?? 1)) < 0.02,
+      ) &&
+      level(s, "music").length === 1,
+    2000,
+  );
+  await pressEscape(cdp); // the sheet only
+  await sleep(300);
+  const closedA = await readSound(page);
+  await sleep(600);
+  const closedB = await readSound(page);
+  const screenUp = await page.evaluate(
+    () => !document.getElementById("help").hidden,
+  );
+  check(
+    "five presses of Music's - read 50%, are saved at once, and set the music and ambience elements' volume to half their level at once; Escape closes the sheet and they pause again under the Esc screen",
+    music === 0.5 &&
+      saved?.musicVolume === 0.5 &&
+      halved.ok &&
+      screenUp &&
+      playing(closedA).length === 0 &&
+      frozen(closedA, closedB),
+    {
+      music,
+      saved: saved?.musicVolume,
+      halved: evidence(halved.s),
+      closed: [evidence(closedA), evidence(closedB)],
+    },
+  );
+
+  // A reload: a key that counts unlocks sound (h, twice, moves nothing),
+  // and the music comes back at the saved level.
+  await page.reload();
+  await page.waitForFunction(ON_ITEM, { timeout: 5000 }, "end").catch(() => {});
+  await pressH(cdp);
+  await pressH(cdp);
+  const back = await waitSound(
+    page,
+    (s) =>
+      s.unlocked &&
+      level(s, "music").length === 1 &&
+      level(s, "music").every((v) => Math.abs(v - 0.5) < 0.02),
+    5000,
+  );
+  await openVolumes(page, cdp);
+  const shown = await page.evaluate(READ_VOLUME, "musicVolume");
+  check(
+    "after a reload the music plays at the saved 50%, and the sheet's Music row reads 50%",
+    back.ok && shown === "50%",
+    { back: evidence(back.s), shown },
+  );
+}
+
+/**
+ * Polls the page from just before `act` until 3 s after it, and reports
+ * the sample element as it went: whether it played `track` at `volume`,
+ * how long after the act it stopped, and how far into the track it got.
+ */
+async function sampleAfter(page, act, track, volume) {
+  const startedAt = await page.evaluate(() => performance.now());
+  await act();
+  const readings = [];
+  for (const until = Date.now() + 3000; Date.now() < until; ) {
+    const s = await readSound(page);
+    const el = s.els.find((e) => e.slot === "sample");
+    readings.push({ at: s.now - startedAt, el, s });
+    await sleep(40);
+  }
+  const heard = readings.filter(
+    (r) => r.el !== undefined && r.el.track === track && !r.el.paused,
+  );
+  const start = tracks()[track].startSeconds ?? 0;
+  const lastHeard = heard.at(-1)?.at ?? Number.POSITIVE_INFINITY;
+  const stoppedAt = readings.find(
+    (r) => r.at > lastHeard && (r.el?.track !== track || r.el.paused),
+  )?.at;
+  return {
+    heard: heard.length > 0,
+    level:
+      heard.length > 0 && heard.every((r) => Math.abs(r.el.v - volume) < 0.02),
+    stoppedAt: stoppedAt ?? null,
+    furthest: Math.max(0, ...heard.map((r) => r.el.t - start)),
+    // Nothing else sounds meanwhile (one-shots and voice stay held).
+    alone: readings.every((r) =>
+      playing(r.s).every(
+        (e) =>
+          e.slot === "sample" || e.slot === "music" || e.slot === "ambience",
+      ),
+    ),
+    voice: readings.map((r) => r.s.els.find((e) => e.slot === "voice")),
+  };
+}
+const sampleOk = (r, maxMs = 2000) =>
+  r.heard &&
+  r.level &&
+  r.alone &&
+  r.stoppedAt !== null &&
+  r.stoppedAt <= maxMs + 300 &&
+  r.furthest <= maxMs / 1000 + 0.05;
+
+/**
+ * An Effects or Voice change plays a sample of at most 2 s at the new
+ * level: the last one-shot fired, else the game's first one-shot; the
+ * current item's voice, else the game's first voice line.
+ */
+async function volumeSamples({ check, open, folders }) {
+  if (!built(check, folders)) return;
+  const { page, cdp } = await openDemo(open, "volume-samples");
+  const firstSfx = audioDemo().items.find((it) => it.audio?.sfx)?.audio.sfx[0]
+    .track;
+  const down = (name) => () =>
+    clickCenter(cdp, `[data-config-action="volume-${name}-down"]`);
+
+  // No one-shot has fired yet: the game's first one-shot track.
+  await pressSpace(cdp); // unlocks sound
+  await openVolumes(page, cdp);
+  const first = await sampleAfter(page, down("effects"), firstSfx, 0.9);
+  await pressEscape(cdp);
+  await pressEscape(cdp);
+  check(
+    `with no one-shot fired yet, an Effects change plays the game's first one-shot (${firstSfx}) at the new 90%, and it stops by itself`,
+    sampleOk(first),
+    { ...first, voice: undefined },
+  );
+
+  // sfx-overlap fires the siren, then the bell 2 s later: the bell (3 s)
+  // is the last one-shot fired, and its sample stops at 2 s.
+  await spaceToItem(page, cdp, "sfx-overlap");
+  await sleep(2600);
+  await openVolumes(page, cdp);
+  const bell = tracks().bell.volume ?? 1;
+  const last = await sampleAfter(page, down("effects"), "bell", 0.8 * bell);
+  await pressEscape(cdp);
+  await pressEscape(cdp);
+  check(
+    "an Effects change plays the last one-shot fired (the 3 s bell) at the new 80% for at most 2 s, the item's own one-shots staying held",
+    sampleOk(last) && last.furthest > 1.2,
+    { ...last, voice: undefined },
+  );
+
+  // The current item's voice (8.4 s), held under the Esc screen, samples
+  // from its start for at most 2 s; the held line keeps its place.
+  await spaceToItem(page, cdp, "voice-long");
+  await waitSound(
+    page,
+    (s) => playing(s, "voice").some((e) => e.track === "mei-long" && e.t > 0.3),
+    3000,
+  );
+  await openVolumes(page, cdp);
+  await sleep(200);
+  const voice = await sampleAfter(
+    page,
+    down("voice"),
+    "mei-long",
+    0.9 * (tracks()["mei-long"].volume ?? 1),
+  );
+  const held = voice.voice.filter((e) => e?.track === "mei-long");
+  check(
+    "a Voice change plays the current item's voice line (8.4 s) at the new 90% for at most 2 s, while the line itself stays paused where it was",
+    sampleOk(voice) &&
+      voice.furthest > 1.2 &&
+      held.length === voice.voice.length &&
+      held.every((e) => e.paused && Math.abs(e.t - held[0].t) < 0.25),
+    { ...voice, voice: [held[0], held.at(-1)] },
+  );
+}
+
+/**
+ * `v`: its pill, everything silent while off, and turning it on applies
+ * the screen's sound with no one-shot and no voice restart; the setting is
+ * the Esc screen's switch and survives a reload.
+ */
+async function soundKey({ check, open, folders }) {
+  if (!built(check, folders)) return;
+  const { page, cdp } = await openDemo(open, "sound-key");
+  const toggled = async () => {
+    await page.evaluate(INSTALL_PILL_LOG);
+    await pressV(cdp);
+    await sleep(300);
+    return readPills(page);
+  };
+
+  // Ambience: off silences it, on brings the same loops back.
+  await spaceToItem(page, cdp, "amb-carry");
+  const bed = expectedTarget("amb-carry");
+  await waitSound(page, (s) => bedMatches(s, bed));
+  const offPill = await toggled();
+  const off = await readSound(page);
+  const savedOff = await waitSaved(page, (st) => st.soundOn === false);
+  const onPill = await toggled();
+  const on = await waitSound(page, (s) => bedMatches(s, bed), 3000);
+  check(
+    'v shows "Sound off", saves it at once and silences every element, then "Sound on" and the screen\'s ambience plays again',
+    JSON.stringify(offPill) === JSON.stringify(["Sound off"]) &&
+      savedOff?.soundOn === false &&
+      playing(off).length === 0 &&
+      JSON.stringify(onPill) === JSON.stringify(["Sound on"]) &&
+      on.ok,
+    {
+      offPill,
+      onPill,
+      savedOff: savedOff?.soundOn,
+      off: evidence(off),
+      on: evidence(on.s),
+    },
+  );
+
+  // One-shots: off then on at sfx-overlap fires none (nor the pending bell).
+  await spaceToItem(page, cdp, "sfx-overlap");
+  await waitSound(page, (s) => playing(s, "sfx").length > 0, 2000);
+  await toggled();
+  await toggled();
+  await sleep(2500); // past the bell's 2 s delay
+  const noShots = await readSound(page);
+  // Voice: off then on during the long line does not start it again.
+  await spaceToItem(page, cdp, "voice-long");
+  await waitSound(
+    page,
+    (s) => playing(s, "voice").some((e) => e.track === "mei-long"),
+    3000,
+  );
+  await toggled();
+  await toggled();
+  await sleep(1000);
+  const noVoice = await readSound(page);
+  check(
+    "turning sound on fires no one-shot (the siren gone, the pending bell dropped) and does not restart the voice line",
+    playing(noShots, "sfx").length === 0 &&
+      playing(noVoice, "voice").length === 0,
+    { sfx: evidence(noShots), voice: evidence(noVoice) },
+  );
+
+  // Off is the Esc screen's switch, shown there; over the screen v flips
+  // it back, with its pill; and Off survives a reload.
+  await toggled();
+  await openSettings(page, cdp);
+  const SWITCH = () =>
+    document
+      .querySelector('[data-config-action="sound"]')
+      ?.getAttribute("aria-pressed") ?? null;
+  const shownOff = await page.evaluate(SWITCH);
+  const overScreen = await toggled();
+  const shownOn = await page.evaluate(SWITCH);
+  await clickCenter(cdp, '[data-config-action="sound"]'); // Off again
+  const clickedOff = await page.evaluate(SWITCH);
+  await closeSettings(page, cdp);
+  await page.reload();
+  await page
+    .waitForFunction(ON_ITEM, { timeout: 5000 }, "voice-long")
+    .catch(() => {});
+  await pressH(cdp);
+  await pressH(cdp);
+  await sleep(1200);
+  const reloaded = await readSound(page);
+  await openSettings(page, cdp);
+  const afterReload = await page.evaluate(SWITCH);
+  check(
+    "the Esc screen's Sound switch shows v's Off; v over the screen turns it On with its pill; a click on it turns it Off, which survives a reload: nothing plays and no hint shows",
+    shownOff === "false" &&
+      JSON.stringify(overScreen) === JSON.stringify(["Sound on"]) &&
+      shownOn === "true" &&
+      clickedOff === "false" &&
+      afterReload === "false" &&
+      playing(reloaded).length === 0 &&
+      !reloaded.hint,
+    {
+      shownOff,
+      overScreen,
+      shownOn,
+      clickedOff,
+      afterReload,
+      reloaded: evidence(reloaded),
+    },
+  );
+}
+
 // Independent parts (each opens its own browsers); the runner runs them
 // side by side and prints their checks in this order.
 export const parts = [
@@ -1090,4 +1480,7 @@ export const parts = [
   menus,
   voiceHold,
   library,
+  volumesSound,
+  volumeSamples,
+  soundKey,
 ];

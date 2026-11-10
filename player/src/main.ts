@@ -35,7 +35,8 @@
 // `index.html#start=<id>` opens one load at an item (render/urlstart.ts).
 // Phase 47's sound (render/audio.ts) follows the machine's arrivals; the
 // menus below tell it which screens are up, and the settings reach it with
-// the machine's.
+// the machine's; `v`, the Esc screen's Sound row and its Volumes sheet
+// (render/volumes.ts) change them, in a game with audio only.
 // Composition only — rendering lives in src/render/, timing in
 // src/machine/, storage adapters in src/storage/.
 
@@ -81,6 +82,7 @@ import { layOutStrip, type MapStrip, runJump } from "./render/mapmodel";
 import { mountRouteAnnouncements } from "./render/routes";
 import { mountSkipAnnouncements } from "./render/skip";
 import { takeUrlStart } from "./render/urlstart";
+import { mountVolumesOverlay, soundMessage } from "./render/volumes";
 import { installWheelInput } from "./render/wheel";
 import { CLOSE_TAB_NOTE, mountWindowControls } from "./render/windowcontrols";
 import { createIdbStorage, storageKeys, storyIdOf } from "./storage/idb";
@@ -381,6 +383,8 @@ function start(): void {
         onEntry: (command) => {
           if (command === "toggleMap") runMapKey();
         },
+        // A game with audio lists `v` (docs/plan.md Phase 47 item 7).
+        sound: audio !== null,
       });
       // The settings (Phase 26: on the Esc screen, under the keys; `c` is
       // gone). A control click applies the full next settings live — machine.setSettings re-arms
@@ -426,6 +430,12 @@ function start(): void {
               shell.notify(EXPORT_DONE_NOTICE);
             });
         },
+        // A game with audio gets the Sound row (docs/plan.md Phase 47
+        // item 7): its switch goes through onChange above, its Volumes...
+        // opens the sheet below.
+        ...(audio === null
+          ? {}
+          : { sound: { onVolumes: (opener) => volumes?.open(opener) } }),
         // Import: the file is checked before anything is touched; a
         // refusal is said in the pill, held long enough to read, and a good
         // file asks the box.
@@ -460,6 +470,32 @@ function start(): void {
         // Cancel: close, and nothing else was ever touched.
         onCancel: () => {},
       });
+      // The sound settings `v` and the Volumes sheet change (docs/plan.md
+      // Phase 47 item 7): applied to the sound and saved at once, the Esc
+      // screen's switch repainted. The machine reads none of them, so no
+      // setSettings (which would re-arm a running hold).
+      function changeSound(next: MachineSettings): void {
+        currentSettings = next;
+        audio?.setSettings(next);
+        config.refresh();
+        persistUrgently();
+      }
+      // The Volumes sheet (item 7), over the Esc screen like the reset box;
+      // only a game with audio has one. Music and ambience play while it is
+      // open; an Effects or Voice change plays a sample.
+      const volumes =
+        audio === null
+          ? null
+          : mountVolumesOverlay({
+              root,
+              hasVoice: manifest.items.some(
+                (item) => item.audio?.voice !== undefined,
+              ),
+              settings: () => currentSettings,
+              onChange: changeSound,
+              onSample: (group) => audio.sample(group),
+              onOpenChange: (open) => audio.setVolumesOpen(open),
+            });
       // The window controls (docs/plan.md Phase 43 item 9), the last group
       // of the settings: Fullscreen | Window and Exit. A game app owns its
       // display mode and quits itself (render/host.ts); in a browser tab
@@ -556,6 +592,7 @@ function start(): void {
       };
       function closeHelp(): void {
         if (!help.isOpen()) return;
+        volumes?.close();
         help.close();
         config.close();
         shell.setStageVisible(true);
@@ -828,7 +865,8 @@ function start(): void {
       // decision too.
       function runMapKey(): void {
         const action = mapKeyAction({
-          confirmOpen: confirm.isOpen(),
+          // The Volumes sheet holds the keys as the reset box does.
+          confirmOpen: confirm.isOpen() || volumes?.isOpen() === true,
           helpOpen: help.isOpen(),
           mapOpen: map.isOpen(),
         });
@@ -855,7 +893,7 @@ function start(): void {
           // decision is answered by its own keys, never by space — except
           // that Space takes a play-all auto-pick at once (Phase 18).
           advance: () => {
-            if (confirm.isOpen()) return;
+            if (confirm.isOpen() || volumes?.isOpen() === true) return;
             if (help.isOpen()) {
               closeHelp();
               return;
@@ -893,6 +931,21 @@ function start(): void {
             if (anyPanelOpen()) return;
             machine.setAutoAdvance(!machine.isAutoAdvance());
           },
+          // `v` (docs/plan.md Phase 47 item 7): sound on or off, with its
+          // pill, over the story, a choice, the map or the Esc screen (whose
+          // switch follows); the reset box and the Volumes sheet hold it. A
+          // game without audio does nothing and shows nothing. Turning it
+          // on applies the screen's music and ambience, with no one-shot
+          // and no voice restart (render/audiorules.ts `setSoundOn`).
+          toggleSound: () => {
+            if (audio === null || confirm.isOpen()) return;
+            if (volumes?.isOpen() === true) return;
+            changeSound({
+              ...currentSettings,
+              soundOn: !currentSettings.soundOn,
+            });
+            flashMode([soundMessage(currentSettings.soundOn)]);
+          },
           // `y`/`n` act only while the reset box is open (keys.ts maps
           // them always; the box is the context, like Escape is its). With no box up they are inert, as the digits
           // are with no decision.
@@ -913,6 +966,11 @@ function start(): void {
           // checked FIRST: it sits over the Esc screen, and Escape cancels
           // the box without disturbing the screen under it.
           dismissOverlay: () => {
+            // The Volumes sheet, like the reset box, closes alone.
+            if (volumes?.isOpen() === true) {
+              volumes.close();
+              return;
+            }
             if (confirm.isOpen()) {
               confirm.close();
               return;

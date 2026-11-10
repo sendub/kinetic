@@ -137,7 +137,8 @@
       #help,
       #branchmap,
       #choice,
-      #confirm {
+      #confirm,
+      #volumes {
         /* Accent: one gold; dark type (the stamp) on any solid gold or ink
            fill. */
         --k-gold: #e6b566;
@@ -277,13 +278,15 @@
       .help-game,
       .map-title,
       .confirm-title,
+      .volumes-title,
       .choice-title {
         color: var(--k-t1);
         font-weight: var(--k-w-bold);
       }
       .help-game,
       .map-title,
-      .confirm-title {
+      .confirm-title,
+      .volumes-title {
         display: flex;
         align-items: center;
         gap: 0.42em;
@@ -295,13 +298,15 @@
         letter-spacing: -0.022em;
       }
       .confirm-title,
+      .volumes-title,
       .choice-title {
         font-size: var(--k-t-title);
         letter-spacing: -0.018em;
       }
       .help-game::before,
       .map-title::before,
-      .confirm-title::before {
+      .confirm-title::before,
+      .volumes-title::before {
         content: "";
         flex: none;
         width: 1.5em;
@@ -337,7 +342,8 @@
       }
       #help::after,
       #choice::after,
-      #confirm::after {
+      #confirm::after,
+      .volumes-sheet::after {
         content: "";
         padding: 1px;
         background: var(--k-rim-ring);
@@ -519,7 +525,8 @@
          (the Esc screen and a long choice list scroll inside themselves). */
       #help ::selection,
       #choice ::selection,
-      #confirm ::selection {
+      #confirm ::selection,
+      #volumes ::selection {
         background: rgba(230, 181, 102, 0.34);
         color: rgb(var(--k-ink));
       }
@@ -636,8 +643,10 @@
         background: var(--k-cell);
       }
       /* Two across: the last entry (the decision keys) takes the full
-         width. */
-      .help-row:last-child {
+         width, and so does the one before it when it would sit alone (a
+         game with sound adds V, an odd row), so no cell is left empty. */
+      .help-row:last-child,
+      .help-row:nth-last-child(2):nth-child(odd) {
         grid-column: 1 / -1;
       }
       /* Inset hairlines between rows (none above the first line). */
@@ -728,8 +737,9 @@
          #help, under the keys, and dropped `c`): the auto-forward speed
          slider with its step buttons, the "When Tab skips" options (skip
          unseen content too, play videos in full), the play-all-routes
-         switch, the Progress group (export, import, reset; Phase 21) and
-         the Game window group (Phase 43) — and nothing else. Inset-grouped
+         switch (with the Sound row under it in a game with audio, Phase
+         47), the Progress group (export, import, reset; Phase 21) and the
+         Game window group (Phase 43) — and nothing else. Inset-grouped
          lists, like a native settings window. It flows inside the #help
          panel, which owns the z-order, the ground and the vertical scroll.
          #config is a column: its heading, then one `.config-group` per
@@ -806,8 +816,9 @@
       }
       /* The current speed is a readout, not a control (docs/plan.md
          Phase 16): secondary text at the cell's top right, on one line at
-         any width ("1.00x (~60 ms/char)"; Phase 24, Phase 43 item 12). */
-      .config-speed-value {
+         any width ("1.00x (~60 ms/char)"; Phase 24, Phase 43 item 12).
+         The Volumes sheet's percentages are the same readout. */
+      .config-value {
         flex: none;
         min-width: 0;
         color: var(--k-t2);
@@ -956,16 +967,17 @@
           0 0 0 0.5px rgba(0, 0, 0, 0.18),
           0 2px 5px rgba(0, 0, 0, 0.38);
       }
-      /* The speed cell: its label (with its "?") and readout on the top
-         line, the readout at the cell's right; under them the slider
-         between its step buttons across the whole cell, - on its left
-         padding edge and + on its right (Phase 43 item 12: the readout
-         never sizes a column + sits in). One wrapping flex line: a readout
-         that cannot share the label's line drops to one of its own rather
-         than overlap it, and the break (::after, a full line wide, as tall
-         as the gap above the steps) keeps the steps and slider on their
-         own line. */
-      .config-speed {
+      /* A - slider + cell (`.config-slide`): the auto-forward speed, and
+         each row of the Volumes sheet. Its label (with any "?") and
+         readout on the top line, the readout at the cell's right; under
+         them the slider between its step buttons across the whole cell, -
+         on its left padding edge and + on its right (Phase 43 item 12: the
+         readout never sizes a column + sits in). One wrapping flex line: a
+         readout that cannot share the label's line drops to one of its own
+         rather than overlap it, and the break (::after, a full line wide,
+         as tall as the gap above the steps) keeps the steps and slider on
+         their own line. */
+      .config-slide {
         --cell-top: clamp(8px, 1.2vh, 13px);
         /* Where a tip hangs: under the label's line (the "?" is no taller
            than it). */
@@ -973,27 +985,29 @@
         flex-wrap: wrap;
         row-gap: 0;
         column-gap: clamp(10px, 1vw, 14px);
-        margin-top: clamp(4px, 0.8vh, 10px);
         padding-top: var(--cell-top);
         padding-bottom: var(--cell-top);
       }
-      .config-speed::after {
+      .config-speed {
+        margin-top: clamp(4px, 0.8vh, 10px);
+      }
+      .config-slide::after {
         content: "";
         order: 2;
         flex: 0 0 100%;
         height: clamp(4px, 0.7vh, 8px);
       }
-      .config-speed > .config-speed-value {
+      .config-slide > .config-value {
         order: 1;
         margin-left: auto;
       }
-      .config-speed > .config-step,
-      .config-speed > .config-slider {
+      .config-slide > .config-step,
+      .config-slide > .config-slider {
         order: 3;
       }
       /* The slider takes what the steps leave (a 100% width would wrap
          it onto a line of its own). */
-      .config-speed > .config-slider {
+      .config-slide > .config-slider {
         flex: 1 1 0;
         width: auto;
       }
@@ -1302,6 +1316,70 @@
       }
       .confirm-hint {
         grid-row: 6;
+        margin: clamp(12px, 1.8vh, 16px) 0 0;
+        color: var(--k-t2);
+        font-size: var(--k-t-small);
+        font-weight: var(--k-w-2);
+        letter-spacing: 0.004em;
+      }
+
+      /* ==== The Volumes sheet (docs/plan.md Phase 47 item 7) ==============
+         The Esc screen's "Volumes..." (a game with audio only) opens it,
+         centred over everything like the reset box: above the Esc screen
+         (#help, z 6), under the #flash pill (z 10), the screen frosted and
+         dimmed behind it. A smaller sheet of the same make: its title
+         marked with a gold speaker, one inset group of - slider + cells
+         (Music, Effects, Voice; the speed cell's make, `.config-slide`),
+         Done at the alert's large size, and its key line. The scrim
+         (#volumes) scrolls when a window is too short for the sheet. */
+      #volumes {
+        --g-cellpad: clamp(12px, 1.25vw, 18px);
+        --g-row: clamp(36px, 4.3vh, 48px);
+        --c-padx: clamp(20px, 2.2vw, 30px);
+        --c-padv: clamp(20px, 3vh, 30px);
+        position: absolute;
+        inset: 0;
+        z-index: 7;
+        display: grid;
+        place-items: center;
+        padding: 16px;
+        overflow-y: auto;
+        overscroll-behavior: contain;
+        background: rgba(8, 8, 11, 0.42);
+        -webkit-backdrop-filter: blur(18px) saturate(120%);
+        backdrop-filter: blur(18px) saturate(120%);
+        color: var(--k-t1);
+      }
+      #volumes[hidden] {
+        display: none;
+      }
+      .volumes-sheet {
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        width: min(24rem, 100%);
+        padding: var(--c-padv) var(--c-padx);
+        border-radius: var(--k-r-sheet);
+        background: var(--k-sheen), var(--k-sheet);
+        box-shadow: var(--k-shadow-sheet);
+        text-align: center;
+      }
+      .volumes-sheet::after {
+        position: absolute;
+        inset: 0;
+        border-radius: inherit;
+      }
+      /* Its mark: a gold speaker, sounding. */
+      .volumes-title {
+        --k-mark: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 46 20'%3E%3Cpath d='M3 10H23' stroke='%23f4efe6' stroke-width='5' stroke-linecap='round'/%3E%3Cpath d='M27 7h3.2l5-4.4v14.8l-5-4.4H27z' fill='%23e6b566' stroke='%23e6b566' stroke-width='1.6' stroke-linejoin='round'/%3E%3Cpath d='M38.8 6.2a5.2 5.2 0 0 1 0 7.6M41.8 3.2a9.4 9.4 0 0 1 0 13.6' fill='none' stroke='%23e6b566' stroke-width='2.3' stroke-linecap='round'/%3E%3C/svg%3E");
+        justify-content: center;
+        margin: 0;
+      }
+      .volumes-list {
+        margin: clamp(14px, 2vh, 20px) 0 clamp(16px, 2.4vh, 24px);
+        text-align: left;
+      }
+      .volumes-hint {
         margin: clamp(12px, 1.8vh, 16px) 0 0;
         color: var(--k-t2);
         font-size: var(--k-t-small);

@@ -904,10 +904,11 @@ function gameHandle({ page, cdp, errors, manifest, closeHelp }, fields) {
      * (`{ music, ambience, voice, videoSound }`, from a moment after a
      * walk or jump lands: the player waits 250 ms) and `elements` each
      * <audio> element holding a track, `{ slot, track, paused,
-     * currentTime, volume }`, slot "music", "ambience", "sfx", "voice" or
-     * "video"; null for a game without audio. A browser plays nothing
-     * until the first key or click (`unlocked` false until then); the
-     * WebKit engine, like the macOS app, plays at once.
+     * currentTime, volume }`, slot "music", "ambience", "sfx", "voice",
+     * "video" or "sample" (the Esc screen's Volumes sheet sampling a
+     * one-shot or a voice line); null for a game without audio. A browser
+     * plays nothing until the first key or click (`unlocked` false until
+     * then); the WebKit engine, like the macOS app, plays at once.
      */
     current,
     /** Waits for an item id, or for `fn(current())` to be true. */

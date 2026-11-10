@@ -66,6 +66,14 @@ describe("helpRows (drawn from the keymap, Phase 13b)", () => {
     ]);
   });
 
+  it("draws a V row after H only for a game with sound (Phase 47 item 7)", () => {
+    const labels = helpRows({ sound: true }).flatMap((row) => row.keys);
+    expect(labels.slice(5, 9)).toEqual(["A", "H", "V", "B"]);
+    expect(labels).toHaveLength(12);
+    expect(helpRows({ sound: false })).toEqual(helpRows());
+    expect(helpRows().flatMap((row) => row.keys)).not.toContain("V");
+  });
+
   it("labels keys the way a keyboard legends them", () => {
     expect(helpKeyLabel("h")).toBe("H");
     expect(helpKeyLabel("Space")).toBe("Space"); // already a word
@@ -185,6 +193,20 @@ describe("the Esc screen holds the settings (docs/plan.md Phase 26)", () => {
     expect(list?.children.map((el) => el.className)).toEqual(
       helpRows().map(() => "help-row"),
     );
+  });
+
+  it("draws the sound key's row when told the game has sound", () => {
+    const root = new FakeDocument().createElement("div");
+    mountHelpOverlay({ root: root as unknown as HTMLElement, sound: true });
+    const list = root.children[0]?.children.find(
+      (el) => el.className === "help-list",
+    );
+    expect(list?.children).toHaveLength(helpRows({ sound: true }).length);
+    const descriptions = list?.children.map(
+      (row) =>
+        row.children.find((el) => el.className === "help-desc")?.textContent,
+    );
+    expect(descriptions).toContain("sound on / off");
   });
 });
 
