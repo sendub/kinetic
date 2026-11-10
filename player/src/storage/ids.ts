@@ -151,14 +151,18 @@ export function createContextCodec(
         const index = itemById.get(id);
         if (index !== undefined) visited.add(index);
       }
+      const seen = [...visited].sort((a, b) => a - b);
       let lastShown = itemById.get(saved.lastShown);
-      if (lastShown === undefined && visited.size > 0) {
-        lastShown = Math.max(...visited);
+      // A gone place falls back to the furthest seen item: the sorted
+      // list's last, not `Math.max(...visited)`, which throws past about
+      // 120,000 arguments.
+      if (lastShown === undefined && seen.length > 0) {
+        lastShown = seen[seen.length - 1];
       }
       if (lastShown === undefined) return undefined;
       return {
         lastShown,
-        visited: [...visited].sort((a, b) => a - b),
+        visited: seen,
         stack: saved.stack
           .map(indexFrame)
           .filter((frame): frame is ContextFrame => frame !== undefined),

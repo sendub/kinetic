@@ -1246,7 +1246,11 @@ export function mountBranchMap({
     const ordered = [...cards].sort(
       (a, b) => a.slot.cy - b.slot.cy || a.slot.cx - b.slot.cx,
     );
-    cardLayer.replaceChildren(...ordered.map((c) => c.el));
+    // Through a fragment, not a spread: one argument per bookmark throws
+    // past about 120,000 in Chrome.
+    const layer = doc.createDocumentFragment();
+    for (const card of ordered) layer.append(card.el);
+    cardLayer.replaceChildren(layer);
     newestButton.disabled = cards.length === 0;
   }
 

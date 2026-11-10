@@ -108,6 +108,18 @@ const REFUSABLE_VOLUME = 0.001;
  */
 const DURATION_SLACK_S = 0.25;
 
+/**
+ * The most ambience loops any one item names. A loop, not a spread into
+ * `Math.max`: 160,000 arguments overflow the stack in Chrome.
+ */
+export function largestAmbienceSet(items: readonly Item[]): number {
+  let most = 0;
+  for (const item of items) {
+    most = Math.max(most, item.audio?.ambience?.length ?? 0);
+  }
+  return most;
+}
+
 /** Whether a manifest has anything to play: tracks, and items naming them. */
 export function hasSound(manifest: Manifest): boolean {
   const tracks = manifest.audio?.tracks;
@@ -259,8 +271,7 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
   });
   root.append(hook, hint);
 
-  const ambienceCap =
-    2 * Math.max(0, ...items.map((item) => item.audio?.ambience?.length ?? 0));
+  const ambienceCap = 2 * largestAmbienceSet(items);
   const needsMusic = items.some((item) => item.audio?.music != null);
   const needsSfx = items.some((item) => (item.audio?.sfx?.length ?? 0) > 0);
   const needsVoice = items.some((item) => item.audio?.voice !== undefined);

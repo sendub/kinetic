@@ -2111,13 +2111,13 @@ export function createMachine(options: MachineOptions): Machine {
     const anchor = anchorOf(screen);
     restorePass(passAt(anchor));
     stack.length = 0;
-    stack.push(
-      ...framesAround(
-        screen.kind === "item"
-          ? screen.index
-          : decisions[screen.decision].afterIndex,
-      ),
-    );
+    // A loop, not a spread: the frames are bounded only by the decisions.
+    for (const frame of framesAround(
+      screen.kind === "item"
+        ? screen.index
+        : decisions[screen.decision].afterIndex,
+    ))
+      stack.push(frame);
     cursor = anchor;
     transition = "nav";
     arrive(arrives);

@@ -3313,7 +3313,7 @@ truthful: an unchecked box means nothing was accepted.
       item 13. Orchestrator: npm test 1150, check clean, smoke 6/6,
       Chrome `audio` 56/56; the checklist read through and matches the
       demo's items.)
-- [ ] No argument spread over a story-sized list (item 13, added
+- [x] No argument spread over a story-sized list (item 13, added
       2026-11-10; found measuring item 10): `Math.max(...list)` and the
       like throw in Chrome past about 120,000 arguments, so a
       160,000-item game never answered a key (render/audio.ts, its
@@ -3322,6 +3322,22 @@ truthful: an unchecked box means nothing was accepted.
       - a Vitest case per fixed site with 200,000 entries, red first;
       - a sweep of player/src for spreads into calls over story-sized
         lists, each fixed or shown bounded.
+      (2026-11-10: fixed render/audio.ts's ambience cap
+      (`largestAmbienceSet`, a loop), storage/ids.ts's fallback when a
+      saved place no longer exists (the sorted seen list's last entry,
+      the list `visited` already returns), machine.ts `showScreen`'s
+      `stack.push(...framesAround())` (a loop; frames bounded only by the
+      decision count), and branchmap.ts's bookmark cards (a
+      DocumentFragment; bookmarks have no cap). Red first: the ids.ts
+      case with 200,000 seen ids threw RangeError (Node throws from about
+      125,000 arguments), and the audio.ts case with 160,000 items failed
+      with the spread swapped back. Left, bounded: visual.ts:244 (one
+      animation's frames), mapmodel.ts:2070-2071 (at most 2 edges),
+      choice.ts:461 (one decision's routes), config.ts:316 (a fixed few
+      children); player/scripts/testing has none. Orchestrator: npm test
+      1151, check clean, smoke 6/6, the sweep re-run over player/src and
+      player/scripts/testing lists only those four, Chrome `bookmarkmap
+      branchmap navigation branches audio` 235/235.)
 - [ ] User: the listening checklist (item 11), on fixtures/audio-demo in
       real Safari, desktop Chrome and a Mac app built for it. The
       orchestrator does not tick this; the user reports, and any finding

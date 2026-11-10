@@ -499,6 +499,22 @@ describe("unknown ids and old saves", () => {
     });
   });
 
+  it("a gone lastShown over a 200,000-item seen set still lands on the furthest seen item", () => {
+    const items = Array.from({ length: 200_000 }, (_, i) =>
+      image(`i${String(i)}`),
+    );
+    const codec = createContextCodec(items, []);
+    const resumed = codec.fromSaved({
+      lastShown: "gone",
+      visited: items.map((item) => item.id).reverse(),
+      stack: [],
+      playedRoutes: [],
+      completedRoutes: [],
+    });
+    expect(resumed?.lastShown).toBe(199_999);
+    expect(resumed?.visited).toHaveLength(200_000);
+  });
+
   it("no record, or a record without a usable ctx, resumes nothing: a first boot", () => {
     const codec = createContextCodec(V1.items, V1.branches);
     expect(resumeOptionsFor(null, codec)).toEqual({});

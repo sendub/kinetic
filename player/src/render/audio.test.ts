@@ -3,7 +3,7 @@
 
 import { describe, expect, it } from "vitest";
 import type { Item, Manifest } from "../machine/types";
-import { hasSound, upcomingSoundFiles } from "./audio";
+import { hasSound, largestAmbienceSet, upcomingSoundFiles } from "./audio";
 
 const tracks = {
   knock: { file: "knock.wav", durationSeconds: 0.6 },
@@ -46,6 +46,26 @@ describe("hasSound", () => {
         }),
       ),
     ).toBe(false);
+  });
+});
+
+describe("largestAmbienceSet", () => {
+  it("is the most loops one item names, 0 with none", () => {
+    expect(largestAmbienceSet([image("a")])).toBe(0);
+    expect(
+      largestAmbienceSet([
+        image("a", { ambience: ["rain"] }),
+        image("b", { ambience: ["rain", "hum", "wind"] }),
+        image("c", { ambience: [] }),
+      ]),
+    ).toBe(3);
+  });
+
+  it("counts a 160,000-item game (docs/perf.md, Navigation with sound)", () => {
+    const items = Array.from({ length: 160_000 }, (_, i) =>
+      image(`i${String(i)}`, i === 7 ? { ambience: ["rain", "hum"] } : {}),
+    );
+    expect(largestAmbienceSet(items)).toBe(2);
   });
 });
 
