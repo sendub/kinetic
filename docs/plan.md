@@ -2703,12 +2703,6 @@ Not verified, and not verifiable on this machine: WebM Vorbis and Opus in
 Safari 15-17 (caniuse and WebKit bug 183852 say yes), WebView2's autoplay,
 and Firefox.
 
-## Later, waiting on the user
-
-- Overlay text styling iteration once the user can play with the demo.
-- Features asked for but not yet scheduled, such as read-aloud for lines
-  with no voice file: docs/future.md.
-
 ## Sequencing
 
 1 -> 2 -> 2b -> 3 -> 4 -> 5 -> 6 -> 7 -> 7b -> 8 -> 9 -> 9b -> 9c -> 9d ->
