@@ -113,8 +113,15 @@ optional: a manifest without `audio` plays and validates as before
   media element outputs zeros, and `fetch` of a sibling file fails, so
   Web Audio cannot decode the files either (both measured). Embedding the
   bytes in a script would add a third to the file size, plus about 69 MB
-  of decoded PCM for a 3-minute stereo track. Chrome leaves a 3-11 ms seam
-  at each loop restart; that is accepted.
+  of decoded PCM for a 3-minute stereo track.
+- Loops: an element that loops on its own (its `loop`, or a seek while it
+  plays) goes silent at each wrap, about 100 ms in Chrome and 0.2-0.6 s in
+  WebKit, whose own loop can also stop for good at the end of an Opus WebM
+  or a WAV (measured 2026-11-10). So each music and ambience loop has two
+  elements that trade places at its end, the waiting one started its
+  learnt lead early (render/audio.ts). A wrap then lands on the engine's
+  output block nearest the end: 10.7 ms blocks in headless Chrome, 85 ms
+  in the muted WebKit driver; real output is not measured.
 - The unlock: a browser refuses `play()` until the reader's first key or
   click that counts as an activation (not Esc, not a Cmd, Ctrl or Alt
   shortcut). The player starts every element the game needs inside that

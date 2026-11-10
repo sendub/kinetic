@@ -12,6 +12,10 @@
 // - the track rules: a crossfade, a music track that plays once and stays
 //   silent, a play that starts partway and loops back to its restart point,
 //   a fade to silence;
+// - loops play on (item 14), read on every frame: rain and hum, the calm
+//   tune and `steps` each through three wraps, no wrap losing or skipping
+//   more than a frame (on WebKit, a frame past its start grid), and
+//   `amb-shrink` fading the rain while the hum plays on;
 // - one-shots fire only on read arrivals: delayed, cut by a channel,
 //   overlapping without one, dropped when the reader moves on first, faded
 //   out by a walk, and never fired by a walk, a jump or skip;
@@ -341,10 +345,10 @@ async function landings({ check, open, folders }) {
   }
   await landed("a reload", "amb-carry", (s) => s.unlocked && !s.hint);
 
-  // The next set drops the rain and keeps the hum: the hum plays on in
-  // the same element, never restarted. Its 4 s loop wraps by itself, so
-  // its clock is read against the page's: a restart at the arrival would
-  // put it well off. Read first mid-loop, where a restart is plain to see.
+  // The next set drops the rain and keeps the hum: the hum plays on,
+  // never restarted. Its 4 s loop wraps (on its other element), so its
+  // clock is read against the page's: a restart at the arrival would put
+  // it well off. Read first mid-loop, where a restart is plain to see.
   const humOf = (s) =>
     playing(s, "ambience").find((e) => e.track === "hum") ?? null;
   const mid = await waitSound(page, (s) => {
@@ -356,7 +360,7 @@ async function landings({ check, open, folders }) {
   const shrunk = await waitSound(page, (s) =>
     bedMatches(s, expectedTarget("amb-shrink")),
   );
-  const humAfter = shrunk.s.els[hum?.n ?? -1];
+  const humAfter = humOf(shrunk.s) ?? undefined;
   const loopS = tracks().hum.durationSeconds;
   const due =
     hum === null ? -1 : (hum.t + (shrunk.s.now - mid.s.now) / 1000) % loopS;
@@ -368,7 +372,7 @@ async function landings({ check, open, folders }) {
           loopS - Math.abs(humAfter.t - due),
         );
   check(
-    "a loop in both the old and the new ambience set plays on in its element, unrestarted, while the other fades out",
+    "a loop in both the old and the new ambience set plays on unrestarted while the other fades out",
     shrunk.ok &&
       hum !== null &&
       humAfter?.track === "hum" &&
@@ -460,6 +464,224 @@ async function trackRules({ check, open, folders }) {
     "music: null fades the music out to silence",
     silent.ok && playing(silent.s).length === 0,
     evidence(silent.s),
+  );
+}
+
+// Every animation frame, each music or ambience element playing a track:
+// `[page time, [[hook index, track, currentTime, volume, duration], ...]]`.
+const INSTALL_LOOP_LOG = () => {
+  window.__loops = [];
+  const hook = document.getElementById("audio");
+  const step = () => {
+    const els = [];
+    for (const [n, el] of Array.from(hook?.children ?? []).entries()) {
+      const { slot, track } = el.dataset;
+      if (el.paused || !track) continue;
+      if (slot === "music" || slot === "ambience") {
+        els.push([n, track, el.currentTime, el.volume, el.duration]);
+      }
+    }
+    window.__loops.push([performance.now(), els]);
+    requestAnimationFrame(step);
+  };
+  requestAnimationFrame(step);
+};
+const takeLoopLog = (page) => page.evaluate(() => window.__loops.splice(0));
+
+// WebKit's clock runs ahead of the sound for about 0.7 s after a play
+// starts, then waits for it (macOS 27.2); a pass is judged from 1 s in.
+const LOOP_SETTLE_MS = 1000;
+// The muted WebKit driver starts every element's sound on a grid of 4096
+// frames of its output, 85.3 ms at the demo's 48 kHz (every start measured
+// lay within 1 ms of it, 2026-11-10), so a wrap there can only land on one
+// of the grid points around the loop's end.
+const WEBKIT_START_GRID_MS = (4096 / 48000) * 1000;
+
+const median = (list) => {
+  const s = [...list].sort((a, b) => a - b);
+  return s.length === 0 ? Number.NaN : s[Math.floor(s.length / 2)];
+};
+
+/**
+ * Track `id`'s loop as the frames in `rows` (INSTALL_LOOP_LOG) saw it. A
+ * wrap is its element changing or its time going back. Each pass's offset
+ * is the page time less the track's unrolled time (each wrap adds the loop's
+ * length, to the file's own end where that comes first: WebKit gives an
+ * AAC file 23 ms less), its median over the pass from LOOP_SETTLE_MS in; `lost` is
+ * each wrap's change in it (ms; a pause at the wrap adds its length, a
+ * skip takes some off). `missing` is the longest run of frames with no
+ * element playing the track after it first played, `frameMs` the median
+ * frame interval, and `last` its last reading.
+ */
+function loopTimeline(rows, id) {
+  const track = tracks()[id];
+  const loopStart = track.loopStartSeconds ?? track.startSeconds ?? 0;
+  let span = track.durationSeconds - loopStart;
+  const passes = [];
+  let wraps = 0;
+  let prev = null;
+  let missing = 0;
+  let run = 0;
+  for (const [t, els] of rows) {
+    const e = els.find((x) => x[1] === id);
+    if (e === undefined) {
+      if (prev !== null) run += 1;
+      missing = Math.max(missing, run);
+      continue;
+    }
+    run = 0;
+    const [n, , ct, v, duration] = e;
+    // NaN (no metadata yet) arrives as null.
+    if (typeof duration === "number" && duration < track.durationSeconds) {
+      span = duration - loopStart;
+    }
+    if (prev === null || n !== prev.n || ct < prev.ct - span / 2) {
+      if (prev !== null) wraps += 1;
+      passes.push({ from: t, offsets: [] });
+    }
+    const pass = passes.at(-1);
+    if (t - pass.from >= LOOP_SETTLE_MS) {
+      pass.offsets.push(t - (ct + wraps * span) * 1000);
+    }
+    prev = { n, ct, t, v };
+  }
+  const steady = passes.map((p) => median(p.offsets));
+  const lost = [];
+  for (let k = 1; k < steady.length; k += 1) {
+    if (!Number.isNaN(steady[k]) && !Number.isNaN(steady[k - 1])) {
+      lost.push(Math.round(steady[k] - steady[k - 1]));
+    }
+  }
+  const gaps = rows.slice(1).map(([t], k) => t - rows[k][0]);
+  return {
+    wraps,
+    lost,
+    missing,
+    frameMs: Math.round(median(gaps) * 10) / 10,
+    last: prev,
+  };
+}
+
+/**
+ * Whether a loop played on unbroken: at least `wraps` wraps, none losing
+ * or skipping more than one frame (on WebKit, one frame past its start
+ * grid), never a frame without it, and still playing in the last frame.
+ */
+const unbroken = (line, wraps, end) =>
+  line.wraps >= wraps &&
+  line.lost.length >= wraps &&
+  line.lost.every(
+    (ms) =>
+      Math.abs(ms) <= line.frameMs + (onWebKit ? WEBKIT_START_GRID_MS : 0),
+  ) &&
+  line.missing === 0 &&
+  line.last !== null &&
+  end - line.last.t < 100;
+
+/**
+ * Reads `ids` onto `item`'s loops from the item before it (Space, which
+ * unlocks sound) and logs every frame from then on.
+ */
+async function loopsFrom(open, name, before, item) {
+  const session = await openDemo(open, name, { hash: `#start=${before}` });
+  const { page, cdp } = session;
+  await page
+    .waitForFunction(ON_ITEM, { timeout: 5000 }, before)
+    .catch(() => {});
+  await page.evaluate(INSTALL_LOOP_LOG);
+  await spaceToItem(page, cdp, item);
+  return session;
+}
+
+// Rain (6 s, Opus in WebM) and hum (4 s, WAV) loop from 0 through three of
+// the rain's lengths over `amb-start` and `amb-carry`; `amb-shrink` drops
+// the rain and keeps the hum (docs/plan.md Phase 47, item 14).
+async function ambienceLoops({ check, open, folders }) {
+  if (!built(check, folders)) return;
+  const { page, cdp } = await loopsFrom(
+    open,
+    "loops-ambience",
+    "amb-title",
+    "amb-start",
+  );
+  await sleep(10000);
+  await spaceToItem(page, cdp, "amb-carry");
+  await sleep(11000);
+  let rows = await takeLoopLog(page);
+  const end = rows.at(-1)?.[0] ?? 0;
+  const rain = loopTimeline(rows, "rain");
+  const hum = loopTimeline(rows, "hum");
+  check(
+    "rain and hum loop on through three of the rain's lengths over amb-start and amb-carry, no wrap losing or skipping more than a frame",
+    unbroken(rain, 3, end) && unbroken(hum, 4, end),
+    { rain, hum },
+  );
+
+  const arrived = await pageNow(page);
+  await spaceToItem(page, cdp, "amb-shrink");
+  await sleep(6000);
+  rows = rows.concat(await takeLoopLog(page));
+  const after = rows.filter(([t]) => t >= arrived - 3000);
+  const humOn = loopTimeline(after, "hum");
+  const rainLevel = (ms) =>
+    after
+      .find(([t]) => t >= arrived + ms)?.[1]
+      .find((e) => e[1] === "rain")?.[3] ?? 0;
+  const rainFrom = {
+    level: rainLevel(0),
+    mid: rainLevel(500),
+    late: rainLevel(2000),
+  };
+  check(
+    "amb-shrink fades the rain out over its second while the hum loops on unbroken",
+    unbroken(humOn, 2, after.at(-1)?.[0] ?? 0) &&
+      rainFrom.level > 0.45 &&
+      rainFrom.mid > 0.05 &&
+      rainFrom.mid < 0.45 &&
+      rainFrom.late === 0,
+    { hum: humOn, rain: rainFrom },
+  );
+}
+
+// The calm tune (8 s, AAC) loops from 0 through three of its lengths over
+// `music-start` and `music-carry`.
+async function musicLoop({ check, open, folders }) {
+  if (!built(check, folders)) return;
+  const { page, cdp } = await loopsFrom(
+    open,
+    "loops-music",
+    "music-title",
+    "music-start",
+  );
+  await sleep(12500);
+  await spaceToItem(page, cdp, "music-carry");
+  await sleep(14500);
+  const rows = await takeLoopLog(page);
+  const calm = loopTimeline(rows, "calm");
+  check(
+    "the calm tune loops on through three of its lengths over music-start and music-carry, no wrap losing or skipping more than a frame",
+    unbroken(calm, 3, rows.at(-1)?.[0] ?? 0),
+    calm,
+  );
+}
+
+// `steps` (Vorbis in WebM) starts at 6 s and loops back to 3 s at its end
+// (12 s): three wraps.
+async function partwayLoop({ check, open, folders }) {
+  if (!built(check, folders)) return;
+  const { page } = await loopsFrom(
+    open,
+    "loops-partway",
+    "music-once",
+    "music-partway",
+  );
+  await sleep(27500);
+  const rows = await takeLoopLog(page);
+  const steps = loopTimeline(rows, "steps");
+  check(
+    "steps loops from its end back to 3 s three times, no wrap losing or skipping more than a frame",
+    unbroken(steps, 3, rows.at(-1)?.[0] ?? 0),
+    steps,
   );
 }
 
@@ -1471,6 +1693,9 @@ async function soundKey({ check, open, folders }) {
 export const parts = [
   landings,
   trackRules,
+  ambienceLoops,
+  musicLoop,
+  partwayLoop,
   oneShots,
   joinMusic,
   unlock,

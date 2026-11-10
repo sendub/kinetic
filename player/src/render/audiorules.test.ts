@@ -21,15 +21,22 @@ import {
   duckFor,
   elementVolume,
   groupVolume,
+  learnSeamLead,
   maySound,
   playPlan,
   REST_FADE_MS,
   REST_MS,
   SAMPLE_MS,
+  SEAM_LAND_MS,
+  SEAM_LEAD_MAX_S,
+  SEAM_LEAD_S,
+  SEAM_REHEARSE_S,
+  SEAM_WATCH_S,
   type SeekKind,
   SFX_POOL_SIZE,
   type SoundOutput,
   sampleTrack,
+  seamStep,
   stepVideoSync,
   VIDEO_LAND_MS,
   VIDEO_LEAD_MAX_S,
@@ -255,17 +262,16 @@ describe("the one-shot pool", () => {
 });
 
 describe("how a track plays and loops", () => {
-  it("loops music and ambience natively when play and loop both start at 0", () => {
+  it("loops music and ambience from 0 like any other loop, never by the element's own loop", () => {
     expect(playPlan({ file: "a.mp3", durationSeconds: 8 }, true)).toEqual({
       loops: true,
-      native: true,
       startSeconds: 0,
       loopStartSeconds: 0,
       endSeconds: 8,
     });
   });
 
-  it("seeks to the loop restart point when the track starts or loops partway", () => {
+  it("restarts at the loop restart point when the track starts or loops partway", () => {
     expect(
       playPlan(
         {
@@ -278,7 +284,6 @@ describe("how a track plays and loops", () => {
       ),
     ).toEqual({
       loops: true,
-      native: false,
       startSeconds: 6,
       loopStartSeconds: 3,
       endSeconds: 12,
@@ -286,16 +291,125 @@ describe("how a track plays and loops", () => {
     // Without a restart point a loop restarts where the play started.
     expect(
       playPlan({ file: "a.mp3", durationSeconds: 12, startSeconds: 4 }, true),
-    ).toMatchObject({ native: false, startSeconds: 4, loopStartSeconds: 4 });
+    ).toMatchObject({ startSeconds: 4, loopStartSeconds: 4 });
   });
 
   it("plays once with `loop: false`, and a one-shot or voice always once", () => {
     expect(
       playPlan({ file: "a.mp3", durationSeconds: 3, loop: false }, true),
-    ).toMatchObject({ loops: false, native: false });
+    ).toMatchObject({ loops: false });
     expect(
       playPlan({ file: "a.mp3", durationSeconds: 3 }, false),
-    ).toMatchObject({ loops: false, native: false });
+    ).toMatchObject({ loops: false });
+  });
+});
+
+describe("a loop's wrap (seamStep, learnSeamLead)", () => {
+  const FRAME_S = 1 / 60;
+  /**
+   * The steps one pass asks for, a frame apart, until the switch, each at
+   * the remaining time it is due; a step set for later waits for its time,
+   * and a rehearsal ends, teaching the lead, `SEAM_LAND_MS` after it began.
+   */
+  function pass(from: number, lead: number, learnt = true) {
+    const steps: { at: number; step: string }[] = [];
+    let spare: "idle" | "rehearsing" | "started" = "idle";
+    let rehearsedAt = 0;
+    let known = learnt;
+    for (let remaining = from; ; remaining -= FRAME_S) {
+      if (
+        spare === "rehearsing" &&
+        rehearsedAt - remaining >= SEAM_LAND_MS / 1000
+      ) {
+        spare = "idle";
+        known = true;
+      }
+      const { step, inS } = seamStep({
+        remaining,
+        lead,
+        learnt: known,
+        spare,
+        ended: false,
+        frame: FRAME_S,
+      });
+      if (step === "wait") continue;
+      steps.push({ at: remaining - inS, step });
+      if (step === "start") spare = "started";
+      if (step === "rehearse") {
+        spare = "rehearsing";
+        rehearsedAt = remaining;
+      }
+      if (step === "switch") return steps;
+    }
+  }
+
+  it("starts the second element its lead before the end and hands over at the end, never wrapping the playing one", () => {
+    const steps = pass(2, 0.345);
+    expect(steps.map((s) => s.step)).toEqual(["start", "switch"]);
+    // Set for those moments, not the frames around them.
+    expect(steps[0].at).toBeCloseTo(0.345, 9);
+    expect(steps[1].at).toBeCloseTo(0, 9);
+  });
+
+  it("hands over at once when the element ended before the track's end", () => {
+    for (const spare of ["idle", "started"] as const) {
+      expect(
+        seamStep({
+          remaining: 0.2,
+          lead: 0.3,
+          learnt: true,
+          spare,
+          ended: true,
+          frame: FRAME_S,
+        }),
+      ).toEqual({ step: "switch", inS: 0 });
+    }
+  });
+
+  it("rehearses the second element's start once, late in a file's first pass, until a lead is learnt", () => {
+    const first = pass(8, SEAM_LEAD_S, false);
+    expect(first.map((s) => s.step)).toEqual(["rehearse", "start", "switch"]);
+    // Leaving its clock time to settle before the watch.
+    const settled = SEAM_LEAD_S + SEAM_LAND_MS / 1000 + SEAM_WATCH_S;
+    expect(first[0].at).toBeGreaterThan(settled);
+    expect(first[0].at).toBeLessThanOrEqual(settled + SEAM_REHEARSE_S);
+    // A pass too short to rehearse in starts on the default lead.
+    expect(pass(1.5, SEAM_LEAD_S, false).map((s) => s.step)).toEqual([
+      "start",
+      "switch",
+    ]);
+    // A rehearsal still running at the lead is cut short by the start.
+    expect(
+      seamStep({
+        remaining: 0.3,
+        lead: 0.35,
+        learnt: false,
+        spare: "rehearsing",
+        ended: false,
+        frame: FRAME_S,
+      }),
+    ).toEqual({ step: "start", inS: 0 });
+  });
+
+  it("learns the lead from the second element's clock once it settles: WebKit's runs ahead, then waits for the sound", () => {
+    // WebKit, PCM WAV (macOS 27.2): play() at 1000 ms; the clock moves at
+    // 1085, reads 0.372 s at 1450, holds until 1720, then runs true. Read
+    // at 1450 it would say 85 ms; settled, 345 ms.
+    expect(learnSeamLead(null, { played: 1000, at: 1450, media: 0.372 })).toBe(
+      null,
+    );
+    expect(learnSeamLead(null, { played: 1000, at: 1950, media: 0.605 })).toBe(
+      0.345,
+    );
+    // Later starts move it halfway, as starts scatter by about 10 ms.
+    expect(
+      learnSeamLead(0.345, { played: 1000, at: 1950, media: 0.585 }),
+    ).toBeCloseTo(0.355, 6);
+    // Within 0 and the most any start has taken.
+    expect(learnSeamLead(null, { played: 1000, at: 2000, media: 1.2 })).toBe(0);
+    expect(learnSeamLead(null, { played: 1000, at: 3000, media: 0.2 })).toBe(
+      SEAM_LEAD_MAX_S,
+    );
   });
 });
 

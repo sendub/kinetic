@@ -3338,7 +3338,7 @@ truthful: an unchecked box means nothing was accepted.
       1151, check clean, smoke 6/6, the sweep re-run over player/src and
       player/scripts/testing lists only those four, Chrome `bookmarkmap
       branchmap navigation branches audio` 235/235.)
-- [ ] Ambience loops play on (item 14, added 2026-11-10; user, listening
+- [x] Ambience loops play on (item 14, added 2026-11-10; user, listening
       check: on `amb-start` the rain stopped after one play and the hum
       restarted with gaps; `amb-carry` had no rain). Tests:
       - the audio scenario, Chrome and WebKit: rain and hum still play
@@ -3346,6 +3346,33 @@ truthful: an unchecked box means nothing was accepted.
         pause at a wrap beyond one frame; the same for a music loop and
         for `steps`' loop from 3 s;
       - a Vitest case for the root cause, red first.
+      (2026-11-10: the player made no play, pause or seek on the loops;
+      the engines' own wrap of one element was at fault, as a bare
+      `<audio loop>` page showed. WebKit stopped the rain for good at
+      6.0135 s after its second pass and stuck the hum at 0.0001 s after
+      a few wraps, losing about 0.44 s per WAV wrap before that (an
+      analyser found real silences of 152 and 345 ms); its seek-on-end
+      path lost 124-569 ms a wrap. Headless Chrome's own loop lost 85-101
+      ms a wrap, its seek-on-end 79-87 ms. Fix: every music and ambience
+      channel has two elements that trade places at each wrap; the
+      waiting one sits paused at the restart point, starts at volume
+      0.001 a lead before the end (learnt per file from settled starts,
+      after a first rehearsal, since WebKit starts a file's first play
+      faster), and takes over at the end, both moments timed from the
+      animation frame before them; frames run only near a loop's end. The
+      end is the track's length or the file's, whichever is first (WebKit
+      gives calm.m4a 7.977 s). No element `loop`, no seek of a playing
+      element. The spares are started inside the unlocking key's handler
+      with the rest. 6 Vitest cases and 3 scenario parts red on the old
+      code; wraps now within 16 ms in Chrome (one frame) and 59 ms in
+      WebKit (one frame plus the muted driver's 85.3 ms start grid).
+      Not known: the real output grid in Safari and the Mac app; WebKit
+      hitches its main thread 40-100 ms when an element pauses or ends.
+      Orchestrator: npm test 1155, check clean, smoke 6/6, Chrome `audio
+      videosound screens` 189/189, WebKit `audio videosound` 82/82, and
+      in WebKit with `requireGestureForAudio` and a Space unlock on
+      `amb-start` rain and hum played 26 s, through 4 and 6 wraps, with
+      no time lost. The user re-listens with item 15.)
 - [ ] Video sound clicks stay on the wall hits (item 15, added 2026-11-10;
       user, listening check: usually on the hits, sometimes not). Tests:
       - the videosound scenario, Chrome and WebKit: across ten wraps no

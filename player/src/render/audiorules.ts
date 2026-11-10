@@ -366,13 +366,12 @@ export function duckFor(
 
 /** Where a play of a track starts, loops and ends, in seconds. */
 export interface PlayPlan {
-  /** Restarts at `loopStartSeconds` when it reaches `endSeconds`. */
-  loops: boolean;
   /**
-   * The element's own `loop` attribute does the looping: only when the
-   * loop and the play both start at 0, as the element always restarts at 0.
+   * Restarts at `loopStartSeconds` when it reaches `endSeconds`, on a
+   * second element (`seamStep`), never by the element's own `loop` or a
+   * seek of the playing element.
    */
-  native: boolean;
+  loops: boolean;
   startSeconds: number;
   loopStartSeconds: number;
   /** The track's `durationSeconds`: the element's own duration is never read. */
@@ -386,14 +385,122 @@ export interface PlayPlan {
 export function playPlan(track: AudioTrack, looping: boolean): PlayPlan {
   const startSeconds = track.startSeconds ?? 0;
   const loopStartSeconds = track.loopStartSeconds ?? startSeconds;
-  const loops = looping && track.loop !== false;
   return {
-    loops,
-    native: loops && startSeconds === 0 && loopStartSeconds === 0,
+    loops: looping && track.loop !== false,
     startSeconds,
     loopStartSeconds,
     endSeconds: track.durationSeconds,
   };
+}
+
+/**
+ * How long before a loop's end its second element is asked to play while
+ * nothing is learnt of that file: the slowest start measured, WebKit
+ * playing a PCM WAV from paused (335-354 ms; Opus in WebM 266-280 ms,
+ * headless Chrome about 60 ms; macOS 27.2, 2026-11-10).
+ */
+export const SEAM_LEAD_S = 0.35;
+/** The most a lead may grow to. */
+export const SEAM_LEAD_MAX_S = 0.75;
+/**
+ * How long after a second element's play() its clock is trusted to say
+ * when its sound began: WebKit's clock for a WAV runs from about 85 ms,
+ * stops near 0.37 s for about 270 ms while the sound catches up, then runs
+ * true (measured as for `SEAM_LEAD_S`).
+ */
+export const SEAM_LAND_MS = 900;
+/**
+ * How far ahead of the second element's start a loop's end is watched on
+ * animation frames: more than the 250 ms between `timeupdate`s, which
+ * start the watch.
+ */
+export const SEAM_WATCH_S = 0.5;
+/**
+ * How long the window for a rehearsal is, just before the time its clock
+ * needs to settle before the watch: late in the pass, so the playing
+ * element's own start has settled and the second element has waited a
+ * while, as it does before a real start (one rehearsed 0.3 s after its
+ * file loaded took 205 ms where the real starts took 312-353 ms; WebKit,
+ * AAC).
+ */
+export const SEAM_REHEARSE_S = 0.5;
+
+/** What a loop's wrap needs now (`seamStep`). */
+export interface SeamStep {
+  readonly step: "wait" | "rehearse" | "start" | "switch";
+  /** In how many seconds it is due (0: now); a timer, finer than frames, keeps it. */
+  readonly inS: number;
+}
+
+/**
+ * One look at a looping track's wrap (docs/plan.md Phase 47, item 14),
+ * made on each animation frame near the end and on each `timeupdate`.
+ * Every engine pauses an element that wraps on its own: the element's own
+ * `loop` and a seek of a playing element each cost about 100 ms in
+ * Chrome and 0.2-0.6 s in WebKit, and WebKit's own loop can stop for good
+ * at the end of an Opus WebM or a WAV (measured as for `SEAM_LEAD_S`). So a
+ * second element, waiting paused at the loop's restart point, is asked to
+ * play `lead` seconds before the playing element reaches the end
+ * (`start`; it plays inaudibly until then), and takes over at the end
+ * (`switch`), when `remaining` (the end less the playing element's time)
+ * reaches 0 or the element ended before it. Each is asked for on the last
+ * look before its moment (within a `frame`, seconds, of it), timed to
+ * that moment by `inS`: a start on the nearest frame could still be half
+ * a frame off, and an engine starts a sound only on the next block of its
+ * output (every start measured lay within 1 ms of a grid of 10.7 ms in
+ * headless Chrome and 85.3 ms in the muted WebKit driver), so the error
+ * is at least the distance to the nearest block. While no lead
+ * is `learnt` for the file, the second element first rehearses its start
+ * (`rehearse`), once, in the `SEAM_REHEARSE_S` before the pass leaves too
+ * little time for its clock to settle before the watch, so even the first
+ * wrap starts it on time. `spare` is what the second element is doing.
+ */
+export function seamStep(now: {
+  remaining: number;
+  lead: number;
+  learnt: boolean;
+  spare: "idle" | "rehearsing" | "started";
+  ended: boolean;
+  frame: number;
+}): SeamStep {
+  const due = (step: SeamStep["step"], inS: number): SeamStep => ({
+    step,
+    inS: Math.max(0, inS),
+  });
+  if (now.ended) return due("switch", 0);
+  if (now.remaining < now.frame) return due("switch", now.remaining);
+  if (now.spare === "started") return due("wait", 0);
+  const toStart = now.remaining - now.lead;
+  if (toStart < now.frame) return due("start", toStart);
+  const settled = now.lead + SEAM_LAND_MS / 1000 + SEAM_WATCH_S;
+  if (
+    now.spare === "idle" &&
+    !now.learnt &&
+    now.remaining > settled &&
+    now.remaining <= settled + SEAM_REHEARSE_S
+  ) {
+    return due("rehearse", 0);
+  }
+  return due("wait", 0);
+}
+
+/**
+ * The lead after one start of a second element, from its own clock: it was
+ * asked to play at page time `played` (ms) and, read at `at`, had played
+ * `media` seconds from the loop's restart point, so its sound began at
+ * `at - media`. Null (nothing learnt) while the clock may not have settled,
+ * before `SEAM_LAND_MS`. A file's first start is taken whole and later
+ * ones move the lead halfway, as starts scatter by about 10 ms; it stays
+ * within 0 and `SEAM_LEAD_MAX_S`.
+ */
+export function learnSeamLead(
+  lead: number | null,
+  measure: { played: number; at: number; media: number },
+): number | null {
+  if (measure.at - measure.played < SEAM_LAND_MS) return lead;
+  const took = (measure.at - measure.media * 1000 - measure.played) / 1000;
+  const next = lead === null ? took : lead + (took - lead) / 2;
+  return Math.min(SEAM_LEAD_MAX_S, Math.max(0, next));
 }
 
 /** Which pool element a one-shot takes, and the ones it stops first. */
