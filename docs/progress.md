@@ -3032,7 +3032,7 @@ truthful: an unchecked box means nothing was accepted.
       949, check clean, perf:sound p95 0.15 ms on the stress series,
       full Chrome scenario suite 408 of 408 (machine paths for picks,
       joins, skip and the wheel changed).)
-- [ ] Player: playback (item 5): elements, crossfade, the ambience set,
+- [x] Player: playback (item 5): elements, crossfade, the ambience set,
       one-shots, voice, the 250 ms rest, menus, hidden page, unlock and
       hint, voice holding auto-forward, warm-up, the `#audio` hook, and
       `audio` in kinetic.mjs's `current()`; a WebKit driver option that
@@ -3057,6 +3057,35 @@ truthful: an unchecked box means nothing was accepted.
       - fixtures/demo creates no audio element.
       - The Windows app's Go tests: the environment is created with the
         autoplay flag; `GOOS=windows go vet` is clean.
+      (2026-11-10: the branch was rebased onto Phase 46 and renumbered
+      first; items 1-4 re-checked after it: full pytest 809, npm test
+      1057, self-test 21 cases, check-game on the audio demo clean in
+      Chrome and WebKit. render/audiorules.ts holds the pure rules
+      (volume product, `maySound` for menus, hidden page and the pop-out,
+      `playPlan`, the pool, the director with `REST_MS` 250);
+      render/audio.ts `mountAudio` returns null without audio, else
+      `setScreens`, `setSettings`, `setVolumesOpen` (item 7) and a
+      `video` channel item 6 loads. Settings `soundOn`, `musicVolume`,
+      `effectsVolume`, `voiceVolume`, no UI yet. The machine's
+      `setVoiceAudible` holds auto-forward for the voice line. Unlock,
+      measured: Chrome refuses until a key, then allows any element;
+      WebKit with `.audio` required allows an element made or started
+      inside the key's handler, refuses one first played seconds later,
+      and lets a volume-0 element play with no gesture, then pauses it as
+      its volume rises, so a play asks at 0.001 until a key counts. Esc
+      and Cmd/Ctrl/Alt shortcuts make the elements but do not unlock.
+      The hint is a top-right pill that moves nothing. Windows sets
+      `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS`, keeping the reader's own
+      arguments; not run on Windows. The WebKit driver gains
+      `--require-gesture-for-audio` and a visibility request; Chrome's
+      hidden page is a cover tab. `current().audio` reports `unlocked`,
+      `target` and the live elements. Faults injected and caught: the
+      pool stealing the newest, no channel cut, a 0 ms rest, a 0 voice
+      hold, music under Esc, no elements made in the key's handler.
+      Orchestrator: npm test 1102, check clean, Go tests and windows vet
+      clean, smoke 6/6, Chrome `audio screens menus media navigation
+      checkgame` 206/206, WebKit `audio menus media navigation` 101/101.
+      Not verified: WebView2 on Windows, real Safari, Firefox, listening.)
 - [ ] Player: video sound (item 6): it plays only while the video plays,
       syncs at range and native loop wraps, re-seeks past 80 ms, pauses
       with the video, and ducks. Tests (scenario parts on the audio

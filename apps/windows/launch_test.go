@@ -1,6 +1,7 @@
 package main
 
 import (
+	"slices"
 	"testing"
 )
 
@@ -75,4 +76,34 @@ func TestGameTitle(t *testing.T) {
 	}
 
 	titleEscaped = ""
+}
+
+func TestTheWebViewIsCreatedWithAutoplayAllowed(t *testing.T) {
+	const flag = "--autoplay-policy=no-user-gesture-required"
+
+	got := webViewEnvironment(environment(nil))
+	want := []envVar{
+		{"WEBVIEW2_DEFAULT_BACKGROUND_COLOR", "FF000000"},
+		{"WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", flag},
+	}
+
+	if !slices.Equal(got, want) {
+		t.Errorf("webViewEnvironment = %q, want %q", got, want)
+	}
+}
+
+func TestTheAutoplayFlagKeepsTheReadersOwnArguments(t *testing.T) {
+	cases := []struct{ theirs, want string }{
+		{"--remote-debugging-port=9222", "--remote-debugging-port=9222 --autoplay-policy=no-user-gesture-required"},
+		{"  --lang=de  ", "--lang=de --autoplay-policy=no-user-gesture-required"},
+		// Their own autoplay policy stands.
+		{"--autoplay-policy=user-gesture-required", "--autoplay-policy=user-gesture-required"},
+		{"--lang=de --autoplay-policy=no-user-gesture-required", "--lang=de --autoplay-policy=no-user-gesture-required"},
+	}
+	for _, c := range cases {
+		env := environment(map[string]string{"WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS": c.theirs})
+		if got := webViewEnvironment(env)[1]; got != (envVar{"WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", c.want}) {
+			t.Errorf("with %q set: %q, want %q", c.theirs, got, c.want)
+		}
+	}
 }

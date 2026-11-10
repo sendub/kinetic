@@ -234,6 +234,22 @@ describe("the Display setting travels with the progress file", () => {
   });
 });
 
+describe("the sound settings travel with the progress file", () => {
+  it("exports and imports sound on/off and the three volumes", () => {
+    const sound = {
+      soundOn: false,
+      musicVolume: 0.4,
+      effectsVolume: 0.8,
+      voiceVolume: 0,
+    };
+    const text = exported({ state: { settings: sound } });
+    expect(parseProgressFile(text, HERE)).toMatchObject({
+      ok: true,
+      state: { settings: sound },
+    });
+  });
+});
+
 describe("importProgress (a confirmed import replaces, then reloads)", () => {
   async function filled() {
     const storage = createMemoryStorage();

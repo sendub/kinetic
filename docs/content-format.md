@@ -511,6 +511,12 @@ content:
   same `text` would as dialogue.
 - An image auto-advances when its text hold time elapses. A `text`
   item holds for its text hold time and nothing else.
+- An item's `voice` line (Item audio) holds auto-forward while the
+  reader can hear it: sound on, the Voice volume above 0, and the
+  browser letting sound play, which it does after the reader's first
+  key or click. Every hold above then lasts at least as long as the
+  line, the track's `durationSeconds` less its `startSeconds`. Manual
+  advance and skip never wait for a voice.
 - An animation's loop time, in milliseconds, is `len(frames) *
   loopCount * 1000 / fps`. Auto-advance fires at the later of loop
   time and text hold time, so the loops complete before the item

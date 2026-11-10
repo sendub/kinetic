@@ -40,17 +40,28 @@ export const CHROME_SCREEN = { width: 1920, height: 1200 };
  * Starts one browser with no window on `engine` ("chrome" or "webkit").
  * Chrome runs headless on the profile folder `profile`, emptied first when
  * `fresh`. The WebKit driver keeps its storage in memory (a fresh profile)
- * unless `profile` names a folder to keep it in. Each browser is tracked
- * until closeBrowser or killBrowser, so killLiveBrowsers can reap it.
+ * unless `profile` names a folder to keep it in. `requireGestureForAudio`
+ * makes the WebKit driver refuse sound until a key or click, as Safari
+ * does (it otherwise allows it, as the macOS app does); headless Chrome
+ * always requires one, as Chrome does. Each browser is tracked until
+ * closeBrowser or killBrowser, so killLiveBrowsers can reap it.
  */
 export async function launchBrowser(
   engine,
-  { profile = null, fresh = false, crashDumpsDir },
+  {
+    profile = null,
+    fresh = false,
+    crashDumpsDir,
+    requireGestureForAudio = false,
+  },
 ) {
   const launch = async () => {
     if (engine === "webkit") {
       const { launchWebKit } = await import("../webkit/puppet.mjs");
-      return launchWebKit(profile === null ? {} : { profile });
+      return launchWebKit({
+        ...(profile === null ? {} : { profile }),
+        requireGestureForAudio,
+      });
     }
     if (fresh) rmSync(profile, { recursive: true, force: true });
     return puppeteer.launch({

@@ -823,3 +823,133 @@ describe("target sound: the wheel's path, memoized", () => {
     }
   });
 });
+
+describe("a voice line holds auto-forward while it is audible (Phase 47, item 5)", () => {
+  // docs/content-format.md "Timing": with the voice audible (sound on,
+  // Voice above 0, unlocked: the audio module's `setVoiceAudible`), an
+  // item's hold lasts at least as long as its voice line.
+  const tracks = {
+    long: { file: "long.mp3", durationSeconds: 8.4 },
+    partway: { file: "partway.mp3", durationSeconds: 5, startSeconds: 2 },
+    short: { file: "short.mp3", durationSeconds: 0.5 },
+  };
+  const LONG_MS = 8400;
+  const TEXT_MS = SETTINGS.minHoldMs;
+
+  function voiced(items: readonly Item[], audible: boolean): Machine {
+    const m = createMachine({
+      items,
+      settings: SETTINGS,
+      autoAdvance: true,
+      audio: { tracks },
+    });
+    m.setVoiceAudible(audible);
+    return m;
+  }
+
+  it("waits for the whole voice line when it is audible", () => {
+    vi.useFakeTimers();
+    const m = voiced([image("a", { voice: "long" }), image("b")], true);
+    vi.advanceTimersByTime(LONG_MS - 1);
+    expect(m.getState().cursor).toBe(0);
+    vi.advanceTimersByTime(1);
+    expect(m.getState().cursor).toBe(1);
+    m.destroy();
+  });
+
+  it("holds for the text alone when the voice is not audible", () => {
+    vi.useFakeTimers();
+    const m = voiced([image("a", { voice: "long" }), image("b")], false);
+    vi.advanceTimersByTime(TEXT_MS);
+    expect(m.getState().cursor).toBe(1);
+    m.destroy();
+  });
+
+  it("keeps the longer text hold over a short voice line", () => {
+    vi.useFakeTimers();
+    const m = voiced([image("a", { voice: "short" }), image("b")], true);
+    vi.advanceTimersByTime(TEXT_MS - 1);
+    expect(m.getState().cursor).toBe(0);
+    vi.advanceTimersByTime(1);
+    expect(m.getState().cursor).toBe(1);
+    m.destroy();
+  });
+
+  it("times a line that starts partway from its start", () => {
+    vi.useFakeTimers();
+    const m = voiced([image("a", { voice: "partway" }), image("b")], true);
+    vi.advanceTimersByTime(2999);
+    expect(m.getState().cursor).toBe(0);
+    vi.advanceTimersByTime(1);
+    expect(m.getState().cursor).toBe(1);
+    m.destroy();
+  });
+
+  it("re-times from the item's start when the voice becomes audible", () => {
+    vi.useFakeTimers();
+    const m = voiced([image("a", { voice: "long" }), image("b")], false);
+    vi.advanceTimersByTime(1000);
+    m.setVoiceAudible(true); // the reader's first key unlocked sound
+    vi.advanceTimersByTime(LONG_MS - 1001);
+    expect(m.getState().cursor).toBe(0);
+    vi.advanceTimersByTime(1);
+    expect(m.getState().cursor).toBe(1);
+    m.destroy();
+  });
+
+  it("lets the item go at its text hold once the voice is silenced", () => {
+    vi.useFakeTimers();
+    const m = voiced([image("a", { voice: "long" }), image("b")], true);
+    vi.advanceTimersByTime(2000);
+    m.setVoiceAudible(false); // sound off, or Voice at 0
+    vi.advanceTimersByTime(1);
+    expect(m.getState().cursor).toBe(1);
+    m.destroy();
+  });
+
+  it("waits for a voice on a line of a text chain", () => {
+    vi.useFakeTimers();
+    const m = voiced(
+      [
+        image("pic"),
+        { id: "line", type: "text", text: "Hi.", audio: { voice: "long" } },
+        { id: "next", type: "text", text: "Bye." },
+      ],
+      true,
+    );
+    vi.advanceTimersByTime(TEXT_MS); // the picture's own hold
+    expect(m.getState().cursor).toBe(1);
+    vi.advanceTimersByTime(LONG_MS - 1);
+    expect(m.getState().cursor).toBe(1);
+    vi.advanceTimersByTime(1);
+    expect(m.getState().cursor).toBe(2);
+    m.destroy();
+  });
+
+  it("never slows a skip burst", () => {
+    vi.useFakeTimers();
+    const items = [image("a"), image("b", { voice: "long" }), image("c")];
+    const m = createMachine({
+      items,
+      settings: SETTINGS,
+      audio: { tracks },
+      resumeFrontier: 3,
+    });
+    m.setVoiceAudible(true);
+    m.wheelBack();
+    m.wheelBack(); // on item 0, everything seen
+    m.toggleSkip();
+    vi.advanceTimersByTime(SETTINGS.skipDwellMs * 2);
+    expect(m.getState().cursor).toBe(2);
+    m.destroy();
+  });
+
+  it("is no hold at all in manual mode", () => {
+    vi.useFakeTimers();
+    const m = voiced([image("a", { voice: "long" }), image("b")], true);
+    m.setAutoAdvance(false);
+    vi.advanceTimersByTime(60_000);
+    expect(m.getState().cursor).toBe(0);
+    m.destroy();
+  });
+});

@@ -77,6 +77,45 @@ func dataDir(getenv func(string) string, story string) string {
 	return winJoin(root, "Kinetic", "WebView2", story)
 }
 
+// envVar is one environment variable to set.
+type envVar struct{ Name, Value string }
+
+const (
+	// argumentsVariable holds extra Chromium switches; WebView2 reads it
+	// when the environment is created, and appends it to the options'
+	// AdditionalBrowserArguments (Microsoft's
+	// CreateCoreWebView2EnvironmentWithOptions reference). The runtime DLL
+	// reads it, not the loader, which this exe does without: no
+	// WebView2Loader reimplementation handles it.
+	argumentsVariable = "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS"
+	// autoplayFlag lets sound start with no click, as the Mac app's
+	// mediaTypesRequiringUserActionForPlayback = [] does (docs/plan.md
+	// Phase 47). Microsoft lists it, and discourages browser flags in
+	// shipped apps; options' AdditionalBrowserArguments would need an
+	// ICoreWebView2EnvironmentOptions COM object made in Go for one
+	// string, where this exe already passes the background colour through
+	// a variable.
+	autoplayFlag = "--autoplay-policy=no-user-gesture-required"
+)
+
+// webViewEnvironment is what the exe sets before it creates the WebView2
+// environment, which reads both: a black background from the first frame
+// (Microsoft notes that the API's colour can still flash white first, and
+// the variable does not), and sound with no click. Arguments the reader
+// set already are kept, ours after them; their own --autoplay-policy
+// stands.
+func webViewEnvironment(getenv func(string) string) []envVar {
+	args := strings.Join(strings.Fields(getenv(argumentsVariable)), " ")
+	if !strings.Contains(args, "--autoplay-policy=") {
+		args = strings.TrimSpace(args + " " + autoplayFlag)
+	}
+
+	return []envVar{
+		{"WEBVIEW2_DEFAULT_BACKGROUND_COLOR", "FF000000"},
+		{argumentsVariable, args},
+	}
+}
+
 // windowClass is the game window's class name. A second launch finds the
 // open game's window by it.
 func windowClass(story string) string {

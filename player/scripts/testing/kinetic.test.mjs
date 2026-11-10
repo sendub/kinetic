@@ -35,6 +35,7 @@ import {
   openGame,
   outsideLinks,
   outsideLinksNote,
+  readAudio,
   summary,
 } from "./kinetic.mjs";
 
@@ -769,5 +770,77 @@ describe("summary", () => {
     expect(
       summary({ id: null, text: "x".repeat(80), choice: null, screen: "esc" }),
     ).toBe(`(no item) "${"x".repeat(57)}..." under the Esc screen`);
+  });
+});
+
+describe("readAudio (current()'s audio, read from the player's #audio)", () => {
+  /** A document holding `hook` as #audio, or none. */
+  const doc = (hook) => ({
+    getElementById: (id) => (id === "audio" ? (hook ?? null) : null),
+  });
+  const element = (slot, track, paused, currentTime, volume) => ({
+    dataset: { slot, track },
+    paused,
+    currentTime,
+    volume,
+  });
+  const target = {
+    music: "calm",
+    ambience: ["rain", "hum"],
+    voice: null,
+    videoSound: null,
+  };
+
+  it("reports the target, the unlock and each element holding a track", () => {
+    const hook = {
+      dataset: { target: JSON.stringify(target), unlocked: "true" },
+      children: [
+        element("music", "calm", false, 2.5, 0.8),
+        element("music", "", true, 0, 1),
+        element("ambience", "rain", false, 1.25, 0.5),
+        element("sfx", "", true, 0, 1),
+        element("voice", "mei-1", true, 1.2, 1),
+      ],
+    };
+    expect(readAudio(doc(hook))).toEqual({
+      unlocked: true,
+      target,
+      elements: [
+        {
+          slot: "music",
+          track: "calm",
+          paused: false,
+          currentTime: 2.5,
+          volume: 0.8,
+        },
+        {
+          slot: "ambience",
+          track: "rain",
+          paused: false,
+          currentTime: 1.25,
+          volume: 0.5,
+        },
+        {
+          slot: "voice",
+          track: "mei-1",
+          paused: true,
+          currentTime: 1.2,
+          volume: 1,
+        },
+      ],
+    });
+  });
+
+  it("gives no target before one applies, and says when sound is still locked", () => {
+    const hook = { dataset: { unlocked: "false" }, children: [] };
+    expect(readAudio(doc(hook))).toEqual({
+      unlocked: false,
+      target: null,
+      elements: [],
+    });
+  });
+
+  it("is null for a game without audio, whose player makes no #audio", () => {
+    expect(readAudio(doc(null))).toBeNull();
   });
 });

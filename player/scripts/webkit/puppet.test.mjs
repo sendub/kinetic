@@ -156,7 +156,7 @@ describe("launchWebKit", () => {
     await browser.close();
   });
 
-  it("hands the driver a profile folder to keep its storage in", async () => {
+  it("hands the driver a profile folder to keep its storage in, and the gesture-for-audio switch", async () => {
     // The ready line echoes the arguments the stand-in was started with.
     const command = [
       process.execPath,
@@ -175,6 +175,13 @@ describe("launchWebKit", () => {
     const fresh = await launchWebKit({ command });
     expect(fresh.ready.argv).toEqual([]);
     await fresh.close();
+    // Test only: sound waits for a key or click, as in Safari.
+    const gesture = await launchWebKit({
+      command,
+      requireGestureForAudio: true,
+    });
+    expect(gesture.ready.argv).toEqual(["--require-gesture-for-audio"]);
+    await gesture.close();
   });
 
   it("gives the page puppeteer's mouse: moves, presses and releases at a point", async () => {

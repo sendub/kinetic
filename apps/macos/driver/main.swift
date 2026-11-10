@@ -17,6 +17,11 @@
 // gets its `kinetic-host` event. Without it the page runs as in a browser
 // tab, which may ask to close itself (a windowclose line).
 //
+// Started with `--require-gesture-for-audio` (test only), sound waits for a
+// key or click as in Safari; the game app needs none. The `visible` request
+// hides or shows the page (document.visibilityState), as minimising the
+// game app's window would.
+//
 // The window is the game app's own class (KineticWindow): a key the page
 // leaves unhandled comes back to it from the web view, and each one becomes
 // a windowkey line, "dropped" where KineticWindow drops it, "appkit" if it
@@ -230,6 +235,11 @@ final class Driver: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKScr
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         let config = KineticWebView.configuration(storage: .nonPersistent)
+        // Test only: sound waits for a key or click, as in Safari, so the
+        // player's unlock and its hint are tested on WebKit too. The game
+        // app keeps the configuration's default (no gesture needed).
+        let gestureForAudio = CommandLine.arguments.contains("--require-gesture-for-audio")
+        if gestureForAudio { config.mediaTypesRequiringUserActionForPlayback = .audio }
         let profile = profileFolder()
         if let profile {
             guard let store = folderStore(profile) else {
@@ -294,7 +304,7 @@ final class Driver: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKScr
         }
         emit([
             "event": "ready", "hooks": hooks, "offscreen": "\(window.frame)", "pid": getpid(),
-            "profile": profile?.path ?? NSNull(),
+            "profile": profile?.path ?? NSNull(), "gestureForAudio": gestureForAudio,
         ])
 
         Thread.detachNewThread {
@@ -396,6 +406,16 @@ final class Driver: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKScr
                 return
             }
             bridge.setDisplay(mode, in: webView) { self.reply(id, .success(true)) }
+        case "visible":
+            // The page hidden or shown, as when the game app's window is
+            // minimised: the web view's own hidden flag, which WebKit turns
+            // into document.visibilityState. Answers once the page sees it.
+            let visible = r["visible"] as? Bool ?? true
+            webView.isHidden = !visible
+            webView.callAsyncJavaScript(
+                "const t0 = performance.now(); while (document.visibilityState !== want && performance.now() - t0 < 3000) await new Promise((r) => setTimeout(r, 5)); return document.visibilityState;",
+                arguments: ["want": visible ? "visible" : "hidden"], in: nil, in: .page
+            ) { self.reply(id, $0.map { $0 as Any }) }
         case "quit":
             reply(id, .success(true))
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { NSApp.terminate(nil) }

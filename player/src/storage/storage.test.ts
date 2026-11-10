@@ -511,6 +511,30 @@ describe("sanitizeSettings — the settings the shipped adapter reads back", () 
     expect(sanitizeSettings({ fullscreen: "window" })).toBeUndefined();
   });
 
+  it("keeps the sound settings: on, at full volume by default", () => {
+    expect({
+      soundOn: DEFAULT_SETTINGS.soundOn,
+      musicVolume: DEFAULT_SETTINGS.musicVolume,
+      effectsVolume: DEFAULT_SETTINGS.effectsVolume,
+      voiceVolume: DEFAULT_SETTINGS.voiceVolume,
+    }).toEqual({
+      soundOn: true,
+      musicVolume: 1,
+      effectsVolume: 1,
+      voiceVolume: 1,
+    });
+    const sound = {
+      soundOn: false,
+      musicVolume: 0.3,
+      effectsVolume: 0,
+      voiceVolume: 0.7,
+    };
+    expect(sanitizeSettings(sound)).toEqual(sound);
+    expect(
+      sanitizeSettings({ soundOn: "off", musicVolume: "0.5" }),
+    ).toBeUndefined();
+  });
+
   it("accepts exactly the DEFAULT_SETTINGS fields — nothing is missed", () => {
     const all = Object.fromEntries(
       Object.entries(DEFAULT_SETTINGS).map(([field, value]) => [

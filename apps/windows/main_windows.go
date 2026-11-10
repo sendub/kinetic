@@ -83,10 +83,11 @@ func findRuntime() (runtimeCandidate, bool) {
 // run opens the game window in the remembered mode, starts the web view
 // in it, and serves the window until it closes.
 func (g *game) run() {
-	// Black from the first frame: Microsoft notes that the API's
-	// background colour can still flash white first, and the environment
-	// variable does not.
-	_ = os.Setenv("WEBVIEW2_DEFAULT_BACKGROUND_COLOR", "FF000000")
+	// Read when the environment is created (createEnvironment below).
+	for _, v := range webViewEnvironment(os.Getenv) {
+		_ = os.Setenv(v.Name, v.Value)
+		logf("%s=%s", v.Name, v.Value)
+	}
 
 	hr, _, _ := procCoInitializeEx.Call(0, coinitApartmentThreaded)
 	logf("CoInitializeEx: %s", hresult(int32(hr)))

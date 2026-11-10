@@ -33,6 +33,9 @@
 // Window and Exit, through a game app's host object when there is one
 // (render/host.ts) and the Fullscreen API in a browser tab. Phase 46's
 // `index.html#start=<id>` opens one load at an item (render/urlstart.ts).
+// Phase 47's sound (render/audio.ts) follows the machine's arrivals; the
+// menus below tell it which screens are up, and the settings reach it with
+// the machine's.
 // Composition only — rendering lives in src/render/, timing in
 // src/machine/, storage adapters in src/storage/.
 
@@ -40,6 +43,7 @@ import { createMachine } from "./machine/machine";
 import type { MachineSettings } from "./machine/types";
 import { DEFAULT_SETTINGS } from "./machine/types";
 import { mountError, mountShell, NOTICE_LONG_MS } from "./render/app";
+import { mountAudio } from "./render/audio";
 import { mountAutoForwardAnnouncements } from "./render/autoforward";
 import {
   bookmarkRestoreTarget,
@@ -234,11 +238,20 @@ function start(): void {
       const machine = createMachine({
         items: manifest.items,
         branches: manifest.branches,
+        audio: manifest.audio,
         settings: currentSettings,
         ...resumeOptionsFor(persisted, codec),
         ...(startAt >= 0 ? { startAt } : {}),
       });
       const shell = mountShell({ root, manifest, machine });
+      // The sound (docs/plan.md Phase 47): null for a game without audio,
+      // which then makes no audio element at all.
+      const audio = mountAudio({
+        root,
+        manifest,
+        machine,
+        settings: currentSettings,
+      });
 
       // Persistence: every machine move can change the resume point —
       // the ctx carries the open route and the last shown item, and the
@@ -378,6 +391,7 @@ function start(): void {
         onChange: (next) => {
           currentSettings = next;
           machine.setSettings(next);
+          audio?.setSettings(next);
           persistUrgently();
         },
         onReset: () => {
@@ -960,6 +974,12 @@ function start(): void {
       // panels' own — re-sync after each.
       let menuPaused = false;
       function syncMenuPause(): void {
+        // The sound tells the Esc screen from the map (render/audio.ts):
+        // music and ambience play on under the map, only the voice pauses.
+        audio?.setScreens({
+          esc: help.isOpen() || confirm.isOpen(),
+          map: map.isOpen(),
+        });
         const open = anyPanelOpen();
         if (open === menuPaused) return;
         menuPaused = open;

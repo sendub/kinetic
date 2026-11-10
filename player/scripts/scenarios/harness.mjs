@@ -915,6 +915,9 @@ export const demoDir = join(scenarioRoot, "demo");
 export const emptyDir = join(scenarioRoot, "demo-empty");
 export const tallDir = join(scenarioRoot, "demo-tall");
 export const TALL_ASSET = { width: 640, height: 960 };
+/** fixtures/audio-demo with the player (`audio.scenario.mjs`). */
+export const audioDemoDir = join(scenarioRoot, "audio-demo");
+const audioDemoSource = join(repoRoot, "fixtures", "audio-demo");
 
 // The engine every scenario browser runs on: headless Chrome (the default)
 // or, with KINETIC_ENGINE=webkit (the runner's --webkit), the system WebKit
@@ -987,7 +990,12 @@ export async function spaceTo(page, cdp, id, limit = 60) {
   return (await currentItemId(page)) === id;
 }
 
-/** Assemble the demo, empty and tall folders from fixtures/demo + dist. */
+/**
+ * Assemble the demo, empty and tall folders from fixtures/demo + dist, and
+ * the audio demo from fixtures/audio-demo + dist when that folder has been
+ * built (`audioDemo` says whether; it is gitignored, made by
+ * `.venv/bin/python fixtures/build_audio_demo.py`).
+ */
 export function assembleFolders() {
   for (const file of ["index.html", "app.js"]) {
     if (!existsSync(join(playerDir, "dist", file))) {
@@ -1006,6 +1014,13 @@ export function assembleFolders() {
   for (const file of ["index.html", "app.js", "manifest.js"]) {
     copyFileSync(join(playerDir, "dist", file), join(emptyDir, file));
   }
+  const audioDemo = existsSync(join(audioDemoSource, "manifest.json"));
+  if (audioDemo) {
+    cpSync(audioDemoSource, audioDemoDir, { recursive: true });
+    for (const file of ["index.html", "app.js"]) {
+      copyFileSync(join(playerDir, "dist", file), join(audioDemoDir, file));
+    }
+  }
   // The asset/manifest aspect mismatch folder: only the first image's JPEG
   // is resampled (macOS sips), never the manifest.
   let tallAsset = true;
@@ -1023,7 +1038,40 @@ export function assembleFolders() {
   } catch {
     tallAsset = false;
   }
-  return { tallAsset };
+  return { tallAsset, audioDemo };
+}
+
+// The tab each Chrome browser fronts to hide its scenario page.
+const coverTabs = new WeakMap();
+
+/**
+ * Hides (`visible` false) or shows the page, as switching to another tab
+ * or minimising the game app's window does, and resolves with its
+ * `document.visibilityState` once that has changed (or after 3 s). Chrome
+ * fronts a blank tab of the same browser over it, then the page again;
+ * the WebKit driver hides and shows its web view (puppet.mjs setVisible).
+ */
+export async function setPageVisible(browser, page, visible) {
+  if (onWebKit) return page.setVisible(visible);
+  if (!visible) {
+    let cover = coverTabs.get(browser);
+    if (cover === undefined) {
+      cover = await browser.newPage();
+      coverTabs.set(browser, cover);
+    }
+    await cover.bringToFront();
+  } else {
+    await page.bringToFront();
+  }
+  const want = visible ? "visible" : "hidden";
+  await page
+    .waitForFunction(
+      (w) => document.visibilityState === w,
+      { timeout: 3000 },
+      want,
+    )
+    .catch(() => {});
+  return page.evaluate(() => document.visibilityState);
 }
 
 // A game app's host object for Chrome sessions opened with `host`: the
@@ -1103,6 +1151,9 @@ async function installRecordingHost(page, { kind, display }) {
  * One scenario's browser: a FRESH profile (first-ever load), console and
  * page errors captured, the INSTRUMENT shim installed, and the demo opened
  * with the key help up (pass `closeHelp: true` to dismiss it by keyboard).
+ * `requireGestureForAudio: true` makes the WebKit driver refuse sound until
+ * a key or click, as Safari does (headless Chrome always does, as Chrome
+ * does; the stock driver allows it, as the macOS app does).
  * `manualChoices: true` (with `closeHelp`) then turns Play all routes off
  * on the Esc screen, so the walk answers every decision itself; it throws if the
  * switch did not end Off with the screen closed. `host: { kind, display }`
@@ -1121,6 +1172,7 @@ export async function openScenario(name, options = {}) {
     profile: onWebKit ? null : join(scenarioRoot, "profiles", name),
     fresh: true,
     crashDumpsDir: join(scenarioRoot, "crashdumps"),
+    requireGestureForAudio: options.requireGestureForAudio === true,
   });
   const page = await browser.newPage();
   const errors = collectErrors(page);

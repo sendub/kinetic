@@ -343,6 +343,14 @@ class Page {
   async setHostDisplay(mode) {
     await this.rpc.send("hostDisplay", { mode });
   }
+  /**
+   * Beyond puppeteer: hides (false) or shows (true) the page, as minimising
+   * the game app's window would; resolves with the page's
+   * `document.visibilityState` once it has changed.
+   */
+  setVisible(visible) {
+    return this.rpc.send("visible", { visible });
+  }
   async evaluate(fn, ...args) {
     return unwrap(
       await this.rpc.send("eval", { body: wrap(callOf(fn, args)) }),
@@ -448,13 +456,16 @@ class Page {
  * One driver process: one fresh profile and one page, like one
  * puppeteer.launch() with its first page. `profile` (a folder) keeps the
  * page's storage on disk there instead, so a later launch with the same
- * folder resumes it. Throws, with the driver killed, when the driver
- * cannot start, would show its window, or lacks a hook.
+ * folder resumes it. `requireGestureForAudio` makes sound wait for a key or
+ * click, as Safari does (test only: the game app plays sound at launch).
+ * Throws, with the driver killed, when the driver cannot start, would show
+ * its window, or lacks a hook.
  */
 export async function launchWebKit(options = {}) {
   // `command` stands in for the driver in the adapter's own tests.
   const [file, ...args] = options.command ?? [ensureDriver()];
   if (options.profile) args.push(`--profile=${options.profile}`);
+  if (options.requireGestureForAudio) args.push("--require-gesture-for-audio");
   const proc = spawn(file, args, {
     stdio: ["pipe", "pipe", "pipe"],
     detached: true,

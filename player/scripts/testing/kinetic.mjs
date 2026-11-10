@@ -193,6 +193,39 @@ const END_CARD = () => {
   return words.length > 0 ? words.join(" ") : (card.textContent ?? "").trim();
 };
 
+/**
+ * current()'s `audio`, read from `doc` (the page's document): the player's
+ * hidden `#audio` (docs/plan.md Phase 47, item 5) holds its <audio>
+ * elements, each with `data-slot` and `data-track`, and carries the target
+ * sound as JSON (`data-target`, from when the first one applies) and
+ * `data-unlocked`. Resolves `{ unlocked, target, elements }`, where
+ * `elements` lists each element holding a track as `{ slot, track,
+ * paused, currentTime, volume }` (idle ones are left out), or null when
+ * the page has no `#audio`: a game without audio, or an older player.
+ * Runs in the page, so it uses nothing from outside its own body.
+ */
+export const readAudio = (doc) => {
+  const hook = doc.getElementById("audio");
+  if (hook === null) return null;
+  let target = null;
+  try {
+    target = JSON.parse(hook.dataset.target ?? "null");
+  } catch {}
+  return {
+    unlocked: hook.dataset.unlocked === "true",
+    target,
+    elements: Array.from(hook.children)
+      .filter((el) => (el.dataset.track ?? "") !== "")
+      .map((el) => ({
+        slot: el.dataset.slot,
+        track: el.dataset.track,
+        paused: el.paused,
+        currentTime: el.currentTime,
+        volume: el.volume,
+      })),
+  };
+};
+
 // Everything current() reports, read in one round trip.
 const READ_NOW = `({
   state: (${PAGE_STATE})(),
@@ -200,6 +233,7 @@ const READ_NOW = `({
   endCard: (${END_CARD})(),
   choice: (${READ_CHOICE})(),
   map: (${MAP_OPEN})(),
+  audio: (${readAudio})(document),
   playAll: document.querySelector(".config-play-all")?.getAttribute("aria-pressed") ?? null,
 })`;
 
@@ -640,7 +674,8 @@ export function summary(now) {
  *   the macOS app cannot read files through them.
  * Failed loads are reported on both engines: errors() lists each picture,
  * video, poster or script that failed to load or decode, once per file;
- * after a fast walk, await the handle's checkMedia() first.
+ * after a fast walk, await the handle's checkMedia() first. The handle's
+ * current() reports the game's sound as `audio` (readAudio).
  * Resolves with the game handle (CREATE.md, "Testing your game").
  */
 export async function openGame(folder, options = {}) {
@@ -798,6 +833,7 @@ function gameHandle({ page, cdp, errors, manifest, closeHelp }, fields) {
       foundBy,
       ambiguous,
       endCard: now.endCard,
+      audio: now.audio,
     };
   };
 
@@ -857,13 +893,21 @@ function gameHandle({ page, cdp, errors, manifest, closeHelp }, fields) {
     },
     /**
      * What the screen shows: `{ id, index, text, speaker, file, choice,
-     * screen, foundBy, ambiguous, endCard }`. `id` and `index` name the
-     * item on screen (null and -1 for none); `foundBy` says how it was
+     * screen, foundBy, ambiguous, endCard, audio }`. `id` and `index` name
+     * the item on screen (null and -1 for none); `foundBy` says how it was
      * named ("player", "screen", "saved place", "guess" or "none",
      * findItem); `ambiguous` lists the look-alike items' ids behind a
      * guess, else []; `endCard` is the words of the player's end card
      * when it shows (at the story's end, docs/content-format.md "End
-     * card"), else null.
+     * card"), else null. `audio` is the sound (readAudio): `{ unlocked,
+     * target, elements }`, where `target` is what should sound here
+     * (`{ music, ambience, voice, videoSound }`, from a moment after a
+     * walk or jump lands: the player waits 250 ms) and `elements` each
+     * <audio> element holding a track, `{ slot, track, paused,
+     * currentTime, volume }`, slot "music", "ambience", "sfx", "voice" or
+     * "video"; null for a game without audio. A browser plays nothing
+     * until the first key or click (`unlocked` false until then); the
+     * WebKit engine, like the macOS app, plays at once.
      */
     current,
     /** Waits for an item id, or for `fn(current())` to be true. */

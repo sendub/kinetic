@@ -308,6 +308,19 @@ export interface MachineSettings {
    * from before it reads as Fullscreen); the machine never reads it.
    */
   fullscreen: boolean;
+  /**
+   * Sound on or off (docs/plan.md Phase 47); default true. Off, nothing
+   * sounds; turned on, the screen's music and ambience start, with no
+   * one-shots and no voice restart (render/audio.ts). A game without audio
+   * ignores it. The machine reads none of the sound settings.
+   */
+  soundOn: boolean;
+  /** The Music group's volume, music and ambience, 0 to 1; default 1. */
+  musicVolume: number;
+  /** The Effects group's volume, one-shots and video sound, 0 to 1; default 1. */
+  effectsVolume: number;
+  /** The Voice group's volume, 0 to 1; default 1. */
+  voiceVolume: number;
 }
 
 export const DEFAULT_SETTINGS: MachineSettings = {
@@ -322,6 +335,10 @@ export const DEFAULT_SETTINGS: MachineSettings = {
   playAllRoutes: true,
   mapSpoilers: false,
   fullscreen: true,
+  soundOn: true,
+  musicVolume: 1,
+  effectsVolume: 1,
+  voiceVolume: 1,
 };
 
 /**

@@ -140,6 +140,7 @@ import type {
   MachinePlace,
   MachineSettings,
   MachineState,
+  ManifestAudio,
   RouteResult,
   RouteSet,
   Scheduler,
@@ -206,6 +207,12 @@ export interface MachineOptions {
    * True starts in auto-forward immediately.
    */
   autoAdvance?: boolean;
+  /**
+   * The manifest's sound (docs/content-format.md, "Audio"): the machine
+   * reads only its tracks' lengths, for the voice hold
+   * (`setVoiceAudible`). Absent: no item waits for a voice.
+   */
+  audio?: ManifestAudio;
   /** Defaults to the global setTimeout/clearTimeout. */
   scheduler?: Scheduler;
 }
@@ -508,6 +515,17 @@ export interface Machine {
    * After `destroy()` it is inert, like every other command.
    */
   setSettings(settings: MachineSettings): void;
+  /**
+   * Whether the reader hears voice lines (docs/plan.md Phase 47, item 5;
+   * docs/content-format.md "Timing"): sound on, Voice above 0 and sound
+   * unlocked, as the audio module (render/audio.ts) finds. While true, an
+   * item's auto-forward hold lasts at least as long as its voice line, the
+   * track's `durationSeconds` less its `startSeconds`; skip, manual mode
+   * and a manifest without that track are untouched. False at
+   * construction. A change re-times a pending hold as `setSettings` does,
+   * from when the item's timer was armed.
+   */
+  setVoiceAudible(audible: boolean): void;
   /**
    * `a`: the auto-forward toggle (docs/plan.md Phase 13b, README `a`
    * bullet). Manual (off) is the player's start (main.ts constructs with
@@ -910,6 +928,10 @@ export function createMachine(options: MachineOptions): Machine {
   // of it cannot silently retime the timeline.
   let settings: MachineSettings = { ...options.settings };
   const scheduler = options.scheduler ?? defaultScheduler;
+  /** The tracks a voice hold reads its length from. */
+  const voiceTracks = options.audio?.tracks;
+  /** Whether the reader hears voice lines (`setVoiceAudible`). */
+  let voiceAudible = false;
   const count = items.length;
   const decisions = resolveDecisions(items, options.branches ?? []);
   /** Decisions keyed by the item index they fire on, in table order. */
@@ -1435,7 +1457,21 @@ export function createMachine(options: MachineOptions): Machine {
     return Math.max(
       itemHoldMs(items[cursor], settings, nextIsText(cursor)),
       chainExitFloorMs(),
+      voiceHoldMs(),
     );
+  }
+
+  /**
+   * How long the voice line of the item under the cursor lasts, in ms,
+   * while the reader hears voices (`setVoiceAudible`); 0 otherwise, or
+   * when the item has no voice or its track is unknown.
+   */
+  function voiceHoldMs(): number {
+    if (!voiceAudible) return 0;
+    const id = items[cursor]?.audio?.voice;
+    const track = id === undefined ? undefined : voiceTracks?.[id];
+    if (track === undefined) return 0;
+    return (track.durationSeconds - (track.startSeconds ?? 0)) * 1000;
   }
 
   /**
@@ -1496,6 +1532,25 @@ export function createMachine(options: MachineOptions): Machine {
       return;
     }
     timer = scheduler.schedule(onTimerElapsed, delay);
+  }
+
+  /**
+   * Re-times the pending timer for a change to what the current item's
+   * delay is made of (`setSettings`, `setVoiceAudible`). Only a live
+   * auto-advance or skip dwell is re-timed; an item with no pending timer
+   * (manual mode, an open choice, a completed item with nothing after it,
+   * or one waiting on a video's `ended`) owns none to re-arm. The new delay
+   * is measured from when this item's timer was armed, so the time already
+   * shown counts toward the new total.
+   */
+  function retime(): void {
+    if (timer === null) return;
+    const remainingMs = Math.max(
+      0,
+      currentDelayMs() - (Date.now() - timerArmedAt),
+    );
+    cancelTimer();
+    timer = scheduler.schedule(onTimerElapsed, remainingMs);
   }
 
   /**
@@ -3235,18 +3290,14 @@ export function createMachine(options: MachineOptions): Machine {
       } else if (autoPick === null && autoPickLiveChoice()) {
         emit();
       }
-      // Only a live auto-advance is re-timed; an item with no pending hold
-      // (manual mode, an open choice, a completed item with nothing after
-      // it, or one waiting on a video's `ended`) owns no timer to re-arm.
-      // The new delay is measured from when this item's timer was armed, so
-      // the time already shown counts toward the new total.
-      if (timer === null) return;
-      const remainingMs = Math.max(
-        0,
-        currentDelayMs() - (Date.now() - timerArmedAt),
-      );
-      cancelTimer();
-      timer = scheduler.schedule(onTimerElapsed, remainingMs);
+      retime();
+    },
+
+    setVoiceAudible(audible) {
+      if (audible === voiceAudible) return;
+      voiceAudible = audible;
+      if (destroyed || count === 0) return;
+      retime();
     },
 
     setAutoAdvance(on) {
