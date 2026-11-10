@@ -2684,6 +2684,20 @@ For the converting agent, compared with their request:
     storage/ids.ts does it over the seen set when a saved place no longer
     exists. Both become loops, and a sweep of player/src finds any other
     spread over a list that grows with the story.
+14. Ambience loops play on (added 2026-11-10, the user's listening check,
+    item 11, the same in Safari, Chrome and the Mac app). On the demo's
+    `amb-start` the rain stopped after one play while the hum restarted
+    with gaps, and `amb-carry` had no rain at all. An ambience or music
+    loop plays on unbroken for as long as it is wanted: a native loop
+    (start and loop start 0) wraps with no pause beyond the engine's own
+    seam, a loop that restarts elsewhere wraps within one animation
+    frame, and nothing else pauses, seeks or restarts a wanted loop.
+15. Video sound clicks stay on the wall hits (added 2026-11-10, the user's
+    listening check, all three engines): on `video-sync` the clicks were
+    usually on the bar's wall hits but sometimes not. The video sound
+    neither skips nor doubles a click and stays within the sync bound
+    through the wraps, the text chain and the menus, including the re-seeks
+    themselves.
 
 Not verified, and not verifiable on this machine: WebM Vorbis and Opus in
 Safari 15-17 (caniuse and WebKit bug 183852 say yes), WebView2's autoplay,
@@ -2692,6 +2706,8 @@ and Firefox.
 ## Later, waiting on the user
 
 - Overlay text styling iteration once the user can play with the demo.
+- Features asked for but not yet scheduled, such as read-aloud for lines
+  with no voice file: docs/future.md.
 
 ## Sequencing
 

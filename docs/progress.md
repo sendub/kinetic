@@ -3338,6 +3338,21 @@ truthful: an unchecked box means nothing was accepted.
       1151, check clean, smoke 6/6, the sweep re-run over player/src and
       player/scripts/testing lists only those four, Chrome `bookmarkmap
       branchmap navigation branches audio` 235/235.)
+- [ ] Ambience loops play on (item 14, added 2026-11-10; user, listening
+      check: on `amb-start` the rain stopped after one play and the hum
+      restarted with gaps; `amb-carry` had no rain). Tests:
+      - the audio scenario, Chrome and WebKit: rain and hum still play
+        after three times their length, their clocks advancing with no
+        pause at a wrap beyond one frame; the same for a music loop and
+        for `steps`' loop from 3 s;
+      - a Vitest case for the root cause, red first.
+- [ ] Video sound clicks stay on the wall hits (item 15, added 2026-11-10;
+      user, listening check: usually on the hits, sometimes not). Tests:
+      - the videosound scenario, Chrome and WebKit: across ten wraps no
+        click is skipped or doubled (mapping the sound's played spans to
+        the clock track's click times) and every frame is within the
+        sync bound, re-seeks included;
+      - a Vitest case for the root cause, red first.
 - [ ] User: the listening checklist (item 11), on fixtures/audio-demo in
       real Safari, desktop Chrome and a Mac app built for it. The
       orchestrator does not tick this; the user reports, and any finding
