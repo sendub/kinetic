@@ -756,3 +756,226 @@ describe("decoding ahead (Phase 43)", () => {
     expect(images.map((img) => img.src)).toEqual(["a.jpg", "b.jpg"]);
   });
 });
+
+// One <video> per source file (render/visual.ts, "A fresh <video> per
+// source"): a new file gets a new element and the old one is released
+// (paused, its src removed and loaded empty, its listeners off, out of the
+// DOM); everything within one file (ranges, loop passes, replays, a text
+// chain) stays on the same element. Only one is ever in the stage.
+class LifeVideo {
+  id = "";
+  className = "";
+  muted = false;
+  playsInline = false;
+  preload = "";
+  loop = false;
+  poster = "";
+  src = "";
+  currentTime = 0;
+  paused = true;
+  plays = 0;
+  loads = 0;
+  style: Record<string, string> = {};
+  stage: LifeStage | null = null;
+  private listeners = new Map<string, Array<() => void>>();
+  get isConnected(): boolean {
+    return this.stage?.children.includes(this) ?? false;
+  }
+  setAttribute(): void {}
+  removeAttribute(name: string): void {
+    if (name === "src") this.src = "";
+  }
+  load(): void {
+    this.loads += 1;
+  }
+  addEventListener(type: string, fn: () => void): void {
+    this.listeners.set(type, [...(this.listeners.get(type) ?? []), fn]);
+  }
+  removeEventListener(type: string, fn: () => void): void {
+    this.listeners.set(
+      type,
+      (this.listeners.get(type) ?? []).filter((f) => f !== fn),
+    );
+  }
+  listenerCount(): number {
+    return [...this.listeners.values()].reduce((n, fns) => n + fns.length, 0);
+  }
+  remove(): void {
+    if (this.stage === null) return;
+    this.stage.children = this.stage.children.filter((c) => c !== this);
+  }
+  pause(): void {
+    this.paused = true;
+  }
+  play(): Promise<void> {
+    this.plays += 1;
+    this.paused = false;
+    return Promise.resolve();
+  }
+  fire(type: string): void {
+    for (const fn of this.listeners.get(type) ?? []) fn();
+  }
+}
+
+interface LifeStage {
+  children: unknown[];
+}
+
+function lifecycleHarness(items: Item[]) {
+  const videos: LifeVideo[] = [];
+  const stage: LifeStage & {
+    ownerDocument: unknown;
+    append(el: { stage?: LifeStage | null }): void;
+  } = {
+    children: [],
+    ownerDocument: {
+      createElement(tag: string) {
+        if (tag === "video") {
+          const v = new LifeVideo();
+          videos.push(v);
+          return v;
+        }
+        return { style: {}, remove() {} };
+      },
+    },
+    append(el) {
+      if ("stage" in el) el.stage = stage;
+      stage.children.push(el);
+    },
+  };
+  const manifest = { schemaVersion: 1, items } as unknown as Manifest;
+  const ends: number[] = [];
+  let cursor = 0;
+  const layer = createVisualLayer(stage as unknown as HTMLElement, manifest, {
+    onVideoEnded() {
+      ends.push(cursor);
+    },
+  });
+  // Show item `index` as an advance onto it (it plays), or as a nav
+  // arrival below the frontier (a still).
+  const show = (index: number, transition: "advance" | "nav" = "advance") => {
+    cursor = index;
+    let visual = index;
+    while (items[visual].type === "text") visual -= 1;
+    layer.update(items[visual], {
+      cursor: index,
+      frontier: transition === "nav" ? items.length : index + 1,
+      settled: false,
+      skipping: false,
+      transition,
+    } as never);
+  };
+  const inStage = () => stage.children.filter((c) => c instanceof LifeVideo);
+  return { layer, videos, show, inStage, ends };
+}
+
+describe("a fresh <video> per source file", () => {
+  it("a new file gets a new element; the old one is released and removed", () => {
+    const { videos, show, inStage } = lifecycleHarness([
+      vid({ id: "v-a", file: "a.mp4", poster: "a.jpg" }),
+      vid({ id: "v-b", file: "b.webm", poster: "b.jpg" }),
+    ]);
+    show(0);
+    show(1);
+    expect(videos).toHaveLength(2);
+    const [old, current] = videos;
+    expect(old.paused).toBe(true);
+    expect(old.src).toBe("");
+    expect(old.loads).toBe(1);
+    expect(old.listenerCount()).toBe(0);
+    expect(old.isConnected).toBe(false);
+    expect(current.src).toBe("b.webm");
+    expect(current.poster).toBe("b.jpg");
+    expect(current.style.backgroundImage).toBe('url("b.jpg")');
+    expect(current.id).toBe("visual-video");
+    expect(inStage()).toEqual([current]);
+  });
+
+  it("ranges of one file, their loop passes and a replay stay on one element", () => {
+    const { videos, show, inStage, ends } = lifecycleHarness([
+      vid({
+        id: "r-a",
+        file: "r.mp4",
+        startSeconds: 0,
+        endSeconds: 2,
+        loopCount: 2,
+      }),
+      vid({ id: "r-b", file: "r.mp4", startSeconds: 2, endSeconds: 4 }),
+      item({ id: "after", type: "image", file: "p.jpg" }),
+    ]);
+    show(0);
+    const element = videos[0];
+    element.currentTime = 2;
+    element.fire("ended"); // pass 1 of 2: loops back on the same element
+    expect(ends).toEqual([0]);
+    show(1); // the next range of the same file
+    expect(element.currentTime).toBe(2);
+    show(0, "nav"); // the wheel back onto the first range: its still
+    show(0); // and Space again: a replay
+    expect(videos).toHaveLength(1);
+    expect(element.loads).toBe(0);
+    expect(element.src).toBe("r.mp4");
+    expect(inStage()).toEqual([element]);
+  });
+
+  it("a text chain over one video stays on one element", () => {
+    const { videos, show } = lifecycleHarness([
+      vid({ id: "v-a", file: "a.mp4" }),
+      item({ id: "line-2", type: "text", text: "Second line." }),
+      item({ id: "line-3", type: "text", text: "Third line." }),
+    ]);
+    show(0);
+    show(1);
+    show(2);
+    expect(videos).toHaveLength(1);
+    expect(videos[0].loop).toBe(true);
+    expect(videos[0].loads).toBe(0);
+  });
+
+  it("a picture between two videos: one element in the stage, the old one released", () => {
+    const { videos, show, inStage } = lifecycleHarness([
+      vid({ id: "v-a", file: "a.mp4" }),
+      item({ id: "pic", type: "image", file: "p.jpg" }),
+      vid({ id: "v-b", file: "b.mp4" }),
+      vid({ id: "v-c", file: "c.mp4" }),
+    ]);
+    for (let i = 0; i < 4; i += 1) show(i);
+    expect(videos).toHaveLength(3);
+    expect(
+      videos.slice(0, 2).every((v) => !v.isConnected && v.src === ""),
+    ).toBe(true);
+    expect(inStage()).toEqual([videos[2]]);
+  });
+
+  it("a released element's late ended reports nothing; hold and capture use the new one", () => {
+    const { layer, videos, show, ends } = lifecycleHarness([
+      vid({ id: "v-a", file: "a.mp4" }),
+      vid({ id: "v-b", file: "b.mp4" }),
+    ]);
+    show(0);
+    show(1);
+    videos[0].fire("ended");
+    expect(ends).toEqual([]);
+    expect(layer.currentVisual()).toBe(
+      videos[1] as unknown as HTMLVideoElement,
+    );
+    layer.setPaused(true);
+    expect(videos[1].paused).toBe(true);
+    const plays = videos[1].plays;
+    layer.setPaused(false);
+    expect(videos[1].plays).toBe(plays + 1);
+    videos[1].fire("ended");
+    expect(ends).toEqual([1]);
+  });
+
+  it("destroy releases the element", () => {
+    const { layer, videos, show, inStage } = lifecycleHarness([
+      vid({ id: "v-a", file: "a.mp4" }),
+    ]);
+    show(0);
+    layer.destroy();
+    expect(videos[0].src).toBe("");
+    expect(videos[0].listenerCount()).toBe(0);
+    expect(inStage()).toEqual([]);
+  });
+});

@@ -42,9 +42,11 @@
 //   natively — background, no range — wraps at 0, because the element
 //   controls that restart.
 //
-// One `<img>` serves images and animation frames, and ONE `<video>` element
-// is reused across renders: advancing within a chain flips `loop` and keeps
-// the same element playing, never re-creating or reloading it.
+// One `<img>` serves images and animation frames. One `<video>` serves one
+// source file: advancing within a chain flips `loop` and keeps the same
+// element playing, never re-creating or reloading it, and so do ranges of
+// the same file, loop passes, replays and seeks. A new file gets a fresh
+// element and the old one is released (see `retireVideo` for why).
 //
 // Sizing is not this module's business: `.visual` (index.html) is a box the
 // size of the viewport whose paint is `object-fit: contain`, so whatever the
@@ -329,15 +331,16 @@ export function createVisualLayer(
   let drawnFile: string | null = null;
   let drawnNotice: string | null = null;
 
-  // The single reused <video>. `drawnVideoSrc` is the file it currently
-  // loads and `drawnVideoItem` the item it was entered with — two items can
-  // share one file at different ranges, and a fresh item entry (whatever
-  // the file) re-seeks to that item's range start. `videoMode` its current
-  // playback mode; `videoPlan` how that mode plays out on the element (see
-  // `videoPlanFor`); `videoEndedCount` the pass-completes already reported
-  // for the current playback; `videoGeneration` bumps whenever the source
-  // changes so a late autoplay rejection cannot report an end for a video
-  // that is no longer on screen.
+  // The current <video> (one per source file, see `retireVideo`).
+  // `drawnVideoSrc` is the file it loads and `drawnVideoItem` the item it
+  // was entered with — two items can share one file at different ranges,
+  // and a fresh item entry (whatever the file) re-seeks to that item's
+  // range start. `videoMode` its current playback mode; `videoPlan` how
+  // that mode plays out on the element (see `videoPlanFor`);
+  // `videoEndedCount` the pass-completes already reported for the current
+  // playback; `videoGeneration` bumps whenever the source changes so a late
+  // autoplay rejection cannot report an end for a video that is no longer
+  // on screen.
   let video: HTMLVideoElement | null = null;
   let drawnVideoSrc: string | null = null;
   let drawnVideoItem: string | null = null;
@@ -553,6 +556,44 @@ export function createVisualLayer(
     return typeof element.requestVideoFrameCallback === "function";
   }
 
+  /**
+   * Release the current `<video>`, if any: paused, its listeners off, its
+   * source removed and `load()`ed empty (so the engine drops the media
+   * player, its decoder and its video layer) and out of the stage. The
+   * next `ensureVideo()` makes a fresh one, so only one is ever in the DOM.
+   *
+   * A fresh element per source file (docs/plan.md Phase 46 item 6). The
+   * user saw videos play smaller than the stage, an earlier still showing
+   * around them, in Safari and the macOS app, fullscreen, after many
+   * pictures and videos; wheeling back and pressing Space fixed it. It was
+   * not reproduced headless: WebKit draws a playing video in its GPU
+   * process, which the off-screen test window never renders, and both
+   * engines' screenshots and the DOM showed the video filling its box on
+   * every path. The still around it is this element's own poster
+   * background, so WebKit was drawing the frames smaller than the box.
+   * WebKit sizes that video layer through state it keeps per `<video>`
+   * element (in the UI process, a layer that resends a size only when its
+   * own cached view of the video changes; each new media player starts
+   * from the element's last layer size), and one element used to serve
+   * every file of a session. A fresh element starts that state over for
+   * each file, as the reader's wheel-back-and-Space did. WebKit has open
+   * bugs of this kind: https://bugs.webkit.org/show_bug.cgi?id=241789
+   * (a video first renders small) and
+   * https://bugs.webkit.org/show_bug.cgi?id=240604 (the wrong fit at
+   * playback start).
+   */
+  function retireVideo(): void {
+    if (video === null) return;
+    stopRangeWatch();
+    video.pause();
+    video.removeEventListener("ended", onVideoEnded);
+    video.removeEventListener("timeupdate", onTimeUpdate);
+    video.removeAttribute("src");
+    video.load();
+    video.remove();
+    video = null;
+  }
+
   function ensureVideo(): HTMLVideoElement {
     if (video === null) {
       video = doc.createElement("video");
@@ -765,18 +806,22 @@ export function createVisualLayer(
     stopAnimation();
     dropNotice();
     hideImage();
+    const newSource = drawnVideoSrc !== item.file;
+    // A new file (or the first video after a picture) gets a fresh element;
+    // the same file keeps its element (`retireVideo`).
+    if (newSource) retireVideo();
     const element = ensureVideo();
-    const freshEntry =
-      drawnVideoSrc !== item.file || drawnVideoItem !== item.id;
-    if (drawnVideoSrc !== item.file) {
+    const freshEntry = newSource || drawnVideoItem !== item.id;
+    if (newSource) {
       videoGeneration += 1;
-      element.pause();
       element.src = item.file;
       drawnVideoSrc = item.file;
     }
     if (freshEntry) {
       // The item's poster is the frame at ITS startSeconds — two items may
       // share one file at different ranges, so it is repainted per entry.
+      // Set in the same task as the element is added, so the stage never
+      // paints it without its poster.
       drawnVideoItem = item.id;
       element.poster = item.poster;
       warmFile(item.poster); // first paint is the poster: same img decode path
@@ -880,11 +925,7 @@ export function createVisualLayer(
       stopAnimation();
       stopRangeWatch();
       if (video !== null) {
-        video.pause();
-        video.removeEventListener("ended", onVideoEnded);
-        video.removeEventListener("timeupdate", onTimeUpdate);
-        video.remove();
-        video = null;
+        retireVideo();
         drawnVideoSrc = null;
         drawnVideoItem = null;
         videoMode = null;

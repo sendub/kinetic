@@ -2820,7 +2820,7 @@ truthful: an unchecked box means nothing was accepted.
       on both engines, a random-bytes video gives one error line and exit
       1, `--start-at route1-start --until after-start` stops there, an
       unknown id exits 2.)
-- [ ] Player: videos always fill the stage (item 6, user): a video
+- [x] Player: videos always fill the stage (item 6, user): a video
       sometimes plays smaller than the stage; scrolling back and Space
       usually fixes it; trigger unknown. Find the trigger and fix the
       cause. Tests (a scenario part on the engine(s) where it happens,
@@ -2829,6 +2829,36 @@ truthful: an unchecked box means nothing was accepted.
         against the stage, as its poster and pictures fill it;
       - the same check after Space, the wheel, skip, a jump, a restore,
         a resize and a fullscreen change onto a video item.
+      (2026-11-10: NOT REPRODUCED headless; shipped as a mitigation by the
+      user's choice. The user sees it in Safari and the macOS app, already
+      fullscreen, after a long session of pictures and videos, with an
+      earlier still around the small video (no black bars). Every listed
+      path on both engines at 1280x720 and 1920x1080, and three long
+      WebKit walks (715 video showings over many sizes, ranges, real-size
+      content), painted every video within 3 px of its `contain` box with
+      the `<img>` hidden. WebKit draws video in a GPU layer that the
+      off-screen driver never shows, and its snapshot paints the frame in
+      software at the right size, so no headless test can fail for this.
+      Likely cause: WebKit's per-element video layer state carried across
+      sources on the one reused `<video>` (frames drawn smaller than the
+      element while its poster background fills it; WebKit bugs 241789,
+      240604). Mitigation in visual.ts: a fresh `<video>` per new source
+      file (`retireVideo()` pauses it, drops listeners and src, calls
+      `load()` and removes it); ranges of one file, loops, replays, seeks
+      and text chains keep their element. Tests: 6 visual.test.ts units
+      (4 red before); new videofit.scenario.mjs (14 path checks plus an
+      `elements` part: one `<video>` at a time, a fresh one per file,
+      released ones empty; red on HEAD for the fresh element). WebKit's
+      first video frame comes later (p50 19 -> 27 ms, p95 37 -> 81 ms)
+      while the poster still paints at ~10 ms, which is what the
+      navigation budget measures; Chrome unchanged. WebKit snapshots with
+      a black box on a video-to-video step: 45 of 104 steps before, 20
+      after; Chrome none. Orchestrator: npm test 1020, check clean, smoke
+      6/6; Chrome videofit 22, reading 17, navigation 24, media 22 (two
+      timing checks failed once at load average ~25-47 from other
+      sessions, then 22/22 twice); WebKit media 22, videofit 22, creator
+      29. If the user sees it again: WebKit `Fullscreen=debug` logging of
+      the app during a bad showing, as a new item.)
 - [x] Docs (item 7): CREATE.md, docs/perf.md, docs/verify-player.md,
       AGENTS.md.
       (2026-11-09: CREATE.md "The quick check" rewritten (options, how the
