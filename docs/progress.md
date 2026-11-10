@@ -2879,7 +2879,20 @@ truthful: an unchecked box means nothing was accepted.
       the engine, exit 2, test red first). Orchestrator: npm test 1014,
       check clean; `--engine safari` exits 2 with no browser; the
       documented demo outputs match real runs.)
-- [ ] Phase-closer (Phase 46): full pytest, the full `npm run verify` and
+- [x] Phase-closer (Phase 46): full pytest, the full `npm run verify` and
       `npm run verify -- --webkit`, package-proof; a timed
       `check-game --steps all` walk of the synthetic 160,000-item game on
       both engines.
+      (2026-11-10 on ab506f4: full pytest 683 passed in 87 s; full
+      `npm run verify` 483/483 on Chrome; `npm run verify -- --webkit`
+      481 pass and 5 partial (the headless fullscreen checks), 0 fail;
+      package-proof 18/18 with .tmp/extract-demo regenerated from
+      fixtures/renpy_demo. `check-game --steps all` on a synthetic
+      160,032-item game (the demo plus a 160,000-item body, ids padded to
+      the real length, the last screen shared by 19 items; the validator
+      passes it): `story ended at step 160035`, `visited 160032 of 160032
+      items`, no errors, exit 0, in 381 s on WebKit (2.4 ms a step) and
+      198 s on Chrome (1.2 ms a step); heartbeats every 30 s. Before this
+      phase a step on that game grew from 3.6 to 21.3 ms on WebKit as the
+      reading went on (plan table), and the converting agent's 159,609-item
+      walk took 57.5 minutes.)
