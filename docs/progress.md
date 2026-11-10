@@ -3125,7 +3125,7 @@ truthful: an unchecked box means nothing was accepted.
       After the user's continue: `npm run verify -- audio` 44/44 on
       Chrome, with no process starting Core Audio output during the run,
       and 44/44 on WebKit.)
-- [ ] Player: video sound (item 6): it plays only while the video plays,
+- [x] Player: video sound (item 6): it plays only while the video plays,
       syncs at range and native loop wraps, re-seeks past 80 ms, pauses
       with the video, and ducks. Tests (scenario parts on the audio
       demo's video, in Chrome and WebKit):
@@ -3135,6 +3135,36 @@ truthful: an unchecked box means nothing was accepted.
       - playing on under the text chain;
       - the duck applied and lifted;
       - paused under the Esc screen.
+      (2026-11-10: visual.ts `watchVideo` reports the stage's video and
+      whether it plays or shows its poster; main.ts hands it to
+      `audio.setVideo`, which loads the track into the `video` channel.
+      The sound runs between the video's `playing` and its `pause` or
+      `waiting`. The pure `stepVideoSync` (audiorules.ts) starts every
+      play with a seek to the video's time plus a lead learnt per kind of
+      seek (a wrap start, a resume, a seek while playing), each from its
+      own landings, capped at `VIDEO_LEAD_MAX_S` 0.75 s; while it plays,
+      an animation-frame check re-seeks when the video's time moves back
+      (a wrap) or the sound is more than `VIDEO_SYNC_S` 80 ms off, judged
+      `VIDEO_LAND_MS` 900 ms after the last `seeked`. Measured: Chrome
+      lands a seek 64-86 ms behind, WebKit 340-575 ms behind by kind, so
+      plain re-seeks never converge there. WebKit bug handled: an element
+      paused near its file's end, or played to the end, then sought and
+      played ends at once and shrinks `duration`; such an `ended`
+      reloads it. `duckFor` fades music and ambience to the duck over
+      250 ms and back. The menu checks ask that each element holds still
+      while paused and lands in step after resume, since every resume
+      seeks to the video's time. Drift once landed: Chrome -5 to +13 ms,
+      WebKit -77 to +63 ms. The first version failed WebKit 3 runs in 4
+      (one lead shared by kinds that land differently); fixed. 22 new
+      Vitest tests, red first; a sync bound of 10 s or a duck of 1 turned
+      10 Vitest and 6 Chrome checks red, one shared lead 6. The demo's
+      range ends at the file's end, so the scenario wraps by `ended`;
+      mid-file range ends and native loops are covered by Vitest only.
+      Orchestrator: npm test 1129, check clean, smoke 6/6, WebKit
+      `videosound` 19/19 five runs in a row, WebKit `videosound audio
+      media videofit` 107/107, Chrome `videosound audio media screens
+      videofit` 196/196. Not verified: listening, real Safari, unmuted
+      WebKit output, Windows, Firefox.)
 - [ ] Player: sound controls and the Esc screen (item 7): `soundOn` and
       the three volumes, saved and exported; `v` with its pill; the Keys
       row, the Sound row and the Volumes pop-out, only when the manifest

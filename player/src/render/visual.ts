@@ -254,6 +254,18 @@ export function upcomingVisualFiles(
   return files;
 }
 
+/** The stage's video as `VisualLayer.watchVideo` reports it. */
+export interface StageVideo {
+  /** The `<video>` element: a fresh one per file (`retireVideo`). */
+  readonly element: HTMLVideoElement;
+  /**
+   * The stage plays it (false: it holds its poster, under skip or a walk
+   * back over seen content). A menu's hold (`setPaused`) leaves this true:
+   * the element itself pauses.
+   */
+  readonly plays: boolean;
+}
+
 export interface VisualLayer {
   /**
    * Draw the item under `machine.visualIndex()` with the playback mode that
@@ -282,6 +294,13 @@ export interface VisualLayer {
    * still plays. Idempotent.
    */
   setPaused(paused: boolean): void;
+  /**
+   * The video's sound follows the stage's video (docs/plan.md Phase 47,
+   * item 6): `listener` hears the video now, then on every entry and mode
+   * change of a video, and null once no video shows. One listener; a new
+   * one replaces it.
+   */
+  watchVideo(listener: (video: StageVideo | null) => void): void;
   /** Stop all playback and drop the video element. Idempotent. */
   destroy(): void;
 }
@@ -351,6 +370,15 @@ export function createVisualLayer(
   let rangeFallbackNoted = false;
   // `setPaused(true)`: the menus' timeline pause (docs/plan.md Phase 18).
   let held = false;
+  // `watchVideo`: what the listener last heard.
+  let stageVideo: StageVideo | null = null;
+  let videoListener: ((video: StageVideo | null) => void) | null = null;
+
+  function tellVideo(next: StageVideo | null): void {
+    if (next === null && stageVideo === null) return;
+    stageVideo = next;
+    videoListener?.(next);
+  }
 
   let animation: AnimationRun | null = null;
   let animationTimer: ReturnType<typeof setTimeout> | null = null;
@@ -584,6 +612,7 @@ export function createVisualLayer(
    */
   function retireVideo(): void {
     if (video === null) return;
+    tellVideo(null);
     stopRangeWatch();
     video.pause();
     video.removeEventListener("ended", onVideoEnded);
@@ -793,6 +822,7 @@ export function createVisualLayer(
       stopRangeWatch();
       element.pause();
       seekTo(element, videoPlan.startSeconds);
+      tellVideo({ element, plays: false });
       return;
     }
     if (freshEntry || mode === "loop-once") {
@@ -800,6 +830,7 @@ export function createVisualLayer(
     }
     playVideo(element, videoPlan);
     startRangeWatch(element);
+    tellVideo({ element, plays: true });
   }
 
   function showVideo(item: VideoItem, mode: PlaybackMode): void {
@@ -839,6 +870,7 @@ export function createVisualLayer(
 
   function hideVideo(): void {
     if (video === null) return;
+    tellVideo(null);
     stopRangeWatch();
     video.pause();
     video.style.display = "none";
@@ -919,6 +951,11 @@ export function createVisualLayer(
       }
       if (paused) video.pause();
       else playVideo(video, videoPlan);
+    },
+
+    watchVideo(listener) {
+      videoListener = listener;
+      listener(stageVideo);
     },
 
     destroy() {

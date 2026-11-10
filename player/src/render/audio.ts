@@ -8,10 +8,27 @@
 // (the crossfade), one per ambience loop (up to twice the largest set, so a
 // whole set can fade out while the next fades in), a pool of six for
 // one-shots, one for voice, and one for a video's sound (the `video`
-// channel: item 6 loads it and keeps it in step with the <video>). A
-// manifest without audio makes none: `mountAudio` returns null. An element's volume is the track's `volume` x its group's
-// volume x the duck x its fade (audiorules.ts `elementVolume`); fades step
+// channel). A manifest without audio makes none: `mountAudio` returns null.
+// An element's volume is the track's `volume` x its group's volume x the
+// duck x its fade (audiorules.ts `elementVolume`); fades step
 // `element.volume` on animation frames.
+//
+// A video's sound (item 6) follows the stage's video, which render/
+// visual.ts reports through `setVideo` (its `watchVideo`: the element, and
+// whether the stage plays it or holds its poster). The target's
+// `videoSound` is loaded while the stage plays the video, and sounds only
+// while the video really plays: from the element's `playing` until its
+// `pause` or `waiting`, so it pauses and resumes with the video under the
+// menus, on a hidden page and at a wrap that pauses it. Its time is the
+// video's time (audiorules.ts `stepVideoSync`): every start seeks it there,
+// and while it plays, an animation-frame check seeks it when the video's
+// time moved back (a range wrap, a native loop) or it is more than
+// `VIDEO_SYNC_S` away. No frame is asked for while no video sound plays.
+// One whose track ran out before its video wrapped starts again at the
+// video's `seeking`. While it plays, music and ambience are
+// ducked by its `duck`, faded over `DUCK_FADE_MS`; the duck holds through
+// a wrap's pause and under the menus, and lifts when the video goes or
+// shows its poster.
 //
 // What may sound (audiorules.ts `maySound`): under the Esc screen nothing,
 // except music and ambience while its Volumes pop-out is open
@@ -53,6 +70,8 @@ import {
   type AudioSlot,
   createSfxPool,
   createSoundDirector,
+  DUCK_FADE_MS,
+  duckFor,
   elementVolume,
   groupVolume,
   maySound,
@@ -60,7 +79,11 @@ import {
   playPlan,
   REST_FADE_MS,
   SFX_POOL_SIZE,
+  stepVideoSync,
+  VIDEO_SYNC_START,
+  type VideoSync,
 } from "./audiorules";
+import type { StageVideo } from "./visual";
 
 /** The hint shown while the browser refuses sound until a key or click. */
 export const SOUND_HINT_TEXT = "Press any key for sound";
@@ -74,6 +97,11 @@ const WARM_AHEAD = 3;
 const WARM_CAP = 8;
 /** An inaudible level that still counts as sound to an autoplay policy. */
 const REFUSABLE_VOLUME = 0.001;
+/**
+ * How far a video sound's `duration` may fall below the length its file
+ * loaded with before it counts as WebKit's fault (its `ended` listener).
+ */
+const DURATION_SLACK_S = 0.25;
 
 /** Whether a manifest has anything to play: tracks, and items naming them. */
 export function hasSound(manifest: Manifest): boolean {
@@ -133,6 +161,12 @@ export interface AudioPlayer {
    * or off and the three volumes act at once.
    */
   setSettings(settings: MachineSettings): void;
+  /**
+   * The stage's video (render/visual.ts `watchVideo`): its element and
+   * whether the stage plays it, or null when none shows. Its sound follows
+   * it.
+   */
+  setVideo(video: StageVideo | null): void;
   destroy(): void;
 }
 
@@ -232,10 +266,26 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
   let voiceItem = -1;
   /** A video's own sound (item 6); made by the unlock when a video has one. */
   let video: Channel | null = null;
+  /** The stage's video (`setVideo`), null when none shows. */
+  let stage: StageVideo | null = null;
+  /** Its `playing` came, and no pause or stall since: it really plays. */
+  let stageRuns = false;
+  /**
+   * A `playing` came since the stage began playing it: the duck holds
+   * through the pause at a wrap and under the menus.
+   */
+  let stageStarted = false;
+  /** Where `stepVideo` stands; the lead it learns is kept for the session. */
+  let videoSync: VideoSync = VIDEO_SYNC_START;
+  /** The video sound's element has played its file since it loaded. */
+  let videoWarm = false;
+  /** Its file's length as it loaded (`loadedmetadata`). */
+  let videoLoadedDuration = Number.NaN;
   /** The music in force (a track id), null for none. */
   let musicId: string | null = null;
-  /** The music and ambience duck: 1 until a video's sound ducks them (item 6). */
-  const duck = 1;
+  /** The music and ambience duck (item 6), and the fade moving it. */
+  let duck = 1;
+  let duckFade: { from: number; to: number; start: number } | null = null;
 
   let hidden = doc.visibilityState === "hidden";
   let screens: SoundScreens = { esc: false, map: false };
@@ -298,18 +348,36 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
         f.done?.();
       }
     }
+    stepDuck(t);
+    if (videoPlaying()) stepVideo(false);
     requestTick();
   }
 
-  /** Asks for a frame while some fade is running and none is asked for. */
+  /**
+   * Asks for a frame while some fade or the duck's is running, or a video's
+   * sound plays, and none is asked for.
+   */
   function requestTick(): void {
     if (frame !== 0) return;
-    for (const ch of fading) {
-      if (ch.fading?.heldAt === null) {
-        frame = win.requestAnimationFrame(tick);
-        return;
-      }
-    }
+    let busy = duckFade !== null || videoPlaying();
+    for (const ch of fading) if (ch.fading?.heldAt === null) busy = true;
+    if (busy) frame = win.requestAnimationFrame(tick);
+  }
+
+  /** Fades the duck on music and ambience to `to`, unless it is going there. */
+  function duckTo(to: number): void {
+    if ((duckFade?.to ?? duck) === to) return;
+    duckFade = { from: duck, to, start: now() };
+    requestTick();
+  }
+
+  function stepDuck(t: number): void {
+    const f = duckFade;
+    if (f === null) return;
+    const progress = Math.min(1, (t - f.start) / DUCK_FADE_MS);
+    duck = f.from + (f.to - f.from) * progress;
+    if (progress >= 1) duckFade = null;
+    for (const ch of [...music, ...ambience]) setVolume(ch);
   }
 
   /**
@@ -376,7 +444,28 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
       if (start !== null && Math.abs(el.currentTime - start) > 0.05) {
         el.currentTime = start;
       }
+      if (slot === "video") {
+        videoLoadedDuration = el.duration;
+        syncChannel(ch); // it can be placed now
+      }
     });
+    if (slot === "video") {
+      el.addEventListener("loadstart", () => {
+        videoWarm = false;
+      });
+      el.addEventListener("playing", () => {
+        videoWarm = true;
+      });
+      // WebKit, playing the file to its end or paused within about 10 ms
+      // of it, and then sought and played (a video's wrap), can end the
+      // element where it was sought and take that for the file's duration,
+      // with no `durationchange`, after which it never plays past it
+      // (measured on macOS 27.2, not every time). A reload puts the file
+      // back; `loadedmetadata` starts it again at its video's time.
+      el.addEventListener("ended", () => {
+        if (el.duration < videoLoadedDuration - DURATION_SLACK_S) el.load();
+      });
+    }
     hook.append(el);
     return ch;
   }
@@ -422,11 +511,18 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
   function syncChannel(ch: Channel): void {
     holdFade(ch);
     const should = ch.wanted && allowed(ch.slot);
-    if (should && ch.el.paused) play(ch);
-    else if (!should && !ch.el.paused) ch.el.pause();
+    if (should && ch.el.paused) {
+      if (ch.slot !== "video") {
+        play(ch);
+      } else if (stepVideo(true)) {
+        play(ch); // at its video's time, just sought
+        requestTick();
+      }
+    } else if (!should && !ch.el.paused) ch.el.pause();
   }
 
   function sync(): void {
+    updateVideoSound();
     for (const ch of channels()) syncChannel(ch);
   }
 
@@ -470,7 +566,8 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
 
   /** The track reached its end: loop, or stay silent having played once. */
   function reachedEnd(ch: Channel): void {
-    if (!ch.wanted || ch.plan === null) return;
+    // A video's sound goes where its video goes (`stepVideo`).
+    if (ch.slot === "video" || !ch.wanted || ch.plan === null) return;
     if (ch.plan.loops) {
       ch.el.currentTime = ch.plan.loopStartSeconds;
       syncChannel(ch);
@@ -575,6 +672,84 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
     for (const ch of sfx) if (ch !== undefined) releaseSfx(ch);
     stopVoice();
     musicId = null;
+  }
+
+  // --- a video's sound (item 6) ---------------------------------------------
+  /**
+   * Loads the target's `videoSound` while the stage plays its video (not
+   * its poster), wants it playing while the video really plays, and plays
+   * or pauses it; the duck follows. Asks the machine only while the stage
+   * plays a video, so a skip over posters costs nothing.
+   */
+  function updateVideoSound(): void {
+    const want =
+      stage?.plays === true ? machine.targetSound().videoSound : null;
+    const id =
+      want !== null && tracks?.[want.track] !== undefined ? want.track : null;
+    if (id === null) {
+      if (video?.track != null) release(video);
+    } else {
+      video ??= makeChannel("video");
+      if (video.track !== id) {
+        load(video, id, 1);
+        video.pendingStart = null; // it starts at the video's time instead
+      }
+      video.wanted = stageRuns && stage?.element.paused === false;
+    }
+    duckTo(
+      duckFor(
+        id === null ? null : want,
+        stageStarted,
+        groupVolume("video", settings),
+      ),
+    );
+    if (video !== null) syncChannel(video);
+  }
+
+  function videoPlaying(): boolean {
+    return video !== null && video.track !== null && !video.el.paused;
+  }
+
+  /**
+   * Checks the video's sound against its video and seeks it where
+   * `stepVideoSync` says; `starting` when it is about to play. False when
+   * it may not play: before the sound's file has its metadata (WebKit
+   * drops a seek made then, and `loadedmetadata` tries again), or when the
+   * start falls at or past the track's end (it would end at once, and
+   * WebKit's play() starts an ended element over from 0; the video's next
+   * wrap starts it).
+   */
+  function stepVideo(starting: boolean): boolean {
+    const ch = video;
+    if (ch === null || ch.track === null || stage === null) return false;
+    if (ch.el.readyState === ch.el.HAVE_NOTHING) return false;
+    const step = stepVideoSync(videoSync, now(), {
+      sound: ch.el.currentTime,
+      video: stage.element.currentTime,
+      starting,
+      seeking: ch.el.seeking,
+      warm: videoWarm && ch.el.readyState >= ch.el.HAVE_FUTURE_DATA,
+    });
+    videoSync = step.sync;
+    if (step.seekTo === null) return true;
+    if (starting && step.seekTo >= ch.el.duration) return false;
+    ch.el.currentTime = step.seekTo;
+    return true;
+  }
+
+  const VIDEO_EVENTS = ["playing", "pause", "waiting", "seeking"] as const;
+  function onStageVideo(event: Event): void {
+    if (event.type === "seeking") {
+      // A playing sound sees a wrap on its next frame, as the video's time
+      // moving back; WebKit sends a wrap's `seeking` some 95 ms after its
+      // `playing`, by when the sound has started where the video is. One
+      // whose track ran out while the video played on starts again here.
+      if (videoPlaying()) return;
+    } else {
+      stageRuns = event.type === "playing";
+      if (stageRuns) stageStarted = true;
+    }
+    updateVideoSound();
   }
 
   function updateHint(): void {
@@ -751,8 +926,32 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
       updateVoiceAudible();
       sync();
     },
+    setVideo(next) {
+      const before = stage?.element ?? null;
+      const after = next?.element ?? null;
+      if (before !== after) {
+        for (const type of VIDEO_EVENTS) {
+          before?.removeEventListener(type, onStageVideo);
+          after?.addEventListener(type, onStageVideo);
+        }
+        // A new element's time has nothing to do with the last one's.
+        videoSync = { ...videoSync, landing: null, lastVideo: null };
+      }
+      if (before !== after || next?.plays !== true) {
+        stageRuns = false;
+        stageStarted = false;
+      }
+      stage = next;
+      updateVideoSound();
+    },
     destroy() {
       destroyed = true;
+      for (const type of VIDEO_EVENTS) {
+        stage?.element.removeEventListener(type, onStageVideo);
+      }
+      stage = null;
+      if (video !== null) release(video);
+      duckFade = null;
       director.destroy();
       unsubscribeWarm();
       for (const type of GESTURES)

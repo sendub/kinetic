@@ -33,6 +33,36 @@ export const REST_FADE_MS = 250;
 export const DEFAULT_FADE_MS = 1000;
 /** One-shots that can sound at once; a seventh steals the oldest. */
 export const SFX_POOL_SIZE = 6;
+/**
+ * How far a video's sound may be from its video's time before it seeks
+ * back onto it (docs/plan.md Phase 47, item 6). The converting agent
+ * measured a steady 16-43 ms behind, and 200-340 ms off right after a seek
+ * in Chrome; headless Chrome here, seeking with no lead, lands 64-86 ms
+ * behind.
+ */
+export const VIDEO_SYNC_S = 0.08;
+/**
+ * How long a seek of a video's sound is given to land, from its `seeked`,
+ * before its drift is judged again (`stepVideoSync`). Measured on macOS
+ * 27.2: WebKit holds an audio element's clock while it seeks (40-180 ms),
+ * plays, then holds it again, so a seek lands 340-480 ms late (a play from
+ * paused, or a rate change, holds it too) and is steady 640-880 ms after
+ * it was made; Chrome is steady within 100 ms.
+ */
+export const VIDEO_LAND_MS = 900;
+/**
+ * The most a seek aims ahead of its video, above the latest landing
+ * measured (645 ms: WebKit's first start of a file; a resume after a menu
+ * up to 575 ms). A landing further off than this (a seek the engine
+ * dropped, as WebKit drops one before the file's metadata) teaches the
+ * lead nothing.
+ */
+export const VIDEO_LEAD_MAX_S = 0.75;
+/**
+ * The duck's fade: music and ambience going down as a video's sound
+ * starts, and back up.
+ */
+export const DUCK_FADE_MS = 250;
 
 /** What an audio element plays (the test hook's `data-slot`). */
 export type AudioSlot = "music" | "ambience" | "sfx" | "voice" | "video";
@@ -105,6 +135,180 @@ export function elementVolume(parts: {
     unit(parts.duck) *
     unit(parts.fade)
   );
+}
+
+/**
+ * The kinds of seek of a video's sound, each landing its own way in WebKit
+ * (macOS 27.2): a start as the video plays again after its own seek (a
+ * wrap, or its entry) about 340 ms late; a start as the video resumes (a
+ * menu closed, the page shown) 440-575 ms late; a seek while the sound
+ * plays 390-460 ms late. Chrome lands each 64-86 ms late.
+ */
+export type SeekKind = "wrap" | "resume" | "seek";
+
+/** What the landings of one kind of seek have taught. */
+export interface Lead {
+  /**
+   * How far ahead of the video such a seek aims (seconds): an engine holds
+   * an element's clock while it seeks and starts, so a seek lands behind
+   * where it aimed.
+   */
+  readonly lead: number;
+  /** Some landing of this kind has been learnt from. */
+  readonly learnt: boolean;
+  /**
+   * The last landing judged lay more than twice the tolerance off, and
+   * taught nothing: the next such one teaches.
+   */
+  readonly strayed: boolean;
+}
+
+/** Where `stepVideoSync` stands between steps. */
+export interface VideoSync {
+  /** By kind of seek, kept for the session. */
+  readonly leads: Readonly<Record<SeekKind, Lead>>;
+  /**
+   * The sound's last seek, until its landing is judged: when (page ms; the
+   * moment it stopped seeking), whether to learn from where it lands, its
+   * kind, and the lead it aimed with.
+   */
+  readonly landing: {
+    readonly at: number;
+    readonly learn: boolean;
+    readonly kind: SeekKind;
+    readonly aim: number;
+  } | null;
+  /** The video's time at the last step; null when nothing is known yet. */
+  readonly lastVideo: number | null;
+}
+
+const UNLEARNT: Lead = Object.freeze({
+  lead: 0,
+  learnt: false,
+  strayed: false,
+});
+
+/** Nothing learnt, nothing landing. */
+export const VIDEO_SYNC_START: VideoSync = Object.freeze({
+  leads: Object.freeze({ wrap: UNLEARNT, resume: UNLEARNT, seek: UNLEARNT }),
+  landing: null,
+  lastVideo: null,
+});
+
+/**
+ * One check of a video's sound against its video at page time `at`
+ * (docs/plan.md Phase 47, item 6); the track's time is the video's media
+ * time. It seeks to the video's time, its kind's lead ahead:
+ * - when the sound starts (`starting`: the caller plays it after the seek):
+ *   a `wrap` start when the video's time moved back since the last step or
+ *   nothing is known of it yet, else a `resume`;
+ * - when the video's time moved back (a range wrap or a native loop) while
+ *   the sound plays, even while the last seek lands: a `wrap`. A playing
+ *   video's time never steps back otherwise (measured in both engines);
+ * - when the sound is more than `VIDEO_SYNC_S` from the video, judged only
+ *   once its last seek, its own or any other, has landed: `VIDEO_LAND_MS`
+ *   after the sound stopped seeking. A `seek`.
+ *
+ * The first judgement after one of its seeks teaches that kind's lead how
+ * far off it landed: all of the miss the first time, half after that, as
+ * landings scatter. A kind not yet taught aims with a taught one's lead.
+ * Nothing is learnt from a seek made before the sound had played its file
+ * (`warm` false: a file's first start lands as late as the engine takes to
+ * open it), nor from one more than `VIDEO_LEAD_MAX_S` off. Once a kind is
+ * taught, a landing more than twice `VIDEO_SYNC_S` off teaches only if the
+ * one before it strayed as far: WebKit holds back the first play after the
+ * page shows by about 300 ms, a one-off, while two in a row say the
+ * engine's own lag has changed.
+ */
+export function stepVideoSync(
+  sync: VideoSync,
+  at: number,
+  now: {
+    sound: number;
+    video: number;
+    starting: boolean;
+    /** The sound element is seeking. */
+    seeking: boolean;
+    /** The sound has played since its file loaded, and could play at once. */
+    warm: boolean;
+  },
+): { sync: VideoSync; seekTo: number | null } {
+  const seek = (kind: SeekKind, leads: VideoSync["leads"]) => {
+    const aim = aimFor(leads, kind);
+    return {
+      sync: {
+        leads,
+        landing: { at, learn: now.warm, kind, aim },
+        lastVideo: now.video,
+      },
+      seekTo: Math.max(0, now.video + aim),
+    };
+  };
+  const movedBack = sync.lastVideo !== null && now.video < sync.lastVideo;
+  if (now.starting) {
+    const wrap = movedBack || sync.lastVideo === null;
+    return seek(wrap ? "wrap" : "resume", sync.leads);
+  }
+  if (movedBack) return seek("wrap", sync.leads);
+  const hold = (landing: VideoSync["landing"]) => ({
+    sync: { ...sync, landing, lastVideo: now.video },
+    seekTo: null,
+  });
+  const { landing } = sync;
+  if (now.seeking) {
+    return hold(
+      landing === null
+        ? { at, learn: false, kind: "seek", aim: 0 }
+        : { ...landing, at },
+    );
+  }
+  if (landing !== null && at - landing.at < VIDEO_LAND_MS) return hold(landing);
+  const off = now.sound - now.video;
+  const leads =
+    landing?.learn === true && Math.abs(off) <= VIDEO_LEAD_MAX_S
+      ? {
+          ...sync.leads,
+          [landing.kind]: learnLead(sync.leads[landing.kind], landing.aim, off),
+        }
+      : sync.leads;
+  if (Math.abs(off) > VIDEO_SYNC_S) return seek("seek", leads);
+  return {
+    sync: { leads, landing: null, lastVideo: now.video },
+    seekTo: null,
+  };
+}
+
+/** The lead a seek of `kind` aims with: its own, else a taught kind's. */
+function aimFor(leads: VideoSync["leads"], kind: SeekKind): number {
+  const taught = [kind, "seek", "wrap", "resume"] as const;
+  return taught.map((k) => leads[k]).find((lead) => lead.learnt)?.lead ?? 0;
+}
+
+/** A kind's lead after a trusted landing `off` seconds from its video. */
+function learnLead(lead: Lead, aim: number, off: number): Lead {
+  if (lead.learnt && Math.abs(off) > 2 * VIDEO_SYNC_S && !lead.strayed) {
+    return { ...lead, strayed: true };
+  }
+  const next = aim - (lead.learnt ? off / 2 : off);
+  return {
+    lead: Math.min(VIDEO_LEAD_MAX_S, Math.max(0, next)),
+    learnt: true,
+    strayed: false,
+  };
+}
+
+/**
+ * The duck on music and ambience (item 6): the video sound's `duck` while
+ * its video plays and the sound can be heard (Effects above 0), else 1.
+ */
+export function duckFor(
+  videoSound: TargetSound["videoSound"],
+  plays: boolean,
+  effectsVolume: number,
+): number {
+  return videoSound !== null && plays && effectsVolume > 0
+    ? unit(videoSound.duck)
+    : 1;
 }
 
 /** Where a play of a track starts, loops and ends, in seconds. */

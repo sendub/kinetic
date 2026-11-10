@@ -18,14 +18,22 @@ import {
   createSfxPool,
   createSoundDirector,
   DEFAULT_FADE_MS,
+  duckFor,
   elementVolume,
   groupVolume,
   maySound,
   playPlan,
   REST_FADE_MS,
   REST_MS,
+  type SeekKind,
   SFX_POOL_SIZE,
   type SoundOutput,
+  stepVideoSync,
+  VIDEO_LAND_MS,
+  VIDEO_LEAD_MAX_S,
+  VIDEO_SYNC_S,
+  VIDEO_SYNC_START,
+  type VideoSync,
 } from "./audiorules";
 
 afterEach(() => {
@@ -293,6 +301,435 @@ function settle(calls: Call[]): void {
   vi.advanceTimersByTime(REST_MS);
   calls.length = 0;
 }
+
+describe("a video's sound keeps to its video (item 6)", () => {
+  /** A step's input: the sound playing, nothing seeking, its file warm. */
+  const playing = (sound: number, video: number) => ({
+    sound,
+    video,
+    starting: false,
+    seeking: false,
+    warm: true,
+  });
+  /** Nothing landing, `kind` taught `lead` (unless `learnt` is false). */
+  const taught = (
+    lead: number,
+    kind: SeekKind = "seek",
+    learnt = true,
+  ): VideoSync => ({
+    ...VIDEO_SYNC_START,
+    leads: {
+      ...VIDEO_SYNC_START.leads,
+      [kind]: { lead, learnt, strayed: false },
+    },
+  });
+  /** A seek of `kind` made at 1000 aiming `lead`, still landing. */
+  const landing = (
+    lead: number,
+    lastVideo: number,
+    learnt = true,
+    kind: SeekKind = "seek",
+  ): VideoSync => ({
+    ...taught(lead, kind, learnt),
+    landing: { at: 1000, learn: true, kind, aim: lead },
+    lastVideo,
+  });
+  const seekLead = (sync: VideoSync) => sync.leads.seek.lead;
+  const due = 1000 + VIDEO_LAND_MS;
+
+  it("leaves the sound alone while it is within 80 ms of the video, either side", () => {
+    expect(VIDEO_SYNC_S).toBe(0.08);
+    const at = { ...VIDEO_SYNC_START, lastVideo: 4.98 };
+    // A steady 16-43 ms behind (the converting agent); 64-86 ms in
+    // headless Chrome before it has learnt its lead.
+    for (const sound of [4.957, 4.921, 5.079]) {
+      expect(stepVideoSync(at, 1000, playing(sound, 5)).seekTo).toBeNull();
+    }
+  });
+
+  it("seeks when the sound is more than 80 ms from the video, behind or ahead, aiming its lead ahead", () => {
+    const at = { ...VIDEO_SYNC_START, lastVideo: 4.98 };
+    expect(stepVideoSync(at, 1000, playing(4.919, 5)).seekTo).toBe(5);
+    expect(stepVideoSync(at, 1000, playing(5.081, 5)).seekTo).toBe(5);
+    const step = stepVideoSync(
+      { ...taught(0.15), lastVideo: 4.98 },
+      1000,
+      playing(4.7, 5),
+    );
+    expect(step.seekTo).toBeCloseTo(5.15, 9);
+    expect(step.sync.landing).toEqual({
+      at: 1000,
+      learn: true,
+      kind: "seek",
+      aim: 0.15,
+    });
+  });
+
+  it("starts the sound at the video's time, ahead by its kind of start's lead: a wrap's when the video went back or is new, a resume's when it stands where it stopped", () => {
+    const leads = {
+      ...VIDEO_SYNC_START.leads,
+      wrap: { lead: 0.34, learnt: true, strayed: false },
+      resume: { lead: 0.47, learnt: true, strayed: false },
+    };
+    const start = (video: number) => ({
+      ...playing(video, video),
+      starting: true,
+    });
+    // Even when it already stands there.
+    const fresh = stepVideoSync({ ...VIDEO_SYNC_START, leads }, 1000, start(5));
+    expect(fresh.seekTo).toBeCloseTo(5.34, 9);
+    expect(fresh.sync.landing?.kind).toBe("wrap");
+    const wrapped = stepVideoSync(
+      { ...VIDEO_SYNC_START, leads, lastVideo: 7.98 },
+      1000,
+      start(4),
+    );
+    expect(wrapped.seekTo).toBeCloseTo(4.34, 9);
+    const resumed = stepVideoSync(
+      { ...VIDEO_SYNC_START, leads, lastVideo: 5 },
+      1000,
+      start(5),
+    );
+    expect(resumed.seekTo).toBeCloseTo(5.47, 9);
+    expect(resumed.sync.landing).toEqual({
+      at: 1000,
+      learn: true,
+      kind: "resume",
+      aim: 0.47,
+    });
+  });
+
+  it("seeks at once when the video's time moved back (a range wrap or a native loop), even while the last seek lands", () => {
+    // The loop restart point at 4 s: the video went back from its end.
+    const wrap = stepVideoSync(landing(0, 7.98), 1001, playing(7.99, 4));
+    expect(wrap.seekTo).toBe(4);
+    expect(wrap.sync.landing?.kind).toBe("wrap");
+    // Even a step back the tolerance would let pass: a playing video's time
+    // never steps back but at a wrap (measured in both engines).
+    expect(stepVideoSync(landing(0, 1.05), 1001, playing(1.02, 1)).seekTo).toBe(
+      1,
+    );
+  });
+
+  it("takes a video that holds its time, as one does just after its own seek, for no wrap", () => {
+    const held = stepVideoSync(landing(0.4, 4), 1100, playing(4.4, 4));
+    expect(held.seekTo).toBeNull();
+  });
+
+  it("judges nothing while a seek lands (VIDEO_LAND_MS), counted from when the sound stops seeking", () => {
+    // WebKit holds the sound's clock twice after a seek: 160 ms behind here.
+    const early = stepVideoSync(landing(0, 5.1), due - 1, playing(4.96, 5.12));
+    expect(early.seekTo).toBeNull();
+    expect(early.sync.landing).toEqual({
+      at: 1000,
+      learn: true,
+      kind: "seek",
+      aim: 0,
+    });
+    // Still seeking at 1500 (a loaded machine): the landing restarts there.
+    const slow = stepVideoSync(landing(0, 5.1), 1500, {
+      ...playing(4.5, 5.6),
+      seeking: true,
+    });
+    expect(slow.seekTo).toBeNull();
+    expect(slow.sync.landing?.at).toBe(1500);
+    expect(stepVideoSync(slow.sync, due, playing(4.5, 5.7)).seekTo).toBeNull();
+  });
+
+  it("lets a seek of the sound it did not make land too, learning nothing from it", () => {
+    const at = { ...taught(0.36), lastVideo: 5 };
+    const step = stepVideoSync(at, 1000, { ...playing(5.3, 5), seeking: true });
+    expect(step.seekTo).toBeNull();
+    expect(step.sync.landing?.learn).toBe(false);
+    // Landed 95 ms behind: re-sought, the lead as it was.
+    const landed = stepVideoSync(step.sync, due, playing(5.805, 5.9));
+    expect(landed.seekTo).toBeCloseTo(6.26, 9);
+    expect(seekLead(landed.sync)).toBe(0.36);
+  });
+
+  it("learns the lead from where seeks land: the first takes up its whole miss, later ones half", () => {
+    // The first landing, 380 ms behind: the next seek aims 380 ms ahead.
+    const landed = stepVideoSync(
+      landing(0, 5.4, false),
+      due,
+      playing(5.04, 5.42),
+    );
+    expect(seekLead(landed.sync)).toBeCloseTo(0.38, 9);
+    expect(landed.sync.leads.seek.learnt).toBe(true);
+    expect(landed.seekTo).toBeCloseTo(5.8, 9);
+    expect(landed.sync.landing?.at).toBe(due);
+    // That one landed 60 ms ahead: the lead moves halfway, and within
+    // 80 ms nothing seeks.
+    const next = stepVideoSync(
+      landed.sync,
+      due + VIDEO_LAND_MS,
+      playing(6.78, 6.72),
+    );
+    expect(seekLead(next.sync)).toBeCloseTo(0.35, 9);
+    expect(next.seekTo).toBeNull();
+    expect(next.sync.landing).toBeNull();
+  });
+
+  it("teaches each kind of seek its own lead: a menu's resume leaves the wraps' and the re-seeks' aim alone", () => {
+    // WebKit: wraps land about 340 ms late, seeks while playing 390-460 ms,
+    // a resume after a menu 440-575 ms.
+    const leads = {
+      wrap: { lead: 0.34, learnt: true, strayed: false },
+      resume: { lead: 0, learnt: false, strayed: false },
+      seek: { lead: 0.42, learnt: true, strayed: false },
+    };
+    // An untaught resume aims with the re-seeks' lead, and lands 130 ms
+    // behind it.
+    const start = stepVideoSync(
+      { ...VIDEO_SYNC_START, leads, lastVideo: 5 },
+      1000,
+      { ...playing(5, 5), starting: true },
+    );
+    expect(start.seekTo).toBeCloseTo(5.42, 9);
+    const landed = stepVideoSync(start.sync, due, playing(5.77, 5.9));
+    expect(landed.sync.leads.resume.lead).toBeCloseTo(0.55, 9);
+    expect(landed.sync.leads.wrap.lead).toBe(0.34);
+    expect(seekLead(landed.sync)).toBe(0.42);
+    // Its re-seek aims with the re-seeks' own lead.
+    expect(landed.seekTo).toBeCloseTo(5.9 + 0.42, 9);
+  });
+
+  it("aims a kind not yet taught with a taught kind's lead, the re-seeks' first", () => {
+    const start = (sync: VideoSync) =>
+      stepVideoSync({ ...sync, lastVideo: 5 }, 1000, {
+        ...playing(5, 5),
+        starting: true,
+      }).seekTo;
+    expect(start(taught(0.34, "wrap"))).toBeCloseTo(5.34, 9);
+    const both = taught(0.42);
+    expect(
+      start({
+        ...both,
+        leads: {
+          ...both.leads,
+          wrap: { lead: 0.34, learnt: true, strayed: false },
+        },
+      }),
+    ).toBeCloseTo(5.42, 9);
+    expect(start(VIDEO_SYNC_START)).toBe(5);
+  });
+
+  it("learns nothing from a landing it cannot trust: a seek made before the sound played its file, or one more than VIDEO_LEAD_MAX_S off", () => {
+    // The first start of a file lands as late as the engine took to open
+    // it (645 ms in WebKit), which says nothing about the next seek.
+    const cold = landing(0.07, 3);
+    const loading = stepVideoSync(
+      { ...cold, landing: { at: 1000, learn: false, kind: "seek", aim: 0.07 } },
+      due,
+      playing(2.55, 3),
+    );
+    expect(seekLead(loading.sync)).toBe(0.07);
+    expect(loading.seekTo).toBeCloseTo(3.07, 9);
+    const fromLoad = stepVideoSync(VIDEO_SYNC_START, 1000, {
+      ...playing(0, 3),
+      starting: true,
+      warm: false,
+    });
+    expect(fromLoad.sync.landing?.learn).toBe(false);
+    // A seek the engine dropped: far off, re-sought, nothing learnt.
+    const dropped = stepVideoSync(landing(0.07, 3), due, playing(0.4, 3));
+    expect(seekLead(dropped.sync)).toBe(0.07);
+    expect(dropped.seekTo).toBeCloseTo(3.07, 9);
+  });
+
+  it("once a kind is taught, learns nothing from one landing more than twice the tolerance off, but does from a second in a row", () => {
+    // WebKit holds back the first play after the page shows by about
+    // 300 ms: that start lands far behind, and says nothing of the next.
+    const held = stepVideoSync(landing(0.38, 5), due, playing(4.69, 5));
+    expect(seekLead(held.sync)).toBe(0.38);
+    expect(held.seekTo).toBeCloseTo(5.38, 9);
+    // The next lands in step: nothing was learnt, nothing is owed.
+    const back = stepVideoSync(held.sync, due + VIDEO_LAND_MS, playing(6, 6));
+    expect(seekLead(back.sync)).toBe(0.38);
+    expect(back.seekTo).toBeNull();
+    // Two in a row: the engine's own lag has changed, and the lead follows.
+    const again = stepVideoSync(
+      held.sync,
+      due + VIDEO_LAND_MS,
+      playing(5.8, 6),
+    );
+    expect(seekLead(again.sync)).toBeCloseTo(0.48, 9);
+    expect(again.seekTo).toBeCloseTo(6.48, 9);
+  });
+
+  it("keeps the lead within 0 and VIDEO_LEAD_MAX_S", () => {
+    expect(
+      seekLead(
+        stepVideoSync(landing(0.01, 3, false), due, playing(3.05, 3)).sync,
+      ),
+    ).toBe(0);
+    expect(
+      seekLead(
+        stepVideoSync(
+          landing(VIDEO_LEAD_MAX_S - 0.05, 3, false),
+          due,
+          playing(2.6, 3),
+        ).sync,
+      ),
+    ).toBe(VIDEO_LEAD_MAX_S);
+  });
+
+  /**
+   * The demo's video against a model of an engine, as measured on macOS
+   * 27.2: each seek or start holds the sound's clock, so it lands
+   * `lag(n, kind)` seconds behind where the n-th seek aimed; the video plays
+   * 2.5-8 s, then wraps to 4 s (4 wraps in the 20 s, 16 ms frames). At each
+   * of `menus` (page ms) a menu holds both for 600 ms, and the sound starts
+   * again as the video resumes. Reports the seeks made, the offsets of the
+   * frames judged once `settleSeeks` seeks have landed, and where each
+   * seek stood when its landing was judged.
+   */
+  function againstEngine(
+    lag: (n: number, kind: SeekKind) => number,
+    settleSeeks: number,
+    menus: readonly number[] = [],
+  ) {
+    let sync = VIDEO_SYNC_START;
+    let video = 2.5;
+    let aimed = 0;
+    let seekAt = 0;
+    let seeks = 0;
+    let kind: SeekKind = "wrap";
+    let settledAt = Infinity;
+    let resumeAt = -1;
+    const offs: number[] = [];
+    const landed: { kind: SeekKind; at: number; off: number }[] = [];
+    for (let at = 0; at <= 20000; at += 16) {
+      if (menus.some((m) => at >= m && at < m + 600)) {
+        resumeAt = at + 16;
+        continue;
+      }
+      if (at > 0) video += 0.016;
+      if (video >= 8) video = 4;
+      // Held where it was aimed for `lag`, then running.
+      const sound =
+        seeks === 0
+          ? 0
+          : aimed + Math.max(0, (at - seekAt) / 1000 - lag(seeks, kind));
+      const starting = at === 0 || at === resumeAt;
+      const { landing } = sync;
+      if (!starting && landing !== null && at - landing.at >= VIDEO_LAND_MS) {
+        landed.push({ kind: landing.kind, at, off: sound - video });
+      }
+      const step = stepVideoSync(sync, at, {
+        sound,
+        video,
+        starting,
+        seeking: false,
+        warm: at > 0, // the start is the file's first play
+      });
+      sync = step.sync;
+      if (step.seekTo !== null) {
+        seeks += 1;
+        aimed = step.seekTo;
+        seekAt = at;
+        kind = sync.landing?.kind ?? "seek";
+        if (seeks === settleSeeks) settledAt = at;
+      } else if (at >= settledAt + VIDEO_LAND_MS && sync.landing === null) {
+        offs.push(Math.abs(sound - video));
+      }
+    }
+    return { seeks, offs, landed, leads: sync.leads };
+  }
+
+  it("in an engine that lands each seek 64-86 ms late (headless Chrome), keeps within 80 ms with a seek per wrap and one more to learn", () => {
+    const run = againstEngine((n) => (n % 2 === 1 ? 0.064 : 0.086), 1);
+    expect(run.offs.length).toBeGreaterThan(500);
+    expect(Math.max(...run.offs)).toBeLessThanOrEqual(VIDEO_SYNC_S);
+    // The start, a seek at each of the 4 wraps, and the first wrap's
+    // landing (86 ms) re-sought once as its lead is first learnt.
+    expect(run.seeks).toBe(6);
+    expect(run.leads.wrap.lead).toBeGreaterThan(0.064);
+    expect(run.leads.wrap.lead).toBeLessThan(0.086);
+  });
+
+  it("in an engine that lands each seek 400 ms late (WebKit), settles on the third seek and then seeks only at wraps", () => {
+    // The start teaches nothing; the re-seek after it teaches the lead.
+    const run = againstEngine(() => 0.4, 3);
+    expect(run.offs.length).toBeGreaterThan(500);
+    expect(Math.max(...run.offs)).toBeLessThanOrEqual(VIDEO_SYNC_S);
+    expect(run.seeks).toBe(3 + 4);
+    expect(run.leads.wrap.lead).toBeCloseTo(0.4, 9);
+  });
+
+  it("in an engine whose landings scatter over 390-456 ms (WebKit's seeks while playing), keeps within 80 ms with at most two seeks a wrap", () => {
+    // A fixed-seed generator, so a failure reproduces.
+    for (const seed of [1, 7, 42, 2026]) {
+      let state = seed;
+      const lags = new Map<number, number>();
+      const lag = (n: number): number => {
+        if (!lags.has(n)) {
+          state = (state * 1103515245 + 12345) % 2 ** 31;
+          lags.set(n, 0.39 + (0.066 * state) / 2 ** 31);
+        }
+        return lags.get(n) ?? 0;
+      };
+      const run = againstEngine(lag, 3);
+      expect(run.offs.length, `seed ${seed}`).toBeGreaterThan(300);
+      expect(Math.max(...run.offs), `seed ${seed}`).toBeLessThanOrEqual(
+        VIDEO_SYNC_S,
+      );
+      expect(run.seeks, `seed ${seed}`).toBeLessThanOrEqual(3 + 2 * 4);
+    }
+  });
+
+  /** WebKit's lags by kind of seek (macOS 27.2), a fresh file's first start 645 ms. */
+  const webkit = (n: number, kind: SeekKind): number =>
+    n === 1 ? 0.645 : { wrap: 0.343, seek: 0.42, resume: 0.5 }[kind];
+
+  it("in an engine whose landings lag by kind (WebKit), lands every wrap in step at once, menus or not", () => {
+    // A menu just after the first and the second wraps' starts, as the
+    // scenario opens one: its resume costs at most one re-seek.
+    for (const menus of [[], [6000], [5900, 9900]]) {
+      const run = againstEngine(webkit, 3, menus);
+      const label = `menus ${menus}`;
+      expect(Math.max(...run.offs), label).toBeLessThanOrEqual(VIDEO_SYNC_S);
+      expect(run.seeks, label).toBeLessThanOrEqual(3 + 4 + 2 * menus.length);
+      // The first wrap to land teaches the wraps' lead (a menu may cut a
+      // wrap's landing short); each later one lands within 20 ms.
+      const wraps = run.landed
+        .filter((l) => l.kind === "wrap" && l.at > 1000)
+        .slice(1);
+      expect(wraps.length, label).toBeGreaterThan(0);
+      for (const l of wraps) expect(Math.abs(l.off), label).toBeLessThan(0.02);
+    }
+  });
+
+  it("in an engine that holds back one start by 300 ms more (WebKit, the page shown again), re-seeks it once and keeps its lead", () => {
+    const run = againstEngine(
+      (n, kind) => (kind === "resume" ? 0.8 : webkit(n, kind)),
+      3,
+      [9000],
+    );
+    expect(Math.max(...run.offs)).toBeLessThanOrEqual(VIDEO_SYNC_S);
+    expect(run.seeks).toBeLessThanOrEqual(3 + 4 + 2);
+    expect(run.leads.resume.strayed).toBe(false);
+  });
+
+  it("in an engine whose first start lands 645 ms late (WebKit, a fresh file), the lead is learnt from the seeks after it", () => {
+    const run = againstEngine((n) => (n === 1 ? 0.645 : 0.4), 3);
+    expect(run.offs.length).toBeGreaterThan(500);
+    expect(Math.max(...run.offs)).toBeLessThanOrEqual(VIDEO_SYNC_S);
+    expect(run.seeks).toBe(3 + 4);
+    expect(run.leads.seek.lead).toBeCloseTo(0.4, 9);
+  });
+
+  it("ducks music and ambience by the video sound's duck only while its video plays, Effects above 0", () => {
+    const sound = { track: "clock", duck: 0.3 };
+    expect(duckFor(sound, true, 1)).toBe(0.3);
+    expect(duckFor(sound, true, 0.5)).toBe(0.3);
+    expect(duckFor(sound, false, 1)).toBe(1); // a poster, or no video
+    expect(duckFor(null, true, 1)).toBe(1); // a video without its own sound
+    expect(duckFor(sound, true, 0)).toBe(1); // nothing heard: nothing ducked
+    expect(duckFor({ track: "clock", duck: 1 }, true, 1)).toBe(1);
+    expect(duckFor({ track: "clock", duck: 0 }, true, 1)).toBe(0);
+  });
+});
 
 describe("the sound director: reading on", () => {
   it("applies the item's sound at once with its fade, voice and one-shots", () => {

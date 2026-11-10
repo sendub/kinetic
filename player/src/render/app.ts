@@ -7,7 +7,7 @@ import type { Machine } from "../machine/machine";
 import type { MachineState, Manifest } from "../machine/types";
 import { endCardText } from "./endcard";
 import { createTextOverlayLayer } from "./overlay";
-import { createVisualLayer } from "./visual";
+import { createVisualLayer, type StageVideo } from "./visual";
 
 /** A route announcement pill's visible hold (docs/plan.md Phase 18). */
 export const ROUTE_PILL_MS = 1600;
@@ -191,6 +191,8 @@ export interface Shell {
    * holds a playing video in place, false lets it play on.
    */
   setMediaPaused(paused: boolean): void;
+  /** The stage's video for its sound (render/visual.ts `watchVideo`). */
+  watchVideo(listener: (video: StageVideo | null) => void): void;
   /** The visual element currently painted, for `b`-key thumbnail capture. */
   currentVisual(): HTMLImageElement | HTMLVideoElement | null;
   /**
@@ -527,6 +529,9 @@ export function mountShell({ root, manifest, machine }: ShellOptions): Shell {
     },
     setMediaPaused(paused: boolean) {
       visuals.setPaused(paused);
+    },
+    watchVideo(listener) {
+      visuals.watchVideo(listener);
     },
     currentVisual() {
       return visuals.currentVisual();

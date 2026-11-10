@@ -968,6 +968,43 @@ describe("a fresh <video> per source file", () => {
     expect(ends).toEqual([1]);
   });
 
+  it("tells its watcher the stage's video and whether it plays (Phase 47 item 6)", () => {
+    const { layer, videos, show } = lifecycleHarness([
+      vid({ id: "v-a", file: "a.mp4" }),
+      item({ id: "line-2", type: "text", text: "Second line." }),
+      item({ id: "pic", type: "image", file: "p.jpg" }),
+      vid({ id: "v-b", file: "b.mp4" }),
+    ]);
+    const heard: Array<{ element: unknown; plays: boolean } | null> = [];
+    layer.watchVideo((video) => heard.push(video));
+    expect(heard).toEqual([null]); // told at once: no video yet
+    show(0); // an advance: it plays
+    show(1); // the text chain over it: the same element plays on, unchanged
+    show(0, "nav"); // the wheel back below the seen edge: its poster
+    show(2); // a picture: no video
+    show(3); // a new file: a fresh element, playing
+    const [a, b] = videos;
+    expect(heard).toEqual([
+      null,
+      { element: a, plays: true },
+      { element: a, plays: false },
+      null,
+      { element: b, plays: true },
+    ]);
+    layer.destroy();
+    expect(heard[heard.length - 1]).toBeNull();
+  });
+
+  it("a watcher set while a video plays hears it at once", () => {
+    const { layer, videos, show } = lifecycleHarness([
+      vid({ id: "v-a", file: "a.mp4" }),
+    ]);
+    show(0);
+    const heard: unknown[] = [];
+    layer.watchVideo((video) => heard.push(video));
+    expect(heard).toEqual([{ element: videos[0], plays: true }]);
+  });
+
   it("destroy releases the element", () => {
     const { layer, videos, show, inStage } = lifecycleHarness([
       vid({ id: "v-a", file: "a.mp4" }),
