@@ -325,6 +325,8 @@ class AssetArchives:
         self._archives: list[RpaArchive] | None = None
         self._exts: list[str] | None = None
         self._failed: list[dict] = []
+        # lowercased member key -> (archive, key), built on first use
+        self._lower: dict[str, tuple[RpaArchive, str]] | None = None
 
     @property
     def failed(self) -> list[dict]:
@@ -405,6 +407,27 @@ class AssetArchives:
             return None
         arc, key = found[0]
         return self.hit(arc, key)
+
+    def keys(self) -> list[str]:
+        """Every member key of every readable archive, sorted, once."""
+        return sorted({key for arc in self._load() for key in arc.index()})
+
+    def member(self, rel: str) -> tuple[RpaArchive, str] | None:
+        """The member keyed exactly ``rel`` (the first archive holding it
+        in name order), else one whose key differs only in case, as
+        Ren'Py's loader matches names; None when no archive has it. An
+        audio file is named by its whole path, so the image fallbacks of
+        ``candidates`` (another extension, a base name) do not apply."""
+        archives = self._load()
+        for arc in archives:
+            if rel in arc:
+                return arc, rel
+        if self._lower is None:
+            self._lower = {}
+            for arc in archives:
+                for key in arc.index():
+                    self._lower.setdefault(key.lower(), (arc, key))
+        return self._lower.get(rel.lower())
 
     def hit(self, arc: RpaArchive,
             key: str) -> tuple[str, Path, dict[str, str]]:

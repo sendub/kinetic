@@ -6,7 +6,10 @@ line under a fresh visual attaches to that media item, and later lines
 become ``text`` items over the same visual. ``stop movie`` ends a video
 context. Media references use the ``<id>.<ext>`` naming convention of
 docs/content-format.md; the real asset files arrive with the next task, so
-the build ledger keeps the source asset paths.
+the build ledger keeps the source asset paths. Audio statements attach to
+the next item emitted through kinetic_extract.audio_cues (docs/plan.md
+Phase 47 item 8): each record's ``audio`` and the result's
+``audio_tracks``.
 """
 
 from __future__ import annotations
@@ -17,6 +20,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from .audio_cues import AudioFiles, AudioTrack, CueWalker
 from .media import probe_duration_seconds
 from .parser import Event, FileParse, Report, slug as _slug
 
@@ -71,6 +75,10 @@ class ItemRecord:
     notes: list[str] = field(default_factory=list)
     asset_meta: dict[str, Any] = field(default_factory=dict)
     skipped: bool = False
+    # The item's audio cues in the content format's item `audio` shape,
+    # naming ids of TimelineResult.audio_tracks (kinetic_extract.
+    # audio_cues); kept out of `item` until the tracks ship.
+    audio: dict[str, Any] | None = None
 
 
 def set_video_duration(record: ItemRecord,
@@ -105,6 +113,8 @@ class TimelineResult:
     # with indices into ``items`` (docs/plan.md Phase 13). The CLI turns
     # these into manifest `branches` once the asset pass is known.
     branch_candidates: list[dict[str, Any]] = field(default_factory=list)
+    # Track id -> the track the items' audio cues name.
+    audio_tracks: dict[str, AudioTrack] = field(default_factory=dict)
 
     def _next_id(self, slug: str) -> str:
         return f"{slug}-{len(self.items) + 1:03d}"
@@ -147,6 +157,7 @@ def build_timeline(parses: list[tuple[str, FileParse]],
                    max_items: int | None = None,
                    asset_lookup=None,
                    implicit_lookup=None,
+                   audio_files: AudioFiles | None = None,
                    ) -> TimelineResult:
     """Walk all parsed files (already in filename order) linearly.
 
@@ -169,8 +180,13 @@ def build_timeline(parses: list[tuple[str, FileParse]],
     Media items carry no ``file``/``poster`` yet: the shipped path is the
     hash of the shipped bytes, known only once the asset pass has made
     them (docs/plan.md Phase 25).
+
+    ``audio_files`` (kinetic_extract.audio_cues.AudioFiles) finds the
+    audio files the cues name; by default loose files under
+    ``game_dir`` only.
     """
     result = TimelineResult()
+    cues = CueWalker(parses, audio_files or AudioFiles(game_dir))
     pending: _Pending | None = None
     started = start_label is None
     menu_state: dict[str, Any] | None = None  # open menu region (Phase 13)
@@ -232,6 +248,7 @@ def build_timeline(parses: list[tuple[str, FileParse]],
         if pend.kind == "video":
             set_video_duration(record)
         apply_line(item, record, speaker, text)
+        cues.attach(record)
         result.items.append(record)
         check_limit()
         return item
@@ -292,6 +309,12 @@ def build_timeline(parses: list[tuple[str, FileParse]],
             "route_spans": [(record.choices[k], starts[k], ends[k] - 1)
                             for k in range(len(starts))],
         })
+
+    def end_route(ms: dict[str, Any]) -> None:
+        """Close the route block before the boundary just reached."""
+        if ms["starts"]:
+            has_item = len(result.items) > ms["starts"][-1]
+            cues.route_end(result.items[-1] if has_item else None)
 
     try:
         for _rel, parsed in parses:
@@ -385,6 +408,7 @@ def build_timeline(parses: list[tuple[str, FileParse]],
                             event.source, event.text,
                             "droppedUnresolved: line dropped with its "
                             "unresolved visual"))
+                        cues.line_dropped()
                         continue
                     if pending is not None and not pending.consumed:
                         emit_media(pending, event.speaker, event.text)
@@ -399,12 +423,14 @@ def build_timeline(parses: list[tuple[str, FileParse]],
                             record.notes.append(
                                 "dialogue with no preceding visual in flow")
                         apply_line(item, record, event.speaker, event.text)
+                        cues.attach(record)
                         result.items.append(record)
                         check_limit()
                 elif event.kind == "menu-open":
                     # The lead-in ends here: a trailing visual becomes the
                     # decision's `after` item, and the region starts empty.
                     flush_bare()
+                    cues.menu_open()
                     menu_state = {
                         "record": parsed.menus[int(event.name)],
                         "after": len(result.items) - 1,
@@ -413,15 +439,23 @@ def build_timeline(parses: list[tuple[str, FileParse]],
                 elif event.kind == "choice-open":
                     if menu_state is not None:
                         flush_bare()
+                        end_route(menu_state)
                         menu_state["starts"].append(len(result.items))
+                        cues.route_start()
                 elif event.kind == "menu-close":
                     if menu_state is not None:
                         flush_bare()
+                        end_route(menu_state)
                         close_menu(parsed, menu_state)
+                        cues.menu_close()
                         menu_state = None
+                elif event.kind == "audio":
+                    cues.statement(parsed, event)
             flush_bare()
     except _SliceDone:
         pass
+    cues.finish()
+    result.audio_tracks = cues.tracks
 
     if start_label is not None and not started:
         raise SystemExit(

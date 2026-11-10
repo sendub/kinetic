@@ -3209,13 +3209,43 @@ truthful: an unchecked box means nothing was accepted.
       86/86, WebKit `screens audio menus` 172 pass and 2 known fullscreen
       partials; screenshots of the Esc screen and the sheet at 1280x720
       looked balanced. Not verified: listening, real Safari, Windows.)
-- [ ] kinetic-extract reads Ren'Py audio (item 8): the statements,
+- [x] kinetic-extract reads Ren'Py audio (item 8): the statements,
       channels, names and specs it lists, mapped to music, ambience,
       one-shots and voice on the next item; the unconverted cases
       reported; the `voice` and menu faults fixed. Tests:
       - a synthetic `.rpy` case for each statement and mapping;
       - the `voice` and menu regressions, red before the fix;
       - a report line for each unconverted form.
+      (2026-11-10: converter/kinetic_extract/audio_statements.py reads
+      the statements, audio_cues.py maps them; `ItemRecord.audio` is
+      already the item `audio` shape with track ids, and
+      `TimelineResult.audio_tracks` holds one track per distinct file,
+      start, loop start, volume and loop, its id from the file's base
+      name. The manifest carries no audio until item 9 ships the files
+      and measures durations; the ledger shows the cues (item `audio`,
+      `audioTracks`) and the summary counts them. Rules read from the
+      Ren'Py 8.3 sources: music loops, sound and voice do not, `audio`
+      one-shots overlap on fresh sub-channels, a registered channel loops
+      unless `loop=False`, `loop=None` loops up to 8.3 and not from 8.4
+      (`renpy/vc_version.py`); automatic names lowercase every audio
+      file's base name under game/audio/, a define winning; lookup game/
+      then game/audio/. Judgement calls: `fadeMs` only from a fade clause
+      (the longest); a cue before a menu goes to every route's first
+      item; a missing file drops its cue on any channel; `renpy.play`
+      and `play movie` are reported; registered creator statements now
+      match before dialogue (`sfx "boom"` was dialogue); volumes above 1
+      are clamped and reported. 34 new tests; the voice and menu
+      regressions red on a copy of HEAD; 10 deliberate breaks each
+      caught. A 12-game corpus sample, read-only: 14,032 statements read,
+      8,869 items with cues, 8,958 reported (3,430 in skipped blocks,
+      2,127 in menus rejected for other reasons, 1,943 missing voice
+      files), no crash; two parser bugs it found fixed with tests (a
+      playlist over several lines, a file named `loop`). Seen in passing,
+      not fixed: `AssetArchives.candidates` scans every archive key per
+      image fallback lookup, minutes on an archive-heavy game.
+      Orchestrator: the new test files 34 passed, full pytest 843, the
+      renpy_demo golden unchanged, no game names or paths in the new
+      text.)
 - [ ] kinetic-extract ships the sound (item 9): audio through the
       `audio` kind, tracks with measured durations, and audible video
       soundtracks as `videoSound`. fixtures/renpy_demo gains the cases

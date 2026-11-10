@@ -24,6 +24,14 @@ Design notes:
 - ``jump``/``call`` targets known in the same file are noted and the walk
   continues linearly (no real control flow); unknown targets are reported as
   cross-file calls/jumps.
+- Audio statements (``play``, ``queue``, ``stop``, ``voice`` and literal
+  ``$ renpy.music``/``renpy.sound`` calls, docs/plan.md Phase 47 item 8)
+  become ``audio`` events, in label flow and in choice blocks alike;
+  kinetic_extract.audio_statements reads them. Audio the walk cannot
+  convert is reported: inside a skipped block (a screen, a transform,
+  Python, an ``if``), inside an unsupported menu, or in a form that is
+  not read. ``define audio.x``, ``register_channel`` and
+  ``register_statement`` are read on every line, blocks included.
 """
 
 from __future__ import annotations
@@ -32,6 +40,10 @@ import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
+
+from .audio_statements import (AudioChannel, AudioStatement, mentions_audio,
+                               read_audio_define, read_channel, read_python,
+                               read_statement)
 
 _DEFINE_CHAR_RE = re.compile(
     r"define\s+([A-Za-z_]\w*)\s*=\s*Character\(\s*\"((?:[^\"\\]|\\.)*)\"")
@@ -46,10 +58,17 @@ _DEFINE_CHAR_RE = re.compile(
 # `config.name`, plain or `_()`-wrapped. Only a string literal counts:
 # `None` or an expression names nothing. Single or double quotes.
 _CONFIG_STRING_RE = re.compile(
-    r"""\s*(?:define\s+)?config\.(save_directory|name)\s*=\s*"""
+    r"""\s*(?:define\s+)?config\.(save_directory|name|voice_filename_format)"""
+    r"""\s*=\s*"""
     r"""(?:_\(\s*)?(?:"((?:[^"\\]|\\.)*)"|'((?:[^'\\]|\\.)*)')""")
 _SPEAKER_SAY_RE = re.compile(r"([A-Za-z_]\w*)\s*\"")
 _LABEL_HEAD_RE = re.compile(r"^label\s+([A-Za-z_]\w*)")
+# `renpy.register_statement("name", ...)`: a creator-defined statement.
+_REGISTER_STATEMENT_RE = re.compile(
+    r"register_statement\(\s*(?:name\s*=\s*)?[\"']([^\"']+)[\"']")
+_AUDIO_KEYWORDS = frozenset({"play", "queue", "stop", "voice"})
+CREATOR_STATEMENT = "creator-defined statement: not converted"
+AUDIO_IN_MENU = "audio inside an unsupported menu: not converted"
 
 # Block-opening keywords whose contents the walker skips silently (the
 # statement itself is recognized).
@@ -140,12 +159,13 @@ class Event:
     items to route spans by position."""
 
     kind: str            # visual | video | dialogue | stop-movie | label |
-                         # menu-open | choice-open | menu-close
+                         # menu-open | choice-open | menu-close | audio
     source: str
     text: str = ""       # dialogue text (dialogue events)
     speaker: str | None = None
     asset: str | None = None   # source image/video path relative to game/
     name: str | None = None    # image name (visual) or raw statement text
+    cue: AudioStatement | None = None  # the statement (audio events)
 
 
 @dataclass
@@ -184,9 +204,19 @@ class FileParse:
     image_defs: dict[str, tuple[str, str]] = field(default_factory=dict)
     characters: dict[str, str] = field(default_factory=dict)   # var -> display
     reports: list[Report] = field(default_factory=list)
-    # First string literal assigned to `config.save_directory` /
-    # `config.name` in this file, by setting name (the manifest storyId).
+    # First string literal assigned to `config.save_directory`,
+    # `config.name` (the manifest storyId and title) or
+    # `config.voice_filename_format` in this file, by setting name.
     config: dict[str, str] = field(default_factory=dict)
+    # `define audio.NAME = "file"` names; None when the value is not a
+    # string literal (an expression the converter cannot follow).
+    audio_defs: dict[str, str | None] = field(default_factory=dict)
+    # Channels registered with literal `register_channel` arguments.
+    channels: dict[str, AudioChannel] = field(default_factory=dict)
+    # Creator-defined statement names (`renpy.register_statement`)
+    # known while parsing: this file's own and those parse_project found
+    # in the project's other files.
+    creator_statements: set[str] = field(default_factory=set)
 
 
 def _label_names(lines: list[str]) -> set[str]:
@@ -243,20 +273,39 @@ def _split_image_def(rest: str) -> tuple[str, tuple[str, str] | None]:
     return " ".join(name.split()), ("file", parsed[0]) if parsed else None
 
 
-def _classify_menu_statement(src: str, line: str):
+def _is_creator_statement(line: str, names: set[str]) -> bool:
+    """True when ``line`` starts with a creator-defined statement's
+    name. Ren'Py matches registered statements before a say statement,
+    so `sfx "boom"` is the statement, not a line spoken by `sfx`."""
+    words = line.replace(":", " ").split()
+    return any(words[:len(name.split())] == name.split() for name in names)
+
+
+def _classify_menu_statement(src: str, line: str,
+                             creator: set[str] = frozenset()):
     """Classify one line inside a menu choice block.
 
     Answers ``("event", Event)``, ``("noise", None)``, or
     ``("reject", reason)``. Only image/text-item statements (scene/show
-    and dialogue) and pure cosmetics (window/with/pause) keep the menu
-    eligible (docs/plan.md Phase 13, conservative extraction): a nested
-    ``menu``, a flow statement (``jump``/``call``/``return``), a video
-    statement, and any unknown statement disqualify the whole menu, which
-    is then reported and skipped as before."""
+    and dialogue), audio statements and pure cosmetics (window/with/pause)
+    keep the menu eligible (docs/plan.md Phase 13, conservative
+    extraction): a nested ``menu``, a flow statement
+    (``jump``/``call``/``return``), a video statement, and any unknown
+    statement disqualify the whole menu, which is then reported and
+    skipped as before. An audio statement that cannot be converted keeps
+    the menu too: it answers a ``report`` event (``name`` the reason)
+    that the menu handler turns into a report (Phase 47 item 8)."""
     keyword = line.split(" ", 1)[0].split(":", 1)[0]
     rest = line[len(keyword):].strip()
     if rest.startswith(":"):
         rest = rest[1:].strip()
+    if _is_creator_statement(line, creator):
+        return "reject", f"creator-defined statement in a choice block: {line}"
+    read = _read_audio(keyword, line)
+    if isinstance(read, AudioStatement):
+        return "event", Event("audio", src, cue=read)
+    if isinstance(read, str):
+        return "event", Event("report", src, text=line, name=read)
     if keyword == "menu":
         return "reject", "nested menu inside a choice block"
     if keyword == "scene":
@@ -296,8 +345,17 @@ def _classify_menu_statement(src: str, line: str):
     return "reject", f"unrecognized statement in a choice block: {line}"
 
 
+def _read_audio(keyword: str, line: str) -> AudioStatement | str | None:
+    """The audio statement on ``line``, a report reason, or None."""
+    if line.startswith("$"):
+        return read_python(line)
+    if keyword in _AUDIO_KEYWORDS:
+        return read_statement(line)
+    return None
+
+
 def _parse_menu_body(block: list[tuple[int, str, int]], relname: str,
-                     caption: str | None):
+                     caption: str | None, creator: set[str] = frozenset()):
     """Classify the interior lines of a menu block.
 
     ``block`` holds ``(lineno, text, indent)`` for every non-blank line
@@ -336,7 +394,7 @@ def _parse_menu_body(block: list[tuple[int, str, int]], relname: str,
             continue
         if not choices:
             return ("statement before the first choice", caption, choices)
-        kind, payload = _classify_menu_statement(src, text)
+        kind, payload = _classify_menu_statement(src, text, creator)
         if kind == "reject":
             return payload, caption, choices
         if kind == "event":
@@ -380,7 +438,8 @@ def _handle_menu(raw_lines: list[str], i: int, relname: str,
     if not block:
         reject, caption, choices = "empty menu", caption, []
     else:
-        reject, caption, choices = _parse_menu_body(block, relname, caption)
+        reject, caption, choices = _parse_menu_body(
+            block, relname, caption, result.creator_statements)
     if reject is None and not choices:
         reject = "no choices"
     elif reject is None and len(choices) < 2:
@@ -389,6 +448,9 @@ def _handle_menu(raw_lines: list[str], i: int, relname: str,
         result.reports.append(Report(
             source, menu_line,
             f"menu unsupported ({reject}): branch skipped, linear flow kept"))
+        result.reports.extend(
+            Report(f"{relname}:{lineno}", text, AUDIO_IN_MENU)
+            for lineno, text, _indent in block if mentions_audio(text))
         result.menus.append(MenuRecord(
             source=source, statement=menu_line,
             decision_id=f"menu-{slug(cur_label, Path(relname).stem)}"
@@ -414,27 +476,118 @@ def _handle_menu(raw_lines: list[str], i: int, relname: str,
     for k, (_label, choice_src, body) in enumerate(choices):
         result.events.append(
             Event("choice-open", choice_src, name=f"{menu_idx}:{k}"))
-        result.events.extend(body)
+        for event in body:
+            if event.kind == "report":
+                result.reports.append(
+                    Report(event.source, event.text, event.name or ""))
+            else:
+                result.events.append(event)
     result.events.append(
         Event("menu-close", f"{relname}:{block[-1][0]}",
               name=str(menu_idx)))
     return j
 
 
-def parse_file(text: str, relname: str) -> FileParse:
-    """Parse one .rpy source; never raises on unknown statements."""
-    result = FileParse(relname=relname)
-    raw_lines = text.lstrip("\ufeff").splitlines()
-    labels = _label_names(raw_lines)
-    # Scanned on every line, block or not: the settings live in `init`
-    # and `python` blocks the statement walk below skips.
-    for raw in raw_lines:
-        m = _CONFIG_STRING_RE.match(strip_comment(raw))
+def _bracket_depth(text: str) -> int:
+    """Brackets ``text`` opens and leaves open, quoted strings aside."""
+    depth, quote, i = 0, "", 0
+    while i < len(text):
+        ch = text[i]
+        if quote:
+            if ch == "\\":
+                i += 1
+            elif ch == quote:
+                quote = ""
+        elif ch in "\"'":
+            quote = ch
+        elif ch in "([{":
+            depth += 1
+        elif ch in ")]}":
+            depth -= 1
+        i += 1
+    return depth
+
+
+def _continued(raw_lines: list[str], n: int, line: str) -> tuple[str, int]:
+    """``line`` (raw line ``n``, stripped) joined with the lines its open
+    brackets run onto, as Ren'Py joins them, and the index of the line
+    after the last one used (at most 50 more)."""
+    depth = _bracket_depth(line)
+    k = n
+    while depth > 0 and k + 1 < len(raw_lines) and k - n < 50:
+        k += 1
+        more = strip_comment(raw_lines[k]).strip()
+        line += " " + more
+        depth += _bracket_depth(more)
+    return line, k + 1
+
+
+def _call_text(raw_lines: list[str], n: int) -> str:
+    """Line ``n`` joined with the lines a call written over several
+    lines runs onto."""
+    return _continued(raw_lines, n, strip_comment(raw_lines[n]).strip())[0]
+
+
+def _scan_settings(raw_lines: list[str], relname: str,
+                   result: FileParse) -> None:
+    """Read the settings that live in `init` and `python` blocks the
+    statement walk skips, so every line is scanned, block or not: the
+    story id and title config, the voice file format, `define audio.x`
+    names and registered channels."""
+    for n, raw in enumerate(raw_lines):
+        text = strip_comment(raw)
+        m = _CONFIG_STRING_RE.match(text)
         if m and m.group(1) not in result.config:
             value = m.group(2) if m.group(2) is not None else m.group(3)
             result.config[m.group(1)] = value
+        defined = read_audio_define(text)
+        if defined is not None:
+            result.audio_defs[defined[0]] = defined[1]
+        if "register_channel(" in text:
+            channel = read_channel(_call_text(raw_lines, n))
+            if channel is None:
+                result.reports.append(Report(
+                    f"{relname}:{n + 1}", text.strip(),
+                    "register_channel with arguments that are not "
+                    "literals: channel not read"))
+            else:
+                result.channels[channel.name] = channel
+
+
+def _audio_event(result: FileParse, source: str, line: str,
+                 read: AudioStatement | str | None) -> None:
+    """Add an audio statement's event, or report why it is not read."""
+    if isinstance(read, AudioStatement):
+        result.events.append(Event("audio", source, cue=read))
+    elif isinstance(read, str):
+        result.reports.append(Report(source, line, read))
+
+
+def creator_statement_names(text: str) -> set[str]:
+    """The names a script registers with `renpy.register_statement`."""
+    raw_lines = text.lstrip("\ufeff").splitlines()
+    names: set[str] = set()
+    for n, raw in enumerate(raw_lines):
+        if "register_statement(" in raw:
+            m = _REGISTER_STATEMENT_RE.search(_call_text(raw_lines, n))
+            if m:
+                names.add(m.group(1))
+    return names
+
+
+def parse_file(text: str, relname: str,
+               creator_statements: set[str] = frozenset()) -> FileParse:
+    """Parse one .rpy source; never raises on unknown statements.
+    ``creator_statements`` are statement names other files register."""
+    result = FileParse(relname=relname,
+                       creator_statements=set(creator_statements))
+    raw_lines = text.lstrip("\ufeff").splitlines()
+    labels = _label_names(raw_lines)
+    _scan_settings(raw_lines, relname, result)
+    result.creator_statements |= creator_statement_names(text)
 
     skip_indent: int | None = None  # depth of the line that opened a block
+    skip_opener = ""                # that line's keyword
     cur_label: str | None = None    # label whose body the walk is in
     i = 0
     while i < len(raw_lines):
@@ -445,21 +598,31 @@ def parse_file(text: str, relname: str) -> FileParse:
         if not content.strip():
             continue
         indent = len(content) - len(content.lstrip(" \t"))
-        if skip_indent is not None:
-            if indent > skip_indent:
-                continue
-            skip_indent = None
         line = content.strip()
         source = f"{relname}:{lineno}"
+        if skip_indent is not None:
+            if indent > skip_indent:
+                if mentions_audio(line):
+                    result.reports.append(Report(
+                        source, line, f"audio inside a skipped "
+                        f"`{skip_opener}` block: not converted"))
+                continue
+            skip_indent = None
         keyword = line.split(" ", 1)[0].split(":", 1)[0]
         rest = line[len(keyword):].strip()
         if rest.startswith(":"):
             rest = rest[1:].strip()
 
         def open_block() -> None:
-            nonlocal skip_indent
+            nonlocal skip_indent, skip_opener
             if line.endswith(":"):
                 skip_indent = indent
+                skip_opener = keyword
+
+        if _is_creator_statement(line, result.creator_statements):
+            result.reports.append(Report(source, line, CREATOR_STATEMENT))
+            open_block()
+            continue
 
         if keyword == "define":
             m = _DEFINE_CHAR_RE.match(line)
@@ -468,7 +631,12 @@ def parse_file(text: str, relname: str) -> FileParse:
                 result.characters[name] = display[0] if display else m.group(2)
             # other defines: skipped silently
             continue
-        if keyword in {"$", "default"}:
+        if line.startswith("$"):
+            if mentions_audio(line):
+                line, i = _continued(raw_lines, lineno - 1, line)
+            _audio_event(result, source, line, read_python(line))
+            continue
+        if keyword == "default":
             continue
         if keyword in _QUIET_STATEMENT_KEYWORDS:
             continue
@@ -510,13 +678,18 @@ def parse_file(text: str, relname: str) -> FileParse:
             else:
                 result.events.append(Event("video", source, asset=quoted[0]))
             continue
-        if keyword == "stop":
-            if rest == "movie":
-                result.events.append(Event("stop-movie", source))
-            else:
+        if keyword == "stop" and rest == "movie":
+            result.events.append(Event("stop-movie", source))
+            continue
+        if keyword in _AUDIO_KEYWORDS:
+            # A playlist may run over several lines; its lines are not
+            # statements of their own.
+            line, i = _continued(raw_lines, lineno - 1, line)
+            read = read_statement(line)
+            if read is None:
                 result.reports.append(
                     Report(source, line, f"unsupported statement: {line}"))
-            open_block()
+            _audio_event(result, source, line, read)
             continue
         if keyword == "menu":
             i = _handle_menu(raw_lines, i, relname, lineno, line, indent,
@@ -680,9 +853,7 @@ def parse_project(game_dir: Path, files_glob: str | None = None,
         plan.append((Path(key).name, None, kind, arc, key))
     plan.sort(key=lambda entry: entry[0])
 
-    parses: list[tuple[str, FileParse]] = []
-    image_defs: dict[str, str] = {}
-    characters: dict[str, str] = {}
+    texts: list[tuple[str, str]] = []
     for _key, path, kind, arc, member in plan:
         if path is not None:
             rel = _ledger_rel(path, game_dir)
@@ -714,7 +885,14 @@ def parse_project(game_dir: Path, files_glob: str | None = None,
             sources["decompiled"].append(rel)
             if path is None:
                 sources["rpaScripts"].append(rel)
-        parsed = parse_file(text, rel)
+        texts.append((rel, text))
+    # A statement is often registered in another file than its uses.
+    creator = set().union(*(creator_statement_names(t) for _r, t in texts))
+    parses: list[tuple[str, FileParse]] = []
+    image_defs: dict[str, str] = {}
+    characters: dict[str, str] = {}
+    for rel, text in texts:
+        parsed = parse_file(text, rel, creator)
         parses.append((rel, parsed))
         image_defs.update(parsed.image_defs)
         characters.update(parsed.characters)

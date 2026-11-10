@@ -147,7 +147,9 @@ such as `fixtures/demo` may use any legal layout and stays flat.
 
 `build-ledger.json` sits beside the manifest; the player and validator
 ignore it. Besides the walk's record (`inputs`, `items`, `report`,
-`branchDetection`, the `rpyc*`/`rpa*` source lists, `slice`), it holds
+`branchDetection`, the `rpyc*`/`rpa*` source lists, `slice`, and the
+audio cues in item `audio` and `audioTracks`: Reading Ren'Py audio,
+below), it holds
 enough to make every shipped media file again from the original game
 files (docs/plan.md Phase 25), which `kinetic-media rebuild` reads:
 
@@ -414,6 +416,110 @@ but decodes to no samples (a WAV header with no data, say) is
 `skipped` with a note; there is never a placeholder. ffprobe failing
 on the source is `skipped` too (`unprobeable audio`), as is a failed
 copy or re-encode.
+
+## Reading Ren'Py audio
+
+docs/plan.md Phase 47, item 8. kinetic-extract reads a game's audio
+statements and attaches each cue to an item in the content format's item
+`audio` shape (docs/content-format.md, "Audio"), naming tracks by id.
+The audio files are not shipped yet (item 9), so the manifest carries no
+audio: without measured durations it could not validate. The build
+ledger shows what was read:
+
+- each item entry's `audio`: `music` (a track id, or null to stop),
+  `ambience` (the whole set of loops when it changed), `fadeMs`, `sfx`
+  (`{track, channel?}`) and `voice`;
+- `audioTracks`: track id to `asset` (the source file, as item assets
+  are named) plus the track fields that differ from their defaults:
+  `startSeconds`, `loopStartSeconds`, `volume`, and `loop: false` for
+  music played with `noloop`.
+
+A track is one source file played one way, so a file played from two
+start points, or at two volumes, makes two tracks. Track ids come from
+the file's base name (`theme`, then `theme-2`), `epN-`-prefixed when
+several projects make one game. The summary line `audio: N items carry
+cues over M tracks` counts them.
+
+What is read, by the rules of Ren'Py 8.3 (renpy/common/000statements.rpy,
+00voice.rpy, 00audio.rpy and renpy/audio/):
+
+- `play`, `queue` and `stop` on `music`, `sound`, `audio`, `voice` and
+  any channel a script registers with `renpy.music.register_channel`
+  and literal arguments (name, mixer, default loop, file prefix and
+  suffix), with the clauses `fadein`, `fadeout`, `loop`, `noloop`,
+  `if_changed`, `volume` and `channel`;
+- `voice "file"`, through a literal `config.voice_filename_format`;
+- `$ renpy.music.play(...)`, `queue(...)` and `stop(...)`, and the same
+  three on `renpy.sound`, with literal arguments;
+- file names as strings, `define audio.x = "file"` names, and the
+  automatic names: every file under game/audio/ (any depth, loose or in
+  an archive) with a `.wav`, `.mp2`, `.mp3`, `.ogg`, `.opus` or `.flac`
+  extension is `audio.<base name, lowercased>`, the first path in
+  sorted order winning a clash. A define wins over an automatic name;
+- the partial-file specs `<from N>` and `<loop N>`, as `startSeconds`
+  and `loopStartSeconds` (a loop point equal to the start is the
+  default and is left out).
+
+Files resolve as Ren'Py's loader finds them: the name as given under
+game/, then under game/audio/, loose files before archive members,
+compared without case in archives.
+
+How a cue maps:
+
+- `music` is the item's music, and `stop music` sets it to null.
+- A looping play on any other channel puts that channel's loop in the
+  ambience set, and stopping the channel takes it out. A play stops what
+  its channel was playing, so a one-shot on a looping channel ends the
+  loop.
+- A play that does not loop is a one-shot whose `channel` is the Ren'Py
+  channel. On `audio` each sound plays on a fresh sub-channel, so its
+  one-shots have no `channel` and overlap, and `stop audio` reaches
+  none of them. Two one-shots on one channel before the same item keep
+  only the second, which cut the first.
+- `voice` belongs to the next item that carries a line. A line dropped
+  with its unresolved visual drops its voice.
+- Loop defaults: `music` loops; `sound`, `voice` and `audio` do not; a
+  registered channel loops unless registered with `loop=False`. An
+  explicit `loop=None` loops up to Ren'Py 8.3 and not from 8.4, decided
+  by the game's `renpy/vc_version.py`. `renpy.sound.play` loops only
+  when asked.
+- Each cue attaches to the next item emitted, the converting agent's
+  rule (it matched an engine trace 99.7% and 99.8%). The cue of an item
+  the asset pass drops passes to the next item kept, except its voice.
+- `fadein` and `fadeout` become the item's `fadeMs`, the longest given;
+  a change with neither keeps the format's default.
+- `queue` with nothing before it on its channel plays like `play`.
+  `if_changed` changes nothing: a wanted track is never restarted.
+
+Menus. Audio statements in a choice block keep the menu, and a cue there
+attaches to the route's first item. A cue read just before a detected
+menu reaches the first item of every route; each route starts from the
+state before the menu; a cue after a route's last item stays on that
+item. After the menu the last route's state goes on, and when the
+routes left different ambience sets, the next ambience change is
+reported.
+
+Not converted, each reported with its statement in the ledger `report`
+and the summary:
+
+- playlists (the first file plays; a leading `<silence>` is skipped) and
+  a `queue` after another track on its channel before the same item;
+- `<silence N>`, and `<to N>` (the track plays to its end);
+- `set_volume`;
+- a file named by an expression, a variable, an undefined name or a
+  name defined by an expression;
+- creator-defined statements (`renpy.register_statement`): their names
+  are matched before dialogue, as Ren'Py matches them;
+- audio inside a skipped block (a screen, a transform, Python, an `if`)
+  or an unsupported menu, and `$` audio Python other than the literal
+  calls above (`renpy.play` included);
+- a channel no script registers with literal arguments, and the movie
+  channel, which plays video;
+- `voice sustain`, a voice just before a menu, and a missing file (its
+  cue is dropped, voice or not);
+- a cue after the last item;
+- a fade or volume given by an expression (ignored, the rest kept), and
+  a volume outside 0-1 (clamped).
 
 ## Decoder hooks
 

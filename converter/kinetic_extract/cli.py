@@ -65,12 +65,13 @@ import json
 import re
 import sys
 import unicodedata
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
 from . import __version__
 from .assets import run_asset_pass
+from .audio_cues import AudioFiles, carry_dropped_audio, rename_tracks
 from .decoders import Decoder, DecoderError, load_decoder
 from .images import ImplicitImages
 from .media import (DEFAULT_SIZE, ExistingFileError,
@@ -105,6 +106,10 @@ SIMPLIFICATIONS = [
     "sorted order and are noted), and an item whose visual resolves "
     "nowhere is dropped (ledger droppedUnresolved), never shipped as a "
     "missing-file placeholder",
+    "audio statements attach to the next item emitted (a dropped item's "
+    "pass to the next item kept); the cues and their tracks are in the "
+    "ledger (`audio`, `audioTracks`) and not yet in the manifest: the "
+    "audio files are not shipped",
 ]
 
 
@@ -347,6 +352,8 @@ def build_ledger(result: TimelineResult, reports: list[Report],
         # key the `media` section. The ledger stays the unreferenced
         # extra: the player and validator ignore it.
         entry.update(record.asset_meta)
+        if record.audio:
+            entry["audio"] = record.audio
         items[record.item["id"]] = entry
     ledger: dict[str, Any] = {
         "generatedBy": f"kinetic-extract {__version__}"}
@@ -361,6 +368,13 @@ def build_ledger(result: TimelineResult, reports: list[Report],
         "report": [{"source": r.source, "statement": r.statement,
                     "reason": r.reason} for r in reports],
     }
+    if result.audio_tracks:
+        # The tracks the items' `audio` cues name (docs/plan.md Phase 47
+        # item 8), by source file; shipping them adds `file` and
+        # `durationSeconds` and moves both into the manifest.
+        ledger["audioTracks"] = {
+            track_id: {"asset": track.asset, **track.fields()}
+            for track_id, track in result.audio_tracks.items()}
     if slice_opts:
         ledger["slice"] = slice_opts
     if branch_notes:
@@ -447,6 +461,11 @@ def print_summary(result: TimelineResult, reports: list[Report],
         if warning:
             print(f"warning: {record.source}: {record.item['id']}: "
                   f"{warning}")
+    if result.audio_tracks:
+        cued = sum(1 for r in result.items if r.audio and not r.skipped)
+        print(f"audio: {cued} items carry cues over "
+              f"{len(result.audio_tracks)} tracks (in the ledger only: "
+              "the files are not shipped yet)")
     note_count = sum(len(r.notes) for r in result.items)
     print(f"reported statements: {len(reports)}; item notes: {note_count}")
     for report in reports:
@@ -533,6 +552,7 @@ def main(argv: list[str] | None = None) -> int:
     except (DecoderError, ExistingFileError) as exc:
         print(f"kinetic-extract: {exc}", file=sys.stderr)
         return 1
+    carry_dropped_audio(result.items)
     branches, branch_notes = finalize_branches(result, parses, reports)
 
     if args.width and args.height:
@@ -621,7 +641,8 @@ def _walk_project(project: Path, args: argparse.Namespace
     result = build_timeline(parses, image_defs, characters, game_dir,
                             start_label=args.label, max_items=args.max_items,
                             asset_lookup=asset_archives.lookup,
-                            implicit_lookup=implicit.lookup)
+                            implicit_lookup=implicit.lookup,
+                            audio_files=AudioFiles(game_dir, asset_archives))
     if asset_archives.failed:
         sources.setdefault("rpaFailed", []).extend(asset_archives.failed)
     return _Episode(project, game_dir, parses, sources, result)
@@ -657,8 +678,15 @@ def _mark_episode(n: int, episode: _Episode) -> None:
     """Make project `n`'s walk its own part of a several-project game:
     ids get ``epN-``, source names ``epN:``, media sources ``project``."""
     tag = f"ep{n}"
+    tracks = episode.result.audio_tracks
+    new_id = {old: prefix_id(f"{tag}-", old) for old in tracks}
+    episode.result.audio_tracks = {
+        new_id[old]: replace(track, id=new_id[old])
+        for old, track in tracks.items()}
     for record in episode.result.items:
         record.item["id"] = prefix_id(f"{tag}-", record.item["id"])
+        if record.audio:
+            record.audio = rename_tracks(record.audio, new_id)
         record.source = f"{tag}:{record.source}"
         if record.source_ref is not None:
             record.source_ref = {**record.source_ref, "project": n}
@@ -687,6 +715,7 @@ def _join_results(results: list[TimelineResult]) -> TimelineResult:
         joined.items += result.items
         joined.source_images += result.source_images
         joined.decoded_sizes += result.decoded_sizes
+        joined.audio_tracks |= result.audio_tracks
         joined.branch_candidates += [{
             **cand,
             "after_idx": cand["after_idx"] + offset,
