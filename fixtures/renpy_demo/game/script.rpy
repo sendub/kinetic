@@ -1,5 +1,8 @@
 # Synthetic Ren'Py project for the kinetic extractor tests.
 # Exercises the statement subset from docs/stack.md; Cyrillic lines included.
+# Sound: music by its automatic audio name, an ambience loop on a registered
+# channel, a one-shot, a voice line, music and a stop inside a choice block,
+# and a movie with an audible soundtrack.
 
 define a = Character("Ana")
 define d = Character("Dmitri")
@@ -13,11 +16,18 @@ image bg-reprise "data/bg-room.png"
 image photo-noise "data/photo-noise.png"
 image bg-gif "data/anim.gif"
 
+init python:
+    renpy.music.register_channel("ambience", "sfx", True)
+
 label start:
     $ greeting = "Are you ready"
+    play music theme fadein 2.0
+    play ambience "audio/rain.webm"
     scene bg-room
     a "Welcome to the house."
+    voice "voice/viktor-01.mp3"
     Viktor "The lights are dim. [greeting]?"
+    play sound "audio/door.wav"
     d "The fire is low, but the room is warm."
     window show
     with dissolve
@@ -40,6 +50,8 @@ label start:
             a "The fire crackles as the room warms."
             d "Tea, then. The strong kind."
         "Walk the garden path":
+            stop ambience fadeout 1.0
+            play music "<from 0.5 loop 1.0>audio/theme.mp3"
             show bg-yard
             g "The gravel sounds louder at night."
             "Somewhere past the hedge, water runs."
@@ -71,4 +83,7 @@ label inside:
     a "A photograph, grainy and warm."
     show bg-gif
     "A tiny paper lantern blinks by the door."
+    movie "data/talk.mp4"
+    d "The television hums along."
+    stop movie
     return

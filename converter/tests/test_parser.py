@@ -33,9 +33,9 @@ def test_golden_manifest(tmp_path: Path) -> None:
 
 def test_movie_item_gets_duration_via_ffprobe(tmp_path: Path) -> None:
     manifest = extract(tmp_path)
-    videos = [i for i in manifest["items"] if i["type"] == "video"]
-    assert len(videos) == 1
-    video = videos[0]
+    videos = {i["id"]: i for i in manifest["items"] if i["type"] == "video"}
+    assert list(videos) == ["clip-004", "talk-020"]
+    video = videos["clip-004"]
     # The fixture clip is 1 s; allow a little slack for ffprobe rounding.
     assert 0.9 < video["durationSeconds"] <= 1.1
     assert video["file"].endswith(".mp4")

@@ -7,10 +7,19 @@ Usage (from the repo root):
 
 PNGs are drawn with integer arithmetic in Pillow (no fonts). The photo-like
 texture adds a dither from random.Random(fixed seed) - still fully
-deterministic. The mp4 is encoded from raw frames piped to ffmpeg with
-bitexact flags and -threads 1, with no metadata or audio stream, so bytes
-and duration are deterministic for a given ffmpeg build. ffmpeg must be on
-PATH.
+deterministic. The mp4s are encoded from raw frames piped to ffmpeg with
+bitexact flags and -threads 1 and no metadata, so bytes and duration are
+deterministic for a given ffmpeg build: `clip.mp4` has no audio stream
+(`-an`), `talk.mp4` has an audible MP3 soundtrack. ffmpeg must be on PATH.
+
+The sound (docs/plan.md Phase 47, item 9) is one mono file per role, each
+a distinct tone made by ffmpeg's lavfi sources: music `audio/theme.mp3`
+(440 Hz, 2 s), the ambience loop `audio/rain.webm` (Vorbis pink noise,
+1 s), the one-shot `audio/door.wav` (880 Hz, 0.3 s, 8-bit PCM), the voice
+line `voice/viktor-01.mp3` (330 Hz, 1.5 s) and the movie's soundtrack
+(660 Hz). Every format here ships byte-identical, and the movie's MP3
+stream is copied out as raw frames, so the converted bytes and decoded
+durations do not depend on the converter's ffmpeg version.
 
 Deliberate mislabels exercise content sniffing (docs/plan.md Phase 10:
 corpus files lie): `mislabeled.png` holds BMP bytes and `mislabeled.jpg`
@@ -28,10 +37,15 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw
 
-DATA_DIR = Path(__file__).resolve().parent / "game" / "data"
+GAME_DIR = Path(__file__).resolve().parent / "game"
+DATA_DIR = GAME_DIR / "data"
 WIDTH, HEIGHT = 320, 180
 FPS = 10
 SECONDS = 1
+RATE = 22050
+MP3 = ["-c:a", "libmp3lame", "-b:a", "24k"]
+BITEXACT = ["-fflags", "+bitexact", "-flags", "+bitexact",
+            "-map_metadata", "-1"]
 
 
 def gradient(name: str, top: tuple[int, int, int],
@@ -46,6 +60,19 @@ def gradient(name: str, top: tuple[int, int, int],
     img.save(DATA_DIR / name, format="PNG", optimize=True)
 
 
+def movie(name: str, frames: bytes, sound: list[str]) -> None:
+    """H.264 MP4 from raw RGB frames; `sound` adds the audio input and
+    codec, or is ``["-an"]``."""
+    subprocess.run(
+        ["ffmpeg", "-y", "-loglevel", "error", "-f", "rawvideo",
+         "-pix_fmt", "rgb24", "-s", f"{WIDTH}x{HEIGHT}", "-r", str(FPS),
+         "-i", "-", *sound, "-c:v", "libx264", "-preset", "veryfast",
+         "-pix_fmt", "yuv420p", "-g", str(FPS), *BITEXACT,
+         "-threads", "1", "-movflags", "+faststart",
+         str(DATA_DIR / name)],
+        input=frames, check=True)
+
+
 def clip() -> None:
     frames = bytearray()
     for f in range(FPS * SECONDS):
@@ -54,15 +81,46 @@ def clip() -> None:
                 band = ((x * 8 // WIDTH) + f) % 8 < 4
                 frames.extend((60 + 20 * f, 40, 120 + 30 * band)
                               if y % 3 else (30, 30, 90))
+    movie("clip.mp4", bytes(frames), ["-an"])
+
+
+def talk() -> None:
+    """A warm striped picture with a 660 Hz soundtrack, cut to the
+    picture's 1 s (``-shortest``)."""
+    frames = bytearray()
+    for f in range(FPS * SECONDS):
+        for y in range(HEIGHT):
+            for x in range(WIDTH):
+                band = ((x * 8 // WIDTH) + f) % 8 < 4
+                frames.extend((200 - 10 * f, 120, 40 + 60 * band)
+                              if y % 4 else (90, 40, 20))
+    movie("talk.mp4", bytes(frames),
+          ["-f", "lavfi", "-i", f"sine=frequency=660:sample_rate={RATE}"
+           ":duration=1.2", "-map", "0:v", "-map", "1:a", *MP3, "-ac", "1",
+           "-shortest"])
+
+
+def tone(rel: str, source: str, codec: list[str]) -> None:
+    """A mono audio file under game/ from an ffmpeg lavfi `source`."""
+    out = GAME_DIR / rel
+    out.parent.mkdir(parents=True, exist_ok=True)
     subprocess.run(
-        ["ffmpeg", "-y", "-loglevel", "error", "-f", "rawvideo",
-         "-pix_fmt", "rgb24", "-s", f"{WIDTH}x{HEIGHT}", "-r", str(FPS),
-         "-i", "-", "-c:v", "libx264", "-preset", "veryfast", "-pix_fmt",
-         "yuv420p", "-g", str(FPS), "-fflags", "+bitexact",
-         "-flags", "+bitexact", "-map_metadata", "-1", "-an",
-         "-threads", "1", "-movflags", "+faststart",
-         str(DATA_DIR / "clip.mp4")],
-        input=bytes(frames), check=True)
+        ["ffmpeg", "-y", "-loglevel", "error", "-f", "lavfi", "-i", source,
+         "-ac", "1", *codec, *BITEXACT, "-threads", "1", str(out)],
+        check=True)
+
+
+def sounds() -> None:
+    tone("audio/theme.mp3",
+         f"sine=frequency=440:sample_rate={RATE}:duration=2", MP3)
+    tone("audio/rain.webm",
+         "anoisesrc=color=pink:amplitude=0.1:sample_rate=11025:duration=1"
+         ":seed=7", ["-c:a", "libvorbis", "-q:a", "0"])
+    tone("audio/door.wav",
+         "sine=frequency=880:sample_rate=11025:duration=0.3",
+         ["-c:a", "pcm_u8"])
+    tone("voice/viktor-01.mp3",
+         f"sine=frequency=330:sample_rate={RATE}:duration=1.5", MP3)
 
 
 def mislabeled() -> None:
@@ -128,8 +186,11 @@ def main() -> None:
     photo_noise()
     tiny_gif()
     clip()
-    for path in sorted(DATA_DIR.iterdir()):
-        print(f"{path.relative_to(DATA_DIR.parent.parent)}: "
+    talk()
+    sounds()
+    for path in sorted(p for p in GAME_DIR.rglob("*")
+                       if p.is_file() and p.suffix != ".rpy"):
+        print(f"{path.relative_to(GAME_DIR.parent)}: "
               f"{path.stat().st_size} bytes")
 
 

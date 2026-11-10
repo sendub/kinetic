@@ -71,29 +71,50 @@ def _json(path: Path) -> dict:
     return json.loads(path.read_text("utf-8"))
 
 
-def _prefixed(manifest: dict, prefix: str) -> tuple[list, list]:
-    """A single-episode manifest's items and branches with every id (and
-    every id reference) given `prefix`."""
+def _prefixed(manifest: dict, prefix: str) -> tuple[list, list, dict]:
+    """A single-episode manifest's items, branches and audio tracks with
+    every id (and every id reference) given `prefix`."""
     def pid(value: str) -> str:
         return prefix + value
 
-    items = [{**item, "id": pid(item["id"])} for item in manifest["items"]]
+    def audio(cues: dict) -> dict:
+        out = dict(cues)
+        for key in ("music", "voice"):
+            if out.get(key) is not None:
+                out[key] = pid(out[key])
+        if "ambience" in out:
+            out["ambience"] = [pid(t) for t in out["ambience"]]
+        if "sfx" in out:
+            out["sfx"] = [{**e, "track": pid(e["track"])} for e in out["sfx"]]
+        if "videoSound" in out:
+            out["videoSound"] = {**out["videoSound"],
+                                 "track": pid(out["videoSound"]["track"])}
+        return out
+
+    items = [{**item, "id": pid(item["id"])}
+             | ({"audio": audio(item["audio"])} if "audio" in item else {})
+             for item in manifest["items"]]
     branches = [{
         **b, "id": pid(b["id"]), "after": pid(b["after"]),
         "routes": [{**r, "start": pid(r["start"]), "end": pid(r["end"])}
                    for r in b["routes"]],
     } for b in manifest.get("branches", [])]
-    return items, branches
+    tracks = {pid(t): track
+              for t, track in manifest.get("audio", {}).get("tracks",
+                                                            {}).items()}
+    return items, branches, tracks
 
 
 def test_episode_two_follows_episode_one(made: dict[str, Path]) -> None:
     one = _json(made["one"] / "manifest.json")
     two = _json(made["two"] / "manifest.json")
     both = _json(made["both"] / "manifest.json")
-    items1, branches1 = _prefixed(one, "ep1-")
-    items2, branches2 = _prefixed(two, "ep2-")
+    items1, branches1, tracks1 = _prefixed(one, "ep1-")
+    items2, branches2, tracks2 = _prefixed(two, "ep2-")
     assert both["items"] == items1 + items2
     assert both["branches"] == branches1 + branches2
+    assert tracks1 and tracks2
+    assert both["audio"]["tracks"] == tracks1 | tracks2
     ids = [item["id"] for item in both["items"]]
     assert len(ids) == len(set(ids))
     assert any(item.get("text") == EP2_LINE for item in items2)

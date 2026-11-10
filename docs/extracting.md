@@ -148,7 +148,7 @@ such as `fixtures/demo` may use any legal layout and stays flat.
 `build-ledger.json` sits beside the manifest; the player and validator
 ignore it. Besides the walk's record (`inputs`, `items`, `report`,
 `branchDetection`, the `rpyc*`/`rpa*` source lists, `slice`, and the
-audio cues in item `audio` and `audioTracks`: Reading Ren'Py audio,
+sound's `audioTracks` and video items' `sound`: Shipping the sound,
 below), it holds
 enough to make every shipped media file again from the original game
 files (docs/plan.md Phase 25), which `kinetic-media rebuild` reads:
@@ -420,25 +420,19 @@ copy or re-encode.
 ## Reading Ren'Py audio
 
 docs/plan.md Phase 47, item 8. kinetic-extract reads a game's audio
-statements and attaches each cue to an item in the content format's item
-`audio` shape (docs/content-format.md, "Audio"), naming tracks by id.
-The audio files are not shipped yet (item 9), so the manifest carries no
-audio: without measured durations it could not validate. The build
-ledger shows what was read:
-
-- each item entry's `audio`: `music` (a track id, or null to stop),
-  `ambience` (the whole set of loops when it changed), `fadeMs`, `sfx`
-  (`{track, channel?}`) and `voice`;
-- `audioTracks`: track id to `asset` (the source file, as item assets
-  are named) plus the track fields that differ from their defaults:
-  `startSeconds`, `loopStartSeconds`, `volume`, and `loop: false` for
-  music played with `noloop`.
+statements and attaches each cue to an item as the item's manifest
+`audio` (docs/content-format.md, "Audio"): `music` (a track id, or null
+to stop), `ambience` (the whole set of loops when it changed), `fadeMs`,
+`sfx` (`{track, channel?}`) and `voice`. The tracks they name are
+shipped and measured into the manifest's `audio.tracks` (Shipping the
+sound, below), with the track fields that differ from their defaults:
+`startSeconds`, `loopStartSeconds`, `volume`, and `loop: false` for
+music played with `noloop`.
 
 A track is one source file played one way, so a file played from two
-start points, or at two volumes, makes two tracks. Track ids come from
-the file's base name (`theme`, then `theme-2`), `epN-`-prefixed when
-several projects make one game. The summary line `audio: N items carry
-cues over M tracks` counts them.
+start points, or at two volumes, makes two tracks that share one
+shipped file. Track ids come from the file's base name (`theme`, then
+`theme-2`), `epN-`-prefixed when several projects make one game.
 
 What is read, by the rules of Ren'Py 8.3 (renpy/common/000statements.rpy,
 00voice.rpy, 00audio.rpy and renpy/audio/):
@@ -520,6 +514,72 @@ and the summary:
 - a cue after the last item;
 - a fade or volume given by an expression (ignored, the rest kept), and
   a volume outside 0-1 (clamped).
+
+## Shipping the sound
+
+docs/plan.md Phase 47, item 9. After the items ship, kinetic-extract runs
+the asset pass again over `audio` records, the same records
+`kinetic-media ship` makes for `audio` requests (Audio policy, above):
+
+- one per source file that a kept item's cue names, loose or an `.rpa`
+  member, through the `--decoder` hooks. A track named only by a dropped
+  item (a voice line that went with its line, a cue after the last item
+  kept) is not shipped;
+- one per video file of a kept video item, for its own sound.
+
+Each lands in `media/` and the ledger's `media` (kind `audio`, steps
+`preserve`, `remux`, `transcode` or `extract`), so `kinetic-media
+rebuild` checks it like any other output. A shipped track becomes
+`audio.tracks.<id>` with `file`, the decoded `durationSeconds` and its
+other fields. Then:
+
+- A track whose file ships nothing (it does not probe or decode, say) is
+  dropped, and so are its cues, as a missing file's are: its `music`
+  change, `voice` and one-shots go, and it leaves every `ambience` set
+  (the rest of the set stays). A fade with no change left goes too.
+- A track whose `startSeconds` is not before its measured end is dropped
+  the same way: nothing would play.
+- A track whose `loopStartSeconds` is not before its end keeps playing
+  from its start, once: it gets `loop: false` and no loop point. Ren'Py
+  restarts such a loop past the end, which plays nothing.
+- A video item whose sound ships and lasts to the item's range end
+  (`endSeconds`, else `durationSeconds`) within 0.05 s, the format's
+  rule, gets `videoSound: {track}`, `duck` left at its default 1. The
+  track id is the video file's base name; items of one video file share
+  one track. A sound that is `silent`, has no audio stream (`absent`),
+  failed, or is shorter than the range end is not used; the last two
+  get an item note.
+- When no track ships at all, no item keeps `audio`: a `stop music` or
+  an emptied ambience set would stop sound that never played, and
+  item `audio` with no `audio.tracks` does not validate.
+
+Each dropped or changed track is reported, with its source file and
+`track <id>`, in the ledger `report` and the summary. A shipped file no
+track uses (a too-short soundtrack, a track dropped for its start)
+stays in `media/` and the ledger: the extractor never deletes files.
+
+The build ledger records:
+
+- `audioTracks`: every track tried, by id: `asset` (the source file, as
+  item assets are named; a video's sound names its video), the audio
+  `decision`, the shipped `file` and the asset pass's `notes` plus the
+  reason a track was dropped or changed;
+- each video item's `sound`: the decision for its sound (`extract`,
+  `silent`, `no audio`, `skipped`).
+
+The summary counts both:
+
+```text
+audio: 5 items carry sound; 6 tracks shipped (5 copy, 1 extract), 0 dropped
+video soundtracks: 1 audible, 0 silent, 1 absent
+```
+
+`too short` and `failed` join the second line when there are any.
+fixtures/renpy_demo has music, an ambience loop on a registered channel,
+a one-shot, a voice line, a music change and a stop in a choice block,
+a movie with an audible MP3 soundtrack and one with no audio stream. Its
+audio files ship byte-identical and the movie's MP3 is copied out as raw
+frames, so the golden manifest does not depend on the ffmpeg version.
 
 ## Decoder hooks
 

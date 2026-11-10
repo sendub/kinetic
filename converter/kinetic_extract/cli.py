@@ -72,6 +72,7 @@ from typing import Any
 from . import __version__
 from .assets import run_asset_pass
 from .audio_cues import AudioFiles, carry_dropped_audio, rename_tracks
+from .audio_ship import SoundShipment, ship_sound
 from .decoders import Decoder, DecoderError, load_decoder
 from .images import ImplicitImages
 from .media import (DEFAULT_SIZE, ExistingFileError,
@@ -107,9 +108,11 @@ SIMPLIFICATIONS = [
     "nowhere is dropped (ledger droppedUnresolved), never shipped as a "
     "missing-file placeholder",
     "audio statements attach to the next item emitted (a dropped item's "
-    "pass to the next item kept); the cues and their tracks are in the "
-    "ledger (`audio`, `audioTracks`) and not yet in the manifest: the "
-    "audio files are not shipped",
+    "pass to the next item kept); every file a kept item's cue names "
+    "ships by the audio policy, and a track that ships nothing or starts "
+    "past its end drops its cues (ledger `audioTracks`); a video item "
+    "gets its own sound as `videoSound` only when that is audible and "
+    "lasts to the item's range end (ledger item `sound`)",
 ]
 
 
@@ -233,6 +236,7 @@ def build_manifest(result: TimelineResult, width: int, height: int,
                    branches: list[dict[str, Any]] | None = None,
                    story_id: str | None = None,
                    title: str | None = None,
+                   audio_tracks: dict[str, dict[str, Any]] | None = None,
                    ) -> dict[str, Any]:
     manifest: dict[str, Any] = {
         "schemaVersion": 1,
@@ -244,9 +248,11 @@ def build_manifest(result: TimelineResult, width: int, height: int,
     manifest |= {
         "width": width,
         "height": height,
-        "items": [record.item for record in result.items
-                  if not record.skipped],
     }
+    if audio_tracks:
+        manifest["audio"] = {"tracks": audio_tracks}
+    manifest["items"] = [record.item for record in result.items
+                         if not record.skipped]
     if branches:
         manifest["branches"] = branches
     return manifest
@@ -341,6 +347,7 @@ def build_ledger(result: TimelineResult, reports: list[Report],
                  media_tools: dict[str, Any] | None = None,
                  decoders: list[Decoder] | None = None,
                  projects: list[str] | None = None,
+                 audio_tracks: dict[str, dict[str, Any]] | None = None,
                  ) -> dict[str, Any]:
     items: dict[str, Any] = {}
     for record in result.items:
@@ -348,12 +355,11 @@ def build_ledger(result: TimelineResult, reports: list[Report],
         entry["asset"] = record.asset
         entry["notes"] = record.notes
         # Per-item asset facts from the asset pass: sniffed format,
-        # decision, codec, and the output paths (`file`, `poster`) that
-        # key the `media` section. The ledger stays the unreferenced
-        # extra: the player and validator ignore it.
+        # decision, codec, the output paths (`file`, `poster`) that key
+        # the `media` section, and a video's `sound` decision. The
+        # ledger stays the unreferenced extra: the player and validator
+        # ignore it.
         entry.update(record.asset_meta)
-        if record.audio:
-            entry["audio"] = record.audio
         items[record.item["id"]] = entry
     ledger: dict[str, Any] = {
         "generatedBy": f"kinetic-extract {__version__}"}
@@ -368,13 +374,12 @@ def build_ledger(result: TimelineResult, reports: list[Report],
         "report": [{"source": r.source, "statement": r.statement,
                     "reason": r.reason} for r in reports],
     }
-    if result.audio_tracks:
-        # The tracks the items' `audio` cues name (docs/plan.md Phase 47
-        # item 8), by source file; shipping them adds `file` and
-        # `durationSeconds` and moves both into the manifest.
-        ledger["audioTracks"] = {
-            track_id: {"asset": track.asset, **track.fields()}
-            for track_id, track in result.audio_tracks.items()}
+    if audio_tracks:
+        # Every track the shipping step tried (docs/plan.md Phase 47
+        # item 9): its source asset, the audio decision, the shipped
+        # file and notes; a dropped track is here and not in the
+        # manifest.
+        ledger["audioTracks"] = audio_tracks
     if slice_opts:
         ledger["slice"] = slice_opts
     if branch_notes:
@@ -431,6 +436,7 @@ def print_summary(result: TimelineResult, reports: list[Report],
                   branch_notes: list[dict[str, str]] | None = None,
                   story: tuple[str, str] | None = None,
                   title: tuple[str, str] | None = None,
+                  sound: SoundShipment | None = None,
                   ) -> None:
     counts: dict[str, int] = {}
     for record in result.items:
@@ -461,11 +467,8 @@ def print_summary(result: TimelineResult, reports: list[Report],
         if warning:
             print(f"warning: {record.source}: {record.item['id']}: "
                   f"{warning}")
-    if result.audio_tracks:
-        cued = sum(1 for r in result.items if r.audio and not r.skipped)
-        print(f"audio: {cued} items carry cues over "
-              f"{len(result.audio_tracks)} tracks (in the ledger only: "
-              "the files are not shipped yet)")
+    for line in sound.summary() if sound is not None else []:
+        print(line)
     note_count = sum(len(r.notes) for r in result.items)
     print(f"reported statements: {len(reports)}; item notes: {note_count}")
     for report in reports:
@@ -545,14 +548,17 @@ def main(argv: list[str] | None = None) -> int:
     for _rel, parsed in parses:
         reports.extend(parsed.reports)
     tools = run_tools(__version__)
+    cache = open_cache(tools)
     try:
         skipped, media = run_asset_pass(result.items, args.out_dir, tools,
                                         args.decoder, result.decoded_sizes,
-                                        cache=open_cache(tools))
+                                        cache=cache)
+        carry_dropped_audio(result.items)
+        sound = ship_sound(result, args.out_dir, tools, args.decoder,
+                           media, cache, reports)
     except (DecoderError, ExistingFileError) as exc:
         print(f"kinetic-extract: {exc}", file=sys.stderr)
         return 1
-    carry_dropped_audio(result.items)
     branches, branch_notes = finalize_branches(result, parses, reports)
 
     if args.width and args.height:
@@ -585,7 +591,8 @@ def main(argv: list[str] | None = None) -> int:
         if several:
             title_source += " of the first project"
     manifest = build_manifest(result, width, height, branches=branches,
-                              story_id=story_id, title=title)
+                              story_id=story_id, title=title,
+                              audio_tracks=sound.tracks)
     slice_opts = {"label": args.label, "maxItems": args.max_items,
                   "files": args.files}
     folders = [project_folder_name(e.project) for e in episodes]
@@ -596,15 +603,16 @@ def main(argv: list[str] | None = None) -> int:
                           else None,
                           sources=sources,
                           branch_notes=branch_notes,
-                          media=media, media_tools=tools,
+                          media=sound.media, media_tools=tools,
                           decoders=args.decoder,
-                          projects=folders if several else None)
+                          projects=folders if several else None,
+                          audio_tracks=sound.ledger)
     write_outputs(args.out_dir, manifest, ledger)
     if several:
         print(f"projects: {len(folders)} ({', '.join(folders)})")
     print_summary(result, reports, f"{width}x{height} ({source_note})",
                   skipped, branch_notes, (story_id, story_source),
-                  (title, title_source))
+                  (title, title_source), sound)
     if len(derived_ids) > 1:
         print("note: the projects derive different story ids ("
               + ", ".join(derived_ids) + "); using the first; --story-id "
@@ -676,12 +684,15 @@ def prefix_id(prefix: str, value: str) -> str:
 
 def _mark_episode(n: int, episode: _Episode) -> None:
     """Make project `n`'s walk its own part of a several-project game:
-    ids get ``epN-``, source names ``epN:``, media sources ``project``."""
+    ids get ``epN-``, source names ``epN:``, media sources (items' and
+    audio tracks') ``project``."""
     tag = f"ep{n}"
     tracks = episode.result.audio_tracks
     new_id = {old: prefix_id(f"{tag}-", old) for old in tracks}
     episode.result.audio_tracks = {
-        new_id[old]: replace(track, id=new_id[old])
+        new_id[old]: replace(track, id=new_id[old], source=replace(
+            track.source,
+            source_ref={**track.source.source_ref, "project": n}))
         for old, track in tracks.items()}
     for record in episode.result.items:
         record.item["id"] = prefix_id(f"{tag}-", record.item["id"])

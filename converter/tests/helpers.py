@@ -27,7 +27,8 @@ def is_content_addressed(out: Path, ref: str) -> bool:
 
 
 def declared_media(manifest: dict[str, Any]) -> list[str]:
-    """Every media path the manifest declares: file, poster, and frames."""
+    """Every media path the manifest declares: file, poster, and frames,
+    then the audio track files."""
     paths: list[str] = []
     for item in manifest["items"]:
         for key in ("file", "poster", "frames"):
@@ -36,6 +37,8 @@ def declared_media(manifest: dict[str, Any]) -> list[str]:
                 paths.append(value)
             elif isinstance(value, list):
                 paths.extend(value)
+    tracks = manifest.get("audio", {}).get("tracks", {})
+    paths.extend(track["file"] for track in tracks.values())
     return paths
 
 

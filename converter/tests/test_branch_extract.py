@@ -42,7 +42,7 @@ def test_golden_manifest_carries_the_decision(tmp_path: Path) -> None:
     assert len(branches) == 1
     decision = branches[0]
     ids = [i["id"] for i in manifest["items"]]
-    assert decision["id"] == "menu-start-37"
+    assert decision["id"] == "menu-start-47"
     assert decision["id"] not in ids
     assert decision["prompt"] == "The evening is yours to spend."
     assert decision["after"] == "line-007"
@@ -81,8 +81,8 @@ def test_ledger_notes_every_menu(tmp_path: Path) -> None:
     skipped = [n for n in notes if n["result"] == "skipped"]
     assert len(detected) == 1 and len(skipped) == 1
     assert "continuingRoute not emitted" in detected[0]["note"]
-    assert detected[0]["source"] == "game/script.rpy:37"
-    assert skipped[0]["source"] == "game/script.rpy:50"
+    assert detected[0]["source"] == "game/script.rpy:47"
+    assert skipped[0]["source"] == "game/script.rpy:62"
     assert "jump inside a choice block" in skipped[0]["reason"]
     reasons = [r["reason"] for r in ledger["report"]]
     assert any("menu unsupported (jump inside a choice block" in r

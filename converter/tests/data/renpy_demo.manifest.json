@@ -4,25 +4,73 @@
   "title": "renpy demo",
   "width": 320,
   "height": 180,
+  "audio": {
+    "tracks": {
+      "theme": {
+        "file": "media/0b/0b017cb7e77a09fea16610a3b129542284aebb26eb10753d585dbf723c3b3e44.mp3",
+        "durationSeconds": 2.0
+      },
+      "rain": {
+        "file": "media/c2/c2e8eb479dd21feb84110244227694f056e3783b6870c74bf3e6866a38bcc100.webm",
+        "durationSeconds": 1.021678
+      },
+      "viktor-01": {
+        "file": "media/00/0065288b5febdeacf41e2575bd25db28a883be499af398470b2b274779bf72dd.mp3",
+        "durationSeconds": 1.5
+      },
+      "door": {
+        "file": "media/a0/a0db64652fce4167735451a41af55f906552ee621becf09c51a773588fe2dc0a.wav",
+        "durationSeconds": 0.300045
+      },
+      "theme-2": {
+        "file": "media/0b/0b017cb7e77a09fea16610a3b129542284aebb26eb10753d585dbf723c3b3e44.mp3",
+        "durationSeconds": 2.0,
+        "startSeconds": 0.5,
+        "loopStartSeconds": 1.0
+      },
+      "talk": {
+        "file": "media/53/53e45be97068953efe27e16c88f61ea083c8e0784fb7f39033991a2ddb79aeba.mp3",
+        "durationSeconds": 1.044898
+      }
+    }
+  },
   "items": [
     {
       "id": "bg-room-001",
       "type": "image",
       "file": "media/4e/4e31ed53f4e9c99c989189f6b0bcda70e59e3f22b3b16151cc53db95142f882e.jxl",
       "speaker": "Ana",
-      "text": "Welcome to the house."
+      "text": "Welcome to the house.",
+      "audio": {
+        "music": "theme",
+        "ambience": [
+          "rain"
+        ],
+        "fadeMs": 2000
+      }
     },
     {
       "id": "line-002",
       "type": "text",
       "speaker": "Viktor",
-      "text": "The lights are dim. [greeting]?"
+      "text": "The lights are dim. [greeting]?",
+      "audio": {
+        "voice": "viktor-01"
+      }
     },
     {
       "id": "line-003",
       "type": "text",
       "speaker": "Dmitri",
-      "text": "The fire is low, but the room is warm."
+      "text": "The fire is low, but the room is warm.",
+      "audio": {
+        "sfx": [
+          {
+            "track": "door",
+            "channel": "sound"
+          }
+        ]
+      }
     },
     {
       "id": "clip-004",
@@ -69,7 +117,12 @@
       "type": "image",
       "file": "media/d2/d20230e78d6ef5fc7c196b9a2b29c126dc0567e474a7b621c9a001b83cc1b44e.jxl",
       "speaker": "Гостья",
-      "text": "The gravel sounds louder at night."
+      "text": "The gravel sounds louder at night.",
+      "audio": {
+        "music": "theme-2",
+        "ambience": [],
+        "fadeMs": 1000
+      }
     },
     {
       "id": "line-011",
@@ -126,11 +179,25 @@
       "type": "image",
       "file": "media/fd/fd849da0b478645ebd5dcf09a7f259ba2ec932ab90163b5c9fc376e6908f5ce9.gif",
       "text": "A tiny paper lantern blinks by the door."
+    },
+    {
+      "id": "talk-020",
+      "type": "video",
+      "file": "media/7d/7dd5cee1ea4e38b3bbe5f372d3a9ad2ad5e25464725aeb08fb2b4a9ca2f4a9ca.mp4",
+      "poster": "media/08/08df9d4410047764f5d58739a45aa3a14c8ef5318d17ab78f95c4708092f1b4f.jxl",
+      "durationSeconds": 1.0,
+      "speaker": "Dmitri",
+      "text": "The television hums along.",
+      "audio": {
+        "videoSound": {
+          "track": "talk"
+        }
+      }
     }
   ],
   "branches": [
     {
-      "id": "menu-start-37",
+      "id": "menu-start-47",
       "after": "line-007",
       "prompt": "The evening is yours to spend.",
       "routes": [

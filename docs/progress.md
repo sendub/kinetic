@@ -3246,7 +3246,7 @@ truthful: an unchecked box means nothing was accepted.
       Orchestrator: the new test files 34 passed, full pytest 843, the
       renpy_demo golden unchanged, no game names or paths in the new
       text.)
-- [ ] kinetic-extract ships the sound (item 9): audio through the
+- [x] kinetic-extract ships the sound (item 9): audio through the
       `audio` kind, tracks with measured durations, and audible video
       soundtracks as `videoSound`. fixtures/renpy_demo gains the cases
       the plan lists. Tests:
@@ -3255,6 +3255,37 @@ truthful: an unchecked box means nothing was accepted.
       - `rebuild` reproduces the audio;
       - the converted folder validates and plays its sound in
         `check-game.mjs` (read through the hook).
+      (2026-11-10: converter/kinetic_extract/audio_ship.py runs a second
+      asset pass after the item pass: one `audio` record per distinct
+      source a kept item names, loose or from `.rpa`, through the decoder
+      hooks, plus each kept video item's file. Each shipped track becomes
+      `audio.tracks.<id>` with `file` and the decoded `durationSeconds`;
+      a track that fails drops its cues as a missing file does; a start
+      at or past the end drops the track, a loop point past it gives
+      `loop: false`. An audible soundtrack lasting to the range end
+      within 0.05 s becomes `videoSound: {track}`; silent, absent, failed
+      and too short ones are counted. When no track ships, no item keeps
+      `audio` (a corpus game that only stops music failed validation
+      without this). Episodes carry `project` on track sources so their
+      audio rebuilds. fixtures/renpy_demo gains a music track by its
+      automatic name, a Vorbis ambience loop on a registered channel, a
+      one-shot, a voice line, a choice block with `stop` and a
+      `<from 0.5 loop 1.0>` play, and a movie with an MP3 soundtrack,
+      formats whose shipped bytes do not depend on the ffmpeg version;
+      the golden gains 6 tracks and audio on 5 items, and the decision
+      id moved to `menu-start-47`. 11 new tests and the changed ones red
+      against HEAD; 7 deliberate breaks caught. Corpus, read-only, three
+      games: 8 tracks (7 Ogg remuxed), 0, and 1 extract with 1 audible
+      and 6 silent soundtracks; one walked in Chrome, 409 of 409 items.
+      Their remaining validation problems, text items before the first
+      picture, are the same with HEAD's converter. Seen, not fixed: an
+      MP3 extract keeps the encoder delay, about 50 ms at 22 kHz, under
+      the 80 ms re-seek bound. Orchestrator: full pytest 854; a fresh
+      kinetic-extract of fixtures/renpy_demo validates, prints `audio: 5
+      items carry sound; 6 tracks shipped (5 copy, 1 extract), 0
+      dropped` and `video soundtracks: 1 audible, 0 silent, 1 absent`,
+      rebuilds 15 of 15, converts byte-identical twice, and walks 20 of
+      20 items clean in Chrome and WebKit.)
 - [ ] Docs (item 10): README, docs/stack.md, docs/packaging.md, CREATE.md,
       docs/verify-player.md (scenario rows and the listening checklist),
       AGENTS.md, apps/README.md, and docs/perf.md, with navigation p95

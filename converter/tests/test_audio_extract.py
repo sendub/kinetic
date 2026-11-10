@@ -7,8 +7,8 @@ what the shipping step (item 9) turns into manifest audio. The two old
 faults have regressions: `voice "file"` became dialogue spoken by
 `voice`, and a menu whose choice block held a `play` or `stop` was
 rejected. Every form that is not converted has a report line. The CLI
-checks show the cues in the build ledger while the manifest stays
-without audio until the files ship.
+checks show the cues in the manifest once the files ship
+(test_audio_ship.py covers the shipping itself).
 """
 
 from __future__ import annotations
@@ -22,6 +22,7 @@ from typing import Any
 
 from PIL import Image
 
+from kinetic_extract import media_tools
 from kinetic_extract.audio_cues import AudioFiles, carry_dropped_audio
 from kinetic_extract.cli import main as cli_main
 from kinetic_extract.parser import parse_project
@@ -692,7 +693,18 @@ def png() -> bytes:
     return buf.getvalue()
 
 
-def test_cli_keeps_cues_in_the_ledger_and_the_manifest_valid(
+def ogg(path: Path, hz: int) -> None:
+    """A real one-second Vorbis tone at `path` (the stand-ins above do
+    not ship)."""
+    proc = subprocess.run(
+        [*media_tools.ffmpeg_cmd(), "-y", "-f", "lavfi", "-i",
+         f"sine=frequency={hz}:sample_rate=22050:duration=1",
+         "-c:a", "libvorbis", str(path)],
+        capture_output=True, text=True, check=False)
+    assert proc.returncode == 0, proc.stderr
+
+
+def test_cli_puts_cues_in_the_manifest_and_keeps_it_valid(
         tmp_path: Path, capsys: Any) -> None:
     game = make_game(tmp_path, """
         image bg = "bg.png"
@@ -702,39 +714,44 @@ def test_cli_keeps_cues_in_the_ledger_and_the_manifest_valid(
             play music "m.ogg"
             "One."
             play sound "s.ogg"
+            voice "v.ogg"
             scene broken
             "Dropped."
             "Two."
-        """, files=("m.ogg", "s.ogg"))
+        """)
+    for name, hz in (("m.ogg", 440), ("s.ogg", 880), ("v.ogg", 330)):
+        ogg(game / name, hz)
     (game / "bg.png").write_bytes(png())
     (game / "broken.png").write_bytes(b"not an image")
     out = tmp_path / "out"
     assert cli_main([str(game.parent), str(out)]) == 0
     manifest = json.loads((out / "manifest.json").read_text("utf-8"))
     ledger = json.loads((out / "build-ledger.json").read_text("utf-8"))
-    assert "audio" not in manifest
-    assert all("audio" not in item for item in manifest["items"])
-    assert ledger["items"]["bg-001"]["audio"] == {"music": "m"}
-    # The dropped item's one-shot moved to the next item kept.
-    assert ledger["items"]["line-003"]["audio"] == {
+    by_id = {item["id"]: item for item in manifest["items"]}
+    assert by_id["bg-001"]["audio"] == {"music": "m"}
+    # The dropped item's one-shot moved to the next item kept; its voice
+    # went with its line, so that track is not shipped at all.
+    assert by_id["line-003"]["audio"] == {
         "sfx": [{"track": "s", "channel": "sound"}]}
-    assert ledger["audioTracks"] == {
-        "m": {"asset": "game/m.ogg"}, "s": {"asset": "game/s.ogg"}}
-    assert "audio: 2 items carry cues over 2 tracks" in \
-        capsys.readouterr().out
+    assert list(manifest["audio"]["tracks"]) == ["m", "s"]
+    assert all("audio" not in entry for entry in ledger["items"].values())
+    assert "audio: 2 items carry sound; 2 tracks shipped (2 remux), " \
+        "0 dropped" in capsys.readouterr().out
     proc = subprocess.run(
         [sys.executable, str(REPO_ROOT / "tools" / "validate_content.py"),
          str(out)], capture_output=True, text=True, check=False)
     assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert "warning" not in proc.stderr, proc.stderr
 
 
 def test_cli_prefixes_track_ids_per_episode(tmp_path: Path) -> None:
-    one = make_game(tmp_path / "e1", 'play music "m.ogg"\n"One."\n',
-                    files=("m.ogg",))
-    two = make_game(tmp_path / "e2", 'play music "m.ogg"\n"Two."\n',
-                    files=("m.ogg",))
+    one = make_game(tmp_path / "e1", 'play music "m.ogg"\n"One."\n')
+    two = make_game(tmp_path / "e2", 'play music "m.ogg"\n"Two."\n')
+    ogg(one / "m.ogg", 440)
+    ogg(two / "m.ogg", 330)
     out = tmp_path / "out"
     assert cli_main([str(one.parent), str(two.parent), str(out)]) == 0
-    ledger = json.loads((out / "build-ledger.json").read_text("utf-8"))
-    assert sorted(ledger["audioTracks"]) == ["ep1-m", "ep2-m"]
-    assert ledger["items"]["ep2-line-001"]["audio"] == {"music": "ep2-m"}
+    manifest = json.loads((out / "manifest.json").read_text("utf-8"))
+    assert list(manifest["audio"]["tracks"]) == ["ep1-m", "ep2-m"]
+    by_id = {item["id"]: item for item in manifest["items"]}
+    assert by_id["ep2-line-001"]["audio"] == {"music": "ep2-m"}

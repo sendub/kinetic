@@ -8,9 +8,8 @@ way Ren'Py does, keeps the channels' state, and gives each item an
 ``ambience``, ``fadeMs``, ``sfx``, ``voice``) whose values are track ids.
 The tracks themselves (``AudioTrack``: the source file, where a play
 starts and loops, the volume, whether music loops) are what the shipping
-step (item 9) ships, measures and writes as ``audio.tracks``; until then
-the cues stay out of the manifest, which could not validate without
-durations, and the build ledger shows them.
+step (kinetic_extract.audio_ship, item 9) ships, measures and writes as
+``audio.tracks``, moving the cues into the manifest items.
 
 Mapping (Ren'Py 8.3 rules, read from its renpy/audio and renpy/common):
 
@@ -40,6 +39,7 @@ from __future__ import annotations
 
 import os
 import re
+from collections.abc import Container
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -53,7 +53,8 @@ if TYPE_CHECKING:
     from .timeline import ItemRecord
 
 __all__ = ["AudioFiles", "AudioSource", "AudioTrack", "CueWalker",
-           "carry_dropped_audio", "merge_audio", "rename_tracks"]
+           "carry_dropped_audio", "drop_tracks", "fresh_track_id",
+           "merge_audio", "rename_tracks", "track_ids"]
 
 # renpy/common/00audio.rpy `_scan_audio_directory`: the files under
 # game/audio/ that get an automatic `audio.<name>`.
@@ -73,7 +74,7 @@ _BUILTIN_CHANNELS = {
     "audio": AudioChannel("audio", "sfx", False),
     "movie": AudioChannel("movie", "music", False, movie=True),
 }
-_KEY_ORDER = ("music", "ambience", "fadeMs", "sfx", "voice")
+_KEY_ORDER = ("music", "ambience", "fadeMs", "sfx", "voice", "videoSound")
 
 MISSING = "audio file {file!r} missing: cue dropped"
 MISSING_VOICE = "voice file {file!r} missing: cue dropped"
@@ -112,8 +113,9 @@ class AudioTrack:
     """One track the cues name: one source file played one way.
 
     Several tracks may share a file (another start, loop point, volume,
-    or music that does not loop). Item 9 ships ``local_path()`` and
-    writes ``fields()`` with the measured duration."""
+    or music that does not loop). The shipping step (audio_ship) ships
+    ``local_path()`` and writes ``fields()`` with the measured
+    duration."""
 
     id: str
     source: AudioSource
@@ -275,6 +277,37 @@ def rename_tracks(audio: dict[str, Any],
     return out
 
 
+def track_ids(audio: dict[str, Any]) -> list[str]:
+    """Every track id an item's audio names, in field order."""
+    ids = [audio[key] for key in ("music", "voice")
+           if audio.get(key) is not None]
+    ids += audio.get("ambience", [])
+    ids += [entry["track"] for entry in audio.get("sfx", [])]
+    if "videoSound" in audio:
+        ids.append(audio["videoSound"]["track"])
+    return ids
+
+
+def drop_tracks(audio: dict[str, Any],
+                gone: set[str]) -> dict[str, Any] | None:
+    """An item's audio without the cues of the tracks in ``gone``, as a
+    missing file's cue is dropped: their music change, voice and
+    one-shots go, and they leave the ambience set (the rest of the set
+    stays). A fade with no change left goes too; None when nothing is
+    left."""
+    out = {key: value for key, value in audio.items()
+           if not (key in ("music", "voice") and value in gone)}
+    if "ambience" in out:
+        out["ambience"] = [t for t in out["ambience"] if t not in gone]
+    if "sfx" in out:
+        out["sfx"] = [e for e in out["sfx"] if e["track"] not in gone]
+        if not out["sfx"]:
+            del out["sfx"]
+    if "music" not in out and "ambience" not in out:
+        out.pop("fadeMs", None)
+    return out or None
+
+
 def carry_dropped_audio(records: list[ItemRecord]) -> None:
     """Give a dropped item's audio to the next item kept, so a cue still
     reaches the next item the reader sees. Its voice goes with its line,
@@ -300,7 +333,7 @@ def carry_dropped_audio(records: list[ItemRecord]) -> None:
         giver.notes.append("audio dropped: no later item is kept")
 
 
-def _track_id(stem: str, taken: dict[str, AudioTrack]) -> str:
+def fresh_track_id(stem: str, taken: Container[str]) -> str:
     """A fresh id of the item-id shape from a file's base name."""
     base = _ID_BAD_RE.sub("-", stem).strip("-_")[:56] or "track"
     candidate, n = base, 2
@@ -491,7 +524,7 @@ class CueWalker:
         key = (source.asset, start, loop_start, volume, loop)
         if key not in self._ids:
             stem = Path(source.asset.rsplit("!", 1)[-1]).stem
-            track_id = _track_id(stem, self.tracks)
+            track_id = fresh_track_id(stem, self.tracks)
             self.tracks[track_id] = AudioTrack(track_id, source, start,
                                                loop_start, volume, loop)
             self._ids[key] = track_id

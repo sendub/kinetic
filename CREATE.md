@@ -393,6 +393,8 @@ lossless JPEG XL when that is smaller, keeps video Safari and Chrome
 both play, remuxes H.264/HEVC/VP9 from a container one of them refuses
 (MKV, AVI, MPEG-TS) into MP4 without re-encoding, transcodes only other
 codecs, and makes lossless posters (PNG, or JPEG XL when smaller).
+It also ships the sound the scripts play (music, ambience loops,
+one-shots and voice lines) and each video's audible soundtrack.
 Every media file it ships, posters included, is named by the sha256 of
 its bytes,
 `media/<h[:2]>/<h>.<ext>` (docs/extracting.md, "Output layout").

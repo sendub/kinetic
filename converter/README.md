@@ -39,6 +39,19 @@ When an image is neither recognizable nor trivially carvable, its item
 is dropped from the manifest and recorded (`decision: skipped`) in the
 ledger — no placeholder is invented.
 
+Sound (docs/plan.md Phase 47): the extractor reads the scripts' `play`,
+`queue`, `stop` and `voice` statements and the literal `renpy.music` and
+`renpy.sound` calls, and puts each cue on the next item as its manifest
+`audio` (music, ambience loops, one-shots, voice). Every file a kept
+item's cue names ships by the Audio policy (MP3, AAC in M4A, PCM WAV,
+FLAC and WebM kept; Ogg Vorbis and Opus copied into WebM; anything else
+re-encoded to Opus WebM) into `audio.tracks` with its decoded duration.
+Each video item's own sound becomes its `videoSound` when it is audible
+and lasts to the item's range end. A track that ships nothing, or starts
+past its end, drops its cues; the summary counts the tracks shipped and
+dropped and the video soundtracks found audible, silent or absent
+(docs/extracting.md, "Reading Ren'Py audio" and "Shipping the sound").
+
 ## Setup
 
 From the repo root:
@@ -232,3 +245,7 @@ docs/extracting.md, "Reuse cache".
   why.
 - The first dialogue line under a `scene`/`show`/`movie` attaches to the
   media item; later lines become `text` items over the same visual.
+- Audio statements attach to the next item emitted. A video's own sound
+  is used only when audible and as long as the item's range; a track
+  that does not ship drops its cues (`audioTracks` in the ledger says
+  why).

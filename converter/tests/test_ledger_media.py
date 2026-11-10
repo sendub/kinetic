@@ -20,6 +20,7 @@ from pathlib import Path
 import pytest
 from PIL import Image
 
+from helpers import declared_media
 from kinetic_extract import media_tools
 from kinetic_extract.cli import main as cli_main
 from test_rpa import tiny_png_bytes, write_rpa
@@ -90,14 +91,12 @@ def test_archive_member_source_names_archive_and_member(
 def test_every_media_entry_matches_its_file(demo) -> None:
     out, manifest, ledger = demo
     media = ledger["media"]
-    declared = {i[k] for i in manifest["items"] for k in ("file", "poster")
-                if k in i}
-    assert set(media) == declared
+    assert set(media) == set(declared_media(manifest))
     for ref, entry in media.items():
         data = (out / ref).read_bytes()
         assert entry["sha256"] == _sha(data), ref
         assert entry["bytes"] == len(data), ref
-        assert entry["kind"] in ("image", "video", "poster")
+        assert entry["kind"] in ("image", "video", "poster", "audio")
         assert entry["steps"], ref
         src = entry["source"]
         assert ("path" in src) != ("archive" in src)
