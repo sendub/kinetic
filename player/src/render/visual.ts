@@ -264,6 +264,13 @@ export interface StageVideo {
    * the element itself pauses.
    */
   readonly plays: boolean;
+  /**
+   * The pass under way, read when asked (passes are counted as they end):
+   * where it ends, and where the video plays from next if it wraps there
+   * (the loop restart point, 0 for an element's own loop); `restart` is
+   * null when the video holds at the end. Null while it plays nothing.
+   */
+  pass(): { end: number; restart: number | null } | null;
 }
 
 export interface VisualLayer {
@@ -301,6 +308,14 @@ export interface VisualLayer {
    * one replaces it.
    */
   watchVideo(listener: (video: StageVideo | null) => void): void;
+  /**
+   * Asked each time a video is about to start from paused (an entry, a
+   * menu's resume; never a wrap), after `watchVideo` heard it: how long
+   * (ms) the start waits. The video's sound (render/audio.ts) starts at
+   * once and takes longer to begin than the video (item 15), so the two
+   * begin together. Null: no wait.
+   */
+  setStartDelay(delay: ((element: HTMLVideoElement) => number) | null): void;
   /** Stop all playback and drop the video element. Idempotent. */
   destroy(): void;
 }
@@ -373,6 +388,10 @@ export function createVisualLayer(
   // `watchVideo`: what the listener last heard.
   let stageVideo: StageVideo | null = null;
   let videoListener: ((video: StageVideo | null) => void) | null = null;
+  // `setStartDelay`, and the start it put off: `startToken` changes with
+  // every start asked for since, so a later one wins.
+  let startDelay: ((element: HTMLVideoElement) => number) | null = null;
+  let startToken = 0;
 
   function tellVideo(next: StageVideo | null): void {
     if (next === null && stageVideo === null) return;
@@ -614,6 +633,7 @@ export function createVisualLayer(
     if (video === null) return;
     tellVideo(null);
     stopRangeWatch();
+    startToken += 1;
     video.pause();
     video.removeEventListener("ended", onVideoEnded);
     video.removeEventListener("timeupdate", onTimeUpdate);
@@ -769,9 +789,15 @@ export function createVisualLayer(
     return videoPlan === plan;
   }
 
-  function seekTo(element: HTMLVideoElement, seconds: number): void {
+  function seekTo(
+    element: HTMLVideoElement,
+    seconds: number,
+    always = false,
+  ): void {
     try {
-      if (element.currentTime !== seconds) element.currentTime = seconds;
+      if (always || element.currentTime !== seconds) {
+        element.currentTime = seconds;
+      }
     } catch {
       // Metadata not loaded yet: the poster stays painted, which is the
       // same frame at `startSeconds` the seek would show.
@@ -786,8 +812,31 @@ export function createVisualLayer(
    * ends that can never come, so the timeline would dead-end on an
    * unplayable video.
    */
-  function playVideo(element: HTMLVideoElement, plan: VideoPlan): void {
+  function playVideo(
+    element: HTMLVideoElement,
+    plan: VideoPlan,
+    fromPaused = false,
+  ): void {
     if (held) return; // `setPaused(false)` starts it
+    startToken += 1;
+    const wait =
+      fromPaused && element.paused && startDelay !== null
+        ? startDelay(element)
+        : 0;
+    if (wait > 0) {
+      const token = startToken;
+      setTimeout(() => {
+        if (
+          token === startToken &&
+          !held &&
+          video === element &&
+          videoPlan === plan
+        ) {
+          playVideo(element, plan);
+        }
+      }, wait);
+      return;
+    }
     const generation = videoGeneration;
     element.play().catch(() => {
       if (generation !== videoGeneration || videoPlan !== plan) return;
@@ -820,17 +869,34 @@ export function createVisualLayer(
       // Poster still: paused at the range start, the poster attribute and
       // the CSS background beneath the frame keep the poster painted.
       stopRangeWatch();
+      startToken += 1;
       element.pause();
       seekTo(element, videoPlan.startSeconds);
-      tellVideo({ element, plays: false });
+      tellVideo({ element, plays: false, pass: () => null });
       return;
     }
     if (freshEntry || mode === "loop-once") {
       seekTo(element, videoPlan.startSeconds);
     }
-    playVideo(element, videoPlan);
+    // Heard before it plays: its sound may hold its start back.
+    tellVideo({ element, plays: true, pass: () => passOf(item) });
+    playVideo(element, videoPlan, true);
     startRangeWatch(element);
-    tellVideo({ element, plays: true });
+  }
+
+  /** `StageVideo.pass` for `item`, from the plan and the passes reported. */
+  function passOf(item: VideoItem): ReturnType<StageVideo["pass"]> {
+    const plan = videoPlan;
+    if (plan === null || videoMode === "still") return null;
+    const wraps =
+      plan.reportEnds === 0 || videoEndedCount + 1 < plan.reportEnds;
+    return {
+      end: Math.min(
+        plan.endSeconds ?? item.durationSeconds,
+        item.durationSeconds,
+      ),
+      restart: wraps ? (plan.loop ? 0 : plan.loopStartSeconds) : null,
+    };
   }
 
   function showVideo(item: VideoItem, mode: PlaybackMode): void {
@@ -872,6 +938,7 @@ export function createVisualLayer(
     if (video === null) return;
     tellVideo(null);
     stopRangeWatch();
+    startToken += 1;
     video.pause();
     video.style.display = "none";
     drawnVideoSrc = null;
@@ -949,13 +1016,26 @@ export function createVisualLayer(
       if (video === null || videoPlan === null || videoMode === "still") {
         return;
       }
-      if (paused) video.pause();
-      else playVideo(video, videoPlan);
+      if (paused) {
+        startToken += 1;
+        video.pause();
+      } else {
+        // WebKit can run a video on from up to 0.2 s past the time it
+        // reported while held (twice in four resumes, macOS 27.2), and the
+        // video's sound starts from the reported time: sought there, it
+        // plays on from there.
+        seekTo(video, video.currentTime, true);
+        playVideo(video, videoPlan, true);
+      }
     },
 
     watchVideo(listener) {
       videoListener = listener;
       listener(stageVideo);
+    },
+
+    setStartDelay(delay) {
+      startDelay = delay;
     },
 
     destroy() {

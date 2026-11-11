@@ -193,6 +193,10 @@ export interface Shell {
   setMediaPaused(paused: boolean): void;
   /** The stage's video for its sound (render/visual.ts `watchVideo`). */
   watchVideo(listener: (video: StageVideo | null) => void): void;
+  /** How long a video's start waits for its sound (visual.ts `setStartDelay`). */
+  setVideoStartDelay(
+    delay: ((element: HTMLVideoElement) => number) | null,
+  ): void;
   /** The visual element currently painted, for `b`-key thumbnail capture. */
   currentVisual(): HTMLImageElement | HTMLVideoElement | null;
   /**
@@ -532,6 +536,9 @@ export function mountShell({ root, manifest, machine }: ShellOptions): Shell {
     },
     watchVideo(listener) {
       visuals.watchVideo(listener);
+    },
+    setVideoStartDelay(delay) {
+      visuals.setStartDelay(delay);
     },
     currentVisual() {
       return visuals.currentVisual();

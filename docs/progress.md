@@ -3380,6 +3380,34 @@ truthful: an unchecked box means nothing was accepted.
         the clock track's click times) and every frame is within the
         sync bound, re-seeks included;
       - a Vitest case for the root cause, red first.
+      (2026-11-11, box left open until the user re-listens: at each wrap
+      the player paused the sound, sought the same element to the
+      restart point plus a lead and played it; the click at the restart
+      point fell inside the lead and was skipped every wrap, and drift
+      re-seeks jumped clicks too. Before, over about 20 wraps, the text
+      chain, Esc and the map: Chrome 21 of 79 clicks skipped, WebKit 25
+      of 76, WebKit with the key rule 24 of 77, none doubled. Fix: the
+      video channel trades two elements like item 14's loops, the spare
+      cued at the restart point (`videoCue`), so the playing element is
+      never sought; the lead is learnt only from starts heard at full
+      volume (a rehearsal at volume 0.001 runs WebKit's clock about 60
+      ms in without its sound, which taught a wrong lead and left a wrap
+      stuck 315 ms); no start soon after a seek of its element; WebKit
+      begins every sound on an output block (85.33 ms in the muted
+      driver), detected from the starts (`startGrid`, none assumed), so
+      starts are timed to the nearest block end; a start from paused or
+      a menu resume makes the video wait for its sound (about 0.3 s in
+      WebKit, 25 ms in Chrome; `setStartDelay` in visual.ts). The
+      scenario's ten-wrap window starts after the first wrap. 19 tests
+      of the deleted seek-per-wrap rules replaced by 10; the old code
+      skipped all 10 wrap clicks in the Vitest model and failed the new
+      scenario checks in both engines. Orchestrator: npm test 1147,
+      check clean, smoke 6/6, Chrome `videosound audio media videofit
+      screens` 233/233, WebKit `videosound audio media videofit`
+      126/126, WebKit `videosound` alone 19/19 in 3 runs of 4; the
+      fourth, at load average 6-10, had one wrap 113 ms ahead (2 clicks
+      off, none skipped or doubled) and the text-chain check failed with
+      it.)
 - [ ] User: the listening checklist (item 11), on fixtures/audio-demo in
       real Safari, desktop Chrome and a Mac app built for it. The
       orchestrator does not tick this; the user reports, and any finding

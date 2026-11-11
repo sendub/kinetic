@@ -29,18 +29,31 @@
 // `element.volume` on animation frames.
 //
 // A video's sound (item 6) follows the stage's video, which render/
-// visual.ts reports through `setVideo` (its `watchVideo`: the element, and
-// whether the stage plays it or holds its poster). The target's
-// `videoSound` is loaded while the stage plays the video, and sounds only
-// while the video really plays: from the element's `playing` until its
-// `pause` or `waiting`, so it pauses and resumes with the video under the
-// menus, on a hidden page and at a wrap that pauses it. Its time is the
-// video's time (audiorules.ts `stepVideoSync`): every start seeks it there,
-// and while it plays, an animation-frame check seeks it when the video's
-// time moved back (a range wrap, a native loop) or it is more than
-// `VIDEO_SYNC_S` away. No frame is asked for while no video sound plays.
-// One whose track ran out before its video wrapped starts again at the
-// video's `seeking`. While it plays, music and ambience are
+// visual.ts reports through `setVideo` (its `watchVideo`: the element,
+// whether the stage plays it or holds its poster, and where its pass ends
+// and restarts). The target's `videoSound` is loaded while the stage plays
+// the video, and sounds only while the video really plays: from the
+// element's `playing` until it stops (a menu, a hidden page, a stall, the
+// last pass's end); the pause of a pass that wraps stops nothing. Its time
+// is the video's time, and like a loop its channel has two elements
+// (item 15): the playing one is never sought, as a seek of a playing
+// element goes silent or out of step while it lands and skips what lay
+// between. The other waits paused where the sound must next begin
+// (audiorules.ts `videoCue`): the video's restart point before a wrap,
+// where it stopped under a menu, or where the video will be shortly when
+// the sound is silent or more than `VIDEO_SYNC_S` off. It is played its
+// file's lead early, so it sounds as the video gets there, and takes over
+// then; on an output grid it is played where a measured start says it
+// sounds on the block end nearest that moment (`gridPlay`). The lead is
+// learnt only from starts heard at full volume (`learnVideoLead`): an
+// element that has never played first plays a moment inaudibly, and is
+// never rehearsed, as WebKit runs the clock of an inaudible element without
+// waiting for its sound. The video's time to run again after its end is
+// learnt too. A video that starts from paused (an entry, a menu's resume)
+// waits for its sound: visual.ts asks `videoStartDelay` first, which starts
+// the waiting element at once and answers how long the video waits to run
+// as it sounds (`gridLatency`). Frames are asked for only while a video's
+// sound is wanted. While it plays, music and ambience are
 // ducked by its `duck`, faded over `DUCK_FADE_MS`; the duck holds through
 // a wrap's pause and under the menus, and lifts when the video goes or
 // shows its poster.
@@ -90,8 +103,10 @@ import {
   DUCK_FADE_MS,
   duckFor,
   elementVolume,
+  gridPlay,
   groupVolume,
   learnSeamLead,
+  learnVideoLead,
   maySound,
   type PlayPlan,
   playPlan,
@@ -103,9 +118,13 @@ import {
   SFX_POOL_SIZE,
   sampleTrack,
   seamStep,
-  stepVideoSync,
-  VIDEO_SYNC_START,
-  type VideoSync,
+  VIDEO_PARK_S,
+  VIDEO_RESTART_S,
+  VIDEO_START_S,
+  VIDEO_SYNC_S,
+  type VideoCue,
+  type VideoStart,
+  videoCue,
 } from "./audiorules";
 import type { StageVideo } from "./visual";
 
@@ -130,10 +149,30 @@ const REFUSABLE_VOLUME = 0.001;
  */
 const SEAM_PRIME_MS = 500;
 /**
- * How far a video sound's `duration` may fall below the length its file
- * loaded with before it counts as WebKit's fault (its `ended` listener).
+ * How far a video sound's `duration` may fall below its track's length
+ * before it counts as WebKit's fault (its `ended` listener); WebKit gives an
+ * AAC file about 23 ms less than its decoded length.
  */
 const DURATION_SLACK_S = 0.25;
+/**
+ * The longest a video is believed to take to run again (`learnVideoLag`):
+ * more says it stopped or was sought meanwhile.
+ */
+const VIDEO_LAG_MAX_S = 0.3;
+/**
+ * How long after a hand-over the element it freed waits before it is
+ * sought to its next place: WebKit's main thread stalls as an element ends
+ * or is sought, and a seek of one that just ended, made as the video wraps,
+ * held the video's own restart up to 217 ms (macOS 27.2).
+ */
+const VIDEO_PARK_AFTER_MS = 500;
+/**
+ * How long after the key a video's start from paused plays its sound at
+ * the soonest: the page lays out the screen it closed meanwhile, and a
+ * timer due then fired up to 160 ms late in WebKit, missing its output
+ * block by one (85 ms; macOS 27.2).
+ */
+const VIDEO_START_SETTLE_MS = 150;
 
 /**
  * The most ambience loops any one item names. A loop, not a spread into
@@ -218,6 +257,12 @@ export interface AudioPlayer {
    * it.
    */
   setVideo(video: StageVideo | null): void;
+  /**
+   * The stage's video is about to start from paused (render/visual.ts
+   * `setStartDelay`): its sound starts now, and the answer is how long the
+   * video should wait (ms) to begin with it.
+   */
+  videoStartDelay(element: HTMLVideoElement): number;
   destroy(): void;
 }
 
@@ -240,15 +285,22 @@ interface Channel {
   spare: HTMLAudioElement | null;
   /**
    * The spare playing for the first time since its load (`SEAM_PRIME_MS`),
-   * rehearsing its start (to learn the lead) or started for the wrap, and
-   * its play() (page ms); null while it waits.
+   * rehearsing its start (to learn the lead) or started for the wrap, its
+   * play() (page ms) and the track time it played from; null while it
+   * waits.
    */
-  seam: { kind: "priming" | "rehearsing" | "started"; at: number } | null;
+  seam: {
+    kind: "priming" | "rehearsing" | "started";
+    at: number;
+    from: number;
+    /** It had played since its file loaded: WebKit starts a first play sooner. */
+    primed: boolean;
+  } | null;
   /**
-   * The playing element took over from a play() at this page ms: its
-   * settled clock teaches the lead.
+   * The playing element took over from a play() at page ms `at`, from
+   * track time `from`, `primed` or not: its settled clock teaches the lead.
    */
-  landing: number | null;
+  landing: { at: number; from: number; primed: boolean } | null;
   /** A start or switch set for its moment (`seamStep`'s `inS`). */
   seamTimer: ReturnType<typeof setTimeout> | undefined;
   readonly slot: AudioSlot;
@@ -355,12 +407,43 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
    * through the pause at a wrap and under the menus.
    */
   let stageStarted = false;
-  /** Where `stepVideo` stands; the lead it learns is kept for the session. */
-  let videoSync: VideoSync = VIDEO_SYNC_START;
-  /** The video sound's element has played its file since it loaded. */
-  let videoWarm = false;
-  /** Its file's length as it loaded (`loadedmetadata`). */
-  let videoLoadedDuration = Number.NaN;
+  /** The video sound's next cue (`stepVideo`), null for none. */
+  let videoCueNow: VideoCue | null = null;
+  /**
+   * `videoStartDelay` started the sound for a video about to play from
+   * paused, from `videoStartFrom`, and the video's `playing` has not come
+   * yet.
+   */
+  let videoStarting = false;
+  let videoStartFrom = 0;
+  /** When that start's sound is to begin (page ms), and how far ahead of the video it plays from (s). */
+  let videoStartSounds = 0;
+  let videoStartAhead = 0;
+  /** When the video sound's playing element was asked to play (page ms). */
+  let videoSince = 0;
+  /**
+   * How long the video takes to run again after its end (`wrap`) and after
+   * play() from paused (`start`), in seconds; null until learnt.
+   */
+  const videoLags: Record<"wrap" | "start", number | null> = {
+    wrap: null,
+    start: null,
+  };
+  /**
+   * A run of the video to learn its lag from: expected to run from track
+   * time `from` at page ms `since`.
+   */
+  let videoLagWatch: {
+    kind: "wrap" | "start";
+    from: number;
+    since: number;
+  } | null = null;
+  /** Pauses the playing element at a range end inside its file. */
+  let videoEndTimer: ReturnType<typeof setTimeout> | undefined;
+  /** The freed element is not sought before this page time. */
+  let videoParkAfter = 0;
+  /** Where the sound stopped last, its clock settled; null if unknown. */
+  let videoStoppedAt: number | null = null;
   /** The music in force (a track id), null for none. */
   let musicId: string | null = null;
   /** The music and ambience duck (item 6), and the fade moving it. */
@@ -415,6 +498,19 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
   const seaming = new Set<Channel>();
   /** By file: how long a loop's waiting element takes to sound (s). */
   const seamLeads = new Map<string, number>();
+  /** By file: the same for a video's sound (`learnVideoLead`). */
+  const videoLeads = new Map<
+    string,
+    { lead: number; samples: readonly VideoStart[] }
+  >();
+  /** When each video sound element was last sought to wait (page ms). */
+  const parkedAt = new WeakMap<HTMLAudioElement, number>();
+  /**
+   * The last lead learnt for any file from a start that was heard (`learn`):
+   * a video's sound starts with it before its own file's is known, as one
+   * engine starts files alike to within about 80 ms (macOS 27.2).
+   */
+  let lastLead: number | null = null;
   /** Elements that have played since their file loaded (`SEAM_PRIME_MS`). */
   const primed = new WeakSet<HTMLAudioElement>();
   let frame = 0;
@@ -447,17 +543,17 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
       }
     }
     stepDuck(t);
-    if (videoPlaying()) stepVideo(false);
+    if (videoBusy()) stepVideo(true);
     requestTick();
   }
 
   /**
    * Asks for a frame while some fade or the duck's is running, a loop is
-   * near its end, or a video's sound plays, and none is asked for.
+   * near its end, or a video's sound is wanted, and none is asked for.
    */
   function requestTick(): void {
     if (frame !== 0) return;
-    let busy = duckFade !== null || seaming.size > 0 || videoPlaying();
+    let busy = duckFade !== null || seaming.size > 0 || videoBusy();
     for (const ch of fading) if (ch.fading?.heldAt === null) busy = true;
     if (busy) frame = win.requestAnimationFrame(tick);
   }
@@ -523,10 +619,10 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
 
   function makeChannel(slot: AudioSlot): Channel {
     const el = makeElement(slot);
-    const bed = slot === "music" || slot === "ambience";
+    const paired = slot === "music" || slot === "ambience" || slot === "video";
     const ch: Channel = {
       el,
-      spare: bed ? makeElement(slot) : null,
+      spare: paired ? makeElement(slot) : null,
       seam: null,
       landing: null,
       seamTimer: undefined,
@@ -541,22 +637,32 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
     };
     for (const one of ch.spare === null ? [el] : [el, ch.spare]) {
       watchElement(ch, one);
-    }
-    if (slot === "video") {
-      el.addEventListener("loadstart", () => {
-        videoWarm = false;
+      if (slot !== "video") continue;
+      // Primed once it has sounded `SEAM_PRIME_MS` since its file loaded
+      // (WebKit starts a file's first play sooner): only such a start
+      // teaches the lead.
+      let sounding = Number.NaN;
+      one.addEventListener("playing", () => {
+        sounding = now();
       });
-      el.addEventListener("playing", () => {
-        videoWarm = true;
-      });
+      for (const type of ["pause", "ended"]) {
+        one.addEventListener(type, () => {
+          if (now() - sounding >= SEAM_PRIME_MS) primed.add(one);
+          sounding = Number.NaN;
+        });
+      }
       // WebKit, playing the file to its end or paused within about 10 ms
-      // of it, and then sought and played (a video's wrap), can end the
-      // element where it was sought and take that for the file's duration,
-      // with no `durationchange`, after which it never plays past it
-      // (measured on macOS 27.2, not every time). A reload puts the file
-      // back; `loadedmetadata` starts it again at its video's time.
-      el.addEventListener("ended", () => {
-        if (el.duration < videoLoadedDuration - DURATION_SLACK_S) el.load();
+      // of it, and then sought and played, can end the element where it
+      // was sought and take that for the file's duration, with no
+      // `durationchange`, after which it never plays past it (measured on
+      // macOS 27.2, not every time). A reload puts the file back, and
+      // `loadedmetadata` places the element again.
+      one.addEventListener("ended", () => {
+        const length = tracks?.[ch.track ?? ""]?.durationSeconds;
+        if (length !== undefined && one.duration < length - DURATION_SLACK_S) {
+          primed.delete(one);
+          one.load();
+        }
       });
     }
     return ch;
@@ -570,10 +676,9 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
     el.addEventListener("timeupdate", () => onTime(ch, el));
     el.addEventListener("loadedmetadata", () => {
       if (el !== ch.el) {
-        // A loop's waiting element: WebKit drops a seek made before this.
-        if (ch.plan !== null && ch.seam === null) {
-          el.currentTime = ch.plan.loopStartSeconds;
-        }
+        // A waiting element: WebKit drops a seek made before this.
+        if (ch.plan !== null && ch.seam === null) el.currentTime = home(ch);
+        if (ch.slot === "video") syncChannel(ch); // it can be cued now
         return;
       }
       const start = ch.pendingStart;
@@ -581,10 +686,7 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
       if (start !== null && Math.abs(el.currentTime - start) > 0.05) {
         el.currentTime = start;
       }
-      if (ch.slot === "video") {
-        videoLoadedDuration = el.duration;
-        syncChannel(ch); // it can be placed now
-      }
+      if (ch.slot === "video") syncChannel(ch); // it can be cued now
     });
   }
 
@@ -609,17 +711,17 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
    * instead, which WebKit refuses at once, and the level is put back
    * straight after the call.
    */
-  function play(ch: Channel): void {
+  function play(ch: Channel, el: HTMLAudioElement = ch.el): void {
     const loads = ch.loads;
-    const silent = !blessed && ch.el.volume === 0;
-    if (silent) ch.el.volume = REFUSABLE_VOLUME;
+    const silent = !blessed && el.volume === 0;
+    if (silent) el.volume = REFUSABLE_VOLUME;
     let started: Promise<void> | undefined;
     try {
-      started = ch.el.play();
+      started = el.play();
     } catch {
       return;
     } finally {
-      if (silent) ch.el.volume = 0;
+      if (silent) el.volume = 0;
     }
     started?.then(noteUnlocked, (error: unknown) => {
       if ((error as { name?: unknown } | null)?.name !== "NotAllowedError") {
@@ -641,14 +743,13 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
 
   function syncChannel(ch: Channel): void {
     holdFade(ch);
+    if (ch.slot === "video") {
+      syncVideo(ch);
+      return;
+    }
     const should = ch.wanted && allowed(ch.slot);
     if (should && ch.el.paused) {
-      if (ch.slot === "video") {
-        if (stepVideo(true)) {
-          play(ch); // at its video's time, just sought
-          requestTick();
-        }
-      } else if (ch.el.ended && ch.plan?.loops === true) {
+      if (ch.el.ended && ch.plan?.loops === true) {
         stepSeam(ch, false); // it reached its end while held: the wrap is due
       } else {
         play(ch);
@@ -677,10 +778,13 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
     ch.track = id;
     ch.el.dataset.track = id;
     ch.plan = playPlan(track, ch.slot === "music" || ch.slot === "ambience");
-    if (ch.el.getAttribute("src") !== track.file) ch.el.src = track.file;
+    if (ch.el.getAttribute("src") !== track.file) {
+      ch.el.src = track.file;
+      primed.delete(ch.el);
+    }
     ch.pendingStart = ch.plan.startSeconds;
     ch.el.currentTime = ch.plan.startSeconds;
-    if (ch.spare !== null && ch.plan.loops) {
+    if (ch.spare !== null && (ch.plan.loops || ch.slot === "video")) {
       if (ch.spare.getAttribute("src") !== track.file) {
         ch.spare.src = track.file;
         primed.delete(ch.spare);
@@ -703,6 +807,7 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
     cancelSeamTimer(ch);
     ch.seam = null;
     ch.landing = null;
+    if (ch.slot === "video") forgetVideoCue();
     seaming.delete(ch);
     ch.wanted = false;
     ch.track = null;
@@ -744,6 +849,22 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
   /** The file of `ch`'s track, which its lead is learnt for. */
   const fileOf = (ch: Channel): string =>
     (ch.track === null ? undefined : tracks?.[ch.track]?.file) ?? "";
+
+  /**
+   * Where `ch`'s waiting element waits: a loop's restart point; for a
+   * video's sound its cue's `from`, else the pass's restart point while the
+   * video runs (`videoCue`), else where the sound stopped, or where the
+   * video stands if the sound stopped off it, so a start after a menu
+   * plays on with neither a gap nor a repeat.
+   */
+  function home(ch: Channel): number {
+    if (ch.slot !== "video") return ch.plan?.loopStartSeconds ?? 0;
+    if (videoCueNow !== null) return videoCueNow.from;
+    const time = stage?.element.currentTime ?? 0;
+    if (stageRuns || videoStarting) return stage?.pass()?.restart ?? time;
+    const stopped = videoStoppedAt ?? Number.NaN;
+    return Math.abs(stopped - time) <= VIDEO_SYNC_S ? stopped : time;
+  }
 
   /**
    * One look at `ch`'s wrap (audiorules.ts `seamStep`): prime, rehearse,
@@ -838,32 +959,58 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
   }
 
   /**
-   * Plays the spare from the restart point, inaudibly until it takes over;
-   * one rehearsing is put back there instead (a start due mid-rehearsal).
+   * Plays the spare from where it waits (`home`), inaudibly until it takes
+   * over; one rehearsing is put back there instead (a start due
+   * mid-rehearsal). A video's sound starts at its channel's level, so a
+   * click at the very start is never lost if it sounds a little early.
+   * `planned` is the moment it was set for: a timer that fires late then
+   * counts in the lead learnt from it, so later starts allow for it.
+   * Without one, the start counts from when play() returned (WebKit's can
+   * take 160 ms inside a key's handler).
    */
   function startSpare(
     ch: Channel,
     kind: "priming" | "rehearsing" | "started",
+    planned?: number,
   ): void {
     const spare = ch.spare;
     if (spare === null || ch.plan === null) return;
+    const from = home(ch);
     if (ch.seam === null) {
-      spare.volume = REFUSABLE_VOLUME;
-      spare.play()?.catch(() => undefined);
+      const heard = ch.slot === "video" && kind === "started";
+      spare.volume = heard ? ch.el.volume : REFUSABLE_VOLUME;
+      if (heard) play(ch, spare);
+      else spare.play()?.catch(() => undefined);
     } else {
-      spare.currentTime = ch.plan.loopStartSeconds;
+      spare.currentTime = from;
     }
-    ch.seam = { kind, at: now() };
+    const at = planned ?? now();
+    // Sought just before, it starts late and teaches nothing either.
+    const fresh = at - (parkedAt.get(spare) ?? Number.NEGATIVE_INFINITY);
+    ch.seam = {
+      kind,
+      at,
+      from,
+      primed: primed.has(spare) && fresh >= VIDEO_PARK_S * 1000,
+    };
   }
 
-  /** The spare goes back to waiting, paused at the restart point. */
+  /**
+   * The spare goes back to waiting, paused where it waits (`home`). A video
+   * sound's is sought only when it stands elsewhere, as this runs on every
+   * sync while its video is paused.
+   */
   function parkSpare(ch: Channel): void {
     const spare = ch.spare;
     ch.seam = null;
     if (spare === null || ch.plan === null) return;
     spare.pause();
     spare.dataset.track = "";
-    spare.currentTime = ch.plan.loopStartSeconds;
+    const to = home(ch);
+    if (ch.slot !== "video" || Math.abs(spare.currentTime - to) > 0.005) {
+      spare.currentTime = to;
+      parkedAt.set(spare, now());
+    }
   }
 
   /**
@@ -881,7 +1028,7 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
     next.dataset.track = ch.track ?? "";
     setVolume(ch);
     parkSpare(ch);
-    ch.landing = played;
+    ch.landing = { at: played, from: home(ch), primed: true };
     watchSeam(ch, false);
     syncChannel(ch);
   }
@@ -899,35 +1046,59 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
         parkSpare(ch);
       }
     } else if (seam?.kind === "rehearsing" && spare !== null) {
-      if (learn(ch, spare, seam.at, at)) parkSpare(ch);
+      if (learn(ch, spare, seam, at, false)) parkSpare(ch);
     }
-    if (ch.landing !== null && learn(ch, ch.el, ch.landing, at)) {
+    if (ch.landing !== null && learn(ch, ch.el, ch.landing, at, true)) {
       ch.landing = null;
     }
   }
 
   /**
-   * Learns from `el`, played from the restart point at page time `played`,
-   * when read at `at`; false while its clock may not have settled.
+   * Learns from `el`, played from track time `start.from` at page time
+   * `start.at`, when read at `at`; false while its clock may not have
+   * settled. `heard`: it took over and has sounded at its channel's level
+   * since; a rehearsal stays at `REFUSABLE_VOLUME` throughout, and WebKit
+   * runs the clock of an element that quiet from about 60 ms on, where one
+   * heard waits for its sound (about 330 ms; macOS 27.2, item 15), so only
+   * a heard start teaches a video's sound or `lastLead`.
    */
   function learn(
     ch: Channel,
     el: HTMLAudioElement,
-    played: number,
+    start: { at: number; from: number; primed: boolean },
     at: number,
+    heard: boolean,
   ): boolean {
+    const played = start.at;
     if (ch.plan === null || at - played < SEAM_LAND_MS) return false;
-    const media = el.currentTime - ch.plan.loopStartSeconds;
+    const media = el.currentTime - start.from;
     // A play refused, or a loop shorter than the settling time that has
     // wrapped: nothing to learn.
     if (el.paused || media < 0 || media > (at - played) / 1000) return true;
     const file = fileOf(ch);
+    if (ch.slot === "video") {
+      // A first play since the file loaded teaches a lead too short.
+      if (!start.primed || !heard) return true;
+      const lead = learnVideoLead(videoLeads.get(file) ?? null, {
+        played,
+        at,
+        media,
+      });
+      if (lead !== null) {
+        videoLeads.set(file, lead);
+        lastLead = lead.lead;
+      }
+      return true;
+    }
     const lead = learnSeamLead(seamLeads.get(file) ?? null, {
       played,
       at,
       media,
     });
-    if (lead !== null) seamLeads.set(file, lead);
+    if (lead !== null) {
+      seamLeads.set(file, lead);
+      if (heard) lastLead = lead;
+    }
     return true;
   }
 
@@ -1029,12 +1200,13 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
     if (sampler !== null) release(sampler);
   }
 
-  // --- a video's sound (item 6) ---------------------------------------------
+  // --- a video's sound (items 6 and 15) -------------------------------------
   /**
    * Loads the target's `videoSound` while the stage plays its video (not
-   * its poster), wants it playing while the video really plays, and plays
-   * or pauses it; the duck follows. Asks the machine only while the stage
-   * plays a video, so a skip over posters costs nothing.
+   * its poster), wants it playing while the video really plays or is about
+   * to (`videoStarting`), and plays or stops it; the duck follows. Asks the
+   * machine only while the stage plays a video, so a skip over posters
+   * costs nothing.
    */
   function updateVideoSound(): void {
     const want =
@@ -1042,6 +1214,7 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
     const id =
       want !== null && tracks?.[want.track] !== undefined ? want.track : null;
     if (id === null) {
+      videoStarting = false;
       if (video?.track != null) release(video);
     } else {
       video ??= makeChannel("video");
@@ -1049,7 +1222,7 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
         load(video, id, 1);
         video.pendingStart = null; // it starts at the video's time instead
       }
-      video.wanted = stageRuns && stage?.element.paused === false;
+      video.wanted = stageRuns || videoStarting;
     }
     duckTo(
       duckFor(
@@ -1061,48 +1234,368 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
     if (video !== null) syncChannel(video);
   }
 
-  function videoPlaying(): boolean {
-    return video !== null && video.track !== null && !video.el.paused;
+  /** A video's sound is wanted where it may sound: frames watch it. */
+  function videoBusy(): boolean {
+    return (
+      video !== null &&
+      video.track !== null &&
+      video.wanted &&
+      allowed(video.slot)
+    );
+  }
+
+  function syncVideo(ch: Channel): void {
+    if (ch.track !== null && ch.wanted && allowed(ch.slot)) {
+      stepVideo(false);
+      requestTick();
+    } else {
+      stopVideoSound(ch);
+    }
   }
 
   /**
-   * Checks the video's sound against its video and seeks it where
-   * `stepVideoSync` says; `starting` when it is about to play. False when
-   * it may not play: before the sound's file has its metadata (WebKit
-   * drops a seek made then, and `loadedmetadata` tries again), or when the
-   * start falls at or past the track's end (it would end at once, and
-   * WebKit's play() starts an ended element over from 0; the video's next
-   * wrap starts it).
+   * Its video stopped, or it may not sound: both elements pause, the cue
+   * is dropped, and the waiting element waits where the video stands, for
+   * the video's start from there (`videoStartDelay`).
    */
-  function stepVideo(starting: boolean): boolean {
+  function stopVideoSound(ch: Channel): void {
+    videoStarting = false;
+    if (!ch.el.paused) {
+      // Where it stopped, if its clock had settled there: WebKit's runs
+      // ahead of its sound for a while after a start (`SEAM_LAND_MS`).
+      videoStoppedAt =
+        now() - videoSince >= SEAM_LAND_MS ? ch.el.currentTime : null;
+      ch.el.pause();
+    }
+    cancelSeamTimer(ch);
+    forgetVideoCue();
+    ch.landing = null;
+    if (ch.track !== null) parkSpare(ch);
+  }
+
+  function forgetVideoCue(): void {
+    videoCueNow = null;
+    videoLagWatch = null;
+    clearTimeout(videoEndTimer);
+    videoEndTimer = undefined;
+  }
+
+  /** The lead a video sound's file starts with (`learn`). */
+  function leadOf(ch: Channel): number {
+    return videoLeads.get(fileOf(ch))?.lead ?? lastLead ?? SEAM_LEAD_S;
+  }
+
+  /**
+   * One look at the video's sound (audiorules.ts `videoCue`), on frames and
+   * on each event that can change it: cues the waiting element, parks it
+   * where its cue begins, primes it when it has never played, and starts
+   * it and hands over at the cue's moments (`seamStep`). On a
+   * frame it also learns from starts that have settled. Nothing before the
+   * file's metadata is in (WebKit drops a seek made then; `loadedmetadata`
+   * looks again).
+   */
+  function stepVideo(onFrame: boolean): void {
     const ch = video;
-    if (ch === null || ch.track === null || stage === null) return false;
-    if (ch.el.readyState === ch.el.HAVE_NOTHING) return false;
-    const step = stepVideoSync(videoSync, now(), {
-      sound: ch.el.currentTime,
-      video: stage.element.currentTime,
-      starting,
-      seeking: ch.el.seeking,
-      warm: videoWarm && ch.el.readyState >= ch.el.HAVE_FUTURE_DATA,
+    const spare = ch?.spare ?? null;
+    if (ch === null || spare === null || ch.track === null || stage === null) {
+      return;
+    }
+    if (ch.el.readyState === ch.el.HAVE_NOTHING) return;
+    if (spare.readyState === spare.HAVE_NOTHING) return;
+    const at = now();
+    if (onFrame) {
+      learnFromStarts(ch);
+      learnVideoLag(at);
+    }
+    const pass = stage.pass();
+    const el = stage.element;
+    const time = el.currentTime;
+    const sounding = !ch.el.paused && !ch.el.ended;
+    const lead = leadOf(ch);
+    const prev = videoCueNow;
+    // An element that has not played since its file loaded first plays a
+    // moment inaudibly (WebKit starts a first play sooner, so a start of it
+    // would land early and teach nothing), then is parked for its cue.
+    const priming = ch.seam?.kind === "priming" ? ch.seam.at : null;
+    const unprimed = !primed.has(spare);
+    const primedAt =
+      priming !== null
+        ? priming + SEAM_PRIME_MS
+        : unprimed && ch.seam === null
+          ? Math.max(at, videoParkAfter) + SEAM_PRIME_MS
+          : 0;
+    const cue = videoCue({
+      at,
+      video: {
+        time,
+        runs: stageRuns && !el.paused && !el.seeking,
+        end: pass?.end ?? Number.POSITIVE_INFINITY,
+        restartAt: pass?.restart ?? null,
+      },
+      sound: sounding
+        ? {
+            time: ch.el.currentTime,
+            settled: at - videoSince >= SEAM_LAND_MS,
+          }
+        : null,
+      cue: prev,
+      started: ch.seam?.kind === "started",
+      lead,
+      restart: videoLags.wrap ?? VIDEO_RESTART_S,
+      parkFrom: Math.max(
+        videoParkAfter,
+        primedAt,
+        parkedAt.get(spare) ?? Number.NEGATIVE_INFINITY,
+      ),
+      starting: videoStarting,
     });
-    videoSync = step.sync;
-    if (step.seekTo === null) return true;
-    if (starting && step.seekTo >= ch.el.duration) return false;
-    ch.el.currentTime = step.seekTo;
-    return true;
+    videoCueNow = cue;
+    if (cue === null) {
+      cancelSeamTimer(ch);
+      if (ch.seam !== null) parkSpare(ch);
+      return;
+    }
+    // The element a hand-over just freed is left alone a moment.
+    if (at < videoParkAfter) return;
+    if (unprimed && ch.seam === null) {
+      startSpare(ch, "priming");
+      return;
+    }
+    if (priming !== null) return; // `learnFromStarts` parks it when done
+    // Waiting elsewhere, it is parked where the cue begins.
+    const moved =
+      ch.seam === null && Math.abs(spare.currentTime - cue.from) > 0.005;
+    if (moved) {
+      cancelSeamTimer(ch);
+      parkSpare(ch);
+    }
+    if (ch.seamTimer !== undefined) return;
+    // On an output grid, played where a measured start says it sounds on
+    // the block end nearest the cue's moment.
+    const samples = videoLeads.get(fileOf(ch))?.samples ?? [];
+    const plan =
+      ch.seam === null ? gridPlay(samples, cue.at, at - frameS * 1000) : null;
+    const { step, inS } = seamStep({
+      remaining: (cue.at - at) / 1000,
+      lead: plan === null ? lead : (cue.at - plan.play) / 1000,
+      // Never rehearsed: an inaudible start teaches nothing (`learn`).
+      learnt: true,
+      spare: ch.seam?.kind === "started" ? "started" : "idle",
+      ended: false,
+      frame: frameS,
+    });
+    if (step === "wait") return;
+    if (inS <= 0) {
+      videoAct(ch, step, cue, at);
+      return;
+    }
+    ch.seamTimer = setTimeout(() => {
+      ch.seamTimer = undefined;
+      if (video === ch && videoCueNow === cue) {
+        videoAct(ch, step, cue, at + inS * 1000);
+      }
+    }, inS * 1000);
+  }
+
+  /** Does `step` of `cue`, set for page time `planned`. */
+  function videoAct(
+    ch: Channel,
+    step: "rehearse" | "start" | "switch",
+    cue: VideoCue,
+    planned: number,
+  ): void {
+    if (step === "rehearse") {
+      startSpare(ch, "rehearsing", planned);
+      return;
+    }
+    if (ch.seam?.kind !== "started") {
+      startSpare(ch, "started", planned);
+      if (cue.kind === "wrap") wrapStarted(ch);
+    }
+    if (step === "switch") switchVideo(ch, cue.from, cue.kind === "wrap");
+  }
+
+  /**
+   * A wrap's waiting element was asked to play: the video's run from its
+   * restart point teaches how long it takes to run again after its end,
+   * and a range that ends inside the file stops the playing element at its
+   * end (one that ends with the file ends on its own: WebKit can break an
+   * element paused within 10 ms of its end).
+   */
+  function wrapStarted(ch: Channel): void {
+    const pass = stage?.pass() ?? null;
+    if (stage === null || pass === null || pass.restart === null) return;
+    const left = pass.end - stage.element.currentTime;
+    videoLagWatch = {
+      kind: "wrap",
+      from: pass.restart,
+      since: now() + left * 1000,
+    };
+    const el = ch.el;
+    const length = tracks?.[ch.track ?? ""]?.durationSeconds ?? 0;
+    if (pass.end < length - DURATION_SLACK_S && left > 0) {
+      clearTimeout(videoEndTimer);
+      videoEndTimer = setTimeout(
+        () => {
+          if (ch.el === el) el.pause();
+        },
+        (pass.end - el.currentTime) * 1000,
+      );
+    }
+  }
+
+  /**
+   * A cue's moment: the waiting element, sounding since it started from
+   * track time `from`, takes the channel's level and becomes the playing
+   * element; the other stops and waits for the next cue.
+   */
+  function switchVideo(ch: Channel, from: number, wrap = false): void {
+    const next = ch.spare;
+    if (next === null) return;
+    const played = ch.seam?.at ?? now();
+    clearTimeout(videoEndTimer);
+    videoEndTimer = undefined;
+    // One at its file's end ends on its own: WebKit stalls its main thread
+    // pausing an element there, and can break one paused within 10 ms of it.
+    const left =
+      (ch.el.duration || Number.POSITIVE_INFINITY) - ch.el.currentTime;
+    if (!ch.el.paused && left > DURATION_SLACK_S) ch.el.pause();
+    ch.spare = ch.el;
+    ch.el = next;
+    next.dataset.track = ch.track ?? "";
+    setVolume(ch);
+    const primedAtStart = ch.seam?.primed ?? false;
+    videoCueNow = null;
+    ch.seam = null;
+    ch.spare.dataset.track = "";
+    // One that just ended at a wrap is left alone a moment.
+    videoParkAfter = wrap ? now() + VIDEO_PARK_AFTER_MS : 0;
+    ch.landing = { at: played, from, primed: primedAtStart };
+    videoSince = played;
+    videoStoppedAt = null;
+  }
+
+  /**
+   * Learns how long the video took to run, once its clock has settled, from
+   * a run it was expected to make from `videoLagWatch.from` at its `since`;
+   * nothing when it stopped or was sought meanwhile.
+   */
+  function learnVideoLag(at: number): void {
+    const watch = videoLagWatch;
+    if (watch === null || stage === null || at - watch.since < SEAM_LAND_MS) {
+      return;
+    }
+    videoLagWatch = null;
+    const el = stage.element;
+    const media = el.currentTime - watch.from;
+    const took = (at - media * 1000 - watch.since) / 1000;
+    if (!stageRuns || el.paused || took < 0 || took > VIDEO_LAG_MAX_S) return;
+    videoLags[watch.kind] = learnSeamLead(videoLags[watch.kind], {
+      played: watch.since,
+      at,
+      media,
+    });
+  }
+
+  /**
+   * visual.ts asks before a video starts from paused (an entry, a menu's
+   * resume): its sound, wanted and able to play at once, starts now from
+   * the video's time, and the video waits as much longer as the sound takes
+   * to begin than the video takes to run (ms). 0, and the sound starts
+   * once the video plays (`videoCue`), when its file is not loaded yet or
+   * sound is not unlocked. Asked again before the video started (a chain's
+   * next line), it answers for the start under way.
+   */
+  function videoStartDelay(element: HTMLVideoElement): number {
+    const ch = video;
+    const spare = ch?.spare ?? null;
+    if (ch === null || spare === null || ch.track === null) return 0;
+    if (stage?.element !== element || !stage.plays) return 0;
+    if (!allowed(ch.slot) || !(blessed || unlocked)) return 0;
+    const lag = videoLags.start ?? VIDEO_START_S;
+    if (videoStarting) {
+      return Math.max(
+        0,
+        videoStartSounds - (lag + videoStartAhead) * 1000 - now(),
+      );
+    }
+    if (spare.readyState < spare.HAVE_FUTURE_DATA || !primed.has(spare)) {
+      return 0;
+    }
+    stopVideoSound(ch); // the waiting element waits where the sound stopped
+    const at = now();
+    const from = element.currentTime;
+    const spareFrom = home(ch);
+    // Cued like any start, on the output grid when there is one, a lead
+    // after it may first play.
+    const lead = leadOf(ch);
+    const parked = parkedAt.get(spare) ?? Number.NEGATIVE_INFINITY;
+    const earliest = Math.max(
+      at + VIDEO_START_SETTLE_MS,
+      parked + VIDEO_PARK_S * 1000,
+    );
+    const samples = videoLeads.get(fileOf(ch))?.samples ?? [];
+    const sounds =
+      gridPlay(samples, earliest + lead * 1000, earliest)?.sounds ??
+      earliest + lead * 1000;
+    videoCueNow = { from: spareFrom, at: sounds, kind: "start" };
+    videoStarting = true;
+    ch.wanted = true;
+    videoStartFrom = from;
+    videoStartSounds = sounds;
+    // The sound plays on from where it stopped, up to `VIDEO_SYNC_S` off
+    // the video (`home`): the video starts that much sooner or later, so
+    // the two meet with no gap, no repeat and nothing carried over.
+    videoStartAhead = spareFrom - from;
+    // The playing element, paused, waits at the pass's restart point now:
+    // free only once this start takes over, it could not land a seek in
+    // time for a wrap soon after.
+    const restart = stage.pass()?.restart ?? null;
+    if (restart !== null && Math.abs(ch.el.currentTime - restart) > 0.005) {
+      ch.el.currentTime = restart;
+      parkedAt.set(ch.el, at);
+    }
+    const wait = Math.max(0, sounds - (lag + videoStartAhead) * 1000 - at);
+    videoLagWatch = { kind: "start", from, since: at + wait };
+    stepVideo(false); // a start due at once plays inside this handler
+    requestTick();
+    return wait;
   }
 
   const VIDEO_EVENTS = ["playing", "pause", "waiting", "seeking"] as const;
   function onStageVideo(event: Event): void {
-    if (event.type === "seeking") {
-      // A playing sound sees a wrap on its next frame, as the video's time
-      // moving back; WebKit sends a wrap's `seeking` some 95 ms after its
-      // `playing`, by when the sound has started where the video is. One
-      // whose track ran out while the video played on starts again here.
-      if (videoPlaying()) return;
+    const el = stage?.element;
+    if (el === undefined) return;
+    if (event.type === "playing") {
+      // WebKit can run a video on from further than the time it reported
+      // while paused (196 ms once in ten menus, macOS 27.2): a sound started
+      // for that time is a jump away, and starts again where it is.
+      const jumped =
+        videoStarting &&
+        Math.abs(el.currentTime - videoStartFrom) > VIDEO_SYNC_S;
+      stageRuns = true;
+      stageStarted = true;
+      videoStarting = false;
+      if (jumped && video !== null) stopVideoSound(video);
     } else {
-      stageRuns = event.type === "playing";
-      if (stageRuns) stageStarted = true;
+      // The pause at the end of a pass that wraps, the seek back to its
+      // restart point and a wait while it lands are the wrap the sound is
+      // cued for (it may have taken over just before): they stop nothing.
+      const restart = stage?.pass()?.restart ?? null;
+      const wrapping =
+        restart !== null && Math.abs(el.currentTime - restart) < 0.1;
+      if (event.type === "pause") {
+        if (el.ended && restart !== null) return;
+        stageRuns = false;
+      } else if (event.type === "waiting") {
+        if (wrapping || el.seeking) return; // a seek's: `seeking` decides
+        stageRuns = false;
+      } else if (!videoStarting && !wrapping && video !== null) {
+        // Any other seek, but the video's own before it starts from
+        // paused, leaves the sound where the video was: it stops, and
+        // starts again where the video is once it runs (`videoCue`).
+        stopVideoSound(video);
+      }
     }
     updateVideoSound();
   }
@@ -1123,6 +1616,7 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
     hook.dataset.unlocked = "true";
     updateHint();
     updateVoiceAudible();
+    scheduleWarm(); // a video ahead can load and prime its sound now
   }
 
   const director = createSoundDirector({
@@ -1186,10 +1680,11 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
     if (needsVideo) video ??= makeChannel("video");
     if (needsSfx || needsVoice) sampler ??= makeChannel("sample");
     for (const ch of channels()) {
+      // A video sound's elements start only from timers and its video's
+      // events, outside this handler, so each is started here.
+      const later = ch.slot !== "video" && ch.wanted && allowed(ch.slot);
       for (const el of ch.spare === null ? [ch.el] : [ch.el, ch.spare]) {
-        if (!el.paused || (el === ch.el && ch.wanted && allowed(ch.slot))) {
-          continue;
-        }
+        if (!el.paused || (el === ch.el && later)) continue;
         el.play()?.catch(() => undefined);
         el.pause();
       }
@@ -1253,7 +1748,53 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
         WARM_AHEAD,
       ))
         warmFile(file);
+      warmVideoSound(cursor);
     });
+  }
+
+  /**
+   * An idle video channel loads the sound of the next video that has one,
+   * within `WARM_AHEAD` items, and plays each of its elements once,
+   * inaudibly (`SEAM_PRIME_MS`; WebKit starts a file's first play sooner),
+   * then parks the waiting one at the video's start: its entry can then
+   * wait for its sound (`videoStartDelay`) with a lead that holds. Only
+   * once sound is unlocked, as the elements play.
+   */
+  function warmVideoSound(cursor: number): void {
+    const ch = video;
+    if (ch === null || ch.spare === null || ch.track !== null) return;
+    if (!(blessed || unlocked) || !allowed(ch.slot)) return;
+    let sound: { file: string; start: number } | null = null;
+    for (
+      let i = cursor + 1;
+      i < items.length && i <= cursor + WARM_AHEAD;
+      i++
+    ) {
+      const item = items[i];
+      if (item.type !== "video" || item.audio?.videoSound === undefined) {
+        continue;
+      }
+      const file = tracks?.[item.audio.videoSound.track]?.file;
+      if (file !== undefined) sound = { file, start: item.startSeconds ?? 0 };
+      break;
+    }
+    if (sound === null) return;
+    const { file, start } = sound;
+    for (const el of [ch.el, ch.spare]) {
+      if (el.getAttribute("src") !== file) {
+        el.src = file;
+        primed.delete(el);
+      }
+      if (primed.has(el) || !el.paused) continue;
+      el.volume = REFUSABLE_VOLUME;
+      el.play()?.catch(() => undefined);
+      setTimeout(() => {
+        if (ch.track !== null) return; // its video came: it is placed there
+        el.pause();
+        primed.add(el);
+        el.currentTime = start;
+      }, SEAM_PRIME_MS);
+    }
   }
   // On every arrival, not only once the item settles as the image warm-up
   // waits: a reader's next Space fires the next item's one-shots at once.
@@ -1312,7 +1853,7 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
           after?.addEventListener(type, onStageVideo);
         }
         // A new element's time has nothing to do with the last one's.
-        videoSync = { ...videoSync, landing: null, lastVideo: null };
+        if (video !== null) stopVideoSound(video);
       }
       if (before !== after || next?.plays !== true) {
         stageRuns = false;
@@ -1321,6 +1862,7 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
       stage = next;
       updateVideoSound();
     },
+    videoStartDelay,
     destroy() {
       destroyed = true;
       for (const type of VIDEO_EVENTS) {

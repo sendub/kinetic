@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import type { Item, Manifest, VideoItem } from "../machine/types";
 import {
@@ -976,7 +976,11 @@ describe("a fresh <video> per source file", () => {
       vid({ id: "v-b", file: "b.mp4" }),
     ]);
     const heard: Array<{ element: unknown; plays: boolean } | null> = [];
-    layer.watchVideo((video) => heard.push(video));
+    layer.watchVideo((video) =>
+      heard.push(
+        video === null ? null : { element: video.element, plays: video.plays },
+      ),
+    );
     expect(heard).toEqual([null]); // told at once: no video yet
     show(0); // an advance: it plays
     show(1); // the text chain over it: the same element plays on, unchanged
@@ -1001,8 +1005,99 @@ describe("a fresh <video> per source file", () => {
     ]);
     show(0);
     const heard: unknown[] = [];
-    layer.watchVideo((video) => heard.push(video));
+    layer.watchVideo((video) =>
+      heard.push({ element: video?.element, plays: video?.plays }),
+    );
     expect(heard).toEqual([{ element: videos[0], plays: true }]);
+  });
+
+  it("tells its watcher where the pass under way ends and where it restarts, if it wraps (Phase 47 item 15)", () => {
+    const { layer, videos, show } = lifecycleHarness([
+      vid({ id: "v-two", file: "t.mp4", durationSeconds: 3, loopCount: 2 }),
+      vid({
+        id: "v-range",
+        file: "r.mp4",
+        durationSeconds: 8,
+        startSeconds: 2,
+        endSeconds: 6,
+        loopStartSeconds: 4,
+      }),
+      item({ id: "line-2", type: "text", text: "Second line." }),
+      vid({ id: "v-loop", file: "l.mp4", durationSeconds: 5, holdSeconds: 9 }),
+    ]);
+    let pass: (() => unknown) | null = null;
+    layer.watchVideo((video) => {
+      pass = video === null ? null : () => video.pass();
+    });
+    const now = () => (pass === null ? "none" : pass());
+    show(0); // two passes: the first wraps to its start, the last holds
+    expect(now()).toEqual({ end: 3, restart: 0 });
+    videos[0].fire("ended");
+    expect(now()).toEqual({ end: 3, restart: null });
+    show(1); // under a text chain: it loops from its restart point
+    expect(now()).toEqual({ end: 6, restart: 4 });
+    show(2);
+    expect(now()).toEqual({ end: 6, restart: 4 });
+    show(3); // background: the element's own loop, from 0
+    expect(now()).toEqual({ end: 5, restart: 0 });
+    show(1, "nav"); // a poster: no pass
+    expect(now()).toBeNull();
+  });
+
+  it("asks how long a start from paused waits and plays only then; a wrap, a menu or a new item never plays early (Phase 47 item 15)", () => {
+    vi.useFakeTimers();
+    try {
+      const { layer, videos, show } = lifecycleHarness([
+        vid({
+          id: "v-a",
+          file: "a.mp4",
+          durationSeconds: 2,
+          startSeconds: 0.5,
+        }),
+        item({ id: "line-2", type: "text", text: "Second line." }),
+        item({ id: "pic", type: "image", file: "p.jpg" }),
+      ]);
+      const asked: number[] = [];
+      layer.setStartDelay((element) => {
+        asked.push((element as unknown as LifeVideo).plays);
+        return 300;
+      });
+      show(1); // onto the chain: an entry, asked before any play
+      const v = videos[0];
+      expect(asked).toEqual([0]);
+      expect(v.plays).toBe(0);
+      vi.advanceTimersByTime(299);
+      expect(v.plays).toBe(0);
+      vi.advanceTimersByTime(1);
+      expect(v.plays).toBe(1);
+      // A wrap plays again at once, unasked.
+      v.paused = true;
+      v.fire("ended");
+      expect(v.plays).toBe(2);
+      expect(asked).toHaveLength(1);
+      // A menu: the resume asks again; a menu opened during the wait wins.
+      layer.setPaused(true);
+      layer.setPaused(false);
+      expect(asked).toHaveLength(2);
+      layer.setPaused(true);
+      vi.advanceTimersByTime(1000);
+      expect(v.plays).toBe(2);
+      layer.setPaused(false);
+      vi.advanceTimersByTime(300);
+      expect(v.plays).toBe(3);
+      // Leaving during the wait plays nothing.
+      layer.setPaused(true);
+      layer.setPaused(false);
+      show(2);
+      vi.advanceTimersByTime(1000);
+      expect(v.plays).toBe(3);
+      // No delay given: it plays at once.
+      layer.setStartDelay(null);
+      show(1);
+      expect(videos[videos.length - 1].plays).toBe(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("destroy releases the element", () => {

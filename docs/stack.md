@@ -122,6 +122,21 @@ optional: a manifest without `audio` plays and validates as before
   learnt lead early (render/audio.ts). A wrap then lands on the engine's
   output block nearest the end: 10.7 ms blocks in headless Chrome, 85 ms
   in the muted WebKit driver; real output is not measured.
+- A video's own sound (`videoSound`) has two elements too, and the one
+  playing is never sought: a seek of a playing element skips or repeats
+  what lay between, which lost the click at the demo's loop restart point
+  at every wrap. The waiting one starts its learnt lead before the video
+  gets where it waits (its restart point before a wrap) and takes over
+  then. A video starting from paused (an entry, a menu's resume) waits
+  for its sound, about 0.3 s in the WebKit driver and 25 ms in Chrome.
+  The WebKit driver begins every sound on its 85 ms output grid, so a
+  start takes its least time up to one block more. Once starts show the
+  grid, a play at the same point of a block as a measured start takes as
+  long as it did: each start is played to sound on the block end nearest
+  its moment, within half a block, and a video's start from paused waits
+  for the moment its sound is known to begin. Only starts heard at full
+  volume teach this: WebKit runs the clock of an element at volume 0.001
+  from about 60 ms, without waiting for its sound (render/audio.ts).
 - The unlock: a browser refuses `play()` until the reader's first key or
   click that counts as an activation (not Esc, not a Cmd, Ctrl or Alt
   shortcut). The player starts every element the game needs inside that

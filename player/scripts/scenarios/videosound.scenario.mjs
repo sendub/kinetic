@@ -1,8 +1,10 @@
-// A video's own sound (docs/plan.md Phase 47, item 6) on fixtures/audio-demo,
-// read through the player's test hook: the `video` slot of the hidden
-// `#audio` against the stage's <video>. The demo's video plays 2-8 s of its
-// file and loops back to 4 s, under a text chain; its sound is the `clock`
-// track (the video's own time), and it ducks the music to 0.3.
+// A video's own sound (docs/plan.md Phase 47, items 6 and 15) on
+// fixtures/audio-demo, read through the player's test hook: the `video`
+// slot of the hidden `#audio` (two elements; the one holding the track is
+// the sound) against the stage's <video>. The demo's video plays 2-8 s of
+// its file and loops back to 4 s, under a text chain; its sound is the
+// `clock` track (the video's own time, a click at each wall hit), and it
+// ducks the music to 0.3.
 //
 // Each part opens its own browser at the item before the video
 // (`#start=video-title`):
@@ -10,18 +12,19 @@
 //   wheel back over seen content, and a skip burst over it) it is silent;
 // - skip with "Play videos in full": the video plays and so does its
 //   sound;
-// - sync: within 80 ms of the video across three range wraps, after a
-//   seek of the video, and after its own clock is knocked 300 ms off;
+// - sync: across ten wraps every click plays once, within 80 ms of its
+//   wall hit, and every frame is within 80 ms (`clickReport`); back in step
+//   after a seek of the video, and after its own clock is knocked 300 ms
+//   off;
 // - the text chain: the clip plays on under its lines, and so does its
-//   sound, in step, never restarted;
+//   sound, never restarted, every click and frame as for the wraps;
 // - the duck: the music falls to 0.3 of its level while the sound plays,
 //   stays there through a wrap, and comes back up after the reader leaves;
 // - menus and the page: the Esc screen, the branch map and a hidden page
 //   each pause the video and its sound, neither moving while paused;
-//   closing or showing resumes both, and the sound lands in step. The
-//   sound's paused time is not held to the video's: every resume seeks it
-//   to the video's time, so where it waits is never heard, and WebKit moves
-//   a paused element back to its last seek's target anyway.
+//   closing the menus resumes both, every click and frame as for the
+//   wraps; showing the page (whose video the engine resumes unasked)
+//   resumes both in step once the sound has landed.
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -77,12 +80,18 @@ const CLOCK_SETTLE_S = 0.25;
 const ON_ITEM = (id) =>
   document.getElementById("stage")?.getAttribute("data-item") === id;
 
-// The stage's video and the video sound, read together in one frame.
+// The stage's video and the video sound, read together in one frame. The
+// sound is the `video` slot's element that holds the track (`data-track`):
+// `ai` says which, so a hand-over from one element to another shows.
 const READ_PAIR = () => {
   const video = document.getElementById("visual-video");
   const shown = video?.isConnected === true && video.style.display !== "none";
-  const sound = document.querySelector('#audio [data-slot="video"]');
-  const held = sound !== null && (sound.dataset.track ?? "") !== "";
+  const slot = Array.from(
+    document.querySelectorAll('#audio [data-slot="video"]'),
+  );
+  const ai = slot.findIndex((el) => (el.dataset.track ?? "") !== "");
+  const sound = ai < 0 ? null : slot[ai];
+  const held = sound !== null;
   const music = Array.from(
     document.querySelectorAll('#audio [data-slot="music"]'),
   ).filter((el) => (el.dataset.track ?? "") !== "" && !el.paused);
@@ -93,6 +102,13 @@ const READ_PAIR = () => {
     vp: shown ? video.paused : null,
     a: held ? sound.currentTime : null,
     ap: held ? sound.paused : null,
+    // Played to its file's end (WebKit's AAC is about 23 ms short): silent,
+    // though `paused` and `ended` may lag a frame.
+    ae: held
+      ? sound.ended || sound.currentTime >= sound.duration - 0.005
+      : null,
+    as: held ? sound.seeking : null,
+    ai: held ? ai : null,
     track: held ? sound.dataset.track : null,
     music: music.map((el) => ({ track: el.dataset.track, v: el.volume })),
   };
@@ -102,11 +118,38 @@ const readPair = (page) => page.evaluate(READ_PAIR);
 // Notes each seek of the video sound, `{ at, done }` (page times of its
 // `seeking` and `seeked`; a seek cut short by the next is done when that
 // one starts), from the page's open, so a sample knows the landings
-// already under way when it starts.
+// already under way when it starts. Only the element holding the track
+// counts: an element waiting with none is never heard. Every `play`,
+// `seeking` and `pause` of a `video` slot element, and of the stage's
+// video, also goes in `__soundStarts` as `{ type, at, i, t }` (its index in
+// the slot, -1 for the stage's video, and its time then): where a run of it
+// began.
 const INSTALL_SEEK_LOG = () => {
   if (window.__soundSeeks !== undefined) return;
   window.__soundSeeks = [];
-  const sound = (event) => event.target?.dataset?.slot === "video";
+  window.__soundStarts = [];
+  const slot = (event) => event.target?.dataset?.slot === "video";
+  const sound = (event) =>
+    slot(event) && (event.target.dataset.track ?? "") !== "";
+  for (const type of ["play", "seeking", "pause"]) {
+    document.addEventListener(
+      type,
+      (event) => {
+        const stage = event.target?.id === "visual-video";
+        if (!slot(event) && !stage) return;
+        const all = Array.from(
+          document.querySelectorAll('#audio [data-slot="video"]'),
+        );
+        window.__soundStarts.push({
+          type,
+          at: performance.now(),
+          i: stage ? -1 : all.indexOf(event.target),
+          t: event.target.currentTime,
+        });
+      },
+      true,
+    );
+  }
   document.addEventListener(
     "seeking",
     (event) => {
@@ -145,6 +188,7 @@ const STOP_SAMPLES = (landMs) => {
   const first = window.__pairs[0]?.at ?? 0;
   return {
     pairs: window.__pairs,
+    starts: window.__soundStarts ?? [],
     seeks: (window.__soundSeeks ?? []).filter(
       (seek) => (seek.done ?? Infinity) + landMs >= first,
     ),
@@ -163,7 +207,7 @@ async function sampleFor(page, ms) {
 // outlasts the player's own.
 const SETTLED_FRAMES = 10;
 
-const soundPlays = (s) => s.track !== null && s.ap === false;
+const soundPlays = (s) => s.track !== null && s.ap === false && s.ae !== true;
 const videoPlays = (s) => s.v !== null && s.vp === false;
 const offMs = (s) =>
   s.a === null || s.v === null ? null : Math.round((s.a - s.v) * 1000);
@@ -198,14 +242,17 @@ function wrapsOf(pairs) {
  * stood once its landing was over and how long it took to be within
  * SYNC_S; `passes` counts the judged frames between wraps.
  */
-function stepReport({ pairs, seeks }, marks = []) {
+function stepReport({ pairs, seeks, starts = [] }, marks = []) {
   const wraps = wrapsOf(pairs);
+  // A start of an element of the sound lands as a seek does.
+  const plays = starts.filter((e) => e.i >= 0 && e.type === "play");
   const windows = [
     ...[...wraps, ...marks].map((m) => [m, m + LAND_MS]),
     ...seeks.map(({ at, done }) => [
       at - SEEN_MS,
       (done ?? Infinity) + LAND_MS,
     ]),
+    ...plays.map(({ at }) => [at - SEEN_MS, at + LAND_MS]),
   ];
   const landing = (s) =>
     windows.some(([from, to]) => s.at >= from && s.at < to);
@@ -252,24 +299,263 @@ function stepReport({ pairs, seeks }, marks = []) {
   };
 }
 
+// The clock track clicks at each whole second of the video's time, as the
+// bar hits a wall (fixtures/build_audio_demo.py), for about 25 ms.
+// A run of the sound that starts within this much of a whole second plays
+// its click; one that starts later only its tail, which the run before
+// played.
+const CLICK_HEAD_S = 0.002;
+// A run's clock is read where it runs true: the sound's from this long
+// after its element's play() (audiorules.ts SEAM_LAND_MS: WebKit's clock
+// runs ahead of its sound, then waits for it, for up to about 650 ms; item
+// 14), the video's from this long into its run (WebKit's stands at a
+// wrap's restart point a moment).
+const SOUND_SETTLE_MS = 900;
+const VIDEO_SETTLE_MS = 300;
+// Wall hits and clicks this close to a run's ends are not judged: their
+// partner may lie outside it.
+const EDGE_MS = 300;
+
 /**
- * Samples a second at a time until one passes with the sound playing in
- * step and no seek of it landing (the first play of a session needs up to
- * three landings in WebKit: the start, a re-seek that learns the engine's
- * lag, and one aimed by it); `{ ok, report }` with the last second's
- * stepReport.
+ * Splits `pairs` into runs where `clock(s)` (a time, or null while it
+ * does not play) never moves back, between frames `same(p, s)` keeps
+ * together (WebKit's sound clock jumps ahead, then holds for its sound,
+ * as it starts): `{ frames, line, from, to, settledAt }`, with
+ * `from` where it began and since when (`startOf(first)` says, else its
+ * first frame), `settledAt` the page time `settleMs` after that, and
+ * `line` the page time of the run's time 0, the median over its frames
+ * from `settledAt` (its last frame when it has none). `same(p, s)` keeps
+ * two frames in one run.
  */
-async function inStep(page, tries = 6) {
+function runsOf(pairs, clock, same, startOf, settleMs) {
+  const runs = [];
+  let frames = [];
+  const close = () => {
+    if (frames.length === 0) return;
+    const first = frames[0];
+    const start = startOf(first) ?? { t: clock(first), at: first.at };
+    const settledAt = start.at + settleMs;
+    const settled = frames.filter((s) => s.at >= settledAt);
+    const lines = (settled.length > 0 ? settled : [frames.at(-1)])
+      .map((s) => s.at - clock(s) * 1000)
+      .sort((x, y) => x - y);
+    runs.push({
+      frames,
+      line: lines[Math.floor(lines.length / 2)],
+      from: start.t,
+      to: clock(frames.at(-1)),
+      settledAt,
+      // Cut short by the sample's end before its clock could be read.
+      cut: settled.length === 0 && frames.at(-1) === pairs.at(-1),
+    });
+    frames = [];
+  };
+  for (const s of pairs) {
+    const t = clock(s);
+    if (t === null) {
+      close();
+      continue;
+    }
+    if (frames.length > 0) {
+      const p = frames.at(-1);
+      if (!same(p, s) || t - clock(p) < -0.001) close();
+    }
+    frames.push(s);
+  }
+  close();
+  return runs;
+}
+
+/**
+ * Maps the sound's runs onto the clock track's clicks and the video's runs
+ * onto its wall hits, and pairs each hit with the clicks heard for it
+ * (the same second, within 500 ms): `skipped` hits had none, `doubled`
+ * more than one, `off` one more than SYNC_S away; `strays` are clicks no
+ * hit claimed. A run of either starts on a hit when it starts within
+ * CLICK_HEAD_S of a whole second (a wrap to 4 s, the entry at 2 s);
+ * each run starts where its element was last played or sought from
+ * (`starts`; the stage video is -1), as a clock read a frame later is
+ * past it, WebKit's sound clock reads early, and a waiting element plays
+ * before it takes over. `badFrames` are the frames where both play and the
+ * sound is more than SYNC_S from the video, with nothing left out: the
+ * sound read from its clock, or from its run's settled clock in the
+ * SOUND_SETTLE_MS after its element's play() (`rawBadFrames` reads the
+ * clock there too), and a sound still in the pass's last moments while the
+ * video runs from its restart point taken one pass on. Only the frames of
+ * a run the sample's end cut short before its clock settled are left out
+ * (`unjudged`).
+ */
+function clickReport({ pairs, starts }) {
+  const end = audioDemo().audio.tracks.clock.durationSeconds;
+  const seconds = (from, to) => {
+    const out = [];
+    for (let c = Math.ceil(from - CLICK_HEAD_S); c <= to && c < end; c += 1) {
+      out.push(c);
+    }
+    return out;
+  };
+  const hitsOf = (runs) =>
+    runs
+      .filter((run) => !run.cut)
+      .flatMap((run) =>
+        seconds(run.from, run.to).map((c) => ({ c, at: run.line + c * 1000 })),
+      );
+  /**
+   * Where element `i`'s run seen first at frame `first` began: its last
+   * play or seek before it, unless it paused after that. A waiting element
+   * plays before it takes over, so its run began before it was the sound.
+   */
+  const startOf = (i) => (first) => {
+    const last = starts
+      .filter((e) => e.i === i(first) && e.at <= first.at)
+      .at(-1);
+    return last === undefined || last.type === "pause" ? null : last;
+  };
+  /**
+   * Element `i` was sought away from where frame `p` read it before frame
+   * `s` (`clock`).
+   */
+  const sought = (i, clock) => (p, s) =>
+    starts.some(
+      (e) =>
+        e.i === i(s) &&
+        e.type === "seeking" &&
+        e.at > p.at &&
+        e.at <= s.at &&
+        Math.abs(e.t - clock(p)) > 0.01,
+    );
+  const videoClock = (s) => (s.v !== null && s.vp === false ? s.v : null);
+  const soundClock = (s) => (soundPlays(s) && s.as === false ? s.a : null);
+  const videoSought = sought(() => -1, videoClock);
+  const videoRuns = runsOf(
+    pairs,
+    videoClock,
+    (p, s) => !videoSought(p, s),
+    startOf(() => -1),
+    VIDEO_SETTLE_MS,
+  );
+  const soundSought = sought((s) => s.ai, soundClock);
+  const soundRuns = runsOf(
+    pairs,
+    soundClock,
+    (p, s) => p.ai === s.ai && !soundSought(p, s),
+    startOf((s) => s.ai),
+    SOUND_SETTLE_MS,
+  );
+  const runOf = new Map();
+  for (const run of soundRuns) for (const s of run.frames) runOf.set(s, run);
+  /** The sound's time at frame `s`: its clock, or its run's settled one. */
+  const heardAt = (s) => {
+    const run = runOf.get(s);
+    return run === undefined || s.at >= run.settledAt
+      ? s.a
+      : (s.at - run.line) / 1000;
+  };
+  const unsettled = (s) => {
+    const run = runOf.get(s);
+    return run?.cut === true && s.at < run.settledAt;
+  };
+  const { endSeconds, loopStartSeconds } = demoItem("video-sync");
+  const pass = endSeconds - loopStartSeconds;
+  /** The sound's time less the video's (ms), across a wrap one pass on. */
+  const judgedOff = (s) => {
+    const off = heardAt(s) - s.v;
+    const across = off > pass / 2 ? -pass : off < -pass / 2 ? pass : 0;
+    return Math.round((off + across) * 1000);
+  };
+  const first = pairs[0]?.at ?? 0;
+  const last = pairs.at(-1)?.at ?? 0;
+  // A hit near the end may have a sound whose clock had not settled.
+  const inside = (at) => at >= first + EDGE_MS && at <= last - SOUND_SETTLE_MS;
+  const allHits = hitsOf(videoRuns);
+  const hits = allHits.filter((h) => inside(h.at));
+  const heard = hitsOf(soundRuns);
+  // A click for a hit just outside the window is no stray.
+  const near = (k, h) => k.c === h.c && Math.abs(k.at - h.at) < 500;
+  const claimed = new Set(
+    heard.flatMap((k, i) =>
+      allHits.some((h) => !inside(h.at) && near(k, h)) ? [i] : [],
+    ),
+  );
+  const rows = hits.map((h) => {
+    const offs = [];
+    heard.forEach((k, i) => {
+      if (near(k, h)) {
+        claimed.add(i);
+        offs.push(Math.round(k.at - h.at));
+      }
+    });
+    return { c: h.c, at: Math.round(h.at), offs };
+  });
+  const strays = heard
+    .filter((k, i) => !claimed.has(i) && inside(k.at))
+    .map((k) => ({ c: k.c, at: Math.round(k.at) }));
+  const playing = pairs.filter(
+    (s) => videoPlays(s) && soundPlays(s) && s.as === false,
+  );
+  const both = playing.filter((s) => !unsettled(s));
+  const bad = both
+    .filter((s) => Math.abs(judgedOff(s)) > SYNC_S * 1000)
+    .map((s) => ({ at: Math.round(s.at), v: s.v, a: s.a, off: judgedOff(s) }));
+  const offs = rows.flatMap((r) => r.offs).sort((x, y) => x - y);
+  const wrong = rows.filter(
+    (r) => r.offs.length !== 1 || Math.abs(r.offs[0]) > SYNC_S * 1000,
+  );
+  return {
+    wraps: wrapsOf(pairs).length,
+    hits: rows.length,
+    skipped: rows.filter((r) => r.offs.length === 0).length,
+    doubled: rows.filter((r) => r.offs.length > 1).length,
+    off: rows.filter(
+      (r) => r.offs.length === 1 && Math.abs(r.offs[0]) > SYNC_S * 1000,
+    ).length,
+    strays: strays.length,
+    clickOffMs: offs.length === 0 ? null : { min: offs[0], max: offs.at(-1) },
+    frames: both.length,
+    badFrames: bad.length,
+    frameOffMs:
+      both.length === 0
+        ? null
+        : {
+            min: Math.min(...both.map(judgedOff)),
+            max: Math.max(...both.map(judgedOff)),
+          },
+    rawBadFrames: both.filter((s) => Math.abs(s.a - s.v) > SYNC_S).length,
+    unjudged: playing.length - both.length,
+    wrong: wrong.slice(0, 6),
+    strayList: strays.slice(0, 6),
+    bad: bad.slice(0, 6),
+  };
+}
+
+/** Every click once, on its hit, and every frame in step. */
+const clicksInStep = (r) =>
+  r.hits > 0 &&
+  r.skipped === 0 &&
+  r.doubled === 0 &&
+  r.off === 0 &&
+  r.strays === 0 &&
+  r.badFrames === 0;
+
+/**
+ * Samples a second at a time until one passes with both playing on every
+ * frame, the sound in step (judged as `clickReport` judges it, its clock
+ * settled) and no seek of it landing: the session's first plays start,
+ * prime and correct the sound for a few seconds. `{ ok, report }` with the
+ * last second's stepReport.
+ */
+async function inStep(page, tries = 10) {
   let report = null;
   for (let n = 0; n < tries; n += 1) {
     const run = await sampleFor(page, 1000);
     report = stepReport(run);
+    const steady = clickReport(run);
     if (
       run.seeks.length === 0 &&
       run.pairs.length > 0 &&
-      run.pairs.every(
-        (s) => videoPlays(s) && soundPlays(s) && Math.abs(s.a - s.v) <= SYNC_S,
-      )
+      run.pairs.every((s) => videoPlays(s) && soundPlays(s)) &&
+      steady.badFrames === 0 &&
+      steady.unjudged === 0
     ) {
       return { ok: true, report };
     }
@@ -443,27 +729,27 @@ async function sync({ check, open, folders }) {
   const session = await ontoVideo(check, open, "vs-sync");
   if (session === null) return;
   const { page } = session;
-  // From about 2.5 s of the video: it reaches 8 s and wraps to 4 s about
-  // 5.5 s on, then every 4 s; three wraps in 14.5 s.
-  const run = await sampleFor(page, 14500);
-  const report = stepReport(run);
+  // From late in the second pass (the video reaches 8 s and wraps to 4 s,
+  // then every 4 s): ten wraps, every click and every frame judged. The
+  // first pass holds the session's first start of the sound, before any
+  // lead is learnt, and the first wrap's lead rests on a few starts.
+  await waitPair(page, (s) => s.v !== null && s.v > 7.5, 7000);
+  await waitPair(page, (s) => s.v !== null && s.v > 4 && s.v < 4.6, 2000);
+  await waitPair(page, (s) => s.v !== null && s.v > 6.6 && s.v < 7.4, 5000);
+  const run = await sampleFor(page, 10 * 4000 + 1200);
+  const report = clickReport(run);
   check(
-    "the sound stays within 80 ms of the video across three range wraps, once each seek has landed, with no more than two seeks a wrap",
-    report.wraps.length >= 3 &&
-      report.badCount === 0 &&
-      report.passes.slice(0, -1).every((n) => n > 0) &&
-      // Two a wrap, and three as the session's first play learns the lag.
-      report.seeks.length <= 2 * report.wraps.length + 3,
-    report,
+    "across ten wraps every click of the sound plays once, within 80 ms of its wall hit, and every frame is within 80 ms of the video, re-seeks included",
+    report.wraps >= 10 && clicksInStep(report),
+    { ...report, seeksOfSound: run.seeks.length },
   );
 
   // Each of the next two runs 5 s, over the next wrap, so a check of the
   // sound's landings before it is never cut short.
   const RUN_MS = 5000;
 
-  // A seek of the video forward, early in a pass, as a wrap seeks it back:
-  // the sound follows at once, and may need one re-seek once that has
-  // landed.
+  // A seek of the video forward, early in a pass: the sound stops, and
+  // starts again where the video is.
   await waitPair(page, (s) => s.v !== null && s.v > 4.1 && s.v < 4.4, 6000);
   const seekAt = await page.evaluate(() => {
     const v = document.getElementById("visual-video");
@@ -491,16 +777,18 @@ async function sync({ check, open, folders }) {
   });
   const afterKnock = await sampleFor(page, RUN_MS);
   const knockReport = stepReport(afterKnock, [knockAt]);
-  // The knock's own seek, then the player's.
-  const sinceKnock = knockReport.seeks.filter(
-    (at) => at >= Math.floor(knockAt),
+  // The player puts it back by handing over to its other element, which
+  // it starts where the video will be (the knocked one is never sought).
+  const knocked = afterKnock.pairs.find((s) => s.at >= knockAt)?.ai ?? null;
+  const handedOver = afterKnock.pairs.some(
+    (s) => s.at >= knockAt && s.ai !== null && s.ai !== knocked,
   );
   check(
-    "a sound more than 80 ms off its video re-seeks onto it",
-    sinceKnock.length >= 2 &&
+    "a sound more than 80 ms off its video is put back onto it",
+    handedOver &&
       knockReport.judged >= SETTLED_FRAMES &&
       knockReport.badCount === 0,
-    { knockAt: Math.round(knockAt), ...knockReport },
+    { knockAt: Math.round(knockAt), knocked, handedOver, ...knockReport },
   );
 }
 
@@ -513,7 +801,9 @@ async function chain({ check, open, folders }) {
   // Marks the elements, so a restart on a fresh one shows.
   await page.evaluate(() => {
     document.getElementById("visual-video").__mark = true;
-    document.querySelector('#audio [data-slot="video"]').__mark = true;
+    for (const el of document.querySelectorAll('#audio [data-slot="video"]')) {
+      el.__mark = true;
+    }
   });
   const before = await readPair(page);
   const runs = [];
@@ -525,7 +815,9 @@ async function chain({ check, open, folders }) {
   const marked = await page.evaluate(
     () =>
       document.getElementById("visual-video")?.__mark === true &&
-      document.querySelector('#audio [data-slot="video"]')?.__mark === true,
+      Array.from(document.querySelectorAll('#audio [data-slot="video"]')).every(
+        (el) => el.__mark === true,
+      ),
   );
   const { endSeconds, loopStartSeconds } = demoItem("video-sync");
   // Over both lines: a wrap at the end of one restarts the sound early in
@@ -554,20 +846,15 @@ async function chain({ check, open, folders }) {
           p >= endSeconds - 0.1 && Math.abs(v - loopStartSeconds) < 0.1,
       ),
       backs,
-      ...stepReport(run),
+      clicks: clickReport(run),
     };
   });
   check(
-    "under the text chain the clip plays on, and its sound with it, in step, never restarted",
+    "under the text chain the clip plays on, and its sound with it, never restarted, every click once on its wall hit and every frame within 80 ms",
     steady.ok &&
       marked &&
       reports.every(
-        (r) =>
-          r.onItem &&
-          r.playing &&
-          r.loopsOnly &&
-          r.judged >= SETTLED_FRAMES &&
-          r.badCount === 0,
+        (r) => r.onItem && r.playing && r.loopsOnly && clicksInStep(r.clicks),
       ),
     { steady: steady.report, before, marked, reports },
   );
@@ -636,10 +923,17 @@ async function menus({ check, open, folders }) {
   const session = await ontoVideo(check, open, "vs-menus");
   if (session === null) return;
   const { browser, page, cdp } = session;
-  const under = async (name, openIt, closeIt) => {
+  // `strict`: every click once on its wall hit and every frame in step,
+  // from before the screen opens to 2.5 s after it closes. A hidden page is
+  // shown again by the engine itself, its video resuming with no word to
+  // the player, so its sound is judged once each seek has landed.
+  const under = async (name, openIt, closeIt, strict) => {
     const steady = await inStep(page);
-    // Opened early in a pass, so its resume lands before the next wrap.
-    await waitPair(page, (s) => s.v !== null && s.v > 4 && s.v < 4.5, 6000);
+    // Opened mid-pass: the sound of the wrap before it has had its clock
+    // settle, and its resume lands before the next wrap.
+    await waitPair(page, (s) => s.v !== null && s.v > 5 && s.v < 5.5, 6000);
+    await page.evaluate(START_SAMPLES, READ_PAIR.toString());
+    await sleep(200);
     await openIt();
     await sleep(300);
     const a = await readPair(page);
@@ -651,22 +945,26 @@ async function menus({ check, open, folders }) {
       (s) => videoPlays(s) && soundPlays(s),
       3000,
     );
-    // A resumed sound starts with a seek, and may need one more.
-    const run = resumed.ok
-      ? await sampleFor(page, 3 * LAND_MS + 600)
-      : { pairs: [], seeks: [] };
-    const report = stepReport(run, [closedAt]);
+    await sleep(strict ? 2500 : 3 * LAND_MS + 600);
+    const run = await page.evaluate(STOP_SAMPLES, LAND_MS);
+    const report = strict
+      ? clickReport(run)
+      : stepReport(
+          { ...run, pairs: run.pairs.filter((s) => s.at >= closedAt) },
+          [closedAt],
+        );
     const held = (s) => s.vp === true && s.track !== null && s.ap === true;
     check(
-      `${name} pauses the video and its sound, neither moving; ${name.startsWith("a hidden") ? "shown again" : "closing it"} resumes both in step`,
+      `${name} pauses the video and its sound, neither moving; ${strict ? "closing it resumes both, every click once on its wall hit and every frame within 80 ms" : "shown again, both resume in step"}`,
       steady.ok &&
         held(a) &&
         held(b) &&
         Math.abs(b.a - a.a) < CLOCK_SETTLE_S &&
         Math.abs(b.v - a.v) < CLOCK_SETTLE_S &&
         resumed.ok &&
-        report.judged >= SETTLED_FRAMES &&
-        report.badCount === 0,
+        (strict
+          ? clicksInStep(report)
+          : report.judged >= SETTLED_FRAMES && report.badCount === 0),
       { a, b, resumed: resumed.s, report },
     );
   };
@@ -678,6 +976,7 @@ async function menus({ check, open, folders }) {
       await closeSettings(page, cdp);
       return now();
     },
+    true,
   );
   await under(
     "the branch map",
@@ -690,6 +989,7 @@ async function menus({ check, open, folders }) {
       await page.waitForFunction(MAP_CLOSED, { timeout: 3000 }).catch(() => {});
       return now();
     },
+    true,
   );
   await under(
     "a hidden page",
@@ -698,6 +998,7 @@ async function menus({ check, open, folders }) {
       await setPageVisible(browser, page, true);
       return now();
     },
+    false,
   );
 }
 

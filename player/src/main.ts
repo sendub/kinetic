@@ -254,8 +254,12 @@ function start(): void {
         machine,
         settings: currentSettings,
       });
-      // A video's sound follows the stage's video (item 6).
-      if (audio !== null) shell.watchVideo((video) => audio.setVideo(video));
+      // A video's sound follows the stage's video (item 6), whose starts
+      // wait for it (item 15).
+      if (audio !== null) {
+        shell.watchVideo((video) => audio.setVideo(video));
+        shell.setVideoStartDelay((element) => audio.videoStartDelay(element));
+      }
 
       // Persistence: every machine move can change the resume point —
       // the ctx carries the open route and the last shown item, and the
