@@ -2698,6 +2698,23 @@ For the converting agent, compared with their request:
     neither skips nor doubles a click and stays within the sync bound
     through the wraps, the text chain and the menus, including the re-seeks
     themselves.
+16. A trial of two sound routes (added 2026-11-11, the user's choice after
+    re-listening to items 14 and 15). An HTMLAudioElement cannot start a
+    sound at an exact moment, so loops keep a gap at each wrap and the click
+    on a video's restart point is cut or lost on real output. Before items
+    14 and 15 are fixed again, scratch pages on the demo's tracks try:
+    - Web Audio fed from a track's bytes in a script file (no fetch, no
+      media-element source, both of which fail under file:// in Chrome):
+      sample-exact loops, and the video sound on the audio clock;
+    - the video playing its own soundtrack, unmuted after the first key,
+      and element loops crossfaded at the seam.
+
+    Each is measured from the samples it produces (seam gaps, click onsets
+    against video frames), in Chrome and WebKit, with which formats each
+    engine's Web Audio decodes and whether the decode pads a loop. The user
+    listens to both in Safari and Chrome; the route chosen then becomes the
+    fix for items 14 and 15, and the Settled list changes if it is Web
+    Audio.
 
 Not verified, and not verifiable on this machine: WebM Vorbis and Opus in
 Safari 15-17 (caniuse and WebKit bug 183852 say yes), WebView2's autoplay,

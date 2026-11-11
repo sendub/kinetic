@@ -3414,6 +3414,13 @@ truthful: an unchecked box means nothing was accepted.
       fourth, at load average 6-10, had one wrap 113 ms ahead (2 clicks
       off, none skipped or doubled) and the text-chain check failed with
       it.)
+- [ ] A trial of two sound routes (item 16, added 2026-11-11; the user
+      chose a trial before fixing items 14 and 15 again): scratch pages
+      for Web Audio from script-held bytes and for the video's own
+      soundtrack with crossfaded element loops, measured from their
+      samples in Chrome and WebKit, decode support per format, and the
+      user's listening in Safari and Chrome. Done when the user picks a
+      route.
 - [ ] User: the listening checklist (item 11), on fixtures/audio-demo in
       real Safari, desktop Chrome and a Mac app built for it. The
       orchestrator does not tick this; the user reports, and any finding
