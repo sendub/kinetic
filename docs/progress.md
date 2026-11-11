@@ -3338,7 +3338,7 @@ truthful: an unchecked box means nothing was accepted.
       1151, check clean, smoke 6/6, the sweep re-run over player/src and
       player/scripts/testing lists only those four, Chrome `bookmarkmap
       branchmap navigation branches audio` 235/235.)
-- [x] Ambience loops play on (item 14, added 2026-11-10; user, listening
+- [ ] Ambience loops play on (item 14, added 2026-11-10; user, listening
       check: on `amb-start` the rain stopped after one play and the hum
       restarted with gaps; `amb-carry` had no rain). Tests:
       - the audio scenario, Chrome and WebKit: rain and hum still play
@@ -3373,6 +3373,12 @@ truthful: an unchecked box means nothing was accepted.
       in WebKit with `requireGestureForAudio` and a Space unlock on
       `amb-start` rain and hum played 26 s, through 4 and 6 wraps, with
       no time lost. The user re-listens with item 15.)
+      (Reopened 2026-11-11: the user re-listened in Safari, Chrome and the
+      Mac app; rain and hum no longer stop but leave a gap at every wrap
+      in all three. Item 15 the same day: the click at each video restart
+      (the left wall) is quieter or cut short in Chrome and sometimes
+      missing in Safari and the app. The muted and fake-output test
+      engines did not show either.)
 - [ ] Video sound clicks stay on the wall hits (item 15, added 2026-11-10;
       user, listening check: usually on the hits, sometimes not). Tests:
       - the videosound scenario, Chrome and WebKit: across ten wraps no
