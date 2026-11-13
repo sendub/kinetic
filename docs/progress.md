@@ -3532,7 +3532,7 @@ truthful: an unchecked box means nothing was accepted.
 - [ ] Docs and speed for Web Audio (item 20): stack, packaging, CREATE.md,
       extracting, verify-player, perf (navigation p95, decode time,
       memory).
-- [ ] A measurement of WebKit's decode time (item 21, added 2026-11-13;
+- [x] A measurement of WebKit's decode time (item 21, added 2026-11-13;
       the user chose to measure before picking a fix for long tracks that
       start about 3.7 s late in WebKit after a jump): scratch pages time
       script load, base64 to bytes and `decodeAudioData` in WebKit and
@@ -3540,6 +3540,34 @@ truthful: an unchecked box means nothing was accepted.
       rate, check whether the page stalls meanwhile, and try decoding in
       sample-exact pieces. Done when the user has the numbers and picks a
       fix or accepts the limit.
+      (2026-11-13: scratch pages in .tmp/item21, browsers only through
+      `launchBrowser`, nothing played; a corpus track's first 180 s,
+      stereo 48 kHz, cases in shuffled rounds of 5, load average 4.6-17.
+      3-minute stereo AAC in M4A, WebKit against Chrome (median ms):
+      script load 16 / 17, base64 by `fromBase64` 1 / 1 (by the atob loop
+      13 / 9), `decodeAudioData` 3511 / 203. In WebKit AAC is slow only
+      when it decodes at the file's own rate (48 kHz file at 48000: 4191;
+      at 47999, 48001, 44100 or 96000: 143-202; a 44.1 kHz file at
+      44100: 3610), the same for ADTS, Apple's encoder, every bit rate and
+      OfflineAudioContext, growing with the square of the length (60 s
+      418, 120 s 1875, 180 s 4129); FLAC 235, WAV 60, MP3 250, Opus in
+      Ogg 529, Vorbis in WebM 474. No page stall (longest frame gap 19
+      ms), but a 10 s clip asked for during a long decode on the same
+      context took 3932 against 34 on its own OfflineAudioContext.
+      Decoding at twice the context's rate and keeping every second
+      sample: 190 ms, the same start and length, at most 2.2e-5 from the
+      usual decode. Pieces join exactly for FLAC, ADTS AAC with `-aac_pns
+      0` and 3 frames of pre-roll, and Ogg Opus with a page of pre-roll.
+      Orchestrator reproduced 3284 against 190 ms in the WebKit driver.
+      The user chose the player fix, item 22.)
+- [ ] Player: fast AAC decodes in WebKit (item 22): AAC decoded at twice
+      the context's rate on an OfflineAudioContext with every second
+      sample kept, each file on its own OfflineAudioContext, in WebKit
+      only. Tests:
+      - Vitest for the sample keeping and the choice of decode;
+      - in WebKit a 3-minute stereo AAC ready within 0.5 s and a short
+        sound during its decode within 0.1 s;
+      - item 14's loop checks from the tap in both engines.
 - [ ] User: the listening checklist (item 11), on fixtures/audio-demo in
       real Safari, desktop Chrome and a Mac app built for it. The
       orchestrator does not tick this; the user reports, and any finding

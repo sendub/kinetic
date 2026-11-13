@@ -2797,6 +2797,31 @@ For the converting agent, compared with their request:
     brings such a start under 0.5 s; the user then picks the fix, if
     any. Until then a late start after a jump is a known limit.
 
+    Measured 2026-11-13: WebKit's AAC decode is slow only at the file's
+    own sample rate (a 3-minute stereo track 3.5-4.2 s, growing with the
+    square of the length) and takes 120-200 ms at any other rate; FLAC,
+    WAV, MP3, Opus and Vorbis are not affected. The page does not stall,
+    but WebKit decodes one file at a time per context, so a short sound
+    waits behind a long track. The user chose the player fix (item 22).
+22. Player: fast AAC decodes in WebKit (render/audio.ts; added
+    2026-11-13, the user's choice after item 21). Where the engine is
+    WebKit (Safari, the Mac app's WKWebView, the WebKit driver), an AAC
+    track decodes on an OfflineAudioContext at twice the context's rate,
+    and every second sample is kept in a buffer at the context's rate. A
+    file whose own rate would make that decode run at its own rate
+    decodes the usual way. In WebKit each file decodes on its own
+    OfflineAudioContext, so no decode waits behind another. Chrome,
+    WebView2 and Firefox decode as now. The kept buffer starts on the
+    same sample as the usual decode and has the same length; loops and
+    wraps are unchanged. The decode cache's notes and cap are revisited
+    against the new times.
+    - Tests: Vitest for the sample keeping (start, length, every second
+      sample, each channel) and for the choice of decode by engine,
+      format and rate; in WebKit a 3-minute stereo 48 kHz AAC ready
+      within 0.5 s of the request, and a short sound asked for during
+      its decode ready within 0.1 s; item 14's loop checks still passing
+      from the tap in both engines.
+
 Not verified, and not verifiable on this machine: WebM Vorbis and Opus in
 Safari 15-17 (caniuse and WebKit bug 183852 say yes), WebView2's autoplay,
 and Firefox.
