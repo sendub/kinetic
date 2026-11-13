@@ -27,8 +27,9 @@
 //   key for sound" hint shows and moves nothing, Esc does not unlock it,
 //   and one Space unlocks sound and still does its own job; a one-shot and
 //   a voice line auto-forward starts seconds after that one key still
-//   play; the stock WebKit driver, like the macOS app, plays at once and
-//   shows no hint;
+//   play; the WebKit driver with the macOS app's host bridge, like the
+//   app, plays at once and shows no hint (in a browser, item 5's rule:
+//   nothing plays before a key, whatever the engine allows);
 // - a hidden page pauses every sound and a shown one resumes;
 // - the Esc screen pauses every sound (music, ambience, one-shots, voice)
 //   and closing it resumes them; under the branch map music and ambience
@@ -375,11 +376,10 @@ async function landings({ check, open, folders }) {
   await page
     .waitForFunction(ON_ITEM, { timeout: 5000 }, "amb-carry")
     .catch(() => {});
-  if (!onWebKit) {
-    // Chrome plays nothing after a reload until a key (the unlock part).
-    await waitSound(page, (s) => s.hint, 3000);
-    await pressZ(cdp);
-  }
+  // In a browser nothing plays after a reload until a key (item 5; the
+  // unlock part), on either engine.
+  await waitSound(page, (s) => s.hint, 3000);
+  await pressZ(cdp);
   await landed("a reload", "amb-carry", (s) => s.unlocked && !s.hint);
 
   // The next set drops the rain and keeps the hum: the hum plays on,
@@ -1062,21 +1062,28 @@ async function soundsAfterUnlock({ check, open, folders }) {
 
 async function autoplay({ check, open, folders }) {
   if (!built(check, folders)) return;
-  const { page, cdp } = await openDemo(open, "autoplay");
+  // On WebKit, the macOS app's own host bridge (the driver installs the
+  // real one): the player plays at launch only in a game app (item 5).
+  const { page, cdp } = await openDemo(
+    open,
+    "autoplay",
+    onWebKit ? { host: { kind: "mac-app", display: "fullscreen" } } : {},
+  );
   await spaceToItem(page, cdp, "music-start");
   await waitSound(page, (s) => bedMatches(s, expectedTarget("music-start")));
   await page.reload();
   await sleep(1500);
   const s = await readSound(page);
   if (onWebKit) {
-    // The stock driver sets WebKit up as the macOS app does.
+    // The stock driver sets WebKit up as the macOS app does, and the app's
+    // bridge tells the player it is in the app.
     const ok = (
       await waitSound(page, (now) =>
         bedMatches(now, expectedTarget("music-start")),
       )
     ).ok;
     check(
-      "the stock WebKit driver, like the macOS app, plays after a reload with no key and shows no hint",
+      "the WebKit driver with the macOS app's host bridge plays after a reload with no key and shows no hint, as the app does",
       ok && s.unlocked && !s.hint,
       evidence(s),
     );
@@ -1761,9 +1768,9 @@ export const parts = [
   ambienceLoops(),
   musicLoop(),
   partwayLoop(),
-  // The stock WebKit driver runs the context at once, as the Mac app does;
-  // with the key rule it waits for the key, as Safari does (Chrome always
-  // does), and the loops must hold from a context resumed in that key.
+  // With the key rule the WebKit driver keeps the context suspended until a
+  // key, as Safari does (Chrome always does), and the loops must hold from
+  // a context resumed in that key.
   ...(onWebKit
     ? [
         ambienceLoops({ requireGestureForAudio: true }),

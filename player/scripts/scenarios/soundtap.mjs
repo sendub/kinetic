@@ -140,6 +140,25 @@ export const readClock = (page) =>
     sounds: document.getElementById("audio")?.sounds?.() ?? [],
   }));
 
+/**
+ * The loudest sample the tap recorded since it was started, and how many
+ * frames it holds: `{ ok, frames, peak }`. A context that never ran
+ * rendered nothing, so it holds none, and its peak is 0.
+ */
+export const tapPeak = (page) =>
+  page.evaluate(() => {
+    const { state } = window.__kineticTap;
+    let frames = 0;
+    let peak = 0;
+    for (const { data } of state.chunks) {
+      frames += data.length;
+      for (let i = 0; i < data.length; i += 1) {
+        peak = Math.max(peak, Math.abs(data[i]));
+      }
+    }
+    return { ok: true, frames, peak };
+  });
+
 // In the page: click onsets in the recording (findClicks).
 const CLICKS = ({ threshold, shape, minFit }) => {
   const { context, state } = window.__kineticTap;

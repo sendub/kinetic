@@ -1524,10 +1524,11 @@ console.log(`${game.engine}: ok`);
 ```
 
 `node test-sound.mjs audio-demo-play webkit` and `node test-sound.mjs
-audio-demo-play chrome` each print `ok`. Chrome, like any browser, plays
-nothing until the reader presses a key or clicks, and `unlocked` stays
-false until a play succeeds, though `target` is already set. WebKit,
-like the macOS app, plays from the start. Reading on (Space,
+audio-demo-play chrome` each print `ok`. In both engines, as in any
+browser, the player plays nothing until the reader presses a key or
+clicks (here the first Space), and `unlocked` stays false until then,
+though `target` is already set; only the Mac and Windows apps play from
+the start. Reading on (Space,
 auto-forward or a pick) applies an item's sound at once; after a wheel
 step, a jump or a reload the player waits 250 ms first, so wait a little
 longer before reading `target` there. A one-shot is listed (slot `sfx`)
@@ -1589,8 +1590,9 @@ The game:
     been played), else `null`.
   - `audio` is the sound, `{ unlocked, target, elements }`, or `null` for
     a game without sound or a player older than sound (Checking the
-    sound, above). `unlocked` turns true once the browser lets the game
-    play. `target` is what should sound on this screen, `{ music,
+    sound, above). `unlocked` says the game may play: true once a key or
+    click other than Esc or a ⌘, Ctrl or Alt shortcut has come, and from
+    the start in the Mac and Windows apps. `target` is what should sound on this screen, `{ music,
     ambience, voice, videoSound }` naming tracks by id
     (docs/content-format.md, "What plays at an item"), and `null` while
     sound is off (`v`).

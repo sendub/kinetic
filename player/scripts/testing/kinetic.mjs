@@ -918,9 +918,11 @@ function gameHandle({ page, cdp, errors, manifest, closeHelp }, fields) {
      * sound holding a track, `{ slot, track, paused, currentTime,
      * volume }`, slot "music", "ambience", "sfx", "voice",
      * "video" or "sample" (the Esc screen's Volumes sheet sampling a
-     * one-shot or a voice line); null for a game without audio. A browser
-     * plays nothing until the first key or click (`unlocked` false until
-     * then); the WebKit engine, like the macOS app, plays at once.
+     * one-shot or a voice line); null for a game without audio. The
+     * player plays nothing in a browser, both engines here included,
+     * until the first key or click other than Esc or a Cmd/Ctrl/Alt
+     * shortcut (`unlocked` false until then); only the Mac and Windows
+     * apps play at once.
      */
     current,
     /** Waits for an item id, or for `fn(current())` to be true. */

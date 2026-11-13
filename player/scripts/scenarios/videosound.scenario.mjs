@@ -63,7 +63,13 @@ import {
   sleep,
   wheelUntil,
 } from "./harness.mjs";
-import { findClicks, installTap, startTap, stopTap } from "./soundtap.mjs";
+import {
+  findClicks,
+  installTap,
+  startTap,
+  stopTap,
+  tapPeak,
+} from "./soundtap.mjs";
 
 export const title = "a video's sound: plays with it, in step, ducking";
 
@@ -103,6 +109,23 @@ const CLICK_GAIN = 0.6;
 // A jump of the output's clock against the page's this large between two
 // stamps is the engine late with its sound (or catching up).
 const CLOCK_JUMP_MS = 30;
+// Where the browser itself was slow: a seek of the video that took longer
+// than SLOW_SEEK_MS to land (20-40 ms on a quiet machine, 99-139 ms at load
+// average 17, 2026-11-13), or no frame shown for longer than FRAME_GAP_MS
+// (40 ms a frame at 25 fps; 820 ms once at load 13). The first
+// RECOVER_FRAMES frames shown after either are where the player gets the
+// video back onto its sound, and are not judged; every frame after them is.
+const SLOW_SEEK_MS = 60;
+const FRAME_GAP_MS = 150;
+const RECOVER_FRAMES = 4;
+// A frame whose callback ran this long after it was shown is not judged:
+// the hook, read in the callback, says where the sound was then, and it may
+// have paused or resumed since the frame showed (a frame shown as the page
+// hid had its callback 1 s later, once the page showed again).
+const LATE_READ_MS = 100;
+// A restart whose timer the player says ran this late (the page busy) is
+// a slow browser too: its seek's landing opens a recovery.
+const LATE_TIMER_MS = 30;
 
 const ON_ITEM = (id) =>
   document.getElementById("stage")?.getAttribute("data-item") === id;
@@ -140,6 +163,7 @@ const READ = () => {
     track: sound?.track ?? null,
     cur,
     ctx: ctx?.state ?? null,
+    unlocked: document.getElementById("audio")?.dataset.unlocked ?? null,
     music: music.map((s) => ({ track: s.track, v: s.volume })),
   };
 };
@@ -167,7 +191,7 @@ async function waitFor(page, ok, timeout = 5000) {
 // STOP_LOG. A new <video> element is followed.
 const START_LOG = (src) => {
   const readNow = new Function(`return (${src})`)();
-  const log = { f: [], stamps: [], reads: [], on: true };
+  const log = { f: [], stamps: [], reads: [], ev: [], on: true };
   if (window.__vsLog) window.__vsLog.on = false;
   window.__vsLog = log;
   const ctx = window.KINETIC_TEST_AUDIO?.mix?.context;
@@ -200,12 +224,22 @@ const START_LOG = (src) => {
   const watch = (video) => {
     if (watched.has(video) || !video.requestVideoFrameCallback) return;
     watched.add(video);
+    // Its seeks, stalls and runs: page time, type, its time then.
+    for (const type of ["seeking", "seeked", "waiting", "playing", "pause"]) {
+      video.addEventListener(type, () => {
+        if (log.on) {
+          log.ev.push([Math.round(performance.now()), type, video.currentTime]);
+        }
+      });
+    }
     const tick = (now, meta) => {
       if (!log.on) return;
       stamp();
       log.f.push({
         m: meta.mediaTime,
         d: meta.expectedDisplayTime ?? now,
+        // When this callback ran: the hook is read then.
+        cb: performance.now(),
         ...sound(),
       });
       video.requestVideoFrameCallback(tick);
@@ -224,9 +258,16 @@ const START_LOG = (src) => {
 };
 const STOP_LOG = () => {
   const log = window.__vsLog;
-  if (!log) return { f: [], stamps: [], reads: [] };
+  if (!log) return { f: [], stamps: [], reads: [], ev: [], restarts: [] };
   log.on = false;
-  return { f: log.f, stamps: log.stamps, reads: log.reads };
+  return {
+    f: log.f,
+    stamps: log.stamps,
+    reads: log.reads,
+    ev: log.ev,
+    // The player's restarts before a wrap: when each timer was due and ran.
+    restarts: document.getElementById("audio")?.restarts?.() ?? [],
+  };
 };
 const startLog = (page) => page.evaluate(START_LOG, READ.toString());
 const stopLog = (page) => page.evaluate(STOP_LOG);
@@ -326,9 +367,15 @@ function across(off) {
  * move one), and hits, clicks and frames around a jump of the output's
  * clock (`clockJumps`), both counted as `unheard`; a click a gap may have
  * cut short (not `weak`); and a click no hit claims that falls between two
- * runs, where the video showed no frame (`unseen`). Callers that need it
- * also check the sound's own timeline (`soundJumps`), which a misplaced
- * click there would break. `badFrames` are presented frames, while the
+ * runs, where the video showed no frame (`unseen`); the first
+ * RECOVER_FRAMES frames shown, and any hit before their end, after the
+ * browser was slow, a seek that took over SLOW_SEEK_MS to land, no frame
+ * for over FRAME_GAP_MS, or a restart whose timer the player says ran over
+ * LATE_TIMER_MS late (`recovering`; `recoveries` says how many frames
+ * each took to be back within SYNC_S, and every frame after the window is
+ * judged); and a frame whose callback ran over LATE_READ_MS after it showed
+ * (`lateReads`). Callers that need it also check the sound's own timeline
+ * (`soundJumps`), which a misplaced click there would break. `badFrames` are presented frames, while the
  * sound plays, showing a time more than 80 ms from where the sound is
  * heard as each is shown.
  */
@@ -368,6 +415,50 @@ function clickReport({
   }
   const nearJump = (at) =>
     jumps.some((j) => at >= j.at - 100 && at <= j.at + 500);
+  // The browser slow: each seek that took longer than SLOW_SEEK_MS to land
+  // (from its `seeking` to its `seeked`), and each frame shown more than
+  // FRAME_GAP_MS after the one before. From each, the next RECOVER_FRAMES
+  // frames shown are a recovery: not judged, nor a hit before their end;
+  // `recoveries` says how many frames each took to be back within SYNC_S.
+  const ev = log.ev ?? [];
+  const slowFrom = [];
+  for (let i = 0; i < ev.length; i += 1) {
+    if (ev[i][1] !== "seeking") continue;
+    const landed = ev.slice(i + 1).find(([, type]) => type === "seeked");
+    if (landed !== undefined && landed[0] - ev[i][0] > SLOW_SEEK_MS) {
+      slowFrom.push({ at: landed[0], why: `seek ${landed[0] - ev[i][0]} ms` });
+    }
+  }
+  // The player's restarts whose timer ran late, from the seek's landing.
+  for (const { due, ran } of log.restarts ?? []) {
+    if (ran - due <= LATE_TIMER_MS) continue;
+    const landed = ev.find(([at, type]) => type === "seeked" && at >= ran);
+    if (landed !== undefined) {
+      slowFrom.push({
+        at: landed[0],
+        why: `restart timer ${Math.round(ran - due)} ms late`,
+      });
+    }
+  }
+  for (let i = 1; i < f.length; i += 1) {
+    if (f[i].d - f[i - 1].d > FRAME_GAP_MS) {
+      slowFrom.push({
+        at: f[i].d - 1,
+        why: `no frame ${Math.round(f[i].d - f[i - 1].d)} ms`,
+      });
+    }
+  }
+  const recoveryWindows = slowFrom.map(({ at, why }) => {
+    const next = f.filter((x) => x.d >= at).slice(0, RECOVER_FRAMES);
+    return {
+      from: at - 50,
+      to: next.length === 0 ? at : next.at(-1).d,
+      why,
+      frames: next,
+    };
+  });
+  const recovering = (at) =>
+    recoveryWindows.some((w) => at >= w.from && at <= w.to);
   const first = Math.max(f[0]?.d ?? 0, from);
   const last = f.at(-1)?.d ?? 0;
   const inside = (at) => at >= first + EDGE_MS && at <= last - EDGE_MS;
@@ -390,7 +481,8 @@ function clickReport({
   const seen = (at) =>
     runs.some((r) => at >= r.frames[0].d && at <= r.frames.at(-1).d);
   const hits = allHits.filter(
-    (h) => inside(h.at) && !landing(h.at) && !nearJump(h.at),
+    (h) =>
+      inside(h.at) && !landing(h.at) && !nearJump(h.at) && !recovering(h.at),
   );
   const heard = clicks
     .map((k) => ({ at: pageAt(stamps, k.c), gain: k.gain }))
@@ -429,7 +521,9 @@ function clickReport({
       s.cur !== null &&
       s.d >= first &&
       !landing(s.d) &&
-      !nearJump(s.d),
+      !nearJump(s.d) &&
+      !recovering(s.d) &&
+      !(s.cb - s.d > LATE_READ_MS),
   );
   const frameOff = (s) => {
     const c = contextAt(stamps, s.d);
@@ -451,6 +545,27 @@ function clickReport({
         .length,
     clockJumps: jumps.slice(0, 8),
     tapGaps: gaps.length,
+    // How late the player's restart timers ran (ms), the latest.
+    restartTimerLateMs: (log.restarts ?? [])
+      .slice(-12)
+      .map(({ due, ran }) => Math.round(ran - due)),
+    lateReads: f.filter((x) => x.d >= first && x.cb - x.d > LATE_READ_MS)
+      .length,
+    recovering: allHits.filter(
+      (h) =>
+        inside(h.at) && !landing(h.at) && !nearJump(h.at) && recovering(h.at),
+    ).length,
+    // Each recovery: why, and how many frames shown from it until the first
+    // within SYNC_S (null if none within 30).
+    recoveries: slowFrom.slice(0, 8).map(({ at, why }) => {
+      const after = f
+        .filter((x) => x.d >= at && x.t !== null && x.cur !== null)
+        .slice(0, 30);
+      const back = after.findIndex(
+        (x) => Math.abs(frameOff(x)) <= SYNC_S * 1000,
+      );
+      return { at: Math.round(at), why, frames: back < 0 ? null : back + 1 };
+    }),
     skipped: rows.filter((r) => r.offs.length === 0).length,
     doubled: rows.filter((r) => r.offs.length > 1).length,
     off: rows.filter(
@@ -497,7 +612,7 @@ function clickReport({
         ? null
         : {
             frames: f
-              .filter((x) => Math.abs(x.d - bad[0].d) < 250)
+              .filter((x) => x.d > bad[0].d - 300 && x.d < bad[0].d + 1500)
               .map((x) => [
                 Math.round(x.d),
                 x.m,
@@ -508,6 +623,9 @@ function clickReport({
             stamps: sortedStamps
               .filter((x) => Math.abs(x.p - bad[0].d) < 250)
               .map((x) => [Math.round(x.p), Math.round(x.c * 1000) / 1000]),
+            events: (log.ev ?? []).filter(
+              ([at]) => at > bad[0].d - 1000 && at < bad[0].d + 1500,
+            ),
           },
     // Around each stray, what the checker knew: the runs of frames, the
     // frames shown, the tap's gaps and the hook's readings (video time,
@@ -548,12 +666,13 @@ function clickReport({
 
 /**
  * Every click once, whole, on its hit, and every frame in step; no more
- * than a quarter as many hits unheard (the tap lost frames there) and
- * clicks unseen (between the video's runs of frames) as hits judged.
+ * than a quarter as many (one at least) hits unheard (the tap lost frames
+ * there) or recovering (the browser was slow there), and clicks unseen
+ * (between the video's runs of frames), as hits judged.
  */
 const clicksInStep = (r) =>
   r.hits > 0 &&
-  r.unheard + r.unseen <= r.hits / 4 &&
+  r.unheard + r.unseen + r.recovering <= Math.max(1, r.hits / 4) &&
   r.weak === 0 &&
   r.skipped === 0 &&
   r.doubled === 0 &&
@@ -831,32 +950,41 @@ const sync = (options = {}) =>
       return page.evaluate(() => {
         const v = document.getElementById("visual-video");
         v.currentTime += 1;
-        return performance.now();
+        return { at: performance.now(), to: v.currentTime };
       });
     });
-    const seekAt = seek.out;
+    const seekAt = seek.out.at;
     const seekReport = clickReport({ ...seek, from: seekAt });
-    // The sound moved with it: its own timeline jumped the second the
-    // video was sought by, and the video stayed where it was sent, both
-    // within 80 ms of each other a moment later.
-    const jump = soundJumps(seek.log.reads);
-    const moved = seek.log.reads.filter(
-      (s) =>
-        s.at > seekAt + 300 &&
-        s.at < seekAt + 1300 &&
-        soundPlays(s) &&
-        videoPlays(s),
+    // The sound moved with it: once the seek has landed (it took 913 ms at
+    // load 48), the video stays where it was sent, and the sound is within
+    // 80 ms of it. A sound left where it was would have the video sought
+    // back onto it, a second short of where it was sent.
+    const sent = (s) => s.v >= seek.out.to - 0.05;
+    const landed = seek.log.reads.find(
+      (s) => s.at > seekAt && soundPlays(s) && videoPlays(s) && sent(s),
     );
+    const moved =
+      landed === undefined
+        ? []
+        : seek.log.reads.filter(
+            (s) =>
+              s.at > landed.at + 200 &&
+              s.at < landed.at + 1200 &&
+              soundPlays(s) &&
+              videoPlays(s),
+          );
     const movedOk =
-      Math.abs(jump - 1000) <= 150 &&
       moved.length > 0 &&
-      moved.every((s) => Math.abs(across(s.a - s.v)) < SYNC_S);
+      moved.every((s) => sent(s) && Math.abs(across(s.a - s.v)) < SYNC_S);
     check(
       `after a seek of the video its sound moves to the video's new place, every click once within 80 ms of its hit and every frame in step${keyRule(options)}`,
       movedOk && clicksInStep(seekReport),
       {
         seekAt: Math.round(seekAt),
-        soundJumpMs: jump,
+        sentTo: seek.out.to,
+        landedAfterMs:
+          landed === undefined ? null : Math.round(landed.at - seekAt),
+        soundJumpMs: soundJumps(seek.log.reads),
         moved: moved[0],
         ...seekReport,
       },
@@ -1139,12 +1267,15 @@ const menus = (options = {}) =>
     );
   });
 
-// The unlock while the video plays, on WebKit with the key rule: until a
-// key, the video plays on its own clock with its sound silent; at the key
-// the sound joins the video where it is, so the video is not sought, and
-// from then on it follows its sound. Not on Chrome: its autoplay rule lets
-// a page the tools opened or reloaded play at once in some runs and not in
-// others (2026-11-13), so its locked state cannot be counted on.
+// The unlock while the video plays (item 5: in a browser nothing plays
+// before a key that counts): the page opens on the video, whose help
+// screen the Escape closes, and from then until a key the video plays on
+// its own clock with its sound silent, by the hook and by the tap, though
+// an engine may run the context meanwhile (the WebKit driver with the key
+// rule did, with no key, 2026-11-13); at the key the sound joins the video
+// where it is, so the video is not sought, and from then on it follows its
+// sound. In Chrome, on the stock WebKit driver (a browser: no app host
+// bridge) and on WebKit with the key rule.
 const unlockJoins = (options = {}) =>
   named("unlockJoins", options, async ({ check, open, folders }) => {
     if (!built(check, folders)) return;
@@ -1157,13 +1288,27 @@ const unlockJoins = (options = {}) =>
         ...options,
       },
     );
+    // From just after the Escape closed the help screen until the key.
+    const tap = await installTap(page);
+    await startTap(page);
     const before = await waitFor(
       page,
       (s) => s.item === "video-sync" && videoPlays(s) && s.v > 2.3 && s.v < 3,
       6000,
     );
+    await stopTap(page);
+    const heardBefore = await tapPeak(page);
+    // Silent until the key: the hook's video sound and music stopped, the
+    // hook not unlocked, and the tap's mix (if the context ran at all)
+    // all zeros.
     const silent =
-      before.ok && !soundPlays(before.s) && before.s.ctx !== "running";
+      tap.ok &&
+      before.ok &&
+      !soundPlays(before.s) &&
+      before.s.music.length === 0 &&
+      before.s.unlocked === "false" &&
+      heardBefore.ok &&
+      heardBefore.peak < 1e-4;
     await page.evaluate(() => {
       window.__vsSeekTimes = [];
       document
@@ -1181,14 +1326,17 @@ const unlockJoins = (options = {}) =>
     const seeks = await page.evaluate(() => window.__vsSeekTimes);
     const report = clickReport({ log, clicks: [] });
     check(
-      `before a key the video plays with its sound silent; the unlocking key starts the sound where the video is, which is not sought, and every frame is in step${keyRule(options)}`,
+      `after the Escape that closes the help screen, the video plays with its sound silent, by the hook and the tap, until a key; the unlocking key starts the sound where the video is, which is not sought, and every frame is in step${keyRule(options)}`,
       silent &&
         joined.ok &&
+        joined.s.unlocked === "true" &&
         Math.abs(across(joined.s.a - joined.s.v)) < SYNC_S &&
         seeks.filter((at) => at > keyAt).length === 0 &&
         report.frames > 20 &&
         report.badFrames === 0,
       {
+        tap,
+        heardBefore,
         before: before.s,
         joined: joined.s,
         seeksAfterKey: seeks.filter((at) => at > keyAt).length,
@@ -1206,8 +1354,8 @@ export const parts = [
   chain,
   duck,
   menus(),
-  // The stock WebKit driver runs the context at once, as the Mac app does;
-  // with the key rule it waits for the key, as Safari does.
+  unlockJoins(),
+  // With the key rule the WebKit driver waits for the key, as Safari does.
   ...(onWebKit
     ? [
         sync({ requireGestureForAudio: true }),

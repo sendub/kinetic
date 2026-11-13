@@ -3569,7 +3569,7 @@ truthful: an unchecked box means nothing was accepted.
       runs in a row; the assembled audio demo 45 files, 2.8 MiB, no
       audio file left, validator clean, check-game exit 0 in Chrome and
       WebKit with 35 of 35 items.)
-- [ ] The videosound checks hold under load (item 19 follow-up, added
+- [x] The videosound checks hold under load (item 19 follow-up, added
       2026-11-13): in a Chrome run at load average 13 the seek check
       failed, Chrome's video presenting its restart frame 230 ms late
       (that click 122 ms off) and then no frame for 800 ms (frames up to
@@ -3577,7 +3577,42 @@ truthful: an unchecked box means nothing was accepted.
       faster or the checker judges what the browser never showed, fix
       the cause, and keep every guarantee. Done when Chrome and WebKit
       `videosound` pass under the load of the full suite.
-- [ ] In a browser nothing plays before a key, whatever the engine allows
+      (2026-11-13, four rounds under busy loops at load average 13-120.
+      Player: after a seek lands or 150 ms pass with no presented frame
+      (`VIDEO_FRAME_GAP_MS`) the frames are judged afresh and a video
+      still past the bound is sought at once (`shownAfter`); the frame
+      bound is 80 ms less a vsync of jitter (`VIDEO_FRAME_JITTER_S`); the
+      learnt seek lead grows 10 ms a restart at most (`SEEK_LEARN_UP_S`);
+      a seek the player made is never judged as a jump when its event
+      comes late (`seekMovesSound`); a resume keeps the sound where it
+      stopped and seeks the video onto it (`videoResumeTarget`; before,
+      a video paused 82-113 ms off moved the sound back about 85 ms under
+      the map, the Esc screen and a hidden page); the restart timer arms
+      from any frame within 300 ms of its moment
+      (`VIDEO_RESTART_ARM_MS`); WebKit sometimes runs a sought video with
+      no `playing` event, so whether the stage video runs is read from
+      the element on every event (`stageRunsAfter`; the video sound
+      never joined after the key in 1 run of 20). Checker: `findClicks`
+      holds only after an accepted click; a click where the video showed
+      no frame is counted (`unseen`), not judged; a tap gap excuses only
+      a hit with no click; the first 4 frames after a seek that took over
+      60 ms to land, a 150 ms presentation gap or a restart timer the
+      hook (`restarts()`) says ran over 30 ms late are counted
+      (`recovering`) and not judged, measured back in step within 1-2
+      frames in 25 of 26 recoveries; a frame read over 100 ms after it
+      showed is not judged; the seek check asks that the video stays
+      where it was sent with its sound within 80 ms. Red first in Vitest
+      for each player change. Orchestrator, on the final code with the
+      next entry's gate: deliberate breaks (loopStart 0.5 s early, no
+      pre-wrap seek, resume from 0, a seek leaving the sound, no drift
+      seeks) each failing their checks; npm test 1216 (two runs), check
+      clean; full Chrome `npm run verify` 585/585 at load average 35;
+      WebKit `videosound audio screens media videofit menus` 261/263
+      (the 2 known fullscreen partials); WebKit `videosound` 31/31 in
+      three runs; Chrome `videosound` 21/21 twice with eight busy loops
+      at load 21-40; the assembled audio demo validating, check-game
+      exit 0 in Chrome and WebKit with 35 of 35 items.)
+- [x] In a browser nothing plays before a key, whatever the engine allows
       (item 5's rule, added 2026-11-13): the WebKit driver with the key
       rule sometimes ran the first page's AudioContext a few hundred ms
       after load with no key, no `resume()` and no source started (4 of
@@ -3588,6 +3623,23 @@ truthful: an unchecked box means nothing was accepted.
       now. Done when the videosound unlock part passes with Escape
       closing the help screen and the sound silent until the key, in
       WebKit and Chrome, and the audio scenario's unlock checks pass.
+      (2026-11-13: audiorules.ts `gestureCounts` (a click, a touch, any
+      key but Esc and a Cmd/Ctrl/Alt shortcut) and `soundUnlock`:
+      `mayPlay` once a counting gesture came or in an app, `mayStart`
+      once a gesture came or in an app whose context runs, the hint in a
+      browser from load until the gesture whenever sound is on. An app is
+      `readHost(window.kineticHost) !== null` at mount: the Mac app's
+      document-start user script and the Windows exe's document-creation
+      script define it before any page script. The context is still made
+      at mount, so decoding ahead goes on; `data-unlocked` and
+      `current().audio.unlocked` mean "may play". The unlock part runs in
+      Chrome, the stock driver and the key rule, Escape closing the help
+      screen, and checks silence by the hook and the tap (13,000-15,600
+      tapped frames all zero before the key in WebKit runs whose context
+      ran early); the audio scenario's autoplay check opens with the Mac
+      app's real host bridge. Red first: 3 Vitest cases. Orchestrator:
+      with the gate removed the unlock part failed 3 of 4 WebKit key-rule
+      runs; the rest as in the entry above.)
 - [ ] Docs and speed for Web Audio (item 20): stack, packaging, CREATE.md,
       extracting, verify-player, perf (navigation p95, decode time,
       memory).

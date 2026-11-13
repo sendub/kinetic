@@ -35,17 +35,24 @@
 // (`holdFade`); allowed again, a new source plays on from there. The
 // context itself runs on, as some sounds pause while others play.
 //
-// The unlock: until the reader's first key or click a browser keeps the
-// context from running (Chrome: suspended, and a source started on it
-// logs a warning; WebKit asking for a gesture: suspended, then interrupted
-// once a source starts; the stock WebKit driver and the Mac app run it at
-// once, 8-14 ms after it is made; measured on macOS 27.2, 2026-11-13). The
-// first key or click that counts as a user activation (not Esc, not a
-// Cmd/Ctrl/Alt shortcut) resumes it inside that handler, and the key still
-// does its own job. Nothing starts before the context may run; a one-shot
-// whose moment comes then is dropped. Until it runs, with sound on and
-// something to play, a quiet hint says "Press any key for sound", once the
-// context has had `HINT_GRACE_MS` to start on its own.
+// The unlock (item 5: "in a browser, nothing plays after a reload before a
+// gesture"; the apps play at launch): in a browser, no source starts until
+// the reader's first key or click that counts as a user activation (not
+// Esc, not a Cmd/Ctrl/Alt shortcut; audiorules.ts `gestureCounts`),
+// whatever the context does meanwhile. Browsers mostly keep it suspended
+// until then (Chrome: suspended, and a source started on it logs a warning;
+// WebKit asking for a gesture: suspended, then interrupted once a source
+// starts), but not always: the WebKit test driver with the key rule ran one
+// on its own a few hundred ms after load, with no key (2026-11-13). That key
+// resumes the context inside its handler, and still does its own job. In a
+// game app, whose host bridge is on the page at mount, sound starts as soon
+// as the context runs (the Mac app and the stock WebKit driver run it 8-14
+// ms after it is made; macOS 27.2, 2026-11-13). A one-shot whose moment
+// comes before sound may start is dropped. In a browser, with sound on, a
+// quiet hint says "Press any key for sound" until that key; in an app only
+// if its context, refused, has not run after `HINT_GRACE_MS`
+// (`soundUnlock`). The context exists from mount either way, so decoding
+// ahead goes on.
 //
 // A video's sound (items 6 and 19) is a buffer source too, and the master:
 // the video follows it. It follows the stage's video, which render/visual.ts
@@ -65,7 +72,8 @@
 // teach how long its seeks take to land (`watchFrames`).
 // A pause stops the sound where it stands; it resumes from there with its
 // video, which waits for it as long as the output's latency
-// (`videoStartDelay`, asked by visual.ts `setStartDelay`). A seek of the
+// (`videoStartDelay`, asked by visual.ts `setStartDelay`), and is sought
+// onto it first if it paused off it (`videoResumeTarget`). A seek of the
 // video away from its sound, a jump into it or the unlock while it plays
 // starts the sound where the video is (`videoSoundStart`). While it plays,
 // music and ambience are ducked by its `duck`, faded over `DUCK_FADE_MS`;
@@ -73,7 +81,8 @@
 // the video goes or shows its poster.
 //
 // Test hooks: the hidden `#audio` carries `data-target` (the target in
-// force, as JSON, set each time one applies) and `data-unlocked`, and its
+// force, as JSON, set each time one applies) and `data-unlocked` (sound may
+// play: a key or click that counts came, or the page is in an app), and its
 // `sounds()` lists every sound made so far, in the order made, as `{slot,
 // track, paused, currentTime, volume}`: slot music, ambience, sfx, voice,
 // video or sample; the track id, "" while idle; whether it is silent; where
@@ -105,6 +114,7 @@ import {
   fadeLevel,
   followVideo,
   gainStages,
+  gestureCounts,
   groupVolume,
   holdFade,
   learnSeekLead,
@@ -120,15 +130,19 @@ import {
   SFX_POOL_SIZE,
   sampleTrack,
   seekMovesSound,
+  shownAfter,
+  soundUnlock,
+  stageRunsAfter,
   still,
   VIDEO_SEEK_S,
   VIDEO_SETTLE_MS,
   VIDEO_START_S,
-  VIDEO_STRAY_FRAMES,
   videoDrift,
+  videoResumeTarget,
   videoSoundPlan,
   videoSoundStart,
 } from "./audiorules";
+import { readHost } from "./host";
 import type { StageVideo } from "./visual";
 
 /** What the testing tools set before the player starts (see the header). */
@@ -364,6 +378,16 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
   Object.defineProperty(hook, "sounds", {
     value: (): SoundReading[] => readers.map((read) => read()),
   });
+  /**
+   * The latest restarts of a video before its sound wraps (`armRestart`):
+   * when each timer was due and when it ran (page ms). A timer runs late
+   * on a busy page; the test tools judge the frames after such a restart
+   * as a recovery.
+   */
+  const restartLog: { due: number; ran: number }[] = [];
+  Object.defineProperty(hook, "restarts", {
+    value: () => restartLog.map((r) => ({ ...r })),
+  });
 
   // --- the graph ---------------------------------------------------------------
   const ctx = new win.AudioContext();
@@ -445,7 +469,7 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
    * last seek landed, against the sound heard as each showed.
    */
   let frames: { el: HTMLVideoElement; handle: number } | null = null;
-  let shown: { offs: number[] } | null = null;
+  let shown: { offs: number[]; at: number } | null = null;
   /** A restart was asked for and its seek has not landed yet. */
   let restarted = false;
   /**
@@ -454,6 +478,12 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
    * `seeking` is handled: `seekMovesSound` leaves the sound alone for it.
    */
   let ownSeek: number | null = null;
+  /**
+   * Where the stage's video stood when it last paused (a menu, a hidden
+   * page), null after a new element: visual.ts resumes it with a seek to
+   * that place, which is no seek into the video.
+   */
+  let videoPausedAt: number | null = null;
   /** The drift of each frame a restart's run showed, while it teaches the lead. */
   let learning: number[] | null = null;
   /** The music in force (a track id), null for none. */
@@ -464,15 +494,34 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
   let hidden = doc.visibilityState === "hidden";
   let screens: SoundScreens = { esc: false, map: false };
   let volumesOpen = false;
-  /** The context runs: sound can be heard. */
-  let unlocked = false;
+  /**
+   * A game app's host bridge was on the page at mount (render/host.ts
+   * `readHost`): the Mac app adds `window.kineticHost` in a user script at
+   * document start, the Windows exe in WebView2's document-creation script,
+   * both before any page script. There sound plays at launch; in a browser
+   * only after a key or click that counts (`soundUnlock`).
+   */
+  const inApp =
+    readHost((win as { kineticHost?: unknown }).kineticHost) !== null;
   /** A key or click that counts came, and resumed the context in it. */
   let blessed = false;
-  /** Something wanted to sound while the context could not run. */
+  /** Something wanted to sound while it could not start. */
   let refused = false;
   const mountedAt = now();
-  /** Shows the hint once `HINT_GRACE_MS` has passed. */
+  /** Looks at the hint again once `HINT_GRACE_MS` has passed (an app). */
   let hintTimer: ReturnType<typeof setTimeout> | undefined;
+
+  /** What may play and start now, and whether the hint shows (item 5). */
+  function gate() {
+    return soundUnlock({
+      inApp,
+      gestured: blessed,
+      contextRuns: ctx.state === "running",
+      soundOn: settings.soundOn,
+      refused,
+      graceOver: now() - mountedAt >= HINT_GRACE_MS,
+    });
+  }
 
   function allowed(slot: AudioSlot): boolean {
     return maySound(slot, {
@@ -485,10 +534,11 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
   }
 
   /**
-   * Sources may start: the context runs, or a key that counts has resumed
-   * it (it runs a few ms later, and what started meanwhile plays then).
+   * Sources may start: a key that counts came and resumed the context (it
+   * runs a few ms later, and what started meanwhile plays then), or in an
+   * app the context runs (`soundUnlock`).
    */
-  const canRun = (): boolean => ctx.state === "running" || blessed;
+  const canRun = (): boolean => gate().mayStart;
 
   // --- loading -----------------------------------------------------------------
   /** Each track's bytes, from its script, and their decode (audioload.ts). */
@@ -991,8 +1041,9 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
    * While a video's sound plays, each frame its video shows (where the
    * engine reports them, `requestVideoFrameCallback`) is placed against the
    * sound heard as it shows (`shown`, the latest frames' drift, which
-   * `followVideo` judges on), and the frames of a restart's run teach how
-   * long a seek takes to land (`learnSeekLead`).
+   * `followVideo` judges on, started afresh when a seek lands or after a
+   * stall), and the frames of a restart's run teach how long a seek takes
+   * to land (`learnSeekLead`).
    */
   function watchFrames(): void {
     const el = videoBusy() ? (stage?.element ?? null) : null;
@@ -1011,11 +1062,11 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
       if (s === null || s.source === null || s.plan === null || el.seeking) {
         return;
       }
-      const heard = positionOf(s, contextAt(meta.expectedDisplayTime ?? t));
+      const shows = meta.expectedDisplayTime ?? t;
+      const heard = positionOf(s, contextAt(shows));
       const off = videoDrift(s.plan, meta.mediaTime, heard);
-      shown = {
-        offs: [...(shown?.offs ?? []), off].slice(-VIDEO_STRAY_FRAMES),
-      };
+      // Afresh after a stall: no frame shown for `VIDEO_FRAME_GAP_MS`.
+      shown = shownAfter(shown, off, shows);
       if (learning === null) return;
       learning.push(off);
       // Its first frame is the seek's own, which WebKit shows at once.
@@ -1100,8 +1151,10 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
 
   /**
    * Plays the video's sound from where `videoSoundStart` says: where it
-   * stopped, if the video stands within `VIDEO_SYNC_S` of that as the sound
-   * is heard, else where the video will be then.
+   * stopped, the sound being the master, and the video is sought there when
+   * it stands off (`videoResumeTarget`); with nothing to resume (a seek or a
+   * jump into the video, the unlock), where the video will be as the sound
+   * is heard.
    */
   function startVideoSound(s: Sound): void {
     const el = stage?.element;
@@ -1109,13 +1162,28 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
     followPass(s);
     const runs = stageRuns && !el.paused && !el.seeking;
     const lag = runs ? Math.max(0, heardAt(ctx.currentTime) - now()) : 0;
+    const resumes = !videoJoin;
     s.offset = videoSoundStart(
       s.plan,
-      videoJoin ? null : s.offset,
+      resumes ? s.offset : null,
       el.currentTime + lag / 1000,
     );
     videoJoin = false;
     shown = null;
+    if (resumes) {
+      // A paused video starts as the sound is heard from its place; a
+      // running one lands a seek `seekLead` from now.
+      const ahead = runs ? Math.max(0, seekLead - lag / 1000) : 0;
+      const target = videoResumeTarget(
+        s.plan,
+        playPosition(s.plan, s.offset, ahead),
+        el.currentTime + (runs ? seekLead : 0),
+      );
+      if (target !== null) {
+        ownSeek = target;
+        el.currentTime = target;
+      }
+    }
     startSource(s);
     requestTick();
   }
@@ -1135,7 +1203,8 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
       !s.ended &&
       s.buffer !== null &&
       allowed("video") &&
-      ctx.state === "running";
+      ctx.state === "running" &&
+      canRun();
     if (!should) {
       if (s.source !== null) stopSource(s);
       cancelRestart();
@@ -1199,6 +1268,7 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
     if (restartTimer !== undefined) return;
     const source = s.source;
     const on = stage;
+    const due = now() + inMs;
     restartTimer = setTimeout(() => {
       restartTimer = undefined;
       if (video !== s || s.source !== source || stage !== on || on === null) {
@@ -1214,6 +1284,8 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
       restarted = true;
       learning = null;
       ownSeek = on.pass()?.restart ?? null;
+      restartLog.push({ due, ran: now() });
+      if (restartLog.length > 32) restartLog.shift();
       on.restart();
       followPass(s);
     }, inMs);
@@ -1306,12 +1378,17 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
     const s = video;
     if (s === null || s.track === null || s.buffer === null) return 0;
     if (stage?.element !== element || !stage.plays) return 0;
-    if (!allowed("video") || ctx.state !== "running") return 0;
+    if (!allowed("video") || ctx.state !== "running" || !canRun()) return 0;
     if (s.source === null) {
-      // The seek it plays from (an entry's, a resume's) is judged now; its
-      // event, which comes after this start, is then the player's own.
+      // The seek it plays from is judged now, as its event comes after
+      // this start, and is then the player's own: a menu's resume, sent
+      // back to where the video paused, is no seek into the video and the
+      // sound resumes in place; any other (an entry's) moves the sound.
       if (element.seeking) {
-        videoSought();
+        const back =
+          videoPausedAt !== null &&
+          Math.abs(element.currentTime - videoPausedAt) < 0.002;
+        if (!back) videoSought();
         ownSeek = element.currentTime;
       }
       if (s.ended) return 0;
@@ -1345,25 +1422,34 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
     "waiting",
     "seeking",
     "seeked",
+    "canplay",
+    "timeupdate",
   ] as const;
   function onStageVideo(event: Event): void {
     const el = stage?.element;
     if (el === undefined) return;
+    // Whether it really plays, from its state on each event: WebKit can
+    // leave its `playing` out (audiorules.ts `stageRunsAfter`). The pause
+    // at the end of a pass that wraps, which visual.ts plays on from its
+    // restart point, stops nothing: the sound wrapped too.
+    const was = stageRuns;
+    const wraps = (stage?.pass()?.restart ?? null) !== null;
+    stageRuns = stageRunsAfter(stageRuns, event.type, el, wraps);
+    if (stageRuns && !was) {
+      stageStarted = true;
+      endVideoStart();
+    }
     switch (event.type) {
-      case "playing":
-        stageRuns = true;
-        stageStarted = true;
-        endVideoStart();
+      case "canplay":
+      case "timeupdate":
+        if (stageRuns === was) return; // nothing changed
         break;
       case "pause":
-        // The pause at the end of a pass that wraps, which visual.ts plays
-        // on from its restart point, stops nothing: the sound wrapped too.
-        if (el.ended && (stage?.pass()?.restart ?? null) !== null) return;
-        stageRuns = false;
+        if (stageRuns) return; // a wrap's
+        videoPausedAt = el.currentTime;
         break;
       case "waiting":
-        if (el.seeking) return; // a seek's: it lands and runs on
-        stageRuns = false;
+        if (stageRuns) return; // a seek's: it lands and runs on
         break;
       case "seeking":
         // No frame shown before it lands is judged, nor teaches the lead
@@ -1383,52 +1469,56 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
 
   // --- the unlock and the hint ---------------------------------------------------
   function updateHint(): void {
-    const waiting = settings.soundOn && refused && !unlocked;
+    hint.hidden = !gate().hint;
+    // An app's refused context waits out its grace first: look again then.
     const early = HINT_GRACE_MS - (now() - mountedAt);
-    if (waiting && early > 0 && hintTimer === undefined) {
+    if (inApp && refused && early > 0 && hintTimer === undefined) {
       hintTimer = setTimeout(() => {
         hintTimer = undefined;
         updateHint();
       }, early);
     }
-    hint.hidden = !(waiting && early <= 0);
   }
 
-  function updateVoiceAudible(): void {
+  /** The hook's `data-unlocked`, an audible voice and the hint follow the gate. */
+  function updateUnlock(): void {
+    const { mayPlay } = gate();
+    hook.dataset.unlocked = String(mayPlay);
     machine.setVoiceAudible(
-      settings.soundOn && settings.voiceVolume > 0 && unlocked,
+      settings.soundOn && settings.voiceVolume > 0 && mayPlay,
     );
+    updateHint();
   }
+  updateUnlock();
 
+  let contextRuns = false;
   ctx.addEventListener("statechange", () => {
     const running = ctx.state === "running";
-    if (running !== unlocked) {
-      unlocked = running;
-      hook.dataset.unlocked = String(running);
-      updateVoiceAudible();
+    if (running !== contextRuns) {
+      contextRuns = running;
       if (running) scheduleWarm();
     }
+    updateUnlock();
     sync();
   });
 
   const GESTURES = ["keydown", "mousedown", "touchend"] as const;
 
   /**
-   * Inside each key or click that counts as a user activation: resumes the
-   * context when it is not running, and then what should sound starts, in
-   * this same handler. Esc and a Cmd/Ctrl/Alt shortcut are no activation by
-   * the HTML rules, so they do neither (in Chrome a resume they asked for
-   * would only log a warning).
+   * Inside each key or click that counts as a user activation
+   * (`gestureCounts`): the first unlocks sound in a browser (`soundUnlock`),
+   * and each resumes the context when it is not running, and then what
+   * should sound starts, in this same handler. Esc and a Cmd/Ctrl/Alt
+   * shortcut are no activation by the HTML rules, so they do neither (in
+   * Chrome a resume they asked for would only log a warning).
    */
   function onGesture(event: Event): void {
     if (!event.isTrusted) return;
     const key = event.type === "keydown" ? (event as KeyboardEvent) : null;
-    const counts =
-      key === null ||
-      !(key.key === "Escape" || key.metaKey || key.ctrlKey || key.altKey);
-    if (!counts) return;
+    if (!gestureCounts(key)) return;
     const first = !blessed;
     blessed = true;
+    if (first) updateUnlock();
     // Later keys matter only if something stopped the context since.
     if (!first && ctx.state === "running") return;
     if (ctx.state !== "running") ctx.resume().catch(() => undefined);
@@ -1544,8 +1634,7 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
       settings = { ...next };
       if (wasOn !== settings.soundOn) director.setSoundOn(settings.soundOn);
       setGroups();
-      updateHint();
-      updateVoiceAudible();
+      updateUnlock();
       sync();
     },
     setVideo(next) {
@@ -1562,6 +1651,7 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
           video.ended = false;
         }
         videoJoin = true;
+        videoPausedAt = null;
         cancelRestart();
       }
       if (before !== after || next?.plays !== true) {

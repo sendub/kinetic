@@ -25,6 +25,7 @@ import {
   fadeLevel,
   followVideo,
   gainStages,
+  gestureCounts,
   groupVolume,
   holdFade,
   learnSeekLead,
@@ -38,16 +39,24 @@ import {
   SAMPLE_MS,
   SEEK_LEARN_FRAMES,
   SEEK_LEARN_STEP_S,
+  SEEK_LEARN_UP_S,
   SFX_POOL_SIZE,
   type SoundOutput,
   sampleTrack,
   seekMovesSound,
+  shownAfter,
+  soundUnlock,
+  stageRunsAfter,
   still,
+  VIDEO_FRAME_GAP_MS,
+  VIDEO_FRAME_JITTER_S,
+  VIDEO_RESTART_ARM_MS,
   VIDEO_SEEK_MAX_S,
   VIDEO_SEEK_S,
   VIDEO_SETTLE_MS,
   VIDEO_SYNC_S,
   videoDrift,
+  videoResumeTarget,
   videoSoundPlan,
   videoSoundStart,
 } from "./audiorules";
@@ -170,6 +179,80 @@ describe("what may sound under the screens over the story", () => {
       false,
     );
     expect(sample({ esc: true, volumesOpen: true, hidden: true })).toBe(false);
+  });
+});
+
+describe("the unlock (item 5): in a browser nothing plays before a key or click that counts", () => {
+  const key = (
+    k: string,
+    mods: Partial<Record<"metaKey" | "ctrlKey" | "altKey", boolean>> = {},
+  ) => ({
+    key: k,
+    metaKey: false,
+    ctrlKey: false,
+    altKey: false,
+    ...mods,
+  });
+  const base = {
+    inApp: false,
+    gestured: false,
+    contextRuns: false,
+    soundOn: true,
+    refused: false,
+    graceOver: true,
+  };
+
+  it("counts a click and any key but Esc and a Cmd, Ctrl or Alt shortcut", () => {
+    expect(gestureCounts(null)).toBe(true); // a click or a touch
+    expect(gestureCounts(key(" "))).toBe(true);
+    expect(gestureCounts(key("z"))).toBe(true);
+    expect(gestureCounts(key("Escape"))).toBe(false);
+    expect(gestureCounts(key("c", { metaKey: true }))).toBe(false);
+    expect(gestureCounts(key("r", { ctrlKey: true }))).toBe(false);
+    expect(gestureCounts(key("Tab", { altKey: true }))).toBe(false);
+  });
+
+  it("in a browser plays nothing before that gesture, even with the context running (WebKit ran one on its own, 2026-11-13), and shows the hint meanwhile", () => {
+    expect(soundUnlock({ ...base, contextRuns: true })).toEqual({
+      mayPlay: false,
+      mayStart: false,
+      hint: true,
+    });
+    expect(soundUnlock(base)).toEqual({
+      mayPlay: false,
+      mayStart: false,
+      hint: true,
+    });
+    // The gesture: sound may play, its sources start (the context runs a
+    // moment later), and the hint goes.
+    expect(soundUnlock({ ...base, gestured: true })).toEqual({
+      mayPlay: true,
+      mayStart: true,
+      hint: false,
+    });
+    // Sound off: no hint.
+    expect(soundUnlock({ ...base, soundOn: false }).hint).toBe(false);
+  });
+
+  it("in a game app plays as soon as its context runs, with no hint, unless the context is refused", () => {
+    const app = { ...base, inApp: true };
+    expect(soundUnlock({ ...app, contextRuns: true })).toEqual({
+      mayPlay: true,
+      mayStart: true,
+      hint: false,
+    });
+    // Not running yet: it may play, but nothing starts until it runs.
+    expect(soundUnlock(app)).toEqual({
+      mayPlay: true,
+      mayStart: false,
+      hint: false,
+    });
+    // WebView2 refusing: the hint, as in a browser, once the grace is over.
+    expect(soundUnlock({ ...app, refused: true }).hint).toBe(true);
+    expect(soundUnlock({ ...app, refused: true, graceOver: false }).hint).toBe(
+      false,
+    );
+    expect(soundUnlock({ ...app, gestured: true }).mayStart).toBe(true);
   });
 });
 
@@ -492,8 +575,8 @@ describe("a video's sound on the audio clock (item 19)", () => {
   });
 
   it("seeks the video to its restart point a seek's landing before the sound wraps, timed to that moment from the last frame before it", () => {
-    // Further off than a frame: nothing yet.
-    expect(look(7.9, { time: 7.9 })).toEqual({ step: "none" });
+    // Further off than `VIDEO_RESTART_ARM_MS`: nothing yet.
+    expect(look(7.5, { time: 7.5 })).toEqual({ step: "none" });
     // The last frame before the moment: a restart set for it.
     const due = look(8 - VIDEO_SEEK_S - 0.01, { time: 7.95 });
     expect(due.step).toBe("restart");
@@ -507,6 +590,55 @@ describe("a video's sound on the audio clock (item 19)", () => {
     expect(look(8 - VIDEO_SEEK_S, { time: 8 - VIDEO_SEEK_S - 0.07 }).step).toBe(
       "restart",
     );
+  });
+
+  it("sets the restart up to `VIDEO_RESTART_ARM_MS` ahead, on a timer, so a frame that comes late on a busy page cannot make it late", () => {
+    const ahead = look(8 - VIDEO_SEEK_S - 0.2, { time: 7.75 });
+    expect(ahead.step).toBe("restart");
+    expect(ahead.step === "restart" && ahead.inMs).toBeCloseTo(200, 6);
+    // Further than that: not yet.
+    expect(
+      look(8 - VIDEO_SEEK_S - (VIDEO_RESTART_ARM_MS + 20) / 1000, {
+        time: 7.6,
+      }),
+    ).toEqual({ step: "none" });
+  });
+
+  it("knows the stage's video runs from its state on any of its events, not only its `playing`, which WebKit can leave out after a seek during a `waiting`", () => {
+    const running = {
+      paused: false,
+      ended: false,
+      seeking: false,
+      readyState: 4,
+    };
+    expect(stageRunsAfter(false, "playing", running, true)).toBe(true);
+    // WebKit: play, waiting, seeking, seeked, then it ran with no playing
+    // (1 run in 20 four at a time, 2026-11-13).
+    expect(stageRunsAfter(false, "seeked", running, true)).toBe(true);
+    expect(stageRunsAfter(false, "timeupdate", running, true)).toBe(true);
+    expect(
+      stageRunsAfter(false, "seeked", { ...running, readyState: 1 }, true),
+    ).toBe(false);
+    expect(
+      stageRunsAfter(false, "seeked", { ...running, paused: true }, true),
+    ).toBe(false);
+    // A pause stops it, but the pause at the end of a pass that wraps.
+    expect(
+      stageRunsAfter(true, "pause", { ...running, paused: true }, true),
+    ).toBe(false);
+    expect(
+      stageRunsAfter(
+        true,
+        "pause",
+        { ...running, paused: true, ended: true },
+        true,
+      ),
+    ).toBe(true);
+    // A stall stops it, but a seek's.
+    expect(stageRunsAfter(true, "waiting", running, true)).toBe(false);
+    expect(
+      stageRunsAfter(true, "waiting", { ...running, seeking: true }, true),
+    ).toBe(true);
   });
 
   it("never sends a video to its restart point that already went there, plays once, or does not run", () => {
@@ -564,18 +696,34 @@ describe("a video's sound on the audio clock (item 19)", () => {
     expect(videoDrift(loop, 7.98, 4.01)).toBeCloseTo(-0.03, 9);
   });
 
-  it("resumes a paused sound where it stopped while its video stands within 80 ms; else starts it where the video is (a seek, a jump, the unlock)", () => {
+  it("resumes a paused sound where it stopped, however far its video stands, and sends the video there; a sound with nothing to resume starts where the video is (a seek, a jump, the unlock)", () => {
     // A menu: both stopped together; the sound plays on from its place.
     expect(videoSoundStart(loop, 5.3123, 5.3)).toBe(5.3123);
     expect(videoSoundStart(loop, 7.995, 4.01)).toBe(7.995); // across a wrap
-    // The video moved while the sound stood: the sound goes to it.
-    expect(videoSoundStart(loop, 5.3, 6.4)).toBe(6.4);
-    // Nothing to resume (the first start, a seek): where the video is,
-    // inside the loop.
+    // The video 90 ms behind as the map paused both (Chrome at load 20-33,
+    // 2026-11-13): the sound is the master and plays on from its place.
+    expect(videoSoundStart(loop, 5.4617, 5.3716)).toBe(5.4617);
+    expect(videoSoundStart(loop, 5.3, 6.4)).toBe(5.3);
+    // Nothing to resume (the first start, a seek, the unlock): where the
+    // video is, inside the loop.
     expect(videoSoundStart(loop, null, 5.2)).toBe(5.2);
     expect(videoSoundStart(loop, null, 8.02)).toBeCloseTo(4.02, 9);
     // Where a pause leaves it is where it stood (playPosition).
     expect(playPosition(loop, 7.5, 0.75)).toBeCloseTo(4.25, 9);
+    // The video goes to the sound when it stands past the frames' bound
+    // from where the sound is heard as its seek lands...
+    expect(videoResumeTarget(loop, 5.4617, 5.3716)).toBe(5.4617);
+    expect(videoResumeTarget(loop, 5.3, 6.4)).toBe(5.3);
+    // ...and stays where it is when it is near enough, across a wrap too.
+    expect(videoResumeTarget(loop, 5.3123, 5.3)).toBeNull();
+    expect(videoResumeTarget(loop, 4.01, 7.97)).toBeNull();
+    expect(
+      videoResumeTarget(
+        loop,
+        5.3,
+        5.3 - VIDEO_SYNC_S + VIDEO_FRAME_JITTER_S + 0.002,
+      ),
+    ).toBeNull();
   });
 
   it("judges the drift on the frames the video last showed, against the sound heard as each showed: their median, so a frame shown late does not count and frames that jitter about a drift past the bound do", () => {
@@ -604,8 +752,46 @@ describe("a video's sound on the audio clock (item 19)", () => {
     const jitter = look([0.082, 0.089, 0.079]);
     expect(jitter.step).toBe("seek");
     expect(look([0.089, 0.079, 0.085]).step).toBe("seek");
-    // Too few frames since the last seek landed: none yet.
-    expect(look([0.09, 0.09])).toEqual({ step: "none" });
+    // So frames are kept a vsync inside the bound: 76 ms on average shows
+    // one frame in three past 80 (Chrome at load 26, 2026-11-13).
+    expect(look([0.069, 0.076, 0.082]).step).toBe("seek");
+    expect(look([0.08 - VIDEO_FRAME_JITTER_S - 0.002, 0.065, 0.068])).toEqual({
+      step: "none",
+    });
+    // Since a seek landed or the video went a while without a frame, every
+    // frame shown far off is a landing or a stall, not a late frame: sought
+    // at once (the browser's seeks took 99-139 ms to land at load average
+    // 17, so a restart showed 104 ms behind, 2026-11-13).
+    expect(look([-0.104]).step).toBe("seek");
+    expect(look([-0.104, -0.116]).step).toBe("seek");
+    expect(look([-0.104, 0.01])).toEqual({ step: "none" });
+    expect(look([0.079]).step).toBe("seek");
+    expect(look([0.08 - VIDEO_FRAME_JITTER_S - 0.002])).toEqual({
+      step: "none",
+    });
+  });
+
+  it("starts the frames judged afresh after the video went a while without showing one: their drift then is the stall's", () => {
+    let shown = shownAfter(null, -0.01, 1000);
+    shown = shownAfter(shown, -0.012, 1040);
+    shown = shownAfter(shown, -0.011, 1080);
+    shown = shownAfter(shown, -0.009, 1120);
+    expect(shown.offs).toEqual([-0.012, -0.011, -0.009]);
+    // 820 ms without a frame, then one 746 ms behind (Chrome at load 13).
+    shown = shownAfter(shown, -0.746, 1940);
+    expect(shown.offs).toEqual([-0.746]);
+    expect(
+      followVideo({
+        plan: loop,
+        heard: 5.1,
+        video: { ...RUNS, time: 5.1 },
+        shown,
+        frameMs: FRAME_MS,
+      }).step,
+    ).toBe("seek");
+    // A frame due a little late is no stall.
+    shown = shownAfter(shown, -0.74, 1940 + VIDEO_FRAME_GAP_MS);
+    expect(shown.offs).toEqual([-0.746, -0.74]);
   });
 
   it("seeks as far ahead as its seeks are learnt to take to land", () => {
@@ -628,23 +814,31 @@ describe("a video's sound on the audio clock (item 19)", () => {
     expect(drift.step === "seek" && drift.to).toBeCloseTo(5.19, 9);
   });
 
-  it("learns how long a seek takes to land from the frames a restart shows once it runs: later frames than the sound move the lead up, earlier ones down, within its bounds", () => {
+  it("learns how long a seek takes to land from the frames a restart shows once it runs: a lead too short grows slowly, one too long shrinks at once, within its bounds", () => {
     const frames = (off: number) => Array(SEEK_LEARN_FRAMES).fill(off);
-    // Behind by 30 ms: the next seek starts 24 ms sooner.
-    expect(learnSeekLead(0.04, frames(-0.03))).toBeCloseTo(0.064, 9);
-    // Ahead by 20 ms: 16 ms later.
+    // Behind by 30 ms: the next seek starts sooner, by at most
+    // `SEEK_LEARN_UP_S`. Under load the browser's seeks land in 20-30 ms or
+    // 90-140 ms (2026-11-13): a lead grown to the slow ones lands a fast
+    // seek 90 ms early, where a slow seek's late landing is put right at
+    // once (`followVideo`).
+    expect(learnSeekLead(0.04, frames(-0.03))).toBeCloseTo(
+      0.04 + SEEK_LEARN_UP_S,
+      9,
+    );
+    expect(learnSeekLead(0.04, frames(-0.005))).toBeCloseTo(0.044, 9);
+    // Ahead by 20 ms: 16 ms later; by 100 ms, `SEEK_LEARN_STEP_S` later.
     expect(learnSeekLead(0.04, frames(0.02))).toBeCloseTo(0.024, 9);
+    expect(learnSeekLead(0.1, frames(0.1))).toBeCloseTo(
+      0.1 - SEEK_LEARN_STEP_S,
+      9,
+    );
     // The median: one frame held back does not count.
     expect(
       learnSeekLead(0.04, [0, 0, 0.3, 0].slice(0, SEEK_LEARN_FRAMES)),
     ).toBeCloseTo(0.04, 9);
-    // At most `SEEK_LEARN_STEP_S` a restart, within 0 and the most.
-    expect(learnSeekLead(0.04, frames(-0.5))).toBeCloseTo(
-      0.04 + SEEK_LEARN_STEP_S,
-      9,
-    );
+    // Within 0 and the most.
     expect(learnSeekLead(0.01, frames(0.2))).toBe(0);
-    expect(learnSeekLead(VIDEO_SEEK_MAX_S - 0.01, frames(-0.5))).toBe(
+    expect(learnSeekLead(VIDEO_SEEK_MAX_S - 0.005, frames(-0.5))).toBe(
       VIDEO_SEEK_MAX_S,
     );
     // Too few frames teach nothing.
@@ -841,9 +1035,9 @@ describe("a video's sound on the audio clock (item 19)", () => {
     ).not.toEqual([]);
   });
 
-  it("learns how long its seeks take to land: in an engine whose seeks land 90 ms late, every restart click is within a frame of its hit from the third wrap on; a fixed lead leaves each a seek late", () => {
+  it("learns how long its seeks take to land: in an engine whose seeks always land 90 ms late, every restart click is within a frame of its hit from the sixth wrap on, the lead grown `SEEK_LEARN_UP_S` a wrap; a fixed lead leaves each a seek late", () => {
     const late = (hits: readonly Hit[]) =>
-      hits.filter((h) => h.at > 6000 + 4000 * 2 + 500);
+      hits.filter((h) => h.at > 6000 + 4000 * 5 - 500);
     expect(wrong(late(clicksOnHits({ rate: 1, gap: 0.09 })), 16)).toEqual([]);
     expect(
       wrong(late(clicksOnHits({ rate: 1, gap: 0.09, fixedLead: true })), 16),

@@ -61,10 +61,19 @@ export const VIDEO_SEEK_MAX_S = 0.25;
  */
 export const SEEK_LEARN_FRAMES = 4;
 /**
- * The most one restart moves a seek's lead: a run the engine held back
+ * The most one restart shortens a seek's lead: a run the engine held back
  * once (a load spike) moves it only so far.
  */
 export const SEEK_LEARN_STEP_S = 0.03;
+/**
+ * The most one restart lengthens a seek's lead. Under load the browser's
+ * seeks land in 20-30 ms or 90-140 ms, by turns (Chrome at load average 20,
+ * 2026-11-13): a lead grown to the slow ones lands each fast seek up to
+ * 90 ms early, where a slow seek's late landing is put right at once
+ * (`followVideo`). Grown slowly, it follows a browser that is slow every
+ * time in a few wraps.
+ */
+export const SEEK_LEARN_UP_S = 0.01;
 /**
  * How many of the latest frames shown the drift is judged on, as their
  * median: one frame shown late is a moment the engine was late (twice in
@@ -75,6 +84,30 @@ export const SEEK_LEARN_STEP_S = 0.03;
  * counts. Three at 25 fps are 120 ms.
  */
 export const VIDEO_STRAY_FRAMES = 3;
+/**
+ * How long the video may go without showing a frame before the next one is
+ * judged afresh (`shownAfter`): a stall, not a frame shown late. A 25 fps
+ * video shows one every 40 ms, a frame dropped makes 80; Chrome at load
+ * average 13 showed none for 820 ms (2026-11-13).
+ */
+export const VIDEO_FRAME_GAP_MS = 150;
+/**
+ * How far a frame shown may stray from its video's drift: a 25 fps video
+ * on a 60 Hz screen shows each frame on the vsync after its time, up to
+ * 17 ms late, so frames of one steady drift scatter over 10-15 ms (69, 76
+ * and 82 ms in a row, Chrome at load 26, 2026-11-13). Judged on frames, the
+ * video is sought once its drift passes `VIDEO_SYNC_S` less this, so every
+ * frame stays within `VIDEO_SYNC_S`.
+ */
+export const VIDEO_FRAME_JITTER_S = 0.01;
+/**
+ * How far ahead of its moment the restart before a wrap is set on a timer
+ * (`followVideo`): set on the last frame before it, a frame that came late
+ * on a busy page made it late (a restart 94 ms behind its sound, Chrome at
+ * load 13-18, 2026-11-13); set this far ahead only the timer's own
+ * lateness is left, which render/audio.ts records for the test hook.
+ */
+export const VIDEO_RESTART_ARM_MS = 300;
 /**
  * How long after a seek of the video lands its distance from the sound is
  * left unjudged, in an engine that reports no frames (judged on the frames
@@ -167,6 +200,59 @@ export function maySound(slot: AudioSlot, gate: SoundGate): boolean {
     );
   }
   return !(gate.map && slot === "voice");
+}
+
+/**
+ * Whether a key or click unlocks sound (docs/plan.md Phase 47, item 5):
+ * any click or touch (`key` null), and any key but Esc and a Cmd, Ctrl or
+ * Alt shortcut, which by the HTML rules are no user activation.
+ */
+export function gestureCounts(
+  key: {
+    readonly key: string;
+    readonly metaKey: boolean;
+    readonly ctrlKey: boolean;
+    readonly altKey: boolean;
+  } | null,
+): boolean {
+  return (
+    key === null ||
+    !(key.key === "Escape" || key.metaKey || key.ctrlKey || key.altKey)
+  );
+}
+
+/**
+ * The sound's unlock (item 5: "in a browser, nothing plays after a reload
+ * before a gesture"; the apps play at launch). `inApp`: a game app's host
+ * bridge was on the page at mount; `gestured`: a key or click that counts
+ * (`gestureCounts`) came; `contextRuns`: the AudioContext runs; `refused`:
+ * something wanted to sound and could not; `graceOver`: the app's context
+ * has had its time to start on its own.
+ * - `mayPlay` (the hook's `data-unlocked`, an audible voice): a gesture
+ *   came, or the page is in an app.
+ * - `mayStart` (a source may start now): a gesture came (the context runs a
+ *   moment after it resumes it), or in an app the context runs. In a
+ *   browser a context running before the gesture plays nothing: the WebKit
+ *   test driver with the key rule ran one on its own (2026-11-13).
+ * - `hint` ("Press any key for sound"): sound on, and in a browser until
+ *   the gesture; in an app only while its context, refused, does not run.
+ */
+export function soundUnlock(now: {
+  inApp: boolean;
+  gestured: boolean;
+  contextRuns: boolean;
+  soundOn: boolean;
+  refused: boolean;
+  graceOver: boolean;
+}): { mayPlay: boolean; mayStart: boolean; hint: boolean } {
+  const { inApp, gestured, contextRuns } = now;
+  return {
+    mayPlay: gestured || inApp,
+    mayStart: gestured || (inApp && contextRuns),
+    hint:
+      now.soundOn &&
+      (inApp ? now.refused && !contextRuns && now.graceOver : !gestured),
+  };
 }
 
 /**
@@ -417,25 +503,37 @@ export function videoDrift(plan: PlayPlan, video: number, sound: number) {
 
 /**
  * Where a video's sound starts playing (item 19): where it stopped
- * (`stoppedAt`, its `playPosition` then), when its video stands within
- * `VIDEO_SYNC_S` of it as the sound is heard (`videoAt`), so a pause of
- * both resumes in place with neither a gap nor a repeat; else where the
- * video is (a seek or a jump into the video, a sound that never played, the
- * unlock while the video plays). A time past a loop's end is inside the
- * loop.
+ * (`stoppedAt`, its `playPosition` then), however far its video stands,
+ * as the sound is the master: a pause of both resumes in place with
+ * neither a gap nor a repeat, and the video is sent to it
+ * (`videoResumeTarget`). With nothing to resume (null: a seek or a jump
+ * into the video, a sound that never played, the unlock while the video
+ * plays alone) where the video is as the sound is heard (`videoAt`). A
+ * time past a loop's end is inside the loop.
  */
 export function videoSoundStart(
   plan: PlayPlan,
   stoppedAt: number | null,
   videoAt: number,
 ): number {
-  if (
-    stoppedAt !== null &&
-    Math.abs(videoDrift(plan, videoAt, stoppedAt)) <= VIDEO_SYNC_S
-  ) {
-    return stoppedAt;
-  }
-  return playPosition(plan, videoAt, 0);
+  return stoppedAt ?? playPosition(plan, videoAt, 0);
+}
+
+/**
+ * Where a video is sought as its sound resumes in place (`videoSoundStart`):
+ * where the sound is heard as the seek lands (`heard`), when the video
+ * would then stand (`videoAt`) more than `VIDEO_SYNC_S` less
+ * `VIDEO_FRAME_JITTER_S` from it, the bound frames are judged on
+ * (`followVideo`); null when it is near enough. Under load a menu paused
+ * the video 82-113 ms behind its sound (2026-11-13).
+ */
+export function videoResumeTarget(
+  plan: PlayPlan,
+  heard: number,
+  videoAt: number,
+): number | null {
+  const bound = VIDEO_SYNC_S - VIDEO_FRAME_JITTER_S;
+  return Math.abs(videoDrift(plan, videoAt, heard)) > bound ? heard : null;
 }
 
 /**
@@ -461,6 +559,51 @@ export function seekMovesSound(
   return Math.abs(videoDrift(plan, to, soundAt)) > VIDEO_SYNC_S;
 }
 
+/** What `stageRunsAfter` reads of the stage's video element. */
+export interface StageVideoState {
+  readonly paused: boolean;
+  readonly ended: boolean;
+  readonly seeking: boolean;
+  readonly readyState: number;
+}
+
+/** HTMLMediaElement.HAVE_FUTURE_DATA: enough to play on. */
+const HAVE_FUTURE_DATA = 3;
+
+/**
+ * Whether the stage's video really plays after its `event` (render/
+ * audio.ts: its sound plays only then), from whether it did (`runs`) and
+ * the element's state then. `playing` starts it; a `pause` stops it, but
+ * the pause at the end of a pass that `wraps`; a `waiting` stops it, but a
+ * seek's. Any other event starts it if the element plays on with data to
+ * play: WebKit can leave `playing` out, after `play`, `waiting`, a seek and
+ * its `seeked` (1 run in 20, four at a time, 2026-11-13), and the sound
+ * then never joined.
+ */
+export function stageRunsAfter(
+  runs: boolean,
+  event: string,
+  el: StageVideoState,
+  wraps: boolean,
+): boolean {
+  switch (event) {
+    case "playing":
+      return true;
+    case "pause":
+      return el.ended && wraps ? runs : false;
+    case "waiting":
+      return el.seeking ? runs : false;
+    default:
+      return (
+        runs ||
+        (!el.paused &&
+          !el.ended &&
+          !el.seeking &&
+          el.readyState >= HAVE_FUTURE_DATA)
+      );
+  }
+}
+
 /** What one look at a video and its sound asks for (`followVideo`). */
 export type VideoStep =
   | { readonly step: "none" }
@@ -482,15 +625,20 @@ const NO_STEP: VideoStep = { step: "none" };
  * it last landed, against where the sound was heard as it showed, oldest
  * first. `lead` is how long a seek takes to land (`learnSeekLead`,
  * `VIDEO_SEEK_S` by default).
- * - A pass that wraps: on the last look before the moment a seek must start
- *   to land as the sound wraps (`lead` before it), a restart timed to that
- *   moment, unless the video is already back in the first half of its
- *   pass.
+ * - A pass that wraps: within `VIDEO_RESTART_ARM_MS` of the moment a seek
+ *   must start to land as the sound wraps (`lead` before it), a restart
+ *   timed to that moment, unless the video is already back in the first
+ *   half of its pass.
  * - Otherwise, a video more than `VIDEO_SYNC_S` from its sound, the short
  *   way round a loop, is sought to where the sound will be heard as the
- *   seek lands; judged on the frames shown when there are (the median of
- *   the last `VIDEO_STRAY_FRAMES`, none until that many have shown), else
- *   on its clock; none while a seek of it lands.
+ *   seek lands; judged on the frames shown when there are, else on its
+ *   clock; none while a seek of it lands. On frames the bound is
+ *   `VIDEO_FRAME_JITTER_S` tighter, so every frame stays within
+ *   `VIDEO_SYNC_S`: in steady play the median of the last
+ *   `VIDEO_STRAY_FRAMES` is judged, so one frame shown late does not count;
+ *   in the first frames after a seek landed or a stall (`shownAfter`), the
+ *   video is sought as soon as every frame shown since is past it, as that
+ *   is where the seek or the stall left the video.
  */
 export function followVideo(now: {
   plan: PlayPlan;
@@ -507,30 +655,55 @@ export function followVideo(now: {
   if (plan.loops && span > 0) {
     const inMs = (plan.endSeconds - heard - lead) * 1000;
     const late = video.time > plan.endSeconds - span / 2;
-    if (inMs < now.frameMs && late) {
+    if (inMs < Math.max(now.frameMs, VIDEO_RESTART_ARM_MS) && late) {
       return { step: "restart", inMs: Math.max(0, inMs) };
     }
   }
   if (video.settling) return NO_STEP;
   const { shown } = now;
   let off = videoDrift(plan, video.time, heard);
+  let bound = VIDEO_SYNC_S;
   if (shown != null) {
-    if (shown.offs.length < VIDEO_STRAY_FRAMES) return NO_STEP;
+    bound = VIDEO_SYNC_S - VIDEO_FRAME_JITTER_S;
+    if (shown.offs.length === 0) return NO_STEP;
+    if (shown.offs.length < VIDEO_STRAY_FRAMES) {
+      const astray = shown.offs.every((o) => Math.abs(o) > bound);
+      return astray
+        ? { step: "seek", to: playPosition(plan, heard, lead) }
+        : NO_STEP;
+    }
     const last = [...shown.offs.slice(-VIDEO_STRAY_FRAMES)].sort(
       (a, b) => a - b,
     );
     off = last[Math.floor(last.length / 2)];
   }
-  if (Math.abs(off) <= VIDEO_SYNC_S) return NO_STEP;
+  if (Math.abs(off) <= bound) return NO_STEP;
   return { step: "seek", to: playPosition(plan, heard, lead) };
+}
+
+/**
+ * The frames `followVideo` judges after one more shows at page time `at`
+ * with drift `off`: the latest `VIDEO_STRAY_FRAMES`, started afresh when
+ * the video showed none for more than `VIDEO_FRAME_GAP_MS` (a stall). The
+ * caller starts them afresh too when a seek of the video lands.
+ */
+export function shownAfter(
+  prev: { offs: readonly number[]; at: number } | null,
+  off: number,
+  at: number,
+): { offs: number[]; at: number } {
+  const keep =
+    prev !== null && at - prev.at <= VIDEO_FRAME_GAP_MS ? prev.offs : [];
+  return { offs: [...keep, off].slice(-VIDEO_STRAY_FRAMES), at };
 }
 
 /**
  * A seek's lead after a restart (`followVideo`), from `offs`, the drift
  * (video less sound, seconds, `videoDrift`) of the `SEEK_LEARN_FRAMES`
- * frames its run showed after the seek's own: the lead grows by 0.8 of how
- * far they lagged (their median, so one frame held back does not count),
- * as in item 16's trial, by at most `SEEK_LEARN_STEP_S`, within 0 and
+ * frames its run showed after the seek's own: the lead moves by 0.8 of how
+ * far they lagged or led (their median, so one frame held back does not
+ * count), as in item 16's trial, growing by at most `SEEK_LEARN_UP_S` and
+ * shrinking by at most `SEEK_LEARN_STEP_S`, within 0 and
  * `VIDEO_SEEK_MAX_S`. Fewer frames teach nothing.
  */
 export function learnSeekLead(lead: number, offs: readonly number[]) {
@@ -541,7 +714,7 @@ export function learnSeekLead(lead: number, offs: readonly number[]) {
     ? (sorted[mid - 1] + sorted[mid]) / 2
     : sorted[Math.floor(mid)];
   const step = Math.min(
-    SEEK_LEARN_STEP_S,
+    SEEK_LEARN_UP_S,
     Math.max(-SEEK_LEARN_STEP_S, -0.8 * median),
   );
   return Math.min(VIDEO_SEEK_MAX_S, Math.max(0, lead + step));
