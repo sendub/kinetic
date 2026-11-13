@@ -20,6 +20,9 @@ decision; this file is the practical sheet.
   "Audio"). A hand-made folder may keep them anywhere inside it;
   kinetic-extract and kinetic-media put every one under
   `media/<h[:2]>/<h>.<ext>`, named by its content.
+- Beside each audio track file, its script `<file>.js`, which hands the
+  player the file's bytes without a fetch (docs/content-format.md, "The
+  script beside each audio file").
 - Unreferenced extras the converter leaves behind (such as
   `build-ledger.json`), which the player and the validator ignore.
 - Optionally `<title>.app`, the macOS app that plays the folder, and
@@ -46,8 +49,9 @@ identical folder shape:
 
 The output folder holds exactly what the script places: the current
 bundle from `player/dist/` (a stale `index.html` or `app.js` inside the
-content folder is ignored), the content files, and a generated
-`manifest.js` when the content has only `manifest.json`. A non-empty
+content folder is ignored), the content files, a generated
+`manifest.js` when the content has only `manifest.json`, and a
+generated script for each audio track file that has none. A non-empty
 output is refused unless `--force` replaces it. The script prints the
 file count and total size. Check the result with the validator; a clean
 run exits 0:

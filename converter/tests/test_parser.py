@@ -7,7 +7,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from helpers import is_content_addressed
+from helpers import encoded_tracks, is_content_addressed, mask_tracks
 from kinetic_extract.cli import main as cli_main
 from kinetic_extract.parser import parse_file
 
@@ -28,7 +28,13 @@ def load_ledger(tmp_path: Path) -> dict:
 
 def test_golden_manifest(tmp_path: Path) -> None:
     manifest = extract(tmp_path)
-    assert manifest == json.loads(GOLDEN.read_text("utf-8"))
+    golden = json.loads(GOLDEN.read_text("utf-8"))
+    # The looping MP3 music and the movie's MP3 soundtrack are encoded to
+    # AAC: compared by format here, by recipe and length in
+    # test_audio_ship.
+    encoded = encoded_tracks(manifest, load_ledger(tmp_path))
+    assert encoded == {"theme", "theme-2", "talk"}
+    assert mask_tracks(manifest, encoded) == mask_tracks(golden, encoded)
 
 
 def test_movie_item_gets_duration_via_ffprobe(tmp_path: Path) -> None:

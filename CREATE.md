@@ -26,6 +26,7 @@ my-novel/
   *.jpg, *.mp4     # media, named per the conventions shown below
                    # (optionally under a subfolder: media/ab/window-004.jpg)
   *.m4a, *.mp3     # sound, if the game has any (Sound, below)
+  *.m4a.js         # beside each sound file, its bytes as a script
 ```
 
 `index.html` and `app.js` are the player bundle, copied in as the last
@@ -322,14 +323,45 @@ sample:
 ffmpeg -i rain.ogg -map 0:a:0 -c:a copy rain.webm
 ```
 
+A track that loops (music, unless it sets `loop: false`; ambience; a
+video's `videoSound`) belongs in AAC (`.m4a`), Vorbis in WebM, WAV or
+FLAC. MP3 and Opus in WebM decode with their start shifted in WebKit or
+Chrome, so such a loop may click at each wrap, and the validator warns
+(docs/content-format.md, "Loop-safe formats"). Re-encode such a loop,
+here an MP3, to AAC:
+
+```sh
+ffmpeg -i theme.mp3 -map 0:a:0 -c:a aac -b:a 192k theme.m4a
+```
+
+One-shots and voice lines can stay MP3 or Opus.
+
+Beside each sound file the folder needs its script, `<file>.js`: the
+player reads the file's bytes from it, because a browser fetches nothing
+over `file://` (docs/content-format.md, "The script beside each audio
+file"). `tools/assemble_folder.py` writes every missing one when it
+assembles the folder (Playing the folder, below). To write them
+yourself, run this inside the content folder, naming each sound file as
+its track's `file` does:
+
+```sh
+for f in theme.m4a rain.webm door.mp3; do
+  printf '__kineticAudio("%s","%s");\n' "$f" "$(base64 < "$f" | tr -d '\n')" > "$f.js"
+done
+```
+
+Write it again after you change a sound file: the validator rejects a
+script that no longer holds its file's bytes.
+
 `durationSeconds` is the track's length as decoded; the player never
 reads the file's own. It sets how long a voice line holds auto-forward
 and where a track with a start or loop point loops. A header can misstate
 it: a VBR MP3's can be far off (docs/extracting.md, "Audio policy"), and
 ffprobe's `format=duration` read the demo's MP3 tracks 24-32 ms over and
 its WebM tracks 2-8 ms over. `kinetic-media ship` with `"kind": "audio"`
-requests measures it by decoding, and copies Ogg into WebM for you
-(Writing your own converter: kinetic-media ship, below).
+requests measures it by decoding, copies Ogg into WebM, ships a request
+with `"loops": true` in a loop-safe format and writes the scripts for
+you (Writing your own converter: kinetic-media ship, below).
 `fixtures/audio-demo`, built by `.venv/bin/python
 fixtures/build_audio_demo.py`, is a worked folder with every field.
 
@@ -411,9 +443,11 @@ problem count on stderr, and exits 1. The validator checks the schema
 plus the filesystem invariants in docs/content-format.md: every
 referenced file exists inside the folder, item ids are unique, each
 video's playback range fits inside its `durationSeconds`, every track an
-item names exists, and a present `manifest.js` embeds JSON equal to
-`manifest.json`. An Ogg track and a track no item uses each print a
-`warning:` line on stderr, which leaves the exit status alone.
+item names exists, each sound file has its script holding its bytes,
+and a present `manifest.js` embeds JSON equal to `manifest.json`. An
+Ogg track, a looping track in MP3 or Opus in WebM, and a track no item
+uses each print a `warning:` line on stderr, which leaves the exit
+status alone.
 
 ## Converting a Ren'Py project
 
@@ -508,7 +542,7 @@ cp player/dist/index.html player/dist/app.js ~/games/RainyDay-Kinetic/
    fixtures/renpy_demo:
 
    ```text
-   audio: 5 items carry sound; 6 tracks shipped (5 copy, 1 extract), 0 dropped
+   audio: 5 items carry sound; 6 tracks shipped (3 copy, 1 extract, 2 transcode), 0 dropped
    video soundtracks: 1 audible, 0 silent, 1 absent
    ```
 
@@ -680,9 +714,9 @@ be unique across episodes. A request list per episode,
    "source": {"path": "Ep1/game/data/bg-room.png"}},
   {"id": "ep1-clip", "kind": "video", "startSeconds": 0.5,
    "source": {"path": "Ep1/game/data/clip.mp4"}},
-  {"id": "ep1-rain", "kind": "audio",
+  {"id": "ep1-rain", "kind": "audio", "loops": true,
    "source": {"path": "Ep1/game/audio/rain.ogg"}},
-  {"id": "ep1-clip-sound", "kind": "audio",
+  {"id": "ep1-clip-sound", "kind": "audio", "loops": true,
    "source": {"path": "Ep1/game/data/clip.mp4"}}
 ]
 ```
@@ -692,10 +726,14 @@ A source inside an `.rpa` archive is
 video's poster is the frame at `startSeconds` (default 0). An `audio`
 request ships a sound file for a track by kinetic-extract's rule: MP3,
 M4A, WAV, FLAC and WebM as they are, Ogg Vorbis or Opus copied into
-WebM, anything else re-encoded to Opus in WebM. Its result's
-`durationSeconds` is measured by decoding the shipped file. An `audio`
-request of a video, here `ep1-clip-sound`, ships the video's own
-soundtrack, for that item's `videoSound`.
+WebM, anything else re-encoded to Opus in WebM. Give `"loops": true`
+for a track that loops (music, ambience, a video's sound): it then
+never ships as MP3 or Opus, which loop off their sample, and is
+re-encoded to AAC in M4A instead (docs/extracting.md, "Audio policy").
+Its result's `durationSeconds` is measured by decoding the shipped
+file, and its script ships beside it. An `audio` request of a video,
+here `ep1-clip-sound`, ships the video's own soundtrack, for that
+item's `videoSound`.
 `requests-ep2.json` lists episode 2's sources the same way. Ship each
 episode into the same folder, from the helper's folder:
 
@@ -1022,7 +1060,8 @@ cp player/dist/index.html player/dist/app.js my-novel/
 
 Or let `tools/assemble_folder.py <content-dir> <out-folder>` assemble a
 playable copy in one command: it copies the bundle and content, generates
-a missing `manifest.js`, and prints the folder size (docs/packaging.md).
+a missing `manifest.js` and the missing script of each sound file (Sound,
+above), and prints the folder size (docs/packaging.md).
 
 Run `npm run build` in `player/` first if the bundle is not current.
 
@@ -1631,6 +1670,14 @@ from the player; regenerate it only when you edit `manifest.json`
 (Generating manifest.js). The validator checks the folder against
 the newer rules; a clean run prints nothing. An app in the folder
 (Building the apps) keeps working without a rebuild.
+
+A game with sound made before audio scripts existed fails the validator
+once per sound file, with `no script '<file>.js' beside it`. Write the
+scripts as Sound, above, says (`tools/assemble_folder.py` writes every
+missing one), or ship the sound again: kinetic-extract, and kinetic-media
+with `"loops": true` on looping tracks, write the scripts and also move
+looping MP3 and Opus tracks to a loop-safe format, which the validator
+otherwise warns about.
 
 Readers keep their progress. The player saves it in each reader's
 browser under the manifest's `storyId`, not inside the folder, so the

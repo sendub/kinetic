@@ -9,6 +9,12 @@ WebM. A video's sound ships by the same rule after a loudness check
 (``silent``, ``no audio``). ``durationSeconds`` is decoded samples over
 the sample rate. Ledger steps, the reuse cache, ``--jobs``, decoder
 hooks and ``rebuild`` work as they do for video.
+
+Item 17: beside each shipped file goes its script (``<file>.js``, the
+bytes in base64), recorded in the ledger entry and checked by
+``rebuild``; a request with ``"loops": true`` never ships MP3 or Opus,
+whose decoders shift a loop's start: such a source is re-encoded to AAC
+in M4A, and Vorbis in Ogg is still copied into WebM.
 """
 
 from __future__ import annotations
@@ -23,6 +29,7 @@ from pathlib import Path
 import pytest
 
 import extra_hook
+from helpers import script_holds
 from kinetic_extract import assets, media_tools
 from kinetic_extract import rpa as rpa_mod
 from kinetic_extract.media import probe_duration_seconds
@@ -592,3 +599,228 @@ def test_rebuild_fails_on_a_changed_recipe(
     (out / LEDGER).write_text(json.dumps(ledger), "utf-8")
     assert media_main(["rebuild", str(root), str(out)]) == 1
     assert f"{ref}: output mismatch" in capsys.readouterr().out
+
+
+def test_rebuild_writes_and_checks_the_scripts(
+        copies: tuple[Path, Path], tmp_path: Path,
+        capsys: pytest.CaptureFixture[str]) -> None:
+    root, out = copies
+    ref = results_of(out)["a/tone.mp3"]["file"]
+    bare = tmp_path / "bare"
+    bare.mkdir()
+    shutil.copyfile(out / LEDGER, bare / LEDGER)
+    made = tmp_path / "made"
+    assert media_main(["rebuild", str(root), str(bare), "--out",
+                       str(made)]) == 0
+    assert (made / f"{ref}.js").read_bytes() == \
+        (out / f"{ref}.js").read_bytes()
+    script = out / f"{ref}.js"
+    script.write_bytes(script.read_bytes().replace(b'");', b'=");'))
+    capsys.readouterr()
+    assert media_main(["rebuild", str(root), str(out)]) == 1
+    printed = capsys.readouterr().out
+    assert f"{ref}.js: folder file differs from the ledger" in printed
+    script.unlink()
+    assert media_main(["rebuild", str(root), str(out)]) == 1
+    assert f"{ref}.js: absent from the folder" in capsys.readouterr().out
+
+
+def test_rebuild_fails_when_the_recorded_script_differs(
+        copies: tuple[Path, Path],
+        capsys: pytest.CaptureFixture[str]) -> None:
+    root, out = copies
+    ledger = ledger_of(out)
+    ref = results_of(out)["a/tone.wav"]["file"]
+    ledger["media"][ref]["script"]["sha256"] = "0" * 64
+    (out / LEDGER).write_text(json.dumps(ledger), "utf-8")
+    assert media_main(["rebuild", str(root), str(out)]) == 1
+    assert f"{ref}.js: script mismatch" in capsys.readouterr().out
+
+
+# --- scripts (item 17) ----------------------------------------------------------
+
+def test_every_shipped_file_has_its_script(shipped: tuple[Path, Path]) -> None:
+    _, out = shipped
+    files = {r["file"] for r in results_of(out).values() if "file" in r}
+    media = ledger_of(out)["media"]
+    for file in files:
+        assert script_holds(out, file) == (out / file).read_bytes(), file
+        script = (out / f"{file}.js").read_bytes()
+        assert media[file]["script"] == {"sha256": _sha(script),
+                                         "bytes": len(script)}
+    scripts = {p.relative_to(out).as_posix() for p in out.rglob("*.js")}
+    assert scripts == {f"{file}.js" for file in files}
+
+
+def test_a_missing_script_is_written_again_on_reship(
+        copies: tuple[Path, Path]) -> None:
+    root, out = copies
+    before = tree(out)
+    ref = results_of(out)["a/tone.flac"]["file"]
+    (out / f"{ref}.js").unlink()
+    assert ship(root, out, REQUESTS) == 0
+    assert tree(out) == before
+
+
+# --- looping tracks (item 17) ---------------------------------------------------
+
+def _looped(asset: str) -> dict:
+    return {**_request(asset), "id": f"loop:{asset}", "loops": True}
+
+
+# A looping request's source -> its decision, shipped extension and
+# codec. MP3 and Opus (in WebM or Ogg) and every re-encode become AAC in
+# M4A; Vorbis in Ogg is copied into WebM as for any track; the rest ship
+# as for any track.
+LOOPED = {
+    "a/tone.mp3": ("transcode", "m4a", "aac"),
+    "a/vbr.mp3": ("transcode", "m4a", "aac"),
+    "a/opus.webm": ("transcode", "m4a", "aac"),
+    "a/opus.opus": ("transcode", "m4a", "aac"),
+    "a/vorbis.ogg": ("remux", "webm", "vorbis"),
+    "a/mp3-in.wav": ("transcode", "m4a", "aac"),
+    "a/tone.aiff": ("transcode", "m4a", "aac"),
+    "a/surround.aiff": ("transcode", "m4a", "aac"),
+    "a/tone.m4a": ("copy", "m4a", "aac"),
+    "a/tone.aac": ("remux", "m4a", "aac"),
+    "a/tone.wav": ("copy", "wav", "pcm_s16le"),
+    "a/tone.flac": ("copy", "flac", "flac"),
+    "a/vorbis.webm": ("copy", "webm", "vorbis"),
+    "v/tone.mp4": ("extract", "m4a", "aac"),
+    "v/opus.mkv": ("extract", "m4a", "aac"),
+    "v/mp2.avi": ("extract", "m4a", "aac"),
+}
+
+
+@pytest.fixture(scope="module")
+def looped(shipped: tuple[Path, Path],
+           tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """Every LOOPED source asked for twice in one list: looping, and as a
+    plain track."""
+    root, _ = shipped
+    out = tmp_path_factory.mktemp("looped") / "out"
+    rpa_mod.reset_cache()
+    requests = [r for asset in LOOPED
+                for r in (_looped(asset), _request(asset))]
+    assert ship(root, out, requests) == 0
+    return out
+
+
+@pytest.mark.parametrize("asset", list(LOOPED))
+def test_a_looping_track_ships_in_a_loop_safe_format(looped: Path,
+                                                     asset: str) -> None:
+    decision, ext, codec = LOOPED[asset]
+    result = results_of(looped)[f"loop:{asset}"]
+    assert result["decision"] == decision, result["notes"]
+    assert result["file"].endswith(f".{ext}")
+    assert stream(looped / result["file"])["codec_name"] == codec
+    assert result["durationSeconds"] == decoded_seconds(
+        looped / result["file"])
+    assert script_holds(looped, result["file"]) == \
+        (looped / result["file"]).read_bytes()
+
+
+def test_a_loop_reencode_is_aac_in_m4a_with_its_full_recipe(
+        looped: Path) -> None:
+    for asset, (decision, _, _) in LOOPED.items():
+        result = results_of(looped)[f"loop:{asset}"]
+        entry = ledger_of(looped)["media"][result["file"]]
+        # Identical outputs share an entry: this source's own record.
+        (step,) = next(made["steps"] for made in
+                       [entry, *entry.get("alsoFrom", [])]
+                       if made["source"].get("path") == asset)
+        args = step.get("args", [])
+        if decision == "copy" or args[args.index("-c:a") + 1] == "copy":
+            continue
+        assert step["step"] == decision
+        assert args[args.index("-c:a") + 1] == "aac", asset
+        assert args[args.index("-b:a") + 1] == "192k"
+        assert args[args.index("-f") + 1] == "ipod"
+        assert args[args.index("-movflags") + 1] == "+faststart"
+        assert "loops" in step["reason"], step["reason"]
+        assert "-ac" not in args or asset == "a/surround.aiff"
+    surround = results_of(looped)["loop:a/surround.aiff"]
+    assert stream(looped / surround["file"])["channels"] == 2
+
+
+def test_a_looping_ogg_vorbis_is_still_copied(looped: Path,
+                                              shipped: tuple[Path, Path],
+                                              ) -> None:
+    root, _ = shipped
+    result = results_of(looped)["loop:a/vorbis.ogg"]
+    assert pcm(looped / result["file"]) == pcm(root / "a" / "vorbis.ogg")
+    assert result["file"] == results_of(looped)["a/vorbis.ogg"]["file"]
+
+
+@pytest.mark.parametrize("asset", ["a/tone.mp3", "a/opus.webm",
+                                   "a/opus.opus", "v/opus.mkv"])
+def test_the_same_source_not_looping_ships_as_before(
+        looped: Path, shipped: tuple[Path, Path], asset: str) -> None:
+    _, plain_out = shipped
+    plain = results_of(looped)[asset]
+    assert plain["file"] == results_of(plain_out)[asset]["file"]
+    assert plain["file"] != results_of(looped)[f"loop:{asset}"]["file"]
+
+
+def test_a_second_looping_ship_encodes_nothing(
+        shipped: tuple[Path, Path], tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    root, _ = shipped
+    requests = [_looped(a) for a in ("a/tone.mp3", "a/opus.opus")]
+    calls = _spy(monkeypatch)
+    first = tmp_path / "first"
+    assert ship(root, first, requests, "--jobs", "1") == 0
+    assert "run_file_step" in calls
+    calls.clear()
+    second = tmp_path / "second"
+    assert ship(root, second, requests, "--jobs", "1") == 0
+    assert calls == []
+    assert tree(second) == tree(first)
+
+
+def test_looping_tracks_ship_the_same_on_workers(
+        shipped: tuple[Path, Path], tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    root, _ = shipped
+    monkeypatch.setenv("KINETIC_MEDIA_CACHE", "off")
+    requests = [r for asset in ("a/tone.mp3", "a/opus.opus", "v/opus.mkv")
+                for r in (_looped(asset), _request(asset))]
+    serial, parallel = tmp_path / "serial", tmp_path / "parallel"
+    assert ship(root, serial, requests, "--jobs", "1") == 0
+    assert ship(root, parallel, requests, "--jobs", "4",
+                "--video-jobs", "2") == 0
+    assert tree(parallel) == tree(serial)
+
+
+def test_looping_tracks_rebuild(looped: Path, shipped: tuple[Path, Path],
+                                capsys: pytest.CaptureFixture[str]) -> None:
+    root, _ = shipped
+    capsys.readouterr()
+    assert media_main(["rebuild", str(root), str(looped)]) == 0
+    assert f"{len(ledger_of(looped)['media'])} matched, 0 failed" in \
+        capsys.readouterr().out
+
+
+@pytest.mark.parametrize(("entry", "message"), [
+    ({"source": {"path": "a.mp3"}, "kind": "audio", "loops": "yes"},
+     "loops must be true or false"),
+    ({"source": {"path": "a.png"}, "kind": "image", "loops": True},
+     "loops is for audio only"),
+])
+def test_bad_loops_fields_are_named(tmp_path: Path, entry: dict,
+                                    message: str,
+                                    capsys: pytest.CaptureFixture[str],
+                                    ) -> None:
+    root = tmp_path / "root"
+    root.mkdir()
+    assert ship(root, tmp_path / "out", [entry]) == 2
+    assert message in capsys.readouterr().err
+
+
+def test_loops_false_is_a_plain_track(shipped: tuple[Path, Path],
+                                      tmp_path: Path) -> None:
+    root, _ = shipped
+    out = tmp_path / "out"
+    assert ship(root, out, [{**_request("a/tone.mp3"), "loops": False}]) == 0
+    result = results_of(out)["a/tone.mp3"]
+    assert result["decision"] == "copy" and result["file"].endswith(".mp3")

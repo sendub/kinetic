@@ -21,7 +21,10 @@ double-clicks open over `file://` with nothing else on disk:
   build ledger;
 - a generated `manifest.js` when the content has `manifest.json` but no
   shim: `window.KINETIC_MANIFEST = <manifest JSON>;`, the rule documented
-  in CREATE.md and checked by tools/validate_content.py.
+  in CREATE.md and checked by tools/validate_content.py;
+- a generated script, `<file>.js`, beside each audio track file that has
+  none (docs/content-format.md, "Audio"); an existing one is left as it
+  is, and the validator checks it.
 
 Prints the assembled folder's file count and total size.
 
@@ -42,6 +45,9 @@ from pathlib import Path
 import build_apps
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(REPO_ROOT / "converter") not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT / "converter"))
+from kinetic_extract import audio_format  # noqa: E402
 BUNDLE_NAMES = ("index.html", "app.js")
 MANIFEST_NAME = "manifest.json"
 SHIM_NAME = "manifest.js"
@@ -80,6 +86,29 @@ def write_shim(out: Path) -> bool:
         fail(1, f"{MANIFEST_NAME} is not valid JSON: {exc}")
     shim.write_text(f"{SHIM_PREFIX}{text.strip()};\n", encoding="utf-8")
     return True
+
+
+def write_audio_scripts(out: Path) -> int:
+    """Write the script of each audio track file `manifest.json` names
+    that has none; how many were written. A missing track file, or a
+    manifest that does not parse, gets none: the validator reports
+    them."""
+    try:
+        manifest = json.loads((out / MANIFEST_NAME).read_text(
+            encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return 0
+    audio = manifest.get("audio") if isinstance(manifest, dict) else None
+    tracks = audio.get("tracks") if isinstance(audio, dict) else None
+    files = {track.get("file") for track in (tracks or {}).values()
+             if isinstance(track, dict)}
+    written = 0
+    for file in sorted(f for f in files if isinstance(f, str)):
+        if (out / file).is_file() \
+                and not audio_format.script_path(out, file).exists():
+            audio_format.write_script(out, file)
+            written += 1
+    return written
 
 
 def main(argv: list[str]) -> None:
@@ -134,11 +163,14 @@ def main(argv: list[str]) -> None:
         shutil.copyfile(dist / name, out / name)
 
     generated = write_shim(out)
+    scripts = write_audio_scripts(out)
 
     count, size = folder_stats(out)
     print(f"assembled {out}: {count} files, {size} bytes "
           f"({size / (1024 * 1024):.2f} MiB)"
-          + ("; generated manifest.js" if generated else ""))
+          + ("; generated manifest.js" if generated else "")
+          + (f"; wrote {scripts} audio script{'s' if scripts != 1 else ''}"
+             if scripts else ""))
 
     if any(apps.values()):
         try:

@@ -22,7 +22,7 @@ import sys
 from pathlib import Path
 
 import pytest
-from helpers import declared_media, is_content_addressed
+from helpers import audio_scripts, declared_media, is_content_addressed
 from PIL import Image
 
 from kinetic_extract.cli import main as extract_main
@@ -126,8 +126,8 @@ def test_identical_media_is_stored_once(made: dict[str, Path]) -> None:
     declared = set(declared_media(manifest))
     files = {p.relative_to(out).as_posix()
              for p in (out / "media").rglob("*") if p.is_file()}
-    assert files == declared
-    assert all(is_content_addressed(out, ref) for ref in files)
+    assert files == declared | audio_scripts(manifest)
+    assert all(is_content_addressed(out, ref) for ref in declared)
     one = set(declared_media(_json(made["one"] / "manifest.json")))
     two = set(declared_media(_json(made["two"] / "manifest.json")))
     assert declared == one | two

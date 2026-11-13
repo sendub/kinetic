@@ -21,9 +21,10 @@ Usage:
 ``FILE`` is a JSON array of requests; each names a source relative to
 ``<game_root>`` (a loose path, or an ``.rpa`` archive plus member) and a
 kind (``image``, ``video`` or ``audio``), optionally a video's
-``startSeconds`` and the caller's own ``id``. An ``audio`` request of a
-video ships its sound, or nothing when that is ``silent`` or there is
-``no audio``. Outputs land at ``<out_dir>/media/<h[:2]>/<h>.<ext>``
+``startSeconds``, whether an audio track ``loops`` and the caller's own
+``id``. An ``audio`` request of a video ships its sound, or nothing when
+that is ``silent`` or there is ``no audio``. Each audio output gets its
+script beside it (``<file>.js``). Outputs land at ``<out_dir>/media/<h[:2]>/<h>.<ext>``
 by the same code as kinetic-extract; ``<out_dir>/media-ledger.json`` holds
 ``mediaTools``, ``decoders``, ``media`` and a ``requests`` list giving each
 request's result. Shipping into a folder that already has a media ledger
@@ -367,7 +368,8 @@ def main(argv: list[str] | None = None) -> int:
                        help="JSON array of requests: {\"source\": {\"path\": "
                             "...} | {\"archive\": ..., \"member\": ...}, "
                             "\"kind\": \"image\"|\"video\"|\"audio\", "
-                            "\"startSeconds\"?: N, \"id\"?: ...}")
+                            "\"startSeconds\"?: N, \"loops\"?: true, "
+                            "\"id\"?: ...}")
     shipp.add_argument("--decoder", type=decoder_option, action="append",
                        default=[], metavar="MODULE:FUNC",
                        help="run this hook over the complete bytes of "

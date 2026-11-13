@@ -8,7 +8,9 @@ scratch into temporary folders.
 
 from __future__ import annotations
 
+import base64
 import json
+import re
 import subprocess
 import sys
 import wave
@@ -103,7 +105,7 @@ def codec_of(path: Path) -> str:
 def test_fresh_build_validates_with_no_audio_warnings(built: Path,
                                                       manifest: dict) -> None:
     assert validate_content.validate_folder(built) == []
-    assert validate_content.audio_warnings(manifest) == []
+    assert validate_content.audio_warnings(manifest, built) == []
 
 
 def test_an_audio_warning_fails_the_build(
@@ -187,7 +189,50 @@ def test_tracks_mix_every_accepted_container(built: Path,
     kinds = {(Path(t["file"]).suffix, codec_of(built / t["file"]))
              for t in tracks_of(manifest).values()}
     assert {(".webm", "opus"), (".webm", "vorbis"), (".m4a", "aac"),
-            (".mp3", "mp3"), (".wav", "pcm_s16le")} <= kinds
+            (".mp3", "mp3"), (".wav", "pcm_s16le"),
+            (".flac", "flac")} <= kinds
+
+
+def looping_tracks(manifest: dict) -> set[str]:
+    """Tracks the demo plays as loops: music or ambience that does not
+    set `loop: false`, and a video's sound."""
+    tracks = tracks_of(manifest)
+    ids = {audio["videoSound"]["track"] for audio in item_audio(manifest)
+           if "videoSound" in audio}
+    for audio in item_audio(manifest):
+        named = [audio.get("music"), *audio.get("ambience", [])]
+        ids |= {t for t in named
+                if isinstance(t, str) and tracks[t].get("loop", True)}
+    return ids
+
+
+def test_looping_tracks_are_in_loop_safe_formats(built: Path,
+                                                 manifest: dict) -> None:
+    """MP3, Opus in WebM and Vorbis in Ogg shift a decoded loop's start
+    (docs/content-format.md, Audio); every loop avoids them."""
+    loops = looping_tracks(manifest)
+    assert {"calm", "bright", "steps", "rain", "hum", "warm", "cold",
+            "clock"} == loops
+    kinds = {t: (Path(tracks_of(manifest)[t]["file"]).suffix,
+                 codec_of(built / tracks_of(manifest)[t]["file"]))
+             for t in loops}
+    unsafe = {(".mp3", "mp3"), (".webm", "opus"), (".ogg", "vorbis")}
+    assert {t: k for t, k in kinds.items() if k in unsafe} == {}
+
+
+SCRIPT = re.compile(rb'__kineticAudio\("([^"\\]*)","([A-Za-z0-9+/]*={0,2})"'
+                    rb'\);\n')
+
+
+def test_every_track_has_its_script(built: Path, manifest: dict) -> None:
+    """Beside each track file, `<file>.js` hands the player its bytes:
+    one line naming the file, its bytes in base64."""
+    for track in tracks_of(manifest).values():
+        found = SCRIPT.fullmatch((built / f"{track['file']}.js").read_bytes())
+        assert found is not None, track["file"]
+        assert found.group(1).decode() == track["file"]
+        assert base64.b64decode(found.group(2), validate=True) == \
+            (built / track["file"]).read_bytes()
 
 
 def test_track_durations_are_decoded_lengths(built: Path, manifest: dict,

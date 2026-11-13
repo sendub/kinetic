@@ -18,6 +18,7 @@ my-novel/
   manifest.js     # generated shim: window.KINETIC_MANIFEST = {...}
   media/ab/…      # converter output: media/<h[:2]>/<h>.<ext>
   *.jpg, *.mp4    # or any other legal layout, e.g. flat (hand-authored)
+  *.m4a.js        # beside each audio file, its bytes as a script (Audio)
 ```
 
 - Every file the novel needs lives inside the folder. There are no absolute
@@ -660,6 +661,69 @@ macOS 15.4. The same Vorbis or Opus stream copied into WebM plays right
 in both engines, so kinetic-media copies Ogg Vorbis and Opus into WebM
 without re-encoding.
 
+### The script beside each audio file
+
+Beside each track file `F` the folder holds `F.js`, a script that hands
+the player the file's bytes: `rain.webm` has `rain.webm.js`, and
+`media/ab/<h>.m4a` has `media/ab/<h>.m4a.js`. Under `file://`,
+Chrome refuses `fetch`, and a media element routed into Web Audio gives
+only zeros, so the player adds the script as a classic `<script>` and
+decodes the bytes itself. Several tracks sharing one file share its
+script.
+
+The script is exactly one ASCII line:
+
+```js
+__kineticAudio("media/theme.m4a","AAAAHGZ0eXBNNEEgAAACAE00QSBp...");
+```
+
+- `__kineticAudio` is a global function the player defines before it
+  adds the script.
+- The first argument is the track's `file` exactly as the manifest
+  names it, written as a JSON string.
+- The second is the file's bytes in base64: RFC 4648's standard
+  alphabet (`A-Z a-z 0-9 + /`) with `=` padding and no line breaks.
+- One line feed ends the line. Nothing else is in the file: no
+  comment, no BOM, no other whitespace.
+
+The bytes depend only on the path and the file's bytes, so every writer
+makes the same script: kinetic-media and kinetic-extract beside each
+audio file they ship, `fixtures/build_audio_demo.py`, and
+`tools/assemble_folder.py` for a hand-written folder's tracks. The
+script is a third larger than its file. The audio file itself still
+ships beside it.
+
+### Loop-safe formats
+
+The player loops a track's decoded samples: at `durationSeconds` it
+goes back to `loopStartSeconds`. A decoder that shifts the start of the
+samples therefore moves every wrap, and the loop may click. Measured
+2026-11-11 with a 2.000 s noise probe against its lossless source,
+through `decodeAudioData` in Chrome and WebKit (docs/plan.md Phase 47,
+item 16):
+
+| Format | Start | Loop-safe |
+| --- | --- | --- |
+| AAC in M4A | exact in both | yes |
+| Vorbis in WebM | exact in both | yes |
+| WAV, FLAC | exact in both | yes |
+| Opus in Ogg | exact in both | yes, with the Ogg warning above |
+| MP3 | 576 samples late in WebKit | no |
+| Opus in WebM | first 24 samples lost in Chrome | no |
+| Vorbis in Ogg | first 128 samples lost in WebKit | no |
+
+Some formats add samples at the end (Vorbis in WebM 64, AAC in WebKit
+up to one 1024-sample frame). When `durationSeconds` is the track's
+true length, those lie past it and the loop never plays them.
+
+A track loops when an item names it as `music` or in `ambience` and the
+track does not set `loop: false`, and when it is a video's
+`videoSound`. Such a track belongs in a loop-safe format; the validator
+warns about one that is not. One-shots and voice lines may use any
+accepted format. kinetic-media ships a looping track in a loop-safe
+format when its request says it loops (docs/extracting.md, "Audio
+policy").
+
 ### Item audio
 
 Any item type may carry an `audio` object. Every field is optional:
@@ -858,8 +922,14 @@ The validator checks the schema plus these invariants:
     else), and its track's `durationSeconds` is at least the item's
     range end, `endSeconds ?? durationSeconds`, less 0.05 s.
 
-The validator also warns about two things that are not problems: an
-Ogg track file (Audio says why) and a track no item uses. Each warning
-is one `warning: manifest.json: <location>: <reason>` line on stderr,
-followed by a count. Warnings leave stdout and the exit status alone,
-and a manifest without audio prints none.
+16. Each audio track file has its script beside it, `<file>.js`, and the
+    script is the one line Audio describes for that file: it names the
+    file and holds its bytes.
+
+The validator also warns about three things that are not problems: an
+Ogg track file (Audio says why), a looping track in a format that is
+not loop-safe (Audio, Loop-safe formats; a WebM or Ogg file's codec is
+read from its head), and a track no item uses. Each warning is one
+`warning: manifest.json: <location>: <reason>` line on stderr, followed
+by a count. Warnings leave stdout and the exit status alone, and a
+manifest without audio prints none.

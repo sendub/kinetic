@@ -34,7 +34,8 @@ CACHE_FILE = "selftest-cache.json"
 POSTER_SECONDS = 0.5
 FAILED = "FAILED"
 # Sources whose code decides the outputs: a change re-runs the self-test.
-_RECIPE_SOURCES = ("assets.py", "media.py", "media_tools.py", "selftest.py")
+_RECIPE_SOURCES = ("assets.py", "audio_format.py", "media.py",
+                   "media_tools.py", "selftest.py")
 
 Runner = Callable[[Path], dict[str, str]]
 
@@ -120,26 +121,41 @@ _AUDIO_CASES = {"ffmpeg.audio-remux-webm": "sample.ogg",
                 "ffmpeg.audio-extract-m4a": "sample.mp4"}
 
 
+# The AAC re-encode a looping track gets when it would ship as MP3 or
+# Opus (``audio_step`` with ``loops``), run on the AIFF: the recipe is
+# the same whatever the source codec.
+LOOP_CASE = "ffmpeg.audio-loop-aac"
+
+
+def _audio_file(case: str, source: Path, tmp: Path,
+                loops: bool = False) -> Path | None:
+    """`source` through its ``audio_step``, into `tmp`; None on failure."""
+    probe = assets.probe_audio(source)
+    step = assets.audio_step(probe, loops) if probe else None
+    made = tmp / f"{case}.{assets.file_step_ext(step or {})}"
+    ok = step is not None \
+        and assets.run_file_step(step, source, made) is None
+    return made if ok else None
+
+
 def _audio_cases(samples_dir: Path, tmp: Path) -> dict[str, str]:
     """The converter's audio recipes on the samples: the Ogg remux into
     WebM, the AIFF re-encode to Opus, the extract of the video's AAC,
     then the decoded duration of each output and the video sound's
-    volumedetect maximum."""
+    volumedetect maximum; and the looping AIFF's re-encode to AAC."""
     out: dict[str, str] = {}
     durations: dict[str, float | None] = {}
     for case, name in _AUDIO_CASES.items():
-        source = samples_dir / name
-        probe = assets.probe_audio(source)
-        step = assets.audio_step(probe) if probe else None
-        made = tmp / f"{case}.{assets.file_step_ext(step or {})}"
-        ok = step is not None \
-            and assets.run_file_step(step, source, made) is None
-        out[case] = _file_hash(made) if ok else FAILED
-        durations[case] = assets.decoded_duration(made) if ok else None
+        made = _audio_file(case, samples_dir / name, tmp)
+        out[case] = _file_hash(made) if made else FAILED
+        durations[case] = assets.decoded_duration(made) if made else None
     out["ffmpeg.audio-duration"] = _sha(
         json.dumps(durations, sort_keys=True).encode())
     loudness = assets.max_volume(samples_dir / "sample.mp4")
     out["ffmpeg.audio-loudness"] = _sha(json.dumps(loudness).encode())
+    looped = _audio_file(LOOP_CASE, samples_dir / "sample.aiff", tmp,
+                         loops=True)
+    out[LOOP_CASE] = _file_hash(looped) if looped else FAILED
     return out
 
 

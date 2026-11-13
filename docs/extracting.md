@@ -208,8 +208,9 @@ files (docs/plan.md Phase 25), which `kinetic-media rebuild` reads:
       copy into MP4 (Video policy below), `args` as for `transcode`,
       `reason` why the source container or tag could not ship. An audio
       `remux` copies the first audio stream into WebM, M4A or MP3, and
-      an audio `transcode` re-encodes it to Opus in WebM (Audio policy,
-      below); both carry a `reason`;
+      an audio `transcode` re-encodes it to Opus in WebM, or to AAC in
+      M4A for a looping track (Audio policy, below); both carry a
+      `reason`;
     - `{"step": "extract", "args": [...], "reason": "..."}`: the first
       audio stream of a video, copied or re-encoded by the same rule
       (Audio policy, below);
@@ -230,6 +231,12 @@ files (docs/plan.md Phase 25), which `kinetic-media rebuild` reads:
       the same JPEG bytes. Nothing new ships with it.
   - `tools`: name to version for the tools the steps ran (from
     `mediaTools`); absent when nothing was encoded (`preserve`, `carve`).
+  - `script` (audio only): `{"sha256", "bytes"}` of the script beside the
+    file, `<path>.js` (docs/content-format.md, "The script beside each
+    audio file"). It is made from the shipped bytes and their path
+    alone, so it has no steps; `kinetic-media rebuild` makes it again
+    from the rebuilt file. Ledgers written before scripts have no
+    `script`, and their folders have none.
   - `alsoFrom`: other sources that made the same bytes, each with its own
     `source`, `steps` and `tools`; `source` is the first in item order.
 
@@ -408,6 +415,53 @@ loose video files of 22 game folders: 2,309 carry an audio stream;
 -90.3 dB (20), and the other 643 peak at -45.4 dB or louder, with
 nothing in between.
 
+Looping tracks. A request with `"loops": true` (kinetic-media ship,
+below) is a track the player loops: music, ambience or a video's sound.
+The player loops decoded samples, and some decoders shift the start, so
+a loop in those formats restarts off its sample and may click
+(docs/content-format.md, "Loop-safe formats"). The rule for such a
+request is the table above, then one change: when the file would ship
+as MP3, or as Opus in WebM, it is re-encoded to AAC in `.m4a` instead,
+as a `transcode` step (an `extract` step for a video's sound):
+
+| Source | Not looping | Looping |
+| --- | --- | --- |
+| MP3 in MP3 (or in WAV, Matroska) | kept (or copied) as `.mp3` | AAC `.m4a` |
+| Opus in WebM | kept | AAC `.m4a` |
+| Opus in Ogg, CAF, Matroska | copied into `.webm` | AAC `.m4a` |
+| Vorbis in Ogg, CAF, Matroska | copied into `.webm` | copied into `.webm` |
+| AAC, WAV PCM, FLAC, Vorbis in WebM | kept or copied | kept or copied |
+| anything else | Opus `.webm` at 128 kb/s | AAC `.m4a` |
+
+The re-encode uses ffmpeg's own AAC encoder at 192 kb/s (`-c:a aac
+-b:a 192k`, more than 2 channels downmixed to stereo), into faststart
+M4A (`-movflags +faststart -f ipod`) with the bitexact flags. The `-f
+ipod` muxer records the encoder's priming in an edit list, so the
+decode starts on the first sample. Why AAC: it starts exactly in Chrome
+and WebKit, plays in every Safari the player supports and in both app
+hosts, and the pinned ffmpeg has the encoder built in. Opus in Ogg also
+decodes exactly, but Safari before 18.4 plays no Ogg. Vorbis in WebM
+decodes exactly too, but Safari 15-17 playing it is not verified
+(docs/plan.md Phase 47). Why 192 kb/s: about 64 kb/s a channel is the
+usual rule of thumb for transparent AAC, ffmpeg's own encoder is not the
+best one, and most such sources are lossy already, so 96 a channel for
+stereo leaves room for both. Opus cannot be copied into any loop-safe
+container every engine plays, so a looping Opus source is re-encoded
+even from Ogg. The `reason` names the change, for example
+`mp3 in mp3 loops, and as MP3 WebKit decodes it 576 samples late:
+re-encoded to aac m4a at 192kb/s`.
+
+A request without `loops`, or with `"loops": false`, ships by the table
+above, as before. A source asked for both ways ships both files.
+
+Scripts. Beside every audio file it ships, the asset pass writes the
+file's script, `<path>.js` (docs/content-format.md, "The script beside
+each audio file"), and records it as the ledger entry's `script` (Build
+ledger, above). A script already in the folder with the right bytes is
+left untouched; one with other bytes is replaced. Making it again costs
+a base64 pass over the file, so the reuse cache keeps nothing for it: a
+warm re-ship encodes nothing and rewrites no script.
+
 `durationSeconds` comes from decoding the shipped file: ffmpeg decodes
 its first audio stream to PCM, and the sample count over the sample
 rate, to 6 decimals, is the duration. Container headers can be wrong:
@@ -528,9 +582,14 @@ the asset pass again over `audio` records, the same records
   kept) is not shipped;
 - one per video file of a kept video item, for its own sound.
 
-Each lands in `media/` and the ledger's `media` (kind `audio`, steps
-`preserve`, `remux`, `transcode` or `extract`), so `kinetic-media
-rebuild` checks it like any other output. A shipped track becomes
+A source that a kept item plays as music (a track without `loop:
+false`) or as ambience, and every video file, is a looping record, as
+a kinetic-media request with `"loops": true` is: it ships in a
+loop-safe format (Audio policy, above). One-shots and voice lines ship
+by the plain rule. Each lands in `media/` with its script and in the
+ledger's `media` (kind `audio`, steps `preserve`, `remux`, `transcode`
+or `extract`), so `kinetic-media rebuild` checks it like any other
+output. A shipped track becomes
 `audio.tracks.<id>` with `file`, the decoded `durationSeconds` and its
 other fields. Then:
 
@@ -571,16 +630,19 @@ The build ledger records:
 The summary counts both:
 
 ```text
-audio: 5 items carry sound; 6 tracks shipped (5 copy, 1 extract), 0 dropped
+audio: 5 items carry sound; 6 tracks shipped (3 copy, 1 extract, 2 transcode), 0 dropped
 video soundtracks: 1 audible, 0 silent, 1 absent
 ```
 
 `too short` and `failed` join the second line when there are any.
 fixtures/renpy_demo has music, an ambience loop on a registered channel,
 a one-shot, a voice line, a music change and a stop in a choice block,
-a movie with an audible MP3 soundtrack and one with no audio stream. Its
-audio files ship byte-identical and the movie's MP3 is copied out as raw
-frames, so the golden manifest does not depend on the ffmpeg version.
+a movie with an audible MP3 soundtrack and one with no audio stream.
+The ambience, the one-shot and the voice line ship byte-identical. The
+music loops and the soundtrack is a video's sound, so both MP3s are
+re-encoded to AAC; those bytes, and the length ffmpeg decodes from
+them, depend on the ffmpeg version, so the golden manifest test
+compares those two tracks by format, and the rest exactly.
 
 ## Decoder hooks
 
@@ -665,9 +727,11 @@ in POSIX form, and may not be absolute or contain `..`:
   {"source": {"path": "areas/intro.webm"}, "kind": "video",
    "startSeconds": 2.5},
   {"source": {"path": "game/audio/rain.ogg"}, "kind": "audio",
-   "id": "rain"},
+   "loops": true, "id": "rain"},
+  {"source": {"path": "game/audio/knock.mp3"}, "kind": "audio",
+   "id": "knock"},
   {"source": {"path": "areas/intro.webm"}, "kind": "audio",
-   "id": "intro-sound"}
+   "loops": true, "id": "intro-sound"}
 ]
 ```
 
@@ -678,6 +742,10 @@ in POSIX form, and may not be absolute or contain `..`:
   video ships its sound (Audio policy, above).
 - `startSeconds` (videos only, a number >= 0): the poster is the frame
   at that time. The default is 0.
+- `loops` (audio only, `true` or `false`, default `false`): the track
+  loops, as music, ambience or a video's sound do, so it ships in a
+  loop-safe format (Audio policy, above). Leave it out for one-shots
+  and voice lines.
 - `id` (optional, a non-empty string): the helper's own key. It must be
   unique within one list.
 
@@ -699,10 +767,10 @@ normalized, and paired with its result:
             "sniffedFormat": "webm", "width": 1280}}
 ```
 
-An audio request's result, for an Ogg Vorbis file:
+An audio request's result, for a looping Ogg Vorbis file:
 
 ```json
-{"request": {"id": "rain", "kind": "audio",
+{"request": {"id": "rain", "kind": "audio", "loops": true,
              "source": {"path": "game/audio/rain.ogg"}},
  "result": {"codec": "vorbis", "decision": "remux",
             "durationSeconds": 30.002, "file": "media/5c/5c...a2.webm",
@@ -713,7 +781,7 @@ An audio request's result, for an Ogg Vorbis file:
 - `file`, plus `poster` and `durationSeconds` for a video: the values
   for the manifest item. An audio request's `file` and
   `durationSeconds` (decoded, Audio policy above) are the values for
-  its track.
+  its track; its script is `<file>.js`, beside it.
 - `width`/`height`: the display size, read from the shipped image or
   from the poster frame; an audio result has none.
 - `decision`, `sniffedFormat`, `codec`, `notes` and `warning`: as in a
@@ -962,8 +1030,12 @@ sources:
    as in the asset pass, and the `decode` steps they make must equal
    the recorded ones.
 3. Check the output's sha256 against the entry's.
+4. For an entry with a `script`, make the script again from the rebuilt
+   file and its path, and check its sha256 and size against the
+   entry's `script`. `--out` writes it beside the file.
 
-The folder's `media/` is then checked against all entries. It is
+The folder's `media/` is then checked against all entries, an audio
+entry's script included. It is
 always checked without `--out`, and with `--out` only when the folder
 has a `media/`.
 
@@ -980,6 +1052,7 @@ Every failure is one line, `FAIL <output path>: <problem>`; an
 | `unsupported step 'NAME'` | a step (or a `jxl` mode, or a `convert` format) this converter cannot run |
 | `step NAME failed: …` | ffmpeg, Pillow or libjxl failed |
 | `output mismatch: expected <sha256>, got <sha256>` | the rebuilt bytes differ |
+| `script mismatch: expected …, got …` | on `<output path>.js`: the script made from the rebuilt file is not the entry's `script` |
 | `not in the ledger` | a file in the folder's `media/` that no entry lists |
 | `absent from the folder` | an entry whose file is missing from `media/` |
 | `folder file differs from the ledger: …` | the folder's file is not the entry's bytes |

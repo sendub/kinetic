@@ -593,7 +593,7 @@ async function loopsFrom(open, name, before, item) {
   return session;
 }
 
-// Rain (6 s, Opus in WebM) and hum (4 s, WAV) loop from 0 through three of
+// Rain (6 s, FLAC) and hum (4 s, WAV) loop from 0 through three of
 // the rain's lengths over `amb-start` and `amb-carry`; `amb-shrink` drops
 // the rain and keeps the hum (docs/plan.md Phase 47, item 14).
 async function ambienceLoops({ check, open, folders }) {

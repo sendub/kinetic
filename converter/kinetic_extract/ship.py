@@ -25,7 +25,7 @@ from .timeline import ItemRecord, set_video_duration
 
 LEDGER_NAME = "media-ledger.json"
 KINDS = ("image", "video", "audio")
-_KEYS = {"source", "kind", "startSeconds", "id"}
+_KEYS = {"source", "kind", "startSeconds", "loops", "id"}
 _SOURCE_SHAPE = 'either {"path"} or {"archive", "member"}'
 
 
@@ -67,7 +67,7 @@ def _check_request(entry: Any) -> dict[str, Any]:
     unknown = sorted(set(entry) - _KEYS)
     if unknown:
         raise ListError(f"unknown key {unknown[0]!r} (allowed: id, kind, "
-                        "source, startSeconds)")
+                        "loops, source, startSeconds)")
     if "source" not in entry:
         raise ListError("source is required")
     request: dict[str, Any] = {"source": _check_source(entry["source"])}
@@ -85,6 +85,13 @@ def _check_request(entry: Any) -> dict[str, Any]:
             raise ListError(f"startSeconds must be a number >= 0, got "
                             f"{start!r}")
         request["startSeconds"] = start
+    if "loops" in entry:
+        if kind != "audio":
+            raise ListError("loops is for audio only")
+        if not isinstance(entry["loops"], bool):
+            raise ListError(f"loops must be true or false, got "
+                            f"{entry['loops']!r}")
+        request["loops"] = entry["loops"]
     if "id" in entry:
         if not isinstance(entry["id"], str) or not entry["id"]:
             raise ListError("id must be a non-empty string")
@@ -153,16 +160,19 @@ def _member_file(root: Path, archive: str, member: str,
 
 def request_records(requests: list[dict[str, Any]], root: Path,
                     jobs: int = 1) -> list[ItemRecord]:
-    """One asset-pass record per request: a bare image/video item (video
-    with its ``startSeconds`` and probed ``durationSeconds``), its source
-    identity and the file holding the source bytes. Each video file is
-    probed once however many requests name it, on `jobs` threads."""
+    """One asset-pass record per request: a bare item (a video with its
+    ``startSeconds`` and probed ``durationSeconds``, a looping audio
+    track with ``loops``), its source identity and the file holding the
+    source bytes. Each video file is probed once however many requests
+    name it, on `jobs` threads."""
     records: list[ItemRecord] = []
     for n, request in enumerate(requests, start=1):
         kind = request["kind"]
         item: dict[str, Any] = {"id": f"request-{n:03d}", "type": kind}
         if "startSeconds" in request:
             item["startSeconds"] = request["startSeconds"]
+        if request.get("loops"):
+            item["loops"] = True
         source = request["source"]
         notes: list[str] = []
         if "path" in source:

@@ -15,8 +15,8 @@ from io import BytesIO
 from pathlib import Path
 
 import pytest
-from helpers import (content_ref, declared_media, is_content_addressed,
-                     open_image)
+from helpers import (audio_scripts, content_ref, declared_media,
+                     is_content_addressed, open_image)
 from kinetic_extract import assets, media_tools
 from kinetic_extract.cli import main as cli_main
 
@@ -168,7 +168,7 @@ def test_every_declared_path_is_the_sha256_of_its_bytes(tmp_path: Path) -> None:
                if p.is_file() and p.name not in FOLDER_FILES]
     assert all(len(ref.split("/")) == 3 and ref.startswith("media/")
                for ref in on_disk), on_disk
-    assert set(on_disk) == set(declared)
+    assert set(on_disk) == set(declared) | audio_scripts(manifest)
     assert not (out / "assets").exists()
     assert "assets/" not in (out / "manifest.json").read_text("utf-8")
     assert "assets/" not in (out / "build-ledger.json").read_text("utf-8")

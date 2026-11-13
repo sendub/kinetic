@@ -14,6 +14,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+from helpers import encoded_tracks, mask_tracks
 from kinetic_extract.cli import main as cli_main
 from kinetic_extract.parser import parse_file
 from kinetic_extract.timeline import build_timeline
@@ -37,7 +38,9 @@ def load_ledger(tmp_path: Path) -> dict:
 
 def test_golden_manifest_carries_the_decision(tmp_path: Path) -> None:
     manifest = extract(tmp_path)
-    assert manifest == json.loads(GOLDEN.read_text("utf-8"))
+    encoded = encoded_tracks(manifest, load_ledger(tmp_path))
+    assert mask_tracks(manifest, encoded) == mask_tracks(
+        json.loads(GOLDEN.read_text("utf-8")), encoded)
     branches = manifest["branches"]
     assert len(branches) == 1
     decision = branches[0]

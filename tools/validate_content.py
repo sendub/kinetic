@@ -20,9 +20,11 @@ Without `--ledger` the output is as before. See docs/extracting.md, "The
 validator's cheap check".
 
 Audio warnings, `audio_warnings`, need no flag: one `warning: <file>:
-<location>: <reason>` line on stderr per Ogg track file and per track no
-item uses, then a count, printed before any poster warnings. They never
-change the exit status, and a manifest without audio prints none.
+<location>: <reason>` line on stderr per Ogg track file, per looping track
+in a format whose decode shifts a loop's start (MP3, Opus in WebM, Vorbis
+in Ogg), and per track no item uses, then a count, printed before any
+poster warnings. They never change the exit status, and a manifest
+without audio prints none.
 
 Two layers of checking, per docs/content-format.md §Rules and validator
 invariants:
@@ -41,8 +43,9 @@ invariants:
    `branches` table obeys its reference, span, continuingRoute/
    continueAt, and `"continue"` result rules (docs/content-format.md
    § Branches); the optional audio obeys its track range, id, ambience
-   and `videoSound` length rules (docs/content-format.md § Audio); and a
-   present `manifest.js` shim embeds JSON equal to `manifest.json`.
+   and `videoSound` length rules, and each track file has its script
+   beside it holding the file's bytes (docs/content-format.md § Audio);
+   and a present `manifest.js` shim embeds JSON equal to `manifest.json`.
 """
 
 from __future__ import annotations
@@ -59,6 +62,12 @@ from jsonschema import Draft202012Validator, validators
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_SCHEMA = REPO_ROOT / "docs" / "content-schema.json"
+
+# The audio script's shape and the loop-safe formats live with the
+# converter, which writes them; standard library only.
+if str(REPO_ROOT / "converter") not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT / "converter"))
+from kinetic_extract import audio_format  # noqa: E402
 
 MANIFEST_NAME = "manifest.json"
 SHIM_NAME = "manifest.js"
@@ -744,11 +753,103 @@ def audio_problems(manifest: Any) -> list[str]:
     return problems
 
 
-def audio_warnings(manifest: Any) -> list[str]:
-    """One warning line per Ogg track file and per track no item uses.
+def audio_script_problems(content_dir: Path, manifest: Any,
+                          schema_locs: set[str] = frozenset()) -> list[str]:
+    """Each track file has its script beside it, `<file>.js`, holding
+    the file's bytes (docs/content-format.md § Audio).
+
+    Checked once per file, at the first track naming it. A file whose
+    path the schema, the path rule or `media_problems` already reports
+    is not checked again.
+    """
+    root = content_dir.resolve()
+    problems: list[str] = []
+    seen: set[str] = set()
+    for track_id, track in _audio_tracks(manifest).items():
+        file = track.get("file") if isinstance(track, dict) else None
+        loc = f"audio.tracks.{track_id}.file"
+        if not isinstance(file, str) or file in seen \
+                or loc in schema_locs or _path_rule(file):
+            continue
+        seen.add(file)
+        audio = content_dir / file
+        if not audio.is_file() or not audio.resolve().is_relative_to(root):
+            continue
+        name = f"{file}{audio_format.SUFFIX}"
+        script = audio_format.script_path(content_dir, file)
+        if not script.is_file():
+            problems.append(_line(loc, (
+                f"no script {name!r} beside it: the player reads the track "
+                "from it (tools/assemble_folder.py writes a missing one)")))
+            continue
+        why = audio_format.script_problem(file, script.read_bytes(),
+                                          audio.read_bytes())
+        if why is not None:
+            problems.append(_line(loc, f"script {name!r} does not match it: "
+                                       f"{why}"))
+    return problems
+
+
+LOOP_FIX = ("so it may click at each loop; ship it as AAC (M4A), Vorbis in "
+            "WebM, WAV or FLAC (kinetic-media does so for an audio request "
+            'with "loops": true)')
+# Where the codec of a WebM or Ogg file shows: a WebM's CodecID (in the
+# Tracks element, before any media data) and an Ogg stream's first packet.
+_HEAD_BYTES = {"webm": 65536, "ogg": 512}
+_CODEC_MARKS = {"webm": ((b"A_OPUS", "opus"), (b"A_VORBIS", "vorbis")),
+                "ogg": ((b"OpusHead", "opus"), (b"\x01vorbis", "vorbis"))}
+
+
+def _track_format(content_dir: Path, file: str) -> tuple[str, str] | None:
+    """(extension, codec) of a track file, as far as the validator tells
+    them without decoding: MP3 by its name, a WebM's or Ogg's codec by
+    the mark in its head (the Ogg family's extension as `ogg`); None
+    otherwise."""
+    ext = file.rsplit(".", 1)[-1].lower()
+    ext = "ogg" if f".{ext}" in OGG_EXTENSIONS else ext
+    if ext == "mp3":
+        return ext, "mp3"
+    if ext not in _CODEC_MARKS:
+        return None
+    try:
+        with (content_dir / file).open("rb") as handle:
+            head = handle.read(_HEAD_BYTES[ext])
+    except OSError:
+        return None
+    return next(((ext, codec) for mark, codec in _CODEC_MARKS[ext]
+                 if mark in head), None)
+
+
+def _looping_tracks(manifest: Any, tracks: dict[str, Any]) -> set[str]:
+    """Ids of the tracks some item plays as a loop: as music or ambience,
+    unless the track sets `loop` false, and as a video's sound."""
+    items = manifest.get("items") if isinstance(manifest, dict) else None
+    ids: set[str] = set()
+    for item in items if isinstance(items, list) else []:
+        audio = item.get("audio") if isinstance(item, dict) else None
+        if not isinstance(audio, dict):
+            continue
+        for suffix, track_id in _item_track_refs(audio):
+            track = tracks.get(track_id) if isinstance(track_id, str) \
+                else None
+            if not isinstance(track, dict):
+                continue
+            bed = suffix == ".music" or suffix.startswith(".ambience")
+            if suffix == ".videoSound.track" \
+                    or (bed and track.get("loop") is not False):
+                ids.add(track_id)
+    return ids
+
+
+def audio_warnings(manifest: Any, content_dir: Path) -> list[str]:
+    """One warning line per Ogg track file, per looping track in a format
+    that is not loop-safe, and per track no item uses.
 
     Ogg passes the schema, but its timing is wrong in WebKit and Safari
-    plays it only from macOS 15.4. A manifest without audio gets none.
+    plays it only from macOS 15.4. MP3, Opus in WebM and Vorbis in Ogg
+    decode with their start shifted in Chrome or WebKit, which moves a
+    loop's restart (docs/content-format.md § Audio). A manifest without
+    audio gets none.
     """
     tracks = _audio_tracks(manifest)
     items = manifest.get("items") if isinstance(manifest, dict) else None
@@ -757,13 +858,21 @@ def audio_warnings(manifest: Any) -> list[str]:
             if isinstance(item, dict) and isinstance(item.get("audio"), dict)
             for _suffix, track_id in _item_track_refs(item["audio"])
             if isinstance(track_id, str)}
+    looping = _looping_tracks(manifest, tracks)
     warnings: list[str] = []
     for track_id, track in tracks.items():
         file = track.get("file") if isinstance(track, dict) else None
+        loc = f"audio.tracks.{track_id}.file"
         if isinstance(file, str) and file.endswith(OGG_EXTENSIONS):
             warnings.append(WARNING_PREFIX + _line(
-                f"audio.tracks.{track_id}.file",
-                f"Ogg audio {file!r}: {OGG_WARNING}"))
+                loc, f"Ogg audio {file!r}: {OGG_WARNING}"))
+        unsafe = audio_format.LOOP_UNSAFE.get(
+            _track_format(content_dir, file)) \
+            if track_id in looping and isinstance(file, str) else None
+        if unsafe is not None:
+            warnings.append(WARNING_PREFIX + _line(
+                loc, f"a looping track in {unsafe[0]}: {unsafe[1]}, "
+                     f"{LOOP_FIX}"))
         if track_id not in used:
             warnings.append(WARNING_PREFIX + _line(
                 f"audio.tracks.{track_id}", "no item uses this track"))
@@ -877,6 +986,7 @@ def _validate(content_dir: Path, schema_path: Path) -> tuple[Any, list[str]]:
         problems += video_range_problems(manifest, schema_locs)
         problems += branches_problems(manifest)
         problems += audio_problems(manifest)
+        problems += audio_script_problems(content_dir, manifest, schema_locs)
 
     if (content_dir / SHIM_NAME).exists():
         problems += shim_problems(content_dir, manifest)
@@ -1040,7 +1150,7 @@ def main(argv: list[str] | None = None) -> int:
     if problems:
         print(f"{args.content_dir}: {len(problems)} problem"
               f"{'s' if len(problems) != 1 else ''}", file=sys.stderr)
-    sound = audio_warnings(manifest)
+    sound = audio_warnings(manifest, args.content_dir)
     for warning in sound:
         print(warning, file=sys.stderr)
     if sound:

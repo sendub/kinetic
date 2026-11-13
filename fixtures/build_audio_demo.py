@@ -38,12 +38,15 @@ right now, and where it helps, what to try. Sections, in order:
   after either route, then the end.
 
 Tracks are a mix of every container the validator takes without a
-warning: Opus and Vorbis in WebM, AAC in M4A, MP3 and WAV, all mono at
-48 kHz, made from ffmpeg's `aevalsrc` and `anoisesrc` (no speech can be
-synthesised, so voices are chirps). Each track's `durationSeconds` is its
+warning: Opus and Vorbis in WebM, AAC in M4A, MP3, WAV and FLAC, all mono
+at 48 kHz, made from ffmpeg's `aevalsrc` and `anoisesrc` (no speech can be
+synthesised, so voices are chirps). Every loop (music that loops,
+ambience, the video's sound) is in a loop-safe format, never MP3 or Opus
+(docs/content-format.md, "Audio"). Each track's `durationSeconds` is its
 decoded length, samples over rate, as kinetic-media measures it. The M4A
-tracks are 8 s, a whole number of 1024-sample AAC frames, so no encoder
-padding is decoded with them.
+tracks are 4.8 or 8 s, a whole number of 1024-sample AAC frames, so no
+encoder padding is decoded with them. Beside each track file goes its
+script, `<file>.js`, which hands the player the file's bytes.
 
 The output is deterministic: two runs produce byte-identical files.
 Pictures and the video come from fixtures/build_demo.py's helpers; the
@@ -53,7 +56,8 @@ encoded single-threaded with bitexact flags and no metadata.
 After generating, the script checks the folder with
 tools/validate_content.py and checks that every image is WIDTH x HEIGHT,
 as the demo builder does, and also fails on any audio warning (an unused
-track or an Ogg file). It exits 1 with one line per problem.
+track, an Ogg file or a loop in a format that is not loop-safe). It exits
+1 with one line per problem.
 """
 
 from __future__ import annotations
@@ -68,6 +72,7 @@ from build_demo import (CLIP_QUARTERS, HEIGHT, REPO_ROOT, VIDEO_FPS, WIDTH,
                         write_manifest)
 
 import validate_content  # on sys.path through build_demo
+from kinetic_extract import audio_format  # put on sys.path by validate_content
 
 AUDIO_DEMO_DIR = REPO_ROOT / "fixtures" / "audio-demo"
 SAMPLE_RATE = 48000
@@ -84,6 +89,7 @@ CODECS = {
     "mp3": (".mp3", ["-c:a", "libmp3lame", "-b:a", "96k",
                      "-id3v2_version", "0"]),
     "wav": (".wav", ["-c:a", "pcm_s16le"]),
+    "flac": (".flac", ["-c:a", "flac"]),
 }
 
 
@@ -157,14 +163,14 @@ TRACKS = [
     ("calm", "aac", tone(notes(
         [220.0, 277.18, 329.63, 440.0, 329.63, 277.18, 246.94, 196.0],
         0.5, 0.3, (1.0, 0.25)), 8), None, {}),
-    ("bright", "opus", tone(notes(
+    ("bright", "aac", tone(notes(
         [523.25, 659.25, 783.99, 1046.5, 783.99, 659.25],
-        0.2, 0.22, (1.0, 0.5, 0.25)), 7.2), None, {}),
+        0.2, 0.22, (1.0, 0.5, 0.25)), 4.8), None, {}),
     ("steps", "vorbis", tone(STEPS, 12), None,
      {"startSeconds": 6, "loopStartSeconds": 3}),
     ("fanfare", "mp3", tone(FANFARE, 3), "afade=t=out:st=2.7:d=0.3",
      {"loop": False}),
-    ("rain", "opus",
+    ("rain", "flac",
      f"anoisesrc=duration=6:color=pink:sample_rate={SAMPLE_RATE}"
      ":amplitude=0.6:seed=7", "lowpass=f=2500", {"volume": 0.5}),
     ("hum", "wav", tone(
@@ -191,8 +197,8 @@ TRACKS = [
     ("warm", "aac", tone(notes(
         [130.81, 164.81, 196.0, 164.81], 1.0, 0.4, (1.0, 0.5, 0.2),
         decay=2.5), 8), None, {}),
-    ("cold", "mp3", tone(notes(
-        [880.0, 932.33], 0.125, 0.18, (1.0, 0.3)), 4), None, {"volume": 0.6}),
+    ("cold", "aac", tone(notes(
+        [880.0, 932.33], 0.125, 0.18, (1.0, 0.3)), 8), None, {"volume": 0.6}),
     ("clock", "aac", tone(CLOCK, 8), None, {}),
 ]
 
@@ -226,11 +232,13 @@ def decoded_duration(path: Path) -> float:
 
 
 def make_tracks(out: Path) -> dict[str, dict]:
-    """Encode every track into `out`; the manifest's `audio.tracks`."""
+    """Encode every track into `out`, each with its script; the
+    manifest's `audio.tracks`."""
     tracks: dict[str, dict] = {}
     for track_id, codec, source, filters, fields in TRACKS:
         name = track_id + CODECS[codec][0]
         encode_audio(out / name, source, codec, filters)
+        audio_format.write_script(out, name)
         tracks[track_id] = {"file": name,
                             "durationSeconds": decoded_duration(out / name),
                             **fields}
@@ -537,7 +545,7 @@ def main() -> None:
 
     write_manifest(out, manifest)
     report(out, folder_problems(out, items)
-           + validate_content.audio_warnings(manifest))
+           + validate_content.audio_warnings(manifest, out))
 
 
 if __name__ == "__main__":

@@ -8,6 +8,10 @@ lies past its end, drops its cues; a loop point past the end plays the
 track once. Each video item's file is also asked for its sound: an
 audible soundtrack as long as the item becomes its ``videoSound``, and
 silent, absent and too-short ones are counted in the summary.
+
+Item 17: a source that music, ambience or a video's sound plays ships as
+a looping request, in a loop-safe format (MP3 and Opus become AAC in
+M4A), and every shipped track has its script beside it.
 """
 
 from __future__ import annotations
@@ -23,7 +27,7 @@ from typing import Any
 import pytest
 from PIL import Image
 
-from helpers import is_content_addressed
+from helpers import is_content_addressed, script_holds
 from kinetic_extract import assets, media_tools
 from kinetic_extract import rpa as rpa_mod
 from kinetic_extract.cli import main as cli_main
@@ -49,6 +53,7 @@ def tone(hz: int, seconds: float) -> list[str]:
 PICTURE = ["-f", "lavfi", "-i", "testsrc=size=64x36:rate=10:duration=1"]
 H264 = ["-c:v", "libx264", "-pix_fmt", "yuv420p"]
 VORBIS = ["-c:a", "libvorbis"]
+MP3 = ["-c:a", "libmp3lame"]
 
 
 def ffmpeg(out: Path, args: list[str]) -> None:
@@ -153,22 +158,37 @@ def test_demo_tracks_ship_with_measured_durations(demo) -> None:
         assert track["durationSeconds"] == assets.decoded_duration(
             out / track["file"]), track_id
     lengths = {t: tracks[t]["durationSeconds"] for t in tracks}
-    # The generator's lengths: 2 s, 1 s, 1.5 s, 0.3 s; the soundtrack
-    # outlasts its 1 s picture by the MP3 frames' padding.
-    assert lengths["theme"] == 2.0
+    # The generator's lengths: 2 s, 1 s, 1.5 s, 0.3 s. The looping theme
+    # is AAC, which the system ffmpeg decodes with up to one 1024-sample
+    # frame of padding (the pinned one trims it).
+    aac_frame = 1024 / 22050
+    assert lengths["theme"] == pytest.approx(2.0, abs=aac_frame)
     assert lengths["rain"] == pytest.approx(1.0, abs=0.05)
     assert lengths["viktor-01"] == pytest.approx(1.5, abs=0.06)
     with wave.open(str(FIXTURE / "game/audio/door.wav")) as door:
         assert lengths["door"] == round(door.getnframes()
                                         / door.getframerate(), 6)
-    assert 1.0 <= lengths["talk"] < 1.1
+    # The 1 s movie's soundtrack, re-encoded from its MP3: as long as the
+    # picture within the format's videoSound slack, whatever ffmpeg
+    # trims of the MP3's and AAC's padding.
+    assert lengths["talk"] == pytest.approx(1.0, abs=0.05)
     # One file, two ways of playing it: two ids.
     assert tracks["theme-2"] == {"file": tracks["theme"]["file"],
-                                 "durationSeconds": 2.0,
+                                 "durationSeconds": lengths["theme"],
                                  "startSeconds": 0.5,
                                  "loopStartSeconds": 1.0}
-    assert {tracks[t]["file"].rsplit(".", 1)[1] for t in tracks} == {
-        "mp3", "webm", "wav"}
+    # Music, ambience and the soundtrack loop: loop-safe formats; the
+    # voice line and the one-shot keep theirs.
+    assert {t: tracks[t]["file"].rsplit(".", 1)[1] for t in tracks} == {
+        "theme": "m4a", "rain": "webm", "viktor-01": "mp3", "door": "wav",
+        "theme-2": "m4a", "talk": "m4a"}
+
+
+def test_demo_tracks_have_their_scripts(demo) -> None:
+    out, manifest, _, _ = demo
+    for track_id, track in manifest["audio"]["tracks"].items():
+        assert script_holds(out, track["file"]) == \
+            (out / track["file"]).read_bytes(), track_id
 
 
 def test_demo_ledger_records_the_sound(demo) -> None:
@@ -178,11 +198,16 @@ def test_demo_ledger_records_the_sound(demo) -> None:
     theme = media[tracks["theme"]["file"]]
     assert theme["kind"] == "audio"
     assert theme["source"]["path"] == "game/audio/theme.mp3"
-    assert theme["steps"] == [{"step": "preserve", "codec": "mp3"}]
+    (step,) = theme["steps"]
+    assert step["step"] == "transcode" and "loops" in step["reason"]
+    assert step["args"][step["args"].index("-c:a") + 1] == "aac"
     talk = media[tracks["talk"]["file"]]
     assert talk["source"]["path"] == "game/data/talk.mp4"
     (step,) = talk["steps"]
     assert step["step"] == "extract" and "mp3 sound" in step["reason"]
+    assert step["args"][step["args"].index("-c:a") + 1] == "aac"
+    assert media[tracks["viktor-01"]["file"]]["steps"] == [
+        {"step": "preserve", "codec": "mp3"}]
     talk_track = ledger["audioTracks"]["talk"]
     assert {k: talk_track[k] for k in ("asset", "decision", "file")} == {
         "asset": "game/data/talk.mp4", "decision": "extract",
@@ -201,8 +226,8 @@ def test_demo_ledger_records_the_sound(demo) -> None:
 
 def test_demo_summary_counts_the_sound(demo) -> None:
     *_, printed = demo
-    assert ("audio: 5 items carry sound; 6 tracks shipped (5 copy, "
-            "1 extract), 0 dropped") in printed
+    assert ("audio: 5 items carry sound; 6 tracks shipped (3 copy, "
+            "1 extract, 2 transcode), 0 dropped") in printed
     assert "video soundtracks: 1 audible, 0 silent, 1 absent" in printed
     assert "ledger only" not in printed and "not shipped yet" not in printed
 
@@ -215,6 +240,52 @@ def test_demo_validates_and_rebuilds(
     assert media_main(["rebuild", str(FIXTURE), str(out)]) == 0
     assert f"{len(ledger['media'])} matched, 0 failed" in \
         capsys.readouterr().out
+
+
+# --- loop-safe formats (item 17) ---------------------------------------------
+
+def test_looping_sound_ships_loop_safe_and_the_rest_as_it_is(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    project = make_project(tmp_path, """
+        init python:
+            renpy.music.register_channel("amb", "sfx", True)
+        image bg = "bg.png"
+        label start:
+            scene bg
+            play music "m.mp3"
+            play amb "rain.opus"
+            play sound "knock.mp3"
+            voice "v.mp3"
+            "One."
+            play music "once.mp3" noloop
+            "Two."
+            movie "talk.mp4"
+            "Three."
+            stop movie
+        """, media={"m.mp3": [*tone(440, 1), *MP3],
+                    "rain.opus": [*tone(220, 1), "-c:a", "libopus"],
+                    "knock.mp3": [*tone(880, 0.3), *MP3],
+                    "v.mp3": [*tone(330, 1), *MP3],
+                    "once.mp3": [*tone(550, 1), *MP3],
+                    "talk.mp4": [*PICTURE, *tone(660, 1), *H264,
+                                 "-c:a", "libopus", "-shortest"]})
+    out = tmp_path / "out"
+    manifest, ledger, printed = convert(project, out, capsys)
+    tracks = manifest["audio"]["tracks"]
+    shipped = {t: (ledger["audioTracks"][t]["decision"],
+                   tracks[t]["file"].rsplit(".", 1)[1]) for t in tracks}
+    assert shipped == {"m": ("transcode", "m4a"),
+                       "rain": ("transcode", "m4a"),
+                       "knock": ("copy", "mp3"), "v": ("copy", "mp3"),
+                       "once": ("copy", "mp3"),
+                       "talk": ("extract", "m4a")}
+    for track in tracks.values():
+        assert script_holds(out, track["file"]) == \
+            (out / track["file"]).read_bytes()
+    assert_valid_without_warnings(out)
+    capsys.readouterr()
+    assert media_main(["rebuild", str(project), str(out)]) == 0
+    assert "rebuild OK" in capsys.readouterr().out
 
 
 # --- tracks that do not ship -------------------------------------------------

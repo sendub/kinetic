@@ -3436,7 +3436,7 @@ truthful: an unchecked box means nothing was accepted.
       100-125 ms early in Chrome and left 170-450 ms silences in WebKit.
       The user listened in Safari and Chrome and chose Web Audio; items
       17-20 carry it out.)
-- [ ] Audio files ship as scripts (item 17): `<file>.js` beside each
+- [x] Audio files ship as scripts (item 17): `<file>.js` beside each
       audio file, written by kinetic-media, kinetic-extract, the demo
       builder and assemble_folder; loop-safe formats for looping tracks.
       Tests:
@@ -3447,6 +3447,34 @@ truthful: an unchecked box means nothing was accepted.
       - the validator: a missing script is an error, a looping track in
         an unsafe format a warning;
       - the renpy_demo golden and the audio demo rebuilt.
+      (2026-11-13: converter/kinetic_extract/audio_format.py writes
+      `__kineticAudio("<file as the manifest names it>","<base64>");`,
+      one ASCII line depending only on path and bytes; kinetic-media and
+      kinetic-extract write it beside each audio output, the ledger
+      records `script: {sha256, bytes}`, `rebuild` remakes and checks it
+      (older ledgers still rebuild), assemble_folder and the demo builder
+      write missing ones, and CREATE.md gives a shell loop that writes
+      the same bytes. A kinetic-media `audio` request takes `loops`; a
+      looping file that would ship as MP3 or Opus in WebM is re-encoded
+      to AAC in M4A at 192 kb/s (starts exactly in both engines, plays in
+      every Safari and both app hosts, the pinned ffmpeg's own encoder);
+      Vorbis in Ogg is still remuxed into WebM; kinetic-extract marks
+      music (unless `loop: false`), ambience and video sounds as looping.
+      The validator errors on a missing or mismatched script and warns on
+      a looping track in MP3, Opus in WebM or Vorbis in Ogg. The audio
+      demo's rain is FLAC and bright and cold AAC; renpy_demo's theme and
+      movie sound ship as AAC, so its golden compares those tracks by
+      format (AAC bytes depend on the ffmpeg version). New self-test case
+      `ffmpeg.audio-loop-aac`, repinned by the orchestrator from the
+      installed pinned tools: d4c3ca0c8179f6662de27d0ae92b9b8ca34e6f4610
+      ceeda5e464f23fa0b17ad7, every other case matching (22 cases pass).
+      Red first in 6 test files. Orchestrator: full pytest 921; a real
+      kinetic-extract of fixtures/renpy_demo prints 3 copy, 1 extract, 2
+      transcode, validates, rebuilds 15 of 15, converts byte-identical
+      twice, and each script decodes to its file's bytes; the audio demo
+      validates; npm test 1147, check clean, Chrome `audio videosound
+      screens` 189/189, WebKit `audio videosound` 81/82, the miss being
+      item 15's known video-sound wrap check, which item 19 replaces.)
 - [ ] Player: sound on Web Audio (item 18): one AudioContext unlocked by
       the first key, tracks loaded from their scripts and decoded under a
       byte cap, buffer-source loops, gain AudioParams, every pause rule,

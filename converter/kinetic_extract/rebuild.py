@@ -15,18 +15,23 @@ entry, and each of its ``alsoFrom`` sources, is rebuilt independently:
    code the converter makes outputs with (decoder hooks included);
 3. the output's sha256 must equal the entry's, exactly: the tools are
    pinned and the ledger's ``mediaTools`` must equal the current ones, so
-   there is no drift to tolerate.
+   there is no drift to tolerate;
+4. an entry with a ``script`` (an audio output's ``<file>.js``,
+   ``audio_format``) has it made again from that output, and its sha256
+   and size must equal the recorded ones.
 
 The folder's own ``media/`` is checked too: a file the ledgers do not
-list, an entry whose file is absent, or a file whose bytes differ from
-its entry are failures. With ``--out``, a matching output is written
-there unless its content-addressed file already exists: that file is
-verified and left untouched (it may be hard-linked elsewhere), and one
-with other bytes is a failure naming it, never overwritten.
+list (a script counts as listed by its entry), an entry whose file is
+absent, or a file whose bytes differ from its entry are failures. With
+``--out``, a matching output is written there unless its
+content-addressed file already exists: that file is verified and left
+untouched (it may be hard-linked elsewhere), and one with other bytes
+is a failure naming it, never overwritten.
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 import shutil
 import tempfile
@@ -36,7 +41,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from . import assets
+from . import assets, audio_format
 from .assets import hook_func
 from .decoders import Decoder, describe
 from .media import MEDIA_DIR, existing_problem, sha256_file, write_whole
@@ -359,6 +364,7 @@ def _rebuild_entry(ref: str, entry: dict[str, Any], sources: _Sources,
             report.fail(ref, problem)
         target = None
     ok = True
+    script_checked = "script" not in entry
     for n, made in enumerate([entry, *entry.get("alsoFrom", [])]):
         label = ref
         if n:
@@ -373,29 +379,70 @@ def _rebuild_entry(ref: str, entry: dict[str, Any], sources: _Sources,
                               fail)
             if out is None:
                 ok = False
-            elif target is not None and not target.exists():
+                continue
+            if not script_checked:
+                script_checked = True
+                ok = _rebuild_script(ref, entry, out, report, out_dir,
+                                     checked) and ok
+            if target is not None and not target.exists():
                 target.parent.mkdir(parents=True, exist_ok=True)
                 write_whole(target,
                             lambda tmp, made=out: shutil.copyfile(made, tmp))
     return ok
 
 
+def _rebuild_script(ref: str, entry: dict[str, Any], out: Path,
+                    report: Report, out_dir: Path | None,
+                    checked: bool) -> bool:
+    """Make audio output `ref`'s script again from its rebuilt bytes
+    `out`; True when it matches the entry's ``script``. A match goes to
+    `out_dir` as the output does: written when absent, verified when
+    present (other bytes fail, unless `checked`: the folder check
+    reports them)."""
+    label = f"{ref}{audio_format.SUFFIX}"
+    script = audio_format.script_bytes(ref, out.read_bytes())
+    got = hashlib.sha256(script).hexdigest()
+    want = entry["script"] if isinstance(entry["script"], dict) else {}
+    if (got, len(script)) != (want.get("sha256"), want.get("bytes")):
+        report.fail(label, f"script mismatch: expected {want.get('sha256')} "
+                           f"({want.get('bytes')} bytes), got {got} "
+                           f"({len(script)} bytes)")
+        return False
+    if out_dir is None:
+        return True
+    target = audio_format.script_path(out_dir, ref)
+    if not target.exists():
+        target.parent.mkdir(parents=True, exist_ok=True)
+        write_whole(target, lambda tmp: tmp.write_bytes(script))
+    elif not checked and target.read_bytes() != script:
+        report.fail(label, f"{target}: existing script differs from the "
+                           "ledger; not replaced")
+        return False
+    return True
+
+
 def _check_folder(folder: Path, entries: dict[str, dict[str, Any]],
                   report: Report) -> None:
     """The folder's media/ against the ledgers: unlisted files, absent
-    files, and files whose bytes differ from their entry."""
+    files, and files whose bytes differ from their entry (an audio
+    entry's script: from its ``script``)."""
     media = folder / MEDIA_DIR
     present = {p.relative_to(folder).as_posix(): p
                for p in media.rglob("*") if p.is_file()} \
         if media.is_dir() else {}
-    for ref in sorted(set(present) - set(entries)):
+    expected = {ref: entry.get("sha256") for ref, entry in entries.items()}
+    for ref, entry in entries.items():
+        script = entry.get("script") if isinstance(entry, dict) else None
+        if isinstance(script, dict):
+            expected[f"{ref}{audio_format.SUFFIX}"] = script.get("sha256")
+    for ref in sorted(set(present) - set(expected)):
         report.fail(ref, "not in the ledger")
-    for ref, entry in sorted(entries.items()):
+    for ref, want in sorted(expected.items()):
         path = present.get(ref)
         if path is None:
             report.fail(ref, "absent from the folder")
             continue
         got = sha256_file(path)
-        if got != entry.get("sha256"):
+        if got != want:
             report.fail(ref, f"folder file differs from the ledger: sha256 "
-                             f"{got}, expected {entry.get('sha256')}")
+                             f"{got}, expected {want}")

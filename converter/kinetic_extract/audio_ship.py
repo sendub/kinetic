@@ -6,7 +6,9 @@ video item's file become ``audio`` records for a second run of the one
 asset pass (``assets.run_asset_pass``): one record per distinct source,
 loose or an ``.rpa`` member, through the decoder hooks, so each ships by
 the Audio policy into ``media/`` and the ledger's ``media`` exactly as a
-kinetic-media ``audio`` request would. Then:
+kinetic-media ``audio`` request would. A source that some track plays as
+music (not ``loop: false``) or ambience, and every video's file, is a
+looping request (``loops``), so it ships in a loop-safe format. Then:
 
 - A shipped track becomes a manifest track: ``file``, the decoded
   ``durationSeconds`` and the cue's ``fields()``. A track whose source
@@ -103,22 +105,26 @@ def ship_sound(result: TimelineResult, out_dir: Path,
     used = {t for r in kept if r.audio for t in track_ids(r.audio)}
     tracks = {t: track for t, track in result.audio_tracks.items()
               if t in used}
+    looping = _looping_tracks(kept, tracks)
     records: dict[tuple[tuple[str, Any], ...], ItemRecord] = {}
 
     def record_for(ref: dict[str, Any], asset: str, path: Path | None,
-                   item_id: str) -> ItemRecord:
+                   item_id: str, loops: bool) -> ItemRecord:
         key = tuple(sorted(ref.items()))
         if key not in records:
             records[key] = ItemRecord(
                 item={"id": item_id, "type": "audio"}, source=asset,
                 asset=asset, asset_abs=path, source_ref=dict(ref))
+        if loops:
+            records[key].item["loops"] = True
         return records[key]
 
     of_track = {t: record_for(track.source_ref, track.asset,
-                              track.local_path(), t)
+                              track.local_path(), t, t in looping)
                 for t, track in tracks.items()}
     of_video = [(r, record_for(r.source_ref or {"path": str(r.asset)},
-                               str(r.asset), r.asset_abs, r.item["id"]))
+                               str(r.asset), r.asset_abs, r.item["id"],
+                               True))
                 for r in kept if r.item["type"] == "video"]
     if records:
         _skipped, media = run_asset_pass(list(records.values()), out_dir,
@@ -143,6 +149,20 @@ def ship_sound(result: TimelineResult, out_dir: Path,
             record.item["audio"] = record.audio
             shipment.cued += 1
     return shipment
+
+
+def _looping_tracks(kept: list[ItemRecord],
+                    tracks: dict[str, AudioTrack]) -> set[str]:
+    """Ids of the tracks a kept item plays as a loop: its music, unless
+    the track does not loop, and its ambience."""
+    ids: set[str] = set()
+    for record in kept:
+        audio = record.audio or {}
+        music = audio.get("music")
+        if music in tracks and tracks[music].loop:
+            ids.add(music)
+        ids.update(t for t in audio.get("ambience", []) if t in tracks)
+    return ids
 
 
 def _ledger_entry(asset: str, rec: ItemRecord,

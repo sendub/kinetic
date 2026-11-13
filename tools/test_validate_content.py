@@ -31,8 +31,11 @@ SCHEMA = REPO_ROOT / "docs" / "content-schema.json"
 
 if str(TOOLS_DIR) not in sys.path:
     sys.path.insert(0, str(TOOLS_DIR))
+if str(REPO_ROOT / "converter") not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT / "converter"))
 
 import validate_content  # noqa: E402
+from kinetic_extract import audio_format  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -1544,8 +1547,8 @@ def test_warnings_leave_problem_lines_and_exit_one_alone(
 # ---------------------------------------------------------------------------
 # Audio (docs/content-format.md § Audio; docs/plan.md Phase 47 item 1): the
 # top-level `audio.tracks` and per-item `audio`. The validator checks that
-# track files exist and pass the path rule, and decodes nothing, so the test
-# tracks are small dummy files.
+# track files exist and pass the path rule, that each has its script (item
+# 17), and decodes nothing, so the test tracks are small dummy files.
 # ---------------------------------------------------------------------------
 
 RANGE_A = 14  # range-a: a video item playing seconds 0 to 1 of a 2 s file
@@ -1567,12 +1570,22 @@ def test_demo_audio_roles_match_ids(demo: Path) -> None:
     assert not any("audio" in item for item in items)
 
 
+DUMMY = b"not decoded by the validator"
+
+
+def put_track(folder: Path, path: str, data: bytes = DUMMY) -> None:
+    """An audio file and its script (docs/content-format.md § Audio)."""
+    (folder / path).parent.mkdir(parents=True, exist_ok=True)
+    (folder / path).write_bytes(data)
+    audio_format.write_script(folder, path)
+
+
 def with_audio(folder: Path) -> dict[str, Any]:
     """The demo manifest with every audio field in use, its track files
-    written as dummies. Every track is used, so nothing warns."""
+    written as dummies with their scripts. Every track is used, and no
+    looping track is MP3, so nothing warns."""
     for path in AUDIO_FILES.values():
-        (folder / path).parent.mkdir(parents=True, exist_ok=True)
-        (folder / path).write_bytes(b"not decoded by the validator")
+        put_track(folder, path)
     manifest = read_manifest(folder)
     manifest["audio"] = {"tracks": {
         "theme": {"file": AUDIO_FILES["theme"], "durationSeconds": 120.0,
@@ -1818,7 +1831,7 @@ def test_item_audio_with_empty_tracks_is_rejected_once(folder: Path) -> None:
 def test_ogg_track_warns_and_leaves_the_exit_alone(folder: Path,
                                                    ext: str) -> None:
     manifest = with_audio(folder)
-    (folder / AUDIO_FILES["rain"]).rename(folder / f"rain{ext}")
+    put_track(folder, f"rain{ext}")
     manifest["audio"]["tracks"]["rain"]["file"] = f"rain{ext}"
     write_manifest(folder, manifest)
     assert problems_of(folder) == []
@@ -1839,7 +1852,7 @@ def test_ogg_warning_leaves_problem_lines_and_exit_one_alone(
     (folder / manifest["items"][0]["file"]).unlink()
     write_manifest(folder, manifest)
     without = run_cli(folder)
-    (folder / AUDIO_FILES["rain"]).rename(folder / "rain.ogg")
+    put_track(folder, "rain.ogg")
     manifest["audio"]["tracks"]["rain"]["file"] = "rain.ogg"
     write_manifest(folder, manifest)
     proc = run_cli(folder)
@@ -1881,7 +1894,7 @@ def test_output_without_audio_is_unchanged(demo: Path, path: Path) -> None:
     exited 0."""
     proc = run_cli(path)
     assert (proc.returncode, proc.stdout, proc.stderr) == (0, "", "")
-    assert validate_content.audio_warnings(read_manifest(path)) == []
+    assert validate_content.audio_warnings(read_manifest(path), path) == []
 
 
 def test_audio_rules_reported_without_schema() -> None:
@@ -1906,5 +1919,135 @@ def test_audio_rules_reported_without_schema() -> None:
         "durationSeconds 1.0 is shorter than the item's range end 3.0 by "
         "more than 0.05 s",
     ]
-    assert validate_content.audio_warnings(manifest) == [
+    assert validate_content.audio_warnings(manifest, Path("absent")) == [
+        "warning: manifest.json: audio.tracks.a.file: " + LOOP_MP3_WARNING,
         "warning: manifest.json: audio.tracks.b: no item uses this track"]
+
+
+# ---------------------------------------------------------------------------
+# Audio scripts and loop-safe formats (docs/content-format.md § Audio;
+# docs/plan.md Phase 47 item 17)
+# ---------------------------------------------------------------------------
+
+LOOP_FIX = ("so it may click at each loop; ship it as AAC (M4A), Vorbis in "
+            "WebM, WAV or FLAC (kinetic-media does so for an audio request "
+            'with "loops": true)')
+LOOP_MP3_WARNING = ("a looping track in MP3: WebKit decodes it 576 samples "
+                    "late, " + LOOP_FIX)
+# The heads a file's codec is told by: a WebM's CodecID, an Ogg stream's
+# first packet.
+OPUS_WEBM = b"\x1a\x45\xdf\xa3" + b"\x00" * 40 + b"\x86\x86A_OPUS" + DUMMY
+VORBIS_WEBM = (b"\x1a\x45\xdf\xa3" + b"\x00" * 40 + b"\x86\x88A_VORBIS"
+               + DUMMY)
+VORBIS_OGG = b"OggS" + b"\x00" * 24 + b"\x01vorbis" + DUMMY
+OPUS_OGG = b"OggS" + b"\x00" * 24 + b"OpusHead" + DUMMY
+
+
+def test_missing_script_is_reported(folder: Path) -> None:
+    manifest = with_audio(folder)
+    (folder / "rain.webm.js").unlink()
+    problem = only_problem(folder, manifest)
+    assert problem.startswith("manifest.json: audio.tracks.rain.file:")
+    assert "'rain.webm.js'" in problem
+    assert "tools/assemble_folder.py" in problem
+
+
+def test_missing_script_of_a_shared_file_is_reported_once(
+        folder: Path) -> None:
+    manifest = with_audio(folder)
+    (folder / "door.mp3.js").unlink()
+    problem = only_problem(folder, manifest)
+    assert problem.startswith("manifest.json: audio.tracks.door.file:")
+
+
+def test_script_in_a_subfolder_sits_beside_its_file(folder: Path) -> None:
+    manifest = with_audio(folder)
+    (folder / "media" / "au" / "theme.m4a.js").rename(
+        folder / "theme.m4a.js")
+    problem = only_problem(folder, manifest)
+    assert problem.startswith("manifest.json: audio.tracks.theme.file:")
+    assert "'media/au/theme.m4a.js'" in problem
+
+
+@pytest.mark.parametrize(("script", "says"), [
+    (audio_format.script_bytes("rain.webm", b"other bytes"),
+     "holds 11 bytes that are not the file's 28"),
+    (audio_format.script_bytes("wind.flac", DUMMY), "names 'wind.flac'"),
+    (b"window.rain = 1;\n", "not one __kineticAudio"),
+])
+def test_script_that_does_not_match_its_file_is_reported(
+        folder: Path, script: bytes, says: str) -> None:
+    manifest = with_audio(folder)
+    (folder / "rain.webm.js").write_bytes(script)
+    problem = only_problem(folder, manifest)
+    assert problem.startswith("manifest.json: audio.tracks.rain.file:")
+    assert "script 'rain.webm.js' does not match it" in problem
+    assert says in problem
+
+
+def test_script_without_its_file_reports_only_the_file(folder: Path) -> None:
+    manifest = with_audio(folder)
+    (folder / "rain.webm").unlink()
+    problem = only_problem(folder, manifest)
+    assert "does not exist" in problem
+
+
+@pytest.mark.parametrize(("track", "file", "data", "says"), [
+    ("theme", "theme.mp3", DUMMY, LOOP_MP3_WARNING),
+    ("rain", "rain.webm", OPUS_WEBM,
+     "a looping track in Opus in WebM: Chrome's decode loses its first 24 "
+     "samples, " + LOOP_FIX),
+    ("clip", "clip.mp3", DUMMY, LOOP_MP3_WARNING),
+])
+def test_looping_track_in_an_unsafe_format_warns(
+        folder: Path, track: str, file: str, data: bytes, says: str) -> None:
+    manifest = with_audio(folder)
+    put_track(folder, file, data)
+    manifest["audio"]["tracks"][track]["file"] = file
+    write_manifest(folder, manifest)
+    assert problems_of(folder) == []
+    proc = run_cli(folder)
+    assert (proc.returncode, proc.stdout) == (0, ""), proc.stderr
+    assert warning_lines(proc) == [
+        f"warning: manifest.json: audio.tracks.{track}.file: {says}"]
+
+
+def test_looping_ogg_vorbis_warns_twice(folder: Path) -> None:
+    manifest = with_audio(folder)
+    put_track(folder, "rain.ogg", VORBIS_OGG)
+    manifest["audio"]["tracks"]["rain"]["file"] = "rain.ogg"
+    write_manifest(folder, manifest)
+    lines = warning_lines(run_cli(folder))
+    assert len(lines) == 2
+    assert "Ogg audio" in lines[0]
+    assert lines[1] == (
+        "warning: manifest.json: audio.tracks.rain.file: a looping track in "
+        "Vorbis in Ogg: WebKit's decode loses its first 128 samples, "
+        + LOOP_FIX)
+
+
+@pytest.mark.parametrize(("track", "file", "data", "fields"), [
+    ("theme", "theme.mp3", DUMMY, {"loop": False}),
+    ("rain", "rain.webm", VORBIS_WEBM, {}),
+    ("door", "door.mp3", DUMMY, {}),
+    ("line", "line.webm", OPUS_WEBM, {}),
+    ("rain", "rain.flac", DUMMY, {}),
+])
+def test_one_shots_voice_and_safe_loops_do_not_warn(
+        folder: Path, track: str, file: str, data: bytes,
+        fields: dict[str, Any]) -> None:
+    manifest = with_audio(folder)
+    put_track(folder, file, data)
+    manifest["audio"]["tracks"][track].update(file=file, **fields)
+    write_manifest(folder, manifest)
+    proc = run_cli(folder)
+    assert (proc.returncode, proc.stdout, proc.stderr) == (0, "", "")
+
+
+def test_looping_ogg_opus_gets_only_the_ogg_warning(folder: Path) -> None:
+    manifest = with_audio(folder)
+    put_track(folder, "rain.opus", OPUS_OGG)
+    manifest["audio"]["tracks"]["rain"]["file"] = "rain.opus"
+    write_manifest(folder, manifest)
+    [line] = warning_lines(run_cli(folder))
+    assert "Ogg audio" in line
