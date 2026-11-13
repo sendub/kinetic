@@ -1,5 +1,5 @@
 // The sound module's pure parts (render/audio.ts): whether a manifest has
-// anything to play, and which files the warm-up fetches ahead.
+// anything to play, and which files the warm-up decodes ahead.
 
 import { describe, expect, it } from "vitest";
 import type { Item, Manifest } from "../machine/types";
@@ -11,6 +11,7 @@ const tracks = {
   mei: { file: "mei.webm", durationSeconds: 1.2 },
   again: { file: "knock.wav", durationSeconds: 0.6 },
   calm: { file: "calm.m4a", durationSeconds: 8 },
+  rain: { file: "rain.flac", durationSeconds: 6 },
 };
 
 const image = (id: string, audio?: Item["audio"]): Item =>
@@ -73,15 +74,17 @@ describe("upcomingSoundFiles (the warm-up)", () => {
   const items = [
     image("now", { sfx: [{ track: "bell" }] }),
     image("one", { sfx: [{ track: "knock" }, { track: "bell" }] }),
-    image("two", { music: "calm" }),
-    image("three", { voice: "mei", sfx: [{ track: "again" }] }),
+    image("two", { music: "calm", ambience: ["rain"] }),
+    image("three", { voice: "mei", sfx: [{ track: "again" }], music: null }),
     image("four", { sfx: [{ track: "bell" }] }),
   ];
 
-  it("takes the one-shots and voice lines of the next 3 items, each file once, music never", () => {
+  it("takes every track the next 3 items name (music, ambience, one-shots, voice), each file once", () => {
     expect(upcomingSoundFiles(items, tracks, 0, 3)).toEqual([
       "knock.wav",
       "bell.webm",
+      "calm.m4a",
+      "rain.flac",
       "mei.webm",
     ]);
   });

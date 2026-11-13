@@ -4,6 +4,7 @@
 // the engine (KINETIC_ENGINE=webkit). docs/verify-player.md, "WebKit".
 import { spawn } from "node:child_process";
 import { writeFileSync } from "node:fs";
+import { TEST_AUDIO_SCRIPT } from "../testing/testaudio.mjs";
 import { ensureDriver } from "./build.mjs";
 
 // Every private WebKit hook the driver relies on (its ready line reports
@@ -465,6 +466,7 @@ class Page {
  * page's storage on disk there instead, so a later launch with the same
  * folder resumes it. `requireGestureForAudio` makes sound wait for a key or
  * click, as Safari does (test only: the game app plays sound at launch).
+ * Its page gets the test sound flag before anything loads (testaudio.mjs).
  * Throws, with the driver killed, when the driver cannot start, would show
  * its window, or lacks a hook.
  */
@@ -514,6 +516,9 @@ export async function launchWebKit(options = {}) {
   } finally {
     clearTimeout(timer);
   }
+  // Before any page loads: the player holds its master gain at 0, as the
+  // page mute is not shown to silence Web Audio (testaudio.mjs).
+  await rpc.send("addScript", { source: TEST_AUDIO_SCRIPT });
   const page = new Page(rpc);
   const contexts = new Set();
   const browser = {

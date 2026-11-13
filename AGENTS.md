@@ -77,7 +77,10 @@ are implementing and docs/stack.md for settled decisions.
   (`--disable-audio-output`; biome blocks other `puppeteer-core`
   imports), the WebKit driver mutes its page, and that file's key helpers
   give Chrome no native key code except for Escape, so an unhandled key
-  cannot beep. The driver allows sound with no key, as the macOS app does;
+  cannot beep. Both launchers give every page the test sound flag
+  (`player/scripts/testing/testaudio.mjs`), so the player holds its Web
+  Audio master gain at 0: the WebKit page mute is not shown to silence
+  Web Audio. The driver allows sound with no key, as the macOS app does;
   `requireGestureForAudio: true` (`launchBrowser`, or a scenario's
   `open`) passes it `--require-gesture-for-audio`, so it waits for a key
   as Safari does. Headless Chrome always waits.

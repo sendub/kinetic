@@ -1487,10 +1487,12 @@ reports no error, so a broken file would otherwise pass.
 
 `current()` reports the game's sound as `audio` (What the library
 offers, below), so a test can check what plays at each item with no
-window and nothing heard: both engines play the sound, Chrome to no audio
-device and the WebKit helper muted. This one checks the audio demo's first
-music; assemble it with `.venv/bin/python tools/assemble_folder.py
-fixtures/audio-demo audio-demo-play`:
+window and nothing heard: both engines play the sound, and the library
+tells the player to hold its output at zero on every page it opens, on top
+of Chrome's missing audio device and the WebKit helper's mute. This one
+checks the audio demo's first music; assemble it with
+`.venv/bin/python tools/assemble_folder.py fixtures/audio-demo
+audio-demo-play`:
 
 ```js
 // test-sound.mjs: node test-sound.mjs <game-folder> [webkit|chrome]
@@ -1589,8 +1591,8 @@ The game:
     ambience, voice, videoSound }` naming tracks by id
     (docs/content-format.md, "What plays at an item"), and `null` while
     sound is off (`v`).
-    `elements` lists each audio element holding a track as `{ slot,
-    track, paused, currentTime, volume }`: `slot` is `"music"`,
+    `elements` lists each sound holding a track as `{ slot, track,
+    paused, currentTime, volume }`: `slot` is `"music"`,
     `"ambience"`, `"sfx"` (a one-shot), `"voice"`, `"video"` (a video's
     own sound) or `"sample"` (the Volumes box trying a level). One plays
     while `paused` is false; a track that played to its end stays listed,

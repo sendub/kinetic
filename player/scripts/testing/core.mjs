@@ -8,6 +8,7 @@
 import { existsSync, rmSync } from "node:fs";
 import { platform } from "node:os";
 import puppeteer from "puppeteer-core";
+import { TEST_AUDIO_SCRIPT } from "./testaudio.mjs";
 
 // --------------------------------------------------------------------------
 // Browsers: one per profile, headless Chrome or the WebKit driver.
@@ -43,21 +44,41 @@ export const CHROME_SCREEN = { width: 1920, height: 1200 };
  * stream. Media plays, its clock runs in real time and its events fire, the
  * autoplay rule still refuses play() before a key or click, but Chrome
  * opens no Core Audio output (puppeteer's own `--mute-audio` still opens
- * one and plays zeros; measured on macOS 27.2, 2026-11-10). biome.json
- * keeps every other script off puppeteer-core.
+ * one and plays zeros; measured on macOS 27.2, 2026-11-10). Every page it
+ * opens, in any context, also gets the test sound flag before its first
+ * document (testaudio.mjs), so the player holds its master gain at 0.
+ * biome.json keeps every other script off puppeteer-core.
  */
-export function launchChrome(options = {}) {
-  return puppeteer.launch({
+export async function launchChrome(options = {}) {
+  const browser = await puppeteer.launch({
     executablePath: chromePath,
     headless: true,
     ...options,
     args: [...(options.args ?? []), "--disable-audio-output"],
   });
+  // puppeteer's browser.newPage opens a page of the default context.
+  withTestAudio(browser.defaultBrowserContext());
+  const createContext = browser.createBrowserContext.bind(browser);
+  browser.createBrowserContext = async (...args) =>
+    withTestAudio(await createContext(...args));
+  return browser;
+}
+
+/** Gives each page `context` opens the test sound flag (testaudio.mjs). */
+function withTestAudio(context) {
+  const newPage = context.newPage.bind(context);
+  context.newPage = async (...args) => {
+    const page = await newPage(...args);
+    await page.evaluateOnNewDocument(TEST_AUDIO_SCRIPT);
+    return page;
+  };
+  return context;
 }
 
 /**
  * Starts one browser with no window and no sound on `engine` ("chrome" or
- * "webkit": launchChrome; the WebKit driver mutes its page).
+ * "webkit": launchChrome; the WebKit driver mutes its page; both give
+ * every page the test sound flag, testaudio.mjs).
  * Chrome runs headless on the profile folder `profile`, emptied first when
  * `fresh`. The WebKit driver keeps its storage in memory (a fresh profile)
  * unless `profile` names a folder to keep it in. `requireGestureForAudio`

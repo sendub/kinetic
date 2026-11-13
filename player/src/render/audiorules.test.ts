@@ -20,25 +20,29 @@ import {
   DEFAULT_FADE_MS,
   duckFor,
   elementVolume,
+  type Fade,
+  fadeLevel,
+  gainStages,
   gridPlay,
   groupVolume,
+  holdFade,
   learnSeamLead,
   learnVideoLead,
   maySound,
   playPlan,
+  playPosition,
   REST_FADE_MS,
   REST_MS,
+  runFade,
   SAMPLE_MS,
   SEAM_LAND_MS,
   SEAM_LEAD_MAX_S,
-  SEAM_LEAD_S,
-  SEAM_REHEARSE_S,
-  SEAM_WATCH_S,
   SFX_POOL_SIZE,
   type SoundOutput,
   sampleTrack,
   seamStep,
   startGrid,
+  still,
   VIDEO_LEAD_SAMPLES,
   VIDEO_PARK_S,
   VIDEO_SYNC_S,
@@ -73,6 +77,29 @@ describe("the volume product", () => {
     expect(
       elementVolume({ track: undefined, group: 1, duck: 1, fade: 1 }),
     ).toBe(1);
+  });
+
+  it("splits into the gain nodes' values: the sound's own (track x fade), its group's and the bed's duck, whose product is the volume", () => {
+    for (const parts of [
+      { track: 0.5, group: 0.5, duck: 0.4, fade: 0.5 },
+      { track: undefined, group: 0.3, duck: 1, fade: 0.25 },
+      { track: 1.4, group: -1, duck: 2, fade: 0.5 },
+    ]) {
+      const stages = gainStages(parts);
+      expect(stages.sound * stages.group * stages.duck).toBeCloseTo(
+        elementVolume(parts),
+        12,
+      );
+    }
+    expect(
+      gainStages({ track: 0.6, group: 0.8, duck: 0.3, fade: 0.5 }),
+    ).toEqual({ sound: 0.3, group: 0.8, duck: 0.3 });
+    // Each held to [0, 1], as the product is.
+    expect(gainStages({ track: 2, group: 3, duck: -1, fade: 1 })).toEqual({
+      sound: 1,
+      group: 1,
+      duck: 0,
+    });
   });
 
   it("stays a volume an element takes, whatever a stored setting says", () => {
@@ -263,7 +290,7 @@ describe("the one-shot pool", () => {
 });
 
 describe("how a track plays and loops", () => {
-  it("loops music and ambience from 0 like any other loop, never by the element's own loop", () => {
+  it("loops music and ambience from 0 to the track's end", () => {
     expect(playPlan({ file: "a.mp3", durationSeconds: 8 }, true)).toEqual({
       loops: true,
       startSeconds: 0,
@@ -303,32 +330,126 @@ describe("how a track plays and loops", () => {
       playPlan({ file: "a.mp3", durationSeconds: 3 }, false),
     ).toMatchObject({ loops: false });
   });
+
+  it("puts a decoded buffer's loop on whole samples, ending at the track's length or the buffer's, whichever is first", () => {
+    // `steps`: 576,064 samples at 48 kHz, written to 6 decimals; its WebM
+    // decodes 64 samples longer. The loop ends on sample 576,064.
+    const steps = {
+      file: "steps.webm",
+      durationSeconds: 12.001333,
+      startSeconds: 6,
+      loopStartSeconds: 3,
+    };
+    const plan = playPlan(steps, true, {
+      duration: 576_128 / 48_000,
+      sampleRate: 48_000,
+    });
+    expect(plan.endSeconds * 48_000).toBeCloseTo(576_064, 6);
+    expect(plan.loopStartSeconds).toBe(3);
+    expect(plan.startSeconds).toBe(6);
+    // A buffer shorter than the track ends the loop at the buffer's end.
+    expect(
+      playPlan({ file: "c.m4a", durationSeconds: 8 }, true, {
+        duration: 7.977,
+        sampleRate: 48_000,
+      }).endSeconds,
+    ).toBeCloseTo(7.977, 9);
+    // One too short for its restart point loops the whole of it.
+    expect(
+      playPlan(steps, true, { duration: 2.5, sampleRate: 48_000 }),
+    ).toMatchObject({ loopStartSeconds: 0, startSeconds: 0, endSeconds: 2.5 });
+  });
 });
 
-describe("a loop's wrap (seamStep, learnSeamLead)", () => {
+describe("where a play stands (playPosition): pauses and resumes", () => {
+  // `steps`: starts at 6, ends at 12, loops back to 3.
+  const steps = playPlan(
+    {
+      file: "steps.webm",
+      durationSeconds: 12,
+      startSeconds: 6,
+      loopStartSeconds: 3,
+    },
+    true,
+  );
+  const once = playPlan({ file: "bell.webm", durationSeconds: 3 }, false);
+
+  it("runs on from where it started, and wraps a loop from its end to its restart point", () => {
+    expect(playPosition(steps, 6, 0)).toBe(6);
+    expect(playPosition(steps, 6, 5.5)).toBe(11.5);
+    expect(playPosition(steps, 6, 6)).toBe(3); // the first wrap
+    expect(playPosition(steps, 6, 7.5)).toBe(4.5);
+    expect(playPosition(steps, 6, 6 + 9 * 4 + 1)).toBeCloseTo(4, 9);
+  });
+
+  it("stops a play that does not loop at its end", () => {
+    expect(playPosition(once, 0, 1.2)).toBe(1.2);
+    expect(playPosition(once, 0, 3)).toBe(3);
+    expect(playPosition(once, 1, 9)).toBe(3);
+  });
+
+  it("resumes a paused play where it stopped: a pause splits the timeline without moving it", () => {
+    // Seeded, so a failure repeats.
+    let seed = 7;
+    const next = () => {
+      seed = (seed * 16807) % 2147483647;
+      return seed / 2147483647;
+    };
+    for (let n = 0; n < 500; n += 1) {
+      const plan = n % 2 === 0 ? steps : once;
+      const a = next() * 40;
+      const b = next() * 40;
+      const paused = playPosition(plan, plan.startSeconds, a);
+      expect(playPosition(plan, paused, b)).toBeCloseTo(
+        playPosition(plan, plan.startSeconds, a + b),
+        6,
+      );
+    }
+  });
+});
+
+describe("a fade on a gain (fadeLevel, holdFade, runFade)", () => {
+  // From silent to full over 1 s, begun at context time 10.
+  const up: Fade = { from: 0, to: 1, at: 10, seconds: 1 };
+
+  it("moves in a straight line from its start to its end, then stays", () => {
+    expect(fadeLevel(up, 9)).toBe(0);
+    expect(fadeLevel(up, 10.25)).toBe(0.25);
+    expect(fadeLevel(up, 11)).toBe(1);
+    expect(fadeLevel(up, 30)).toBe(1);
+    expect(fadeLevel(still(0.4), 123)).toBe(0.4);
+  });
+
+  it("waits where it is while its sound is held, and runs the rest once it plays again", () => {
+    const held = holdFade(up, 10.25);
+    expect(fadeLevel(held, 10.25)).toBe(0.25);
+    expect(fadeLevel(held, 500)).toBe(0.25);
+    expect(holdFade(held, 600)).toBe(held);
+    const resumed = runFade(held, 20);
+    expect(fadeLevel(resumed, 20)).toBe(0.25);
+    expect(fadeLevel(resumed, 20.375)).toBeCloseTo(0.625, 9);
+    expect(fadeLevel(resumed, 20.75)).toBe(1);
+    expect(runFade(resumed, 21)).toBe(resumed);
+    // A fade set while its sound waits (to load, or for a key) starts in
+    // full when the sound does.
+    const waiting: Fade = { from: 0, to: 1, at: Number.NaN, seconds: 2 };
+    expect(fadeLevel(runFade(waiting, 5), 6)).toBe(0.5);
+  });
+});
+
+describe("a video sound's hand-over (seamStep, learnSeamLead)", () => {
   const FRAME_S = 1 / 60;
   /**
-   * The steps one pass asks for, a frame apart, until the switch, each at
-   * the remaining time it is due; a step set for later waits for its time,
-   * and a rehearsal ends, teaching the lead, `SEAM_LAND_MS` after it began.
+   * The steps a cue asks for, a frame apart, until the switch, each at the
+   * remaining time it is due; a step set for later waits for its time.
    */
-  function pass(from: number, lead: number, learnt = true) {
+  function pass(from: number, lead: number) {
     const steps: { at: number; step: string }[] = [];
-    let spare: "idle" | "rehearsing" | "started" = "idle";
-    let rehearsedAt = 0;
-    let known = learnt;
+    let spare: "idle" | "started" = "idle";
     for (let remaining = from; ; remaining -= FRAME_S) {
-      if (
-        spare === "rehearsing" &&
-        rehearsedAt - remaining >= SEAM_LAND_MS / 1000
-      ) {
-        spare = "idle";
-        known = true;
-      }
       const { step, inS } = seamStep({
         remaining,
         lead,
-        learnt: known,
         spare,
         ended: false,
         frame: FRAME_S,
@@ -336,15 +457,11 @@ describe("a loop's wrap (seamStep, learnSeamLead)", () => {
       if (step === "wait") continue;
       steps.push({ at: remaining - inS, step });
       if (step === "start") spare = "started";
-      if (step === "rehearse") {
-        spare = "rehearsing";
-        rehearsedAt = remaining;
-      }
       if (step === "switch") return steps;
     }
   }
 
-  it("starts the second element its lead before the end and hands over at the end, never wrapping the playing one", () => {
+  it("starts the waiting element its lead before the cue and hands over at the cue, never seeking the playing one", () => {
     const steps = pass(2, 0.345);
     expect(steps.map((s) => s.step)).toEqual(["start", "switch"]);
     // Set for those moments, not the frames around them.
@@ -352,44 +469,18 @@ describe("a loop's wrap (seamStep, learnSeamLead)", () => {
     expect(steps[1].at).toBeCloseTo(0, 9);
   });
 
-  it("hands over at once when the element ended before the track's end", () => {
+  it("hands over at once when the element ended before its time", () => {
     for (const spare of ["idle", "started"] as const) {
       expect(
         seamStep({
           remaining: 0.2,
           lead: 0.3,
-          learnt: true,
           spare,
           ended: true,
           frame: FRAME_S,
         }),
       ).toEqual({ step: "switch", inS: 0 });
     }
-  });
-
-  it("rehearses the second element's start once, late in a file's first pass, until a lead is learnt", () => {
-    const first = pass(8, SEAM_LEAD_S, false);
-    expect(first.map((s) => s.step)).toEqual(["rehearse", "start", "switch"]);
-    // Leaving its clock time to settle before the watch.
-    const settled = SEAM_LEAD_S + SEAM_LAND_MS / 1000 + SEAM_WATCH_S;
-    expect(first[0].at).toBeGreaterThan(settled);
-    expect(first[0].at).toBeLessThanOrEqual(settled + SEAM_REHEARSE_S);
-    // A pass too short to rehearse in starts on the default lead.
-    expect(pass(1.5, SEAM_LEAD_S, false).map((s) => s.step)).toEqual([
-      "start",
-      "switch",
-    ]);
-    // A rehearsal still running at the lead is cut short by the start.
-    expect(
-      seamStep({
-        remaining: 0.3,
-        lead: 0.35,
-        learnt: false,
-        spare: "rehearsing",
-        ended: false,
-        frame: FRAME_S,
-      }),
-    ).toEqual({ step: "start", inS: 0 });
   });
 
   it("learns the lead from the second element's clock once it settles: WebKit's runs ahead, then waits for the sound", () => {
@@ -851,7 +942,6 @@ describe("a video's sound keeps to its video (items 6 and 15)", () => {
       const { step, inS } = seamStep({
         remaining: (cue.at - at) / 1000,
         lead,
-        learnt: true,
         spare: started ? "started" : "idle",
         ended: false,
         frame: FRAME_S,

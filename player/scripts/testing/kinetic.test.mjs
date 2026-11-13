@@ -816,7 +816,41 @@ describe("readAudio (current()'s audio, read from the player's #audio)", () => {
     videoSound: null,
   };
 
-  it("reports the target, the unlock and each element holding a track", () => {
+  const sound = (slot, track, paused, currentTime, volume) => ({
+    slot,
+    track,
+    paused,
+    currentTime,
+    volume,
+  });
+
+  it("reports the target, the unlock and each sound holding a track, from the player's sounds()", () => {
+    const hook = {
+      dataset: { target: JSON.stringify(target), unlocked: "true" },
+      // The video sound's element is a child, and listed by sounds() too.
+      children: [element("video", "clock", false, 4.5, 1)],
+      sounds: () => [
+        sound("music", "calm", false, 2.5, 0.8),
+        sound("music", "", true, 0, 0),
+        sound("ambience", "rain", false, 1.25, 0.5),
+        sound("sfx", "", true, 0, 0),
+        sound("voice", "mei-1", true, 1.2, 1),
+        sound("video", "clock", false, 4.5, 1),
+      ],
+    };
+    expect(readAudio(doc(hook))).toEqual({
+      unlocked: true,
+      target,
+      elements: [
+        sound("music", "calm", false, 2.5, 0.8),
+        sound("ambience", "rain", false, 1.25, 0.5),
+        sound("voice", "mei-1", true, 1.2, 1),
+        sound("video", "clock", false, 4.5, 1),
+      ],
+    });
+  });
+
+  it("reads an older player's <audio> elements, each holding a track", () => {
     const hook = {
       dataset: { target: JSON.stringify(target), unlocked: "true" },
       children: [

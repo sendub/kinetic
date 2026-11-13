@@ -1,19 +1,26 @@
 // The adapter refuses a driver it cannot trust (docs/verify-player.md,
 // "WebKit"): a stand-in driver, a node one-liner speaking the driver's
 // JSON-lines protocol, sends the ready or fatal line under test.
+import { mkdirSync, readFileSync, rmSync } from "node:fs";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { TEST_AUDIO_SCRIPT } from "../testing/testaudio.mjs";
 import { launchWebKit, MUTE_HOOK, REQUIRED_HOOKS } from "./puppet.mjs";
 
 /**
  * A stand-in driver whose first line is `first`; it answers every request,
- * then writes `after[cmd]` (event lines) if given.
+ * then writes `after[cmd]` (event lines) if given. With `log`, it appends
+ * each request line it reads to that file.
  */
-const standIn = (first, after = {}) => [
+const standIn = (first, after = {}, log = null) => [
   process.execPath,
   "-e",
   `const after = ${JSON.stringify(after)};
+   const log = ${JSON.stringify(log)};
    process.stdout.write(${JSON.stringify(`${JSON.stringify(first)}\n`)});
    require("node:readline").createInterface({ input: process.stdin }).on("line", (line) => {
+     if (log !== null) require("node:fs").appendFileSync(log, line + "\\n");
      const { id, cmd } = JSON.parse(line);
      process.stdout.write(JSON.stringify({ id, ok: true, value: true }) + "\\n");
      for (const event of after[cmd] ?? []) process.stdout.write(JSON.stringify(event) + "\\n");
@@ -55,6 +62,36 @@ describe("launchWebKit", () => {
         "lacks the private hook _setPageMuted:, which keeps the WebKit engine silent",
       );
     }
+  });
+
+  it("gives its page the test sound flag before anything loads, so the player's master gain stays 0", async () => {
+    const dir = join(
+      fileURLToPath(new URL(".", import.meta.url)),
+      "..",
+      "..",
+      "..",
+      ".tmp",
+      "puppet-test",
+    );
+    mkdirSync(dir, { recursive: true });
+    const log = join(dir, `requests-${process.pid}.jsonl`);
+    rmSync(log, { force: true });
+    const browser = await launchWebKit({
+      command: standIn({ event: "ready", hooks: hooks() }, {}, log),
+    });
+    const page = await browser.newPage();
+    await page.goto("file:///game/index.html");
+    await browser.close();
+    const requests = readFileSync(log, "utf8")
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line));
+    rmSync(log, { force: true });
+    expect(requests[0]).toMatchObject({
+      cmd: "addScript",
+      source: TEST_AUDIO_SCRIPT,
+    });
+    expect(requests.map((r) => r.cmd)).toEqual(["addScript", "goto", "quit"]);
   });
 
   it("refuses a ready line with no hook report at all", async () => {

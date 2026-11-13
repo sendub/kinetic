@@ -195,14 +195,16 @@ const END_CARD = () => {
 
 /**
  * current()'s `audio`, read from `doc` (the page's document): the player's
- * hidden `#audio` (docs/plan.md Phase 47, item 5) holds its <audio>
- * elements, each with `data-slot` and `data-track`, and carries the target
- * sound as JSON (`data-target`, from when the first one applies) and
+ * hidden `#audio` (docs/plan.md Phase 47, items 5 and 18) lists its sounds
+ * through `sounds()`, each as `{ slot, track, paused, currentTime, volume }`
+ * (an older player's `#audio` held <audio> elements with `data-slot` and
+ * `data-track` instead, read the same way), and carries the target sound
+ * as JSON (`data-target`, from when the first one applies) and
  * `data-unlocked`. Resolves `{ unlocked, target, elements }`, where
- * `elements` lists each element holding a track as `{ slot, track,
- * paused, currentTime, volume }` (idle ones are left out), or null when
- * the page has no `#audio`: a game without audio, or an older player.
- * Runs in the page, so it uses nothing from outside its own body.
+ * `elements` lists each sound holding a track (idle ones are left out), or
+ * null when the page has no `#audio`: a game without audio, or a player
+ * older than sound. Runs in the page, so it uses nothing from outside its
+ * own body.
  */
 export const readAudio = (doc) => {
   const hook = doc.getElementById("audio");
@@ -211,17 +213,27 @@ export const readAudio = (doc) => {
   try {
     target = JSON.parse(hook.dataset.target ?? "null");
   } catch {}
+  const sounds =
+    typeof hook.sounds === "function"
+      ? hook.sounds()
+      : Array.from(hook.children, (el) => ({
+          slot: el.dataset.slot,
+          track: el.dataset.track ?? "",
+          paused: el.paused,
+          currentTime: el.currentTime,
+          volume: el.volume,
+        }));
   return {
     unlocked: hook.dataset.unlocked === "true",
     target,
-    elements: Array.from(hook.children)
-      .filter((el) => (el.dataset.track ?? "") !== "")
-      .map((el) => ({
-        slot: el.dataset.slot,
-        track: el.dataset.track,
-        paused: el.paused,
-        currentTime: el.currentTime,
-        volume: el.volume,
+    elements: sounds
+      .filter((s) => s.track !== "")
+      .map(({ slot, track, paused, currentTime, volume }) => ({
+        slot,
+        track,
+        paused,
+        currentTime,
+        volume,
       })),
   };
 };
@@ -903,8 +915,8 @@ function gameHandle({ page, cdp, errors, manifest, closeHelp }, fields) {
      * target, elements }`, where `target` is what should sound here
      * (`{ music, ambience, voice, videoSound }`, from a moment after a
      * walk or jump lands: the player waits 250 ms) and `elements` each
-     * <audio> element holding a track, `{ slot, track, paused,
-     * currentTime, volume }`, slot "music", "ambience", "sfx", "voice",
+     * sound holding a track, `{ slot, track, paused, currentTime,
+     * volume }`, slot "music", "ambience", "sfx", "voice",
      * "video" or "sample" (the Esc screen's Volumes sheet sampling a
      * one-shot or a voice line); null for a game without audio. A browser
      * plays nothing until the first key or click (`unlocked` false until

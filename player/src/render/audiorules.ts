@@ -1,8 +1,10 @@
-// The sound's rules (docs/plan.md Phase 47, item 5), apart from the elements
-// that play it (render/audio.ts): the volume product, the one-shot pool,
-// how a track plays and loops, and the director, which turns the machine's
-// arrivals into what should sound and when. DOM-free: time enters through
-// the global timers, which tests fake.
+// The sound's rules (docs/plan.md Phase 47, items 5 and 18), apart from the
+// engine that plays it (render/audio.ts): the volume product and the gain
+// nodes it is split into, fades on a gain, the one-shot pool, how a track
+// plays and loops and where a play stands, the video sound's cues, and the
+// director, which turns the machine's arrivals into what should sound and
+// when. DOM-free: time enters through the global timers, which tests fake,
+// and the context times callers pass.
 //
 // By arrival kind (`Machine.arrival`):
 // - `read`: the target applies at once with the item's `fadeMs`, its voice
@@ -170,23 +172,88 @@ export function sampleTrack(
 
 const unit = (value: number): number => Math.min(1, Math.max(0, value));
 
+/** What a sound's volume is made of (`elementVolume`, `gainStages`). */
+export interface VolumeParts {
+  /** The track's own `volume` (default 1). */
+  readonly track: number | undefined;
+  /** The reader's volume for its group (`groupVolume`). */
+  readonly group: number;
+  /** The duck on music and ambience (`duckFor`); 1 for the rest. */
+  readonly duck: number;
+  /** Its fade, 0 to 1 (`fadeLevel`). */
+  readonly fade: number;
+}
+
 /**
- * An element's volume: the track's `volume` (default 1) x its group's x the
+ * A sound's volume: the track's `volume` (default 1) x its group's x the
  * duck x the fade, each held to [0, 1] so a stored setting outside it (an
  * imported file can hold any number) never makes `element.volume` throw.
+ * The test hook reports it for every sound.
  */
-export function elementVolume(parts: {
-  track: number | undefined;
+export function elementVolume(parts: VolumeParts): number {
+  const stages = gainStages(parts);
+  return stages.sound * stages.group * stages.duck;
+}
+
+/**
+ * `elementVolume` split over the gain nodes a sound passes through: its own
+ * (the track's volume x its fade, so a fade is one ramp on it), its group's
+ * (the reader's volume) and, for music and ambience, the duck's.
+ */
+export function gainStages(parts: VolumeParts): {
+  sound: number;
   group: number;
   duck: number;
-  fade: number;
-}): number {
-  return (
-    unit(parts.track ?? 1) *
-    unit(parts.group) *
-    unit(parts.duck) *
-    unit(parts.fade)
-  );
+} {
+  return {
+    sound: unit(parts.track ?? 1) * unit(parts.fade),
+    group: unit(parts.group),
+    duck: unit(parts.duck),
+  };
+}
+
+/**
+ * A gain moving in a straight line from `from` to `to` over `seconds`,
+ * begun at context time `at`; `at` is NaN while it is held where it is
+ * (`holdFade`), `seconds` then being what is left of it.
+ */
+export interface Fade {
+  readonly from: number;
+  readonly to: number;
+  readonly at: number;
+  readonly seconds: number;
+}
+
+/** A gain that stays at `level`. */
+export function still(level: number): Fade {
+  return { from: level, to: level, at: Number.NaN, seconds: 0 };
+}
+
+/** `fade`'s level at context time `now`. */
+export function fadeLevel(fade: Fade, now: number): number {
+  if (Number.isNaN(fade.at)) return fade.from;
+  const progress = fade.seconds <= 0 ? 1 : unit((now - fade.at) / fade.seconds);
+  return fade.from + (fade.to - fade.from) * progress;
+}
+
+/**
+ * `fade` held at context time `now`, where it is, keeping what is left of
+ * it for `runFade`: a fade waits while its sound is held (a menu, a hidden
+ * page) or has not started (still decoding, or sound still locked).
+ */
+export function holdFade(fade: Fade, now: number): Fade {
+  if (Number.isNaN(fade.at)) return fade;
+  return {
+    from: fadeLevel(fade, now),
+    to: fade.to,
+    at: Number.NaN,
+    seconds: Math.max(0, fade.at + fade.seconds - now),
+  };
+}
+
+/** A held `fade` running on from context time `now`. */
+export function runFade(fade: Fade, now: number): Fade {
+  return Number.isNaN(fade.at) ? { ...fade, at: now } : fade;
 }
 
 /**
@@ -308,99 +375,116 @@ export function duckFor(
 /** Where a play of a track starts, loops and ends, in seconds. */
 export interface PlayPlan {
   /**
-   * Restarts at `loopStartSeconds` when it reaches `endSeconds`, on a
-   * second element (`seamStep`), never by the element's own `loop` or a
-   * seek of the playing element.
+   * Restarts at `loopStartSeconds` when it reaches `endSeconds` (an
+   * AudioBufferSourceNode's own loop, sample-exact).
    */
   loops: boolean;
   startSeconds: number;
   loopStartSeconds: number;
-  /** The track's `durationSeconds`: the element's own duration is never read. */
+  /**
+   * The track's `durationSeconds`, or its decoded buffer's length when that
+   * is shorter: an element's own duration is never read.
+   */
   endSeconds: number;
 }
 
 /**
  * How `track` plays: `looping` for music and ambience, which loop unless
- * the track says `loop: false`; one-shots and voice play once.
+ * the track says `loop: false`; one-shots and voice play once. With its
+ * decoded `buffer`, the end is the buffer's when that comes first, and the
+ * three times sit on whole samples of it: `durationSeconds` is a sample
+ * count written to 6 decimals, and a loop whose ends fall between samples
+ * would move by a fraction of one at every wrap. A loop too short for its
+ * restart point loops the whole of it.
  */
-export function playPlan(track: AudioTrack, looping: boolean): PlayPlan {
-  const startSeconds = track.startSeconds ?? 0;
-  const loopStartSeconds = track.loopStartSeconds ?? startSeconds;
-  return {
-    loops: looping && track.loop !== false,
-    startSeconds,
-    loopStartSeconds,
-    endSeconds: track.durationSeconds,
-  };
+export function playPlan(
+  track: AudioTrack,
+  looping: boolean,
+  buffer?: { duration: number; sampleRate: number },
+): PlayPlan {
+  const snap =
+    buffer === undefined
+      ? (t: number) => t
+      : (t: number) => Math.round(t * buffer.sampleRate) / buffer.sampleRate;
+  const loops = looping && track.loop !== false;
+  const endSeconds = snap(
+    Math.min(
+      track.durationSeconds,
+      buffer?.duration ?? Number.POSITIVE_INFINITY,
+    ),
+  );
+  let startSeconds = snap(track.startSeconds ?? 0);
+  let loopStartSeconds = snap(
+    track.loopStartSeconds ?? track.startSeconds ?? 0,
+  );
+  if (loops && loopStartSeconds >= endSeconds) loopStartSeconds = 0;
+  if (loops && startSeconds >= endSeconds) startSeconds = loopStartSeconds;
+  return { loops, startSeconds, loopStartSeconds, endSeconds };
 }
 
 /**
- * How long before a loop's end its second element is asked to play while
- * nothing is learnt of that file: the slowest start measured, WebKit
- * playing a PCM WAV from paused (335-354 ms; Opus in WebM 266-280 ms,
- * headless Chrome about 60 ms; macOS 27.2, 2026-11-10).
+ * Where a play of `plan` stands `elapsed` seconds after it played from
+ * track time `from`: a loop wraps from its end to its restart point; a
+ * play that does not loop stops at its end. A sound paused there resumes
+ * from this place, so a pause splits its timeline without moving it.
+ */
+export function playPosition(
+  plan: PlayPlan,
+  from: number,
+  elapsed: number,
+): number {
+  const at = from + Math.max(0, elapsed);
+  if (at < plan.endSeconds) return at;
+  if (!plan.loops) return plan.endSeconds;
+  const span = plan.endSeconds - plan.loopStartSeconds;
+  if (span <= 0) return plan.loopStartSeconds;
+  return plan.loopStartSeconds + ((at - plan.endSeconds) % span);
+}
+
+/**
+ * How long before a cue a video sound's waiting element is asked to play
+ * while nothing is learnt of its file or any other: the slowest start
+ * measured, WebKit playing a PCM WAV from paused (335-354 ms; Opus in WebM
+ * 266-280 ms, headless Chrome about 60 ms; macOS 27.2, 2026-11-10).
  */
 export const SEAM_LEAD_S = 0.35;
 /** The most a lead may grow to. */
 export const SEAM_LEAD_MAX_S = 0.75;
 /**
- * How long after a second element's play() its clock is trusted to say
+ * How long after a waiting element's play() its clock is trusted to say
  * when its sound began: WebKit's clock for a WAV runs from about 85 ms,
  * stops near 0.37 s for about 270 ms while the sound catches up, then runs
  * true (measured as for `SEAM_LEAD_S`).
  */
 export const SEAM_LAND_MS = 900;
-/**
- * How far ahead of the second element's start a loop's end is watched on
- * animation frames: more than the 250 ms between `timeupdate`s, which
- * start the watch.
- */
-export const SEAM_WATCH_S = 0.5;
-/**
- * How long the window for a rehearsal is, just before the time its clock
- * needs to settle before the watch: late in the pass, so the playing
- * element's own start has settled and the second element has waited a
- * while, as it does before a real start (one rehearsed 0.3 s after its
- * file loaded took 205 ms where the real starts took 312-353 ms; WebKit,
- * AAC).
- */
-export const SEAM_REHEARSE_S = 0.5;
 
-/** What a loop's wrap needs now (`seamStep`). */
+/** What a video sound's cue needs now (`seamStep`). */
 export interface SeamStep {
-  readonly step: "wait" | "rehearse" | "start" | "switch";
+  readonly step: "wait" | "start" | "switch";
   /** In how many seconds it is due (0: now); a timer, finer than frames, keeps it. */
   readonly inS: number;
 }
 
 /**
- * One look at a looping track's wrap (docs/plan.md Phase 47, item 14),
- * made on each animation frame near the end and on each `timeupdate`.
- * Every engine pauses an element that wraps on its own: the element's own
- * `loop` and a seek of a playing element each cost about 100 ms in
- * Chrome and 0.2-0.6 s in WebKit, and WebKit's own loop can stop for good
- * at the end of an Opus WebM or a WAV (measured as for `SEAM_LEAD_S`). So a
- * second element, waiting paused at the loop's restart point, is asked to
- * play `lead` seconds before the playing element reaches the end
- * (`start`; it plays inaudibly until then), and takes over at the end
- * (`switch`), when `remaining` (the end less the playing element's time)
- * reaches 0 or the element ended before it. Each is asked for on the last
- * look before its moment (within a `frame`, seconds, of it), timed to
- * that moment by `inS`: a start on the nearest frame could still be half
- * a frame off, and an engine starts a sound only on the next block of its
- * output (every start measured lay within 1 ms of a grid of 10.7 ms in
- * headless Chrome and 85.3 ms in the muted WebKit driver), so the error
- * is at least the distance to the nearest block. While no lead
- * is `learnt` for the file, the second element first rehearses its start
- * (`rehearse`), once, in the `SEAM_REHEARSE_S` before the pass leaves too
- * little time for its clock to settle before the watch, so even the first
- * wrap starts it on time. `spare` is what the second element is doing.
+ * One look at a video sound's cue (docs/plan.md Phase 47, items 6 and 15),
+ * made on each animation frame. An element sought while it plays goes
+ * silent or out of step while it lands (0.1-0.6 s), so a second element,
+ * waiting paused where the cue begins, is asked to play `lead` seconds
+ * before the cue's moment (`start`) and takes over at it (`switch`), when
+ * `remaining` (the time to the moment) reaches 0 or the playing element
+ * ended before it. Each is asked for on the last look before its moment
+ * (within a `frame`, seconds, of it), timed to that moment by `inS`: a
+ * start on the nearest frame could still be half a frame off, and an
+ * engine starts a sound only on the next block of its output (every start
+ * measured lay within 1 ms of a grid of 10.7 ms in headless Chrome and
+ * 85.3 ms in the muted WebKit driver), so the error is at least the
+ * distance to the nearest block. `spare` is what the second element is
+ * doing.
  */
 export function seamStep(now: {
   remaining: number;
   lead: number;
-  learnt: boolean;
-  spare: "idle" | "rehearsing" | "started";
+  spare: "idle" | "started";
   ended: boolean;
   frame: number;
 }): SeamStep {
@@ -413,22 +497,13 @@ export function seamStep(now: {
   if (now.spare === "started") return due("wait", 0);
   const toStart = now.remaining - now.lead;
   if (toStart < now.frame) return due("start", toStart);
-  const settled = now.lead + SEAM_LAND_MS / 1000 + SEAM_WATCH_S;
-  if (
-    now.spare === "idle" &&
-    !now.learnt &&
-    now.remaining > settled &&
-    now.remaining <= settled + SEAM_REHEARSE_S
-  ) {
-    return due("rehearse", 0);
-  }
   return due("wait", 0);
 }
 
 /**
  * The lead after one start of a second element, from its own clock: it was
  * asked to play at page time `played` (ms) and, read at `at`, had played
- * `media` seconds from the loop's restart point, so its sound began at
+ * `media` seconds from where it waited, so its sound began at
  * `at - media`. Null (nothing learnt) while the clock may not have settled,
  * before `SEAM_LAND_MS`. A file's first start is taken whole and later
  * ones move the lead halfway, as starts scatter by about 10 ms; it stays

@@ -92,9 +92,10 @@ const READ_PAIR = () => {
   const ai = slot.findIndex((el) => (el.dataset.track ?? "") !== "");
   const sound = ai < 0 ? null : slot[ai];
   const held = sound !== null;
-  const music = Array.from(
-    document.querySelectorAll('#audio [data-slot="music"]'),
-  ).filter((el) => (el.dataset.track ?? "") !== "" && !el.paused);
+  // The music, from the hook's list of the player's sounds.
+  const music = (document.getElementById("audio")?.sounds?.() ?? []).filter(
+    (s) => s.slot === "music" && s.track !== "" && !s.paused,
+  );
   return {
     at: performance.now(),
     item: document.getElementById("stage")?.getAttribute("data-item") ?? null,
@@ -110,7 +111,7 @@ const READ_PAIR = () => {
     as: held ? sound.seeking : null,
     ai: held ? ai : null,
     track: held ? sound.dataset.track : null,
-    music: music.map((el) => ({ track: el.dataset.track, v: el.volume })),
+    music: music.map((s) => ({ track: s.track, v: s.volume })),
   };
 };
 const readPair = (page) => page.evaluate(READ_PAIR);

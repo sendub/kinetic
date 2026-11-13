@@ -1,44 +1,62 @@
-// The sound (docs/plan.md Phase 47, item 5): the audio elements that play
-// what the machine says should sound (`Machine.targetSound`), on the
-// arrivals render/audiorules.ts's director picks out. It reads machine
-// state and signals the machine only through `setVoiceAudible`.
+// The sound (docs/plan.md Phase 47, items 5, 6, 7 and 18): what the machine
+// says should sound (`Machine.targetSound`), on the arrivals render/
+// audiorules.ts's director picks out. It reads machine state and signals
+// the machine only through `setVoiceAudible`.
 //
-// HTMLAudioElement only: under file:// Chrome's MediaElementAudioSource
-// outputs zeros. Elements are made on first need and reused: two channels
-// for music (the crossfade), one per ambience loop (up to twice the largest
-// set, so a whole set can fade out while the next fades in), a pool of six
-// for one-shots, one for voice, and one for a video's sound (the `video`
-// channel), and one for the Volumes pop-out's sample of a one-shot or a
-// voice line (the `sample` channel, item 7). A manifest without audio makes
-// none: `mountAudio` returns null.
+// Web Audio (item 18). One AudioContext, made at mount for a game with
+// audio; a manifest without audio makes nothing (`mountAudio` returns
+// null). A track's bytes come from the script its folder ships beside it
+// (`<file>.js`, docs/content-format.md "Audio"), as under file:// Chrome
+// refuses fetch and a media-element source gives zeros: the script hands
+// them, base64, to `window.__kineticAudio`, they are decoded with
+// `decodeAudioData`, and the string and the tag go. Buffers stay decoded in
+// render/audiocache.ts's LRU under `DECODED_CAP_BYTES`, never dropping one
+// a sound holds; the warm-up decodes the next items' tracks ahead, and a
+// track wanted before its buffer is ready starts the moment it is.
 //
-// A music or ambience channel has two elements, which trade places at each
-// wrap of a loop (item 14): an element that wraps on its own, by its `loop`
-// or a seek while it plays, goes silent for 0.1-0.6 s, and WebKit's own
-// loop can stop for good (audiorules.ts `seamStep`). The waiting element
-// sits paused at the loop's restart point, is asked to play its learnt
-// lead before the playing one reaches the track's end (inaudibly, at
-// `REFUSABLE_VOLUME`), and takes over at the end; both are timed to the
-// moment from the frames watching the end shortly before the start. The
-// lead is how long that file's starts take, learnt per file from each
-// start's settled clock (`learnSeamLead`), and first from a rehearsal of
-// the start late in the first pass, after the waiting element has played
-// once (`SEAM_PRIME_MS`). Nothing is watched while no loop plays.
-// An element's volume is the track's `volume` x its group's volume x the
-// duck x its fade (audiorules.ts `elementVolume`); fades step
-// `element.volume` on animation frames.
+// The graph: every sound is an AudioBufferSourceNode into its own gain (the
+// track's volume x its fade), then its group's (Music, then the duck, for
+// music and ambience; Effects for one-shots; Voice), then the mix, then
+// the master, then the destination (audiorules.ts `gainStages`). Music and
+// ambience loop by the source's own `loop`, from `loopStartSeconds` to the
+// track's end, so every wrap is sample-exact (item 14); one-shots, voice and
+// the Volumes sheet's sample play once. Fades and the duck are ramps on
+// their gains, in the context's time. Sounds are made on first need and
+// reused: two for music (the crossfade), one per ambience loop (up to twice
+// the largest set, so a whole set can fade out while the next fades in), a
+// pool of six one-shots, one voice and one sample (item 7).
 //
-// A video's sound (item 6) follows the stage's video, which render/
-// visual.ts reports through `setVideo` (its `watchVideo`: the element,
-// whether the stage plays it or holds its poster, and where its pass ends
-// and restarts). The target's `videoSound` is loaded while the stage plays
-// the video, and sounds only while the video really plays: from the
-// element's `playing` until it stops (a menu, a hidden page, a stall, the
-// last pass's end); the pause of a pass that wraps stops nothing. Its time
-// is the video's time, and like a loop its channel has two elements
-// (item 15): the playing one is never sought, as a seek of a playing
-// element goes silent or out of step while it lands and skips what lay
-// between. The other waits paused where the sound must next begin
+// What may sound (audiorules.ts `maySound`): under the Esc screen nothing,
+// except music, ambience and the pop-out's sample while its Volumes pop-out
+// is open (`setVolumesOpen`); under the branch map everything but the voice;
+// nothing while the page is hidden. A held sound's source stops, and it
+// keeps where it stood (`playPosition`) and its fade where it was
+// (`holdFade`); allowed again, a new source plays on from there. The
+// context itself runs on, as some sounds pause while others play.
+//
+// The unlock: until the reader's first key or click a browser keeps the
+// context from running (Chrome: suspended, and a source started on it
+// logs a warning; WebKit asking for a gesture: suspended, then interrupted
+// once a source starts; the stock WebKit driver and the Mac app run it at
+// once, 8-14 ms after it is made; measured on macOS 27.2, 2026-11-13). The
+// first key or click that counts as a user activation (not Esc, not a
+// Cmd/Ctrl/Alt shortcut) resumes it inside that handler, and the key still
+// does its own job. Nothing starts before the context may run; a one-shot
+// whose moment comes then is dropped. Until it runs, with sound on and
+// something to play, a quiet hint says "Press any key for sound", once the
+// context has had `HINT_GRACE_MS` to start on its own.
+//
+// A video's sound (item 6) still plays from <audio> elements (until item
+// 19). It follows the stage's video, which render/visual.ts reports through
+// `setVideo` (its `watchVideo`: the element, whether the stage plays it or
+// holds its poster, and where its pass ends and restarts). The target's
+// `videoSound` is loaded while the stage plays the video, and sounds only
+// while the video really plays: from the element's `playing` until it stops
+// (a menu, a hidden page, a stall, the last pass's end); the pause of a pass
+// that wraps stops nothing. Its time is the video's time, and its channel
+// has two elements (item 15): the playing one is never sought, as a seek of
+// a playing element goes silent or out of step while it lands and skips
+// what lay between. The other waits paused where the sound must next begin
 // (audiorules.ts `videoCue`): the video's restart point before a wrap,
 // where it stopped under a menu, or where the video will be shortly when
 // the sound is silent or more than `VIDEO_SYNC_S` off. It is played its
@@ -52,40 +70,24 @@
 // learnt too. A video that starts from paused (an entry, a menu's resume)
 // waits for its sound: visual.ts asks `videoStartDelay` first, which starts
 // the waiting element at once and answers how long the video waits to run
-// as it sounds (`gridLatency`). Frames are asked for only while a video's
-// sound is wanted. While it plays, music and ambience are
-// ducked by its `duck`, faded over `DUCK_FADE_MS`; the duck holds through
-// a wrap's pause and under the menus, and lifts when the video goes or
-// shows its poster.
+// as it sounds. Frames are asked for only while a video's sound is wanted.
+// While it plays, music and ambience are ducked by its `duck`, faded over
+// `DUCK_FADE_MS`; the duck holds through a wrap's pause and under the
+// menus, and lifts when the video goes or shows its poster. WebKit lets an
+// element play for good once its `play()` was called inside a key's or
+// click's handler, so the unlocking gesture starts both elements.
 //
-// What may sound (audiorules.ts `maySound`): under the Esc screen nothing,
-// except music, ambience and the pop-out's sample while its Volumes
-// pop-out is open (`setVolumesOpen`, item 7); under the branch map
-// everything but the voice; nothing while the page is hidden. A held
-// element keeps its place, a fade on it waits, and it plays on when
-// allowed again; one that has played out stays silent.
-//
-// The unlock: a browser refuses `play()` until the reader's first key or
-// click. Chrome then lets any element play for the life of the document
-// (sticky activation; a reload starts over). WebKit with sound requiring a
-// gesture (Safari, and the test driver's --require-gesture-for-audio)
-// lets an element play for good once its `play()` was called inside such a
-// handler, even at volume 0, muted, with no source yet, and across later
-// source changes; an element first played more than a few seconds after
-// the gesture is refused (all measured on macOS 27.2, 2026-11-10). So the
-// first key or click that counts as a user activation (not Esc, not a
-// Cmd/Ctrl/Alt shortcut) makes every element the game can need and calls
-// `play()` on each inside that handler; then what should sound plays, and
-// the key still does its own job. Until then, with sound on and a play
-// refused, a quiet hint says "Press any key for sound". The Mac and Windows
-// apps let sound start with no gesture, so they never show it.
-//
-// The test hook: the hidden `#audio` holds the live elements, each with
-// `data-slot` (music, ambience, sfx, voice, video, sample) and
-// `data-track` (its track id; empty while idle, and on a loop's waiting
-// element until it takes over); `#audio` carries
-// `data-target` (the target in force, as JSON, set each time one applies)
-// and `data-unlocked`.
+// Test hooks: the hidden `#audio` carries `data-target` (the target in
+// force, as JSON, set each time one applies) and `data-unlocked`, holds the
+// video sound's elements (`data-slot="video"`, `data-track`), and its
+// `sounds()` lists every sound made so far, in the order made, as `{slot,
+// track, paused, currentTime, volume}`: slot music, ambience, sfx, voice,
+// video or sample; the track id, "" while idle; whether it is silent; where
+// it stands in the track; its volume before the master. The testing tools
+// set `window.KINETIC_TEST_AUDIO` before the player starts (player/scripts/
+// testing/testaudio.mjs): with `mute` the master gain stays 0, the graph
+// running and nothing heard, and the player puts the context and the mix
+// in its `mix`, for a tap that records what the reader would hear.
 
 import type { Machine } from "../machine/machine";
 import type {
@@ -96,6 +98,7 @@ import type {
   SfxCue,
   TargetSound,
 } from "../machine/types";
+import { createDecodeCache, DECODED_CAP_BYTES } from "./audiocache";
 import {
   type AudioSlot,
   createSfxPool,
@@ -103,21 +106,27 @@ import {
   DUCK_FADE_MS,
   duckFor,
   elementVolume,
+  type Fade,
+  fadeLevel,
+  gainStages,
   gridPlay,
   groupVolume,
+  holdFade,
   learnSeamLead,
   learnVideoLead,
   maySound,
   type PlayPlan,
   playPlan,
+  playPosition,
   REST_FADE_MS,
+  runFade,
   SAMPLE_MS,
   SEAM_LAND_MS,
   SEAM_LEAD_S,
-  SEAM_WATCH_S,
   SFX_POOL_SIZE,
   sampleTrack,
   seamStep,
+  still,
   VIDEO_PARK_S,
   VIDEO_RESTART_S,
   VIDEO_START_S,
@@ -128,24 +137,44 @@ import {
 } from "./audiorules";
 import type { StageVideo } from "./visual";
 
+/** What the testing tools set before the player starts (see the header). */
+interface TestAudio {
+  mute?: unknown;
+  mix?: { context: AudioContext; node: AudioNode };
+}
+
+declare global {
+  // Test only: player/scripts/testing/testaudio.mjs sets it.
+  var KINETIC_TEST_AUDIO: TestAudio | undefined;
+  // Each track's script (`<file>.js`) calls it with its file's bytes.
+  var __kineticAudio: ((file: unknown, base64: unknown) => void) | undefined;
+}
+
 /** The hint shown while the browser refuses sound until a key or click. */
 export const SOUND_HINT_TEXT = "Press any key for sound";
 
 /**
- * The upcoming items whose one-shots and voice get preloaded elements, in
- * array order as the image warm-up looks ahead (render/visual.ts), and how
- * many such elements are kept at most.
+ * The upcoming items whose tracks the warm-up decodes, in array order as
+ * the image warm-up looks ahead (render/visual.ts), and how many files one
+ * warm-up decodes at most.
  */
 const WARM_AHEAD = 3;
 const WARM_CAP = 8;
 /** An inaudible level that still counts as sound to an autoplay policy. */
 const REFUSABLE_VOLUME = 0.001;
 /**
- * How long a loop's waiting element first plays, inaudibly, before any
+ * How long after mount the hint waits for the context to start on its own:
+ * a WebKit that needs no gesture (the Mac app, the stock test driver) ran
+ * it 10-130 ms after it was made (macOS 27.2, 2026-11-13), where Chrome
+ * keeps it suspended until a key; there is no refusal to wait for.
+ */
+const HINT_GRACE_MS = 500;
+/**
+ * How long a video sound's element first plays, inaudibly, before any
  * start of it is measured: WebKit starts a file's first play after its
  * load sooner than any later one (WAV and AAC 200-325 ms against 290-370;
- * Opus WebM and headless Chrome alike; macOS 27.2), so a rehearsal of a
- * first play would teach too short a lead.
+ * Opus WebM and headless Chrome alike; macOS 27.2), so a start of a first
+ * play would teach too short a lead.
  */
 const SEAM_PRIME_MS = 500;
 /**
@@ -197,9 +226,9 @@ export function hasSound(manifest: Manifest): boolean {
 }
 
 /**
- * The files of the one-shots and voice lines of the `ahead` items after
- * `cursor`, in array order (a route's start is a guess, like the image
- * warm-up's), each once.
+ * The files of every track the `ahead` items after `cursor` name (music,
+ * ambience, one-shots, voice), in array order (a route's start is a guess,
+ * like the image warm-up's), each once.
  */
 export function upcomingSoundFiles(
   items: readonly Item[],
@@ -211,6 +240,8 @@ export function upcomingSoundFiles(
   for (let i = cursor + 1; i < items.length && i <= cursor + ahead; i += 1) {
     const audio = items[i].audio;
     const ids = [
+      ...(typeof audio?.music === "string" ? [audio.music] : []),
+      ...(audio?.ambience ?? []),
       ...(audio?.sfx ?? []).map((cue) => cue.track),
       ...(audio?.voice === undefined ? [] : [audio.voice]),
     ];
@@ -274,23 +305,61 @@ export interface AudioOptions {
   settings: MachineSettings;
 }
 
-/** One element and what it is doing. */
+/** What the hook's `sounds()` reports of one sound. */
+interface SoundReading {
+  slot: AudioSlot;
+  track: string;
+  paused: boolean;
+  currentTime: number;
+  volume: number;
+}
+
+/** The slots that play from decoded buffers: all but a video's sound. */
+type BufferSlot = Exclude<AudioSlot, "video">;
+
+/** One sound played from a decoded buffer, and what it is doing. */
+interface Sound {
+  readonly slot: BufferSlot;
+  /** Its own gain: the track's volume x its fade. */
+  readonly gain: GainNode;
+  /** The track it holds, null while idle. */
+  track: string | null;
+  file: string | null;
+  plan: PlayPlan | null;
+  /** Its track's decoded buffer, null until decoded. */
+  buffer: AudioBuffer | null;
+  /** The source playing it, null while it is silent. */
+  source: AudioBufferSourceNode | null;
+  /** When (context time) the source started, from track time `startFrom`. */
+  startedAt: number;
+  startFrom: number;
+  /** Where in the track it stands while it has no source. */
+  offset: number;
+  /** It should play whenever its slot may sound. */
+  wanted: boolean;
+  /** It played to its end (a track that does not loop). */
+  ended: boolean;
+  fade: Fade;
+  /** Runs once the fade under way has ended. */
+  fadeDone: (() => void) | null;
+  fadeTimer: ReturnType<typeof setTimeout> | undefined;
+  /** Counts loads, so a late decode never touches the next track. */
+  loads: number;
+}
+
+/** The video sound's channel: two elements (item 15). */
 interface Channel {
-  /** The element playing; a loop's two elements trade places at a wrap. */
+  /** The element playing; the two trade places at each hand-over. */
   el: HTMLAudioElement;
+  /** The element waiting paused where the sound must next begin. */
+  spare: HTMLAudioElement;
   /**
-   * Music and ambience: the element that takes over at a loop's end,
-   * waiting paused at the restart point; null for the other slots.
-   */
-  spare: HTMLAudioElement | null;
-  /**
-   * The spare playing for the first time since its load (`SEAM_PRIME_MS`),
-   * rehearsing its start (to learn the lead) or started for the wrap, its
-   * play() (page ms) and the track time it played from; null while it
-   * waits.
+   * The spare playing for the first time since its load (`SEAM_PRIME_MS`)
+   * or started for a cue, its play() (page ms) and the track time it
+   * played from; null while it waits.
    */
   seam: {
-    kind: "priming" | "rehearsing" | "started";
+    kind: "priming" | "started";
     at: number;
     from: number;
     /** It had played since its file loaded: WebKit starts a first play sooner. */
@@ -303,43 +372,42 @@ interface Channel {
   landing: { at: number; from: number; primed: boolean } | null;
   /** A start or switch set for its moment (`seamStep`'s `inS`). */
   seamTimer: ReturnType<typeof setTimeout> | undefined;
-  readonly slot: AudioSlot;
   /** The track it holds, null while idle. */
   track: string | null;
   plan: PlayPlan | null;
   /** It should be playing whenever its slot may sound. */
   wanted: boolean;
-  /** The fade factor, 0 to 1. */
-  fade: number;
-  fading: {
-    from: number;
-    to: number;
-    start: number;
-    ms: number;
-    /** Since when a menu or a hidden page holds it, else null. */
-    heldAt: number | null;
-    done?: () => void;
-  } | null;
   /** A start position still to apply once the file's metadata is in. */
   pendingStart: number | null;
-  /** Counts loads, so a late refusal never touches the next track. */
-  loads: number;
 }
 
 const now = (): number => globalThis.performance.now();
 
+/** A file's bytes from base64 (`Uint8Array.fromBase64` where there is one). */
+function bytesOf(base64: string): ArrayBuffer {
+  const native = (
+    Uint8Array as unknown as { fromBase64?: (text: string) => Uint8Array }
+  ).fromBase64;
+  if (typeof native === "function") return native(base64).buffer as ArrayBuffer;
+  const text = atob(base64);
+  const bytes = new Uint8Array(text.length);
+  for (let i = 0; i < text.length; i += 1) bytes[i] = text.charCodeAt(i);
+  return bytes.buffer;
+}
+
 /**
- * Mounts the sound for `manifest`, or returns null when it has none (no
- * element, no listener). Sound on at mount, the load's sound applies after
- * a rest, as for any jump.
+ * Mounts the sound for `manifest`, or returns null when it has none, or
+ * the browser has no Web Audio (no context, no listener). Sound on at
+ * mount, the load's sound applies after a rest, as for any jump.
  */
 export function mountAudio(options: AudioOptions): AudioPlayer | null {
   const { root, manifest, machine } = options;
   const tracks = manifest.audio?.tracks;
   if (tracks === undefined || !hasSound(manifest)) return null;
-  const items = manifest.items;
   const doc = root.ownerDocument;
   const win = doc.defaultView ?? globalThis;
+  if (typeof win.AudioContext !== "function") return null;
+  const items = manifest.items;
   let settings: MachineSettings = { ...options.settings };
 
   const hook = doc.createElement("div");
@@ -368,36 +436,59 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
     zIndex: "5",
   });
   root.append(hook, hint);
+  /** Each sound's reading for the hook, in the order the sounds were made. */
+  const readers: (() => SoundReading)[] = [];
+  Object.defineProperty(hook, "sounds", {
+    value: (): SoundReading[] => readers.map((read) => read()),
+  });
+
+  // --- the graph ---------------------------------------------------------------
+  const ctx = new win.AudioContext();
+  const master = ctx.createGain();
+  const test = win.KINETIC_TEST_AUDIO;
+  master.gain.value = test?.mute === true ? 0 : 1;
+  master.connect(ctx.destination);
+  const mix = ctx.createGain();
+  mix.connect(master);
+  if (typeof test === "object" && test !== null) {
+    test.mix = { context: ctx, node: mix };
+  }
+  const duckGain = ctx.createGain();
+  duckGain.connect(mix);
+  const groups = {
+    music: ctx.createGain(),
+    sfx: ctx.createGain(),
+    voice: ctx.createGain(),
+  };
+  groups.music.connect(duckGain);
+  groups.sfx.connect(mix);
+  groups.voice.connect(mix);
 
   const ambienceCap = 2 * largestAmbienceSet(items);
-  const needsMusic = items.some((item) => item.audio?.music != null);
-  const needsSfx = items.some((item) => (item.audio?.sfx?.length ?? 0) > 0);
-  const needsVoice = items.some((item) => item.audio?.voice !== undefined);
   const needsVideo = items.some(
     (item) => item.type === "video" && item.audio?.videoSound !== undefined,
   );
 
-  const music: Channel[] = [];
-  const ambience: Channel[] = [];
+  const music: Sound[] = [];
+  const ambience: Sound[] = [];
   /** By pool slot. */
-  const sfx: (Channel | undefined)[] = [];
+  const sfx: (Sound | undefined)[] = [];
   const pool = createSfxPool(SFX_POOL_SIZE);
-  let voice: Channel | null = null;
-  /** The item the voice element's line belongs to, -1 for none. */
+  let voice: Sound | null = null;
+  /** The item the voice's line belongs to, -1 for none. */
   let voiceItem = -1;
-  /** A video's own sound (item 6); made by the unlock when a video has one. */
-  let video: Channel | null = null;
   /**
-   * The Volumes pop-out's sample (item 7), apart from the elements whose
-   * place it would lose; made by the unlock when there is anything to
-   * sample. It takes the volume of the group it samples, and stops after
-   * `SAMPLE_MS` (`sampleTimer`).
+   * The Volumes pop-out's sample (item 7), apart from the sounds whose
+   * place it would lose. It takes the volume of the group it samples, and
+   * stops after `SAMPLE_MS` (`sampleTimer`).
    */
-  let sampler: Channel | null = null;
+  let sampler: Sound | null = null;
   let sampleOf: "sfx" | "voice" = "sfx";
   let sampleTimer: ReturnType<typeof setTimeout> | undefined;
   /** The track of the last one-shot fired, which an Effects sample plays. */
   let lastSfx: string | null = null;
+  /** A video's own sound (item 6); made when a video has one. */
+  let video: Channel | null = null;
   /** The stage's video (`setVideo`), null when none shows. */
   let stage: StageVideo | null = null;
   /** Its `playing` came, and no pause or stall since: it really plays. */
@@ -446,28 +537,21 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
   let videoStoppedAt: number | null = null;
   /** The music in force (a track id), null for none. */
   let musicId: string | null = null;
-  /** The music and ambience duck (item 6), and the fade moving it. */
-  let duck = 1;
-  let duckFade: { from: number; to: number; start: number } | null = null;
+  /** The duck on music and ambience (item 6), as a fade on its gain. */
+  let duck: Fade = still(1);
 
   let hidden = doc.visibilityState === "hidden";
   let screens: SoundScreens = { esc: false, map: false };
   let volumesOpen = false;
-  /** A play succeeded, or the reader's first key or click came. */
+  /** The context runs: sound can be heard. */
   let unlocked = false;
-  /** The first key or click that counts made and started every element. */
+  /** A key or click that counts came, and resumed the context in it. */
   let blessed = false;
-  /** The browser refused a play. */
+  /** Something wanted to sound while the context could not run. */
   let refused = false;
-
-  function channels(): Channel[] {
-    const all = [...music, ...ambience];
-    for (const ch of sfx) if (ch !== undefined) all.push(ch);
-    if (voice !== null) all.push(voice);
-    if (video !== null) all.push(video);
-    if (sampler !== null) all.push(sampler);
-    return all;
-  }
+  const mountedAt = now();
+  /** Shows the hint once `HINT_GRACE_MS` has passed. */
+  let hintTimer: ReturnType<typeof setTimeout> | undefined;
 
   function allowed(slot: AudioSlot): boolean {
     return maySound(slot, {
@@ -479,26 +563,519 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
     });
   }
 
-  function setVolume(ch: Channel): void {
-    const bed = ch.slot === "music" || ch.slot === "ambience";
-    ch.el.volume = elementVolume({
-      track: ch.track === null ? 1 : tracks?.[ch.track]?.volume,
-      group: groupVolume(ch.slot === "sample" ? sampleOf : ch.slot, settings),
-      duck: bed ? duck : 1,
-      fade: ch.fade,
+  /**
+   * Sources may start: the context runs, or a key that counts has resumed
+   * it (it runs a few ms later, and what started meanwhile plays then).
+   */
+  const canRun = (): boolean => ctx.state === "running" || blessed;
+
+  // --- loading -----------------------------------------------------------------
+  /** Track scripts on the page, by file: the bytes once the script gave them. */
+  const scripts = new Map<
+    string,
+    { tag: HTMLScriptElement; bytes: ArrayBuffer | null }
+  >();
+  const receive = (file: unknown, base64: unknown): void => {
+    if (typeof file !== "string" || typeof base64 !== "string") return;
+    const script = scripts.get(file);
+    if (script !== undefined && script.bytes === null) {
+      script.bytes = bytesOf(base64);
+    }
+  };
+  win.__kineticAudio = receive;
+
+  /** `file`'s bytes, from its script (`<file>.js`), which then goes. */
+  function fetchBytes(file: string): Promise<ArrayBuffer> {
+    return new Promise((resolve, reject) => {
+      const tag = doc.createElement("script");
+      const script = { tag, bytes: null as ArrayBuffer | null };
+      scripts.set(file, script);
+      const done = (): void => {
+        scripts.delete(file);
+        tag.remove();
+      };
+      tag.addEventListener("load", () => {
+        done();
+        if (script.bytes !== null) resolve(script.bytes);
+        else reject(new Error(`${file}.js gave no bytes for ${file}`));
+      });
+      tag.addEventListener("error", () => {
+        done();
+        reject(new Error(`${file}.js did not load`));
+      });
+      tag.src = `${file}.js`;
+      doc.head.append(tag);
     });
   }
 
-  // --- fades and loop ends, stepped on animation frames --------------------
-  const fading = new Set<Channel>();
+  const cache = createDecodeCache<AudioBuffer>({
+    capBytes: DECODED_CAP_BYTES,
+    decode: (file) =>
+      fetchBytes(file).then((bytes) =>
+        ctx.decodeAudioData(bytes).catch((error: unknown) => {
+          // Reported, so a game's test run lists it as it lists a
+          // picture that will not decode.
+          console.error(`Failed to decode audio: ${file}`);
+          throw error;
+        }),
+      ),
+    inUse: (file) => sounds().some((s) => s.file === file),
+  });
+
+  function sounds(): Sound[] {
+    const all = [...music, ...ambience];
+    for (const s of sfx) if (s !== undefined) all.push(s);
+    if (voice !== null) all.push(voice);
+    if (sampler !== null) all.push(sampler);
+    return all;
+  }
+
+  // --- gains -------------------------------------------------------------------
+  /** Sets `param` to `fade` x `scale` from context time `at`, ramping on if it runs. */
+  function program(param: AudioParam, fade: Fade, at: number, scale = 1) {
+    const level = fadeLevel(fade, at);
+    param.cancelScheduledValues(at);
+    param.setValueAtTime(scale * level, at);
+    if (!Number.isNaN(fade.at) && level !== fade.to) {
+      param.linearRampToValueAtTime(scale * fade.to, fade.at + fade.seconds);
+    }
+  }
+
+  const trackVolume = (s: Sound): number | undefined =>
+    s.track === null ? undefined : tracks?.[s.track]?.volume;
+  /** The group a slot's volume comes from: a sample takes what it samples. */
+  const groupOfSlot = (slot: AudioSlot): Exclude<AudioSlot, "sample"> =>
+    slot === "sample" ? sampleOf : slot;
+  const groupOf = (s: Sound): Exclude<AudioSlot, "sample"> =>
+    groupOfSlot(s.slot);
+  /** The group gain a slot's sounds go through. */
+  function groupNode(slot: BufferSlot): GainNode {
+    const group = groupOfSlot(slot);
+    if (group === "voice") return groups.voice;
+    return group === "sfx" || group === "video" ? groups.sfx : groups.music;
+  }
+  const isBed = (slot: AudioSlot): boolean =>
+    slot === "music" || slot === "ambience";
+
+  function setSoundGain(s: Sound): void {
+    const scale = gainStages({
+      track: trackVolume(s),
+      group: 1,
+      duck: 1,
+      fade: 1,
+    }).sound;
+    program(s.gain.gain, s.fade, ctx.currentTime, scale);
+  }
+
+  function setGroups(): void {
+    const at = ctx.currentTime;
+    for (const name of ["music", "sfx", "voice"] as const) {
+      const level = gainStages({
+        track: 1,
+        group: groupVolume(name, settings),
+        duck: 1,
+        fade: 1,
+      }).group;
+      groups[name].gain.cancelScheduledValues(at);
+      groups[name].gain.setValueAtTime(level, at);
+    }
+  }
+  setGroups();
+
+  /** Fades the duck on music and ambience to `to`, unless it is going there. */
+  function duckTo(to: number): void {
+    if (duck.to === to) return;
+    const at = ctx.currentTime;
+    duck = runFade(
+      {
+        from: fadeLevel(duck, at),
+        to,
+        at: Number.NaN,
+        seconds: DUCK_FADE_MS / 1000,
+      },
+      at,
+    );
+    program(duckGain.gain, duck, at);
+  }
+
   /**
-   * Loops watched on animation frames (`stepSeam`): near the track's end,
-   * or learning how long a start took.
+   * Fades `s` to `to` over `ms`, then runs `done`. The fade runs while `s`
+   * plays and waits while it is silent; a fade to silence of a sound with
+   * nothing playing ends at once.
    */
-  const seaming = new Set<Channel>();
-  /** By file: how long a loop's waiting element takes to sound (s). */
-  const seamLeads = new Map<string, number>();
-  /** By file: the same for a video's sound (`learnVideoLead`). */
+  function fadeTo(s: Sound, to: number, ms: number, done?: () => void) {
+    clearTimeout(s.fadeTimer);
+    s.fadeTimer = undefined;
+    s.fadeDone = null;
+    const at = ctx.currentTime;
+    if (ms <= 0 || (to === 0 && s.source === null)) {
+      s.fade = still(to);
+      setSoundGain(s);
+      done?.();
+      return;
+    }
+    const fade: Fade = {
+      from: fadeLevel(s.fade, at),
+      to,
+      at: Number.NaN,
+      seconds: ms / 1000,
+    };
+    s.fade = s.source === null ? fade : runFade(fade, at);
+    s.fadeDone = done ?? null;
+    setSoundGain(s);
+    armFade(s);
+  }
+
+  /** Ends `s`'s running fade on time (`fadeDone`). */
+  function armFade(s: Sound): void {
+    clearTimeout(s.fadeTimer);
+    s.fadeTimer = undefined;
+    if (Number.isNaN(s.fade.at)) return;
+    const left = s.fade.at + s.fade.seconds - ctx.currentTime;
+    s.fadeTimer = setTimeout(() => {
+      s.fadeTimer = undefined;
+      if (Number.isNaN(s.fade.at)) return;
+      // The context's clock ran slower than the page's (it was suspended
+      // meanwhile): the rest is still to run.
+      if (ctx.currentTime < s.fade.at + s.fade.seconds - 0.001) {
+        armFade(s);
+        return;
+      }
+      s.fade = still(s.fade.to);
+      const done = s.fadeDone;
+      s.fadeDone = null;
+      done?.();
+    }, Math.max(0, left) * 1000);
+  }
+
+  // --- sounds ------------------------------------------------------------------
+  function makeSound(slot: BufferSlot): Sound {
+    const gain = ctx.createGain();
+    gain.gain.value = 0;
+    gain.connect(groupNode(slot));
+    const s: Sound = {
+      slot,
+      gain,
+      track: null,
+      file: null,
+      plan: null,
+      buffer: null,
+      source: null,
+      startedAt: 0,
+      startFrom: 0,
+      offset: 0,
+      wanted: false,
+      ended: false,
+      fade: still(0),
+      fadeDone: null,
+      fadeTimer: undefined,
+      loads: 0,
+    };
+    readers.push(() => readSound(s));
+    return s;
+  }
+
+  /** Where `s` stands in its track at context time `at`. */
+  function positionOf(s: Sound, at: number): number {
+    if (s.source === null || s.plan === null) return s.offset;
+    return playPosition(s.plan, s.startFrom, at - s.startedAt);
+  }
+
+  function readSound(s: Sound): SoundReading {
+    const at = ctx.currentTime;
+    return {
+      slot: s.slot,
+      track: s.track ?? "",
+      paused: s.source === null || ctx.state !== "running",
+      currentTime: positionOf(s, at),
+      volume: elementVolume({
+        track: trackVolume(s),
+        group: groupVolume(groupOf(s), settings),
+        duck: isBed(s.slot) ? fadeLevel(duck, at) : 1,
+        fade: fadeLevel(s.fade, at),
+      }),
+    };
+  }
+
+  /**
+   * Plays `s` from where it stands: a loop by the source's own loop, from
+   * its restart point to its end; a track that does not loop up to its end.
+   */
+  function startSource(s: Sound): void {
+    const { buffer, plan } = s;
+    if (buffer === null || plan === null) return;
+    if (!plan.loops && s.offset >= plan.endSeconds) {
+      s.ended = true;
+      return;
+    }
+    const source = ctx.createBufferSource();
+    source.buffer = buffer;
+    const at = ctx.currentTime;
+    if (plan.loops) {
+      source.loop = true;
+      source.loopStart = plan.loopStartSeconds;
+      source.loopEnd = plan.endSeconds;
+      source.connect(s.gain);
+      source.start(at, s.offset);
+    } else {
+      source.connect(s.gain);
+      source.start(at, s.offset, plan.endSeconds - s.offset);
+    }
+    source.addEventListener("ended", () => {
+      if (s.source === source) reachedEnd(s);
+    });
+    s.source = source;
+    s.startedAt = at;
+    s.startFrom = s.offset;
+    s.fade = runFade(s.fade, at);
+    setSoundGain(s);
+    armFade(s);
+  }
+
+  /** Silences `s` where it stands, its fade held there. */
+  function stopSource(s: Sound): void {
+    const source = s.source;
+    if (source === null) return;
+    const at = ctx.currentTime;
+    s.offset = positionOf(s, at);
+    s.source = null;
+    source.stop();
+    source.disconnect();
+    s.fade = holdFade(s.fade, at);
+    clearTimeout(s.fadeTimer);
+    s.fadeTimer = undefined;
+    setSoundGain(s);
+  }
+
+  function syncSound(s: Sound): void {
+    const should =
+      s.wanted && !s.ended && s.buffer !== null && allowed(s.slot) && canRun();
+    if (should && s.source === null) startSource(s);
+    else if (!should && s.source !== null) stopSource(s);
+  }
+
+  function sync(): void {
+    updateVideoSound();
+    let waiting = false;
+    for (const s of sounds()) {
+      syncSound(s);
+      if (s.wanted && !s.ended && allowed(s.slot) && !canRun()) waiting = true;
+    }
+    if (waiting) refused = true;
+    updateHint();
+  }
+
+  /** Loads track `id` into `s` at its start, faded to `fade`; false if unknown. */
+  function load(s: Sound, id: string, fade: number): boolean {
+    const track = tracks?.[id];
+    if (track === undefined) return false;
+    stopSource(s);
+    clearTimeout(s.fadeTimer);
+    s.fadeTimer = undefined;
+    s.fadeDone = null;
+    s.loads += 1;
+    const loads = s.loads;
+    const looping = isBed(s.slot);
+    s.track = id;
+    s.file = track.file;
+    s.wanted = true;
+    s.ended = false;
+    s.fade = still(fade);
+    const ready = (buffer: AudioBuffer): void => {
+      s.buffer = buffer;
+      s.plan = playPlan(track, looping, buffer);
+      s.offset = s.plan.startSeconds;
+    };
+    s.buffer = null;
+    s.plan = playPlan(track, looping);
+    s.offset = s.plan.startSeconds;
+    const kept = cache.peek(track.file);
+    if (kept !== undefined) {
+      ready(kept);
+    } else {
+      cache.load(track.file).then(
+        (buffer) => {
+          if (s.loads !== loads) return;
+          ready(buffer);
+          syncSound(s);
+        },
+        () => undefined, // it stays silent; a decode failure was reported
+      );
+    }
+    setSoundGain(s);
+    return true;
+  }
+
+  function release(s: Sound): void {
+    stopSource(s);
+    clearTimeout(s.fadeTimer);
+    s.fadeTimer = undefined;
+    s.fadeDone = null;
+    s.loads += 1;
+    s.wanted = false;
+    s.ended = false;
+    s.track = null;
+    s.file = null;
+    s.plan = null;
+    s.buffer = null;
+    s.offset = 0;
+    s.fade = still(0);
+    setSoundGain(s);
+    cache.trim();
+  }
+
+  function releaseSfx(s: Sound): void {
+    const slot = sfx.indexOf(s);
+    if (slot >= 0) pool.release(slot);
+    release(s);
+  }
+
+  /** The track played to its end (one that does not loop). */
+  function reachedEnd(s: Sound): void {
+    const at = ctx.currentTime;
+    s.source = null;
+    s.offset = s.plan?.endSeconds ?? 0;
+    s.ended = true;
+    s.fade = holdFade(s.fade, at);
+    clearTimeout(s.fadeTimer);
+    s.fadeTimer = undefined;
+    if (s.slot === "sfx") releaseSfx(s);
+    else if (s.slot === "sample") release(s);
+    // Music with `loop: false` stays silent until the music changes; a
+    // voice stays its item's, so it does not start again there.
+    else s.wanted = false;
+  }
+
+  // --- what plays ----------------------------------------------------------------
+  function applyMusic(wanted: string | null, fadeMs: number): void {
+    const id =
+      wanted !== null && tracks?.[wanted] !== undefined ? wanted : null;
+    if (id === musicId) return; // still wanted: it plays on, never restarted
+    const old = musicId;
+    musicId = id;
+    for (const s of music) {
+      if (old !== null && s.track === old) {
+        fadeTo(s, 0, fadeMs, () => release(s));
+      }
+    }
+    if (id === null) return;
+    const back = music.find((s) => s.track === id && s.wanted);
+    if (back !== undefined) {
+      fadeTo(back, 1, fadeMs); // left a moment ago: it comes back unbroken
+      return;
+    }
+    let s = music.find((other) => other.track === null);
+    if (s === undefined && music.length < 2) {
+      s = makeSound("music");
+      music.push(s);
+    }
+    if (s === undefined) {
+      // Both busy (a change during a crossfade): the older fade-out goes.
+      s = music.find((other) => other.track !== old) ?? music[0];
+      release(s);
+    }
+    if (load(s, id, 0)) fadeTo(s, 1, fadeMs);
+  }
+
+  function applyAmbience(ids: readonly string[], fadeMs: number): void {
+    const want = new Set(ids.filter((id) => tracks?.[id] !== undefined));
+    const at = ctx.currentTime;
+    for (const s of ambience) {
+      if (s.track === null) continue;
+      if (want.has(s.track) && s.wanted) {
+        want.delete(s.track); // in both sets: it plays on unbroken
+        if (s.fade.to !== 1 || fadeLevel(s.fade, at) < 1) {
+          fadeTo(s, 1, fadeMs);
+        }
+      } else if (s.fade.to !== 0) {
+        fadeTo(s, 0, fadeMs, () => release(s));
+      }
+    }
+    for (const id of want) {
+      let s = ambience.find((other) => other.track === null);
+      if (s === undefined && ambience.length >= ambienceCap) {
+        s = ambience.find((other) => other.fade.to === 0);
+        if (s !== undefined) release(s);
+      }
+      if (s === undefined) {
+        s = makeSound("ambience");
+        ambience.push(s);
+      }
+      if (load(s, id, 0)) fadeTo(s, 1, fadeMs);
+    }
+  }
+
+  function startVoice(id: string | null, item: number): void {
+    if (id === null || tracks?.[id] === undefined) return;
+    if (voiceItem === item && voice?.track === id) return; // already its own
+    voice ??= makeSound("voice");
+    if (load(voice, id, 1)) voiceItem = item;
+  }
+
+  function stopVoice(): void {
+    if (voice !== null) release(voice);
+    voiceItem = -1;
+  }
+
+  function fire(cue: SfxCue): void {
+    if (tracks?.[cue.track] === undefined) return;
+    lastSfx = cue.track;
+    if (!canRun()) {
+      // Its moment passes while sound waits for a key.
+      refused = true;
+      updateHint();
+      return;
+    }
+    const { slot, stop } = pool.take(cue.channel);
+    for (const cut of stop) {
+      const s = sfx[cut];
+      if (s !== undefined) release(s); // its pool slot is already retaken
+    }
+    let s = sfx[slot];
+    if (s === undefined) {
+      s = makeSound("sfx");
+      sfx[slot] = s;
+    }
+    load(s, cue.track, 1);
+    syncSound(s);
+  }
+
+  function silence(): void {
+    for (const s of [...music, ...ambience]) release(s);
+    for (const s of sfx) if (s !== undefined) releaseSfx(s);
+    stopVoice();
+    stopSample();
+    musicId = null;
+  }
+
+  function stopSample(): void {
+    clearTimeout(sampleTimer);
+    if (sampler !== null) release(sampler);
+  }
+
+  // --- a video's sound (items 6 and 15) -------------------------------------
+  let frame = 0;
+  /** The last frame's time, and the interval before it (s). */
+  let lastFrameAt = 0;
+  let frameS = 1 / 60;
+
+  function tick(): void {
+    frame = 0;
+    const t = now();
+    // A gap longer than a few frames is no frame interval (the first, or one
+    // after the frames stopped).
+    if (t - lastFrameAt < 100) frameS = (t - lastFrameAt) / 1000;
+    lastFrameAt = t;
+    if (videoBusy()) stepVideo(true);
+    requestTick();
+  }
+
+  /** Asks for a frame while a video's sound is wanted, and none is asked for. */
+  function requestTick(): void {
+    if (frame === 0 && videoBusy()) frame = win.requestAnimationFrame(tick);
+  }
+
+  /** By file: how long a video sound's element takes to sound (`learnVideoLead`). */
   const videoLeads = new Map<
     string,
     { lead: number; samples: readonly VideoStart[] }
@@ -513,131 +1090,46 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
   let lastLead: number | null = null;
   /** Elements that have played since their file loaded (`SEAM_PRIME_MS`). */
   const primed = new WeakSet<HTMLAudioElement>();
-  let frame = 0;
-  /** The last frame's time, and the interval before it (s). */
-  let lastFrameAt = 0;
-  let frameS = 1 / 60;
 
-  function tick(): void {
-    frame = 0;
-    const t = now();
-    // A gap longer than a few frames is no frame interval (the first, or one
-    // after the frames stopped).
-    if (t - lastFrameAt < 100) frameS = (t - lastFrameAt) / 1000;
-    lastFrameAt = t;
-    for (const ch of [...seaming]) stepSeam(ch, true);
-    for (const ch of [...fading]) {
-      const f = ch.fading;
-      if (f === null) {
-        fading.delete(ch);
-        continue;
-      }
-      if (f.heldAt !== null) continue;
-      const progress = Math.min(1, (t - f.start) / f.ms);
-      ch.fade = f.from + (f.to - f.from) * progress;
-      setVolume(ch);
-      if (progress >= 1) {
-        ch.fading = null;
-        fading.delete(ch);
-        f.done?.();
-      }
-    }
-    stepDuck(t);
-    if (videoBusy()) stepVideo(true);
-    requestTick();
+  function setVideoVolume(ch: Channel): void {
+    ch.el.volume = elementVolume({
+      track: ch.track === null ? 1 : tracks?.[ch.track]?.volume,
+      group: groupVolume("video", settings),
+      duck: 1,
+      fade: 1,
+    });
   }
 
-  /**
-   * Asks for a frame while some fade or the duck's is running, a loop is
-   * near its end, or a video's sound is wanted, and none is asked for.
-   */
-  function requestTick(): void {
-    if (frame !== 0) return;
-    let busy = duckFade !== null || seaming.size > 0 || videoBusy();
-    for (const ch of fading) if (ch.fading?.heldAt === null) busy = true;
-    if (busy) frame = win.requestAnimationFrame(tick);
-  }
-
-  /** Fades the duck on music and ambience to `to`, unless it is going there. */
-  function duckTo(to: number): void {
-    if ((duckFade?.to ?? duck) === to) return;
-    duckFade = { from: duck, to, start: now() };
-    requestTick();
-  }
-
-  function stepDuck(t: number): void {
-    const f = duckFade;
-    if (f === null) return;
-    const progress = Math.min(1, (t - f.start) / DUCK_FADE_MS);
-    duck = f.from + (f.to - f.from) * progress;
-    if (progress >= 1) duckFade = null;
-    for (const ch of [...music, ...ambience]) setVolume(ch);
-  }
-
-  /**
-   * A fade waits, where it is, while a menu or a hidden page holds its
-   * element (`allowed`), so a loop fading in under the Esc screen still
-   * fades in when it closes.
-   */
-  function holdFade(ch: Channel): void {
-    const f = ch.fading;
-    if (f === null) return;
-    const held = ch.wanted && !allowed(ch.slot);
-    if (held && f.heldAt === null) f.heldAt = now();
-    else if (!held && f.heldAt !== null) {
-      f.start += now() - f.heldAt;
-      f.heldAt = null;
-      requestTick();
-    }
-  }
-
-  /** Fades `ch` to `to` over `ms`, then runs `done`. */
-  function fadeTo(ch: Channel, to: number, ms: number, done?: () => void) {
-    if (ms <= 0) {
-      ch.fading = null;
-      fading.delete(ch);
-      ch.fade = to;
-      setVolume(ch);
-      done?.();
-      return;
-    }
-    ch.fading = { from: ch.fade, to, start: now(), ms, heldAt: null, done };
-    fading.add(ch);
-    holdFade(ch);
-    requestTick();
-  }
-
-  // --- elements ------------------------------------------------------------
-  function makeElement(slot: AudioSlot): HTMLAudioElement {
+  function makeElement(): HTMLAudioElement {
     const el = doc.createElement("audio");
     el.preload = "auto";
-    el.dataset.slot = slot;
+    el.dataset.slot = "video";
     el.dataset.track = "";
     hook.append(el);
+    readers.push(() => ({
+      slot: "video",
+      track: el.dataset.track ?? "",
+      paused: el.paused,
+      currentTime: el.currentTime,
+      volume: el.volume,
+    }));
     return el;
   }
 
-  function makeChannel(slot: AudioSlot): Channel {
-    const el = makeElement(slot);
-    const paired = slot === "music" || slot === "ambience" || slot === "video";
+  function makeChannel(): Channel {
     const ch: Channel = {
-      el,
-      spare: paired ? makeElement(slot) : null,
+      el: makeElement(),
+      spare: makeElement(),
       seam: null,
       landing: null,
       seamTimer: undefined,
-      slot,
       track: null,
       plan: null,
       wanted: false,
-      fade: 0,
-      fading: null,
       pendingStart: null,
-      loads: 0,
     };
-    for (const one of ch.spare === null ? [el] : [el, ch.spare]) {
+    for (const one of [ch.el, ch.spare]) {
       watchElement(ch, one);
-      if (slot !== "video") continue;
       // Primed once it has sounded `SEAM_PRIME_MS` since its file loaded
       // (WebKit starts a file's first play sooner): only such a start
       // teaches the lead.
@@ -668,274 +1160,101 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
     return ch;
   }
 
-  /** The listeners on each of `ch`'s elements, which act only for its role. */
+  /** Places an element once its file's metadata is in (WebKit drops a seek before). */
   function watchElement(ch: Channel, el: HTMLAudioElement): void {
-    el.addEventListener("ended", () => {
-      if (el === ch.el) reachedEnd(ch);
-    });
-    el.addEventListener("timeupdate", () => onTime(ch, el));
     el.addEventListener("loadedmetadata", () => {
       if (el !== ch.el) {
-        // A waiting element: WebKit drops a seek made before this.
-        if (ch.plan !== null && ch.seam === null) el.currentTime = home(ch);
-        if (ch.slot === "video") syncChannel(ch); // it can be cued now
-        return;
+        if (ch.plan !== null && ch.seam === null) el.currentTime = home();
+      } else {
+        const start = ch.pendingStart;
+        ch.pendingStart = null;
+        if (start !== null && Math.abs(el.currentTime - start) > 0.05) {
+          el.currentTime = start;
+        }
       }
-      const start = ch.pendingStart;
-      ch.pendingStart = null;
-      if (start !== null && Math.abs(el.currentTime - start) > 0.05) {
-        el.currentTime = start;
-      }
-      if (ch.slot === "video") syncChannel(ch); // it can be cued now
+      syncVideo(ch); // it can be cued now
     });
   }
 
   /**
-   * The playing element's `timeupdate` (about every 250 ms while it
-   * plays). A track that plays once ends at its own length, whatever the
-   * file reports (WebKit misreports Ogg durations); a loop looks at its
-   * wrap (`stepSeam`).
+   * Plays an element of the video's sound; a refusal is noted, never thrown
+   * or logged. WebKit lets an element at volume 0 play with no key, then
+   * pauses it, with no error, the moment its volume rises (measured on
+   * macOS 27.2). Until a key unlocks sound, such a play is asked at a level
+   * just above 0 instead, which WebKit refuses at once, and the level is
+   * put back straight after the call.
    */
-  function onTime(ch: Channel, el: HTMLAudioElement): void {
-    const plan = ch.plan;
-    if (plan === null || el !== ch.el) return;
-    if (plan.loops) stepSeam(ch, false);
-    else if (el.currentTime >= plan.endSeconds) reachedEnd(ch);
-  }
-
-  /**
-   * Plays `ch`; a refusal is noted, never thrown or logged. WebKit lets an
-   * element at volume 0 play with no key, then pauses it, with no error,
-   * the moment its volume rises (a fade-in from 0; measured on macOS 27.2).
-   * Until a key unlocks sound, such a play is asked at a level just above 0
-   * instead, which WebKit refuses at once, and the level is put back
-   * straight after the call.
-   */
-  function play(ch: Channel, el: HTMLAudioElement = ch.el): void {
-    const loads = ch.loads;
-    const silent = !blessed && el.volume === 0;
-    if (silent) el.volume = REFUSABLE_VOLUME;
+  function play(el: HTMLAudioElement): void {
+    const quiet = !blessed && el.volume === 0;
+    if (quiet) el.volume = REFUSABLE_VOLUME;
     let started: Promise<void> | undefined;
     try {
       started = el.play();
     } catch {
       return;
     } finally {
-      if (silent) el.volume = 0;
+      if (quiet) el.volume = 0;
     }
-    started?.then(noteUnlocked, (error: unknown) => {
+    started?.catch((error: unknown) => {
       if ((error as { name?: unknown } | null)?.name !== "NotAllowedError") {
         return; // a pause or a new source cut it short
       }
       refused = true;
-      // A refused one-shot's moment has passed; the rest play once allowed.
-      if (ch.slot === "sfx" && ch.loads === loads) releaseSfx(ch);
-      // Unlocked only by a play an Esc or shortcut started: sound still
-      // waits for a key that counts.
-      if (!blessed && unlocked) {
-        unlocked = false;
-        hook.dataset.unlocked = "false";
-        updateVoiceAudible();
-      }
       updateHint();
     });
   }
 
-  function syncChannel(ch: Channel): void {
-    holdFade(ch);
-    if (ch.slot === "video") {
-      syncVideo(ch);
-      return;
-    }
-    const should = ch.wanted && allowed(ch.slot);
-    if (should && ch.el.paused) {
-      if (ch.el.ended && ch.plan?.loops === true) {
-        stepSeam(ch, false); // it reached its end while held: the wrap is due
-      } else {
-        play(ch);
-      }
-    } else if (!should) {
-      if (!ch.el.paused) ch.el.pause();
-      // A wrap under way is cut short, and done again near the end.
-      cancelSeamTimer(ch);
-      if (ch.seam !== null) parkSpare(ch);
-      ch.landing = null;
-    }
-  }
-
-  function sync(): void {
-    updateVideoSound();
-    for (const ch of channels()) syncChannel(ch);
-  }
-
-  /** Loads track `id` into `ch` at its start, faded to `fade`; false if unknown. */
-  function load(ch: Channel, id: string, fade: number): boolean {
+  /** Loads track `id` into the video channel, both elements waiting. */
+  function loadVideo(ch: Channel, id: string): void {
     const track = tracks?.[id];
-    if (track === undefined) return false;
-    ch.fading = null;
-    fading.delete(ch);
-    ch.loads += 1;
+    if (track === undefined) return;
     ch.track = id;
     ch.el.dataset.track = id;
-    ch.plan = playPlan(track, ch.slot === "music" || ch.slot === "ambience");
-    if (ch.el.getAttribute("src") !== track.file) {
-      ch.el.src = track.file;
-      primed.delete(ch.el);
-    }
-    ch.pendingStart = ch.plan.startSeconds;
-    ch.el.currentTime = ch.plan.startSeconds;
-    if (ch.spare !== null && (ch.plan.loops || ch.slot === "video")) {
-      if (ch.spare.getAttribute("src") !== track.file) {
-        ch.spare.src = track.file;
-        primed.delete(ch.spare);
+    ch.plan = playPlan(track, false);
+    for (const el of [ch.el, ch.spare]) {
+      if (el.getAttribute("src") !== track.file) {
+        el.src = track.file;
+        primed.delete(el);
       }
-      parkSpare(ch);
     }
+    ch.el.currentTime = ch.plan.startSeconds;
+    parkSpare(ch);
     cancelSeamTimer(ch);
     ch.landing = null;
     ch.wanted = true;
-    ch.fade = fade;
-    setVolume(ch);
-    return true;
+    setVideoVolume(ch);
   }
 
-  function release(ch: Channel): void {
-    ch.fading = null;
-    fading.delete(ch);
+  function releaseVideo(ch: Channel): void {
     ch.el.pause();
-    ch.spare?.pause();
+    ch.spare.pause();
     cancelSeamTimer(ch);
     ch.seam = null;
     ch.landing = null;
-    if (ch.slot === "video") forgetVideoCue();
-    seaming.delete(ch);
+    forgetVideoCue();
     ch.wanted = false;
     ch.track = null;
     ch.plan = null;
     ch.pendingStart = null;
-    ch.fade = 0;
     ch.el.dataset.track = "";
   }
 
-  function releaseSfx(ch: Channel): void {
-    const slot = sfx.indexOf(ch);
-    if (slot >= 0) pool.release(slot);
-    release(ch);
-  }
-
-  /** The track reached its end: loop, or stay silent having played once. */
-  function reachedEnd(ch: Channel): void {
-    // A video's sound goes where its video goes (`stepVideo`).
-    if (ch.slot === "video" || !ch.wanted || ch.plan === null) return;
-    if (ch.plan.loops) {
-      stepSeam(ch, false); // the file ended before the track's length
-      return;
-    }
-    if (ch.slot === "sfx") {
-      releaseSfx(ch);
-      return;
-    }
-    if (ch.slot === "sample") {
-      release(ch);
-      return;
-    }
-    // Music with `loop: false` stays silent until the music changes; a
-    // voice stays its item's, so it does not start again there.
-    ch.wanted = false;
-    ch.el.pause();
-  }
-
-  // --- a loop's wrap (item 14) -----------------------------------------------
-  /** The file of `ch`'s track, which its lead is learnt for. */
+  /** The file of the video sound's track, which its lead is learnt for. */
   const fileOf = (ch: Channel): string =>
     (ch.track === null ? undefined : tracks?.[ch.track]?.file) ?? "";
 
   /**
-   * Where `ch`'s waiting element waits: a loop's restart point; for a
-   * video's sound its cue's `from`, else the pass's restart point while the
-   * video runs (`videoCue`), else where the sound stopped, or where the
-   * video stands if the sound stopped off it, so a start after a menu
-   * plays on with neither a gap nor a repeat.
+   * Where the waiting element waits: its cue's `from`, else the pass's
+   * restart point while the video runs (`videoCue`), else where the sound
+   * stopped, or where the video stands if the sound stopped off it, so a
+   * start after a menu plays on with neither a gap nor a repeat.
    */
-  function home(ch: Channel): number {
-    if (ch.slot !== "video") return ch.plan?.loopStartSeconds ?? 0;
+  function home(): number {
     if (videoCueNow !== null) return videoCueNow.from;
     const time = stage?.element.currentTime ?? 0;
     if (stageRuns || videoStarting) return stage?.pass()?.restart ?? time;
     const stopped = videoStoppedAt ?? Number.NaN;
     return Math.abs(stopped - time) <= VIDEO_SYNC_S ? stopped : time;
-  }
-
-  /**
-   * One look at `ch`'s wrap (audiorules.ts `seamStep`): prime, rehearse,
-   * start or switch to the spare, and watch on animation frames from
-   * `SEAM_WATCH_S` before the spare's start, and while the spare primes or
-   * a start's clock settles. A start's clock is read on a frame
-   * (`onFrame`), as the playing element's is for the start, so both are
-   * read alike. Nothing while the loop is held or idle.
-   */
-  function stepSeam(ch: Channel, onFrame: boolean): void {
-    if (!seamLive(ch)) {
-      seaming.delete(ch);
-      return;
-    }
-    if (onFrame) learnFromStarts(ch);
-    const { plan, el, spare } = ch;
-    if (plan === null || spare === null) return;
-    // The file ended first: whatever was set for later is due now.
-    if (el.ended) cancelSeamTimer(ch);
-    if (ch.seamTimer !== undefined) return;
-    const learnt = seamLeads.get(fileOf(ch));
-    const lead = learnt ?? SEAM_LEAD_S;
-    // The file's own end when it comes first: WebKit gives an AAC file
-    // about 23 ms less than the decoded length (7.977 s for 8.000 s).
-    const end = Number.isFinite(el.duration)
-      ? Math.min(el.duration, plan.endSeconds)
-      : plan.endSeconds;
-    const remaining = end - el.currentTime;
-    const primeS = SEAM_PRIME_MS / 1000;
-    if (ch.seam === null && !primed.has(spare)) {
-      if (remaining - lead > SEAM_WATCH_S + primeS) startSpare(ch, "priming");
-    }
-    const kind = ch.seam?.kind ?? "idle";
-    const { step, inS } = seamStep({
-      remaining,
-      lead,
-      learnt: learnt !== undefined,
-      // Priming, like a rehearsal, is cut short by a start.
-      spare: kind === "priming" ? "rehearsing" : kind,
-      ended: el.ended,
-      frame: frameS,
-    });
-    if (step !== "wait" && inS > 0) {
-      ch.seamTimer = setTimeout(() => {
-        ch.seamTimer = undefined;
-        if (seamLive(ch) && ch.el === el) seamAct(ch, step);
-      }, inS * 1000);
-    } else if (step !== "wait") {
-      seamAct(ch, step);
-    }
-    watchSeam(ch, step !== "wait" || remaining - lead <= SEAM_WATCH_S);
-  }
-
-  /** `ch` is a loop playing its track, or due to wrap, where it may sound. */
-  function seamLive(ch: Channel): boolean {
-    return (
-      ch.plan?.loops === true &&
-      ch.spare !== null &&
-      ch.wanted &&
-      allowed(ch.slot) &&
-      (!ch.el.paused || ch.el.ended)
-    );
-  }
-
-  function seamAct(ch: Channel, step: "rehearse" | "start" | "switch"): void {
-    if (step === "switch") {
-      if (ch.seam?.kind !== "started") startSpare(ch, "started");
-      switchToSpare(ch);
-    } else {
-      startSpare(ch, step === "rehearse" ? "rehearsing" : "started");
-    }
   }
 
   function cancelSeamTimer(ch: Channel): void {
@@ -944,42 +1263,25 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
   }
 
   /**
-   * Watches `ch` on frames while `near` its end, the spare primes, or a
-   * start's clock settles.
-   */
-  function watchSeam(ch: Channel, near: boolean): void {
-    const trying =
-      ch.seam?.kind === "priming" || ch.seam?.kind === "rehearsing";
-    if (near || trying || ch.landing !== null) {
-      seaming.add(ch);
-      requestTick();
-    } else {
-      seaming.delete(ch);
-    }
-  }
-
-  /**
-   * Plays the spare from where it waits (`home`), inaudibly until it takes
-   * over; one rehearsing is put back there instead (a start due
-   * mid-rehearsal). A video's sound starts at its channel's level, so a
-   * click at the very start is never lost if it sounds a little early.
-   * `planned` is the moment it was set for: a timer that fires late then
-   * counts in the lead learnt from it, so later starts allow for it.
-   * Without one, the start counts from when play() returned (WebKit's can
-   * take 160 ms inside a key's handler).
+   * Plays the spare from where it waits (`home`), inaudibly while it
+   * primes, else at the channel's level, so a click at the very start is
+   * never lost if it sounds a little early. `planned` is the moment it was
+   * set for: a timer that fires late then counts in the lead learnt from
+   * it, so later starts allow for it. Without one, the start counts from
+   * when play() returned (WebKit's can take 160 ms inside a key's handler).
    */
   function startSpare(
     ch: Channel,
-    kind: "priming" | "rehearsing" | "started",
+    kind: "priming" | "started",
     planned?: number,
   ): void {
-    const spare = ch.spare;
-    if (spare === null || ch.plan === null) return;
-    const from = home(ch);
+    const { spare } = ch;
+    if (ch.plan === null) return;
+    const from = home();
     if (ch.seam === null) {
-      const heard = ch.slot === "video" && kind === "started";
+      const heard = kind === "started";
       spare.volume = heard ? ch.el.volume : REFUSABLE_VOLUME;
-      if (heard) play(ch, spare);
+      if (heard) play(spare);
       else spare.play()?.catch(() => undefined);
     } else {
       spare.currentTime = from;
@@ -996,211 +1298,68 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
   }
 
   /**
-   * The spare goes back to waiting, paused where it waits (`home`). A video
-   * sound's is sought only when it stands elsewhere, as this runs on every
-   * sync while its video is paused.
+   * The spare goes back to waiting, paused where it waits (`home`); sought
+   * only when it stands elsewhere, as this runs on every sync while its
+   * video is paused.
    */
   function parkSpare(ch: Channel): void {
-    const spare = ch.spare;
+    const { spare } = ch;
     ch.seam = null;
-    if (spare === null || ch.plan === null) return;
+    if (ch.plan === null) return;
     spare.pause();
     spare.dataset.track = "";
-    const to = home(ch);
-    if (ch.slot !== "video" || Math.abs(spare.currentTime - to) > 0.005) {
+    const to = home();
+    if (Math.abs(spare.currentTime - to) > 0.005) {
       spare.currentTime = to;
       parkedAt.set(spare, now());
     }
   }
 
   /**
-   * The wrap: the spare, playing since its start, takes the channel's level
-   * and becomes the playing element; the other stops and waits for the next
-   * wrap. One whose play was refused is played now (`syncChannel`).
-   */
-  function switchToSpare(ch: Channel): void {
-    const next = ch.spare;
-    if (next === null) return;
-    const played = next.paused ? now() : (ch.seam?.at ?? now());
-    primed.add(ch.el);
-    ch.spare = ch.el;
-    ch.el = next;
-    next.dataset.track = ch.track ?? "";
-    setVolume(ch);
-    parkSpare(ch);
-    ch.landing = { at: played, from: home(ch), primed: true };
-    watchSeam(ch, false);
-    syncChannel(ch);
-  }
-
-  /**
-   * Learns `fileOf(ch)`'s lead from a rehearsal (which then goes back to
-   * waiting) or the playing element's start once its clock has settled.
+   * Learns the file's lead from the playing element's start once its clock
+   * has settled, and parks a spare that has primed long enough.
    */
   function learnFromStarts(ch: Channel): void {
     const at = now();
-    const { seam, spare } = ch;
-    if (seam?.kind === "priming" && spare !== null) {
-      if (at - seam.at >= SEAM_PRIME_MS) {
-        primed.add(spare);
-        parkSpare(ch);
-      }
-    } else if (seam?.kind === "rehearsing" && spare !== null) {
-      if (learn(ch, spare, seam, at, false)) parkSpare(ch);
+    if (ch.seam?.kind === "priming" && at - ch.seam.at >= SEAM_PRIME_MS) {
+      primed.add(ch.spare);
+      parkSpare(ch);
     }
-    if (ch.landing !== null && learn(ch, ch.el, ch.landing, at, true)) {
-      ch.landing = null;
-    }
+    if (ch.landing !== null && learn(ch, ch.landing, at)) ch.landing = null;
   }
 
   /**
-   * Learns from `el`, played from track time `start.from` at page time
-   * `start.at`, when read at `at`; false while its clock may not have
-   * settled. `heard`: it took over and has sounded at its channel's level
-   * since; a rehearsal stays at `REFUSABLE_VOLUME` throughout, and WebKit
-   * runs the clock of an element that quiet from about 60 ms on, where one
-   * heard waits for its sound (about 330 ms; macOS 27.2, item 15), so only
-   * a heard start teaches a video's sound or `lastLead`.
+   * Learns from the playing element, played from track time `start.from`
+   * at page time `start.at`, when read at `at`; false while its clock may
+   * not have settled. Only a start heard at the channel's level teaches:
+   * WebKit runs the clock of an element at `REFUSABLE_VOLUME` from about
+   * 60 ms on, where one heard waits for its sound (about 330 ms; macOS
+   * 27.2, item 15), and a first play since the file loaded is sooner.
    */
   function learn(
     ch: Channel,
-    el: HTMLAudioElement,
     start: { at: number; from: number; primed: boolean },
     at: number,
-    heard: boolean,
   ): boolean {
     const played = start.at;
     if (ch.plan === null || at - played < SEAM_LAND_MS) return false;
-    const media = el.currentTime - start.from;
-    // A play refused, or a loop shorter than the settling time that has
-    // wrapped: nothing to learn.
-    if (el.paused || media < 0 || media > (at - played) / 1000) return true;
+    const media = ch.el.currentTime - start.from;
+    // A play refused, or one sought meanwhile: nothing to learn.
+    if (ch.el.paused || media < 0 || media > (at - played) / 1000) return true;
+    if (!start.primed) return true;
     const file = fileOf(ch);
-    if (ch.slot === "video") {
-      // A first play since the file loaded teaches a lead too short.
-      if (!start.primed || !heard) return true;
-      const lead = learnVideoLead(videoLeads.get(file) ?? null, {
-        played,
-        at,
-        media,
-      });
-      if (lead !== null) {
-        videoLeads.set(file, lead);
-        lastLead = lead.lead;
-      }
-      return true;
-    }
-    const lead = learnSeamLead(seamLeads.get(file) ?? null, {
+    const lead = learnVideoLead(videoLeads.get(file) ?? null, {
       played,
       at,
       media,
     });
     if (lead !== null) {
-      seamLeads.set(file, lead);
-      if (heard) lastLead = lead;
+      videoLeads.set(file, lead);
+      lastLead = lead.lead;
     }
     return true;
   }
 
-  // --- what plays ------------------------------------------------------------
-  function applyMusic(wanted: string | null, fadeMs: number): void {
-    const id =
-      wanted !== null && tracks?.[wanted] !== undefined ? wanted : null;
-    if (id === musicId) return; // still wanted: it plays on, never restarted
-    const old = musicId;
-    musicId = id;
-    for (const ch of music) {
-      if (old !== null && ch.track === old) {
-        fadeTo(ch, 0, fadeMs, () => release(ch));
-      }
-    }
-    if (id === null) return;
-    const back = music.find((ch) => ch.track === id && ch.wanted);
-    if (back !== undefined) {
-      fadeTo(back, 1, fadeMs); // left a moment ago: it comes back unbroken
-      return;
-    }
-    let ch = music.find((other) => other.track === null);
-    if (ch === undefined && music.length < 2) {
-      ch = makeChannel("music");
-      music.push(ch);
-    }
-    if (ch === undefined) {
-      // Both busy (a change during a crossfade): the older fade-out goes.
-      ch = music.find((other) => other.track !== old) ?? music[0];
-      release(ch);
-    }
-    if (load(ch, id, 0)) fadeTo(ch, 1, fadeMs);
-  }
-
-  function applyAmbience(ids: readonly string[], fadeMs: number): void {
-    const want = new Set(ids.filter((id) => tracks?.[id] !== undefined));
-    for (const ch of ambience) {
-      if (ch.track === null) continue;
-      if (want.has(ch.track) && ch.wanted) {
-        want.delete(ch.track); // in both sets: it plays on unbroken
-        if (ch.fade < 1 || ch.fading !== null) fadeTo(ch, 1, fadeMs);
-      } else if (ch.fading?.to !== 0) {
-        fadeTo(ch, 0, fadeMs, () => release(ch));
-      }
-    }
-    for (const id of want) {
-      let ch = ambience.find((other) => other.track === null);
-      if (ch === undefined && ambience.length >= ambienceCap) {
-        ch = ambience.find((other) => other.fading?.to === 0);
-        if (ch !== undefined) release(ch);
-      }
-      if (ch === undefined) {
-        ch = makeChannel("ambience");
-        ambience.push(ch);
-      }
-      if (load(ch, id, 0)) fadeTo(ch, 1, fadeMs);
-    }
-  }
-
-  function startVoice(id: string | null, item: number): void {
-    if (id === null || tracks?.[id] === undefined) return;
-    if (voiceItem === item && voice?.track === id) return; // already its own
-    voice ??= makeChannel("voice");
-    if (load(voice, id, 1)) voiceItem = item;
-  }
-
-  function stopVoice(): void {
-    if (voice !== null) release(voice);
-    voiceItem = -1;
-  }
-
-  function fire(cue: SfxCue): void {
-    if (tracks?.[cue.track] === undefined) return;
-    lastSfx = cue.track;
-    const { slot, stop } = pool.take(cue.channel);
-    for (const cut of stop) {
-      const ch = sfx[cut];
-      if (ch !== undefined) release(ch); // its pool slot is already retaken
-    }
-    let ch = sfx[slot];
-    if (ch === undefined) {
-      ch = makeChannel("sfx");
-      sfx[slot] = ch;
-    }
-    load(ch, cue.track, 1);
-    syncChannel(ch);
-  }
-
-  function silence(): void {
-    for (const ch of [...music, ...ambience]) release(ch);
-    for (const ch of sfx) if (ch !== undefined) releaseSfx(ch);
-    stopVoice();
-    stopSample();
-    musicId = null;
-  }
-
-  function stopSample(): void {
-    clearTimeout(sampleTimer);
-    if (sampler !== null) release(sampler);
-  }
-
-  // --- a video's sound (items 6 and 15) -------------------------------------
   /**
    * Loads the target's `videoSound` while the stage plays its video (not
    * its poster), wants it playing while the video really plays or is about
@@ -1215,13 +1374,10 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
       want !== null && tracks?.[want.track] !== undefined ? want.track : null;
     if (id === null) {
       videoStarting = false;
-      if (video?.track != null) release(video);
+      if (video?.track != null) releaseVideo(video);
     } else {
-      video ??= makeChannel("video");
-      if (video.track !== id) {
-        load(video, id, 1);
-        video.pendingStart = null; // it starts at the video's time instead
-      }
+      video ??= makeChannel();
+      if (video.track !== id) loadVideo(video, id);
       video.wanted = stageRuns || videoStarting;
     }
     duckTo(
@@ -1231,21 +1387,18 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
         groupVolume("video", settings),
       ),
     );
-    if (video !== null) syncChannel(video);
+    if (video !== null) syncVideo(video);
   }
 
   /** A video's sound is wanted where it may sound: frames watch it. */
   function videoBusy(): boolean {
     return (
-      video !== null &&
-      video.track !== null &&
-      video.wanted &&
-      allowed(video.slot)
+      video !== null && video.track !== null && video.wanted && allowed("video")
     );
   }
 
   function syncVideo(ch: Channel): void {
-    if (ch.track !== null && ch.wanted && allowed(ch.slot)) {
+    if (ch.track !== null && ch.wanted && allowed("video")) {
       stepVideo(false);
       requestTick();
     } else {
@@ -1289,17 +1442,15 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
    * One look at the video's sound (audiorules.ts `videoCue`), on frames and
    * on each event that can change it: cues the waiting element, parks it
    * where its cue begins, primes it when it has never played, and starts
-   * it and hands over at the cue's moments (`seamStep`). On a
-   * frame it also learns from starts that have settled. Nothing before the
-   * file's metadata is in (WebKit drops a seek made then; `loadedmetadata`
-   * looks again).
+   * it and hands over at the cue's moments (`seamStep`). On a frame it also
+   * learns from starts that have settled. Nothing before the file's
+   * metadata is in (WebKit drops a seek made then; `loadedmetadata` looks
+   * again).
    */
   function stepVideo(onFrame: boolean): void {
     const ch = video;
-    const spare = ch?.spare ?? null;
-    if (ch === null || spare === null || ch.track === null || stage === null) {
-      return;
-    }
+    if (ch === null || ch.track === null || stage === null) return;
+    const { spare } = ch;
     if (ch.el.readyState === ch.el.HAVE_NOTHING) return;
     if (spare.readyState === spare.HAVE_NOTHING) return;
     const at = now();
@@ -1378,8 +1529,6 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
     const { step, inS } = seamStep({
       remaining: (cue.at - at) / 1000,
       lead: plan === null ? lead : (cue.at - plan.play) / 1000,
-      // Never rehearsed: an inaudible start teaches nothing (`learn`).
-      learnt: true,
       spare: ch.seam?.kind === "started" ? "started" : "idle",
       ended: false,
       frame: frameS,
@@ -1400,14 +1549,10 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
   /** Does `step` of `cue`, set for page time `planned`. */
   function videoAct(
     ch: Channel,
-    step: "rehearse" | "start" | "switch",
+    step: "start" | "switch",
     cue: VideoCue,
     planned: number,
   ): void {
-    if (step === "rehearse") {
-      startSpare(ch, "rehearsing", planned);
-      return;
-    }
     if (ch.seam?.kind !== "started") {
       startSpare(ch, "started", planned);
       if (cue.kind === "wrap") wrapStarted(ch);
@@ -1451,7 +1596,6 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
    */
   function switchVideo(ch: Channel, from: number, wrap = false): void {
     const next = ch.spare;
-    if (next === null) return;
     const played = ch.seam?.at ?? now();
     clearTimeout(videoEndTimer);
     videoEndTimer = undefined;
@@ -1463,7 +1607,7 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
     ch.spare = ch.el;
     ch.el = next;
     next.dataset.track = ch.track ?? "";
-    setVolume(ch);
+    setVideoVolume(ch);
     const primedAtStart = ch.seam?.primed ?? false;
     videoCueNow = null;
     ch.seam = null;
@@ -1508,10 +1652,10 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
    */
   function videoStartDelay(element: HTMLVideoElement): number {
     const ch = video;
-    const spare = ch?.spare ?? null;
-    if (ch === null || spare === null || ch.track === null) return 0;
+    if (ch === null || ch.track === null) return 0;
+    const { spare } = ch;
     if (stage?.element !== element || !stage.plays) return 0;
-    if (!allowed(ch.slot) || !(blessed || unlocked)) return 0;
+    if (!allowed("video") || !(blessed || unlocked)) return 0;
     const lag = videoLags.start ?? VIDEO_START_S;
     if (videoStarting) {
       return Math.max(
@@ -1525,7 +1669,7 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
     stopVideoSound(ch); // the waiting element waits where the sound stopped
     const at = now();
     const from = element.currentTime;
-    const spareFrom = home(ch);
+    const spareFrom = home();
     // Cued like any start, on the output grid when there is one, a lead
     // after it may first play.
     const lead = leadOf(ch);
@@ -1600,8 +1744,17 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
     updateVideoSound();
   }
 
+  // --- the unlock and the hint ---------------------------------------------------
   function updateHint(): void {
-    hint.hidden = !(settings.soundOn && refused && !unlocked);
+    const waiting = settings.soundOn && refused && !unlocked;
+    const early = HINT_GRACE_MS - (now() - mountedAt);
+    if (waiting && early > 0 && hintTimer === undefined) {
+      hintTimer = setTimeout(() => {
+        hintTimer = undefined;
+        updateHint();
+      }, early);
+    }
+    hint.hidden = !(waiting && early <= 0);
   }
 
   function updateVoiceAudible(): void {
@@ -1610,14 +1763,58 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
     );
   }
 
-  function noteUnlocked(): void {
-    if (unlocked) return;
-    unlocked = true;
-    hook.dataset.unlocked = "true";
-    updateHint();
-    updateVoiceAudible();
-    scheduleWarm(); // a video ahead can load and prime its sound now
+  ctx.addEventListener("statechange", () => {
+    const running = ctx.state === "running";
+    if (running !== unlocked) {
+      unlocked = running;
+      hook.dataset.unlocked = String(running);
+      updateVoiceAudible();
+      if (running) scheduleWarm(); // a video ahead can load and prime its sound
+    }
+    sync();
+  });
+
+  const GESTURES = ["keydown", "mousedown", "touchend"] as const;
+
+  /**
+   * Inside each key or click that counts as a user activation: resumes the
+   * context when it is not running, and then what should sound starts, in
+   * this same handler. Esc and a Cmd/Ctrl/Alt shortcut are no activation by
+   * the HTML rules, so they do neither (in Chrome a resume they asked for
+   * would only log a warning). The first one also starts the video sound's
+   * elements, which WebKit then lets play for good.
+   */
+  function onGesture(event: Event): void {
+    if (!event.isTrusted) return;
+    const key = event.type === "keydown" ? (event as KeyboardEvent) : null;
+    const counts =
+      key === null ||
+      !(key.key === "Escape" || key.metaKey || key.ctrlKey || key.altKey);
+    if (!counts) return;
+    const first = !blessed;
+    if (first) {
+      blessed = true;
+      if (needsVideo) {
+        video ??= makeChannel();
+        for (const el of [video.el, video.spare]) {
+          if (!el.paused) continue;
+          el.play()?.catch(() => undefined);
+          el.pause();
+        }
+      }
+    }
+    // Later keys matter only if something stopped the context since.
+    if (!first && ctx.state === "running") return;
+    if (ctx.state !== "running") ctx.resume().catch(() => undefined);
+    sync();
   }
+  for (const type of GESTURES) win.addEventListener(type, onGesture, true);
+
+  const onVisibility = (): void => {
+    hidden = doc.visibilityState === "hidden";
+    sync();
+  };
+  doc.addEventListener("visibilitychange", onVisibility);
 
   const director = createSoundDirector({
     machine,
@@ -1634,8 +1831,8 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
       fire,
       leave: stopVoice,
       fadeOutEffects() {
-        for (const ch of sfx) {
-          if (ch?.wanted) fadeTo(ch, 0, REST_FADE_MS, () => releaseSfx(ch));
+        for (const s of sfx) {
+          if (s?.wanted) fadeTo(s, 0, REST_FADE_MS, () => releaseSfx(s));
         }
       },
       silence() {
@@ -1645,85 +1842,7 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
     },
   });
 
-  // --- the unlock --------------------------------------------------------------
-  const GESTURES = ["keydown", "mousedown", "touchend"] as const;
-
-  /**
-   * Inside the reader's key or click until the first one that counts as a
-   * user activation: makes every element the game can need and starts each
-   * (WebKit plays for good an element started in such a handler); those
-   * with nothing to play pause again at once. Esc and a Cmd/Ctrl/Alt
-   * shortcut are no activation by the HTML rules, so they neither unlock
-   * nor start what should sound; they still start the elements, since an
-   * engine may count them (both tested ones let an Esc handler play), and
-   * a play made in one then unlocks as any play does.
-   */
-  function onGesture(event: Event): void {
-    if (blessed || !event.isTrusted) return;
-    const key = event.type === "keydown" ? (event as KeyboardEvent) : null;
-    const counts =
-      key === null ||
-      !(key.key === "Escape" || key.metaKey || key.ctrlKey || key.altKey);
-    if (counts) {
-      blessed = true;
-      for (const type of GESTURES) {
-        win.removeEventListener(type, onGesture, true);
-      }
-    }
-    while (needsMusic && music.length < 2) music.push(makeChannel("music"));
-    while (ambience.length < ambienceCap)
-      ambience.push(makeChannel("ambience"));
-    for (let slot = 0; needsSfx && slot < SFX_POOL_SIZE; slot += 1) {
-      sfx[slot] ??= makeChannel("sfx");
-    }
-    if (needsVoice) voice ??= makeChannel("voice");
-    if (needsVideo) video ??= makeChannel("video");
-    if (needsSfx || needsVoice) sampler ??= makeChannel("sample");
-    for (const ch of channels()) {
-      // A video sound's elements start only from timers and its video's
-      // events, outside this handler, so each is started here.
-      const later = ch.slot !== "video" && ch.wanted && allowed(ch.slot);
-      for (const el of ch.spare === null ? [ch.el] : [ch.el, ch.spare]) {
-        if (!el.paused || (el === ch.el && later)) continue;
-        el.play()?.catch(() => undefined);
-        el.pause();
-      }
-    }
-    if (!counts) return;
-    noteUnlocked();
-    sync(); // what should sound plays, inside this same handler
-  }
-  for (const type of GESTURES) win.addEventListener(type, onGesture, true);
-
-  const onVisibility = (): void => {
-    hidden = doc.visibilityState === "hidden";
-    sync();
-  };
-  doc.addEventListener("visibilitychange", onVisibility);
-
   // --- warm-up -----------------------------------------------------------------
-  // Off-DOM elements that fetch the next items' one-shots and voice lines,
-  // kept in an LRU. They never play (WebKit would refuse an element made
-  // outside a key or click): the playing elements then load a warm file.
-  const warm = new Map<string, HTMLAudioElement>();
-  function warmFile(file: string): void {
-    const held = warm.get(file);
-    if (held !== undefined) {
-      warm.delete(file);
-      warm.set(file, held);
-      return;
-    }
-    const el = doc.createElement("audio");
-    el.preload = "auto";
-    el.src = file;
-    warm.set(file, el);
-    while (warm.size > WARM_CAP) {
-      const oldest = warm.keys().next().value;
-      if (oldest === undefined) break;
-      warm.get(oldest)?.removeAttribute("src");
-      warm.delete(oldest);
-    }
-  }
   const requestIdle: (fn: () => void) => void =
     typeof globalThis.requestIdleCallback === "function"
       ? (fn) => {
@@ -1734,6 +1853,10 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
         };
   let warmQueued = false;
   let destroyed = false;
+  /**
+   * At idle, decodes the tracks of the next `WARM_AHEAD` items (at most
+   * `WARM_CAP` files), so a read arrival plays them at once.
+   */
   function scheduleWarm(): void {
     if (warmQueued || !settings.soundOn) return;
     warmQueued = true;
@@ -1741,13 +1864,10 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
       warmQueued = false;
       if (destroyed || !settings.soundOn) return;
       const cursor = machine.getState().cursor;
-      for (const file of upcomingSoundFiles(
-        items,
-        tracks ?? {},
-        cursor,
-        WARM_AHEAD,
-      ))
-        warmFile(file);
+      const files = upcomingSoundFiles(items, tracks ?? {}, cursor, WARM_AHEAD);
+      for (const file of files.slice(0, WARM_CAP)) {
+        cache.load(file).catch(() => undefined);
+      }
       warmVideoSound(cursor);
     });
   }
@@ -1762,8 +1882,8 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
    */
   function warmVideoSound(cursor: number): void {
     const ch = video;
-    if (ch === null || ch.spare === null || ch.track !== null) return;
-    if (!(blessed || unlocked) || !allowed(ch.slot)) return;
+    if (ch === null || ch.track !== null) return;
+    if (!(blessed || unlocked) || !allowed("video")) return;
     let sound: { file: string; start: number } | null = null;
     for (
       let i = cursor + 1;
@@ -1797,8 +1917,8 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
     }
   }
   // On every arrival, not only once the item settles as the image warm-up
-  // waits: a reader's next Space fires the next item's one-shots at once.
-  // At idle, so no fetch lands on the arrival's frame; never mid-skip.
+  // waits: a reader's next Space plays the next item's sound at once. At
+  // idle, so no decode lands on the arrival's frame; never mid-skip.
   const unsubscribeWarm = machine.subscribe((state) => {
     if (!state.skipping) scheduleWarm();
   });
@@ -1829,17 +1949,20 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
       if (id === null || !settings.soundOn) return;
       stopSample();
       sampleOf = group === "effects" ? "sfx" : "voice";
-      sampler ??= makeChannel("sample");
+      sampler ??= makeSound("sample");
+      sampler.gain.disconnect();
+      sampler.gain.connect(groups[sampleOf]);
       load(sampler, id, 1);
-      syncChannel(sampler);
-      const ch = sampler;
-      sampleTimer = setTimeout(() => release(ch), SAMPLE_MS);
+      syncSound(sampler);
+      const s = sampler;
+      sampleTimer = setTimeout(() => release(s), SAMPLE_MS);
     },
     setSettings(next) {
       const wasOn = settings.soundOn;
       settings = { ...next };
       if (wasOn !== settings.soundOn) director.setSoundOn(settings.soundOn);
-      for (const ch of channels()) setVolume(ch);
+      setGroups();
+      if (video !== null) setVideoVolume(video);
       updateHint();
       updateVoiceAudible();
       sync();
@@ -1869,9 +1992,9 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
         stage?.element.removeEventListener(type, onStageVideo);
       }
       stage = null;
-      if (video !== null) release(video);
+      if (video !== null) releaseVideo(video);
       clearTimeout(sampleTimer);
-      duckFade = null;
+      clearTimeout(hintTimer);
       director.destroy();
       unsubscribeWarm();
       for (const type of GESTURES)
@@ -1879,8 +2002,10 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
       doc.removeEventListener("visibilitychange", onVisibility);
       if (frame !== 0) win.cancelAnimationFrame(frame);
       silence();
-      for (const el of warm.values()) el.removeAttribute("src");
-      warm.clear();
+      for (const { tag } of scripts.values()) tag.remove();
+      scripts.clear();
+      if (win.__kineticAudio === receive) win.__kineticAudio = undefined;
+      ctx.close().catch(() => undefined);
       hook.remove();
       hint.remove();
     },

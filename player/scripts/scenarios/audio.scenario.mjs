@@ -1,7 +1,8 @@
-// Sound (docs/plan.md Phase 47, item 5) on fixtures/audio-demo, read through
-// the player's test hook, never by listening: the hidden `#audio` holds the
-// live <audio> elements (`data-slot`, `data-track`) and carries the target
-// sound (`data-target`) and `data-unlocked`.
+// Sound (docs/plan.md Phase 47, items 5 and 18) on fixtures/audio-demo,
+// read through the player's test hook, never by listening: the hidden
+// `#audio` lists the player's sounds (`sounds()`: slot, track, paused,
+// currentTime, volume) and carries the target sound (`data-target`) and
+// `data-unlocked`; the loops are read from a tap of the mix (soundtap.mjs).
 //
 // Each part opens its own browser on the audio demo:
 // - Space, the wheel, `e`, a bookmark, skip and a reload each land on the
@@ -12,10 +13,11 @@
 // - the track rules: a crossfade, a music track that plays once and stays
 //   silent, a play that starts partway and loops back to its restart point,
 //   a fade to silence;
-// - loops play on (item 14), read on every frame: rain and hum, the calm
-//   tune and `steps` each through three wraps, no wrap losing or skipping
-//   more than a frame (on WebKit, a frame past its start grid), and
-//   `amb-shrink` fading the rain while the hum plays on;
+// - loops play on (item 14), read from the tap: the mix matches the
+//   tracks' decoded samples looped, sample for sample, through three
+//   wraps of rain and hum, of the calm tune and of `steps` from its loop
+//   point, and `amb-shrink` fades the rain while the hum plays on in the
+//   same phase (on WebKit both with and without the key rule);
 // - one-shots fire only on read arrivals: delayed, cut by a channel,
 //   overlapping without one, dropped when the reader moves on first, faded
 //   out by a walk, and never fired by a walk, a jump or skip;
@@ -27,15 +29,15 @@
 //   a voice line auto-forward starts seconds after that one key still
 //   play; the stock WebKit driver, like the macOS app, plays at once and
 //   shows no hint;
-// - a hidden page pauses every element and a shown one resumes;
-// - the Esc screen pauses every element (music, ambience, one-shots,
-//   voice) and closing it resumes them; under the branch map music and
-//   ambience play on and the voice pauses until it closes;
+// - a hidden page pauses every sound and a shown one resumes;
+// - the Esc screen pauses every sound (music, ambience, one-shots, voice)
+//   and closing it resumes them; under the branch map music and ambience
+//   play on and the voice pauses until it closes;
 // - auto-forward waits for the long voice line while it is audible, and
 //   only for the line's text once Voice is at 0 (an imported progress file
 //   carries the setting);
-// - fixtures/demo, a game without audio, makes no <audio> element, and
-//   openGame's current() reports `audio` (null there).
+// - fixtures/demo, a game without audio, makes no <audio> element and no
+//   hook, and openGame's current() reports `audio` (null there).
 
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -76,6 +78,13 @@ import {
   sleep,
   wheelUntil,
 } from "./harness.mjs";
+import {
+  checkLoops,
+  installTap,
+  readClock,
+  startTap,
+  stopTap,
+} from "./soundtap.mjs";
 
 export const title =
   "sound: targets, one-shots, unlock, menus and the voice hold";
@@ -167,13 +176,14 @@ const READ_SOUND = () => {
     target,
     unlocked: hook?.dataset.unlocked === "true",
     hint: hint !== null && !hint.hidden,
-    els: Array.from(hook?.children ?? [], (el, n) => ({
+    // Every sound made so far, in the order made: `n` names one.
+    els: (hook?.sounds?.() ?? []).map((sound, n) => ({
       n,
-      slot: el.dataset.slot,
-      track: el.dataset.track,
-      paused: el.paused,
-      t: Math.round(el.currentTime * 1000) / 1000,
-      v: Math.round(el.volume * 1000) / 1000,
+      slot: sound.slot,
+      track: sound.track,
+      paused: sound.paused,
+      t: Math.round(sound.currentTime * 1000) / 1000,
+      v: Math.round(sound.volume * 1000) / 1000,
     })),
   };
 };
@@ -246,14 +256,15 @@ const evidence = (s) => ({
     ),
 });
 
-// How far WebKit may still move a just-paused element's clock (frozen).
+// How far a just-paused sound's clock may still be read to move (frozen):
+// a video sound's element in WebKit settles a little after pause() (seen
+// moving 0.07-0.17 s either way); one playing on would move the whole
+// 0.6 s between readings.
 const CLOCK_SETTLE_S = 0.25;
 
-// Nothing plays in `y`, and each element holding a track in `x` holds
-// it, paused at the same place. (A one-shot still due may load into an
-// element meanwhile; it waits paused too.) WebKit settles a just-paused
-// element's clock a little after pause() (seen moving 0.07-0.17 s either
-// way); one playing on would move the whole 0.6 s between readings.
+// Nothing plays in `y`, and each sound holding a track in `x` holds it,
+// paused at the same place. (A one-shot still due may load into a sound
+// meanwhile; it waits paused too.)
 const frozen = (x, y) =>
   playing(y).length === 0 &&
   x.els
@@ -265,6 +276,32 @@ const frozen = (x, y) =>
         later.paused === e.paused &&
         Math.abs(later.t - e.t) < CLOCK_SETTLE_S
       );
+    });
+
+/**
+ * Each sound holding a track in reading `x`, or only those of `slot`
+ * playing `track`, stands in reading `y` no further on than the page's time
+ * between the two (a restart from its start, or a jump, lands elsewhere),
+ * counting a loop's wrap back to its restart point; and in `y` it plays
+ * (`playing`) or is paused.
+ */
+const movedOn = (x, y, { playing, slot = null, track = null }) =>
+  x.els
+    .filter(
+      (e) =>
+        e.track !== "" &&
+        (slot === null || e.slot === slot) &&
+        (track === null || e.track === track),
+    )
+    .every((e) => {
+      const now = y.els[e.n];
+      if (now === undefined || now.track !== e.track) return false;
+      if (now.paused === playing) return false;
+      const t = tracks()[e.track];
+      const loopStart = t.loopStartSeconds ?? t.startSeconds ?? 0;
+      let moved = now.t - e.t;
+      if (moved < 0 && t.loop !== false) moved += t.durationSeconds - loopStart;
+      return moved >= 0 && moved <= (y.now - x.now) / 1000 + 0.05;
     });
 
 const openDemo = (open, name, options = {}) =>
@@ -467,238 +504,248 @@ async function trackRules({ check, open, folders }) {
   );
 }
 
-// Every animation frame, each music or ambience element playing a track:
-// `[page time, [[hook index, track, currentTime, volume, duration], ...]]`.
-const INSTALL_LOOP_LOG = () => {
-  window.__loops = [];
-  const hook = document.getElementById("audio");
-  const step = () => {
-    const els = [];
-    for (const [n, el] of Array.from(hook?.children ?? []).entries()) {
-      const { slot, track } = el.dataset;
-      if (el.paused || !track) continue;
-      if (slot === "music" || slot === "ambience") {
-        els.push([n, track, el.currentTime, el.volume, el.duration]);
-      }
-    }
-    window.__loops.push([performance.now(), els]);
-    requestAnimationFrame(step);
-  };
-  requestAnimationFrame(step);
-};
-const takeLoopLog = (page) => page.evaluate(() => window.__loops.splice(0));
-
-// WebKit's clock runs ahead of the sound for about 0.7 s after a play
-// starts, then waits for it (macOS 27.2); a pass is judged from 1 s in.
-const LOOP_SETTLE_MS = 1000;
-// The muted WebKit driver starts every element's sound on a grid of 4096
-// frames of its output, 85.3 ms at the demo's 48 kHz (every start measured
-// lay within 1 ms of it, 2026-11-10), so a wrap there can only land on one
-// of the grid points around the loop's end.
-const WEBKIT_START_GRID_MS = (4096 / 48000) * 1000;
-
-const median = (list) => {
-  const s = [...list].sort((a, b) => a - b);
-  return s.length === 0 ? Number.NaN : s[Math.floor(s.length / 2)];
-};
-
-/**
- * Track `id`'s loop as the frames in `rows` (INSTALL_LOOP_LOG) saw it. A
- * wrap is its element changing or its time going back. Each pass's offset
- * is the page time less the track's unrolled time (each wrap adds the loop's
- * length, to the file's own end where that comes first: WebKit gives an
- * AAC file 23 ms less), its median over the pass from LOOP_SETTLE_MS in; `lost` is
- * each wrap's change in it (ms; a pause at the wrap adds its length, a
- * skip takes some off). `missing` is the longest run of frames with no
- * element playing the track after it first played, `frameMs` the median
- * frame interval, and `last` its last reading.
- */
-function loopTimeline(rows, id) {
+// The audio demo's track `id`: its manifest entry and its file's bytes, the
+// base64 its script (`<file>.js`) holds.
+function trackSource(id, read) {
   const track = tracks()[id];
-  const loopStart = track.loopStartSeconds ?? track.startSeconds ?? 0;
-  let span = track.durationSeconds - loopStart;
-  const passes = [];
-  let wraps = 0;
-  let prev = null;
-  let missing = 0;
-  let run = 0;
-  for (const [t, els] of rows) {
-    const e = els.find((x) => x[1] === id);
-    if (e === undefined) {
-      if (prev !== null) run += 1;
-      missing = Math.max(missing, run);
-      continue;
-    }
-    run = 0;
-    const [n, , ct, v, duration] = e;
-    // NaN (no metadata yet) arrives as null.
-    if (typeof duration === "number" && duration < track.durationSeconds) {
-      span = duration - loopStart;
-    }
-    if (prev === null || n !== prev.n || ct < prev.ct - span / 2) {
-      if (prev !== null) wraps += 1;
-      passes.push({ from: t, offsets: [] });
-    }
-    const pass = passes.at(-1);
-    if (t - pass.from >= LOOP_SETTLE_MS) {
-      pass.offsets.push(t - (ct + wraps * span) * 1000);
-    }
-    prev = { n, ct, t, v };
-  }
-  const steady = passes.map((p) => median(p.offsets));
-  const lost = [];
-  for (let k = 1; k < steady.length; k += 1) {
-    if (!Number.isNaN(steady[k]) && !Number.isNaN(steady[k - 1])) {
-      lost.push(Math.round(steady[k] - steady[k - 1]));
-    }
-  }
-  const gaps = rows.slice(1).map(([t], k) => t - rows[k][0]);
+  const script = readFileSync(
+    join(repoRoot, "fixtures", "audio-demo", `${track.file}.js`),
+    "utf8",
+  );
+  const sound = read.sounds.find((x) => x.track === id && !x.paused);
   return {
-    wraps,
-    lost,
-    missing,
-    frameMs: Math.round(median(gaps) * 10) / 10,
-    last: prev,
+    name: id,
+    track,
+    base64: /"([A-Za-z0-9+/=]*)"\);\n?$/.exec(script)?.[1] ?? "",
+    gain: track.volume ?? 1,
+    read: { at: read.at, position: sound?.currentTime ?? null },
   };
 }
 
-/**
- * Whether a loop played on unbroken: at least `wraps` wraps, none losing
- * or skipping more than one frame (on WebKit, one frame past its start
- * grid), never a frame without it, and still playing in the last frame.
- */
-const unbroken = (line, wraps, end) =>
-  line.wraps >= wraps &&
-  line.lost.length >= wraps &&
-  line.lost.every(
-    (ms) =>
-      Math.abs(ms) <= line.frameMs + (onWebKit ? WEBKIT_START_GRID_MS : 0),
-  ) &&
-  line.missing === 0 &&
-  line.last !== null &&
-  end - line.last.t < 100;
+// How long after an arrival the mix is compared: its fade (the demo's
+// items fade over the default 1 s) is over by then.
+const STEADY_S = 1.5;
 
 /**
- * Reads `ids` onto `item`'s loops from the item before it (Space, which
- * unlocks sound) and logs every frame from then on.
+ * Opens the demo at `before`, taps the mix, and reads Space onto `item`
+ * (the key that unlocks sound); resolves with the session, the context
+ * time of the arrival, and the hook's reading 0.4 s later, before any
+ * loop has wrapped.
  */
-async function loopsFrom(open, name, before, item) {
-  const session = await openDemo(open, name, { hash: `#start=${before}` });
+async function tapFrom(open, name, before, item, options) {
+  const session = await openDemo(open, name, {
+    hash: `#start=${before}`,
+    ...options,
+  });
   const { page, cdp } = session;
   await page
     .waitForFunction(ON_ITEM, { timeout: 5000 }, before)
     .catch(() => {});
-  await page.evaluate(INSTALL_LOOP_LOG);
+  const tap = await installTap(page);
+  await startTap(page);
   await spaceToItem(page, cdp, item);
-  return session;
+  const arrived = (await readClock(page)).at;
+  await sleep(400);
+  return { ...session, tap, arrived, read: await readClock(page) };
 }
 
-// Rain (6 s, FLAC) and hum (4 s, WAV) loop from 0 through three of
-// the rain's lengths over `amb-start` and `amb-carry`; `amb-shrink` drops
-// the rain and keeps the hum (docs/plan.md Phase 47, item 14).
-async function ambienceLoops({ check, open, folders }) {
-  if (!built(check, folders)) return;
-  const { page, cdp } = await loopsFrom(
-    open,
-    "loops-ambience",
-    "amb-title",
-    "amb-start",
-  );
-  await sleep(10000);
-  await spaceToItem(page, cdp, "amb-carry");
-  await sleep(11000);
-  let rows = await takeLoopLog(page);
-  const end = rows.at(-1)?.[0] ?? 0;
-  const rain = loopTimeline(rows, "rain");
-  const hum = loopTimeline(rows, "hum");
-  check(
-    "rain and hum loop on through three of the rain's lengths over amb-start and amb-carry, no wrap losing or skipping more than a frame",
-    unbroken(rain, 3, end) && unbroken(hum, 4, end),
-    { rain, hum },
-  );
+/**
+ * Whether the tap heard the loops play on unbroken: every frame of the
+ * window matched the tracks looped, with nothing lost, through at least
+ * `wraps[name]` wraps of each.
+ */
+const loopsHeld = (result, wraps) =>
+  result.ok === true &&
+  result.lostFrames === 0 &&
+  result.badFrames === 0 &&
+  Object.entries(wraps).every(([name, least]) => {
+    const source = result.sources.find((x) => x.name === name);
+    return (
+      source !== undefined &&
+      source.wraps.length >= least &&
+      source.wraps.every((w) => w.worst <= 1e-3)
+    );
+  });
 
-  const arrived = await pageNow(page);
-  await spaceToItem(page, cdp, "amb-shrink");
-  await sleep(6000);
-  rows = rows.concat(await takeLoopLog(page));
-  const after = rows.filter(([t]) => t >= arrived - 3000);
-  const humOn = loopTimeline(after, "hum");
-  const rainLevel = (ms) =>
-    after
-      .find(([t]) => t >= arrived + ms)?.[1]
-      .find((e) => e[1] === "rain")?.[3] ?? 0;
-  const rainFrom = {
-    level: rainLevel(0),
-    mid: rainLevel(500),
-    late: rainLevel(2000),
-  };
-  check(
-    "amb-shrink fades the rain out over its second while the hum loops on unbroken",
-    unbroken(humOn, 2, after.at(-1)?.[0] ?? 0) &&
-      rainFrom.level > 0.45 &&
-      rainFrom.mid > 0.05 &&
-      rainFrom.mid < 0.45 &&
-      rainFrom.late === 0,
-    { hum: humOn, rain: rainFrom },
-  );
-}
+/** A check's result, shortened for its evidence line. */
+const loopEvidence = (result) => ({
+  ...result,
+  sources: result.sources?.map((x) => ({
+    name: x.name,
+    moved: x.moved,
+    began: Math.round(x.began * 1e5) / 1e5,
+    wraps: x.wraps.map((w) => `${w.at}:${w.worst.toExponential(1)}`),
+  })),
+});
+
+/** The check's words on WebKit with the key rule, so the two read apart. */
+const keyRule = (options) =>
+  options.requireGestureForAudio ? " (WebKit with the key rule)" : "";
+
+/** `part` named for the runner (its times file), with the key rule apart. */
+const loopPart = (name, options, part) =>
+  Object.defineProperty(part, "name", {
+    value: options.requireGestureForAudio ? `${name}KeyRule` : name,
+  });
+
+// Rain (6 s, FLAC, at the track's 0.5) and hum (4 s, WAV) loop from 0
+// through three of the rain's lengths over `amb-start` and `amb-carry`;
+// `amb-shrink` drops the rain and keeps the hum (docs/plan.md Phase 47,
+// item 14).
+const ambienceLoops = (options = {}) =>
+  loopPart("ambienceLoops", options, async ({ check, open, folders }) => {
+    if (!built(check, folders)) return;
+    const { page, cdp, tap, arrived, read } = await tapFrom(
+      open,
+      `loops-ambience${options.requireGestureForAudio ? "-key" : ""}`,
+      "amb-title",
+      "amb-start",
+      options,
+    );
+    await sleep(10000);
+    await spaceToItem(page, cdp, "amb-carry");
+    await sleep(11000);
+    const carried = (await readClock(page)).at;
+    const sources = [trackSource("rain", read), trackSource("hum", read)];
+    const first = await checkLoops(page, {
+      sources,
+      from: arrived + STEADY_S,
+      to: carried,
+    });
+    check(
+      `rain and hum loop on through three of the rain's lengths over amb-start and amb-carry, the mix matching both tracks looped sample for sample at every wrap${keyRule(options)}`,
+      tap.ok && loopsHeld(first, { rain: 3, hum: 4 }) && first.seconds >= 18,
+      { tap, ...loopEvidence(first) },
+    );
+
+    await spaceToItem(page, cdp, "amb-shrink");
+    const shrunk = (await readClock(page)).at;
+    await sleep(5000);
+    const end = (await readClock(page)).at;
+    await stopTap(page);
+    // Both before the arrival, with the rain's level through its fade.
+    const before = await checkLoops(page, {
+      sources,
+      from: shrunk - 1.6,
+      to: shrunk - 0.1,
+      gainsAt: [shrunk - 0.5, shrunk + 0.5, shrunk + 2],
+    });
+    // The hum alone after it: the rain gone, the hum in the same phase.
+    const after = await checkLoops(page, {
+      sources: [sources[1]],
+      from: shrunk + STEADY_S,
+      to: end,
+    });
+    const humBegan = (r) => r.sources?.find((x) => x.name === "hum")?.began;
+    const rainAt = (k) => before.gains?.[k]?.gains.rain ?? Number.NaN;
+    const rain = { before: rainAt(0), mid: rainAt(1), late: rainAt(2) };
+    const rainVolume = tracks().rain.volume ?? 1;
+    check(
+      `amb-shrink fades the rain out over its second while the hum loops on unbroken, in the phase it had since amb-start${keyRule(options)}`,
+      loopsHeld(before, { hum: 0 }) &&
+        loopsHeld(after, { hum: 1 }) &&
+        humBegan(before) === humBegan(first) &&
+        humBegan(after) === humBegan(first) &&
+        Math.abs(rain.before - rainVolume) < 0.01 &&
+        rain.mid > 0.1 * rainVolume &&
+        rain.mid < 0.9 * rainVolume &&
+        Math.abs(rain.late) < 1e-3,
+      {
+        rain,
+        humBegan: [humBegan(first), humBegan(before), humBegan(after)],
+        before: loopEvidence(before),
+        after: loopEvidence(after),
+      },
+    );
+  });
 
 // The calm tune (8 s, AAC) loops from 0 through three of its lengths over
 // `music-start` and `music-carry`.
-async function musicLoop({ check, open, folders }) {
-  if (!built(check, folders)) return;
-  const { page, cdp } = await loopsFrom(
-    open,
-    "loops-music",
-    "music-title",
-    "music-start",
-  );
-  await sleep(12500);
-  await spaceToItem(page, cdp, "music-carry");
-  await sleep(14500);
-  const rows = await takeLoopLog(page);
-  const calm = loopTimeline(rows, "calm");
-  check(
-    "the calm tune loops on through three of its lengths over music-start and music-carry, no wrap losing or skipping more than a frame",
-    unbroken(calm, 3, rows.at(-1)?.[0] ?? 0),
-    calm,
-  );
-}
+const musicLoop = (options = {}) =>
+  loopPart("musicLoop", options, async ({ check, open, folders }) => {
+    if (!built(check, folders)) return;
+    const { page, cdp, tap, arrived, read } = await tapFrom(
+      open,
+      `loops-music${options.requireGestureForAudio ? "-key" : ""}`,
+      "music-title",
+      "music-start",
+      options,
+    );
+    await sleep(12500);
+    await spaceToItem(page, cdp, "music-carry");
+    await sleep(14500);
+    const end = (await readClock(page)).at;
+    await stopTap(page);
+    const result = await checkLoops(page, {
+      sources: [trackSource("calm", read)],
+      from: arrived + STEADY_S,
+      to: end,
+    });
+    check(
+      `the calm tune loops on through three of its lengths over music-start and music-carry, the mix matching it looped sample for sample at every wrap${keyRule(options)}`,
+      tap.ok && loopsHeld(result, { calm: 3 }) && result.seconds >= 24,
+      { tap, ...loopEvidence(result) },
+    );
+  });
 
 // `steps` (Vorbis in WebM) starts at 6 s and loops back to 3 s at its end
-// (12 s): three wraps.
-async function partwayLoop({ check, open, folders }) {
-  if (!built(check, folders)) return;
-  const { page } = await loopsFrom(
-    open,
-    "loops-partway",
-    "music-once",
-    "music-partway",
-  );
-  await sleep(27500);
-  const rows = await takeLoopLog(page);
-  const steps = loopTimeline(rows, "steps");
-  check(
-    "steps loops from its end back to 3 s three times, no wrap losing or skipping more than a frame",
-    unbroken(steps, 3, rows.at(-1)?.[0] ?? 0),
-    steps,
-  );
-}
+// (12.001333 s, on its last whole sample): three wraps.
+const partwayLoop = (options = {}) =>
+  loopPart("partwayLoop", options, async ({ check, open, folders }) => {
+    if (!built(check, folders)) return;
+    const { page, tap, arrived, read } = await tapFrom(
+      open,
+      `loops-partway${options.requireGestureForAudio ? "-key" : ""}`,
+      "music-once",
+      "music-partway",
+      options,
+    );
+    await sleep(27500);
+    const end = (await readClock(page)).at;
+    await stopTap(page);
+    const result = await checkLoops(page, {
+      sources: [trackSource("steps", read)],
+      from: arrived + STEADY_S,
+      to: end,
+    });
+    check(
+      `steps loops from its end back to 3 s three times, the mix matching it looped sample for sample at every wrap${keyRule(options)}`,
+      tap.ok &&
+        loopsHeld(result, { steps: 3 }) &&
+        read.sounds.some(
+          (x) => x.track === "steps" && x.currentTime >= 6 && x.currentTime < 7,
+        ),
+      { tap, ...loopEvidence(result) },
+    );
+  });
 
-// Every one-shot that starts, from a play event on the document: the
-// track, and when (page time). An idle element's unlock play has no track.
+// Every one-shot that starts, seen on the animation frame it first sounds
+// (a sound of the sfx slot holding a track and not paused, after a frame
+// where it did not, held another track or stood further on): the track,
+// and when (page time).
 const INSTALL_SFX_LOG = () => {
   window.__sfx = [];
-  document.addEventListener(
-    "play",
-    (event) => {
-      const el = event.target;
-      if (el?.dataset?.slot === "sfx" && el.dataset.track) {
-        window.__sfx.push({ track: el.dataset.track, at: performance.now() });
+  const last = new Map();
+  const step = () => {
+    const sounds = document.getElementById("audio")?.sounds?.() ?? [];
+    sounds.forEach((sound, n) => {
+      const was = last.get(n);
+      const sounding = sound.track !== "" && !sound.paused;
+      if (
+        sound.slot === "sfx" &&
+        sounding &&
+        (was === undefined ||
+          !was.sounding ||
+          was.track !== sound.track ||
+          sound.currentTime < was.t)
+      ) {
+        window.__sfx.push({ track: sound.track, at: performance.now() });
       }
-    },
-    true,
-  );
+      last.set(n, { sounding, track: sound.track, t: sound.currentTime });
+    });
+    requestAnimationFrame(step);
+  };
+  requestAnimationFrame(step);
 };
 const pageNow = (page) => page.evaluate(() => performance.now());
 const sfxSince = (page, since) =>
@@ -938,29 +985,40 @@ async function unlock({ check, open, folders }) {
   );
 }
 
-// Every element that starts playing, from a `playing` event on the
-// document: its slot and track, and when (page time).
+// Every sound that starts playing, seen on the animation frame it first
+// sounds, as INSTALL_SFX_LOG sees one-shots: its slot and track, and when
+// (page time). Installed before the page loads, so it waits for the hook.
 const INSTALL_PLAYING_LOG = () => {
   window.__playing = [];
-  document.addEventListener(
-    "playing",
-    (event) => {
-      const el = event.target;
-      if (el?.dataset?.track) {
+  const last = new Map();
+  const step = () => {
+    const sounds = document.getElementById("audio")?.sounds?.() ?? [];
+    sounds.forEach((sound, n) => {
+      const was = last.get(n);
+      const sounding = sound.track !== "" && !sound.paused;
+      if (
+        sounding &&
+        (was === undefined ||
+          !was.sounding ||
+          was.track !== sound.track ||
+          sound.currentTime < was.t)
+      ) {
         window.__playing.push({
-          slot: el.dataset.slot,
-          track: el.dataset.track,
+          slot: sound.slot,
+          track: sound.track,
           at: performance.now(),
         });
       }
-    },
-    true,
-  );
+      last.set(n, { sounding, track: sound.track, t: sound.currentTime });
+    });
+    requestAnimationFrame(step);
+  };
+  requestAnimationFrame(step);
 };
 
-// WebKit plays for good only elements started inside the unlocking key's
-// handler: a one-shot and a voice line that auto-forward starts many
-// seconds after the one key still play.
+// After the one key that unlocked sound (WebKit with the key rule), a
+// one-shot and a voice line that auto-forward starts many seconds later
+// still play.
 async function soundsAfterUnlock({ check, open, folders }) {
   if (!built(check, folders)) return;
   const { page, cdp } = await openDemo(open, "after-unlock", {
@@ -1048,13 +1106,15 @@ async function hiddenPage({ check, open, folders }) {
     bedMatches(s, expectedTarget("amb-carry")),
   );
   check(
-    "a hidden page pauses every element where it is; shown again, they play on",
+    "a hidden page pauses every sound where it had got to; shown again, they play on from there",
     shown.ok &&
       hiddenState === "hidden" &&
       playing(a).length === 0 &&
       frozen(a, b) &&
       shownState === "visible" &&
-      back.ok,
+      back.ok &&
+      movedOn(shown.s, a, { playing: false }) &&
+      movedOn(b, back.s, { playing: true }),
     {
       hiddenState,
       shownState,
@@ -1069,6 +1129,7 @@ async function menus({ check, open, folders }) {
   if (!built(check, folders)) return;
   const { page, cdp } = await openDemo(open, "menus");
   const under = async (openIt, closeIt) => {
+    const before = await readSound(page);
     await openIt();
     await sleep(300);
     const a = await readSound(page);
@@ -1077,7 +1138,7 @@ async function menus({ check, open, folders }) {
     await closeIt();
     await sleep(500);
     const c = await readSound(page);
-    return { a, b, c };
+    return { before, a, b, c };
   };
   const esc = () =>
     under(
@@ -1110,8 +1171,7 @@ async function menus({ check, open, folders }) {
   const ambEsc = await esc();
   const ambMap = await map();
   // A one-shot (the 6 s siren) and a voice line (8.4 s), each heard for a
-  // moment first: WebKit says `paused` at once on pause(), but an element
-  // still starting up reports its clock moving a little after.
+  // moment first.
   const heard = (s, slot, track) =>
     playing(s, slot).some((e) => e.track === track && e.t > 0.3);
   await spaceToItem(page, cdp, "sfx-overlap");
@@ -1122,11 +1182,14 @@ async function menus({ check, open, folders }) {
   const voiceEsc = await esc();
   const voiceMap = await map();
 
-  const pausedThenResumed = ({ a, b, c }, slot, track) =>
+  // Paused where it had got to, and played on from there.
+  const pausedThenResumed = ({ before, a, b, c }, slot, track) =>
     playing(a).length === 0 &&
     frozen(a, b) &&
     a.els.some((e) => e.slot === slot && e.track === track) &&
-    tracksPlaying(c, slot).includes(track);
+    tracksPlaying(c, slot).includes(track) &&
+    movedOn(before, a, { playing: false, slot, track }) &&
+    movedOn(b, c, { playing: true, slot, track });
   const escCases = {
     music: pausedThenResumed(musicEsc, "music", "calm"),
     rain: pausedThenResumed(ambEsc, "ambience", "rain"),
@@ -1135,7 +1198,7 @@ async function menus({ check, open, folders }) {
     voice: pausedThenResumed(voiceEsc, "voice", "mei-long"),
   };
   check(
-    "the Esc screen pauses every element (music, ambience, a one-shot, a voice) where it is, and closing it resumes them",
+    "the Esc screen pauses every sound (music, ambience, a one-shot, a voice) where it had got to, and closing it resumes them from there",
     Object.values(escCases).every(Boolean),
     {
       escCases,
@@ -1158,13 +1221,15 @@ async function menus({ check, open, folders }) {
   );
   const voiceOf = (s) => s.els.find((e) => e.slot === "voice");
   check(
-    "the voice pauses under the branch map where it is and resumes when it closes",
+    "the voice pauses under the branch map where it had got to and resumes from there when it closes",
     voiceOf(voiceMap.a)?.track === "mei-long" &&
       voiceOf(voiceMap.a).paused &&
       voiceOf(voiceMap.b)?.paused === true &&
       Math.abs(voiceOf(voiceMap.b).t - voiceOf(voiceMap.a).t) <
         CLOCK_SETTLE_S &&
-      tracksPlaying(voiceMap.c, "voice").includes("mei-long"),
+      tracksPlaying(voiceMap.c, "voice").includes("mei-long") &&
+      movedOn(voiceMap.before, voiceMap.a, { playing: false, slot: "voice" }) &&
+      movedOn(voiceMap.b, voiceMap.c, { playing: true, slot: "voice" }),
     { under: evidence(voiceMap.a), after: evidence(voiceMap.c) },
   );
 }
@@ -1289,7 +1354,7 @@ async function library({ check, folders }) {
   await game.close();
   const music = now.audio?.elements.find((e) => e.slot === "music");
   check(
-    "openGame's current() reports the sound: the target, unlocked, and the music element playing",
+    "openGame's current() reports the sound: the target, unlocked, and the music playing",
     now.id === "music-start" &&
       same(now.audio?.target, expectedTarget("music-start")) &&
       now.audio?.unlocked === true &&
@@ -1427,7 +1492,7 @@ async function volumesSound({ check, open, folders }) {
     () => !document.getElementById("help").hidden,
   );
   check(
-    "five presses of Music's - read 50%, are saved at once, and set the music and ambience elements' volume to half their level at once; Escape closes the sheet and they pause again under the Esc screen",
+    "five presses of Music's - read 50%, are saved at once, and set the music and ambience volume to half their level at once; Escape closes the sheet and they pause again under the Esc screen",
     music === 0.5 &&
       saved?.musicVolume === 0.5 &&
       halved.ok &&
@@ -1467,7 +1532,7 @@ async function volumesSound({ check, open, folders }) {
 
 /**
  * Polls the page from just before `act` until 3 s after it, and reports
- * the sample element as it went: whether it played `track` at `volume`,
+ * the sample sound as it went: whether it played `track` at `volume`,
  * how long after the act it stopped, and how far into the track it got.
  */
 async function sampleAfter(page, act, track, volume) {
@@ -1604,7 +1669,7 @@ async function soundKey({ check, open, folders }) {
   const onPill = await toggled();
   const on = await waitSound(page, (s) => bedMatches(s, bed), 3000);
   check(
-    'v shows "Sound off", saves it at once and silences every element, then "Sound on" and the screen\'s ambience plays again',
+    'v shows "Sound off", saves it at once and silences every sound, then "Sound on" and the screen\'s ambience plays again',
     JSON.stringify(offPill) === JSON.stringify(["Sound off"]) &&
       savedOff?.soundOn === false &&
       playing(off).length === 0 &&
@@ -1693,9 +1758,19 @@ async function soundKey({ check, open, folders }) {
 export const parts = [
   landings,
   trackRules,
-  ambienceLoops,
-  musicLoop,
-  partwayLoop,
+  ambienceLoops(),
+  musicLoop(),
+  partwayLoop(),
+  // The stock WebKit driver runs the context at once, as the Mac app does;
+  // with the key rule it waits for the key, as Safari does (Chrome always
+  // does), and the loops must hold from a context resumed in that key.
+  ...(onWebKit
+    ? [
+        ambienceLoops({ requireGestureForAudio: true }),
+        musicLoop({ requireGestureForAudio: true }),
+        partwayLoop({ requireGestureForAudio: true }),
+      ]
+    : []),
   oneShots,
   joinMusic,
   unlock,

@@ -3475,7 +3475,7 @@ truthful: an unchecked box means nothing was accepted.
       validates; npm test 1147, check clean, Chrome `audio videosound
       screens` 189/189, WebKit `audio videosound` 81/82, the miss being
       item 15's known video-sound wrap check, which item 19 replaces.)
-- [ ] Player: sound on Web Audio (item 18): one AudioContext unlocked by
+- [x] Player: sound on Web Audio (item 18): one AudioContext unlocked by
       the first key, tracks loaded from their scripts and decoded under a
       byte cap, buffer-source loops, gain AudioParams, every pause rule,
       the hook unchanged in shape, silent automated runs. Tests:
@@ -3484,6 +3484,47 @@ truthful: an unchecked box means nothing was accepted.
       - item 14's loops play with no gap, read from a test-only tap of
         the mix, in both engines;
       - Vitest for the decode cache and its cap.
+      (2026-11-13: music, ambience, one-shots, voice and the Volumes
+      sample play as buffer sources through a sound gain, a group gain
+      (Music then the duck, Effects, Voice), the mix and the master;
+      `gainStages` splits `elementVolume` over them, and fades and the
+      duck are ramps in context time. Loops use the source's `loop` with
+      `loopStart`/`loopEnd` from `playPlan`, snapped to whole samples.
+      Tracks load through `__kineticAudio` and a script tag, decode once
+      per file (a failure is logged, not retried) and stay in
+      render/audiocache.ts's LRU under `DECODED_CAP_BYTES` (200 MiB: a
+      3-minute stereo AAC decodes to 69.1 MB, in 209 ms in headless
+      Chrome and 3,670 ms in the WebKit driver, so three such tracks
+      stay); held buffers are never dropped; the warm-up decodes every
+      track of the next 3 items, at most 8 files. A pause stops each
+      held source at its `playPosition` and restarts it there. Unlock:
+      Chrome's context starts suspended and nothing starts before a key
+      that counts; the stock driver's starts running 10-130 ms after it
+      is made; the hint waits 500 ms (`HINT_GRACE_MS`) so the Mac app
+      does not flash it. Silence: testing/testaudio.mjs's flag reaches
+      every page from `launchChrome` (each context's `newPage`) and
+      `launchWebKit` (`addScript`), and the player holds the master at 0
+      under it; a muted driver page playing zeros opened a Core Audio
+      output, so the page mute alone is not shown to silence Web Audio.
+      The tap (scenarios/soundtap.mjs, an AudioWorklet from a data: URL
+      on the mix before the master) matches every frame to the tracks
+      looped: max error 1.5e-8 in Chrome, 0 in WebKit with and without
+      the key rule, over three or more wraps of rain, hum, calm and
+      steps; HEAD's element trade, served over http through a
+      media-element source, scored 0.39 and 0.73 with about 90% of
+      frames wrong. The menus, hidden-page and voice-under-map checks now
+      also check where a sound resumes. Item 14's element trade, lead
+      learning, rehearsal and output-grid timing are gone for music and
+      ambience; the video channel keeps item 15's until item 19. Red
+      first: 15 unit tests plus 3 launcher and reader tests; 7 scenario
+      checks and 6 unit tests red under deliberate breaks. Not covered: a
+      long track not warmed up starts about 3.7 s late in WebKit after a
+      jump (decode time). Orchestrator: npm test 1163, check clean,
+      smoke 6/6, Chrome `audio videosound screens menus` 200/200, WebKit
+      `audio videosound screens` 194/196 in two runs in a row (the 2
+      known fullscreen partials), check-game on the assembled audio demo
+      exit 0 in Chrome and WebKit, 35 of 35 items, no errors; AGENTS.md
+      names the test sound flag.)
 - [ ] Player: a video's sound on the audio clock (item 19): the sound's
       buffer loops the video's range and the video follows it. Tests:
       - item 15's checks from the tap, in Chrome and WebKit, five WebKit
