@@ -2739,9 +2739,9 @@ For the converting agent, compared with their request:
       fixtures/build_audio_demo.py write the script beside each shipped
       audio file, deterministically; the ledger and `rebuild` cover it.
       `tools/assemble_folder.py` writes a missing script for a
-      hand-written folder's tracks. Until item 18 the audio file still
-      ships too; from item 18 the assembled folder ships only the
-      scripts.
+      hand-written folder's tracks. Until item 19 the audio file still
+      ships too (the video's sound plays from an element until then);
+      from item 19 the assembled folder ships only the scripts.
     - Loop-safe formats: a track that loops (music, ambience, a video's
       sound) ships only in a format `decodeAudioData` decodes with no
       lead change in Chrome and WebKit (AAC, Vorbis in WebM, WAV, FLAC,
