@@ -24,7 +24,12 @@ double-clicks open over `file://` with nothing else on disk:
   in CREATE.md and checked by tools/validate_content.py;
 - a generated script, `<file>.js`, beside each audio track file that has
   none (docs/content-format.md, "Audio"); an existing one is left as it
-  is, and the validator checks it.
+  is, and the validator checks it;
+- the audio track files themselves left out once their scripts are in:
+  the player reads only the scripts (docs/plan.md Phase 47, item 19). A
+  file an item also shows (a video) stays. The content folder keeps both,
+  for the ledger, `kinetic-media rebuild` and the validator's check of
+  each script against its file.
 
 Prints the assembled folder's file count and total size.
 
@@ -88,27 +93,59 @@ def write_shim(out: Path) -> bool:
     return True
 
 
+def _read_manifest(out: Path) -> dict | None:
+    """The output's manifest.json as an object, or None when it does not
+    parse (the validator reports it)."""
+    try:
+        manifest = json.loads((out / MANIFEST_NAME).read_text(
+            encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    return manifest if isinstance(manifest, dict) else None
+
+
+def _track_files(manifest: dict | None) -> list[str]:
+    """Every audio track file the manifest names, once each, sorted."""
+    audio = manifest.get("audio") if manifest is not None else None
+    tracks = audio.get("tracks") if isinstance(audio, dict) else None
+    files = {track.get("file") for track in (tracks or {}).values()
+             if isinstance(track, dict)}
+    return sorted(f for f in files if isinstance(f, str))
+
+
 def write_audio_scripts(out: Path) -> int:
     """Write the script of each audio track file `manifest.json` names
     that has none; how many were written. A missing track file, or a
     manifest that does not parse, gets none: the validator reports
     them."""
-    try:
-        manifest = json.loads((out / MANIFEST_NAME).read_text(
-            encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return 0
-    audio = manifest.get("audio") if isinstance(manifest, dict) else None
-    tracks = audio.get("tracks") if isinstance(audio, dict) else None
-    files = {track.get("file") for track in (tracks or {}).values()
-             if isinstance(track, dict)}
     written = 0
-    for file in sorted(f for f in files if isinstance(f, str)):
+    for file in _track_files(_read_manifest(out)):
         if (out / file).is_file() \
                 and not audio_format.script_path(out, file).exists():
             audio_format.write_script(out, file)
             written += 1
     return written
+
+
+def leave_out_audio_files(out: Path) -> int:
+    """Remove from the output each audio track file whose script is there,
+    unless an item also names the file (a video, a poster); how many were
+    removed. The player reads only the scripts."""
+    manifest = _read_manifest(out)
+    items = manifest.get("items") if manifest is not None else None
+    shown = {value for item in (items if isinstance(items, list) else [])
+             if isinstance(item, dict)
+             for value in [item.get("file"), item.get("poster"),
+                           *(item.get("frames") or [])]
+             if isinstance(value, str)}
+    removed = 0
+    for file in _track_files(manifest):
+        if file in shown or not (out / file).is_file():
+            continue
+        if audio_format.script_path(out, file).is_file():
+            (out / file).unlink()
+            removed += 1
+    return removed
 
 
 def main(argv: list[str]) -> None:
@@ -164,13 +201,17 @@ def main(argv: list[str]) -> None:
 
     generated = write_shim(out)
     scripts = write_audio_scripts(out)
+    left_out = leave_out_audio_files(out)
 
     count, size = folder_stats(out)
     print(f"assembled {out}: {count} files, {size} bytes "
           f"({size / (1024 * 1024):.2f} MiB)"
           + ("; generated manifest.js" if generated else "")
           + (f"; wrote {scripts} audio script{'s' if scripts != 1 else ''}"
-             if scripts else ""))
+             if scripts else "")
+          + (f"; left out {left_out} audio file"
+             f"{'s' if left_out != 1 else ''} (their scripts ship)"
+             if left_out else ""))
 
     if any(apps.values()):
         try:

@@ -18,7 +18,8 @@ my-novel/
   manifest.js     # generated shim: window.KINETIC_MANIFEST = {...}
   media/ab/…      # converter output: media/<h[:2]>/<h>.<ext>
   *.jpg, *.mp4    # or any other legal layout, e.g. flat (hand-authored)
-  *.m4a.js        # beside each audio file, its bytes as a script (Audio)
+  *.m4a.js        # beside each audio file, its bytes as a script; an
+                  # assembled folder ships the script alone (Audio)
 ```
 
 - Every file the novel needs lives inside the folder. There are no absolute
@@ -637,8 +638,9 @@ item id shape, `[A-Za-z0-9][A-Za-z0-9_-]{0,63}`. A track has:
   `.m4a`, `.wav`, `.flac` or `.webm`. Ogg (`.ogg`, `.oga`, `.opus`) is
   accepted with a warning, below.
 - `durationSeconds` (required, greater than 0): the track's length.
-  It is authoritative: the player never reads the audio element's own
-  duration, because WebKit misreports Ogg durations.
+  It is authoritative: the player plays a track up to it, or to the end
+  of its decoded samples if they stop sooner, and never reads a
+  duration from the file, because WebKit misreports Ogg durations.
 - `startSeconds` (at least 0, default 0): where a play starts, Ren'Py's
   `<from N>`. It is less than `durationSeconds`.
 - `loopStartSeconds` (at least 0, default: the track's `startSeconds`):
@@ -690,8 +692,14 @@ The bytes depend only on the path and the file's bytes, so every writer
 makes the same script: kinetic-media and kinetic-extract beside each
 audio file they ship, `fixtures/build_audio_demo.py`, and
 `tools/assemble_folder.py` for a hand-written folder's tracks. The
-script is a third larger than its file. The audio file itself still
-ships beside it.
+script is a third larger than its file.
+
+The player reads only the script. A content folder keeps the audio file
+beside it: kinetic-extract's and kinetic-media's output, which the build
+ledger and `kinetic-media rebuild` describe, and the audio demo. The
+folder `tools/assemble_folder.py` assembles for play ships the script
+alone and leaves the audio file out, unless an item also shows that file
+(docs/packaging.md). The validator accepts either.
 
 ### Loop-safe formats
 
@@ -924,7 +932,11 @@ The validator checks the schema plus these invariants:
 
 16. Each audio track file has its script beside it, `<file>.js`, and the
     script is the one line Audio describes for that file: it names the
-    file and holds its bytes.
+    file and holds its bytes. A track may ship its script alone, as an
+    assembled folder does: the script is then the one line naming the
+    file, inside the folder, and the file's format is read from the
+    bytes it holds. A track with neither its file nor its script is a
+    problem.
 
 The validator also warns about three things that are not problems: an
 Ogg track file (Audio says why), a looping track in a format that is

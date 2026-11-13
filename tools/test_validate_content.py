@@ -1631,11 +1631,14 @@ def test_manifest_using_every_audio_field_passes(folder: Path) -> None:
 
 
 def test_missing_track_file_is_reported(folder: Path) -> None:
+    # Neither the file nor its script (docs/plan.md Phase 47 item 19).
     manifest = with_audio(folder)
     (folder / AUDIO_FILES["rain"]).unlink()
+    (folder / f"{AUDIO_FILES['rain']}.js").unlink()
     problem = only_problem(folder, manifest)
     assert problem.startswith("manifest.json: audio.tracks.rain.file:")
     assert "does not exist" in problem
+    assert "nor its script 'rain.webm.js'" in problem
 
 
 def test_track_file_breaking_the_path_rule_is_reported(folder: Path) -> None:
@@ -1985,11 +1988,55 @@ def test_script_that_does_not_match_its_file_is_reported(
     assert says in problem
 
 
-def test_script_without_its_file_reports_only_the_file(folder: Path) -> None:
+# An assembled folder ships each track's script alone (docs/plan.md Phase
+# 47 item 19): the player reads only the script, so the validator checks
+# the script and reads the file's bytes from it.
+
+def test_tracks_shipped_as_their_scripts_alone_pass(folder: Path) -> None:
+    manifest = with_audio(folder)
+    for path in AUDIO_FILES.values():
+        (folder / path).unlink()
+    write_manifest(folder, manifest)
+    assert problems_of(folder) == []
+    proc = run_cli(folder)
+    assert (proc.returncode, proc.stdout, proc.stderr) == (0, "", "")
+
+
+def test_a_script_alone_in_a_subfolder_passes(folder: Path) -> None:
+    manifest = with_audio(folder)
+    (folder / AUDIO_FILES["theme"]).unlink()
+    write_manifest(folder, manifest)
+    assert problems_of(folder) == []
+
+
+@pytest.mark.parametrize(("script", "says"), [
+    (audio_format.script_bytes("wind.flac", DUMMY), "names 'wind.flac'"),
+    (b"window.rain = 1;\n", "not one __kineticAudio"),
+    (b'__kineticAudio("rain.webm","not base64!");\n',
+     "not one __kineticAudio"),
+])
+def test_a_script_alone_that_is_not_its_files_is_reported(
+        folder: Path, script: bytes, says: str) -> None:
     manifest = with_audio(folder)
     (folder / "rain.webm").unlink()
+    (folder / "rain.webm.js").write_bytes(script)
     problem = only_problem(folder, manifest)
-    assert "does not exist" in problem
+    assert problem.startswith("manifest.json: audio.tracks.rain.file:")
+    assert "script 'rain.webm.js'" in problem
+    assert says in problem
+
+
+def test_a_script_alone_that_resolves_outside_the_folder_is_reported(
+        folder: Path, tmp_path: Path) -> None:
+    manifest = with_audio(folder)
+    outside = tmp_path / "outside.js"
+    outside.write_bytes(audio_format.script_bytes("rain.webm", DUMMY))
+    (folder / "rain.webm").unlink()
+    (folder / "rain.webm.js").unlink()
+    (folder / "rain.webm.js").symlink_to(outside)
+    problem = only_problem(folder, manifest)
+    assert problem.startswith("manifest.json: audio.tracks.rain.file:")
+    assert "outside the content folder" in problem
 
 
 @pytest.mark.parametrize(("track", "file", "data", "says"), [
@@ -2010,6 +2057,26 @@ def test_looping_track_in_an_unsafe_format_warns(
     assert (proc.returncode, proc.stdout) == (0, ""), proc.stderr
     assert warning_lines(proc) == [
         f"warning: manifest.json: audio.tracks.{track}.file: {says}"]
+
+
+@pytest.mark.parametrize(("file", "data", "says"), [
+    ("rain.webm", OPUS_WEBM,
+     "a looping track in Opus in WebM: Chrome's decode loses its first 24 "
+     "samples, " + LOOP_FIX),
+    ("rain.ogg", VORBIS_OGG,
+     "a looping track in Vorbis in Ogg: WebKit's decode loses its first "
+     "128 samples, " + LOOP_FIX),
+])
+def test_a_loops_format_is_read_from_its_script_alone(
+        folder: Path, file: str, data: bytes, says: str) -> None:
+    manifest = with_audio(folder)
+    put_track(folder, file, data)
+    (folder / file).unlink()
+    manifest["audio"]["tracks"]["rain"]["file"] = file
+    write_manifest(folder, manifest)
+    assert problems_of(folder) == []
+    lines = warning_lines(run_cli(folder))
+    assert lines[-1] == f"warning: manifest.json: audio.tracks.rain.file: {says}"
 
 
 def test_looping_ogg_vorbis_warns_twice(folder: Path) -> None:

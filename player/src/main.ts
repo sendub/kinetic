@@ -254,8 +254,8 @@ function start(): void {
         machine,
         settings: currentSettings,
       });
-      // A video's sound follows the stage's video (item 6), whose starts
-      // wait for it (item 15).
+      // A video's sound plays with the stage's video (item 6), which follows
+      // it and starts as it is heard (item 19).
       if (audio !== null) {
         shell.watchVideo((video) => audio.setVideo(video));
         shell.setVideoStartDelay((element) => audio.videoStartDelay(element));

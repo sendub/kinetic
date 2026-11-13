@@ -89,6 +89,25 @@ describe("upcomingSoundFiles (the warm-up)", () => {
     ]);
   });
 
+  it("takes a video's own sound, so it plays with its video at once (Phase 47 item 19)", () => {
+    const clip: Item = {
+      id: "clip",
+      type: "video",
+      file: "clip.mp4",
+      poster: "clip.poster.jpg",
+      durationSeconds: 8,
+      audio: { videoSound: { track: "clock", duck: 0.3 } },
+    };
+    expect(
+      upcomingSoundFiles(
+        [image("now"), clip],
+        { ...tracks, clock: { file: "clock.m4a", durationSeconds: 8 } },
+        0,
+        3,
+      ),
+    ).toEqual(["clock.m4a"]);
+  });
+
   it("stops at the story's end and skips unknown tracks", () => {
     expect(upcomingSoundFiles(items, tracks, 3, 3)).toEqual(["bell.webm"]);
     expect(

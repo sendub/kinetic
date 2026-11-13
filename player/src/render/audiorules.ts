@@ -1,9 +1,9 @@
-// The sound's rules (docs/plan.md Phase 47, items 5 and 18), apart from the
-// engine that plays it (render/audio.ts): the volume product and the gain
-// nodes it is split into, fades on a gain, the one-shot pool, how a track
-// plays and loops and where a play stands, the video sound's cues, and the
-// director, which turns the machine's arrivals into what should sound and
-// when. DOM-free: time enters through the global timers, which tests fake,
+// The sound's rules (docs/plan.md Phase 47, items 5, 18 and 19), apart from
+// the engine that plays it (render/audio.ts): the volume product and the
+// gain nodes it is split into, fades on a gain, the one-shot pool, how a
+// track plays and loops and where a play stands, how a video follows its
+// sound, and the director, which turns the machine's arrivals into what
+// should sound and when. DOM-free: time enters through the global timers, which tests fake,
 // and the context times callers pass.
 //
 // By arrival kind (`Machine.arrival`):
@@ -36,27 +36,59 @@ export const DEFAULT_FADE_MS = 1000;
 /** One-shots that can sound at once; a seventh steals the oldest. */
 export const SFX_POOL_SIZE = 6;
 /**
- * How far a video's sound may be from its video's time before it is put
- * back onto it (docs/plan.md Phase 47, items 6 and 15). The converting agent
- * measured a steady 16-43 ms behind, and 200-340 ms off right after a seek
- * in Chrome.
+ * How far a video may stray from its sound before it is sought back onto
+ * it (docs/plan.md Phase 47, items 6 and 19). The converting agent measured
+ * a steady 16-43 ms behind, and 200-340 ms off right after a seek in
+ * Chrome.
  */
 export const VIDEO_SYNC_S = 0.08;
 /**
- * How long a paused element is given to land a seek before it is asked to
- * play (`videoCue`): WebKit holds a seek 40-180 ms (macOS 27.2).
+ * How long a seek of a playing video takes to land and run on, until learnt
+ * (`learnSeekLead`): the video is sought this long before it must show the
+ * place, ahead of each wrap of its sound and onto the sound when it strays.
+ * 33-41 ms for a wrap's restart in headless Chrome and the WebKit driver
+ * alike (macOS 27.2, 2026-11-10, item 6); item 16's trial learnt 20-53 ms
+ * seeking a video ahead of a buffer loop's wrap, the same in both engines
+ * (2026-11-11). Under a load average of 15 a restart landed 85 ms late
+ * (2026-11-13).
  */
-export const VIDEO_PARK_S = 0.25;
+export const VIDEO_SEEK_S = 0.04;
+/** The most a seek's lead may grow to. */
+export const VIDEO_SEEK_MAX_S = 0.25;
 /**
- * How long a video takes to run again from its restart point once it
- * reaches its end (a wrap), until learnt: 33-41 ms in headless Chrome and
- * the WebKit driver alike (macOS 27.2, 2026-11-10, with no sound playing).
+ * How many frames of a restart's run teach its seek's lead, after the
+ * seek's own first frame (WebKit shows it at once and runs on later).
  */
-export const VIDEO_RESTART_S = 0.04;
+export const SEEK_LEARN_FRAMES = 4;
 /**
- * How long a video takes to run once asked to play from paused (a start),
- * until learnt: 0 ms in headless Chrome and 6-12 ms in the WebKit driver
- * after a menu, sought to where it stands (macOS 27.2, 2026-11-11).
+ * The most one restart moves a seek's lead: a run the engine held back
+ * once (a load spike) moves it only so far.
+ */
+export const SEEK_LEARN_STEP_S = 0.03;
+/**
+ * How many of the latest frames shown the drift is judged on, as their
+ * median: one frame shown late is a moment the engine was late (twice in
+ * five WebKit runs a frame showed 156 ms off and the next in step, macOS
+ * 27.2, 2026-11-13), and chasing it makes the picture jump; frames of a
+ * 25 fps video on a 60 Hz screen jitter by a vsync about the drift, so a
+ * drift past the bound shows one frame in three under it, and still
+ * counts. Three at 25 fps are 120 ms.
+ */
+export const VIDEO_STRAY_FRAMES = 3;
+/**
+ * How long after a seek of the video lands its distance from the sound is
+ * left unjudged, in an engine that reports no frames (judged on the frames
+ * it shows, a frame shown since the seek landed suffices): WebKit shows a
+ * seek's frame at once and runs on from it tens of ms later (item 16's
+ * trial).
+ */
+export const VIDEO_SETTLE_MS = 250;
+/**
+ * How long a video takes to run once asked to play from paused (a start):
+ * 0 ms in headless Chrome and 6-12 ms in the WebKit driver after a menu,
+ * sought to where it stands (macOS 27.2, 2026-11-11). Its sound, started
+ * at the same moment, is heard after the output's latency; the video waits
+ * the difference (render/audio.ts `videoStartDelay`).
  */
 export const VIDEO_START_S = 0.01;
 /**
@@ -72,8 +104,9 @@ export const DUCK_FADE_MS = 250;
 export const SAMPLE_MS = 2000;
 
 /**
- * What an audio element plays (the test hook's `data-slot`): `sample` is
- * the Volumes sheet's sample of a one-shot or a voice line.
+ * What a sound plays (the test hook's `slot`): `sample` is the Volumes
+ * sheet's sample of a one-shot or a voice line, `video` a video's own
+ * sound.
  */
 export type AudioSlot =
   | "music"
@@ -257,108 +290,6 @@ export function runFade(fade: Fade, now: number): Fade {
 }
 
 /**
- * Where and when a video's sound next begins on its waiting element
- * (`videoCue`): the playing element is never sought.
- */
-export interface VideoCue {
-  /** The track time it plays from: the video's time at `at`. */
-  readonly from: number;
-  /** When it should begin to sound (page ms). */
-  readonly at: number;
-  /** The video wraps, the sound is silent, or it is too far off. */
-  readonly kind: "wrap" | "start" | "correct";
-}
-
-/**
- * The next cue of a video's sound at page time `at` (docs/plan.md Phase 47,
- * item 15); the track's time is the video's media time. The playing element
- * is never sought, as every seek of a playing element goes silent or plays
- * out of step while it lands (0.1-0.6 s) and skips what lay between: a
- * second element, waiting paused at the cue's `from`, is played its `lead`
- * before `at` (`seamStep` times it), so it sounds as the video reaches
- * `from`, and takes over then. The cue is:
- * - the one under way once its element was asked to play (`started`);
- * - none while the video does not run;
- * - while the sound is silent, a start where the video will be once a
- *   waiting element can land a seek (`VIDEO_PARK_S`, from `parkFrom`, page
- *   ms, when it may be sought) and sound (`lead`);
- * - while it sounds more than `VIDEO_SYNC_S` off the video, judged once its
- *   clock has `settled`, a correction there;
- * - else, while the pass under way wraps, the wrap: the video's restart
- *   point as the video runs from it again, `restart` seconds after it
- *   reaches its end. A start or a correction gives way to it when the
- *   waiting element would not be free again in time for it.
- */
-export function videoCue(now: {
-  at: number;
-  video: {
-    time: number;
-    runs: boolean;
-    /** Where the pass under way ends. */
-    end: number;
-    /** Where it restarts after `end`; null when it ends there. */
-    restartAt: number | null;
-  };
-  /** The playing element's time while it sounds, else null. */
-  sound: { time: number; settled: boolean } | null;
-  cue: VideoCue | null;
-  started: boolean;
-  lead: number;
-  restart: number;
-  /** When (page ms) the waiting element may be sought; default now. */
-  parkFrom?: number;
-  /** A video waits to start with this cue's sound (`videoStartDelay`). */
-  starting?: boolean;
-}): VideoCue | null {
-  const { at, video, sound, cue, lead } = now;
-  if (cue !== null && now.started) return cue;
-  // A wrap waits through the video's own restart, and holds once the video
-  // runs on from its restart point before its moment (a range end inside
-  // the file wraps with a seek of the playing video).
-  if (!video.runs) {
-    const waits =
-      cue?.kind === "wrap" || (now.starting && cue?.kind === "start");
-    return waits ? cue : null;
-  }
-  if (
-    cue?.kind === "wrap" &&
-    Math.abs(video.time - cue.from - (at - cue.at) / 1000) < VIDEO_PARK_S
-  ) {
-    return cue;
-  }
-  const wrap: VideoCue | null =
-    video.restartAt === null
-      ? null
-      : {
-          from: video.restartAt,
-          at: at + (video.end - video.time + now.restart) * 1000,
-          kind: "wrap",
-        };
-  const fits = (next: VideoCue): boolean =>
-    wrap === null || next.at + VIDEO_PARK_S * 1000 <= wrap.at - lead * 1000;
-  const parkFrom = Math.max(at, now.parkFrom ?? at);
-  const soon = (kind: "start" | "correct"): VideoCue => {
-    const after = (parkFrom - at) / 1000 + VIDEO_PARK_S + lead;
-    return { from: video.time + after, at: at + after * 1000, kind };
-  };
-  // A cue whose element cannot have landed its park before it must start
-  // is made again: a start just after a seek lands late.
-  const ready = (next: VideoCue): boolean =>
-    now.parkFrom === undefined ||
-    next.at - lead * 1000 >= now.parkFrom + VIDEO_PARK_S * 1000 - 1;
-  if (sound === null) {
-    const start = cue?.kind === "start" && ready(cue) ? cue : soon("start");
-    return fits(start) ? start : wrap;
-  }
-  if (cue?.kind === "correct" && ready(cue) && fits(cue)) return cue;
-  if (sound.settled && Math.abs(sound.time - video.time) > VIDEO_SYNC_S) {
-    const correct = soon("correct");
-    if (fits(correct)) return correct;
-  }
-  return wrap;
-}
-
-/**
  * The duck on music and ambience (item 6): the video sound's `duck` while
  * its video plays and the sound can be heard (Effects above 0), else 1.
  */
@@ -442,191 +373,202 @@ export function playPosition(
 }
 
 /**
- * How long before a cue a video sound's waiting element is asked to play
- * while nothing is learnt of its file or any other: the slowest start
- * measured, WebKit playing a PCM WAV from paused (335-354 ms; Opus in WebM
- * 266-280 ms, headless Chrome about 60 ms; macOS 27.2, 2026-11-10).
+ * How a video's sound plays the pass under way (docs/plan.md Phase 47, item
+ * 19): the track's time is the video's media time, and a pass that wraps
+ * loops the sound from its restart point to its end, on whole samples of
+ * the decoded `buffer` as `playPlan` puts them, so the sound is the clock
+ * the video follows. A pass that holds at its end (the last of a counted
+ * video, or one that plays once) plays once up to it. The end is the
+ * pass's, or the track's when that is shorter (the validator allows 0.05 s).
  */
-export const SEAM_LEAD_S = 0.35;
-/** The most a lead may grow to. */
-export const SEAM_LEAD_MAX_S = 0.75;
-/**
- * How long after a waiting element's play() its clock is trusted to say
- * when its sound began: WebKit's clock for a WAV runs from about 85 ms,
- * stops near 0.37 s for about 270 ms while the sound catches up, then runs
- * true (measured as for `SEAM_LEAD_S`).
- */
-export const SEAM_LAND_MS = 900;
-
-/** What a video sound's cue needs now (`seamStep`). */
-export interface SeamStep {
-  readonly step: "wait" | "start" | "switch";
-  /** In how many seconds it is due (0: now); a timer, finer than frames, keeps it. */
-  readonly inS: number;
+export function videoSoundPlan(
+  track: AudioTrack,
+  pass: { end: number; restart: number | null },
+  buffer?: { duration: number; sampleRate: number },
+): PlayPlan {
+  const from = pass.restart ?? 0;
+  return playPlan(
+    {
+      file: track.file,
+      durationSeconds: Math.min(track.durationSeconds, pass.end),
+      startSeconds: from,
+      loopStartSeconds: from,
+      loop: pass.restart !== null,
+    },
+    true,
+    buffer,
+  );
 }
 
 /**
- * One look at a video sound's cue (docs/plan.md Phase 47, items 6 and 15),
- * made on each animation frame. An element sought while it plays goes
- * silent or out of step while it lands (0.1-0.6 s), so a second element,
- * waiting paused where the cue begins, is asked to play `lead` seconds
- * before the cue's moment (`start`) and takes over at it (`switch`), when
- * `remaining` (the time to the moment) reaches 0 or the playing element
- * ended before it. Each is asked for on the last look before its moment
- * (within a `frame`, seconds, of it), timed to that moment by `inS`: a
- * start on the nearest frame could still be half a frame off, and an
- * engine starts a sound only on the next block of its output (every start
- * measured lay within 1 ms of a grid of 10.7 ms in headless Chrome and
- * 85.3 ms in the muted WebKit driver), so the error is at least the
- * distance to the nearest block. `spare` is what the second element is
- * doing.
+ * How far a video's time `video` is from its sound's `sound` (seconds,
+ * positive when the video is ahead), the short way round a loop of `plan`:
+ * a video that went back to its restart point just before or after its
+ * sound is that far off, not a pass.
  */
-export function seamStep(now: {
-  remaining: number;
-  lead: number;
-  spare: "idle" | "started";
-  ended: boolean;
-  frame: number;
-}): SeamStep {
-  const due = (step: SeamStep["step"], inS: number): SeamStep => ({
-    step,
-    inS: Math.max(0, inS),
-  });
-  if (now.ended) return due("switch", 0);
-  if (now.remaining < now.frame) return due("switch", now.remaining);
-  if (now.spare === "started") return due("wait", 0);
-  const toStart = now.remaining - now.lead;
-  if (toStart < now.frame) return due("start", toStart);
-  return due("wait", 0);
+export function videoDrift(plan: PlayPlan, video: number, sound: number) {
+  const off = video - sound;
+  const span = plan.endSeconds - plan.loopStartSeconds;
+  if (!plan.loops || span <= 0) return off;
+  if (off > span / 2) return off - span;
+  if (off < -span / 2) return off + span;
+  return off;
 }
 
 /**
- * The lead after one start of a second element, from its own clock: it was
- * asked to play at page time `played` (ms) and, read at `at`, had played
- * `media` seconds from where it waited, so its sound began at
- * `at - media`. Null (nothing learnt) while the clock may not have settled,
- * before `SEAM_LAND_MS`. A file's first start is taken whole and later
- * ones move the lead halfway, as starts scatter by about 10 ms; it stays
- * within 0 and `SEAM_LEAD_MAX_S`.
+ * Where a video's sound starts playing (item 19): where it stopped
+ * (`stoppedAt`, its `playPosition` then), when its video stands within
+ * `VIDEO_SYNC_S` of it as the sound is heard (`videoAt`), so a pause of
+ * both resumes in place with neither a gap nor a repeat; else where the
+ * video is (a seek or a jump into the video, a sound that never played, the
+ * unlock while the video plays). A time past a loop's end is inside the
+ * loop.
  */
-export function learnSeamLead(
-  lead: number | null,
-  measure: { played: number; at: number; media: number },
-): number | null {
-  if (measure.at - measure.played < SEAM_LAND_MS) return lead;
-  const took = (measure.at - measure.media * 1000 - measure.played) / 1000;
-  const next = lead === null ? took : lead + (took - lead) / 2;
-  return Math.min(SEAM_LEAD_MAX_S, Math.max(0, next));
-}
-
-/** How many of the latest starts a video sound's lead is learnt from. */
-export const VIDEO_LEAD_SAMPLES = 8;
-
-/**
- * Output blocks an engine may begin a sound on (ms): 2048-4096 frames at
- * 48 or 44.1 kHz, largest first. The muted WebKit driver begins every
- * sound on a grid of 4096 frames at 48 kHz, 85.3 ms (macOS 27.2: 18 starts
- * in a row lay within 1 ms of one phase). Finer blocks (headless Chrome's
- * 10.7 ms) scatter starts too little to matter, and three random times fit
- * them too often to tell.
- */
-const START_GRIDS_MS = [4096, 2048].flatMap((frames) => [
-  frames / 48,
-  frames / 44.1,
-]);
-/** How closely begin times share one phase of a grid to lie on it (ms). */
-const GRID_FIT_MS = 3;
-
-/**
- * The largest output grid (`START_GRIDS_MS`) that the sounds which began
- * at page times `begins` all lie on, within `GRID_FIT_MS` of one phase;
- * null for fewer than 3 or none.
- */
-export function startGrid(begins: readonly number[]): number | null {
-  if (begins.length < 3) return null;
-  for (const grid of START_GRIDS_MS) {
-    const phase = (t: number) => ((t % grid) + grid) % grid;
-    const first = phase(begins[0]);
-    const offs = begins.map((t) => {
-      const d = phase(t) - first;
-      return d > grid / 2 ? d - grid : d < -grid / 2 ? d + grid : d;
-    });
-    if (Math.max(...offs) - Math.min(...offs) <= 2 * GRID_FIT_MS) return grid;
+export function videoSoundStart(
+  plan: PlayPlan,
+  stoppedAt: number | null,
+  videoAt: number,
+): number {
+  if (
+    stoppedAt !== null &&
+    Math.abs(videoDrift(plan, videoAt, stoppedAt)) <= VIDEO_SYNC_S
+  ) {
+    return stoppedAt;
   }
-  return null;
-}
-
-/** A start of a video sound's waiting element: when asked (page ms), and how long it took to sound (s). */
-export interface VideoStart {
-  readonly played: number;
-  readonly took: number;
+  return playPosition(plan, videoAt, 0);
 }
 
 /**
- * A video sound's lead after one more start of its waiting element, as
- * `learnSeamLead` measures it, from up to the last `VIDEO_LEAD_SAMPLES`
- * starts. An engine that begins sounds on an output grid (`startGrid`)
- * takes from its least time up to one block more, as the play falls in the
- * block, so a start lands at best within half a block of the span's
- * middle. The middle lies between the slowest start less half a block and
- * the quickest plus half a block: the lead is the midpoint, the mean of
- * the quickest and the slowest, which a few starts already place near the
- * middle (the median of three can sit near the span's edge, and the
- * quickest plus half a block overshoots when they fell late); a start
- * slower than the quickest by more than a block, one the engine held back,
- * is left out. With no grid it is the median start (the mean of the middle
- * two).
+ * Whether a seek of the video to `to` moves its sound there (item 19,
+ * "Seeks"): one more than `VIDEO_SYNC_S` from where the sound will be heard
+ * as it lands (`soundAt`, the short way round a loop; null for a sound that
+ * never played) is a seek or a jump into the video, and the sound follows
+ * it; a wrap's or a resume's lands with the sound and leaves it. The
+ * player's own seek (`own`, the place it sent the video: a restart, a seek
+ * onto the sound, a resume it judged as it started the sound) never moves
+ * it: its event can be handled a main-thread stall late, when the sound has
+ * played on and the seek only looks far from it, and moving the sound then
+ * would play its last moments, a click among them, twice.
  */
-export function learnVideoLead(
-  prev: { lead: number; samples: readonly VideoStart[] } | null,
-  measure: { played: number; at: number; media: number },
-): { lead: number; samples: readonly VideoStart[] } | null {
-  const took = learnSeamLead(null, measure);
-  if (took === null) return prev;
-  const samples = [
-    ...(prev?.samples ?? []),
-    { played: measure.played, took },
-  ].slice(-VIDEO_LEAD_SAMPLES);
-  const tooks = samples.map((s) => s.took).sort((x, y) => x - y);
-  const grid = startGrid(samples.map((s) => s.played + s.took * 1000));
-  if (grid !== null) {
-    // One held back past a block (a main-thread stall) is no span sample.
-    const span = tooks.filter((t) => t <= tooks[0] + grid / 1000);
-    return { lead: (span[0] + span[span.length - 1]) / 2, samples };
+export function seekMovesSound(
+  plan: PlayPlan,
+  to: number,
+  soundAt: number | null,
+  own: number | null,
+): boolean {
+  if (own !== null && Math.abs(to - own) < 0.002) return false;
+  if (soundAt === null) return true;
+  return Math.abs(videoDrift(plan, to, soundAt)) > VIDEO_SYNC_S;
+}
+
+/** What one look at a video and its sound asks for (`followVideo`). */
+export type VideoStep =
+  | { readonly step: "none" }
+  /** End the pass under way and play on from its restart point, in `inMs`. */
+  | { readonly step: "restart"; readonly inMs: number }
+  /** Seek the video to track time `to` now. */
+  | { readonly step: "seek"; readonly to: number };
+
+const NO_STEP: VideoStep = { step: "none" };
+
+/**
+ * One look at a video against its sound (docs/plan.md Phase 47, item 19),
+ * on each animation frame while both play: the sound is the master, its
+ * buffer looping the video's range on the audio clock, and the video
+ * follows it. `heard` is where the reader hears the sound now (track time,
+ * on the output's clock), `video` the video's time, whether it runs and
+ * whether a seek of it is still landing; `shown`, when the engine reports
+ * its frames, the drift (`videoDrift`) of each frame shown since a seek of
+ * it last landed, against where the sound was heard as it showed, oldest
+ * first. `lead` is how long a seek takes to land (`learnSeekLead`,
+ * `VIDEO_SEEK_S` by default).
+ * - A pass that wraps: on the last look before the moment a seek must start
+ *   to land as the sound wraps (`lead` before it), a restart timed to that
+ *   moment, unless the video is already back in the first half of its
+ *   pass.
+ * - Otherwise, a video more than `VIDEO_SYNC_S` from its sound, the short
+ *   way round a loop, is sought to where the sound will be heard as the
+ *   seek lands; judged on the frames shown when there are (the median of
+ *   the last `VIDEO_STRAY_FRAMES`, none until that many have shown), else
+ *   on its clock; none while a seek of it lands.
+ */
+export function followVideo(now: {
+  plan: PlayPlan;
+  heard: number;
+  video: { time: number; runs: boolean; settling: boolean };
+  shown?: { offs: readonly number[] } | null;
+  lead?: number;
+  frameMs: number;
+}): VideoStep {
+  const { plan, heard, video } = now;
+  const lead = now.lead ?? VIDEO_SEEK_S;
+  if (!video.runs) return NO_STEP;
+  const span = plan.endSeconds - plan.loopStartSeconds;
+  if (plan.loops && span > 0) {
+    const inMs = (plan.endSeconds - heard - lead) * 1000;
+    const late = video.time > plan.endSeconds - span / 2;
+    if (inMs < now.frameMs && late) {
+      return { step: "restart", inMs: Math.max(0, inMs) };
+    }
   }
-  const mid = tooks.length / 2;
-  const lead = Number.isInteger(mid)
-    ? (tooks[mid - 1] + tooks[mid]) / 2
-    : tooks[Math.floor(mid)];
-  return { lead, samples };
+  if (video.settling) return NO_STEP;
+  const { shown } = now;
+  let off = videoDrift(plan, video.time, heard);
+  if (shown != null) {
+    if (shown.offs.length < VIDEO_STRAY_FRAMES) return NO_STEP;
+    const last = [...shown.offs.slice(-VIDEO_STRAY_FRAMES)].sort(
+      (a, b) => a - b,
+    );
+    off = last[Math.floor(last.length / 2)];
+  }
+  if (Math.abs(off) <= VIDEO_SYNC_S) return NO_STEP;
+  return { step: "seek", to: playPosition(plan, heard, lead) };
 }
 
 /**
- * When to play a video sound's waiting element so it sounds on the end of
- * the output grid's block nearest `target` (page ms), and no play sooner
- * than `earliest`, from the starts measured (`learnVideoLead`), when they
- * show a grid (`startGrid`). A play sounds at the end of the block it falls
- * in, after the engine's least time, which lies between the slowest start
- * less a block and the quickest (held-back starts aside). Played that block
- * end less the mean of the quickest and the slowest start, it falls in
- * that block for any least time between, with half their spread to spare
- * either side for a timer that fires late or a start held back. Null when
- * the starts show no grid.
+ * A seek's lead after a restart (`followVideo`), from `offs`, the drift
+ * (video less sound, seconds, `videoDrift`) of the `SEEK_LEARN_FRAMES`
+ * frames its run showed after the seek's own: the lead grows by 0.8 of how
+ * far they lagged (their median, so one frame held back does not count),
+ * as in item 16's trial, by at most `SEEK_LEARN_STEP_S`, within 0 and
+ * `VIDEO_SEEK_MAX_S`. Fewer frames teach nothing.
  */
-export function gridPlay(
-  samples: readonly VideoStart[],
-  target: number,
-  earliest: number,
-): { play: number; sounds: number } | null {
-  const begins = samples.map((s) => s.played + s.took * 1000);
-  const grid = startGrid(begins);
-  if (grid === null) return null;
-  const tooks = samples.map((s) => s.took * 1000).sort((x, y) => x - y);
-  const span = tooks.filter((t) => t <= tooks[0] + grid);
-  const mid = (span[0] + span[span.length - 1]) / 2;
-  let sounds = begins[0] + Math.round((target - begins[0]) / grid) * grid;
-  while (sounds - mid < earliest) sounds += grid;
-  return { play: sounds - mid, sounds };
+export function learnSeekLead(lead: number, offs: readonly number[]) {
+  if (offs.length < SEEK_LEARN_FRAMES) return lead;
+  const sorted = [...offs].sort((a, b) => a - b);
+  const mid = sorted.length / 2;
+  const median = Number.isInteger(mid)
+    ? (sorted[mid - 1] + sorted[mid]) / 2
+    : sorted[Math.floor(mid)];
+  const step = Math.min(
+    SEEK_LEARN_STEP_S,
+    Math.max(-SEEK_LEARN_STEP_S, -0.8 * median),
+  );
+  return Math.min(VIDEO_SEEK_MAX_S, Math.max(0, lead + step));
+}
+
+/**
+ * When (context time) a playing video sound hands over to its pass's new
+ * `next` plan, standing at `position` under `old` at context time `at`: a
+ * loop that becomes a play once with its wrap less than half a pass away
+ * (the video's last pass, reported as the video was sought ahead of the
+ * wrap) loops that once more and hands over at the wrap, so the last pass
+ * plays whole; any other change at `soonest`.
+ */
+export function planSwitchAt(
+  old: PlayPlan,
+  next: PlayPlan,
+  position: number,
+  at: number,
+  soonest: number,
+): number {
+  if (old.loops && !next.loops) {
+    const toWrap = old.endSeconds - position;
+    if (toWrap < (old.endSeconds - old.loopStartSeconds) / 2) {
+      return Math.max(soonest, at + toWrap);
+    }
+  }
+  return soonest;
 }
 
 /** Which pool element a one-shot takes, and the ones it stops first. */

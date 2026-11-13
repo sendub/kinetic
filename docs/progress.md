@@ -3525,10 +3525,50 @@ truthful: an unchecked box means nothing was accepted.
       known fullscreen partials), check-game on the assembled audio demo
       exit 0 in Chrome and WebKit, 35 of 35 items, no errors; AGENTS.md
       names the test sound flag.)
-- [ ] Player: a video's sound on the audio clock (item 19): the sound's
+- [x] Player: a video's sound on the audio clock (item 19): the sound's
       buffer loops the video's range and the video follows it. Tests:
       - item 15's checks from the tap, in Chrome and WebKit, five WebKit
         runs in a row.
+      (2026-11-13: the video sound is a buffer `Sound` in slot `video`
+      through the Effects gain, looping from the restart point to the
+      range end (`videoSoundPlan`, snapped to samples); the <audio>
+      channel and all of item 15's element rules (`videoCue`,
+      `startGrid`, lead learning, rehearsal) are gone. The video follows:
+      `StageVideo.restart()` (visual.ts) is called one seek lead before
+      each wrap, the lead learnt from the restart frames
+      (`learnSeekLead`); drift is judged per presented frame
+      (`requestVideoFrameCallback`) on the median of the last 3 against
+      the sound heard as it shows (output clock from
+      `getOutputTimestamp`), with a seek past 80 ms; a seek the player
+      did not cause moves the sound to the video (`seekMovesSound`); a
+      pause resumes the sound where it stopped; before unlock the video
+      runs on its own clock and the unlocking key starts the sound where
+      the video is. Assembled folders ship only the scripts:
+      assemble_folder leaves out each track file whose script is there
+      (unless an item shows it), the validator accepts a script alone
+      and reads codec warnings from its bytes, a track with neither is
+      an error; content folders keep both. The videosound scenario reads
+      clicks from the tap (`findClicks`, the 2,500 Hz burst), frames from
+      rVFC and the sound's timeline from the engine; clicks where the
+      video showed no frames, or hidden by a tap gap, are counted and not
+      judged, the timeline must stay unbroken. A Chrome flake under load
+      (a stray click) was the checker's: the video never presented its
+      restart frame, so the wrap's click had no hit; fixed with five
+      other checker faults and two player weaknesses found under load (a
+      late own-seek event replaying the sound, a drift left at 83 ms by a
+      "3 frames in a row" rule). Clicks against wall frames: Chrome -18
+      to +19 ms, WebKit -7 to +22, with the key rule -4 to +23. HEAD's
+      element trade through the tap: WebKit 13 of 40 hits skipped and 23
+      off, Chrome failing chain, menus and drift. Red first in Vitest
+      and 10 Python tests. Orchestrator: npm test 1168 (three runs),
+      check clean, full pytest 931, smoke 6/6; deliberate breaks on the
+      final code (loopStart 0.5 s early, no pre-wrap seek, resume from
+      0, no drift seeks) each failing their checks; Chrome `videosound
+      audio media videofit screens menus` 244/244, WebKit `videosound
+      audio media videofit` 143/143, WebKit `videosound` 29/29 in five
+      runs in a row; the assembled audio demo 45 files, 2.8 MiB, no
+      audio file left, validator clean, check-game exit 0 in Chrome and
+      WebKit with 35 of 35 items.)
 - [ ] Docs and speed for Web Audio (item 20): stack, packaging, CREATE.md,
       extracting, verify-player, perf (navigation p95, decode time,
       memory).

@@ -827,7 +827,8 @@ describe("readAudio (current()'s audio, read from the player's #audio)", () => {
   it("reports the target, the unlock and each sound holding a track, from the player's sounds()", () => {
     const hook = {
       dataset: { target: JSON.stringify(target), unlocked: "true" },
-      // The video sound's element is a child, and listed by sounds() too.
+      // An older player's video sound element, also listed by sounds():
+      // sounds() is read, not the children.
       children: [element("video", "clock", false, 4.5, 1)],
       sounds: () => [
         sound("music", "calm", false, 2.5, 0.8),

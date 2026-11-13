@@ -15,7 +15,10 @@
 // folder instead, for `npm run perf -- DIR` (docs/perf.md, "Navigation with
 // sound"): item i shows `media/p<i mod 500>.jpg`, copies of one picture
 // from fixtures/demo (build it first), so 500 items in a row each load a
-// file not loaded before; the nine tracks are digitally silent WAV files.
+// file not loaded before; the nine tracks are digitally silent WAV files,
+// shipped as an assembled folder ships them: each as its script alone
+// (`media/<id>.wav.js`, docs/content-format.md "Audio"), which is all the
+// player reads.
 
 import { copyFileSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { cpus, loadavg } from "node:os";
@@ -83,8 +86,13 @@ function writeGame(dir, { items, branches }) {
       ...(item.audio?.ambience ?? []),
     ]),
   )) {
-    writeFileSync(join(dir, "media", `${id}.wav`), silentWav(2));
-    tracks[id] = { file: `media/${id}.wav`, durationSeconds: 2 };
+    const file = `media/${id}.wav`;
+    const base64 = silentWav(2).toString("base64");
+    writeFileSync(
+      join(dir, `${file}.js`),
+      `__kineticAudio(${JSON.stringify(file)},"${base64}");\n`,
+    );
+    tracks[id] = { file, durationSeconds: 2 };
   }
   const manifest = {
     schemaVersion: 1,

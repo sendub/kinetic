@@ -6,6 +6,7 @@ import {
   createVisualLayer,
   emptyStateNoticeText,
   playbackModeFor,
+  type StageVideo,
   upcomingVisualFiles,
   videoPlanFor,
 } from "./visual";
@@ -1042,6 +1043,68 @@ describe("a fresh <video> per source file", () => {
     expect(now()).toEqual({ end: 5, restart: 0 });
     show(1, "nav"); // a poster: no pass
     expect(now()).toBeNull();
+  });
+
+  it("ends the pass under way early when its sound asks, reporting a counted pass, and plays on from its restart point; nothing on the last pass, held, or once the video is gone (Phase 47 item 19)", () => {
+    const { layer, videos, show, ends } = lifecycleHarness([
+      vid({ id: "v-three", file: "t.mp4", durationSeconds: 3, loopCount: 3 }),
+      item({ id: "pic", type: "image", file: "p.jpg" }),
+      vid({
+        id: "v-range",
+        file: "r.mp4",
+        durationSeconds: 8,
+        startSeconds: 2,
+        endSeconds: 6,
+        loopStartSeconds: 4,
+      }),
+      item({ id: "line-2", type: "text", text: "Second line." }),
+      vid({ id: "v-loop", file: "l.mp4", durationSeconds: 5, holdSeconds: 9 }),
+    ]);
+    let stage: StageVideo | null = null;
+    layer.watchVideo((video) => {
+      stage = video;
+    });
+    const restart = () => (stage as StageVideo | null)?.restart();
+    show(0);
+    const three = videos[0];
+    three.currentTime = 2.96;
+    restart(); // the first of three passes: reported, back to its start
+    expect(ends).toEqual([0]);
+    expect(three.currentTime).toBe(0);
+    expect(three.paused).toBe(false);
+    three.currentTime = 2.97;
+    restart();
+    expect(ends).toEqual([0, 0]);
+    expect(three.currentTime).toBe(0);
+    three.currentTime = 2.98;
+    restart(); // the last pass holds at its end: its own end reports it
+    expect(ends).toEqual([0, 0]);
+    expect(three.currentTime).toBe(2.98);
+    // Under a text chain: back to its loop point, nothing reported.
+    show(2);
+    const range = videos[1];
+    range.currentTime = 5.97;
+    restart();
+    expect(range.currentTime).toBe(4);
+    expect(ends).toEqual([0, 0]);
+    // Held by a menu: nothing.
+    layer.setPaused(true);
+    range.currentTime = 5.97;
+    restart();
+    expect(range.currentTime).toBe(5.97);
+    layer.setPaused(false);
+    // A background video's own loop restarts at 0.
+    show(4);
+    const looped = videos[2];
+    looped.currentTime = 4.97;
+    restart();
+    expect(looped.currentTime).toBe(0);
+    // A stage gone: its old restart does nothing.
+    const gone = stage as StageVideo | null;
+    show(1);
+    looped.currentTime = 4.97;
+    gone?.restart();
+    expect(looped.currentTime).toBe(4.97);
   });
 
   it("asks how long a start from paused waits and plays only then; a wrap, a menu or a new item never plays early (Phase 47 item 15)", () => {

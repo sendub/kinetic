@@ -1,6 +1,7 @@
-// A tap of the player's mix (docs/plan.md Phase 47, item 18): the sound a
-// reader would hear, recorded sample by sample in the page and checked
-// there against the tracks' own decoded samples, never by listening.
+// A tap of the player's mix (docs/plan.md Phase 47, items 18 and 19): the
+// sound a reader would hear, recorded sample by sample in the page and
+// checked there against the tracks' own decoded samples (checkLoops), or
+// searched for clicks (findClicks), never by listening.
 //
 // The testing tools set `window.KINETIC_TEST_AUDIO` before the player
 // starts (../testing/testaudio.mjs); the player then holds its master gain
@@ -138,6 +139,110 @@ export const readClock = (page) =>
     at: window.__kineticTap.context.currentTime,
     sounds: document.getElementById("audio")?.sounds?.() ?? [],
   }));
+
+// In the page: click onsets in the recording (findClicks).
+const CLICKS = ({ threshold, shape, minFit }) => {
+  const { context, state } = window.__kineticTap;
+  const rate = context.sampleRate;
+  const chunks = [...state.chunks].sort((a, b) => a.frame - b.frame);
+  if (chunks.length === 0) return { ok: false, why: "nothing recorded" };
+  // One array from the first frame, NaN where blocks are missing.
+  const first = chunks[0].frame;
+  const end = chunks.at(-1).frame + chunks.at(-1).data.length;
+  const rec = new Float32Array(end - first).fill(Number.NaN);
+  for (const chunk of chunks) rec.set(chunk.data, chunk.frame - first);
+  // The click's shape: a burst of `shape.hz` decaying at `shape.decay` a
+  // second, over `shape.ms`.
+  const len = Math.round((shape.ms / 1000) * rate);
+  const model = new Float64Array(len);
+  let modelEnergy = 0;
+  for (let i = 0; i < len; i += 1) {
+    const t = i / rate;
+    model[i] =
+      Math.exp(-shape.decay * t) * Math.sin(2 * Math.PI * shape.hz * t);
+    modelEnergy += model[i] * model[i];
+  }
+  // How well the recording from `n` fits the shape (a correlation, 1 at
+  // best) and the gain it fits at.
+  const fitAt = (n) => {
+    let xy = 0;
+    let xx = 0;
+    for (let i = 0; i < len; i += 1) {
+      const x = rec[n + i];
+      if (Number.isNaN(x)) return { r: 0, gain: 0 };
+      xy += x * model[i];
+      xx += x * x;
+    }
+    return {
+      r: xx > 0 ? xy / Math.sqrt(xx * modelEnergy) : 0,
+      gain: xy / modelEnergy,
+    };
+  };
+  const clicks = [];
+  const near = Math.round(0.001 * rate);
+  let last = Number.NEGATIVE_INFINITY;
+  // Runs of frames the tap never got (blocks the engine skipped).
+  const gaps = [];
+  for (let n = 1; n < rec.length; n += 1) {
+    if (Number.isNaN(rec[n]) && !Number.isNaN(rec[n - 1])) {
+      gaps.push({ from: (first + n) / rate, to: null });
+    } else if (!Number.isNaN(rec[n]) && Number.isNaN(rec[n - 1])) {
+      if (gaps.length > 0) gaps.at(-1).to = (first + n) / rate;
+    }
+  }
+  // `last` is the last click found: its burst rings for a while, so the next
+  // click is looked for from half a second on. A jump of the mix that is no
+  // click (a sound stopping or starting mid-wave, a resume) holds the search
+  // only past its own 1 ms, so a click soon after it is still found.
+  let skipTo = 0;
+  for (let n = 1; n + len + near < rec.length; n += 1) {
+    if (n < skipTo) continue;
+    const d = Math.abs(rec[n] - rec[n - 1]);
+    if (!(d > threshold) || n - last <= 0.5 * rate) continue;
+    // The burst's start: the place within 1 ms either side where the
+    // recording fits the shape best.
+    let best = { r: Number.NEGATIVE_INFINITY, gain: 0, at: n };
+    for (let k = Math.max(0, n - near); k <= n + near; k += 1) {
+      const fit = fitAt(k);
+      if (fit.r > best.r) best = { ...fit, at: k };
+    }
+    if (best.r < minFit) {
+      skipTo = n + near + 1; // a jump of the mix, not a click
+      continue;
+    }
+    last = n;
+    clicks.push({
+      c: (first + best.at) / rate,
+      gain: Math.round(best.gain * 1000) / 1000,
+      fit: Math.round(best.r * 1000) / 1000,
+    });
+  }
+  return {
+    ok: true,
+    sampleRate: rate,
+    first: first / rate,
+    last: end / rate,
+    gaps,
+    clicks,
+  };
+};
+
+/**
+ * The clicks in the recording, as context times (`c`, seconds) where each
+ * begins: wherever the mix's sample-to-sample difference first passes
+ * `threshold` (half a second after a click at the soonest; 1 ms after a
+ * jump that is none), the place within 1 ms of it
+ * where the mix best fits `shape` (a sine of `hz` decaying at `decay` a
+ * second, over `ms`), if it fits by a correlation of `minFit` or more;
+ * `gain` is the burst's level as fitted. A sound that stops or starts
+ * mid-wave jumps without the burst, and fits poorly. Resolves `{ ok,
+ * clicks, first, last, gaps }`, `gaps` the context times (`from`, `to`)
+ * of each run of frames the tap never got, where nothing can be heard.
+ */
+export const findClicks = (
+  page,
+  { threshold = 0.05, shape, minFit = 0.8 } = {},
+) => page.evaluate(CLICKS, { threshold, shape, minFit });
 
 // In the page: the recording against the decoded tracks (checkLoops).
 const CHECK = async (spec) => {

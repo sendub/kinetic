@@ -1,7 +1,8 @@
-// The sound's rules (docs/plan.md Phase 47, item 5), apart from the
-// elements that play it: the volume product, the one-shot pool, how a
-// track loops, and what each arrival does when (the rest timer, one-shot
-// delays, skip, sound on and off), driven by a real machine.
+// The sound's rules (docs/plan.md Phase 47, items 5, 18 and 19), apart
+// from the engine that plays it: the volume product, the one-shot pool, how
+// a track loops, how a video follows its sound, and what each arrival does
+// when (the rest timer, one-shot delays, skip, sound on and off), driven by
+// a real machine.
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createMachine, type Machine } from "../machine/machine";
@@ -22,32 +23,33 @@ import {
   elementVolume,
   type Fade,
   fadeLevel,
+  followVideo,
   gainStages,
-  gridPlay,
   groupVolume,
   holdFade,
-  learnSeamLead,
-  learnVideoLead,
+  learnSeekLead,
   maySound,
+  planSwitchAt,
   playPlan,
   playPosition,
   REST_FADE_MS,
   REST_MS,
   runFade,
   SAMPLE_MS,
-  SEAM_LAND_MS,
-  SEAM_LEAD_MAX_S,
+  SEEK_LEARN_FRAMES,
+  SEEK_LEARN_STEP_S,
   SFX_POOL_SIZE,
   type SoundOutput,
   sampleTrack,
-  seamStep,
-  startGrid,
+  seekMovesSound,
   still,
-  VIDEO_LEAD_SAMPLES,
-  VIDEO_PARK_S,
+  VIDEO_SEEK_MAX_S,
+  VIDEO_SEEK_S,
+  VIDEO_SETTLE_MS,
   VIDEO_SYNC_S,
-  type VideoCue,
-  videoCue,
+  videoDrift,
+  videoSoundPlan,
+  videoSoundStart,
 } from "./audiorules";
 
 afterEach(() => {
@@ -437,71 +439,446 @@ describe("a fade on a gain (fadeLevel, holdFade, runFade)", () => {
   });
 });
 
-describe("a video sound's hand-over (seamStep, learnSeamLead)", () => {
-  const FRAME_S = 1 / 60;
-  /**
-   * The steps a cue asks for, a frame apart, until the switch, each at the
-   * remaining time it is due; a step set for later waits for its time.
-   */
-  function pass(from: number, lead: number) {
-    const steps: { at: number; step: string }[] = [];
-    let spare: "idle" | "started" = "idle";
-    for (let remaining = from; ; remaining -= FRAME_S) {
-      const { step, inS } = seamStep({
-        remaining,
-        lead,
-        spare,
-        ended: false,
-        frame: FRAME_S,
+describe("a video's sound on the audio clock (item 19)", () => {
+  // The demo's video: 2-8 s of its file, wrapping to 4 s, under a text
+  // chain; its sound is the clock track, 8 s long.
+  const clock = { file: "clock.m4a", durationSeconds: 8 };
+  const PASS = { end: 8, restart: 4 };
+  const loop = videoSoundPlan(clock, PASS);
+  const FRAME_MS = 1000 / 60;
+  const RUNS = { time: 5, runs: true, settling: false };
+  const look = (heard: number, video: Partial<typeof RUNS>, plan = loop) =>
+    followVideo({
+      plan,
+      heard,
+      video: { ...RUNS, ...video },
+      frameMs: FRAME_MS,
+    });
+
+  it("loops the video's range from its restart point to the range end, on whole samples, and plays once a pass that holds at its end", () => {
+    expect(loop).toEqual({
+      loops: true,
+      startSeconds: 4,
+      loopStartSeconds: 4,
+      endSeconds: 8,
+    });
+    // A range that ends inside the file loops there; the restart point and
+    // the end sit on whole samples of the decoded buffer.
+    expect(
+      videoSoundPlan(
+        { file: "f.m4a", durationSeconds: 10 },
+        { end: 6.50001, restart: 2.00001 },
+        { duration: 10, sampleRate: 48000 },
+      ),
+    ).toEqual({
+      loops: true,
+      startSeconds: 96000 / 48000,
+      loopStartSeconds: 96000 / 48000,
+      endSeconds: 312000 / 48000,
+    });
+    // A track a little shorter than the range (within the validator's
+    // 0.05 s) ends where its samples do.
+    expect(
+      videoSoundPlan(clock, PASS, { duration: 7.98, sampleRate: 48000 })
+        .endSeconds,
+    ).toBeCloseTo(7.98, 9);
+    // The last pass of a counted video, or one that plays once.
+    expect(videoSoundPlan(clock, { end: 8, restart: null })).toEqual({
+      loops: false,
+      startSeconds: 0,
+      loopStartSeconds: 0,
+      endSeconds: 8,
+    });
+  });
+
+  it("seeks the video to its restart point a seek's landing before the sound wraps, timed to that moment from the last frame before it", () => {
+    // Further off than a frame: nothing yet.
+    expect(look(7.9, { time: 7.9 })).toEqual({ step: "none" });
+    // The last frame before the moment: a restart set for it.
+    const due = look(8 - VIDEO_SEEK_S - 0.01, { time: 7.95 });
+    expect(due.step).toBe("restart");
+    expect(due.step === "restart" && due.inMs).toBeCloseTo(10, 6);
+    // Past the moment, the sound not yet wrapped: at once.
+    expect(look(7.99, { time: 7.98 })).toEqual({ step: "restart", inMs: 0 });
+    // A video a little ahead or behind is put on the wrap all the same.
+    expect(look(8 - VIDEO_SEEK_S, { time: 8 - VIDEO_SEEK_S + 0.07 }).step).toBe(
+      "restart",
+    );
+    expect(look(8 - VIDEO_SEEK_S, { time: 8 - VIDEO_SEEK_S - 0.07 }).step).toBe(
+      "restart",
+    );
+  });
+
+  it("never sends a video to its restart point that already went there, plays once, or does not run", () => {
+    // Already back at the restart point (sought, or by its own end): in
+    // step across the wrap.
+    expect(look(7.98, { time: 4.01 })).toEqual({ step: "none" });
+    expect(look(7.98, { time: 4.01, settling: true })).toEqual({
+      step: "none",
+    });
+    const once = videoSoundPlan(clock, { end: 8, restart: null });
+    expect(look(7.99, { time: 7.99 }, once)).toEqual({ step: "none" });
+    expect(look(7.99, { time: 7.99, runs: false })).toEqual({ step: "none" });
+  });
+
+  it("seeks a video more than 80 ms off its sound back onto it, either side and across a wrap, to where the sound is heard as the seek lands", () => {
+    const behind = look(5.1, { time: 5.1 - VIDEO_SYNC_S - 0.01 });
+    expect(behind.step).toBe("seek");
+    expect(behind.step === "seek" && behind.to).toBeCloseTo(
+      5.1 + VIDEO_SEEK_S,
+      9,
+    );
+    const ahead = look(5.1, { time: 5.1 + VIDEO_SYNC_S + 0.01 });
+    expect(ahead.step === "seek" && ahead.to).toBeCloseTo(
+      5.1 + VIDEO_SEEK_S,
+      9,
+    );
+    // The sound just wrapped and the video did not follow far enough.
+    const wrapped = look(4.02, { time: 7.85 });
+    expect(wrapped.step === "seek" && wrapped.to).toBeCloseTo(
+      4.02 + VIDEO_SEEK_S,
+      9,
+    );
+    // Sought past the wrap, the target wraps too.
+    const across = look(7.99, { time: 4.3 });
+    expect(across.step === "seek" && across.to).toBeCloseTo(
+      4 + (7.99 + VIDEO_SEEK_S - 8),
+      9,
+    );
+    // A play once ends at its end.
+    const once = videoSoundPlan(clock, { end: 8, restart: null });
+    const end = look(7.99, { time: 7.5 }, once);
+    expect(end).toEqual({ step: "seek", to: 8 });
+  });
+
+  it("leaves a video within 80 ms of its sound alone, and waits while a seek of it lands", () => {
+    expect(look(5.1, { time: 5.1 - VIDEO_SYNC_S + 0.005 })).toEqual({
+      step: "none",
+    });
+    expect(look(5.1, { time: 5.1 + VIDEO_SYNC_S - 0.005 })).toEqual({
+      step: "none",
+    });
+    expect(look(5.1, { time: 4.5, settling: true })).toEqual({ step: "none" });
+    // Across a wrap the distance is the short way round.
+    expect(videoDrift(loop, 4.01, 7.98)).toBeCloseTo(0.03, 9);
+    expect(videoDrift(loop, 7.98, 4.01)).toBeCloseTo(-0.03, 9);
+  });
+
+  it("resumes a paused sound where it stopped while its video stands within 80 ms; else starts it where the video is (a seek, a jump, the unlock)", () => {
+    // A menu: both stopped together; the sound plays on from its place.
+    expect(videoSoundStart(loop, 5.3123, 5.3)).toBe(5.3123);
+    expect(videoSoundStart(loop, 7.995, 4.01)).toBe(7.995); // across a wrap
+    // The video moved while the sound stood: the sound goes to it.
+    expect(videoSoundStart(loop, 5.3, 6.4)).toBe(6.4);
+    // Nothing to resume (the first start, a seek): where the video is,
+    // inside the loop.
+    expect(videoSoundStart(loop, null, 5.2)).toBe(5.2);
+    expect(videoSoundStart(loop, null, 8.02)).toBeCloseTo(4.02, 9);
+    // Where a pause leaves it is where it stood (playPosition).
+    expect(playPosition(loop, 7.5, 0.75)).toBeCloseTo(4.25, 9);
+  });
+
+  it("judges the drift on the frames the video last showed, against the sound heard as each showed: their median, so a frame shown late does not count and frames that jitter about a drift past the bound do", () => {
+    const look = (offs: number[], time = 5.1) =>
+      followVideo({
+        plan: loop,
+        heard: 5.1,
+        video: { ...RUNS, time },
+        shown: { offs },
+        frameMs: FRAME_MS,
       });
-      if (step === "wait") continue;
-      steps.push({ at: remaining - inS, step });
-      if (step === "start") spare = "started";
-      if (step === "switch") return steps;
+    // Its clock says in step, but the frames on screen lag 90 ms.
+    const lagging = look([-0.09, -0.09, -0.09]);
+    expect(lagging.step === "seek" && lagging.to).toBeCloseTo(
+      5.1 + VIDEO_SEEK_S,
+      9,
+    );
+    // Its clock says 90 ms off, but the frames on screen are in step.
+    expect(look([0.01, 0.01, 0.01], 5.19)).toEqual({ step: "none" });
+    // One frame shown late among frames in step: the engine, not a drift.
+    expect(look([0.01, 0.156, 0.012])).toEqual({ step: "none" });
+    expect(look([0.01, 0.012, 0.156])).toEqual({ step: "none" });
+    // Frames of a 25 fps video on a 60 Hz screen jitter by a vsync about
+    // the video's drift: 82 ms on average is past the bound, though one
+    // frame in three shows less (Chrome under load, 2026-11-13).
+    const jitter = look([0.082, 0.089, 0.079]);
+    expect(jitter.step).toBe("seek");
+    expect(look([0.089, 0.079, 0.085]).step).toBe("seek");
+    // Too few frames since the last seek landed: none yet.
+    expect(look([0.09, 0.09])).toEqual({ step: "none" });
+  });
+
+  it("seeks as far ahead as its seeks are learnt to take to land", () => {
+    const lead = 0.09;
+    const due = followVideo({
+      plan: loop,
+      heard: 8 - lead - 0.01,
+      video: { ...RUNS, time: 7.9 },
+      lead,
+      frameMs: FRAME_MS,
+    });
+    expect(due.step === "restart" && due.inMs).toBeCloseTo(10, 6);
+    const drift = followVideo({
+      plan: loop,
+      heard: 5.1,
+      video: { ...RUNS, time: 4.9 },
+      lead,
+      frameMs: FRAME_MS,
+    });
+    expect(drift.step === "seek" && drift.to).toBeCloseTo(5.19, 9);
+  });
+
+  it("learns how long a seek takes to land from the frames a restart shows once it runs: later frames than the sound move the lead up, earlier ones down, within its bounds", () => {
+    const frames = (off: number) => Array(SEEK_LEARN_FRAMES).fill(off);
+    // Behind by 30 ms: the next seek starts 24 ms sooner.
+    expect(learnSeekLead(0.04, frames(-0.03))).toBeCloseTo(0.064, 9);
+    // Ahead by 20 ms: 16 ms later.
+    expect(learnSeekLead(0.04, frames(0.02))).toBeCloseTo(0.024, 9);
+    // The median: one frame held back does not count.
+    expect(
+      learnSeekLead(0.04, [0, 0, 0.3, 0].slice(0, SEEK_LEARN_FRAMES)),
+    ).toBeCloseTo(0.04, 9);
+    // At most `SEEK_LEARN_STEP_S` a restart, within 0 and the most.
+    expect(learnSeekLead(0.04, frames(-0.5))).toBeCloseTo(
+      0.04 + SEEK_LEARN_STEP_S,
+      9,
+    );
+    expect(learnSeekLead(0.01, frames(0.2))).toBe(0);
+    expect(learnSeekLead(VIDEO_SEEK_MAX_S - 0.01, frames(-0.5))).toBe(
+      VIDEO_SEEK_MAX_S,
+    );
+    // Too few frames teach nothing.
+    expect(learnSeekLead(0.04, [-0.05])).toBe(0.04);
+  });
+
+  it("moves the sound for a seek of the video away from it, but never for the player's own seek, however late its event is handled", () => {
+    // A reader's seek a second on: the sound goes there.
+    expect(seekMovesSound(loop, 6.1, 5.1, null)).toBe(true);
+    // A wrap's seek to the restart point as the sound wraps: it stays.
+    expect(seekMovesSound(loop, 4, 7.99, null)).toBe(false);
+    // The player's own restart, its event handled 100 ms late (a main-
+    // thread stall) while the sound played on: it stays, so no click of
+    // the restart point plays twice.
+    expect(seekMovesSound(loop, 4, 4.14, 4)).toBe(false);
+    expect(seekMovesSound(loop, 5.14, 5.3, 5.140001)).toBe(false);
+    // Another seek while one of its own is pending is judged as any.
+    expect(seekMovesSound(loop, 6.5, 5.3, 5.14)).toBe(true);
+    // A sound that never played goes where the video is.
+    expect(seekMovesSound(loop, 5, null, null)).toBe(true);
+  });
+
+  it("hands a looping sound over to a play once at its next wrap when its last pass begins just before it, else as soon as it can", () => {
+    const once = videoSoundPlan(clock, { end: 8, restart: null });
+    // The video's last pass was reported as it was sought ahead of the
+    // wrap: the sound loops once more, then plays once.
+    expect(planSwitchAt(loop, once, 7.97, 100, 100.03)).toBeCloseTo(100.03, 9);
+    expect(planSwitchAt(loop, once, 7.9, 100, 100.03)).toBeCloseTo(100.1, 9);
+    // Mid-pass, or any other change: as soon as it can.
+    expect(planSwitchAt(loop, once, 5, 100, 100.03)).toBe(100.03);
+    expect(planSwitchAt(once, loop, 7.9, 100, 100.03)).toBe(100.03);
+  });
+
+  /**
+   * The demo's video against its sound on the audio clock, modelled at
+   * 1 ms with the player's look on 16 ms frames (item 19). The sound plays
+   * 2-8 s of the clock track and loops back to 4 s, exactly. The video runs
+   * at `rate` times the sound's speed; a seek of it holds its picture for
+   * `gap` s, then it runs from the target (33-41 ms measured); at its range
+   * end it seeks itself back to 4 s on the next frame, as visual.ts does.
+   * At each of `menus` (page ms) both stop for 600 ms and then start
+   * together, the sound from where `videoSoundStart` says. For each wall
+   * hit of the video (a whole second of its time while it runs), the
+   * offsets (ms) of the clicks the sound played for it (a whole second of
+   * its time, within 500 ms); and how often the video was sought back onto
+   * its sound.
+   */
+  function clicksOnHits(opts: {
+    rate: number;
+    gap: number;
+    menus?: readonly number[];
+    /** A deliberate break: the player never seeks ahead of a wrap. */
+    noRestart?: boolean;
+    /** A deliberate break: the player never seeks a video that strays. */
+    noDrift?: boolean;
+    /** A deliberate break: a resume plays the sound from this time. */
+    resumeFrom?: number;
+    /** A deliberate break: the seek lead stays at `VIDEO_SEEK_S`. */
+    fixedLead?: boolean;
+  }) {
+    const plan = loop;
+    let lead = VIDEO_SEEK_S;
+    /** The frames a restart's run shows, from its second on (`learnSeekLead`). */
+    let learning: number[] | null = null;
+    let restarted = false;
+    let sound = 2;
+    let video = 2;
+    let soundRuns = true;
+    let videoRuns = true;
+    let seek: { to: number; lands: number } | null = null;
+    let settleUntil = 0;
+    let restartAt: number | null = null;
+    let stoppedAt: number | null = null;
+    let drifts = 0;
+    const hits: { c: number; at: number }[] = [];
+    const clicks: { c: number; at: number }[] = [];
+    const seekVideo = (to: number, at: number) => {
+      seek = { to, lands: at + Math.round(opts.gap * 1000) };
+      settleUntil = Number.POSITIVE_INFINITY;
+    };
+    const END = 6000 + 4000 * 10 + 500;
+    for (let at = 0; at <= END; at += 1) {
+      const menu = opts.menus?.find((m) => at >= m && at < m + 600);
+      if (menu !== undefined) {
+        if (at === menu) {
+          soundRuns = false;
+          videoRuns = false;
+          stoppedAt = sound;
+          restartAt = null;
+        }
+        continue;
+      }
+      if (!soundRuns) {
+        const from = opts.resumeFrom ?? videoSoundStart(plan, stoppedAt, video);
+        if (Math.abs(from - sound) > 1e-9) sound = from;
+        soundRuns = true;
+        videoRuns = true;
+        if (Math.abs(sound - Math.round(sound)) < 1e-9) {
+          clicks.push({ c: Math.round(sound), at });
+        }
+      }
+      // The sound: exact, a click on every whole second, the loop's
+      // restart included.
+      const before = sound;
+      sound += 0.001;
+      if (sound >= plan.endSeconds - 1e-9) {
+        sound = plan.loopStartSeconds + (sound - plan.endSeconds);
+        clicks.push({ c: plan.loopStartSeconds, at });
+      } else if (Math.floor(sound + 1e-9) > Math.floor(before + 1e-9)) {
+        clicks.push({ c: Math.round(sound), at });
+      }
+      // The video.
+      const landing = seek as { to: number; lands: number } | null;
+      if (landing !== null && at >= landing.lands) {
+        video = landing.to;
+        seek = null;
+        settleUntil = at + VIDEO_SETTLE_MS;
+        if (restarted) learning = [];
+        restarted = false;
+        if (Math.abs(video - Math.round(video)) < 1e-9) {
+          hits.push({ c: Math.round(video), at });
+        }
+      } else if (landing === null && videoRuns) {
+        const was = video;
+        video += 0.001 * opts.rate;
+        if (Math.floor(video + 1e-9) > Math.floor(was + 1e-9)) {
+          if (video < plan.endSeconds - 1e-9) {
+            hits.push({ c: Math.floor(video + 1e-9), at });
+          }
+        }
+        if (video >= plan.endSeconds - 1e-9) {
+          video = plan.endSeconds;
+          if (at % 16 === 0) seekVideo(plan.loopStartSeconds, at);
+        }
+      }
+      if (restartAt !== null && at >= restartAt) {
+        restartAt = null;
+        if (seek === null && video > 6) {
+          seekVideo(plan.loopStartSeconds, at);
+          restarted = true;
+        }
+      }
+      // The player's look, on frames: a restart's run teaches the lead.
+      if (at % 16 !== 0) continue;
+      if (learning !== null && seek === null) {
+        learning.push(videoDrift(plan, video, sound));
+        // Its first frame is the seek's own, shown at once.
+        if (learning.length > SEEK_LEARN_FRAMES) {
+          if (!opts.fixedLead) lead = learnSeekLead(lead, learning.slice(1));
+          learning = null;
+        }
+      }
+      const step = followVideo({
+        plan,
+        heard: sound,
+        video: {
+          time: video,
+          runs: videoRuns && seek === null,
+          settling: seek !== null || at < settleUntil,
+        },
+        lead,
+        frameMs: 16,
+      });
+      if (step.step === "restart" && !opts.noRestart && restartAt === null) {
+        restartAt = at + Math.round(step.inMs);
+      } else if (step.step === "seek" && !opts.noDrift) {
+        seekVideo(step.to, at);
+        drifts += 1;
+      }
     }
+    const judged = hits
+      .filter((h) => h.at > 6500) // from after the first wrap
+      .map((h) => ({
+        ...h,
+        offs: clicks
+          .filter((k) => k.c === h.c && Math.abs(k.at - h.at) < 500)
+          .map((k) => k.at - h.at),
+      }));
+    return Object.assign(judged, { drifts });
   }
 
-  it("starts the waiting element its lead before the cue and hands over at the cue, never seeking the playing one", () => {
-    const steps = pass(2, 0.345);
-    expect(steps.map((s) => s.step)).toEqual(["start", "switch"]);
-    // Set for those moments, not the frames around them.
-    expect(steps[0].at).toBeCloseTo(0.345, 9);
-    expect(steps[1].at).toBeCloseTo(0, 9);
+  type Hit = { c: number; at: number; offs: number[] };
+  const wrong = (hits: readonly Hit[], boundMs: number) =>
+    hits.filter((h) => h.offs.length !== 1 || Math.abs(h.offs[0]) > boundMs);
+
+  it("plays every click once within a frame of its wall hit across ten wraps, the video sought ahead of each, in an engine whose seeks land 40 ms late", () => {
+    const hits = clicksOnHits({ rate: 1, gap: 0.04 });
+    expect(hits.length).toBeGreaterThanOrEqual(40);
+    expect(wrong(hits, 16)).toEqual([]);
+    expect(hits.drifts).toBe(0);
+    // Without the seek ahead of the wrap the restart lands a seek late.
+    expect(
+      wrong(clicksOnHits({ rate: 1, gap: 0.04, noRestart: true }), 16),
+    ).not.toEqual([]);
   });
 
-  it("hands over at once when the element ended before its time", () => {
-    for (const spare of ["idle", "started"] as const) {
-      expect(
-        seamStep({
-          remaining: 0.2,
-          lead: 0.3,
-          spare,
-          ended: true,
-          frame: FRAME_S,
-        }),
-      ).toEqual({ step: "switch", inS: 0 });
+  it("learns how long its seeks take to land: in an engine whose seeks land 90 ms late, every restart click is within a frame of its hit from the third wrap on; a fixed lead leaves each a seek late", () => {
+    const late = (hits: readonly Hit[]) =>
+      hits.filter((h) => h.at > 6000 + 4000 * 2 + 500);
+    expect(wrong(late(clicksOnHits({ rate: 1, gap: 0.09 })), 16)).toEqual([]);
+    expect(
+      wrong(late(clicksOnHits({ rate: 1, gap: 0.09, fixedLead: true })), 16),
+    ).not.toEqual([]);
+  });
+
+  it("keeps every click within 80 ms of its hit when the video's clock runs 3% fast or slow, seeking it back each time it strays", () => {
+    // 1 ms over the bound is the model's step: a hit falls on whole ms.
+    const bound = VIDEO_SYNC_S * 1000 + 1;
+    for (const rate of [1.03, 0.97]) {
+      const hits = clicksOnHits({ rate, gap: 0.04 });
+      expect(wrong(hits, bound), `rate ${rate}`).toEqual([]);
+      const strays = clicksOnHits({ rate, gap: 0.04, noDrift: true });
+      expect(wrong(strays, bound), `rate ${rate}`).not.toEqual([]);
     }
   });
 
-  it("learns the lead from the second element's clock once it settles: WebKit's runs ahead, then waits for the sound", () => {
-    // WebKit, PCM WAV (macOS 27.2): play() at 1000 ms; the clock moves at
-    // 1085, reads 0.372 s at 1450, holds until 1720, then runs true. Read
-    // at 1450 it would say 85 ms; settled, 345 ms.
-    expect(learnSeamLead(null, { played: 1000, at: 1450, media: 0.372 })).toBe(
-      null,
-    );
-    expect(learnSeamLead(null, { played: 1000, at: 1950, media: 0.605 })).toBe(
-      0.345,
-    );
-    // Later starts move it halfway, as starts scatter by about 10 ms.
-    expect(
-      learnSeamLead(0.345, { played: 1000, at: 1950, media: 0.585 }),
-    ).toBeCloseTo(0.355, 6);
-    // Within 0 and the most any start has taken.
-    expect(learnSeamLead(null, { played: 1000, at: 2000, media: 1.2 })).toBe(0);
-    expect(learnSeamLead(null, { played: 1000, at: 3000, media: 0.2 })).toBe(
-      SEAM_LEAD_MAX_S,
-    );
+  it("plays every click once within a frame through two menus, the sound resuming where it stopped with its video, so the video is never sought; a resume from the range start sends the video back", () => {
+    const menus = [9300, 21650];
+    const hits = clicksOnHits({ rate: 1, gap: 0.04, menus });
+    expect(wrong(hits, 16)).toEqual([]);
+    expect(hits.drifts).toBe(0);
+    const broken = clicksOnHits({ rate: 1, gap: 0.04, menus, resumeFrom: 2 });
+    expect(broken.drifts).toBeGreaterThan(0);
+  });
+
+  it("ducks music and ambience by the video sound's duck only while its video plays, Effects above 0", () => {
+    const sound = { track: "clock", duck: 0.3 };
+    expect(duckFor(sound, true, 1)).toBe(0.3);
+    expect(duckFor(sound, true, 0.5)).toBe(0.3);
+    expect(duckFor(sound, false, 1)).toBe(1); // a poster, or no video
+    expect(duckFor(null, true, 1)).toBe(1); // a video without its own sound
+    expect(duckFor(sound, true, 0)).toBe(1); // nothing heard: nothing ducked
+    expect(duckFor({ track: "clock", duck: 1 }, true, 1)).toBe(1);
+    expect(duckFor({ track: "clock", duck: 0 }, true, 1)).toBe(0);
   });
 });
 
@@ -591,424 +968,6 @@ function settle(calls: Call[]): void {
   vi.advanceTimersByTime(REST_MS);
   calls.length = 0;
 }
-
-describe("a video's sound keeps to its video (items 6 and 15)", () => {
-  // The demo's video: 2-8 s of its file, wrapping to 4 s.
-  const RUNS = { time: 5, runs: true, end: 8, restartAt: 4 };
-  const base = {
-    at: 1000,
-    video: RUNS,
-    sound: { time: 5, settled: true },
-    cue: null,
-    started: false,
-    lead: 0.34,
-    restart: 0.04,
-  };
-
-  it("learns a video sound's lead from its latest starts: on an output grid the mean of the quickest and the slowest, else the median", () => {
-    const GRID = 4096 / 48; // the muted WebKit driver's 85.3 ms blocks
-    const L0 = 285; // its least start, ms
-    /** A start asked at page ms `played`, sounding on the next block. */
-    const start = (played: number) => {
-      const begins = Math.ceil((played + L0 - 20) / GRID) * GRID + 20;
-      return { played, at: begins + 1000, media: 1 };
-    };
-    expect(startGrid([20, 20 + 3 * GRID, 20 + 7 * GRID])).toBe(GRID);
-    expect(startGrid([20, 20 + 3 * GRID])).toBeNull(); // too few to tell
-    expect(startGrid([0, 37, 101])).toBeNull();
-    // Unsettled, nothing is learnt.
-    expect(learnVideoLead(null, { played: 0, at: 500, media: 0.2 })).toBeNull();
-    // Three starts that happened to fall early in their blocks, as the
-    // first ones of a session did (295-304 ms):
-    let lead = null as ReturnType<typeof learnVideoLead>;
-    for (const played of [1000, 5011, 9033]) {
-      lead = learnVideoLead(lead, start(played));
-    }
-    const tooks = (lead?.samples ?? []).map((s) => s.took);
-    const [quickest, slowest] = [Math.min(...tooks), Math.max(...tooks)];
-    expect(lead?.lead).toBeCloseTo((quickest + slowest) / 2, 9);
-    // A start anywhere in its block lands within half a block of it and
-    // half what the three leave unknown of where the block's middle lies.
-    const unknown = (GRID / 1000 - (slowest - quickest)) / 2;
-    for (let played = 13000; played < 13000 + GRID; played += 7) {
-      const { at, media } = start(played);
-      const took = (at - media * 1000 - played) / 1000;
-      expect(Math.abs(took - (lead?.lead ?? 0))).toBeLessThanOrEqual(
-        GRID / 2000 + unknown + 1e-9,
-      );
-    }
-    // One the engine held back 300 ms (asked at 20000, played at 20300)
-    // still lies on the grid: the lead holds.
-    const held = learnVideoLead(lead, { ...start(20300), played: 20000 });
-    expect(held?.lead).toBeCloseTo(lead?.lead ?? 0, 9);
-    expect(
-      learnVideoLead(lead, { played: 30000, at: 30000 + 900 + 600, media: 0.9 })
-        ?.samples,
-    ).toHaveLength(4);
-    // No grid (starts that scatter little, headless Chrome): the median.
-    let chrome = null as ReturnType<typeof learnVideoLead>;
-    for (const [played, took] of [
-      [0, 0.064],
-      [4013, 0.067],
-      [8027, 0.066],
-      [12043, 0.065],
-    ]) {
-      chrome = learnVideoLead(chrome, {
-        played,
-        at: played + 1000,
-        media: 1 - took,
-      });
-    }
-    expect(chrome?.lead).toBeCloseTo(0.0655, 9);
-    // At most VIDEO_LEAD_SAMPLES are kept.
-    for (let n = 0; n < 10; n += 1) {
-      chrome = learnVideoLead(chrome, {
-        played: 20000 + n * 4000,
-        at: 21000 + n * 4000,
-        media: 0.935,
-      });
-    }
-    expect(chrome?.samples).toHaveLength(VIDEO_LEAD_SAMPLES);
-  });
-
-  it("on an output grid, plays a start to sound on the block end nearest a moment, with room for a late timer", () => {
-    const GRID = 4096 / 48;
-    const L0 = 285;
-    /** How long a play at page ms `played` takes in the model engine. */
-    const took = (played: number) =>
-      Math.ceil((played + L0 - 20) / GRID) * GRID + 20 - played;
-    const sample = (played: number) => ({ played, took: took(played) / 1000 });
-    // Starts that fell 5, 40 and 70 ms into their blocks.
-    const samples = [1005, 5040, 9070].map((t) => sample(t - 20 - L0));
-    expect(gridPlay([samples[0]], 20000, 0)).toBeNull(); // no grid yet
-    const tooks = samples.map((s) => s.took * 1000);
-    const room = (Math.max(...tooks) - Math.min(...tooks)) / 2;
-    for (let target = 30000; target < 30000 + GRID; target += 5) {
-      const plan = gridPlay(samples, target, 25000);
-      expect(plan).not.toBeNull();
-      const { play, sounds } = plan ?? { play: 0, sounds: 0 };
-      // It sounds on the block end nearest the moment, played on time or
-      // up to half the starts' spread late.
-      expect(Math.abs(sounds - target)).toBeLessThanOrEqual(GRID / 2 + 1e-6);
-      for (const late of [0, room - 1]) {
-        expect(play + late + took(play + late)).toBeCloseTo(sounds, 6);
-      }
-    }
-    // A start the engine held back a block and more is no guide.
-    const held = { played: 13000, took: (took(13000) + 2 * GRID) / 1000 };
-    expect(gridPlay([...samples, held], 30000, 25000)).toEqual(
-      gridPlay(samples, 30000, 25000),
-    );
-    // Never a play before `earliest`: the next block end instead.
-    expect(gridPlay(samples, 30000, 30000)?.play).toBeGreaterThanOrEqual(30000);
-  });
-
-  it("cues the wrap: its waiting element at the restart point, as the video runs from it again `restart` after its end, refined as the video plays", () => {
-    expect(videoCue(base)).toEqual({ from: 4, at: 1000 + 3040, kind: "wrap" });
-    // A video running a little slow moves it.
-    expect(
-      videoCue({
-        ...base,
-        at: 1500,
-        video: { ...RUNS, time: 5.49 },
-        sound: { time: 5.5, settled: true },
-      }),
-    ).toEqual({ from: 4, at: 1500 + 2550, kind: "wrap" });
-    // An element's own loop restarts at 0.
-    expect(videoCue({ ...base, video: { ...RUNS, restartAt: 0 } })?.from).toBe(
-      0,
-    );
-  });
-
-  it("holds a cue once its waiting element was asked to play, and a wrap through the video's own restart, but cues nothing new while the video does not run", () => {
-    const wrap = { from: 4, at: 1200, kind: "wrap" } as const;
-    const correct = { from: 6, at: 1200, kind: "correct" } as const;
-    const stopped = { ...RUNS, runs: false };
-    expect(
-      videoCue({ ...base, cue: correct, started: true, video: stopped }),
-    ).toBe(correct);
-    expect(videoCue({ ...base, cue: wrap, video: stopped })).toBe(wrap);
-    // The video ran on from the restart point before the wrap's moment.
-    expect(
-      videoCue({
-        ...base,
-        at: 1210,
-        cue: wrap,
-        video: { ...RUNS, time: 4.01 },
-      }),
-    ).toBe(wrap);
-    expect(videoCue({ ...base, cue: correct, video: stopped })).toBeNull();
-    expect(videoCue({ ...base, video: stopped })).toBeNull();
-  });
-
-  it("cues nothing in step on a pass the video holds at the end of", () => {
-    expect(
-      videoCue({ ...base, video: { ...RUNS, restartAt: null } }),
-    ).toBeNull();
-  });
-
-  it("starts a silent sound where the video will be once a waiting element can land its seek and sound, unless the wrap comes first", () => {
-    const start = videoCue({ ...base, sound: null });
-    expect(start?.kind).toBe("start");
-    expect(start?.from).toBeCloseTo(5 + VIDEO_PARK_S + 0.34, 9);
-    expect(start?.at).toBeCloseTo(1000 + (VIDEO_PARK_S + 0.34) * 1000, 6);
-    // An element that may not be sought for 200 ms yet starts that much
-    // later.
-    const later = videoCue({ ...base, sound: null, parkFrom: 1200 });
-    expect(later?.from).toBeCloseTo(5 + 0.2 + VIDEO_PARK_S + 0.34, 9);
-    expect(later?.at).toBeCloseTo(1200 + (VIDEO_PARK_S + 0.34) * 1000, 6);
-    // Made again when its element may not be sought in time for it.
-    expect(
-      videoCue({ ...base, sound: null, cue: later, parkFrom: 1500 })?.at,
-    ).toBeCloseTo(1500 + (VIDEO_PARK_S + 0.34) * 1000, 6);
-    // Kept as it was while it waits: its element is parked there.
-    expect(
-      videoCue({ ...base, at: 1100, sound: null, cue: start ?? null }),
-    ).toBe(start);
-    // Too near the end for its element to be free for the wrap's start:
-    // silent until the wrap.
-    expect(
-      videoCue({ ...base, sound: null, video: { ...RUNS, time: 7.2 } })?.kind,
-    ).toBe("wrap");
-    // With no wrap to give way to, it starts.
-    expect(
-      videoCue({
-        ...base,
-        sound: null,
-        video: { ...RUNS, time: 7.2, restartAt: null },
-      })?.kind,
-    ).toBe("start");
-  });
-
-  it("puts a sound more than 80 ms off its video back onto it, once its clock has settled, either side", () => {
-    expect(VIDEO_SYNC_S).toBe(0.08);
-    for (const off of [0.081, -0.081, 0.3]) {
-      const cue = videoCue({
-        ...base,
-        sound: { time: 5 + off, settled: true },
-      });
-      expect(cue?.kind, `off ${off}`).toBe("correct");
-      expect(cue?.from).toBeCloseTo(5 + VIDEO_PARK_S + 0.34, 9);
-    }
-    for (const sound of [
-      { time: 5.079, settled: true },
-      { time: 4.921, settled: true },
-      { time: 5.3, settled: false }, // WebKit's clock, before it runs true
-    ]) {
-      expect(videoCue({ ...base, sound })?.kind).toBe("wrap");
-    }
-    // A correction under way is kept while it fits before the wrap.
-    const correct = videoCue({ ...base, sound: { time: 5.3, settled: true } });
-    expect(
-      videoCue({
-        ...base,
-        at: 1100,
-        sound: { time: 5.4, settled: true },
-        cue: correct,
-      }),
-    ).toBe(correct);
-    // Near the end the wrap puts it right instead.
-    expect(
-      videoCue({
-        ...base,
-        video: { ...RUNS, time: 7.2 },
-        sound: { time: 7.5, settled: true },
-      })?.kind,
-    ).toBe("wrap");
-  });
-
-  /**
-   * The demo's clock track against its video, the player's cues timed by
-   * `seamStep` on 16 ms frames and the engine modelled at 1 ms (item 15).
-   * The video plays 2-8 s, wrapping to 4 s, and stands `gap` s at the
-   * restart point before it runs on (33-41 ms measured in both engines);
-   * the track clicks on every whole second, where the bar hits a wall. An
-   * element played from where it waits begins to sound `lag` s later (its
-   * clock meanwhile not trusted). At each of `menus` (page ms) the video
-   * and its sound stop for 600 ms; on resume, and at the entry, the waiting
-   * element starts at once and the video waits for it (`videoStartDelay`),
-   * running 40 ms after its own play(). `lead` is what the player believes
-   * of `lag`. For each wall hit, the offsets (ms) of the clicks played for
-   * it.
-   */
-  function clicksThroughWraps(opts: {
-    lag: number;
-    lead: number;
-    gap: number;
-    /** What the player believes of `gap`. */
-    restart?: number;
-    menus: readonly number[];
-  }) {
-    const { lag, lead, gap } = opts;
-    const VIDEO_LAG_MS = 40;
-    const FRAME_S = 0.016;
-    let video = 2;
-    let runsFrom = Math.round(Math.max(0, lead - 0.04) * 1000) + VIDEO_LAG_MS;
-    type El = { pos: number; playing: boolean; soundsFrom: number };
-    let el: El = { pos: 0, playing: false, soundsFrom: 0 };
-    let spare: El = { pos: 2, playing: false, soundsFrom: 0 };
-    let started = false;
-    let since = 0;
-    let cue: VideoCue | null = null;
-    let due: { at: number; step: "start" | "switch" } | null = null;
-    const hits: { c: number; at: number }[] = [];
-    const heard: { c: number; at: number }[] = [];
-    const start = (at: number) => {
-      spare.playing = true;
-      spare.soundsFrom = at + Math.round(lag * 1000);
-      started = true;
-    };
-    const gate = (at: number) => {
-      spare.pos = video;
-      cue = { from: video, at: at + lead * 1000, kind: "start" };
-      start(at);
-      runsFrom =
-        at + Math.round(Math.max(0, lead - 0.04) * 1000) + VIDEO_LAG_MS;
-    };
-    gate(0);
-    const END = 6000 + 4000 * 10 + 500;
-    for (let at = 0; at <= END; at += 1) {
-      const menu = opts.menus.find((m) => at >= m && at < m + 600);
-      if (menu !== undefined) {
-        if (at === menu) {
-          el.playing = false;
-          spare.playing = false;
-          cue = null;
-          due = null;
-          started = false;
-          runsFrom = Number.POSITIVE_INFINITY;
-        }
-        continue;
-      }
-      if (opts.menus.includes(at - 600)) gate(at);
-      // The video.
-      const runs = at >= runsFrom;
-      if (runs) {
-        const before = video;
-        if (at === runsFrom && Math.abs(video - Math.round(video)) < 1e-9) {
-          hits.push({ c: Math.round(video), at });
-        }
-        video += 0.001;
-        if (Math.floor(video + 1e-9) > Math.floor(before + 1e-9)) {
-          if (video < 8 - 1e-9) hits.push({ c: Math.round(video), at });
-        }
-        if (video >= 8 - 1e-9) {
-          video = 4;
-          runsFrom = at + Math.round(gap * 1000);
-        }
-      }
-      // The elements: a playing one sounds from `soundsFrom` on.
-      for (const one of [el, spare]) {
-        if (!one.playing || at < one.soundsFrom) continue;
-        const from = one.pos;
-        const first = at === one.soundsFrom;
-        one.pos += 0.001;
-        for (let c = Math.ceil(from - 1e-9); c <= one.pos + 1e-9; c += 1) {
-          if (c < 8 && (c > from + 1e-9 || (first && from - c < 0.002))) {
-            heard.push({ c, at });
-          }
-        }
-        if (one.pos >= 8) one.playing = false; // the file's end
-      }
-      // A step set for its moment.
-      if (due !== null && at >= due.at) {
-        const step = due.step;
-        due = null;
-        if (!started) start(at);
-        if (step === "switch") {
-          el.playing = false;
-          [el, spare] = [spare, el];
-          since = at;
-          started = false;
-          cue = null;
-          spare.pos = 4;
-        }
-      }
-      // The player's look, on frames.
-      if (at % 16 !== 0 || due !== null) continue;
-      cue = videoCue({
-        at,
-        video: { time: video, runs, end: 8, restartAt: 4 },
-        sound: el.playing
-          ? { time: el.pos, settled: at - since >= SEAM_LAND_MS }
-          : null,
-        cue,
-        started,
-        lead,
-        restart: opts.restart ?? gap,
-      });
-      if (cue === null) continue;
-      if (!started) spare.pos = cue.from;
-      const { step, inS } = seamStep({
-        remaining: (cue.at - at) / 1000,
-        lead,
-        spare: started ? "started" : "idle",
-        ended: false,
-        frame: FRAME_S,
-      });
-      if (step === "start" || step === "switch") {
-        due = { at: at + Math.round(inS * 1000), step };
-      }
-    }
-    return hits.map((h) => ({
-      ...h,
-      offs: heard
-        .filter((k) => k.c === h.c && Math.abs(k.at - h.at) < 500)
-        .map((k) => k.at - h.at),
-    }));
-  }
-
-  const wrongClicks = (hits: ReturnType<typeof clicksThroughWraps>) =>
-    hits.filter(
-      (h) => h.offs.length !== 1 || Math.abs(h.offs[0]) > VIDEO_SYNC_S * 1000,
-    );
-
-  it("plays each click of a clock track once, on its wall hit, across ten wraps and two menus, in an engine that starts a sound 65 ms or 340 ms late (item 15)", () => {
-    for (const lag of [0.065, 0.34]) {
-      const hits = clicksThroughWraps({
-        lag,
-        lead: lag,
-        gap: 0.04,
-        menus: [9300, 21650],
-      });
-      expect(hits.length, `lag ${lag}`).toBeGreaterThanOrEqual(42);
-      expect(wrongClicks(hits), `lag ${lag}`).toEqual([]);
-      const offs = hits.flatMap((h) => h.offs);
-      expect(Math.max(...offs.map(Math.abs)), `lag ${lag}`).toBeLessThan(20);
-    }
-  });
-
-  it("keeps every click within 80 ms when the start lag or the video's restart is misjudged by tens of ms", () => {
-    for (const [lag, lead, gap, restart] of [
-      [0.34, 0.31, 0.04, 0.04],
-      [0.34, 0.37, 0.04, 0.04],
-      [0.065, 0.065, 0.09, 0.04],
-      [0.065, 0.065, 0.04, 0.09],
-      [0.065, 0.065, 0.12, 0.12],
-    ]) {
-      const label = `lag ${lag} lead ${lead} gap ${gap} restart ${restart}`;
-      const hits = clicksThroughWraps({
-        lag,
-        lead,
-        gap,
-        restart,
-        menus: [9300],
-      });
-      expect(wrongClicks(hits), label).toEqual([]);
-    }
-  });
-
-  it("ducks music and ambience by the video sound's duck only while its video plays, Effects above 0", () => {
-    const sound = { track: "clock", duck: 0.3 };
-    expect(duckFor(sound, true, 1)).toBe(0.3);
-    expect(duckFor(sound, true, 0.5)).toBe(0.3);
-    expect(duckFor(sound, false, 1)).toBe(1); // a poster, or no video
-    expect(duckFor(null, true, 1)).toBe(1); // a video without its own sound
-    expect(duckFor(sound, true, 0)).toBe(1); // nothing heard: nothing ducked
-    expect(duckFor({ track: "clock", duck: 1 }, true, 1)).toBe(1);
-    expect(duckFor({ track: "clock", duck: 0 }, true, 1)).toBe(0);
-  });
-});
 
 describe("the sound director: reading on", () => {
   it("applies the item's sound at once with its fade, voice and one-shots", () => {

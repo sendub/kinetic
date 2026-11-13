@@ -918,6 +918,8 @@ export const TALL_ASSET = { width: 640, height: 960 };
 /** fixtures/audio-demo with the player (`audio.scenario.mjs`). */
 export const audioDemoDir = join(scenarioRoot, "audio-demo");
 const audioDemoSource = join(repoRoot, "fixtures", "audio-demo");
+// A track file's extensions (docs/content-format.md, "Audio").
+const AUDIO_FILE = /\.(mp3|m4a|wav|flac|webm|ogg|oga|opus)$/i;
 
 // The engine every scenario browser runs on: headless Chrome (the default)
 // or, with KINETIC_ENGINE=webkit (the runner's --webkit), the system WebKit
@@ -994,7 +996,9 @@ export async function spaceTo(page, cdp, id, limit = 60) {
  * Assemble the demo, empty and tall folders from fixtures/demo + dist, and
  * the audio demo from fixtures/audio-demo + dist when that folder has been
  * built (`audioDemo` says whether; it is gitignored, made by
- * `.venv/bin/python fixtures/build_audio_demo.py`).
+ * `.venv/bin/python fixtures/build_audio_demo.py`). As
+ * tools/assemble_folder.py does, the audio demo leaves out each audio
+ * file that has its script: the player reads only the scripts.
  */
 export function assembleFolders() {
   for (const file of ["index.html", "app.js"]) {
@@ -1016,7 +1020,10 @@ export function assembleFolders() {
   }
   const audioDemo = existsSync(join(audioDemoSource, "manifest.json"));
   if (audioDemo) {
-    cpSync(audioDemoSource, audioDemoDir, { recursive: true });
+    cpSync(audioDemoSource, audioDemoDir, {
+      recursive: true,
+      filter: (src) => !(AUDIO_FILE.test(src) && existsSync(`${src}.js`)),
+    });
     for (const file of ["index.html", "app.js"]) {
       copyFileSync(join(playerDir, "dist", file), join(audioDemoDir, file));
     }

@@ -15,14 +15,15 @@ decision; this file is the practical sheet.
   without a fetch, since `file://` blocks it; the validator rejects a
   shim that differs from `manifest.json`.
 - The media the manifest references: pictures, animation frames, videos
-  and their posters, and the audio track files of a game with sound
-  (`.mp3`, `.m4a`, `.wav`, `.flac` or `.webm`; docs/content-format.md,
-  "Audio"). A hand-made folder may keep them anywhere inside it;
-  kinetic-extract and kinetic-media put every one under
+  and their posters. A hand-made folder may keep them anywhere inside
+  it; kinetic-extract and kinetic-media put every one under
   `media/<h[:2]>/<h>.<ext>`, named by its content.
-- Beside each audio track file, its script `<file>.js`, which hands the
-  player the file's bytes without a fetch (docs/content-format.md, "The
-  script beside each audio file").
+- For each audio track of a game with sound (`.mp3`, `.m4a`, `.wav`,
+  `.flac` or `.webm`; docs/content-format.md, "Audio"), its script
+  `<file>.js`, which hands the player the file's bytes without a fetch
+  (docs/content-format.md, "The script beside each audio file"). The
+  player reads only the scripts: a content folder keeps each audio file
+  beside its script, and the assembled folder ships the scripts alone.
 - Unreferenced extras the converter leaves behind (such as
   `build-ledger.json`), which the player and the validator ignore.
 - Optionally `<title>.app`, the macOS app that plays the folder, and
@@ -51,7 +52,9 @@ The output folder holds exactly what the script places: the current
 bundle from `player/dist/` (a stale `index.html` or `app.js` inside the
 content folder is ignored), the content files, a generated
 `manifest.js` when the content has only `manifest.json`, and a
-generated script for each audio track file that has none. A non-empty
+generated script for each audio track file that has none. It then
+leaves out each audio track file whose script is there, unless an item
+also shows that file; the content folder keeps them. A non-empty
 output is refused unless `--force` replaces it. The script prints the
 file count and total size. Check the result with the validator; a clean
 run exits 0:
@@ -88,8 +91,9 @@ the zip before extracting it (CREATE.md, "Building the apps").
 The bundle is about 415 KB (`app.js` about 325 KB, `index.html` about
 90 KB, measured 2026-11-10); everything else is media, so a novel's size
 is its media's size. The demo fixture assembles to 30 files, about 650
-KB, and the audio demo to 45 files, about 1.8 MB, of which its 15 short
-mono tracks are 1.1 MB (2026-11-10). The extracted one-video slice
+KB (2026-11-10), and the audio demo to 45 files, about 2.9 MB, of which
+its 15 short mono tracks, shipped as their scripts, are 2.2 MB; the
+audio files themselves are 1.7 MB (2026-11-13). The extracted one-video slice
 assembled to 13 files, about 290 KB, with the smaller bundle of
 2026-11-02.
 

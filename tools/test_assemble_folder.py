@@ -1,12 +1,13 @@
 """Tests for tools/assemble_folder.py's audio scripts (docs/plan.md Phase 47,
-item 17). Run with:
+items 17 and 19). Run with:
 
     .venv/bin/pytest tools/test_assemble_folder.py -q
 
 A hand-written folder's tracks name audio files; the player reads each
 from the script beside it (docs/content-format.md, Audio). assemble_folder
-writes the script of every track file that has none and leaves an
-existing one alone. The app flags are tested in tools/test_build_apps.py.
+writes the script of every track file that has none, leaves an existing
+one alone, and ships the scripts without the audio files. The app flags
+are tested in tools/test_build_apps.py.
 """
 
 from __future__ import annotations
@@ -87,6 +88,41 @@ def test_a_script_is_written_for_each_track_file(
     assert not (folder / "rain.webm.js").exists()
 
 
+def test_the_audio_files_are_left_out_their_scripts_ship(
+        tmp_path: Path, fake_dist: Path,
+        capsys: pytest.CaptureFixture[str]) -> None:
+    folder = content(tmp_path, {"rain": "rain.webm", "theme": "media/a.m4a",
+                                "theme-2": "media/a.m4a", "door": "door.mp3"})
+    # One script already there, as kinetic-extract writes them.
+    (folder / "door.mp3.js").write_bytes(
+        assemble_folder.audio_format.script_bytes(
+            "door.mp3", (folder / "door.mp3").read_bytes()))
+    out = tmp_path / "play"
+    assemble(folder, out)
+    for file in ("rain.webm", "media/a.m4a", "door.mp3"):
+        assert not (out / file).exists()
+        assert held(out, file) == (folder / file).read_bytes()
+    assert "left out 3 audio files" in capsys.readouterr().out
+    # The content folder keeps both.
+    assert (folder / "rain.webm").exists() and (folder / "door.mp3").exists()
+    import validate_content
+    assert validate_content.validate_folder(out) == []
+
+
+def test_an_audio_file_an_item_shows_stays(
+        tmp_path: Path, fake_dist: Path) -> None:
+    folder = content(tmp_path, {"clip": "clip.webm"})
+    manifest = json.loads((folder / "manifest.json").read_text())
+    manifest["items"].append({"id": "clip", "type": "video",
+                              "file": "clip.webm", "poster": "first.png",
+                              "durationSeconds": 1.0})
+    (folder / "manifest.json").write_text(json.dumps(manifest))
+    out = tmp_path / "play"
+    assemble(folder, out)
+    assert (out / "clip.webm").read_bytes() == b"sound of clip.webm"
+    assert held(out, "clip.webm") == b"sound of clip.webm"
+
+
 def test_an_existing_script_is_left_as_it_is(
         tmp_path: Path, fake_dist: Path,
         capsys: pytest.CaptureFixture[str]) -> None:
@@ -106,6 +142,18 @@ def test_a_missing_track_file_gets_no_script(
     out = tmp_path / "play"
     assemble(folder, out)
     assert not (out / "rain.webm.js").exists()
+
+
+def test_a_script_shipped_alone_is_kept(
+        tmp_path: Path, fake_dist: Path) -> None:
+    folder = content(tmp_path, {"rain": "rain.webm"})
+    (folder / "rain.webm.js").write_bytes(
+        assemble_folder.audio_format.script_bytes("rain.webm", b"bytes"))
+    (folder / "rain.webm").unlink()
+    out = tmp_path / "play"
+    assemble(folder, out)
+    assert held(out, "rain.webm") == b"bytes"
+    assert not (out / "rain.webm").exists()
 
 
 def test_a_folder_without_sound_gets_no_script(

@@ -44,7 +44,8 @@ invariants:
    continueAt, and `"continue"` result rules (docs/content-format.md
    § Branches); the optional audio obeys its track range, id, ambience
    and `videoSound` length rules, and each track file has its script
-   beside it holding the file's bytes (docs/content-format.md § Audio);
+   beside it holding the file's bytes, or ships as that script alone
+   (docs/content-format.md § Audio);
    and a present `manifest.js` shim embeds JSON equal to `manifest.json`.
 """
 
@@ -294,7 +295,9 @@ def _item_media_paths(items: list[Any]) -> Iterator[tuple[str, Any]]:
 
 def media_problems(content_dir: Path, manifest: Any,
                    schema_locs: set[str] = frozenset()) -> list[str]:
-    """Invariant 2: every referenced path exists in the folder; plus path rules."""
+    """Invariant 2: every referenced path exists in the folder; plus path
+    rules. An audio track's file may be absent when its script is there:
+    the player reads only the script (docs/content-format.md § Audio)."""
     root = content_dir.resolve()
     problems: list[str] = []
     for loc, value in iter_media_paths(manifest):
@@ -307,7 +310,15 @@ def media_problems(content_dir: Path, manifest: Any,
                 problems.append(_line(loc, rule))
             continue
         target = content_dir / value
-        if not target.exists():
+        if not target.exists() and loc.startswith("audio.tracks."):
+            # An assembled folder ships a track's script alone
+            # (audio_script_problems checks it).
+            script = audio_format.script_path(content_dir, value)
+            if not script.is_file():
+                problems.append(_line(loc, (
+                    f"media file {value!r} does not exist in the folder, "
+                    f"nor its script {value + audio_format.SUFFIX!r}")))
+        elif not target.exists():
             problems.append(_line(loc, f"media file {value!r} does not exist "
                                        "in the folder"))
         elif not target.is_file():
@@ -756,7 +767,9 @@ def audio_problems(manifest: Any) -> list[str]:
 def audio_script_problems(content_dir: Path, manifest: Any,
                           schema_locs: set[str] = frozenset()) -> list[str]:
     """Each track file has its script beside it, `<file>.js`, holding
-    the file's bytes (docs/content-format.md § Audio).
+    the file's bytes (docs/content-format.md § Audio). An assembled folder
+    ships the script alone (tools/assemble_folder.py): it is then the one
+    line for that file, naming it, inside the folder.
 
     Checked once per file, at the first track naming it. A file whose
     path the schema, the path rule or `media_problems` already reports
@@ -773,21 +786,61 @@ def audio_script_problems(content_dir: Path, manifest: Any,
             continue
         seen.add(file)
         audio = content_dir / file
-        if not audio.is_file() or not audio.resolve().is_relative_to(root):
-            continue
         name = f"{file}{audio_format.SUFFIX}"
         script = audio_format.script_path(content_dir, file)
-        if not script.is_file():
-            problems.append(_line(loc, (
-                f"no script {name!r} beside it: the player reads the track "
-                "from it (tools/assemble_folder.py writes a missing one)")))
+        if audio.is_file():
+            if not audio.resolve().is_relative_to(root):
+                continue  # media_problems reports it
+            if not script.is_file():
+                problems.append(_line(loc, (
+                    f"no script {name!r} beside it: the player reads the "
+                    "track from it (tools/assemble_folder.py writes a "
+                    "missing one)")))
+                continue
+            why = audio_format.script_problem(file, script.read_bytes(),
+                                              audio.read_bytes())
+            if why is not None:
+                problems.append(_line(loc, f"script {name!r} does not match "
+                                           f"it: {why}"))
             continue
-        why = audio_format.script_problem(file, script.read_bytes(),
-                                          audio.read_bytes())
+        if not script.is_file():
+            continue  # neither: media_problems reports it
+        if not script.resolve().is_relative_to(root):
+            problems.append(_line(loc, f"script {name!r} resolves outside "
+                                       "the content folder"))
+            continue
+        why = _script_alone_problem(file, script.read_bytes())
         if why is not None:
-            problems.append(_line(loc, f"script {name!r} does not match it: "
-                                       f"{why}"))
+            problems.append(_line(loc, f"script {name!r}, shipped without "
+                                       f"the file, is not its script: {why}"))
     return problems
+
+
+def _script_alone_problem(file: str, script: bytes) -> str | None:
+    """Why `script`, shipped without its file, is not the script of
+    `file`, or None: it must be the one line, naming `file`, written the
+    one way every writer writes it."""
+    found = audio_format.read_script(script)
+    if found is None:
+        return (f'it is not one {audio_format.FUNCTION}("<file>","<base64>"); '
+                "line")
+    return audio_format.script_problem(file, script, found[1])
+
+
+def _track_head(content_dir: Path, file: str, size: int) -> bytes | None:
+    """The first `size` bytes of a track: from its file, else from the
+    bytes its script holds (an assembled folder ships the script alone);
+    None when neither reads."""
+    path = content_dir / file
+    try:
+        if path.is_file():
+            with path.open("rb") as handle:
+                return handle.read(size)
+        script = audio_format.script_path(content_dir, file)
+        found = audio_format.read_script(script.read_bytes())
+    except OSError:
+        return None
+    return None if found is None else found[1][:size]
 
 
 LOOP_FIX = ("so it may click at each loop; ship it as AAC (M4A), Vorbis in "
@@ -803,18 +856,16 @@ _CODEC_MARKS = {"webm": ((b"A_OPUS", "opus"), (b"A_VORBIS", "vorbis")),
 def _track_format(content_dir: Path, file: str) -> tuple[str, str] | None:
     """(extension, codec) of a track file, as far as the validator tells
     them without decoding: MP3 by its name, a WebM's or Ogg's codec by
-    the mark in its head (the Ogg family's extension as `ogg`); None
-    otherwise."""
+    the mark in its head, read from the file or else its script (the Ogg
+    family's extension as `ogg`); None otherwise."""
     ext = file.rsplit(".", 1)[-1].lower()
     ext = "ogg" if f".{ext}" in OGG_EXTENSIONS else ext
     if ext == "mp3":
         return ext, "mp3"
     if ext not in _CODEC_MARKS:
         return None
-    try:
-        with (content_dir / file).open("rb") as handle:
-            head = handle.read(_HEAD_BYTES[ext])
-    except OSError:
+    head = _track_head(content_dir, file, _HEAD_BYTES[ext])
+    if head is None:
         return None
     return next(((ext, codec) for mark, codec in _CODEC_MARKS[ext]
                  if mark in head), None)

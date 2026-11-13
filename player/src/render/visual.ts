@@ -271,6 +271,15 @@ export interface StageVideo {
    * null when the video holds at the end. Null while it plays nothing.
    */
   pass(): { end: number; restart: number | null } | null;
+  /**
+   * Ends the pass under way now, as reaching its end would, and plays on
+   * from its restart point: a counted pass is reported. Its sound
+   * (render/audio.ts, docs/plan.md Phase 47 item 19) asks for it a seek's
+   * landing before the sound wraps, so the video's restart lands with the
+   * sound's. Nothing on a pass that holds at its end, or while it plays
+   * nothing.
+   */
+  restart(): void;
 }
 
 export interface VisualLayer {
@@ -312,8 +321,8 @@ export interface VisualLayer {
    * Asked each time a video is about to start from paused (an entry, a
    * menu's resume; never a wrap), after `watchVideo` heard it: how long
    * (ms) the start waits. The video's sound (render/audio.ts) starts at
-   * once and takes longer to begin than the video (item 15), so the two
-   * begin together. Null: no wait.
+   * once and is heard only after the audio output's latency (docs/plan.md
+   * Phase 47, item 19), so the two begin together. Null: no wait.
    */
   setStartDelay(delay: ((element: HTMLVideoElement) => number) | null): void;
   /** Stop all playback and drop the video element. Idempotent. */
@@ -695,7 +704,13 @@ export function createVisualLayer(
         ) {
           return; // retired: the callback chain ends here
         }
-        if (plan.endSeconds !== null && meta.mediaTime >= plan.endSeconds) {
+        // A frame presented while a seek lands (the restart of a pass its
+        // sound ended early, `StageVideo.restart`) is the old place's.
+        if (
+          plan.endSeconds !== null &&
+          meta.mediaTime >= plan.endSeconds &&
+          !element.seeking
+        ) {
           passBoundary(element, plan);
         } else {
           rvfcHandle = element.requestVideoFrameCallback(tick);
@@ -733,9 +748,15 @@ export function createVisualLayer(
    * the element pauses — the machine's gate is met and it moves on. A
    * chain or background video (nothing counted) just keeps looping
    * within the range: forward to `endSeconds`, back to
-   * `loopStartSeconds`, no report (docs/plan.md Phases 9c and 9d).
+   * `loopStartSeconds`, no report (docs/plan.md Phases 9c and 9d). `to` is
+   * where it plays on from (an element's own loop's restart is 0, for
+   * `StageVideo.restart`).
    */
-  function passBoundary(element: HTMLVideoElement, plan: VideoPlan): void {
+  function passBoundary(
+    element: HTMLVideoElement,
+    plan: VideoPlan,
+    to = plan.loopStartSeconds,
+  ): void {
     if (plan.reportEnds > 0) {
       if (!reportEnd(plan)) return;
       if (videoEndedCount >= plan.reportEnds) {
@@ -744,7 +765,7 @@ export function createVisualLayer(
         return;
       }
     }
-    seekTo(element, plan.loopStartSeconds);
+    seekTo(element, to);
     startRangeWatch(element); // re-arms the rVFC chain after the seek
   }
 
@@ -872,14 +893,24 @@ export function createVisualLayer(
       startToken += 1;
       element.pause();
       seekTo(element, videoPlan.startSeconds);
-      tellVideo({ element, plays: false, pass: () => null });
+      tellVideo({
+        element,
+        plays: false,
+        pass: () => null,
+        restart: () => undefined,
+      });
       return;
     }
     if (freshEntry || mode === "loop-once") {
       seekTo(element, videoPlan.startSeconds);
     }
     // Heard before it plays: its sound may hold its start back.
-    tellVideo({ element, plays: true, pass: () => passOf(item) });
+    tellVideo({
+      element,
+      plays: true,
+      pass: () => passOf(item),
+      restart: () => restartPass(element, item),
+    });
     playVideo(element, videoPlan, true);
     startRangeWatch(element);
   }
@@ -897,6 +928,15 @@ export function createVisualLayer(
       ),
       restart: wraps ? (plan.loop ? 0 : plan.loopStartSeconds) : null,
     };
+  }
+
+  /** `StageVideo.restart` for `item` on `element`, while it is the one playing. */
+  function restartPass(element: HTMLVideoElement, item: VideoItem): void {
+    const plan = videoPlan;
+    const pass = passOf(item);
+    if (video !== element || plan === null || held || pass === null) return;
+    if (pass.restart === null || element.paused) return;
+    passBoundary(element, plan, pass.restart);
   }
 
   function showVideo(item: VideoItem, mode: PlaybackMode): void {
@@ -1022,8 +1062,8 @@ export function createVisualLayer(
       } else {
         // WebKit can run a video on from up to 0.2 s past the time it
         // reported while held (twice in four resumes, macOS 27.2), and the
-        // video's sound starts from the reported time: sought there, it
-        // plays on from there.
+        // video's sound resumes where it stopped, with the reported time:
+        // sought there, it plays on from there.
         seekTo(video, video.currentTime, true);
         playVideo(video, videoPlan, true);
       }

@@ -340,7 +340,9 @@ Beside each sound file the folder needs its script, `<file>.js`: the
 player reads the file's bytes from it, because a browser fetches nothing
 over `file://` (docs/content-format.md, "The script beside each audio
 file"). `tools/assemble_folder.py` writes every missing one when it
-assembles the folder (Playing the folder, below). To write them
+assembles the folder (Playing the folder, below), and leaves the sound
+files themselves out of the folder it assembles, since the player reads
+only the scripts; your content folder keeps both. To write them
 yourself, run this inside the content folder, naming each sound file as
 its track's `file` does:
 
@@ -1061,7 +1063,8 @@ cp player/dist/index.html player/dist/app.js my-novel/
 Or let `tools/assemble_folder.py <content-dir> <out-folder>` assemble a
 playable copy in one command: it copies the bundle and content, generates
 a missing `manifest.js` and the missing script of each sound file (Sound,
-above), and prints the folder size (docs/packaging.md).
+above), ships the scripts without the sound files, and prints the folder
+size (docs/packaging.md).
 
 Run `npm run build` in `player/` first if the bundle is not current.
 
