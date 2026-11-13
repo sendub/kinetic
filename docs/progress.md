@@ -3577,6 +3577,17 @@ truthful: an unchecked box means nothing was accepted.
       faster or the checker judges what the browser never showed, fix
       the cause, and keep every guarantee. Done when Chrome and WebKit
       `videosound` pass under the load of the full suite.
+- [ ] In a browser nothing plays before a key, whatever the engine allows
+      (item 5's rule, added 2026-11-13): the WebKit driver with the key
+      rule sometimes ran the first page's AudioContext a few hundred ms
+      after load with no key, no `resume()` and no source started (4 of
+      12 runs, four drivers launching at once), so the player, which
+      plays as soon as its context runs, sounded before the key. The
+      player starts no sound in a browser before a key or click that
+      counts; a game app (its host bridge present) plays at launch as
+      now. Done when the videosound unlock part passes with Escape
+      closing the help screen and the sound silent until the key, in
+      WebKit and Chrome, and the audio scenario's unlock checks pass.
 - [ ] Docs and speed for Web Audio (item 20): stack, packaging, CREATE.md,
       extracting, verify-player, perf (navigation p95, decode time,
       memory).
