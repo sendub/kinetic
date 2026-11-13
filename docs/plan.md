@@ -2785,6 +2785,17 @@ For the converting agent, compared with their request:
     unless a step's sound changes), docs/perf.md (navigation p95 with
     Web Audio on the audio demo and the 160,000-item story, decode time
     and memory against the cap).
+21. A measurement of WebKit's decode time (added 2026-11-13, the user's
+    choice). After item 18, a 3-minute stereo AAC track takes about 3.7 s
+    to decode in the WebKit driver against 0.2 s in headless Chrome, so a
+    jump to a scene whose long track is not warmed up starts it that late
+    in Safari and the Mac app. Scratch pages time each stage (script load,
+    base64 to bytes, `decodeAudioData`) and whether the page stalls while
+    it runs. They compare format, sample rate, channels and length, the
+    context's own sample rate, and decoding a track in pieces that join
+    sample-exactly. The outcome says whether a converter or player choice
+    brings such a start under 0.5 s; the user then picks the fix, if
+    any. Until then a late start after a jump is a known limit.
 
 Not verified, and not verifiable on this machine: WebM Vorbis and Opus in
 Safari 15-17 (caniuse and WebKit bug 183852 say yes), WebView2's autoplay,

@@ -3532,6 +3532,14 @@ truthful: an unchecked box means nothing was accepted.
 - [ ] Docs and speed for Web Audio (item 20): stack, packaging, CREATE.md,
       extracting, verify-player, perf (navigation p95, decode time,
       memory).
+- [ ] A measurement of WebKit's decode time (item 21, added 2026-11-13;
+      the user chose to measure before picking a fix for long tracks that
+      start about 3.7 s late in WebKit after a jump): scratch pages time
+      script load, base64 to bytes and `decodeAudioData` in WebKit and
+      Chrome by format, sample rate, channels, length and the context's
+      rate, check whether the page stalls meanwhile, and try decoding in
+      sample-exact pieces. Done when the user has the numbers and picks a
+      fix or accepts the limit.
 - [ ] User: the listening checklist (item 11), on fixtures/audio-demo in
       real Safari, desktop Chrome and a Mac app built for it. The
       orchestrator does not tick this; the user reports, and any finding
