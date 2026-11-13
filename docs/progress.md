@@ -3414,13 +3414,55 @@ truthful: an unchecked box means nothing was accepted.
       fourth, at load average 6-10, had one wrap 113 ms ahead (2 clicks
       off, none skipped or doubled) and the text-chain check failed with
       it.)
-- [ ] A trial of two sound routes (item 16, added 2026-11-11; the user
+- [x] A trial of two sound routes (item 16, added 2026-11-11; the user
       chose a trial before fixing items 14 and 15 again): scratch pages
       for Web Audio from script-held bytes and for the video's own
       soundtrack with crossfaded element loops, measured from their
       samples in Chrome and WebKit, decode support per format, and the
       user's listening in Safari and Chrome. Done when the user picks a
       route.
+      (2026-11-11: scratch pages in .tmp/trial16, every recording
+      through a zero gain. Under file:// in Chrome fetch and XHR fail and
+      a media-element source outputs zeros; bytes loaded by a script tag
+      decode. Buffer loops bit-exact in Chrome, WebKit and WebKit with
+      the key rule (rain 15 wraps, hum 23, calm 11, steps 10).
+      `decodeAudioData` against the lossless source: AAC, WAV, FLAC and
+      Opus in Ogg exact at the start in both, Vorbis in WebM +64 at the
+      end; MP3 +576 at the start in WebKit, Opus in WebM -24 in Chrome,
+      Vorbis in Ogg -128 in WebKit. Video clicks, sound minus picture:
+      Web Audio -24 to +26 ms in Chrome, -29 to +48 in WebKit, all 56 at
+      full level; the video's own sound never cut, but picture and sound
+      pause 27-50 ms at each range wrap; crossfaded element loops came
+      100-125 ms early in Chrome and left 170-450 ms silences in WebKit.
+      The user listened in Safari and Chrome and chose Web Audio; items
+      17-20 carry it out.)
+- [ ] Audio files ship as scripts (item 17): `<file>.js` beside each
+      audio file, written by kinetic-media, kinetic-extract, the demo
+      builder and assemble_folder; loop-safe formats for looping tracks.
+      Tests:
+      - the script's bytes equal the audio file's, twice-built folders
+        identical, `rebuild` matching the scripts;
+      - a looping MP3, Opus WebM or Vorbis Ogg source shipped in a
+        loop-safe format, with the new self-test golden;
+      - the validator: a missing script is an error, a looping track in
+        an unsafe format a warning;
+      - the renpy_demo golden and the audio demo rebuilt.
+- [ ] Player: sound on Web Audio (item 18): one AudioContext unlocked by
+      the first key, tracks loaded from their scripts and decoded under a
+      byte cap, buffer-source loops, gain AudioParams, every pause rule,
+      the hook unchanged in shape, silent automated runs. Tests:
+      - the existing audio, videosound and screens scenarios pass in
+        Chrome and WebKit;
+      - item 14's loops play with no gap, read from a test-only tap of
+        the mix, in both engines;
+      - Vitest for the decode cache and its cap.
+- [ ] Player: a video's sound on the audio clock (item 19): the sound's
+      buffer loops the video's range and the video follows it. Tests:
+      - item 15's checks from the tap, in Chrome and WebKit, five WebKit
+        runs in a row.
+- [ ] Docs and speed for Web Audio (item 20): stack, packaging, CREATE.md,
+      extracting, verify-player, perf (navigation p95, decode time,
+      memory).
 - [ ] User: the listening checklist (item 11), on fixtures/audio-demo in
       real Safari, desktop Chrome and a Mac app built for it. The
       orchestrator does not tick this; the user reports, and any finding

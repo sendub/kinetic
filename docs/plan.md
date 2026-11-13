@@ -2289,11 +2289,15 @@ The user's decisions (2026-11-09):
 
 Settled here, open to revisit:
 
-- **HTMLAudioElement only.** Under file:// in Chrome, Web Audio fed from
-  an element outputs zeros, and fetch of a sibling file fails (measured).
-  Bytes embedded in a script would add a third to the file size, plus
-  decoded PCM of about 69 MB for a 3-minute stereo track. Chrome leaves
-  a 3-11 ms seam at each loop (measured); that is accepted.
+- **Web Audio from script-held bytes** (changed 2026-11-11, item 16;
+  until then HTMLAudioElement only). An element cannot start a sound at
+  an exact moment, so its loops left a gap at every wrap and a video's
+  restart click was cut, by ear in Safari, Chrome and the Mac app. Under
+  file:// in Chrome, fetch fails and a media-element source outputs
+  zeros, so each audio file ships as a script holding its bytes, decoded
+  with `decodeAudioData` and played by buffer sources: loops are
+  sample-exact, at a cost of a third more bytes and decoded PCM in memory
+  (about 23 MB a minute in stereo), decoded on demand under a cap.
 - **Videos stay muted.** An unmuted video may be refused autoplay and
   would stall. A video's own soundtrack plays as a separate track
   synced to it.
@@ -2715,6 +2719,72 @@ For the converting agent, compared with their request:
     listens to both in Safari and Chrome; the route chosen then becomes the
     fix for items 14 and 15, and the Settled list changes if it is Web
     Audio.
+
+    The user chose Web Audio (2026-11-11). The trial measured buffer loops
+    bit-exact in Chrome and WebKit, every click of the video sound present
+    at full level, 24 ms early to 48 ms late against the frames, and
+    `decodeAudioData` exact at the start for AAC (M4A), Vorbis in WebM,
+    WAV, FLAC and Opus in Ogg, with MP3 (WebKit +576 samples), Opus in
+    WebM (Chrome -24) and Vorbis in Ogg (WebKit -128) not. Items 17-20
+    carry it out; items 14 and 15 close when they pass and the user has
+    listened again.
+17. Audio files ship as scripts (format, kinetic-media, kinetic-extract,
+    the validator, the fixture builders, assemble_folder).
+    - A track's `file` still names the audio file. Beside it the folder
+      ships `<file>.js`, a script that hands the player the file's bytes
+      (base64) through one global function the player defines; the exact
+      shape is set here and documented in docs/content-format.md "Audio".
+      The player reads only the script.
+    - kinetic-media's `audio` kind, kinetic-extract and
+      fixtures/build_audio_demo.py write the script beside each shipped
+      audio file, deterministically; the ledger and `rebuild` cover it.
+      `tools/assemble_folder.py` writes a missing script for a
+      hand-written folder's tracks. Until item 18 the audio file still
+      ships too; from item 18 the assembled folder ships only the
+      scripts.
+    - Loop-safe formats: a track that loops (music, ambience, a video's
+      sound) ships only in a format `decodeAudioData` decodes with no
+      lead change in Chrome and WebKit (AAC, Vorbis in WebM, WAV, FLAC,
+      Opus in Ogg as measured). A kinetic-media request says it loops,
+      and such a source in MP3, Opus in WebM or Vorbis in Ogg is remuxed
+      (Vorbis into WebM) or re-encoded to a loop-safe format, with a new
+      self-test golden. The validator warns on a looping track in an
+      unsafe format. The audio demo's loops move to safe formats.
+18. Player: sound on Web Audio (render/audio.ts and audiorules.ts).
+    - One AudioContext, resumed inside the first key that unlocks sound
+      (the hint and the rules of item 5 stay). Tracks load by adding
+      their script, decode with `decodeAudioData`, and stay decoded in an
+      LRU under a byte cap (a named constant, measured), the next items'
+      tracks decoded ahead as the warm-up.
+    - Music and ambience: buffer sources with `loop`, `loopStart` and
+      `loopEnd` from the track, so every wrap is sample-exact; one-shots
+      and voice: buffer sources. Volume, fades and the duck are gain
+      AudioParams. Item 14's element trade, lead learning and output-grid
+      timing go.
+    - Every pause rule of items 5 and 7 holds (Esc, the Volumes sheet, the
+      map, a hidden page), with a paused source resuming where it
+      stopped.
+    - The `#audio` hook and `current().audio` keep their shape (slot,
+      track, paused, currentTime, volume per playing sound; target;
+      unlocked), computed from the engine.
+    - Automated runs stay silent: Chrome's fake output covers Web Audio;
+      for the WebKit driver it is measured whether the page mute does,
+      and if not the testing launchers set a test-only master mute.
+    - Tests: item 14's checks (loops play on with no gap) read from a
+      test-only tap of the mix in both engines, as the trial measured.
+19. Player: a video's sound on the audio clock (render/audio.ts,
+    render/visual.ts). The sound is the master: its buffer loops the
+    video's range (`loopStart` at the restart point, `loopEnd` at the
+    range end), and the video follows it, sought ahead of each wrap and on
+    drift. Item 15's checks (no click skipped or doubled across ten wraps,
+    every click within 80 ms of its wall hit) read from the tap. The
+    element trade of item 15 goes.
+20. Docs and speed: docs/stack.md's audio decision, docs/packaging.md
+    (sizes with scripts), CREATE.md and docs/extracting.md (scripts,
+    loop-safe formats), docs/verify-player.md (the checklist unchanged
+    unless a step's sound changes), docs/perf.md (navigation p95 with
+    Web Audio on the audio demo and the 160,000-item story, decode time
+    and memory against the cap).
 
 Not verified, and not verifiable on this machine: WebM Vorbis and Opus in
 Safari 15-17 (caniuse and WebKit bug 183852 say yes), WebView2's autoplay,
