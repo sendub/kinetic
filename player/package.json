@@ -11,6 +11,7 @@
     "perf:map": "node scripts/mapperf.mjs",
     "perf:save": "node scripts/saveperf.mjs",
     "perf:sound": "node scripts/soundperf.mjs",
+    "perf:decode": "node scripts/decodeperf.mjs",
     "package-proof": "node scripts/package-proof.mjs",
     "verify": "node scripts/build.mjs && node scripts/scenarios/run.mjs",
     "test": "vitest run",

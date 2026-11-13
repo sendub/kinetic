@@ -3600,7 +3600,7 @@ truthful: an unchecked box means nothing was accepted.
       0` and 3 frames of pre-roll, and Ogg Opus with a page of pre-roll.
       Orchestrator reproduced 3284 against 190 ms in the WebKit driver.
       The user chose the player fix, item 22.)
-- [ ] Player: fast AAC decodes in WebKit (item 22): AAC decoded at twice
+- [x] Player: fast AAC decodes in WebKit (item 22): AAC decoded at twice
       the context's rate on an OfflineAudioContext with every second
       sample kept, each file on its own OfflineAudioContext, in WebKit
       only. Tests:
@@ -3608,6 +3608,41 @@ truthful: an unchecked box means nothing was accepted.
       - in WebKit a 3-minute stereo AAC ready within 0.5 s and a short
         sound during its decode within 0.1 s;
       - item 14's loop checks from the tap in both engines.
+      (2026-11-13: render/audioload.ts holds the script reader (moved
+      from audio.ts), `isWebKit` (`navigator.vendor === "Apple Computer,
+      Inc."`, which Safari, WKWebView, iOS browsers and the driver report;
+      the user agent cannot tell the driver from Chrome), `aacRates` (ADTS
+      after ID3, or MP4 down to the AudioSpecificConfig, HE-AAC's core
+      and doubled rates), `decodePlan`, `keepEvery` and the track
+      decoder. In WebKit every file decodes on its own
+      OfflineAudioContext, and only an AAC whose own rate is the
+      context's decodes at twice it (three times when twice is also one
+      of its rates) with every second sample kept: the brief's wider rule
+      kept 881,470 samples where the usual decode gives 881,471 for a 48
+      kHz file on a 44.1 kHz context, and would fold a higher-rate file's
+      top octave, while every other AAC is fast already. The plan's text
+      changed to match. Kept buffers have the usual decode's length and
+      first sample at lag 0 over 48 and 44.1 kHz, mono and stereo, odd
+      and even lengths, M4A and ADTS; they differ by at most 7.9e-3 on
+      full-band pink noise, almost all above 15 kHz (101 dB under the
+      signal below it). `DECODED_CAP_BYTES` stays 200 MiB (a dropped
+      track now costs 0.13-0.33 s to decode again). New `npm run
+      perf:decode` (docs/perf.md, AGENTS.md) synthesizes its tracks with
+      PATH ffmpeg. 42 Vitest tests, 31 red against the old decode; the
+      timing check red on HEAD in WebKit (3217 ms long track, 3096 ms
+      clip); breaks (odd samples kept, the wider rule, a shared context)
+      fail 16, 4 and 3 tests. Orchestrator: npm test 1210 (two runs),
+      check clean, smoke 6/6; `perf:decode` in the WebKit driver: 3-minute
+      48 kHz stereo AAC 3211 -> 189 ms, a 10 s clip asked for during it
+      3126 -> 13 ms, keeping 11 ms; Chrome unchanged (198, 13 ms); Chrome
+      `audio videosound screens menus` 199/200 at load average 13, the
+      miss item 19's seek check (Chrome's video presented its restart 230
+      ms late and then no frame for 800 ms), passing in 3 Chrome
+      `videosound` runs at load 4-5 and taken up as a fix of item 19;
+      WebKit `audio videosound screens` 204/206 (the 2 known fullscreen
+      partials); navigation p95 on the audio demo 34.6 ms (budget 41);
+      check-game on the assembled audio demo exit 0 in Chrome and WebKit,
+      35 of 35 items.)
 - [ ] User: the listening checklist (item 11), on fixtures/audio-demo in
       real Safari, desktop Chrome and a Mac app built for it. The
       orchestrator does not tick this; the user reports, and any finding

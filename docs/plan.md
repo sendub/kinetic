@@ -2806,10 +2806,14 @@ For the converting agent, compared with their request:
 22. Player: fast AAC decodes in WebKit (render/audio.ts; added
     2026-11-13, the user's choice after item 21). Where the engine is
     WebKit (Safari, the Mac app's WKWebView, the WebKit driver), an AAC
-    track decodes on an OfflineAudioContext at twice the context's rate,
-    and every second sample is kept in a buffer at the context's rate. A
-    file whose own rate would make that decode run at its own rate
-    decodes the usual way. In WebKit each file decodes on its own
+    track whose own rate (read from its header) is the context's rate
+    decodes on an OfflineAudioContext at twice the context's rate, and
+    every second sample is kept in a buffer at the context's rate. Any
+    other AAC already decodes fast at the context's rate and does so as
+    usual: at twice the rate a resampled length can come out one short,
+    and keeping every second sample of a file above the context's rate
+    would fold its top octave into the band (found in the item,
+    2026-11-13). In WebKit each file decodes on its own
     OfflineAudioContext, so no decode waits behind another. Chrome,
     WebView2 and Firefox decode as now. The kept buffer starts on the
     same sample as the usual decode and has the same length; loops and

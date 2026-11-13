@@ -630,3 +630,81 @@ skip, and Phase 12's settle press gave it a gap before each move. Now each
 press arrives on an unsettled item, so most measured pictures decode cold.
 This was not investigated further, since every p95 here is under 41 ms.
 
+## Decode time (Phase 47)
+
+docs/plan.md Phase 47, items 21 and 22. A track decodes whole before it
+plays (render/audioload.ts). In WebKit, before item 22, a 3-minute stereo
+AAC took about 3.2 s from the player's request to its buffer, so a jump to
+a scene whose long track was not warmed up started it that late, and a
+short sound asked for meanwhile waited behind it. Item 22 decodes each file
+on an OfflineAudioContext of its own in WebKit, and an AAC whose rate is
+the context's at twice that rate, keeping every second sample. Chrome,
+Edge, WebView2 and Firefox decode as before.
+
+`player/scripts/decodeperf.mjs` (`npm run perf:decode` from `player/`; it
+bundles render/audioload.ts itself, so no build is needed) times this in
+the WebKit driver and headless Chrome. It is a perf script rather than a
+scenario part: it times a few hundred milliseconds, which four scenario
+units side by side would blur, and it makes its media at run time with
+PATH ffmpeg into `.tmp/perf-decode/` (kept for the next run, `--fresh`
+makes them again), all synthetic pink noise and tones. It prints a summary,
+writes `.tmp/perf-decode.json` and exits 1 when an engine fails:
+
+- Same result: 20 s AAC files at 48 kHz and 44.1 kHz, mono and stereo,
+  with an even and an odd number of samples, in M4A and ADTS, plus a FLAC.
+  The player decodes each on a context at 48 kHz and at 44.1 kHz, and each
+  is compared with `decodeAudioData` on an OfflineAudioContext at that rate.
+  A decode at twice the rate must keep the length and first sample, align
+  at lag 0, stay within 0.02 per sample, and keep the difference below
+  15 kHz at least 60 dB under the signal there. Every other decode must
+  match sample for sample.
+- Timing: a 3-minute stereo AAC at 48 kHz and one at 44.1 kHz, each asked
+  for alone, and a 10 s stereo AAC clip asked for 100 ms after the 48 kHz
+  one. Each is timed from the request (the script tag) to the buffer,
+  through the player's decode ("after") and through `decodeAudioData` on
+  the player's context ("before"), on a fresh page each, in shuffled order,
+  five rounds. WebKit passes when the median of each long track is within
+  500 ms and the clip's within 100 ms. Chrome passes when no median after
+  is slower than before by more than a factor of 1.25 plus 25 ms. The
+  keeping of every second sample of 3 minutes of stereo, alone on the main
+  thread, is reported too.
+
+| case (2026-11-13), median ms over 5 rounds | WebKit before | WebKit after | Chrome before | Chrome after |
+| --- | --- | --- | --- | --- |
+| 3-minute stereo AAC, 48 kHz | 3165-3346 | 187-192 | 195-197 | 194-198 |
+| 3-minute stereo AAC, 44.1 kHz | 131-134 | 131-134 | 323-332 | 320-327 |
+| 10 s clip asked for 100 ms into the 48 kHz decode | 3129-3330 | 13-15 | 13 | 12-13 |
+| the 48 kHz track under that clip | 3214-3416 | 180-189 | 196-197 | 197-212 |
+
+Three runs on an Apple M2 (8 cores, 16 GB), macOS 27.2, the system WebKit
+and headless Chrome 157, each with a context at 48 kHz, at load average
+2.9-4.0. The slowest single round after item 22 was 246 ms for the 48 kHz
+track and 16 ms for the clip in WebKit. The keeping took a median of
+12-14 ms in WebKit (11-22 ms per round), where item 21's one-sample-a-step
+loop took about 16 ms. The
+44.1 kHz track does not take the new path on a 48 kHz context: it decodes
+the usual way, now on its own context, which was already fast.
+
+Same result in WebKit: the decodes at twice the rate kept every length,
+first sample and alignment, and differed from the usual decode by 1.7e-3
+to 7.9e-3 at most. Below 15 kHz the difference is 101 dB under the signal;
+nearly all of it lies above 15 kHz, where the resampler at the higher rate
+rolls off the top of the band. On the audio demo's calm tune (AAC, 48 kHz)
+the tap read the mix within 8.9e-6 of the usual decode looped, through
+three wraps (the `audio` scenario, which allows 1e-3). Every other WebKit
+decode, and every Chrome decode, matched the usual decode exactly.
+
+Rejected with data: decoding every AAC at twice the context's rate, not
+only one at the context's own rate. A 48 kHz ADTS file on a 44.1 kHz
+context then keeps 881,470 samples where the usual decode gives 881,471,
+because WebKit's resampled lengths are not always exact multiples. A file
+above the context's rate would also fold its band above half the context's
+rate into the audible band, and at any other rate the usual decode is
+already fast.
+
+The decoded-audio cap (render/audiocache.ts `DECODED_CAP_BYTES`, 200 MiB,
+three 3-minute stereo tracks) stays. A dropped track met again now costs
+0.13-0.33 s rather than 3.2 s. That is still a late start on a walk back,
+and the memory is what item 18 measured. While WebKit decodes at twice the
+rate, it holds a buffer twice the kept one's size (138 MB for that track)
+outside the cap, until the samples are kept.

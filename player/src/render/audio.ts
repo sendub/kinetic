@@ -1,15 +1,15 @@
-// The sound (docs/plan.md Phase 47, items 5, 6, 7 and 18): what the machine
-// says should sound (`Machine.targetSound`), on the arrivals render/
-// audiorules.ts's director picks out. It reads machine state and signals
-// the machine only through `setVoiceAudible`.
+// The sound (docs/plan.md Phase 47, items 5, 6, 7, 18 and 22): what the
+// machine says should sound (`Machine.targetSound`), on the arrivals
+// render/audiorules.ts's director picks out. It reads machine state and
+// signals the machine only through `setVoiceAudible`.
 //
 // Web Audio (item 18). One AudioContext, made at mount for a game with
 // audio; a manifest without audio makes nothing (`mountAudio` returns
 // null). A track's bytes come from the script its folder ships beside it
-// (`<file>.js`, docs/content-format.md "Audio"), as under file:// Chrome
-// refuses fetch and a media-element source gives zeros: the script hands
-// them, base64, to `window.__kineticAudio`, they are decoded with
-// `decodeAudioData`, and the string and the tag go. Buffers stay decoded in
+// (`<file>.js`, docs/content-format.md "Audio") and are decoded to a buffer
+// at the context's rate, as render/audioload.ts reads and decodes them (in
+// WebKit each file on a context of its own, and an AAC whose rate is the
+// context's at twice it; item 22). Buffers stay decoded in
 // render/audiocache.ts's LRU under `DECODED_CAP_BYTES`, never dropping one
 // a sound holds; the warm-up decodes the next items' tracks ahead, and a
 // track wanted before its buffer is ready starts the moment it is.
@@ -93,6 +93,7 @@ import type {
   TargetSound,
 } from "../machine/types";
 import { createDecodeCache, DECODED_CAP_BYTES } from "./audiocache";
+import { createScriptReader, trackDecoder } from "./audioload";
 import {
   type AudioSlot,
   createSfxPool,
@@ -139,8 +140,6 @@ interface TestAudio {
 declare global {
   // Test only: player/scripts/testing/testaudio.mjs sets it.
   var KINETIC_TEST_AUDIO: TestAudio | undefined;
-  // Each track's script (`<file>.js`) calls it with its file's bytes.
-  var __kineticAudio: ((file: unknown, base64: unknown) => void) | undefined;
 }
 
 /** The hint shown while the browser refuses sound until a key or click. */
@@ -319,18 +318,6 @@ interface Sound {
 
 const now = (): number => globalThis.performance.now();
 
-/** A file's bytes from base64 (`Uint8Array.fromBase64` where there is one). */
-function bytesOf(base64: string): ArrayBuffer {
-  const native = (
-    Uint8Array as unknown as { fromBase64?: (text: string) => Uint8Array }
-  ).fromBase64;
-  if (typeof native === "function") return native(base64).buffer as ArrayBuffer;
-  const text = atob(base64);
-  const bytes = new Uint8Array(text.length);
-  for (let i = 0; i < text.length; i += 1) bytes[i] = text.charCodeAt(i);
-  return bytes.buffer;
-}
-
 /**
  * Mounts the sound for `manifest`, or returns null when it has none, or
  * the browser has no Web Audio (no context, no listener). Sound on at
@@ -504,49 +491,15 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
   const canRun = (): boolean => ctx.state === "running" || blessed;
 
   // --- loading -----------------------------------------------------------------
-  /** Track scripts on the page, by file: the bytes once the script gave them. */
-  const scripts = new Map<
-    string,
-    { tag: HTMLScriptElement; bytes: ArrayBuffer | null }
-  >();
-  const receive = (file: unknown, base64: unknown): void => {
-    if (typeof file !== "string" || typeof base64 !== "string") return;
-    const script = scripts.get(file);
-    if (script !== undefined && script.bytes === null) {
-      script.bytes = bytesOf(base64);
-    }
-  };
-  win.__kineticAudio = receive;
-
-  /** `file`'s bytes, from its script (`<file>.js`), which then goes. */
-  function fetchBytes(file: string): Promise<ArrayBuffer> {
-    return new Promise((resolve, reject) => {
-      const tag = doc.createElement("script");
-      const script = { tag, bytes: null as ArrayBuffer | null };
-      scripts.set(file, script);
-      const done = (): void => {
-        scripts.delete(file);
-        tag.remove();
-      };
-      tag.addEventListener("load", () => {
-        done();
-        if (script.bytes !== null) resolve(script.bytes);
-        else reject(new Error(`${file}.js gave no bytes for ${file}`));
-      });
-      tag.addEventListener("error", () => {
-        done();
-        reject(new Error(`${file}.js did not load`));
-      });
-      tag.src = `${file}.js`;
-      doc.head.append(tag);
-    });
-  }
+  /** Each track's bytes, from its script, and their decode (audioload.ts). */
+  const reader = createScriptReader(doc, win);
+  const decodeTrack = trackDecoder(ctx, win);
 
   const cache = createDecodeCache<AudioBuffer>({
     capBytes: DECODED_CAP_BYTES,
     decode: (file) =>
-      fetchBytes(file).then((bytes) =>
-        ctx.decodeAudioData(bytes).catch((error: unknown) => {
+      reader.bytes(file).then((bytes) =>
+        decodeTrack(bytes).catch((error: unknown) => {
           // Reported, so a game's test run lists it as it lists a
           // picture that will not decode.
           console.error(`Failed to decode audio: ${file}`);
@@ -1639,9 +1592,7 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
       doc.removeEventListener("visibilitychange", onVisibility);
       if (frame !== 0) win.cancelAnimationFrame(frame);
       silence();
-      for (const { tag } of scripts.values()) tag.remove();
-      scripts.clear();
-      if (win.__kineticAudio === receive) win.__kineticAudio = undefined;
+      reader.destroy();
       ctx.close().catch(() => undefined);
       hook.remove();
       hint.remove();

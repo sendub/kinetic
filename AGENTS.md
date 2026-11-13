@@ -91,9 +91,10 @@ are implementing and docs/stack.md for settled decisions.
   is missing.
 - Perf, from `player/` after `npm run build` (docs/perf.md): `npm run
   perf` (navigation p95 in Chrome; `-- DIR... [--start ID]` walks other
-  folders), `perf:map`, `perf:save`, and `perf:sound` (target sound in
+  folders), `perf:map`, `perf:save`, `perf:sound` (target sound in
   Node; `-- --folder DIR` writes its 160,000-item story as a game folder
-  for `perf`).
+  for `perf`), and `perf:decode` (track decode time and result in WebKit
+  and Chrome; needs PATH ffmpeg, no build).
 - ffmpeg and macOS `sips` are on PATH (fixture builders use them); there
   is no Rust toolchain.
 
