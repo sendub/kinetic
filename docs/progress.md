@@ -3569,6 +3569,14 @@ truthful: an unchecked box means nothing was accepted.
       runs in a row; the assembled audio demo 45 files, 2.8 MiB, no
       audio file left, validator clean, check-game exit 0 in Chrome and
       WebKit with 35 of 35 items.)
+- [ ] The videosound checks hold under load (item 19 follow-up, added
+      2026-11-13): in a Chrome run at load average 13 the seek check
+      failed, Chrome's video presenting its restart frame 230 ms late
+      (that click 122 ms off) and then no frame for 800 ms (frames up to
+      749 ms behind the sound). Find whether the player can recover
+      faster or the checker judges what the browser never showed, fix
+      the cause, and keep every guarantee. Done when Chrome and WebKit
+      `videosound` pass under the load of the full suite.
 - [ ] Docs and speed for Web Audio (item 20): stack, packaging, CREATE.md,
       extracting, verify-player, perf (navigation p95, decode time,
       memory).
