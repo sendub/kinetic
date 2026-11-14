@@ -4075,12 +4075,36 @@ truthful: an unchecked box means nothing was accepted.
 
 ## Phase 50: Loops at a file's end in WebKit (2026-11-14, converting agent)
 
-- [ ] Reproduce and diagnose in WebKit and Chrome (docs/plan.md Phase
+- [x] Reproduce and diagnose in WebKit and Chrome (docs/plan.md Phase
       50, item 1): synthetic `.mkv`, `.webm` and `.mp4` clips; a range to
       the file's end as a chain, counted and a last segment; an end a
       float step below the duration; the events and element state at
       each end of the file over 3 wraps. Findings in this note; no player
       change.
+      (2026-11-14: synthetic 6 s 25 fps clips, last frame at 5.96, made
+      with PATH ffmpeg; a demo copy with chain, counted, last-segment,
+      native-`loop` (chain and background, no range) and end-a-float-
+      step-below cases per container. WebKit: every `.mkv` and `.webm`
+      case 0/3, each wrapping once and then holding on the last frame;
+      `.mp4` 3/3. Chrome: all 2/2. At the first end WebKit fires
+      `timeupdate`, `pause`, `ended`; at every later end on Matroska or
+      WebM only the periodic `timeupdate` (currentTime = duration,
+      `ended` true, `paused` false), then nothing, whichever way the
+      player seeks back (five ways tried on a bare element) and with the
+      native `loop` attribute too; a later item reusing the element gets
+      no `ended` even at its first end. VP9 in `.mp4` loops, so the
+      container path is the cause, not the codec. The end a float step
+      below the duration fails on every engine and container: `ended`
+      fires and is ignored (rVFC boundary). Two signals tried as in-page
+      patches arrive at every end on both engines: a `timeupdate` at the
+      duration (up to about 0.25 s late in WebKit, needs a pause before
+      the existing end logic), and the rVFC last frame plus one frame
+      interval (one frame late, estimates the interval). Both need
+      guards: ignore an end while seeking or below the duration, handle
+      each end once. Orchestrator: reran the probe, WebKit `.mkv` chain
+      wrapped once and held with only `timeupdate` at end 2. A counted
+      item opened by `#start=` plays one pass on every engine and
+      container, a separate lead.)
 - [ ] Fix (item 2). Tests: unit tests for the plan and boundary logic;
       a new scenario file, red first on WebKit, 3 wraps to the loop start
       per case on both engines; `media`, `segments` and `videosound` on
