@@ -4072,3 +4072,20 @@ truthful: an unchecked box means nothing was accepted.
       commit, run beside them, failed the same WebKit videosound,
       branchmap and frame-log checks, and the runs above came once the
       machine was quiet.)
+
+## Phase 50: Loops at a file's end in WebKit (2026-11-14, converting agent)
+
+- [ ] Reproduce and diagnose in WebKit and Chrome (docs/plan.md Phase
+      50, item 1): synthetic `.mkv`, `.webm` and `.mp4` clips; a range to
+      the file's end as a chain, counted and a last segment; an end a
+      float step below the duration; the events and element state at
+      each end of the file over 3 wraps. Findings in this note; no player
+      change.
+- [ ] Fix (item 2). Tests: unit tests for the plan and boundary logic;
+      a new scenario file, red first on WebKit, 3 wraps to the loop start
+      per case on both engines; `media`, `segments` and `videosound` on
+      both engines.
+- [ ] Docs (item 3): content-format.md, verify-player.md, CREATE.md if
+      an author's rule changes; every example run.
+- [ ] Phase-closer (Phase 50): full pytest, the full `npm run verify`
+      and `npm run verify -- --webkit`, package-proof.
