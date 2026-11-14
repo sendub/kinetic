@@ -162,6 +162,30 @@ export interface VideoItem extends OverlayFields {
    * not per file: items sharing one file may differ.
    */
   minPlaySeconds?: number;
+  /**
+   * The file's camera views in order, at least one (docs/content-format.md,
+   * "Video segments"). Space after the item's lines steps through them
+   * before leaving the item. Times are file times, compared exactly and
+   * free of the item's own range; the content validator enforces their
+   * order and bounds, which the player trusts.
+   */
+  segments?: readonly VideoSegment[];
+}
+
+/**
+ * One view of a video item's file (`VideoItem.segments`), in exact
+ * fractional seconds.
+ */
+export interface VideoSegment {
+  /** Where the view starts, at least 0, at or after the previous view's end. */
+  startSeconds: number;
+  /**
+   * Where the view's loop restarts, at least 0 and less than `endSeconds`,
+   * default `startSeconds`; below `startSeconds` is legal.
+   */
+  loopStartSeconds?: number;
+  /** Where the view ends: after `startSeconds`, at most `durationSeconds`. */
+  endSeconds: number;
 }
 
 /**

@@ -74,12 +74,13 @@ def folder(demo: Path, tmp_path: Path) -> Path:
 IMAGE = 4  # text-bare: a plain image item with a file
 ANIM = 5   # anim-orbit
 VIDEO = 6  # video-chain: an MP4 with no range, loop or floor fields
+TEXT = 7   # video-chain-2: a text item over video-chain
 
 
 def test_demo_roles_match_ids(demo: Path) -> None:
     ids = [item["id"] for item in read_manifest(demo)["items"]]
-    assert (ids[IMAGE], ids[ANIM], ids[VIDEO]) == (
-        "text-bare", "anim-orbit", "video-chain")
+    assert (ids[IMAGE], ids[ANIM], ids[VIDEO], ids[TEXT]) == (
+        "text-bare", "anim-orbit", "video-chain", "video-chain-2")
 
 
 def read_manifest(folder: Path) -> dict[str, Any]:
@@ -734,6 +735,252 @@ def test_video_loop_start_reported_without_schema() -> None:
     assert len(problems) == 1
     assert problems[0].startswith("manifest.json: items[0].loopStartSeconds:")
     assert "effective end" in problems[0]
+
+
+# ---------------------------------------------------------------------------
+# Video segments (docs/content-format.md § Video segments)
+# ---------------------------------------------------------------------------
+
+def segment(start: float, end: float,
+            loop_start: float | None = None) -> dict[str, float]:
+    out = {"startSeconds": start, "endSeconds": end}
+    if loop_start is not None:
+        out["loopStartSeconds"] = loop_start
+    return out
+
+
+def segment_problems(folder: Path, segments: Any, duration: float = 30.0,
+                     **fields: Any) -> list[str]:
+    """Problems of the demo with the video item's `segments` (and any other
+    video fields) set; the validator trusts `durationSeconds`."""
+    manifest = read_manifest(folder)
+    video = manifest["items"][VIDEO]
+    video["durationSeconds"] = duration
+    video["segments"] = segments
+    video.update(fields)
+    write_manifest(folder, manifest)
+    return problems_of(folder)
+
+
+SEG = f"manifest.json: items[{VIDEO}].segments"
+
+
+def test_video_segments_in_order_pass(folder: Path) -> None:
+    """Segments in order with gaps between them, the last ending at
+    `durationSeconds`, are valid; the CLI agrees."""
+    assert segment_problems(folder, [segment(0, 5), segment(6, 10, 7),
+                                     segment(12, 30)]) == []
+    proc = run_cli(folder)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+
+
+def test_video_segments_touching_pass(folder: Path) -> None:
+    """A segment may start exactly where the one before ends."""
+    assert segment_problems(folder, [segment(0, 5), segment(5, 10)]) == []
+
+
+def test_video_segments_overlap_is_rejected(folder: Path) -> None:
+    problems = segment_problems(folder, [segment(0, 5), segment(4.5, 10)])
+    assert problems == [
+        f"{SEG}[1].startSeconds: must not be before segments[0].endSeconds "
+        f"5 (found 4.5)"]
+
+
+def test_video_segments_out_of_order_are_rejected(folder: Path) -> None:
+    problems = segment_problems(folder, [segment(10, 20), segment(0, 5)])
+    assert problems == [
+        f"{SEG}[1].startSeconds: must not be before segments[0].endSeconds "
+        f"20 (found 0)"]
+
+
+def test_video_segment_negative_start_is_rejected(folder: Path) -> None:
+    """Said once: the schema's `minimum` and the validator's own rule
+    name the same location."""
+    problems = segment_problems(folder, [segment(-0.5, 5)])
+    assert len(problems) == 1
+    assert problems[0].startswith(f"{SEG}[0].startSeconds:")
+    assert "-0.5" in problems[0]
+
+
+def test_video_segment_end_not_after_start_is_rejected(folder: Path) -> None:
+    problems = segment_problems(folder, [segment(5, 5)])
+    assert problems == [
+        f"{SEG}[0].endSeconds: must be greater than startSeconds 5 "
+        f"(found 5)"]
+
+
+def test_video_segment_end_beyond_duration_is_rejected(folder: Path) -> None:
+    problems = segment_problems(folder, [segment(0, 5), segment(5, 30.5)])
+    assert problems == [
+        f"{SEG}[1].endSeconds: must not exceed durationSeconds 30.0 "
+        f"(found 30.5)"]
+
+
+def test_video_segment_loop_start_at_end_is_rejected(folder: Path) -> None:
+    problems = segment_problems(folder, [segment(0, 5, 5)])
+    assert problems == [
+        f"{SEG}[0].loopStartSeconds: must be less than endSeconds 5 "
+        f"(found 5)"]
+
+
+def test_video_segment_loop_start_past_end_is_rejected(folder: Path) -> None:
+    problems = segment_problems(folder, [segment(0, 5, 6)])
+    assert problems == [
+        f"{SEG}[0].loopStartSeconds: must be less than endSeconds 5 "
+        f"(found 6)"]
+
+
+def test_video_segment_loop_start_below_start_passes(folder: Path) -> None:
+    """As for an item's own `loopStartSeconds`, a loop may restart before
+    the segment's start, even inside the segment before."""
+    assert segment_problems(folder, [segment(0, 5), segment(6, 10, 1)]) == []
+
+
+def test_video_segment_negative_loop_start_is_rejected(folder: Path) -> None:
+    problems = segment_problems(folder, [segment(2, 5, -1)])
+    assert len(problems) == 1
+    assert problems[0].startswith(f"{SEG}[0].loopStartSeconds:")
+    assert "-1" in problems[0]
+
+
+def test_video_segment_unknown_key_is_rejected(folder: Path) -> None:
+    problems = segment_problems(folder, [dict(segment(0, 5), label="near")])
+    assert len(problems) == 1
+    assert problems[0].startswith(f"{SEG}[0]:")
+    assert "label" in problems[0]
+
+
+def test_video_segment_missing_end_is_rejected(folder: Path) -> None:
+    problems = segment_problems(folder, [{"startSeconds": 0}])
+    assert len(problems) == 1
+    assert problems[0].startswith(f"{SEG}[0]:")
+    assert "endSeconds" in problems[0]
+
+
+@pytest.mark.parametrize("index", [IMAGE, ANIM, TEXT])
+def test_segments_on_a_non_video_item_are_rejected(folder: Path,
+                                                   index: int) -> None:
+    manifest = read_manifest(folder)
+    manifest["items"][index]["segments"] = [segment(0, 1)]
+    write_manifest(folder, manifest)
+    problems = problems_of(folder)
+    assert len(problems) == 1
+    assert problems[0].startswith(f"manifest.json: items[{index}]:")
+    assert "segments" in problems[0]
+
+
+def test_video_segments_empty_list_is_rejected(folder: Path) -> None:
+    problems = segment_problems(folder, [])
+    assert len(problems) == 1
+    assert problems[0].startswith(f"{SEG}:")
+    assert "at least 1 entries" in problems[0]
+
+
+@pytest.mark.parametrize("value", ["0-5", 3, None, segment(0, 5)])
+def test_video_segments_not_a_list_is_rejected(folder: Path,
+                                               value: Any) -> None:
+    problems = segment_problems(folder, value)
+    assert len(problems) == 1
+    assert problems[0].startswith(f"{SEG}:")
+    assert "type array" in problems[0]
+
+
+@pytest.mark.parametrize("value", [5, "0-5", [0, 5], None])
+def test_video_segment_not_an_object_is_rejected(folder: Path,
+                                                 value: Any) -> None:
+    """A malformed entry is one schema problem; the validator's own
+    rules pass over it, and over its neighbours' order against it."""
+    problems = segment_problems(folder, [value, segment(0, 5)])
+    assert len(problems) == 1
+    assert problems[0].startswith(f"{SEG}[0]:")
+    assert "type object" in problems[0]
+
+
+@pytest.mark.parametrize("field", ["startSeconds", "endSeconds",
+                                   "loopStartSeconds"])
+@pytest.mark.parametrize("value", ["1", True, None, [1]])
+def test_video_segment_non_number_is_rejected(folder: Path, field: str,
+                                              value: Any) -> None:
+    entry: dict[str, Any] = segment(1, 5)
+    entry[field] = value
+    problems = segment_problems(folder, [segment(0, 1), entry,
+                                         segment(5, 6)])
+    assert len(problems) == 1
+    assert problems[0].startswith(f"{SEG}[1].{field}:")
+    assert "type number" in problems[0]
+
+
+def test_video_segments_compare_floats_exactly(folder: Path) -> None:
+    """No rounding: times copied from timing files, float noise and all,
+    touch exactly; values are stored verbatim."""
+    segments = [segment(0, 17.04), segment(17.04, 81.03999999999999),
+                segment(81.03999999999999, 120.0, 81.03999999999999)]
+    assert segment_problems(folder, segments, duration=120.0) == []
+    stored = read_manifest(folder)["items"][VIDEO]["segments"]
+    assert stored[1]["endSeconds"] == 81.03999999999999
+    assert stored[2]["startSeconds"] == 81.03999999999999
+
+
+def test_video_segments_hair_overlap_is_rejected(folder: Path) -> None:
+    """Exact comparison cuts both ways: no tolerance hides an overlap
+    of one float step."""
+    problems = segment_problems(
+        folder, [segment(0, 81.04), segment(81.03999999999999, 120.0)],
+        duration=120.0)
+    assert problems == [
+        f"{SEG}[1].startSeconds: must not be before segments[0].endSeconds "
+        f"81.04 (found 81.03999999999999)"]
+
+
+def test_video_segments_end_at_duration_with_float_noise_pass(
+        folder: Path) -> None:
+    problems = segment_problems(folder, [segment(10, 81.03999999999999)],
+                                duration=81.03999999999999)
+    assert problems == []
+
+
+def test_video_segments_outside_the_item_range_pass(folder: Path) -> None:
+    """Segments are file times, free of the item's own range."""
+    assert segment_problems(folder, [segment(0, 5), segment(20, 30, 0)],
+                            startSeconds=10.0, endSeconds=15.0,
+                            loopStartSeconds=12.0) == []
+
+
+def test_video_segment_rules_reported_without_schema() -> None:
+    """The validator's own rules, for the cross-field ones the schema
+    cannot express and the negatives it can."""
+    manifest = {"items": [{"id": "v", "type": "video", "durationSeconds": 10,
+                           "segments": [segment(-1, 4, -2), segment(3, 3),
+                                        segment(5, 11, 11)]}]}
+    assert validate_content.video_segment_problems(manifest) == [
+        "manifest.json: items[0].segments[0].startSeconds: must not be "
+        "negative (found -1)",
+        "manifest.json: items[0].segments[0].loopStartSeconds: must not be "
+        "negative (found -2)",
+        "manifest.json: items[0].segments[1].startSeconds: must not be "
+        "before segments[0].endSeconds 4 (found 3)",
+        "manifest.json: items[0].segments[1].endSeconds: must be greater "
+        "than startSeconds 3 (found 3)",
+        "manifest.json: items[0].segments[2].endSeconds: must not exceed "
+        "durationSeconds 10 (found 11)",
+        "manifest.json: items[0].segments[2].loopStartSeconds: must be "
+        "less than endSeconds 11 (found 11)",
+    ]
+
+
+@pytest.mark.parametrize("manifest", [
+    None, [], {"items": "x"}, {"items": [None, 3, "v"]},
+    {"items": [{"type": "video", "segments": "x"}]},
+    {"items": [{"type": "video", "segments": [None, 1, "s", [], {}]}]},
+    {"items": [{"type": "video", "durationSeconds": "10",
+                "segments": [{"startSeconds": "0", "endSeconds": None,
+                              "loopStartSeconds": True}]}]},
+    {"items": [{"type": "image", "segments": [segment(-1, -2)]}]},
+])
+def test_video_segment_rules_skip_malformed_input(manifest: Any) -> None:
+    """Shapes the schema reports leave the validator's own rules silent,
+    never raising."""
+    assert validate_content.video_segment_problems(manifest) == []
 
 
 def test_missing_manifest_json(folder: Path) -> None:

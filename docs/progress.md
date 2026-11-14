@@ -3927,11 +3927,26 @@ truthful: an unchecked box means nothing was accepted.
 
 ## Phase 49: Video segments (2026-11-14, converting agent + user)
 
-- [ ] Format, schema and validator (docs/plan.md Phase 49, item 1). Tests:
+- [x] Format, schema and validator (docs/plan.md Phase 49, item 1). Tests:
       one validator case per rule, passing and failing (order, touching,
       overlap, bounds, loop start, unknown keys, `segments` on a
       non-video item, an empty list); the schema agrees; the demo and
       audio demo still validate.
+      (2026-11-14: the schema's `videoItem` takes `segments` (`minItems`
+      1, `$defs/videoSegment` with no other keys); validate_content.py
+      `video_segment_problems` checks order (touching allowed), end above
+      start and within `durationSeconds`, loop start below end, exact
+      comparison, and skips malformed shapes without a traceback (the
+      schema reports them). types.ts gains `VideoSegment`; no player
+      behaviour yet. content-format.md: "Video segments" (rules, the
+      Space, Left/Right and note contract, what ignores the field, an
+      example) and validator rule 8 (later rules renumbered; no
+      reference to their numbers elsewhere). 27 tests ran red first
+      (47 failed, 6 passed, the 6 already guarded by the schema), among
+      them float noise (`81.03999999999999` touching; a one-step overlap
+      rejected) and segments outside the item's range. Orchestrator:
+      pytest tools/test_validate_content.py 268 passed, npm test 1249,
+      check clean, demo and audio demo validate.)
 - [ ] Machine: Space steps segments (item 2). Tests (machine unit): lines
       first; a video item with no lines; time before, inside and after
       the segments; a step by index after a seek that lands short; the

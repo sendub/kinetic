@@ -145,7 +145,11 @@ Per type:
   `durationSeconds`) play a sub-range of the file; optional
   `loopStartSeconds` (number, at least 0, default
   `startSeconds`) sets where a loop restarts. Video playback ranges
-  below covers all three. Measured 2026-11-02 (Safari 26.6.2 on an
+  below covers all three. Optional `segments` (a non-empty array of
+  `{startSeconds, loopStartSeconds?, endSeconds}`) lists the file's
+  camera views, which Space steps through after the item's lines;
+  Video segments below covers it, and no other item type takes it.
+  Measured 2026-11-02 (Safari 26.6.2 on an
   M2, headless Chrome 156; a probe page of container x codec samples
   counting decoded frames), video track only, since the player plays
   videos muted (a video's sound is a separate track, `videoSound` under
@@ -278,6 +282,97 @@ first frame shown after `startSeconds` may be an earlier keyframe;
 frame-exact start accuracy depends on the browser and is not
 guaranteed. What is guaranteed is that playback stays within the range
 and its `ended` fires at `endSeconds`.
+
+### Video segments
+
+One video file may hold several camera views joined by camera moves. A
+video item's optional `segments` lists those views in order, so that
+the reader steps through them after the item's lines before leaving
+the item. Each segment is an object with `startSeconds`, an optional
+`loopStartSeconds` and `endSeconds`, all times in the file in exact
+fractional seconds, and no other keys. No other item type takes
+`segments`.
+
+The validator checks:
+
+- `segments` is a non-empty array.
+- Each `startSeconds` is at least 0.
+- Each `endSeconds` is greater than its `startSeconds` and at most the
+  item's `durationSeconds`.
+- Each `loopStartSeconds` (default the segment's `startSeconds`) is at
+  least 0 and less than its `endSeconds`. Below `startSeconds` is
+  legal, as for an item: a view whose loop restarts before its camera
+  move ends sets `loopStartSeconds` there rather than starting the
+  segment earlier, which would overlap the segment before.
+- Each segment starts at or after the end of the one before. Segments
+  may touch: one ending at `17.04` followed by one starting at `17.04`
+  is valid. Comparison is exact, with nothing rounded, so times copied
+  as they are from one timing list (`81.03999999999999` included)
+  touch, and an overlap of one float step is still an overlap.
+
+Segments may lie outside the item's own `startSeconds`..`endSeconds`
+range; they are file times and the range does not bound them.
+
+Space steps segments only on the last item of the video's chain: the
+video item itself when no `text` item follows it, else the chain's last
+`text` item, so the lines come first. There, when the stage plays that
+video (a video a menu holds paused counts; a poster shown as a still
+on a `nav` arrival below the seen edge does not), a Space press does
+not leave the item. The first press makes the first segment that
+starts after the video's current time the active segment, and each
+later press steps to the next segment in the list, by index, never by
+re-reading the time. With no later segment the press advances as it
+would without `segments`, and a decision hanging off the item opens
+then. Only a manual Space press steps: auto-forward, skip, an open
+choice and an auto-pick never do. Once a segment is active the item's
+media gate counts as met, so turning auto-forward on then leaves after
+the text hold alone. Every arrival at an item starts with no active
+segment.
+
+When the active segment changes, the video seeks once to its
+`startSeconds`, plays to its `endSeconds`, then loops
+`loopStartSeconds`..`endSeconds` until the next step, counting no
+passes. A `videoSound` (Audio) follows it: the sound plays the segment
+and loops with it. A menu's pause and resume keep the active segment.
+
+Right and Left work on the same item, under the same conditions as
+Space's step, and do nothing anywhere else. Right steps to the next
+segment as Space does but never advances; on the last segment it does
+nothing. Left steps to the previous segment: before any step, to the
+segment before the one the video's current time is in, or, when the
+time is in no segment, to the last one starting before it; after a
+step, to the one before the active segment. With no such segment it
+does nothing.
+
+Each step, by Space, Right or Left, shows "View n of m" for a moment
+in the overlay's style, without blocking input: `n` counts from 1 in
+the item's `segments` and `m` is their number.
+
+Everything else ignores `segments`: the item's own range and its
+passes before any step, the poster (still the frame at the item's
+`startSeconds`), the media gate until a segment is active,
+auto-forward, skip, the wheel, bookmarks, seen marks, the branch map,
+a reload and re-entering the item (both play the item's own range from
+its `startSeconds`, with no active segment), and the validator's
+reachability walk.
+
+Example: the file loops whole under the item's lines, which start at
+its second view; after the last line, Space steps through the views
+that start after wherever the video then is, then leaves (at once when
+the video is already in its last view).
+
+```jsonc
+{
+  "id": "yard-010", "type": "video", "file": "yard-010.mp4",
+  "poster": "yard-010.poster.jpg", "durationSeconds": 30,
+  "startSeconds": 10, "loopStartSeconds": 0,
+  "segments": [
+    {"startSeconds": 0, "endSeconds": 10},
+    {"startSeconds": 10, "loopStartSeconds": 12, "endSeconds": 20},
+    {"startSeconds": 20, "endSeconds": 30}
+  ]
+}
+```
 
 ## Branches
 
@@ -885,7 +980,7 @@ The validator checks the schema plus these invariants:
 1. `manifest.json` validates against `docs/content-schema.json`.
 2. Every path in the manifest resolves to an existing file in the
    folder, except an audio track file whose script is there instead
-   (16).
+   (17).
 3. Item ids are unique.
 4. `schemaVersion` is 1; `storyId`, when present, is a slug as above;
    `title`, when present, is non-blank text of at most 200 characters;
@@ -910,34 +1005,43 @@ The validator checks the schema plus these invariants:
    validator reports the negative value and the cross-field rules.
    The validator trusts `durationSeconds`; the file's real duration
    is checked by the converter (ffprobe).
-8. Branch ids are unique: a decision `id` appears once in `branches`
+8. A video's `segments` are sound (Video segments): each
+   `startSeconds` and `loopStartSeconds` is not negative, each
+   `endSeconds` is greater than its `startSeconds` and does not exceed
+   `durationSeconds`, each `loopStartSeconds` is less than its
+   `endSeconds`, and each segment starts at or after the end of the one
+   before. Values are compared exactly, so touching segments pass. The
+   schema keeps `segments` to video items, non-empty, with no other
+   keys; the validator reports the negative values and the cross-field
+   rules.
+9. Branch ids are unique: a decision `id` appears once in `branches`
    and is distinct from every item id; a route `id` is unique within
    its decision.
-9. Branch references resolve: `after`, every route `start`/`end`, and
-   `continueAt` name existing item ids, and `continuingRoute` names a
-   route of its own decision.
-10. Route spans are sound (Branches): `start` is not after `end`;
+10. Branch references resolve: `after`, every route `start`/`end`, and
+    `continueAt` name existing item ids, and `continuingRoute` names a
+    route of its own decision.
+11. Route spans are sound (Branches): `start` is not after `end`;
     one decision's spans are pairwise disjoint and none contains its
     own `after` item; `after` precedes every route `start`; and
     `continueAt` resolves to an item after every route `end`.
-11. `continuingRoute` and `continueAt` require each other: the schema
+12. `continuingRoute` and `continueAt` require each other: the schema
     cannot express this pairing, so a `continuingRoute` without
     `continueAt`, or a `continueAt` without `continuingRoute`, is a
     problem. A route whose `result` is `"continue"` on a decision
     without both is a problem too: there is no join to continue to.
-12. A decision `prompt` is shorter than 200 characters and every
+13. A decision `prompt` is shorter than 200 characters and every
     route `label` shorter than 120.
-13. A track's `startSeconds` and `loopStartSeconds` are less than its
+14. A track's `startSeconds` and `loopStartSeconds` are less than its
     `durationSeconds`.
-14. Audio references resolve: every track id an item's `audio` names
+15. Audio references resolve: every track id an item's `audio` names
     (`music`, each `ambience` entry, each `sfx` `track`, `voice`, the
     `videoSound` `track`) is a key of `audio.tracks`, and one item's
     `ambience` ids are distinct. An item `audio` with no top-level
     tracks is one problem for that item.
-15. `videoSound` is only on video items (the schema allows it nowhere
+16. `videoSound` is only on video items (the schema allows it nowhere
     else), and its track's `durationSeconds` is at least the item's
     range end, `endSeconds ?? durationSeconds`, less 0.05 s.
-16. Each audio track file has its script beside it, `<file>.js`, and the
+17. Each audio track file has its script beside it, `<file>.js`, and the
     script is the one line Audio describes for that file: it names the
     file and holds its bytes. A track may ship its script alone, as an
     assembled folder does: the script is then the one line naming the

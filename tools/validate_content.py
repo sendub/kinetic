@@ -50,7 +50,10 @@ invariants:
    has a media-bearing item (image, animation, or video) before it; an item
    that sets `thought` true has a non-empty `text`; a video item's playback
    range is sound (`startSeconds` not negative, `endSeconds` greater than
-   `startSeconds` and no greater than `durationSeconds`); the optional
+   `startSeconds` and no greater than `durationSeconds`); its optional
+   `segments` are sound (each inside the file, with length and a loop
+   point before its end, none starting before the one before ends,
+   compared exactly; docs/content-format.md § Video segments); the optional
    `branches` table obeys its reference, span, continuingRoute/
    continueAt, and `"continue"` result rules (docs/content-format.md
    § Branches); the optional audio obeys its track range, id, ambience
@@ -926,6 +929,79 @@ def video_range_problems(manifest: Any,
     return problems
 
 
+def video_segment_problems(manifest: Any,
+                           schema_locs: set[str] = frozenset()) -> list[str]:
+    """Cross-field rules for a video item's `segments`.
+
+    Each segment's `startSeconds` is not negative, its `endSeconds`
+    exceeds its `startSeconds` and does not exceed the item's
+    `durationSeconds`, its `loopStartSeconds` is not negative and is
+    less than its `endSeconds`, and it starts at or after the end of the
+    segment before (docs/content-format.md § Video segments). Values are
+    compared exactly, never rounded, so segments copied from one timing
+    list touch. The item's own range plays no part. Malformed shapes (a
+    non-list, a non-object entry, a non-numeric value, `segments` on
+    another item type) are the schema's problems and are passed over
+    here; a negative value the schema already reported at the same
+    location is not repeated.
+    """
+    items = manifest.get("items") if isinstance(manifest, dict) else None
+    if not isinstance(items, list):
+        return []
+    problems: list[str] = []
+    for i, item in enumerate(items):
+        if not isinstance(item, dict) or item.get("type") != "video":
+            continue
+        segments = item.get("segments")
+        if not isinstance(segments, list):
+            continue
+        duration = _numeric_field(item, "durationSeconds")
+        prev_end: int | float | None = None
+        for j, seg in enumerate(segments):
+            if not isinstance(seg, dict):
+                prev_end = None
+                continue
+            problems += _segment_problems(
+                seg, f"items[{i}].segments[{j}]", j, prev_end, duration,
+                schema_locs)
+            prev_end = _numeric_field(seg, "endSeconds")
+    return problems
+
+
+def _segment_problems(seg: dict[str, Any], loc: str, j: int,
+                      prev_end: int | float | None,
+                      duration: int | float | None,
+                      schema_locs: set[str]) -> list[str]:
+    """One segment's rules; `prev_end` is the segment before's end."""
+    start = _numeric_field(seg, "startSeconds")
+    end = _numeric_field(seg, "endSeconds")
+    loop_start = _numeric_field(seg, "loopStartSeconds")
+    problems: list[str] = []
+    for field, value in (("startSeconds", start),
+                         ("loopStartSeconds", loop_start)):
+        if value is not None and value < 0 \
+                and f"{loc}.{field}" not in schema_locs:
+            problems.append(_line(f"{loc}.{field}",
+                                  f"must not be negative (found {value!r})"))
+    if start is not None and prev_end is not None and start < prev_end:
+        problems.append(_line(f"{loc}.startSeconds",
+                              f"must not be before segments[{j - 1}]."
+                              f"endSeconds {prev_end!r} (found {start!r})"))
+    if end is not None and start is not None and end <= start:
+        problems.append(_line(f"{loc}.endSeconds",
+                              f"must be greater than startSeconds "
+                              f"{start!r} (found {end!r})"))
+    if end is not None and duration is not None and end > duration:
+        problems.append(_line(f"{loc}.endSeconds",
+                              f"must not exceed durationSeconds "
+                              f"{duration!r} (found {end!r})"))
+    if loop_start is not None and end is not None and loop_start >= end:
+        problems.append(_line(f"{loc}.loopStartSeconds",
+                              f"must be less than endSeconds {end!r} "
+                              f"(found {loop_start!r})"))
+    return problems
+
+
 # ---------------------------------------------------------------------------
 # Audio (docs/content-format.md § Audio)
 # ---------------------------------------------------------------------------
@@ -1337,6 +1413,7 @@ def _validate(content_dir: Path, schema_path: Path) -> tuple[Any, list[str]]:
         problems += text_item_problems(manifest)
         problems += thought_problems(manifest)
         problems += video_range_problems(manifest, schema_locs)
+        problems += video_segment_problems(manifest, schema_locs)
         problems += branches_problems(manifest)
         problems += audio_problems(manifest)
         problems += audio_script_problems(content_dir, manifest, schema_locs)

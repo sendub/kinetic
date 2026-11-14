@@ -337,6 +337,12 @@
           "minimum": 0,
           "description": "loop restart point in exact fractional seconds, never rounded; default startSeconds, so only the first pass plays the pre-roll; must be less than the effective end (endSeconds if present, else durationSeconds), a cross-field rule the validator enforces (docs/content-format.md, Video playback ranges)"
         },
+        "segments": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/videoSegment" },
+          "description": "the camera views of the file in order, which Space steps through after the item's lines (docs/content-format.md, Video segments); each starts at or after the end of the one before (touching allowed), a cross-field rule the validator enforces; the times are file times, free of the item's own range"
+        },
         "loopCount": {
           "type": "integer",
           "minimum": 1,
@@ -359,6 +365,29 @@
           "description": "true marks text as the speaker's unspoken thought rather than spoken dialogue; requires a non-empty text, which the validator enforces"
         },
         "audio": { "$ref": "#/$defs/videoItemAudio" }
+      }
+    },
+    "videoSegment": {
+      "type": "object",
+      "required": ["startSeconds", "endSeconds"],
+      "additionalProperties": false,
+      "description": "one view of a video item's file; values in exact fractional seconds, never rounded",
+      "properties": {
+        "startSeconds": {
+          "type": "number",
+          "minimum": 0,
+          "description": "where the view starts"
+        },
+        "loopStartSeconds": {
+          "type": "number",
+          "minimum": 0,
+          "description": "where the view's loop restarts; default the segment's startSeconds; below startSeconds is legal; less than endSeconds, which the validator enforces"
+        },
+        "endSeconds": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "where the view ends; greater than startSeconds and at most the item's durationSeconds, which the validator enforces"
+        }
       }
     },
     "textItem": {
