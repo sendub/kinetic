@@ -3767,7 +3767,7 @@ truthful: an unchecked box means nothing was accepted.
 
 ## Phase 48: check-game follow-ups (2026-11-14, converting agent + user)
 
-- [ ] Media check: parallel, with progress, skippable (docs/plan.md Phase
+- [x] Media check: parallel, with progress, skippable (docs/plan.md Phase
       48, item 1). Tests:
       - the same failures as now (a missing and an undecodable picture,
         video and poster) on both engines;
@@ -3776,6 +3776,26 @@ truthful: an unchecked box means nothing was accepted.
         ignores media;
       - measured on a large game: check time before and after on both
         engines.
+      (2026-11-14: on Chrome `checkMedia()` opens up to 4 checking pages,
+      each in its own browser context on the folder's origin with the
+      player stopped, 4 lanes each, taking 8 files at a time from the
+      walking page, which logs failures as before; on WebKit the walking
+      page checks 8 at a time (more driver processes measured barely
+      faster). The page queue no longer shifts and settle() no longer
+      lists every open URL on each poll. `onProgress` feeds a stderr line
+      every heartbeat interval (`media check: C of T files checked`);
+      `--no-media-check` opens with `mediaChecks: false`, says media were
+      not checked and leaves the exit to the walk and console. Tests ran
+      red first: walk.test.mjs and kinetic.test.mjs units; checkgame parts
+      `mediaFailures` (missing and undecodable picture, undecodable video
+      and poster each named once, progress lines) and `noMediaCheck`.
+      Measured on a sample of a converted corpus game's files: Chrome
+      22.4-23.1 -> 1.7-2.1 ms a file (full check ~23 min -> ~2 min),
+      WebKit 9.0-9.2 -> 6.5-7.1. Orchestrator: npm test 1228, check clean,
+      smoke 6/6, checkgame 20/20 and creator 29/29 on both engines; a
+      30,000-step walk of that game, read-only: Chrome exit 0 in 108 s
+      with its 10,044 files checked inside 30 s, WebKit exit 0 in 193 s
+      with progress lines every 30 s.)
 - [ ] Media check covers every file a walked item references (item 2).
       Tests: an animation walked past with a broken later frame fails on
       both engines; the summary's counts on the demo.

@@ -2,7 +2,7 @@
 // the browser so they can be tested on made-up steps and times
 // (walk.test.mjs): its arguments, when a walk stops (the story's end, a
 // stuck player, `--steps`, the `--steps all` cap, `--until`), the lines it
-// prints after the walk and its exit code. check-game.mjs opens the game,
+// prints after the walk, the media check's progress line and its exit code. check-game.mjs opens the game,
 // presses Space and hands each step's current() reading to the walk.
 import { summary } from "./kinetic.mjs";
 
@@ -15,7 +15,7 @@ export const STUCK_MS = 2000;
 const NEVER_SHOWN_NAMED = 10;
 
 export const USAGE =
-  "usage: node check-game.mjs <game-folder> [--engine webkit|chrome|auto] [--steps N|all] [--start-at ID] [--until ID]";
+  "usage: node check-game.mjs <game-folder> [--engine webkit|chrome|auto] [--steps N|all] [--start-at ID] [--until ID] [--no-media-check]";
 
 /** The presses `--steps all` makes at most: twice the manifest's item count plus 1,000. */
 export const capFor = (itemCount) => 2 * itemCount + 1000;
@@ -29,9 +29,10 @@ const screenKey = (now) =>
   JSON.stringify([now.id, now.text, now.file, now.choice, now.screen]);
 
 /**
- * check-game.mjs's command line: `{ folder, engine, steps, startAt, until }`
- * (`steps` a whole number or "all", default 10), or `{ error }` for
- * anything else (exit 2 with USAGE).
+ * check-game.mjs's command line: `{ folder, engine, steps, startAt, until,
+ * mediaCheck }` (`steps` a whole number or "all", default 10; `mediaCheck`
+ * false for `--no-media-check`), or `{ error }` for anything else (exit 2
+ * with USAGE).
  */
 export function readArgs(argv) {
   const options = {
@@ -40,11 +41,16 @@ export function readArgs(argv) {
     "start-at": null,
     until: null,
   };
+  let mediaCheck = true;
   const folders = [];
   for (let at = 0; at < argv.length; at += 1) {
     const arg = argv[at];
     if (!arg.startsWith("--")) {
       folders.push(arg);
+      continue;
+    }
+    if (arg === "--no-media-check") {
+      mediaCheck = false;
       continue;
     }
     const name = arg.slice(2);
@@ -81,8 +87,13 @@ export function readArgs(argv) {
     steps,
     startAt: options["start-at"],
     until: options.until,
+    mediaCheck,
   };
 }
+
+/** The media check's progress line: `media check: C of T files checked`. */
+export const mediaCheckLine = ({ checked, total }) =>
+  `media check: ${grouped(checked)} of ${grouped(total)} ${total === 1 ? "file" : "files"} checked`;
 
 /**
  * A walk's bookkeeping. `ids` are the manifest's item ids in order; `steps`

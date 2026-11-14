@@ -21,6 +21,15 @@
 //   starts, as does a bad `--steps`.
 // - A copy whose page swallows Space after three presses is a stuck player:
 //   exit 1, naming the screen.
+// - The media check after the walk (docs/plan.md Phase 48, item 1), run in
+//   parallel: a copy with a missing picture, an undecodable picture, an
+//   undecodable video and an undecodable poster, walked with `--steps all`,
+//   names each file once and exits 1; while it checks, a progress line on
+//   stderr says how many files are checked out of how many (its interval
+//   shortened through KINETIC_CHECK_GAME_HEARTBEAT_MS).
+// - `--no-media-check` on a copy with a broken poster picture (which only
+//   the media check finds: a poster fires no event) says media were not
+//   checked and exits 0; the same copy without it exits 1.
 
 import { execFile } from "node:child_process";
 import { cpSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -45,6 +54,8 @@ export const parts = [
   startAndUntil,
   badArguments,
   stuckPlayer,
+  mediaFailures,
+  noMediaCheck,
 ];
 
 const CHECK_GAME = join(playerDir, "scripts", "testing", "check-game.mjs");
@@ -423,5 +434,108 @@ async function stuckPlayer({ check }) {
       itemLines(run.stdout).at(-1)?.id === held.id &&
       endStep(run.stdout) === null,
     { stop: stop?.[0] ?? null, ...evidence(run) },
+  );
+}
+
+// Bytes no decoder takes, stable from run to run.
+const JUNK = Buffer.from(
+  Array.from({ length: 4096 }, (_, n) => (n * 37 + 11) % 251),
+);
+
+/** The stdout lines naming a failed load of `file` in the copy `name`. */
+const failedLines = (stdout, name, file) =>
+  lines(stdout).filter(
+    (line) =>
+      line.includes("Failed to load resource") &&
+      line.includes(`/${name}/${file}`),
+  );
+
+const PROGRESS =
+  /^check-game: media check: ([\d,]+) of ([\d,]+) files? checked$/;
+
+async function mediaFailures({ check }) {
+  const name = "checkgame-broken-media";
+  const folder = demoCopy(name);
+  const missing = item("text-bare");
+  const badPicture = item("chain-still");
+  const badVideo = item("video-loops");
+  const badPoster = item("video-hold");
+  rmSync(join(folder, missing.file));
+  writeFileSync(join(folder, badPicture.file), JUNK);
+  writeFileSync(join(folder, badVideo.file), JUNK);
+  writeFileSync(join(folder, badPoster.poster), JUNK);
+  const files = [
+    missing.file,
+    badPicture.file,
+    badVideo.file,
+    badPoster.poster,
+  ];
+  const run = await checkGame(folder, ["--steps", "all"], {
+    KINETIC_CHECK_GAME_HEARTBEAT_MS: "5",
+  });
+  const naming = Object.fromEntries(
+    files.map((file) => [file, failedLines(run.stdout, name, file).length]),
+  );
+  const errorLines = lines(run.stdout).filter((line) =>
+    line.startsWith("  [error]"),
+  );
+  check(
+    "a missing picture, an undecodable picture, an undecodable video and an undecodable poster walked past are each named once after the parallel media check, exit 1",
+    run.code === 1 &&
+      endStep(run.stdout) !== null &&
+      files.every((file) => naming[file] === 1) &&
+      errorLines.length === files.length &&
+      run.stdout.includes(`\n${files.length} console or page error(s)`),
+    { naming, ...evidence(run) },
+  );
+  const progress = lines(run.stderr)
+    .map((line) => PROGRESS.exec(line))
+    .filter((m) => m !== null)
+    .map((m) => ({
+      checked: Number(m[1].replaceAll(",", "")),
+      total: Number(m[2].replaceAll(",", "")),
+    }));
+  check(
+    "while the media check runs, a progress line on stderr says how many files are checked out of how many (its interval shortened for the test), never on stdout",
+    progress.length >= 1 &&
+      progress.every(
+        (p, n) =>
+          p.total >= files.length &&
+          p.checked <= p.total &&
+          (n === 0 || p.checked >= progress[n - 1].checked),
+      ) &&
+      !run.stdout.includes("media check:"),
+    { progress: progress.slice(-4), count: progress.length },
+  );
+}
+
+async function noMediaCheck({ check }) {
+  const name = "checkgame-no-media-check";
+  const folder = demoCopy(name);
+  const badPoster = item("video-hold");
+  writeFileSync(join(folder, badPoster.poster), JUNK);
+  const skipped = await checkGame(folder, [
+    "--steps",
+    "all",
+    "--no-media-check",
+  ]);
+  check(
+    "--no-media-check on a copy with a broken poster picture walks to the end, says media were not checked, and exits 0 on the walk and the console alone",
+    skipped.code === 0 &&
+      endStep(skipped.stdout) !== null &&
+      skipped.stdout.includes(
+        "\nmedia files not checked (--no-media-check)\n",
+      ) &&
+      failedLines(skipped.stdout, name, badPoster.poster).length === 0 &&
+      skipped.stdout.trimEnd().endsWith("no console or page errors"),
+    evidence(skipped),
+  );
+  const checked = await checkGame(folder, ["--steps", "all"]);
+  check(
+    "the same copy with the media check exits 1, naming the poster",
+    checked.code === 1 &&
+      failedLines(checked.stdout, name, badPoster.poster).length === 1 &&
+      !checked.stdout.includes("not checked"),
+    evidence(checked),
   );
 }

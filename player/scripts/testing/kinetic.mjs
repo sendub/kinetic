@@ -65,6 +65,21 @@ const START_MS = 10000;
 const PRESS_GAP_MS = 90;
 // spaceUntil gives up once Space has changed nothing this many times.
 const STUCK_PRESSES = 5;
+// checkMedia(), measured on a converted corpus game's 60,000 files
+// (docs/plan.md Phase 48): one Chrome page decodes one picture at a time
+// (19-20 ms a file however many it is given), while pages in browser
+// contexts of their own add up (4 pages 5.9 ms a file, 6 pages 5.8); one
+// WebKit page decodes several at once (8.5 ms a file at 4, 6.7 at 8, 6.5
+// at 16). So on Chrome CHECKER_PAGES pages of their own check the files,
+// CHECKER_LANES at a time each, taking CHECKER_BATCH at a time from the
+// walking page; on WebKit the walking page checks them,
+// WALKING_PAGE_CHECKS at a time. Over 12,000 of that game's files left by
+// a walk (2026-11-14) that took 1.7 ms a file on Chrome (22 before) and
+// 6.5 on WebKit; 6 or 8 Chrome pages were no faster than 4.
+const CHECKER_PAGES = { chrome: 4, webkit: 0 };
+const WALKING_PAGE_CHECKS = { chrome: 4, webkit: 8 };
+const CHECKER_LANES = 4;
+const CHECKER_BATCH = 8;
 
 /**
  * The engine openGame runs: "webkit" or "chrome" as asked; "auto" is
@@ -288,12 +303,17 @@ const READ_SAVED_PLACE = async (storyId) => {
 // moved on from before either event (a fast walk aborts the load, and an
 // aborted load fires none), one whose element left the page, and every
 // poster (painted as a CSS background too, which fires no event) is
-// checked off the page instead, a few at a time: a picture decoded
-// through `new Image()`, a video loaded in a detached <video>; these wait
-// until no new file has come for a moment, so a fast walk is not slowed. A
-// failed <script> or <link> is logged as it fails. checkMedia() asks
-// `window.__kineticMedia` to check what is left and reads its count.
-const TRACK_MEDIA = () => {
+// checked off the page instead: a picture decoded through `new Image()`, a
+// video loaded in a detached <video>. These checks wait until no new file
+// has come for a moment, so a fast walk is not slowed; checkMedia() then
+// drains them, here a few at a time or handing them out (take) to pages
+// of their own that check them (check) and say how each went (report). A
+// failed <script> or <link> is logged as it fails. `offPage: false` (the
+// openGame option mediaChecks) checks nothing off the page: only the
+// elements' own events count.
+const TRACK_MEDIA = ({ offPage = true } = {}) => {
+  // Checks at once in this page while the walk pauses; checkMedia() sets
+  // its own number while it drains.
   const CHECKS_AT_ONCE = 4;
   // Checks wait while files keep coming (a walk), so they never compete
   // with it: they run once none has come for this long, or while
@@ -302,12 +322,29 @@ const TRACK_MEDIA = () => {
   // A video with no first picture by then, from a local file, is failed.
   const VIDEO_CHECK_MS = 15000;
   // URL -> { kind: "picture" | "video", state: "given" (on an element, no
-  // event yet), "queued", "checking", "ok" or "failed" }.
+  // event yet), "queued", "checking" (here), "elsewhere" (taken by another
+  // page), "ok" or "failed" }.
   const files = new Map();
-  const queue = [];
+  // URLs to check, first in first out: read from `head` on, as a shift()
+  // per file costs the whole list on a game of 60,000 files.
+  let queue = [];
+  let head = 0;
+  const queued = () => queue.length - head;
+  const dequeue = () => {
+    const url = queue[head];
+    head += 1;
+    if (head >= 1024 && head * 2 >= queue.length) {
+      queue = queue.slice(head);
+      head = 0;
+    }
+    return url;
+  };
   let checking = 0;
+  let atOnce = CHECKS_AT_ONCE;
   let lastGiven = 0;
   let draining = false;
+  // checkMedia() hands the queue to other pages: none is checked here.
+  let elsewhere = false;
   let wake = null;
   const absolute = (src) => new URL(src, document.baseURI).href;
   const fail = (url, kind) => {
@@ -349,10 +386,13 @@ const TRACK_MEDIA = () => {
       video.addEventListener("error", () => finish(false));
       video.src = url;
     });
+  const checkFile = (url, kind) =>
+    kind === "video" ? checkVideo(url) : checkPicture(url);
   const pump = () => {
+    if (!offPage || elsewhere) return;
     const quiet = performance.now() - lastGiven;
     if (!draining && quiet < QUIET_MS) {
-      if (wake === null && queue.length > 0) {
+      if (wake === null && queued() > 0) {
         wake = setTimeout(() => {
           wake = null;
           pump();
@@ -360,14 +400,13 @@ const TRACK_MEDIA = () => {
       }
       return;
     }
-    while (checking < CHECKS_AT_ONCE && queue.length > 0) {
-      const url = queue.shift();
+    while (checking < atOnce && queued() > 0) {
+      const url = dequeue();
       const file = files.get(url);
       if (file.state !== "queued") continue; // its element answered first
       file.state = "checking";
       checking += 1;
-      const check = file.kind === "video" ? checkVideo : checkPicture;
-      check(url).then((ok) => {
+      checkFile(url, file.kind).then((ok) => {
         checking -= 1;
         if (file.state === "checking") {
           if (ok) file.state = "ok";
@@ -485,23 +524,62 @@ const TRACK_MEDIA = () => {
     value: {
       // Queues every file still waiting on its element, and says how many
       // are not yet confirmed or failed (`open`, the first few named), how
-      // many files were given, and which failed.
-      settle() {
+      // many files were given, and which failed. Checks go on here,
+      // `atOnce` at a time, or with `elsewhere` only through take().
+      settle({
+        atOnce: checks = CHECKS_AT_ONCE,
+        elsewhere: away = false,
+      } = {}) {
         draining = true;
-        const open = [];
+        atOnce = checks;
+        elsewhere = away;
+        let open = 0;
+        const waiting = [];
         const failed = [];
         for (const [url, file] of files) {
           if (file.state === "given") enqueue(url);
           if (file.state === "failed") failed.push(url);
-          else if (file.state !== "ok") open.push(url);
+          else if (file.state !== "ok") {
+            open += 1;
+            if (waiting.length < 3) waiting.push(url);
+          }
         }
         pump();
-        return {
-          open: open.length,
-          waiting: open.slice(0, 3),
-          files: files.size,
-          failed,
-        };
+        return { open, waiting, files: files.size, failed };
+      },
+      // Takes up to `count` queued files for another page to check, as
+      // [{ url, kind }]: at most one video, last, so a slow video holds up
+      // no picture behind it.
+      take(count) {
+        const taken = [];
+        while (taken.length < count && queued() > 0) {
+          const url = dequeue();
+          const file = files.get(url);
+          if (file.state !== "queued") continue;
+          file.state = "elsewhere";
+          taken.push({ url, kind: file.kind });
+          if (file.kind === "video") break;
+        }
+        return taken;
+      },
+      // How the files take() gave out went, as [{ url, ok }]: each failed
+      // one is logged here, once, as if checked here.
+      report(results) {
+        for (const { url, ok } of results) {
+          const file = files.get(url);
+          if (file?.state !== "elsewhere") continue; // its element answered
+          if (ok) file.state = "ok";
+          else fail(url, file.kind);
+        }
+      },
+      // In a page of its own (a checker): checks `taken` (take()'s list)
+      // one at a time and resolves with how each went, for report().
+      async check(taken) {
+        const results = [];
+        for (const { url, kind } of taken) {
+          results.push({ url, ok: await checkFile(url, kind) });
+        }
+        return results;
       },
     },
   });
@@ -661,6 +739,18 @@ export function summary(now) {
 }
 
 /**
+ * checkMedia()'s progress: `{ checked, total }` after `previous` (null at
+ * the first count) with `open` files now left. Files answered count as
+ * checked and never go back; files that come while it checks add to the
+ * total.
+ */
+export function countChecked(previous, open) {
+  if (previous === null) return { checked: 0, total: open };
+  const checked = Math.max(previous.checked, previous.total - open);
+  return { checked, total: Math.max(previous.total, checked + open) };
+}
+
+/**
  * Opens the built game folder `folder` (its index.html and app.js) with no
  * window on screen. Options:
  * - `engine`: "webkit", "chrome" or "auto" (default: WebKit on macOS when
@@ -680,6 +770,10 @@ export function summary(now) {
  *   whose player cannot start at an item (an older one) throws once it
  *   has opened, saying so and that rebuilding with a current player
  *   fixes it.
+ * - `mediaChecks`: false loads no media file off the page to check it, so
+ *   errors() lists only the failed loads the page's own elements report
+ *   and checkMedia() throws (check-game's `--no-media-check`). Default
+ *   true.
  * - `log`: gets openGame's notes (default: stderr); null for none. Besides
  *   the engine "auto" picked, one note names symbolic links in the folder
  *   that point outside it (outsideLinks), on either engine: WebKit and
@@ -698,6 +792,7 @@ export async function openGame(folder, options = {}) {
     closeHelp = true,
     playAll = null,
     startAt = null,
+    mediaChecks = true,
     log = (line) => console.error(line),
   } = options;
   const dir = resolve(folder);
@@ -740,7 +835,9 @@ export async function openGame(folder, options = {}) {
     const page = await browser.newPage();
     const errors = collectErrors(page);
     await page.setViewport({ ...viewport, deviceScaleFactor: 1 });
-    await page.evaluateOnNewDocument(TRACK_MEDIA);
+    await page.evaluateOnNewDocument(TRACK_MEDIA, {
+      offPage: mediaChecks !== false,
+    });
     const cdp = await page.createCDPSession();
     const url = pathToFileURL(join(dir, "index.html")).href;
     await page.goto(
@@ -760,7 +857,16 @@ export async function openGame(folder, options = {}) {
       }
     }
     return gameHandle(
-      { page, cdp, errors, manifest, closeHelp },
+      {
+        page,
+        cdp,
+        errors,
+        manifest,
+        closeHelp,
+        browser,
+        indexUrl: url,
+        mediaChecks: mediaChecks !== false,
+      },
       {
         engine: chosen,
         folder: dir,
@@ -774,7 +880,30 @@ export async function openGame(folder, options = {}) {
   }
 }
 
-function gameHandle({ page, cdp, errors, manifest, closeHelp }, fields) {
+/**
+ * A page for checkMedia() in a browser context of its own: the game
+ * folder's index.html, stopped before it is parsed, so files load from the
+ * folder as the game's page loads them and no player starts; given
+ * TRACK_MEDIA for its check(). Resolves with `{ context, page }`.
+ */
+async function openChecker(browser, indexUrl) {
+  const context = await browser.createBrowserContext();
+  try {
+    const page = await context.newPage();
+    await page.evaluateOnNewDocument(() => window.stop());
+    await page.goto(indexUrl);
+    await page.evaluate(TRACK_MEDIA);
+    return { context, page };
+  } catch (error) {
+    await context.close().catch(() => {});
+    throw error;
+  }
+}
+
+function gameHandle(
+  { page, cdp, errors, manifest, closeHelp, browser, indexUrl, mediaChecks },
+  fields,
+) {
   const items = Array.isArray(manifest?.items) ? manifest.items : [];
   const ids = new Map();
   items.forEach((it, index) => {
@@ -1032,42 +1161,144 @@ function gameHandle({ page, cdp, errors, manifest, closeHelp }, fields) {
      * video and poster it showed, however fast the walk moved on) is
      * confirmed loaded or listed in errors() as failed: a file whose load
      * the walk cut short, or a poster (which fires no event), is loaded
-     * and decoded off the page to find out. Call it before reading
-     * errors() after a walk. Resolves with `{ files, failed }`: how many
-     * media files the page was given and the URLs that failed. Throws if
-     * `stall` ms pass with no file answered (default 20 s; a video check
-     * gives up, as failed, after 15 s). `onWaiting(count)`, if given, is
-     * called once before it waits, with how many files are still to
-     * check (not at all when none are).
+     * and decoded off the page to find out. On Chrome `pages` pages in
+     * browser contexts of their own (default 4) check those files (`pages`
+     * 0 checks them in the game's page, 4 at a time); on WebKit the game's
+     * page checks them 8 at a time, whatever `pages` says. Either way a
+     * failure is listed in errors() once, as one the game's page found.
+     * Call it before reading errors() after a walk. Resolves with `{
+     * files, failed }`: how many media files the page was given and the
+     * URLs that failed. Throws if `stall`
+     * ms pass with no file answered (default 20 s; a video check gives up,
+     * as failed, after 15 s), if a checking page fails, or on a game
+     * opened with `mediaChecks: false`. `onWaiting(count)`, if given, is
+     * called once before it waits, with how many files are still to check
+     * (not at all when none are); `onProgress({ checked, total })` each
+     * time that count changes, the last time with every file checked.
      */
-    async checkMedia({ stall = 20000, onWaiting = null } = {}) {
-      let fewest = Infinity;
-      let since = Date.now();
-      let first = true;
-      for (;;) {
-        const status = await page.evaluate(() =>
-          window.__kineticMedia.settle(),
+    async checkMedia({
+      stall = 20000,
+      onWaiting = null,
+      onProgress = null,
+      pages = CHECKER_PAGES[fields.engine],
+    } = {}) {
+      if (!mediaChecks) {
+        throw new Error(
+          "checkMedia: this game was opened with mediaChecks: false, which checks no media file off the page",
         );
-        if (first && status.open > 0) onWaiting?.(status.open);
-        first = false;
-        if (status.open === 0) {
-          // The failures' console lines can trail the page's answer.
-          const until = Date.now() + 3000;
-          const listed = (url) => errors.some((line) => line.includes(url));
-          while (!status.failed.every(listed) && Date.now() < until) {
-            await sleep(20);
+      }
+      const drain = {
+        atOnce: WALKING_PAGE_CHECKS[fields.engine],
+        // WebKit's own pages add little (2 more driver processes 7.5 ms a
+        // file, 4 more 7.1, against 7.8 in the game's page alone).
+        elsewhere: fields.engine === "chrome" && pages > 0,
+      };
+      const settle = () =>
+        page.evaluate((how) => window.__kineticMedia.settle(how), drain);
+      let status = await settle();
+      if (status.open > 0) onWaiting?.(status.open);
+      let progress = null;
+      const checkers = [];
+      const lanes = [];
+      let done = false;
+      let laneError = null;
+      // One of a checking page's lanes: takes a few files from the game's
+      // page, checks them there and reports how each went.
+      const lane = async (checker) => {
+        while (!done) {
+          const taken = await page.evaluate(
+            (count) => window.__kineticMedia.take(count),
+            CHECKER_BATCH,
+          );
+          if (taken.length === 0) {
+            await sleep(50);
+            continue;
           }
-          return { files: status.files, failed: status.failed };
-        }
-        if (status.open < fewest) {
-          fewest = status.open;
-          since = Date.now();
-        } else if (Date.now() - since >= stall) {
-          throw new Error(
-            `checkMedia: ${status.open} media file(s) neither loaded nor checked in ${stall} ms: ${status.waiting.join(", ")}`,
+          const results = await checker.evaluate(
+            (files) => window.__kineticMedia.check(files),
+            taken,
+          );
+          await page.evaluate(
+            (answers) => window.__kineticMedia.report(answers),
+            results,
           );
         }
-        await sleep(50);
+      };
+      try {
+        if (drain.elsewhere && status.open > 0) {
+          // No more pages than there are batches to give them.
+          const count = Math.min(pages, Math.ceil(status.open / CHECKER_BATCH));
+          const opening = await Promise.allSettled(
+            Array.from({ length: count }, () => openChecker(browser, indexUrl)),
+          );
+          for (const opened of opening) {
+            if (opened.status === "fulfilled") checkers.push(opened.value);
+          }
+          const refused = opening.find((o) => o.status === "rejected");
+          if (refused !== undefined) {
+            throw new Error(
+              `checkMedia: a checking page did not open: ${refused.reason?.message ?? refused.reason}`,
+            );
+          }
+          for (const checker of checkers) {
+            for (let n = 0; n < CHECKER_LANES; n += 1) {
+              lanes.push(
+                lane(checker.page).catch((error) => {
+                  if (!done) laneError ??= error;
+                }),
+              );
+            }
+          }
+        }
+        let fewest = Infinity;
+        let since = Date.now();
+        for (;;) {
+          if (laneError !== null) {
+            throw new Error(
+              `checkMedia: a checking page failed: ${laneError.message}`,
+            );
+          }
+          const next = countChecked(progress, status.open);
+          if (
+            progress === null ||
+            next.checked !== progress.checked ||
+            next.total !== progress.total
+          ) {
+            progress = next;
+            if (progress.total > 0) onProgress?.(progress);
+          }
+          if (status.open === 0) {
+            // The failures' console lines can trail the page's answer.
+            const until = Date.now() + 3000;
+            const listed = (url) => errors.some((line) => line.includes(url));
+            while (!status.failed.every(listed) && Date.now() < until) {
+              await sleep(20);
+            }
+            return { files: status.files, failed: status.failed };
+          }
+          if (status.open < fewest) {
+            fewest = status.open;
+            since = Date.now();
+          } else if (Date.now() - since >= stall) {
+            throw new Error(
+              `checkMedia: ${status.open} media file(s) neither loaded nor checked in ${stall} ms: ${status.waiting.join(", ")}`,
+            );
+          }
+          await sleep(50);
+          status = await settle();
+        }
+      } finally {
+        done = true;
+        await Promise.all(
+          checkers.map((checker) => checker.context.close().catch(() => {})),
+        );
+        await Promise.all(lanes);
+        // Checks while the walk pauses are this page's again.
+        if (drain.elsewhere) {
+          await page
+            .evaluate(() => window.__kineticMedia.settle())
+            .catch(() => {});
+        }
       }
     },
     /** The console errors and warnings and the page errors so far. */

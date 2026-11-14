@@ -32,6 +32,7 @@ import {
 } from "./core.mjs";
 import {
   chooseEngine,
+  countChecked,
   findItem,
   narrowItems,
   nearestAfter,
@@ -902,5 +903,31 @@ describe("readAudio (current()'s audio, read from the player's #audio)", () => {
 
   it("is null for a game without audio, whose player makes no #audio", () => {
     expect(readAudio(doc(null))).toBeNull();
+  });
+});
+
+describe("countChecked (checkMedia's progress)", () => {
+  it("counts the files answered since the first count, never going back", () => {
+    let progress = countChecked(null, 10);
+    expect(progress).toEqual({ checked: 0, total: 10 });
+    progress = countChecked(progress, 7);
+    expect(progress).toEqual({ checked: 3, total: 10 });
+    progress = countChecked(progress, 7);
+    expect(progress).toEqual({ checked: 3, total: 10 });
+    progress = countChecked(progress, 0);
+    expect(progress).toEqual({ checked: 10, total: 10 });
+  });
+
+  it("adds files that come while it checks to the total, not taking them off the checked", () => {
+    let progress = countChecked(null, 10);
+    progress = countChecked(progress, 4); // 6 checked
+    progress = countChecked(progress, 9); // 5 new files came
+    expect(progress).toEqual({ checked: 6, total: 15 });
+    progress = countChecked(progress, 1);
+    expect(progress).toEqual({ checked: 14, total: 15 });
+  });
+
+  it("starts at nothing to check", () => {
+    expect(countChecked(null, 0)).toEqual({ checked: 0, total: 0 });
   });
 });

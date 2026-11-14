@@ -864,7 +864,9 @@ const junk = Buffer.from(
 // CSS background too, fires no event at all): each is one errors() line
 // naming the file once checkMedia() has resolved, on each engine (Chrome
 // logs a missing file itself; the library reports the rest, and the
-// missing file once). Then a page's console.warn is listed, on Chrome as
+// missing file once). On Chrome checkMedia() checks them in pages of
+// their own (docs/plan.md Phase 48, item 1), which report each failure
+// back to the game's page, so it lands in the same errors(). Then a page's console.warn is listed, on Chrome as
 // on WebKit.
 async function failedLoads({ check }) {
   const folder = demoCopy("creator-broken");

@@ -7,10 +7,12 @@ import { describe, expect, it } from "vitest";
 import {
   capFor,
   exitCode,
+  mediaCheckLine,
   readArgs,
   STUCK_MS,
   STUCK_PRESSES,
   startWalk,
+  USAGE,
 } from "./walk.mjs";
 
 const IDS = ["a", "b", "c", "d", "e"];
@@ -344,6 +346,7 @@ describe("readArgs", () => {
       steps: 10,
       startAt: null,
       until: null,
+      mediaCheck: true,
     });
     expect(
       readArgs([
@@ -363,8 +366,17 @@ describe("readArgs", () => {
       steps: "all",
       startAt: "x",
       until: "y",
+      mediaCheck: true,
     });
     expect(readArgs(["game", "--steps", "0"]).steps).toBe(0);
+  });
+
+  it("reads --no-media-check, which takes no value, anywhere on the line", () => {
+    expect(readArgs(["--no-media-check", "game"]).mediaCheck).toBe(false);
+    expect(
+      readArgs(["game", "--no-media-check", "--steps", "all"]),
+    ).toMatchObject({ folder: "game", steps: "all", mediaCheck: false });
+    expect(USAGE).toContain("[--no-media-check]");
   });
 
   it("refuses a missing folder, a bad --engine, a bad --steps, an option without a value or an unknown option", () => {
@@ -379,9 +391,21 @@ describe("readArgs", () => {
       ["game", "--until"],
       ["game", "--start-at", "--until", "y"],
       ["game", "--fast"],
+      ["game", "--media-check"],
       ["game", "other"],
     ]) {
       expect(readArgs(argv), JSON.stringify(argv)).toHaveProperty("error");
     }
+  });
+});
+
+describe("mediaCheckLine", () => {
+  it("says how many files are checked out of how many, grouped by thousands", () => {
+    expect(mediaCheckLine({ checked: 1234, total: 60093 })).toBe(
+      "media check: 1,234 of 60,093 files checked",
+    );
+    expect(mediaCheckLine({ checked: 0, total: 1 })).toBe(
+      "media check: 0 of 1 file checked",
+    );
   });
 });
