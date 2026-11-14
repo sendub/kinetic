@@ -155,6 +155,10 @@ itself (the test-speed rules above), ticks the item with an evidence
 note, then commits and pushes before starting the next item. The
 orchestrator does not implement items inline.
 
+Unscheduled features, requested or maybe, are entries in docs/future.md.
+When the user schedules one, settle its "To settle" list with them, plan
+it as a docs/plan.md phase, and remove its entry.
+
 ## Git
 
 Subagents do not run git add/commit/push and never edit docs/progress.md;
