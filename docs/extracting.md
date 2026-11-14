@@ -460,7 +460,10 @@ each audio file"), and records it as the ledger entry's `script` (Build
 ledger, above). A script already in the folder with the right bytes is
 left untouched; one with other bytes is replaced. Making it again costs
 a base64 pass over the file, so the reuse cache keeps nothing for it: a
-warm re-ship encodes nothing and rewrites no script.
+warm re-ship encodes nothing and rewrites no script. The player reads
+only the scripts, so the copy `tools/assemble_folder.py` makes for play
+leaves the audio files out (docs/packaging.md); `kinetic-media rebuild`
+checks the converter's folder, which keeps both.
 
 `durationSeconds` comes from decoding the shipped file: ffmpeg decodes
 its first audio stream to PCM, and the sample count over the sample

@@ -514,11 +514,12 @@ content:
 - An image auto-advances when its text hold time elapses. A `text`
   item holds for its text hold time and nothing else.
 - An item's `voice` line (Item audio) holds auto-forward while the
-  reader can hear it: sound on, the Voice volume above 0, and the
-  browser letting sound play, which it does after the reader's first
-  key or click. Every hold above then lasts at least as long as the
-  line, the track's `durationSeconds` less its `startSeconds`. Manual
-  advance and skip never wait for a voice.
+  reader can hear it: sound on, the Voice volume above 0, and sound
+  unlocked, which in a browser happens at the reader's first key or
+  click other than Esc or a Cmd, Ctrl or Alt shortcut, and in the Mac
+  and Windows apps at launch. Every hold above then lasts at least as
+  long as the line, the track's `durationSeconds` less its
+  `startSeconds`. Manual advance and skip never wait for a voice.
 - An animation's loop time, in milliseconds, is `len(frames) *
   loopCount * 1000 / fps`. Auto-advance fires at the later of loop
   time and text hold time, so the loops complete before the item
@@ -640,7 +641,8 @@ item id shape, `[A-Za-z0-9][A-Za-z0-9_-]{0,63}`. A track has:
 - `durationSeconds` (required, greater than 0): the track's length.
   It is authoritative: the player plays a track up to it, or to the end
   of its decoded samples if they stop sooner, and never reads a
-  duration from the file, because WebKit misreports Ogg durations.
+  duration from the file, because WebKit misreports Ogg durations and
+  some decoders add samples past the end (Loop-safe formats).
 - `startSeconds` (at least 0, default 0): where a play starts, Ren'Py's
   `<from N>`. It is less than `durationSeconds`.
 - `loopStartSeconds` (at least 0, default: the track's `startSeconds`):
@@ -654,14 +656,18 @@ item id shape, `[A-Za-z0-9][A-Za-z0-9_-]{0,63}`. A track has:
 Several ids may share one file, for example to start one file at two
 points.
 
-Ogg is accepted with a validator warning because its timing is wrong.
-Measured 2026-11-09 with a 12.000 s Vorbis tone in headless Chrome 157
-and the WebKit driver on macOS 27.2: in WebKit the file reports 12.34 s
-and its clock runs 4-7% slower than M4A, MP3 and WebM, and in Chrome it
-plays 0.8 s past its end. Safari plays Ogg only from Safari 18.4 on
-macOS 15.4. The same Vorbis or Opus stream copied into WebM plays right
-in both engines, so kinetic-media copies Ogg Vorbis and Opus into WebM
-without re-encoding.
+Ogg is accepted with a validator warning: Safari plays Ogg only from
+Safari 18.4 on macOS 15.4, and the player decodes every track with
+`decodeAudioData`, where Vorbis in Ogg loses its first 128 samples in
+WebKit while Opus in Ogg starts on the right sample in both engines
+(Loop-safe formats). kinetic-media copies Ogg Vorbis and Opus into WebM
+without re-encoding, except a looping Opus source, which it re-encodes
+to AAC in M4A (docs/extracting.md, "Audio policy"). The rule to copy
+Ogg into WebM came first from audio elements, measured 2026-11-09 with
+a 12.000 s Vorbis tone in headless Chrome 157 and the WebKit driver on
+macOS 27.2: in WebKit the file reported 12.34 s and its clock ran 4-7%
+slower than M4A, MP3 and WebM, and in Chrome it played 0.8 s past its
+end, while the same stream copied into WebM played right in both.
 
 ### The script beside each audio file
 
@@ -682,7 +688,8 @@ __kineticAudio("media/theme.m4a","AAAAHGZ0eXBNNEEgAAACAE00QSBp...");
 - `__kineticAudio` is a global function the player defines before it
   adds the script.
 - The first argument is the track's `file` exactly as the manifest
-  names it, written as a JSON string.
+  names it, written as a JSON string. The player takes the bytes only
+  from the script of the file it asked for, under that name.
 - The second is the file's bytes in base64: RFC 4648's standard
   alphabet (`A-Z a-z 0-9 + /`) with `=` padding and no line breaks.
 - One line feed ends the line. Nothing else is in the file: no
@@ -876,8 +883,9 @@ Format rules:
 The validator checks the schema plus these invariants:
 
 1. `manifest.json` validates against `docs/content-schema.json`.
-2. Every path in the manifest, audio track files included, resolves to
-   an existing file in the folder.
+2. Every path in the manifest resolves to an existing file in the
+   folder, except an audio track file whose script is there instead
+   (16).
 3. Item ids are unique.
 4. `schemaVersion` is 1; `storyId`, when present, is a slug as above;
    `title`, when present, is non-blank text of at most 200 characters;
@@ -929,7 +937,6 @@ The validator checks the schema plus these invariants:
 15. `videoSound` is only on video items (the schema allows it nowhere
     else), and its track's `durationSeconds` is at least the item's
     range end, `endSeconds ?? durationSeconds`, less 0.05 s.
-
 16. Each audio track file has its script beside it, `<file>.js`, and the
     script is the one line Audio describes for that file: it names the
     file and holds its bytes. A track may ship its script alone, as an

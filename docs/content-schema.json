@@ -257,7 +257,7 @@
       ]
     },
     "audioPath": {
-      "description": "an audio file: mp3, m4a, wav, flac or webm. Ogg (ogg, oga, opus) passes the schema, and the validator warns about it: its timing is wrong in WebKit and Safari plays it only from macOS 15.4.",
+      "description": "an audio file: mp3, m4a, wav, flac or webm. Ogg (ogg, oga, opus) passes the schema, and the validator warns about it: Safari plays Ogg only from 18.4 (macOS 15.4) and WebKit's decode of Vorbis in Ogg loses its first 128 samples.",
       "allOf": [
         { "$ref": "#/$defs/path" },
         { "pattern": "\\.(mp3|m4a|wav|flac|webm|ogg|oga|opus)$" }

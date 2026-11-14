@@ -3640,9 +3640,32 @@ truthful: an unchecked box means nothing was accepted.
       app's real host bridge. Red first: 3 Vitest cases. Orchestrator:
       with the gate removed the unlock part failed 3 of 4 WebKit key-rule
       runs; the rest as in the entry above.)
-- [ ] Docs and speed for Web Audio (item 20): stack, packaging, CREATE.md,
+- [x] Docs and speed for Web Audio (item 20): stack, packaging, CREATE.md,
       extracting, verify-player, perf (navigation p95, decode time,
       memory).
+      (2026-11-14: docs/stack.md's audio decision rewritten for Web Audio
+      (why elements failed, why scripts, the costs, loop-safe formats,
+      WebKit's AAC decode, the video sound as clock, the browser and app
+      unlock); packaging sizes from a fresh assembly (bundle 445 KB, audio
+      demo 45 files, 2.94 MB, scripts 2.25 MB); content-format's
+      invariants 2 and 16 no longer contradict on a script alone;
+      CREATE.md (self-test 22 cases, the unlock, rebuild the converter's
+      folder not the assembled copy, a `script mismatch` row),
+      extracting.md, README.md, apps/README.md and converter/README.md
+      brought in line; the listening checklist changed only where the
+      sound changed (steps 1, 8, 12, 36, 48). `tools/validate_content.py`
+      `OGG_WARNING` now says Safari plays Ogg from 18.4 (macOS 15.4) and
+      WebKit's decode of Vorbis in Ogg loses its first 128 samples, the
+      test pinning the whole line (red first, 3 failed). perf.mjs reports
+      decoded audio through a test-only page read (`perfaudio.mjs`, 6
+      Vitest cases). docs/perf.md, load average 3.5-12: navigation p95
+      fixtures/demo 32.8-34.3 ms, audio demo 32.1-34.4, the 160,000-item
+      story 33.5-34.7 (audio stripped 33.0-34.2); the audio demo walk
+      decodes 15 tracks to 15.8 MB (7.5% of the cap), a 3-minute stereo
+      48 kHz AAC 69.1 MB. Orchestrator: npm test 1222, check clean, full
+      pytest 931, content-schema.json parses; perf on the audio demo p95
+      34.1 ms with 15 files, 15.8 MB decoded; the stack decision read
+      against plan.md's Settled list and render/audio*.ts.)
 - [x] A measurement of WebKit's decode time (item 21, added 2026-11-13;
       the user chose to measure before picking a fix for long tracks that
       start about 3.7 s late in WebKit after a jump): scratch pages time

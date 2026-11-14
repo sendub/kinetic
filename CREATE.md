@@ -312,11 +312,14 @@ loops from that item on), one-shots in `sfx`, a `voice` line, and on a
 video item the video's own soundtrack as `videoSound`, since videos always
 play muted. docs/content-format.md, "Audio", has every field, an example,
 and the rule for what plays at an item after a decision: no item needs to
-repeat the sound of the one before it.
+repeat the sound of the one before it. In a browser the sound starts at
+the reader's first key or click, and the Mac and Windows apps play it
+from launch (Playing the folder).
 
 Use `.mp3`, `.m4a` (AAC), `.wav`, `.flac` or `.webm` (Vorbis or Opus)
-files. An Ogg file passes the validator with a warning, because WebKit
-times it wrong; copy its stream into WebM instead, which changes no
+files. An Ogg file passes the validator with a warning, because Safari
+before 18.4 plays no Ogg and WebKit's decode of Vorbis in Ogg loses its
+first 128 samples; copy its stream into WebM instead, which changes no
 sample:
 
 ```sh
@@ -445,11 +448,11 @@ problem count on stderr, and exits 1. The validator checks the schema
 plus the filesystem invariants in docs/content-format.md: every
 referenced file exists inside the folder, item ids are unique, each
 video's playback range fits inside its `durationSeconds`, every track an
-item names exists, each sound file has its script holding its bytes,
-and a present `manifest.js` embeds JSON equal to `manifest.json`. An
-Ogg track, a looping track in MP3 or Opus in WebM, and a track no item
-uses each print a `warning:` line on stderr, which leaves the exit
-status alone.
+item names exists, each sound file has its script holding its bytes (or
+ships as that script alone, as an assembled folder does), and a present
+`manifest.js` embeds JSON equal to `manifest.json`. An Ogg track, a
+looping track in MP3 or Opus in WebM, and a track no item uses each
+print a `warning:` line on stderr, which leaves the exit status alone.
 
 ## Converting a Ren'Py project
 
@@ -501,7 +504,7 @@ on committed samples and each output's sha256 must equal the pinned
 "golden" value. A good run ends:
 
 ```text
-setup_media_tools: self-test passed (21 cases)
+setup_media_tools: self-test passed (22 cases)
 setup_media_tools: media tools ready in .../.media-tools/macos-arm64
 ```
 
@@ -882,6 +885,12 @@ Then run the same rebuild command with that machine's paths. Add
 `--out DIR` to also write the rebuilt `media/` tree into `DIR`, which
 reproduces a folder's media from its ledger and the game alone.
 
+Rebuild the converter's folder, not the copy `tools/assemble_folder.py`
+makes for play: that copy keeps the ledger but leaves out the sound
+files, since the player reads only their scripts, so a rebuild there
+fails each one as `absent from the folder`. The scripts are checked in
+both: each must hold its rebuilt file's bytes.
+
 Reference: docs/extracting.md, "kinetic-media rebuild".
 
 ### Checking posters before delivery
@@ -1046,8 +1055,9 @@ or convert the game again with the current tools.
 | `unsupported step '…'` | This Kinetic cannot run a recorded step; use the commit that made the folder. |
 | `step … failed: …` | ffmpeg, Pillow or libjxl failed on the source; check the setup self-test passes. |
 | `output mismatch: …` | The tools made other bytes; re-run setup, and rebuild with the commit that made the folder. |
+| `script mismatch: ...` | On a sound file's `.js`: the file rebuilt right, but the script made from it is not the one the ledger records, so the ledger was edited or another Kinetic wrote it; rebuild with the commit that made the folder. |
 | `not in the ledger` | A file in `media/` no ledger lists, often left by converting into a non-empty folder; convert into an empty folder. |
-| `absent from the folder` or `folder file differs from the ledger: …` | The folder's `media/` lost or altered a file. Copy the folder again, or rebuild with `--out DIR` (a new folder) and copy `DIR/media/.` over the folder's `media/`. |
+| `absent from the folder` or `folder file differs from the ledger: …` | The folder's `media/` lost or altered a file. Copy the folder again, or rebuild with `--out DIR` (a new folder) and copy `DIR/media/.` over the folder's `media/`. Every sound file is absent from an assembled copy: rebuild the converter's folder instead. |
 | `…: existing file's sha256 is …, not the one its name gives; not replaced …` | With `--out DIR`, a file already in `DIR` under that content name holds other bytes; it is never overwritten. Delete it, or rebuild into a new `DIR`. |
 
 Reference: docs/extracting.md, "kinetic-media rebuild".
@@ -1071,12 +1081,13 @@ Run `npm run build` in `player/` first if the bundle is not current.
 Double-click `index.html` to open the novel in your default browser.
 The first keypress or click other than Esc puts the player in
 fullscreen, so that first keypress can simply be space, the advance key.
-It also starts a game's sound: a browser plays none before it, so after
-each load or reload a game with sound shows "Press any key for sound"
-until then.
-A reader who leaves fullscreen goes back on their next key or click,
-unless they choose Window on the Esc screen (kept with the other
-settings).
+It also starts a game's sound: in a browser the player plays none before
+the first key or click other than Esc or a ⌘, Ctrl or Alt shortcut,
+whatever the browser would allow, so after each load or reload a game
+with sound shows "Press any key for sound" until then. The Mac and
+Windows apps play sound from launch (Building the apps). A reader who
+leaves fullscreen goes back on their next key or click, unless they
+choose Window on the Esc screen (kept with the other settings).
 
 The controls are listed in README.md ("Playing").
 
@@ -1286,7 +1297,8 @@ Nothing appears on screen with either engine, and neither takes the
 focus. Chrome runs headless. The WebKit helper is a background program
 with no Dock icon whose one window sits off every screen; it quits
 rather than show that window. `openGame` and check-game make no sound
-either: Chrome plays to no audio device and the WebKit helper mutes its
+either: the library tells the player to hold its output at zero on every
+page, Chrome plays to no audio device and the WebKit helper mutes its
 page, while the game's sound still plays and `current().audio` reports it.
 
 ### Setting up the tests
@@ -1592,10 +1604,10 @@ The game:
     a game without sound or a player older than sound (Checking the
     sound, above). `unlocked` says the game may play: true once a key or
     click other than Esc or a ⌘, Ctrl or Alt shortcut has come, and from
-    the start in the Mac and Windows apps. `target` is what should sound on this screen, `{ music,
-    ambience, voice, videoSound }` naming tracks by id
-    (docs/content-format.md, "What plays at an item"), and `null` while
-    sound is off (`v`).
+    the start in the Mac and Windows apps. `target` is what should sound
+    on this screen, `{ music, ambience, voice, videoSound }` naming
+    tracks by id (docs/content-format.md, "What plays at an item"), and
+    `null` while sound is off (`v`).
     `elements` lists each sound holding a track as `{ slot, track,
     paused, currentTime, volume }`: `slot` is `"music"`,
     `"ambience"`, `"sfx"` (a one-shot), `"voice"`, `"video"` (a video's

@@ -51,9 +51,12 @@ demo text edit never breaks them. What the creators' testing library
 also uses (launching either engine, the key and click helpers, the
 generic page readers and the item lookup) lives in
 `player/scripts/testing/core.mjs`, which the harness re-exports. No run
-makes a sound: every Chrome starts with `--disable-audio-output` (media
-plays to a fake output stream, so no audio device opens), and the key
-helpers send Chrome no native key code except for Escape, so a key the
+makes a sound: both launchers give every page the test sound flag
+(`player/scripts/testing/testaudio.mjs`), under which the player holds
+its Web Audio master gain at 0 while its sound runs on as usual; every
+Chrome also starts with `--disable-audio-output` (media plays to a fake
+output stream, so no audio device opens); and the key helpers send
+Chrome no native key code except for Escape, so a key the
 page leaves unhandled never reaches headless Chrome's app, which would
 play the macOS alert sound. A fresh profile has Play all routes
 On (its default); a session that answers decisions itself opens with
@@ -156,7 +159,11 @@ units start longest first by `.tmp/scenario-times-webkit.json`.
 - Silent: WebKit has no fake output stream, so the driver mutes its page
   (`_setPageMuted:`). Media still plays, its clocks and events run, and
   the gesture rule holds; the muted output plays zeros. A driver that
-  cannot mute stops the run.
+  cannot mute stops the run. A muted page playing Web Audio still opened
+  a Core Audio output (docs/plan.md Phase 47, item 18), so the test sound
+  flag above, which holds the player's master gain at 0, is what keeps
+  its sound silent; the tap (`soundtap.mjs`) reads the mix before the
+  master.
 - Covered: the app's engine and web view configuration. Not covered:
   Safari itself (same WebKit, its own settings and window); the app's
   persistent storage (each driver keeps its store in memory); Retina
@@ -232,8 +239,8 @@ open ~/audio-demo-play/"Kinetic audio demo.app"
 - [ ] **1. Open: `intro-title`.** The Esc screen covers the first card.
   Its Keys card lists V, "sound on / off", after H, and its settings have
   a Sound row: Volumes... and a switch showing On. Silence, and no "Press
-  any key for sound" pill, since nothing has tried to play yet. In a
-  browser, click Window now.
+  any key for sound" pill: in a browser the Esc screen covers it. In a
+  browser, click Window now; that click is also what lets sound start.
 - [ ] **2. Space.** The Esc screen closes. Silence.
 - [ ] **3. Space -> `music-title`.** Silence.
 - [ ] **4. Space -> `music-start`.** A calm tune fades in over about a
@@ -254,12 +261,16 @@ open ~/audio-demo-play/"Kinetic audio demo.app"
   group a second: three beeps a group for 3 s, then four a group, higher,
   for 3 s, then two a group, lower, then three, four and two again. You
   never hear single beeps: the track starts 6 s in and loops back to 3 s,
-  both past them. Listen for 15 s to hear the loop.
+  both past them. Listen for 15 s to hear the loop, with no gap where it
+  jumps back.
 - [ ] **9. Space -> `music-stop`.** The beeps fade out over 2 s. Silence.
 - [ ] **10. Space -> `amb-title`.** Silence.
 - [ ] **11. Space -> `amb-start`.** A soft hiss of rain and a low, steady
   hum fade in together over a second.
 - [ ] **12. Space -> `amb-carry`.** Rain and hum play on unbroken.
+  Listen for 15 s: the rain loops every 6 s and the hum every 4 s, with
+  no gap or click at either seam. If not: say which one stops or has a
+  gap.
 - [ ] **13. Space -> `amb-shrink`.** The rain fades out over a second, and
   the hum plays on with no break or dip. If not: the hum restarts or
   dips.
@@ -330,8 +341,10 @@ open ~/audio-demo-play/"Kinetic audio demo.app"
   a click each time the bar hits a wall, once a second, over a low steady
   tone. The colour goes violet, rust, blue, then rust and blue in turn,
   2 s each, and green never shows. The tone steps up with each colour and
-  changes as the colour changes. If not: say how far the clicks drift
-  from the wall hits, and in which engine.
+  changes as the colour changes. Every wall hit has one click, the hit as
+  the clip jumps back from blue to rust too: none missing, none doubled.
+  If not: say which hits lack a click or how far the clicks drift from
+  the wall hits, and in which engine.
 - [ ] **37. Space -> `video-sync-2`.** The clip plays on under the line,
   clicks and tone in step and not starting over; the trill stays low.
 - [ ] **38. Esc.** The Esc screen opens, and the video, its clicks and
@@ -381,9 +394,9 @@ open ~/audio-demo-play/"Kinetic audio demo.app"
   plays, and "Press any key for sound" shows in a small pill at the top
   right; nothing on the screen moves for it. Press Esc: the Esc screen
   opens, still silent. Press Space: the screen closes, the pill goes, and
-  calm and rain fade in. If Chrome plays at once with no pill, note it:
-  Chrome may carry the page's earlier key over a reload, which the
-  headless runs never see. In the app, calm and rain fade in a quarter of
+  calm and rain fade in. Safari and Chrome both wait for that key, even
+  where the browser would let the page play: if one plays at once or
+  shows no pill, note it. In the app, calm and rain fade in a quarter of
   a second after the reload with no key and no pill; quit with Cmd+Q and
   open the app again, and they start the same way.
 - [ ] **49. Five notches back to `video-title`, then Tab.** After a

@@ -40,7 +40,10 @@
 // (docs/perf.md, "Navigation with sound"). Output: per-folder JSON
 // on stdout (also .tmp/perf-<name>.json) with n/p50/p95/max + the raw list,
 // plus a headless-Chrome capability probe (img.decode / createImageBitmap
-// on a file:// <img>) used to pick the preload design (docs/perf.md).
+// on a file:// <img>) used to pick the preload design (docs/perf.md). For a
+// game with sound, `audio` adds the decoded audio the walk left the player
+// holding and the buffer sources it started (perfaudio.mjs), printed as a
+// second line.
 // Exit code: 0 when both walks complete; 1 on a crash or a starved sampler.
 
 import { execFileSync } from "node:child_process";
@@ -54,6 +57,7 @@ import {
 } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { AUDIO_INSTRUMENT, decodedSummary } from "./perfaudio.mjs";
 import { chromePath, launchChrome, pressKey } from "./testing/core.mjs";
 
 const playerDir = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -259,6 +263,7 @@ async function walk(browser, folder) {
   const pageErrors = [];
   page.on("pageerror", (error) => pageErrors.push(String(error)));
   await page.evaluateOnNewDocument(INSTRUMENT);
+  await page.evaluateOnNewDocument(AUDIO_INSTRUMENT);
   const cdp = await page.createCDPSession();
   const start = startAt === null ? "" : `#start=${startAt}`;
   await page.goto(
@@ -329,6 +334,7 @@ async function walk(browser, folder) {
     changes: window.__perf.changes,
     ticks: window.__perf.ticks,
     errors: window.__perf.errors,
+    audio: window.__perfAudio,
   }));
   const probe = await page.evaluate(PROBE);
   const elapsedMs = Date.now() - startedAt;
@@ -390,12 +396,23 @@ function pair(folder, data, sequence, probe, elapsedMs) {
     samplerTicks: data.ticks,
     elapsedMs,
     pageErrors: data.errors,
+    audio:
+      data.audio.decodes.length > 0 || data.audio.sourcesStarted > 0
+        ? {
+            ...decodedSummary(data.audio.decodes),
+            sourcesStarted: data.audio.sourcesStarted,
+          }
+        : null,
     probe,
   };
 }
 
 function percentileLine(result) {
-  return `${result.folder}: n=${String(result.navigationsMeasured)} p50=${String(result.p50Ms)}ms p95=${String(result.p95Ms)}ms max=${String(result.maxMs)}ms budget(p95<41)=${result.budget41Ms}`;
+  const line = `${result.folder}: n=${String(result.navigationsMeasured)} p50=${String(result.p50Ms)}ms p95=${String(result.p95Ms)}ms max=${String(result.maxMs)}ms budget(p95<41)=${result.budget41Ms}`;
+  const audio = result.audio;
+  if (audio === null) return line;
+  const mb = (bytes) => (bytes / 1e6).toFixed(1);
+  return `${line}\n  audio: ${String(audio.files)} files decoded at ${audio.rates.join("/")} Hz, ${mb(audio.bytes)} MB (largest ${mb(audio.largestBytes)} MB), ${String(audio.sourcesStarted)} sources started`;
 }
 
 async function main() {

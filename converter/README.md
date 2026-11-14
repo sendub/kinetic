@@ -45,12 +45,17 @@ Sound (docs/plan.md Phase 47): the extractor reads the scripts' `play`,
 `audio` (music, ambience loops, one-shots, voice). Every file a kept
 item's cue names ships by the Audio policy (MP3, AAC in M4A, PCM WAV,
 FLAC and WebM kept; Ogg Vorbis and Opus copied into WebM; anything else
-re-encoded to Opus WebM) into `audio.tracks` with its decoded duration.
-Each video item's own sound becomes its `videoSound` when it is audible
-and lasts to the item's range end. A track that ships nothing, or starts
-past its end, drops its cues; the summary counts the tracks shipped and
-dropped and the video soundtracks found audible, silent or absent
-(docs/extracting.md, "Reading Ren'Py audio" and "Shipping the sound").
+re-encoded to Opus WebM) into `audio.tracks` with its decoded duration,
+and its script (`<file>.js`, the bytes the player reads) beside it.
+Music (unless played with `noloop`), ambience and video sounds loop, so
+one that would ship as MP3 or Opus is re-encoded to AAC in M4A instead,
+whose decode starts on the right sample (docs/content-format.md,
+"Loop-safe formats"). Each video item's own sound becomes its
+`videoSound` when it is audible and lasts to the item's range end. A
+track that ships nothing, or starts past its end, drops its cues; the
+summary counts the tracks shipped and dropped and the video soundtracks
+found audible, silent or absent (docs/extracting.md, "Reading Ren'Py
+audio" and "Shipping the sound").
 
 ## Setup
 
@@ -177,9 +182,10 @@ episodes, one game".
 This runs the media work without a story parse, for helpers that build
 the story themselves. The list is a JSON array of `{"source": {"path":
 ...} | {"archive": ..., "member": ...}, "kind":
-"image"|"video"|"audio", "startSeconds"?: N, "id"?: "..."}`, with paths
-relative to `<game_root>`. Outputs land in `<out_dir>/media/` by the
-same code as kinetic-extract. `<out_dir>/media-ledger.json` holds
+"image"|"video"|"audio", "startSeconds"?: N, "loops"?: true, "id"?:
+"..."}`, with paths relative to `<game_root>` (`loops` marks an audio
+track that loops). Outputs land in `<out_dir>/media/` by the same code
+as kinetic-extract. `<out_dir>/media-ledger.json` holds
 `mediaTools`, `decoders`, `media` and a `requests` list giving each
 request's `file`/`poster`/`width`/`height`/`durationSeconds`, decision
 and notes. Requests with a missing or unusable source come back without

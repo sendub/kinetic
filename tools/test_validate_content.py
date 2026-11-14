@@ -1842,10 +1842,15 @@ def test_ogg_track_warns_and_leaves_the_exit_alone(folder: Path,
     assert proc.returncode == 0, proc.stdout + proc.stderr
     assert proc.stdout == ""
     [warning] = warning_lines(proc)
-    assert warning.startswith(
-        "warning: manifest.json: audio.tracks.rain.file: ")
-    assert all(word in warning for word in ("WebKit", "macOS 15.4", "WebM",
-                                            "kinetic-media"))
+    # What is true now that every track decodes with decodeAudioData
+    # (docs/content-format.md § Tracks, measured in docs/plan.md Phase 47
+    # item 16), and what kinetic-media does with Ogg (assets.py).
+    assert warning == (
+        f"warning: manifest.json: audio.tracks.rain.file: Ogg audio "
+        f"'rain{ext}': Safari plays Ogg only from 18.4 (macOS 15.4) and "
+        "WebKit's decode of Vorbis in Ogg loses its first 128 samples; "
+        "kinetic-media copies Ogg into WebM, or re-encodes a looping Opus "
+        "to AAC")
     assert proc.stderr == f"{warning}\n{folder}: 1 audio warning\n"
 
 

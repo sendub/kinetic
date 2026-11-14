@@ -635,9 +635,13 @@ def video_range_problems(manifest: Any,
 # How much shorter than a video item's range end its videoSound track may be.
 VIDEO_SOUND_SLACK_SECONDS = 0.05
 OGG_EXTENSIONS = (".ogg", ".oga", ".opus")
-OGG_WARNING = ("its timing is wrong in WebKit and Safari plays it only from "
-               "macOS 15.4; kinetic-media copies Ogg Vorbis and Opus into "
-               "WebM, which plays right in both")
+# Every track decodes with decodeAudioData, where Vorbis in Ogg loses its
+# first 128 samples in WebKit and Opus in Ogg is exact in both engines
+# (audio_format.LOOP_UNSAFE; docs/content-format.md § Tracks).
+OGG_WARNING = ("Safari plays Ogg only from 18.4 (macOS 15.4) and WebKit's "
+               "decode of Vorbis in Ogg loses its first 128 samples; "
+               "kinetic-media copies Ogg into WebM, or re-encodes a looping "
+               "Opus to AAC")
 
 
 def _audio_tracks(manifest: Any) -> dict[str, Any]:
@@ -896,11 +900,11 @@ def audio_warnings(manifest: Any, content_dir: Path) -> list[str]:
     """One warning line per Ogg track file, per looping track in a format
     that is not loop-safe, and per track no item uses.
 
-    Ogg passes the schema, but its timing is wrong in WebKit and Safari
-    plays it only from macOS 15.4. MP3, Opus in WebM and Vorbis in Ogg
-    decode with their start shifted in Chrome or WebKit, which moves a
-    loop's restart (docs/content-format.md § Audio). A manifest without
-    audio gets none.
+    Ogg passes the schema, but Safari plays it only from 18.4 (macOS
+    15.4) and WebKit's decode of Vorbis in Ogg loses its first 128
+    samples. MP3, Opus in WebM and Vorbis in Ogg decode with their start
+    shifted in Chrome or WebKit, which moves a loop's restart
+    (docs/content-format.md § Audio). A manifest without audio gets none.
     """
     tracks = _audio_tracks(manifest)
     items = manifest.get("items") if isinstance(manifest, dict) else None

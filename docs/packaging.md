@@ -88,18 +88,25 @@ the zip before extracting it (CREATE.md, "Building the apps").
 
 ## Size expectations
 
-The bundle is about 415 KB (`app.js` about 325 KB, `index.html` about
-90 KB, measured 2026-11-10); everything else is media, so a novel's size
-is its media's size. The demo fixture assembles to 30 files, about 650
-KB (2026-11-10), and the audio demo to 45 files, about 2.9 MB, of which
-its 15 short mono tracks, shipped as their scripts, are 2.2 MB; the
-audio files themselves are 1.7 MB (2026-11-13). The extracted one-video slice
+The bundle is about 445 KB (`app.js` about 354 KB, `index.html` about
+91 KB, measured 2026-11-13); everything else is media, so a novel's size
+is its media's size. The demo fixture assembles to 30 files, about 680
+KB, and the audio demo to 45 files, about 2.9 MB, of which its 15 short
+mono tracks, shipped as their scripts, are 2.2 MB; the audio files
+themselves are 1.7 MB (both 2026-11-13). The extracted one-video slice
 assembled to 13 files, about 290 KB, with the smaller bundle of
 2026-11-02.
 
-Sound costs what its files cost. MP3, AAC or Opus at 96-128 kb/s takes
-about 1 MB a minute, while PCM WAV, which kinetic-media keeps
-byte-identical, takes about 10 MB a minute at 16-bit stereo 44.1 kHz.
+Sound costs a third more than its files, since an assembled folder
+ships each as its base64 script. MP3, AAC or Opus at 96-128 kb/s takes
+about 1 MB a minute, so 1-1.3 MB a minute as a script; a looping track
+kinetic-media re-encodes to AAC at 192 kb/s takes 1.4 MB a minute, 1.9
+MB as a script. PCM WAV, which kinetic-media keeps byte-identical, takes
+about 10.6 MB a minute at 16-bit stereo 44.1 kHz, 14 MB as a script. A
+content folder holds both the files and their scripts. In memory the
+player keeps each track it plays decoded, 23 MB a minute in stereo at
+48 kHz whatever the format, under a 200 MiB cap (docs/perf.md,
+"Navigation with sound").
 
 ## Honest caveats
 
@@ -108,15 +115,18 @@ byte-identical, takes about 10 MB a minute at 16-bit stereo 44.1 kHz.
   Chromium-class; the full matrix is docs/content-format.md § Items.
   When a reader's browser lacks a format, the fix is content-side:
   re-encode to a format it plays.
-- In a browser, sound starts with the reader's first key or click, and a
-  pill says "Press any key for sound" until then (README.md, "Playing").
-  The macOS app plays sound at launch. The Windows exe asks WebView2 to
-  do the same, which is not verified on Windows.
+- In a browser, sound starts with the reader's first key or click other
+  than Esc or a Cmd, Ctrl or Alt shortcut, after every load, whatever the
+  browser allows, and a pill says "Press any key for sound" until then
+  (README.md, "Playing"). The macOS app plays sound at launch. The
+  Windows exe asks WebView2 to do the same, which is not verified on
+  Windows.
 - Videos always play muted: a video's own sound ships as a separate audio
   track, its item's `videoSound` (docs/content-format.md, "Audio").
 - Ogg tracks (`.ogg`, `.oga`, `.opus`) pass the validator with a warning:
-  WebKit times them wrong and Safari before 18.4 does not play them.
-  Ship them through kinetic-media, which copies the stream into WebM.
+  Safari before 18.4 does not play them, and WebKit's decode of Vorbis
+  in Ogg loses its first 128 samples. Ship them through kinetic-media,
+  which copies the stream into WebM, or re-encodes a looping Opus to AAC.
 
 ## Tauri: superseded by the game apps
 

@@ -95,54 +95,84 @@ Known constraints of the browser host, both accepted:
 
 ## Audio decision
 
-Settled in docs/plan.md Phase 47 (the user, 2026-11-09). Sound is
-optional: a manifest without `audio` plays and validates as before
-(docs/content-format.md, "Audio").
+Settled in docs/plan.md Phase 47 (the user, 2026-11-09; the sound engine
+changed 2026-11-11, item 16). Sound is optional: a manifest without
+`audio` plays and validates as before (docs/content-format.md, "Audio").
 
 - Formats (media rule b): keep what Chrome and WebKit both play and time
   right, which is MP3, AAC in M4A, PCM WAV, FLAC, and Vorbis or Opus in
   WebM. Vorbis or Opus in Ogg is copied into WebM without re-encoding,
-  and anything else is re-encoded to Opus in WebM. In WebKit an Ogg file
-  misreports its duration and its clock runs 4-7% slow, Chrome plays it
-  0.8 s past its end, and Safari plays Ogg only from 18.4 (macOS 15.4).
-  The same stream in WebM is right in both engines, and Safari has played
-  Vorbis and Opus in WebM since 15-17.4, inside the Safari 17 baseline
-  JPEG XL already sets. The measurements and the full table are in
-  docs/extracting.md, "Audio policy".
-- HTMLAudioElement only. Under `file://` in Chrome, Web Audio fed from a
-  media element outputs zeros, and `fetch` of a sibling file fails, so
-  Web Audio cannot decode the files either (both measured). Embedding the
-  bytes in a script would add a third to the file size, plus about 69 MB
-  of decoded PCM for a 3-minute stereo track.
-- Loops: an element that loops on its own (its `loop`, or a seek while it
-  plays) goes silent at each wrap, about 100 ms in Chrome and 0.2-0.6 s in
-  WebKit, whose own loop can also stop for good at the end of an Opus WebM
-  or a WAV (measured 2026-11-10). So each music and ambience loop has two
-  elements that trade places at its end, the waiting one started its
-  learnt lead early (render/audio.ts). A wrap then lands on the engine's
-  output block nearest the end: 10.7 ms blocks in headless Chrome, 85 ms
-  in the muted WebKit driver; real output is not measured.
-- A video's own sound (`videoSound`) has two elements too, and the one
-  playing is never sought: a seek of a playing element skips or repeats
-  what lay between, which lost the click at the demo's loop restart point
-  at every wrap. The waiting one starts its learnt lead before the video
-  gets where it waits (its restart point before a wrap) and takes over
-  then. A video starting from paused (an entry, a menu's resume) waits
-  for its sound, about 0.3 s in the WebKit driver and 25 ms in Chrome.
-  The WebKit driver begins every sound on its 85 ms output grid, so a
-  start takes its least time up to one block more. Once starts show the
-  grid, a play at the same point of a block as a measured start takes as
-  long as it did: each start is played to sound on the block end nearest
-  its moment, within half a block, and a video's start from paused waits
-  for the moment its sound is known to begin. Only starts heard at full
-  volume teach this: WebKit runs the clock of an element at volume 0.001
-  from about 60 ms, without waiting for its sound (render/audio.ts).
-- The unlock: a browser refuses `play()` until the reader's first key or
-  click that counts as an activation (not Esc, not a Cmd, Ctrl or Alt
-  shortcut). The player starts every element the game needs inside that
-  handler, since WebKit then lets an element play for good but refuses
-  one first played seconds later. Until then a pill says "Press any key
-  for sound".
+  and anything else is re-encoded to Opus in WebM. On audio elements
+  (2026-11-09), WebKit misreported an Ogg file's duration and ran its
+  clock 4-7% slow, and Chrome played it 0.8 s past its end; Safari plays
+  Ogg only from 18.4 (macOS 15.4). The same stream in WebM is right in
+  both engines, and Safari has played Vorbis and Opus in WebM since
+  15-17.4, inside the Safari 17 baseline JPEG XL already sets. The
+  measurements and the full table are in docs/extracting.md, "Audio
+  policy".
+- Loop-safe formats (item 17): a track that loops (music, ambience, a
+  video's sound) ships only in a format whose `decodeAudioData` starts
+  on its first sample in Chrome and WebKit: AAC in M4A, Vorbis in WebM,
+  WAV or FLAC (Opus in Ogg starts right too, but is Ogg). MP3 starts 576
+  samples late in WebKit, and Opus in WebM loses 24 samples in Chrome,
+  which would move every wrap, so kinetic-media re-encodes a looping MP3
+  or Opus source to AAC in M4A at 192 kb/s, and the validator warns about
+  a looping track in those formats (docs/content-format.md, "Loop-safe
+  formats").
+- Web Audio, not HTMLAudioElement (item 16). An element cannot start a
+  sound at an exact moment. One that loops on its own (its `loop`, or a
+  seek while it plays) went silent at each wrap, about 100 ms in Chrome
+  and 0.2-0.6 s in WebKit (measured 2026-11-10); two elements crossfaded
+  at the seam came in 100-125 ms early in Chrome and left 170-450 ms
+  silences in WebKit; and a seek of a playing element skips or repeats
+  what lay between, which cut the click at the demo video's loop restart
+  point. By ear in Safari, Chrome and the Mac app the loops kept a gap at
+  every wrap (items 14 and 15). The player now plays every sound as an
+  `AudioBufferSourceNode` on one `AudioContext`: a loop is the source's
+  own `loop` from `loopStartSeconds` to the track's end, which the trial
+  measured bit-exact in Chrome and WebKit, and volumes, fades and the
+  duck are gain ramps on the context's clock (render/audio.ts).
+- The bytes come from scripts. Under `file://` in Chrome, `fetch` of a
+  sibling file fails and a media-element source outputs zeros (both
+  measured), so Web Audio can read neither a file nor an element. A
+  classic script loads under `file://`, so beside each audio file the
+  folder ships `<file>.js`, which hands the player the file's bytes as
+  base64 (docs/content-format.md, "The script beside each audio file"),
+  and the player decodes them with `decodeAudioData`. The player reads
+  only the scripts, so the folder `tools/assemble_folder.py` makes for
+  play leaves the audio files out (docs/packaging.md).
+- What it costs. A script is a third larger than its file, so a game's
+  sound ships a third more bytes. A track plays from its whole decoded
+  PCM, 4 bytes a sample on each channel at the context's rate: about
+  23 MB a minute in stereo at 48 kHz, 69 MB for a 3-minute track.
+  Decoded tracks stay in a least-recently-used cache under a 200 MiB cap
+  (`DECODED_CAP_BYTES`, render/audiocache.ts), which never drops a track
+  a sound holds; a track decodes when first wanted, and the warm-up
+  decodes the next 3 items' tracks ahead (docs/perf.md, "Decode time").
+- WebKit decodes AAC slowly at the file's own sample rate (a 3-minute
+  stereo track 3.5-4.2 s, growing with the square of the length; 120-200
+  ms at any other rate), and decodes one file at a time per context, so
+  a short sound waited behind a long track. In WebKit each file decodes
+  on an `OfflineAudioContext` of its own, and an AAC whose own rate is
+  the context's decodes at twice that rate, with every second sample
+  kept: about 0.19 s for that track, with the usual decode's length and
+  first sample (item 22, render/audioload.ts). Other engines decode on
+  the player's context.
+- A video's own sound (`videoSound`) is the clock the video follows. Its
+  buffer loops the video's range, from the restart point to the range
+  end, and the video is sought to its restart point just before each
+  wrap and onto its sound when the frames it shows stray more than 80 ms
+  (item 19, render/audio.ts).
+- The unlock: in a browser the player starts no sound until the reader's
+  first key or click that counts as a user activation (not Esc, not a
+  Cmd, Ctrl or Alt shortcut), whatever the engine allows. Chrome keeps
+  the context suspended until then, but the WebKit driver with the key
+  rule ran it on its own a few hundred ms after load in 4 runs of 12.
+  That key resumes the context inside its handler and still does its own
+  job.
+  Until then, with sound on, a pill says "Press any key for sound". A
+  page with a game app's host bridge (`window.kineticHost`) at load
+  plays at launch, with no hint (render/audiorules.ts `soundUnlock`).
 - The Mac app keeps `mediaTypesRequiringUserActionForPlayback = []`
   (`apps/macos/WebViewSetup.swift`), so its sound starts at launch with
   no hint.

@@ -45,7 +45,10 @@ where the game app's main menu is offered it.
 
 Both apps let the page play sound with no key or click first, so a game
 with sound plays it from launch and never shows the "Press any key for
-sound" hint a browser needs (docs/stack.md, "Audio decision").
+sound" hint a browser needs (docs/stack.md, "Audio decision"). The page
+plays at launch only when the app's host bridge (`window.kineticHost`,
+The page-to-host protocol, below) is there as it loads; without it, as
+in a browser, it waits for a key whatever the engine allows.
 
 - macOS: `macos/WebViewSetup.swift` sets
   `mediaTypesRequiringUserActionForPlayback = []`. The WebKit driver

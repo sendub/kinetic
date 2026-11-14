@@ -587,9 +587,10 @@ sound, above) written out as a game folder. The scripts changed for it:
   decisions, 5,000 music changes, the ambience set at item 0) as a game
   folder instead of timing it. Item i shows `media/p<i mod 500>.jpg`,
   copies of one demo picture, so each of 500 items in a row loads a file
-  not loaded before. The nine tracks are 2 s digitally silent WAV files.
-  The walk's 400 presses change the music about 12 times, each a 1 s
-  crossfade.
+  not loaded before. The nine tracks are 2 s digitally silent mono WAV
+  files, shipped since item 17 as an assembled folder ships them: each
+  as its script alone (`media/<id>.wav.js`). The walk's 400 presses
+  change the music about 12 times, each a 1 s crossfade.
 
 The first run on that folder found a player fault. `mountAudio` spread
 every item into `Math.max` to size its ambience elements, and Chrome threw
@@ -603,6 +604,8 @@ walked 120 items at the walk's pace with `openGame`, from item 0 and from
 `i158793`, and read `current().audio`: the music crossfaded through four
 or five tracks and the ambience played, unlocked by the first Space, as in
 the walk.
+
+With the HTMLAudioElement player of item 10 (Web Audio below):
 
 | folder (2026-11-10) | n | p50 ms | p95 ms | max ms | p95 < 41 |
 | --- | --- | --- | --- | --- | --- |
@@ -629,6 +632,48 @@ preload (app.ts `schedulePreload`) runs only on a settled item or during a
 skip, and Phase 12's settle press gave it a gap before each move. Now each
 press arrives on an unsettled item, so most measured pictures decode cold.
 This was not investigated further, since every p95 here is under 41 ms.
+
+### With Web Audio (item 20)
+
+The same walks on the Web Audio player (items 18, 19 and 22), whose
+tracks load from their scripts and decode on the player's context in
+Chrome. perf.mjs now also reads the decoded audio a walk leaves the
+player holding (`player/scripts/perfaudio.mjs`, a test-only read in the
+page: every buffer `decodeAudioData` resolves with, which in Chrome is
+the buffer the player keeps, and a count of the buffer sources started).
+It prints that as a second line, such as `audio: 15 files decoded at
+48000 Hz, 15.8 MB (largest 2.3 MB), 15 sources started`, and as `audio`
+in the JSON (null for a game without sound).
+
+| folder (2026-11-13) | n | p50 ms | p95 ms | max ms | p95 < 41 | load average |
+| --- | --- | --- | --- | --- | --- | --- |
+| fixtures/demo (no sound) | 14 | 22.3-24.7 | 32.8-34.3 | 32.8-34.3 | MET | 3.5-5.4 |
+| fixtures/audio-demo | 21 | 23.0-27.3 | 32.1-34.4 | 34.0-39.1 | MET | 3.5-5.4 |
+| sound story, from item 0 | 395 | 25.8-26.9 | 33.5-34.7 | 36.3-96.8 | MET | 4.9-10.3 |
+| the control, from item 0 | 395 | 25.6-26.6 | 33.0-34.2 | 34.4-42.8 | MET | 4.9-10.3 |
+| sound story, `--start i158793` | 397 | 25.3-26.1 | 33.4-34.2 | 35.6-37.0 | MET | 7.3-12.2 |
+| the control, `--start i158793` | 397 | 25.7-26.1 | 33.4-33.7 | 35.2-35.6 | MET | 7.3-12.2 |
+
+Six runs of each demo and three of each story folder, in headless Chrome
+157 on an Apple M2 (8 cores, 16 GB), macOS 27.2.1. The load average is
+the 1-minute figure from other work on the machine, over each set of
+runs. Sound still adds nothing measurable: from item 0 the p95 ranges
+are 33.5-34.7 ms with sound and 33.0-34.2 ms without, and deep in the
+story 33.4-34.2 against 33.4-33.7 ms. Two runs had one sample over 41
+ms: 96.8 ms with sound at load average 8.9, and 42.8 ms without at 6.5.
+
+Memory against the cap. Each audio demo walk decoded the demo's 15
+tracks, 82.1 s of mono at the context's 48 kHz, to 15,763,520 bytes
+(15.8 MB, 15.0 MiB), 7.5% of render/audiocache.ts `DECODED_CAP_BYTES`
+(200 MiB); the largest is `steps`, 12 s, at 2.3 MB. The cache decodes
+each file once and drops nothing while under its cap, so the player
+held all of it at the walk's end. The sound story's nine tracks came to
+3.5 MB. A 3-minute stereo AAC at 48 kHz (perf:decode's long track, in
+place of the audio demo's calm tune) decoded to 69,120,000 bytes:
+8,640,000 samples on each of 2 channels, 69.1 MB (65.9 MiB), a third
+of the cap, and that walk's p95 was 34.2 ms (load average 4.4). So the
+cap holds three such tracks, as audiocache.ts says, with room for the
+short ones.
 
 ## Decode time (Phase 47)
 
@@ -684,6 +729,12 @@ track and 16 ms for the clip in WebKit. The keeping took a median of
 loop took about 16 ms. The
 44.1 kHz track does not take the new path on a 48 kHz context: it decodes
 the usual way, now on its own context, which was already fast.
+
+Run again for item 20 (2026-11-13, one run of five rounds, load average
+7.1-8.0), both engines passing: in WebKit the 48 kHz track took 3,344 ms
+before and 207 ms after, the 44.1 kHz track 137 ms after, and the clip
+3,218 ms before and 14 ms after; in Chrome 212, 347 and 13 ms after. The
+keeping took 12 ms in WebKit.
 
 Same result in WebKit: the decodes at twice the rate kept every length,
 first sample and alignment, and differed from the usual decode by 1.7e-3
