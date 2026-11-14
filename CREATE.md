@@ -454,6 +454,24 @@ ships as that script alone, as an assembled folder does), and a present
 looping track in MP3 or Opus in WebM, and a track no item uses each
 print a `warning:` line on stderr, which leaves the exit status alone.
 
+The validator also warns about items no reading reaches. It replays the
+player's own flow with Play all routes on, which shows every item any
+reader's choices can show, and prints one line per item that flow never
+shows, then a count, on stderr with the exit status left alone. An item
+between a decision's last route and its `continueAt`, in none of its
+routes, is the common case:
+
+```text
+warning: manifest.json: items[30]: item 'aside-unreached' is never shown: inside decision 'outer' (after 'branch-decide', before 'after-start') in none of its routes
+my-novel: 1 unreachable item warning
+```
+
+Only a bookmark or `u` could land on such an item. Put it in a route or
+on the main line, or remove it. These are the items a `--steps all`
+walk from the opening reports as never shown, exit 3 (The quick check),
+found without opening a browser; docs/content-format.md, "Rules and
+validator invariants", lists every case.
+
 ## Converting a Ren'Py project
 
 The extractor, `kinetic-extract`, turns a Ren'Py project (a folder
@@ -1209,7 +1227,8 @@ What Mac readers get and see:
   the folder that points outside it (media linked from another disk,
   say) loads nothing in the app, though Chrome follows it; copy or
   hard-link those files into the folder instead. The testing library
-  names such links when it opens the folder (Testing your game).
+  names such links when it opens the folder, and check-game fails on
+  them on both engines (Testing your game).
 - The app runs on Apple silicon Macs with macOS 12 or later. Intel Macs
   use `index.html`.
 
@@ -1329,8 +1348,19 @@ engine. The other options:
   `--steps all` presses until the story ends, giving up after twice the
   manifest's item count plus 1,000 presses.
 - `--start-at ID` opens the game at item ID, as step 0, entering its
-  routes as `u` does (the URL start, Playing the folder).
-- `--until ID` stops when item ID first shows.
+  routes as `u` does (the URL start, Playing the folder). A folder whose
+  player is too old to start at an item opens, says so and exits 1;
+  upgrade its player (Upgrading to a newer Kinetic):
+
+  ```text
+  openGame: the folder's player does not support starting at an item (asked for "route1-start", it opened at "intro-title"); rebuilding the folder with a current player fixes this (CREATE.md, "Upgrading to a newer Kinetic")
+  ```
+
+- `--until ID` stops when item ID first shows. It walks as `--steps all`
+  does unless `--steps` is given, and reports the span it walked
+  (Checking part of a game, below).
+- `--no-media-check` skips the media check after the walk (The media
+  check, below).
 
 Any walk stops at the story's end, whatever `--steps` says. The story
 has ended when Space changes nothing (the same item, line, picture,
@@ -1353,14 +1383,17 @@ steps`, followed by the reason when there is one (`reached ID
 - After a walk from the opening (no `--start-at`) that reached the
   story's end, `never shown:` and up to ten ids of items it never
   showed, in manifest order.
+- After a walk that reached its `--until` item, `span:` and the items of
+  the span not shown (Checking part of a game, below).
+- `media: N files: L loaded during the walk, C checked after it (R never
+  requested)`, from the media check.
 
-Then it checks every picture and video the walk passed, including those
-it moved past before they finished loading (`checkMedia()`, What the
-library offers), and lists any console or page errors, among them each
-file that failed to load or decode. From 100 media files on, a note on
-stderr says how many it is checking. During the walk a line on stderr
-every 30 s names the step, the items seen so far and the screen, so a
-long walk shows it is still going:
+Then it lists any console or page errors, among them each file that
+failed to load or decode, and ends `N console or page error(s)`, or
+`no console or page errors`.
+
+During the walk a line on stderr every 30 s names the step, the items
+seen so far and the screen, so a long walk shows it is still going:
 
 ```text
 check-game: step 30; 28 items seen; on screen: nest-return "Nested 1b: when it ends, the nested decision is offered a..."
@@ -1375,7 +1408,8 @@ webkit: /Users/you/demo-play
   2: text-thought "A thought: unspoken, so it is drawn differently from speech."
 ```
 
-and ends, on WebKit and Chrome alike:
+and ends, on WebKit and Chrome alike but for how the `media:` line
+splits its 26 files (The media check, below):
 
 ```text
   33: route1-end "Route 1 again, after the nested decision. Its end leads t..."
@@ -1383,6 +1417,7 @@ and ends, on WebKit and Chrome alike:
   35: after-end "The end. Also try: u for unseen content, e for the end of..."
 story ended at step 35
 visited 32 of 32 items
+media: 26 files: 1 loaded during the walk, 25 checked after it (3 never requested)
 no console or page errors
 ```
 
@@ -1391,11 +1426,13 @@ The exit status says how it went:
 | Status | Meaning |
 | --- | --- |
 | 0 | Passed. |
-| 1 | Console or page errors, a game that would not open, a stuck player, the `--steps all` limit, an `--until` item not reached, or a media check that stalled. |
+| 1 | Console or page errors (a file that failed to load or decode, a symbolic link out of the folder), a game that would not open (a player too old for `--start-at` among them), a stuck player, the `--steps all` limit, an `--until` item not reached, or a media check that stalled or failed. |
 | 2 | Bad arguments: an unknown option, an `--engine` other than `webkit`, `chrome` or `auto`, a `--steps` that is neither a number nor `all`, or an id the manifest does not have (checked before anything opens). |
-| 3 | A walk from the opening reached the story's end with items never shown. |
+| 3 | A walk from the opening reached the story's end with items never shown, or a walk reached its `--until` item with items of its span not shown. |
 
 1 wins over 3: a walk with errors and items never shown exits 1.
+
+#### Checking part of a game
 
 To check content late in a long game without walking everything before
 it, start at the first item of the scene, and stop where it ends or
@@ -1417,8 +1454,42 @@ webkit: /Users/you/demo-play
   7: after-start "Shared aftermath: reached by finishing Route 1. Return to..."
 stopped after 7 steps: reached after-start (--until)
 visited 6 of 32 items
+span: 6 of 6 items shown from route1-start to after-start
+media: 2 files: 0 loaded during the walk, 2 checked after it (0 never requested)
 no console or page errors
 ```
+
+Without `--steps`, `--until` walks as `--steps all` does, however far
+its item is; `--steps N` still stops the walk after N steps. Reaching
+its item, the walk reports the span from where it started (the opening,
+or the `--start-at` item) to the `--until` item: `span: X of Y items
+shown from START to UNTIL`. The span holds the items between the two in
+manifest order, both included, leaving out the other routes of each
+decision whose route holds the start. A reader who starts inside Route
+1 need not play Route 2, so the span above has 6 items, not the 8 that
+lie between in the manifest. From a start on the main line every item
+between counts, every route of a decision included, since Play all
+routes plays them all. When some were not shown, `not shown in the
+span:` names up to ten in manifest order and the run exits 3. On a copy
+of the demo with an item in no route after Route 2 (Items never shown,
+below), on WebKit and Chrome alike:
+
+```sh
+node player/scripts/testing/check-game.mjs demo-gap --start-at branch-title --until after-start
+```
+
+```text
+stopped after 14 steps: reached after-start (--until)
+visited 11 of 33 items
+span: 11 of 12 items shown from branch-title to after-start
+not shown in the span: aside-unreached
+media: 6 files: 0 loaded during the walk, 6 checked after it (0 never requested)
+no console or page errors
+```
+
+An `--until` item before the start in manifest order is walked to all
+the same, since a returning route can lead back there; reaching it, the
+span line says `span: none: UNTIL comes before START in manifest order`.
 
 A walk that ends without reaching its `--until` item (at the story's
 end, or when the steps run out) says `never reached ID (--until)` and
@@ -1429,24 +1500,106 @@ check-game: this game has no item "nowhere" (--start-at)
 ```
 
 A walk from `--start-at` skips whatever came before it, so it names no
-items never shown and never exits 3.
+items never shown; only its `--until` span can make it exit 3.
+
+#### Items never shown
 
 To check that every item can be reached, run `--steps all` from the
 opening: a new reader has Play all routes on, so the walk plays every
 route. Exit 3 means it reached the end without showing some items, and
 the summary names them. A copy of the demo with an extra item between
-Route 2's end and the aftermath, in no route (the validator accepts
-that), ends:
+Route 2's end and the aftermath, in no route, ends:
 
 ```text
 story ended at step 35
 visited 32 of 33 items
 never shown: aside-unreached
+media: 26 files: 2 loaded during the walk, 24 checked after it (3 never requested)
 no console or page errors
 ```
 
 Play all routes never reaches such an item: put it in a route or on the
-main line, or remove it.
+main line, or remove it. The validator accepts the folder (exit 0) but
+warns about the same item without opening a browser (Validating).
+
+#### The media check
+
+A walk faster than a reader moves past pictures and videos before they
+finish loading, and a load cut short reports no error. So after the
+walk, before reading the errors, check-game checks every media file the
+walk passed (`checkMedia()`, What the library offers): each file the
+page was given but did not see load (every poster among them, since a
+poster reports nothing when it fails), and each file a shown item
+references that the page was never given, such as an animation's later
+frames, which a fast walk never cycles to, and each sound track's
+script. The files are loaded and decoded off screen, in parallel: on
+Chrome in up to 4 pages of their own, each in its own browser context,
+on WebKit 8 at a time in the game's page. A file that fails is listed
+among the errors once, as the page would list it (Failed loads, below).
+
+The summary's `media:` line counts those files once each:
+
+- N, every file the walk passed: L plus C.
+- L, the files whose load the page saw finish (or fail) during the walk.
+- C, the files checked after the walk.
+- R, those of the C files the player never asked for, such as the
+  animation frames after the first.
+
+On the demo, N is 26 and R is 3, the animation's three later frames;
+how N splits between L and C depends on timing, and differs between
+runs and engines.
+
+When 100 or more files are left to check, a line on stderr says so
+before the check starts, `check-game: checking N media files the walk
+did not see load...`. That N is the summary's C, the files left to
+check, not every file the walk passed. While the check runs, a line on
+stderr every 30 s says how far it has got, `check-game: media check: C
+of T files checked`.
+
+`--no-media-check` skips the check, and the summary says `media files
+not checked (--no-media-check)` in place of the `media:` line. The exit
+status then comes from the walk and the console alone: a broken file
+fails the run only if the page's own picture or video reported it
+during the walk, and a fast walk cuts most loads short before they can
+fail. Use it to time a walk, or to check the story's flow while the
+media are still being made.
+
+#### Failed loads
+
+A file inside the folder that failed to load or decode is one line among
+the errors, once per file, with the reason read from the disk, the same
+on both engines: `not found`, `could not decode`, `not readable` (no
+permission to read it) or `a symbolic link out of the folder` (below).
+A copy of the demo with one picture deleted and junk in another and in
+a video's poster lists, on WebKit and Chrome alike:
+
+```text
+  [error] Failed to load resource: file:///Users/you/demo-broken/chain-still.jpg (could not decode)
+  [error] Failed to load resource: file:///Users/you/demo-broken/branch-title.jpg (not found)
+  [error] Failed to load resource: file:///Users/you/demo-broken/video-hold.poster.jpg (could not decode)
+3 console or page error(s)
+```
+
+and exits 1.
+
+#### Symbolic links out of the folder
+
+A symbolic link in the folder that points outside it fails the run on
+both engines, exit 1. WebKit and the macOS app cannot read a file
+through such a link, though Chrome can, so a game that passes on Chrome
+would still miss those files there. The first error names up to three
+links and says how many there are, and on WebKit each file that failed
+to load through one adds its own line. A copy of the demo with one
+picture moved out of the folder and linked back lists, on WebKit:
+
+```text
+  [error] 1 symbolic link in this folder points outside it (after-start.jpg). WebKit and the macOS app cannot read files through such links (Chrome can); copy or hard-link the files into the folder instead.
+  [error] Failed to load resource: file:///Users/you/demo-link/after-start.jpg (a symbolic link out of the folder)
+2 console or page error(s)
+```
+
+Copy or hard-link the files into the folder. A link that stays inside
+the folder is fine.
 
 ### A test script
 
@@ -1570,6 +1723,10 @@ the wheel, jumps and skip never fire one.
   browser starts. A folder whose player is too old to start at an item
   throws once it has opened, saying so; upgrade its player (Upgrading to
   a newer Kinetic).
+- `mediaChecks`: `false` loads no media file off the page to check it,
+  as check-game's `--no-media-check` does: `errors()` then lists only
+  the failed loads the page's own elements report, and `checkMedia()`
+  throws. `true` by default.
 - `log`: a function given openGame's notes (the engine `auto` chose,
   and any links out of the folder, below), printed to stderr by default,
   or `null` for none.
@@ -1581,9 +1738,12 @@ point outside it, naming up to three:
 openGame: 2 symbolic links in this folder point outside it (chain-still.jpg, text-bare.jpg). WebKit and the macOS app cannot read files through such links (Chrome can); copy or hard-link the files into the folder instead.
 ```
 
-A file behind such a link fails to load on WebKit and in the macOS app,
-so copy or hard-link your media into the folder rather than linking it
-from elsewhere. A link that stays inside the folder is fine.
+The same words, starting `[error]` in place of `openGame:`, are the
+first line of `errors()` on both engines, so a script that expects no
+errors fails on Chrome too, where the files load. A file behind such a
+link fails to load on WebKit and in the macOS app, so copy or hard-link
+your media into the folder rather than linking it from elsewhere. A link
+that stays inside the folder is fine.
 
 The game:
 
@@ -1643,24 +1803,47 @@ The game:
   `press("Enter")`.
 - `reload()` reloads the page, as a reader's reload does.
 - `screenshot(path)` saves a PNG of the page, making its folders.
-- `checkMedia({ stall, onWaiting })` waits until every picture, video
-  and poster the page has been given is confirmed loaded or listed in
-  `errors()` as failed, and resolves with `{ files, failed }`: how many
-  media files the page was given, and the URLs that failed. Await it
-  before reading `errors()` after a walk. A walk faster than a reader
-  moves past files before they finish loading, and a load cut short
-  fires no error, so the page loads and decodes each such file off
-  screen, and every poster too, since a poster reports nothing when it
-  fails. It throws if `stall` ms (20 s by default) pass with no file
-  answered. `onWaiting(count)`, if given, is called once before it
-  waits, with how many files are left to check.
+- `checkMedia({ items, onProgress, pages, stall, onWaiting })` waits
+  until every picture, video and poster the page has been given is
+  confirmed loaded or listed in `errors()` as failed. Await it before
+  reading `errors()` after a walk. A walk faster than a reader moves
+  past files before they finish loading, and a load cut short fires no
+  error, so each such file is loaded and decoded off screen, and every
+  poster too, since a poster reports nothing when it fails (The media
+  check, above). Its options, all optional:
+  - `items`: a list of item ids, such as the ones a walk showed. Every
+    file they reference that the page was never given is checked too:
+    an animation's later frames, a video's file shown only as its
+    poster, and each sound track's script, decoded as the player
+    decodes it.
+  - `onProgress({ checked, total })`: called each time the count of
+    files checked changes, the last time with every file checked.
+    `total` can grow while it checks, as files the page is still
+    loading come in.
+  - `pages`: on Chrome, how many pages, each in its own browser context,
+    check the files (4 by default; 0 checks them in the game's page, 4
+    at a time). WebKit checks 8 at a time in the game's page, whatever
+    `pages` says.
+  - `stall`: it throws if this many ms (20 s by default) pass with no
+    file answered. A video gives up after 15 s, as failed.
+  - `onWaiting(count)`: called once before it waits, with how many
+    files are left to check, and not at all when none are.
+
+  It resolves with `{ files, failed, loaded, checked, neverRequested
+  }`: how many media files the page was given, `items`' files added;
+  the URLs that failed; how many had loaded or failed before the check;
+  how many it checked; and how many of those the page was never given.
+  It throws if a checking page fails, and on a game opened with
+  `mediaChecks: false`.
 - `errors()` lists the console errors and warnings and the page errors
   so far, as `[error] ...`, `[warning] ...` and `[pageerror] ...`. A
   picture, video, poster or script that failed to load or decode is
-  listed once per file, on both engines: the library reports these
-  itself, since WebKit reports no failed load and Chrome reports a
-  missing file but not one it cannot decode. After a walk, await
-  `checkMedia()` first.
+  listed once per file, on both engines, as `[error] Failed to load
+  resource: <url> (<reason>)`: `not found`, `could not decode`, `not
+  readable` or `a symbolic link out of the folder` (Failed loads,
+  above). The library reports these itself, since WebKit reports no
+  failed load and Chrome reports a missing file but not one it cannot
+  decode. After a walk, await `checkMedia()` first.
 - `close()` closes the game; every open needs one.
 - `page` is the puppeteer page for anything else (`page.evaluate`,
   `page.mouse.click(x, y)`). In WebKit it offers the subset the player's
@@ -1721,12 +1904,30 @@ earlier items seen.
 Your test scripts may notice the newer Kinetic too. A script that read
 the player's saved state directly finds the state record's
 `ctx.visited` list empty; for a coverage verdict, run
-`check-game.mjs --steps all` (The quick check) instead. The testing
-library now lists Chrome's console warnings, which it used to miss, and
-fails a picture or video Chrome cannot decode, which used to pass there,
-so a test that passed on Chrome may now report them. A folder with an
-older player still tests, but the library names its items from the
-screen, and `startAt` and `--start-at` refuse it; upgrading its player
+`check-game.mjs --steps all` (The quick check) instead. A script that
+seeds a profile's saved state with a `ctx.visited` list, to start as a
+reader who has read that far, still works: at load the player merges
+the list into its own seen records and empties it. The records keep
+what they had, so seeding twice in one profile adds up: the second
+list joins the first rather than replacing it. To start clean, open
+with a fresh profile (openGame's default, no `profile`), or delete the
+profile's seen records before seeding: in the `kinetic` database's
+`state` store, each record whose key is an array starting `"seen"` and
+the story's storage key, `["seen", <storage key>, <page>, <n>]`
+(`story:<storyId>` for a manifest with a `storyId`; the schema at the
+head of player/src/storage/idb.ts gives every key).
+
+The testing library now lists Chrome's console warnings, which it used
+to miss, and fails a picture or video Chrome cannot decode, which used
+to pass there, so a test that passed on Chrome may now report them. A
+symbolic link out of the folder now fails on Chrome as well as WebKit
+(Symbolic links out of the folder). check-game checks every file a
+shown item references, so an animation frame or sound script a fast
+walk never reached can now fail it, and its `--until` walks as `--steps
+all` does unless `--steps` is given, exiting 3 when its span has items
+not shown (Checking part of a game). A folder with an older player
+still tests, but the library names its items from the screen, and
+`startAt` and `--start-at` refuse it (exit 1); upgrading its player
 fixes both.
 
 Re-extract instead when the fix is in the converter (`kinetic-extract`)

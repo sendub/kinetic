@@ -3894,7 +3894,20 @@ truthful: an unchecked box means nothing was accepted.
       reach.test.ts passes, tsc clean; on a copy of a converted corpus
       game's 186,268-item manifest (which a full walk showed whole) 0
       warnings in 0.09 s.)
-- [ ] Docs (item 7).
+- [x] Docs (item 7).
+      (2026-11-14: CREATE.md "The quick check" gains `--no-media-check`,
+      `--until` walking as `--steps all` with its span, the older-player
+      exit 1 beside `--start-at`, the `span:` and `media:` summary lines
+      with real demo output on both engines, and an updated exit table;
+      new sections "Checking part of a game", "Items never shown", "The
+      media check", "Failed loads" and "Symbolic links out of the
+      folder"; the validator's reachability warning under validating; the
+      library reference (`mediaChecks`, `checkMedia({ items, onProgress,
+      pages })` and its result, failed-load lines); the upgrade guide on a
+      seeded `ctx.visited` merging into the seen records and how to start
+      clean. AGENTS.md's check-game line updated. docs/content-format.md
+      and docs/verify-player.md were updated by items 1-6. Every example
+      was run on both engines. Orchestrator: diff ASCII, no game named.)
 - [ ] Phase-closer (Phase 48): full pytest, the full `npm run verify` and
       `npm run verify -- --webkit`, package-proof; a timed `--steps all`
       walk of a 160,000-item synthetic game on both engines, media check
