@@ -534,3 +534,291 @@ describe("an active segment meets the media gate", () => {
     m.destroy();
   });
 });
+
+// Left and Right (docs/plan.md Phase 49, item 5): on the item where Space
+// steps segments, under the same conditions, Right steps to the next
+// segment but never advances, and Left steps to the previous one. Neither
+// does anything anywhere else, and neither in auto-forward or skip, where
+// Space itself never steps.
+
+/** a v b, read onto v (the chain's last item), the stage clock at `time`. */
+function onVideo(time: number | null, segments = SEGMENTS) {
+  const m = machine([image("a"), video("v", segments), image("b")]);
+  const clock = clockOn(m, time);
+  m.advance();
+  expect(m.getState().cursor).toBe(1);
+  return { m, clock };
+}
+
+/** Records the states a call emits. */
+function emitted(m: ReturnType<typeof createMachine>, call: () => void) {
+  const states: MachineState[] = [];
+  const stop = m.subscribe((state) => states.push(state));
+  call();
+  stop();
+  return states;
+}
+
+describe("Right steps to the next segment, never advancing", () => {
+  it("before any step: the first segment starting after the time", () => {
+    for (const [time, expected] of [
+      [5, 0],
+      [10, 1],
+      [20, 2],
+      [32.64, 3],
+    ] as const) {
+      const { m } = onVideo(time);
+      m.segmentForward();
+      expect(segmentOf(m), `time ${time}`).toEqual({
+        index: expected,
+        count: 4,
+      });
+      expect(m.getState().cursor).toBe(1);
+      m.destroy();
+    }
+  });
+
+  it("after a step: the next by index, not by re-reading a short seek", () => {
+    const { m, clock } = onVideo(20);
+    m.segmentForward();
+    expect(segmentOf(m)).toEqual({ index: 2, count: 4 });
+    clock.time = 32.6399; // the seek landed a hair before its target
+    m.segmentForward();
+    expect(segmentOf(m)).toEqual({ index: 3, count: 4 });
+    m.destroy();
+  });
+
+  it("on the last segment it does nothing: no advance, no emit", () => {
+    const { m } = onVideo(40);
+    m.segmentForward();
+    expect(segmentOf(m)).toEqual({ index: 3, count: 4 });
+    const before = m.getState();
+    expect(emitted(m, () => m.segmentForward())).toHaveLength(0);
+    expect(m.getState()).toBe(before);
+    expect(m.getState().cursor).toBe(1);
+    m.destroy();
+  });
+
+  it("with no segment starting after the time it does nothing, where Space leaves", () => {
+    for (const time of [55, 60]) {
+      const { m } = onVideo(time);
+      const before = m.getState();
+      expect(emitted(m, () => m.segmentForward())).toHaveLength(0);
+      expect(m.getState()).toBe(before);
+      m.destroy();
+    }
+  });
+
+  it("emits one state per step, no arrival, and Space steps on from it", () => {
+    const { m } = onVideo(5);
+    const arrival = m.arrival();
+    const states = emitted(m, () => m.segmentForward());
+    expect(states).toHaveLength(1);
+    expect(states[0].segment).toEqual({ index: 0, count: 4 });
+    expect(m.arrival()).toBe(arrival);
+    m.advance(); // Space continues by index
+    expect(segmentOf(m)).toEqual({ index: 1, count: 4 });
+    m.destroy();
+  });
+
+  it("an active segment from Right meets the media gate, as Space's does", () => {
+    vi.useFakeTimers();
+    const { m } = onVideo(5);
+    m.segmentForward();
+    m.setAutoAdvance(true);
+    vi.advanceTimersByTime(1500);
+    expect(m.getState().cursor).toBe(2);
+    m.destroy();
+  });
+});
+
+describe("Left steps to the previous segment", () => {
+  it("before any step: the segment before the one the time is in", () => {
+    for (const [time, expected] of [
+      [20, 0], // in the second segment
+      [17.04, 0], // on the touching start of the second: in it
+      [40, 1], // in the third
+      [55, 2], // in the last
+    ] as const) {
+      const { m } = onVideo(time);
+      m.segmentBack();
+      expect(segmentOf(m), `time ${time}`).toEqual({
+        index: expected,
+        count: 4,
+      });
+      expect(m.getState().cursor).toBe(1);
+      m.destroy();
+    }
+  });
+
+  it("in the first segment, or before every segment, it does nothing", () => {
+    for (const time of [12, 10, 5]) {
+      const { m } = onVideo(time);
+      const before = m.getState();
+      expect(
+        emitted(m, () => m.segmentBack()),
+        `time ${time}`,
+      ).toHaveLength(0);
+      expect(m.getState()).toBe(before);
+      m.destroy();
+    }
+  });
+
+  it("with the time in no segment: the last one starting before it", () => {
+    // A gap between 10 and 20 and after 30.
+    const gapped: readonly VideoSegment[] = [
+      { startSeconds: 0, endSeconds: 10 },
+      { startSeconds: 20, endSeconds: 30 },
+    ];
+    for (const [time, expected] of [
+      [15, 0],
+      [10, 0], // a segment's end is not in it
+      [45, 1],
+    ] as const) {
+      const { m } = onVideo(time, gapped);
+      m.segmentBack();
+      expect(segmentOf(m), `time ${time}`).toEqual({
+        index: expected,
+        count: 2,
+      });
+      m.destroy();
+    }
+  });
+
+  it("after a step: the one before the active segment, by index", () => {
+    const { m, clock } = onVideo(5);
+    m.advance(); // Space: the first segment
+    m.advance(); // the second
+    m.advance(); // the third
+    expect(segmentOf(m)).toEqual({ index: 2, count: 4 });
+    clock.time = 32.6399; // a short seek, a hair inside the second segment
+    m.segmentBack();
+    expect(segmentOf(m)).toEqual({ index: 1, count: 4 });
+    m.segmentBack();
+    expect(segmentOf(m)).toEqual({ index: 0, count: 4 });
+    const before = m.getState();
+    expect(emitted(m, () => m.segmentBack())).toHaveLength(0);
+    expect(m.getState()).toBe(before);
+    m.segmentForward(); // and Right goes on from there
+    expect(segmentOf(m)).toEqual({ index: 1, count: 4 });
+    m.destroy();
+  });
+
+  it("emits one state per step and is no arrival", () => {
+    const { m } = onVideo(40);
+    const arrival = m.arrival();
+    const states = emitted(m, () => m.segmentBack());
+    expect(states).toHaveLength(1);
+    expect(states[0].segment).toEqual({ index: 1, count: 4 });
+    expect(m.arrival()).toBe(arrival);
+    m.destroy();
+  });
+});
+
+describe("Left and Right do nothing anywhere else", () => {
+  /** Neither key changes the state or emits. */
+  function inert(m: ReturnType<typeof createMachine>) {
+    const before = m.getState();
+    const states = emitted(m, () => {
+      m.segmentForward();
+      m.segmentBack();
+    });
+    expect(states).toHaveLength(0);
+    expect(m.getState()).toBe(before);
+  }
+
+  it("on the video item and a line that are not the chain's last", () => {
+    const m = machine([
+      image("a"),
+      video("v"),
+      line("t1", "one"),
+      line("t2", "two"),
+      image("b"),
+    ]);
+    clockOn(m, 40);
+    m.advance(); // a -> v: a text follows
+    inert(m);
+    m.advance(); // t1: not the last line
+    inert(m);
+    m.destroy();
+  });
+
+  it("on a video without segments, an image, or with no playing video", () => {
+    let m = machine([image("a"), video("v", null), image("b")]);
+    clockOn(m, 40);
+    m.advance();
+    inert(m);
+    m.destroy();
+    m = machine([image("a"), video("v"), image("b")]);
+    clockOn(m, 40);
+    inert(m); // on the image a
+    m.advance();
+    m.setVideoClock(null);
+    inert(m);
+    clockOn(m, null); // a still
+    inert(m);
+    m.destroy();
+  });
+
+  it("in auto-forward (only a manual press steps), which stays on", () => {
+    const m = machine([image("a"), video("v"), image("b")], {
+      resumeFrontier: 2,
+      auto: true,
+    });
+    clockOn(m, 40);
+    expect(m.getState().cursor).toBe(1);
+    inert(m);
+    expect(m.isAutoAdvance()).toBe(true);
+    m.destroy();
+  });
+
+  it("in skip, which goes on", () => {
+    vi.useFakeTimers();
+    const m = machine([image("a"), video("v"), image("b"), image("c")], {
+      resumeFrontier: 4,
+    });
+    clockOn(m, 40);
+    m.goTo(0);
+    m.toggleSkip();
+    vi.advanceTimersByTime(25);
+    expect(m.getState().cursor).toBe(1);
+    expect(m.getState().skipping).toBe(true);
+    inert(m);
+    expect(m.getState().skipping).toBe(true);
+    m.destroy();
+  });
+
+  it("on an open choice and a play-all auto-pick", () => {
+    const items = [image("lead"), video("v"), image("a1"), image("b1")];
+    const branches: readonly Branch[] = [
+      {
+        id: "d",
+        after: "v",
+        prompt: "Which?",
+        routes: [
+          { id: "ra", label: "A", start: "a1", end: "a1" },
+          { id: "rb", label: "B", start: "b1", end: "b1" },
+        ],
+      },
+    ];
+    for (const playAllRoutes of [false, true]) {
+      const m = machine(items, {
+        branches,
+        settings: { ...SETTINGS, playAllRoutes },
+      });
+      const clock = clockOn(m, 55); // the last segment: Space opens the choice
+      m.advance();
+      m.advance();
+      expect(m.getState().choice?.decisionId).toBe("d");
+      clock.time = 40;
+      inert(m);
+      m.destroy();
+    }
+  });
+
+  it("after the destroy", () => {
+    const { m } = onVideo(40);
+    m.destroy();
+    inert(m);
+  });
+});

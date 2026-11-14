@@ -100,9 +100,11 @@ const HELP_TITLE = "Keys";
 const HELP_HINT = "Esc or Space closes";
 // The main interaction keys, one row each (Phase 18, "Key help
 // simplified"): no reset-box keys; Enter only with a decision's arrows.
-// No T row: the bookmarks are on the branch map (Phase 35).
+// No T row: the bookmarks are on the branch map (Phase 35). Left and
+// Right, a video's views (Phase 49), are one row of two caps after Space.
 const HELP_KEYS = [
   "Space",
+  "← →",
   "wheel",
   "E",
   "U",

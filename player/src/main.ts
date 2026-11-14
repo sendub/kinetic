@@ -80,6 +80,7 @@ import { installKeyMap, mapKeyAction, suspendTimeline } from "./render/keys";
 import { loadManifest } from "./render/manifest";
 import { layOutStrip, type MapStrip, runJump } from "./render/mapmodel";
 import { mountRouteAnnouncements } from "./render/routes";
+import { mountSegmentNotes } from "./render/segmentnote";
 import { mountSkipAnnouncements } from "./render/skip";
 import { takeUrlStart } from "./render/urlstart";
 import { mountVolumesOverlay, soundMessage } from "./render/volumes";
@@ -660,6 +661,12 @@ function start(): void {
         shell.flashSequence(messages, { mode: true });
       mountAutoForwardAnnouncements({ machine, flash: flashMode });
       mountSkipAnnouncements({ machine, flash: flashMode });
+      // "View n of m" on every video segment step (docs/plan.md Phase 49),
+      // by Space, Right or Left: the same pill, newest wins.
+      mountSegmentNotes({
+        machine,
+        flash: (messages) => shell.flashSequence(messages),
+      });
 
       // The branch map (docs/plan.md Phase 31): `m` opens the decision
       // tree with the reader's marks. Its strip is laid out on the first
@@ -959,6 +966,13 @@ function start(): void {
           confirmCancel: () => {
             if (confirm.isOpen()) confirm.close();
           },
+          // Left and Right (docs/plan.md Phase 49): the previous and next
+          // view of a video with `segments`, where Space steps them. The
+          // key map hands them over only while the `taking` gate below
+          // says the story owns the keys; the machine decides the rest
+          // (auto-forward, skip and other items leave them inert).
+          segmentBack: () => machine.segmentBack(),
+          segmentForward: () => machine.segmentForward(),
           // Escape (docs/plan.md Phase 13b, extended by 13 and 26): closes
           // the Esc screen, else closes the open map, else opens the
           // Esc screen — and "else" includes OVER a pending choice: the
@@ -1008,6 +1022,13 @@ function start(): void {
               machine.chooseContinue();
             }
           },
+        },
+        // Left and Right are the story's only with nothing over it: no
+        // Esc screen (whose reading-speed slider steps on them), Volumes
+        // sheet, reset box, branch map or choice. Then the key map leaves
+        // them to the page, so a focused slider still steps.
+        {
+          taking: () => storyInput() && volumes?.isOpen() !== true,
         },
       );
       // Over a choice list too long for the window the wheel scrolls the

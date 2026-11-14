@@ -14,6 +14,7 @@ import {
   mapKeyAction,
   mappedKeys,
   routeIndexForKey,
+  SEGMENT_COMMANDS,
   SOUND_COMMANDS,
   suspendTimeline,
   UNLISTED_COMMANDS,
@@ -91,10 +92,22 @@ describe("commandForKey", () => {
 
   it("leaves keys owned by later phases unmapped", () => {
     // c joined with Phase 9, a with Phase 13b's help; these stay free
-    // (the arrows are no command: only a decision's row cursor reads them).
-    for (const key of ["ArrowRight", "Shift"]) {
+    // (Up and Down are no command: only a decision's row cursor reads them).
+    for (const key of ["ArrowUp", "ArrowDown", "Shift"]) {
       expect(commandForKey(key, false)).toBeNull();
     }
+  });
+
+  it("maps Left and Right to a video's previous and next segment (Phase 49)", () => {
+    expect(commandForKey("ArrowLeft", false)).toBe("segmentBack");
+    expect(commandForKey("ArrowRight", false)).toBe("segmentForward");
+    // A held arrow steps once: its repeats run nothing.
+    expect(commandForKey("ArrowLeft", true)).toBeNull();
+    expect(commandForKey("ArrowRight", true)).toBeNull();
+    expect([...SEGMENT_COMMANDS].sort()).toEqual([
+      "segmentBack",
+      "segmentForward",
+    ]);
   });
 
   it("never resolves a prototype key into a command", () => {
@@ -221,10 +234,15 @@ describe("installKeyMap's held keys", () => {
     const commands = new Proxy({} as KeyCommands, {
       get: (_, name) => () => ran.push(name as KeyCommand),
     });
-    installKeyMap(target, commands, {
-      taking: () => false,
-      take: () => {},
-    });
+    installKeyMap(
+      target,
+      commands,
+      {
+        taking: () => false,
+        take: () => {},
+      },
+      { taking: () => true },
+    );
     const prevented: boolean[] = [];
     for (let n = 0; n <= repeats; n += 1) {
       const event = keydown(key, n > 0);
@@ -252,12 +270,79 @@ describe("installKeyMap's held keys", () => {
   });
 
   it("leaves an unmapped key's presses and repeats to the page", () => {
-    for (const key of ["t", "z", "ArrowLeft", "F5"]) {
+    for (const key of ["t", "z", "ArrowUp", "F5"]) {
       expect(hold(key, 2)).toEqual({
         ran: [],
         prevented: [false, false, false],
       });
     }
+  });
+});
+
+describe("installKeyMap's segment arrows (Phase 49)", () => {
+  // Left and Right step a video's segments only while the story owns the
+  // keys: with a panel up a focused slider (the reading speed, a volume)
+  // steps on them, so the key map must leave them to the page there.
+  function press(
+    key: string,
+    opts: { taking?: boolean; repeat?: boolean; meta?: boolean } = {},
+  ) {
+    const target = new EventTarget();
+    const ran: KeyCommand[] = [];
+    const commands = new Proxy({} as KeyCommands, {
+      get: (_, name) => () => ran.push(name as KeyCommand),
+    });
+    installKeyMap(
+      target,
+      commands,
+      { taking: () => false, take: () => {} },
+      opts.taking === undefined
+        ? undefined
+        : { taking: () => opts.taking === true },
+    );
+    const event = keydown(key, opts.repeat === true);
+    if (opts.meta === true) Object.assign(event, { metaKey: true });
+    target.dispatchEvent(event);
+    return { ran, prevented: event.defaultPrevented };
+  }
+
+  it("runs the step and takes the key while the story takes the arrows", () => {
+    expect(press("ArrowRight", { taking: true })).toEqual({
+      ran: ["segmentForward"],
+      prevented: true,
+    });
+    expect(press("ArrowLeft", { taking: true })).toEqual({
+      ran: ["segmentBack"],
+      prevented: true,
+    });
+  });
+
+  it("leaves the arrows to the page while it does not, or with no such input", () => {
+    for (const key of ["ArrowLeft", "ArrowRight"]) {
+      expect(press(key, { taking: false })).toEqual({
+        ran: [],
+        prevented: false,
+      });
+      expect(press(key)).toEqual({ ran: [], prevented: false });
+      expect(press(key, { taking: false, repeat: true })).toEqual({
+        ran: [],
+        prevented: false,
+      });
+    }
+  });
+
+  it("takes a held arrow's repeats while taking, stepping nothing more", () => {
+    expect(press("ArrowRight", { taking: true, repeat: true })).toEqual({
+      ran: [],
+      prevented: true,
+    });
+  });
+
+  it("leaves an arrow held with ⌘ alone", () => {
+    expect(press("ArrowRight", { taking: true, meta: true })).toEqual({
+      ran: [],
+      prevented: false,
+    });
   });
 });
 
@@ -389,6 +474,12 @@ describe("suspendTimeline (the t overlay takes precedence, Phase 8)", () => {
   });
 });
 
+/** The help's caps for the arrow keys the table maps. */
+const ARROW_LABELS: Record<string, string> = {
+  ArrowLeft: "←",
+  ArrowRight: "→",
+};
+
 describe("keyHelpEntries (the help lists the map itself, Phase 13b)", () => {
   // The drift test docs/plan.md Phase 13b asks for: the keymap module is
   // the single source, so a key or command without a help row fails here
@@ -404,12 +495,15 @@ describe("keyHelpEntries (the help lists the map itself, Phase 13b)", () => {
       const listed = new Set(
         keyHelpEntries({ sound }).flatMap((entry) => entry.keys),
       );
+      // A row's label may hold several caps ("← →"), one per word.
+      const caps = new Set([...listed].flatMap((label) => label.split(" ")));
       for (const key of mappedKeys()) {
         const command = commandForKey(key, false);
         if (command !== null && UNLISTED_COMMANDS.has(command)) continue;
         const label =
-          key === " " ? "Space" : key.length === 1 ? key.toLowerCase() : key;
-        expect(listed.has(label)).toBe(
+          ARROW_LABELS[key] ??
+          (key === " " ? "Space" : key.length === 1 ? key.toLowerCase() : key);
+        expect(caps.has(label)).toBe(
           sound || command === null || !SOUND_COMMANDS.has(command),
         );
       }
@@ -428,7 +522,7 @@ describe("keyHelpEntries (the help lists the map itself, Phase 13b)", () => {
       const entries = keyHelpEntries({ sound });
       for (const command of commands) {
         if (UNLISTED_COMMANDS.has(command)) continue;
-        const row = entries.find((entry) => entry.command === command);
+        const row = entries.find((entry) => entry.commands.includes(command));
         if (!sound && SOUND_COMMANDS.has(command)) {
           expect(row).toBeUndefined();
           continue;
@@ -447,11 +541,24 @@ describe("keyHelpEntries (the help lists the map itself, Phase 13b)", () => {
     const labels = keyHelpEntries({ sound: true }).map((entry) =>
       entry.keys.join(" / "),
     );
-    expect(labels.slice(5, 9)).toEqual(["a", "h", "v", "b"]);
+    expect(labels.slice(6, 10)).toEqual(["a", "h", "v", "b"]);
     const row = keyHelpEntries({ sound: true }).find(
       (entry) => entry.command === "toggleSound",
     );
     expect(row?.description).toBe("sound on / off");
+  });
+
+  it("lists Left and Right as one row of two caps after Space (Phase 49)", () => {
+    const row = keyHelpEntries().find((entry) =>
+      entry.commands.includes("segmentForward"),
+    );
+    expect(row).toEqual({
+      command: "segmentBack",
+      commands: ["segmentBack", "segmentForward"],
+      keys: ["← →"],
+      description: "previous / next view of a video",
+    });
+    expect(keyHelpEntries()[1]).toEqual(row);
   });
 
   it("lists the wheel — not a key, but a control all the same", () => {
@@ -469,6 +576,7 @@ describe("keyHelpEntries (the help lists the map itself, Phase 13b)", () => {
     // mention the keys used during the reset process."
     expect(keyHelpEntries().map((entry) => entry.keys.join(" / "))).toEqual([
       "Space",
+      "← →",
       "wheel",
       "e",
       "u",

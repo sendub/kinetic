@@ -4022,10 +4022,29 @@ truthful: an unchecked box means nothing was accepted.
       Orchestrator: npm test 1300, check clean, smoke 6/6; Chrome
       checkgame, creator, segments, reading 97/97; WebKit checkgame,
       creator, segments 80/80.)
-- [ ] Left and Right, and the note (item 5). Tests: keys.test.ts; machine
+- [x] Left and Right, and the note (item 5). Tests: keys.test.ts; machine
       units for Left and Right; a scenario part on both engines (the
       note's text, input not blocked, keys inert elsewhere); help lists
       the keys.
+      (2026-11-14: keys.ts `segmentBack`/`segmentForward` on ArrowLeft
+      and ArrowRight, taken (and default prevented) only while the story
+      owns the keys, so the Esc screen's and Volumes' sliders keep their
+      arrows; a held arrow steps once. machine.ts `segmentForward()` and
+      `segmentBack()` share `arrowStep`: inert in auto-forward, skip, on
+      a choice or auto-pick and wherever Space would not step; Right
+      never advances; Left goes to the segment before the one playing (or
+      the last starting before the time), then by index. The note is the
+      shell's pill (render/segmentnote.ts): "View n of m" for 1.6 s on
+      every step, outside the overlay, not in thumbnails. Help gains a
+      row "← →  previous / next view of a video" after Space; to keep the
+      Esc screen's columns balanced the help rows' min-height went from
+      clamp(30px, 3.7vh, 40px) to clamp(28px, 3.4vh, 37px). 27 tests ran
+      red first (keys, 19 machine cases, help, segmentnote.test.ts);
+      scenario parts `arrows` and `arrowsElsewhere` fail with the note
+      unmounted. Orchestrator: npm test 1329, check clean, smoke 6/6;
+      Chrome segments, screens, menus, reading, navigation, bookmarkmap
+      211/211; WebKit segments and screens 128 pass and the 2 known
+      fullscreen partials, segments 23/23 in 3 of 3 runs.)
 - [ ] Docs (item 6): CREATE.md, docs/verify-player.md, AGENTS.md if a
       command changed; every example run.
 - [ ] Phase-closer (Phase 49): full pytest, the full `npm run verify` and

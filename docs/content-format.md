@@ -336,17 +336,23 @@ passes. A `videoSound` (Audio) follows it: the sound plays the segment
 and loops with it. A menu's pause and resume keep the active segment.
 
 Right and Left work on the same item, under the same conditions as
-Space's step, and do nothing anywhere else. Right steps to the next
-segment as Space does but never advances; on the last segment it does
-nothing. Left steps to the previous segment: before any step, to the
-segment before the one the video's current time is in, or, when the
-time is in no segment, to the last one starting before it; after a
-step, to the one before the active segment. With no such segment it
-does nothing.
+Space's step, and do nothing anywhere else: not in auto-forward or
+skip (where an arrow, unlike Space, does not turn the mode off), not
+on an open choice, and not while the Esc screen, the Volumes sheet or
+the branch map is open, where the arrows keep their own use. A held
+arrow steps once. Right steps to the next segment as Space does but
+never advances; on the last segment it does nothing. Left steps to
+the previous segment: before any step, to the segment before the one
+the video's current time is in, or, when the time is in no segment, to
+the last one starting before it; after a step, to the one before the
+active segment. With no such segment it does nothing.
 
-Each step, by Space, Right or Left, shows "View n of m" for a moment
-in the overlay's style, without blocking input: `n` counts from 1 in
-the item's `segments` and `m` is their number.
+Each step, by Space, Right or Left, shows "View n of m" for about
+1.6 s in the player's notice pill (the route and mode notices' look),
+without blocking input: `n` counts from 1 in the item's `segments` and
+`m` is their number. A new step replaces a note still showing; leaving
+the item lets it fade. Like the other notices it ignores `h`, and a
+bookmark's picture does not include it.
 
 Everything else ignores `segments`: the item's own range and its
 passes before any step, the poster (still the frame at the item's

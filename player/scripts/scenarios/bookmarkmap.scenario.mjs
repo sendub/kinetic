@@ -567,11 +567,11 @@ async function deletes({ check, open }) {
   const stillHelp = await page.evaluate(HELP_OPEN);
   const noMap = await page.evaluate(MAP_CLOSED);
   check(
-    "the Esc screen has no T row (11 rows, M the only button, reading 'branch map and bookmarks') and t does nothing there",
+    "the Esc screen has no T row (12 rows, M the only button, reading 'branch map and bookmarks') and t does nothing there",
     !keys.includes("T") &&
       keys.includes("M") &&
       mDesc === "branch map and bookmarks" &&
-      grid.rows === 11 &&
+      grid.rows === 12 &&
       (await page.evaluate(
         () => document.querySelectorAll("#help button.help-row").length,
       )) === 1 &&

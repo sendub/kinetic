@@ -26,7 +26,15 @@
 // - sound: on the audio demo's video, whose sound is the master clock, the
 //   sound restarts at each stepped segment and loops it with the video
 //   staying on it, a step pressed just before the segment's loop wraps
-//   included (the sound must not stay a loop behind).
+//   included (the sound must not stay a loop behind);
+// - arrows (item 5): on the clip's last line Left goes to the segment
+//   before the one the video is in, Right steps on and never leaves at the
+//   last segment, Left goes back down to the first and no further, each
+//   step showing "View n of m" in the pill, a Space right after a note
+//   still stepping; the Esc screen keeps the arrows from the segments;
+//   the arrows do nothing on the clip itself or its first line;
+// - arrows elsewhere: on the chain's last line over a video without
+//   segments the arrows do nothing and show no note.
 
 import { cpSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -35,6 +43,7 @@ import {
   closeSettings,
   demoDir,
   openSettings,
+  pressNavKey,
   pressSpace,
   scenarioRoot,
   sleep,
@@ -610,4 +619,192 @@ async function sound({ check, open, folders }) {
   );
 }
 
-export const parts = [chain, backAndForth, menu, alone, sound];
+// --- Left and Right, and the note (item 5) ---------------------------------
+
+/** The stage's `data-segment` ("n/m") and item, and the pill's text. */
+const SEG_STATE = () => {
+  const stage = document.getElementById("stage");
+  return {
+    item: stage?.getAttribute("data-item") ?? null,
+    segment: stage?.getAttribute("data-segment") ?? null,
+    note: document.getElementById("flash")?.textContent ?? null,
+  };
+};
+
+const pressLeft = (cdp) => pressNavKey(cdp, "ArrowLeft", 37);
+const pressRight = (cdp) => pressNavKey(cdp, "ArrowRight", 39);
+
+/**
+ * Presses `press` and waits until the stage says segment `want` ("n/m")
+ * and the pill "View n of m"; `{ ok, s }` with the last reading.
+ */
+async function stepTo(page, cdp, press, want) {
+  await press(cdp);
+  const [n, m] = want.split("/");
+  return waitSeg(
+    page,
+    (s) => s.segment === want && s.note === `View ${n} of ${m}`,
+    2000,
+  );
+}
+
+/** Polls SEG_STATE until `ok(state)`; `{ ok, s }` with the last reading. */
+async function waitSeg(page, ok, timeout = 3000) {
+  const until = Date.now() + timeout;
+  for (;;) {
+    const s = await page.evaluate(SEG_STATE);
+    if (ok(s)) return { ok: true, s };
+    if (Date.now() >= until) return { ok: false, s };
+    await sleep(20);
+  }
+}
+
+/**
+ * Presses Left and Right, waits `ms`, and reads: the arrows did nothing
+ * when the item and segment are as before and no "View" note showed.
+ */
+async function arrowsInert(page, cdp, ms = 500) {
+  const before = await page.evaluate(SEG_STATE);
+  await pressRight(cdp);
+  await pressLeft(cdp);
+  const reads = [];
+  const until = Date.now() + ms;
+  while (Date.now() < until) {
+    reads.push(await page.evaluate(SEG_STATE));
+    await sleep(25);
+  }
+  const inert = reads.every(
+    (s) =>
+      s.item === before.item &&
+      s.segment === before.segment &&
+      !(s.note ?? "").startsWith("View"),
+  );
+  return { inert, before, after: reads.at(-1) };
+}
+
+async function arrows({ check, open }) {
+  const folder = demoWithSegments("seg-demo-arrows");
+  const { page, cdp } = await openAt(
+    open,
+    "seg-arrows",
+    folder,
+    "floor-title",
+    ["floor-clip"],
+  );
+  // On the clip (a line follows) and its first line the arrows do nothing.
+  const onClip = await waitSeg(page, (s) => s.item === "floor-clip");
+  const clip = await arrowsInert(page, cdp);
+  await pressSpace(cdp);
+  await waitSeg(page, (s) => s.item === "floor-2");
+  const line = await arrowsInert(page, cdp);
+  check(
+    "Left and Right do nothing on a segment video's own item while a line follows, nor on a line that is not the chain's last: no step, no note",
+    onClip.ok && clip.inert && line.inert && line.before.item === "floor-2",
+    { clip, line },
+  );
+
+  // The last line. Left before any step: the video is in the second
+  // segment, so the first.
+  await pressSpace(cdp);
+  await waitSeg(page, (s) => s.item === "floor-3");
+  const inSecond = await videoBetween(page, 1.6, 2.8);
+  const first = await stepTo(page, cdp, pressLeft, "1/4");
+  // A Space while the note shows still steps: the note blocks nothing.
+  const space = await stepTo(page, cdp, pressSpace, "2/4");
+  const third = await stepTo(page, cdp, pressRight, "3/4");
+  const fourth = await stepTo(page, cdp, pressRight, "4/4");
+  await pressRight(cdp); // on the last segment: nothing, never a leave
+  await sleep(600);
+  const stays = await page.evaluate(SEG_STATE);
+  check(
+    "before any step Left goes to the segment before the one the video is in; Space right after its note steps on, Right steps by index, each step showing View n of m, and Right on the last segment neither steps nor leaves",
+    inSecond &&
+      first.ok &&
+      space.ok &&
+      third.ok &&
+      fourth.ok &&
+      stays.item === "floor-3" &&
+      stays.segment === "4/4",
+    {
+      inSecond,
+      first: first.s,
+      space: space.s,
+      third: third.s,
+      fourth: fourth.s,
+      stays,
+    },
+  );
+
+  const back3 = await stepTo(page, cdp, pressLeft, "3/4");
+  const back2 = await stepTo(page, cdp, pressLeft, "2/4");
+  const back1 = await stepTo(page, cdp, pressLeft, "1/4");
+  // Let the note fade, then Left on the first segment: nothing.
+  const faded = await waitSeg(page, (s) => s.note === null, 4000);
+  await pressLeft(cdp);
+  await sleep(400);
+  const atFirst = await page.evaluate(SEG_STATE);
+  check(
+    "Left steps back by index with its note each time, and on the first segment does nothing",
+    back3.ok &&
+      back2.ok &&
+      back1.ok &&
+      faded.ok &&
+      atFirst.segment === "1/4" &&
+      atFirst.item === "floor-3" &&
+      !(atFirst.note ?? "").startsWith("View"),
+    {
+      back3: back3.s,
+      back2: back2.s,
+      back1: back1.s,
+      faded: faded.ok,
+      atFirst,
+    },
+  );
+
+  // The Esc screen owns the arrows: no step under it.
+  await openSettings(page, cdp);
+  await pressRight(cdp);
+  await pressRight(cdp);
+  await closeSettings(page, cdp);
+  await sleep(300);
+  const underMenu = await page.evaluate(SEG_STATE);
+  check(
+    "with the Esc screen open Left and Right step no segment",
+    underMenu.segment === "1/4" && underMenu.item === "floor-3",
+    underMenu,
+  );
+}
+
+async function arrowsElsewhere({ check, open }) {
+  const folder = demoWithSegments("seg-demo-plain");
+  // video-chain has no segments: its chain's last line is where Space
+  // would step them if it had.
+  const { page, cdp } = await openAt(open, "seg-plain", folder, "video-chain", [
+    "video-chain-2",
+    "video-chain-3",
+  ]);
+  const onLast = await waitSeg(page, (s) => s.item === "video-chain-3");
+  const playing = await videoBetween(page, 0, 2);
+  const keys = await arrowsInert(page, cdp, 800);
+  await pressSpace(cdp);
+  const left = await waitSeg(page, (s) => s.item === "chain-still");
+  check(
+    "on the chain's last line over a video without segments Left and Right do nothing and show no note; Space then leaves",
+    onLast.ok &&
+      playing &&
+      keys.inert &&
+      keys.after.segment === null &&
+      left.ok,
+    { keys, left: left.s },
+  );
+}
+
+export const parts = [
+  chain,
+  backAndForth,
+  menu,
+  alone,
+  sound,
+  arrows,
+  arrowsElsewhere,
+];

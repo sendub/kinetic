@@ -657,7 +657,9 @@
         align-items: center;
         column-gap: clamp(8px, 0.9vw, 12px);
         min-width: 0;
-        min-height: clamp(30px, 3.7vh, 40px);
+        /* Sized so the twelve rows (Left and Right joined in Phase 49)
+           take the height eleven did at 40px, 3.7vh and 30px. */
+        min-height: clamp(28px, 3.4vh, 37px);
         margin: 0 -8px;
         padding: clamp(3px, 0.5vh, 6px) 8px;
         border-radius: var(--k-r-sm);

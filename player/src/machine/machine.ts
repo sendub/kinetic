@@ -337,6 +337,27 @@ export interface Machine {
    */
   advance(): void;
   /**
+   * Right (docs/plan.md Phase 49, docs/content-format.md "Video segments"):
+   * where a manual Space would step a video's segments — the last item of
+   * its chain, its visual a video with `segments`, the stage playing it
+   * (`setVideoClock`) — steps to the next segment exactly as Space does
+   * (first one after the video's time, then by index), but never leaves
+   * the item: on the last segment, or with no segment starting after the
+   * time, it does nothing. Inert, with no emit, anywhere else, and in
+   * auto-forward, skip, on an open choice or an auto-pick, where Space
+   * never steps segments either (the arrows only step; they do not take
+   * over Space's other jobs, such as turning auto-forward off).
+   */
+  segmentForward(): void;
+  /**
+   * Left: under the same conditions as `segmentForward()`, steps to the
+   * previous segment — before any step, the one before the segment the
+   * video's time is in (`startSeconds <= time < endSeconds`), or, with the
+   * time in no segment, the last one starting before the time; after a
+   * step, the one before the active segment. With none it does nothing.
+   */
+  segmentBack(): void;
+  /**
    * Wheel step back one screen in STORY ORDER (docs/plan.md Phase 27; the
    * header's "Timeline"): an item with its enclosing route frames, or a
    * decision's choice screen with the walk's route highlighted
@@ -2293,6 +2314,57 @@ export function createMachine(options: MachineOptions): Machine {
   }
 
   /**
+   * The segment a backward step goes to, or -1 when there is none: after a
+   * step, the one before the active segment by index; before any, the one
+   * before the segment the stage's time is in, or, with the time in no
+   * segment, the last one starting before the time.
+   */
+  function previousSegment(stage: {
+    segments: readonly VideoSegment[];
+    time: number;
+  }): number {
+    if (segment !== null) return segment - 1;
+    const { segments, time } = stage;
+    const within = segments.findIndex(
+      (view) => view.startSeconds <= time && time < view.endSeconds,
+    );
+    if (within >= 0) return within - 1;
+    let last = -1;
+    segments.forEach((view, index) => {
+      if (view.startSeconds < time) last = index;
+    });
+    return last;
+  }
+
+  /**
+   * Left or Right (Phase 49 item 5): the step `target` picks, made as
+   * Space makes it (the item settles, the segment shows), only where
+   * Space's own step would be made — manual reading, no choice or
+   * auto-pick open, `segmentStage()` non-null. Auto-forward and skip
+   * leave the arrows inert: only a manual press steps segments, and an
+   * arrow is no Space, so it does not turn either mode off. No target, no
+   * change and no emit.
+   */
+  function arrowStep(
+    target: (stage: {
+      segments: readonly VideoSegment[];
+      time: number;
+    }) => number,
+  ): void {
+    if (destroyed || count === 0) return;
+    if (autoPick !== null || pendingChoice !== null) return;
+    if (skipping || autoAdvance) return;
+    const stage = segmentStage();
+    const index = stage === null ? -1 : target(stage);
+    if (index < 0) return;
+    if (!settled) {
+      settled = true;
+      cancelTimer();
+    }
+    showSegment(index);
+  }
+
+  /**
    * Makes segment `index` the active one (`MachineState.segment`): a state
    * change, not an arrival — the cursor, seen set, transition, arrival and
    * chain head stay. A pending hold re-times: the media gate is met now.
@@ -3240,6 +3312,14 @@ export function createMachine(options: MachineOptions): Machine {
         return;
       }
       moveForward();
+    },
+
+    segmentForward() {
+      arrowStep(nextSegment);
+    },
+
+    segmentBack() {
+      arrowStep(previousSegment);
     },
 
     wheelBack() {

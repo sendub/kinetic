@@ -53,6 +53,7 @@ describe("helpRows (drawn from the keymap, Phase 13b)", () => {
     const labels = helpRows().flatMap((row) => row.keys);
     expect(labels).toEqual([
       "Space",
+      "← →",
       "wheel",
       "E",
       "U",
@@ -68,8 +69,8 @@ describe("helpRows (drawn from the keymap, Phase 13b)", () => {
 
   it("draws a V row after H only for a game with sound (Phase 47 item 7)", () => {
     const labels = helpRows({ sound: true }).flatMap((row) => row.keys);
-    expect(labels.slice(5, 9)).toEqual(["A", "H", "V", "B"]);
-    expect(labels).toHaveLength(12);
+    expect(labels.slice(6, 10)).toEqual(["A", "H", "V", "B"]);
+    expect(labels).toHaveLength(13);
     expect(helpRows({ sound: false })).toEqual(helpRows());
     expect(helpRows().flatMap((row) => row.keys)).not.toContain("V");
   });
@@ -193,6 +194,21 @@ describe("the Esc screen holds the settings (docs/plan.md Phase 26)", () => {
     expect(list?.children.map((el) => el.className)).toEqual(
       helpRows().map(() => "help-row"),
     );
+  });
+
+  it("draws Left and Right as two caps over one line: previous / next view of a video (Phase 49)", () => {
+    const panel = mountWith("Kinetic demo");
+    const list = panel.children.find((el) => el.className === "help-list");
+    const row = list?.children[1];
+    const key = row?.children.find((el) => el.className === "help-key");
+    expect(
+      key?.children
+        .filter((el) => el.className === "help-cap")
+        .map((el) => el.textContent),
+    ).toEqual(["←", "→"]);
+    expect(
+      row?.children.find((el) => el.className === "help-desc")?.textContent,
+    ).toBe("previous / next view of a video");
   });
 
   it("draws the sound key's row when told the game has sound", () => {

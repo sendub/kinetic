@@ -49,6 +49,15 @@ export interface KeyCommands {
   confirmReset(): void;
   /** `n`: cancel while the reset box is open; Escape is its synonym. */
   confirmCancel(): void;
+  /**
+   * Left: the previous camera view of a video item with `segments`
+   * (docs/plan.md Phase 49, docs/content-format.md "Video segments"), on
+   * the item where Space steps them (machine `segmentBack`). Taken only
+   * while the story owns the arrows (`SEGMENT_COMMANDS`).
+   */
+  segmentBack(): void;
+  /** Right: the next view, as Space steps it but never leaving the item. */
+  segmentForward(): void;
 }
 
 /** A command the key map can issue. */
@@ -82,6 +91,8 @@ const KEY_TABLE = new Map<string, KeyCommand>([
   ["Y", "confirmReset"],
   ["n", "confirmCancel"],
   ["N", "confirmCancel"],
+  ["ArrowLeft", "segmentBack"],
+  ["ArrowRight", "segmentForward"],
 ]);
 
 /**
@@ -101,14 +112,35 @@ export const UNLISTED_COMMANDS: ReadonlySet<KeyCommand> = new Set([
  */
 export const SOUND_COMMANDS: ReadonlySet<KeyCommand> = new Set(["toggleSound"]);
 
+/**
+ * Commands whose keys the page's own controls also use (docs/plan.md
+ * Phase 49): Left and Right step a focused slider on the Esc screen (the
+ * reading speed) and on the Volumes sheet, and the decision list and the
+ * branch map have keys of their own. The key map takes them — runs the
+ * command and prevents the default — only while `SegmentKeys.taking()`
+ * says the story owns the keys, and otherwise leaves them to the page.
+ */
+export const SEGMENT_COMMANDS: ReadonlySet<KeyCommand> = new Set([
+  "segmentBack",
+  "segmentForward",
+]);
+
 /** Every key the table maps — the key help's coverage guard reads this. */
 export function mappedKeys(): string[] {
   return [...KEY_TABLE.keys()];
 }
 
-/** A table key as the help overlay lists it: Space, `h`, Tab, Escape… */
+/** The arrow keys as the help draws them: a cap each. */
+const ARROW_LABELS = new Map([
+  ["ArrowLeft", "←"],
+  ["ArrowRight", "→"],
+]);
+
+/** A table key as the help overlay lists it: Space, `h`, Tab, Escape, ←… */
 function displayKey(key: string): string {
   if (key === " ") return "Space";
+  const arrow = ARROW_LABELS.get(key);
+  if (arrow !== undefined) return arrow;
   return key.length === 1 ? key.toLowerCase() : key;
 }
 
@@ -129,9 +161,20 @@ export function entryKeysFor(command: KeyCommand): string[] {
 
 /** One row of the key help screen. */
 export interface KeyHelpEntry {
-  /** The command the row describes; null for the wheel, which is no key. */
+  /**
+   * The command the row describes (the first of `commands`); null for the
+   * wheel and the decision keys, which are no table command.
+   */
   readonly command: KeyCommand | null;
-  /** Key labels to show, e.g. ["Space"] or ["Tab"]. */
+  /**
+   * Every command the row describes: one, or a pair drawn as one row
+   * (Left and Right, "← →"); none for the wheel and the decision keys.
+   */
+  readonly commands: readonly KeyCommand[];
+  /**
+   * Key labels to show, e.g. ["Space"] or ["Tab"]; a pair row has one
+   * label of space-separated caps, e.g. ["← →"].
+   */
   readonly keys: readonly string[];
   /** One line telling the reader what it does. */
   readonly description: string;
@@ -139,20 +182,29 @@ export interface KeyHelpEntry {
 
 /**
  * The rows, one short line per main interaction key (docs/plan.md Phase
- * 18, "Key help simplified"): the cursor first (space, wheel, e, u, tab),
- * then the modes, then the screens, then the decision keys. Every command
- * the table maps has a row unless it is in `UNLISTED_COMMANDS`, and a
+ * 18, "Key help simplified"): the cursor first (space, then Left and
+ * Right beside it, as they step a video's views where space does — Phase
+ * 49 — then wheel, e, u, tab), then the modes, then the screens, then the
+ * decision keys. Every command the table maps has a row unless it is in
+ * `UNLISTED_COMMANDS`, and a
  * silent game leaves out the `SOUND_COMMANDS` rows — `keys.test.ts`
  * asserts both directions, so adding a key or command without a row fails
  * a test (docs/plan.md Phase 13b).
  */
 const HELP_ROWS: ReadonlyArray<{
   command: KeyCommand | null;
+  /** A second command drawn on the same row, its caps after the first's. */
+  pairedWith?: KeyCommand;
   /** Label for a non-command row (the wheel, the decision digits). */
   plainLabel?: string;
   description: string;
 }> = [
   { command: "advance", description: "next item; stops auto-forward" },
+  {
+    command: "segmentBack",
+    pairedWith: "segmentForward",
+    description: "previous / next view of a video",
+  },
   {
     command: null,
     plainLabel: "wheel",
@@ -196,14 +248,25 @@ export function keyHelpEntries(
       row.command === null ||
       !SOUND_COMMANDS.has(row.command),
   );
-  return rows.map((row) => ({
-    command: row.command,
-    keys:
+  return rows.map((row) => {
+    const commands =
       row.command === null
-        ? [row.plainLabel ?? "wheel"]
-        : entryKeysFor(row.command),
-    description: row.description,
-  }));
+        ? []
+        : row.pairedWith === undefined
+          ? [row.command]
+          : [row.command, row.pairedWith];
+    let keys: string[];
+    if (row.command === null) keys = [row.plainLabel ?? "wheel"];
+    else if (row.pairedWith === undefined) keys = entryKeysFor(row.command);
+    else
+      keys = [commands.flatMap((command) => entryKeysFor(command)).join(" ")];
+    return {
+      command: row.command,
+      commands,
+      keys,
+      description: row.description,
+    };
+  });
 }
 
 /**
@@ -339,6 +402,15 @@ export interface DecisionInput {
 }
 
 /**
+ * The segment arrows' context (`SEGMENT_COMMANDS`): the shell (main.ts)
+ * says whether the story owns the keys now — no panel, choice or confirm
+ * box up — so Left and Right are the story's, not a focused control's.
+ */
+export interface SegmentKeys {
+  taking(): boolean;
+}
+
+/**
  * Whether a keydown is held with ⌘, Ctrl or Alt (Option): a shortcut of
  * the browser's or the host's (⌘R reloads a tab or the macOS app, ⌘Q
  * quits the app), never one of the player's keys. Shift is not among them:
@@ -373,6 +445,11 @@ export function isShortcut(event: {
  * prevented, so Enter still activates a focused control on the Esc screen
  * when no choice is open.
  *
+ * `segments` decides the `SEGMENT_COMMANDS` keys (Left and Right): only
+ * while it is `taking()` does such a key run its command and lose its
+ * default; otherwise, or with no `segments` given, it is left to the page,
+ * so a focused slider still steps on it.
+ *
  * A held key's repeats run no command (`commandForKey`, `decisionKeyFor`),
  * but each has its default prevented whenever the key's first press would:
  * the page has taken the key. A repeat left to the browser would scroll or
@@ -384,13 +461,16 @@ export function installKeyMap(
   target: EventTarget,
   commands: KeyCommands,
   decisions?: DecisionInput,
+  segments?: SegmentKeys,
 ): () => void {
   const onKeyDown = (event: Event): void => {
     const keydown = event as KeyboardEvent;
     if (typeof keydown.key !== "string") return;
     if (isShortcut(keydown)) return;
     const repeat = keydown.repeat === true;
-    if (commandForKey(keydown.key, false) !== null) {
+    const mapped = commandForKey(keydown.key, false);
+    if (mapped !== null) {
+      if (SEGMENT_COMMANDS.has(mapped) && segments?.taking() !== true) return;
       keydown.preventDefault();
       const command = commandForKey(keydown.key, repeat);
       if (command !== null) commands[command]();
