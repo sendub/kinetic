@@ -2830,6 +2830,79 @@ Not verified, and not verifiable on this machine: WebM Vorbis and Opus in
 Safari 15-17 (caniuse and WebKit bug 183852 say yes), WebView2's autoplay,
 and Firefox.
 
+## Phase 48: check-game follow-ups (2026-11-14, converting agent + user)
+
+The converting agent ran Phase 46's check-game on its 186,268-item game
+(544 routes, 60,924 media references). A full `--steps all` walk took
+about 15 minutes on either engine and passed, but the media check after
+it printed nothing for 23.7 minutes on Chrome and about 11.5 on WebKit.
+They sent ten points. Measured on their folder, read-only (2026-11-10):
+
+- The media check decodes each file the walk did not see load (`new
+  Image()` plus `decode()`, 4 at a time in the walking page). One Chrome
+  page decodes one at a time: 19-20 ms a file at 4, 8, 16 or 32 at once,
+  1.6 ms without the decode. Pages in separate browser contexts add up: 2
+  pages 11.7 ms a file, 4 pages 5.9, 6 pages 5.8. WebKit decodes in
+  parallel in one page: 8.5 ms a file at 4, 6.7 at 8, 6.5 at 16-32.
+- Checking during the walk is slower: a Chrome walk went from 2.6 to 9.4
+  ms a step with 4 checking contexts beside it (8 cores).
+- Over a full walk the page was given 60,916 of the 60,924 referenced
+  files. The 8 it never got are animation frames after the first, which
+  a fast walk never cycles to. The agent's "about 800 never requested" read
+  `checking 60,122 media files the walk passed` as every file checked; it
+  counts only the files left unconfirmed after the walk.
+- A walk from `--start-at route1-start` to `--until after-start` on the
+  demo shows 6 items. The manifest-order span between them also holds
+  route2's two items, which play-all never shows from inside route 1 (the
+  continuing route goes on to `continueAt`).
+- The validator accepts an item in no route between a decision's last
+  route end and its `continueAt`; only a walk finds it (exit 3).
+
+Decisions (user, 2026-11-10): check media in parallel after the walk, with
+progress and a skip option; the `--until` span leaves out the other routes
+of each decision the start item lies inside; a symlink out of the folder
+fails on both engines; an older player refusing `--start-at` keeps exit 1,
+documented.
+
+1. Media check: parallel, with progress, skippable. After the walk, on
+   Chrome several pages in separate browser contexts (4 measured best), on
+   WebKit 8 checks at a time in the page. Every 30 s a stderr line says how
+   many files are checked out of how many. `--no-media-check` skips it and
+   the summary says media were not checked; the exit code then comes from
+   the walk and the console only.
+2. Media check covers every file a walked item references: files the page
+   was never given (animation frames after the first, and any other kind,
+   audio included) are checked too. The summary says how many files loaded
+   during the walk, how many were checked after it, and how many of those
+   the player never requested; the stderr line before the check says its
+   number is the files left to check.
+3. Failed loads say why, the same on both engines: `(not found)` when the
+   file is not on disk, `(could not decode)` when it is; Chrome's own line
+   for a missing file is merged as now.
+4. `--until`: implies `--steps all` unless `--steps` is given. When the
+   walk reaches the `--until` item it reports the span from the start (the
+   opening or `--start-at`) to that item: items in manifest order, leaving
+   out the other routes of each decision the start item lies inside. The
+   summary says how many of the span's items were shown and lists up to ten
+   that were not; exit 3 when any were not (1 still wins).
+5. A symbolic link in the folder that resolves outside it fails the run on
+   both engines (exit 1), naming the links, as the note does now.
+6. Validator: warn, on stderr with the exit code unchanged (as the poster
+   warnings do), on items no walk can reach. At least an item inside a
+   decision's region (after its `after` item, before its `continueAt`) in
+   none of its routes; pure choices and nested routes follow the machine's
+   rules (player/src/machine/machine.ts). On generated manifests the warned
+   items must equal the items the machine's play-all walk never shows.
+7. Docs: CREATE.md (an older player refusing `--start-at` exits 1, beside
+   the option; a seeded `ctx.visited` list is merged into the seen records,
+   so seeding twice in one profile adds up, and how to start clean; the
+   media check's progress, coverage, wording and skip option; the `--until`
+   span and exit 3; the symlink failure; the validator warning),
+   AGENTS.md's check-game line, docs/verify-player.md rows,
+   docs/extracting.md or wherever the validator's warnings are listed.
+8. Phase-closer: full suites; a timed `check-game --steps all` walk, media
+   check included, of a 160,000-item synthetic game on both engines.
+
 ## Sequencing
 
 1 -> 2 -> 2b -> 3 -> 4 -> 5 -> 6 -> 7 -> 7b -> 8 -> 9 -> 9b -> 9c -> 9d ->

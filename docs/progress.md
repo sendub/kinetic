@@ -3764,3 +3764,37 @@ truthful: an unchecked box means nothing was accepted.
       package-proof 18/18 with .tmp/extract-demo regenerated from
       fixtures/renpy_demo. Items 11, 14 and 15 closed by the user's
       listening the same day.)
+
+## Phase 48: check-game follow-ups (2026-11-14, converting agent + user)
+
+- [ ] Media check: parallel, with progress, skippable (docs/plan.md Phase
+      48, item 1). Tests:
+      - the same failures as now (a missing and an undecodable picture,
+        video and poster) on both engines;
+      - the progress line, with its interval shortened;
+      - `--no-media-check` says media were not checked and the exit code
+        ignores media;
+      - measured on a large game: check time before and after on both
+        engines.
+- [ ] Media check covers every file a walked item references (item 2).
+      Tests: an animation walked past with a broken later frame fails on
+      both engines; the summary's counts on the demo.
+- [ ] Failed loads say why (item 3). Tests: a missing and an undecodable
+      picture, video and poster on each engine, each named once with its
+      reason.
+- [ ] `--until` implies `--steps all` and reports its span (item 4). Tests
+      on demo copies, both engines: a start inside a continuing route (its
+      siblings not counted), a main-line start, an item in no route inside
+      the span (exit 3, named), `--until` alone walking past 10 steps, an
+      explicit `--steps` still limiting it.
+- [ ] Symlinks out of the folder fail (item 5). Tests: both engines, a link
+      out of the folder (exit 1, named) and one inside it (passes).
+- [ ] Validator reachability warning (item 6). Tests: each gap case warns;
+      the demo, the branches example and the audio demo warn nothing; on
+      generated manifests the warned items equal the items the machine's
+      play-all walk never shows.
+- [ ] Docs (item 7).
+- [ ] Phase-closer (Phase 48): full pytest, the full `npm run verify` and
+      `npm run verify -- --webkit`, package-proof; a timed `--steps all`
+      walk of a 160,000-item synthetic game on both engines, media check
+      included.
