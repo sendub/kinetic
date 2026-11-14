@@ -4109,7 +4109,9 @@ truthful: an unchecked box means nothing was accepted.
       a new scenario file, red first on WebKit, 3 wraps to the loop start
       per case on both engines; `media`, `segments` and `videosound` on
       both engines.
-- [ ] Docs (item 3): content-format.md, verify-player.md, CREATE.md if
+- [ ] A counted video opened by `#start=` plays all its passes (item 3).
+      Tests: red first, a unit test or a scenario part on both engines.
+- [ ] Docs (item 4): content-format.md, verify-player.md, CREATE.md if
       an author's rule changes; every example run.
 - [ ] Phase-closer (Phase 50): full pytest, the full `npm run verify`
       and `npm run verify -- --webkit`, package-proof.
