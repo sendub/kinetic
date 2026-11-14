@@ -3815,9 +3815,27 @@ truthful: an unchecked box means nothing was accepted.
       during the walk, 10,022 checked after it (0 never requested)`, exit
       0. Orchestrator: npm test 1232, check clean, smoke 6/6, checkgame
       24/24 and creator 29/29 on both engines.)
-- [ ] Failed loads say why (item 3). Tests: a missing and an undecodable
+- [x] Failed loads say why (item 3). Tests: a missing and an undecodable
       picture, video and poster on each engine, each named once with its
       reason.
+      (2026-11-14: `collectErrors(page, { folder })`, passed by openGame,
+      maps the library's line and Chrome's own to one line per URL,
+      `[error] Failed to load resource: <url> (<reason>)`, the reason from
+      core.mjs `failedLoadReason` on the file behind the URL: `not found`,
+      `could not decode`, `not readable`, or `a symbolic link out of the
+      folder`; URLs outside the folder or not file:// keep today's wording.
+      A WebKit bug found on the way: a failing poster fires `error` at its
+      `<video>`, so the tracker blamed the video too; a video error now
+      counts only when `video.error` is set. Tests ran red first:
+      kinetic.test.mjs (`failedLoadReason` in a folder with a space,
+      chmod 000, links in and out; the merge in either order); checkgame
+      `mediaFailures` (a missing and an undecodable picture, video and
+      poster, each once with its reason, 6 lines) and `audioFiles` (an
+      undecodable and a missing script); creator `failedLoads`. Subagent:
+      full Chrome verify 594/594; WebKit checkgame+creator failed one check
+      in 1 of 12 runs, not captured. Orchestrator: npm test 1236, check
+      clean, smoke 6/6, Chrome checkgame+creator 54/54, WebKit 54/54 in 3
+      of 3 runs.)
 - [ ] `--until` implies `--steps all` and reports its span (item 4). Tests
       on demo copies, both engines: a start inside a continuing route (its
       siblings not counted), a main-line start, an item in no route inside

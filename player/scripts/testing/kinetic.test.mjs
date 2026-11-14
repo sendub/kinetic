@@ -12,11 +12,12 @@ import {
   writeFileSync,
 } from "node:fs";
 import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
-import { describe, expect, it } from "vitest";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import { afterAll, describe, expect, it } from "vitest";
 import { DriverBuildError } from "../webkit/build.mjs";
 import {
   collectErrors,
+  failedLoadReason,
   holdKey,
   indexItems,
   keyFor,
@@ -1003,5 +1004,101 @@ describe("referencedFiles (what checkMedia's items reference)", () => {
         ["a", "missing"],
       ),
     ).toEqual([]);
+  });
+});
+
+// A game folder with a space in its name (its URLs percent-encode it): a
+// picture, a missing one, an unreadable one and links in and out.
+describe("failed load reasons", () => {
+  const scratch = join(
+    dirname(fileURLToPath(import.meta.url)),
+    "..",
+    "..",
+    "..",
+    ".tmp",
+  );
+  mkdirSync(scratch, { recursive: true });
+  const root = mkdtempSync(join(scratch, "kinetic-reasons-"));
+  const folder = join(root, "My Game");
+  const outside = join(root, "elsewhere");
+  mkdirSync(join(folder, "media"), { recursive: true });
+  mkdirSync(outside);
+  writeFileSync(join(folder, "media", "junk pic.jpg"), "not a picture");
+  writeFileSync(join(folder, "media", "locked.jpg"), "x");
+  chmodSync(join(folder, "media", "locked.jpg"), 0o000);
+  writeFileSync(join(outside, "real.jpg"), "x");
+  symlinkSync(join(outside, "real.jpg"), join(folder, "media", "out.jpg"));
+  symlinkSync("junk pic.jpg", join(folder, "media", "in.jpg"));
+  writeFileSync(join(root, "beside.jpg"), "x");
+  afterAll(() => {
+    chmodSync(join(folder, "media", "locked.jpg"), 0o644);
+    rmSync(root, { recursive: true, force: true });
+  });
+  const url = (path) => pathToFileURL(join(folder, path)).href;
+
+  it("says not found, could not decode, not readable or a link out of the folder for a file:// URL inside the folder", () => {
+    expect(url("media/junk pic.jpg")).toContain("junk%20pic.jpg");
+    expect(failedLoadReason(url("media/gone.jpg"), folder)).toBe("not found");
+    expect(failedLoadReason(url("media/junk pic.jpg"), folder)).toBe(
+      "could not decode",
+    );
+    expect(failedLoadReason(url("media/in.jpg"), folder)).toBe(
+      "could not decode",
+    );
+    expect(failedLoadReason(url("media/locked.jpg"), folder)).toBe(
+      process.getuid?.() === 0 ? "could not decode" : "not readable",
+    );
+    expect(failedLoadReason(url("media/out.jpg"), folder)).toBe(
+      "a symbolic link out of the folder",
+    );
+  });
+
+  it("gives no reason for a URL outside the folder, not file:// or without a folder", () => {
+    expect(
+      failedLoadReason(pathToFileURL(join(root, "beside.jpg")).href, folder),
+    ).toBeNull();
+    expect(failedLoadReason("https://example.com/a.jpg", folder)).toBeNull();
+    expect(failedLoadReason("not a url", folder)).toBeNull();
+    expect(failedLoadReason(url("media/gone.jpg"), null)).toBeNull();
+  });
+
+  describe("collectErrors with the folder", () => {
+    const missing = url("media/gone.jpg");
+    const chromeOwn = {
+      type: () => "error",
+      text: () => "Failed to load resource: net::ERR_FILE_NOT_FOUND",
+      location: () => ({ url: missing }),
+    };
+    const reporter = (at) => ({
+      type: () => "error",
+      text: () => `Failed to load resource: ${at}`,
+      location: () => ({ url: "" }),
+    });
+    const collect = (...messages) => {
+      const handlers = {};
+      const errors = collectErrors(
+        { on: (event, fn) => (handlers[event] = fn) },
+        { folder },
+      );
+      for (const msg of messages) handlers.console(msg);
+      return errors;
+    };
+    const line = `[error] Failed to load resource: ${missing} (not found)`;
+
+    it("writes Chrome's own line and the reporter's alike, once per URL, whichever comes first", () => {
+      expect(collect(chromeOwn, reporter(missing))).toEqual([line]);
+      expect(collect(reporter(missing), chromeOwn)).toEqual([line]);
+      expect(collect(chromeOwn)).toEqual([line]);
+      expect(collect(reporter(missing))).toEqual([line]);
+    });
+
+    it("says why for a file on disk, and keeps today's wording for a URL outside the folder", () => {
+      const junk = url("media/junk pic.jpg");
+      const beside = pathToFileURL(join(root, "beside.jpg")).href;
+      expect(collect(reporter(junk), reporter(beside))).toEqual([
+        `[error] Failed to load resource: ${junk} (could not decode)`,
+        `[error] Failed to load resource: ${beside}`,
+      ]);
+    });
   });
 });

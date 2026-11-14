@@ -903,6 +903,14 @@ async function failedLoads({ check }) {
           .length,
       ]),
     );
+    // Each line says why (docs/plan.md Phase 48, item 3).
+    const reasonOf = (file) =>
+      errors
+        .filter((line) => line.includes(`/creator-broken/${file}`))
+        .map((line) => / \(([a-z ]+)\)$/.exec(line)?.[1] ?? null)[0];
+    const reasons = Object.fromEntries(
+      files.map((file) => [file, reasonOf(file)]),
+    );
     check(
       "a missing picture, an undecodable picture, an undecodable video and an undecodable poster, passed at check-game's pace, each give exactly one errors() line naming the file",
       now.id === last &&
@@ -916,6 +924,14 @@ async function failedLoads({ check }) {
         files.every((file) => naming[file] === 1) &&
         media.failed.length === files.length,
       { naming, errors, media, walked },
+    );
+    check(
+      "the missing picture's line says not found, and the undecodable picture's, video's and poster's say could not decode, on either engine",
+      reasons[missing.file] === "not found" &&
+        [badPicture.file, badVideo.file, badPoster.poster].every(
+          (file) => reasons[file] === "could not decode",
+        ),
+      reasons,
     );
 
     const said = "creator: a warning from the page";

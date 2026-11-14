@@ -22,9 +22,10 @@
 // - A copy whose page swallows Space after three presses is a stuck player:
 //   exit 1, naming the screen.
 // - The media check after the walk (docs/plan.md Phase 48, item 1), run in
-//   parallel: a copy with a missing picture, an undecodable picture, an
-//   undecodable video and an undecodable poster, walked with `--steps all`,
-//   names each file once and exits 1; while it checks, a progress line on
+//   parallel: a copy with a missing and an undecodable picture, video and
+//   poster, walked with `--steps all`, names each file once with why
+//   (`Failed to load resource: <url> (not found)` or `(could not decode)`,
+//   item 3) and exits 1; while it checks, a progress line on
 //   stderr says how many files are checked out of how many (its interval
 //   shortened through KINETIC_CHECK_GAME_HEARTBEAT_MS).
 // - `--no-media-check` on a copy with a broken poster picture (which only
@@ -35,8 +36,8 @@
 //   once (`media: N files: L loaded during the walk, C checked after it (R
 //   never requested)`); an undecodable later frame of an animation, which
 //   a fast walk never shows, fails the run naming it once; on the audio
-//   demo the summary counts each track's script, and an undecodable one
-//   fails the run naming it once.
+//   demo the summary counts each track's script, and a copy with one
+//   undecodable script and one missing names each once with why.
 
 import { execFile } from "node:child_process";
 import { cpSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -464,6 +465,21 @@ const JUNK = Buffer.from(
 );
 
 /** The stdout lines naming a failed load of `file` in the copy `name`. */
+/**
+ * The reason the one failed-load line for `file` in the copy `name` gives
+ * (`not found`, `could not decode`...), or null unless there is exactly
+ * one such line, ending in a reason.
+ */
+const failedReason = (stdout, name, file) => {
+  const found = failedLines(stdout, name, file);
+  if (found.length !== 1) return null;
+  return (
+    /^ {2}\[error\] Failed to load resource: file:\/\/\S+ \(([a-z ]+)\)$/.exec(
+      found[0],
+    )?.[1] ?? null
+  );
+};
+
 const failedLines = (stdout, name, file) =>
   lines(stdout).filter(
     (line) =>
@@ -477,34 +493,34 @@ const PROGRESS =
 async function mediaFailures({ check }) {
   const name = "checkgame-broken-media";
   const folder = demoCopy(name);
-  const missing = item("text-bare");
-  const badPicture = item("chain-still");
-  const badVideo = item("video-loops");
-  const badPoster = item("video-hold");
-  rmSync(join(folder, missing.file));
-  writeFileSync(join(folder, badPicture.file), JUNK);
-  writeFileSync(join(folder, badVideo.file), JUNK);
-  writeFileSync(join(folder, badPoster.poster), JUNK);
-  const files = [
-    missing.file,
-    badPicture.file,
-    badVideo.file,
-    badPoster.poster,
-  ];
+  // File -> the reason its line should give.
+  const expected = {
+    [item("text-bare").file]: "not found",
+    [item("chain-still").file]: "could not decode",
+    [item("floor-clip").file]: "not found",
+    [item("video-loops").file]: "could not decode",
+    [item("range-a").poster]: "not found",
+    [item("video-hold").poster]: "could not decode",
+  };
+  for (const [file, reason] of Object.entries(expected)) {
+    if (reason === "not found") rmSync(join(folder, file));
+    else writeFileSync(join(folder, file), JUNK);
+  }
+  const files = Object.keys(expected);
   const run = await checkGame(folder, ["--steps", "all"], {
     KINETIC_CHECK_GAME_HEARTBEAT_MS: "5",
   });
   const naming = Object.fromEntries(
-    files.map((file) => [file, failedLines(run.stdout, name, file).length]),
+    files.map((file) => [file, failedReason(run.stdout, name, file)]),
   );
   const errorLines = lines(run.stdout).filter((line) =>
     line.startsWith("  [error]"),
   );
   check(
-    "a missing picture, an undecodable picture, an undecodable video and an undecodable poster walked past are each named once after the parallel media check, exit 1",
+    "a missing and an undecodable picture, video and poster walked past are each named once, saying not found or could not decode, exit 1",
     run.code === 1 &&
       endStep(run.stdout) !== null &&
-      files.every((file) => naming[file] === 1) &&
+      files.every((file) => naming[file] === expected[file]) &&
       errorLines.length === files.length &&
       run.stdout.includes(`\n${files.length} console or page error(s)`),
     { naming, ...evidence(run) },
@@ -656,12 +672,19 @@ async function audioFiles({ check, folders }) {
     join(folder, script),
     `__kineticAudio(${JSON.stringify(track)},"${JUNK.toString("base64")}");\n`,
   );
+  const gone = `${copy.audio.tracks.bell.file}.js`;
+  rmSync(join(folder, gone));
   const broken = await checkGame(folder, ["--steps", "all"]);
+  const reasons = {
+    [script]: failedReason(broken.stdout, name, script),
+    [gone]: failedReason(broken.stdout, name, gone),
+  };
   check(
-    "an audio track's script whose bytes no decoder takes fails the run, naming the script once, exit 1",
+    "an audio track's script whose bytes no decoder takes and one missing each fail the run, named once, saying could not decode and not found, exit 1",
     broken.code === 1 &&
       endStep(broken.stdout) !== null &&
-      failedLines(broken.stdout, name, script).length === 1,
-    { script, ...evidence(broken) },
+      reasons[script] === "could not decode" &&
+      reasons[gone] === "not found",
+    { reasons, ...evidence(broken) },
   );
 }

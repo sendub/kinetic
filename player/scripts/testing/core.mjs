@@ -5,8 +5,16 @@
 // for it, ../webkit/puppet.mjs), readers of what the page shows, and the
 // manifest items a screen can be. docs/verify-player.md; CREATE.md,
 // "Testing your game".
-import { existsSync, rmSync } from "node:fs";
+import {
+  accessSync,
+  constants,
+  existsSync,
+  realpathSync,
+  rmSync,
+} from "node:fs";
 import { platform } from "node:os";
+import { isAbsolute, relative, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import puppeteer from "puppeteer-core";
 import { TEST_AUDIO_SCRIPT } from "./testaudio.mjs";
 
@@ -138,6 +146,47 @@ const FAILED_LOAD = "Failed to load resource: ";
 // (net::ERR_FILE_NOT_FOUND, "the server responded with a status of 404").
 const REPORTED_URL = /^[a-z][a-z0-9+.-]*:\/\/\S*$/i;
 
+/** Whether `path` is `dir` or lies inside it. */
+const inside = (dir, path) => {
+  const rel = relative(dir, path);
+  return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
+};
+
+/**
+ * Why a file:// `url` inside the game folder `folder` failed to load,
+ * from the disk: "not found" (no such file), "a symbolic link out of the
+ * folder" (it resolves outside, which WebKit will not read), "not
+ * readable" (no permission) or else "could not decode". null for a URL
+ * that is not file://, lies outside the folder, or when `folder` is null.
+ */
+export function failedLoadReason(url, folder) {
+  if (folder === null || typeof url !== "string" || !url.startsWith("file:")) {
+    return null;
+  }
+  let path;
+  try {
+    path = fileURLToPath(url);
+  } catch {
+    return null;
+  }
+  const dir = resolve(folder);
+  if (!inside(dir, path)) return null;
+  if (!existsSync(path)) return "not found";
+  try {
+    if (!inside(realpathSync(dir), realpathSync(path))) {
+      return "a symbolic link out of the folder";
+    }
+  } catch {
+    // Unresolvable: the reads below say what they can.
+  }
+  try {
+    accessSync(path, constants.R_OK);
+  } catch {
+    return "not readable";
+  }
+  return "could not decode";
+}
+
 /**
  * The console errors and warnings and the page errors `page` reports from
  * now on, as `[error] text`, `[warning] text` and `[pageerror] message`,
@@ -146,10 +195,13 @@ const REPORTED_URL = /^[a-z][a-z0-9+.-]*:\/\/\S*$/i;
  *
  * A failed load is listed once per URL. Chrome's own "Failed to load
  * resource" line names no file, so its URL (the message's location) is
- * added; the testing library's reporter names the URL itself. When both
- * report one URL, Chrome's line, which carries the reason, is the one kept.
+ * added; the testing library's reporter names the URL itself. For a file
+ * inside the game folder `folder`, either line becomes `[error] Failed to
+ * load resource: <url> (<reason>)`, the reason read from the disk
+ * (failedLoadReason), so both engines say the same. Otherwise, when both
+ * report one URL, Chrome's line, which carries its reason, is kept.
  */
-export function collectErrors(page) {
+export function collectErrors(page, { folder = null } = {}) {
   const errors = [];
   // Failed URL -> { line: the line listed for it, own: whether Chrome's }.
   const failed = new Map();
@@ -174,7 +226,17 @@ export function collectErrors(page) {
       const own = !REPORTED_URL.test(named);
       const url = own ? msg.location?.()?.url : named;
       if (url) {
-        listFailedLoad(url, own, `[error] ${own ? `${text} (${url})` : text}`);
+        const reason = failedLoadReason(url, folder);
+        if (reason !== null) {
+          // The same line from either reporter: the first stays.
+          listFailedLoad(url, true, `[error] ${FAILED_LOAD}${url} (${reason})`);
+        } else {
+          listFailedLoad(
+            url,
+            own,
+            `[error] ${own ? `${text} (${url})` : text}`,
+          );
+        }
         return;
       }
     }

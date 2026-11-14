@@ -299,7 +299,8 @@ const READ_SAVED_PLACE = async (storyId) => {
 // confirmed (its element's `load` or `loadeddata`) or failed, which is
 // logged once per file as `Failed to load resource: <its URL>`: WebKit
 // logs no failed load, and Chrome logs only a missing file, not one it
-// cannot decode (collectErrors lists each URL once). A file its element
+// cannot decode (collectErrors lists each URL once, saying why from the
+// disk: `(not found)`, `(could not decode)`...). A file its element
 // moved on from before either event (a fast walk aborts the load, and an
 // aborted load fires none), one whose element left the page, and every
 // poster (painted as a CSS background too, which fires no event) is
@@ -593,8 +594,11 @@ const TRACK_MEDIA = ({ offPage = true } = {}) => {
       const src = sourceOf(el);
       if (!src) return;
       if (el instanceof HTMLImageElement) fail(absolute(src), "picture");
-      else if (el instanceof HTMLVideoElement) fail(absolute(src), "video");
-      else console.error(`Failed to load resource: ${absolute(src)}`);
+      else if (el instanceof HTMLVideoElement) {
+        // WebKit fires error at a video whose poster failed, with no media
+        // error: the poster's own check reports that, not the video.
+        if (el.error !== null) fail(absolute(src), "video");
+      } else console.error(`Failed to load resource: ${absolute(src)}`);
     },
     true,
   );
@@ -918,7 +922,10 @@ export function countChecked(previous, open) {
  *   that point outside it (outsideLinks), on either engine: WebKit and
  *   the macOS app cannot read files through them.
  * Failed loads are reported on both engines: errors() lists each picture,
- * video, poster or script that failed to load or decode, once per file;
+ * video, poster or script that failed to load or decode, once per file,
+ * as `[error] Failed to load resource: <url> (<reason>)`: `not found`,
+ * `could not decode`, `not readable` or `a symbolic link out of the
+ * folder` (failedLoadReason, in core.mjs);
  * after a fast walk, await the handle's checkMedia() first. The handle's
  * current() reports the game's sound as `audio` (readAudio).
  * Resolves with the game handle (CREATE.md, "Testing your game").
@@ -972,7 +979,7 @@ export async function openGame(folder, options = {}) {
   };
   try {
     const page = await browser.newPage();
-    const errors = collectErrors(page);
+    const errors = collectErrors(page, { folder: dir });
     await page.setViewport({ ...viewport, deviceScaleFactor: 1 });
     await page.evaluateOnNewDocument(TRACK_MEDIA, {
       offPage: mediaChecks !== false,
