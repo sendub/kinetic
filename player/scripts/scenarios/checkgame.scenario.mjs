@@ -30,11 +30,19 @@
 // - `--no-media-check` on a copy with a broken poster picture (which only
 //   the media check finds: a poster fires no event) says media were not
 //   checked and exits 0; the same copy without it exits 1.
+// - The media check covers every file a walked item references (Phase 48,
+//   item 2): the whole demo's summary counts each file its items reference
+//   once (`media: N files: L loaded during the walk, C checked after it (R
+//   never requested)`); an undecodable later frame of an animation, which
+//   a fast walk never shows, fails the run naming it once; on the audio
+//   demo the summary counts each track's script, and an undecodable one
+//   fails the run naming it once.
 
 import { execFile } from "node:child_process";
 import { cpSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
+  audioDemoDir,
   demoDir,
   engine,
   item,
@@ -56,6 +64,8 @@ export const parts = [
   stuckPlayer,
   mediaFailures,
   noMediaCheck,
+  brokenFrame,
+  audioFiles,
 ];
 
 const CHECK_GAME = join(playerDir, "scripts", "testing", "check-game.mjs");
@@ -147,6 +157,17 @@ async function wholeDemo({ check }) {
       !run.stdout.includes("never shown") &&
       run.stdout.trimEnd().endsWith("no console or page errors"),
     { ended, last, ...evidence(run) },
+  );
+  const media = mediaSummary(run.stdout);
+  const referenced = referencedCount(manifest);
+  check(
+    "the summary counts every file the demo's items reference once: those loaded during the walk and those checked after it, the frames after an animation's first among them never requested",
+    media !== null &&
+      media.total === referenced.files &&
+      media.loaded + media.checked === media.total &&
+      media.never <= referenced.laterFrames &&
+      media.never <= media.checked,
+    { media, referenced },
   );
   check(
     "the item lines are as before: `  N: <summary>` each time the screen changes, from step 0 at the first item",
@@ -537,5 +558,110 @@ async function noMediaCheck({ check }) {
       failedLines(checked.stdout, name, badPoster.poster).length === 1 &&
       !checked.stdout.includes("not checked"),
     evidence(checked),
+  );
+}
+
+/** The media summary line's counts, or null when there is none. */
+function mediaSummary(stdout) {
+  const m =
+    /^media: ([\d,]+) files?: ([\d,]+) loaded during the walk, ([\d,]+) checked after it \(([\d,]+) never requested\)$/m.exec(
+      stdout,
+    );
+  if (m === null) return null;
+  const [total, loaded, checked, never] = m
+    .slice(1)
+    .map((n) => Number(n.replaceAll(",", "")));
+  return { total, loaded, checked, never, line: m[0] };
+}
+
+/**
+ * The files `copy`'s items reference, each once (a picture, a video, a
+ * poster, every frame, each audio track's script), and how many of them
+ * are frames after an animation's first.
+ */
+function referencedCount(copy) {
+  const files = new Set();
+  const later = new Set();
+  const tracks = copy.audio?.tracks ?? {};
+  for (const it of copy.items) {
+    for (const file of [it.file, it.poster, ...(it.frames ?? [])]) {
+      if (file) files.add(file);
+    }
+    for (const frame of it.frames?.slice(1) ?? []) later.add(frame);
+    const audio = it.audio ?? {};
+    for (const id of [
+      audio.music,
+      audio.voice,
+      audio.videoSound?.track,
+      ...(audio.ambience ?? []),
+      ...(audio.sfx ?? []).map((sfx) => sfx.track),
+    ]) {
+      if (tracks[id]) files.add(`${tracks[id].file}.js`);
+    }
+  }
+  return { files: files.size, laterFrames: later.size };
+}
+
+// The animation's last frame: a walk at check-game's pace moves on before
+// the animation cycles to it, so only the check after the walk sees it.
+async function brokenFrame({ check }) {
+  const name = "checkgame-broken-frame";
+  const folder = demoCopy(name);
+  const animation = manifest.items.find((it) => it.type === "animation");
+  const frame = animation.frames.at(-1);
+  writeFileSync(join(folder, frame), JUNK);
+  const run = await checkGame(folder, ["--steps", "all"]);
+  check(
+    "an animation walked past with an undecodable later frame fails the run, naming the frame once, exit 1",
+    run.code === 1 &&
+      endStep(run.stdout) !== null &&
+      failedLines(run.stdout, name, frame).length === 1 &&
+      run.stdout.includes("\n1 console or page error(s)"),
+    { frame, ...evidence(run) },
+  );
+}
+
+const AUDIO_HINT =
+  "fixtures/audio-demo is missing: build it with .venv/bin/python fixtures/build_audio_demo.py";
+
+// The audio demo: each audio track a walked item names is checked as the
+// player reads it, its script (`<file>.js`) decoded; one whose bytes no
+// decoder takes fails the run.
+async function audioFiles({ check, folders }) {
+  if (!folders.audioDemo) {
+    check("fixtures/audio-demo is built", false, AUDIO_HINT);
+    return;
+  }
+  const copy = JSON.parse(
+    readFileSync(join(audioDemoDir, "manifest.json"), "utf8"),
+  );
+  const whole = await checkGame(audioDemoDir, ["--steps", "all"]);
+  const media = mediaSummary(whole.stdout);
+  const referenced = referencedCount(copy);
+  check(
+    "on the audio demo the summary counts each file its items reference once, each audio track's script among them, exit 0",
+    whole.code === 0 &&
+      media !== null &&
+      media.total === referenced.files &&
+      media.loaded + media.checked === media.total,
+    { media, referenced, ...evidence(whole) },
+  );
+  const name = "checkgame-broken-audio";
+  const folder = join(scenarioRoot, name);
+  rmSync(folder, { recursive: true, force: true });
+  cpSync(audioDemoDir, folder, { recursive: true });
+  const track = copy.audio.tracks.knock.file;
+  const script = `${track}.js`;
+  writeFileSync(
+    join(folder, script),
+    `__kineticAudio(${JSON.stringify(track)},"${JUNK.toString("base64")}");\n`,
+  );
+  const broken = await checkGame(folder, ["--steps", "all"]);
+  check(
+    "an audio track's script whose bytes no decoder takes fails the run, naming the script once, exit 1",
+    broken.code === 1 &&
+      endStep(broken.stdout) !== null &&
+      failedLines(broken.stdout, name, script).length === 1,
+    { script, ...evidence(broken) },
   );
 }

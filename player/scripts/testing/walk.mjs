@@ -91,6 +91,16 @@ export function readArgs(argv) {
   };
 }
 
+/**
+ * The summary's media line, from checkMedia()'s counts: how many files
+ * loaded during the walk, how many were checked after it and how many of
+ * those the player never requested.
+ */
+export function mediaSummaryLine({ loaded, checked, neverRequested }) {
+  const total = loaded + checked;
+  return `media: ${grouped(total)} ${total === 1 ? "file" : "files"}: ${grouped(loaded)} loaded during the walk, ${grouped(checked)} checked after it (${grouped(neverRequested)} never requested)`;
+}
+
 /** The media check's progress line: `media check: C of T files checked`. */
 export const mediaCheckLine = ({ checked, total }) =>
   `media check: ${grouped(checked)} of ${grouped(total)} ${total === 1 ? "file" : "files"} checked`;
@@ -205,6 +215,8 @@ export function startWalk({ ids, steps, until = null, fromOpening = true }) {
     },
     /** The ids never shown, in manifest order. */
     neverShown,
+    /** The ids shown so far, in manifest order (checkMedia's `items`). */
+    shown: () => ids.filter((_, index) => seen.has(index)),
     /** The heartbeat's line: the step, the items seen, the screen. */
     heartbeat() {
       const of = steps === "all" ? "" : ` of ${grouped(limit)}`;

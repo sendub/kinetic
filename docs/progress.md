@@ -3796,9 +3796,25 @@ truthful: an unchecked box means nothing was accepted.
       30,000-step walk of that game, read-only: Chrome exit 0 in 108 s
       with its 10,044 files checked inside 30 s, WebKit exit 0 in 193 s
       with progress lines every 30 s.)
-- [ ] Media check covers every file a walked item references (item 2).
+- [x] Media check covers every file a walked item references (item 2).
       Tests: an animation walked past with a broken later frame fails on
       both engines; the summary's counts on the demo.
+      (2026-11-14: `checkMedia({ items })` adds every file the shown items
+      reference that the page was never given (`referencedFiles`: picture
+      or video, poster, every frame, and each audio track's `.js` script,
+      checked in its own hidden iframe and decoded on an
+      OfflineAudioContext). check-game prints `media: N files: L loaded
+      during the walk, C checked after it (R never requested)`, and the
+      stderr line before the check says `the walk did not see load`.
+      Tests ran red first: walk.test.mjs (`shown()`, the summary line),
+      kinetic.test.mjs (`referencedFiles`), checkgame parts `wholeDemo`
+      (26 files counted), `brokenFrame` (an undecodable last animation
+      frame exits 1, named once) and `audioFiles` (41 files on the audio
+      demo; a junk `knock.wav.js` exits 1, named once). A 30,000-step
+      walk of a converted corpus game: `media: 10,077 files: 55 loaded
+      during the walk, 10,022 checked after it (0 never requested)`, exit
+      0. Orchestrator: npm test 1232, check clean, smoke 6/6, checkgame
+      24/24 and creator 29/29 on both engines.)
 - [ ] Failed loads say why (item 3). Tests: a missing and an undecodable
       picture, video and poster on each engine, each named once with its
       reason.

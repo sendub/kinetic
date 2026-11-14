@@ -8,6 +8,7 @@ import {
   capFor,
   exitCode,
   mediaCheckLine,
+  mediaSummaryLine,
   readArgs,
   STUCK_MS,
   STUCK_PRESSES,
@@ -406,6 +407,28 @@ describe("mediaCheckLine", () => {
     );
     expect(mediaCheckLine({ checked: 0, total: 1 })).toBe(
       "media check: 0 of 1 file checked",
+    );
+  });
+});
+
+describe("shown", () => {
+  it("lists the ids shown so far, each once, in manifest order", () => {
+    const walk = startWalk({ ids: IDS, steps: 10 });
+    expect(walk.shown()).toEqual([]);
+    for (const id of ["a", "c", "b", "c"]) walk.see(screen(id), 0);
+    expect(walk.shown()).toEqual(["a", "b", "c"]);
+  });
+});
+
+describe("mediaSummaryLine", () => {
+  it("says how many files loaded during the walk, how many were checked after it and how many of those the player never requested", () => {
+    expect(
+      mediaSummaryLine({ loaded: 802, checked: 60122, neverRequested: 8 }),
+    ).toBe(
+      "media: 60,924 files: 802 loaded during the walk, 60,122 checked after it (8 never requested)",
+    );
+    expect(mediaSummaryLine({ loaded: 1, checked: 0, neverRequested: 0 })).toBe(
+      "media: 1 file: 1 loaded during the walk, 0 checked after it (0 never requested)",
     );
   });
 });

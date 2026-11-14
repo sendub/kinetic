@@ -33,7 +33,12 @@
 // opening (no --start-at) that reached the end, up to ten ids never shown,
 // in manifest order. Then every media file the walk passed is checked
 // (game.checkMedia(): on Chrome in 4 pages of their own, on WebKit 8 at a
-// time in the game's page) before the errors are read. Every 30 s a
+// time in the game's page) before the errors are read: each file the page
+// did not see load, and each file a shown item references that the page
+// was never given (an animation's later frames, each audio track's
+// script); stderr says first how many (`checking N media files the walk
+// did not see load...`, from 100). The summary then says `media: N files:
+// L loaded during the walk, C checked after it (R never requested)`. Every 30 s a
 // heartbeat on stderr names the step, the items seen so far and the
 // screen, and while the media check runs, says `media check: C of T files
 // checked`; KINETIC_CHECK_GAME_HEARTBEAT_MS sets that interval in
@@ -51,6 +56,7 @@ import { openGame, readManifestFile, summary } from "./kinetic.mjs";
 import {
   exitCode,
   mediaCheckLine,
+  mediaSummaryLine,
   readArgs,
   startWalk,
   USAGE,
@@ -154,11 +160,12 @@ try {
       if (progress !== null) say(mediaCheckLine(progress));
     }, HEARTBEAT_MS);
     try {
-      await game.checkMedia({
+      const media = await game.checkMedia({
+        items: walk.shown(),
         onWaiting: (count) => {
           if (count >= MANY_MEDIA) {
             say(
-              `checking ${count.toLocaleString("en-US")} media files the walk passed...`,
+              `checking ${count.toLocaleString("en-US")} media files the walk did not see load...`,
             );
           }
         },
@@ -166,6 +173,7 @@ try {
           progress = now;
         },
       });
+      console.log(mediaSummaryLine(media));
     } catch (error) {
       console.error(error.message);
       mediaFailed = true;

@@ -40,6 +40,7 @@ import {
   outsideLinks,
   outsideLinksNote,
   readAudio,
+  referencedFiles,
   summary,
 } from "./kinetic.mjs";
 
@@ -929,5 +930,78 @@ describe("countChecked (checkMedia's progress)", () => {
 
   it("starts at nothing to check", () => {
     expect(countChecked(null, 0)).toEqual({ checked: 0, total: 0 });
+  });
+});
+
+describe("referencedFiles (what checkMedia's items reference)", () => {
+  const manifest = {
+    audio: {
+      tracks: {
+        theme: { file: "media/theme.m4a", durationSeconds: 9 },
+        rain: { file: "media/rain.webm", durationSeconds: 9 },
+        door: { file: "media/door.mp3", durationSeconds: 1 },
+        mei: { file: "media/mei.mp3", durationSeconds: 2 },
+        hum: { file: "media/hum.m4a", durationSeconds: 9 },
+        again: { file: "media/theme.m4a", durationSeconds: 9 },
+      },
+    },
+    items: [
+      {
+        id: "pic",
+        type: "image",
+        file: "pic.jpg",
+        audio: {
+          music: "theme",
+          ambience: ["rain"],
+          sfx: [{ track: "door", delayMs: 400 }],
+        },
+      },
+      { id: "line", type: "text", text: "Hi.", audio: { voice: "mei" } },
+      {
+        id: "clip",
+        type: "video",
+        file: "clip.mp4",
+        poster: "clip.poster.jpg",
+        audio: { music: null, videoSound: { track: "hum" } },
+      },
+      {
+        id: "spin",
+        type: "animation",
+        frames: ["spin.f000.jpg", "spin.f001.jpg", "spin.f002.jpg"],
+        fps: 12,
+        loopCount: 1,
+      },
+      { id: "pic-again", type: "image", file: "pic.jpg" },
+      { id: "theme-again", type: "text", text: "x", audio: { music: "again" } },
+      { id: "unwalked", type: "image", file: "unwalked.jpg" },
+    ],
+  };
+
+  it("lists each walked item's picture, video, poster, every frame and its audio tracks' scripts, each file once, in item order", () => {
+    const ids = manifest.items
+      .map((it) => it.id)
+      .filter((id) => id !== "unwalked");
+    expect(referencedFiles(manifest, ids)).toEqual([
+      { path: "pic.jpg", kind: "picture" },
+      { path: "media/theme.m4a.js", kind: "audio" },
+      { path: "media/rain.webm.js", kind: "audio" },
+      { path: "media/door.mp3.js", kind: "audio" },
+      { path: "media/mei.mp3.js", kind: "audio" },
+      { path: "clip.mp4", kind: "video" },
+      { path: "clip.poster.jpg", kind: "picture" },
+      { path: "media/hum.m4a.js", kind: "audio" },
+      { path: "spin.f000.jpg", kind: "picture" },
+      { path: "spin.f001.jpg", kind: "picture" },
+      { path: "spin.f002.jpg", kind: "picture" },
+    ]);
+  });
+
+  it("skips ids the manifest lacks and tracks it does not declare", () => {
+    expect(
+      referencedFiles(
+        { items: [{ id: "a", type: "text", audio: { voice: "nope" } }] },
+        ["a", "missing"],
+      ),
+    ).toEqual([]);
   });
 });

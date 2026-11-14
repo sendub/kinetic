@@ -308,9 +308,13 @@ const READ_SAVED_PLACE = async (storyId) => {
 // has come for a moment, so a fast walk is not slowed; checkMedia() then
 // drains them, here a few at a time or handing them out (take) to pages
 // of their own that check them (check) and say how each went (report). A
-// failed <script> or <link> is logged as it fails. `offPage: false` (the
-// openGame option mediaChecks) checks nothing off the page: only the
-// elements' own events count.
+// failed <script> or <link> is logged as it fails. checkMedia() adds the
+// files its walked items reference that the page was never given (add):
+// an animation's later frames, and each audio track's script
+// (`<file>.js`), which the player reads in place of the file and decodes
+// with decodeAudioData, as the check does; a script the page added counts
+// as requested. `offPage: false` (the openGame option mediaChecks) checks
+// nothing off the page: only the elements' own events count.
 const TRACK_MEDIA = ({ offPage = true } = {}) => {
   // Checks at once in this page while the walk pauses; checkMedia() sets
   // its own number while it drains.
@@ -319,12 +323,19 @@ const TRACK_MEDIA = ({ offPage = true } = {}) => {
   // with it: they run once none has come for this long, or while
   // checkMedia() drains them.
   const QUIET_MS = 300;
-  // A video with no first picture by then, from a local file, is failed.
+  // A video with no first picture by then, from a local file, is failed;
+  // so is an audio script not decoded by then.
   const VIDEO_CHECK_MS = 15000;
-  // URL -> { kind: "picture" | "video", state: "given" (on an element, no
-  // event yet), "queued", "checking" (here), "elsewhere" (taken by another
-  // page), "ok" or "failed" }.
+  // An audio check decodes at this rate, which few files have: WebKit
+  // decodes AAC at the file's own rate in time growing with the square of
+  // its length (player/src/render/audioload.ts).
+  const AUDIO_CHECK_RATE = 22050;
+  // URL -> { kind: "picture" | "video" | "audio", state: "given" (on an
+  // element, no event yet), "queued", "checking" (here), "elsewhere"
+  // (taken by another page), "ok" or "failed" }.
   const files = new Map();
+  // The scripts the page added (an audio track's is its request).
+  const scripts = new Set();
   // URLs to check, first in first out: read from `head` on, as a shift()
   // per file costs the whole list on a game of 60,000 files.
   let queue = [];
@@ -386,8 +397,65 @@ const TRACK_MEDIA = ({ offPage = true } = {}) => {
       video.addEventListener("error", () => finish(false));
       video.src = url;
     });
+  // An audio track's script, run in a frame of its own (the player's
+  // __kineticAudio stays untouched), its bytes decoded.
+  const checkAudio = (url) =>
+    new Promise((done) => {
+      const root =
+        document.documentElement ??
+        document.appendChild(document.createElement("html"));
+      const frame = document.createElement("iframe");
+      frame.style.display = "none";
+      let timer = 0;
+      const finish = (ok) => {
+        if (timer === null) return;
+        clearTimeout(timer);
+        timer = null;
+        frame.remove();
+        done(ok);
+      };
+      timer = setTimeout(() => finish(false), VIDEO_CHECK_MS);
+      root.append(frame);
+      const doc = frame.contentDocument;
+      let called = false;
+      frame.contentWindow.__kineticAudio = (_file, base64) => {
+        called = true;
+        let bytes;
+        try {
+          const text = atob(base64);
+          bytes = new Uint8Array(text.length);
+          for (let n = 0; n < text.length; n += 1) {
+            bytes[n] = text.charCodeAt(n);
+          }
+        } catch {
+          finish(false);
+          return;
+        }
+        new OfflineAudioContext(1, 1, AUDIO_CHECK_RATE)
+          .decodeAudioData(bytes.buffer)
+          .then(
+            () => finish(true),
+            () => finish(false),
+          );
+      };
+      const script = doc.createElement("script");
+      script.onerror = () => finish(false);
+      script.onload = () => {
+        if (!called) finish(false);
+      };
+      script.src = url;
+      (
+        doc.head ??
+        doc.documentElement ??
+        doc.appendChild(doc.createElement("html"))
+      ).append(script);
+    });
   const checkFile = (url, kind) =>
-    kind === "video" ? checkVideo(url) : checkPicture(url);
+    kind === "video"
+      ? checkVideo(url)
+      : kind === "audio"
+        ? checkAudio(url)
+        : checkPicture(url);
   const pump = () => {
     if (!offPage || elsewhere) return;
     const quiet = performance.now() - lastGiven;
@@ -456,13 +524,23 @@ const TRACK_MEDIA = ({ offPage = true } = {}) => {
   new MutationObserver((records) => {
     for (const record of records) {
       if (record.type === "childList") {
-        for (const node of record.addedNodes) each(node, onScreen);
+        for (const node of record.addedNodes) {
+          if (node instanceof HTMLScriptElement && node.getAttribute("src")) {
+            scripts.add(absolute(node.getAttribute("src")));
+          }
+          each(node, onScreen);
+        }
         for (const node of record.removedNodes) {
           each(node, (value, kind) => {
             const url = given(value, kind);
             if (url !== null) enqueue(url);
           });
         }
+        continue;
+      }
+      if (record.target instanceof HTMLScriptElement) {
+        const src = record.target.getAttribute("src");
+        if (src) scripts.add(absolute(src));
         continue;
       }
       const kind = (MEDIA[record.target.tagName] ?? []).find(
@@ -547,9 +625,26 @@ const TRACK_MEDIA = ({ offPage = true } = {}) => {
         pump();
         return { open, waiting, files: files.size, failed };
       },
+      // Queues `list` ([{ path, kind }], paths as the manifest names
+      // them) where the page was never given a file: says how many it
+      // added and how many of those the page never requested.
+      add(list) {
+        let added = 0;
+        let neverRequested = 0;
+        for (const { path, kind } of list) {
+          const url = absolute(path);
+          if (files.has(url)) continue;
+          files.set(url, { kind, state: "given" });
+          enqueue(url);
+          added += 1;
+          if (!(kind === "audio" && scripts.has(url))) neverRequested += 1;
+        }
+        pump();
+        return { added, neverRequested };
+      },
       // Takes up to `count` queued files for another page to check, as
-      // [{ url, kind }]: at most one video, last, so a slow video holds up
-      // no picture behind it.
+      // [{ url, kind }]: at most one video or audio script, last, so a
+      // slow one holds up no picture behind it.
       take(count) {
         const taken = [];
         while (taken.length < count && queued() > 0) {
@@ -558,7 +653,7 @@ const TRACK_MEDIA = ({ offPage = true } = {}) => {
           if (file.state !== "queued") continue;
           file.state = "elsewhere";
           taken.push({ url, kind: file.kind });
-          if (file.kind === "video") break;
+          if (file.kind !== "picture") break;
         }
         return taken;
       },
@@ -736,6 +831,50 @@ export function summary(now) {
   ]
     .filter((part) => part !== "")
     .join(" ");
+}
+
+/**
+ * The files the items `ids` of `manifest` reference, as checkMedia()'s
+ * `items` checks them: `[{ path, kind }]`, each path once, in item order,
+ * paths as the manifest names them. An item's picture or video (`file`),
+ * a video's `poster`, every animation frame (kind "picture" or "video"),
+ * then each audio track the item names (music, ambience, one-shots,
+ * voice, video sound) as the script the player reads, `<file>.js` (kind
+ * "audio"). Ids the manifest lacks and undeclared tracks are skipped.
+ */
+export function referencedFiles(manifest, ids) {
+  const items = Array.isArray(manifest?.items) ? manifest.items : [];
+  const byId = new Map(items.map((it) => [it?.id, it]));
+  const tracks = manifest?.audio?.tracks ?? {};
+  const listed = new Set();
+  const out = [];
+  const add = (path, kind) => {
+    if (typeof path !== "string" || path === "" || listed.has(path)) return;
+    listed.add(path);
+    out.push({ path, kind });
+  };
+  for (const id of ids) {
+    const it = byId.get(id);
+    if (it === undefined) continue;
+    add(it.file, it.type === "video" ? "video" : "picture");
+    add(it.poster, "picture");
+    for (const frame of Array.isArray(it.frames) ? it.frames : []) {
+      add(frame, "picture");
+    }
+    const audio = it.audio ?? {};
+    const named = [
+      audio.music,
+      ...(Array.isArray(audio.ambience) ? audio.ambience : []),
+      ...(Array.isArray(audio.sfx) ? audio.sfx.map((sfx) => sfx?.track) : []),
+      audio.voice,
+      audio.videoSound?.track,
+    ];
+    for (const track of named) {
+      const file = Object.hasOwn(tracks, track) ? tracks[track]?.file : null;
+      if (typeof file === "string") add(`${file}.js`, "audio");
+    }
+  }
+  return out;
 }
 
 /**
@@ -1166,9 +1305,16 @@ function gameHandle(
      * 0 checks them in the game's page, 4 at a time); on WebKit the game's
      * page checks them 8 at a time, whatever `pages` says. Either way a
      * failure is listed in errors() once, as one the game's page found.
-     * Call it before reading errors() after a walk. Resolves with `{
-     * files, failed }`: how many media files the page was given and the
-     * URLs that failed. Throws if `stall`
+     * `items`, a list of item ids (the ones a walk showed), adds every
+     * file they reference that the page was never given (referencedFiles:
+     * an animation's later frames, a video's file shown only as a poster,
+     * each audio track's script, decoded as the player decodes it). Call
+     * it before reading errors() after a walk. Resolves with `{ files,
+     * failed, loaded, checked, neverRequested }`: how many media files
+     * the page was given (with those `items` added), the URLs that failed,
+     * how many had loaded (or failed) before the check, how many it
+     * checked, and how many of those the page was never given (an audio
+     * script the player added counts as given). Throws if `stall`
      * ms pass with no file answered (default 20 s; a video check gives up,
      * as failed, after 15 s), if a checking page fails, or on a game
      * opened with `mediaChecks: false`. `onWaiting(count)`, if given, is
@@ -1181,6 +1327,7 @@ function gameHandle(
       onWaiting = null,
       onProgress = null,
       pages = CHECKER_PAGES[fields.engine],
+      items = [],
     } = {}) {
       if (!mediaChecks) {
         throw new Error(
@@ -1196,8 +1343,21 @@ function gameHandle(
       const settle = () =>
         page.evaluate((how) => window.__kineticMedia.settle(how), drain);
       let status = await settle();
-      if (status.open > 0) onWaiting?.(status.open);
-      let progress = null;
+      const loaded = status.files - status.open;
+      let added = { added: 0, neverRequested: 0 };
+      if (items.length > 0) {
+        added = await page.evaluate(
+          (list) => window.__kineticMedia.add(list),
+          referencedFiles(manifest, items),
+        );
+      }
+      const checked = status.open + added.added;
+      if (added.added > 0) status = await settle();
+      if (checked > 0) onWaiting?.(checked);
+      // Counted from every file to check, though some may be answered by
+      // now (on WebKit the game's page started on them at once).
+      let progress = countChecked(null, checked);
+      if (checked > 0) onProgress?.(progress);
       const checkers = [];
       const lanes = [];
       let done = false;
@@ -1260,12 +1420,11 @@ function gameHandle(
           }
           const next = countChecked(progress, status.open);
           if (
-            progress === null ||
             next.checked !== progress.checked ||
             next.total !== progress.total
           ) {
             progress = next;
-            if (progress.total > 0) onProgress?.(progress);
+            onProgress?.(progress);
           }
           if (status.open === 0) {
             // The failures' console lines can trail the page's answer.
@@ -1274,7 +1433,13 @@ function gameHandle(
             while (!status.failed.every(listed) && Date.now() < until) {
               await sleep(20);
             }
-            return { files: status.files, failed: status.failed };
+            return {
+              files: status.files,
+              failed: status.failed,
+              loaded,
+              checked,
+              neverRequested: added.neverRequested,
+            };
           }
           if (status.open < fewest) {
             fewest = status.open;
