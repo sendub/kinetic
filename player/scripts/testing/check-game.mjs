@@ -12,14 +12,20 @@
 //
 // --steps N    presses at most N times (default 10); `all` presses until the
 //              story ends, giving up (exit 1) after twice the manifest's
-//              item count plus 1,000 presses. Either way the walk stops at
-//              the story's end: a Space that changes nothing (item, line,
-//              picture, choice, screen) while the player's end card shows
-//              or at the manifest's last item. It prints `story ended at
-//              step N`, N the step that first showed that screen, else
-//              `stopped after N steps`. Elsewhere, Space changing nothing 5
-//              times over 2 s is a stuck player: the walk stops, naming the
-//              screen (exit 1).
+//              item count and segment count (every video item's
+//              `segments`, each step a press) plus 1,000 presses. Either
+//              way the walk stops at the story's end: a Space that changes
+//              nothing (item, line, picture, choice, screen, video
+//              segment) while the player's end card shows or at the
+//              manifest's last item. It prints `story ended at step N`, N
+//              the step that first showed that screen, else `stopped after
+//              N steps`. Elsewhere, Space changing nothing 5 times over 2 s
+//              is a stuck player: the walk stops, naming the screen (exit
+//              1). A Space that steps a video's segment (docs/content-
+//              format.md "Video segments") changes the screen: its line
+//              ends `view n of m`, so a segment item steps all its views
+//              before the walk moves on or, last in the story, ends at the
+//              step of its last view.
 // --start-at   opens the game at that item (index.html#start=<id>), as step 0.
 // --until      stops when that item first shows; exit 1 if the walk ends
 //              (the story's end, the steps, the cap) without it. It walks
@@ -69,6 +75,7 @@ import {
   mediaCheckLine,
   mediaSummaryLine,
   readArgs,
+  segmentCount,
   startWalk,
   USAGE,
   untilSpan,
@@ -140,6 +147,7 @@ let errors = [];
 const items = Array.isArray(game.manifest.items) ? game.manifest.items : [];
 const walk = startWalk({
   ids: items.map((it) => it.id),
+  segments: segmentCount(items),
   steps: args.steps,
   until: args.until,
   fromOpening: args.startAt === null,

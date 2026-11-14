@@ -12,6 +12,7 @@ import {
   readArgs,
   STUCK_MS,
   STUCK_PRESSES,
+  segmentCount,
   startWalk,
   USAGE,
   untilSpan,
@@ -190,6 +191,99 @@ describe("the --steps all cap", () => {
       walk.see(screen(step % 2 === 0 ? "a" : "b"), step);
     }
     expect(walk.stop).toMatchObject({ reason: "steps", step: 2000 });
+  });
+});
+
+describe("video segments (docs/plan.md Phase 49, item 4)", () => {
+  /** The reading of `id` with segment `index` of `count` active. */
+  const view = (id, index, count, extra = {}) =>
+    screen(id, { segment: { index, count }, ...extra });
+
+  it("counts a change of segment as a change, not a still press", () => {
+    const walk = walkThrough([screen("b"), view("b", 0, 3), view("b", 1, 3)]);
+    expect(walk.still).toBe(0);
+    walk.see(view("b", 1, 3), 100);
+    expect(walk.still).toBe(1);
+  });
+
+  it("takes six segment steps in a row, over more than the stuck time, as no stuck player", () => {
+    const walk = walkThrough([
+      [screen("b"), 0],
+      ...[0, 1, 2, 3, 4, 5].map((n) => [view("b", n, 6), 600 * (n + 1)]),
+      [screen("c"), 4200],
+    ]);
+    expect(walk.stop).toBeNull();
+    expect(walk.still).toBe(0);
+    expect(walk.step).toBe(7);
+  });
+
+  it("does not end at the manifest's last item while its segments remain; the press past the last one ends it at that segment's step", () => {
+    const walk = walkThrough([
+      screen("d"),
+      screen("e"),
+      view("e", 0, 3),
+      view("e", 1, 3),
+      view("e", 2, 3),
+    ]);
+    expect(walk.stop).toBeNull();
+    walk.see(view("e", 2, 3), 100); // past the last segment: nothing changes
+    expect(walk.stop).toMatchObject({ reason: "end", step: 4 });
+    expect(walk.lines()[0]).toBe("story ended at step 4");
+  });
+
+  it("does not end at an end card while its item's segments remain", () => {
+    const walk = walkThrough([
+      screen("c", { endCard: CARD }),
+      view("c", 0, 2, { endCard: CARD }),
+      view("c", 1, 2, { endCard: CARD }),
+    ]);
+    expect(walk.stop).toBeNull();
+    walk.see(view("c", 1, 2, { endCard: CARD }), 100);
+    expect(walk.stop).toMatchObject({ reason: "end", step: 2 });
+  });
+
+  it("counts a reading with no segment field (an older player) as none, as before", () => {
+    const { segment: _, ...bare } = view("e", 0, 2);
+    const walk = walkThrough([
+      screen("d"),
+      bare,
+      screen("e", { segment: null }),
+    ]);
+    expect(walk.stop).toMatchObject({ reason: "end", step: 1 });
+  });
+
+  it("names the segment in the stuck line and the heartbeat", () => {
+    const walk = walkThrough([[view("b", 1, 5), 0]]);
+    expect(walk.heartbeat()).toBe(
+      'step 0; 1 item seen; on screen: b "The line of b." view 2 of 5',
+    );
+  });
+
+  it("counts every item's segments (segmentCount), the items with none or a bad field adding nothing", () => {
+    const seg = { startSeconds: 0, endSeconds: 1 };
+    expect(
+      segmentCount([
+        { id: "a", type: "video", segments: [seg, seg, seg] },
+        { id: "b", type: "image" },
+        { id: "c", type: "video", segments: [seg, seg] },
+        { id: "d", type: "video", segments: "no" },
+        null,
+      ]),
+    ).toBe(5);
+    expect(segmentCount([])).toBe(0);
+  });
+
+  it("lets the --steps all cap allow two presses for each segment: twice the items and segments plus 1,000", () => {
+    expect(capFor(5, 0)).toBe(1010);
+    expect(capFor(5, 3)).toBe(1016);
+    const walk = startWalk({ ids: IDS, steps: "all", segments: 3 });
+    for (let step = 0; walk.stop === null; step += 1) {
+      walk.see(screen(step % 2 === 0 ? "a" : "b"), step);
+    }
+    expect(walk.stop).toMatchObject({ reason: "cap", step: 1016 });
+    expect(walk.lines()[0]).toBe(
+      "stopped after 1016 steps: gave up without reaching the story's end (--steps all presses at most twice the 5 items and 3 segments plus 1000)",
+    );
   });
 });
 

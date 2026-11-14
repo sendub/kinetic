@@ -18,16 +18,41 @@ const NEVER_SHOWN_NAMED = 10;
 export const USAGE =
   "usage: node check-game.mjs <game-folder> [--engine webkit|chrome|auto] [--steps N|all] [--start-at ID] [--until ID] [--no-media-check]";
 
-/** The presses `--steps all` makes at most: twice the manifest's item count plus 1,000. */
-export const capFor = (itemCount) => 2 * itemCount + 1000;
+/**
+ * The presses `--steps all` makes at most: twice the manifest's item count
+ * and segment count (segmentCount: each segment step is a press of its own)
+ * plus 1,000.
+ */
+export const capFor = (itemCount, segments = 0) =>
+  2 * (itemCount + segments) + 1000;
+
+/**
+ * How many video segments `items` (the manifest's) carry in all
+ * (docs/content-format.md "Video segments"); a `segments` that is not an
+ * array counts none.
+ */
+export const segmentCount = (items) =>
+  (Array.isArray(items) ? items : []).reduce(
+    (sum, it) => sum + (Array.isArray(it?.segments) ? it.segments.length : 0),
+    0,
+  );
 
 const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 const grouped = (n) => n.toLocaleString("en-US");
 
 // What "Space changed nothing" compares: the item, its line, its picture,
-// an open choice and a screen over it (as spaceUntil does).
+// an open choice, a screen over it and the active video segment (as
+// spaceUntil does): a segment step changes only the segment. A reading
+// with no `segment` (a script's own) counts as none.
 const screenKey = (now) =>
-  JSON.stringify([now.id, now.text, now.file, now.choice, now.screen]);
+  JSON.stringify([
+    now.id,
+    now.text,
+    now.file,
+    now.choice,
+    now.screen,
+    now.segment ?? null,
+  ]);
 
 /**
  * check-game.mjs's command line: `{ folder, engine, steps, startAt, until,
@@ -152,21 +177,23 @@ export function untilSpan(manifest, start, until) {
 }
 
 /**
- * A walk's bookkeeping. `ids` are the manifest's item ids in order; `steps`
- * is a whole number or "all"; `until` an item id or null; `fromOpening`
+ * A walk's bookkeeping. `ids` are the manifest's item ids in order;
+ * `segments` how many video segments its items carry (segmentCount, for
+ * the cap); `steps` is a whole number or "all"; `until` an item id or null; `fromOpening`
  * false for a walk from `--start-at`; `span` the walk's untilSpan, reported
  * once the walk reaches `until`. Hand it every step's reading with see();
  * after the first stop it takes no more.
  */
 export function startWalk({
   ids,
+  segments = 0,
   steps,
   until = null,
   fromOpening = true,
   span = null,
 }) {
   const count = ids.length;
-  const limit = steps === "all" ? capFor(count) : steps;
+  const limit = steps === "all" ? capFor(count, segments) : steps;
   const seen = new Set();
   const naming = { steps: 0, screen: 0, guess: 0, none: 0 };
   let step = -1;
@@ -211,7 +238,7 @@ export function startWalk({
       case "stuck":
         return `${after}: Space changed nothing ${stop.presses} times in ${(stop.ms / 1000).toFixed(1)} s (a stuck player), on screen: ${summary(last)}`;
       case "cap":
-        return `${after}: gave up without reaching the story's end (--steps all presses at most twice the ${count} items plus 1000)`;
+        return `${after}: gave up without reaching the story's end (--steps all presses at most twice the ${count} items${segments > 0 ? ` and ${plural(segments, "segment")}` : ""} plus 1000)`;
       case "failed":
         return `${after}: the walk failed: ${stop.message}`;
       default:

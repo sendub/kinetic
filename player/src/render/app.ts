@@ -384,6 +384,14 @@ export function mountShell({ root, manifest, machine }: ShellOptions): Shell {
     // alone. No item (an empty manifest): no attribute.
     if (shown === undefined) stage.removeAttribute("data-item");
     else stage.setAttribute("data-item", shown.id);
+    // The active video segment, for tests (docs/plan.md Phase 49, item 4):
+    // `n/m`, segment n (from 1) of the item's m, set in the same render as
+    // the step; no attribute while none is active.
+    if (state.segment === undefined) stage.removeAttribute("data-segment");
+    else {
+      const { index, count } = state.segment;
+      stage.setAttribute("data-segment", `${index + 1}/${count}`);
+    }
     choiceOpen = state.choice !== undefined;
     if (pillGate.choiceChanged(choiceOpen)) {
       // The pill on screen is old news; a mode pill still queued may show

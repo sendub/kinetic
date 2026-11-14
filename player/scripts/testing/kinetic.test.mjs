@@ -42,6 +42,7 @@ import {
   outsideLinksError,
   outsideLinksNote,
   readAudio,
+  readSegment,
   referencedFiles,
   summary,
 } from "./kinetic.mjs";
@@ -806,6 +807,62 @@ describe("summary", () => {
     expect(
       summary({ id: null, text: "x".repeat(80), choice: null, screen: "esc" }),
     ).toBe(`(no item) "${"x".repeat(57)}..." under the Esc screen`);
+  });
+
+  it("names the active video segment, counting from 1 (docs/plan.md Phase 49)", () => {
+    expect(
+      summary({
+        id: "views",
+        text: "A line.",
+        choice: null,
+        screen: null,
+        segment: { index: 1, count: 5 },
+      }),
+    ).toBe('views "A line." view 2 of 5');
+    expect(
+      summary({
+        id: "views",
+        text: null,
+        choice: null,
+        screen: "esc",
+        segment: { index: 0, count: 6 },
+      }),
+    ).toBe("views view 1 of 6 under the Esc screen");
+    expect(
+      summary({
+        id: "views",
+        text: null,
+        choice: null,
+        screen: null,
+        segment: null,
+      }),
+    ).toBe("views");
+  });
+});
+
+describe("readSegment (current()'s segment, from the stage's data-segment)", () => {
+  it("reads `n/m` as segment n of m, its index from 0", () => {
+    expect(readSegment("2/5")).toEqual({ index: 1, count: 5 });
+    expect(readSegment("1/1")).toEqual({ index: 0, count: 1 });
+    expect(readSegment("6/6")).toEqual({ index: 5, count: 6 });
+  });
+
+  it("gives null for no attribute (no segment active, or an older player) and for anything malformed", () => {
+    for (const raw of [
+      null,
+      undefined,
+      "",
+      "2",
+      "0/5",
+      "6/5",
+      "2/0",
+      "a/b",
+      "1.5/3",
+      " 2/5",
+      "2/5/1",
+    ]) {
+      expect(readSegment(raw)).toBeNull();
+    }
   });
 });
 

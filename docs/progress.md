@@ -4003,9 +4003,25 @@ truthful: an unchecked box means nothing was accepted.
       known fullscreen partials. Before the WebKit fix, segments failed
       1 run in 4 there; one ambience check in `audio` failed once under
       a 5-file WebKit run and passed in the 4 runs after.)
-- [ ] check-game sees segment steps (item 4). Tests: walk.test.mjs units;
+- [x] check-game sees segment steps (item 4). Tests: walk.test.mjs units;
       checkgame parts on a demo copy with a six-segment item, with and
       without lines, and one as the last item: exit 0, the steps printed.
+      (2026-11-14: the stage carries `data-segment="n/m"` beside
+      `data-item` (app.ts `render()`); kinetic.mjs `readSegment` gives
+      `current().segment` (`{index, count}`, null with no segment or an
+      older player), `summary()` ends `view n of m`, and `spaceUntil`
+      counts a segment change; walk.mjs counts it as a change, so six
+      steps are no stuck player and a segment item at the story's end
+      ends the walk at its last view; the `--steps all` cap is twice the
+      items and segments plus 1,000 (check-game.mjs header). Tests ran
+      red first: walk.test.mjs (9), kinetic.test.mjs (2), app.test.ts
+      (`data-segment` set and removed); checkgame parts `segmentsAlone`
+      (six views, no lines), `segmentsAfterLines` (views on the last
+      line only) and `segmentsAtEnd` (ends at `view 3 of 3`), against
+      which HEAD's walker printed no views and stopped early.
+      Orchestrator: npm test 1300, check clean, smoke 6/6; Chrome
+      checkgame, creator, segments, reading 97/97; WebKit checkgame,
+      creator, segments 80/80.)
 - [ ] Left and Right, and the note (item 5). Tests: keys.test.ts; machine
       units for Left and Right; a scenario part on both engines (the
       note's text, input not blocked, keys inert elsewhere); help lists

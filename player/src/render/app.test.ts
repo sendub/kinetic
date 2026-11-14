@@ -526,4 +526,45 @@ describe("mountShell: the stage video's clock steps segments (Phase 49)", () => 
     expect(machine.getState().segment).toBeUndefined();
     shell.unmount();
   });
+  it("the stage names the active segment as data-segment, `n/m` counting from 1, in the render of each step, and drops it on leaving (for check-game, docs/plan.md Phase 49 item 4)", () => {
+    const items: readonly Item[] = [
+      {
+        id: "views",
+        type: "video",
+        file: "views.mp4",
+        poster: "views.jpg",
+        durationSeconds: 6,
+        segments: [
+          { startSeconds: 1, endSeconds: 2 },
+          { startSeconds: 2, endSeconds: 4 },
+        ],
+      },
+      picture("after", "The aftermath."),
+    ];
+    const doc = new FakeVideoDocument();
+    const root = doc.createElement();
+    const machine = createMachine({
+      items,
+      settings: { ...DEFAULT_SETTINGS, playAllRoutes: false },
+      autoAdvance: false,
+    });
+    const shell = mountShell({
+      root: root as unknown as HTMLElement,
+      manifest: { schemaVersion: 1, width: 1280, height: 720, items },
+      machine,
+    });
+    const stage = byId(root, "stage") as FakeElement;
+    const rendered: (string | null)[] = [];
+    machine.subscribe(() => rendered.push(stage.getAttribute("data-segment")));
+    expect(stage.hasAttribute("data-segment")).toBe(false);
+    machine.advance();
+    expect(stage.getAttribute("data-segment")).toBe("1/2");
+    machine.advance();
+    expect(stage.getAttribute("data-segment")).toBe("2/2");
+    machine.advance(); // leaves the item
+    expect(stage.getAttribute("data-item")).toBe("after");
+    expect(stage.hasAttribute("data-segment")).toBe(false);
+    expect(rendered).toEqual(["1/2", "2/2", null]);
+    shell.unmount();
+  });
 });

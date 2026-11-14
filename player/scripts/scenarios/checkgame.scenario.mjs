@@ -49,6 +49,15 @@
 //   a fast walk never shows, fails the run naming it once; on the audio
 //   demo the summary counts each track's script, and a copy with one
 //   undecodable script and one missing names each once with why.
+// - Video segments (docs/plan.md Phase 49, item 4): a Space that steps a
+//   video item's segment is a change, its line ending `view n of m`. On a
+//   copy whose range-a (no lines after it, held at the end of its 0-1 s
+//   range) carries six segments past its range, the walk prints all six
+//   steps and goes on, exit 0, no stuck player; on one whose video-chain
+//   loops 0-1 s under its two lines and carries three segments past that,
+//   the steps come on its last line; on one with a segment item appended
+//   as the manifest's last item, the walk steps all three and ends with
+//   `story ended at step N`, N the step of the last view.
 
 import { execFile } from "node:child_process";
 import {
@@ -88,6 +97,9 @@ export const parts = [
   untilSpans,
   untilSpanGap,
   symlinks,
+  segmentsAlone,
+  segmentsAfterLines,
+  segmentsAtEnd,
 ];
 
 const CHECK_GAME = join(playerDir, "scripts", "testing", "check-game.mjs");
@@ -837,5 +849,126 @@ async function symlinks({ check }) {
     inward.code === 0 &&
       inward.stdout.trimEnd().endsWith("no console or page errors"),
     evidence(inward),
+  );
+}
+
+// Segments past the item's own range (the stage's time stays inside it,
+// at most a frame or a late `timeupdate` past its end), so the first press
+// on the item steps the first one; touching, as copied from one timing
+// list. range-clip.mp4 and video-chain.mp4 are 2 s long.
+const SIX_VIEWS = [1.4, 1.5, 1.6, 1.7, 1.8, 1.9].map((start, n) => ({
+  startSeconds: start,
+  endSeconds: [1.5, 1.6, 1.7, 1.8, 1.9, 2][n],
+}));
+const THREE_VIEWS = [
+  { startSeconds: 1.4, endSeconds: 1.6 },
+  { startSeconds: 1.6, endSeconds: 1.8 },
+  { startSeconds: 1.8, endSeconds: 2 },
+];
+
+/** The `view n of m` a run's item line ends with, as [n, m], or null. */
+const viewOf = (line) => {
+  const m = / view (\d+) of (\d+)$/.exec(line);
+  return m === null ? null : [Number(m[1]), Number(m[2])];
+};
+
+/**
+ * Whether `shown` (itemLines) has `id`'s arrival with no view, then its
+ * views 1 to `count` on consecutive steps, then `next` (null: nothing
+ * after); `{ ok, lines }` with the lines from the arrival on.
+ */
+function steppedViews(shown, id, count, next) {
+  const at = shown.findIndex((s) => s.id === id && viewOf(s.line) === null);
+  const run = at < 0 ? [] : shown.slice(at, at + count + 2);
+  const views = run.slice(1, count + 1);
+  const ok =
+    at >= 0 &&
+    views.length === count &&
+    views.every(
+      (s, n) =>
+        s.id === id &&
+        s.step === run[0].step + n + 1 &&
+        viewOf(s.line)?.[0] === n + 1 &&
+        viewOf(s.line)?.[1] === count,
+    ) &&
+    (next === null
+      ? run.length === count + 1
+      : run[count + 1]?.id === next && viewOf(run[count + 1].line) === null);
+  return { ok, lines: run.map((s) => s.line) };
+}
+
+async function segmentsAlone({ check }) {
+  const folder = demoCopy("checkgame-segments-alone", (copy) => {
+    copy.items.find((it) => it.id === "range-a").segments = SIX_VIEWS;
+    return copy;
+  });
+  const run = await checkGame(folder, ["--steps", "all"]);
+  const shown = itemLines(run.stdout);
+  const views = steppedViews(shown, "range-a", 6, "range-b");
+  const count = manifest.items.length;
+  check(
+    "a video item with no lines after it and six segments: the walk prints its six steps, `view 1 of 6` to `view 6 of 6` on consecutive steps, then moves on; no stuck player, the story's end reached, exit 0",
+    run.code === 0 &&
+      views.ok &&
+      endStep(run.stdout) === shown.at(-1)?.step &&
+      shown.at(-1)?.id === LAST.id &&
+      run.stdout.includes(`\nvisited ${count} of ${count} items\n`) &&
+      !run.stdout.includes("stuck player"),
+    { views: views.lines, ...evidence(run) },
+  );
+}
+
+async function segmentsAfterLines({ check }) {
+  const folder = demoCopy("checkgame-segments-lines", (copy) => {
+    const chain = copy.items.find((it) => it.id === "video-chain");
+    chain.startSeconds = 0;
+    chain.endSeconds = 1;
+    chain.segments = THREE_VIEWS;
+    return copy;
+  });
+  const run = await checkGame(folder, ["--steps", "all"]);
+  const shown = itemLines(run.stdout);
+  const views = steppedViews(shown, "video-chain-3", 3, "chain-still");
+  const early = shown.some(
+    (s) =>
+      (s.id === "video-chain" || s.id === "video-chain-2") &&
+      viewOf(s.line) !== null,
+  );
+  check(
+    "a video item with lines after it and three segments: the steps come on its last line, `view 1 of 3` to `view 3 of 3`, then the walk moves on to the end, exit 0",
+    run.code === 0 &&
+      views.ok &&
+      !early &&
+      endStep(run.stdout) === shown.at(-1)?.step &&
+      shown.at(-1)?.id === LAST.id,
+    { views: views.lines, ...evidence(run) },
+  );
+}
+
+async function segmentsAtEnd({ check }) {
+  const id = "segments-end";
+  const folder = demoCopy("checkgame-segments-end", (copy) => {
+    const range = copy.items.find((it) => it.id === "range-a");
+    copy.items.push({
+      ...structuredClone(range),
+      id,
+      text: "The last item: a video whose views Space steps.",
+      segments: THREE_VIEWS,
+    });
+    return copy;
+  });
+  const run = await checkGame(folder, ["--steps", "all"]);
+  const shown = itemLines(run.stdout);
+  const views = steppedViews(shown, id, 3, null);
+  const count = manifest.items.length + 1;
+  check(
+    "a segment item last in the story is no end while its segments remain: the walk steps all three, then the press past the last ends it with `story ended at step N`, N the step of `view 3 of 3`, exit 0",
+    run.code === 0 &&
+      views.ok &&
+      shown.at(-1)?.id === id &&
+      viewOf(shown.at(-1).line)?.[0] === 3 &&
+      endStep(run.stdout) === shown.at(-1).step &&
+      run.stdout.includes(`\nvisited ${count} of ${count} items\n`),
+    { views: views.lines, ...evidence(run) },
   );
 }
