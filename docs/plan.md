@@ -3059,6 +3059,18 @@ The orchestrator's choices, within the report:
   at every end. The design follows item 1's findings; if they leave a
   real choice (for example between a watch on the last frame and a stall
   watch), it goes to the user before item 2.
+
+Item 1 found that WebKit sends `pause` and `ended` only at a Matroska or
+WebM file's first end; at every later end it sends only its periodic
+`timeupdate` (currentTime at the duration, `ended` true, `paused` false)
+and the video holds on its last frame. Native `loop` sticks the same
+way. The user's decision (2026-11-14): the file's end is whichever comes
+first of three signals: the frame callback presenting the last frame
+plus one frame interval (seamless in the usual case), a `timeupdate` at
+the duration (the catch-all, up to about 0.25 s late in WebKit), and the
+native `ended`. Each end is handled once, the element is paused before
+the end logic runs, and an end seen while seeking or below the duration
+is ignored.
 - The second gap is fixed in the same item: reaching the file's end
   completes the pass of any range whose end lies at or past the last
   frame.
