@@ -20,7 +20,8 @@
 // off the stage), where two items share a line, is named from the screen
 // and the tie by the saved place; `startAt` opens at an item, and a player
 // that ignores `#start=` or has no `data-item` is refused with the reason;
-// a symbolic link out of the folder gets one note, one inside it none; a
+// a symbolic link out of the folder gets one note and one errors() line on
+// both engines (Phase 48, item 5), one inside it neither; a
 // missing picture, an undecodable picture and an undecodable video passed
 // mid-walk each give one errors() line, and a page's console.warn is in
 // errors(), on both engines.
@@ -812,7 +813,7 @@ async function symlinkNote({ check }) {
       await game.press("Space");
       const errors = await settledErrors(
         game,
-        (lines) => !onWebKit || folder !== out || lines.length > 0,
+        (lines) => folder !== out || lines.length > (onWebKit ? 1 : 0),
       );
       return { notes, errors };
     } finally {
@@ -841,13 +842,26 @@ async function symlinkNote({ check }) {
   const failedOut = outward.errors.filter((line) =>
     line.includes(`/creator-link-out/${shown.file}`),
   );
+  const folderLines = outward.errors.filter((line) =>
+    line.startsWith(
+      `[error] 1 symbolic link in this folder points outside it (${shown.file}).`,
+    ),
+  );
+  check(
+    "a symbolic link out of the folder is one errors() line on either engine, naming it with the fix, so a check fails on Chrome too",
+    folderLines.length === 1 &&
+      folderLines[0].includes("copy or hard-link the files"),
+    outward.errors,
+  );
   check(
     onWebKit
-      ? "WebKit cannot load the picture through the outside link (one errors() line), and loads it through the inside one"
-      : "Chrome loads the picture through either link",
+      ? "WebKit cannot load the picture through the outside link (one more errors() line, saying so), and loads it through the inside one"
+      : "Chrome loads the picture through either link (no line for the file itself)",
     (onWebKit
-      ? failedOut.length === 1 && outward.errors.length === 1
-      : outward.errors.length === 0) && inward.errors.length === 0,
+      ? failedOut.length === 1 &&
+        failedOut[0].endsWith("(a symbolic link out of the folder)") &&
+        outward.errors.length === 2
+      : outward.errors.length === 1) && inward.errors.length === 0,
     { outward: outward.errors, inward: inward.errors },
   );
 }

@@ -3857,8 +3857,20 @@ truthful: an unchecked box means nothing was accepted.
       on WebKit, read-only: `span: 20005 of 20005 items shown`, exit 0, in
       118 s with its media check. Orchestrator: npm test 1248, check
       clean, smoke 6/6, checkgame+creator 58/58 on both engines.)
-- [ ] Symlinks out of the folder fail (item 5). Tests: both engines, a link
+- [x] Symlinks out of the folder fail (item 5). Tests: both engines, a link
       out of the folder (exit 1, named) and one inside it (passes).
+      (2026-11-14: openGame always scans for links resolving outside the
+      folder and puts one `[error]` line for the folder first in
+      `errors()` on both engines (up to three named, the count, copy or
+      hard-link advice; `outsideLinksError`), so check-game exits 1 through
+      its normal path and library scripts see it; item 3's per-file
+      `(a symbolic link out of the folder)` line appears only where a load
+      failed (WebKit). The scan took 632 ms over a converted corpus game's
+      113,511 files. Tests ran red first: kinetic.test.mjs; creator
+      `symlinkNote` (Chrome red: no line) and a new checkgame `symlinks`
+      part (Chrome exited 0 before; a link inside the folder passes).
+      Orchestrator: npm test 1249, check clean, smoke 6/6,
+      checkgame+creator 61/61 on both engines.)
 - [x] Validator reachability warning (item 6). Tests: each gap case warns;
       the demo, the branches example and the audio demo warn nothing; on
       generated manifests the warned items equal the items the machine's

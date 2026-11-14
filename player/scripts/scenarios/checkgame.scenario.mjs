@@ -24,6 +24,10 @@
 //   main-line start, past 10 steps, it is every item between; a copy with
 //   an item no route reaches inside the span exits 3 naming it; an
 //   explicit `--steps 3` still stops the walk short (exit 1).
+// - A symbolic link in the folder that resolves outside it fails the run on
+//   both engines, exit 1, naming it (Phase 48, item 5): Chrome loads the
+//   file through it, but WebKit and the macOS app cannot. A link inside
+//   the folder passes.
 // - An id the manifest lacks, for either option, exits 2 before any browser
 //   starts, as does a bad `--steps`.
 // - A copy whose page swallows Space after three presses is a stuck player:
@@ -47,8 +51,15 @@
 //   undecodable script and one missing names each once with why.
 
 import { execFile } from "node:child_process";
-import { cpSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import {
+  cpSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
+import { join, resolve } from "node:path";
 import {
   audioDemoDir,
   demoDir,
@@ -76,6 +87,7 @@ export const parts = [
   audioFiles,
   untilSpans,
   untilSpanGap,
+  symlinks,
 ];
 
 const CHECK_GAME = join(playerDir, "scripts", "testing", "check-game.mjs");
@@ -786,5 +798,44 @@ async function untilSpanGap({ check }) {
       run.stdout.includes(`\nnot shown in the span: ${UNREACHED.id}\n`) &&
       run.stdout.includes("\nno console or page errors"),
     { span, ...evidence(run) },
+  );
+}
+
+async function symlinks({ check }) {
+  const shown = item("text-speech");
+  const elsewhere = join(scenarioRoot, "checkgame-link-elsewhere");
+  rmSync(elsewhere, { recursive: true, force: true });
+  mkdirSync(elsewhere, { recursive: true });
+  const out = demoCopy("checkgame-link-out");
+  cpSync(join(out, shown.file), join(elsewhere, shown.file));
+  rmSync(join(out, shown.file));
+  // Absolute: the scenario root may be given as a relative path.
+  symlinkSync(resolve(elsewhere, shown.file), join(out, shown.file));
+  const inside = demoCopy("checkgame-link-in");
+  mkdirSync(join(inside, "real"));
+  cpSync(join(inside, shown.file), join(inside, "real", shown.file));
+  rmSync(join(inside, shown.file));
+  symlinkSync(join("real", shown.file), join(inside, shown.file));
+
+  const outward = await checkGame(out, ["--steps", "all"]);
+  const named = lines(outward.stdout).filter((line) =>
+    line.startsWith(
+      `  [error] 1 symbolic link in this folder points outside it (${shown.file}).`,
+    ),
+  );
+  check(
+    "a symbolic link out of the folder fails the run on this engine, exit 1, naming the link once with the fix",
+    outward.code === 1 &&
+      endStep(outward.stdout) !== null &&
+      named.length === 1 &&
+      named[0].includes("copy or hard-link the files"),
+    { named, ...evidence(outward) },
+  );
+  const inward = await checkGame(inside, ["--steps", "all"]);
+  check(
+    "a symbolic link inside the folder passes, exit 0",
+    inward.code === 0 &&
+      inward.stdout.trimEnd().endsWith("no console or page errors"),
+    evidence(inward),
   );
 }

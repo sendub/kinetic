@@ -39,6 +39,7 @@ import {
   nearestAfter,
   openGame,
   outsideLinks,
+  outsideLinksError,
   outsideLinksNote,
   readAudio,
   referencedFiles,
@@ -782,6 +783,13 @@ describe("outsideLinks", () => {
       "openGame: 1 symbolic link in this folder points outside it (media). WebKit and the macOS app cannot read files through such links (Chrome can); copy or hard-link the files into the folder instead.",
     );
     expect(outsideLinksNote([])).toBeNull();
+  });
+
+  it("makes the same words an errors() line, which fails a check on every engine", () => {
+    expect(outsideLinksError(["a.jpg", "b.jpg"])).toBe(
+      "[error] 2 symbolic links in this folder point outside it (a.jpg, b.jpg). WebKit and the macOS app cannot read files through such links (Chrome can); copy or hard-link the files into the folder instead.",
+    );
+    expect(outsideLinksError([])).toBeNull();
   });
 });
 

@@ -812,13 +812,26 @@ export function outsideLinks(dir) {
   return found.sort();
 }
 
-/** openGame's one note about outsideLinks(), or null when there are none. */
-export function outsideLinksNote(links) {
-  if (links.length === 0) return null;
+/** What openGame says about outsideLinks(): up to three, the count, the fix. */
+function outsideLinksWords(links) {
   const named = links.slice(0, 3).join(", ");
   const more = links.length > 3 ? ` and ${links.length - 3} more` : "";
   const one = links.length === 1;
-  return `openGame: ${links.length} symbolic ${one ? "link" : "links"} in this folder ${one ? "points" : "point"} outside it (${named}${more}). WebKit and the macOS app cannot read files through such links (Chrome can); copy or hard-link the files into the folder instead.`;
+  return `${links.length} symbolic ${one ? "link" : "links"} in this folder ${one ? "points" : "point"} outside it (${named}${more}). WebKit and the macOS app cannot read files through such links (Chrome can); copy or hard-link the files into the folder instead.`;
+}
+
+/** openGame's one note about outsideLinks(), or null when there are none. */
+export function outsideLinksNote(links) {
+  return links.length === 0 ? null : `openGame: ${outsideLinksWords(links)}`;
+}
+
+/**
+ * The errors() line openGame starts with when outsideLinks() found any (so
+ * a check fails on every engine, Chrome included, where the loads work),
+ * or null when there are none.
+ */
+export function outsideLinksError(links) {
+  return links.length === 0 ? null : `[error] ${outsideLinksWords(links)}`;
 }
 
 const clip = (text) => (text.length > 60 ? `${text.slice(0, 57)}...` : text);
@@ -920,7 +933,10 @@ export function countChecked(previous, open) {
  * - `log`: gets openGame's notes (default: stderr); null for none. Besides
  *   the engine "auto" picked, one note names symbolic links in the folder
  *   that point outside it (outsideLinks), on either engine: WebKit and
- *   the macOS app cannot read files through them.
+ *   the macOS app cannot read files through them. The same words are the
+ *   first errors() line (outsideLinksError), on either engine, so a check
+ *   that reads errors() fails; WebKit also lists each file it could not
+ *   load through one, `(a symbolic link out of the folder)`.
  * Failed loads are reported on both engines: errors() lists each picture,
  * video, poster or script that failed to load or decode, once per file,
  * as `[error] Failed to load resource: <url> (<reason>)`: `not found`,
@@ -954,8 +970,9 @@ export async function openGame(folder, options = {}) {
   }
   if (startAt !== null) checkStartAt(dir, startAt);
   const chosen = chooseEngine(engine, log);
+  const links = outsideLinks(dir);
   if (log) {
-    const note = outsideLinksNote(outsideLinks(dir));
+    const note = outsideLinksNote(links);
     if (note !== null) log(note);
   }
   const kept = profile === null ? null : resolve(profile);
@@ -980,6 +997,8 @@ export async function openGame(folder, options = {}) {
   try {
     const page = await browser.newPage();
     const errors = collectErrors(page, { folder: dir });
+    const linked = outsideLinksError(links);
+    if (linked !== null) errors.push(linked);
     await page.setViewport({ ...viewport, deviceScaleFactor: 1 });
     await page.evaluateOnNewDocument(TRACK_MEDIA, {
       offPage: mediaChecks !== false,
