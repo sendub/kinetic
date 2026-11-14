@@ -3947,13 +3947,31 @@ truthful: an unchecked box means nothing was accepted.
       rejected) and segments outside the item's range. Orchestrator:
       pytest tools/test_validate_content.py 268 passed, npm test 1249,
       check clean, demo and audio demo validate.)
-- [ ] Machine: Space steps segments (item 2). Tests (machine unit): lines
+- [x] Machine: Space steps segments (item 2). Tests (machine unit): lines
       first; a video item with no lines; time before, inside and after
       the segments; a step by index after a seek that lands short; the
       decision opens only after the last segment; route and story ends;
       auto-forward, skip, an open choice and an auto-pick ignore
       segments; a still does not step; every arrival resets; the gate
       counts as met once a segment is active.
+      (2026-11-14: `MachineState.segment` (`{index, count}`, absent with
+      no segment active); `Machine.setVideoClock(fn)` gives the stage's
+      video time, null when it shows a still or no video, settable any
+      time; unset means no step, so nothing a reader sees changes until
+      item 3 wires it. The manual branch of `advance()` steps when the
+      cursor ends its chain, its visual is a video with `segments` and
+      the clock answers: the first segment starting after the time, then
+      by index; none left, `moveForward()` as before. `segmentStage`,
+      `nextSegment` and `showSegment` are the helpers item 5 reuses. The
+      segment clears beside every `endedCount = 0` (every arrival, skip
+      on or off); while one is active the gate counts as met and the hold
+      is the text hold (chain floor and voice hold still apply). A step
+      emits but is no arrival (seen set, transition, chain head kept);
+      the last segment stays active under a decision it opens and at the
+      story's end. segments.test.ts: 24 tests, red first (24 with no API,
+      17 against a no-op stub; the 8 passing guard the branches that must
+      ignore segments); faults (no gate change, re-reading the time)
+      fail 2 and 7. Orchestrator: npm test 1273, check clean.)
 - [ ] Renderer and sound follow the segment (item 3). Tests: visual unit
       tests for the segment plan; scenario parts on Chrome and WebKit:
       the video's position after each press is inside the stepped

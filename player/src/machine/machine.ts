@@ -144,9 +144,11 @@ import type {
   RouteResult,
   RouteSet,
   Scheduler,
+  SegmentView,
   TargetSound,
   TransitionKind,
   VideoItem,
+  VideoSegment,
 } from "./types";
 
 export interface MachineOptions {
@@ -487,6 +489,19 @@ export interface Machine {
    * and the same bound paces its replay.
    */
   mediaEnded(): void;
+  /**
+   * The stage's video clock (docs/plan.md Phase 49, "Video segments"): a
+   * source the visual layer sets once it exists, returning the current
+   * media time, in seconds, of the stage's video while the stage plays
+   * the video of the item on show (a video a menu holds paused counts as
+   * playing), and null while it shows a still (a `nav` arrival below the
+   * seen edge, skip) or no video. Null or never set means no video plays.
+   * `advance()` reads it on the last item of a video's chain whose item
+   * has `segments`: a Space press there steps to the next segment
+   * (`MachineState.segment`) instead of leaving while the stage plays the
+   * video. Setting it changes no state.
+   */
+  setVideoClock(clock: (() => number | null) | null): void;
   /**
    * Settings on the Esc screen (docs/plan.md Phase 9; `c` is retired):
    * replace the pacing settings with a full snapshot; the machine copies
@@ -1100,6 +1115,15 @@ export function createMachine(options: MachineOptions): Machine {
   let holdElapsed = false;
   /** `mediaEnded()` calls counted for the standalone video under the cursor. */
   let endedCount = 0;
+  /**
+   * The active segment of the video on screen, an index into its
+   * `segments`, or null (docs/plan.md Phase 49): set by a segment step
+   * (`showSegment`), cleared wherever `endedCount` restarts, so on every
+   * arrival and on every fresh view of the item (skip on or off).
+   */
+  let segment: number | null = null;
+  /** The stage's video clock (`Machine.setVideoClock`); null: none plays. */
+  let videoClock: (() => number | null) | null = null;
   let timer: unknown = null;
   // When the timer now running was armed for the item under the cursor.
   // setSettings() re-arms from this instant, so the new settings act as
@@ -1254,7 +1278,15 @@ export function createMachine(options: MachineOptions): Machine {
       ...(choice === null ? {} : { choice }),
       ...(endCard === null ? {} : { endCard }),
       ...(skipPlaysVideo() ? { skipVideo: true as const } : {}),
+      ...(segment === null ? {} : { segment: segmentView(segment) }),
     });
+  }
+
+  /** The state's view of the active segment `index` (`SegmentView`). */
+  function segmentView(index: number): SegmentView {
+    const visual = items[visualIndexFor(items, cursor)];
+    const total = visual.type === "video" ? (visual.segments?.length ?? 0) : 0;
+    return Object.freeze({ index, count: total });
   }
 
   /**
@@ -1454,8 +1486,15 @@ export function createMachine(options: MachineOptions): Machine {
       }
       return settings.skipDwellMs;
     }
+    // An active segment meets the media gate (docs/plan.md Phase 49): its
+    // loop reports no passes, so the item holds on its text hold alone, as
+    // a video under a chain does.
     return Math.max(
-      itemHoldMs(items[cursor], settings, nextIsText(cursor)),
+      itemHoldMs(
+        items[cursor],
+        settings,
+        nextIsText(cursor) || segment !== null,
+      ),
       chainExitFloorMs(),
       voiceHoldMs(),
     );
@@ -1638,6 +1677,7 @@ export function createMachine(options: MachineOptions): Machine {
     settled = false;
     holdElapsed = false;
     endedCount = 0; // every cursor change starts the video's loops afresh
+    segment = null; // and plays the item's own range, no segment active
     itemShownAt = Date.now();
     armTimer();
   }
@@ -2135,6 +2175,7 @@ export function createMachine(options: MachineOptions): Machine {
       settled = true;
       holdElapsed = false;
       endedCount = 0;
+      segment = null;
       cancelTimer();
     }
     emit();
@@ -2168,9 +2209,11 @@ export function createMachine(options: MachineOptions): Machine {
    * gate there is what makes auto pacing match playback whether or not the
    * element managed to play. At the seen edge the visual plays on a fresh
    * entry and reports its passes, and the ended count gates there as always.
+   * An active segment (docs/plan.md Phase 49) meets the gate too: the
+   * segment's loop reports no passes, and the reader chose the view.
    */
   function mediaGateSatisfied(): boolean {
-    if (settled) return true;
+    if (settled || segment !== null) return true;
     const item = items[cursor];
     if (item.type !== "video") return true;
     if (item.holdSeconds !== undefined || nextIsText(cursor)) return true;
@@ -2209,6 +2252,55 @@ export function createMachine(options: MachineOptions): Machine {
       return;
     }
     showItem(cursor + 1, "advance", "read");
+  }
+
+  /**
+   * The segments a step walks, with the stage's time (docs/plan.md Phase
+   * 49, "Video segments"), or null when no step can be made here: the
+   * cursor must be the last item of its chain — the video item itself when
+   * no `text` follows it, else the chain's last `text` item, so the lines
+   * come first — its visual a video with `segments`, and the stage playing
+   * that video (the clock reports a time; a still or no video reports
+   * null). Space's step (`advance`) reads it; Left and Right (Phase 49
+   * item 5) step under the same conditions, each with its own target.
+   */
+  function segmentStage(): {
+    segments: readonly VideoSegment[];
+    time: number;
+  } | null {
+    if (videoClock === null || nextIsText(cursor)) return null;
+    const visual = items[visualIndexFor(items, cursor)];
+    if (visual.type !== "video") return null;
+    const { segments } = visual;
+    if (segments === undefined || segments.length === 0) return null;
+    const time = videoClock();
+    return time === null ? null : { segments, time };
+  }
+
+  /**
+   * The segment a forward step goes to, or -1 when none is left: after a
+   * step, the next one by index — never by re-reading the time, since a
+   * seek can land a hair before its target — and before any, the first
+   * one starting strictly after the stage's time.
+   */
+  function nextSegment(stage: {
+    segments: readonly VideoSegment[];
+    time: number;
+  }): number {
+    if (segment !== null)
+      return segment + 1 < stage.segments.length ? segment + 1 : -1;
+    return stage.segments.findIndex((view) => view.startSeconds > stage.time);
+  }
+
+  /**
+   * Makes segment `index` the active one (`MachineState.segment`): a state
+   * change, not an arrival — the cursor, seen set, transition, arrival and
+   * chain head stay. A pending hold re-times: the media gate is met now.
+   */
+  function showSegment(index: number): void {
+    segment = index;
+    retime();
+    emit();
   }
 
   /**
@@ -3137,6 +3229,16 @@ export function createMachine(options: MachineOptions): Machine {
         settled = true;
         cancelTimer();
       }
+      // Video segments (docs/plan.md Phase 49): on the last item of a
+      // video's chain, while the stage plays it, the press steps to the
+      // next segment instead; with none left it moves on as ever. Only
+      // this manual branch steps: every branch above returned first.
+      const stage = segmentStage();
+      const next = stage === null ? -1 : nextSegment(stage);
+      if (next >= 0) {
+        showSegment(next);
+        return;
+      }
       moveForward();
     },
 
@@ -3272,6 +3374,10 @@ export function createMachine(options: MachineOptions): Machine {
       // not move: the machine is frozen, and resume() re-arms the wait
       // for this item (Phase 13b).
       if (holdElapsed && mediaGateSatisfied() && !paused) moveForward();
+    },
+
+    setVideoClock(clock) {
+      videoClock = clock;
     },
 
     setSettings(next) {

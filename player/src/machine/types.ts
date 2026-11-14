@@ -628,6 +628,26 @@ export interface MachineState {
    * true (docs/plan.md Phase 18, "Skip can play videos").
    */
   readonly skipVideo?: true;
+  /**
+   * Present while a segment of the video on screen is active (docs/plan.md
+   * Phase 49, docs/content-format.md "Video segments"): a manual Space on
+   * the last item of the video's chain stepped to it, and the stage plays
+   * that segment instead of the item's own range. Absent on every arrival
+   * at an item, and whenever no step has been made since.
+   */
+  readonly segment?: SegmentView;
+}
+
+/**
+ * The active segment (`MachineState.segment`): which of the video item's
+ * `segments` is on, for the stage to play and for a "View n of m" note
+ * (n is `index + 1`, m is `count`).
+ */
+export interface SegmentView {
+  /** Index into the video item's `segments`, from 0. */
+  readonly index: number;
+  /** The number of the item's `segments`. */
+  readonly count: number;
 }
 
 /**
