@@ -170,6 +170,100 @@ exact fractional second like the rest, and must stay below the range
 end; coming back to the item later plays the intro again. The poster
 is unaffected and stays the frame at `startSeconds`.
 
+### Camera views in one video: segments
+
+One video file may hold several camera views joined by camera moves: a
+scene shot from the door, then the window, then the table, with lines
+over each. Mark the views with the video item's optional `segments`, so
+that after the item's lines Space shows the views one by one before it
+leaves the item, and the reader can step back and forth between them.
+Without `segments` the first Space after the last line leaves the whole
+video.
+
+`segments` is a list of views in file order, each
+`{"startSeconds", "loopStartSeconds", "endSeconds"}` with
+`loopStartSeconds` optional and no other keys. A view plays once from
+its `startSeconds` to its `endSeconds`, then loops from its
+`loopStartSeconds` (default its `startSeconds`) to its `endSeconds`
+until the next step. Only a `video` item takes `segments`. The validator
+checks:
+
+- the list is not empty;
+- each `startSeconds` is at least 0;
+- each `endSeconds` is greater than its `startSeconds` and at most the
+  item's `durationSeconds`;
+- each `loopStartSeconds` is at least 0 and less than its `endSeconds`;
+  below `startSeconds` is allowed;
+- each view starts at or after the end of the one before. Views may
+  touch: one ending at `8.04` and the next starting at `8.04` is fine.
+
+The times are seconds in the file, not in the item's range: a view may
+lie outside the item's `startSeconds`..`endSeconds`. They are compared
+exactly, with nothing rounded, as the range is.
+
+The converter does not write `segments`; add them yourself from the
+view timings you have (the original game's camera list, an editor's
+markers). Copy the times exactly as they are, digits and all: when one
+view's end and the next view's start are the same number in your list
+(`16.479999999999997` included), the views touch and pass, while a
+rounded or retyped copy may overlap by a hair and fail. A view whose
+loop restarts before its camera move into it has ended takes that
+restart as its `loopStartSeconds`, not as its `startSeconds`:
+starting the view there would overlap the view before.
+
+This item loops the whole 24-second file from 0 under its lines, which
+start at its second view; its third view's loop restarts at 16.3 s,
+before the camera move into it ends at the second view's end:
+
+```json
+{
+  "id": "harbor-012", "type": "video", "file": "harbor-012.mp4",
+  "poster": "harbor-012.poster.jpg", "durationSeconds": 24,
+  "startSeconds": 8.04, "loopStartSeconds": 0,
+  "segments": [
+    {"startSeconds": 0, "endSeconds": 8.04},
+    {"startSeconds": 8.04, "endSeconds": 16.479999999999997},
+    {"startSeconds": 16.479999999999997, "loopStartSeconds": 16.3,
+     "endSeconds": 24}
+  ]
+}
+```
+
+Had the third view started at its loop start, the validator would say:
+
+```text
+manifest.json: items[0].segments[2].startSeconds: must not be before segments[1].endSeconds 16.479999999999997 (found 16.3)
+```
+
+What the reader gets:
+
+- The lines come first. Space steps views only on the last item of the
+  video's chain: the last `text` item after the video, or the video item
+  itself when no lines follow it.
+- There, the first Space goes to the first view that starts after
+  wherever the video has got to, and each later Space to the next view.
+  The video jumps to the view's start, plays it and loops it. After the
+  last view, Space leaves the item as it would without `segments` (a
+  decision hanging off the item opens then). The video's own sound
+  (`videoSound`; Sound, below) follows each view and loops with it.
+- On that same item, Right steps to the next view but never leaves the
+  item, and Left steps to the view before (before any step, the view
+  before the one playing). The Esc screen's help lists them as `← →`,
+  after Space.
+- Each step shows "View n of m" in a small pill for about 1.6 s, without
+  blocking keys; `n` counts from 1.
+- Nothing else steps views: auto-forward, skip, a choice and Play all
+  routes' automatic pick leave the item as before, and the arrows do
+  nothing in auto-forward or skip, on a choice, under the Esc screen or
+  the branch map, or on any other item. Once a view is showing, turning
+  auto-forward on moves on after the line's text hold.
+- Everything else plays the item as before: the poster (still the frame
+  at the item's `startSeconds`), the wheel, bookmarks, seen marks, the
+  branch map, a reload and coming back to the item (which play the
+  item's own range again, no view active).
+
+docs/content-format.md, "Video segments", has the full rules.
+
 ### Branches
 
 A `branches` array adds optional routes inside the linear item list.
@@ -1346,7 +1440,8 @@ engine. The other options:
 
 - `--steps N` presses Space at most N times (10 without `--steps`).
   `--steps all` presses until the story ends, giving up after twice the
-  manifest's item count plus 1,000 presses.
+  manifest's item and segment count (every video item's `segments`,
+  since each view takes a press) plus 1,000 presses.
 - `--start-at ID` opens the game at item ID, as step 0, entering its
   routes as `u` does (the URL start, Playing the folder). A folder whose
   player is too old to start at an item opens, says so and exits 1;
@@ -1364,7 +1459,7 @@ engine. The other options:
 
 Any walk stops at the story's end, whatever `--steps` says. The story
 has ended when Space changes nothing (the same item, line, picture,
-choice and screen) while the player's end card shows, or on the
+choice, screen and video view) while the player's end card shows, or on the
 manifest's last item. Anywhere else, Space changing nothing five times
 running over at least 2 s means the player is stuck: the walk stops and
 names the screen.
@@ -1601,6 +1696,69 @@ picture moved out of the folder and linked back lists, on WebKit:
 Copy or hard-link the files into the folder. A link that stays inside
 the folder is fine.
 
+#### Video segments
+
+A Space that steps a video's views (Camera views in one video:
+segments) changes the screen, so check-game prints it as a step of its
+own, its line ending `view n of m`, `n` counting from 1. A view step is
+never a stuck player, and a video with views as the story's last item
+ends the walk at its last view, not before. On a copy of the demo whose
+`floor-clip` (6 s, two more lines after it) carries three views, 0 to
+2 s, 2 to 4 s looping from 2.5 s, and 4 to 6 s:
+
+```sh
+node player/scripts/testing/check-game.mjs demo-segments --start-at floor-clip --steps 6
+```
+
+```text
+webkit: /Users/you/demo-segments
+  0: floor-clip "Short line one."
+  1: floor-2 "Short line two."
+  2: floor-3 "Line three waits."
+  3: floor-3 "Line three waits." view 2 of 3
+  4: floor-3 "Line three waits." view 3 of 3
+  5: branch-title "Next: a decision. Route 1 continues the story and holds a..."
+  6: branch-lead "Shared lead-in: every route starts after this. The decisi..."
+stopped after 6 steps
+visited 5 of 32 items
+media: 4 files: 1 loaded during the walk, 3 checked after it (0 never requested)
+no console or page errors
+```
+
+The views step on the last line only. The walk reached it while the
+video was still in its first view, so the first Space went to view 2,
+the first one starting after that point, as a reader's would. A slower
+walk, or a reader who lingers, can see fewer views: the steps start
+from wherever the video has got to. The same copy's `--steps all` walk
+prints these steps on WebKit and Chrome alike, and its cap counts each
+view as a press.
+
+In a script (A test script, below), `current().segment` is the view
+showing, `{ index, count }` with `index` counting from 0, or `null` when
+none is; `spaceUntil` counts a view step as a change. On the same copy:
+
+```js
+const game = await openGame(folder, { engine, startAt: "floor-clip" });
+
+// The lines come first: no view is active on the way to the last one.
+const last = await game.spaceUntil("floor-3");
+assert.equal(last.segment, null);
+
+// Space on the last line steps the views; step until the last one.
+const end = await game.spaceUntil((now) => now.segment?.index === 2);
+assert.deepEqual(end.segment, { index: 2, count: 3 });
+
+// Left steps back a view and Right forward again, never leaving.
+await game.press("ArrowLeft");
+assert.deepEqual((await game.current()).segment, { index: 1, count: 3 });
+await game.press("ArrowRight", { times: 2 });
+assert.deepEqual((await game.current()).segment, { index: 2, count: 3 });
+
+// Past the last view, Space leaves the item.
+await game.press("Space");
+assert.equal((await game.current()).id, "branch-title");
+```
+
 ### A test script
 
 Write your test anywhere, as a Node script that imports
@@ -1748,7 +1906,8 @@ that stays inside the folder is fine.
 The game:
 
 - `current()` resolves with what the screen shows: `{ id, index, text,
-  speaker, file, choice, screen, foundBy, ambiguous, endCard, audio }`.
+  speaker, file, choice, screen, foundBy, ambiguous, endCard, segment,
+  audio }`.
   - `id` and `index` name the manifest item, or are `null` and -1 on a
     screen no item makes.
   - `text` and `speaker` are the line on screen (`null` when none).
@@ -1760,6 +1919,9 @@ The game:
   - `endCard` is the words of the player's end card while it shows, at
     the story's end (`"You have seen everything."` once every route has
     been played), else `null`.
+  - `segment` is the video view showing (Video segments, above):
+    `{ index, count }` with `index` counting from 0, or `null` when none
+    is, and always from a player older than segments.
   - `audio` is the sound, `{ unlocked, target, elements }`, or `null` for
     a game without sound or a player older than sound (Checking the
     sound, above). `unlocked` says the game may play: true once a key or
@@ -1790,10 +1952,10 @@ The game:
   `ArrowLeft`, `ArrowRight`, `PageUp`, `PageDown`, `Home`, `End`,
   `Delete` or `Backspace`.
 - `spaceUntil(target, { limit })` presses Space until `target`: an item
-  id, or a function given `current()` that returns true. It stops with
-  an error at a choice while Play all routes is off, when Space changes
-  nothing five times running, or after `limit` presses (100 by
-  default).
+  id, or a function given `current()` that returns true. A step to a
+  video's next view counts as a change. It stops with an error at a
+  choice while Play all routes is off, when Space changes nothing five
+  times running, or after `limit` presses (100 by default).
 - `waitForItem(target, { timeout })` and `waitForChoice({ timeout })`
   wait without pressing anything (10 s by default), for timed play such
   as auto-forward (`a`).

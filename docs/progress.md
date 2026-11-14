@@ -4045,7 +4045,21 @@ truthful: an unchecked box means nothing was accepted.
       Chrome segments, screens, menus, reading, navigation, bookmarkmap
       211/211; WebKit segments and screens 128 pass and the 2 known
       fullscreen partials, segments 23/23 in 3 of 3 runs.)
-- [ ] Docs (item 6): CREATE.md, docs/verify-player.md, AGENTS.md if a
+- [x] Docs (item 6): CREATE.md, docs/verify-player.md, AGENTS.md if a
       command changed; every example run.
+      (2026-11-14: CREATE.md "Camera views in one video: segments" (the
+      rules, copying times exactly, a loop restart before the camera move
+      ends going in `loopStartSeconds`, a synthetic example and the
+      validator's line for its overlapping variant, what the reader gets)
+      and under "Testing your game" the `view n of m` steps with real
+      output, `current().segment`, the cap and the end rule; README.md
+      the Left and Right bullet; docs/verify-player.md the `segments` row
+      (7 parts), the new checkgame parts, 12 help rows; AGENTS.md one
+      clause on the check-game line. content-format.md already matched
+      the code. Every example was run: check-game on a demo copy with
+      segments exit 0 three times on each engine, the script snippet ok
+      on both, the validator on the example and its overlap. Orchestrator:
+      diff ASCII apart from the help's arrows and an existing ×, no game
+      named.)
 - [ ] Phase-closer (Phase 49): full pytest, the full `npm run verify` and
       `npm run verify -- --webkit`, package-proof.

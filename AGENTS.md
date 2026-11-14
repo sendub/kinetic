@@ -65,7 +65,8 @@ are implementing and docs/stack.md for settled decisions.
 - Play a built game folder with no window (WebKit or headless Chrome):
   `node player/scripts/testing/check-game.mjs <folder> [--engine
   webkit|chrome] [--steps N|all] [--start-at ID] [--until ID]
-  [--no-media-check]` (any walk stops at the story's end; `--until`
+  [--no-media-check]` (any walk stops at the story's end; a video
+  segment step prints as its own step ending `view n of m`; `--until`
   walks as `--steps all` unless `--steps` is given and reports its span
   from the start; `--no-media-check` skips the media check after the
   walk; exit 0 passed, 1 errors, a stuck player, the `all` cap, `--until`
