@@ -3924,3 +3924,35 @@ truthful: an unchecked box means nothing was accepted.
       607 s on WebKit and 170 s on Chrome, media check included. On a
       converted corpus game the media check fell from about 23 to about 2
       minutes on Chrome (item 1).)
+
+## Phase 49: Video segments (2026-11-14, converting agent + user)
+
+- [ ] Format, schema and validator (docs/plan.md Phase 49, item 1). Tests:
+      one validator case per rule, passing and failing (order, touching,
+      overlap, bounds, loop start, unknown keys, `segments` on a
+      non-video item, an empty list); the schema agrees; the demo and
+      audio demo still validate.
+- [ ] Machine: Space steps segments (item 2). Tests (machine unit): lines
+      first; a video item with no lines; time before, inside and after
+      the segments; a step by index after a seek that lands short; the
+      decision opens only after the last segment; route and story ends;
+      auto-forward, skip, an open choice and an auto-pick ignore
+      segments; a still does not step; every arrival resets; the gate
+      counts as met once a segment is active.
+- [ ] Renderer and sound follow the segment (item 3). Tests: visual unit
+      tests for the segment plan; scenario parts on Chrome and WebKit:
+      the video's position after each press is inside the stepped
+      segment, its loop stays inside it, leaving and re-entering plays
+      the item's range, and the video's sound stays on the video
+      (`videosound`'s checks) through a step and a loop.
+- [ ] check-game sees segment steps (item 4). Tests: walk.test.mjs units;
+      checkgame parts on a demo copy with a six-segment item, with and
+      without lines, and one as the last item: exit 0, the steps printed.
+- [ ] Left and Right, and the note (item 5). Tests: keys.test.ts; machine
+      units for Left and Right; a scenario part on both engines (the
+      note's text, input not blocked, keys inert elsewhere); help lists
+      the keys.
+- [ ] Docs (item 6): CREATE.md, docs/verify-player.md, AGENTS.md if a
+      command changed; every example run.
+- [ ] Phase-closer (Phase 49): full pytest, the full `npm run verify` and
+      `npm run verify -- --webkit`, package-proof.

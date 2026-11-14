@@ -2903,6 +2903,119 @@ documented.
 8. Phase-closer: full suites; a timed `check-game --steps all` walk, media
    check included, of a 160,000-item synthetic game on both engines.
 
+## Phase 49: Video segments (2026-11-14, converting agent + user)
+
+A converting agent's game has hundreds of videos that are one file
+holding several camera views joined by smooth camera moves. The original
+game knew each view's times, played the views in turn under the dialogue,
+and let the reader jump to the next or previous view with arrow buttons.
+In Kinetic a reader who presses Space after the last line under such a
+video leaves the whole video. The agent asked for an optional list of
+views on a video item, so that Space, after the lines, steps through the
+views before leaving. They would mark 467 items.
+
+Checked on their data, read-only (2026-11-13): files hold 2 to 6 views;
+each view's end is the same number as the next view's start in the
+original timing files (values such as `81.03999999999999` included), so
+copied as they are, adjacent segments touch exactly; no view ends past
+the item's `durationSeconds`. One file's third view has its loop start
+(35) before the end of its camera move (35.2), which is also where the
+second view ends: a segment starting at the loop start would overlap the
+one before. Every marked item loops the whole file from 0 under its lines
+(`loopStartSeconds` 0, below `startSeconds`), and many start at a later
+view, so by the last line the video can be anywhere in the file. 166 of
+the items have no lines after them.
+
+Today's code: Space reaches `machine.advance()` (player/src/machine/
+machine.ts), whose branches run in order: an auto-pick, an open choice,
+skip playing a video, skip, auto-forward, and last the manual step, which
+settles the item and calls `moveForward()` (the decision, a route end,
+the story end, else the next item). The renderer (player/src/render/
+visual.ts) plays an item's range from a per-item plan (`videoPlanFor`,
+`passBoundary`, `seekTo`), and the video's sound follows the stage's pass
+(`StageVideo.pass()`, render/audio.ts `followPass`) and restarts where
+the video is after a seek (Phase 47 item 19). check-game (player/scripts/
+testing/walk.mjs) calls a Space that changes nothing 5 times in 2 s a
+stuck player, and one at the last item or end card the story's end.
+
+The user's decisions (2026-11-13):
+
+- After Phase 48, as its own phase.
+- The two extras the agent called optional are in: Left and Right step to
+  the previous and next segment, and each step shows a short note.
+- The validator compares exactly (no tolerance), as it does for ranges;
+  segments may touch.
+
+The orchestrator's choices, within the request: the arrow keys work only
+where Space steps segments (the chain's last item), as rule 2 below
+places Space's step, so "lines first" holds for every key; the note reads
+"View n of m", n counting from 1 in the item's segment list.
+
+1. Format, schema and validator. Video items may carry `segments`: a
+   non-empty array of `{startSeconds, loopStartSeconds?, endSeconds}`,
+   no other keys, and no other item type may carry it. Each
+   `startSeconds` is at least 0; `endSeconds` is greater than
+   `startSeconds` and at most `durationSeconds`; `loopStartSeconds`
+   (default `startSeconds`) is at least 0 and less than `endSeconds`
+   (below `startSeconds` is legal, as for an item); each segment starts
+   at or after the end of the one before (touching allowed). Exact
+   comparison, nothing rounded. Segments may lie outside the item's own
+   range. docs/content-format.md gets "Video segments" with the rules of
+   items 2 and 3, and the list of what ignores the field: the item's
+   range, poster, media gate, auto-forward, skip, the wheel, bookmarks,
+   seen marks, the branch map, reload and re-entry (which start at the
+   item's `startSeconds` as now), and the validator's reachability walk.
+2. Machine: Space steps segments. Only in the manual branch of
+   `advance()`, before `moveForward()`: when the cursor is the last item
+   of its chain (the video item itself when no `text` follows), its
+   visual item is a video with `segments`, and the stage plays that
+   video (one a menu holds paused counts; a poster held on a `nav`
+   arrival below the seen edge does not), the press makes the
+   first segment that starts after the video's current time the active
+   segment, and later presses step to the next one by index (never by
+   re-reading the time: a seek can land a hair before its target). With
+   no later segment the press advances as now, and a decision hanging off
+   the item opens then. The active segment is in the machine's state,
+   reset to none on every arrival at an item. Auto-forward, skip, an open
+   choice and an auto-pick never step segments (their branches return
+   first). Once a segment is active the item's media gate counts as met,
+   so turning auto-forward on leaves on the text hold alone.
+3. Renderer and sound follow the segment. When the active segment
+   changes, the stage seeks once to its `startSeconds`, plays to its
+   `endSeconds`, then loops `loopStartSeconds..endSeconds` until the next
+   step, reporting no passes to the machine; `StageVideo.pass()` reports
+   the segment's end and restart point, so the video's sound plays the
+   segment and loops with it. Leaving the item, re-entering it or a
+   reload plays the item's own range as now. A menu's pause and resume
+   keep the segment.
+4. check-game sees segment steps. The page shows the active segment
+   (machine state, readable by `game.current()` in player/scripts/
+   testing/kinetic.mjs), its summary line names it, and walk.mjs counts a
+   change of segment as a change, so stepping six segments is not a stuck
+   player and a segment item at the story's end does not end the walk
+   early. The `--steps all` cap allows the extra presses.
+5. Left and Right, and the note. On the item where Space steps segments,
+   Right steps to the next segment as Space does but never advances (on
+   the last segment it does nothing); Left steps to the previous segment:
+   before any step, the segment before the one the video's time is in, or
+   the last one starting before that time; after a step, the one before
+   the active segment; nothing when there is none. Neither key does
+   anything elsewhere. Each segment step (Space, Left, Right) shows "View
+   n of m" for a moment, in the overlay's style, without blocking input.
+   The help overlay lists the keys.
+6. Docs: CREATE.md (marking segments, what Space and the arrows do, an
+   example, how to check with check-game), docs/verify-player.md (the
+   scenario rows), AGENTS.md if a command changes.
+7. Phase-closer: full suites.
+
+Tests and fixtures: scenarios use copies of fixtures/demo and
+fixtures/audio-demo with `segments` added to an existing video item (the
+audio demo's `video-sync` carries a video sound), written under the
+scenario's own temporary root, so no fixture changes and no other
+scenario's counts move. If a check needs a longer video, a synthetic one
+is generated with the pinned or PATH ffmpeg in the same way; nothing from
+any real game is used.
+
 ## Sequencing
 
 1 -> 2 -> 2b -> 3 -> 4 -> 5 -> 6 -> 7 -> 7b -> 8 -> 9 -> 9b -> 9c -> 9d ->
