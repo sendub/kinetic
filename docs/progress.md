@@ -4061,5 +4061,14 @@ truthful: an unchecked box means nothing was accepted.
       on both, the validator on the example and its overlap. Orchestrator:
       diff ASCII apart from the help's arrows and an existing ×, no game
       named.)
-- [ ] Phase-closer (Phase 49): full pytest, the full `npm run verify` and
+- [x] Phase-closer (Phase 49): full pytest, the full `npm run verify` and
       `npm run verify -- --webkit`, package-proof.
+      (2026-11-14 on 6fc9603: full pytest 992 passed in 86 s; full
+      `npm run verify` 627/627 on Chrome in 276 s; `npm run verify --
+      --webkit` 642 pass and 5 partial (the headless fullscreen checks),
+      0 fail; package-proof 18/18 with .tmp/extract-demo regenerated.
+      Earlier runs while other programs loaded the machine (load average
+      10-28) failed timing checks in unrelated files; the Phase 48 closing
+      commit, run beside them, failed the same WebKit videosound,
+      branchmap and frame-log checks, and the runs above came once the
+      machine was quiet.)
