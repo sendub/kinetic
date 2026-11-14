@@ -3338,7 +3338,7 @@ truthful: an unchecked box means nothing was accepted.
       1151, check clean, smoke 6/6, the sweep re-run over player/src and
       player/scripts/testing lists only those four, Chrome `bookmarkmap
       branchmap navigation branches audio` 235/235.)
-- [ ] Ambience loops play on (item 14, added 2026-11-10; user, listening
+- [x] Ambience loops play on (item 14, added 2026-11-10; user, listening
       check: on `amb-start` the rain stopped after one play and the hum
       restarted with gaps; `amb-carry` had no rain). Tests:
       - the audio scenario, Chrome and WebKit: rain and hum still play
@@ -3379,7 +3379,11 @@ truthful: an unchecked box means nothing was accepted.
       (the left wall) is quieter or cut short in Chrome and sometimes
       missing in Safari and the app. The muted and fake-output test
       engines did not show either.)
-- [ ] Video sound clicks stay on the wall hits (item 15, added 2026-11-10;
+      (Closed 2026-11-14 by item 18: loops are buffer sources with
+      sample-exact wraps, checked by the tap of the mix in Chrome and
+      WebKit. The user re-listened to the rebuilt audio demo in Safari,
+      Chrome and the Mac app with item 11: all as described.)
+- [x] Video sound clicks stay on the wall hits (item 15, added 2026-11-10;
       user, listening check: usually on the hits, sometimes not). Tests:
       - the videosound scenario, Chrome and WebKit: across ten wraps no
         click is skipped or doubled (mapping the sound's played spans to
@@ -3414,6 +3418,11 @@ truthful: an unchecked box means nothing was accepted.
       fourth, at load average 6-10, had one wrap 113 ms ahead (2 clicks
       off, none skipped or doubled) and the text-chain check failed with
       it.)
+      (Closed 2026-11-14 by item 19 and its follow-up: the sound is a
+      buffer loop on the audio clock and the video follows it; the tap
+      maps every click to its wall hit in Chrome and WebKit, under load
+      too. The user re-listened in Safari, Chrome and the Mac app with
+      item 11: every wall hit clicks, all as described.)
 - [x] A trial of two sound routes (item 16, added 2026-11-11; the user
       chose a trial before fixing items 14 and 15 again): scratch pages
       for Web Audio from script-held bytes and for the video's own
@@ -3737,9 +3746,21 @@ truthful: an unchecked box means nothing was accepted.
       partials); navigation p95 on the audio demo 34.6 ms (budget 41);
       check-game on the assembled audio demo exit 0 in Chrome and WebKit,
       35 of 35 items.)
-- [ ] User: the listening checklist (item 11), on fixtures/audio-demo in
+- [x] User: the listening checklist (item 11), on fixtures/audio-demo in
       real Safari, desktop Chrome and a Mac app built for it. The
       orchestrator does not tick this; the user reports, and any finding
       becomes a fix first.
-- [ ] Phase-closer (Phase 47): full pytest, the full `npm run verify` and
+      (2026-11-14, the user's report after the Web Audio items: the
+      listening checklist in docs/verify-player.md, run on the audio demo
+      assembled from 4f5a7d9 with its Mac app, matched in Safari, Chrome
+      and the app: "All as described". Before it, the validator passed
+      the folder and check-game showed 35 of 35 items in Chrome and
+      WebKit with no errors.)
+- [x] Phase-closer (Phase 47): full pytest, the full `npm run verify` and
       `npm run verify -- --webkit`, package-proof.
+      (2026-11-14 on 4f5a7d9: full pytest 931 passed in 88 s; full
+      `npm run verify` 585/585 on Chrome; `npm run verify -- --webkit`
+      600 pass and 5 partial (the headless fullscreen checks), 0 fail;
+      package-proof 18/18 with .tmp/extract-demo regenerated from
+      fixtures/renpy_demo. Items 11, 14 and 15 closed by the user's
+      listening the same day.)
