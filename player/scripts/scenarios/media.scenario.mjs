@@ -120,6 +120,26 @@ const INSTALL_VIDEO_SAMPLER = () => {
   if (mounted) startSampler(mounted);
 };
 
+/**
+ * The page times the passes of the video showing `poster` ended, from the
+ * frames it presented (`INSTALL_VIDEO_SAMPLER`): the last frame before
+ * each wrap back, and its last frame if that lies at the pass end `end`.
+ * The player ends a pass at the file's end on whichever comes first of the
+ * last frame, a `timeupdate` there and `ended` (docs/plan.md Phase 50), so
+ * a pass that wraps before the file's `ended` fires sends none.
+ */
+function passEnds(frames, poster, end) {
+  const own = frames.filter((f) => f.poster === poster);
+  const ends = [];
+  for (let i = 1; i < own.length; i += 1) {
+    if (own[i - 1].mediaTime - own[i].mediaTime > 0.25)
+      ends.push(own[i - 1].at);
+  }
+  const last = own.at(-1);
+  if (last !== undefined && last.mediaTime >= end - 0.1) ends.push(last.at);
+  return ends;
+}
+
 const VIDEO_FACTS = () => {
   const v = document.getElementById("visual-video");
   return v
@@ -140,7 +160,7 @@ const VIDEO_FACTS = () => {
 // own `emptied` can land just after the element mounts): every `seeking`
 // (with the last playing position before it) and every source reload
 // (`emptied`). A chained text advance must cause neither; the only seek
-// allowed is the element's own loop wrap (end of the clip back to 0).
+// allowed is the loop's wrap (end of the clip back to 0).
 const INSTALL_RESTART_WATCH = () => {
   const v = document.getElementById("visual-video");
   const rec = { seeks: [], reloads: 0 };
@@ -269,9 +289,11 @@ async function animationAndChain({ check, open }) {
     },
   );
 
-  // 10. The video item: one <video muted playsinline>, poster painted, loop
-  // on (its next item is text, so the chain applies), and it plays. An
-  // expando marks the element so the chain steps can prove it is reused.
+  // 10. The video item: one <video muted playsinline>, poster painted, and
+  // it plays (its next item is text, so the chain applies: the player loops
+  // it at the file's end itself, the element's own `loop` off, docs/plan.md
+  // Phase 50). An expando marks the element so the chain steps can prove it
+  // is reused.
   const head = item("video-chain");
   await pressSpace(cdp);
   await page.waitForFunction(
@@ -299,7 +321,7 @@ async function animationAndChain({ check, open }) {
       s10.video?.poster === head.poster &&
       s10.video?.posterPainted === true &&
       s10.video?.visible === true &&
-      s10.video?.loop === true &&
+      s10.video?.loop === false &&
       f10.muted === true &&
       f10.playsinline === true &&
       s10.imgVisible === false &&
@@ -316,7 +338,7 @@ async function animationAndChain({ check, open }) {
   check(
     "a chained text line keeps the same <video> element looping, no placeholder",
     same11 &&
-      s11.video?.loop === true &&
+      s11.video?.loop === false &&
       s11.video?.visible === true &&
       s11.video?.paused === false &&
       s11.imgVisible === false &&
@@ -333,11 +355,15 @@ async function animationAndChain({ check, open }) {
   // a thought, so the same read pins thought mode (italic, no speaker).
   // Playing on means no restart: from the item's entry through both chain
   // advances there is no source reload and no seek other than the loop's
-  // own wrap at the clip's end, and the next frame presented after this
+  // wrap at the clip's end, and the next frame presented after this
   // advance is not behind the position before it unless such a wrap fell
-  // inside it. The position alone proves nothing here: this step runs a few
-  // milliseconds after playback began, so it can still read 0 (step 13
-  // proves the video keeps advancing).
+  // inside it: a frame whose 40 ms (25 fps) span holds that position is not
+  // behind it. With the player's own frame callbacks running from the start
+  // (docs/plan.md Phase 50) Chrome can hand this one the clip's first frame,
+  // at 0, a few milliseconds into playback, as it does for any page that
+  // asks for frames that early. The position alone proves nothing here:
+  // this step runs a few milliseconds after playback began, so it can still
+  // read 0 (step 13 proves the video keeps advancing).
   const line3 = item("video-chain-3");
   const tBefore12 = await page.evaluate(RAW_TIME);
   const seeksBefore12 = (await page.evaluate(() => window.__kineticRestarts))
@@ -353,13 +379,13 @@ async function animationAndChain({ check, open }) {
   check(
     "the next chain line keeps the same <video> playing (thought line, italic)",
     same12 &&
-      s12.video?.loop === true &&
+      s12.video?.loop === false &&
       s12.video?.visible === true &&
       s12.video?.paused === false &&
       restarts.reloads === 0 &&
       restarts.seeks.every(isWrap) &&
       tAfter12 !== null &&
-      (tAfter12 >= tBefore12 || wrapped12) &&
+      (tAfter12 + 0.04 > tBefore12 || wrapped12) &&
       s12.imgVisible === false &&
       s12.speaker === null &&
       s12.text === line3.text &&
@@ -522,23 +548,27 @@ async function ranges({ check, open }) {
 
   // 30. range-b: the SAME file at [start, end], loopCount 2, the loop-back
   // seeking to loopStartSeconds, not startSeconds; the range end is the
-  // file's end, so each pass is a native `ended`. It then holds near the end.
-  // Settled means the last pass's `ended` has been dispatched (so the
-  // player has handled it) and the element is paused at the end. Paused at
-  // the end alone is not enough: Chrome sets `paused` when playback reaches
-  // the file's end but dispatches `pause`/`ended` in a later task, so a poll
-  // in between sees the FIRST pass's end as settled, before the player has
-  // seeked back for the second pass.
+  // file's end, so each pass ends there. It then holds near the end.
+  // Settled means the frames went back for every pass but the last and the
+  // element is paused at the end. Paused at the end alone is not enough:
+  // Chrome sets `paused` when playback reaches the file's end but
+  // dispatches `pause`/`ended` in a later task, so a poll in between sees
+  // the FIRST pass's end as settled, before the player has seeked back for
+  // the second pass.
   let settled = true;
   try {
     await page.waitForFunction(
       (poster, end, passes) => {
         const v = document.getElementById("visual-video");
-        const ends = window.__kineticVid.ended.filter(
-          (e) => e.poster === poster,
-        ).length;
+        const own = window.__kineticVid.frames.filter(
+          (f) => f.poster === poster,
+        );
+        let wraps = 0;
+        for (let i = 1; i < own.length; i += 1) {
+          if (own[i - 1].mediaTime - own[i].mediaTime > 0.25) wraps += 1;
+        }
         return (
-          ends >= passes &&
+          wraps >= passes - 1 &&
           v?.paused === true &&
           v.currentTime >= end - 0.1 &&
           v.getAttribute("poster") === poster
@@ -571,7 +601,7 @@ async function ranges({ check, open }) {
         f.mediaTime >= b.startSeconds - 0.05 &&
         f.mediaTime <= b.endSeconds + 0.05,
     );
-  const passesB = recB.ended.filter((e) => e.poster === b.poster).length;
+  const passesB = passEnds(recB.frames, b.poster, b.endSeconds).length;
   const lastB = await page.evaluate(VIDEO_FACTS);
   const stillB = (await page.evaluate(PAGE_STATE)).text === b.text;
   check(
@@ -954,8 +984,8 @@ async function loops({ check, open }) {
     50,
   );
   const rec = await page.evaluate(() => window.__kineticVid);
-  const passes = rec.ended.filter((e) => e.poster === it.poster);
-  const lastPassAt = passes.at(-1)?.at ?? null;
+  const passes = passEnds(rec.frames, it.poster, it.durationSeconds);
+  const lastPassAt = passes.at(-1) ?? null;
   // After the final pass and before the advance the element rests paused.
   const resting = samples.filter(
     ([at, sig]) =>
@@ -971,7 +1001,7 @@ async function loops({ check, open }) {
     ? resting.length > 0 && resting.every(([, sig]) => sig.includes("|paused|"))
     : true;
   const advancedMs = doneAt === null ? -1 : doneAt - enteredAt;
-  const firstPassMs = passes[0] ? passes[0].at - enteredAt : -1;
+  const firstPassMs = passes.length > 0 ? passes[0] - enteredAt : -1;
   check(
     "a loopCount video in auto mode plays all its passes before advancing",
     walked &&
@@ -989,7 +1019,7 @@ async function loops({ check, open }) {
     {
       walked,
       passes: passes.length,
-      passTimesMs: passes.map((p) => p.at - enteredAt),
+      passTimesMs: passes.map((at) => at - enteredAt),
       restSamples: resting.length,
       restPaused,
       advancedMs,
@@ -1000,8 +1030,8 @@ async function loops({ check, open }) {
 }
 
 async function hold({ check, open }) {
-  // NEW: a holdSeconds WebM plays as a background (loop on, no pass
-  // reports, no media error) and auto advances on the clock: the later of
+  // NEW: a holdSeconds WebM plays as a background (looping, the player's
+  // own loop with the element's off, no pass reports, no media error) and auto advances on the clock: the later of
   // holdSeconds and its text hold (content-format "Timing").
   const { page, cdp } = await open("hold", { closeHelp: true });
   const it = item("video-hold");
@@ -1033,14 +1063,20 @@ async function hold({ check, open }) {
     50,
   );
   const own = samples
-    .map(([, sig]) => sig.split("|"))
-    .filter(([poster]) => poster === it.poster);
+    .map(([at, sig]) => [at, ...sig.split("|")])
+    .filter(([, poster]) => poster === it.poster);
   let wraps = 0;
   for (let i = 1; i < own.length; i += 1) {
-    if (Number(own[i - 1][2]) - Number(own[i][2]) > 0.5) wraps += 1;
+    if (Number(own[i - 1][3]) - Number(own[i][3]) > 0.5) wraps += 1;
   }
+  // Never held paused: the player's wrap at the file's end can leave it
+  // paused for the few milliseconds its seek takes to land (docs/plan.md
+  // Phase 50), never for two reads in a row.
   const neverPaused =
-    own.length > 0 && own.every(([, state]) => state === "playing");
+    own.length > 0 &&
+    own.every(
+      ([, , state], i) => state === "playing" || own[i + 1]?.[2] !== "paused",
+    );
   const rec = await page.evaluate(() => window.__kineticVid);
   const advancedMs = doneAt === null ? -1 : doneAt - enteredAt;
   check(
@@ -1049,7 +1085,7 @@ async function hold({ check, open }) {
       played &&
       facts?.src.endsWith(it.file) === true &&
       facts.error === null &&
-      facts.loop === true &&
+      facts.loop === false &&
       rec.errors.length === 0 &&
       wraps >= 1 &&
       neverPaused &&

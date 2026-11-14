@@ -157,85 +157,76 @@ describe("playbackModeFor", () => {
 });
 
 describe("videoPlanFor", () => {
-  it("plays a standalone video with loop off, reporting each of its passes", () => {
-    // The HTML fact: `loop` NEVER fires 'ended', so a video whose ends
-    // gate must play with loop off; the default loopCount is one pass.
+  it("plays a standalone video reporting each of its passes", () => {
+    // The default loopCount is one pass.
     // No `endSeconds`: the file's own end bounds each pass.
     expect(videoPlanFor(video, "loop-once", true)).toEqual({
-      loop: false,
       reportEnds: 1,
       startSeconds: 0,
       loopStartSeconds: 0,
       endSeconds: null,
-      boundary: "ended",
+      boundary: "fileEnd",
     });
     expect(videoPlanFor(loopVideo, "loop-once", true)).toEqual({
-      loop: false,
       reportEnds: 3,
       startSeconds: 0,
       loopStartSeconds: 0,
       endSeconds: null,
-      boundary: "ended",
+      boundary: "fileEnd",
     });
   });
 
   it("treats a holdSeconds video as background: free looping, no ends", () => {
     // Time-driven only — the machine ignores ended for these.
     expect(videoPlanFor(holdVideo, "loop-once", true)).toEqual({
-      loop: true,
       reportEnds: 0,
       startSeconds: 0,
       loopStartSeconds: 0,
       endSeconds: null,
-      boundary: "ended",
+      boundary: "fileEnd",
     });
     // holdSeconds wins over loopCount: it is the explicit display duration.
     expect(videoPlanFor(holdLoopVideo, "loop-once", true)).toEqual({
-      loop: true,
       reportEnds: 0,
       startSeconds: 0,
       loopStartSeconds: 0,
       endSeconds: null,
-      boundary: "ended",
+      boundary: "fileEnd",
     });
   });
 
   it("loops forever under a text chain and reports nothing", () => {
     // Chain looping is forever, so its ends could never be counted anyway.
     expect(videoPlanFor(video, "loop-forever", true)).toEqual({
-      loop: true,
       reportEnds: 0,
       startSeconds: 0,
       loopStartSeconds: 0,
       endSeconds: null,
-      boundary: "ended",
+      boundary: "fileEnd",
     });
     expect(videoPlanFor(loopVideo, "loop-forever", true)).toEqual({
-      loop: true,
       reportEnds: 0,
       startSeconds: 0,
       loopStartSeconds: 0,
       endSeconds: null,
-      boundary: "ended",
+      boundary: "fileEnd",
     });
   });
 
   it("plays nothing on a still", () => {
     expect(videoPlanFor(video, "still", true)).toEqual({
-      loop: false,
       reportEnds: 0,
       startSeconds: 0,
       loopStartSeconds: 0,
       endSeconds: null,
-      boundary: "ended",
+      boundary: "fileEnd",
     });
     expect(videoPlanFor(loopVideo, "still", true)).toEqual({
-      loop: false,
       reportEnds: 0,
       startSeconds: 0,
       loopStartSeconds: 0,
       endSeconds: null,
-      boundary: "ended",
+      boundary: "fileEnd",
     });
   });
 
@@ -243,7 +234,6 @@ describe("videoPlanFor", () => {
 
   it("carries the range into the plan: start is the seek target, end the bound", () => {
     expect(videoPlanFor(rangeVideo, "loop-once", true)).toEqual({
-      loop: false,
       reportEnds: 1,
       startSeconds: 0,
       loopStartSeconds: 0,
@@ -251,38 +241,33 @@ describe("videoPlanFor", () => {
       boundary: "rvfc",
     });
     expect(videoPlanFor(endRangeVideo, "loop-once", true)).toEqual({
-      loop: false,
       reportEnds: 2,
       startSeconds: 1,
       loopStartSeconds: 1, // default: the loop replays the whole range
       endSeconds: 2,
-      boundary: "ended", // an end at the file's end IS the file's end event
+      boundary: "fileEnd", // an end at the file's end is the file's end
     });
     expect(videoPlanFor(startOnlyVideo, "loop-once", true)).toEqual({
-      loop: false,
       reportEnds: 1,
       startSeconds: 1.5,
       loopStartSeconds: 1.5,
       endSeconds: null,
-      boundary: "ended",
+      boundary: "fileEnd",
     });
   });
 
-  it("never loops when a range is active — even under a chain or hold", () => {
-    // loop=true would seek to 0, wrong for a range: the renderer seeks
-    // back itself at each pass boundary (to `loopStartSeconds`).
+  it("keeps the range under a chain or hold, reporting nothing", () => {
+    // The renderer seeks back itself at each pass boundary (to
+    // `loopStartSeconds`).
     const forever = videoPlanFor(rangeVideo, "loop-forever", true);
-    expect(forever.loop).toBe(false);
     expect(forever.reportEnds).toBe(0); // the chain gates nothing
     expect(forever.startSeconds).toBe(0);
     expect(forever.endSeconds).toBe(1);
     const background = videoPlanFor(holdRangeVideo, "loop-once", true);
-    expect(background.loop).toBe(false);
     expect(background.reportEnds).toBe(0);
     expect(background.endSeconds).toBe(1);
     // A still of a range holds the frame AT startSeconds.
     const still = videoPlanFor(endRangeVideo, "still", true);
-    expect(still.loop).toBe(false);
     expect(still.reportEnds).toBe(0);
     expect(still.startSeconds).toBe(1);
   });
@@ -295,10 +280,10 @@ describe("videoPlanFor", () => {
     expect(videoPlanFor(rangeVideo, "loop-once", false).boundary).toBe(
       "timeupdate",
     );
-    // The file's own end needs neither: 'ended' is the exact signal then.
-    expect(videoPlanFor(video, "loop-once", false).boundary).toBe("ended");
+    // The file's own end needs neither (`endFile`).
+    expect(videoPlanFor(video, "loop-once", false).boundary).toBe("fileEnd");
     expect(videoPlanFor(endRangeVideo, "loop-once", false).boundary).toBe(
-      "ended",
+      "fileEnd",
     );
   });
 
@@ -339,9 +324,9 @@ describe("videoPlanFor", () => {
 
   it("leaves the boundary signal untouched by loopStartSeconds", () => {
     // loopStartSeconds never changes how a pass is bounded: an end at the
-    // file's end is `ended`, an interior end is rVFC/timeupdate.
+    // file's end is the file's end, an interior end is rVFC/timeupdate.
     expect(videoPlanFor(loopStartVideo, "loop-once", true).boundary).toBe(
-      "ended",
+      "fileEnd",
     );
     const interior = { ...loopStartVideo, endSeconds: 1.9 };
     expect(videoPlanFor(interior, "loop-once", true).boundary).toBe("rvfc");
@@ -362,7 +347,6 @@ describe("videoPlanFor", () => {
       "loop-once",
     );
     expect(videoPlanFor(rangeVideo, "loop-once", true)).toMatchObject({
-      loop: false,
       reportEnds: 1, // part-012's shape: one 0..1 s pass, reported
       startSeconds: 0,
       endSeconds: 1,
@@ -386,7 +370,6 @@ describe("videoPlanFor", () => {
     );
     const plan = videoPlanFor(rangeVideo, "still", true);
     expect(plan.reportEnds).toBe(0);
-    expect(plan.loop).toBe(false);
     expect(plan.startSeconds).toBe(0); // the still holds the entry frame
   });
 
@@ -399,7 +382,6 @@ describe("videoPlanFor", () => {
       playbackModeFor(rangeVideo, undefined, false, "advance", 11, 27),
     ).toBe("loop-once");
     expect(videoPlanFor(rangeVideo, "loop-once", true)).toMatchObject({
-      loop: false,
       reportEnds: 1,
       startSeconds: 0,
       endSeconds: 1,
@@ -549,6 +531,7 @@ class FakeVideo {
   isConnected = false;
   currentTime = 0;
   paused = true;
+  ended = false;
   style: Record<string, string> = {};
   plays = 0;
   rejectPlays = 0; // how many upcoming play() calls autoplay refuses
@@ -575,6 +558,12 @@ class FakeVideo {
   }
   fire(type: string): void {
     for (const fn of this.listeners.get(type) ?? []) fn();
+  }
+  /** Playback reaches the file's end at `t`, as an engine stops there. */
+  end(t: number): void {
+    this.currentTime = t;
+    this.paused = true;
+    this.ended = true;
   }
 }
 
@@ -641,10 +630,10 @@ describe("a stale end event never touches the next item's playback", () => {
 
   it("file-end boundary: the next item starts at its own start, played once", () => {
     const { element, reports } = staleEndHarness(first, next);
-    element.currentTime = 2.0;
+    element.end(2.0);
     element.fire("ended"); // pass 1 of 2: loops back
     expect(element.currentTime).toBe(1.5);
-    element.currentTime = 2.0;
+    element.end(2.0);
     const playsBefore = element.plays;
     element.fire("ended"); // pass 2 of 2: machine moves to v-002 inside
     expect(reports).toEqual([0, 0]);
@@ -778,6 +767,7 @@ class LifeVideo {
   // own restart from 0, which lands last whatever the order of the two.
   ended = false;
   seeking = false;
+  duration = Number.NaN;
   private time = 0;
   private restartFromZero = false;
   get currentTime(): number {
@@ -786,6 +776,12 @@ class LifeVideo {
   set currentTime(seconds: number) {
     this.time = seconds;
     if (this.ended) this.seeking = true;
+  }
+  /** Playback reaches the file's end at `t`, as an engine stops there. */
+  end(t: number): void {
+    this.time = t;
+    this.paused = true;
+    this.ended = true;
   }
   /** The pending seek lands: `seeked`, the video no longer ended. */
   land(): void {
@@ -847,8 +843,11 @@ interface LifeStage {
   children: unknown[];
 }
 
-function lifecycleHarness(items: Item[]) {
-  const videos: LifeVideo[] = [];
+function lifecycleHarness<V extends LifeVideo = LifeVideo>(
+  items: Item[],
+  make: () => V = () => new LifeVideo() as V,
+) {
+  const videos: V[] = [];
   const stage: LifeStage & {
     ownerDocument: unknown;
     append(el: { stage?: LifeStage | null }): void;
@@ -857,7 +856,7 @@ function lifecycleHarness(items: Item[]) {
     ownerDocument: {
       createElement(tag: string) {
         if (tag === "video") {
-          const v = new LifeVideo();
+          const v = make();
           videos.push(v);
           return v;
         }
@@ -939,7 +938,7 @@ describe("a fresh <video> per source file", () => {
     ]);
     show(0);
     const element = videos[0];
-    element.currentTime = 2;
+    element.end(2);
     element.fire("ended"); // pass 1 of 2: loops back on the same element
     expect(ends).toEqual([0]);
     show(1); // the next range of the same file
@@ -962,7 +961,7 @@ describe("a fresh <video> per source file", () => {
     show(1);
     show(2);
     expect(videos).toHaveLength(1);
-    expect(videos[0].loop).toBe(true);
+    expect(videos[0].loop).toBe(false); // the player loops it (Phase 50)
     expect(videos[0].loads).toBe(0);
   });
 
@@ -998,6 +997,7 @@ describe("a fresh <video> per source file", () => {
     const plays = videos[1].plays;
     layer.setPaused(false);
     expect(videos[1].plays).toBe(plays + 1);
+    videos[1].end(2);
     videos[1].fire("ended");
     expect(ends).toEqual([1]);
   });
@@ -1066,7 +1066,9 @@ describe("a fresh <video> per source file", () => {
     const now = () => (pass === null ? "none" : pass());
     show(0); // two passes: the first wraps to its start, the last holds
     expect(now()).toEqual({ end: 3, restart: 0 });
+    videos[0].end(3);
     videos[0].fire("ended");
+    videos[0].land();
     expect(now()).toEqual({ end: 3, restart: null });
     show(1); // under a text chain: it loops from its restart point
     expect(now()).toEqual({ end: 6, restart: 4 });
@@ -1167,8 +1169,9 @@ describe("a fresh <video> per source file", () => {
       vi.advanceTimersByTime(1);
       expect(v.plays).toBe(1);
       // A wrap plays again at once, unasked.
-      v.paused = true;
+      v.end(2);
       v.fire("ended");
+      v.land();
       expect(v.plays).toBe(2);
       expect(asked).toHaveLength(1);
       // A menu: the resume asks again; a menu opened during the wait wins.
@@ -1236,7 +1239,6 @@ describe("video segments", () => {
     it("plays the segment: its start, its loop restart (default its start) and its end, nothing reported", () => {
       expect(videoPlanFor(segVideo, "loop-forever", true, segments[1])).toEqual(
         {
-          loop: false,
           reportEnds: 0,
           startSeconds: 2,
           loopStartSeconds: 2.5,
@@ -1247,7 +1249,6 @@ describe("video segments", () => {
       expect(
         videoPlanFor(segVideo, "loop-forever", false, segments[0]),
       ).toEqual({
-        loop: false,
         reportEnds: 0,
         startSeconds: 0,
         loopStartSeconds: 0,
@@ -1263,8 +1264,7 @@ describe("video segments", () => {
         startSeconds: 4,
         loopStartSeconds: 4,
         endSeconds: 6,
-        boundary: "ended",
-        loop: false,
+        boundary: "fileEnd",
       });
     });
 
@@ -1274,11 +1274,11 @@ describe("video segments", () => {
       const counted = vid({ loopCount: 3, segments });
       expect(
         videoPlanFor(counted, "loop-once", true, segments[1]),
-      ).toMatchObject({ loop: false, reportEnds: 0, endSeconds: 4 });
+      ).toMatchObject({ reportEnds: 0, endSeconds: 4 });
       const background = vid({ holdSeconds: 9, segments });
       expect(
         videoPlanFor(background, "loop-once", true, segments[0]),
-      ).toMatchObject({ loop: false, reportEnds: 0, endSeconds: 2 });
+      ).toMatchObject({ reportEnds: 0, endSeconds: 2 });
     });
 
     it("leaves a still at the item's own start", () => {
@@ -1339,9 +1339,9 @@ describe("video segments", () => {
     v.currentTime = 5.2; // past the item's own end: plays on
     v.fire("timeupdate");
     expect(v.currentTime).toBe(5.2);
-    v.currentTime = 6;
-    v.paused = true;
+    v.end(6);
     v.fire("ended"); // the file's end: back to the segment's start, playing
+    v.land();
     expect(v.currentTime).toBe(4);
     expect(v.paused).toBe(false);
     expect(ends).toEqual([]);
@@ -1354,9 +1354,13 @@ describe("video segments", () => {
     ]);
     show(0);
     const v = videos[0];
+    // Its one pass, reported, held at its end; `ended` left unset, so the
+    // step's seek and play below land at once (a step from a held end of
+    // the file is not modelled here).
+    v.duration = 6;
     v.currentTime = 6;
     v.paused = true;
-    v.fire("ended"); // its one pass: reported, held at its end
+    v.fire("ended");
     expect(ends).toEqual([0]);
     const plays = v.plays;
     show(0, "advance", 1);
@@ -1366,9 +1370,9 @@ describe("video segments", () => {
     v.fire("timeupdate");
     expect(v.currentTime).toBe(2.5);
     show(0, "advance", 2);
-    v.currentTime = 6;
-    v.paused = true;
+    v.end(6);
     v.fire("ended");
+    v.land();
     expect(v.currentTime).toBe(4);
     expect(v.paused).toBe(false);
     expect(ends).toEqual([0]);
@@ -1486,9 +1490,7 @@ describe("video segments", () => {
 // file's end seeks, and plays once the seek has landed.
 describe("a loop-back at the file's end lands on its restart point, not 0", () => {
   const endAt = (v: LifeVideo, t: number): void => {
-    v.currentTime = t;
-    v.paused = true;
-    v.ended = true;
+    v.end(t);
     v.fire("ended");
   };
 
@@ -1579,5 +1581,294 @@ describe("a loop-back at the file's end lands on its restart point, not 0", () =
     const gone = v.plays;
     v.land();
     expect(v.plays).toBe(gone);
+  });
+});
+
+// Loops at a file's end (docs/plan.md Phase 50). WebKit sends `pause` and
+// `ended` only at a Matroska or WebM file's first end; at every later end
+// only its periodic `timeupdate` comes (currentTime at the duration, `ended`
+// true, `paused` false) and the video holds on its last frame, the
+// element's own `loop` included. The file's end is whichever comes first
+// of the frame callback presenting the last frame (plus one frame
+// interval), a `timeupdate` at the end while it plays on and the native
+// `ended`; each end is handled once, and one seen while seeking or before
+// the end is ignored.
+class FrameVideo extends LifeVideo {
+  private frameCallbacks = new Map<
+    number,
+    (now: number, meta: VideoFrameCallbackMetadata) => void
+  >();
+  private nextHandle = 1;
+  constructor() {
+    super();
+    this.duration = 6;
+  }
+  requestVideoFrameCallback(
+    cb: (now: number, meta: VideoFrameCallbackMetadata) => void,
+  ): number {
+    const handle = this.nextHandle;
+    this.nextHandle += 1;
+    this.frameCallbacks.set(handle, cb);
+    return handle;
+  }
+  cancelVideoFrameCallback(handle: number): void {
+    this.frameCallbacks.delete(handle);
+  }
+  /** The frame at `mediaTime` is presented: the time moves there. */
+  present(mediaTime: number): void {
+    this.currentTime = mediaTime;
+    const due = [...this.frameCallbacks.values()];
+    this.frameCallbacks.clear();
+    for (const cb of due) {
+      cb(0, { mediaTime } as VideoFrameCallbackMetadata);
+    }
+  }
+  /** Frames from `from` to `to` (inclusive) at 25 fps. */
+  run(from: number, to: number): void {
+    for (let t = from; t <= to + 1e-9; t += 0.04) {
+      this.present(Math.round(t * 100) / 100);
+    }
+  }
+}
+
+describe("a pass ending at the file's end loops back at every end (Phase 50)", () => {
+  // 6 s at 25 fps: the last frame starts at 5.96.
+  const clip = (fields: Partial<VideoItem>) =>
+    vid({ id: "v-end", file: "e.mkv", durationSeconds: 6, ...fields });
+  const line = item({ id: "line-2", type: "text", text: "A line." });
+  /** WebKit's later ends: the time at the duration, still playing. */
+  const stuckAtEnd = (v: LifeVideo): void => {
+    v.end(6);
+    v.paused = false;
+  };
+
+  it("no plan loops the element natively: a chain or background with no range loops from its loop start", () => {
+    for (const [it, mode] of [
+      [video, "loop-forever"],
+      [holdVideo, "loop-once"],
+    ] as const) {
+      expect(videoPlanFor(it, mode, true)).toEqual({
+        reportEnds: 0,
+        startSeconds: 0,
+        loopStartSeconds: 0,
+        endSeconds: null,
+        boundary: "fileEnd",
+      });
+    }
+    // A loop start with no range is the loop's restart point too, as it
+    // is for a counted video's passes.
+    expect(
+      videoPlanFor(vid({ loopStartSeconds: 0.5 }), "loop-forever", true)
+        .loopStartSeconds,
+    ).toBe(0.5);
+  });
+
+  it("wraps at every end WebKit leaves playing with only a timeupdate, the element's loop off", () => {
+    const { videos, show, layer } = lifecycleHarness([clip({}), line]);
+    let stage: StageVideo | null = null;
+    layer.watchVideo((v) => {
+      stage = v;
+    });
+    show(1);
+    const v = videos[0];
+    expect(v.loop).toBe(false);
+    expect((stage as StageVideo | null)?.pass()).toEqual({
+      end: 6,
+      restart: 0,
+    });
+    for (let end = 0; end < 3; end += 1) {
+      stuckAtEnd(v);
+      v.fire("timeupdate");
+      expect(v.currentTime).toBe(0);
+      v.land();
+      expect(v.paused).toBe(false);
+      v.currentTime = 3;
+      v.fire("timeupdate"); // mid-file: nothing
+      expect(v.currentTime).toBe(3);
+    }
+  });
+
+  it("a timeupdate at the end of a paused element leaves the end to its ended, which follows it", () => {
+    // The engine stops there and sends pause and ended in the same task:
+    // the video's sound reads that pause as the wrap's while the element
+    // is still ended.
+    const { videos, show } = lifecycleHarness([
+      clip({ startSeconds: 1, loopStartSeconds: 4 }),
+      line,
+    ]);
+    show(1);
+    const v = videos[0];
+    v.end(6);
+    v.fire("timeupdate");
+    expect(v.currentTime).toBe(6);
+    v.fire("ended");
+    expect(v.currentTime).toBe(4);
+  });
+
+  it("counts each end once whichever signals arrive, in any order; the last pass holds paused at the end", () => {
+    const { videos, show, ends } = lifecycleHarness([
+      clip({ startSeconds: 1, loopStartSeconds: 4, loopCount: 3 }),
+      item({ id: "pic", type: "image", file: "p.jpg" }),
+    ]);
+    show(0);
+    const v = videos[0];
+    // End 1 (WebKit's first end): ended, then the same end's timeupdate.
+    v.end(6);
+    v.fire("ended");
+    expect(ends).toEqual([0]);
+    expect(v.currentTime).toBe(4);
+    expect(v.seeking).toBe(true);
+    v.fire("timeupdate"); // seeking: the end is behind it
+    v.fire("ended");
+    v.land();
+    v.fire("ended"); // a late ended below the duration (Chrome)
+    expect(ends).toEqual([0]);
+    expect(v.paused).toBe(false);
+    // End 2 (WebKit's later ends): a timeupdate while it plays on.
+    stuckAtEnd(v);
+    v.fire("timeupdate");
+    v.fire("timeupdate");
+    expect(ends).toEqual([0, 0]);
+    v.fire("ended");
+    v.land();
+    expect(ends).toEqual([0, 0]);
+    // End 3, the last: held at the end, paused, whatever comes after.
+    stuckAtEnd(v);
+    v.fire("timeupdate");
+    expect(ends).toEqual([0, 0, 0]);
+    expect(v.paused).toBe(true);
+    expect(v.currentTime).toBe(6);
+    v.fire("ended");
+    v.fire("timeupdate");
+    expect(ends).toEqual([0, 0, 0]);
+  });
+
+  it("an end signal while seeking or before the end is ignored", () => {
+    const { videos, show, ends } = lifecycleHarness([
+      clip({ loopCount: 2 }),
+      item({ id: "pic", type: "image", file: "p.jpg" }),
+    ]);
+    show(0);
+    const v = videos[0];
+    v.currentTime = 5.9;
+    v.fire("ended");
+    v.fire("timeupdate");
+    v.currentTime = 6;
+    v.seeking = true;
+    v.fire("ended");
+    v.fire("timeupdate");
+    expect(ends).toEqual([]);
+    expect(v.currentTime).toBe(6);
+  });
+
+  it("the last frame presented plus one frame interval ends the pass, unless a seek, a menu or a new plan came first", () => {
+    vi.useFakeTimers();
+    try {
+      const { videos, show, ends, layer } = lifecycleHarness(
+        [
+          clip({ startSeconds: 1, loopStartSeconds: 4, loopCount: 3 }),
+          item({ id: "pic", type: "image", file: "p.jpg" }),
+        ],
+        () => new FrameVideo(),
+      );
+      show(0);
+      const v = videos[0];
+      v.run(1, 5.96);
+      vi.advanceTimersByTime(38);
+      expect(ends).toEqual([]);
+      vi.advanceTimersByTime(2); // one interval (40 ms) after the last frame
+      expect(ends).toEqual([0]);
+      expect(v.currentTime).toBe(4);
+      // The same end's ended and timeupdate, after the loop-back: nothing.
+      v.fire("ended");
+      v.fire("timeupdate");
+      expect(ends).toEqual([0]);
+      // A seek back meanwhile (its sound's restart lands it elsewhere).
+      v.run(4, 5.96);
+      v.currentTime = 4.5;
+      vi.advanceTimersByTime(100);
+      expect(ends).toEqual([0]);
+      // A menu holds it on its last frame: nothing until it plays on.
+      v.run(4.52, 5.96);
+      layer.setPaused(true);
+      vi.advanceTimersByTime(100);
+      expect(ends).toEqual([0]);
+      layer.setPaused(false);
+      stuckAtEnd(v);
+      v.fire("timeupdate");
+      expect(ends).toEqual([0, 0]);
+      v.land();
+      // The reader leaves on the last frame: the old timer reports nothing.
+      v.run(4, 5.96);
+      show(1);
+      vi.advanceTimersByTime(100);
+      expect(ends).toEqual([0, 0]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("a frame interval longer than the frames' (a dropped frame) is not taken for the last frame", () => {
+    vi.useFakeTimers();
+    try {
+      const { videos, show } = lifecycleHarness(
+        [clip({ startSeconds: 1, loopStartSeconds: 4 }), line],
+        () => new FrameVideo(),
+      );
+      show(1);
+      const v = videos[0];
+      v.run(5, 5.84);
+      v.present(5.92); // 5.88 dropped: 5.92 + 0.08 reaches the end
+      vi.advanceTimersByTime(100);
+      expect(v.currentTime).toBe(5.92);
+      v.present(5.96);
+      vi.advanceTimersByTime(40);
+      expect(v.currentTime).toBe(4);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("a range ending at or past the last frame (a float step below the duration) completes its pass at the file's end", () => {
+    vi.useFakeTimers();
+    try {
+      const below = 6 - 2 ** -50; // the double just below 6
+      const { videos, show, ends } = lifecycleHarness(
+        [
+          clip({ startSeconds: 1, loopStartSeconds: 4, endSeconds: below }),
+          line,
+          clip({
+            id: "v-count",
+            file: "c.mkv",
+            startSeconds: 1,
+            loopStartSeconds: 4,
+            endSeconds: below,
+            loopCount: 2,
+          }),
+          item({ id: "pic", type: "image", file: "p.jpg" }),
+        ],
+        () => new FrameVideo(),
+      );
+      show(1);
+      const chain = videos[0];
+      chain.run(1, 5.96); // no frame reaches the range's end
+      chain.end(6);
+      chain.fire("ended");
+      chain.land();
+      expect(chain.currentTime).toBe(4);
+      expect(chain.paused).toBe(false);
+      show(2);
+      const counted = videos[1];
+      counted.run(1, 5.96);
+      vi.advanceTimersByTime(40);
+      expect(ends).toEqual([2]);
+      expect(counted.currentTime).toBe(4);
+      counted.run(4, 5.96);
+      vi.advanceTimersByTime(40);
+      expect(ends).toEqual([2, 2]);
+      expect(counted.paused).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

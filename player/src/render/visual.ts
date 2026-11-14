@@ -16,12 +16,13 @@
 //   `text` — the visual loops continuously and media end gates nothing.
 //   A standalone animation cycles its frames at `fps` for `loopCount` loops
 //   and stops on the final frame. A standalone video plays its passes
-//   manually: an element with `loop` NEVER fires `ended`, so the renderer
-//   leaves `loop` off, reports every pass complete to the machine, and seeks
-//   back to the loop restart point (`loopStartSeconds`, defaulting to the
-//   range start) until `loopCount` passes have been reported; a
+//   manually: the renderer reports every pass complete to the machine and
+//   seeks back to the loop restart point (`loopStartSeconds`, defaulting to
+//   the range start) until `loopCount` passes have been reported; a
 //   `holdSeconds` video is background — free looping, nothing reported
-//   (docs/plan.md Phase 9b).
+//   (docs/plan.md Phase 9b). No video uses the element's own `loop`: it
+//   never fires `ended`, and in WebKit it sticks at a Matroska or WebM
+//   file's end (docs/plan.md Phase 50), so every loop is the renderer's.
 //
 //   A video may play a sub-range of its file (`startSeconds`/`endSeconds`,
 //   docs/content-format.md "Video playback ranges"): the renderer seeks to
@@ -30,17 +31,19 @@
 //   playback reaches `endSeconds` — detected per presented frame with
 //   `requestVideoFrameCallback` (exact per frame), falling back to
 //   `timeupdate` where rVFC is absent (Firefox pre-133; ~4-250 ms coarse,
-//   noted once). The file's native `ended` bounds a pass only when the
-//   range runs to the file's end (`endSeconds` absent or equal to
-//   `durationSeconds`), because no frame is ever presented past it. With a
-//   range or counted passes active, `loop` stays off: the element's own
-//   looping seeks to 0, which is wrong for a range (docs/plan.md Phase 9c).
-//   A pass that completes while passes remain restarts at
+//   noted once). Reaching the file's end ends any pass (`endFile`): it
+//   bounds a range that runs to the file's end (`endSeconds` absent or at
+//   least `durationSeconds`), and one whose end lies past the last frame,
+//   which no presented frame reaches. The file's end is whichever comes
+//   first of the frame callback presenting the last frame (one frame
+//   interval later), a `timeupdate` at the end while the element plays on,
+//   and the native `ended`: WebKit sends `ended` only at a Matroska or WebM
+//   file's first end, and at every later end only its periodic
+//   `timeupdate`, holding on the last frame (docs/plan.md Phase 50). A
+//   pass that completes while passes remain restarts at
 //   `loopStartSeconds` (default `startSeconds`), so an intro plays once and
 //   the loop-backs skip it; only a fresh item entry starts at
-//   `startSeconds` again (docs/plan.md Phase 9d). A video `loop`ing
-//   natively — background, no range — wraps at 0, because the element
-//   controls that restart.
+//   `startSeconds` again (docs/plan.md Phase 9d).
 //
 //   An active segment (`state.segment`, docs/plan.md Phase 49,
 //   docs/content-format.md "Video segments") replaces the item's range on
@@ -52,9 +55,9 @@
 //   range again; a menu's pause and resume keep it.
 //
 // One `<img>` serves images and animation frames. One `<video>` serves one
-// source file: advancing within a chain flips `loop` and keeps the same
-// element playing, never re-creating or reloading it, and so do ranges of
-// the same file, loop passes, replays and seeks. A new file gets a fresh
+// source file: advancing within a chain changes only its plan and keeps the
+// same element playing, never re-creating or reloading it, and so do ranges
+// of the same file, loop passes, replays and seeks. A new file gets a fresh
 // element and the old one is released (see `retireVideo` for why).
 //
 // Sizing is not this module's business: `.visual` (index.html) is a box the
@@ -110,8 +113,6 @@ export function playbackModeFor(
 
 /** How the reused `<video>` element must play out a `PlaybackMode`. */
 export interface VideoPlan {
-  /** The `loop` attribute: an element that loops NEVER fires `ended`. */
-  loop: boolean;
   /**
    * How many pass-completes to report to `machine.mediaEnded()` before
    * the element holds on its final frame; 0 means the element's ends gate
@@ -130,40 +131,38 @@ export interface VideoPlan {
   endSeconds: number | null;
   /**
    * Which signal bounds a pass (docs/content-format.md, "Video playback
-   * ranges"): the file's native `ended` when the range runs to the file's
-   * end (no frame is ever presented past it — and none before it when
-   * `endSeconds` is absent); otherwise one presented frame per
+   * ranges"): the file's end ("fileEnd", `endFile`) when the range runs to
+   * the file's end; otherwise one presented frame per
    * `requestVideoFrameCallback` ("rvfc"), or `timeupdate` where rVFC is
-   * unavailable (~4-250 ms coarse).
+   * unavailable (~4-250 ms coarse). Reaching the file's end ends a pass
+   * whatever its boundary: a range ending past the last frame ends there.
    */
-  boundary: "ended" | "rvfc" | "timeupdate";
+  boundary: "fileEnd" | "rvfc" | "timeupdate";
 }
 
 /**
  * Pure element-plan decision for a video (docs/content-format.md,
  * "Timing"). Standalone (`loop-once`): a `holdSeconds` video is background,
  * so it loops freely and reports nothing — the machine gates on the clock
- * alone and ignores `ended`; any other video must have its pass-completes
- * counted, so `loop` stays off and each pass reports one `mediaEnded()` up
- * to `loopCount` (default 1). A chain (`loop-forever`) loops beneath the
- * whole chain and reports nothing; a still plays nothing.
+ * alone and ignores its ends; any other video must have its pass-completes
+ * counted, each pass reporting one `mediaEnded()` up to `loopCount`
+ * (default 1). A chain (`loop-forever`) loops beneath the whole chain and
+ * reports nothing; a still plays nothing.
  *
- * With a range active (either bound present), `loop` stays OFF even for a
- * chain: the element's own looping seeks to 0, which is wrong for a range,
- * so the renderer seeks back itself at each pass boundary — to
- * `startSeconds` on a fresh entry and to `loopStartSeconds` (default
- * `startSeconds`) on every loop-back (docs/plan.md Phases 9c and 9d).
+ * The renderer seeks back itself at each pass boundary, never the
+ * element's own `loop` (docs/plan.md Phase 50) — to `startSeconds` on a
+ * fresh entry and to `loopStartSeconds` (default `startSeconds`) on every
+ * loop-back (docs/plan.md Phases 9c and 9d).
  * `hasRVFC` is the runtime capability of the `<video>` element, passed in
  * so this decision stays pure and testable.
  *
  * An active `segment` (docs/plan.md Phase 49, docs/content-format.md
  * "Video segments") replaces the item's range while the video plays: the
  * segment's start is the seek target, its end bounds each pass (the
- * file's `ended` when it ends at the file's end) and every pass after the
- * first restarts at its `loopStartSeconds` (default its start), with
- * `loop` off and nothing reported, whatever the item's own passes. It may
- * lie outside the item's range. A still ignores it: the poster is the
- * frame at the item's own start.
+ * file's end when it ends there) and every pass after the first restarts
+ * at its `loopStartSeconds` (default its start), with nothing reported,
+ * whatever the item's own passes. It may lie outside the item's range. A
+ * still ignores it: the poster is the frame at the item's own start.
  */
 export function videoPlanFor(
   item: VideoItem,
@@ -173,13 +172,12 @@ export function videoPlanFor(
 ): VideoPlan {
   const boundaryAt = (end: number | null): VideoPlan["boundary"] =>
     end === null || end >= item.durationSeconds
-      ? "ended"
+      ? "fileEnd"
       : hasRVFC
         ? "rvfc"
         : "timeupdate";
   if (segment !== undefined && mode !== "still") {
     return {
-      loop: false,
       reportEnds: 0,
       startSeconds: segment.startSeconds,
       loopStartSeconds: segment.loopStartSeconds ?? segment.startSeconds,
@@ -190,32 +188,12 @@ export function videoPlanFor(
   const startSeconds = item.startSeconds ?? 0;
   const loopStartSeconds = item.loopStartSeconds ?? startSeconds;
   const endSeconds = item.endSeconds ?? null;
-  const ranged =
-    item.startSeconds !== undefined || item.endSeconds !== undefined;
   const boundary = boundaryAt(endSeconds);
-  if (mode !== "loop-once") {
-    return {
-      loop: mode === "loop-forever" && !ranged,
-      reportEnds: 0,
-      startSeconds,
-      loopStartSeconds,
-      endSeconds,
-      boundary,
-    };
-  }
-  if (item.holdSeconds !== undefined) {
-    return {
-      loop: !ranged,
-      reportEnds: 0,
-      startSeconds,
-      loopStartSeconds,
-      endSeconds,
-      boundary,
-    };
-  }
+  // A chain or a background video loops, reporting nothing; a still plays
+  // nothing; any other video counts its passes.
+  const counted = mode === "loop-once" && item.holdSeconds === undefined;
   return {
-    loop: false,
-    reportEnds: item.loopCount ?? 1,
+    reportEnds: counted ? (item.loopCount ?? 1) : 0,
     startSeconds,
     loopStartSeconds,
     endSeconds,
@@ -298,8 +276,8 @@ export interface StageVideo {
   /**
    * The pass under way, read when asked (passes are counted as they end):
    * where it ends, and where the video plays from next if it wraps there
-   * (the loop restart point, 0 for an element's own loop); `restart` is
-   * null when the video holds at the end. Null while it plays nothing.
+   * (the loop restart point); `restart` is null when the video holds at
+   * the end. Null while it plays nothing.
    */
   pass(): { end: number; restart: number | null } | null;
   /**
@@ -648,6 +626,12 @@ export function createVisualLayer(
   // design; docs/content-format.md, "Video playback ranges").
   let rangeWatchToken = 0;
   let rvfcHandle: number | null = null;
+  // The file's end of the pass under way has been handled (`endFile`).
+  let fileEndDone = false;
+  // A step between presented frames longer than this is no frame interval
+  // (a jump); a frame this close to the duration's last interval is last.
+  const MAX_FRAME_STEP_S = 0.5;
+  const END_EPS_S = 1e-3;
 
   function hasRVFC(element: HTMLVideoElement): boolean {
     return typeof element.requestVideoFrameCallback === "function";
@@ -719,79 +703,155 @@ export function createVisualLayer(
   }
 
   /**
-   * Arm the per-pass boundary watch for the current plan: rVFC where
-   * available (its `mediaTime` is exact per presented frame), `timeupdate`
-   * as the documented fallback. Nothing to watch when the pass is bounded
-   * by the file's own end (`ended` handles that) or when no range bounds
-   * playback at all.
+   * Arm the per-pass watch of presented frames for the current plan, where
+   * rVFC is available (its `mediaTime` is exact per presented frame): a
+   * range ending inside the file ends its pass on the first frame at or
+   * past its end, and the last frame of the file ends the pass one frame
+   * interval after it is presented (`endFile`), the interval being the
+   * shortest step between the frames seen. Without rVFC the documented
+   * `timeupdate` fallback bounds a range (`onTimeUpdate`).
    */
   function startRangeWatch(element: HTMLVideoElement): void {
     stopRangeWatch();
     const plan = videoPlan;
-    if (
-      plan === null ||
-      plan.endSeconds === null ||
-      plan.boundary === "ended"
-    ) {
+    if (plan === null) return;
+    if (!hasRVFC(element)) {
+      if (plan.boundary === "timeupdate" && !rangeFallbackNoted) {
+        // Noted once per page: this browser has no rVFC, so pass boundaries
+        // land where the coarse 4-250 ms `timeupdate` cadence puts them.
+        rangeFallbackNoted = true;
+        console.info(
+          "kinetic: requestVideoFrameCallback unavailable; range pass " +
+            "boundaries fall back to timeupdate (~4-250 ms coarse).",
+        );
+      }
       return;
     }
-    if (plan.boundary === "rvfc") {
-      const token = rangeWatchToken;
-      const tick = (_now: number, meta: VideoFrameCallbackMetadata): void => {
+    const token = rangeWatchToken;
+    let last: number | null = null;
+    let interval = Number.POSITIVE_INFINITY;
+    const tick = (_now: number, meta: VideoFrameCallbackMetadata): void => {
+      if (
+        token !== rangeWatchToken ||
+        video !== element ||
+        videoPlan !== plan
+      ) {
+        return; // retired: the callback chain ends here
+      }
+      // A frame presented while a seek lands (the restart of a pass its
+      // sound ended early, `StageVideo.restart`) is the old place's.
+      if (!element.seeking) {
         if (
-          token !== rangeWatchToken ||
-          video !== element ||
-          videoPlan !== plan
-        ) {
-          return; // retired: the callback chain ends here
-        }
-        // A frame presented while a seek lands (the restart of a pass its
-        // sound ended early, `StageVideo.restart`) is the old place's.
-        if (
+          plan.boundary === "rvfc" &&
           plan.endSeconds !== null &&
-          meta.mediaTime >= plan.endSeconds &&
-          !element.seeking
+          meta.mediaTime >= plan.endSeconds
         ) {
           passBoundary(element, plan);
-        } else {
-          rvfcHandle = element.requestVideoFrameCallback(tick);
+          return;
         }
-      };
+        const step = last === null ? 0 : meta.mediaTime - last;
+        if (step > 0 && step < MAX_FRAME_STEP_S) {
+          interval = Math.min(interval, step);
+          if (meta.mediaTime + interval >= element.duration - END_EPS_S) {
+            lastFrameShown(element, token, meta.mediaTime, interval);
+          }
+        }
+      }
+      last = meta.mediaTime;
       rvfcHandle = element.requestVideoFrameCallback(tick);
-    } else if (!rangeFallbackNoted) {
-      // Noted once per page: this browser has no rVFC, so pass boundaries
-      // land where the coarse 4-250 ms `timeupdate` cadence puts them.
-      rangeFallbackNoted = true;
-      console.info(
-        "kinetic: requestVideoFrameCallback unavailable; range pass " +
-          "boundaries fall back to timeupdate (~4-250 ms coarse).",
-      );
-    }
+    };
+    rvfcHandle = element.requestVideoFrameCallback(tick);
+  }
+
+  /**
+   * The file's last frame, presented at `at`: one frame `interval` later
+   * the file has ended, unless by then the watch was retired (a seek of the
+   * player's, a new plan, the video gone), the video stopped (a menu's hold
+   * among others) or it was sought elsewhere.
+   */
+  function lastFrameShown(
+    element: HTMLVideoElement,
+    token: number,
+    at: number,
+    interval: number,
+  ): void {
+    setTimeout(() => {
+      if (
+        token !== rangeWatchToken ||
+        element.paused ||
+        element.seeking ||
+        element.currentTime < at
+      ) {
+        return;
+      }
+      endFile(element);
+    }, interval * 1000);
+  }
+
+  /** At the file's end, and no seek away from it under way. */
+  function atFileEnd(element: HTMLVideoElement): boolean {
+    return (
+      !element.seeking &&
+      (element.ended || element.currentTime >= element.duration)
+    );
   }
 
   function onTimeUpdate(): void {
     const plan = videoPlan;
-    if (
-      video === null ||
-      plan === null ||
-      plan.boundary !== "timeupdate" ||
-      plan.endSeconds === null
-    ) {
+    if (video === null || plan === null) return;
+    // WebKit's later ends of a Matroska or WebM file bring only this, the
+    // element playing on at the end. One the end paused has its `pause`
+    // and `ended` in this same task: the video's sound reads that pause as
+    // a wrap's only while the element is still at its end, so `ended` ends
+    // the pass then.
+    if (!video.paused && atFileEnd(video)) {
+      endFile(video);
       return;
     }
-    if (video.currentTime >= plan.endSeconds) passBoundary(video, plan);
+    if (
+      plan.boundary === "timeupdate" &&
+      plan.endSeconds !== null &&
+      video.currentTime >= plan.endSeconds
+    ) {
+      passBoundary(video, plan);
+    }
+  }
+
+  function onVideoEnded(): void {
+    // A late `ended` after the loop-back seek began (Chrome) is ignored.
+    if (video !== null && atFileEnd(video)) endFile(video);
   }
 
   /**
-   * Playback reached the pass end (`endSeconds`) on a presented frame.
-   * A counted pass reports one `mediaEnded()` to the machine and seeks
-   * back to `loopStartSeconds` while passes remain; after the last one
-   * the element pauses — the machine's gate is met and it moves on. A
-   * chain or background video (nothing counted) just keeps looping
-   * within the range: forward to `endSeconds`, back to
-   * `loopStartSeconds`, no report (docs/plan.md Phases 9c and 9d). `to` is
-   * where it plays on from (an element's own loop's restart is 0, for
-   * `StageVideo.restart`).
+   * The file's end ends the pass under way, once per end (`fileEndDone`;
+   * the loop-back seek and a new plan re-arm it), from whichever of its
+   * signals comes first: the last frame (`lastFrameShown`), a `timeupdate`
+   * at the end while it plays on, or `ended`.
+   */
+  function endFile(element: HTMLVideoElement): void {
+    const plan = videoPlan;
+    if (
+      video !== element ||
+      plan === null ||
+      videoMode === "still" ||
+      fileEndDone
+    ) {
+      return;
+    }
+    fileEndDone = true;
+    passBoundary(element, plan);
+  }
+
+  /**
+   * Playback reached the pass end: a range's `endSeconds` on a presented
+   * frame, or the file's end (`endFile`). A counted pass reports one
+   * `mediaEnded()` to the machine and loops back to `loopStartSeconds`
+   * while passes remain; after the last one the element pauses (WebKit can
+   * leave it playing at the file's end) — the machine's gate is met and it
+   * moves on. A chain or background video (nothing counted) just keeps
+   * looping: forward to the pass end, back to `loopStartSeconds`, no
+   * report (docs/plan.md Phases 9c and 9d). `to` is where it plays on from
+   * (`StageVideo.restart` passes the pass's restart point).
    */
   function passBoundary(
     element: HTMLVideoElement,
@@ -802,49 +862,34 @@ export function createVisualLayer(
       if (!reportEnd(plan)) return;
       if (videoEndedCount >= plan.reportEnds) {
         stopRangeWatch();
-        element.pause(); // last pass: hold at the range end
+        element.pause(); // last pass: hold at the end
         return;
       }
     }
-    seekTo(element, to);
-    startRangeWatch(element); // re-arms the rVFC chain after the seek
-  }
-
-  function onVideoEnded(): void {
-    // The file's own end is the pass boundary only when the plan says so:
-    // no `endSeconds`, or an `endSeconds` at the file's end (past it no
-    // frame is ever presented, so rVFC could never see it). A range that
-    // ends inside the file is bounded by the rVFC/timeupdate watch, and a
-    // `loop`-ing element never reaches this event at all.
-    const plan = videoPlan;
-    if (plan === null || plan.boundary !== "ended") return;
-    if (plan.reportEnds === 0) {
-      // A chain/background video whose range runs to the file's end: loop
-      // back to the restart point, nothing reported (`loop` is off
-      // precisely because a range is active — a non-ranged free looper
-      // never ends).
-      if (video === null || plan.loop) return;
-      playOnFrom(video, plan);
-      return;
-    }
-    if (!reportEnd(plan)) return;
-    if (videoEndedCount < plan.reportEnds && video !== null) {
-      playOnFrom(video, plan);
-    }
+    playOnFrom(element, plan, to);
   }
 
   /**
-   * Plays an element that reached the file's end on from the plan's loop
-   * restart point: the seek first, and play() once it has landed. play()
-   * on an ended video restarts it from 0, and in WebKit a seek asked for
-   * just before or just after it did not reliably win: the video played
-   * on from 0 (the segments scenario's held WebM, 4 runs in 8 with the
-   * seek first, 1 in 5 with it after, 2026-11-14). Landed, the video is no
-   * longer ended. Nothing plays if by then a menu holds it (its resume
-   * plays it), the plan changed or the element went.
+   * Plays the element on from `to`: the seek, and, if it stopped at the
+   * file's end, play() once the seek has landed. play() on an ended video
+   * restarts it from 0, and in WebKit a seek asked for just before or just
+   * after it did not reliably win: the video played on from 0 (the
+   * segments scenario's held WebM, 4 runs in 8 with the seek first, 1 in 5
+   * with it after, 2026-11-14). Landed, the video is no longer ended.
+   * Nothing plays if by then a menu holds it (its resume plays it), the
+   * plan changed or the element went. One still playing (a range's end
+   * inside the file, or WebKit's later file ends) plays on from the seek.
    */
-  function playOnFrom(element: HTMLVideoElement, plan: VideoPlan): void {
-    seekTo(element, plan.loopStartSeconds, true);
+  function playOnFrom(
+    element: HTMLVideoElement,
+    plan: VideoPlan,
+    to: number,
+  ): void {
+    const stopped = element.paused || element.ended;
+    fileEndDone = false;
+    seekTo(element, to, true);
+    startRangeWatch(element); // re-arms the rVFC chain after the seek
+    if (!stopped) return;
     if (!element.seeking) {
       playVideo(element, plan);
       return;
@@ -958,8 +1003,8 @@ export function createVisualLayer(
       segment === null ? undefined : item.segments?.[segment],
     );
     videoEndedCount = 0; // every (re)start counts its passes afresh
+    fileEndDone = false;
     element.style.display = "";
-    element.loop = videoPlan.loop;
     if (mode === "still") {
       // Poster still: paused at the range start, the poster attribute and
       // the CSS background beneath the frame keep the poster painted.
@@ -1000,7 +1045,7 @@ export function createVisualLayer(
         plan.endSeconds ?? item.durationSeconds,
         item.durationSeconds,
       ),
-      restart: wraps ? (plan.loop ? 0 : plan.loopStartSeconds) : null,
+      restart: wraps ? plan.loopStartSeconds : null,
     };
   }
 

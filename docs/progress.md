@@ -4105,10 +4105,35 @@ truthful: an unchecked box means nothing was accepted.
       wrapped once and held with only `timeupdate` at end 2. A counted
       item opened by `#start=` plays one pass on every engine and
       container, a separate lead.)
-- [ ] Fix (item 2). Tests: unit tests for the plan and boundary logic;
+- [x] Fix (item 2). Tests: unit tests for the plan and boundary logic;
       a new scenario file, red first on WebKit, 3 wraps to the loop start
       per case on both engines; `media`, `segments` and `videosound` on
       both engines.
+      (2026-11-14: render/visual.ts ends a pass at the file's end through
+      one `endFile`, from whichever comes first of the frame callback's
+      last frame (one frame interval after it, the interval the shortest
+      step seen), a `timeupdate` at the end while the element plays on,
+      and `ended` at the end; each end once (`fileEndDone`, re-armed by
+      the loop-back seek and a new plan); ignored while seeking or below
+      the end. Any range reaching the file's end completes there, so an
+      end a float step below the duration loops. No video uses the
+      element's `loop` any more (it sticks the same way in WebKit): chains
+      and background videos loop by the player's seek, to
+      `loopStartSeconds` (0 with no range), so an item with only
+      `loopStartSeconds` now loops there instead of 0. No pause before a
+      wrap (the video sound reads a pause as a wrap only while `ended`
+      holds); the last counted pass still pauses at the end. New
+      fileend.scenario.mjs, 15 parts (chain, counted, last segment, no
+      range, end below the duration, per `.mkv`, `.webm`, `.mp4`
+      synthetic clip): red first WebKit 19/30 (every `.mkv` and `.webm`
+      case one wrap then held) and Chrome 27/30 (the 3 below-duration
+      ends); after, 30/30 on both, WebKit 6 runs. 17 unit tests red first;
+      each guard removed in turn fails the tests. media.scenario.mjs:
+      `loop` false, pass ends counted from presented frames, a one-frame
+      allowance on step 12's next frame. Orchestrator: npm test 1337,
+      check clean, smoke 6/6; fileend, media, segments, videosound, audio,
+      screens Chrome 266/266, WebKit 281 pass and the 2 known fullscreen
+      partials, load average up to 29.)
 - [ ] A counted video opened by `#start=` plays all its passes (item 3).
       Tests: red first, a unit test or a scenario part on both engines.
 - [ ] Docs (item 4): content-format.md, verify-player.md, CREATE.md if
