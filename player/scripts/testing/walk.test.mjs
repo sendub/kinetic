@@ -14,6 +14,7 @@ import {
   STUCK_PRESSES,
   startWalk,
   USAGE,
+  untilSpan,
 } from "./walk.mjs";
 
 const IDS = ["a", "b", "c", "d", "e"];
@@ -372,6 +373,13 @@ describe("readArgs", () => {
     expect(readArgs(["game", "--steps", "0"]).steps).toBe(0);
   });
 
+  it("makes --until walk with --steps all unless --steps is given", () => {
+    expect(readArgs(["game", "--until", "y"]).steps).toBe("all");
+    expect(readArgs(["game", "--until", "y", "--steps", "3"]).steps).toBe(3);
+    expect(readArgs(["game", "--steps", "10", "--until", "y"]).steps).toBe(10);
+    expect(readArgs(["game", "--start-at", "x"]).steps).toBe(10);
+  });
+
   it("reads --no-media-check, which takes no value, anywhere on the line", () => {
     expect(readArgs(["--no-media-check", "game"]).mediaCheck).toBe(false);
     expect(
@@ -430,5 +438,205 @@ describe("mediaSummaryLine", () => {
     expect(mediaSummaryLine({ loaded: 1, checked: 0, neverRequested: 0 })).toBe(
       "media: 1 file: 1 loaded during the walk, 0 checked after it (0 never requested)",
     );
+  });
+});
+
+// The demo's shape: a lead-in, a decision whose returning route 1 holds a
+// nested decision (1a continues, 1b returns), an ending route 2, and an
+// aftermath from after-start.
+const SPAN_IDS = [
+  "intro", // 0
+  "decide", // 1
+  "r1-start", // 2
+  "r1-nest", // 3
+  "nest-a", // 4
+  "nest-b", // 5
+  "r1-end", // 6
+  "r2-start", // 7
+  "r2-end", // 8
+  "after-start", // 9
+  "after-end", // 10
+];
+const SPAN_MANIFEST = {
+  items: SPAN_IDS.map((id) => ({ id, type: "text", text: id })),
+  branches: [
+    {
+      id: "nested",
+      after: "r1-nest",
+      routes: [
+        { id: "a", start: "nest-a", end: "nest-a" },
+        { id: "b", start: "nest-b", end: "nest-b", result: "return" },
+      ],
+      continuingRoute: "a",
+      continueAt: "r1-end",
+    },
+    {
+      id: "outer",
+      after: "decide",
+      routes: [
+        { id: "r1", start: "r1-start", end: "r1-end", result: "return" },
+        { id: "r2", start: "r2-start", end: "r2-end" },
+      ],
+      continuingRoute: "r1",
+      continueAt: "after-start",
+    },
+  ],
+};
+const spanIds = (span) => span.indexes.map((n) => SPAN_IDS[n]);
+
+describe("untilSpan", () => {
+  it("is the plain span in manifest order from a main-line start", () => {
+    const span = untilSpan(SPAN_MANIFEST, "intro", "after-start");
+    expect(span).toMatchObject({ start: "intro", until: "after-start" });
+    expect(spanIds(span)).toEqual(SPAN_IDS.slice(0, 10));
+  });
+
+  it("leaves out the other routes of the decision a start inside a continuing route lies in", () => {
+    expect(
+      spanIds(untilSpan(SPAN_MANIFEST, "r1-start", "after-start")),
+    ).toEqual([
+      "r1-start",
+      "r1-nest",
+      "nest-a",
+      "nest-b",
+      "r1-end",
+      "after-start",
+    ]);
+  });
+
+  it("leaves out the other routes of every enclosing decision, nested ones too", () => {
+    expect(spanIds(untilSpan(SPAN_MANIFEST, "nest-a", "after-end"))).toEqual([
+      "nest-a",
+      "r1-end",
+      "after-start",
+      "after-end",
+    ]);
+  });
+
+  it("from a start inside a returning route, leaves out its siblings alike", () => {
+    expect(spanIds(untilSpan(SPAN_MANIFEST, "nest-b", "after-start"))).toEqual([
+      "nest-b",
+      "r1-end",
+      "after-start",
+    ]);
+    expect(spanIds(untilSpan(SPAN_MANIFEST, "r2-start", "after-end"))).toEqual([
+      "r2-start",
+      "r2-end",
+      "after-start",
+      "after-end",
+    ]);
+  });
+
+  it("holds the start alone when --until is the start", () => {
+    expect(spanIds(untilSpan(SPAN_MANIFEST, "r1-end", "r1-end"))).toEqual([
+      "r1-end",
+    ]);
+  });
+
+  it("has no items when --until comes before the start in manifest order", () => {
+    expect(untilSpan(SPAN_MANIFEST, "r2-start", "r1-start")).toEqual({
+      start: "r2-start",
+      until: "r1-start",
+      before: true,
+      indexes: [],
+    });
+  });
+});
+
+describe("a walk's --until span", () => {
+  const walkTo = (start, until, shown) => {
+    const walk = startWalk({
+      ids: SPAN_IDS,
+      steps: "all",
+      until,
+      fromOpening: false,
+      span: untilSpan(SPAN_MANIFEST, start, until),
+    });
+    const at = (id) => ({ ...screen(id), index: SPAN_IDS.indexOf(id) });
+    shown.forEach((id, n) => {
+      walk.see(at(id), n * 1000);
+    });
+    return walk;
+  };
+
+  it("says every span item was shown, exit 0", () => {
+    const walk = walkTo("r1-start", "after-start", [
+      "r1-start",
+      "r1-nest",
+      "nest-b",
+      "nest-a",
+      "r1-end",
+      "r2-start",
+      "r2-end",
+      "after-start",
+    ]);
+    expect(walk.lines()).toContain(
+      "span: 6 of 6 items shown from r1-start to after-start",
+    );
+    expect(
+      walk.lines().some((l) => l.startsWith("not shown in the span")),
+    ).toBe(false);
+    expect(exitCode(walk, 0)).toBe(0);
+  });
+
+  it("names the span items not shown, in manifest order, exit 3 (1 wins)", () => {
+    const walk = walkTo("intro", "after-start", [
+      "intro",
+      "decide",
+      "r2-start",
+      "r2-end",
+      "after-start",
+    ]);
+    expect(walk.lines()).toContain(
+      "span: 5 of 10 items shown from intro to after-start",
+    );
+    expect(walk.lines()).toContain(
+      "not shown in the span: r1-start, r1-nest, nest-a, nest-b, r1-end",
+    );
+    expect(exitCode(walk, 0)).toBe(3);
+    expect(exitCode(walk, 2)).toBe(1);
+  });
+
+  it("names at most ten and counts the rest", () => {
+    const ids = Array.from({ length: 15 }, (_, n) => `i${n}`);
+    const manifest = { items: ids.map((id) => ({ id, type: "text" })) };
+    const walk = startWalk({
+      ids,
+      steps: "all",
+      until: "i14",
+      fromOpening: false,
+      span: untilSpan(manifest, "i0", "i14"),
+    });
+    walk.see({ ...screen("i0"), index: 0 }, 0);
+    walk.see({ ...screen("i14"), index: 14 }, 1000);
+    expect(walk.lines()).toContain(
+      "not shown in the span: i1, i2, i3, i4, i5, i6, i7, i8, i9, i10 and 3 more",
+    );
+  });
+
+  it("says a span is empty when --until comes before the start, without exit 3", () => {
+    const walk = walkTo("r2-start", "r1-start", [
+      "r2-start",
+      "r2-end",
+      "r1-start",
+    ]);
+    expect(walk.lines()).toContain(
+      "span: none: r1-start comes before r2-start in manifest order",
+    );
+    expect(exitCode(walk, 0)).toBe(0);
+  });
+
+  it("reports no span when --until was not reached", () => {
+    const walk = startWalk({
+      ids: SPAN_IDS,
+      steps: 1,
+      until: "after-start",
+      fromOpening: false,
+      span: untilSpan(SPAN_MANIFEST, "intro", "after-start"),
+    });
+    walk.see({ ...screen("intro"), index: 0 }, 0);
+    walk.see({ ...screen("decide"), index: 1 }, 1000);
+    expect(walk.lines().some((l) => l.startsWith("span:"))).toBe(false);
+    expect(exitCode(walk, 0)).toBe(1);
   });
 });

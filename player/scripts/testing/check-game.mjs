@@ -22,7 +22,17 @@
 //              screen (exit 1).
 // --start-at   opens the game at that item (index.html#start=<id>), as step 0.
 // --until      stops when that item first shows; exit 1 if the walk ends
-//              (the story's end, the steps, the cap) without it.
+//              (the story's end, the steps, the cap) without it. It walks
+//              with --steps all unless --steps is given. Reaching it, the
+//              summary reports the span from the start (the opening or
+//              --start-at): `span: X of Y items shown from <start> to
+//              <until>`, the items in manifest order between them,
+//              leaving out the other routes of each decision the start
+//              lies inside (walk.mjs untilSpan), then `not shown in the
+//              span: ...` (up to ten ids); exit 3 when any was not shown.
+//              A --until before the start in manifest order is walked to
+//              all the same (a returning route can lead back there), its
+//              span `none`.
 // --no-media-check  skips the media check: the summary says `media files
 //              not checked (--no-media-check)`, and only failed loads the
 //              page's own elements report (the console) can fail the run.
@@ -48,8 +58,9 @@
 // open, a stuck player, the --steps all cap, an --until not reached or a
 // media check that stalled; 2 bad arguments (a bad --engine or --steps,
 // an id the manifest lacks), all checked before any browser starts; 3 a
-// walk from the opening reached the story's end with items never shown. 1
-// wins over 3.
+// walk from the opening reached the story's end with items never shown, or
+// a walk reached its --until with items of its span not shown. 1 wins
+// over 3.
 import { resolve } from "node:path";
 import { performance } from "node:perf_hooks";
 import { openGame, readManifestFile, summary } from "./kinetic.mjs";
@@ -60,6 +71,7 @@ import {
   readArgs,
   startWalk,
   USAGE,
+  untilSpan,
 } from "./walk.mjs";
 
 // After the walk and its media check, before reading the errors: a script
@@ -131,6 +143,10 @@ const walk = startWalk({
   steps: args.steps,
   until: args.until,
   fromOpening: args.startAt === null,
+  span:
+    args.until === null
+      ? null
+      : untilSpan(game.manifest, args.startAt ?? items[0]?.id, args.until),
 });
 const heartbeat = setInterval(() => say(walk.heartbeat()), HEARTBEAT_MS);
 try {

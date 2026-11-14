@@ -17,6 +17,13 @@
 // - `--start-at` a late item prints it as step 0 and `--until` stops at its
 //   item; a walk from `--start-at` that reaches the end is not judged for
 //   coverage; an `--until` the walk never reaches exits 1.
+// - `--until` (Phase 48, item 4) walks with `--steps all` unless `--steps`
+//   is given, and on reaching its item reports the span from the start:
+//   `span: X of Y items shown from <start> to <until>`. From inside route
+//   1 to the aftermath the span leaves out route 2 (6 of 6); from a
+//   main-line start, past 10 steps, it is every item between; a copy with
+//   an item no route reaches inside the span exits 3 naming it; an
+//   explicit `--steps 3` still stops the walk short (exit 1).
 // - An id the manifest lacks, for either option, exits 2 before any browser
 //   starts, as does a bad `--steps`.
 // - A copy whose page swallows Space after three presses is a stuck player:
@@ -67,6 +74,8 @@ export const parts = [
   noMediaCheck,
   brokenFrame,
   audioFiles,
+  untilSpans,
+  untilSpanGap,
 ];
 
 const CHECK_GAME = join(playerDir, "scripts", "testing", "check-game.mjs");
@@ -686,5 +695,96 @@ async function audioFiles({ check, folders }) {
       reasons[script] === "could not decode" &&
       reasons[gone] === "not found",
     { reasons, ...evidence(broken) },
+  );
+}
+
+/** The `span:` line's counts and ends, or null when there is none. */
+function spanLine(stdout) {
+  const m = /^span: (\d+) of (\d+) items? shown from (\S+) to (\S+)$/m.exec(
+    stdout,
+  );
+  return m === null
+    ? null
+    : { shown: Number(m[1]), of: Number(m[2]), from: m[3], to: m[4] };
+}
+
+async function untilSpans({ check }) {
+  const inRoute = await checkGame(demoDir, [
+    "--start-at",
+    "route1-start",
+    "--until",
+    "after-start",
+  ]);
+  check(
+    "--start-at route1-start --until after-start reports its span without route 2: 6 of 6 items shown, exit 0",
+    inRoute.code === 0 &&
+      /^stopped after \d+ steps: reached after-start \(--until\)$/m.test(
+        inRoute.stdout,
+      ) &&
+      inRoute.stdout.includes(
+        "\nspan: 6 of 6 items shown from route1-start to after-start\n",
+      ) &&
+      !inRoute.stdout.includes("not shown in the span"),
+    evidence(inRoute),
+  );
+  const first = manifest.items[1].id;
+  const ids = manifest.items.map((it) => it.id);
+  const between = ids.indexOf("after-start") - ids.indexOf(first) + 1;
+  const mainLine = await checkGame(demoDir, [
+    "--start-at",
+    first,
+    "--until",
+    "after-start",
+  ]);
+  const stop = /^stopped after (\d+) steps: reached after-start/m.exec(
+    mainLine.stdout,
+  );
+  check(
+    "--until without --steps walks past 10 steps to its item, and from a main-line start the span is every item between, all shown, exit 0",
+    mainLine.code === 0 &&
+      stop !== null &&
+      Number(stop[1]) > 10 &&
+      mainLine.stdout.includes(
+        `\nspan: ${between} of ${between} items shown from ${first} to after-start\n`,
+      ),
+    { between, ...evidence(mainLine) },
+  );
+  const short = await checkGame(demoDir, [
+    "--start-at",
+    "route1-start",
+    "--until",
+    "after-start",
+    "--steps",
+    "3",
+  ]);
+  check(
+    "an explicit --steps 3 still stops a --until walk short: never reached, no span, exit 1",
+    short.code === 1 &&
+      short.stdout.includes("\nstopped after 3 steps\n") &&
+      short.stdout.includes("\nnever reached after-start (--until)") &&
+      spanLine(short.stdout) === null,
+    evidence(short),
+  );
+}
+
+// The copy with an item between route 2's end and the join, which no route
+// reaches: a span from a main-line start across it misses it.
+async function untilSpanGap({ check }) {
+  const folder = unreachedCopy("checkgame-span-gap");
+  const run = await checkGame(folder, [
+    "--start-at",
+    "branch-title",
+    "--until",
+    "after-start",
+  ]);
+  const span = spanLine(run.stdout);
+  check(
+    "a span holding an item no route reaches says how many were shown, names the item and exits 3",
+    run.code === 3 &&
+      span?.shown === 11 &&
+      span.of === 12 &&
+      run.stdout.includes(`\nnot shown in the span: ${UNREACHED.id}\n`) &&
+      run.stdout.includes("\nno console or page errors"),
+    { span, ...evidence(run) },
   );
 }

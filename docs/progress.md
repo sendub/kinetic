@@ -3836,11 +3836,27 @@ truthful: an unchecked box means nothing was accepted.
       in 1 of 12 runs, not captured. Orchestrator: npm test 1236, check
       clean, smoke 6/6, Chrome checkgame+creator 54/54, WebKit 54/54 in 3
       of 3 runs.)
-- [ ] `--until` implies `--steps all` and reports its span (item 4). Tests
+- [x] `--until` implies `--steps all` and reports its span (item 4). Tests
       on demo copies, both engines: a start inside a continuing route (its
       siblings not counted), a main-line start, an item in no route inside
       the span (exit 3, named), `--until` alone walking past 10 steps, an
       explicit `--steps` still limiting it.
+      (2026-11-14: readArgs makes `--until` imply `--steps all` unless
+      `--steps` is given. walk.mjs `untilSpan` takes the manifest indexes
+      from the start to the `--until` item and leaves out the other routes
+      of every decision whose route holds the start (nested too); after an
+      `--until` stop the summary adds `span: X of Y items shown from A to
+      B` and up to ten ids not shown, exit 3 (1 wins). An `--until` before
+      the start is walked, and its span line says so. Tests ran red first:
+      walk.test.mjs (12: readArgs, the span for main-line, continuing,
+      nested, returning and ending starts, lines and exits); checkgame
+      parts `untilSpans` (route1-start to after-start 6 of 6 with route 2
+      left out; a main-line start past 10 steps, 30 of 30; `--steps 3`
+      still exits 1) and `untilSpanGap` (11 of 12, the unreached item
+      named, exit 3). A converted corpus game's 20,005-item episode tail
+      on WebKit, read-only: `span: 20005 of 20005 items shown`, exit 0, in
+      118 s with its media check. Orchestrator: npm test 1248, check
+      clean, smoke 6/6, checkgame+creator 58/58 on both engines.)
 - [ ] Symlinks out of the folder fail (item 5). Tests: both engines, a link
       out of the folder (exit 1, named) and one inside it (passes).
 - [x] Validator reachability warning (item 6). Tests: each gap case warns;

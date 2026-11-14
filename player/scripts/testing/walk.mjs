@@ -11,7 +11,8 @@ import { summary } from "./kinetic.mjs";
 // stuck player.
 export const STUCK_PRESSES = 5;
 export const STUCK_MS = 2000;
-// The summary names at most this many items never shown.
+// The summary names at most this many items never shown (in the whole
+// game, or in a --until span).
 const NEVER_SHOWN_NAMED = 10;
 
 export const USAGE =
@@ -42,6 +43,7 @@ export function readArgs(argv) {
     until: null,
   };
   let mediaCheck = true;
+  let stepsGiven = false;
   const folders = [];
   for (let at = 0; at < argv.length; at += 1) {
     const arg = argv[at];
@@ -60,8 +62,11 @@ export function readArgs(argv) {
       return { error: `${arg} needs a value` };
     }
     options[name] = value;
+    if (name === "steps") stepsGiven = true;
     at += 1;
   }
+  // --until walks to its item, however far, unless --steps says otherwise.
+  if (options.until !== null && !stepsGiven) options.steps = "all";
   if (folders.length !== 1) {
     return {
       error: folders.length === 0 ? "no game folder" : "one game folder only",
@@ -106,12 +111,60 @@ export const mediaCheckLine = ({ checked, total }) =>
   `media check: ${grouped(checked)} of ${grouped(total)} ${total === 1 ? "file" : "files"} checked`;
 
 /**
+ * The items a walk from `start` to `until` (item ids of `manifest`) should
+ * show, `{ start, until, indexes }`: the manifest indexes from the start
+ * item to the `until` item inclusive, leaving out the items of the other
+ * routes of every decision with a route whose span holds the start item
+ * (nested decisions too). From a main-line start that is every item
+ * between; from inside a route, its sibling routes, which reading on from
+ * there need not play, are not counted. When `until` comes before the
+ * start in manifest order the span is empty and `before` is true.
+ */
+export function untilSpan(manifest, start, until) {
+  const items = Array.isArray(manifest?.items) ? manifest.items : [];
+  const index = new Map();
+  items.forEach((it, n) => {
+    if (!index.has(it?.id)) index.set(it?.id, n);
+  });
+  const from = index.get(start);
+  const to = index.get(until);
+  if (from === undefined || to === undefined) {
+    throw new Error(`untilSpan: no item ${from === undefined ? start : until}`);
+  }
+  if (to < from) return { start, until, before: true, indexes: [] };
+  const left = new Set();
+  for (const decision of Array.isArray(manifest.branches)
+    ? manifest.branches
+    : []) {
+    const routes = (Array.isArray(decision?.routes) ? decision.routes : []).map(
+      (route) => [index.get(route?.start), index.get(route?.end)],
+    );
+    const holds = ([first, last]) => first <= from && from <= last;
+    if (!routes.some(holds)) continue;
+    for (const route of routes) {
+      if (holds(route)) continue;
+      for (let n = route[0]; n <= route[1]; n += 1) left.add(n);
+    }
+  }
+  const indexes = [];
+  for (let n = from; n <= to; n += 1) if (!left.has(n)) indexes.push(n);
+  return { start, until, indexes };
+}
+
+/**
  * A walk's bookkeeping. `ids` are the manifest's item ids in order; `steps`
  * is a whole number or "all"; `until` an item id or null; `fromOpening`
- * false for a walk from `--start-at`. Hand it every step's reading with
- * see(); after the first stop it takes no more.
+ * false for a walk from `--start-at`; `span` the walk's untilSpan, reported
+ * once the walk reaches `until`. Hand it every step's reading with see();
+ * after the first stop it takes no more.
  */
-export function startWalk({ ids, steps, until = null, fromOpening = true }) {
+export function startWalk({
+  ids,
+  steps,
+  until = null,
+  fromOpening = true,
+  span = null,
+}) {
   const count = ids.length;
   const limit = steps === "all" ? capFor(count) : steps;
   const seen = new Set();
@@ -139,6 +192,15 @@ export function startWalk({ ids, steps, until = null, fromOpening = true }) {
   }
 
   const neverShown = () => ids.filter((_, index) => !seen.has(index));
+  // The span's items not shown, once the walk has reached `until`.
+  const spanMissed = () =>
+    span !== null && stop?.reason === "until"
+      ? span.indexes.filter((n) => !seen.has(n)).map((n) => ids[n])
+      : [];
+  const named = (missing) => {
+    const more = missing.length - NEVER_SHOWN_NAMED;
+    return `${missing.slice(0, NEVER_SHOWN_NAMED).join(", ")}${more > 0 ? ` and ${more} more` : ""}`;
+  };
 
   const stopLine = () => {
     if (stop.reason === "end") return `story ended at step ${stop.step}`;
@@ -215,6 +277,8 @@ export function startWalk({ ids, steps, until = null, fromOpening = true }) {
     },
     /** The ids never shown, in manifest order. */
     neverShown,
+    /** The --until span's ids not shown, once it is reached (else []). */
+    spanMissed,
     /** The ids shown so far, in manifest order (checkMedia's `items`). */
     shown: () => ids.filter((_, index) => seen.has(index)),
     /** The heartbeat's line: the step, the items seen, the screen. */
@@ -245,12 +309,22 @@ export function startWalk({ ids, steps, until = null, fromOpening = true }) {
       }
       if (this.judged) {
         const missing = neverShown();
-        if (missing.length > 0) {
-          const named = missing.slice(0, NEVER_SHOWN_NAMED).join(", ");
-          const more = missing.length - NEVER_SHOWN_NAMED;
+        if (missing.length > 0) out.push(`never shown: ${named(missing)}`);
+      }
+      if (span !== null && stop.reason === "until") {
+        if (span.before) {
           out.push(
-            `never shown: ${named}${more > 0 ? ` and ${more} more` : ""}`,
+            `span: none: ${until} comes before ${span.start} in manifest order`,
           );
+        } else {
+          const missing = spanMissed();
+          const count = span.indexes.length;
+          out.push(
+            `span: ${count - missing.length} of ${plural(count, "item")} shown from ${span.start} to ${until}`,
+          );
+          if (missing.length > 0) {
+            out.push(`not shown in the span: ${named(missing)}`);
+          }
         }
       }
       return out;
@@ -262,7 +336,8 @@ export function startWalk({ ids, steps, until = null, fromOpening = true }) {
  * The exit code for a stopped walk with `errors` console or page errors: 1
  * for errors, a failed walk, a stuck player, the cap or an `--until` not
  * reached; else 3 when a walk from the opening reached the end with items
- * never shown; else 0. (2, bad arguments, is check-game's before any walk.)
+ * never shown, or a walk reached its `--until` with items of its span not
+ * shown; else 0. (2, bad arguments, is check-game's before any walk.)
  */
 export function exitCode(walk, errors) {
   const { stop } = walk;
@@ -270,5 +345,6 @@ export function exitCode(walk, errors) {
   if (["failed", "stuck", "cap"].includes(stop.reason)) return 1;
   if (walk.untilMissed) return 1;
   if (walk.judged && walk.neverShown().length > 0) return 3;
+  if (walk.spanMissed().length > 0) return 3;
   return 0;
 }
