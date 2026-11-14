@@ -450,3 +450,80 @@ describe("mountShell: the stage names the item on screen (data-item)", () => {
     shell.unmount();
   });
 });
+
+// --------------------------------------------------------------------------
+// Video segments (docs/plan.md Phase 49, item 3): the shell gives the
+// machine the stage video's clock, so Space after the item's lines steps
+// its segments, and the stage seeks to each.
+// --------------------------------------------------------------------------
+
+/** A `<video>` as the visual layer drives it: a time, play and pause. */
+class FakeVideoElement extends FakeElement {
+  currentTime = 0;
+  paused = true;
+  addEventListener(): void {}
+  removeEventListener(): void {}
+  load(): void {}
+  pause(): void {
+    this.paused = true;
+  }
+  play(): Promise<void> {
+    this.paused = false;
+    return Promise.resolve();
+  }
+}
+
+class FakeVideoDocument extends FakeDocument {
+  videos: FakeVideoElement[] = [];
+  createElement(tag?: string): FakeElement {
+    if (tag !== "video") return new FakeElement(this);
+    const video = new FakeVideoElement(this);
+    this.videos.push(video);
+    return video;
+  }
+}
+
+describe("mountShell: the stage video's clock steps segments (Phase 49)", () => {
+  it("Space on a video item with no lines steps the segments after the video's time, the stage seeking to each, then leaves", () => {
+    const items: readonly Item[] = [
+      {
+        id: "views",
+        type: "video",
+        file: "views.mp4",
+        poster: "views.jpg",
+        durationSeconds: 6,
+        segments: [
+          { startSeconds: 0, endSeconds: 2 },
+          { startSeconds: 2, endSeconds: 4 },
+          { startSeconds: 4, endSeconds: 6 },
+        ],
+      },
+      picture("after", "The aftermath."),
+    ];
+    const doc = new FakeVideoDocument();
+    const root = doc.createElement();
+    const machine = createMachine({
+      items,
+      settings: { ...DEFAULT_SETTINGS, playAllRoutes: false },
+      autoAdvance: false,
+    });
+    const shell = mountShell({
+      root: root as unknown as HTMLElement,
+      manifest: { schemaVersion: 1, width: 1280, height: 720, items },
+      machine,
+    });
+    const [video] = doc.videos;
+    expect(video.paused).toBe(false);
+    video.currentTime = 1.2; // in the first view
+    machine.advance();
+    expect(machine.getState().segment).toEqual({ index: 1, count: 3 });
+    expect(video.currentTime).toBe(2);
+    machine.advance();
+    expect(machine.getState().segment).toEqual({ index: 2, count: 3 });
+    expect(video.currentTime).toBe(4);
+    machine.advance(); // no later view: it leaves
+    expect(machine.getState().cursor).toBe(1);
+    expect(machine.getState().segment).toBeUndefined();
+    shell.unmount();
+  });
+});

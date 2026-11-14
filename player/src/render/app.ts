@@ -325,6 +325,12 @@ export function mountShell({ root, manifest, machine }: ShellOptions): Shell {
     // render/visual.ts) is the machine's media-end signal.
     onVideoEnded: () => machine.mediaEnded(),
   });
+  // The machine's segment step reads where the stage's video is (docs/
+  // plan.md Phase 49): its time while the stage plays the video of the
+  // item on screen (a menu's hold counts), null for a still or no video.
+  machine.setVideoClock(() =>
+    visuals.videoTime(manifest.items[machine.visualIndex()]),
+  );
   const captions = createTextOverlayLayer(overlay);
   let textVisible = true;
   // The decision overlay hides the story text while it waits for an
@@ -556,6 +562,7 @@ export function mountShell({ root, manifest, machine }: ShellOptions): Shell {
     unmount() {
       dismissNotice();
       unsubscribe();
+      machine.setVideoClock(null);
       machine.destroy();
       visuals.destroy();
       clearFlash();

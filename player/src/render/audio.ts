@@ -75,7 +75,9 @@
 // (`videoStartDelay`, asked by visual.ts `setStartDelay`), and is sought
 // onto it first if it paused off it (`videoResumeTarget`). A seek of the
 // video away from its sound, a jump into it or the unlock while it plays
-// starts the sound where the video is (`videoSoundStart`). While it plays,
+// starts the sound where the video is (`videoSoundStart`); so does the
+// stage's own seek as it changes the pass (a segment step, docs/plan.md
+// Phase 49), however near the sound its new time falls. While it plays,
 // music and ambience are ducked by its `duck`, faded over `DUCK_FADE_MS`;
 // the duck holds through a wrap's pause and under the menus, and lifts when
 // the video goes or shows its poster.
@@ -1653,6 +1655,22 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
         videoJoin = true;
         videoPausedAt = null;
         cancelRestart();
+      } else if (
+        video !== null &&
+        after?.seeking === true &&
+        next?.plays === true &&
+        stage?.plays === true
+      ) {
+        // The stage sought its video as the pass changed (a segment step,
+        // docs/plan.md Phase 49): a jump into the video, so its sound starts
+        // again where the video lands. Judged as a drift (`videoSought`) it
+        // could stay: a jump to a touching segment's start is no move, the
+        // short way round the old loop, from a sound that has just wrapped
+        // there, and it would play on a loop behind its video.
+        stopSource(video);
+        cancelRestart();
+        videoJoin = true;
+        video.ended = false;
       }
       if (before !== after || next?.plays !== true) {
         stageRuns = false;

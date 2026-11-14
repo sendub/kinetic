@@ -772,8 +772,29 @@ class LifeVideo {
   loop = false;
   poster = "";
   src = "";
-  currentTime = 0;
   paused = true;
+  // Playback ended at the file's end, as WebKit handles it (2026-11-14):
+  // while ended, a seek is pending until `land()`, and play() queues its
+  // own restart from 0, which lands last whatever the order of the two.
+  ended = false;
+  seeking = false;
+  private time = 0;
+  private restartFromZero = false;
+  get currentTime(): number {
+    return this.time;
+  }
+  set currentTime(seconds: number) {
+    this.time = seconds;
+    if (this.ended) this.seeking = true;
+  }
+  /** The pending seek lands: `seeked`, the video no longer ended. */
+  land(): void {
+    if (this.restartFromZero) this.time = 0;
+    this.restartFromZero = false;
+    this.ended = false;
+    this.seeking = false;
+    this.fire("seeked");
+  }
   plays = 0;
   loads = 0;
   style: Record<string, string> = {};
@@ -810,6 +831,10 @@ class LifeVideo {
   }
   play(): Promise<void> {
     this.plays += 1;
+    if (this.ended) {
+      this.restartFromZero = true;
+      this.seeking = true;
+    }
     this.paused = false;
     return Promise.resolve();
   }
@@ -853,17 +878,25 @@ function lifecycleHarness(items: Item[]) {
     },
   });
   // Show item `index` as an advance onto it (it plays), or as a nav
-  // arrival below the frontier (a still).
-  const show = (index: number, transition: "advance" | "nav" = "advance") => {
+  // arrival below the frontier (a still); `segment`, the active segment's
+  // index into the visual item's `segments` (docs/plan.md Phase 49).
+  const show = (
+    index: number,
+    transition: "advance" | "nav" = "advance",
+    segment?: number,
+  ) => {
     cursor = index;
     let visual = index;
     while (items[visual].type === "text") visual -= 1;
+    const shown = items[visual];
+    const count = shown.type === "video" ? (shown.segments?.length ?? 0) : 0;
     layer.update(items[visual], {
       cursor: index,
       frontier: transition === "nav" ? items.length : index + 1,
       settled: false,
       skipping: false,
       transition,
+      ...(segment === undefined ? {} : { segment: { index: segment, count } }),
     } as never);
   };
   const inStage = () => stage.children.filter((c) => c instanceof LifeVideo);
@@ -1172,5 +1205,379 @@ describe("a fresh <video> per source file", () => {
     expect(videos[0].src).toBe("");
     expect(videos[0].listenerCount()).toBe(0);
     expect(inStage()).toEqual([]);
+  });
+});
+
+// Video segments (docs/plan.md Phase 49, docs/content-format.md "Video
+// segments"): the active segment replaces the item's own range on the
+// stage: one seek to its start, then a loop of loopStart..end, no pass
+// reported, until the next step; leaving, re-entering or the machine
+// clearing it plays the item's own range again.
+describe("video segments", () => {
+  const segments = [
+    { startSeconds: 0, endSeconds: 2 },
+    { startSeconds: 2, loopStartSeconds: 2.5, endSeconds: 4 },
+    { startSeconds: 4, endSeconds: 6 },
+  ];
+  // The item plays 2..5 of a 6 s file, looping back to 3 under its lines:
+  // the first segment lies before its range and the last past it, to the
+  // file's end.
+  const segVideo = vid({
+    id: "v-seg",
+    file: "s.mp4",
+    durationSeconds: 6,
+    startSeconds: 2,
+    endSeconds: 5,
+    loopStartSeconds: 3,
+    segments,
+  });
+
+  describe("videoPlanFor with a segment", () => {
+    it("plays the segment: its start, its loop restart (default its start) and its end, nothing reported", () => {
+      expect(videoPlanFor(segVideo, "loop-forever", true, segments[1])).toEqual(
+        {
+          loop: false,
+          reportEnds: 0,
+          startSeconds: 2,
+          loopStartSeconds: 2.5,
+          endSeconds: 4,
+          boundary: "rvfc",
+        },
+      );
+      expect(
+        videoPlanFor(segVideo, "loop-forever", false, segments[0]),
+      ).toEqual({
+        loop: false,
+        reportEnds: 0,
+        startSeconds: 0,
+        loopStartSeconds: 0,
+        endSeconds: 2,
+        boundary: "timeupdate",
+      });
+    });
+
+    it("bounds a segment ending at the file's end by the file's own end", () => {
+      expect(
+        videoPlanFor(segVideo, "loop-forever", true, segments[2]),
+      ).toMatchObject({
+        startSeconds: 4,
+        loopStartSeconds: 4,
+        endSeconds: 6,
+        boundary: "ended",
+        loop: false,
+      });
+    });
+
+    it("counts no passes and never loops natively, whatever the item's own passes", () => {
+      // A standalone counted video and a background one (whose own plan
+      // loops natively): the segment loops on the renderer's seeks.
+      const counted = vid({ loopCount: 3, segments });
+      expect(
+        videoPlanFor(counted, "loop-once", true, segments[1]),
+      ).toMatchObject({ loop: false, reportEnds: 0, endSeconds: 4 });
+      const background = vid({ holdSeconds: 9, segments });
+      expect(
+        videoPlanFor(background, "loop-once", true, segments[0]),
+      ).toMatchObject({ loop: false, reportEnds: 0, endSeconds: 2 });
+    });
+
+    it("leaves a still at the item's own start", () => {
+      expect(videoPlanFor(segVideo, "still", true, segments[2])).toEqual(
+        videoPlanFor(segVideo, "still", true),
+      );
+    });
+  });
+
+  // A chain over the segment video, then a picture.
+  const chain = (): Item[] => [
+    segVideo,
+    item({ id: "line-2", type: "text", text: "Second line." }),
+    item({ id: "pic", type: "image", file: "p.jpg" }),
+  ];
+
+  it("seeks once to the segment's start, plays to its end, then loops its loopStart..end, reporting nothing", () => {
+    const { videos, show, ends } = lifecycleHarness(chain());
+    show(1); // the chain's last line: the item's own range plays
+    const v = videos[0];
+    expect(v.currentTime).toBe(2);
+    v.currentTime = 4.2; // wherever the loop has got to
+    show(1, "advance", 1); // a step to the second segment
+    expect(v.currentTime).toBe(2);
+    expect(v.paused).toBe(false);
+    v.currentTime = 3.5;
+    v.fire("timeupdate"); // inside the segment: nothing
+    expect(v.currentTime).toBe(3.5);
+    v.currentTime = 4;
+    v.fire("timeupdate"); // its end: back to its loop restart
+    expect(v.currentTime).toBe(2.5);
+    v.currentTime = 4.01;
+    v.fire("timeupdate");
+    expect(v.currentTime).toBe(2.5);
+    // The item's own end (5) is not this pass's end.
+    expect(ends).toEqual([]);
+    // The same state again (a re-render): no second seek.
+    v.currentTime = 3.1;
+    show(1, "advance", 1);
+    expect(v.currentTime).toBe(3.1);
+    // The next step: one seek to its start.
+    show(1, "advance", 2);
+    expect(v.currentTime).toBe(4);
+    expect(videos).toHaveLength(1);
+  });
+
+  it("plays a segment before the item's range, and one ending at the file's end loops on its ended", () => {
+    const { videos, show, ends } = lifecycleHarness(chain());
+    show(1);
+    const v = videos[0];
+    show(1, "advance", 0);
+    expect(v.currentTime).toBe(0);
+    v.currentTime = 2; // its end, below the item's own start
+    v.fire("timeupdate");
+    expect(v.currentTime).toBe(0);
+    show(1, "advance", 2);
+    expect(v.currentTime).toBe(4);
+    v.currentTime = 5.2; // past the item's own end: plays on
+    v.fire("timeupdate");
+    expect(v.currentTime).toBe(5.2);
+    v.currentTime = 6;
+    v.paused = true;
+    v.fire("ended"); // the file's end: back to the segment's start, playing
+    expect(v.currentTime).toBe(4);
+    expect(v.paused).toBe(false);
+    expect(ends).toEqual([]);
+  });
+
+  it("a standalone counted video steps from its held end: it plays the segment, and its loop reports nothing", () => {
+    const { videos, show, ends } = lifecycleHarness([
+      vid({ id: "v-alone", file: "a.mp4", durationSeconds: 6, segments }),
+      item({ id: "pic", type: "image", file: "p.jpg" }),
+    ]);
+    show(0);
+    const v = videos[0];
+    v.currentTime = 6;
+    v.paused = true;
+    v.fire("ended"); // its one pass: reported, held at its end
+    expect(ends).toEqual([0]);
+    const plays = v.plays;
+    show(0, "advance", 1);
+    expect(v.currentTime).toBe(2);
+    expect(v.plays).toBe(plays + 1);
+    v.currentTime = 4;
+    v.fire("timeupdate");
+    expect(v.currentTime).toBe(2.5);
+    show(0, "advance", 2);
+    v.currentTime = 6;
+    v.paused = true;
+    v.fire("ended");
+    expect(v.currentTime).toBe(4);
+    expect(v.paused).toBe(false);
+    expect(ends).toEqual([0]);
+  });
+
+  it("tells its watcher of each step; the pass reports the segment's end and restart point", () => {
+    const { layer, videos, show } = lifecycleHarness(chain());
+    let stage: StageVideo | null = null;
+    const heard: Array<StageVideo | null> = [];
+    layer.watchVideo((video) => {
+      stage = video;
+      heard.push(video);
+    });
+    const pass = () => (stage as StageVideo | null)?.pass() ?? null;
+    show(1);
+    expect(pass()).toEqual({ end: 5, restart: 3 });
+    const before = heard.length;
+    show(1, "advance", 1);
+    expect(heard.length).toBe(before + 1);
+    expect(heard[heard.length - 1]?.element).toBe(videos[0]);
+    expect(heard[heard.length - 1]?.plays).toBe(true);
+    expect(pass()).toEqual({ end: 4, restart: 2.5 });
+    show(1, "advance", 1); // nothing changed: nothing heard
+    expect(heard.length).toBe(before + 1);
+    show(1, "advance", 0);
+    expect(heard.length).toBe(before + 2);
+    expect(pass()).toEqual({ end: 2, restart: 0 });
+    // Its sound's early restart lands on the segment's loop restart.
+    videos[0].currentTime = 1.97;
+    (stage as StageVideo | null)?.restart();
+    expect(videos[0].currentTime).toBe(0);
+  });
+
+  it("the machine clearing the segment, leaving or re-entering plays the item's own range again", () => {
+    const { videos, show, layer } = lifecycleHarness(chain());
+    let stage: StageVideo | null = null;
+    layer.watchVideo((video) => {
+      stage = video;
+    });
+    const pass = () => (stage as StageVideo | null)?.pass() ?? null;
+    show(1);
+    const v = videos[0];
+    show(1, "advance", 2);
+    expect(v.currentTime).toBe(4);
+    // Cleared with the cursor where it is (an arrival on the same item).
+    show(1);
+    expect(v.currentTime).toBe(2);
+    expect(pass()).toEqual({ end: 5, restart: 3 });
+    v.currentTime = 5;
+    v.fire("timeupdate"); // the item's own end: back to its loop point
+    expect(v.currentTime).toBe(3);
+    // The wheel back onto the item (its poster) and forward again.
+    show(1, "advance", 1);
+    show(0, "nav");
+    expect(pass()).toBeNull();
+    expect(v.currentTime).toBe(2);
+    show(1);
+    expect(pass()).toEqual({ end: 5, restart: 3 });
+    // Leaving for the picture and coming back by an advance.
+    show(1, "advance", 2);
+    show(2);
+    show(1);
+    expect(stage).not.toBeNull();
+    expect(pass()).toEqual({ end: 5, restart: 3 });
+    expect(videos[videos.length - 1]?.currentTime).toBe(2);
+  });
+
+  it("a menu's pause and resume keep the segment: it resumes where it stood, inside the segment's loop", () => {
+    const { layer, videos, show } = lifecycleHarness(chain());
+    let stage: StageVideo | null = null;
+    layer.watchVideo((video) => {
+      stage = video;
+    });
+    show(1);
+    const v = videos[0];
+    show(1, "advance", 1);
+    v.currentTime = 3.3;
+    layer.setPaused(true);
+    expect(v.paused).toBe(true);
+    layer.setPaused(false);
+    expect(v.paused).toBe(false);
+    expect(v.currentTime).toBe(3.3);
+    expect((stage as StageVideo | null)?.pass()).toEqual({
+      end: 4,
+      restart: 2.5,
+    });
+    v.currentTime = 4;
+    v.fire("timeupdate");
+    expect(v.currentTime).toBe(2.5);
+  });
+
+  it("gives the machine the video's time while the stage plays that item's video, a held one included; null for a still, another item or none", () => {
+    const { layer, videos, show } = lifecycleHarness(chain());
+    const items = chain();
+    expect(layer.videoTime(items[0])).toBeNull(); // nothing shown yet
+    show(1);
+    videos[0].currentTime = 3.25;
+    expect(layer.videoTime(items[0])).toBe(3.25);
+    expect(layer.videoTime(items[2])).toBeNull();
+    expect(layer.videoTime(undefined)).toBeNull();
+    layer.setPaused(true); // a menu holds it: it counts as playing
+    expect(layer.videoTime(items[0])).toBe(3.25);
+    layer.setPaused(false);
+    show(0, "nav"); // its poster below the seen edge
+    expect(layer.videoTime(items[0])).toBeNull();
+    show(2); // a picture
+    expect(layer.videoTime(items[0])).toBeNull();
+  });
+});
+
+// WebKit, 2026-11-14: at the file's `ended`, play() restarts the video from
+// 0, and a seek asked for just before or just after it does not reliably
+// win (the segments scenario's held WebM played on from 0, 4 runs in 8
+// with the seek first, 1 in 5 with it after). Every loop-back at the
+// file's end seeks, and plays once the seek has landed.
+describe("a loop-back at the file's end lands on its restart point, not 0", () => {
+  const endAt = (v: LifeVideo, t: number): void => {
+    v.currentTime = t;
+    v.paused = true;
+    v.ended = true;
+    v.fire("ended");
+  };
+
+  it("a segment ending at the file's end, on a background video", () => {
+    const { videos, show } = lifecycleHarness([
+      vid({
+        id: "v-hold",
+        file: "h.webm",
+        durationSeconds: 2,
+        holdSeconds: 4,
+        segments: [
+          { startSeconds: 0, endSeconds: 0.8 },
+          { startSeconds: 1, endSeconds: 2 },
+        ],
+      }),
+      item({ id: "pic", type: "image", file: "p.jpg" }),
+    ]);
+    show(0);
+    const v = videos[0];
+    show(0, "advance", 1);
+    const plays = v.plays;
+    endAt(v, 2);
+    expect(v.plays).toBe(plays); // not before the seek lands
+    v.land();
+    expect(v.currentTime).toBe(1);
+    expect(v.paused).toBe(false);
+    expect(v.plays).toBe(plays + 1);
+  });
+
+  it("a counted pass and a chain's range, each ending at the file's end", () => {
+    const { videos, show, ends } = lifecycleHarness([
+      vid({
+        id: "v-count",
+        file: "c.mp4",
+        durationSeconds: 2,
+        startSeconds: 1,
+        loopStartSeconds: 1.5,
+        loopCount: 2,
+      }),
+      vid({
+        id: "v-chain",
+        file: "r.mp4",
+        durationSeconds: 8,
+        startSeconds: 2,
+        loopStartSeconds: 4,
+      }),
+      item({ id: "line-2", type: "text", text: "Second line." }),
+    ]);
+    show(0);
+    endAt(videos[0], 2); // pass 1 of 2: back to 1.5
+    videos[0].land();
+    expect(ends).toEqual([0]);
+    expect(videos[0].currentTime).toBe(1.5);
+    expect(videos[0].paused).toBe(false);
+    show(2);
+    endAt(videos[1], 8); // under its line: back to 4
+    videos[1].land();
+    expect(videos[1].currentTime).toBe(4);
+    expect(videos[1].paused).toBe(false);
+  });
+
+  it("plays nothing once the seek lands if the reader left, a menu holds it, or a step re-planned it", () => {
+    const { layer, videos, show } = lifecycleHarness([
+      vid({
+        id: "v-hold",
+        file: "h.webm",
+        durationSeconds: 2,
+        holdSeconds: 4,
+        segments: [
+          { startSeconds: 0, endSeconds: 1 },
+          { startSeconds: 1, endSeconds: 2 },
+        ],
+      }),
+      item({ id: "pic", type: "image", file: "p.jpg" }),
+    ]);
+    show(0);
+    const v = videos[0];
+    show(0, "advance", 1);
+    endAt(v, 2);
+    layer.setPaused(true);
+    const held = v.plays;
+    v.land();
+    expect(v.plays).toBe(held);
+    layer.setPaused(false); // the menu's resume plays it
+    expect(v.paused).toBe(false);
+    endAt(v, 2);
+    show(1); // left for the picture
+    const gone = v.plays;
+    v.land();
+    expect(v.plays).toBe(gone);
   });
 });

@@ -3972,12 +3972,37 @@ truthful: an unchecked box means nothing was accepted.
       17 against a no-op stub; the 8 passing guard the branches that must
       ignore segments); faults (no gate change, re-reading the time)
       fail 2 and 7. Orchestrator: npm test 1273, check clean.)
-- [ ] Renderer and sound follow the segment (item 3). Tests: visual unit
+- [x] Renderer and sound follow the segment (item 3). Tests: visual unit
       tests for the segment plan; scenario parts on Chrome and WebKit:
       the video's position after each press is inside the stepped
       segment, its loop stays inside it, leaving and re-entering plays
       the item's range, and the video's sound stays on the video
       (`videosound`'s checks) through a step and a loop.
+      (2026-11-14: render/visual.ts `videoPlanFor(item, mode, rvfc,
+      segment)` plays a segment's start, loop start and end (outside the
+      item's range too), reporting no passes; `applyVideoMode` seeks once
+      per segment change; `pass()` and the watcher follow it; a menu keeps
+      it; `VisualLayer.videoTime(item)` is the clock, wired in app.ts
+      `mountShell`. audio.ts: a seek of the same playing element counts as
+      a jump into the video, so a step pressed just before a loop wrap
+      onto a touching segment no longer leaves the sound a loop behind
+      (Chrome: 74 of 186 reads off before). Found on the way, older than
+      segments: in WebKit `play()` right after the restart seek at the
+      file's end often restarted the video from 0 (the seek had not
+      landed, so the element was still ended); `playOnFrom` waits for
+      `seeked` before `play()`, for every loop-back at the file's end.
+      Tests ran red first: 13 visual units (a fake element that behaves
+      as WebKit did), an app.test shell test, and segments.scenario.mjs
+      (5 parts, 16 checks on demo and audio-demo copies: the chain's
+      last line, no lines, past the item's range, wheel back and
+      forward, the Esc screen, the video sound through a step, a
+      near-wrap step and the leave). Orchestrator: npm test 1288, check
+      clean, smoke 6/6; Chrome segments, media, videosound, audio,
+      screens, reading 246/246; WebKit segments 16/16 in 3 of 3 runs,
+      videosound 31/31, media, audio and screens 197 pass and the 2
+      known fullscreen partials. Before the WebKit fix, segments failed
+      1 run in 4 there; one ambience check in `audio` failed once under
+      a 5-file WebKit run and passed in the 4 runs after.)
 - [ ] check-game sees segment steps (item 4). Tests: walk.test.mjs units;
       checkgame parts on a demo copy with a six-segment item, with and
       without lines, and one as the last item: exit 0, the steps printed.

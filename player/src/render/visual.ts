@@ -42,6 +42,15 @@
 //   natively — background, no range — wraps at 0, because the element
 //   controls that restart.
 //
+//   An active segment (`state.segment`, docs/plan.md Phase 49,
+//   docs/content-format.md "Video segments") replaces the item's range on
+//   the same item: the step seeks ONCE to the segment's `startSeconds` (the
+//   one deliberate seek on an item already shown), plays to its
+//   `endSeconds` and loops back to its `loopStartSeconds`, bounded as a
+//   range is and counting no passes. The machine clears it on every
+//   arrival, so leaving, re-entering, a reload or skip plays the item's own
+//   range again; a menu's pause and resume keep it.
+//
 // One `<img>` serves images and animation frames. One `<video>` serves one
 // source file: advancing within a chain flips `loop` and keeps the same
 // element playing, never re-creating or reloading it, and so do ranges of
@@ -60,6 +69,7 @@ import type {
   Manifest,
   TransitionKind,
   VideoItem,
+  VideoSegment,
 } from "../machine/types";
 
 /** How the current visual plays, per docs/content-format.md "Timing". */
@@ -145,23 +155,44 @@ export interface VideoPlan {
  * `startSeconds`) on every loop-back (docs/plan.md Phases 9c and 9d).
  * `hasRVFC` is the runtime capability of the `<video>` element, passed in
  * so this decision stays pure and testable.
+ *
+ * An active `segment` (docs/plan.md Phase 49, docs/content-format.md
+ * "Video segments") replaces the item's range while the video plays: the
+ * segment's start is the seek target, its end bounds each pass (the
+ * file's `ended` when it ends at the file's end) and every pass after the
+ * first restarts at its `loopStartSeconds` (default its start), with
+ * `loop` off and nothing reported, whatever the item's own passes. It may
+ * lie outside the item's range. A still ignores it: the poster is the
+ * frame at the item's own start.
  */
 export function videoPlanFor(
   item: VideoItem,
   mode: PlaybackMode,
   hasRVFC: boolean,
+  segment?: VideoSegment,
 ): VideoPlan {
+  const boundaryAt = (end: number | null): VideoPlan["boundary"] =>
+    end === null || end >= item.durationSeconds
+      ? "ended"
+      : hasRVFC
+        ? "rvfc"
+        : "timeupdate";
+  if (segment !== undefined && mode !== "still") {
+    return {
+      loop: false,
+      reportEnds: 0,
+      startSeconds: segment.startSeconds,
+      loopStartSeconds: segment.loopStartSeconds ?? segment.startSeconds,
+      endSeconds: segment.endSeconds,
+      boundary: boundaryAt(segment.endSeconds),
+    };
+  }
   const startSeconds = item.startSeconds ?? 0;
   const loopStartSeconds = item.loopStartSeconds ?? startSeconds;
   const endSeconds = item.endSeconds ?? null;
   const ranged =
     item.startSeconds !== undefined || item.endSeconds !== undefined;
-  const boundary: VideoPlan["boundary"] =
-    endSeconds === null || endSeconds >= item.durationSeconds
-      ? "ended"
-      : hasRVFC
-        ? "rvfc"
-        : "timeupdate";
+  const boundary = boundaryAt(endSeconds);
   if (mode !== "loop-once") {
     return {
       loop: mode === "loop-forever" && !ranged,
@@ -325,6 +356,13 @@ export interface VisualLayer {
    * Phase 47, item 19), so the two begin together. Null: no wait.
    */
   setStartDelay(delay: ((element: HTMLVideoElement) => number) | null): void;
+  /**
+   * The stage video's current time while the stage plays `item`'s video
+   * (a video a menu holds paused counts), for the machine's segment step
+   * (`Machine.setVideoClock`, docs/plan.md Phase 49); null while it holds
+   * its poster as a still, shows another item, or shows no video.
+   */
+  videoTime(item: Item | undefined): number | null;
   /** Stop all playback and drop the video element. Idempotent. */
   destroy(): void;
 }
@@ -378,8 +416,10 @@ export function createVisualLayer(
   // `drawnVideoSrc` is the file it loads and `drawnVideoItem` the item it
   // was entered with — two items can share one file at different ranges,
   // and a fresh item entry (whatever the file) re-seeks to that item's
-  // range start. `videoMode` its current playback mode; `videoPlan` how
-  // that mode plays out on the element (see `videoPlanFor`);
+  // range start. `videoMode` its current playback mode; `videoSegment` the
+  // active segment it plays (an index into the item's `segments`, null for
+  // the item's own range); `videoPlan` how that mode plays out on the
+  // element (see `videoPlanFor`);
   // `videoEndedCount` the pass-completes already reported for the current
   // playback; `videoGeneration` bumps whenever the source changes so a late
   // autoplay rejection cannot report an end for a video that is no longer
@@ -388,6 +428,7 @@ export function createVisualLayer(
   let drawnVideoSrc: string | null = null;
   let drawnVideoItem: string | null = null;
   let videoMode: PlaybackMode | null = null;
+  let videoSegment: number | null = null;
   let videoPlan: VideoPlan | null = null;
   let videoEndedCount = 0;
   let videoGeneration = 0;
@@ -783,15 +824,38 @@ export function createVisualLayer(
       // precisely because a range is active — a non-ranged free looper
       // never ends).
       if (video === null || plan.loop) return;
-      seekTo(video, plan.loopStartSeconds);
-      playVideo(video, plan);
+      playOnFrom(video, plan);
       return;
     }
     if (!reportEnd(plan)) return;
     if (videoEndedCount < plan.reportEnds && video !== null) {
-      seekTo(video, plan.loopStartSeconds);
-      playVideo(video, plan);
+      playOnFrom(video, plan);
     }
+  }
+
+  /**
+   * Plays an element that reached the file's end on from the plan's loop
+   * restart point: the seek first, and play() once it has landed. play()
+   * on an ended video restarts it from 0, and in WebKit a seek asked for
+   * just before or just after it did not reliably win: the video played
+   * on from 0 (the segments scenario's held WebM, 4 runs in 8 with the
+   * seek first, 1 in 5 with it after, 2026-11-14). Landed, the video is no
+   * longer ended. Nothing plays if by then a menu holds it (its resume
+   * plays it), the plan changed or the element went.
+   */
+  function playOnFrom(element: HTMLVideoElement, plan: VideoPlan): void {
+    seekTo(element, plan.loopStartSeconds, true);
+    if (!element.seeking) {
+      playVideo(element, plan);
+      return;
+    }
+    element.addEventListener(
+      "seeked",
+      () => {
+        if (video === element && videoPlan === plan) playVideo(element, plan);
+      },
+      { once: true },
+    );
   }
 
   /**
@@ -873,16 +937,26 @@ export function createVisualLayer(
    * playing (stills hold that same frame); an advance within a chain lands
    * on the SAME item and is only a mode flip (once -> forever), so the
    * video keeps playing forward from where it is — never re-seeked on a
-   * text advance (docs/plan.md Phase 9c).
+   * text advance (docs/plan.md Phase 9c). A change of `segment` (a step,
+   * or the segment cleared) seeks once to the new plan's start: the
+   * segment's, or the item's own (docs/plan.md Phase 49).
    */
   function applyVideoMode(
     element: HTMLVideoElement,
     item: VideoItem,
     mode: PlaybackMode,
     freshEntry: boolean,
+    segment: number | null,
   ): void {
+    const stepped = segment !== videoSegment;
     videoMode = mode;
-    videoPlan = videoPlanFor(item, mode, hasRVFC(element));
+    videoSegment = segment;
+    videoPlan = videoPlanFor(
+      item,
+      mode,
+      hasRVFC(element),
+      segment === null ? undefined : item.segments?.[segment],
+    );
     videoEndedCount = 0; // every (re)start counts its passes afresh
     element.style.display = "";
     element.loop = videoPlan.loop;
@@ -901,7 +975,7 @@ export function createVisualLayer(
       });
       return;
     }
-    if (freshEntry || mode === "loop-once") {
+    if (freshEntry || mode === "loop-once" || stepped) {
       seekTo(element, videoPlan.startSeconds);
     }
     // Heard before it plays: its sound may hold its start back.
@@ -939,7 +1013,11 @@ export function createVisualLayer(
     passBoundary(element, plan, pass.restart);
   }
 
-  function showVideo(item: VideoItem, mode: PlaybackMode): void {
+  function showVideo(
+    item: VideoItem,
+    mode: PlaybackMode,
+    activeSegment: number | null,
+  ): void {
     stopAnimation();
     dropNotice();
     hideImage();
@@ -949,6 +1027,13 @@ export function createVisualLayer(
     if (newSource) retireVideo();
     const element = ensureVideo();
     const freshEntry = newSource || drawnVideoItem !== item.id;
+    // A still holds the item's own start whatever segment is active.
+    const segment =
+      mode !== "still" &&
+      activeSegment !== null &&
+      item.segments?.[activeSegment] !== undefined
+        ? activeSegment
+        : null;
     if (newSource) {
       videoGeneration += 1;
       element.src = item.file;
@@ -968,10 +1053,12 @@ export function createVisualLayer(
       element.style.backgroundSize = "contain";
       element.style.backgroundRepeat = "no-repeat";
       element.style.backgroundPosition = "center";
-      applyVideoMode(element, item, mode, true);
+      applyVideoMode(element, item, mode, true, segment);
       return;
     }
-    if (videoMode !== mode) applyVideoMode(element, item, mode, false);
+    if (videoMode !== mode || videoSegment !== segment) {
+      applyVideoMode(element, item, mode, false, segment);
+    }
   }
 
   function hideVideo(): void {
@@ -984,6 +1071,7 @@ export function createVisualLayer(
     drawnVideoSrc = null;
     drawnVideoItem = null;
     videoMode = null;
+    videoSegment = null;
     videoPlan = null;
     videoEndedCount = 0;
     videoGeneration += 1; // retire any pending autoplay fallback
@@ -1012,7 +1100,7 @@ export function createVisualLayer(
           showAnimation(item, mode);
           return;
         case "video":
-          showVideo(item, mode);
+          showVideo(item, mode, state.segment?.index ?? null);
           return;
         case "text":
           // Unreachable for a valid manifest: visualIndex() resolves a `text`
@@ -1078,6 +1166,20 @@ export function createVisualLayer(
       startDelay = delay;
     },
 
+    videoTime(item) {
+      if (
+        item?.type !== "video" ||
+        video === null ||
+        videoPlan === null ||
+        videoMode === null ||
+        videoMode === "still" ||
+        drawnVideoItem !== item.id
+      ) {
+        return null;
+      }
+      return video.currentTime;
+    },
+
     destroy() {
       stopAnimation();
       stopRangeWatch();
@@ -1086,6 +1188,7 @@ export function createVisualLayer(
         drawnVideoSrc = null;
         drawnVideoItem = null;
         videoMode = null;
+        videoSegment = null;
         videoPlan = null;
         videoEndedCount = 0;
         videoGeneration += 1;
