@@ -3908,7 +3908,19 @@ truthful: an unchecked box means nothing was accepted.
       clean. AGENTS.md's check-game line updated. docs/content-format.md
       and docs/verify-player.md were updated by items 1-6. Every example
       was run on both engines. Orchestrator: diff ASCII, no game named.)
-- [ ] Phase-closer (Phase 48): full pytest, the full `npm run verify` and
+- [x] Phase-closer (Phase 48): full pytest, the full `npm run verify` and
       `npm run verify -- --webkit`, package-proof; a timed `--steps all`
       walk of a 160,000-item synthetic game on both engines, media check
       included.
+      (2026-11-14 on 2234ba6: full pytest 942 passed in 107 s; full
+      `npm run verify` 601/601 on Chrome; `npm run verify -- --webkit` 616
+      pass and 5 partial (the headless fullscreen checks), 0 fail;
+      package-proof 18/18 with .tmp/extract-demo regenerated. A 160,000-
+      item synthetic game with 400 decisions, 500 media files and 9 audio
+      tracks (`perf:sound -- --folder`, assembled; the validator passes it
+      with no warning): `check-game --steps all` ended at step 160899,
+      visited 160000 of 160000, `media: 509 files: 500 loaded during the
+      walk, 9 checked after it (0 never requested)`, no errors, exit 0, in
+      607 s on WebKit and 170 s on Chrome, media check included. On a
+      converted corpus game the media check fell from about 23 to about 2
+      minutes on Chrome (item 1).)
