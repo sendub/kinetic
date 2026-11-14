@@ -952,3 +952,24 @@ read from its head), and a track no item uses. Each warning is one
 `warning: manifest.json: <location>: <reason>` line on stderr, followed
 by a count. Warnings leave stdout and the exit status alone, and a
 manifest without audio prints none.
+
+It also warns, before any audio warning, about each item that no
+reading from the opening ever shows: one `warning: manifest.json:
+items[N]: item '<id>' is never shown: <why>` line on stderr per item,
+in item order, followed by a count (`N unreachable item warnings`).
+The validator replays the player's own forward flow under `Play all
+routes` (player/src/machine/machine.ts), which shows every item any
+reading by choices shows, so these are items only a bookmark or `u`
+could land on. An item inside a decision's region, after its `after`
+item and before its `continueAt` (for a pure choice, up to its last
+route end), that lies in none of its routes reads `inside decision
+'<id>' (after '<after>', before '<continueAt>') in none of its routes`;
+a nested decision's region lies inside its enclosing route, so the
+check holds at every level. Any other reads `no reading from the
+opening reaches it`: the routes of a decision whose `after` item the
+flow never settles on, or what lies past a route end the flow reaches
+with no decision of it open (a join that lands inside another
+decision's route), where the story ends (Branches). The warning leaves
+stdout and the exit status alone, and a manifest without branches
+prints none. `check-game` finds the same items by walking (exit 3,
+"never shown").

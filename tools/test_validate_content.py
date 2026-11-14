@@ -2123,3 +2123,165 @@ def test_looping_ogg_opus_gets_only_the_ogg_warning(folder: Path) -> None:
     write_manifest(folder, manifest)
     [line] = warning_lines(run_cli(folder))
     assert "Ogg audio" in line
+
+
+# ---------------------------------------------------------------------------
+# Unreachable items (docs/plan.md Phase 48 item 6; docs/content-format.md,
+# "Rules and validator invariants"): an item no reading from the opening
+# shows, Play all routes included, warns on stderr; stdout and the exit
+# status stay as they were. player/src/machine/reach.test.ts checks on
+# generated manifests that the warned items are exactly the ones the
+# machine's play-all walk never shows.
+# ---------------------------------------------------------------------------
+
+AUDIO_DEMO_DIR = REPO_ROOT / "fixtures" / "audio-demo"
+BUILD_AUDIO_DEMO = REPO_ROOT / "fixtures" / "build_audio_demo.py"
+
+
+@pytest.fixture(scope="session")
+def audio_demo() -> Path:
+    """fixtures/audio-demo, built by fixtures/build_audio_demo.py (PATH
+    ffmpeg) if it is absent, under a lock as `demo` is."""
+    lock = REPO_ROOT / ".tmp" / "build-audio-demo.lock"
+    lock.parent.mkdir(exist_ok=True)
+    with lock.open("w") as held:
+        fcntl.flock(held, fcntl.LOCK_EX)
+        if not (AUDIO_DEMO_DIR / "manifest.json").is_file():
+            proc = subprocess.run([sys.executable, str(BUILD_AUDIO_DEMO)],
+                                  capture_output=True, text=True)
+            if proc.returncode != 0:
+                pytest.fail(f"build_audio_demo.py failed (exit "
+                            f"{proc.returncode}):\n{proc.stdout}{proc.stderr}")
+    return AUDIO_DEMO_DIR
+
+
+def insert_gap(folder: Path, before: str, file: str = "meet-003.jpg"
+               ) -> dict[str, Any]:
+    """Insert an image item `gap` before the item `before` of the branch
+    example copy, reusing one of its pictures, and write the manifest."""
+    manifest = read_manifest(folder)
+    ids = [item["id"] for item in manifest["items"]]
+    manifest["items"].insert(ids.index(before),
+                             {"id": "gap", "type": "image", "file": file})
+    write_manifest(folder, manifest)
+    return manifest
+
+
+def reach_lines(proc: subprocess.CompletedProcess[str]) -> list[str]:
+    return [line for line in warning_lines(proc) if "never shown" in line]
+
+
+GAP_CASES = {
+    # After the last route end, before continueAt (the converting agent's
+    # case): home-010 is afternoon's last route end, epilogue-011 its join.
+    "after-last-route": (
+        "epilogue-011", 10,
+        "inside decision 'afternoon' (after 'meet-003', before "
+        "'epilogue-011') in none of its routes"),
+    # Between `after` and the first route start.
+    "before-first-route": (
+        "cafe-004", 3,
+        "inside decision 'afternoon' (after 'meet-003', before "
+        "'epilogue-011') in none of its routes"),
+    # Between two route spans.
+    "between-routes": (
+        "home-009", 8,
+        "inside decision 'afternoon' (after 'meet-003', before "
+        "'epilogue-011') in none of its routes"),
+    # A nested decision's gap, inside the enclosing route `cafe`.
+    "nested": (
+        "cafe-008", 7,
+        "inside decision 'cafe-choice' (after 'cafe-005', before "
+        "'cafe-008') in none of its routes"),
+}
+
+
+@pytest.mark.parametrize("case", list(GAP_CASES))
+def test_gap_item_warns_once(branch_folder: Path, case: str) -> None:
+    before, index, why = GAP_CASES[case]
+    insert_gap(branch_folder, before)
+    proc = run_cli(branch_folder)
+    assert (proc.returncode, proc.stdout) == (0, ""), proc.stderr
+    expected = (f"warning: manifest.json: items[{index}]: item 'gap' is "
+                f"never shown: {why}")
+    assert reach_lines(proc) == [expected]
+    assert proc.stderr == (f"{expected}\n{branch_folder}: 1 unreachable "
+                           f"item warning\n")
+
+
+def test_pure_choice_gap_between_routes_warns(branch_folder: Path) -> None:
+    """A pure choice's region runs to its last route end: an item between
+    its routes is never shown, while what follows the region is (the
+    all-played close falls through to it)."""
+    manifest = insert_gap(branch_folder, "home-009")
+    decision = manifest["branches"][1]
+    del decision["continuingRoute"]
+    del decision["continueAt"]
+    write_manifest(branch_folder, manifest)
+    assert validate_content.reach_warnings(manifest) == [
+        "warning: manifest.json: items[8]: item 'gap' is never shown: "
+        "inside decision 'afternoon' (after 'meet-003', to its last route "
+        "end 'home-010') in none of its routes"]
+
+
+def test_items_of_a_decision_no_reading_reaches_warn() -> None:
+    """Past a route end with no decision open the story ends there
+    (machine.ts `nothingFollows`): a join landing inside another
+    decision's route stops at that route's end, so what lies after it is
+    never shown, and the decision whose `after` is skipped never fires."""
+    items = [{"id": f"i{n}", "type": "image", "file": f"i{n}.jpg"}
+             for n in range(10)]
+    manifest = {"items": items, "branches": [
+        {"id": "a", "after": "i0", "prompt": "?", "routes": [
+            {"id": "a1", "label": "1", "start": "i1", "end": "i1",
+             "result": "return"},
+            {"id": "a2", "label": "2", "start": "i2", "end": "i2"}],
+         "continuingRoute": "a2", "continueAt": "i5"},
+        {"id": "b", "after": "i3", "prompt": "?", "routes": [
+            {"id": "b1", "label": "1", "start": "i4", "end": "i5"},
+            {"id": "b2", "label": "2", "start": "i6", "end": "i7"}]},
+    ]}
+    lines = validate_content.reach_warnings(manifest)
+    assert [re.match(r"warning: manifest\.json: items\[(\d+)\]", line)[1]
+            for line in lines] == ["3", "4", "6", "7", "8", "9"]
+    assert lines[-1] == ("warning: manifest.json: items[9]: item 'i9' is "
+                         "never shown: no reading from the opening reaches "
+                         "it")
+
+
+def test_stdout_and_exit_unchanged_by_the_warning(branch_folder: Path
+                                                  ) -> None:
+    """With a problem present, adding a gap item changes stderr only."""
+    manifest = read_manifest(branch_folder)
+    manifest["items"][0]["file"] = "missing.jpg"
+    write_manifest(branch_folder, manifest)
+    without = run_cli(branch_folder)
+    insert_gap(branch_folder, "epilogue-011")
+    with_gap = run_cli(branch_folder)
+    assert without.returncode == with_gap.returncode == 1
+    assert with_gap.stdout == without.stdout != ""
+    assert reach_lines(without) == []
+    assert len(reach_lines(with_gap)) == 1
+
+
+@pytest.mark.parametrize("which", ["demo", "branches", "audio"])
+def test_fixtures_warn_nothing_unreachable(
+        demo: Path, audio_demo: Path, which: str) -> None:
+    path = {"demo": demo, "branches": BRANCH_EXAMPLE,
+            "audio": audio_demo}[which]
+    assert validate_content.reach_warnings(read_manifest(path)) == []
+    proc = run_cli(path)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert "never shown" not in proc.stderr
+    assert "unreachable" not in proc.stderr
+
+
+def test_reach_warnings_survive_malformed_manifests() -> None:
+    """Values the schema reports do not crash the walk, and a linear
+    manifest is all reachable."""
+    assert validate_content.reach_warnings(None) == []
+    assert validate_content.reach_warnings({"items": "x"}) == []
+    assert validate_content.reach_warnings({"items": [
+        {"id": "a"}, "not an item", {"id": 3}], "branches": [
+        "x", {"id": "d", "after": "a", "routes": "x"},
+        {"id": "e", "after": "a", "routes": [None, {"start": 1}]}]}) == []

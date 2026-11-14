@@ -19,6 +19,17 @@ reads JSON only and decodes nothing; warnings never change the exit status.
 Without `--ledger` the output is as before. See docs/extracting.md, "The
 validator's cheap check".
 
+Unreachable item warnings, `reach_warnings`, need no flag: one `warning:
+manifest.json: items[N]: item '<id>' is never shown: <why>` line on stderr
+per item that no reading from the opening shows, Play all routes included,
+then a count, printed before any audio warnings. The walk is the player's
+own forward flow (player/src/machine/machine.ts), so it catches an item
+inside a decision's region (after its `after` item, before its
+`continueAt` or, for a pure choice, up to its last route end) in none of
+its routes, a decision that never fires, and what lies past a route end
+the walk reaches with no decision open. They never change the exit
+status, and a manifest without branches prints none.
+
 Audio warnings, `audio_warnings`, need no flag: one `warning: <file>:
 <location>: <reason>` line on stderr per Ogg track file, per looping track
 in a format whose decode shifts a loop's start (MP3, Opus in WebM, Vorbis
@@ -572,6 +583,293 @@ def branches_problems(manifest: Any) -> list[str]:
                     "continueAt: without them there is no join to continue "
                     "to"))
     return problems
+
+
+# ---------------------------------------------------------------------------
+# Unreachable items (a warning, not a problem)
+# ---------------------------------------------------------------------------
+
+class _Decision:
+    """A decision resolved to item indices, as machine.ts `ResolvedDecision`."""
+
+    __slots__ = ("index", "id", "after", "routes", "continuing",
+                 "continue_at", "parent", "region_end")
+
+    def __init__(self, index: int, branch_id: Any, after: int,
+                 routes: list[tuple[int, int, str]], continuing: int,
+                 continue_at: int) -> None:
+        self.index = index
+        self.id = branch_id
+        self.after = after
+        self.routes = routes  # (start, end, result) per route
+        self.continuing = continuing
+        self.continue_at = continue_at
+        self.parent = -1
+        self.region_end = max(end for _start, end, _result in routes)
+
+
+def _resolve_decisions(items: list[Any], branches: list[Any]
+                       ) -> list[_Decision]:
+    """The decisions the player plays, as machine.ts `resolveDecisions`:
+    one with an unresolvable reference, an inverted span, fewer than two
+    routes, half a continuingRoute/continueAt pair or a `"continue"`
+    route without a join is dropped, so its items play as plain ones."""
+    by_id: dict[str, int] = {}
+    for i, item in enumerate(items):
+        if isinstance(item, dict) and isinstance(item.get("id"), str):
+            by_id.setdefault(item["id"], i)
+
+    def ref(value: Any) -> int:
+        return by_id.get(value, -1) if isinstance(value, str) else -1
+
+    resolved: list[_Decision] = []
+    for branch in branches:
+        if not isinstance(branch, dict):
+            continue
+        routes = branch.get("routes")
+        after = ref(branch.get("after"))
+        if after < 0 or not isinstance(routes, list) or len(routes) < 2 \
+                or not all(isinstance(route, dict) for route in routes):
+            continue
+        named = branch.get("continuingRoute")
+        continuing = next((ri for ri, route in enumerate(routes)
+                           if isinstance(named, str)
+                           and route.get("id") == named), -1)
+        continue_at = ref(branch.get("continueAt")) \
+            if "continueAt" in branch else -1
+        if (continuing >= 0) != (continue_at >= 0):
+            continue
+        spans: list[tuple[int, int, str]] = []
+        for route in routes:
+            start, end = ref(route.get("start")), ref(route.get("end"))
+            result = route.get("result", "ending")
+            if start < 0 or end < 0 or start > end \
+                    or (result == "continue" and continue_at < 0):
+                break
+            spans.append((start, end, result))
+        if len(spans) != len(routes):
+            continue
+        resolved.append(_Decision(len(resolved), branch.get("id"), after,
+                                  spans, continuing, continue_at))
+    # Nesting: the parent is the decision with the narrowest route span
+    # holding the child's `after` item.
+    for child in resolved:
+        tightest = None
+        for outer in resolved:
+            if outer is child:
+                continue
+            for start, end, _result in outer.routes:
+                if start <= child.after <= end \
+                        and (tightest is None or end - start < tightest):
+                    tightest = end - start
+                    child.parent = outer.index
+    return resolved
+
+
+def _shown_by_play_all(items: list[Any], decisions: list[_Decision]
+                       ) -> set[int]:
+    """The item indices a reading from the opening shows under Play all
+    routes, given the manifest's non-empty `items` and its decisions.
+
+    A port of the player's forward flow (player/src/machine/machine.ts:
+    `moveForward`, `fireDecision`, `nextAutoRoute`, `handleRouteEnd`,
+    `endJoins`, `join`, `autoResolve`, `closeIfPureAndComplete`,
+    `relevantDecision`, `atRouteEnd`, `nothingFollows`), with each choice
+    taken at once as play-all takes it: the shortest route not played
+    this pass, the continuing route last. Play-all shows every item any
+    reading by choices shows (a reader picks among the same routes and
+    joins at the same `continueAt`, and an ending route's end, where a
+    manual reading stops, re-offers the choice here), so an item it never
+    shows no reading reaches; bookmarks and `u` jump rather than read.
+    player/src/machine/reach.test.ts holds this port to the machine.
+
+    The walk ends: entering a route marks it played this pass and that
+    record only grows, so there are at most as many entries as routes,
+    and between two entries every move goes forward (a step, a join to a
+    `continueAt` past its routes, a close past a menu region).
+    """
+    count = len(items)
+    by_after: dict[int, list[_Decision]] = {}
+    for decision in decisions:
+        by_after.setdefault(decision.after, []).append(decision)
+    route_ends = {end for decision in decisions
+                  for _start, end, _result in decision.routes}
+
+    stack: list[tuple[_Decision, int]] = []  # open (decision, route) frames
+    played: dict[int, set[int]] = {}  # routes entered this pass
+    shown = {0}
+    cursor = 0
+
+    def show(index: int) -> None:
+        nonlocal cursor
+        cursor = index
+        shown.add(index)
+
+    def relevant_decision(index: int) -> _Decision | None:
+        candidates = by_after.get(index)
+        if not candidates:
+            return None
+        for decision in candidates:
+            if not stack:
+                if decision.parent < 0:
+                    return decision
+                continue
+            frame_decision, route_idx = stack[-1]
+            start, end, _result = frame_decision.routes[route_idx]
+            inside = decision.parent == frame_decision.index \
+                and start <= index <= end
+            if inside or decision is frame_decision:
+                return decision
+        return None
+
+    def next_auto_route(decision: _Decision) -> int:
+        done = played.get(decision.index, set())
+        best = -1
+        for ri, (start, end, _result) in enumerate(decision.routes):
+            if ri == decision.continuing or ri in done:
+                continue
+            if best < 0 or end - start < (decision.routes[best][1]
+                                          - decision.routes[best][0]):
+                best = ri
+        if best >= 0:
+            return best
+        if decision.continuing >= 0 and decision.continuing not in done:
+            return decision.continuing
+        return -1
+
+    def close_frames_for(decision: _Decision) -> None:
+        for depth in range(len(stack) - 1, -1, -1):
+            if stack[depth][0] is decision:
+                del stack[depth:]
+                return
+
+    def enter_route(decision: _Decision, route_idx: int) -> None:
+        close_frames_for(decision)
+        played.setdefault(decision.index, set()).add(route_idx)
+        stack.append((decision, route_idx))
+        show(decision.routes[route_idx][0])
+
+    def leaves_enclosing(decision: _Decision, target: int) -> bool:
+        if not stack:
+            return False
+        frame_decision, route_idx = stack[-1]
+        return frame_decision.index == decision.parent \
+            and target > frame_decision.routes[route_idx][1]
+
+    def close_if_pure_and_complete(decision: _Decision) -> bool:
+        if decision.continuing >= 0 or next_auto_route(decision) >= 0:
+            return False
+        close_frames_for(decision)
+        target = decision.region_end + 1
+        if leaves_enclosing(decision, target):
+            handle_route_end()
+        elif target < count:
+            show(target)
+        return True
+
+    def join(decision: _Decision) -> None:
+        if leaves_enclosing(decision, decision.continue_at):
+            handle_route_end()
+        else:
+            show(decision.continue_at)
+
+    def auto_resolve(decision: _Decision) -> None:
+        close_frames_for(decision)
+        if decision.continue_at >= 0:
+            join(decision)
+        else:
+            close_if_pure_and_complete(decision)
+
+    def offer(decision: _Decision) -> None:
+        route_idx = next_auto_route(decision)
+        if route_idx >= 0:
+            enter_route(decision, route_idx)
+        else:
+            auto_resolve(decision)
+
+    def handle_route_end() -> None:
+        decision, route_idx = stack[-1]
+        if close_if_pure_and_complete(decision):
+            return
+        stack.pop()
+        _start, _end, result = decision.routes[route_idx]
+        joins = route_idx == decision.continuing or (
+            result == "continue" and next_auto_route(decision) < 0)
+        if joins:
+            join(decision)
+        else:
+            offer(decision)
+
+    def at_route_end() -> bool:
+        return bool(stack) and cursor == stack[-1][0].routes[stack[-1][1]][1]
+
+    def move_forward() -> bool:
+        """One forward settle; False where the story ends."""
+        before = len(shown), cursor
+        decision = relevant_decision(cursor)
+        if decision is not None:
+            if not close_if_pure_and_complete(decision):
+                offer(decision)
+        elif at_route_end():
+            handle_route_end()
+        elif cursor >= count - 1 or cursor in route_ends:
+            return False  # `nothingFollows`
+        else:
+            show(cursor + 1)
+        return (len(shown), cursor) != before
+
+    while move_forward():
+        pass
+    return shown
+
+
+def reach_warnings(manifest: Any) -> list[str]:
+    """One warning line per item no reading from the opening shows
+    (`_shown_by_play_all`), in item order.
+
+    An item inside a decision's region (after its `after` item and before
+    its `continueAt`, or for a pure choice up to its last route end) that
+    lies in none of its routes says so, naming the innermost such
+    decision; any other says no reading reaches it (a decision that never
+    fires, or what lies past a route end the walk reaches with no
+    decision open, where the story ends). Warnings never change the exit
+    status.
+    """
+    items = manifest.get("items") if isinstance(manifest, dict) else None
+    branches = manifest.get("branches") if isinstance(manifest, dict) \
+        else None
+    if not isinstance(items, list) or not items \
+            or not isinstance(branches, list):
+        return []
+    decisions = _resolve_decisions(items, branches)
+    if not decisions:
+        return []  # without decisions every item shows in turn
+    shown = _shown_by_play_all(items, decisions)
+    warnings: list[str] = []
+    for i, item in enumerate(items):
+        if i in shown:
+            continue
+        item_id = item.get("id") if isinstance(item, dict) else None
+        why = "no reading from the opening reaches it"
+        width = None
+        for decision in decisions:
+            last = decision.continue_at - 1 if decision.continue_at >= 0 \
+                else decision.region_end
+            in_route = any(start <= i <= end
+                           for start, end, _result in decision.routes)
+            if decision.after < i <= last and not in_route \
+                    and (width is None or last - decision.after < width):
+                width = last - decision.after
+                bound = (f"before {items[decision.continue_at]['id']!r}"
+                         if decision.continue_at >= 0 else
+                         f"to its last route end "
+                         f"{items[decision.region_end]['id']!r}")
+                why = (f"inside decision {decision.id!r} (after "
+                       f"{items[decision.after]['id']!r}, {bound}) in none "
+                       f"of its routes")
+        warnings.append(WARNING_PREFIX + _line(
+            f"items[{i}]", f"item {item_id!r} is never shown: {why}"))
+    return warnings
 
 
 def _numeric_field(item: dict[str, Any], field: str) -> int | float | None:
@@ -1205,6 +1503,13 @@ def main(argv: list[str] | None = None) -> int:
     if problems:
         print(f"{args.content_dir}: {len(problems)} problem"
               f"{'s' if len(problems) != 1 else ''}", file=sys.stderr)
+    unreachable = reach_warnings(manifest)
+    for warning in unreachable:
+        print(warning, file=sys.stderr)
+    if unreachable:
+        print(f"{args.content_dir}: {len(unreachable)} unreachable item "
+              f"warning{'s' if len(unreachable) != 1 else ''}",
+              file=sys.stderr)
     sound = audio_warnings(manifest, args.content_dir)
     for warning in sound:
         print(warning, file=sys.stderr)

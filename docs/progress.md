@@ -3789,10 +3789,29 @@ truthful: an unchecked box means nothing was accepted.
       explicit `--steps` still limiting it.
 - [ ] Symlinks out of the folder fail (item 5). Tests: both engines, a link
       out of the folder (exit 1, named) and one inside it (passes).
-- [ ] Validator reachability warning (item 6). Tests: each gap case warns;
+- [x] Validator reachability warning (item 6). Tests: each gap case warns;
       the demo, the branches example and the audio demo warn nothing; on
       generated manifests the warned items equal the items the machine's
       play-all walk never shows.
+      (2026-11-14: validate_content.py `reach_warnings` ports the
+      machine's forward flow under play-all (resolveDecisions, moveForward,
+      fireDecision, nextAutoRoute, handleRouteEnd, endJoins, join,
+      closeIfPureAndComplete, relevantDecision, nothingFollows) and warns,
+      on stderr with stdout and the exit code unchanged, on every item that
+      walk never shows: "inside decision D (after A, before C) in none of
+      its routes", or "no reading from the opening reaches it". 11 Python
+      tests ran red first (four gap places, a pure choice's gap, a join
+      landing inside another decision's route, unchanged stdout and exit,
+      malformed input, and silence on fixtures/demo, the branches example
+      and fixtures/audio-demo). player/src/machine/reach.test.ts runs 400
+      seeded manifests (14,996 items, 1,883 decisions, every route
+      result) through createMachine's play-all walk and the validator:
+      the never-shown sets are equal; six injected faults in the port
+      each failed it. docs/content-format.md describes the warning.
+      Orchestrator: pytest tools/test_validate_content.py 218 passed,
+      reach.test.ts passes, tsc clean; on a copy of a converted corpus
+      game's 186,268-item manifest (which a full walk showed whole) 0
+      warnings in 0.09 s.)
 - [ ] Docs (item 7).
 - [ ] Phase-closer (Phase 48): full pytest, the full `npm run verify` and
       `npm run verify -- --webkit`, package-proof; a timed `--steps all`
