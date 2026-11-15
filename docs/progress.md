@@ -4223,3 +4223,26 @@ truthful: an unchecked box means nothing was accepted.
       reached 20; bookmarkmap alone on WebKit 29/29 in 2 runs, and Phase
       50 touches no map code; package-proof 18/18 with .tmp/extract-demo
       regenerated.)
+
+## Phase 51: Release basics (2026-11-15, user)
+
+- [ ] License (docs/plan.md Phase 51, item 1). Tests: the built bundle
+      carries the notice; build_apps tests read the plist key, the
+      bundle's license file and the exe's resources.
+- [ ] Kinetic's version stamped (item 2). Tests: the agreement test, the
+      stamp, each `--version`, check-game naming the folder's player
+      version and `unknown` for an unstamped `app.js`.
+- [ ] The game's version in the format (item 3). Tests: validator and
+      extractor cases; the demo still validates.
+- [ ] The versions on the Esc screen (item 4). Tests: help.test.ts; a
+      scenario part on Chrome and WebKit.
+- [ ] `$schema` and the schema policy (item 5). Tests: validator cases;
+      the extractor's copy and key; the assembler leaves the copy out.
+- [ ] The upgrade command (item 6). Tests: an old folder upgraded, the
+      refusals, `manifest.js` untouched, the schema copy, exit codes.
+- [ ] CHANGELOG (item 7).
+- [ ] Docs (item 8): CREATE.md, README.md, AGENTS.md, packaging.md,
+      verify-player.md; every example run.
+- [ ] Phase-closer (Phase 51): full pytest, the full `npm run verify` and
+      `npm run verify -- --webkit`, package-proof; VERSION 1.8.0, the
+      CHANGELOG dated, tag v1.8.0, `main` fast-forwarded.

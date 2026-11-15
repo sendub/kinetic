@@ -33,47 +33,6 @@ To settle when it is planned:
   tests can only check what the player asked the engine to speak and
   when. The user checks it by ear.
 
-## Release basics (maybe, 2026-11-14)
-
-What a public release needs before anyone else builds games with Kinetic.
-Each candidate is small.
-
-- **License.** The repo root, `player/` and `converter/` have no license
-  file; only `converter/vendor/unrpyc/LICENSE` exists. Every game folder
-  ships `index.html` and `app.js`, and may ship the Mac app and the
-  Windows program, so authors need terms that let them redistribute
-  those.
-- **Kinetic's version.** Tags v1.0.0 to v1.6.0 exist, but
-  `player/package.json` says 0.0.0, `converter/pyproject.toml` says
-  0.1.0, and nothing an author or reader sees names the Kinetic release.
-  Stamp the release into `app.js` and the converter, show it on the Esc
-  screen, and keep a CHANGELOG that lists what each release changed.
-- **The game's version.** An optional manifest `version` (the game's own
-  release, such as `1.2`) shown on the Esc screen beside the `title`, so
-  a reader's bug report names it.
-- **`$schema` in the manifest.** The manifest's top level accepts no
-  other key (`additionalProperties: false` in docs/content-schema.json),
-  so `"$schema"` fails validation. Accepting it lets VS Code and
-  JetBrains editors check and complete a hand-written `manifest.json`
-  against the schema.
-- **A `schemaVersion` policy.** Write down which format changes bump it.
-  New optional fields so far have left it at 1.
-- **An upgrade command.** `kinetic upgrade <folder>` copies only
-  `index.html` and `app.js` from the current build, then validates. It
-  replaces the manual `cp` in CREATE.md, "Upgrading to a newer Kinetic",
-  which has to warn that copying `player/dist/manifest.js` overwrites the
-  game's own.
-
-To settle:
-
-- Which license, for the player shipped inside games, the apps and the
-  converter.
-- The version scheme: keep the v1.x tags and bump on each closed phase,
-  or on chosen releases only.
-- Where the two versions show, and the manifest field's name.
-- The `$schema` value: a URL needs a published copy of the schema, and a
-  relative path works only for folders inside the repo.
-
 ## Installable toolchain and Windows authoring (maybe, 2026-11-14)
 
 Today an author clones the repo, makes the venv, installs the converter,

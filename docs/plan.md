@@ -3136,6 +3136,146 @@ the scenario's own temporary root, as videofit.scenario.mjs does;
 fixtures and other scenarios' counts do not move. Nothing from any real
 game is used.
 
+## Phase 51: Release basics (2026-11-15, user)
+
+What a public release needs before anyone else builds games with Kinetic
+(docs/future.md's "Release basics" entry, now removed from there). Today
+the repo has no license file (only `converter/vendor/unrpyc/LICENSE`,
+MIT); tags v1.0.0 to v1.7.0 sit on `main` at phase-closing commits while
+`player/package.json` says 0.0.0 and `converter/pyproject.toml` 0.1.0,
+and nothing an author or reader sees names the Kinetic release; the
+manifest has no field for the game's own version; its top level rejects
+`"$schema"` (`additionalProperties: false`), so editors cannot check a
+hand-written `manifest.json`; and CREATE.md, "Upgrading to a newer
+Kinetic", upgrades a folder with a manual `cp` that must warn against
+copying `player/dist/manifest.js`.
+
+The user's decisions (2026-11-14 and 2026-11-15):
+
+- License: MIT for everything (player, apps, converter, tools),
+  `Copyright (c) 2026 Sendu Bala`. The notice travels inside what an
+  author ships, so authors do nothing. The Windows program also carries
+  Go's BSD-3-Clause notice, for the Go runtime linked into it.
+- Kinetic's version: every closed phase is a release. Patch for fixes
+  only, minor for a feature or a new optional manifest field, major for a
+  change that stops existing game folders or saves working, which is
+  also the only time `schemaVersion` moves. Between releases the version
+  reads as the next one with `-dev` (such as `1.9.0-dev`). This phase
+  closes as v1.8.0. A CHANGELOG lists what each release changed,
+  including short entries for v1.0.0 to v1.7.0.
+- Where the versions show: the game's version after the `title` heading
+  on the Esc screen, smaller and dimmer (with no title, the version
+  alone where the heading would be); `Kinetic x.y.z` small and dim in a
+  corner of the Esc screen, outside the key grid. Also `--version` on
+  the tools and the folder's player version in check-game's output.
+- The game's version is the optional manifest field `version`, plain
+  text, 1 to 40 characters with a non-space character, set as text;
+  kinetic-extract fills it from the Ren'Py `config.version` string
+  literal, as it fills `title` from `config.name`.
+- `$schema`: each content folder kinetic-extract writes gets a copy of
+  the schema, `manifest.schema.json`, and its manifest says
+  `"$schema": "./manifest.schema.json"`. The upgrade command refreshes
+  the copy and the assembler leaves it out of the folder readers get.
+
+The orchestrator's choices, within those decisions:
+
+- One source of truth for Kinetic's version: a `VERSION` file at the
+  repo root (`1.8.0-dev` during this phase). `player/package.json` and
+  `converter/pyproject.toml` agree with it (pyproject in its PEP 440
+  spelling, `1.8.0.dev0`), checked by a test. Each phase's planning
+  commit sets the next `-dev`; its closing commit sets the release
+  number, dates the CHANGELOG entry, tags it and fast-forwards `main`.
+- The upgrade command is `tools/upgrade_folder.py <folder>`, beside
+  `tools/assemble_folder.py`; one `kinetic` command is a separate
+  future.md entry. kinetic-extract's override for the game's version is
+  `--game-version` (`--version` prints the tool's own).
+- The Mac app's `CFBundleShortVersionString` and the exe's numeric
+  version stay as they are (both must be numeric; a game's version is
+  free text).
+
+1. License. `LICENSE` at the repo root (MIT, the notice above);
+   `"license": "MIT"` in `player/package.json` and the pyproject's
+   license field. The build puts the full MIT notice in a comment at the
+   top of `dist/app.js` and `dist/index.html`, so every folder carries
+   it. The Mac app's Info.plist gets `NSHumanReadableCopyright` and the
+   bundle carries the license text in `Contents/Resources`; the exe's
+   version resource gets `LegalCopyright` and the exe carries Kinetic's
+   MIT text and Go's BSD-3-Clause text in its resources. README.md says
+   the license and that an author owes nothing beyond leaving the files
+   as built. Tests: the built bundle carries the notice; build_apps
+   tests read the plist key, the bundle's file and the exe's resources.
+2. Kinetic's version stamped. `VERSION` as above and the agreement test.
+   The build stamps the version into `app.js` (a header line naming it,
+   and a value the player reads) and `index.html`'s comment. `--version`
+   on `kinetic-extract`, `kinetic-media`, `tools/validate_content.py`,
+   `tools/assemble_folder.py`, `tools/build_apps.py`,
+   `tools/setup_media_tools.py` and `check-game.mjs` prints `Kinetic
+   x.y.z`. check-game's first line names the folder's player version
+   (`webkit: <folder> (Kinetic 1.8.0)`), `unknown` for an older player,
+   and `openGame`'s handle exposes it. The Mac app's Info.plist and the
+   exe's version resource record the Kinetic version that built them.
+   AGENTS.md's workflow gains the version rules above. Tests: the
+   stamp, each `--version`, check-game on a folder with this player and
+   on one whose `app.js` has no stamp.
+3. The game's version in the format. Schema, docs/content-format.md
+   ("Manifest", with `title`), validator, `types.ts`; kinetic-extract
+   reads `config.version` (a string literal, `_()` unwrapped, as for
+   `config.name`; anything else gives no field) and takes
+   `--game-version TEXT`. Tests: validator cases (absent, valid, empty,
+   blank, 41 characters, not a string), extractor cases (literal,
+   `_()`, a non-literal, absent, the flag), the demo still validates.
+4. The versions on the Esc screen. The game's version after the title
+   heading, smaller and dimmer, set as text, never cut off by a long
+   title; with no title the version alone; with neither, no heading. A
+   small dim `Kinetic x.y.z` in a corner of the Esc screen outside the
+   key grid, clear of the Volumes pop-out, the window controls and the
+   pill at every supported size. The page title stays the game's name.
+   Tests: help.test.ts; a scenario part on Chrome and WebKit (both texts,
+   no overlap with the grid or other controls, a long title).
+5. `$schema` and the schema policy. The schema accepts a top-level
+   `$schema` string, which the validator and player ignore.
+   kinetic-extract writes `manifest.schema.json` (a byte copy of
+   docs/content-schema.json) beside `manifest.json` and sets
+   `"$schema": "./manifest.schema.json"`; `tools/assemble_folder.py`
+   leaves the copy out of the folder it assembles. docs/content-format.md
+   gains `$schema` under "Manifest" and a "Schema version" policy: new
+   optional fields never change `schemaVersion`; it changes only when a
+   folder valid before stops being valid or plays differently, with a
+   major Kinetic release, and an older player ignores fields it does not
+   know. Tests: validator cases; the extractor writes the copy and the
+   key; the assembler leaves the copy out; the copy validates as JSON
+   Schema and matches docs/content-schema.json byte for byte.
+6. The upgrade command. `tools/upgrade_folder.py <folder>` refuses a
+   folder with no `manifest.json`, and a `player/dist/` that is missing
+   or whose stamped version is not `VERSION` (it says to run `npm run
+   build`). It copies `index.html` and `app.js` from `player/dist/`
+   (never `manifest.js` or `app.js.map`), replaces `manifest.schema.json`
+   with the current schema when the folder has one, runs the validator,
+   and prints `Kinetic <old> -> <new>` (`unknown` for an older
+   `app.js`). An app in the folder keeps working. Exit 0 when the
+   validator passes, 1 on its problems or a refusal, 2 on bad arguments,
+   as `assemble_folder.py` does. Tests: an old folder upgraded, the
+   refusals, `manifest.js` untouched, the schema copy refreshed or left
+   absent, the exit codes.
+7. CHANGELOG. `CHANGELOG.md` at the repo root, newest first: a
+   `1.8.0-dev` section listing this phase as items land, and one short
+   entry per tag from v1.7.0 back to v1.0.0 with its date, written from
+   the tags' commits and the phase sections here, in terms an author or
+   reader cares about (no internal item numbers, no game named).
+8. Docs. CREATE.md: upgrading with the command (replacing the manual
+   `cp`), the game's `version`, `$schema` and the schema copy (with
+   hand-authors told to copy docs/content-schema.json), what the license
+   asks of an author (nothing beyond shipping the files as built);
+   README.md: license and versions; AGENTS.md: the new command and
+   `--version`; docs/packaging.md if what a folder holds changes;
+   docs/verify-player.md: new scenario rows. Every example run.
+9. Phase-closer: full suites; then `VERSION` 1.8.0, the CHANGELOG entry
+   dated, the tag v1.8.0 and `main` fast-forwarded.
+
+Tests and fixtures: synthetic cases only; nothing from any real game is
+used. The demo and audio demo builders gain no `version` unless a
+scenario needs one on a copy.
+
 ## Sequencing
 
 1 -> 2 -> 2b -> 3 -> 4 -> 5 -> 6 -> 7 -> 7b -> 8 -> 9 -> 9b -> 9c -> 9d ->
