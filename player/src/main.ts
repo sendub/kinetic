@@ -380,10 +380,12 @@ function start(): void {
       }, 1000);
       // The key help screen (docs/plan.md Phase 13b), mounted first: the
       // settings section below lives inside it (Phase 26).
-      // The game's name heads it (docs/plan.md Phase 21).
+      // The game's name heads it (docs/plan.md Phase 21), its release
+      // after (Phase 51).
       const help = mountHelpOverlay({
         root,
         gameTitle: manifest.title,
+        gameVersion: manifest.version,
         // The `m` row is clickable: it does what `m` does over the screen.
         onEntry: (command) => {
           if (command === "toggleMap") runMapKey();

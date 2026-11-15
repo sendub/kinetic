@@ -1,5 +1,6 @@
 // The `#help` Esc screen (docs/plan.md Phase 13b; Phase 26 "Settings live
-// on the Esc screen"): a black screen headed by the game's name, listing
+// on the Esc screen"): a black screen headed by the game's name (and its
+// release, Phase 51; Kinetic's own release in a corner), listing
 // the main interaction keys, each its key caps over a short description,
 // in a grid that fills across before going down (Phase 18, "Key help simplified" — the reset
 // box's own keys are not listed), and below them every setting: main.ts
@@ -28,6 +29,7 @@
 // half only applies them; the rows themselves live with the keymap
 // (single source), not here.
 
+import { KINETIC_VERSION } from "../version";
 import {
   CLICKABLE_HELP_COMMANDS,
   type KeyCommand,
@@ -75,6 +77,11 @@ export function pageTitleFor(title: unknown): string {
   return gameTitleOf(title) ?? PAGE_TITLE_DEFAULT;
 }
 
+/** The Esc screen's corner line naming this player's Kinetic release. */
+export function kineticLine(): string {
+  return `Kinetic ${KINETIC_VERSION}`;
+}
+
 export interface HelpOverlay {
   /** The screen's element: the settings section mounts into it (Phase 26). */
   readonly panel: HTMLElement;
@@ -92,6 +99,12 @@ export interface HelpOverlayOptions {
    * it is non-blank text (gameTitleOf), else no heading at all.
    */
   gameTitle?: unknown;
+  /**
+   * The manifest `version` (docs/plan.md Phase 51): drawn after the name,
+   * smaller and dimmer, or alone in the heading's place when there is no
+   * name, when it is non-blank text (gameVersionOf); else nothing.
+   */
+  gameVersion?: unknown;
   /**
    * A click (or Enter) on a row whose command is in
    * `CLICKABLE_HELP_COMMANDS` — the `m` row — runs that command as its key
@@ -146,6 +159,7 @@ export function helpRows(options: { sound?: boolean } = {}): {
 export function mountHelpOverlay({
   root,
   gameTitle,
+  gameVersion,
   onEntry,
   sound = false,
 }: HelpOverlayOptions): HelpOverlay {
@@ -207,16 +221,42 @@ export function mountHelpOverlay({
     list.appendChild(line);
   }
 
-  // The game's name heads the screen (Phase 21), set as text so a title
-  // carrying markup shows literally; no name, no heading.
+  // The game's name heads the screen (Phase 21), its release after it,
+  // smaller and dimmer (Phase 51), both set as text so markup shows
+  // literally. The name and the version are one run of text inside the
+  // heading (index.html's `.help-game-text`), so a long name wraps and the
+  // version follows its last line, or the next, never cut off. With no
+  // name the version stands alone where the heading would be; with
+  // neither, no heading.
   const name = gameTitleOf(gameTitle);
+  const release = gameVersionOf(gameVersion);
+  const versionLine = (tag: "span" | "p"): HTMLElement => {
+    const line = doc.createElement(tag);
+    line.className = "help-version";
+    line.textContent = release ?? "";
+    return line;
+  };
   if (name !== null) {
     const heading = doc.createElement("h1");
     heading.className = "help-game";
-    heading.textContent = name;
+    const text = doc.createElement("span");
+    text.className = "help-game-text";
+    const nameText = doc.createElement("span");
+    nameText.className = "help-game-name";
+    nameText.textContent = name;
+    text.append(nameText);
+    if (release !== null) text.append(" ", versionLine("span"));
+    heading.append(text);
     panel.append(heading);
+  } else if (release !== null) {
+    panel.append(versionLine("p"));
   }
-  panel.append(hint, title, list);
+  // Kinetic's own version, small and dim in the screen's bottom-right
+  // corner, outside the sheet (index.html's `.help-kinetic`).
+  const kinetic = doc.createElement("p");
+  kinetic.className = "help-kinetic";
+  kinetic.textContent = kineticLine();
+  panel.append(hint, title, list, kinetic);
   root.appendChild(panel);
 
   // No click handler on the panel: only its keys close it (Esc or Space,

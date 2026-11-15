@@ -4292,8 +4292,28 @@ truthful: an unchecked box means nothing was accepted.
       help.test.ts, manifest.test.ts. Orchestrator: npm test 1366, check
       clean, pytest converter/ and test_validate_content 887 passed,
       fixtures/demo validates with no `version`.)
-- [ ] The versions on the Esc screen (item 4). Tests: help.test.ts; a
+- [x] The versions on the Esc screen (item 4). Tests: help.test.ts; a
       scenario part on Chrome and WebKit.
+      (2026-11-15: help.ts `gameVersion` option: with a title the heading
+      is name, space, `span.help-version` (body size, `--k-t2`), which
+      stays whole on the name's last line or moves to the next as a
+      unit; with no title a `p.help-version` stands in the heading's
+      place; neither, no heading; all set as text. `p.help-kinetic`
+      ("Kinetic <version>", micro size, `--k-t3`) sits bottom right on
+      the grey ground below the sheet in the ground's last grid row
+      (`--g-stamp-row`), so it overlaps nothing in the sheet and the key
+      grid is untouched; the top was left to the pill. main.ts passes
+      `manifest.version`; the page title stays the name. New
+      versions.scenario.mjs (4 parts, 11 checks at 1920x1080 down to
+      480x270: the texts, smaller and dimmer, whole after the name, the
+      corner line clear of every text and control, a 200-character title
+      with a 40-character version, the version alone, the Sound off pill
+      and the Volumes sheet on an audio-demo copy); verify-player.md row.
+      help.test.ts ran red first (6 of 26). Subagent: Chrome versions,
+      screens, menus 129/129; WebKit 127 and the 2 known fullscreen
+      partials. Orchestrator: npm test 1376, check clean, smoke 6/6,
+      Chrome versions and screens 118/118, WebKit versions 11/11 (load
+      average 74-86); the screenshot at 1280x720 read.)
 - [x] `$schema` and the schema policy (item 5). Tests: validator cases;
       the extractor's copy and key; the assembler leaves the copy out.
       (2026-11-15: the schema takes an optional top-level `$schema`

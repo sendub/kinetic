@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { KINETIC_VERSION } from "../version";
 import {
   gameTitleOf,
   gameVersionOf,
@@ -117,23 +118,37 @@ describe("the game's version (docs/plan.md Phase 51 item 3)", () => {
 });
 
 // A minimal DOM for the mount: node has none, and these tests only need
-// the panel's element tree and its text.
+// the panel's element tree and its text. As in a browser, an element's
+// textContent is its own text plus its children's (text nodes are plain
+// strings here), and setting it replaces the children.
 class FakeElement {
   children: FakeElement[] = [];
+  nodes: (FakeElement | string)[] = [];
   className = "";
   id = "";
   hidden = false;
-  textContent = "";
   innerHTML = "";
   constructor(
     readonly tagName: string,
     readonly ownerDocument: FakeDocument,
   ) {}
-  append(...nodes: FakeElement[]): void {
-    this.children.push(...nodes);
+  get textContent(): string {
+    return this.nodes
+      .map((node) => (typeof node === "string" ? node : node.textContent))
+      .join("");
+  }
+  set textContent(text: string) {
+    this.children = [];
+    this.nodes = [text];
+  }
+  append(...nodes: (FakeElement | string)[]): void {
+    for (const node of nodes) {
+      this.nodes.push(node);
+      if (typeof node !== "string") this.children.push(node);
+    }
   }
   appendChild(node: FakeElement): FakeElement {
-    this.children.push(node);
+    this.append(node);
     return node;
   }
   listeners = new Map<string, (() => void)[]>();
@@ -151,11 +166,12 @@ class FakeDocument {
   }
 }
 
-function mountWith(gameTitle?: unknown): FakeElement {
+function mountWith(gameTitle?: unknown, gameVersion?: unknown): FakeElement {
   const root = new FakeDocument().createElement("div");
   mountHelpOverlay({
     root: root as unknown as HTMLElement,
     gameTitle,
+    gameVersion,
   });
   const [panel] = root.children;
   if (panel === undefined) throw new Error("no #help panel");
@@ -189,7 +205,99 @@ describe("mountHelpOverlay heading (Phase 21)", () => {
         "help-hint",
         "help-title",
         "help-list",
+        "help-kinetic",
       ]);
+    }
+  });
+});
+
+/** Every element under `el`, depth first. */
+function descendants(el: FakeElement): FakeElement[] {
+  return el.children.flatMap((child) => [child, ...descendants(child)]);
+}
+
+describe("the versions on the Esc screen (docs/plan.md Phase 51 item 4)", () => {
+  it("title and version: the version follows the name inside the heading, in its own element", () => {
+    const panel = mountWith("Kinetic demo", " 1.2 beta ");
+    const [heading, hint] = panel.children;
+    expect(heading?.tagName).toBe("H1");
+    expect(heading?.className).toBe("help-game");
+    expect(heading?.textContent).toBe("Kinetic demo 1.2 beta");
+    const inside = descendants(heading as FakeElement);
+    const name = inside.find((el) => el.className === "help-game-name");
+    const version = inside.find((el) => el.className === "help-version");
+    expect(name?.textContent).toBe("Kinetic demo");
+    expect(version?.textContent).toBe("1.2 beta");
+    // The name's text comes first, the version's last.
+    expect(heading?.textContent.endsWith("1.2 beta")).toBe(true);
+    expect(hint?.className).toBe("help-hint");
+  });
+
+  it("a title alone: the heading is the name, with no version element", () => {
+    for (const absent of [undefined, "", "  ", 3]) {
+      const panel = mountWith("Kinetic demo", absent);
+      const [heading] = panel.children;
+      expect(heading?.textContent).toBe("Kinetic demo");
+      expect(
+        descendants(panel).some((el) => el.className === "help-version"),
+      ).toBe(false);
+    }
+  });
+
+  it("a version and no title: the version alone where the heading would be, no heading", () => {
+    for (const absent of [undefined, "", "   "]) {
+      const panel = mountWith(absent, "0.9");
+      const [first, hint] = panel.children;
+      expect(first?.tagName).toBe("P");
+      expect(first?.className).toBe("help-version");
+      expect(first?.textContent).toBe("0.9");
+      expect(hint?.className).toBe("help-hint");
+      expect(descendants(panel).some((el) => el.tagName === "H1")).toBe(false);
+    }
+  });
+
+  it("neither: no heading and no version element", () => {
+    const panel = mountWith(undefined, undefined);
+    expect(panel.children.map((el) => el.className)).toEqual([
+      "help-hint",
+      "help-title",
+      "help-list",
+      "help-kinetic",
+    ]);
+  });
+
+  it("sets the version as text, never as markup, with a title and without", () => {
+    const markup = "<img src=x onerror=alert(1)>";
+    for (const panel of [
+      mountWith("<b>Name</b>", markup),
+      mountWith("", markup),
+    ]) {
+      const version = descendants(panel).find(
+        (el) => el.className === "help-version",
+      );
+      expect(version?.textContent).toBe(markup);
+      expect(descendants(panel).every((el) => el.innerHTML === "")).toBe(true);
+    }
+    const [heading] = mountWith("<b>Name</b>", markup).children;
+    expect(heading?.textContent).toBe(`<b>Name</b> ${markup}`);
+  });
+
+  it("names the Kinetic version in its own line on the panel, outside the key grid", () => {
+    for (const panel of [
+      mountWith("Kinetic demo", "1.2"),
+      mountWith(undefined, undefined),
+    ]) {
+      const lines = descendants(panel).filter(
+        (el) => el.className === "help-kinetic",
+      );
+      expect(lines).toHaveLength(1);
+      const [line] = lines;
+      expect(panel.children).toContain(line);
+      expect(line?.tagName).toBe("P");
+      expect(line?.textContent).toBe(`Kinetic ${KINETIC_VERSION}`);
+      expect(KINETIC_VERSION).toMatch(/^\d+\.\d+\.\d+/);
+      const list = panel.children.find((el) => el.className === "help-list");
+      expect(descendants(list as FakeElement)).not.toContain(line);
     }
   });
 });
