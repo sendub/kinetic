@@ -137,4 +137,7 @@ def create_engine(name: str, root: Path, lock: dict,
     if name == "chatterbox-mlx":
         from .engine_mlx import ChatterboxMLX
         return ChatterboxMLX(root, lock)
+    if name == "chatterbox-torch":
+        from .engine_torch import ChatterboxTorch
+        return ChatterboxTorch(root, lock)
     raise ValueError(f"unknown engine {name!r}")

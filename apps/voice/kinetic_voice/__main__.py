@@ -35,6 +35,9 @@ def private_environment(root: Path) -> None:
         "HF_HUB_DISABLE_PROGRESS_BARS": "1",
         "TOKENIZERS_PARALLELISM": "false",
         "XDG_CACHE_HOME": str(root / "cache" / "xdg"),
+        "TORCH_HOME": str(root / "cache" / "torch"),
+        "NUMBA_CACHE_DIR": str(root / "cache" / "numba"),
+        "MPLCONFIGDIR": str(root / "cache" / "mpl"),
         "PYTHONNOUSERSITE": "1",
     })
 
@@ -66,6 +69,10 @@ def main() -> None:
     root.mkdir(parents=True, exist_ok=True)
     private_environment(root)
     out = protocol_stream()
+    trace = os.environ.get("KINETIC_VOICE_TRACE")  # a debugging aid
+    if trace:
+        import faulthandler
+        faulthandler.dump_traceback_later(float(trace), repeat=True)
     lock = Lock.read(args.lock or default_lock_path())
     engine = create_engine(args.engine or lock.engine["id"], root, lock.data,
                            args.fake_delay)

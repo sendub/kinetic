@@ -4617,8 +4617,25 @@ truthful: an unchecked box means nothing was accepted.
       documents. Orchestrator: the diff read, ASCII and wrap checked, no
       real game named; plan.md's download figures corrected to the lock's
       3.3 GB.)
-- [ ] The helper, Windows backend (item 8). Tests: install and a timed
+- [x] The helper, Windows backend (item 8). Tests: install and a timed
       line over SSH, CUDA and CPU.
+      (2026-11-15: engine_torch.py builds chatterbox-tts 0.1.7's own T3,
+      S3Gen, voice encoder and tokenizer on the v3 multilingual weights
+      (ResembleAI/chatterbox at a pinned revision, 3.21 GB), skipping the
+      package's `__init__`, so no watermark and no per-line voice
+      recompute; the Mac engine's settings, 5 flow steps, a 6 s prompt and
+      the same streaming joins. lock-windows-x64.json: python-build-
+      standalone 3.12.16, 59 wheels per variant pruned from 83 by tracing
+      imports, a CUDA 12.8 and a CPU variant chosen by `nvidia-smi` and a
+      minimum driver; downloads 6.83 GB (CUDA) or 3.98 GB (CPU).
+      `stdin=DEVNULL` for pip and a stdin reader that polls with
+      PeekNamedPipe fix two Windows hangs. On the user's PC (RTX 5090):
+      lines 0.32-0.34x real time on CUDA, first streamed chunk 0.94-0.97 s,
+      Whisper read all six lines, the pause before "You" 0.54-0.56 s; the
+      CPU about 1.6x real time (too slow for live lines; int8 garbled a
+      line). The PC's test folders (28 GB) deleted. Tests 108 pass (red
+      first: 38 of 41 new; the stdin test hung 15 s before the fix).
+      Orchestrator: pytest apps/voice 108 passed, the lock read.)
 - [ ] The Windows host (item 9). Tests: go test, vet, the cross-build; a
       headless download and helper run over SSH.
 - [ ] Phase-closer (Phase 52): full suites; VERSION 1.9.0, the CHANGELOG

@@ -21,6 +21,7 @@ from typing import BinaryIO
 
 from .cache import FORMATS, LineCache, VoiceStore, line_key
 from .engine import Engine, pcm_to_wav
+from .pipe import input_lines
 from .install import Installer, InstallError
 from .jobs import JobQueue
 
@@ -71,7 +72,7 @@ class Server:
 
     def serve(self, stdin: BinaryIO) -> None:
         """Answer requests until ``quit`` or the end of input."""
-        for raw in stdin:
+        for raw in input_lines(stdin):
             if not raw.strip():
                 continue
             try:

@@ -20,11 +20,15 @@ standard library only, so it runs before anything is installed.
 - `kinetic_voice/cache.py`: the cache of generated lines and the stored
   reference clips.
 - `kinetic_voice/engine.py`: the engine interface, the fake engine and the
-  WAV writer. `engine_mlx.py` is Chatterbox multilingual v3 on MLX; the
-  Windows backend will add `engine_torch.py` beside it.
+  WAV writer. `engine_mlx.py` is Chatterbox multilingual v3 on MLX;
+  `engine_torch.py` is the same model on PyTorch for Windows (CUDA, else
+  CPU).
+- `kinetic_voice/pipe.py`: reads requests from stdin without leaving a
+  read pending on Windows (see "Windows" below).
 - `kinetic_voice/streaming.py`: when a streamed line is cut into chunks
   and how the chunks join (engine-side; it uses numpy).
-- `lock-macos-arm64.json`: everything the Mac install fetches, pinned.
+- `lock-macos-arm64.json`, `lock-windows-x64.json`: everything each
+  install fetches, pinned.
 - `tests/`: `.venv/bin/pytest apps/voice/tests -q`.
 
 ## Running it
@@ -43,7 +47,7 @@ they sit here, and starts:
 | --- | --- |
 | `--root DIR` | The voice folder (required). |
 | `--lock FILE` | The lock file. Default: `lock-<platform>.json` beside the package, so `helper/lock-macos-arm64.json`. |
-| `--engine NAME` | `chatterbox-mlx` (the Mac lock's default) or `fake`. |
+| `--engine NAME` | `chatterbox-mlx` (the Mac lock's default), `chatterbox-torch` (the Windows lock's) or `fake`. |
 | `--fake-delay S` | Seconds the fake engine spends on each line. |
 
 The fake engine needs no install: a voice is a tone whose pitch comes from
@@ -81,7 +85,8 @@ cache, no index and its temporary files in `downloads/tmp/`.
 {
   "id": "macos-arm64-1",
   "python": {"version", "release", "url", "sha256", "size"},
-  "wheels": [{"name", "url", "sha256", "size", "minMacos"?}],
+  "wheels": [{"name", "url", "sha256", "size", "minMacos"?, "variant"?}],
+  "cudaMinDriver"?: "570.65",
   "modelBaseUrl": "https://huggingface.co",
   "model": [{"repo", "revision", "path", "sha256", "size"}],
   "engine": {"id": "chatterbox-mlx", "repo", "quantizeBits",
@@ -99,6 +104,15 @@ cache, no index and its temporary files in `downloads/tmp/`.
   with its `minMacos`; the install takes the newest one the system meets.
   On macOS older than 14 `status` and `install` fail with
   `unsupported-system`.
+- A package with a build per hardware variant (`torch`, `torchaudio` on
+  Windows) lists each with `variant`, `"cuda"` or `"cpu"`; the install
+  takes the CUDA builds only when `nvidia-smi` (on the PATH, or
+  `C:\Windows\System32\nvidia-smi.exe`) runs, exits 0 and reports a driver
+  at least `cudaMinDriver`, else the CPU builds. `KINETIC_VOICE_VARIANT`
+  (`cuda` or `cpu`) forces one, for tests. `status` reports the choice as
+  `variant` (`null` for a lock with none) and sizes `downloadBytes` for it;
+  a machine that gains a GPU after a CPU install reports `installed:
+  false` until `install` has fetched the CUDA builds.
 - The wheel's file name is the last part of its URL.
 - Model files download from `<modelBaseUrl>/<repo>/resolve/<revision>/<path>`.
 - A new `id` means a new install: `status` reports `installed: false`
@@ -136,6 +150,107 @@ The Mac lock fetches 3.29 GB on macOS 14 and 15 and 3.32 GB on macOS 26
 or later: the model 2.71 GB, its speech tokenizer 0.49 GB, the wheels
 80 to 113 MB. The Python build adds 25 MB, fetched by the app.
 
+## The Windows engine
+
+`lock-windows-x64.json` runs `chatterbox-torch`: Resemble AI's own
+`chatterbox-tts` 0.1.7 (MIT) models on PyTorch 2.8.0, on CUDA when
+`torch.cuda.is_available()`, else on the CPU (`KINETIC_VOICE_DEVICE=cpu`
+or `cuda` overrides it, for tests; it is part of the line cache's key).
+The package's `ChatterboxMultilingualTTS` is not used: it loads the v2
+weights, recomputes the voice on every line, runs T3 with attention
+outputs and an alignment analyser, and applies Resemble's Perth
+watermark. The engine builds the package's `T3`, `S3Gen`, `VoiceEncoder`
+and `MTLTokenizer` itself (importing `chatterbox.models` through a stub
+parent, so the package's `__init__` and with it Perth never load), loads
+the v3 weights from the `ResembleAI/chatterbox` snapshot in `models/`
+(`t3_mtl23ls_v3.safetensors`, `s3gen_v3.safetensors`, `ve.safetensors`,
+the tokenizer's vocabulary and `Cangjie5_TC.json`; revision pinned, 3.21
+GB) and runs the Mac engine's pipeline with the same `engine` settings
+(cfg 0.5, exaggeration 0.5, the same sampling constants, 5 flow steps, a
+6 s decoder prompt, the same streaming chunks and joins): voices prepared
+once, a KV-cache T3 loop with the repetition penalty, min-p and
+temperature of the Mac loop and a generator seeded from the line's text,
+and a copy of the package's flow decoder step with its pad mask taken
+after the lookahead cut (the package's own fails on an unfinished
+chunk). T3 is not quantized on either device: PyTorch's dynamic int8
+quantization halved T3's time per token on the CPU (23 ms against 47 for
+float32, and 36 for bfloat16) but broke lines (below).
+
+What differs from the Mac engine: no Perth watermark (the Mac engine has
+none either); T3 has no alignment analyser (nor has mlx-audio's); the
+optional per-language text helpers (`pykakasi`, `spacy-pkuseg`,
+`dicta-onnx`, `russian-text-stresser`) are not in the lock, so Japanese,
+Chinese segmentation, Hebrew diacritics and Russian stress marks are
+skipped (the package skips them itself when they are missing); CUDA runs
+float32, with no pipelined loop (the GPU waits on one `item()` per
+token).
+
+The lock's 61 wheels are the imports of load, prepare_voice, speak and
+speak_stream, found by running them with the package's full dependency
+set (83 distributions) and listing which were imported, then installing
+only those with `--no-deps` and running again: `torch` and `torchaudio`
+(CUDA 12.8 builds from `download.pytorch.org/whl/cu128`, CPU builds from
+`/whl/cpu`; the 5090 needs 12.8), `numpy` 1.26 (the package pins below
+2), `librosa` with `numba`, `llvmlite`, `scipy`, `scikit-learn`, `soxr`,
+`soundfile`, `audioread`, `pooch`, `joblib`, `lazy-loader`, `decorator`,
+`msgpack`, `transformers` 5.2 with `huggingface-hub`, `tokenizers`,
+`safetensors`, `regex`, `pyyaml` and `httpx`, `diffusers` 0.29 (three
+attention classes), `s3tokenizer` with `onnx` (`ml-dtypes`, `protobuf`),
+`conformer`, `einops`, `omegaconf`, `sympy` with `mpmath` and `jinja2`
+(PyTorch's own imports), and `rich`, `click`, `cloudpickle`, `pillow`.
+Left out of the package's list: `gradio`, `resemble-perth` (and its
+`pandas`, `pkg_resources`), `pyloudnorm`, `pykakasi`, `spacy-pkuseg`,
+`networkx`, `fsspec`, `hf-xet`, `typer`, `pydantic`.
+
+Downloads, on the 5090 PC: CUDA variant 6.83 GB (the wheels 3.62 GB, of
+which PyTorch 3.46 GB, and the model 3.21 GB), CPU variant 3.98 GB (the
+wheels 0.77 GB, PyTorch 0.62 GB); the Python build adds 47 MB, fetched by
+the app. The CUDA install took 181 s there and holds 11.35 GB on disk.
+
+Two Windows facts the helper is built around, both found on a real
+install: a child process that inherits the helper's stdin pipe hangs at
+startup (pip, so `run_pip` gives it no stdin), and a thread blocked
+reading that pipe makes the first `import numpy` on another thread hang,
+which is why `pipe.py` polls stdin with `PeekNamedPipe` on Windows.
+
+Speeds and scores: see "Measured on Windows" below.
+
+## Measured on Windows
+
+A Ryzen 7 9800X3D (8 cores) with an RTX 5090 (driver 617.42), native
+Windows, helper started as the app starts it (`python.exe -I -B`),
+reference clip `fixtures/voices/helen.flac`, three synthetic lines of 3.6
+to 5.6 s. The PC was also rendering in Blender at times, which slows every
+number below by up to 2x (CUDA runs are launch-bound, CPU runs lose cores);
+ranges are the quiet-machine best to the loaded worst.
+
+| | CUDA (5090) | CPU (float32) |
+| --- | --- | --- |
+| Install (real downloads) | 6.83 GB, 181 s, 11.35 GB on disk | 3.98 GB, 137 s, 7.10 GB on disk |
+| `warm` (engine load) | 10-12 s | 15 s |
+| `voice` (prepare + warm-up line) | 20-30 s | 20 s |
+| Whole line, seconds of work per second of audio | 0.32-0.34 quiet, 0.6-0.8 loaded | about 1.6 (stages timed) |
+| Streamed line, same | 0.39-0.42 quiet, up to 1.0 loaded | about 2 (estimated) |
+| Streamed line's first chunk | 0.94-0.97 s quiet, 1.4-2.7 s loaded | about 5 s (estimated) |
+| GPU memory | 3.3 GB held, 3.4 GB peak | |
+
+The CPU row's speed is from the stages timed apart on the CPU (T3 47 ms a
+token, so 1.9 s per second of speech... not quite: 135 tokens are 5.4 s of
+speech and took 6.8 s; the flow 2.1 s; the vocoder 0.2 s), and the
+CPU-variant install's own run with T3 quantized (1.0-1.1x whole, 1.5-1.7x
+streamed, first chunk 3.2 s). Float32 on the CPU is therefore too slow to
+keep ahead of a reader, and even the int8 numbers only just are: a game
+app should tell the reader a CPU PC is slow (`status` carries `device:
+"cpu"`) and leave spoken lines to lines fetched ahead.
+
+Quality, scored with Whisper large-v3-turbo as for the Mac models
+(`.tmp/voice-models/scripts/score.py`): on CUDA all six lines (whole and
+streamed) came back with word error 0, and the pause before "You" in "Not
+someone. You." was 0.56 s whole and 0.54 s streamed. On the CPU in float32
+the same three lines scored 0, 0 and 0, with a pause of 0.58 s; with T3
+dynamically quantized to int8 they scored 0, 0 and 0.61 (a garbled line)
+with a pause of 0.15 s, so the engine does not quantize.
+
 ## The protocol
 
 One JSON object a line each way. A request is
@@ -163,7 +278,7 @@ starting on the engine.
 
 | Op | Request fields | Answer fields |
 | --- | --- | --- |
-| `status` | | `installed`, `lock`, `downloadBytes` (the whole install), `remainingBytes` (what an install would still fetch), `installedBytes` (helper-owned files on disk), `engine`, `warm`, `installing`; `memoryBytes` and `peakMemoryBytes` once the MLX engine is loaded |
+| `status` | | `installed`, `lock`, `variant`, `downloadBytes` (the whole install), `remainingBytes` (what an install would still fetch), `installedBytes` (helper-owned files on disk), `engine`, `warm`, `installing`; `memoryBytes` and `peakMemoryBytes` once an engine that reports them is loaded; the PyTorch engine adds `device` (`cuda` or `cpu`) and, on CUDA, `gpu` |
 | `install` | | `alreadyInstalled`, `seconds` |
 | `cancel` | `target`: a request id | `cancelled`; `state` (`queued`, `running`, `done`, `unknown`) when it was not cancelled |
 | `remove` | | |
