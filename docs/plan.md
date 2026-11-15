@@ -3288,6 +3288,161 @@ Tests and fixtures: synthetic cases only; nothing from any real game is
 used. The demo and audio demo builders gain no `version` unless a
 scenario needs one on a copy.
 
+## Phase 52: Spoken lines (2026-11-15, user)
+
+Every line of a game can be spoken in its speaker's own voice, generated
+on the reader's machine. docs/voice-reading.md holds the research behind
+it: the engines compared, the measurements and the rejected paths
+(browser speech, Zonos, Fish recordings). docs/future.md's "Read-aloud"
+entry is removed from there.
+
+The user's decisions (2026-11-15):
+
+- The engine is Chatterbox multilingual v3 (MIT, Resemble AI), cloning
+  each character from a reference clip. The user rated its line readings
+  best of the models that run on a Mac, ahead of Ming-3.0 and Qwen3-TTS.
+- It runs live on the reader's machine. Kinetic does not distribute the
+  model: the reader opts in, and the app downloads it.
+- Every speed-up found in the research is used: each character's voice
+  conditioning is computed once, and the model's text-to-token
+  transformer is quantized to 8 bits when it loads (0.35x real time on an
+  M2). 4-bit only if it ever gives a smaller download.
+- Voices are designed at author time with Qwen3-TTS 1.7B VoiceDesign:
+  the author describes a character, picks one of several takes, and that
+  take ships as the character's reference. It was the only usable voice
+  designer tried.
+- No Fish recording support, and lines are spoken as written, with no
+  direction markup.
+- The Mac app first, demonstrable with its in-app download; then as far
+  as possible with the Windows app, checked over SSH on the user's
+  Windows PC.
+- The user is away for this phase: the orchestrator decides open points
+  and lists them in docs/voice-reading.md, "Questions for the user".
+
+The orchestrator's choices, within those decisions:
+
+- **One voice install per machine.** Mac:
+  `~/Library/Application Support/Kinetic/Voice/`; Windows:
+  `%LOCALAPPDATA%\Kinetic\Voice\`. Every Kinetic game app on the machine
+  shares it. It holds a private Python, the pinned packages, the model
+  files, the helper and a cache of generated lines.
+- **The helper.** A Python program of ours, `kinetic_voice`, embedded in
+  each app's binary and written into the voice folder, so app bundles keep
+  their layout. The app starts it with the private Python and talks to it
+  by JSON lines on stdin and stdout: no network port, so no firewall
+  prompt. It installs the packages and model files, then voices lines.
+- **The download.** The app fetches the Python build (python-build-standalone,
+  sha256-pinned) and unpacks it with the system `tar`; the helper then
+  installs pinned wheels by hash (`pip --require-hashes --only-binary
+  :all: --no-deps`) and fetches the model files at pinned revisions with
+  sha256 checks and resume. On the Mac that is about 3.2 GB: the model
+  2.5 GB, its speech tokenizer 0.5 GB, the runtime about 0.15 GB. The
+  sources are python-build-standalone's GitHub releases, PyPI and Hugging
+  Face; the user never touches a terminal.
+- **The bridge.** `window.kineticHost` gains `voice: true` on hosts that
+  offer it. The page sends `{type: "voice", op, ...}` through `send`; the
+  host answers by calling `window.__kineticVoice(event)`. Generated audio
+  comes back as base64 WAV (24 kHz, 16-bit mono).
+- **The manifest.** An optional top-level `voices` object maps a speaker
+  name, exactly as items give it, to `{file, text?, description?}`: the
+  reference clip (an audio file with its `.js` script, as tracks have),
+  its transcript and the description it was designed from. An optional
+  `narrator` voice of the same shape speaks lines with no speaker.
+- **What is spoken.** With spoken lines on, every item with text whose
+  speaker has a voice (or, with no speaker, when there is a narrator) and
+  no recorded `audio.voice`. Thoughts are spoken in the speaker's voice.
+  Speaker names are not spoken. A recorded voice line always wins.
+- **How it plays.** A generated line behaves like a recorded voice line:
+  the Voice bus and volume, held under the Esc screen, the branch map
+  and a hidden page, stopped when the reader leaves the item, and
+  auto-forward waits for its end. The player asks for the current line
+  and the next three along the reading path, newest first, and drops
+  requests the reader has moved past. A line not ready on arrival plays
+  when it is ready, if the reader is still there; auto-forward waits for
+  it up to 20 s. Generated lines are cached on disk by the helper, keyed
+  by model, settings, voice and text, so a reread is instant.
+- **The setting.** A "Spoken lines" row on the Esc screen, shown only in
+  an app that offers voice and in a game with `voices` or `narrator`. It
+  offers the download with its size, shows progress with Cancel, then an
+  on/off switch (on after the download) and "Remove" to free the space.
+  Errors show with Retry. On an Intel Mac the row says it needs Apple
+  silicon.
+- **Casting.** `tools/cast_voices.py` reads a JSON file of speaker
+  descriptions, makes four candidate takes each with Qwen3-TTS
+  VoiceDesign (Apple silicon; its packages pinned in
+  `requirements-voice.txt`, outside the converter's install), and writes
+  them with a listening page. `--pick NAME=N` copies the chosen take into
+  the game as FLAC with its `.js` script and records it in `voices`;
+  `--recording NAME=FILE` uses the author's own clip instead.
+- **Windows.** The same helper with a PyTorch backend running Resemble's
+  own `chatterbox-tts` package, on CUDA when an NVIDIA GPU is present and
+  otherwise on the CPU (measured; if too slow, the row says so).
+
+1. The manifest's `voices` and `narrator`. Schema,
+   docs/content-format.md (a "Voices" section), validator (paths and
+   scripts as for tracks; a voice no item's speaker uses is a warning),
+   `types.ts`, parseManifest's path checks. Tests: validator cases
+   (valid, missing file, missing script, bad shape, unused voice), the
+   demo still validates, manifest.test.ts.
+2. The helper, Mac backend. `apps/voice/kinetic_voice/` (stdlib only
+   outside the engine): the JSON-lines protocol (`install`, `status`,
+   `voice`, `speak`, `cancel`, `quit`, and progress events), the install
+   steps for a lock file (`apps/voice/lock-macos-arm64.json`: wheels with
+   hashes, model files with revisions and sha256), the Chatterbox MLX
+   engine with the speed-ups, a priority queue (the reader's current line
+   first), and the disk cache. A fake engine for tests. Tests: protocol,
+   queue order and cancel, cache keys, install against a local file
+   server with fake wheels and model files (hash failure, resume, cancel),
+   and one real check on this Mac: install into `.tmp`, then voice the
+   test line and time it.
+3. The Mac host. A shared `apps/macos/VoiceEngine.swift` compiled into
+   the app and the WebKit driver: the voice folder, downloading and
+   unpacking Python (progress, cancel, resume, disk-space check), writing
+   the embedded helper, running and restarting it, and relaying the
+   bridge. `KineticHostBridge` advertises `voice` and accepts the voice
+   messages from the main frame only. Test overrides by environment
+   (voice folder, download base URL, helper command) for the driver.
+   Tests: build_apps (the helper embedded, the bundle listing unchanged),
+   driver-based scenario parts with a fake helper and a local server.
+4. The player. The Esc screen row and its states; the voice client
+   (status, install, cancel, remove, voice registration with the
+   reference clips' bytes, speak, cancel); the lines chosen as above;
+   prefetch and dropping; playback through the Voice bus with the hold
+   rules above; a game with `voices` but no audio still mounts sound and
+   shows the Voice volume. Tests: unit tests for line choice, prefetch,
+   the hold and the row; a `spoken` scenario file on Chrome and WebKit
+   with a fake host.
+5. Casting. `tools/cast_voices.py`, `requirements-voice.txt`. Tests: the
+   picking and manifest writing with a fake generator; one real casting
+   run on this Mac.
+6. The voice demo. `fixtures/build_voice_demo.py` builds the gitignored
+   `fixtures/voice-demo`: two characters and a narrator over the demo's
+   pictures, with reference clips cast by item 5 and committed under
+   `fixtures/voices/`. Built as a Mac app and checked end to end on this
+   Mac: the download into a `.tmp` voice folder, then a walk with the
+   lines generated and their timing recorded. The user's own voice folder
+   is left empty, so the demo starts with the download.
+7. Docs. docs/voice-reading.md (the Mac models round, the decisions,
+   "Questions for the user"), CREATE.md ("Giving characters voices"),
+   README, apps/README.md (the voice bridge), docs/packaging.md,
+   docs/stack.md (the voice install is the one opt-in download), AGENTS.md
+   (the commands), CHANGELOG.
+8. The helper, Windows backend. The PyTorch engine and
+   `apps/voice/lock-windows-x64.json` (CPU and CUDA variants), with the
+   install and a timed line checked over SSH on the user's PC, on CUDA and
+   forced to the CPU.
+9. The Windows host. Embedded helper, the voice folder, downloading and
+   unpacking Python, running the helper, the bridge over
+   `chrome.webview.postMessage` and `ExecuteScript`. Tests: `go test` on
+   the neutral parts, `GOOS=windows go vet`, the cross-build; over SSH, a
+   headless run of the download and helper. The windowed app needs the
+   user.
+10. Phase-closer: full suites; VERSION 1.9.0, the CHANGELOG dated, tag,
+    `main` fast-forwarded. Waits for the user's Windows check.
+
+Tests and fixtures: synthetic text only, and the reference clips are
+designed voices, not anyone's recording.
+
 ## Sequencing
 
 1 -> 2 -> 2b -> 3 -> 4 -> 5 -> 6 -> 7 -> 7b -> 8 -> 9 -> 9b -> 9c -> 9d ->

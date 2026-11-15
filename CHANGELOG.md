@@ -17,6 +17,11 @@ Taking a new release means replacing a game folder's player (CREATE.md,
 "Upgrading to a newer Kinetic"). Bullets marked **Upgrading:** ask
 something more of an author.
 
+## 1.9.0-dev
+
+- Spoken lines (in progress): characters' lines spoken in their own
+  voices, generated on the reader's Mac after an in-app download.
+
 ## 1.8.0 (2026-11-15)
 
 Release basics.

@@ -1,8 +1,8 @@
 # Voice reading
 
 What we learned on 2026-11-15 about giving every line of a Kinetic game a
-generated voice, the choices made so far and the ones still open. The
-read-aloud entry in docs/future.md points here.
+generated voice, the choices made so far and the ones still open.
+docs/plan.md Phase 52 builds it.
 
 ## Decisions so far
 

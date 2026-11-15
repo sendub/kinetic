@@ -9,39 +9,6 @@ phases, and the user may take only some of its candidates. Each entry's
 "To settle" list holds the decisions to put to the user before the phase
 is planned.
 
-## Read-aloud (requested 2026-11-10)
-
-Every line of a game gets a generated voice in its speaker's own voice,
-for games and lines without a recorded one (Phase 47 plays a game's own
-voice lines, an item's `audio.voice`). docs/voice-reading.md holds what
-was learned on 2026-11-15: the engines compared, the measurements, the
-pipeline, audio sizes and licensing. The browser's built-in speech was
-ruled out.
-
-Two paths are possible. Which to take is not decided yet, and Kinetic may
-support both:
-
-- **Recorded with Fish.** A utility lets an author with a large NVIDIA
-  card, or Fish's hosted API, voice every line with Fish Audio Drama 3
-  ahead of time. The game ships the lines as ordinary voice tracks.
-- **Live with Zonos.** An author only describes each character. The build
-  turns each description into a small Zonos3-Mini voice embedding that the
-  game ships. A reader who wants spoken lines downloads the model, about
-  1.2 GB, and the player voices each line on their machine.
-
-To settle when it is planned:
-
-- Which path, or both, and in which order.
-- The rest of docs/voice-reading.md, "To settle".
-- How it fits Phase 47's sound: the Voice volume, `v`, pausing under the
-  Esc screen and on a hidden page, and auto-forward waiting for the line
-  to end, as it waits for a voice line.
-- A line with a recorded voice keeps it; generated speech never replaces
-  one.
-- Testing: automated browsers are silent and agents cannot hear, so tests
-  can only check what was generated or asked for, and when. The user
-  checks it by ear.
-
 ## Installable toolchain and Windows authoring (maybe, 2026-11-14)
 
 Today an author clones the repo, makes the venv, installs the converter,
@@ -261,8 +228,7 @@ To settle:
 Today the player follows `prefers-reduced-motion` for its button
 transitions only. It has no text size setting, no opaque text box, no
 screen-reader announcement of lines (no `aria-live` region), and Phase
-47's sound has no captions. Read-aloud, above, is a separate requested
-entry.
+47's sound has no captions. Spoken lines are docs/plan.md Phase 52.
 
 Candidates:
 

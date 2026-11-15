@@ -4433,3 +4433,27 @@ truthful: an unchecked box means nothing was accepted.
       average 9 at the start, 23 at the end. Then VERSION 1.8.0,
       package.json, its lockfile and pyproject 1.8.0, the CHANGELOG
       entry dated, tag v1.8.0 on this commit, `main` fast-forwarded.)
+
+## Phase 52: Spoken lines (2026-11-15, user)
+
+- [ ] The manifest's `voices` and `narrator` (docs/plan.md Phase 52,
+      item 1). Tests: validator cases, the demo still validates,
+      manifest.test.ts.
+- [ ] The helper, Mac backend (item 2). Tests: protocol, queue, cache,
+      install against a local server; one real install and timed line on
+      this Mac.
+- [ ] The Mac host (item 3). Tests: build_apps; driver scenario parts
+      with a fake helper and a local server.
+- [ ] The player (item 4). Tests: unit tests; the `spoken` scenario file
+      on Chrome and WebKit.
+- [ ] Casting (item 5). Tests: picking and manifest writing with a fake
+      generator; one real casting run.
+- [ ] The voice demo (item 6). Tests: the builder's test; the Mac app
+      checked end to end on this Mac.
+- [ ] Docs (item 7).
+- [ ] The helper, Windows backend (item 8). Tests: install and a timed
+      line over SSH, CUDA and CPU.
+- [ ] The Windows host (item 9). Tests: go test, vet, the cross-build; a
+      headless download and helper run over SSH.
+- [ ] Phase-closer (Phase 52): full suites; VERSION 1.9.0, the CHANGELOG
+      dated, tag v1.9.0, `main` fast-forwarded.
