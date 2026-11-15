@@ -1,16 +1,17 @@
 """Compiled-only `.rpyc` support tests (docs/plan.md Phase 11, item 2).
 
-Covers the vendored-unrpyc integration: decompiling a real `.rpyc` to text
+Covers the vendored-unrpyc integration: decompiling a compiled `.rpyc` to text
 the parser accepts, the `.rpy`-wins-over-stale-`.rpyc` twin rule, and that
 the build ledger records decompiled sources. No Ren'Py is required: the
 vendored `decompiler` fabricates the Ren'Py modules via
 ``magic.fake_package`` (see converter/vendor/SOURCES.md).
 
-Fixture: ``data/credits.rpyc`` is a byte-for-byte copy of a corpus
-game's ``Contents/Resources/autorun/game/credits.rpyc`` (8228 B, the
-smallest script `.rpyc` in that compiled-only game, game D of
-docs/extracting.md's survey; RPyC v2 header ``RENPY RPC2``). unrpyc only decompiles (it cannot
-compile), so a real compiled file is checked in rather than built here.
+Fixture: ``data/credits.rpyc`` is a synthetic Ren'Py 8 compiled script
+(RPyC v2 header ``RENPY RPC2``, invented credits content) made by
+``data/build_credits_rpyc.py``, which fabricates the pickle a real compile
+gives because unrpyc only decompiles; its docstring lists what each test
+relies on. It decompiles to ``label credits`` with scenes ``credits_1``
+to ``credits_9``.
 """
 
 from __future__ import annotations
@@ -103,8 +104,8 @@ def test_cli_records_rpyc_source_in_ledger(tmp_path: Path,
     shutil.copyfile(FIXTURE_RPYC, game / "credits.rpyc")
     # BUG 1: a scene whose name answers no file is dropped, not shipped
     # as a placeholder — so the project holds one real loose asset (the
-    # shape the real game D has) for the flow to produce items,
-    # resolved implicitly by name (BUG 5).
+    # shape of a compiled-only game with loose images) for the flow to
+    # produce items, resolved implicitly by name (BUG 5).
     from PIL import Image
 
     (game / "images").mkdir()

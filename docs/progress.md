@@ -4375,10 +4375,34 @@ truthful: an unchecked box means nothing was accepted.
       read in full; ASCII, no game named.)
 - [ ] Docs (item 8): CREATE.md, README.md, AGENTS.md, packaging.md,
       verify-player.md; every example run.
-- [ ] Scrub real games from the repo's text (item 8b). Tests: every
+- [x] Scrub real games from the repo's text (item 8b). Tests: every
       touched test file passes with synthetic names; a grep for every
       corpus game name and corpus subpath finds nothing outside
       vendored files.
+      (2026-11-15, 392ebf5 and this commit: a list of 844 corpus file and
+      folder names with their variants plus 93 titles, characters and
+      initials, kept only in .tmp and deleted, grepped over every tracked
+      file: no hit left apart from AGENTS.md's corpus-root line, kept on
+      purpose, and an ordinary word. extracting.md's survey names games A
+      to J with generic paths and headings; plan.md, perf.md,
+      content-format.md (the example is "The Lantern at Low Tide"),
+      CREATE.md, vendor/SOURCES.md, converter comments and tests use
+      synthetic or generic names with the shapes the tests need;
+      progress.md notes scrubbed by the orchestrator. Player test data's
+      character name became "Rowan" (branches.test.ts, mapmodel.test.ts,
+      continueroute) and branchmap's `fb-` screenshots `fit-`.
+      converter/tests/data/credits.rpyc, a byte copy of a corpus game's
+      compiled credits, is now synthetic: build_credits_rpyc.py pickles
+      stand-in `renpy.ast` nodes (same node kinds and state shape, zlib
+      level 3, RPC2 slots, a fixed stamp) and checks that the vendored
+      unrpyc decompiles it back to its source; no old string remains
+      beyond Ren'Py keywords and the `credits` names the tests use. Git
+      history still holds all of it: the user chose to rewrite history
+      before the repo goes public, as its own step. Subagents: pytest
+      converter/ and tools/ 1113, Chrome continueroute and branchmap
+      73/73. Orchestrator: the builder reproduces the file byte for byte,
+      test_rpyc, test_implicit, test_rpa 29 passed, npm test 1376, check
+      clean, Chrome continueroute 8/8, `git grep Rowan` empty.)
 - [ ] Phase-closer (Phase 51): full pytest, the full `npm run verify` and
       `npm run verify -- --webkit`, package-proof; VERSION 1.8.0, the
       CHANGELOG dated, tag v1.8.0, `main` fast-forwarded.

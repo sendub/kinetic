@@ -8,7 +8,7 @@ with plain offsets; member bytes are stored uncompressed. No test touches
 the Ren'Py corpus.
 
 Covered: round-trip read of a tiny archive, corrupt-index error,
-archive `.rpy`/`.rpyc` members feeding the parser (with the real
+archive `.rpy`/`.rpyc` members feeding the parser (with the synthetic
 `data/credits.rpyc` fixture bytes stored as an archive member), the asset
 fallback extracting a member and shipping it through the existing asset
 pipeline, and the ledger provenance both for scripts and for assets.

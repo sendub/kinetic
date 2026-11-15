@@ -48,7 +48,7 @@
 // item 1): on a 220-node tree, where Fit draws node groups from 0.6x and
 // merged capsules below, a node at Fit just above and just below 0.6x is the
 // same capsule with its figure. Screenshots land in .tmp/branchmap-shots/:
-// fb-*.png, spoil-*.png, mark-*.png, simp-*.png, hint-*.png, lines-*.png,
+// fit-*.png, spoil-*.png, mark-*.png, simp-*.png, hint-*.png, lines-*.png,
 // views-*.png and look-*.png.
 
 import { cpSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
