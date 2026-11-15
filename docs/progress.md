@@ -4352,6 +4352,10 @@ truthful: an unchecked box means nothing was accepted.
       read in full; ASCII, no game named.)
 - [ ] Docs (item 8): CREATE.md, README.md, AGENTS.md, packaging.md,
       verify-player.md; every example run.
+- [ ] Scrub real games from the repo's text (item 8b). Tests: every
+      touched test file passes with synthetic names; a grep for every
+      corpus game name and corpus subpath finds nothing outside
+      vendored files.
 - [ ] Phase-closer (Phase 51): full pytest, the full `npm run verify` and
       `npm run verify -- --webkit`, package-proof; VERSION 1.8.0, the
       CHANGELOG dated, tag v1.8.0, `main` fast-forwarded.

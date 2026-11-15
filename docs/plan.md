@@ -3269,6 +3269,19 @@ The orchestrator's choices, within those decisions:
    README.md: license and versions; AGENTS.md: the new command and
    `--version`; docs/packaging.md if what a folder holds changes;
    docs/verify-player.md: new scenario rows. Every example run.
+8b. Scrub real games from the repo's text (added 2026-11-15, the user's
+   decision). Text from before the 2026-11-09 rule names corpus games:
+   docs/extracting.md's corpus survey (names and paths under the corpus
+   root, including its category folders), the docs/content-format.md
+   Manifest example, converter and validator tests, code comments, and
+   docs/plan.md and docs/progress.md notes. Every real game name, path
+   under the corpus root and piece of game content becomes synthetic or
+   generic ("a converted corpus game"); the corpus root itself stays
+   named in AGENTS.md as the read-only reference data. Tests keep their
+   logic with synthetic names; vendored files stay byte-identical. Git
+   history and commit messages still hold the names: the user chose to
+   rewrite history before the repo goes public, as its own step with its
+   own confirmation, not part of this item.
 9. Phase-closer: full suites; then `VERSION` 1.8.0, the CHANGELOG entry
    dated, the tag v1.8.0 and `main` fast-forwarded.
 
