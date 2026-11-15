@@ -3373,9 +3373,9 @@ The orchestrator's choices, within those decisions:
   descriptions, makes four candidate takes each with Qwen3-TTS
   VoiceDesign (Apple silicon; its packages pinned in
   `requirements-voice.txt`, outside the converter's install), and writes
-  them with a listening page. `--pick NAME=N` copies the chosen take into
-  the game as FLAC with its `.js` script and records it in `voices`;
-  `--recording NAME=FILE` uses the author's own clip instead.
+  them with a listening page (`design`). `pick NAME=N` copies the chosen
+  take into the game as FLAC with its `.js` script and records it in
+  `voices`; `record NAME=FILE` uses the author's own clip instead.
 - **Windows.** The same helper with a PyTorch backend running Resemble's
   own `chatterbox-tts` package, on CUDA when an NVIDIA GPU is present and
   otherwise on the CPU (measured; if too slow, the row says so).

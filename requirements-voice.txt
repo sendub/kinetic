@@ -1,0 +1,39 @@
+# Pinned packages for tools/cast_voices.py `design` only: Qwen3-TTS 1.7B
+# VoiceDesign through mlx-audio, on an Apple silicon Mac (docs/plan.md
+# Phase 52, item 5). Kept out of the converter's .venv and requirements.txt.
+# Install once, from the repo root:
+#   python3 -m venv .venv-voice
+#   .venv-voice/bin/pip install --no-deps --only-binary :all: \
+#       -r requirements-voice.txt --cache .tmp/pip-cache
+# --no-deps matters: this is the set voice design needs (checked by a real
+# casting run, 2026-11-15), smaller than what its packages declare:
+# mlx-audio also asks for sounddevice, miniaudio, sentencepiece and jinja2,
+# transformers for typer and its rich, none of which voice design imports,
+# so pip check reports them missing. Python 3.12 (mlx's wheels for it need
+# macOS 14 or later on Apple silicon).
+mlx-audio==0.6.5
+mlx==0.32.4
+mlx-metal==0.32.4
+numpy==2.5.4
+scipy==1.18.1
+# The text tokenizer (transformers' AutoTokenizer, no torch).
+transformers==5.23.0
+tokenizers==0.23.3
+regex==2026.11.9
+safetensors==0.8.0
+pyyaml==6.0.3
+packaging==26.3
+tqdm==4.70.1
+# The model download from Hugging Face.
+huggingface-hub==2.4.0
+hf-xet==1.8.0
+filelock==4.2.10
+fsspec==2026.9.0
+click==8.5.1
+typing-extensions==4.16.0
+httpx2==2.16.0
+httpcore2==2.16.0
+h11==0.16.0
+anyio==4.16.0
+idna==3.20
+truststore==0.10.5

@@ -9,3 +9,4 @@ fixtures/demo/
 fixtures/audio-demo/
 .claude/
 .media-tools/
+.venv-voice/

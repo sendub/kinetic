@@ -4507,8 +4507,22 @@ truthful: an unchecked box means nothing was accepted.
       tsc and biome clean on the player's files, Chrome spoken 27/27,
       audio and screens 170/170. WebKit `spoken` is rerun on the real
       tree with item 3.)
-- [ ] Casting (item 5). Tests: picking and manifest writing with a fake
+- [x] Casting (item 5). Tests: picking and manifest writing with a fake
       generator; one real casting run.
+      (2026-11-15: tools/cast_voices.py with `design` (Qwen3-TTS 1.7B
+      VoiceDesign at a pinned revision, N takes of the standard phrase,
+      `index.html` and `casting.json` in `<game>-casting` beside the game,
+      never inside it; existing takes kept, `--again` remakes; warnings
+      for unused speakers), `pick NAME=K` (FLAC under `voices/` with its
+      script by the converter's writer and the pinned ffmpeg; the manifest
+      edited by splicing only the new block; manifest.js rewritten; the
+      validator run) and `record NAME=FILE`; the reserved `narrator` key
+      with `--narrator-key`. requirements-voice.txt pins 24 packages for a
+      separate `.venv-voice` (gitignored); the tool restarts itself in the
+      venv it needs. Real run on this Mac: two takes in 88 s, MLX peak 8.0
+      GB, pick 0.37 s, Whisper read both takes right, the folder validates
+      with no warnings. Tests ran red first: 46 pass. Orchestrator: pytest
+      test_cast_voices 46 passed, `--version` and `--help` read.)
 - [ ] The voice demo (item 6). Tests: the builder's test; the Mac app
       checked end to end on this Mac.
 - [ ] Docs (item 7).
