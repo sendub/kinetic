@@ -178,7 +178,9 @@ sets the next `X.Y.Z-dev`. Its closing commit sets the release number
 (patch: fixes only; minor: a feature or a new optional manifest field;
 major: a change that stops existing folders or saves working, the only
 time `schemaVersion` moves), dates the CHANGELOG entry, tags `vX.Y.Z`
-and fast-forwards `main`.
+and fast-forwards `main`. After changing `VERSION`, rerun the converter's
+editable install so its package metadata matches (the version test
+reads it).
 
 ## Git
 

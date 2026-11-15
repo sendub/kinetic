@@ -4423,6 +4423,13 @@ truthful: an unchecked box means nothing was accepted.
       73/73. Orchestrator: the builder reproduces the file byte for byte,
       test_rpyc, test_implicit, test_rpa 29 passed, npm test 1376, check
       clean, Chrome continueroute 8/8, `git grep Rowan` empty.)
-- [ ] Phase-closer (Phase 51): full pytest, the full `npm run verify` and
+- [x] Phase-closer (Phase 51): full pytest, the full `npm run verify` and
       `npm run verify -- --webkit`, package-proof; VERSION 1.8.0, the
       CHANGELOG dated, tag v1.8.0, `main` fast-forwarded.
+      (2026-11-15 on 04c5017: full pytest 1114 passed in 96 s; full `npm
+      run verify` 694/694 on Chrome; `npm run verify -- --webkit` 709
+      pass and 5 partial (the headless fullscreen checks), 0 fail;
+      package-proof 18/18 with .tmp/extract-demo regenerated; load
+      average 9 at the start, 23 at the end. Then VERSION 1.8.0,
+      package.json, its lockfile and pyproject 1.8.0, the CHANGELOG
+      entry dated, tag v1.8.0 on this commit, `main` fast-forwarded.)
