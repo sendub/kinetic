@@ -4564,8 +4564,25 @@ truthful: an unchecked box means nothing was accepted.
       GB, pick 0.37 s, Whisper read both takes right, the folder validates
       with no warnings. Tests ran red first: 46 pass. Orchestrator: pytest
       test_cast_voices 46 passed, `--version` and `--help` read.)
-- [ ] The voice demo (item 6). Tests: the builder's test; the Mac app
+- [x] The voice demo (item 6). Tests: the builder's test; the Mac app
       checked end to end on this Mac.
+      (2026-11-15: fixtures/build_voice_demo.py builds the gitignored
+      fixtures/voice-demo: 18 items over 6 pictures, the research's
+      six-line exchange word for word, narration, a thought, a radio
+      announcer with no voice; `voices` Wren and Helen and a `narrator`,
+      no `audio`. Clips in fixtures/voices (Qwen3-TTS VoiceDesign; the
+      narrator cast with tools/cast_voices.py, the lowest-pitched of 3
+      takes, all read right by Whisper) with a README on how each was
+      made. Deterministic; builder test 16 passed (red first); validates
+      clean; check-game walks the assembled folder to the end on WebKit
+      and Chrome. Orchestrator, end to end on this M2 with the WebKit
+      driver (the app's VoiceEngine and bridge), the real helper and model
+      on the assembled demo: a real install from an empty voice folder
+      fetched 3,346,136,952 bytes in 55 s with 162 progress events, then
+      ready, the engine loaded in 4.6 s and lines came back; in a walk
+      that listened to each line, all 17 spoken lines played on arrival
+      (0-3 ms after it, prefetched while the line before played), the
+      voiceless announcer stayed silent, no errors.)
 - [ ] Docs (item 7).
 - [ ] The helper, Windows backend (item 8). Tests: install and a timed
       line over SSH, CUDA and CPU.
