@@ -4158,7 +4158,10 @@ truthful: an unchecked box means nothing was accepted.
 - [ ] A segment stepped to from a held end plays from its start (item 4).
       Tests: red first where it can be shown, a unit test and a scenario
       part on both engines.
-- [ ] Docs (item 5): content-format.md, verify-player.md, CREATE.md if
+- [ ] A video held at its file's end stays held when a menu closes
+      (item 5). Tests: red first, a unit test and a scenario part on both
+      engines; no extra pass reported.
+- [ ] Docs (item 6): content-format.md, verify-player.md, CREATE.md if
       an author's rule changes; every example run.
 - [ ] Phase-closer (Phase 50): full pytest, the full `npm run verify`
       and `npm run verify -- --webkit`, package-proof.
