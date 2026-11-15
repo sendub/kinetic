@@ -1265,7 +1265,143 @@ text alone while its animation or video loops underneath, and each
 `text` item holds for the length of its text.
 
 The folder can also hold a macOS app and a Windows program that readers
-open instead of `index.html` (Building the apps, below).
+open instead of `index.html` (Building the apps, below). A game with
+character voices speaks its lines in the Mac app (Giving characters
+voices, below).
+
+## Giving characters voices
+
+A game can speak its lines. Each character gets a voice, and the reader's
+Mac generates every line in that voice while they read, a few lines ahead
+of the one on screen. The voices belong to the game folder; the speech
+model does not. It stays on the reader's machine, in a folder the Kinetic
+app fills the first time the reader asks for spoken lines. A game with no
+voices plays and validates as before.
+
+What the reader sees, in the Mac app:
+
+- A **Spoken lines** row on the Esc screen, shown only in a game that has
+  voices. Before the model is installed it offers **Download voices** with
+  its size, about 3.3 GB, and shows progress with a Cancel button. Once
+  installed, an on/off switch and **Remove...** appear; Remove frees the
+  space and asks first.
+- Spoken lines come on when the download finishes. Each line plays through
+  the Voice volume, auto-forward waits for it to end, and a recorded
+  voice line (an item's `audio.voice`) is always played instead of a
+  generated one.
+- The row needs a Mac with Apple silicon and macOS 14 or later. It says so
+  on an older Mac.
+- The Windows program is getting the same row; until it ships, and in a
+  browser, a game with voices plays silently.
+
+The model installs once per Mac, in
+`~/Library/Application Support/Kinetic/Voice/`, and every Kinetic game on
+the machine shares it (apps/README.md, "Spoken lines").
+
+### The manifest
+
+Two optional top-level fields describe the voices (docs/content-format.md,
+"Voices"):
+
+```json
+"voices": {
+  "Mei": { "file": "voices/mei.flac",
+           "text": "Hello there. I've been waiting a long time...",
+           "description": "A bright, quick young woman, warm and wry." }
+},
+"narrator": { "file": "voices/narrator.flac" }
+```
+
+- `voices` maps a speaker name, written exactly as the items' `speaker`
+  gives it, to a reference clip: about 10 to 13 seconds of one person's
+  clean speech, which the voice is cloned from. A speaker with no voice
+  stays silent.
+- `narrator` is one more voice, for the lines that have text and no
+  speaker. Thoughts are spoken in their speaker's voice.
+
+Each clip needs its `.js` script beside it, as a track does. The validator
+checks the paths and warns about a voice no item uses.
+`tools/assemble_folder.py` leaves the clips out of the folder it
+assembles, ships their scripts, and writes any that are missing
+(docs/packaging.md).
+
+You rarely write these fields by hand: the casting tool writes them.
+
+### Casting with the tool
+
+`tools/cast_voices.py` makes the clips from descriptions. It needs a Mac
+with Apple silicon, and its own packages in a separate virtualenv, since
+the voice model's libraries do not belong in the converter's. From the
+repo root, once:
+
+```sh
+python3 -m venv .venv-voice
+.venv-voice/bin/pip install --no-deps --only-binary :all: \
+    -r requirements-voice.txt --cache .tmp/pip-cache
+```
+
+`pick` and `record` encode FLAC with the pinned ffmpeg, so they also need
+the media tools from "Setting up the tools", above
+(`.venv/bin/python tools/setup_media_tools.py`).
+
+Write a JSON file naming each speaker, exactly as the items do, with a
+sentence describing the voice. The reserved key `"narrator"` is the
+narrator's voice:
+
+```json
+{
+  "Mei": "A bright, quick young woman in her twenties, warm and wry.",
+  "Old Theo": "An old man with a slow, gravelly voice.",
+  "narrator": "A calm, clear storyteller in middle age."
+}
+```
+
+Then design the voices. The command starts itself again in `.venv-voice`,
+and the first run downloads the design model, about 4.5 GB, into the
+Hugging Face cache:
+
+```sh
+.venv/bin/python tools/cast_voices.py design my-novel descriptions.json
+```
+
+It makes four takes of each voice (`--takes N` changes the number), each
+from its own random seed, in `my-novel-casting/` beside the game folder,
+never inside it. A description narrows a voice without fixing it, so the
+four takes are four different people. Open `my-novel-casting/index.html`
+and listen: every take is there with its description and the `pick`
+argument that chooses it. Run `design` again with `--takes 6` to add
+takes, or with `--again` (and `--speakers "Old Theo"` to limit it) to
+remake some with new seeds.
+
+Pick one take per voice. `pick` copies it into the game as FLAC with its
+script and writes the voice into `manifest.json`, keeping every other
+byte of the file, then runs the validator:
+
+```sh
+.venv/bin/python tools/cast_voices.py pick my-novel Mei=2 "Old Theo=1" narrator=3
+```
+
+To use your own recording instead, name the clip and write out what it
+says:
+
+```sh
+.venv/bin/python tools/cast_voices.py record my-novel Mei=mei-take.wav \
+    --text "The tide is coming in early tonight, I can hear it."
+```
+
+`record` takes any format ffmpeg reads and warns about a clip shorter
+than 5 or longer than 20 seconds; 10 to 13 is best. A game that really has
+a character named "narrator" gives the tool another key with
+`--narrator-key`. `.venv/bin/python tools/cast_voices.py --help`, and
+`--help` on each command, list every option.
+
+### Hearing it
+
+Assemble the folder and add the Mac app as usual (Building the apps,
+below), open the app and press Esc: the Spoken lines row offers the
+download. `fixtures/voice-demo`, built by `.venv/bin/python
+fixtures/build_voice_demo.py`, is a small worked game with two characters
+and a narrator whose clips came from this tool.
 
 ## Building the apps
 

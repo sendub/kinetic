@@ -290,6 +290,41 @@ no prompt. A downloaded zip carries the mark, and extracting it with
 Windows passes the mark to the exe, whose first run then asks the
 reader to confirm (More info, Run anyway).
 
+## Voice install decision (Phase 52, the user, 2026-11-15)
+
+A Kinetic game app can speak a game's lines, generated on the reader's
+machine (docs/plan.md Phase 52; docs/voice-reading.md has the research).
+That needs a speech model, a Python and some libraries, none of which a
+game folder can carry, so the voice install is the one opt-in download a
+Kinetic app makes.
+
+- What it fetches: a private Python (python-build-standalone), the pinned
+  packages, and the model files at pinned revisions, all checked by
+  sha256, into one per-machine folder shared by every Kinetic app
+  (`~/Library/Application Support/Kinetic/Voice/` on a Mac,
+  `%LOCALAPPDATA%\Kinetic\Voice\` on Windows). Nothing is fetched or
+  written there until the reader presses Download on the Esc screen's
+  Spoken lines row, and Remove deletes all of it. The sources are
+  python-build-standalone's GitHub releases, PyPI and Hugging Face.
+- Why a game folder still needs no network at play time: the rule is
+  about the folder. A folder, with or without voices, plays from its own
+  files over `file://`, silently where there is no voice engine, and a
+  browser never downloads anything. Only the app, and only after the
+  reader's opt-in, reaches the network, and the folder itself carries no
+  model: its voices are reference clips (docs/packaging.md).
+- The helper is a separate process. `apps/voice/kinetic_voice` is Python
+  that the app embeds in its binary and writes into the voice folder, so
+  the app bundle keeps its layout. The app runs it with the private
+  Python and talks to it in JSON lines on its stdin and stdout: no network
+  port, so no firewall prompt, and a crash cannot take the game down (the
+  app restarts it). The page reaches it through the host bridge
+  (apps/README.md, "Spoken lines").
+- The engine is Chatterbox multilingual v3 (MIT), cloned from each
+  character's reference clip, on MLX on a Mac (Apple silicon, macOS 14 or
+  later). The Windows app runs the same helper with a PyTorch backend, on
+  an NVIDIA GPU when present and otherwise the CPU; that is in progress.
+  The browser's own speech was rejected (no per-character voices).
+
 ## Revisit triggers
 
 - User later wants a real .app: superseded by the per-game apps in the

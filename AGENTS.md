@@ -111,6 +111,25 @@ are implementing and docs/stack.md for settled decisions.
   160,000-item story as a game folder for `perf`), and `perf:decode`
   (track decode time and result in WebKit and Chrome; needs PATH ffmpeg,
   no build).
+- Spoken lines (docs/plan.md Phase 52): the helper's tests,
+  `.venv/bin/pytest apps/voice/tests -q -n auto` (a fake engine; no
+  model). The casting tool needs its own venv, made once:
+  `python3 -m venv .venv-voice && .venv-voice/bin/pip install --no-deps
+  --only-binary :all: -r requirements-voice.txt --cache .tmp/pip-cache`
+  (gitignored); `.venv/bin/python tools/cast_voices.py design|pick|record`
+  (`design` runs the real model: about 4.5 GB downloaded once, Apple
+  silicon; its test, `.venv/bin/pytest tools/test_cast_voices.py -q`, uses
+  a fake generator). The voice demo:
+  `.venv/bin/python fixtures/build_voice_demo.py` (gitignored output;
+  needs no ffmpeg; its test is `tools/test_build_voice_demo.py`). Scenario
+  files: `spoken` (Chrome and WebKit, against the stand-in host
+  `player/scripts/testing/fakevoice.mjs`) and `machost` (WebKit only, the
+  Mac host's VoiceEngine with a fake helper), e.g. `npm run verify --
+  --webkit spoken machost`. `KINETIC_VOICE_DIR`, `_DOWNLOAD_BASE`, `_LOCK`,
+  `_PYTHON` and `_HELPER` are test-only overrides of the Mac host
+  (`apps/README.md`, "Spoken lines"); never set them for a real run, and
+  never install the real voice into the user's own voice folder from a
+  test.
 - ffmpeg and macOS `sips` are on PATH (fixture builders use them); there
   is no Rust toolchain.
 

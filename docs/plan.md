@@ -3337,8 +3337,8 @@ The orchestrator's choices, within those decisions:
   sha256-pinned) and unpacks it with the system `tar`; the helper then
   installs pinned wheels by hash (`pip --require-hashes --only-binary
   :all: --no-deps`) and fetches the model files at pinned revisions with
-  sha256 checks and resume. On the Mac that is about 3.2 GB: the model
-  2.5 GB, its speech tokenizer 0.5 GB, the runtime about 0.15 GB. The
+  sha256 checks and resume. On the Mac that is about 3.3 GB: the model
+  2.71 GB, its speech tokenizer 0.49 GB, the runtime about 0.15 GB. The
   sources are python-build-standalone's GitHub releases, PyPI and Hugging
   Face; the user never touches a terminal.
 - **The bridge.** `window.kineticHost` gains `voice: true` on hosts that

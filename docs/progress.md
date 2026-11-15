@@ -4583,7 +4583,20 @@ truthful: an unchecked box means nothing was accepted.
       that listened to each line, all 17 spoken lines played on arrival
       (0-3 ms after it, prefetched while the line before played), the
       voiceless announcer stayed silent, no errors.)
-- [ ] Docs (item 7).
+- [x] Docs (item 7).
+      (2026-11-15: docs/voice-reading.md rewritten to the decisions in
+      force (Chatterbox live on the reader's machine, Qwen3-TTS casting),
+      the Mac models round, the speed after item 2b with the 0.35x claim
+      corrected, and "Questions for the user" (a to m); the Fish and Zonos
+      rounds kept under "Earlier research". CREATE.md "Giving characters
+      voices" (the fields, casting with design, pick and record, what the
+      reader sees); README, packaging.md, stack.md (the voice install
+      decision), AGENTS.md (commands and the test-only overrides) and the
+      CHANGELOG's 1.9.0-dev section. Windows and streaming text follow
+      items 4b, 8 and 9. Subagent ran every model-free command it
+      documents. Orchestrator: the diff read, ASCII and wrap checked, no
+      real game named; plan.md's download figures corrected to the lock's
+      3.3 GB.)
 - [ ] The helper, Windows backend (item 8). Tests: install and a timed
       line over SSH, CUDA and CPU.
 - [ ] The Windows host (item 9). Tests: go test, vet, the cross-build; a

@@ -19,8 +19,34 @@ something more of an author.
 
 ## 1.9.0-dev
 
-- Spoken lines (in progress): characters' lines spoken in their own
-  voices, generated on the reader's Mac after an in-app download.
+- Spoken lines (in progress; the Mac app first, the Windows program
+  next): a game can give its characters voices, and the reader's Mac
+  speaks each line in its speaker's voice, generated while they read.
+  A reader opts in on the Esc screen's **Spoken lines** row with a
+  one-time download of about 3.3 GB (Apple silicon, macOS 14 or later),
+  shared by every Kinetic game on the Mac, and can remove it there.
+  Lines are made at about half their length, the next ones ahead of the
+  reader, and kept so a reread is instant. Auto-forward waits for a line
+  still being made, up to 20 seconds. Thoughts are spoken in their
+  speaker's voice, lines with no speaker in a narrator voice, and a
+  recorded voice line always plays instead. A browser plays such a game
+  silently.
+- New optional manifest fields `voices` and `narrator` give each speaker
+  a reference clip to clone (docs/content-format.md, "Voices"). The
+  validator checks their files and scripts and warns about a voice nobody
+  uses. `tools/assemble_folder.py` ships the clips' scripts and leaves
+  the clips out, as for tracks. Older players ignore both fields.
+- `tools/cast_voices.py` casts the voices: `design` makes several takes of
+  each character from a written description (Qwen3-TTS VoiceDesign, on an
+  Apple silicon Mac, with its packages in a separate `.venv-voice` from
+  `requirements-voice.txt`) and a listening page, `pick` ships the take
+  you chose and writes the manifest, and `record` ships your own
+  recording. CREATE.md has a new section, "Giving characters voices".
+- `fixtures/voice-demo`, built by `fixtures/build_voice_demo.py`, is a
+  short story with two characters and a narrator to try spoken lines on.
+- **Upgrading:** nothing is needed for a game without voices. To give a
+  game voices, upgrade its player (`tools/upgrade_folder.py`), cast the
+  voices and build the Mac app again.
 
 ## 1.8.0 (2026-11-15)
 

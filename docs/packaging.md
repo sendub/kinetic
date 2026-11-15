@@ -27,6 +27,14 @@ decision; this file is the practical sheet.
   (docs/content-format.md, "The script beside each audio file"). The
   player reads only the scripts: a content folder keeps each audio file
   beside its script, and the assembled folder ships the scripts alone.
+- For a game with character voices (docs/content-format.md, "Voices"),
+  each voice's reference clip under `voices/` (`.flac`, `.wav` and so on)
+  and its script `<file>.js`, as for a track. The player hands the script's
+  bytes to the voice engine, so the assembled folder ships the scripts and
+  leaves the clips out, and a content folder keeps both. The voice model
+  is never in a game folder or an app: a reader's Kinetic app downloads it
+  into a folder of its own, after an opt-in (docs/stack.md, "Voice install
+  decision").
 - Unreferenced extras the converter leaves behind (such as
   `build-ledger.json`), which the player and the validator ignore. Not
   kinetic-extract's schema copy, `manifest.schema.json`: it is for an
@@ -60,8 +68,9 @@ content folder is ignored), the content files, a generated
 `manifest.js` when the content has only `manifest.json`, and a
 generated script for each audio track file that has none; the
 content's top-level `manifest.schema.json` is not copied. It then
-leaves out each audio track file whose script is there, unless an item
-also shows that file; the content folder keeps them. A non-empty
+leaves out each audio track file and each voice clip whose script is
+there, unless an item also shows that file; the content folder keeps
+them, and writes a missing voice script as it does a track's. A non-empty
 output is refused unless `--force` replaces it. The script prints the
 file count and total size. Check the result with the validator; a clean
 run exits 0:
@@ -133,6 +142,10 @@ player keeps each track it plays decoded, 23 MB a minute in stereo at
   (README.md, "Playing"). The macOS app plays sound at launch. The
   Windows exe asks WebView2 to do the same, which is not verified on
   Windows.
+- Generated speech needs the Mac app today (the Windows program is next)
+  and a one-time download of about 3.3 GB per machine, which a reader
+  starts on the Esc screen. In a browser, a game with voices plays
+  silently.
 - Videos always play muted: a video's own sound ships as a separate audio
   track, its item's `videoSound` (docs/content-format.md, "Audio").
 - Ogg tracks (`.ogg`, `.oga`, `.opus`) pass the validator with a warning:
