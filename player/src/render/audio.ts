@@ -92,6 +92,18 @@
 // start tells render/spoken.ts how long it has left, for the auto-forward
 // hold. Without a voice host such a game mounts nothing, as before.
 //
+// A streamed line (Phase 52 item 4b; render/spokenstream.ts) arrives in
+// decoded chunks. They play on the same voice sound, through its gain and
+// the Voice group: each chunk's source is scheduled on the context's clock
+// where the one before ends (a late chunk starts at once), the sound's
+// `stream` holding the chunks, their lengths and the timeline's base. A
+// hold (the Esc screen, the map, a hidden page) stops every source and
+// keeps the position; resuming schedules the chunks from it again, and
+// chunks that came meanwhile join. Its answer, the whole line, is cached
+// by render/spoken.ts and never restarts it. The hook shows such a line as
+// its track `spoken:<item id>` with `streamed: true`, the number of chunks
+// in `chunks` and `final` once the last is in.
+//
 // Test hooks: the hidden `#audio` carries `data-target` (the target in
 // force, as JSON, set each time one applies) and `data-unlocked` (sound may
 // play: a key or click that counts came, or the page is in an app), and its
@@ -156,6 +168,7 @@ import {
 } from "./audiorules";
 import { readHost } from "./host";
 import { createSpokenLines, hasVoices, type SpokenLines } from "./spoken";
+import { appendPlan, resumePlan, streamPosition } from "./spokenstream";
 import type { StageVideo } from "./visual";
 import type { VoiceClient } from "./voiceclient";
 
@@ -321,6 +334,25 @@ interface SoundReading {
   paused: boolean;
   currentTime: number;
   volume: number;
+  /** A streamed spoken line: its chunks so far, and whether the last is in. */
+  streamed?: true;
+  chunks?: number;
+  final?: boolean;
+}
+
+/** A streamed spoken line's chunks, and how they play (render/spokenstream.ts). */
+interface Stream {
+  chunks: AudioBuffer[];
+  /** Each chunk's length (s), and their sum. */
+  durations: number[];
+  total: number;
+  /** Its last chunk is in, or no more will come. */
+  final: boolean;
+  /** Its sources are scheduled and it plays. */
+  running: boolean;
+  /** The context time at which the stream's position 0 falls while it plays. */
+  base: number;
+  sources: AudioBufferSourceNode[];
 }
 
 /** One sound played from a decoded buffer, and what it is doing. */
@@ -351,6 +383,8 @@ interface Sound {
   fadeTimer: ReturnType<typeof setTimeout> | undefined;
   /** Counts loads, so a late decode never touches the next track. */
   loads: number;
+  /** A streamed spoken line, played from its chunks instead of `buffer`. */
+  stream: Stream | null;
 }
 
 const now = (): number => globalThis.performance.now();
@@ -734,6 +768,7 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
       fadeDone: null,
       fadeTimer: undefined,
       loads: 0,
+      stream: null,
     };
     readers.push(() => readSound(s));
     return s;
@@ -741,6 +776,9 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
 
   /** Where `s` stands in its track at context time `at`. */
   function positionOf(s: Sound, at: number): number {
+    if (s.stream?.running === true) {
+      return streamPosition(s.stream.base, s.stream.total, at);
+    }
     if (s.source === null || s.plan === null) return s.offset;
     return playPosition(s.plan, s.startFrom, at - s.startedAt);
   }
@@ -750,7 +788,9 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
     return {
       slot: s.slot,
       track: s.track ?? "",
-      paused: s.source === null || ctx.state !== "running",
+      paused:
+        (s.stream === null ? s.source === null : !s.stream.running) ||
+        ctx.state !== "running",
       currentTime: positionOf(s, at),
       volume: elementVolume({
         track: trackVolume(s),
@@ -758,6 +798,13 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
         duck: isBed(s.slot) ? fadeLevel(duck, at) : 1,
         fade: fadeLevel(s.fade, at),
       }),
+      ...(s.stream === null
+        ? {}
+        : {
+            streamed: true as const,
+            chunks: s.stream.chunks.length,
+            final: s.stream.final,
+          }),
     };
   }
 
@@ -815,6 +862,7 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
     fade: number,
   ): void {
     stopSource(s);
+    s.stream = null;
     clearTimeout(s.fadeTimer);
     s.fadeTimer = undefined;
     s.fadeDone = null;
@@ -836,6 +884,10 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
 
   /** Silences `s` where it stands, its fade held there. */
   function stopSource(s: Sound): void {
+    if (s.stream?.running === true) {
+      stopStream(s, s.stream);
+      return;
+    }
     const source = s.source;
     if (source === null) return;
     const at = ctx.currentTime;
@@ -852,6 +904,10 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
   function syncSound(s: Sound): void {
     if (s.slot === "video") {
       syncVideoSound(s);
+      return;
+    }
+    if (s.stream !== null) {
+      syncStream(s, s.stream);
       return;
     }
     const should =
@@ -891,6 +947,7 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
     const track = tracks?.[id];
     if (track === undefined) return false;
     stopSource(s);
+    s.stream = null;
     clearTimeout(s.fadeTimer);
     s.fadeTimer = undefined;
     s.fadeDone = null;
@@ -928,6 +985,7 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
 
   function release(s: Sound): void {
     stopSource(s);
+    s.stream = null;
     clearTimeout(s.fadeTimer);
     s.fadeTimer = undefined;
     s.fadeDone = null;
@@ -953,6 +1011,11 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
   /** The track played to its end (one that does not loop). */
   function reachedEnd(s: Sound): void {
     const at = ctx.currentTime;
+    if (s.stream !== null) {
+      s.stream.running = false;
+      for (const source of s.stream.sources) source.disconnect();
+      s.stream.sources = [];
+    }
     s.source = null;
     s.offset = s.plan?.endSeconds ?? 0;
     s.ended = true;
@@ -1047,6 +1110,144 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
     loadBuffer(voice, id, buffer, 1);
     voiceItem = item;
     syncSound(voice);
+  }
+
+  // --- a streamed spoken line (render/spokenstream.ts) ---------------------------
+  const streamPlan = (total: number): PlayPlan => ({
+    loops: false,
+    startSeconds: 0,
+    loopStartSeconds: 0,
+    endSeconds: total,
+  });
+
+  /** Tells render/spoken.ts how long the stream's scheduled audio has to go. */
+  function announceStream(s: Sound, st: Stream): void {
+    if (s !== voice || !isSpoken(s)) return;
+    const left = Math.max(0, st.base + st.total - ctx.currentTime);
+    spoken?.started(voiceItem, left, !st.final);
+  }
+
+  /** Schedules chunk `index` of `st` to start at context time `when`, from `offset`. */
+  function scheduleChunk(
+    s: Sound,
+    st: Stream,
+    index: number,
+    when: number,
+    offset: number,
+  ): void {
+    const source = ctx.createBufferSource();
+    source.buffer = st.chunks[index] ?? null;
+    source.connect(s.gain);
+    source.start(when, offset);
+    source.addEventListener("ended", () => {
+      if (s.stream === st && st.running && st.final) {
+        if (st.sources[st.sources.length - 1] === source) reachedEnd(s);
+      }
+    });
+    st.sources.push(source);
+  }
+
+  /** Plays the stream from where it stands: every chunk not yet played, back to back. */
+  function startStream(s: Sound, st: Stream): void {
+    const at = ctx.currentTime;
+    const plan = resumePlan(st.durations, s.offset, at);
+    st.base = plan.base;
+    st.running = true;
+    for (const p of plan.placements) {
+      scheduleChunk(s, st, p.index, p.when, p.offset);
+    }
+    s.fade = runFade(s.fade, at);
+    setSoundGain(s);
+    armFade(s);
+    if (plan.placements.length === 0 && st.final) {
+      reachedEnd(s);
+      return;
+    }
+    announceStream(s, st);
+  }
+
+  /** Silences the stream where it stands: its position kept, its fade held. */
+  function stopStream(s: Sound, st: Stream): void {
+    const at = ctx.currentTime;
+    s.offset = streamPosition(st.base, st.total, at);
+    st.running = false;
+    for (const source of st.sources) {
+      source.stop();
+      source.disconnect();
+    }
+    st.sources = [];
+    s.fade = holdFade(s.fade, at);
+    clearTimeout(s.fadeTimer);
+    s.fadeTimer = undefined;
+    setSoundGain(s);
+  }
+
+  function syncStream(s: Sound, st: Stream): void {
+    if (!st.running && st.final && s.offset >= st.total - 1e-6) {
+      // Played to its end before a hold, or told it has no more.
+      s.ended = true;
+      s.wanted = false;
+      return;
+    }
+    const should = s.wanted && !s.ended && allowed(s.slot) && canRun();
+    if (should && !st.running) startStream(s, st);
+    else if (!should && st.running) stopStream(s, st);
+  }
+
+  /**
+   * The next decoded chunk of item `item`'s streamed line: the first begins
+   * the line on the voice sound, later ones join it, back to back.
+   */
+  function startSpokenChunk(
+    item: number,
+    buffer: AudioBuffer,
+    final: boolean,
+  ): void {
+    const id = `${SPOKEN_TRACK}${items[item]?.id ?? String(item)}`;
+    const st = voice?.stream ?? null;
+    if (voice !== null && voiceItem === item && voice.track === id) {
+      if (st === null) return; // already holds the whole line
+      const before = st.total;
+      st.chunks.push(buffer);
+      st.durations.push(buffer.duration);
+      st.total += buffer.duration;
+      st.final = final;
+      voice.plan = streamPlan(st.total);
+      if (st.running) {
+        const put = appendPlan(st.base, before, ctx.currentTime);
+        st.base = put.base;
+        scheduleChunk(voice, st, st.chunks.length - 1, put.when, 0);
+        announceStream(voice, st);
+      } else syncSound(voice);
+      return;
+    }
+    voice ??= makeSound("voice");
+    loadBuffer(voice, id, buffer, 1);
+    voice.stream = {
+      chunks: [buffer],
+      durations: [buffer.duration],
+      total: buffer.duration,
+      final,
+      running: false,
+      base: 0,
+      sources: [],
+    };
+    voice.plan = streamPlan(buffer.duration);
+    voiceItem = item;
+    syncSound(voice);
+  }
+
+  /** Item `item`'s streamed line gets no more chunks: it ends where it is. */
+  function endSpoken(item: number): void {
+    const s = voice;
+    const st = s?.stream ?? null;
+    if (s === null || st === null || voiceItem !== item) return;
+    st.final = true;
+    if (!st.running) {
+      syncSound(s);
+    } else if (ctx.currentTime >= st.base + st.total - 0.001) {
+      reachedEnd(s);
+    } else announceStream(s, st);
   }
 
   function fire(cue: SfxCue): void {
@@ -1627,6 +1828,8 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
           now: () => Date.now(),
           hold: (index, until) => machine.setSpokenHold(index, until),
           play: startSpoken,
+          chunk: startSpokenChunk,
+          end: endSpoken,
           stop: () => {
             if (voice !== null && isSpoken(voice)) stopVoice();
           },

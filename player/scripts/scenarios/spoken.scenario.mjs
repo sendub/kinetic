@@ -22,7 +22,15 @@
 //   heard in the mix, held under the Esc screen and played on after it, in
 //   a game with no audio that still has the Voice volume;
 // - auto-forward waits for a line generated late, then for its length;
-// - an item with a recorded voice plays it and is never asked for.
+// - an item with a recorded voice plays it and is never asked for;
+// - streamed lines (Phase 52 item 4b): the line the reader waits for is asked
+//   for with stream: true and the lines ahead are not; its first chunk plays
+//   before the whole line arrives, the chunks play back to back (the mix
+//   has no gap or click at a seam), the whole line's arrival neither
+//   restarts nor cuts it, a reread uses the cache and asks nothing; the Esc
+//   screen holds it mid-line and it plays on from there, chunks that came
+//   meanwhile joining; leaving stops it, chunks still to come never sound;
+//   auto-forward waits for its end, never cutting it at 20 s.
 
 import {
   cpSync,
@@ -192,6 +200,9 @@ const READ_SOUND = () => {
       paused: s.paused,
       t: Math.round(s.currentTime * 1000) / 1000,
       v: Math.round(s.volume * 1000) / 1000,
+      streamed: s.streamed === true,
+      chunks: s.chunks ?? 0,
+      final: s.final === true,
     })),
   };
 };
@@ -227,6 +238,7 @@ async function requests(page) {
       voice: names[m.voiceId] ?? m.voiceId,
       text: m.text,
       priority: m.priority,
+      stream: m.stream === true,
       answered: fake.answered.includes(m.id),
       dropped: fake.dropped.includes(m.id),
     }));
@@ -687,4 +699,409 @@ async function recorded({ check, open }) {
   );
 }
 
-export const parts = [rowShown, download, asking, playback, lateLine, recorded];
+// --- streamed lines ----------------------------------------------------------
+
+/** The first item's text and its length in characters. */
+const firstText = (manifest) => manifest.items[0].text;
+
+/**
+ * The stand-in host for a streamed first line: the tone is `seconds` long
+ * (the first item's text is 181 characters), cut in `chunkSeconds` chunks,
+ * the first after `delayMs`, each next `chunkMs` later, the whole line
+ * `replyMs` after the last. Every other line is held back for good, so only
+ * the first sounds.
+ */
+function streamHost(manifest, { seconds, ...rest }) {
+  const text = firstText(manifest);
+  return {
+    ...READY,
+    secondsPerChar: seconds / [...text].length,
+    minSeconds: 0.1,
+    holdTexts: manifest.items
+      .map((it) => it.text)
+      .filter((t) => t !== undefined && t !== "" && t !== text),
+    ...rest,
+  };
+}
+
+/** In the page: how the recorded mix sounds across a streamed line (seams). */
+const READ_SEAMS = () => {
+  const { context, state } = window.__kineticTap;
+  const rate = context.sampleRate;
+  const chunks = [...state.chunks].sort((a, b) => a.frame - b.frame);
+  if (chunks.length === 0) return { ok: false, why: "nothing recorded" };
+  const first = chunks[0].frame;
+  const end = chunks.at(-1).frame + chunks.at(-1).data.length;
+  const rec = new Float32Array(end - first).fill(Number.NaN);
+  for (const chunk of chunks) rec.set(chunk.data, chunk.frame - first);
+  let from = -1;
+  let to = -1;
+  for (let n = 0; n < rec.length; n += 1) {
+    if (Math.abs(rec[n]) > 0.05) {
+      if (from < 0) from = n;
+      to = n;
+    }
+  }
+  if (from < 0) return { ok: false, why: "the mix was silent" };
+  // Inside the line's own faded ends: the tone is one sine, 0.3 high.
+  const margin = Math.round(0.03 * rate);
+  const win = Math.round(0.005 * rate);
+  let missing = 0;
+  let maxStep = 0;
+  let quietest = Number.POSITIVE_INFINITY;
+  for (let n = from + margin; n < to - margin; n += 1) {
+    if (Number.isNaN(rec[n])) missing += 1;
+    else if (!Number.isNaN(rec[n - 1])) {
+      maxStep = Math.max(maxStep, Math.abs(rec[n] - rec[n - 1]));
+    }
+  }
+  for (let n = from + margin; n + win < to - margin; n += win >> 1) {
+    let peak = 0;
+    for (let k = 0; k < win; k += 1)
+      peak = Math.max(peak, Math.abs(rec[n + k]));
+    quietest = Math.min(quietest, peak);
+  }
+  return {
+    ok: true,
+    seconds: (to - from) / rate,
+    missing,
+    maxStep: Math.round(maxStep * 10000) / 10000,
+    quietest: Math.round(quietest * 1000) / 1000,
+  };
+};
+
+/** The voice sound once it plays the first item's streamed line. */
+const streaming =
+  (id, min = 1) =>
+  (s) => {
+    const v = voiceOf(s);
+    return (
+      v !== null && v.track === id && v.streamed && !v.paused && v.chunks >= min
+    );
+  };
+
+/** A streamed line starts at its first chunk, plays gaplessly, is cached for rereads. */
+async function streamedLine({ check, open }) {
+  const { dir, manifest } = buildFolder("streamed");
+  const seconds = 3.6;
+  const { page, cdp } = await open("streamed", {
+    folder: dir,
+    closeHelp: true,
+    voiceHost: streamHost(manifest, {
+      seconds,
+      delayMs: 1500,
+      chunkSeconds: 0.5,
+      chunkMs: 300,
+      replyMs: 300,
+    }),
+  });
+  await installTap(page);
+  await startTap(page);
+  // A key that counts unlocks sound in a browser (h twice moves nothing).
+  await pressH(cdp);
+  await pressH(cdp);
+  const id = `spoken:${manifest.items[0].id}`;
+  const text = firstText(manifest);
+  const early = await waitSound(page, streaming(id), 8000);
+  const atFirst = await requests(page);
+  const sentFirst = atFirst.speaks.filter((r) => r.text === text);
+  const aheadStreamed = atFirst.speaks.filter(
+    (r) => r.text !== text && r.stream,
+  );
+  check(
+    "the reader's line is asked for with stream: true and the lines ahead of it are not; its first chunk plays on the voice sound before the whole line has arrived",
+    early.ok &&
+      sentFirst.length === 1 &&
+      sentFirst[0].stream &&
+      atFirst.speaks.length > 1 &&
+      aheadStreamed.length === 0 &&
+      !sentFirst[0].answered &&
+      voiceOf(early.s).v === 1,
+    { voice: voiceOf(early.s), asked: atFirst.speaks },
+  );
+
+  // Sample the line across the whole line's arrival: it must play on, not
+  // restart, not be replaced by the whole line.
+  const trail = [];
+  const until = Date.now() + 9000;
+  let done = null;
+  while (Date.now() < until) {
+    const sound = await readSound(page);
+    const fake = await readFakeVoice(page);
+    const v = voiceOf(sound);
+    trail.push({
+      t: v?.t ?? null,
+      track: v?.track ?? null,
+      streamed: v?.streamed ?? false,
+      chunks: v?.chunks ?? 0,
+      replied: fake.answered.length > 0,
+    });
+    if (v?.final && v.paused && v.t >= seconds - 0.2) {
+      done = v;
+      break;
+    }
+    await sleep(60);
+  }
+  await stopTap(page);
+  const seams = await page.evaluate(READ_SEAMS);
+  const afterReply = trail.filter((x) => x.replied);
+  let monotonic = true;
+  for (let k = 1; k < trail.length; k += 1) {
+    if (
+      trail[k].track === trail[k - 1].track &&
+      trail[k].t !== null &&
+      trail[k - 1].t !== null &&
+      trail[k].t < trail[k - 1].t - 0.001
+    ) {
+      monotonic = false;
+    }
+  }
+  check(
+    "the whole line's arrival neither restarts nor replaces the line playing: its position only rises, it stays the streamed line, and it plays to its end",
+    done !== null &&
+      afterReply.length > 0 &&
+      afterReply.some((x) => x.streamed && x.track === id && x.t !== null) &&
+      monotonic &&
+      trail.every((x) => x.track === null || x.track === id || x.track === ""),
+    { done, trail: trail.slice(-6) },
+  );
+  check(
+    "the chunks play back to back: the mix holds one unbroken tone for the line's length, with no gap and no click at a seam",
+    seams.ok &&
+      seams.missing === 0 &&
+      Math.abs(seams.seconds - seconds) < 0.25 &&
+      seams.quietest > 0.2 &&
+      seams.maxStep < 0.03,
+    seams,
+  );
+
+  // A reread: the line is cached whole, so it plays at once and asks nothing.
+  const beforeReread = (await requests(page)).speaks.length;
+  await pressSpace(cdp);
+  await sleep(300);
+  await wheelUntil(page, cdp, true, ON_ITEM, manifest.items[0].id, 10);
+  const again = await waitSound(
+    page,
+    (s) => {
+      const v = voiceOf(s);
+      return v !== null && v.track === id && !v.paused;
+    },
+    6000,
+  );
+  const afterReread = await requests(page);
+  check(
+    "a reread after the reply plays the cached whole line (not streamed) and sends the host nothing for it",
+    again.ok &&
+      !voiceOf(again.s).streamed &&
+      afterReread.speaks.filter((r) => r.text === text).length === 1 &&
+      afterReread.speaks.filter((r) => r.text === text && r.dropped).length ===
+        0 &&
+      afterReread.speaks.length >= beforeReread,
+    { voice: voiceOf(again.s), asked: afterReread.speaks.map((r) => r.text) },
+  );
+}
+
+/** Esc mid-line holds a streamed line and it plays on from there, with the chunks that came meanwhile. */
+async function streamedHold({ check, open }) {
+  const { dir, manifest } = buildFolder("streamed-hold");
+  const seconds = 3.6;
+  const { page, cdp } = await open("streamed-hold", {
+    folder: dir,
+    closeHelp: true,
+    voiceHost: streamHost(manifest, {
+      seconds,
+      delayMs: 400,
+      chunkSeconds: 0.5,
+      // The later chunks come while the Esc screen is up.
+      chunkMs: 500,
+      replyMs: 200,
+    }),
+  });
+  await pressH(cdp);
+  await pressH(cdp);
+  const id = `spoken:${manifest.items[0].id}`;
+  const heard = await waitSound(
+    page,
+    (s) => streaming(id, 2)(s) && voiceOf(s).t > 0.4,
+    8000,
+  );
+  await openSettings(page, cdp);
+  await sleep(150);
+  const heldA = voiceOf(await readSound(page));
+  await sleep(1500);
+  const heldB = voiceOf(await readSound(page));
+  await closeSettings(page, cdp);
+  const resumed = await waitSound(
+    page,
+    (s) => {
+      const v = voiceOf(s);
+      return v !== null && v.track === id && !v.paused && v.t > heldB.t + 0.1;
+    },
+    4000,
+  );
+  const finished = await waitSound(
+    page,
+    (s) => {
+      const v = voiceOf(s);
+      return v?.final && v.paused && v.t >= seconds - 0.2;
+    },
+    9000,
+  );
+  const r = await requests(page);
+  check(
+    "the Esc screen holds a streamed line where it stands, chunks arriving meanwhile join it, and closed it plays on from that place through every chunk to the line's end",
+    heard.ok &&
+      heldA?.paused === true &&
+      heldB?.paused === true &&
+      Math.abs(heldB.t - heldA.t) < 0.05 &&
+      heldB.chunks > heldA.chunks &&
+      resumed.ok &&
+      voiceOf(resumed.s).t < heldB.t + 1.5 &&
+      voiceOf(resumed.s).streamed &&
+      finished.ok &&
+      Math.abs(voiceOf(finished.s).t - seconds) < 0.2,
+    {
+      heldA,
+      heldB,
+      resumed: voiceOf(resumed.s),
+      finished: voiceOf(finished.s),
+    },
+  );
+  check(
+    "the held line was asked for once and the whole line's arrival changed nothing",
+    r.speaks.filter((x) => x.text === firstText(manifest)).length === 1 &&
+      r.fake.answered.length === 1,
+    r.speaks,
+  );
+}
+
+/** Leaving a streamed line stops it, and chunks still to come never sound. */
+async function streamedLeave({ check, open }) {
+  const { dir, manifest } = buildFolder("streamed-leave");
+  const { page, cdp } = await open("streamed-leave", {
+    folder: dir,
+    closeHelp: true,
+    voiceHost: streamHost(manifest, {
+      seconds: 3.6,
+      delayMs: 400,
+      chunkSeconds: 0.5,
+      chunkMs: 400,
+      replyMs: 200,
+    }),
+  });
+  await installTap(page);
+  await pressH(cdp);
+  await pressH(cdp);
+  const id = `spoken:${manifest.items[0].id}`;
+  const heard = await waitSound(
+    page,
+    (s) => streaming(id, 2)(s) && voiceOf(s).t > 0.3,
+    8000,
+  );
+  await pressSpace(cdp);
+  const stopped = await waitSound(
+    page,
+    (s) => {
+      const v = voiceOf(s);
+      return v === null || v.track !== id || v.paused;
+    },
+    2000,
+  );
+  // More chunks are still on their way (and the whole line after them).
+  await startTap(page);
+  await sleep(1600);
+  await stopTap(page);
+  const peak = await tapPeak(page);
+  const after = voiceOf(await readSound(page));
+  check(
+    "leaving the item stops the streamed line: its scheduled chunks and those still coming leave the mix silent",
+    heard.ok &&
+      stopped.ok &&
+      peak.frames > 0 &&
+      peak.peak < 0.01 &&
+      (after === null || after.track !== id || after.paused),
+    { stopped: voiceOf(stopped.s), peak, after },
+  );
+}
+
+/** Auto-forward waits for a streamed line's end, past the text hold. */
+async function streamedForward({ check, open }) {
+  const { dir, manifest } = buildFolder("streamed-forward");
+  // The item's text hold is about 10.9 s (181 characters at 60 ms); the
+  // line outlasts it.
+  const seconds = 14;
+  const { page, cdp } = await open("streamed-forward", {
+    folder: dir,
+    closeHelp: true,
+    voiceHost: streamHost(manifest, {
+      seconds,
+      delayMs: 1500,
+      chunkSeconds: 1,
+      chunkMs: 300,
+      replyMs: 200,
+    }),
+  });
+  await pressH(cdp);
+  await pressH(cdp);
+  await pressA(cdp);
+  const id = `spoken:${manifest.items[0].id}`;
+  const first = await waitSound(page, streaming(id), 8000);
+  const playing = Date.now();
+  await page
+    .waitForFunction(ON_ITEM, { timeout: 30000 }, manifest.items[1].id)
+    .catch(() => {});
+  const ms = Date.now() - playing;
+  await pressA(cdp);
+  check(
+    `auto-forward holds the item from the first chunk's start to the streamed line's end (${seconds} s later), past its text hold`,
+    first.ok && ms >= seconds * 1000 - 500 && ms <= seconds * 1000 + 2000,
+    { ms, expected: seconds * 1000 },
+  );
+}
+
+/** A streamed line is never cut off at 20 s once its first chunk plays. */
+async function streamedSlow({ check, open }) {
+  const { dir, manifest } = buildFolder("streamed-slow");
+  const { page, cdp } = await open("streamed-slow", {
+    folder: dir,
+    closeHelp: true,
+    voiceHost: streamHost(manifest, {
+      seconds: 1,
+      delayMs: 1000,
+      chunkSeconds: 0.5,
+      // The second chunk is 22 s behind the first.
+      chunkMs: 22000,
+      replyMs: 100,
+    }),
+  });
+  await pressH(cdp);
+  await pressH(cdp);
+  await pressA(cdp);
+  const id = `spoken:${manifest.items[0].id}`;
+  const first = await waitSound(page, streaming(id), 8000);
+  const playing = Date.now();
+  await page
+    .waitForFunction(ON_ITEM, { timeout: 40000 }, manifest.items[1].id)
+    .catch(() => {});
+  const ms = Date.now() - playing;
+  await pressA(cdp);
+  check(
+    "with the first chunk playing and the next 22 s away, auto-forward waits past 20 s for it and moves on at the line's end, not before",
+    first.ok && ms >= 21500 && ms <= 27000,
+    { ms },
+  );
+}
+
+export const parts = [
+  rowShown,
+  download,
+  asking,
+  playback,
+  lateLine,
+  recorded,
+  streamedLine,
+  streamedHold,
+  streamedLeave,
+  streamedForward,
+  streamedSlow,
+];

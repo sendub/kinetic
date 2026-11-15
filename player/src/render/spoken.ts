@@ -29,13 +29,31 @@
 // then until its end, measured from when it starts to play (and from each
 // restart after a menu or a hidden page held it); a line that fails gives
 // the hold up, and the item's text hold applies (machine.ts
-// `setSpokenHold`). Turning spoken lines off, or the engine leaving ready,
+// `setSpokenHold`).
+//
+// Streamed lines (Phase 52 item 4b): the line on show, when it is not
+// already asked for, is asked for with `stream: true`, so it starts at its
+// first chunk (about 1.7 s) rather than at its end; the lines ahead are not
+// (streaming costs about 1.6 times the work). A line already asked for when
+// the reader reaches it stays as it was, unstreamed: the engine takes the
+// highest priority first, so it is the line it is running or takes next,
+// and asking again would repeat work it cannot cancel (a running line
+// finishes and is cached); it plays at its answer. Chunks are decoded and
+// handed to `chunk` in order, while the reader is on the line and the
+// request stands; one that arrives after the reader left, or was dropped,
+// is ignored, and a line whose chunks were missed plays whole at its
+// answer. The answer of a streamed line only caches it (the chunks played
+// it already). While chunks are coming the line's end is unknown: its hold
+// is what the player has scheduled plus `STREAM_MORE_MS` (`started`),
+// renewed by each chunk, and exact once the final one is scheduled; the
+// 20 s wait covers only the time before the first chunk. Turning spoken lines off, or the engine leaving ready,
 // stops the line and drops every request. Turned on again, or ready again,
 // the item on show is asked for as on an arrival.
 
 import type { Item, Manifest, ManifestVoice } from "../machine/types";
 import { type Decoded, decodedBytes } from "./audiocache";
-import type { VoiceClient } from "./voiceclient";
+import { STREAM_MORE_MS } from "./spokenstream";
+import type { SpeechChunk, VoiceClient } from "./voiceclient";
 
 /** The voices a game casts (`Manifest.voices` and `narrator`). */
 export type Cast = Pick<Manifest, "voices" | "narrator">;
@@ -201,6 +219,14 @@ export interface SpokenOptions<B extends SpokenBuffer> {
   hold(index: number, untilMs: number | null): void;
   /** Play `buffer` as item `index`'s voice line. */
   play(index: number, buffer: B): void;
+  /**
+   * The next chunk, decoded, of item `index`'s streamed line, in order: the
+   * first starts the line, the rest join it back to back; `final` marks the
+   * last.
+   */
+  chunk(index: number, buffer: B, final: boolean): void;
+  /** Item `index`'s streamed line gets no more chunks (it failed short). */
+  end(index: number): void;
   /** Stop the spoken line playing, if one is. */
   stop(): void;
   /** The buffer the voice plays now, which the cache never drops. */
@@ -213,8 +239,12 @@ export interface SpokenLines<B extends SpokenBuffer> {
   arrive(index: number): void;
   /** The reader left the item (its voice stops). */
   leave(): void;
-  /** Item `index`'s line started to play, with `remaining` seconds to go. */
-  started(index: number, remaining: number): void;
+  /**
+   * Item `index`'s line started to play (or played on after a hold), with
+   * `remaining` seconds scheduled to go; `more`: a streamed line's later
+   * chunks are still to come.
+   */
+  started(index: number, remaining: number, more?: boolean): void;
   /** The Spoken lines setting changed. */
   setOn(on: boolean): void;
   /** Item `index`'s generated line, when it is kept. */
@@ -228,6 +258,16 @@ interface Request {
   /** The client's id once sent; null while its voice registers. */
   id: string | null;
   cancelled: boolean;
+  /** Asked for with `stream: true`. */
+  readonly streamed: boolean;
+  /** Its chunks' deliveries, one after the other. */
+  chain: Promise<void>;
+  /** How many chunks went to the player. */
+  chunks: number;
+  /** The player was told its final chunk, or that none more comes. */
+  closed: boolean;
+  /** Its chunks are no longer played: the reader was away, or one failed. */
+  missed: boolean;
 }
 
 export function createSpokenLines<B extends SpokenBuffer>(
@@ -292,38 +332,103 @@ export function createSpokenLines<B extends SpokenBuffer>(
     options.play(w.index, buffer);
   }
 
-  function ask(line: SpokenLine, priority: number): void {
-    const req: Request = { priority, id: null, cancelled: false };
+  /** Whether the reader is on `line`'s item and has not heard it yet, or is hearing its stream. */
+  const onShow = (line: SpokenLine): NonNullable<typeof wanted> | null => {
+    const w = wanted;
+    return w !== null && w.line?.key === line.key ? w : null;
+  };
+
+  /** Hands the player the next chunk of `line`, decoded, if the reader still waits for it. */
+  async function deliver(
+    line: SpokenLine,
+    req: Request,
+    chunk: SpeechChunk,
+  ): Promise<void> {
+    const usable = (): NonNullable<typeof wanted> | null => {
+      if (req.cancelled || req.missed || req.closed) return null;
+      const w = onShow(line);
+      if (w === null) req.missed = true; // the reader was away: the answer plays it
+      return w;
+    };
+    if (usable() === null) return;
+    let buffer: B;
+    try {
+      buffer = await options.decode(chunk.wav);
+    } catch {
+      // A hole in the line: it stops where it is, and its answer caches it.
+      const w = usable();
+      req.missed = true;
+      if (w !== null && req.chunks > 0) end(w, req);
+      return;
+    }
+    const w = usable();
+    if (w === null) return;
+    req.chunks += 1;
+    w.played = true;
+    if (chunk.final) req.closed = true;
+    options.chunk(w.index, buffer, chunk.final);
+  }
+
+  /** Tells the player `req`'s stream gets no more chunks. */
+  function end(w: NonNullable<typeof wanted>, req: Request): void {
+    if (req.closed) return;
+    req.closed = true;
+    options.end(w.index);
+  }
+
+  function ask(line: SpokenLine, priority: number, stream: boolean): void {
+    const req: Request = {
+      priority,
+      id: null,
+      cancelled: false,
+      streamed: stream,
+      chain: Promise.resolve(),
+      chunks: 0,
+      closed: false,
+      missed: false,
+    };
     outstanding.set(line.key, req);
     const done = (): boolean => {
       if (outstanding.get(line.key) === req) outstanding.delete(line.key);
       return !req.cancelled;
     };
+    const onChunk = (chunk: SpeechChunk): void => {
+      req.chain = req.chain.then(() => deliver(line, req, chunk));
+    };
     voiceId(line.voice)
-      .then((id) => {
+      .then(async (id) => {
         if (req.cancelled) return null;
-        const asked = client.speak(id, line.text, priority);
+        const asked = client.speak(
+          id,
+          line.text,
+          priority,
+          stream ? onChunk : undefined,
+        );
         req.id = asked.id;
-        return asked.result;
+        const speech = await asked.result;
+        await req.chain; // the chunks first, then the whole line
+        return options.decode(speech.wav);
       })
-      .then((speech) => (speech === null ? null : options.decode(speech.wav)))
       .then(
         (buffer) => {
           if (buffer === null) return;
           done();
           put(line.key, buffer);
-          const w = wanted;
-          if (w !== null && !w.played && w.line?.key === line.key) {
-            start(w, buffer);
-          }
+          const w = onShow(line);
+          if (w === null) return;
+          if (!w.played) start(w, buffer);
+          // Its chunks played it: only the end of a stream cut short is left.
+          else if (req.chunks > 0 && !req.missed) end(w, req);
         },
-        () => {
+        async () => {
+          await req.chain;
           if (!done()) return;
-          const w = wanted;
-          // The line on show failed: auto-forward stops waiting for it.
-          if (w !== null && !w.played && w.line?.key === line.key) {
-            options.hold(w.index, null);
-          }
+          const w = onShow(line);
+          if (w === null) return;
+          // The line on show failed: auto-forward stops waiting for it,
+          // unless chunks are playing, which hold to their end.
+          if (!w.played) options.hold(w.index, null);
+          else if (req.chunks > 0 && !req.missed) end(w, req);
         },
       );
   }
@@ -366,7 +471,9 @@ export function createSpokenLines<B extends SpokenBuffer>(
     for (const key of drop) cancel(key);
     for (const { key, priority } of speak) {
       const line = lines.get(key);
-      if (line !== undefined) ask(line, priority);
+      if (line !== undefined) {
+        ask(line, priority, line.key === wanted?.line?.key);
+      }
     }
   }
 
@@ -406,22 +513,34 @@ export function createSpokenLines<B extends SpokenBuffer>(
     }
   }
 
+  /** The reader is done with `w`'s line: a stream of it still coming is no longer played. */
+  function abandon(w: NonNullable<typeof wanted>): void {
+    if (w.line === null) return;
+    const req = outstanding.get(w.line.key);
+    if (req?.streamed === true) req.missed = true;
+  }
+
   const unsubscribe = client.subscribe(follow);
 
   return {
     arrive(index) {
       if (wanted?.index === index) return; // applied again: already its own
+      if (wanted !== null) abandon(wanted);
       wanted = { index, line: null, played: false };
       if (active) want(wanted);
     },
     leave() {
       const w = wanted;
+      if (w !== null) abandon(w);
       wanted = null;
       if (w?.line != null) options.hold(w.index, null);
     },
-    started(index, remaining) {
+    started(index, remaining, more = false) {
       if (wanted?.index !== index || wanted.line === null) return;
-      options.hold(index, options.now() + remaining * 1000);
+      options.hold(
+        index,
+        options.now() + remaining * 1000 + (more ? STREAM_MORE_MS : 0),
+      );
     },
     setOn(next) {
       on = next;

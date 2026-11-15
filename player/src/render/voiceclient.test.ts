@@ -212,4 +212,145 @@ describe("createVoiceClient", () => {
     });
     expect(() => client.install()).not.toThrow();
   });
+  describe("streamed lines", () => {
+    it("asks for chunks with stream: true only when given a chunk listener", () => {
+      const { sent, client, event } = setup();
+      event({ event: "status", ...READY });
+      const plain = client.speak("v-7", "Plain.", 3);
+      const streamed = client.speak("v-7", "Streamed.", 3, () => undefined);
+      const [a, b] = sent.slice(-2);
+      expect(a?.id).toBe(plain.id);
+      expect("stream" in (a ?? {})).toBe(false);
+      expect(b).toEqual({
+        type: "voice",
+        op: "speak",
+        id: streamed.id,
+        voiceId: "v-7",
+        text: "Streamed.",
+        priority: 3,
+        stream: true,
+      });
+    });
+
+    it("hands each chunk to its line's listener in order, then settles it with the whole line", async () => {
+      const { client, event } = setup();
+      event({ event: "status", ...READY });
+      const heard: unknown[] = [];
+      const line = client.speak("v-7", "Hello.", 3, (c) => heard.push(c));
+      event({
+        event: "chunk",
+        id: line.id,
+        index: 0,
+        wav: "AAA=",
+        seconds: 0.8,
+        final: false,
+      });
+      event({
+        event: "chunk",
+        id: line.id,
+        index: 1,
+        wav: "BBB=",
+        seconds: 1.2,
+        final: true,
+      });
+      expect(heard).toEqual([
+        { index: 0, wav: "AAA=", seconds: 0.8, final: false },
+        { index: 1, wav: "BBB=", seconds: 1.2, final: true },
+      ]);
+      event({ event: "speech", id: line.id, wav: "WHOLE", seconds: 2 });
+      await expect(line.result).resolves.toEqual({ wav: "WHOLE", seconds: 2 });
+    });
+
+    it("ignores a chunk for an id it is not waiting on, one for a request with no listener, and one for a voice", () => {
+      const { client, event } = setup();
+      event({ event: "status", ...READY });
+      const heard: unknown[] = [];
+      const plain = client.speak("v-7", "Plain.", 3);
+      const voice = client.register("QUJD", "wav");
+      void voice.catch(() => undefined);
+      void plain.result.catch(() => undefined);
+      const chunk = (id: unknown) => ({
+        event: "chunk",
+        id,
+        index: 0,
+        wav: "AAA=",
+        seconds: 1,
+        final: false,
+      });
+      event(chunk("nobody"));
+      event(chunk(plain.id));
+      event(chunk(undefined));
+      event(chunk(7));
+      expect(heard).toEqual([]);
+      client.speak("v-7", "S.", 3, (c) => heard.push(c));
+      event(chunk("k1"));
+      expect(heard).toEqual([]);
+    });
+
+    it("ignores chunks that come after the line was dropped, answered or failed", async () => {
+      const { client, event } = setup();
+      event({ event: "status", ...READY });
+      const heard: unknown[] = [];
+      const listener = (c: unknown) => heard.push(c);
+      const dropped = client.speak("v-7", "A.", 3, listener);
+      void dropped.result.catch(() => undefined);
+      client.drop(dropped.id);
+      const answered = client.speak("v-7", "B.", 3, listener);
+      event({ event: "speech", id: answered.id, wav: "W", seconds: 1 });
+      await answered.result;
+      const failed = client.speak("v-7", "C.", 3, listener);
+      void failed.result.catch(() => undefined);
+      event({ event: "error", id: failed.id, code: "x", message: "no" });
+      for (const id of [dropped.id, answered.id, failed.id]) {
+        event({
+          event: "chunk",
+          id,
+          index: 0,
+          wav: "AAA=",
+          seconds: 1,
+          final: false,
+        });
+      }
+      expect(heard).toEqual([]);
+    });
+
+    it("ignores a chunk whose fields are wrong, and the line is still answered", async () => {
+      const { client, event } = setup();
+      event({ event: "status", ...READY });
+      const heard: unknown[] = [];
+      const line = client.speak("v-7", "Hello.", 3, (c) => heard.push(c));
+      const bad = [
+        { index: "0", wav: "A", seconds: 1, final: false },
+        { index: 0, wav: 5, seconds: 1, final: false },
+        { index: 0, wav: "A", seconds: "1", final: false },
+        { index: 0, wav: "A", seconds: 1, final: "no" },
+        { index: -1, wav: "A", seconds: 1, final: false },
+      ];
+      for (const fields of bad)
+        event({ event: "chunk", id: line.id, ...fields });
+      expect(heard).toEqual([]);
+      event({ event: "speech", id: line.id, wav: "W", seconds: 1 });
+      await expect(line.result).resolves.toEqual({ wav: "W", seconds: 1 });
+    });
+
+    it("keeps a throwing listener from breaking the client", async () => {
+      const { client, event } = setup();
+      event({ event: "status", ...READY });
+      const line = client.speak("v-7", "Hello.", 3, () => {
+        throw new Error("listener");
+      });
+      expect(() =>
+        event({
+          event: "chunk",
+          id: line.id,
+          index: 0,
+          wav: "A",
+          seconds: 1,
+          final: false,
+        }),
+      ).not.toThrow();
+      event({ event: "speech", id: line.id, wav: "W", seconds: 1 });
+      await expect(line.result).resolves.toEqual({ wav: "W", seconds: 1 });
+    });
+  });
 });

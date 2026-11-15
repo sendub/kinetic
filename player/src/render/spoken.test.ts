@@ -11,7 +11,8 @@ import {
   spokenLine,
   TOP_PRIORITY,
 } from "./spoken";
-import type { Speech, VoiceStatus } from "./voiceclient";
+import { STREAM_MORE_MS } from "./spokenstream";
+import type { Speech, SpeechChunk, VoiceStatus } from "./voiceclient";
 
 /** The last element of `list`. */
 const last = <T>(list: readonly T[]): T | undefined => list[list.length - 1];
@@ -181,6 +182,10 @@ interface Asked {
   voiceId: string;
   text: string;
   priority: number;
+  /** Asked for streamed: the listener the chunks go to. */
+  onChunk: ((chunk: SpeechChunk) => void) | undefined;
+  /** The host sends a chunk (whoever is listening gets it). */
+  chunk(chunk: SpeechChunk): void;
   resolve(speech: Speech): void;
   reject(error: Error): void;
 }
@@ -211,7 +216,12 @@ class FakeClient {
       ? Promise.reject(new Error("bad clip"))
       : Promise.resolve(`voice:${data}`);
   }
-  speak(voiceId: string, text: string, priority: number) {
+  speak(
+    voiceId: string,
+    text: string,
+    priority: number,
+    onChunk?: (chunk: SpeechChunk) => void,
+  ) {
     const id = `s${String(this.asked.length + 1)}`;
     let resolve: (speech: Speech) => void = () => {};
     let reject: (error: Error) => void = () => {};
@@ -225,6 +235,8 @@ class FakeClient {
       voiceId,
       text,
       priority,
+      onChunk,
+      chunk: (chunk) => onChunk?.(chunk),
       resolve: (speech) => {
         asked.answered = true;
         resolve(speech);
@@ -268,14 +280,22 @@ interface Buffer {
 /** Lets every promise callback queued so far run. */
 async function flush(): Promise<void> {
   for (let n = 0; n < 20; n += 1) await Promise.resolve();
+  await new Promise((resolve) => setTimeout(resolve, 2));
+  for (let n = 0; n < 20; n += 1) await Promise.resolve();
 }
 
 function setup({
   on = true,
   capBytes,
+  decodeMs = {},
+  failDecode = [],
 }: {
   on?: boolean;
   capBytes?: number;
+  /** How long decoding a WAV takes, by its text (ms; default 0). */
+  decodeMs?: Record<string, number>;
+  /** WAVs whose decoding fails. */
+  failDecode?: string[];
 } = {}) {
   const client = new FakeClient();
   let clock = 1000;
@@ -283,24 +303,37 @@ function setup({
   const played: [number, Buffer][] = [];
   let stops = 0;
   let playing: Buffer | null = null;
+  const chunks: [number, Buffer, boolean][] = [];
+  const ends: number[] = [];
   const lines = createSpokenLines<Buffer>({
     items: ITEMS,
     cast: CAST,
     client,
     on,
     clip: (file) => Promise.resolve(`b64:${file}`),
-    decode: (wav) =>
-      Promise.resolve({
+    decode: (wav) => {
+      const buffer = {
         duration: Number(wav.split(":")[1]),
         length: 1000,
         numberOfChannels: 1,
         from: wav,
-      }),
+      };
+      if (failDecode.includes(wav)) return Promise.reject(new Error("bad"));
+      const ms = decodeMs[wav];
+      if (ms === undefined) return Promise.resolve(buffer);
+      return new Promise((resolve) => setTimeout(() => resolve(buffer), ms));
+    },
     now: () => clock,
     hold: (index, until) => holds.push([index, until]),
     play: (index, buffer) => {
       played.push([index, buffer]);
       playing = buffer;
+    },
+    chunk: (index, buffer, final) => {
+      chunks.push([index, buffer, final]);
+    },
+    end: (index) => {
+      ends.push(index);
     },
     stop: () => {
       stops += 1;
@@ -316,6 +349,8 @@ function setup({
     lines,
     holds,
     played,
+    chunks,
+    ends,
     answer,
     stops: () => stops,
     tick: (ms: number) => {
@@ -520,5 +555,263 @@ describe("createSpokenLines: asking, playing and holding", () => {
     expect(t.lines.cached(0)?.from).toBe("One.:2.5");
     expect(t.lines.cached(1)).toBeUndefined();
     expect(t.lines.cached(6)?.from).toBe("Six.:2.5");
+  });
+});
+
+describe("streamed lines: the line the reader waits for comes in chunks", () => {
+  const chunk = (
+    text: string,
+    index: number,
+    seconds: number,
+    final = false,
+  ): SpeechChunk => ({
+    index,
+    wav: `${text}#${String(index)}:${String(seconds)}`,
+    seconds,
+    final,
+  });
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+  it("asks for the line on show streamed, and the lines ahead of it not", async () => {
+    const t = setup();
+    t.lines.arrive(0);
+    await flush();
+    expect(t.client.line("One.").onChunk).toBeTypeOf("function");
+    for (const text of ["Two.", "Three.", "Six."]) {
+      expect(t.client.line(text).onChunk).toBeUndefined();
+    }
+  });
+
+  it("keeps a line asked for ahead when the reader reaches it: it is the one the engine has running or takes next, and asking again would repeat work it cannot cancel", async () => {
+    const t = setup();
+    t.lines.arrive(0);
+    await flush();
+    t.lines.leave();
+    t.lines.arrive(1);
+    await flush();
+    expect(t.client.asked.filter((a) => a.text === "Two.")).toHaveLength(1);
+    expect(t.client.line("Two.").onChunk).toBeUndefined();
+    t.answer("Two.");
+    await flush();
+    expect(t.played.map(([i, b]) => [i, b.from])).toEqual([[1, "Two.:2.5"]]);
+    expect(t.chunks).toEqual([]);
+  });
+
+  it("asks a line again, streamed, when it comes back after a drop", async () => {
+    const t = setup();
+    t.lines.arrive(0);
+    await flush();
+    t.lines.leave();
+    t.lines.arrive(6); // a jump drops One., Two., Three.
+    await flush();
+    t.lines.leave();
+    t.lines.arrive(0);
+    await flush();
+    const ones = t.client.asked.filter((a) => a.text === "One.");
+    expect(ones).toHaveLength(2);
+    expect(ones[1]?.onChunk).toBeTypeOf("function");
+  });
+
+  it("starts the line from its first chunk, before the whole line comes, and hands later chunks on in order", async () => {
+    const t = setup();
+    t.lines.arrive(0);
+    await flush();
+    const one = t.client.line("One.");
+    one.chunk(chunk("One.", 0, 0.8));
+    await flush();
+    expect(t.chunks.map(([i, b, f]) => [i, b.from, f])).toEqual([
+      [0, "One.#0:0.8", false],
+    ]); // [item index, the chunk, final]
+    expect(t.played).toEqual([]);
+    one.chunk(chunk("One.", 1, 1.2));
+    one.chunk(chunk("One.", 2, 0.5, true));
+    await flush();
+    expect(t.chunks.map(([, b, f]) => [b.from, f])).toEqual([
+      ["One.#0:0.8", false],
+      ["One.#1:1.2", false],
+      ["One.#2:0.5", true],
+    ]);
+  });
+
+  it("keeps the chunks in order when a later one decodes first", async () => {
+    const t = setup({
+      decodeMs: { "One.#0:0.8": 30, "One.#1:1.2": 0, "One.#2:0.5": 5 },
+    });
+    t.lines.arrive(0);
+    await flush();
+    const one = t.client.line("One.");
+    one.chunk(chunk("One.", 0, 0.8));
+    one.chunk(chunk("One.", 1, 1.2));
+    one.chunk(chunk("One.", 2, 0.5, true));
+    await sleep(80);
+    expect(t.chunks.map(([, b]) => b.from)).toEqual([
+      "One.#0:0.8",
+      "One.#1:1.2",
+      "One.#2:0.5",
+    ]);
+  });
+
+  it("caches the whole line when its answer comes, without starting it again", async () => {
+    const t = setup();
+    t.lines.arrive(0);
+    await flush();
+    const one = t.client.line("One.");
+    one.chunk(chunk("One.", 0, 0.8));
+    one.chunk(chunk("One.", 1, 1.2, true));
+    await flush();
+    t.answer("One.", 2);
+    await flush();
+    expect(t.played).toEqual([]);
+    expect(t.chunks).toHaveLength(2);
+    expect(t.ends).toEqual([]);
+    expect(t.lines.cached(0)?.from).toBe("One.:2");
+  });
+
+  it("plays a reread from the cache whole, with no new request", async () => {
+    const t = setup();
+    t.lines.arrive(0);
+    await flush();
+    const one = t.client.line("One.");
+    one.chunk(chunk("One.", 0, 0.8, true));
+    await flush();
+    t.answer("One.", 0.8);
+    await flush();
+    t.lines.leave();
+    const asked = t.client.asked.length;
+    t.lines.arrive(0);
+    await flush();
+    expect(t.played.map(([i, b]) => [i, b.from])).toEqual([[0, "One.:0.8"]]);
+    expect(t.client.asked.filter((a) => a.text === "One.")).toHaveLength(1);
+    expect(t.client.asked.length).toBeGreaterThanOrEqual(asked);
+  });
+
+  it("ends the stream where it is when the answer comes without a final chunk", async () => {
+    const t = setup();
+    t.lines.arrive(0);
+    await flush();
+    const one = t.client.line("One.");
+    one.chunk(chunk("One.", 0, 0.8));
+    await flush();
+    t.answer("One.", 2);
+    await flush();
+    expect(t.ends).toEqual([0]);
+    expect(t.played).toEqual([]);
+  });
+
+  it("plays a cached line's answer alone as a whole line, since no chunk came", async () => {
+    const t = setup();
+    t.lines.arrive(0);
+    await flush();
+    t.answer("One.", 3);
+    await flush();
+    expect(t.chunks).toEqual([]);
+    expect(t.played.map(([i, b]) => [i, b.from])).toEqual([[0, "One.:3"]]);
+  });
+
+  it("gives the hold up on a line that fails before any chunk, and ends the stream of one that fails after", async () => {
+    const t = setup();
+    t.lines.arrive(0);
+    await flush();
+    t.client.line("One.").reject(new Error("engine"));
+    await flush();
+    expect(last(t.holds)).toEqual([0, null]);
+    expect(t.ends).toEqual([]);
+
+    const u = setup();
+    u.lines.arrive(0);
+    await flush();
+    u.client.line("One.").chunk(chunk("One.", 0, 0.8));
+    await flush();
+    const holds = u.holds.length;
+    u.client.line("One.").reject(new Error("engine"));
+    await flush();
+    expect(u.ends).toEqual([0]);
+    expect(u.holds).toHaveLength(holds); // the chunks played hold to their end
+  });
+
+  it("stops at a chunk that will not decode, and still caches the line from its answer", async () => {
+    const t = setup({ failDecode: ["One.#1:1.2"] });
+    t.lines.arrive(0);
+    await flush();
+    const one = t.client.line("One.");
+    one.chunk(chunk("One.", 0, 0.8));
+    one.chunk(chunk("One.", 1, 1.2));
+    one.chunk(chunk("One.", 2, 0.5, true));
+    await flush();
+    expect(t.chunks.map(([, b]) => b.from)).toEqual(["One.#0:0.8"]);
+    expect(t.ends).toEqual([0]);
+    t.answer("One.", 2.5);
+    await flush();
+    expect(t.lines.cached(0)?.from).toBe("One.:2.5");
+    expect(t.played).toEqual([]);
+  });
+
+  it("ignores chunks for a line the reader moved past or jumped away from (it was dropped)", async () => {
+    const t = setup();
+    t.lines.arrive(0);
+    await flush();
+    const one = t.client.line("One.");
+    t.lines.leave();
+    t.lines.arrive(6);
+    await flush();
+    expect(t.client.dropped).toContain(one.id);
+    one.chunk(chunk("One.", 0, 0.8));
+    await flush();
+    expect(t.chunks).toEqual([]);
+  });
+
+  it("ignores chunks after the reader left, and plays the whole line from its answer on return", async () => {
+    const t = setup();
+    t.lines.arrive(0);
+    await flush();
+    const one = t.client.line("One.");
+    one.chunk(chunk("One.", 0, 0.8));
+    await flush();
+    t.lines.leave();
+    one.chunk(chunk("One.", 1, 1.2));
+    await flush();
+    t.lines.arrive(0);
+    await flush();
+    one.chunk(chunk("One.", 2, 0.5, true));
+    await flush();
+    expect(t.chunks.map(([, b]) => b.from)).toEqual(["One.#0:0.8"]);
+    t.answer("One.", 2.5);
+    await flush();
+    expect(t.played.map(([i, b]) => [i, b.from])).toEqual([[0, "One.:2.5"]]);
+  });
+
+  it("ignores chunks once spoken lines are turned off", async () => {
+    const t = setup();
+    t.lines.arrive(0);
+    await flush();
+    const one = t.client.line("One.");
+    t.lines.setOn(false);
+    one.chunk(chunk("One.", 0, 0.8));
+    await flush();
+    expect(t.chunks).toEqual([]);
+  });
+
+  it("holds auto-forward to the end of what is scheduled and a wait for more while chunks are still coming, and to the exact end once the line is whole", async () => {
+    const t = setup();
+    t.lines.arrive(0);
+    await flush();
+    t.tick(2000);
+    t.lines.started(0, 0.8, true);
+    expect(last(t.holds)).toEqual([0, 3000 + 800 + STREAM_MORE_MS]);
+    t.tick(500);
+    t.lines.started(0, 2, true); // a chunk joined: 2 s scheduled
+    expect(last(t.holds)).toEqual([0, 3500 + 2000 + STREAM_MORE_MS]);
+    t.lines.started(0, 1.5, false); // the final chunk is scheduled
+    expect(last(t.holds)).toEqual([0, 3500 + 1500]);
+  });
+
+  it("keeps the 20 s wait only for a line with nothing arrived: a streamed line past 20 s is held to its own end", async () => {
+    const t = setup();
+    t.lines.arrive(0);
+    await flush();
+    expect(last(t.holds)).toEqual([0, 1000 + SPOKEN_WAIT_MS]);
+    t.tick(15_000);
+    t.lines.started(0, 3, true);
+    expect(last(t.holds)?.[1]).toBeGreaterThan(1000 + SPOKEN_WAIT_MS);
   });
 });

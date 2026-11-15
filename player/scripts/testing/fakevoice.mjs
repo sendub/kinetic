@@ -17,12 +17,26 @@
 // `drop` cancels a line not yet answered and answers `dropped`. A text in
 // `holdTexts` is not answered until `release(text)` (then after the delay).
 //
+// A `speak` with `stream: true` is answered as the helper does
+// (apps/voice/README.md): the line's tone is cut into chunks, `chunk` events
+// `{ event: "chunk", id, index, wav, seconds, final }` the first after the
+// delay, each later one `chunkMs` after the one before, and then the usual
+// `speech` with the whole line `replyMs` after the last chunk. The tone is
+// one continuous sine across the chunks (only the line's ends are faded), so
+// a tap of the mix hears a gap or a click at a seam. The chunks are
+// `chunkSeconds` long (the last takes what is left). A text in `cachedTexts`
+// (or, with the `cache` option, one answered before) is answered at once
+// (after `cachedMs`) with the `speech` alone, `cached: true`, streamed or
+// not; a line already running when dropped finishes and answers (the page
+// ignores it), as the helper's does.
+//
 // Everything is in `window.__fakeVoice`, which a test reads and changes
 // with page.evaluate: `messages` (every message the page sent, as JSON
 // round-trips it), `events` (every event it gave the page), `answered` and
 // `dropped` (speak ids), `voices` (voice id -> { format, bytes, text }),
 // and the settings above, live (`delayMs`, `delays`, `failInstalls`,
-// `failTexts`, `holdTexts`), and `release(text)`.
+// `failTexts`, `holdTexts`, `chunkSeconds`, `chunkMs`, `replyMs`, `cachedMs`,
+// `cachedTexts`), and `release(text)`.
 
 /** The page script; pass it to evaluateOnNewDocument with its options. */
 export const FAKE_VOICE_HOST = (options = {}) => {
@@ -36,6 +50,11 @@ export const FAKE_VOICE_HOST = (options = {}) => {
     minSeconds: 0.6,
     failInstalls: 0,
     holdTexts: [],
+    chunkSeconds: 0.5,
+    chunkMs: 100,
+    replyMs: 50,
+    cachedMs: 5,
+    cache: false,
     kind: "mac-app",
     display: "window",
     ...options,
@@ -54,6 +73,11 @@ export const FAKE_VOICE_HOST = (options = {}) => {
     failInstalls: o.failInstalls,
     failTexts: [],
     holdTexts: [...o.holdTexts],
+    chunkSeconds: o.chunkSeconds,
+    chunkMs: o.chunkMs,
+    replyMs: o.replyMs,
+    cachedMs: o.cachedMs,
+    cachedTexts: [],
     release(text) {
       fake.holdTexts = fake.holdTexts.filter((t) => t !== text);
       for (const [id, m] of held) {
@@ -119,10 +143,22 @@ export const FAKE_VOICE_HOST = (options = {}) => {
     }, 100);
   };
 
-  /** A tone `seconds` long: a 24 kHz mono 16-bit WAV, base64. */
-  const wav = (seconds) => {
-    const rate = 24000;
-    const n = Math.round(seconds * rate);
+  const RATE = 24000;
+  /** A tone `seconds` long at 220 Hz, 16-bit samples, faded in and out at its ends. */
+  const tone = (seconds) => {
+    const n = Math.round(seconds * RATE);
+    const pcm = new Int16Array(n);
+    const ramp = RATE * 0.01;
+    for (let i = 0; i < n; i += 1) {
+      const edge = Math.min(1, i / ramp, (n - 1 - i) / ramp);
+      const v = 0.3 * edge * Math.sin((2 * Math.PI * 220 * i) / RATE);
+      pcm[i] = Math.round(v * 32767);
+    }
+    return pcm;
+  };
+  /** 16-bit samples as a 24 kHz mono WAV, base64. */
+  const wavOf = (pcm) => {
+    const n = pcm.length;
     const bytes = new Uint8Array(44 + n * 2);
     const view = new DataView(bytes.buffer);
     const text = (at, s) => {
@@ -136,25 +172,19 @@ export const FAKE_VOICE_HOST = (options = {}) => {
     view.setUint32(16, 16, true);
     view.setUint16(20, 1, true);
     view.setUint16(22, 1, true);
-    view.setUint32(24, rate, true);
-    view.setUint32(28, rate * 2, true);
+    view.setUint32(24, RATE, true);
+    view.setUint32(28, RATE * 2, true);
     view.setUint16(32, 2, true);
     view.setUint16(34, 16, true);
     text(36, "data");
     view.setUint32(40, n * 2, true);
-    const ramp = rate * 0.01;
-    for (let i = 0; i < n; i += 1) {
-      const edge = Math.min(1, i / ramp, (n - 1 - i) / ramp);
-      const v = 0.3 * edge * Math.sin((2 * Math.PI * 220 * i) / rate);
-      view.setInt16(44 + i * 2, Math.round(v * 32767), true);
-    }
+    for (let i = 0; i < n; i += 1) view.setInt16(44 + i * 2, pcm[i], true);
     let out = "";
     for (let i = 0; i < bytes.length; i += 0x8000) {
       out += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
     }
     return btoa(out);
   };
-
   const later = (run, ms) => setTimeout(run, ms);
   const handle = (m) => {
     switch (m.op) {
@@ -195,9 +225,10 @@ export const FAKE_VOICE_HOST = (options = {}) => {
           later(() => emit({ event: "dropped", id: m.id }), 5);
           return;
         }
-        const timer = pending.get(m.id);
-        if (timer === undefined) return;
-        clearTimeout(timer);
+        const run = pending.get(m.id);
+        // A line already running finishes, as the helper's does.
+        if (run === undefined || run.started) return;
+        for (const timer of run.timers) clearTimeout(timer);
         pending.delete(m.id);
         fake.dropped.push(m.id);
         later(() => emit({ event: "dropped", id: m.id }), 5);
@@ -206,28 +237,78 @@ export const FAKE_VOICE_HOST = (options = {}) => {
     }
   };
 
-  /** Answers speak `m` after its delay (an error for a failing text). */
+  /** Answers speak `m` (see the header): whole, in chunks, or from the cache. */
   function answerLater(m) {
-    const delay = fake.delays[m.text] ?? fake.delayMs;
-    const timer = later(() => {
+    const run = { timers: [], started: false, failed: false };
+    const at = (ms, fn) => {
+      run.timers.push(later(fn, ms));
+    };
+    pending.set(m.id, run);
+    const seconds = Math.max(
+      o.minSeconds,
+      [...m.text].length * o.secondsPerChar,
+    );
+    const reply = (extra = {}) => {
       pending.delete(m.id);
-      if (fake.failTexts.includes(m.text)) {
-        emit({
-          event: "error",
-          id: m.id,
-          code: "engine",
-          message: "The engine could not voice that line.",
-        });
-        return;
-      }
       fake.answered.push(m.id);
-      const seconds = Math.max(
-        o.minSeconds,
-        [...m.text].length * o.secondsPerChar,
-      );
-      emit({ event: "speech", id: m.id, wav: wav(seconds), seconds });
-    }, delay);
-    pending.set(m.id, timer);
+      if (o.cache && !fake.cachedTexts.includes(m.text)) {
+        fake.cachedTexts.push(m.text);
+      }
+      emit({
+        event: "speech",
+        id: m.id,
+        wav: wavOf(tone(seconds)),
+        seconds,
+        ...extra,
+      });
+    };
+    if (fake.cachedTexts.includes(m.text)) {
+      at(fake.cachedMs, () => reply({ genSeconds: 0, cached: true }));
+      return;
+    }
+    const delay = fake.delays[m.text] ?? fake.delayMs;
+    const fail = () => {
+      pending.delete(m.id);
+      emit({
+        event: "error",
+        id: m.id,
+        code: "engine",
+        message: "The engine could not voice that line.",
+      });
+    };
+    if (m.stream !== true) {
+      at(delay, () => (fake.failTexts.includes(m.text) ? fail() : reply()));
+      return;
+    }
+    // Streamed: one tone across the chunks, cut at `chunkSeconds`.
+    const whole = tone(seconds);
+    const size = Math.max(1, Math.round(fake.chunkSeconds * RATE));
+    const count = Math.max(1, Math.ceil(whole.length / size));
+    for (let index = 0; index < count; index += 1) {
+      at(delay + index * fake.chunkMs, () => {
+        run.started = true;
+        if (run.failed) return;
+        if (fake.failTexts.includes(m.text)) {
+          run.failed = true;
+          fail();
+          return;
+        }
+        const part = whole.slice(index * size, (index + 1) * size);
+        emit({
+          event: "chunk",
+          id: m.id,
+          index,
+          wav: wavOf(part),
+          seconds: part.length / RATE,
+          final: index === count - 1,
+        });
+      });
+    }
+    at(delay + (count - 1) * fake.chunkMs + fake.replyMs, () => {
+      if (!run.failed) {
+        reply({ genSeconds: 1, cached: false, firstSeconds: delay / 1000 });
+      }
+    });
   }
 
   const host = Object.freeze({
@@ -256,7 +337,9 @@ export const readFakeVoice = (page) =>
       voices: f.voices,
       state: f.state,
       events: f.events.map((e) =>
-        e.event === "speech" ? { ...e, wav: e.wav.length } : e,
+        e.event === "speech" || e.event === "chunk"
+          ? { ...e, wav: e.wav.length }
+          : e,
       ),
     };
   });

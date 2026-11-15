@@ -17,6 +17,15 @@
 // `{ event: "dropped", id }`. An event the page cannot read, or for an id it
 // is not waiting on, is ignored.
 //
+// A line asked for with `stream: true` (a `speak` given a chunk listener)
+// is answered in parts first: `{ event: "chunk", id, index, wav, seconds,
+// final }`, each a WAV (base64) of the next stretch of the line, to be
+// played back to back, the last with `final`; then the usual `speech` with
+// the whole line. A line the engine has cached answers with the `speech`
+// alone, so a page plays either the chunks or the answer's WAV. A chunk
+// for an id not waiting (a line dropped, answered or failed) or one with no
+// listener is ignored.
+//
 // Each request gets an id of its own and a promise its answer settles. A
 // request still waiting when the status leaves `ready` (a removal, an error,
 // the engine restarting) is rejected, as the host forgets its voices then.
@@ -53,6 +62,16 @@ export interface Speech {
   readonly seconds: number;
 }
 
+/** One chunk of a streamed line: a WAV (base64) and its length in seconds. */
+export interface SpeechChunk {
+  /** Counts from 0 in the order to play. */
+  readonly index: number;
+  readonly wav: string;
+  readonly seconds: number;
+  /** The line's last chunk. */
+  readonly final: boolean;
+}
+
 export interface VoiceClient {
   /** The latest status the host gave; null before the first. */
   status(): VoiceStatus | null;
@@ -63,11 +82,17 @@ export interface VoiceClient {
   remove(): void;
   /** Registers a voice; resolves with the host's id for it. */
   register(data: string, format: string, text?: string): Promise<string>;
-  /** Asks for a line; `id` is what `drop` takes. */
+  /**
+   * Asks for a line; `id` is what `drop` takes. With `onChunk` the line is
+   * asked for streamed (`stream: true`, about 1.6 times the work): each
+   * chunk goes to it as it arrives, before the promise settles with the
+   * whole line.
+   */
   speak(
     voiceId: string,
     text: string,
     priority: number,
+    onChunk?: (chunk: SpeechChunk) => void,
   ): { readonly id: string; readonly result: Promise<Speech> };
   /** Drops a line: the host is told, and its promise rejects at once. */
   drop(id: string): void;
@@ -110,6 +135,8 @@ interface Waiting {
   reject(error: Error): void;
   /** What its answer must carry to settle it. */
   readonly kind: "voice" | "speech";
+  /** A streamed line's chunks go here. */
+  readonly onChunk?: (chunk: SpeechChunk) => void;
 }
 
 export function createVoiceClient(
@@ -173,6 +200,27 @@ export function createVoiceClient(
           } else w.reject(new Error("the host's speech answer is unreadable"));
         });
         return;
+      case "chunk": {
+        const w = typeof event.id === "string" ? waiting.get(event.id) : null;
+        const { index, wav, seconds, final } = event;
+        if (w?.kind !== "speech" || w.onChunk === undefined) return;
+        if (
+          !finite(index) ||
+          !Number.isInteger(index) ||
+          index < 0 ||
+          typeof wav !== "string" ||
+          !finite(seconds) ||
+          typeof final !== "boolean"
+        ) {
+          return;
+        }
+        try {
+          w.onChunk({ index, wav, seconds, final });
+        } catch {
+          // A listener's failure leaves the client as it is.
+        }
+        return;
+      }
       case "error":
         settle(event.id, (w) =>
           w.reject(
@@ -192,7 +240,10 @@ export function createVoiceClient(
   win.__kineticVoice = receive;
 
   /** A request: its id, and a promise its answer settles. */
-  function request<T>(kind: Waiting["kind"]): {
+  function request<T>(
+    kind: Waiting["kind"],
+    onChunk?: (chunk: SpeechChunk) => void,
+  ): {
     id: string;
     result: Promise<T>;
   } {
@@ -201,6 +252,7 @@ export function createVoiceClient(
     const result = new Promise<T>((resolve, reject) => {
       waiting.set(id, {
         kind,
+        ...(onChunk === undefined ? {} : { onChunk }),
         resolve: resolve as (value: unknown) => void,
         reject,
       });
@@ -231,9 +283,17 @@ export function createVoiceClient(
       });
       return result;
     },
-    speak(voiceId, text, priority) {
-      const { id, result } = request<Speech>("speech");
-      post({ type: "voice", op: "speak", id, voiceId, text, priority });
+    speak(voiceId, text, priority, onChunk) {
+      const { id, result } = request<Speech>("speech", onChunk);
+      post({
+        type: "voice",
+        op: "speak",
+        id,
+        voiceId,
+        text,
+        priority,
+        ...(onChunk === undefined ? {} : { stream: true }),
+      });
       return { id, result };
     },
     drop(id) {

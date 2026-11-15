@@ -4546,8 +4546,28 @@ truthful: an unchecked box means nothing was accepted.
       tsc and biome clean on the player's files, Chrome spoken 27/27,
       audio and screens 170/170. WebKit `spoken` is rerun on the real
       tree with item 3.)
-- [ ] Streamed lines in the player (item 4b, added from item 2b). Tests:
+- [x] Streamed lines in the player (item 4b, added from item 2b). Tests:
       unit tests; spoken scenario parts.
+      (2026-11-15: the line on show, when newly asked for, is requested
+      with `stream: true`; prefetched lines are not, and a line already
+      asked for unstreamed is kept (the helper cannot cancel a running
+      line). render/spokenstream.ts schedules chunks back to back on the
+      context clock (a late chunk at once), holds stop them and resume
+      from the same place with chunks that arrived meanwhile; the reply
+      caches the whole line and never restarts it. The hold runs from the
+      first chunk to the line's end, renewed per chunk (30 s past the last
+      scheduled end while more are coming); the 20 s wait covers only the
+      time before the first chunk. The audio hook shows `streamed`,
+      `chunks` and `final`. fakevoice.mjs streams one continuous tone.
+      Tests ran red first (unit 74 across the three files; a 0.1 s gap
+      mutation turned the seam checks red). Subagent and orchestrator:
+      WebKit spoken and machost pass; npm test's failures are perf and
+      timeout checks under load (load 6-11: a Ren'Py game and Moonlight
+      running), passing alone. Chrome's audio clock ran at about 8% of
+      real time in this state, failing streamed parts and the plain audio
+      scenario alike; WebKit audio's one failure (a bookmark onto
+      music-carry) also fails on HEAD without this change. Chrome spoken
+      and audio are rerun on a quiet machine in the phase-closer.)
 - [x] Casting (item 5). Tests: picking and manifest writing with a fake
       generator; one real casting run.
       (2026-11-15: tools/cast_voices.py with `design` (Qwen3-TTS 1.7B
