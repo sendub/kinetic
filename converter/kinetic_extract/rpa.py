@@ -2,12 +2,13 @@
 
 Stdlib only (``zlib`` + ``pickle``; the corpus indexes are protocol 2 and
 ``pickle.loads`` accepts any protocol). Format facts verified against the
-real corpus (all 304 ``.rpa`` under ``<corpus>``):
+real corpus (all 304 ``.rpa`` under the corpus root):
 
 - ``RPA-3.0 <index_offset:16 hex> <key:8 hex>\\n`` — 301 files, including
-  every game-e archive (``scripts.rpa`` and friends).
-- ``RPA-2.0 <index_offset:16 hex>\\n`` — 3 files (game L, Banking on
-  game K).
+  every archive of the archive-only game E in docs/extracting.md's survey
+  (``scripts.rpa`` and friends).
+- ``RPA-2.0 <index_offset:16 hex>\\n`` — 3 files (from two other corpus
+  games).
 
 Both store the index as a zlib-compressed pickle from ``index_offset`` to
 EOF: ``{name: [(offset, dlen) | (offset, dlen, object_header), ...]}``.

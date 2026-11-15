@@ -55,7 +55,7 @@ def test_old_style_python_save_directory_is_read(tmp_path: Path) -> None:
 
 def test_name_when_no_save_directory(tmp_path: Path) -> None:
     project = make_project(tmp_path / "Folder", (
-        'define config.name = _("game-d College: Part Two!")\n'
+        'define config.name = _("PAPER Lanes: Part Two!")\n'
         "define config.save_directory = None\n"))
     assert story_id_of(project, tmp_path / "out") == "paper-lanes-part-two"
 

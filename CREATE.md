@@ -752,8 +752,8 @@ bytes at the start, and ten junk bytes inserted at an offset that
 depends on the file's length.
 
 > **Illustrative only.** This formula shows the shape of a hook. It is
-> modelled on a wrapper seen in game I but is NOT a correct
-> decoder for that game: its episodes 4-5 use an activation-dependent
+> modelled on a wrapper seen in a converted corpus game but is NOT a
+> correct decoder for that game: its episodes 4-5 use an activation-dependent
 > offset that this formula does not handle. A real game's hook is
 > written for, tested on and shipped with that game's conversion
 > package, never with Kinetic.

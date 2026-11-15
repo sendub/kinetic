@@ -1,7 +1,7 @@
 """Decompile compiled-only ``.rpyc`` sources to ``.rpy`` text in memory.
 
-Compiled-only Ren'Py releases ship ``*.rpyc`` with no ``*.rpy`` (the
-``the studio's folder/game-d.app`` corpus game is one). The corpus is
+Compiled-only Ren'Py releases ship ``*.rpyc`` with no ``*.rpy`` (game D in
+docs/extracting.md's corpus survey is one). The corpus is
 read-only, so decompilation never writes next to the input: the vendored
 unrpyc package renders the AST to text in a buffer and that text is
 cached under ``.tmp/kinetic-decompile/`` keyed by ``(path, mtime, size)``

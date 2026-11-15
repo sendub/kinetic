@@ -6,10 +6,10 @@ the build ledger records decompiled sources. No Ren'Py is required: the
 vendored `decompiler` fabricates the Ren'Py modules via
 ``magic.fake_package`` (see converter/vendor/SOURCES.md).
 
-Fixture: ``data/credits.rpyc`` is a byte-for-byte copy of
-``<corpus>/the studio's folder/game-d.app/Contents/Resources/autorun/game/
-credits.rpyc`` (8228 B, the smallest script `.rpyc` in that compiled-only
-game; RPyC v2 header ``RENPY RPC2``). unrpyc only decompiles (it cannot
+Fixture: ``data/credits.rpyc`` is a byte-for-byte copy of a corpus
+game's ``Contents/Resources/autorun/game/credits.rpyc`` (8228 B, the
+smallest script `.rpyc` in that compiled-only game, game D of
+docs/extracting.md's survey; RPyC v2 header ``RENPY RPC2``). unrpyc only decompiles (it cannot
 compile), so a real compiled file is checked in rather than built here.
 """
 
@@ -98,12 +98,12 @@ def test_cli_records_rpyc_source_in_ledger(tmp_path: Path,
                                            monkeypatch) -> None:
     cache = tmp_path / "cache"
     monkeypatch.setenv("KINETIC_DECOMPILE_CACHE", str(cache))
-    game = tmp_path / "game-d.app" / "Contents" / "Resources" / "autorun" / "game"
+    game = tmp_path / "Game.app" / "Contents" / "Resources" / "autorun" / "game"
     game.mkdir(parents=True)
     shutil.copyfile(FIXTURE_RPYC, game / "credits.rpyc")
     # BUG 1: a scene whose name answers no file is dropped, not shipped
     # as a placeholder — so the project holds one real loose asset (the
-    # shape the real game-d.app has) for the flow to produce items,
+    # shape the real game D has) for the flow to produce items,
     # resolved implicitly by name (BUG 5).
     from PIL import Image
 
@@ -111,7 +111,7 @@ def test_cli_records_rpyc_source_in_ledger(tmp_path: Path,
     Image.new("RGB", (16, 9), "navy").save(game / "images" / "credits_1.png")
     out = tmp_path / "out"
 
-    assert cli_main([str(tmp_path / "game-d.app"), str(out)]) == 0
+    assert cli_main([str(tmp_path / "Game.app"), str(out)]) == 0
 
     manifest = json.loads((out / "manifest.json").read_text("utf-8"))
     assert len(manifest["items"]) > 0  # decompiled flow produced items

@@ -3,9 +3,9 @@
 Ren'Py answers an image name from more than `image` statements: it also
 finds the files. The name of a loose asset is its path under ``game/``
 without the extension, and the name of an ``.rpa`` member is the member
-key without the extension — `scene clip 00001` plays
-``images/clip 00001.jpg`` with no definition anywhere, which is how
-game-a, game-b and game-e ship their scenes.
+key without the extension — `scene beach 00001` plays
+``images/beach 00001.jpg`` with no definition anywhere, which is how
+games A, B and E of docs/extracting.md's corpus survey ship their scenes.
 This module builds that name index so the timeline can resolve such
 references instead of dropping them.
 
@@ -13,8 +13,8 @@ Index keys (task order, "exact key -> path-with-directory key ->
 basename key"):
 
 - every image/video file under ``game/`` recursively, keyed by its path
-  without extension (``images/clip 00001``) and separately by its
-  basename (``clip 00001``);
+  without extension (``images/beach 00001``) and separately by its
+  basename (``beach 00001``);
 - archive members likewise, resolved lazily through
   ``kinetic_extract.rpa.AssetArchives.candidates`` only when no loose
   file matched (the archive indexes of a 6.9 GB game are not touched by

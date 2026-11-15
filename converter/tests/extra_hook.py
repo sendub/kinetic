@@ -3,9 +3,9 @@ item 25.4).
 
 `decode` applies the "EXTRA" wrapper formula a converting agent reported,
 purely to exercise the hook mechanism on synthetic files. It is NOT a
-correct decoder for any game (game I episodes 4-5 use an
-activation-dependent offset); the real hook lives in that game's
-conversion package, not in Kinetic.
+correct decoder for any game (the converted corpus game it was modelled
+on uses an activation-dependent offset in episodes 4-5); the real hook
+lives in that game's conversion package, not in Kinetic.
 
 `wrap` is its inverse, for building test files. `unreverse` is a second,
 equally made-up wrapper used to test hook order.

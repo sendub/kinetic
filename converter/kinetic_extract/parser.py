@@ -49,7 +49,7 @@ _DEFINE_CHAR_RE = re.compile(
     r"define\s+([A-Za-z_]\w*)\s*=\s*Character\(\s*\"((?:[^\"\\]|\\.)*)\"")
 # The speaker is any identifier at the line head followed by a quoted
 # string. The space between them is optional: the corpus writes both
-# `em "..."` and `em"..."` (docs/extracting.md BUG 3), and the keywords
+# `al "..."` and `al"..."` (docs/extracting.md BUG 3), and the keywords
 # the walker knows (`image`, `scene`, ...) are matched before this runs,
 # so the looser form cannot capture them.
 # The project settings that name the story (docs/plan.md Phase 21, Story
@@ -783,7 +783,7 @@ def _ledger_rel(path: Path, game_dir: Path) -> str:
 
     Paths come from ``game_dir`` globs, so they share their textual
     prefix with the directory itself. Resolving the file through a
-    symlinked game dir — the game-c case
+    symlinked game dir — the game C case
     (docs/extracting.md BUG 4) — lands outside the project root and
     ``relative_to`` raised; the prefix is therefore taken unresolved
     first, with ``os.path.realpath`` applied to BOTH sides as the
@@ -813,7 +813,7 @@ def parse_project(game_dir: Path, files_glob: str | None = None,
     stale ``.rpyc`` is left alone (the survey's stale-twin case).
 
     Script members inside ``game/*.rpa`` archives join the same
-    filename-ordered walk (an archive-only game like game-e keeps
+    filename-ordered walk (an archive-only game like game E keeps
     its scripts in ``scripts.rpa``); a loose file always beats an
     archive member with the same key, and the ledger names the source
     ``game/<archive>!<key>``. A ``.rpyc`` member decompiles through the

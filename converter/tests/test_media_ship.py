@@ -152,19 +152,19 @@ def test_video_start_seconds_sets_poster_frame(project: Path,
 
 def test_decoder_hook_applies(tmp_path: Path) -> None:
     root = tmp_path / "root"
-    (root / "Rooms").mkdir(parents=True)
+    (root / "scenes").mkdir(parents=True)
     payload = tiny_png_bytes((1, 2, 3))
     wrapped = extra_hook.wrap(payload)
-    (root / "Rooms" / "x.png").write_bytes(wrapped)
+    (root / "scenes" / "x.png").write_bytes(wrapped)
     out = tmp_path / "out"
-    request = {"source": {"path": "areas/x.png"}, "kind": "image"}
+    request = {"source": {"path": "scenes/x.png"}, "kind": "image"}
     assert ship(root, out, [request], "--decoder",
                 f"{HOOK_FILE}:decode") == 0
     ledger = ledger_of(out)
     result = ledger["requests"][0]["result"]
     assert "file" in result
     entry = ledger["media"][result["file"]]
-    assert entry["source"] == {"path": "areas/x.png", "sha256": _sha(wrapped),
+    assert entry["source"] == {"path": "scenes/x.png", "sha256": _sha(wrapped),
                                "bytes": len(wrapped)}
     assert entry["steps"][0]["step"] == "decode"
     assert entry["steps"][0]["outputSha256"] == _sha(payload)

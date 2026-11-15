@@ -25,8 +25,8 @@ docs/         stack.md, plan.md, progress.md, content-format.md
   carries only speaker/text and keeps the visual shown by earlier items
   playing underneath, so several lines can advance over one continuous
   looping video or animation (a common shape in kinetic adaptations of
-  non-kinetic games, e.g. game I ep3,
-  `scenes/EP02_01/EP02_01_dialogues1_white.rpy:1679` in the corpus).
+  non-kinetic games, e.g. one episode of a converted corpus game, in a
+  dialogue script about 1,700 lines long).
 - The converter emits exactly what the player expects; the demo fixture is
   hand-built by script, not by the converter, so each side can be tested
   against the format alone.
@@ -71,7 +71,7 @@ defines.
 
 ## Phase 2b: Format revision from external review (2026-10-31)
 
-Another agent building a real timeline (game I corpus) reviewed
+Another agent building a real timeline (a converted corpus game) reviewed
 the format. Four changes follow; Phases 3-9 build against the revised
 format.
 
@@ -280,11 +280,10 @@ player plays end to end (walk the checklist once on extracted content).
 Goal: handle real Ren'Py releases across the packaging kinds they
 actually use.
 
-- Corpus: <corpus> holds many games organized by
-  category (`<category>/`, `<category>/`) with `complete/`, `ongoing/`,
-  `abandoned/`, and `waiting for updates/` subfolders, plus Mac `.app`
-  bundles (`game-e.app`, `game-d.app`, ...) and `.zip`/`.rar`
-  releases, some marked broken. Inspect and use it read-only.
+- Corpus: the corpus root (AGENTS.md) holds many games organized in
+  category folders with status subfolders, plus Mac `.app` bundles and
+  `.zip`/`.rar` releases, some marked broken. Inspect and use it
+  read-only.
 - Choose a few distinct kinds and take a few random content slices from
   each: a Mac `.app` (game lives under `Contents/Resources/`), a loose
   project dir, a `.zip` (unpack to a scratch dir first), source `.rpy`
@@ -995,7 +994,7 @@ and machines (user chose a and b).
 
 ## Phase 25: Reproducible, content-addressed media (2026-11-02, user + converting agent)
 
-Source: feedback from an agent converting games (game I),
+Source: feedback from an agent converting games (a corpus game),
 forwarded by the user; survey of today's converter in that phase's
 items. Decisions (user, and the converting agent where the user passed
 its answers on):
@@ -1565,7 +1564,7 @@ to stay fast while moving.
 
 ## Phase 42: Even route spacing (2026-11-08, user)
 
-The user, on the game I map at Full size: the routes of some
+The user, on a converted corpus game's map at Full size: the routes of some
 decisions sit a wide gap apart and others a narrow one, even under one
 decision with no bookmark inside it (route 1 to route 2 wide, route 2 to route
 3 narrow), and where a band cut falls inside a decision the lines leave one
@@ -1605,11 +1604,11 @@ asked to compare both before choosing:
   by a short S-bend in the branch curves' style; everything nested under a
   route steps with it. A cut never falls on a bend, so lines still join edge
   to edge at every cut, and no gap lacks a reason in its own band.
-- The user picks between a and b on game I staged with each, with
+- The user picks between a and b on the corpus game staged with each, with
   screenshots side by side; b lands only if chosen.
 
 The user chose a (2026-11-08). b was built and compared: it removed 60-75% of
-the low-held line length on game I but not all (a line stays low
+the low-held line length on the corpus game but not all (a line stays low
 after a cut until its first place to bend), its bends were steep, and dense
 trees looked busier. b was dropped and is not in the code.
 
@@ -1650,8 +1649,8 @@ Facts the prototypes measured, which the items below rely on:
   first paints, on the main thread: 106-126 ms for a 1080p JPEG XL in
   WKWebView. During a skip burst that stalled the picture at every such
   image. `img.decode()` decodes off the main thread (about 10 ms), and a
-  later `<img>` with the same URL reuses the result. On the "pay Rowan"
-  stretch of game I, a 25 s Tab skip with "Play videos in full"
+  later `<img>` with the same URL reuses the result. On one stretch of a
+  converted corpus game, a 25 s Tab skip with "Play videos in full"
   off showed 97 of 275 pictures in WebKit before the change and 275 of 275
   after. Chrome went from 120 to 257 of 275.
 - The scenario suite runs unchanged on WebKit through a WKWebView driver

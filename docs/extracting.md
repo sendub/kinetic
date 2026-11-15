@@ -1,11 +1,13 @@
 # Extracting from the real corpus
 
-Survey and per-game log for docs/plan.md Phase 11. The corpus lives at
-`<corpus>`: the categories `<category>/` and `<category>/`
-(with `complete/`, `ongoing`, `abandoned/`, `waiting for updates/`
-subfolders), a `the studio's folder/` folder, and two `.app` bundles at the
-top level. The volume is read-only and slow: targeted listings with
-timeouts, never recursive greps, never any writes there.
+Survey and per-game log for docs/plan.md Phase 11. The corpus lives
+under the corpus root that AGENTS.md names: two category folders (each
+with status subfolders such as complete, ongoing, abandoned and waiting
+for updates), a studio's folder, and two `.app` bundles at the top
+level. The volume is read-only and slow: targeted listings with
+timeouts, never recursive greps, never any writes there. No game is
+named here: the sampled games are game A to game F, and a path under the
+corpus root reads `<corpus>/<game A>.app` or `<corpus>/…/<game A>.app`.
 
 Sampling rule: a few distinct packaging kinds (`.app` with `.rpy`
 sources, loose project dir, compiled-only, `.zip` release), and once the
@@ -18,38 +20,36 @@ extracts, validates and plays as an honest empty folder.
 
 ## Sampled games
 
-| Game (path under the corpus root) | Kind | Script source | Asset archives | Notes |
+| Game (where under the corpus root) | Kind | Script source | Asset archives | Notes |
 | --- | --- | --- | --- | --- |
-| `<category>/<status>/game-a.app` (`.app`, game at `Contents/Resources/autorun/game`) | `.app` + `.rpy` | `script.rpy` 204 KB (whole story, `label start` at line 125), plus `gui/options/screens/changenames.rpy` | none | Loose `images/` dir (1044 entries, names contain spaces and audio); scenes referenced by literal file stems (``scene clip 00001``) with no `image` defs; one `menu:` |
-| `<category>/<status>/game-b.app` (same bundle layout) | `.app` + `.rpy` | `script.rpy` 17 KB + `sequence0-5.rpy` 111-246 KB (14 `.rpy`, each with stale `.rpyc`) | none | Loose `images/`, `gui/`, `audio/`; story split across sequence files (filename order matters) |
-| `<category>/<status>/game-c/game-c/a1` | loose dir + `.rpy` | `capitalarr/pasts/road_a/path_home1.rpy` (small; `.rpyc` alongside) | none | A patch overlay: only script files, assets stay in the main `game C.app` game dir, so assets resolve only when run against it |
-| `the studio's folder/game-d.app` (same bundle layout) | compiled-only (`.rpyc`) | 12 `.rpyc` (`script.rpyc` 332 KB, `02/03.rpyc` 313/629 KB) — no `.rpy` | none | Loose `images/`, `gui/`, `videos/`, `audio/`; needs vendored unrpyc, then parses like any source |
-| `game-e.app` (top level, same bundle layout) | archive-only (`.rpa`) | no `.rpy`; `scripts.rpa` 46 MB holds the script sources; one 910 B patch `.rpyc` on disk | 6 `.rpa`: `images.rpa` 6.9 GB, `videos.rpa` 1.3 GB, `elite.rpa` 430 MB, `extras.rpa` 408 MB, `audio.rpa` 241 MB, `scripts.rpa` 46 MB | The hardest case: every asset and the scripts themselves need the `.rpa` reader before a slice is possible |
-| `<category>/<status>/game-f.zip` | `.zip` release | inside the archive: `game/script.rpy` 1.6 MB (+ stale `.rpyc`) | none inside (2.8 GB, 9332 files, all loose) | Standard PC Ren'Py layout; per plan, unpack to a scratch dir before extracting |
+| A: an `.app` in a category's status subfolder (game at `Contents/Resources/autorun/game`) | `.app` + `.rpy` | `script.rpy` 204 KB (whole story, `label start` at line 125), plus `gui`, `options`, `screens` and one more `.rpy` | none | Loose `images/` dir (1044 entries, names contain spaces and audio); scenes referenced by literal file stems (``scene beach 00001``) with no `image` defs; one `menu:` |
+| B: an `.app` in a category's status subfolder (same bundle layout) | `.app` + `.rpy` | `script.rpy` 17 KB + six numbered story files (`<part>0-5.rpy`) 111-246 KB (14 `.rpy`, each with stale `.rpyc`) | none | Loose `images/`, `gui/`, `audio/`; story split across the numbered files (filename order matters) |
+| C: a patch folder (`a1`) beside a game's main `.app` in a status subfolder | loose dir + `.rpy` | one small `.rpy` three folders down (`.rpyc` alongside) | none | A patch overlay: only script files, assets stay in the main `.app` game dir, so assets resolve only when run against it |
+| D: an `.app` in the studio's folder (same bundle layout) | compiled-only (`.rpyc`) | 12 `.rpyc` (`script.rpyc` 332 KB, `02/03.rpyc` 313/629 KB) — no `.rpy` | none | Loose `images/`, `gui/`, `videos/`, `audio/`; needs vendored unrpyc, then parses like any source |
+| E: an `.app` at the top level (same bundle layout) | archive-only (`.rpa`) | no `.rpy`; `scripts.rpa` 46 MB holds the script sources; one 910 B patch `.rpyc` on disk | 6 `.rpa`: `images.rpa` 6.9 GB, `videos.rpa` 1.3 GB, two more of 430 MB and 408 MB, `audio.rpa` 241 MB, `scripts.rpa` 46 MB | The hardest case: every asset and the scripts themselves need the `.rpa` reader before a slice is possible |
+| F: a `.zip` in a category's status subfolder | `.zip` release | inside the archive: `game/script.rpy` 1.6 MB (+ stale `.rpyc`) | none inside (2.8 GB, 9332 files, all loose) | Standard PC Ren'Py layout; per plan, unpack to a scratch dir before extracting |
 
-Surveyed but not sampled: `<category>/<status>/an-electron-game.zip`
-is an Electron build (`locales/*.pak`, no `.rpy` anywhere in the archive)
-— not Ren'Py, excluded. `<category>/<status>/game-h/
-game-h` is a loose project with 4 `.rpa` and no top-level
-`.rpy`/`.rpyc` (scripts inside the archive, like game-e).
-`<category>/<status>/game I/game I.app` has `.rpy`
-sources, but its top-level ones are updater stubs; the story lives under
-`scenes/` and `areas/` subdirectories, which the parser's `game/*.rpy`
-glob does not see. `<category>/<status>/game-j.app` keeps scripts
-in 5 `.rpa`. `<category>/<status>/a-16gb-release.rar` (16 GB)
-was not unpacked.
+Surveyed but not sampled: one `.zip` is an Electron build
+(`locales/*.pak`, no `.rpy` anywhere in the archive) — not Ren'Py,
+excluded. Game H is a loose project with 4 `.rpa` and no top-level
+`.rpy`/`.rpyc` (scripts inside the archive, like game E). One episode's
+`.app` of a game released in episodes (game I) has `.rpy` sources, but
+its top-level ones are updater stubs; the story lives in two
+subdirectories of `game/`, which the parser's `game/*.rpy` glob does not
+see. Game J, an `.app`, keeps scripts in 5 `.rpa`. A 16 GB `.rar`
+release was not unpacked.
 
 Presence facts across the samples: no `.rpak` was found in any game
 directory checked (four checked), so unrpak support stays conditional on
-the corpus producing one; `.rpa` appears in game-e (6),
-game-j (5), and game-h (4); `.rpyc`-only projects
-(game-d) keep all assets loose on disk, while archive-only projects move
-even the `.rpy` sources into `scripts.rpa`.
+the corpus producing one; `.rpa` appears in game E (6), game J (5), and
+game H (4); `.rpyc`-only projects (game D) keep all assets loose on
+disk, while archive-only projects move even the `.rpy` sources into
+`scripts.rpa`.
 
-Statement census (cheap one-script scan, game-a `script.rpy`):
+Statement census (cheap one-script scan, game A's `script.rpy`):
 1013 `scene` + 1013 `with` transitions, speaker dialogue dominates
-(`mc` 1169, `em` 431, `cam` 252), `pause` 71, `play`/`stop` audio 50/44,
-9 `image` defs, 3 `menu:`. No exotic custom statements — the gap is
+(the top three speakers have 1169, 431 and 252 lines), `pause` 71,
+`play`/`stop` audio 50/44, 9 `image` defs, 3 `menu:`. No exotic custom statements — the gap is
 dynamic scene names that bypass `image` definitions, which the ledger
 already reports as "image not defined".
 
@@ -62,8 +62,8 @@ parsed `.rpy` files). Smoke runs (2026-02-13):
 - fixture: `kinetic-extract fixtures/renpy_demo .tmp/slice-demo --label
   inside --max-items 3` → exit 0, 3 items (image 2, text 1), valid
   manifest;
-- corpus: `game-a.app` with `--files script.rpy --label start
-  --max-items 5` → exit 0, 5 items (image 5, media shipped 0 — scene
+- corpus: game A with `--files script.rpy --label start --max-items 5`
+  → exit 0, 5 items (image 5, media shipped 0 — scene
   names are unresolved dynamic references; item slots and sources are
   recorded in the ledger).
 
@@ -708,9 +708,9 @@ CREATE.md ("A game that wraps its media: decoder hooks") walks through
 writing, packaging and passing a hook. Its EXTRA example, like the
 repo's test hook (`converter/tests/extra_hook.py`, applied to synthetic
 files only), is illustrative: it is not a correct decoder for any game,
-game I included (its episodes 4-5 use an activation-dependent
-offset), and that game's real hook lives in its own conversion
-package.
+the converted corpus game it was modelled on included (its episodes 4-5
+use an activation-dependent offset), and that game's real hook lives in
+its own conversion package.
 
 ## kinetic-media ship
 
@@ -738,13 +738,13 @@ in POSIX form, and may not be absolute or contain `..`:
   {"source": {"path": "game/images/a.png"}, "kind": "image", "id": "q1-a"},
   {"source": {"archive": "game/images.rpa", "member": "bg/room.jpg"},
    "kind": "image"},
-  {"source": {"path": "areas/intro.webm"}, "kind": "video",
+  {"source": {"path": "scenes/intro.webm"}, "kind": "video",
    "startSeconds": 2.5},
   {"source": {"path": "game/audio/rain.ogg"}, "kind": "audio",
    "loops": true, "id": "rain"},
   {"source": {"path": "game/audio/knock.mp3"}, "kind": "audio",
    "id": "knock"},
-  {"source": {"path": "areas/intro.webm"}, "kind": "audio",
+  {"source": {"path": "scenes/intro.webm"}, "kind": "audio",
    "loops": true, "id": "intro-sound"}
 ]
 ```
@@ -773,7 +773,7 @@ above), then `requests`. Each request is echoed as given, with paths
 normalized, and paired with its result:
 
 ```json
-{"request": {"kind": "video", "source": {"path": "areas/intro.webm"},
+{"request": {"kind": "video", "source": {"path": "scenes/intro.webm"},
              "startSeconds": 2.5},
  "result": {"codec": "vp9", "decision": "copy", "durationSeconds": 12.0,
             "file": "media/3f/3f…e1.webm", "height": 720,
@@ -1428,7 +1428,7 @@ One subsection per sampled game. The first pass ran five slices
 (2026-10-31) and recorded five extractor bugs; the same five slices were
 then re-extracted with the fixes in (same commands, same slice
 parameters, output under `.tmp/slice2-*`) and their entries below carry
-the new numbers, marked FIXED. game-d keeps its earlier smoke note (not
+the new numbers, marked FIXED. Game D keeps its earlier smoke note (not
 re-run). Every slice ran the same three commands:
 the `kinetic-extract` line quoted per game,
 `tools/validate_content.py <out>`, and
@@ -1457,10 +1457,9 @@ machine/render tests for the empty state):
   scene/show name resolves exact key → path-with-directory key →
   basename key; an ambiguous basename takes the first candidate in
   sorted order and the item's ledger note says so. This is what binds
-  game-a' and game-b's loose `images/` files (names
-  with spaces included) and game-e's archive members. A
-  patch overlay whose assets live in another package (the game C
-  Chronicles entry) still answers nothing — cross-dir lookup is out of
+  game A's and game B's loose `images/` files (names with spaces
+  included) and game E's archive members. A patch overlay whose assets
+  live in another package (the game C entry) still answers nothing — cross-dir lookup is out of
   scope and recorded below as an honest empty.
 - BUG 1 FIXED — an item whose visual resolves nowhere is dropped (the
   ledger reports `droppedUnresolved` per statement), never shipped as
@@ -1474,8 +1473,8 @@ machine/render tests for the empty state):
   keeps its parens and `def_value_target` reads the play file), and a
   scene referencing `X` yields a VIDEO item with that file, real
   `durationSeconds` via ffprobe, shipped video and poster.
-- BUG 3 FIXED — the speaker regex accepts the no-space `em"..."` /
-  `mc"..."` form; those lines are dialogue now, not "unrecognized
+- BUG 3 FIXED — the speaker regex accepts the no-space `al"..."` /
+  `bo"..."` form; those lines are dialogue now, not "unrecognized
   statements".
 - BUG 4 FIXED — a `game` dir reached through a symlink parses: ledger
   rels are computed against the `game` dir itself (the old
@@ -1490,11 +1489,11 @@ Done (2026-11-02). The converter's own image decision
 (`assets.decide_image_ship`, the 25.5 policy, pinned Pillow 13.0.0 and
 imagecodecs 2026.10.10 / libjxl 0.12.0, effort 9, one thread) ran over
 417 images copied from the corpus into `.tmp/25.5/sample/`: every Nth
-file in sorted order, gui folders left out. game-d.app supplied 200 of
+file in sorted order, gui folders left out. Game D supplied 200 of
 its 1441 `.webp` (WebP-heavy: 1440 of the 1441 are lossy VP8, none
-animated, 4 with alpha), game-b.app 60 of 481 `.png` and all
-37 `.jpg`, game-a.app 60 of 1006 `.jpg`, game-e.app
-60 of the 13 436 images in `images.rpa`.
+animated, 4 with alpha), game B 60 of 481 `.png` and all 37 `.jpg`,
+game A 60 of 1006 `.jpg`, game E 60 of the 13 436 images in
+`images.rpa`.
 
 | Source format | Images | JXL shipped | Before | After | Saved |
 | --- | --- | --- | --- | --- | --- |
@@ -1503,19 +1502,19 @@ animated, 4 with alpha), game-b.app 60 of 481 `.png` and all
 | WebP, lossy (lossless pixels) | 202 | 0 | 71.92 MB | 71.92 MB | 0 % |
 | All | 417 | 215 | 236.05 MB | 181.75 MB | 23.0 % |
 
-Per game: game-b PNG 46.3 %, JPEG 14.4 %; game-a
-JPEG 23.0 %; game-e JPEG 25.4 %, PNG 43.1 %; game-d 0 %.
+Per game: game B PNG 46.3 %, JPEG 14.4 %; game A JPEG 23.0 %; game E
+JPEG 25.4 %, PNG 43.1 %; game D 0 %.
 
 Fallbacks, all 202 of them lossy WebP kept because the exact JXL was
 bigger: the lossless JXL of a lossy WebP's decoded pixels is 2.0 to 6.7
 times the WebP (median 4.6). The four `.tmp/f-slice` WebPs
-(game-f) went the same way (2.5 to 2.6 times). Every
+(game F) went the same way (2.5 to 2.6 times). Every
 JPEG's recompression rebuilt the original bytes exactly, so none fell
 back. No lossless WebP turned up in the corpus; the lossless route is
 covered by the converter tests.
 
 ICC profiles: 147 sampled images embed one (101 JPEG, 43 PNG, 3 WebP),
-all sRGB (`GIMP built-in sRGB` in game-b's PNGs, `sRGB
+all sRGB (`GIMP built-in sRGB` in game B's PNGs, `sRGB
 IEC61966-2.1` in the JPEGs) except one Adobe RGB JPEG. A JPEG keeps its
 profile through recompression. For the pixel route the converter
 converts the image's own pixels from the profile to sRGB, and when
@@ -1525,16 +1524,16 @@ profile-carrying original saved 21.6 % on PNG instead of 46.2 %.
 
 Cost: the lossy-WebP attempts are the expensive part, about 27 s per
 2560x1440 image single-threaded, 5452 s of CPU for 202 images that all
-fell back, against 31 s for the 149 JPEGs. A full game-d run would spend
+fell back, against 31 s for the 149 JPEGs. A full game D run would spend
 about 11 hours trying JXL on its 1441 lossy WebPs before keeping them
 all. Item 25.5b therefore stops trying lossy WebP: it ships unchanged
 with no decode, reason `lossy WebP: exact JPEG XL is always larger`.
 
-### game-a.app
+### Game A: `.app` with `.rpy` sources
 
 Done (2026-10-31, bug-fix re-run; supersedes the first pass).
-`kinetic-extract <corpus>/<category>/<status>/game-a.app
-.tmp/slice2-a --files script.rpy --label play_track01 --max-items 6` →
+`kinetic-extract <corpus>/…/<game A>.app .tmp/slice2-a --files
+script.rpy --label <a video stretch's label> --max-items 6` →
 exit 0: 6 items (video 6), 6 media shipped, resolution 1280x720
 (default — the shipped surfaces are all videos, nothing measured as an
 image). Validator exit 0. Play: all 6 video surfaces decoded, 0 overlay
@@ -1542,11 +1541,11 @@ lines (this stretch carries no dialogue), console clean, exit 0.
 
 This entry now proves BUG 2 end to end: the six sliced scenes are
 exactly `image NAME = Movie(play="NAME.webm")` definitions — the ids
-come out clean (`clip 00686-001`, not `clip 00686 = Movie(play…`),
+come out clean (`beach-00686-001`, not `beach 00686 = Movie(play…`),
 each item is a VIDEO item with the game's own
-`images/clip 00686.webm` (spaces in the names are no problem), its
+`images/beach 00686.webm` (spaces in the names are no problem), its
 ffprobe duration, and a poster. Ledger for the run: 52 unrecognized
-statements (down from 1854 — BUG 3 turns the `em"..."`/`mc"..."` lines
+statements (down from 1854 — BUG 3 turns the `al"..."`/`bo"..."` lines
 into dialogue), 42 unsupported (`stop music`, `play music "…"`), 9
 `hide` skipped, 3 `menu unsupported`; no `image not defined` and no
 `droppedUnresolved` entries remain — BUG 5's index answers the other
@@ -1558,11 +1557,11 @@ play-folder reports `items: 0` with `errors: []` — the "all scenes
 dynamic" case is a clean empty pass now, the player showing its
 no-content notice (BUG 1 + schema), not a validator failure.
 
-### game-b.app
+### Game B: `.app` with numbered `.rpy` story files
 
 Done (2026-10-31, bug-fix re-run; supersedes the first pass).
-`kinetic-extract <corpus>/<category>/<status>/game-b.app
-.tmp/slice2-b --files sequence0.rpy --label start --max-items 6` →
+`kinetic-extract <corpus>/…/<game B>.app .tmp/slice2-b --files
+<part>0.rpy --label start --max-items 6` →
 exit 0: 6 items (image 6, two carrying their first dialogue line), 4
 media shipped (three `scene bg black` refs deduped onto one file),
 resolution 1920x1080 (most common source image size — real pixels now,
@@ -1570,39 +1569,39 @@ not the default). Validator exit 0. Play: 4 of 4 distinct images
 painted (`naturalWidth` 1920), 3 overlay lines, console clean, exit 0.
 
 This is BUG 5's home turf: the game has no `image` statement at all,
-and `show credits1`/`scene bg black` now resolve through the implicit
-index to `images/credits1.png`/`images/bg black.png` — the name-is-the-
+and `show title1`/`scene bg black` now resolve through the implicit
+index to `images/title1.png`/`images/bg black.png` — the name-is-the-
 file-stem case is exactly the path-with-directory/basename key lookup,
 and three of the six shipped as lossless JXL (smaller, verified).
 Stale twins behaved as designed: ledger `rpycIgnoredTwins` records
-`game/sequence0.rpyc` with `game/sequence0.rpy` kept. Ledger for the
+`game/<part>0.rpyc` with `game/<part>0.rpy` kept. Ledger for the
 run: 33 `menu unsupported` (this game branches a lot), 22 unrecognized
 statements (`if cond == True:` and `else:` block heads), `jump` follow
 notes. The first pass also turned `show screen hud` into a visual
 (`screen-hud-001`); a `show screen` should still be reported and
 skipped the way `show layer` is — an open follow-up, not re-run here.
 
-### game-c patch (a1)
+### Game C: a patch overlay (a1)
 
 Done (2026-10-31, bug-fix re-run; supersedes the first pass). Same
 scratch copy as the first pass (the patch dir holds four
 `.rpy`/`.rpyc` pairs and no `game/` directory):
-`cp -R "<corpus>/<category>/<status>/game-c/game-c/a1"
-.tmp/c-src/game`, then `kinetic-extract .tmp/c-src .tmp/slice2-c
---files path_home1.rpy --label riding_home --max-items 6` → exit 0:
+`cp -R "<corpus>/…/<game C patch>/a1" .tmp/c-src/game`, then
+`kinetic-extract .tmp/c-src .tmp/slice2-c --files <script>.rpy --label
+<label> --max-items 6` → exit 0:
 0 items, 0 media shipped. Validator exit 0. Play: `items: 0`,
 `errors: []`, exit 0 — the player's no-content state, clean.
 
 An honest empty, stated plainly: the patch's assets all live in the
-main `game C.app` (its `game/images/a1/forest/…`), the converter
+main `.app` (its `game/images/a1/<place>/…`), the converter
 resolves inside the input `game/` directory only, so no visual in the
 sliced flow answers anything and the ledger carries 409
 `droppedUnresolved` notes. BUG 1 drops each such item, and its
 dialogue lines with it — a `text` item needs a visual — so the first
 pass's "6 overlay lines over one placeholder image" became this empty
 folder rather than a validator failure; the patch's own three defs are
-`image scene_c = Movie(play="/images/a1/forest/forest_b/
-scene_c.webm", pos=…, anchor=…)` lines, which BUG 2 now registers
+`image <name> = Movie(play="/images/a1/<place>/<folder>/<name>.webm",
+pos=…, anchor=…)` lines, which BUG 2 now registers
 under clean keys, but their project-rooted play paths name no file the
 patch directory contains. Cross-package (overlay → main game) asset
 resolution would be new scope; it stays recorded here as the reason
@@ -1610,14 +1609,14 @@ this entry is empty, not playable content.
 
 BUG 4 re-check, no copy needed any more: `ln -s "<corpus>/…/a1"
 .tmp/c-link/game; kinetic-extract .tmp/c-link .tmp/slice2-c-link
---files path_home1.rpy --label riding_home --max-items 6` → exit 0,
+--files <script>.rpy --label <label> --max-items 6` → exit 0,
 same ledger shape. The old `parser.py` `ValueError` for a symlinked
 `game` dir is gone; the corpus was not written to either way. Ledger
 for the run otherwise as before: 38 unrecognized, 16 unsupported,
-9 `menu unsupported`, `jump forest1`/`jump forest_a_chek` followed
-linearly, one cross-file `call`.
+9 `menu unsupported`, two `jump`s followed linearly, one cross-file
+`call`.
 
-### game-d.app
+### Game D: compiled-only `.app`
 
 Done (2026-10-31, unrpyc item smoke). 12 `.rpyc` decompiled via the
 vendored unrpyc (no `.rpy` present). `--max-items 8` yields 8 items
@@ -1631,31 +1630,30 @@ the BUG 1/5 pair now fixed, and the decompiled-script path with implicit
 resolution against a loose `images/` dir is covered by the CLI test in
 `converter/tests/test_rpyc.py` on the checked-in `credits.rpyc`.)
 
-### game-e.app
+### Game E: archive-only `.app`
 
 Done (2026-10-31, bug-fix re-run; supersedes the first pass).
-`kinetic-extract <corpus>/game-e.app .tmp/slice2-e --files
-scripts/story_02.rpyc --max-items 6` → exit 0: 6 items (image 2, text
+`kinetic-extract <corpus>/<game E>.app .tmp/slice2-e --files
+scripts/<part>.rpyc --max-items 6` → exit 0: 6 items (image 2, text
 4), 2 media shipped, resolution 1920x1080 (most common source image
 size). Validator exit 0. Play: both images painted (`naturalWidth`
 1920), all 6 overlay lines, console clean, exit 0.
 
 The binding the first pass found missing is now made the way Ren'Py
-makes it: `scene streets owen 1` has no `image` definition anywhere
+makes it: `scene street night 1` has no `image` definition anywhere
 (that stays true — the name is built at runtime), and BUG 5's index
 answers it from `images.rpa`. The ledger assets read
-`rpa!images/EP2/streets owen 1.jpg` / `… owen 2.jpg`, the members
+`rpa!images/EP2/street night 1.jpg` / `… night 2.jpg`, the members
 extracted through the usual cache and shipped by the normal asset pass
 with their `rpa` provenance notes. `--files` is still what keeps a
 slice of this game small: `script_entries` finds 1494 script members,
 all `.rpyc`, and the script came out of the archive (ledger
-`rpaScriptSources`: `game/scripts.rpa!scripts/story_02.rpyc`). Ledger
+`rpaScriptSources`: `game/scripts.rpa!scripts/<part>.rpyc`). Ledger
 for the run keeps its shape: 67 unrecognized statements (mostly
-`play music theme_loop if_changed …`), the cross-file `call target
-'center_text'`/`'portrait'` notes, 2 `menu unsupported`; no `image not
-defined` left.
+`play music <track> if_changed …`), two cross-file `call target`
+notes, 2 `menu unsupported`; no `image not defined` left.
 
-### game-f.zip
+### Game F: `.zip` release
 
 Done (2026-10-31, bug-fix re-run from the same scratch dir; supersedes
 the first pass — the unpacking itself, 9 of 9332 entries, stands).
@@ -1665,7 +1663,7 @@ text 2), 2 media shipped, resolution 1280x720 (most common source image
 size). Validator exit 0. Play: 2 of 2 images painted (`naturalWidth`
 1280), all 4 overlay lines, console clean, exit 0.
 
-The four items changed shape, not health: BUG 3 makes the `mc"..."`
+The four items changed shape, not health: BUG 3 makes the `al"..."`
 lines dialogue, so the 4-item budget is two poses plus two dialogue
 lines instead of four poses. Both still ship `decision: preserve` with
 `jxl round-trip failed: kept original` — the lossless-JXL route
@@ -1684,7 +1682,7 @@ validator exit 0 — no def-pointing copy needed any more.
 The 6-item run from the same start re-ran too
 (`.tmp/slice2-f6`): exit 0, 6 items (image 2, text 4), 2 media,
 validator exit 0, play 0 (both painted, 6 overlay lines). The
-first pass's two definition-less `exit01`/`exit02` placeholder items
+first pass's two definition-less placeholder items
 are dropped now (BUG 1), the 15 096 unrecognized statements were mostly
 the no-space dialogue style and are gone (96 remain), the 195
 `hide skipped` stand.

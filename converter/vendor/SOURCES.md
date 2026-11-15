@@ -7,9 +7,9 @@ into this tree.
 
 ## unrpyc
 
-`.rpyc` decompiler used to read compiled-only Ren'Py projects (a corpus
-game such as `the studio's folder/game-d.app` ships 12 `.rpyc` and no
-`.rpy`). docs/stack.md §Converter decisions: vendor it, pin the version,
+`.rpyc` decompiler used to read compiled-only Ren'Py projects (a compiled-only
+corpus game, game D of docs/extracting.md's survey, ships 12 `.rpyc` and
+no `.rpy`). docs/stack.md §Converter decisions: vendor it, pin the version,
 decompile `*.rpyc` only when no `.rpy` exists.
 
 - Project: UnRPyC (the maintained unrpyc, by CensoredUsername and the

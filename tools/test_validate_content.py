@@ -1526,7 +1526,7 @@ def test_absent_title_stays_valid(folder: Path) -> None:
 
 
 @pytest.mark.parametrize("title", [
-    "The Lantern at Low Tide", "game-d College: Part 'Two'!", "夏の終わり",
+    "The Lantern at Low Tide", "PAPER Lanes: Part 'Two'!", "夏の終わり",
     "<b>not html</b>", "x", "x" * 200])
 def test_titles_pass(folder: Path, title: str) -> None:
     manifest = read_manifest(folder)

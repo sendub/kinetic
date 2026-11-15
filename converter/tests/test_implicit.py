@@ -12,7 +12,7 @@ Covers the branches added when the five recorded slice bugs were fixed:
 - BUG 2: `image X = Movie(play="f.webm")` registers under the clean key
   `X` and a scene over it yields a VIDEO item (real duration via
   ffprobe on a synthetic webm);
-- BUG 3: `em"..."` (no space) parses as speaker dialogue;
+- BUG 3: `al"..."` (no space) parses as speaker dialogue;
 - BUG 4: a game dir reached through a symlink parses (the stale-twin
   ledger path that used to crash);
 - BUG 1: an item whose visual resolves nowhere is dropped — with the
@@ -73,9 +73,9 @@ def manifest_of(out: Path) -> dict:
 
 def test_split_image_def_key_stops_at_the_equals() -> None:
     # The old code cut the name at the first quote, registering the
-    # Movie line under "clip 00686 = Movie(play" (extracting.md probe).
-    assert _split_image_def('clip 00686 = Movie(play="clip 00686.webm")') \
-        == ("clip 00686", ("expr", 'Movie(play="clip 00686.webm")'))
+    # Movie line under "beach 00686 = Movie(play" (extracting.md probe).
+    assert _split_image_def('beach 00686 = Movie(play="beach 00686.webm")') \
+        == ("beach 00686", ("expr", 'Movie(play="beach 00686.webm")'))
     assert _split_image_def('pose07 ="pose07.webp"') \
         == ("pose07", ("file", "pose07.webp"))
     assert _split_image_def('bg-room "data/bg.png"') \
@@ -140,11 +140,11 @@ def test_movie_def_scene_ships_a_video_item(
 # --- BUG 3: speaker with no space -------------------------------------------
 
 def test_no_space_speaker_parses_as_dialogue() -> None:
-    parsed = parse_file('label start:\n    em"Hey, there!"\n'
-                        '    bram "spaced still works"\n', "game/s.rpy")
+    parsed = parse_file('label start:\n    al"Hi, you!"\n'
+                        '    bo "spaced still works"\n', "game/s.rpy")
     lines = [(e.kind, e.speaker, e.text) for e in parsed.events]
-    assert lines == [("label", None, ""), ("dialogue", "em", "Hey, there!"),
-                     ("dialogue", "bram", "spaced still works")]
+    assert lines == [("label", None, ""), ("dialogue", "al", "Hi, you!"),
+                     ("dialogue", "bo", "spaced still works")]
     assert parsed.reports == []
 
 
@@ -152,20 +152,20 @@ def test_no_space_speaker_parses_as_dialogue() -> None:
 
 def test_implicit_name_resolves_in_images_dir_with_spaces(
         tmp_path: Path) -> None:
-    # The game-a shape: no `image` def, names with spaces,
-    # files under game/images/.
+    # The shape of game A (docs/extracting.md survey): no `image` def,
+    # names with spaces, files under game/images/.
     proj = make_project(tmp_path,
-                        "label start:\n    scene clip 00001\n"
+                        "label start:\n    scene beach 00001\n"
                         '    "Evening."\n')
     (proj / "game" / "images").mkdir()
-    (proj / "game" / "images" / "clip 00001.jpg").write_bytes(
+    (proj / "game" / "images" / "beach 00001.jpg").write_bytes(
         png("sandybrown"))
     out = tmp_path / "out"
     assert cli_main([str(proj), str(out)]) == 0
     (item,) = manifest_of(out)["items"]
     assert item["type"] == "image" and item["text"] == "Evening."
     entry = ledger_of(out)["items"][item["id"]]
-    assert entry["asset"] == "game/images/clip 00001.jpg"
+    assert entry["asset"] == "game/images/beach 00001.jpg"
     assert (out / item["file"]).is_file()
     # An unambiguous name carries no ambiguity note.
     assert not any("ambiguous" in n for n in entry["notes"])
@@ -201,8 +201,8 @@ def test_explicit_def_wins_over_implicit_file(tmp_path: Path) -> None:
 
 
 def test_missing_def_file_falls_back_to_implicit(tmp_path: Path) -> None:
-    # The game-f shape: the def names a bare file,
-    # the asset actually sits in a subdirectory.
+    # The shape of game F (docs/extracting.md survey): the def names a
+    # bare file, the asset actually sits in a subdirectory.
     proj = make_project(tmp_path,
                         'image pose07 = "pose07.webp"\n'
                         "label start:\n    scene pose07\n")
@@ -216,23 +216,23 @@ def test_missing_def_file_falls_back_to_implicit(tmp_path: Path) -> None:
 
 def test_implicit_resolves_ambiguous_basename_in_archives(
         tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    # The game-e shape: no def at all, the file is an archive
-    # member two directories down; multiple copies make the name
-    # ambiguous.
+    # The shape of game E (docs/extracting.md survey): no def at all, the
+    # file is an archive member two directories down; multiple copies
+    # make the name ambiguous.
     from test_rpa import write_rpa
 
     monkeypatch.setenv("KINETIC_EXTRACT_CACHE", str(tmp_path / "cache"))
-    proj = make_project(tmp_path, "label start:\n    scene streets owen 1\n")
+    proj = make_project(tmp_path, "label start:\n    scene street night 1\n")
     write_rpa(proj / "game" / "images.rpa", {
-        "images/EP2/streets owen 1.jpg": png("gray"),
-        "tl/ru/images/EP2/streets owen 1.jpg": png("dimgray"),
+        "images/EP2/street night 1.jpg": png("gray"),
+        "tl/ru/images/EP2/street night 1.jpg": png("dimgray"),
     })
     out = tmp_path / "out"
     assert cli_main([str(proj), str(out)]) == 0
     (item,) = manifest_of(out)["items"]
     entry = ledger_of(out)["items"][item["id"]]
     # First in sorted order (shortest key first), provenance recorded.
-    assert entry["asset"] == "game/images.rpa!images/EP2/streets owen 1.jpg"
+    assert entry["asset"] == "game/images.rpa!images/EP2/street night 1.jpg"
     assert any("ambiguous" in n for n in entry["notes"])
     assert any(".rpa archive" in n for n in entry["notes"])
     assert (out / item["file"]).is_file()
@@ -241,7 +241,7 @@ def test_implicit_resolves_ambiguous_basename_in_archives(
 # --- BUG 4: game dir reached through a symlink --------------------------------
 
 def test_symlinked_game_dir_extracts(tmp_path: Path) -> None:
-    # The game-c crash (parser.py twin.resolve().relative_to
+    # The game C crash (parser.py twin.resolve().relative_to
     # on a game dir that is a symlink): the stale-twin ledger path must
     # not escape the project root.
     real = tmp_path / "real" / "game"
@@ -269,7 +269,7 @@ def test_unresolved_visual_drops_item_and_its_lines(tmp_path: Path) -> None:
     proj = make_project(tmp_path,
                         "label start:\n"
                         "    scene nowhere\n"
-                        '    em"one"\n'
+                        '    al"one"\n'
                         '    "two"\n')
     out = tmp_path / "out"
     # A slice run ends cleanly with an empty manifest.
@@ -299,10 +299,10 @@ def test_dropped_visual_does_not_steal_later_items(tmp_path: Path) -> None:
     proj = make_project(tmp_path,
                         "label start:\n"
                         "    scene nowhere\n"
-                        '    em"gone"\n'
+                        '    al"gone"\n'
                         "    scene a\n"
-                        '    em"kept"\n'
-                        '    em"chain"\n')
+                        '    al"kept"\n'
+                        '    al"chain"\n')
     (proj / "game" / "images").mkdir()
     (proj / "game" / "images" / "a.png").write_bytes(png("navy"))
     out = tmp_path / "out"

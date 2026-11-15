@@ -28,7 +28,7 @@ vendored unrpyc (docs/stack.md, ``converter/vendor/SOURCES.md``) and its
 text is cached under ``.tmp/kinetic-decompile/``; the corpus is never
 written to, and a ``.rpy`` twin always wins over a stale ``.rpyc``.
 
-Archive games (game-e and the other surveyed releases) keep
+Archive games (game E and the other archive releases surveyed) keep
 their scripts and media inside ``game/*.rpa``: script members feed the
 parse stream (ledger source ``game/<archive>!<key>``) and asset
 references that are not on disk fall back to the archives, extracting

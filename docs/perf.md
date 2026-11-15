@@ -401,9 +401,9 @@ Route lines are now spaced by what lies between them (mapmodel.ts
 `lineOffsets`), each line's height fixed once for the strip, and the
 per-band row spreading (`rowOffset`) is gone. A tree without bookmarks
 lays out exactly as before: perf:map's tree, `60 7 15`, the demo and
-game I were checked position by position. With bookmarks the
+a converted corpus game were checked position by position. With bookmarks the
 map is shorter: perf:map's tree with 180 bookmarks at 1920 px went from
-69,395 to 68,106 world units tall at Full size, and game I at
+69,395 to 68,106 world units tall at Full size, and the corpus game at
 2,000 px from 11,505 to 9,340.
 
 Node-side layout as a Full size open builds it (the strip, its
@@ -415,7 +415,7 @@ interleaved runs (10 for the larger tree), 2026-11-08, load average 7.5:
 | 570 decisions, 180 bookmarks | 14.7 + 2.0 ms | 16.5 + 1.3 ms |
 | 570 decisions, no bookmarks | 14.2 + 1.3 ms | 15.4 + 1.0 ms |
 | 2,340 decisions (`60 7 15`), no bookmarks | 123.5 + 5.3 ms | 129.7 + 4.6 ms |
-| game I (63 decisions, 178 bookmarks) | 7.4 + 0.2 ms | 7.1 + 0.2 ms |
+| a converted corpus game (63 decisions, 178 bookmarks) | 7.4 + 0.2 ms | 7.1 + 0.2 ms |
 
 The spacing pass (a max tree over the lines' spans, read and raised once
 per line piece) adds 1-6 ms to the strip, and the cut, with no rows to

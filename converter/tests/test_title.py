@@ -51,9 +51,9 @@ def test_config_name_is_the_title(tmp_path: Path) -> None:
 
 def test_title_keeps_punctuation_and_unescapes_quotes(tmp_path: Path) -> None:
     project = make_project(tmp_path / "Folder", (
-        "define config.name = _('game-d College: Part \\'Two\\'!')\n"))
+        "define config.name = _('PAPER Lanes: Part \\'Two\\'!')\n"))
     assert manifest_of(project, tmp_path / "out")["title"] == \
-        "game-d College: Part 'Two'!"
+        "PAPER Lanes: Part 'Two'!"
 
 
 def test_title_follows_story_id_in_key_order(tmp_path: Path) -> None:

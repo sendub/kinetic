@@ -208,12 +208,12 @@ truthful: an unchecked box means nothing was accepted.
 
 ## Phase 11: Extractor completeness on the real corpus
 
-- [x] Several distinct kinds sampled from <corpus>
+- [x] Several distinct kinds sampled from the corpus
       (.app+.rpy, loose dir, .rpyc-only, .rpa-archive game, .zip; no
       .rpak found; Electron zip excluded; 30 converter tests incl.
       --label/--max-items/--files, 2026-10-31)
 - [x] unrpyc vendored and pinned; `.rpyc`-only projects decompile
-      (CensoredUsername v2.0.3 @ 3ae8334, 0 local mods; game-d 12 .rpyc
+      (CensoredUsername v2.0.3 @ 3ae8334, 0 local mods; game D 12 .rpyc
       decompiled, .rpy wins stale twins; 81 tests, 2026-10-31)
 - [x] `.rpa` reader implemented (stdlib zlib+pickle; real format is
       RPA-3.0/2.0, not `!RP-A` - fixed the plan's assumption; XOR offsets
@@ -802,7 +802,7 @@ truthful: an unchecked box means nothing was accepted.
       progress saved under the folder URL. pytest on touched files,
       vitest, scenario (move/rename the folder: progress kept).
       (storyId from save_directory, else config.name, else folder,
-      slugged; e.g. game F -> the-lantern-at-low-tide, demo
+      slugged; e.g. "The Lantern at Low Tide" -> the-lantern-at-low-tide, demo
       kinetic-demo. Player key story:<id>, folder-URL record moved over
       once (with bookmarks) then deleted so Reset stays reset. schema
       gains optional storyId, schemaVersion unchanged. pytest touched
@@ -817,7 +817,7 @@ truthful: an unchecked box means nothing was accepted.
       Tests, scenario, README, docs/content-format.md.
       (--title / config.name / folder name; --story-id override with
       slug check. Esc help h1 + document.title; untitled keeps "Kinetic"
-      and no heading. game F -> "The Lantern at Low Tide", demo
+      and no heading. a config.name -> its title, demo
       "Kinetic demo". pytest touched 165, vitest 513 (4 red before),
       screens 43 + 2 headless-fullscreen partials (heading check red on
       old player), smoke 6/6; screenshot checked. 2026-11-02)
@@ -1029,7 +1029,7 @@ truthful: an unchecked box means nothing was accepted.
       Test hook uses the converting agent's EXTRA formula on a synthetic
       file, purely as a hook test: it is NOT a correct decoder for the
       game (episodes 4-5 use an activation-dependent offset); the real
-      hook lives in the game I package. 25.12's worked example
+      hook lives in that game's conversion package. 25.12's worked example
       must say so too.
       (decoders.py; hooks chain in order, None/identical = unchanged; a
       raise or non-bytes return stops the run (exit 1) naming hook and
@@ -1141,7 +1141,7 @@ truthful: an unchecked box means nothing was accepted.
       replace an altered file (documented workaround). 2026-11-02)
 - [x] 25.13 Phase-closer: corpus slices re-run (extract, validate,
       play, rebuild), full suite, rebuild demo folders.
-      (2026-11-02: /Volumes/Data/games unreadable from the sandbox, so the
+      (2026-11-02: the corpus unreadable from the sandbox, so the
       corpus check used the .tmp/f-slice source copy with its
       documented slice command: 4 items, validator clean, rebuild OK,
       played with missingFiles []. vitest 555, biome+tsc clean, pytest
@@ -1287,7 +1287,7 @@ truthful: an unchecked box means nothing was accepted.
       media check flaked once (video currentTime 0) and passed on rerun.
       2026-11-02)
 - [x] `e` after a bookmark outside retained history (2026-11-03, user via
-      the game I agent): bookmark, read past HISTORY_CAP (5000)
+      a converting agent): bookmark, read past HISTORY_CAP (5000)
       so the bookmarked screen is evicted, restore the bookmark, advance
       once, press `e`: nothing happens. recordJump finds no earlier copy
       of the landing (`from` stays -1), so no future is attached and the
@@ -1519,7 +1519,7 @@ truthful: an unchecked box means nothing was accepted.
 ## Phase 30: Parallel media conversion (2026-11-03, user via the converting agent)
 
 - [x] Parallel `kinetic-media ship` and `rebuild`: poster generation for
-      the game I batch has run 8+ hours. Maximise speed:
+      a converting agent's batch has run 8+ hours. Maximise speed:
       profile the serial poster path and remove waste; bounded parallel
       workers starting with posters; dedupe by source hash + frame time +
       pinned recipe before dispatch; JXL encodes single-threaded, with
@@ -1702,19 +1702,19 @@ truthful: an unchecked box means nothing was accepted.
 
 ## Phase 35: Bookmarks on the branch map (2026-11-07, user)
 
-- [x] Map shows a sibling ending route after another: in game I, "How does Mara respond to Rowan's offer" has 3
-      routes; "Pay Rowan and continue at the office" and "Sign the
-      contract" are separate routes that each end the game, but the map
-      draws "Sign the contract" as following the office route's line.
+- [x] Map shows a sibling ending route after another: in a converted
+      corpus game, one decision has 3 routes; two of them are separate
+      routes that each end the game, but the map draws the second as
+      following the first route's line.
       Find whether the player (layout/route resolution) or the game's
       route definitions cause it. If the player, fix it and cover it
       with minimal artificial test data (nothing from that game in the
       repo).
-      (Not a player bug: the game's manifest marks "pay" as
+      (Not a player bug: the game's manifest marks the first route as
       `result: "return"` (a side trip back to the choice), so the map
-      correctly draws it into the join and the continuing "contract"
-      line after it. The machine, driven with that manifest, loops pay
-      back to the choice and never runs the two in sequence. With pay
+      correctly draws it into the join and the continuing route's
+      line after it. The machine, driven with that manifest, loops it
+      back to the choice and never runs the two in sequence. With that route
       set to "ending" (checked on a .tmp copy) the map ends it in an end
       mark. No player change; the fix belongs to the game's
       conversion. Orchestrator confirmed the manifest's route results.)
@@ -1728,7 +1728,8 @@ truthful: an unchecked box means nothing was accepted.
       (user, 2026-11-07); no Del or Enter shortcuts on cards. Fix the prototype's pan bug (a drag
       sometimes moves only the thumbnails, not the lines, until 1 then
       F). Remove the `t` screen. Tests use artificial data only;
-      game I is for manual checking via .tmp, never committed.
+      the converted corpus game is for manual checking via .tmp, never
+      committed.
       (2026-11-07: resumed after the usage limit cut off the first
       implementer. Lines, cards and marker now share one stage under a
       single CSS transform (pan desync cause: the prototype's cards were
@@ -1737,7 +1738,8 @@ truthful: an unchecked box means nothing was accepted.
       freeze. MAX_SCALE stays 3. Orchestrator: npm test 687 pass, check
       clean; full suite 13 scenarios, 304 checks: 301 pass, 2 PARTIAL
       (headless fullscreen Escapes), 1 FAIL = reading still expecting
-      the T row, fixed (no c or t), reading 17/17 on re-run; no game I text in the diff (grep); demo-final staged in
+      the T row, fixed (no c or t), reading 17/17 on re-run; no corpus game
+      text in the diff (grep); demo-final staged in
       .tmp/corpus-map/; the black card at Fit is that bookmark's own capture
       of a black video frame. Safari not verified: safaridriver
       does not connect.)
@@ -2101,7 +2103,7 @@ truthful: an unchecked box means nothing was accepted.
       cards, as high as clears the lines above where they overlap in x;
       per-band row spreading (`rowOffset`, `cardRows`) gone, bands only
       translate strip content; `fitWidth` counts the ticks' reach. Trees
-      without bookmarks lay out identically to HEAD. game I:
+      without bookmarks lay out identically to HEAD. A converted corpus game:
       gaps of 42 px between consecutive routes 29 -> 69, card-height
       gaps 44 -> 7 (each explained by a card or nested lines), lines
       changing height at a cut 9 of 47 -> 0 (2000 px) and 14 of 71 -> 0
@@ -2111,7 +2113,7 @@ truthful: an unchecked box means nothing was accepted.
       runs, and one run threw mid-scenario (60 checks, cause not
       captured; not seen again); the two branchmap edits (scroll to Home
       before the second C; "whole map in view" counts as an end) follow
-      from the shorter demo map; game I cut screenshots join
+      from the shorter demo map; the corpus game's cut screenshots join
       edge to edge. Subagent: four of five new tests fail on HEAD's
       sources, the overlap test shown to catch under-spacing by breaking
       the code; node layout 17.8 ms (HEAD 16.7) at 570 decisions, 134 ms
@@ -2123,12 +2125,13 @@ truthful: an unchecked box means nothing was accepted.
       item 1, each line at the lowest height it needs at each x, stepping by
       an S-bend where a card, count or node above needs room, nested routes
       stepping with it, no cut on a bend. Unit tests (no gap wider than its
-      own band's content needs; lines join at cuts; no overlaps); game I staged with a and with b, with screenshots side by side for the
+      own band's content needs; lines join at cuts; no overlaps); a converted
+      corpus game staged with a and with b, with screenshots side by side for the
       user; landed only if the user picks b, otherwise noted here and dropped.
       (2026-11-08: dropped, the user chose a. b was built uncommitted:
       `lineProfiles` with S-bends 18 px wide, levels at least 168 px long,
       a's heights kept as floors, bends also on join and return lines, cuts
-      kept off bends. game I: 6 bends; line held low with no card
+      kept off bends. The corpus game: 6 bends; line held low with no card
       in its own band 1,057 -> 263 px (2000 px) and 1,237 -> 481 px
       (1440 px); some items moved to the next band. Orchestrator: npm test
       753 pass, check clean, smoke 6/6, branchmap 65/65, bookmarkmap 29/29,
