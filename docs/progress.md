@@ -4320,8 +4320,27 @@ truthful: an unchecked box means nothing was accepted.
       tools/ pytest 1092, package-proof 18/18, rebuild 15/15, posters and
       validator clean on a fresh extract-demo. Orchestrator: npm test
       1370, check clean, the four touched pytest files 326 passed.)
-- [ ] The upgrade command (item 6). Tests: an old folder upgraded, the
+- [x] The upgrade command (item 6). Tests: an old folder upgraded, the
       refusals, `manifest.js` untouched, the schema copy, exit codes.
+      (2026-11-15: tools/upgrade_folder.py `<folder>`: exit 2 for a path
+      that is not a folder or bad arguments; exit 1, changing nothing,
+      for no manifest.json, a missing player/dist file, or a dist whose
+      stamp is not VERSION (it says to run `npm run build`). It writes
+      index.html and app.js to hidden temporary files, then renames both
+      over the old (a failed write leaves the old player), keeping the
+      old files' permissions; never manifest.js or app.js.map (a stale
+      map is left, nothing reads it); refreshes manifest.schema.json only
+      when present; runs validate_content.main, exit 1 on problems with
+      the files upgraded; prints `Kinetic <old> -> <new>` (`unknown`,
+      `(already current)`). Apps untouched. test_upgrade_folder.py, 21
+      tests, red first (collection failed on the missing module); one
+      runs against the real player/dist. Subagent's real run on a demo
+      copy: upgraded, check-game `--steps 5` exit 0 naming `Kinetic
+      1.8.0-dev`, a missing picture gave the validator's line and exit 1.
+      Orchestrator: pytest test_upgrade_folder, test_assemble_folder,
+      test_release_version 37 passed; a demo copy with an unstamped
+      app.js upgraded (`Kinetic unknown -> 1.8.0-dev`, exit 0, app.js
+      equal to dist, no temporary file left).)
 - [ ] CHANGELOG (item 7).
 - [ ] Docs (item 8): CREATE.md, README.md, AGENTS.md, packaging.md,
       verify-player.md; every example run.
