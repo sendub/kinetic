@@ -3305,8 +3305,10 @@ The user's decisions (2026-11-15):
   model: the reader opts in, and the app downloads it.
 - Every speed-up found in the research is used: each character's voice
   conditioning is computed once, and the model's text-to-token
-  transformer is quantized to 8 bits when it loads (0.35x real time on an
-  M2). 4-bit only if it ever gives a smaller download.
+  transformer is quantized to 8 bits when it loads. 4-bit only if it
+  ever gives a smaller download. (The research's 0.35x real time on an
+  M2 left out the decoder; item 2 measured 1.03-1.11x, and item 2b looks
+  for the speed back.)
 - Voices are designed at author time with Qwen3-TTS 1.7B VoiceDesign:
   the author describes a character, picks one of several takes, and that
   take ships as the character's reference. It was the only usable voice
@@ -3395,6 +3397,14 @@ The orchestrator's choices, within those decisions:
    server with fake wheels and model files (hash failure, resume, cancel),
    and one real check on this Mac: install into `.tmp`, then voice the
    test line and time it.
+2b. Faster lines (added 2026-11-15 from item 2's real check). Lines take
+   1.03-1.11x real time on an M2, too slow to keep ahead of a reader.
+   Find a setting or change that brings it well under real time without
+   an audible loss, judged by Whisper, the speaker match and the pause
+   and stress measures of docs/voice-reading.md, with samples kept for the
+   user. Candidates: fewer flow steps, Chatterbox Turbo's one-step decoder
+   behind the multilingual model's tokens, compiling the decoder. Also
+   stream a line in chunks, so it can start before it is finished.
 3. The Mac host. A shared `apps/macos/VoiceEngine.swift` compiled into
    the app and the WebKit driver: the voice folder, downloading and
    unpacking Python (progress, cancel, resume, disk-space check), writing

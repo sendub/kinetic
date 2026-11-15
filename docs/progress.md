@@ -4455,9 +4455,29 @@ truthful: an unchecked box means nothing was accepted.
       Orchestrator: npm test 1383, check clean, pytest validator,
       assembler, upgrade and schema-copy 369 passed, fixtures/demo
       validates.)
-- [ ] The helper, Mac backend (item 2). Tests: protocol, queue, cache,
+- [x] The helper, Mac backend (item 2). Tests: protocol, queue, cache,
       install against a local server; one real install and timed line on
       this Mac.
+      (2026-11-15: apps/voice/kinetic_voice, stdlib only outside
+      engine_mlx.py; JSON lines with ops status, install, cancel, remove,
+      warm, voice, speak, quit and progress events; a priority queue on
+      one engine thread; generated lines cached by engine, revision,
+      settings, voice and text. Lock macos-arm64-1: python-build-standalone
+      3.12.16 (sha256 checked against the release's SHA256SUMS), 19
+      wheels pinned by hash (macOS 14 minimum; mlx built for 14, 15 and
+      26), the model 2.71 GB and S3TokenizerV2 0.49 GB at pinned
+      revisions; 3.29-3.32 GB in all. models/ is laid out as a Hugging
+      Face cache so mlx-audio finds S3TokenizerV2 offline; HF_HOME, pip's
+      cache and temp files stay in the voice folder. Real check on this
+      M2: install 3.32 GB in 61 s, engine load 2.3-17.8 s, lines at
+      1.03-1.11x real time after warm-up (not the 0.35x the research
+      claimed: its timer stopped before mlx-audio's lazily evaluated
+      decoder ran), peak 3.6 GB; Whisper read the test line right with a
+      0.33 s pause before "You". Tests ran red first: 49 pass.
+      Orchestrator: pytest apps/voice/tests 49 passed; the lock read; the
+      real output scored.)
+- [ ] Faster lines (item 2b, added from item 2's real check). Tests:
+      timings, Whisper, speaker match and the pause measures; samples kept.
 - [ ] The Mac host (item 3). Tests: build_apps; driver scenario parts
       with a fake helper and a local server.
 - [ ] The player (item 4). Tests: unit tests; the `spoken` scenario file
