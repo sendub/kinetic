@@ -4214,5 +4214,12 @@ truthful: an unchecked box means nothing was accepted.
       row's changes. No command changed; tools/test_validate_content.py
       268 passed. Orchestrator: read the diff against visual.ts, ASCII,
       no game named.)
-- [ ] Phase-closer (Phase 50): full pytest, the full `npm run verify`
+- [x] Phase-closer (Phase 50): full pytest, the full `npm run verify`
       and `npm run verify -- --webkit`, package-proof.
+      (2026-11-15 on 1b31c86: full pytest 992 passed in 89 s; full `npm run
+      verify` 678/678 on Chrome in 366 s; `npm run verify -- --webkit`
+      691 pass, 5 partial (the headless fullscreen checks) and 2 fail, both
+      in bookmarkmap (map drags, a card click) while the load average
+      reached 20; bookmarkmap alone on WebKit 29/29 in 2 runs, and Phase
+      50 touches no map code; package-proof 18/18 with .tmp/extract-demo
+      regenerated.)
