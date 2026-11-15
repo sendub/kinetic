@@ -272,3 +272,67 @@ describe("audio track paths", () => {
     expect(() => parseManifest(manifest, ROOT)).toThrow(/audio\.tracks/);
   });
 });
+
+/**
+ * Voices (docs/content-format.md, "Voices"): each `voices.<speaker>.file`
+ * and `narrator.file` is a reference clip's media path, checked like a
+ * track's `file` and kept as declared.
+ */
+describe("voice reference clip paths", () => {
+  function withVoices(mei: string, narrator = "media/vo/narrator.flac") {
+    return {
+      schemaVersion: 1,
+      width: 960,
+      height: 540,
+      voices: {
+        Mei: {
+          file: mei,
+          text: "The tide is coming in early tonight.",
+          description: "A bright, quick young woman.",
+        },
+        "Old Theo": { file: "voices/theo.wav" },
+      },
+      narrator: { file: narrator },
+      items: [
+        {
+          id: "street-001",
+          type: "image",
+          file: "street-001.jpg",
+          speaker: "Mei",
+          text: "You're early today.",
+        },
+      ],
+    };
+  }
+
+  it("accepts voice files at subpaths and keeps them as declared", () => {
+    const manifest = withVoices("voices/mei.flac");
+    const parsed = parseManifest(manifest, ROOT);
+    expect(parsed).toBe(manifest);
+    expect(parsed.voices?.Mei.file).toBe("voices/mei.flac");
+    expect(parsed.voices?.Mei.text).toBe(
+      "The tide is coming in early tonight.",
+    );
+    expect(parsed.narrator?.file).toBe("media/vo/narrator.flac");
+  });
+
+  it.each([
+    ["an absolute path", "/mei.flac"],
+    ["a parent segment", "voices/../mei.flac"],
+    ["a backslash path", "voices\\mei.flac"],
+    ["a URL scheme", "https://example.com/mei.flac"],
+    ["whitespace", "voices/mei 1.flac"],
+  ])("rejects %s as a voice file, naming the speaker", (_label, file) => {
+    expect(() => parseManifest(withVoices(file), ROOT)).toThrow(
+      /^voices\.Mei: media path /,
+    );
+    expect(() =>
+      parseManifest(withVoices("voices/mei.flac", file), ROOT),
+    ).toThrow(/^narrator: media path /);
+  });
+
+  it("rejects a voices value that is not an object of voices", () => {
+    const manifest = { ...withVoices("voices/mei.flac"), voices: [] };
+    expect(() => parseManifest(manifest, ROOT)).toThrow(/^voices /);
+  });
+});

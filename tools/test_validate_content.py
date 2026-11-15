@@ -2473,6 +2473,219 @@ def test_looping_ogg_opus_gets_only_the_ogg_warning(folder: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Voices (docs/content-format.md § Voices; docs/plan.md Phase 52 item 1):
+# the top-level `voices` (speaker name -> reference clip) and `narrator`.
+# A voice's `file` follows a track file's rules: an audio extension, a
+# media path in the folder, and its script beside it or alone.
+# ---------------------------------------------------------------------------
+
+VOICE_FILES = {"Mei": "voices/mei.flac", "Theo": "theo.wav",
+               "narrator": "media/vo/narrator.m4a"}
+
+
+def with_voices(folder: Path) -> dict[str, Any]:
+    """The demo manifest with voices for its two speakers (Mei and Theo)
+    and a narrator, each clip a dummy with its script. Every voice is
+    used, so nothing warns."""
+    for path in VOICE_FILES.values():
+        put_track(folder, path)
+    manifest = read_manifest(folder)
+    manifest["voices"] = {
+        "Mei": {"file": VOICE_FILES["Mei"],
+                "text": "The tide is coming in early tonight.",
+                "description": "A bright, quick young woman."},
+        "Theo": {"file": VOICE_FILES["Theo"]},
+    }
+    manifest["narrator"] = {"file": VOICE_FILES["narrator"],
+                            "text": "Evening settled over the harbour."}
+    return manifest
+
+
+def test_voices_and_narrator_pass(folder: Path) -> None:
+    write_manifest(folder, with_voices(folder))
+    assert problems_of(folder) == []
+    proc = run_cli(folder)
+    assert (proc.returncode, proc.stdout, proc.stderr) == (0, "", "")
+
+
+def test_a_speaker_without_a_voice_is_fine(folder: Path) -> None:
+    manifest = with_voices(folder)
+    del manifest["voices"]["Theo"]
+    del manifest["narrator"]
+    write_manifest(folder, manifest)
+    proc = run_cli(folder)
+    assert (proc.returncode, proc.stdout, proc.stderr) == (0, "", "")
+
+
+@pytest.mark.parametrize(("name", "loc"), [
+    ("Mei", "voices.Mei.file"), ("narrator", "narrator.file")])
+def test_missing_voice_file_and_script_is_reported(
+        folder: Path, name: str, loc: str) -> None:
+    manifest = with_voices(folder)
+    (folder / VOICE_FILES[name]).unlink()
+    (folder / f"{VOICE_FILES[name]}.js").unlink()
+    problem = only_problem(folder, manifest)
+    assert problem.startswith(f"manifest.json: {loc}:")
+    assert "does not exist" in problem
+    assert f"nor its script '{VOICE_FILES[name]}.js'" in problem
+
+
+@pytest.mark.parametrize(("name", "loc"), [
+    ("Theo", "voices.Theo.file"), ("narrator", "narrator.file")])
+def test_missing_voice_script_is_reported(folder: Path, name: str,
+                                          loc: str) -> None:
+    manifest = with_voices(folder)
+    (folder / f"{VOICE_FILES[name]}.js").unlink()
+    problem = only_problem(folder, manifest)
+    assert problem.startswith(f"manifest.json: {loc}:")
+    assert f"no script '{VOICE_FILES[name]}.js' beside it" in problem
+
+
+def test_voice_script_that_does_not_match_its_file_is_reported(
+        folder: Path) -> None:
+    manifest = with_voices(folder)
+    (folder / "theo.wav.js").write_bytes(
+        audio_format.script_bytes("theo.wav", b"other bytes"))
+    problem = only_problem(folder, manifest)
+    assert problem.startswith("manifest.json: voices.Theo.file:")
+    assert "script 'theo.wav.js' does not match it" in problem
+
+
+def test_voices_shipped_as_their_scripts_alone_pass(folder: Path) -> None:
+    manifest = with_voices(folder)
+    for path in VOICE_FILES.values():
+        (folder / path).unlink()
+    write_manifest(folder, manifest)
+    assert problems_of(folder) == []
+    proc = run_cli(folder)
+    assert (proc.returncode, proc.stdout, proc.stderr) == (0, "", "")
+
+
+def test_a_voice_script_alone_that_is_not_its_files_is_reported(
+        folder: Path) -> None:
+    manifest = with_voices(folder)
+    (folder / "theo.wav").unlink()
+    (folder / "theo.wav.js").write_bytes(
+        audio_format.script_bytes("other.wav", DUMMY))
+    problem = only_problem(folder, manifest)
+    assert problem.startswith("manifest.json: voices.Theo.file:")
+    assert "shipped without the file" in problem
+
+
+def test_a_file_both_a_track_and_a_voice_is_checked_once(
+        folder: Path) -> None:
+    manifest = with_voices(folder)
+    manifest["audio"] = {"tracks": {"mei-ref": {
+        "file": VOICE_FILES["Mei"], "durationSeconds": 11.0}}}
+    manifest["items"][1]["audio"] = {"voice": "mei-ref"}
+    (folder / f"{VOICE_FILES['Mei']}.js").unlink()
+    problem = only_problem(folder, manifest)
+    assert problem.startswith("manifest.json: audio.tracks.mei-ref.file:")
+
+
+@pytest.mark.parametrize("file", ["voices/mei.txt", "voices/mei.mp4",
+                                  "../mei.flac", "/voices/mei.flac"])
+def test_voice_file_breaking_the_audio_path_rules_is_reported(
+        folder: Path, file: str) -> None:
+    manifest = with_voices(folder)
+    if not file.startswith(("/", "..")):
+        put_track(folder, file)  # present, so only the extension is wrong
+    manifest["voices"]["Mei"]["file"] = file
+    problem = only_problem(folder, manifest)
+    assert problem.startswith("manifest.json: voices.Mei.file:")
+
+
+@pytest.mark.parametrize("ext", ["mp3", "m4a", "wav", "flac", "webm",
+                                 "ogg", "oga", "opus"])
+def test_every_track_extension_is_a_voice_extension(
+        folder: Path, ext: str) -> None:
+    manifest = with_voices(folder)
+    put_track(folder, f"mei.{ext}")
+    manifest["voices"]["Mei"]["file"] = f"mei.{ext}"
+    write_manifest(folder, manifest)
+    assert problems_of(folder) == []
+    proc = run_cli(folder)
+    assert (proc.returncode, proc.stdout, proc.stderr) == (0, "", "")
+
+
+@pytest.mark.parametrize(("change", "loc"), [
+    (lambda m: m["voices"]["Mei"].update(pitch=1.2), "voices.Mei"),
+    (lambda m: m["narrator"].update(speaker="Narrator"), "narrator"),
+    (lambda m: m["voices"]["Mei"].update(text=""), "voices.Mei.text"),
+    (lambda m: m["voices"]["Mei"].update(description=""),
+     "voices.Mei.description"),
+    (lambda m: m["narrator"].update(text=7), "narrator.text"),
+    (lambda m: m["voices"]["Theo"].pop("file"), "voices.Theo"),
+    (lambda m: m["voices"].update(Theo="theo.wav"), "voices.Theo"),
+    (lambda m: m.update(narrator=[VOICE_FILES["narrator"]]), "narrator"),
+    (lambda m: m.update(voices=["Mei"]), "voices"),
+    (lambda m: m["voices"].update({"": {"file": "theo.wav"}}), "voices"),
+])
+def test_a_badly_shaped_voice_is_rejected(folder: Path, change: Any,
+                                          loc: str) -> None:
+    manifest = with_voices(folder)
+    change(manifest)
+    write_manifest(folder, manifest)
+    problems = problems_of(folder)
+    assert problems, "expected a problem"
+    assert all(p.startswith(f"manifest.json: {loc}:") for p in problems), \
+        problems
+
+
+def test_an_unused_voice_warns_only(folder: Path) -> None:
+    manifest = with_voices(folder)
+    manifest["voices"]["Ines"] = {"file": VOICE_FILES["Theo"]}
+    write_manifest(folder, manifest)
+    assert problems_of(folder) == []
+    proc = run_cli(folder)
+    assert (proc.returncode, proc.stdout) == (0, ""), proc.stderr
+    assert warning_lines(proc) == [
+        "warning: manifest.json: voices.Ines: no item's speaker is 'Ines'"]
+    assert proc.stderr.endswith(f"{folder}: 1 voice warning\n")
+
+
+def test_a_narrator_with_no_line_to_speak_warns_only(folder: Path) -> None:
+    manifest = with_voices(folder)
+    for item in manifest["items"]:
+        if item.get("text") and not item.get("speaker"):
+            item["speaker"] = "Theo"
+    write_manifest(folder, manifest)
+    assert problems_of(folder) == []
+    proc = run_cli(folder)
+    assert (proc.returncode, proc.stdout) == (0, ""), proc.stderr
+    assert warning_lines(proc) == [
+        "warning: manifest.json: narrator: no item has text without a "
+        "speaker"]
+
+
+def test_voice_warnings_read_speakers_and_text_as_the_overlay_does() -> None:
+    """A voice counts as used by an item that names its speaker; the
+    narrator by an item with non-blank text and no speaker (absent or
+    empty). Malformed values the schema reports do not crash it."""
+    voice = {"file": "a.wav"}
+    assert validate_content.voice_warnings({
+        "voices": {"A": voice, "B": voice, "C": voice},
+        "narrator": voice,
+        "items": [{"speaker": "A"}, {"speaker": "B", "text": "Hi."},
+                  {"speaker": "", "text": "Rain."}, "not an item"]}) == [
+        "warning: manifest.json: voices.C: no item's speaker is 'C'"]
+    assert validate_content.voice_warnings({
+        "narrator": voice, "items": [{"text": "  "}, {"speaker": "A",
+                                                      "text": "Hi."}]}) == [
+        "warning: manifest.json: narrator: no item has text without a "
+        "speaker"]
+    assert validate_content.voice_warnings(None) == []
+    assert validate_content.voice_warnings({"voices": "x", "items": "x"}) \
+        == []
+
+
+def test_demo_folders_have_no_voices(demo: Path) -> None:
+    manifest = read_manifest(demo)
+    assert "voices" not in manifest and "narrator" not in manifest
+    assert validate_content.voice_warnings(manifest) == []
+
+
+# ---------------------------------------------------------------------------
 # Unreachable items (docs/plan.md Phase 48 item 6; docs/content-format.md,
 # "Rules and validator invariants"): an item no reading from the opening
 # shows, Play all routes included, warns on stderr; stdout and the exit

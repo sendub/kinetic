@@ -25,10 +25,11 @@ double-clicks open over `file://` with nothing else on disk:
 - a generated `manifest.js` when the content has `manifest.json` but no
   shim: `window.KINETIC_MANIFEST = <manifest JSON>;`, the rule documented
   in CREATE.md and checked by tools/validate_content.py;
-- a generated script, `<file>.js`, beside each audio track file that has
-  none (docs/content-format.md, "Audio"); an existing one is left as it
-  is, and the validator checks it;
-- the audio track files themselves left out once their scripts are in:
+- a generated script, `<file>.js`, beside each audio track file and
+  voice reference clip that has none (docs/content-format.md, "Audio",
+  "Voices"); an existing one is left as it is, and the validator checks
+  it;
+- those audio files themselves left out once their scripts are in:
   the player reads only the scripts (docs/plan.md Phase 47, item 19). A
   file an item also shows (a video) stays. The content folder keeps both,
   for the ledger, `kinetic-media rebuild` and the validator's check of
@@ -109,22 +110,28 @@ def _read_manifest(out: Path) -> dict | None:
     return manifest if isinstance(manifest, dict) else None
 
 
-def _track_files(manifest: dict | None) -> list[str]:
-    """Every audio track file the manifest names, once each, sorted."""
+def _audio_files(manifest: dict | None) -> list[str]:
+    """Every audio file the manifest names, once each, sorted: the track
+    files and the voices' reference clips (docs/content-format.md,
+    "Voices"), which the player reads from their scripts alike."""
     audio = manifest.get("audio") if manifest is not None else None
     tracks = audio.get("tracks") if isinstance(audio, dict) else None
-    files = {track.get("file") for track in (tracks or {}).values()
-             if isinstance(track, dict)}
+    voices = manifest.get("voices") if manifest is not None else None
+    sounds = [*(tracks.values() if isinstance(tracks, dict) else []),
+              *(voices.values() if isinstance(voices, dict) else []),
+              manifest.get("narrator") if manifest is not None else None]
+    files = {sound.get("file") for sound in sounds
+             if isinstance(sound, dict)}
     return sorted(f for f in files if isinstance(f, str))
 
 
 def write_audio_scripts(out: Path) -> int:
-    """Write the script of each audio track file `manifest.json` names
-    that has none; how many were written. A missing track file, or a
-    manifest that does not parse, gets none: the validator reports
-    them."""
+    """Write the script of each audio file `manifest.json` names (track
+    files and voice clips) that has none; how many were written. A
+    missing audio file, or a manifest that does not parse, gets none:
+    the validator reports them."""
     written = 0
-    for file in _track_files(_read_manifest(out)):
+    for file in _audio_files(_read_manifest(out)):
         if (out / file).is_file() \
                 and not audio_format.script_path(out, file).exists():
             audio_format.write_script(out, file)
@@ -133,9 +140,10 @@ def write_audio_scripts(out: Path) -> int:
 
 
 def leave_out_audio_files(out: Path) -> int:
-    """Remove from the output each audio track file whose script is there,
-    unless an item also names the file (a video, a poster); how many were
-    removed. The player reads only the scripts."""
+    """Remove from the output each audio file (track or voice clip) whose
+    script is there, unless an item also names the file (a video, a
+    poster); how many were removed. The player reads only the
+    scripts."""
     manifest = _read_manifest(out)
     items = manifest.get("items") if manifest is not None else None
     shown = {value for item in (items if isinstance(items, list) else [])
@@ -144,7 +152,7 @@ def leave_out_audio_files(out: Path) -> int:
                            *(item.get("frames") or [])]
              if isinstance(value, str)}
     removed = 0
-    for file in _track_files(manifest):
+    for file in _audio_files(manifest):
         if file in shown or not (out / file).is_file():
             continue
         if audio_format.script_path(out, file).is_file():

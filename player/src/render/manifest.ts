@@ -132,6 +132,7 @@ export function parseManifest(value: unknown, contentRoot: string): Manifest {
     checkPaths(`items[${index}]`, declaredPaths(item), contentRoot);
   });
   if (candidate.audio !== undefined) checkTracks(candidate.audio, contentRoot);
+  checkVoices(candidate, contentRoot);
   return candidate as Manifest;
 }
 
@@ -166,6 +167,34 @@ function checkTracks(audio: unknown, contentRoot: string): void {
     if (typeof file === "string")
       checkPaths(`audio.tracks.${id}`, [file], contentRoot);
   }
+}
+
+/**
+ * The top-level `voices` and `narrator` (docs/content-format.md, "Voices"):
+ * each voice's `file`, its reference clip, is a media path checked like a
+ * track's.
+ */
+function checkVoices(manifest: Partial<Manifest>, contentRoot: string): void {
+  const { voices, narrator } = manifest as {
+    voices?: unknown;
+    narrator?: unknown;
+  };
+  if (voices !== undefined) {
+    if (typeof voices !== "object" || voices === null || Array.isArray(voices))
+      throw new Error("voices is not an object of voices");
+    for (const [speaker, voice] of Object.entries(voices))
+      checkVoiceFile(`voices.${speaker}`, voice, contentRoot);
+  }
+  if (narrator !== undefined) checkVoiceFile("narrator", narrator, contentRoot);
+}
+
+function checkVoiceFile(
+  where: string,
+  voice: unknown,
+  contentRoot: string,
+): void {
+  const file = (voice as { file?: unknown } | null)?.file;
+  if (typeof file === "string") checkPaths(where, [file], contentRoot);
 }
 
 /**

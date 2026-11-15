@@ -71,6 +71,16 @@
           "additionalProperties": { "$ref": "#/$defs/track" }
         }
       }
+    },
+    "voices": {
+      "type": "object",
+      "description": "optional speaker name -> voice, the reference clip spoken lines in that speaker's voice are generated from on the reader's machine; keys are speaker names exactly as items' `speaker` gives them; the validator warns about a voice no item's speaker uses; see docs/content-format.md § Voices",
+      "propertyNames": { "type": "string", "minLength": 1 },
+      "additionalProperties": { "$ref": "#/$defs/voice" }
+    },
+    "narrator": {
+      "$ref": "#/$defs/voice",
+      "description": "optional voice for items that have text but no speaker; see docs/content-format.md § Voices"
     }
   },
   "$defs": {
@@ -108,6 +118,27 @@
           "minimum": 0,
           "maximum": 1,
           "description": "the author's level; default 1"
+        }
+      }
+    },
+    "voice": {
+      "type": "object",
+      "required": ["file"],
+      "additionalProperties": false,
+      "properties": {
+        "file": {
+          "$ref": "#/$defs/audioPath",
+          "description": "the reference clip: about 10 to 13 seconds of clean speech; an audio file with its script beside it, as a track's file (FLAC or WAV keeps it lossless)"
+        },
+        "text": {
+          "type": "string",
+          "pattern": "\\S",
+          "description": "optional transcript of the reference clip"
+        },
+        "description": {
+          "type": "string",
+          "pattern": "\\S",
+          "description": "optional description the voice was designed from"
         }
       }
     },

@@ -135,13 +135,17 @@ my-novel/
   honestly-empty folder — a converter run in which no visual resolved to
   a file ships no items rather than placeholders — and the player renders
   its no-content state for it.
+- `branches`, `audio`, `voices`, `narrator` (optional): the branch
+  decisions over the items (Branches), the sound (Audio) and the
+  characters' voices for spoken lines (Voices).
 
 ### Schema version
 
 A new optional field, at the top level or on an item, never changes
 `schemaVersion`: a folder without it means what it meant before. That
-is how `audio`, video `segments`, the game's `version` and `$schema`
-arrived after Kinetic 1.0.0 with `schemaVersion` still 1.
+is how `audio`, video `segments`, the game's `version`, `$schema`,
+`voices` and `narrator` arrived after Kinetic 1.0.0 with
+`schemaVersion` still 1.
 `schemaVersion` changes only when a folder that was valid stops being
 valid or plays differently, and that comes with a major Kinetic
 release.
@@ -983,6 +987,81 @@ How the player applies this, its fades and what it does on a wheel
 step, a jump or a skip, is player behaviour (docs/plan.md Phase 47,
 items 4 to 6).
 
+## Voices
+
+A game may give its characters voices: every line is then spoken in
+its speaker's voice, generated on the reader's machine while they read
+(docs/voice-reading.md; docs/plan.md Phase 52). Generating lines needs
+an opt-in install outside the folder, which a Kinetic app offers; the
+folder itself still plays without it, silently as before. Both fields
+are optional, and `schemaVersion` stays 1:
+
+```jsonc
+{
+  "voices": {
+    "Mei": { "file": "voices/mei.flac",
+             "text": "The tide is coming in early tonight, I can hear it.",
+             "description": "A bright, quick young woman, warm and wry." },
+    "Old Theo": { "file": "voices/theo.flac" }
+  },
+  "narrator": { "file": "voices/narrator.flac",
+                "text": "Evening settled over the harbour." },
+  "items": [
+    { "id": "line-002", "type": "text", "speaker": "Mei",
+      "text": "You're early today." },
+    { "id": "line-003", "type": "text",
+      "text": "The lamps along the quay came on one by one." }
+  ]
+}
+```
+
+- `voices`: an object from speaker name to voice. A key is a speaker
+  name exactly as items' `speaker` gives it, case and spaces included,
+  and is not empty. A speaker with no voice is fine: their lines stay
+  silent.
+- `narrator`: one voice, which speaks the lines that have text but no
+  speaker (`speaker` absent or empty).
+
+A voice has:
+
+- `file` (required): the reference clip the voice is cloned from, an
+  audio file under a track file's rules (Tracks): a media path (Naming
+  conventions) ending in `.mp3`, `.m4a`, `.wav`, `.flac` or `.webm`, or
+  Ogg's `.ogg`, `.oga` or `.opus`, with its script beside it (The script
+  beside each audio file). An assembled folder ships the script alone,
+  as it does a track's, and several voices, or a voice and a track, may
+  share one file.
+- `text` (optional): what the clip says, word for word. Some engines
+  clone better given the transcript.
+- `description` (optional): the description the voice was designed
+  from, kept so the voice can be designed again.
+
+`text` and `description`, when present, hold at least one non-space
+character. A voice has no other keys.
+
+A good reference clip is about 10 to 13 seconds of one person's clean
+speech: no music, no effects, no other voice, little room echo. FLAC
+or WAV keeps it lossless; the clip is not played to the reader, so its
+size matters only once per game, not once per line. Ogg is accepted
+without the track warning, because the player never plays the clip: it
+hands the clip's bytes to the voice engine.
+
+With spoken lines on, these lines are spoken:
+
+- an item with text whose `speaker` has a voice, in that voice;
+- an item with text and no speaker, in the narrator's voice, when there
+  is a `narrator`;
+- a thought (`thought: true`) like any other line, in its speaker's
+  voice.
+
+An item with a recorded voice line (`audio.voice`, Item audio) always
+plays the recording and is never generated. Speaker names are not
+spoken, only the text. Lines are spoken as written: the format has no
+direction markup.
+
+The validator warns, without failing, about a voice no item's `speaker`
+names and about a `narrator` when no item has text without a speaker.
+
 ## Naming conventions
 
 The converter names every file it ships, posters included, by the
@@ -1056,15 +1135,16 @@ Format rules:
   carry any extension.
 - Audio track files carry `.mp3`, `.m4a`, `.wav`, `.flac` or `.webm`,
   or Ogg's `.ogg`, `.oga` or `.opus`, which pass the schema with a
-  validator warning (Audio).
+  validator warning (Audio). A voice's `file` carries the same
+  extensions, Ogg without the warning (Voices).
 - Every media value matches the path pattern.
 
 The validator checks the schema plus these invariants:
 
 1. `manifest.json` validates against `docs/content-schema.json`.
 2. Every path in the manifest resolves to an existing file in the
-   folder, except an audio track file whose script is there instead
-   (17).
+   folder, except an audio track file or a voice's `file` whose script
+   is there instead (17, 18).
 3. Item ids are unique.
 4. `schemaVersion` is 1; `storyId`, when present, is a slug as above;
    `title`, when present, is non-blank text of at most 200 characters;
@@ -1133,6 +1213,12 @@ The validator checks the schema plus these invariants:
     file, inside the folder, and the file's format is read from the
     bytes it holds. A track with neither its file nor its script is a
     problem.
+18. `voices` and `narrator` (Voices): each `voices` key is a non-empty
+    string; each voice is an object with a `file`, optional `text` and
+    `description` that hold a non-space character, and no other keys
+    (the schema enforces these). Each voice's `file` has its script as
+    a track file does (17), checked once per file however many tracks
+    and voices name it.
 
 The validator also warns about three things that are not problems: an
 Ogg track file (Audio says why), a looping track in a format that is
@@ -1141,6 +1227,12 @@ read from its head), and a track no item uses. Each warning is one
 `warning: manifest.json: <location>: <reason>` line on stderr, followed
 by a count. Warnings leave stdout and the exit status alone, and a
 manifest without audio prints none.
+
+After the audio warnings it warns, in the same form, about a voice in
+`voices` no item's `speaker` names (`no item's speaker is '<name>'`)
+and about a `narrator` when no item has non-blank text without a
+speaker (`no item has text without a speaker`), followed by a count
+(`N voice warnings`). A manifest without voices prints none.
 
 It also warns, before any audio warning, about each item that no
 reading from the opening ever shows: one `warning: manifest.json:

@@ -4436,9 +4436,25 @@ truthful: an unchecked box means nothing was accepted.
 
 ## Phase 52: Spoken lines (2026-11-15, user)
 
-- [ ] The manifest's `voices` and `narrator` (docs/plan.md Phase 52,
+- [x] The manifest's `voices` and `narrator` (docs/plan.md Phase 52,
       item 1). Tests: validator cases, the demo still validates,
       manifest.test.ts.
+      (2026-11-15: schema `voices` (speaker name -> `$defs/voice`) and
+      `narrator`; a voice is `{file, text?, description?}`, `file` an
+      `audioPath`, `text` and `description` need a non-space character.
+      The validator checks voice files with every track rule (file or
+      script alone, script matching, inside the folder) through one list
+      of scripted files; a file shared with a track is reported once, at
+      the track. Warnings, not problems: a voice no speaker uses, a
+      narrator with no speakerless text. No Ogg warning for a voice: its
+      clip goes to the voice engine, never to the browser. The assembler
+      writes a voice's missing script and leaves its clip out, as for
+      tracks. types.ts `ManifestVoice`; parseManifest checks the paths.
+      content-format.md "Voices", invariant 18. Tests ran red first:
+      validator 36, manifest.test.ts 7 (6 red), assembler 1.
+      Orchestrator: npm test 1383, check clean, pytest validator,
+      assembler, upgrade and schema-copy 369 passed, fixtures/demo
+      validates.)
 - [ ] The helper, Mac backend (item 2). Tests: protocol, queue, cache,
       install against a local server; one real install and timed line on
       this Mac.

@@ -43,6 +43,23 @@ export interface ManifestAudio {
   tracks: Readonly<Record<string, AudioTrack>>;
 }
 
+/**
+ * A character's voice (docs/content-format.md, "Voices"): the reference
+ * clip spoken lines in that voice are generated from on the reader's
+ * machine.
+ */
+export interface ManifestVoice {
+  /**
+   * The reference clip: a media path (Naming conventions) with an audio
+   * extension, read from the script beside it as a track's file is.
+   */
+  file: string;
+  /** What the clip says. */
+  text?: string;
+  /** The description the voice was designed from. */
+  description?: string;
+}
+
 /** One one-shot of an item (`ItemAudio.sfx`). */
 export interface SfxCue {
   track: string;
@@ -278,6 +295,13 @@ export interface Manifest {
   branches?: readonly Branch[];
   /** Optional sound; absent plays silent (docs/content-format.md, "Audio"). */
   audio?: ManifestAudio;
+  /**
+   * Optional speaker name, exactly as items' `speaker` gives it, to that
+   * character's voice (docs/content-format.md, "Voices").
+   */
+  voices?: Readonly<Record<string, ManifestVoice>>;
+  /** Optional voice for items with text and no speaker. */
+  narrator?: ManifestVoice;
 }
 
 /** Player-side pacing settings (docs/content-format.md, "Timing"). */

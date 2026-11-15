@@ -37,6 +37,12 @@ in Ogg), and per track no item uses, then a count, printed before any
 poster warnings. They never change the exit status, and a manifest
 without audio prints none.
 
+Voice warnings, `voice_warnings`, need no flag: one such line per voice
+in `voices` that no item's `speaker` names, and one for a `narrator`
+when no item has text without a speaker, then a count, printed between
+the audio and poster warnings. They never change the exit status, and a
+manifest without voices prints none.
+
 Two layers of checking, per docs/content-format.md §Rules and validator
 invariants:
 
@@ -57,9 +63,10 @@ invariants:
    `branches` table obeys its reference, span, continuingRoute/
    continueAt, and `"continue"` result rules (docs/content-format.md
    § Branches); the optional audio obeys its track range, id, ambience
-   and `videoSound` length rules, and each track file has its script
-   beside it holding the file's bytes, or ships as that script alone
-   (docs/content-format.md § Audio);
+   and `videoSound` length rules, and each track file and each voice's
+   reference clip has its script beside it holding the file's bytes, or
+   ships as that script alone (docs/content-format.md § Audio,
+   § Voices);
    and a present `manifest.js` shim embeds JSON equal to `manifest.json`.
 """
 
@@ -276,12 +283,23 @@ def schema_problems(manifest: Any, schema: Any) -> list[tuple[list[Any], str]]:
 
 def iter_media_paths(manifest: Any) -> Iterator[tuple[str, Any]]:
     """(location, value) for every media path the manifest references:
-    the items' files, frames and posters, then the audio track files."""
+    the items' files, frames and posters, then the audio track files and
+    the voices' reference clips."""
     items = manifest.get("items") if isinstance(manifest, dict) else None
     yield from _item_media_paths(items if isinstance(items, list) else [])
+    yield from _scripted_files(manifest)
+
+
+def _scripted_files(manifest: Any) -> Iterator[tuple[str, Any]]:
+    """(location, value) for every audio file the player reads from the
+    script beside it: each track's `file`, then each voice's `file`
+    (docs/content-format.md § Audio, § Voices)."""
     for track_id, track in _audio_tracks(manifest).items():
         if isinstance(track, dict) and "file" in track:
             yield f"audio.tracks.{track_id}.file", track["file"]
+    for loc, voice in _voice_entries(manifest):
+        if isinstance(voice, dict) and "file" in voice:
+            yield f"{loc}.file", voice["file"]
 
 
 def _item_media_paths(items: list[Any]) -> Iterator[tuple[str, Any]]:
@@ -311,9 +329,11 @@ def _item_media_paths(items: list[Any]) -> Iterator[tuple[str, Any]]:
 def media_problems(content_dir: Path, manifest: Any,
                    schema_locs: set[str] = frozenset()) -> list[str]:
     """Invariant 2: every referenced path exists in the folder; plus path
-    rules. An audio track's file may be absent when its script is there:
-    the player reads only the script (docs/content-format.md § Audio)."""
+    rules. An audio track's file, or a voice's, may be absent when its
+    script is there: the player reads only the script
+    (docs/content-format.md § Audio, § Voices)."""
     root = content_dir.resolve()
+    scripted = {loc for loc, _value in _scripted_files(manifest)}
     problems: list[str] = []
     for loc, value in iter_media_paths(manifest):
         if not isinstance(value, str):
@@ -325,8 +345,8 @@ def media_problems(content_dir: Path, manifest: Any,
                 problems.append(_line(loc, rule))
             continue
         target = content_dir / value
-        if not target.exists() and loc.startswith("audio.tracks."):
-            # An assembled folder ships a track's script alone
+        if not target.exists() and loc in scripted:
+            # An assembled folder ships a track's or voice's script alone
             # (audio_script_problems checks it).
             script = audio_format.script_path(content_dir, value)
             if not script.is_file():
@@ -1145,21 +1165,20 @@ def audio_problems(manifest: Any) -> list[str]:
 
 def audio_script_problems(content_dir: Path, manifest: Any,
                           schema_locs: set[str] = frozenset()) -> list[str]:
-    """Each track file has its script beside it, `<file>.js`, holding
-    the file's bytes (docs/content-format.md § Audio). An assembled folder
-    ships the script alone (tools/assemble_folder.py): it is then the one
-    line for that file, naming it, inside the folder.
+    """Each track file and voice file has its script beside it,
+    `<file>.js`, holding the file's bytes (docs/content-format.md § Audio,
+    § Voices). An assembled folder ships the script alone
+    (tools/assemble_folder.py): it is then the one line for that file,
+    naming it, inside the folder.
 
-    Checked once per file, at the first track naming it. A file whose
-    path the schema, the path rule or `media_problems` already reports
-    is not checked again.
+    Checked once per file, at the first track or voice naming it, tracks
+    first. A file whose path the schema, the path rule or
+    `media_problems` already reports is not checked again.
     """
     root = content_dir.resolve()
     problems: list[str] = []
     seen: set[str] = set()
-    for track_id, track in _audio_tracks(manifest).items():
-        file = track.get("file") if isinstance(track, dict) else None
-        loc = f"audio.tracks.{track_id}.file"
+    for loc, file in _scripted_files(manifest):
         if not isinstance(file, str) or file in seen \
                 or loc in schema_locs or _path_rule(file):
             continue
@@ -1173,7 +1192,7 @@ def audio_script_problems(content_dir: Path, manifest: Any,
             if not script.is_file():
                 problems.append(_line(loc, (
                     f"no script {name!r} beside it: the player reads the "
-                    "track from it (tools/assemble_folder.py writes a "
+                    "audio from it (tools/assemble_folder.py writes a "
                     "missing one)")))
                 continue
             why = audio_format.script_problem(file, script.read_bytes(),
@@ -1306,6 +1325,54 @@ def audio_warnings(manifest: Any, content_dir: Path) -> list[str]:
         if track_id not in used:
             warnings.append(WARNING_PREFIX + _line(
                 f"audio.tracks.{track_id}", "no item uses this track"))
+    return warnings
+
+
+# ---------------------------------------------------------------------------
+# Voices (docs/content-format.md § Voices)
+# ---------------------------------------------------------------------------
+
+def _voice_entries(manifest: Any) -> Iterator[tuple[str, Any]]:
+    """(location, value) for each voice: `voices.<speaker>` in the
+    manifest's order, then `narrator`. Malformed containers yield
+    nothing; the schema reports them."""
+    if not isinstance(manifest, dict):
+        return
+    voices = manifest.get("voices")
+    if isinstance(voices, dict):
+        for speaker, voice in voices.items():
+            yield f"voices.{speaker}", voice
+    if "narrator" in manifest:
+        yield "narrator", manifest["narrator"]
+
+
+def voice_warnings(manifest: Any) -> list[str]:
+    """One warning line per voice no item's `speaker` names, and one for
+    a `narrator` when no item has text without a speaker.
+
+    An item speaks with the narrator when its `text` is not blank and its
+    `speaker` is absent or empty, as the overlay reads them. Neither is a
+    problem: a speaker with no voice is fine, and a voice nobody uses
+    only weighs the folder down. A manifest without voices gets none.
+    """
+    if not isinstance(manifest, dict):
+        return []
+    items = manifest.get("items")
+    items = [item for item in (items if isinstance(items, list) else [])
+             if isinstance(item, dict)]
+    speakers = {item["speaker"] for item in items
+                if isinstance(item.get("speaker"), str)}
+    warnings: list[str] = []
+    voices = manifest.get("voices")
+    for speaker in voices if isinstance(voices, dict) else {}:
+        if speaker not in speakers:
+            warnings.append(WARNING_PREFIX + _line(
+                f"voices.{speaker}", f"no item's speaker is {speaker!r}"))
+    if "narrator" in manifest and not any(
+            isinstance(item.get("text"), str) and item["text"].strip()
+            and not item.get("speaker") for item in items):
+        warnings.append(WARNING_PREFIX + _line(
+            "narrator", "no item has text without a speaker"))
     return warnings
 
 
@@ -1595,6 +1662,12 @@ def main(argv: list[str] | None = None) -> int:
     if sound:
         print(f"{args.content_dir}: {len(sound)} audio warning"
               f"{'s' if len(sound) != 1 else ''}", file=sys.stderr)
+    spoken = voice_warnings(manifest)
+    for warning in spoken:
+        print(warning, file=sys.stderr)
+    if spoken:
+        print(f"{args.content_dir}: {len(spoken)} voice warning"
+              f"{'s' if len(spoken) != 1 else ''}", file=sys.stderr)
     if media is not None:
         warnings = poster_warnings(manifest, media)
         for warning in warnings:

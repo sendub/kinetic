@@ -109,6 +109,32 @@ def test_the_audio_files_are_left_out_their_scripts_ship(
     assert validate_content.validate_folder(out) == []
 
 
+def test_voice_clips_ship_as_their_scripts_as_tracks_do(
+        tmp_path: Path, fake_dist: Path,
+        capsys: pytest.CaptureFixture[str]) -> None:
+    """A voice's reference clip (docs/content-format.md, Voices) is read
+    from its script like a track file: written when missing, the clip
+    left out, a clip shared with a track handled once."""
+    folder = content(tmp_path, {"line": "voices/mei.flac"})
+    manifest = json.loads((folder / "manifest.json").read_text())
+    for file in ("theo.wav", "narrator.m4a"):
+        (folder / file).write_bytes(f"sound of {file}".encode())
+    manifest["voices"] = {"Mei": {"file": "voices/mei.flac"},
+                          "Theo": {"file": "theo.wav"}}
+    manifest["narrator"] = {"file": "narrator.m4a"}
+    (folder / "manifest.json").write_text(json.dumps(manifest))
+    out = tmp_path / "play"
+    assemble(folder, out)
+    for file in ("voices/mei.flac", "theo.wav", "narrator.m4a"):
+        assert not (out / file).exists()
+        assert held(out, file) == (folder / file).read_bytes()
+    printed = capsys.readouterr().out
+    assert "wrote 3 audio scripts" in printed
+    assert "left out 3 audio files" in printed
+    import validate_content
+    assert validate_content.validate_folder(out) == []
+
+
 def test_an_audio_file_an_item_shows_stays(
         tmp_path: Path, fake_dist: Path) -> None:
     folder = content(tmp_path, {"clip": "clip.webm"})
