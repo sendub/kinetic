@@ -114,6 +114,7 @@ func (g *game) run() {
 		return
 	}
 
+	g.startVoice()
 	g.createEnvironment()
 	messageLoop()
 }

@@ -35,6 +35,7 @@ type game struct {
 	inSizeMove bool
 
 	webView
+	voiceBridge
 	// fallback, once set, says why the game is leaving for the default
 	// browser.
 	fallback string
@@ -212,6 +213,10 @@ func (g *game) handle(message uint32, wParam, lParam uintptr) bool {
 		g.restartWebView()
 
 		return true
+	case wmAppVoice:
+		g.deliverVoice()
+
+		return true
 	}
 
 	return false
@@ -366,6 +371,7 @@ func (g *game) dpiChanged(suggested *winRect) {
 // and end the message loop.
 func (g *game) closing() {
 	g.noteWindow()
+	g.stopVoice()
 	g.closeWebView()
 	g.hwnd = 0
 

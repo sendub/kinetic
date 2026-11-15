@@ -35,7 +35,42 @@ func jsString(text string) string {
 // fires kinetic-host. In a document that already has the object (two
 // creation scripts overlap while the exe swaps them) it only sets display,
 // firing the event when display changes, so the later script wins.
-func hostScript(display string) string {
+//
+// With voice (a voice host, voice_engine.go) the object also has voice:
+// true, and the script defines the deliverer the exe's voice events go
+// through (voiceScript): it calls the page's window.__kineticVoice, which
+// the page defines when it starts. An event that finds no receiver is
+// dropped, except the latest status, which is kept and given to the page
+// before its next voice message goes to the exe (as the macOS bridge does,
+// apps/macos/WebViewSetup.swift).
+func hostScript(display string, voice bool) string {
+	voiceHeld, voiceField, voiceSend, voiceSetup := "", "", "", ""
+
+	if voice {
+		voiceHeld = `
+  let held = null;`
+		voiceField = `
+    voice: true,`
+		voiceSend = `
+      if (held && message && message.type === "voice" && typeof window.` + voiceReceiver + ` === "function") {
+        const event = held;
+        held = null;
+        try { window.` + voiceReceiver + `(event); } catch (error) { console.error(error); }
+      }`
+		voiceSetup = `
+  Object.defineProperty(window, "` + hostVoice + `", {
+    value(event) {
+      const status = !!event && event.event === "status";
+      if (typeof window.` + voiceReceiver + ` !== "function") {
+        if (status) held = event;
+        return;
+      }
+      if (status) held = null;
+      try { window.` + voiceReceiver + `(event); } catch (error) { console.error(error); }
+    },
+  });`
+	}
+
 	return `(() => {
   if (window !== window.top || !window.chrome || !window.chrome.webview) return;
   const mode = ` + jsString(display) + `;
@@ -43,13 +78,15 @@ func hostScript(display string) string {
     if (typeof window.` + hostSetter + ` === "function") window.` + hostSetter + `(mode);
     return;
   }
-  let display = mode;
+  let display = mode;` + voiceHeld + `
   const host = Object.freeze({
-    kind: ` + jsString(hostKind) + `,
+    kind: ` + jsString(hostKind) + `,` + voiceField + `
     get display() { return display; },
-    send(message) { window.chrome.webview.postMessage(message); },
+    send(message) {` + voiceSend + `
+      window.chrome.webview.postMessage(message);
+    },
   });
-  Object.defineProperty(window, "kineticHost", { value: host });
+  Object.defineProperty(window, "kineticHost", { value: host });` + voiceSetup + `
   Object.defineProperty(window, "` + hostSetter + `", {
     value(next) {
       if (next === display) return;

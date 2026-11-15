@@ -935,7 +935,7 @@ def assert_quadrants(picture: Image.Image) -> None:
 # --- the Windows exe: stand-in Go ---------------------------------------------
 
 @pytest.fixture
-def stub_go(monkeypatch: pytest.MonkeyPatch) -> list[dict]:
+def stub_go(monkeypatch: pytest.MonkeyPatch, windows_lock) -> list[dict]:
     """Go 1.27.1 on PATH whose build is a stand-in: the 'exe' is `MZ`, a
     build number and the package's .syso, so it carries the version
     resource that marks it. Returns one record per build."""
@@ -947,13 +947,48 @@ def stub_go(monkeypatch: pytest.MonkeyPatch) -> list[dict]:
     def compile_windows(go: str, package: Path, exe: Path, ident,
                         window) -> None:
         syso = (package / build_apps.SYSO_NAME).read_bytes()
+        embedded = package / build_apps.WINDOWS_EMBED_SOURCE
+        voice = package / build_apps.WINDOWS_EMBED_DIR
         builds.append({"go": go, "exe": exe, "ident": ident, "syso": syso,
                        "window": window,
-                       "files": sorted(p.name for p in package.iterdir())})
+                       "files": sorted(p.name for p in package.iterdir()),
+                       "embedded": (embedded.read_text()
+                                    if embedded.exists() else None),
+                       "voice": {p.relative_to(voice).as_posix():
+                                 p.read_bytes()
+                                 for p in voice.rglob("*") if p.is_file()}})
         exe.write_bytes(b"MZ" + f" stub build {len(builds)} ".encode() + syso)
 
     monkeypatch.setattr(build_apps, "compile_windows", compile_windows)
     return builds
+
+
+@pytest.fixture
+def windows_lock(tmp_path_factory, monkeypatch) -> bytes:
+    """A Windows voice lock for the build to embed (item 8 writes the real
+    apps/voice/lock-windows-x64.json): its bytes."""
+    lock = tmp_path_factory.mktemp("lock") / "lock-windows-x64.json"
+    lock.write_bytes(b'{"id": "windows-x64-test", "python": {}, '
+                     b'"wheels": [], "model": []}\n')
+    monkeypatch.setattr(build_apps, "WINDOWS_VOICE_LOCK", lock)
+    return lock.read_bytes()
+
+
+@pytest.fixture
+def no_windows_lock(tmp_path_factory, monkeypatch) -> Path:
+    missing = tmp_path_factory.mktemp("nolock") / "lock-windows-x64.json"
+    monkeypatch.setattr(build_apps, "WINDOWS_VOICE_LOCK", missing)
+    return missing
+
+
+def windows_helper_files(lock: bytes) -> dict[str, bytes]:
+    """What the exe must carry under the package's voice/: the helper's
+    Python files and the Windows lock, as apps/windows/voice.go reads
+    them (embeddedVoice)."""
+    files = {f"kinetic_voice/{p.name}": p.read_bytes()
+             for p in (VOICE_DIR / "kinetic_voice").glob("*.py")}
+    files["lock-windows-x64.json"] = lock
+    return files
 
 
 def exe_build_number(exe: Path) -> int:
@@ -963,7 +998,7 @@ def exe_build_number(exe: Path) -> int:
 # --- the Windows exe: flags and requirements ------------------------------------
 
 def test_windows_flag_builds_the_exe_with_the_default_icon(
-        tmp_path, capsys, stub_go) -> None:
+        tmp_path, capsys, stub_go, windows_lock) -> None:
     folder = make_game(tmp_path)
     assert build_apps.main([str(folder), "--windows"]) == 0
     exe = folder / "Rainy Day.exe"
@@ -978,7 +1013,8 @@ def test_windows_flag_builds_the_exe_with_the_default_icon(
     package = REPO_ROOT / "apps" / "windows"
     assert record["files"] == sorted(
         [p.name for p in package.iterdir() if not p.name.endswith("_test.go")]
-        + [build_apps.SYSO_NAME])
+        + [build_apps.SYSO_NAME, build_apps.WINDOWS_EMBED_DIR,
+           build_apps.WINDOWS_EMBED_SOURCE])
     assert record["exe"].parents[1] == tmp_path.resolve()
     assert sorted(p.name for p in tmp_path.iterdir()) == ["rainy"]
     assert listing(folder) == ["Rainy Day.exe", "first.png", "index.html",
@@ -998,6 +1034,42 @@ def test_windows_flag_builds_the_exe_with_the_default_icon(
     assert f"built {exe}" in out and "first.png" in out
     assert "first window 64x48" in out
     assert "WebView2" in out and "Kinetic\\WebView2\\rainy-day" in out
+
+
+def test_windows_build_embeds_the_voice_helper(tmp_path, capsys, stub_go,
+                                               windows_lock) -> None:
+    """The helper's Python files and the Windows lock go into the package
+    copy's voice/ (no __pycache__, no tests), with a generated Go file
+    that embeds them all, `_`-names included (`all:`), and sets
+    embeddedVoice; the lock's name is the one apps/windows/voice.go
+    reads."""
+    folder = make_game(tmp_path)
+    assert build_apps.main([str(folder), "--windows"]) == 0
+    (record,) = stub_go
+    assert record["voice"] == windows_helper_files(windows_lock)
+    assert "kinetic_voice/__main__.py" in record["voice"]
+    source = record["embedded"]
+    assert "//go:embed all:voice\n" in source
+    assert 'embeddedVoice, _ = fs.Sub(voiceFiles, "voice")' in source
+    assert "package main" in source
+    voice_go = (REPO_ROOT / "apps" / "windows" / "voice.go").read_text()
+    assert f'voiceLockName = "{build_apps.WINDOWS_VOICE_LOCK.name}"' in voice_go
+    assert "with spoken lines" in capsys.readouterr().out
+
+
+def test_windows_build_without_the_windows_lock_fails_and_writes_nothing(
+        tmp_path, capsys, stub_go, no_windows_lock) -> None:
+    """The exe always carries spoken lines: with no Windows lock the build
+    stops before anything is built or written, saying what is missing."""
+    folder = make_game(tmp_path)
+    before = listing(tmp_path)
+    assert build_apps.main([str(folder), "--windows"]) == 1
+    captured = capsys.readouterr()
+    assert captured.err.strip().splitlines() == [
+        f"build_apps: the Windows exe needs the voice lock {no_windows_lock} "
+        "(apps/voice/README.md, \"The lock\"), which is missing"]
+    assert captured.out == "" and stub_go == []
+    assert listing(tmp_path) == before
 
 
 def test_windows_build_uses_the_named_icon(tmp_path, stub_go) -> None:
@@ -1438,6 +1510,8 @@ def go_ready() -> bool:
 
 
 @pytest.mark.skipif(not go_ready(), reason="needs Go (apps/windows/go.mod's version)")
+@pytest.mark.skipif(not build_apps.WINDOWS_VOICE_LOCK.is_file(),
+                    reason="needs apps/voice/lock-windows-x64.json")
 def test_real_windows_build(tmp_path) -> None:
     folder = make_game(tmp_path, title="Rainy Day: Two?")
     proc = subprocess.run(
@@ -1473,6 +1547,22 @@ def test_real_windows_build(tmp_path) -> None:
     assert strings["LegalCopyright"] == COPYRIGHT
     assert strings["KineticVersion"] == KINETIC_VERSION
     assert build_apps.read_exe_story(exe) == "rainy-day"
+    assert "with spoken lines" in proc.stdout
+
+
+@pytest.mark.skipif(not go_ready(), reason="needs Go (apps/windows/go.mod's version)")
+def test_real_windows_build_carries_the_voice_helper(tmp_path, capsys,
+                                                     windows_lock) -> None:
+    """The Go toolchain compiles the generated embed: each helper file and
+    the lock are in the exe as they are on disk."""
+    folder = make_game(tmp_path)
+    (exe,) = build_apps.build(folder, windows=True)
+    program = exe.read_bytes()
+    for path, data in windows_helper_files(windows_lock).items():
+        assert data in program, path
+    # The Windows side of the voice bridge is linked in.
+    assert b"__kineticHostVoice" in program and b"GetDiskFreeSpaceExW" in program
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["rainy"]
 
 
 # --- assemble_folder.py --mac, --windows, --icon ---------------------------------------

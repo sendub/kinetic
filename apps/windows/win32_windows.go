@@ -80,6 +80,7 @@ const (
 	wmAppDisplay     = wmApp + 2 // the page's switch: wParam 1 fullscreen, 0 window
 	wmAppReload      = wmApp + 3 // F5, Ctrl+R, a crashed page
 	wmAppRestart     = wmApp + 4 // the web view's browser process ended
+	wmAppVoice       = wmApp + 5 // voice events wait for the page (voice_windows.go)
 	sizeRestored     = 0
 	sizeMinimized    = 1
 	sizeMaximized    = 2

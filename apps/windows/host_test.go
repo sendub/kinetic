@@ -8,12 +8,12 @@ import (
 )
 
 func TestHostScriptDefinesTheProtocolObject(t *testing.T) {
-	script := hostScript(displayWindow)
+	script := hostScript(displayWindow, false)
 	for _, want := range []string{
 		`if (window !== window.top || !window.chrome || !window.chrome.webview) return;`,
 		`const mode = "window";`,
 		`kind: "windows-app",`,
-		`send(message) { window.chrome.webview.postMessage(message); },`,
+		"send(message) {\n      window.chrome.webview.postMessage(message);\n    },",
 		`Object.freeze(`,
 		`Object.defineProperty(window, "kineticHost", { value: host });`,
 		`Object.defineProperty(window, "__kineticHostSetDisplay", {`,
@@ -84,7 +84,7 @@ func TestHostScriptBehavesInAPage(t *testing.T) {
 
 	cmd := exec.Command(node, "-e", hostRun)
 	cmd.Env = append(cmd.Environ(),
-		"HOST_FULLSCREEN="+hostScript(displayFullscreen),
+		"HOST_FULLSCREEN="+hostScript(displayFullscreen, false),
 		"SET_WINDOW="+setterScript(displayWindow))
 
 	out, err := cmd.CombinedOutput()

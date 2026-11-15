@@ -246,7 +246,8 @@ func (g *game) listen() {
 func (g *game) installScript(display string) {
 	g.pending = append(g.pending, display)
 
-	hr := g.view.call(wvAddScriptToExecuteOnDocumentCreated, uintptr(unsafe.Pointer(utf16(hostScript(display)))),
+	script := hostScript(display, g.voice != nil)
+	hr := g.view.call(wvAddScriptToExecuteOnDocumentCreated, uintptr(unsafe.Pointer(utf16(script))),
 		uintptr(unsafe.Pointer(g.onScript)))
 	if hr >= 0 {
 		return
@@ -339,6 +340,12 @@ func (g *game) webMessage(_, b uintptr) {
 
 	if !fromGame(source, g.pageURL) {
 		logf("ignored a message from %s", source)
+
+		return
+	}
+
+	if voice, ok := parseVoiceMessage(text); ok {
+		g.voiceMessage(voice)
 
 		return
 	}

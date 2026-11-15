@@ -152,12 +152,28 @@ message and sender checks, the keys, download names, finding the
 runtime and the environment variables it sets for WebView2. Running the
 exe on Windows is a manual check.
 
+The voice host's decisions are tested the same way, on any OS
+(`voice_test.go`, `voice_engine_test.go`, `voice_fetch_test.go`): the lock
+and its totals, the download base, the state machine, id mapping, relaying
+a helper's events, drop, remove, the restart policy, the Range resume and
+checksum, the unpacking (and the archives it refuses), and the whole
+engine against the repo's helper with its fake engine. Only
+`voice_windows.go` (the free-space call, the hidden process, the window
+message that moves events to the UI thread, where every WebView2 call is
+made) runs on Windows alone. The orchestrator's check there is a
+cross-compiled `go test -c` binary that runs the engine without a window
+against the real Python download. A windowed exe's own run, with a real
+game, is a manual check. `tools/build_apps.py --windows` stops with an
+error when `voice/lock-windows-x64.json` is missing.
+
 ## Spoken lines
 
 The macOS app offers spoken lines (docs/plan.md Phase 52): `VoiceEngine`
 in `macos/VoiceEngine.swift`, which the app hands to `KineticHostBridge`.
-The WebKit driver compiles the same file. The Windows exe does not offer
-them yet.
+The WebKit driver compiles the same file. The Windows exe offers them too
+(`windows/voice.go`, `voice_engine.go`, `voice_fetch.go`,
+`voice_windows.go`), with the same bridge and the same helper; the notes
+below say where it differs.
 
 ### The voice bridge
 
@@ -215,6 +231,22 @@ python-build-standalone's GitHub releases, fetched by the app; the wheels
 from PyPI and the model files from Hugging Face (3.3 GB), fetched by the
 helper.
 
+On Windows the voice folder is `%LOCALAPPDATA%\Kinetic\Voice\`, one per
+PC, shared by every Kinetic exe, and the lock is
+`voice/lock-windows-x64.json` (Python 3.12 from python-build-standalone's
+`x86_64-pc-windows-msvc-install_only` archive, 47 MB; the helper's wheels
+come in variants, cuda and cpu, from which it picks). The exe downloads
+with `net/http` (progress, a Range request to continue a partial file,
+the sha256 check) and unpacks the archive itself with Go's `archive/tar`
+and `compress/gzip` into `python.partial\`, then moves it to `python\`:
+no `tar.exe`, so nothing but the exe is needed. A name or link in the
+archive that would leave the folder fails the unpacking. Python is
+`python\python.exe`. The disk check is `GetDiskFreeSpaceExW`, counting
+the user's quota. Windows cannot delete files a running program holds, so
+`remove` stops the helper first and deletes once it has exited. The
+helper runs with no console window (`CREATE_NO_WINDOW`), its stderr in
+`helper.log`.
+
 ### The helper
 
 The build embeds `voice/kinetic_voice/*.py` and the lock in the binary: it
@@ -244,7 +276,10 @@ there; the real helper runs in the voice folder):
 | `KINETIC_VOICE_DOWNLOAD_BASE` | Every download URL `https://<host>/<path>` becomes `<base>/<host>/<path>`, in the lock written for the helper too, so a local server stands in for all three sources. |
 | `KINETIC_VOICE_LOCK` | A lock file in place of the embedded one (the helper gets it too). |
 | `KINETIC_VOICE_PYTHON` | A Python to run the embedded helper with; no Python download. |
-| `KINETIC_VOICE_HELPER` | A whole command line run with `/bin/sh` in place of the helper; no Python download, and the helper starts for any request. |
+| `KINETIC_VOICE_HELPER` | A whole command line run with `/bin/sh` (Windows: `cmd.exe /d /s /c`) in place of the helper; no Python download, and the helper starts for any request. |
+
+The Windows exe reads the same variables (`windows/voice.go`,
+`voiceSettingsFrom`).
 
 The driver's `host` request with `voice: true` gives its bridge a
 VoiceEngine set up from the driver's environment (`launchWebKit({ env })`,

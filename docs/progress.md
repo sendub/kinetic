@@ -4636,7 +4636,26 @@ truthful: an unchecked box means nothing was accepted.
       line). The PC's test folders (28 GB) deleted. Tests 108 pass (red
       first: 38 of 41 new; the stdin test hung 15 s before the fix).
       Orchestrator: pytest apps/voice 108 passed, the lock read.)
-- [ ] The Windows host (item 9). Tests: go test, vet, the cross-build; a
+- [x] The Windows host (item 9). Tests: go test, vet, the cross-build; a
       headless download and helper run over SSH.
+      (2026-11-15: apps/windows voice.go (settings, overrides, lock totals,
+      URL rewriting, messages), voice_engine.go (the Mac engine's state
+      machine, one byte scale, id mapping, relay, drop, remove, restart
+      once), voice_fetch.go (net/http with Range resume and sha256; the
+      archive unpacked in-process with archive/tar, refusing paths and
+      links outside), voice_windows.go (GetDiskFreeSpaceExW, the helper
+      hidden with CREATE_NO_WINDOW, events to the UI thread by window
+      message); `kineticHost.voice` and the held status in the host
+      script; voice messages taken from the game page only. build_apps
+      embeds the helper and lock-windows-x64.json and refuses a Windows
+      build without the lock. Over SSH on the user's PC, a Windows test
+      binary with no window: the real Python archive in 0.7-1.4 s, ready
+      in 4.4 s, the hidden helper (fake engine) answered voice, speak and
+      a streamed line, a killed helper restarted, remove in 0.3 s; the
+      test folder deleted. Started by a subagent cut off by a usage limit,
+      finished by a second. Tests: go test 57, vet clean, build_apps 127
+      with the real cross-build. Orchestrator: go test, vet, build_apps
+      127 passed with the real lock. The windowed exe with the real engine
+      waits for the user.)
 - [ ] Phase-closer (Phase 52): full suites; VERSION 1.9.0, the CHANGELOG
       dated, tag v1.9.0, `main` fast-forwarded.
