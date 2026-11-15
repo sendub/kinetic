@@ -4177,9 +4177,27 @@ truthful: an unchecked box means nothing was accepted.
       `back` part's old reload setup on Chrome, since made deterministic;
       a videosound key-rule check, 31/31 on rerun); then fileend Chrome
       42/42 in 4 runs, WebKit fileend and segments 65/65.)
-- [ ] A video held at its file's end stays held when a menu closes
+- [x] A video held at its file's end stays held when a menu closes
       (item 5). Tests: red first, a unit test and a scenario part on both
       engines; no extra pass reported.
+      (2026-11-15: `setPaused(false)` sought and played even when every
+      counted pass was done; play() on the ended element replayed the
+      file from 0 (WebKit, and Chrome too when truly `ended`), and a
+      range held inside the file played on and reported a second pass.
+      render/visual.ts `passesDone(plan)` is the one test for "held at
+      the end", used by `passBoundary` and by the resume, which now
+      leaves such a video held; a new plan (a segment step, a new item)
+      counts afresh. Side effect: after a real autoplay refusal a menu's
+      close no longer retries play() on that item. Only the menus and the
+      map pause the video. 5 unit tests (3 held cases red first, 2
+      guards); fileend gains a `menu` part per container (Esc screen,
+      then the branch map, over a held end; the setup shared with `back`
+      as `holdAtEnd`): before the fix Chrome 47/51 twice and WebKit 45/51,
+      after 51/51 in 3 runs on each engine; the WebKit probe held at 6 in
+      3 of 3. Orchestrator: npm test 1346, check clean; fileend, menus,
+      videosound, media, segments Chrome 128/128, WebKit 136 and 2
+      videosound timing fails beside 4 other files at load average 7,
+      then videosound alone 31/31 in 3 runs.)
 - [ ] Docs (item 6): content-format.md, verify-player.md, CREATE.md if
       an author's rule changes; every example run.
 - [ ] Phase-closer (Phase 50): full pytest, the full `npm run verify`

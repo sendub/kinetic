@@ -2036,3 +2036,157 @@ describe("a play() a menu's hold aborts owes no ends (Phase 50 item 3)", () => {
     expect(ends).toEqual([0, 0, 0]);
   });
 });
+
+// A menu over a video held at its file's end (docs/plan.md Phase 50 item
+// 5): the resume of a counted video whose passes are all done played the
+// ended element at once, and WebKit replayed the whole file from 0 (the
+// footage before the item's start included), on `.mkv` then playing on
+// at its last frame. Held at its end, it stays held when the hold lifts;
+// paused mid-pass, it resumes where it stood.
+describe("a video held at its file's end stays held when a menu closes (Phase 50 item 5)", () => {
+  const lead = (fields: Partial<VideoItem> = {}) =>
+    vid({
+      id: "v-lead",
+      file: "l.mkv",
+      durationSeconds: 6,
+      startSeconds: 4.5,
+      loopCount: 1,
+      ...fields,
+    });
+  const after = item({ id: "pic", type: "image", file: "p.jpg" });
+
+  it("its last pass ended at the file's end: the resume plays nothing, seeks nothing and reports nothing", () => {
+    const { layer, videos, show, ends } = lifecycleHarness([lead(), after]);
+    show(0);
+    const v = videos[0];
+    v.duration = 6;
+    v.end(6);
+    v.fire("ended");
+    expect(ends).toEqual([0]);
+    expect(v.paused).toBe(true);
+    const plays = v.plays;
+    layer.setPaused(true);
+    layer.setPaused(false);
+    expect(v.plays).toBe(plays);
+    expect(v.paused).toBe(true);
+    expect(v.seeking).toBe(false);
+    expect(v.ended).toBe(true);
+    expect(v.currentTime).toBe(6);
+    // The map, then the Esc screen: still held, still one pass.
+    layer.setPaused(true);
+    layer.setPaused(false);
+    v.fire("ended");
+    v.fire("timeupdate");
+    expect(v.plays).toBe(plays);
+    expect(ends).toEqual([0]);
+  });
+
+  it("its last pass paused by the last-frame signal just short of the end: the resume leaves it there", () => {
+    vi.useFakeTimers();
+    try {
+      const { layer, videos, show, ends } = lifecycleHarness(
+        [lead({ loopCount: 2, loopStartSeconds: 5 }), after],
+        () => new FrameVideo(),
+      );
+      show(0);
+      const v = videos[0];
+      v.run(4.52, 5.96); // 25 fps frames
+      vi.advanceTimersByTime(40);
+      v.land();
+      v.run(5, 5.96);
+      vi.advanceTimersByTime(40);
+      expect(ends).toEqual([0, 0]);
+      expect(v.paused).toBe(true);
+      expect(v.ended).toBe(false);
+      const plays = v.plays;
+      layer.setPaused(true);
+      layer.setPaused(false);
+      vi.advanceTimersByTime(100);
+      expect(v.plays).toBe(plays);
+      expect(v.paused).toBe(true);
+      expect(v.currentTime).toBe(5.96);
+      expect(ends).toEqual([0, 0]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("its last pass held at a range's end inside the file: the resume plays nothing past it (played on, the file's end reported a second pass)", () => {
+    const { layer, videos, show, ends } = lifecycleHarness([
+      vid({
+        id: "v-range",
+        file: "r.mp4",
+        startSeconds: 0,
+        endSeconds: 1,
+        loopCount: 1,
+      }),
+      after,
+    ]);
+    show(0);
+    const v = videos[0];
+    v.currentTime = 1;
+    v.fire("timeupdate"); // its one pass: held at the range's end
+    expect(ends).toEqual([0]);
+    expect(v.paused).toBe(true);
+    const plays = v.plays;
+    layer.setPaused(true);
+    layer.setPaused(false);
+    expect(v.plays).toBe(plays);
+    expect(v.paused).toBe(true);
+    expect(v.currentTime).toBe(1);
+    expect(ends).toEqual([0]);
+  });
+
+  it("paused mid-pass, even its last, the resume plays on from where it stood", () => {
+    const asked: number[] = [];
+    const { layer, videos, show, ends } = lifecycleHarness([
+      lead({ loopCount: 2, loopStartSeconds: 5 }),
+      after,
+    ]);
+    layer.setStartDelay((element) => {
+      asked.push(element.currentTime);
+      return 0;
+    });
+    show(0);
+    const v = videos[0];
+    v.end(6);
+    v.fire("ended"); // pass 1 of 2: back to 5
+    v.land();
+    expect(ends).toEqual([0]);
+    v.currentTime = 5.5; // its last pass under way
+    const plays = v.plays;
+    asked.length = 0;
+    layer.setPaused(true);
+    expect(v.paused).toBe(true);
+    layer.setPaused(false);
+    expect(v.plays).toBe(plays + 1);
+    expect(v.paused).toBe(false);
+    expect(v.currentTime).toBe(5.5);
+    expect(asked).toEqual([5.5]);
+    // It then ends its last pass and holds there.
+    v.end(6);
+    v.fire("ended");
+    expect(ends).toEqual([0, 0]);
+    expect(v.paused).toBe(true);
+  });
+
+  it("a segment stepped to from the held end plays again, and a menu over it resumes it", () => {
+    const { layer, videos, show, ends } = lifecycleHarness([
+      lead({ segments: [{ startSeconds: 1, endSeconds: 2.5 }] }),
+      after,
+    ]);
+    show(0);
+    const v = videos[0];
+    v.end(6);
+    v.fire("ended");
+    show(0, "advance", 0);
+    v.land();
+    expect(v.paused).toBe(false);
+    v.currentTime = 2;
+    layer.setPaused(true);
+    layer.setPaused(false);
+    expect(v.paused).toBe(false);
+    expect(v.currentTime).toBe(2);
+    expect(ends).toEqual([0]);
+  });
+});

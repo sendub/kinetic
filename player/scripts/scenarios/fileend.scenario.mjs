@@ -49,14 +49,30 @@
 //   end to 3.5 s (Phase 50 item 4: playing the ended element before the
 //   step's seek landed played it on from 0 in WebKit, about 1 run in 10,
 //   so this part can pass without the fix; the unit test in
-//   src/render/visual.test.ts shows the order).
+//   src/render/visual.test.ts shows the order);
+// - menu: the `back` item held ended at its file's end the same way, then
+//   the Esc screen opened and closed, then the branch map opened and
+//   closed (both hold and resume the video). Read every 20 ms for 2 s
+//   after each close: the time never leaves the end, the element stays
+//   paused and the stage keeps the item, no segment active (Phase 50 item
+//   5: the Esc screen's resume played the ended element at once, which in
+//   WebKit replayed the whole file from 0, the footage before the item's
+//   4.5 s start included, and on `.mkv` then played on at its last frame;
+//   Chrome stayed held). An extra pass reported once the counted pass is
+//   done changes nothing the page shows; the unit tests count the reports.
 
 import { execFileSync } from "node:child_process";
 import { cpSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   demoDir,
+  HELP_CLOSED,
+  HELP_OPEN,
+  MAP_CLOSED,
+  MAP_OPEN,
   pressA,
+  pressEscape,
+  pressM,
   pressNavKey,
   pressSpace,
   scenarioRoot,
@@ -165,6 +181,9 @@ const CASES = {
         "A counted clip held at its file's end, with two views inside it.",
       ),
     ],
+  },
+  menu: {
+    items: (video) => CASES.back.items(video),
   },
   free: {
     loopStart: 0,
@@ -296,24 +315,18 @@ function stillFor(reads) {
 const r3 = (x) => (x === null ? null : Math.round(x * 1000) / 1000);
 
 /**
- * The `back` case: held at the file's end after its one pass, Left steps to
- * the last segment, which plays from its start and loops (Phase 50 item 4).
+ * From `fe-pre`, Space to the `back` / `menu` item and wait out its one
+ * pass, held paused at the file's end. The frame callback can pause it a
+ * moment before the engine reaches its end (about 5.99 s, `ended` false),
+ * where play() plays on without a restart from 0: then sought to its
+ * duration, paused there, it is ended, the state WebKit's own end leaves
+ * it in. Returns its time, `paused`, `ended` and whether it was sought.
  */
-async function runBack({ check, open }, ext, folder) {
-  const { page, cdp } = await open(`${ext}-back`, {
-    folder,
-    closeHelp: true,
-    hash: "#start=fe-pre",
-  });
+async function holdAtEnd(page, cdp) {
   await page.waitForFunction(ON_ITEM, { timeout: 5000 }, "fe-pre");
   await pressSpace(cdp);
   await page.waitForFunction(ON_ITEM, { timeout: 3000 }, "fe-video");
-  // Its one pass, held paused at the file's end. The frame callback can
-  // pause it a moment before the engine reaches its end (about 5.99 s,
-  // `ended` false), where play() plays on without a restart from 0: then
-  // sought to its duration, paused there, it is ended, the state WebKit's
-  // own end leaves it in.
-  const heldAt = await page.evaluate(async () => {
+  return page.evaluate(async () => {
     const until = (test, ms) =>
       new Promise((resolve) => {
         const begin = performance.now();
@@ -336,6 +349,19 @@ async function runBack({ check, open }, ext, folder) {
     }
     return { v: v.currentTime, paused: v.paused, ended: v.ended, sought };
   });
+}
+
+/**
+ * The `back` case: held at the file's end after its one pass, Left steps to
+ * the last segment, which plays from its start and loops (Phase 50 item 4).
+ */
+async function runBack({ check, open }, ext, folder) {
+  const { page, cdp } = await open(`${ext}-back`, {
+    folder,
+    closeHelp: true,
+    hash: "#start=fe-pre",
+  });
+  const heldAt = await holdAtEnd(page, cdp);
   const held = heldAt?.paused === true && heldAt.ended === true;
   await page.evaluate(START_LOG, 20);
   await sleep(100);
@@ -392,10 +418,73 @@ async function runBack({ check, open }, ext, folder) {
   );
 }
 
+/**
+ * The `menu` case: held ended at the file's end after its one pass, the
+ * Esc screen and then the branch map each open and close over it; after
+ * each close it stays held there (Phase 50 item 5).
+ */
+async function runMenu({ check, open }, ext, folder) {
+  const { page, cdp } = await open(`${ext}-menu`, {
+    folder,
+    closeHelp: true,
+    hash: "#start=fe-pre",
+  });
+  const heldAt = await holdAtEnd(page, cdp);
+  const held = heldAt?.paused === true && heldAt.ended === true;
+  const screens = [
+    ["the Esc screen", pressEscape, HELP_OPEN, pressEscape, HELP_CLOSED],
+    ["the branch map", pressM, MAP_OPEN, pressEscape, MAP_CLOSED],
+  ];
+  for (const [what, openKey, isOpen, closeKey, isClosed] of screens) {
+    await openKey(cdp);
+    const opened = await page.waitForFunction(isOpen, { timeout: 3000 }).then(
+      () => true,
+      () => false,
+    );
+    await sleep(300);
+    await closeKey(cdp);
+    const closed = await page.waitForFunction(isClosed, { timeout: 3000 }).then(
+      () => true,
+      () => false,
+    );
+    await page.evaluate(START_LOG, 20);
+    await sleep(2000);
+    const reads = await page.evaluate(READ_LOG);
+    const off = reads.filter(
+      (r) =>
+        r.v === null ||
+        r.paused !== true ||
+        Math.abs(r.v - (heldAt?.v ?? Number.NaN)) > 0.01,
+    );
+    const moved = reads.filter(
+      (r) => r.item !== "fe-video" || r.segment !== null,
+    );
+    check(
+      `${ext}, a counted video held at its file's end: ${what} opened and closed over it, it stays paused at the end and the item stays on screen`,
+      held &&
+        opened &&
+        closed &&
+        reads.length >= 50 &&
+        off.length === 0 &&
+        moved.length === 0,
+      {
+        held: heldAt && { ...heldAt, v: r3(heldAt.v) },
+        opened,
+        closed,
+        reads: reads.length,
+        off: off.slice(0, 4).map((r) => [r3(r.v), r.paused, r.seeking]),
+        min: reads.length > 0 ? r3(Math.min(...reads.map((r) => r.v))) : null,
+        moved: moved.slice(0, 2).map((r) => [r.item, r.segment]),
+      },
+    );
+  }
+}
+
 async function runCase({ check, open }, ext, kind) {
   const spec = CASES[kind];
   const folder = buildFolder(ext, kind);
   if (kind === "back") return runBack({ check, open }, ext, folder);
+  if (kind === "menu") return runMenu({ check, open }, ext, folder);
   const counted = kind === "counted" || kind === "startat";
   const { page, cdp } = await open(`${ext}-${kind}`, {
     folder,

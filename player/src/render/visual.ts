@@ -860,7 +860,7 @@ export function createVisualLayer(
   ): void {
     if (plan.reportEnds > 0) {
       if (!reportEnd(plan)) return;
-      if (videoEndedCount >= plan.reportEnds) {
+      if (passesDone(plan)) {
         stopRangeWatch();
         element.pause(); // last pass: hold at the end
         return;
@@ -917,6 +917,17 @@ export function createVisualLayer(
       },
       { once: true },
     );
+  }
+
+  /**
+   * Every counted pass of `plan` reported: the video holds where its last
+   * pass left it, paused at the file's end (`ended`, or a hair short of
+   * it when the last frame's signal came first) or at its range's end,
+   * until a new plan (a step, a new item) counts afresh. A menu's resume
+   * leaves it there (docs/plan.md Phase 50 item 5).
+   */
+  function passesDone(plan: VideoPlan): boolean {
+    return plan.reportEnds > 0 && videoEndedCount >= plan.reportEnds;
   }
 
   /**
@@ -1224,6 +1235,9 @@ export function createVisualLayer(
       if (paused) {
         startToken += 1;
         video.pause();
+      } else if (passesDone(videoPlan)) {
+        // Held at its end it stays held: play() on the ended element
+        // replayed the whole file from 0 in WebKit (Phase 50 item 5).
       } else {
         // WebKit can run a video on from up to 0.2 s past the time it
         // reported while held (twice in four resumes, macOS 27.2), and the
