@@ -236,3 +236,46 @@ def test_a_new_lock_id_needs_a_new_install(start_helper, lock, tmp_path,
     status = start_helper("--lock", str(path), root=root).request("status")
     assert status["installed"] is False
     assert status["lock"] == "test-2"
+
+
+def test_a_partial_reinstall_counts_the_files_already_there(
+        start_helper, lock, tmp_path, file_server):
+    # One model file is lost after a full install (and the lock id moves
+    # on, so the packages and the other files are on disk but the install
+    # is not complete): progress must still end at done == total.
+    path, data = lock
+    root = tmp_path / "voice"
+    helper = start_helper("--lock", str(path), root=root)
+    assert helper.request("install")["ok"] is True
+    helper.request("quit")
+    helper.proc.wait(timeout=10)
+    lost = next(m for m in data["model"] if m["path"] == "config.json")
+    (snapshot(root, lost["repo"], lost["revision"]) / "config.json").unlink()
+    data["id"] = "test-2"
+    path.write_text(json.dumps(data))
+    total = sum(w["size"] for w in data["wheels"]) + sum(
+        m["size"] for m in data["model"])
+    again = start_helper("--lock", str(path), root=root)
+    assert again.request("install")["ok"] is True
+    progress = [e for e in again.events if e.get("event") == "progress"]
+    assert progress[-1]["done"] == progress[-1]["total"] == total
+    assert [e["done"] for e in progress] == sorted(e["done"]
+                                                    for e in progress)
+
+
+def test_a_reinstall_with_everything_on_disk_reports_it_all(
+        start_helper, lock, tmp_path, file_server):
+    path, data = lock
+    root = tmp_path / "voice"
+    helper = start_helper("--lock", str(path), root=root)
+    assert helper.request("install")["ok"] is True
+    helper.request("quit")
+    helper.proc.wait(timeout=10)
+    data["id"] = "test-2"
+    path.write_text(json.dumps(data))
+    total = sum(w["size"] for w in data["wheels"]) + sum(
+        m["size"] for m in data["model"])
+    again = start_helper("--lock", str(path), root=root)
+    assert again.request("install")["ok"] is True
+    progress = [e for e in again.events if e.get("event") == "progress"]
+    assert progress and progress[-1]["done"] == progress[-1]["total"] == total

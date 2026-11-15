@@ -22,6 +22,8 @@ standard library only, so it runs before anything is installed.
 - `kinetic_voice/engine.py`: the engine interface, the fake engine and the
   WAV writer. `engine_mlx.py` is Chatterbox multilingual v3 on MLX; the
   Windows backend will add `engine_torch.py` beside it.
+- `kinetic_voice/streaming.py`: when a streamed line is cut into chunks
+  and how the chunks join (engine-side; it uses numpy).
 - `lock-macos-arm64.json`: everything the Mac install fetches, pinned.
 - `tests/`: `.venv/bin/pytest apps/voice/tests -q`.
 
@@ -46,6 +48,7 @@ they sit here, and starts:
 
 The fake engine needs no install: a voice is a tone whose pitch comes from
 the reference clip's hash, and a line lasts 0.2 s plus 0.05 s a character.
+A streamed line comes in 0.5 s chunks, `--fake-delay` spread over them.
 The apps' driver tests run the helper with it.
 
 The helper writes only protocol lines to stdout. Its stderr carries pip's
@@ -82,7 +85,11 @@ cache, no index and its temporary files in `downloads/tmp/`.
   "modelBaseUrl": "https://huggingface.co",
   "model": [{"repo", "revision", "path", "sha256", "size"}],
   "engine": {"id": "chatterbox-mlx", "repo", "quantizeBits",
-             "quantizeGroupSize", "cfgWeight", "exaggeration", "flowSteps"}
+             "quantizeGroupSize", "cfgWeight", "exaggeration",
+             "temperature", "minP", "repetitionPenalty", "maxTokens",
+             "flowSteps", "promptSeconds",
+             "stream": {"firstSeconds", "chunkSeconds", "growth",
+                        "limitSeconds", "contextSeconds"}}
 }
 ```
 
@@ -95,7 +102,35 @@ cache, no index and its temporary files in `downloads/tmp/`.
 - The wheel's file name is the last part of its URL.
 - Model files download from `<modelBaseUrl>/<repo>/resolve/<revision>/<path>`.
 - A new `id` means a new install: `status` reports `installed: false`
-  until `install` has run for it.
+  until `install` has run for it. A change to `engine` alone keeps the
+  `id`: the files are the same, and the line cache's keys include the
+  engine settings, so lines made with the old settings are not served.
+
+### The engine settings
+
+The MLX engine reads them all from the lock, and every one is part of the
+line cache's key.
+
+| Setting | Value | Meaning |
+| --- | --- | --- |
+| `repo` | `mlx-community/chatterbox-multilingual-v3` | The model. |
+| `quantizeBits`, `quantizeGroupSize` | 8, 64 | The text-to-token transformer (T3) quantized at load. |
+| `cfgWeight`, `exaggeration` | 0.5, 0.5 | Chatterbox's guidance and emotion settings. |
+| `temperature`, `minP`, `repetitionPenalty`, `maxTokens` | 0.8, 0.05, 1.2, 1000 | T3's sampling, mlx-audio's defaults; 1000 tokens is 40 s. |
+| `flowSteps` | 5 | The decoder's flow-matching steps (mlx-audio: 10). |
+| `promptSeconds` | 6 | How much of the reference clip the decoder works over with each line (mlx-audio: 10). |
+| `stream` | 2.5, 2.5, 1.2, 8, 2 | Streamed lines (below): the first chunk after `firstSeconds` of speech, the next after `chunkSeconds`, each later one `growth` times the one before, at most `limitSeconds`; each decoded with `contextSeconds` of the line before it. |
+
+Phase 52 item 2b chose `flowSteps` and `promptSeconds` by measurement
+(`.tmp/voice-speed/RESULTS.md` on the machine that ran it): the decoder
+runs over the voice's prompt and the line together at every step, so
+fewer steps and a shorter prompt cut its work most, and the speaker match
+stayed within 0.02 of the old settings. The engine also runs T3's loop
+pipelined (the next step queued on the GPU before the current token is
+read back), with the same tokens as mlx-audio's loop for the same random
+draws. T3 draws from a key made from the line's text, so a line's tokens
+are the same streamed or not. On an M2 a line takes 0.53-0.56 of its
+length after warm-up (item 2 measured 1.03-1.11).
 
 The Mac lock fetches 3.29 GB on macOS 14 and 15 and 3.32 GB on macOS 26
 or later: the model 2.71 GB, its speech tokenizer 0.49 GB, the wheels
@@ -134,7 +169,7 @@ starting on the engine.
 | `remove` | | |
 | `warm` | | `loadSeconds` (0 when already loaded) |
 | `voice` | `voice`: the reference clip's bytes in base64; `format`: `wav`, `flac` or `mp3`; `text`: its transcript (optional, unused by Chatterbox) | `voiceId`: the clip's sha256 |
-| `speak` | `voiceId`, `text`, `priority` (integer, default 0), `lang` (default `en`) | `wav`: base64 WAV, 24 kHz 16-bit mono; `seconds`; `genSeconds` (0 for a cached line); `cached` |
+| `speak` | `voiceId`, `text`, `priority` (integer, default 0), `lang` (default `en`), `stream` (default `false`) | `wav`: base64 WAV, 24 kHz 16-bit mono; `seconds`; `genSeconds` (0 for a cached line); `cached`; `firstSeconds` (a streamed line that was generated: seconds to its first chunk) |
 | `quit` | | (then the helper exits with status 0) |
 
 - **install** runs the lock's steps with progress events: download the
@@ -159,6 +194,44 @@ starting on the engine.
   then lines by `priority`, highest first, in arrival order within a
   priority. `cancel` drops a queued line, whose own answer is then
   `cancelled`; a line already running finishes and is cached.
+- **speak with `stream: true`** sends the line in chunks as they are
+  ready, then the normal answer with the whole line:
+
+  ```json
+  {"event": "chunk", "target": 7, "index": 0, "wav": "<base64 WAV>", "seconds": 0.84, "final": false}
+  {"event": "chunk", "target": 7, "index": 1, "wav": "<base64 WAV>", "seconds": 2.0, "final": false}
+  {"event": "chunk", "target": 7, "index": 2, "wav": "<base64 WAV>", "seconds": 1.32, "final": true}
+  {"id": 7, "ok": true, "wav": "<base64 WAV>", "seconds": 4.16, "genSeconds": 2.3, "cached": false, "firstSeconds": 0.9}
+  ```
+
+  `index` counts from 0, `final` marks the last chunk, and the chunks
+  played back to back are the whole line: the answer's `wav` is their
+  samples joined, and that is what the cache keeps. A line already in
+  the cache, and a queued line that is cancelled, get the answer alone
+  with no chunk events, so a page must play either: the chunks as they
+  come, or the answer's `wav` when no chunk came first. If the engine
+  fails partway, the chunks already sent are followed by an
+  `engine-failed` answer. A non-streamed `speak` never sends chunks.
+
+  The joins have no seam. Each chunk is decoded from the voice's prompt
+  and the tokens from `contextSeconds` before the last cut (the flow
+  keeps the mel frames from the cut on, and the decoder looks 3 tokens
+  past each cut). A chunk's last 160 ms are not sent, because the vocoder
+  rendered them with nothing after them; the next chunk renders them
+  again from the same mel frames and source signal, with 320 ms of past
+  before them, and the 160 ms before those are sent crossfaded between
+  the two renderings with complementary raised-cosine fades
+  (`streaming.py`). On the bench the two renderings of a crossfade
+  differ by 0.4% RMS (median), so a join cannot be heard. A streamed
+  line's samples differ slightly from the same line made whole (the same
+  tokens, decoded in parts); whichever is made first is cached and served
+  to both.
+
+  A streamed line costs more: every chunk decodes the voice's prompt
+  again, so a 6 s line takes about 1.6 times as long in all (0.8-0.9 of
+  its length on an M2), with its first chunk after about 1.7 s instead of
+  the whole line after about 3 s, and no gap between chunks. Stream the
+  line the reader is waiting for, not the ones fetched ahead.
 - **remove** waits for a running line, unloads the engine and deletes the
   helper-owned files. It answers `busy` while an install runs.
 

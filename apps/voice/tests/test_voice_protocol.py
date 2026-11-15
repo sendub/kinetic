@@ -266,3 +266,114 @@ def test_nothing_is_written_outside_the_voice_folder(start_helper, tmp_path):
     assert outside == []
     assert sorted(p.name for p in root.iterdir()) == ["cache"]
     assert Path(root, "cache").is_dir()
+
+
+# Streaming: "stream": true on speak sends chunk events before the reply.
+
+def _pcm(wav_b64: str) -> bytes:
+    import io
+    import wave
+    with wave.open(io.BytesIO(base64.b64decode(wav_b64)), "rb") as w:
+        assert (w.getnchannels(), w.getsampwidth(), w.getframerate()) == (
+            1, 2, 24000)
+        return w.readframes(w.getnframes())
+
+
+def _chunks(helper, rid):
+    return [e for e in helper.events
+            if e.get("event") == "chunk" and e.get("target") == rid]
+
+
+def test_a_streamed_line_comes_in_chunks_then_the_whole_reply(start_helper):
+    helper = start_helper()
+    vid = helper.request("voice", voice=b64(make_wav()),
+                         format="wav")["voiceId"]
+    text = "A streamed synthetic line, long enough for several chunks."
+    rid = helper.send("speak", voiceId=vid, text=text, stream=True)
+    reply = helper.wait(rid)
+    assert reply["ok"] is True
+    assert reply["cached"] is False
+    chunks = _chunks(helper, rid)
+    assert len(chunks) >= 2
+    assert [c["index"] for c in chunks] == list(range(len(chunks)))
+    assert [c["final"] for c in chunks] == [False] * (len(chunks) - 1) + [
+        True]
+    for c in chunks:
+        pcm = _pcm(c["wav"])
+        assert abs(len(pcm) / 2 / 24000 - c["seconds"]) < 0.01
+    # The reply is the whole line: the chunks joined, as the cache keeps it.
+    assert _pcm(reply["wav"]) == b"".join(_pcm(c["wav"]) for c in chunks)
+    assert abs(sum(c["seconds"] for c in chunks) - reply["seconds"]) < 0.01
+    assert reply["firstSeconds"] <= reply["genSeconds"]
+
+
+def test_chunk_events_come_before_the_reply(start_helper):
+    helper = start_helper("--fake-delay", "1.0")
+    vid = helper.request("voice", voice=b64(make_wav()),
+                         format="wav")["voiceId"]
+    rid = helper.send("speak", voiceId=vid, stream=True,
+                      text="A slow streamed line with a few chunks in it.")
+    first = helper.wait_event(lambda e: e.get("event") == "chunk"
+                              and e.get("target") == rid)
+    assert first["index"] == 0
+    assert first["final"] is False
+    assert rid not in helper.responses  # the line is still being made
+    assert helper.wait(rid)["ok"] is True
+
+
+def test_a_cached_line_answers_a_stream_with_just_the_reply(start_helper):
+    helper = start_helper()
+    vid = helper.request("voice", voice=b64(make_wav()),
+                         format="wav")["voiceId"]
+    text = "Streamed once, then cached."
+    first = helper.request("speak", voiceId=vid, text=text, stream=True)
+    again_id = helper.send("speak", voiceId=vid, text=text, stream=True)
+    again = helper.wait(again_id)
+    assert again["cached"] is True
+    assert again["wav"] == first["wav"]
+    assert _chunks(helper, again_id) == []
+
+
+def test_a_streamed_line_is_cached_for_a_plain_speak(start_helper):
+    helper = start_helper()
+    vid = helper.request("voice", voice=b64(make_wav()),
+                         format="wav")["voiceId"]
+    text = "Streamed, then asked for whole."
+    streamed = helper.request("speak", voiceId=vid, text=text, stream=True)
+    plain = helper.request("speak", voiceId=vid, text=text)
+    assert plain["cached"] is True
+    assert plain["wav"] == streamed["wav"]
+
+
+def test_a_plain_speak_sends_no_chunks(start_helper):
+    helper = start_helper()
+    vid = helper.request("voice", voice=b64(make_wav()),
+                         format="wav")["voiceId"]
+    rid = helper.send("speak", voiceId=vid,
+                      text="A plain synthetic line with no stream.")
+    reply = helper.wait(rid)
+    assert reply["ok"] is True
+    assert "firstSeconds" not in reply
+    assert _chunks(helper, rid) == []
+
+
+def test_stream_must_be_a_boolean(start_helper):
+    helper = start_helper()
+    vid = helper.request("voice", voice=b64(make_wav()),
+                         format="wav")["voiceId"]
+    reply = helper.request("speak", voiceId=vid, text="Hello.", stream="yes")
+    assert reply["ok"] is False
+    assert reply["code"] == "bad-request"
+
+
+def test_a_queued_streamed_line_can_be_cancelled(start_helper):
+    helper = start_helper("--fake-delay", "0.4")
+    vid = helper.request("voice", voice=b64(make_wav()),
+                         format="wav")["voiceId"]
+    busy = helper.send("speak", voiceId=vid, text="Busy line.", stream=True)
+    queued = helper.send("speak", voiceId=vid, text="Dropped streamed line.",
+                         stream=True)
+    assert helper.request("cancel", target=queued)["cancelled"] is True
+    assert helper.wait(queued)["code"] == "cancelled"
+    assert helper.wait(busy)["ok"] is True
+    assert _chunks(helper, queued) == []

@@ -186,6 +186,9 @@ class Server:
             raise RequestError("bad-request", "voiceId and lang are strings")
         if not isinstance(priority, int):
             raise RequestError("bad-request", "priority is an integer")
+        stream = msg.get("stream", False)
+        if not isinstance(stream, bool):
+            raise RequestError("bad-request", "stream is true or false")
         key = line_key(self.engine.identity(), voice_id, text, lang)
         hit = self.lines.get(key)
         if hit is not None:
@@ -196,7 +199,8 @@ class Server:
             return
         if voice_id not in self.handles and self.voices.find(voice_id) is None:
             raise RequestError("unknown-voice", "no voice with that voiceId")
-        self.jobs.put(rid, ("speak", voice_id, text, lang, key), priority)
+        self.jobs.put(rid, ("speak", voice_id, text, lang, key, stream),
+                      priority)
 
     OPS = {"status": op_status, "install": op_install, "cancel": op_cancel,
            "remove": op_remove, "warm": op_warm, "voice": op_voice,
@@ -236,19 +240,43 @@ class Server:
             self._handle(voice_id, path)
             self.reply(rid, voiceId=voice_id)
         elif kind == "speak":
-            _, voice_id, text, lang, key = job
+            _, voice_id, text, lang, key, stream = job
             self.log("speaking", target=rid)
             self._ensure_loaded()
             handle = self._handle(voice_id, self.voices.find(voice_id))
             started = time.perf_counter()
-            pcm, rate = self.engine.speak(handle, text, lang)
+            extra: dict[str, object] = {}
+            if stream:
+                pcm, rate, first = self._stream(rid, handle, text, lang,
+                                                started)
+                extra["firstSeconds"] = round(first, 3)
+            else:
+                pcm, rate = self.engine.speak(handle, text, lang)
             gen = time.perf_counter() - started
             wav = pcm_to_wav(pcm, rate)
             seconds = round(len(pcm) / 2 / rate, 3)
             self.lines.put(key, wav, seconds)
             self.reply(rid, wav=base64.b64encode(wav).decode(),
                        seconds=seconds, genSeconds=round(gen, 3),
-                       cached=False)
+                       cached=False, **extra)
+
+    def _stream(self, rid: object, handle: object, text: str, lang: str,
+                started: float) -> tuple[bytes, int, float]:
+        """Send a line's chunks as chunk events while the engine makes
+        them; returns the whole line's PCM, its rate and the seconds to
+        the first chunk."""
+        parts: list[bytes] = []
+        rate, first = 0, 0.0
+        for index, (pcm, rate, final) in enumerate(
+                self.engine.speak_stream(handle, text, lang)):
+            if index == 0:
+                first = time.perf_counter() - started
+            parts.append(pcm)
+            self.send({"event": "chunk", "target": rid, "index": index,
+                       "wav": base64.b64encode(pcm_to_wav(pcm, rate)).decode(),
+                       "seconds": round(len(pcm) / 2 / rate, 3),
+                       "final": final})
+        return b"".join(parts), rate, first
 
     def _ensure_loaded(self) -> float:
         if self.engine.loaded:

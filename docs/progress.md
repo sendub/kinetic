@@ -4476,8 +4476,26 @@ truthful: an unchecked box means nothing was accepted.
       0.33 s pause before "You". Tests ran red first: 49 pass.
       Orchestrator: pytest apps/voice/tests 49 passed; the lock read; the
       real output scored.)
-- [ ] Faster lines (item 2b, added from item 2's real check). Tests:
+- [x] Faster lines (item 2b, added from item 2's real check). Tests:
       timings, Whisper, speaker match and the pause measures; samples kept.
+      (2026-11-15: lines at 0.53-0.56x real time in the real helper on
+      this M2, from 1.03-1.11x: 5 flow steps instead of 10, the decoder's
+      voice prompt cut to 6 s (it is decoded with the line at every step),
+      and the helper's own pipelined token loop (`mx.async_eval`, 13.1 to
+      10.9 ms a token, identical tokens). Candidates measured on the same
+      tokens: 4 steps, a 4 s prompt and Chatterbox Turbo's one-step
+      decoder behind the multilingual tokens (compatible, 0.41x, but the
+      speaker match fell 0.023 or more and it needs 415 MB more) failed
+      the rule of a speaker match within 0.02 of 10 steps; mx.compile and
+      f16/bf16 gained nothing. Streaming: `speak` with `stream: true` sends
+      chunk events, the first after 1.6-1.8 s, joined by re-rendering each
+      chunk's last 160 ms in the next and crossfading (0.4% RMS apart);
+      it costs about 1.6x the work, so only the line a reader waits for
+      should stream. Engine settings in the lock (no new files, same lock
+      id; the cache key changes). The install now counts files already on
+      disk in its progress (found by item 3). Tests 64 pass (red first
+      except test_voice_streaming.py). Orchestrator: pytest apps/voice 64
+      passed, the results table and lock read.)
 - [x] The Mac host (item 3). Tests: build_apps; driver scenario parts
       with a fake helper and a local server.
       (2026-11-15: apps/macos/VoiceEngine.swift, in the app and the
@@ -4528,6 +4546,8 @@ truthful: an unchecked box means nothing was accepted.
       tsc and biome clean on the player's files, Chrome spoken 27/27,
       audio and screens 170/170. WebKit `spoken` is rerun on the real
       tree with item 3.)
+- [ ] Streamed lines in the player (item 4b, added from item 2b). Tests:
+      unit tests; spoken scenario parts.
 - [x] Casting (item 5). Tests: picking and manifest writing with a fake
       generator; one real casting run.
       (2026-11-15: tools/cast_voices.py with `design` (Qwen3-TTS 1.7B

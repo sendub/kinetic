@@ -3422,6 +3422,14 @@ The orchestrator's choices, within those decisions:
    shows the Voice volume. Tests: unit tests for line choice, prefetch,
    the hold and the row; a `spoken` scenario file on Chrome and WebKit
    with a fake host.
+4b. Streamed lines in the player (added 2026-11-15 from item 2b). When
+   the reader reaches a line that is not ready, the player asks for it with
+   `stream: true` and plays its chunks back to back without a gap as they
+   arrive, so the line starts after about 1.7 s instead of after the whole
+   line; prefetched lines stay unstreamed (streaming costs about 1.6x the
+   work). The hold counts from the first chunk and ends at the line's end.
+   Tests: unit tests for chunk scheduling and the hold; spoken scenario
+   parts with the stand-in host streaming.
 5. Casting. `tools/cast_voices.py`, `requirements-voice.txt`. Tests: the
    picking and manifest writing with a fake generator; one real casting
    run on this Mac.

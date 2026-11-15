@@ -205,6 +205,18 @@
     "quantizeGroupSize": 64,
     "cfgWeight": 0.5,
     "exaggeration": 0.5,
-    "flowSteps": 10
+    "temperature": 0.8,
+    "minP": 0.05,
+    "repetitionPenalty": 1.2,
+    "maxTokens": 1000,
+    "flowSteps": 5,
+    "promptSeconds": 6,
+    "stream": {
+      "firstSeconds": 2.5,
+      "chunkSeconds": 2.5,
+      "growth": 1.2,
+      "limitSeconds": 8,
+      "contextSeconds": 2.0
+    }
   }
 }

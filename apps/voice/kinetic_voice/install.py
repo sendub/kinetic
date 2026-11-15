@@ -268,6 +268,7 @@ class Installer:
         wheels = self.selected_wheels()
         if self.packages_ready():
             self._done += sum(w["size"] for w in wheels)
+            self._progress("packages", "", force=True)
             return
         downloads = self.root / "downloads"
         downloads.mkdir(parents=True, exist_ok=True)
@@ -293,7 +294,11 @@ class Installer:
     def _model(self, cancel: threading.Event) -> None:
         for m in self.lock.model:
             dest = model_path(self.root, m)
-            if not self.model_ready(m):
+            if self.model_ready(m):
+                # On disk from an earlier install: it counts as done.
+                self._done += m["size"]
+                self._progress("model", m["path"], force=True)
+            else:
                 self._fetch(self.lock.model_url(m), dest, m["size"],
                             m["sha256"], "model", m["path"], cancel)
             refs = model_dir(self.root, m["repo"]) / "refs" / "main"

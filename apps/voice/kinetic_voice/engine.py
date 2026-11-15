@@ -14,6 +14,7 @@ import io
 import math
 import time
 import wave
+from collections.abc import Iterator
 from pathlib import Path
 
 SAMPLE_RATE = 24000
@@ -51,6 +52,14 @@ class Engine:
         """(little-endian int16 mono PCM, sample rate) for one line."""
         raise NotImplementedError
 
+    def speak_stream(self, voice: object, text: str,
+                     lang: str) -> Iterator[tuple[bytes, int, bool]]:
+        """The line in chunks as they are ready: (PCM, sample rate,
+        final). The chunks joined are the whole line. By default one
+        chunk, the whole line."""
+        pcm, rate = self.speak(voice, text, lang)
+        yield pcm, rate, True
+
     def stats(self) -> dict:
         """Extra fields for ``status`` (memory use, say)."""
         return {}
@@ -78,14 +87,36 @@ class FakeEngine(Engine):
         digest = hashlib.sha256(reference.read_bytes()).digest()
         return 220 + digest[0]  # the voice's pitch in Hz
 
+    #: Seconds of audio in each streamed chunk.
+    CHUNK_SECONDS = 0.5
+
     def speak(self, voice: object, text: str, lang: str) -> tuple[bytes, int]:
         time.sleep(self.delay)
-        frames = int(SAMPLE_RATE * (0.2 + 0.05 * len(text)))
+        return self._tone(voice, 0, self._frames(text)), SAMPLE_RATE
+
+    def speak_stream(self, voice: object, text: str,
+                     lang: str) -> Iterator[tuple[bytes, int, bool]]:
+        """The same tone as ``speak``, in CHUNK_SECONDS pieces, the delay
+        spread over them."""
+        frames = self._frames(text)
+        step = int(SAMPLE_RATE * self.CHUNK_SECONDS)
+        starts = range(0, frames, step)
+        for start in starts:
+            time.sleep(self.delay / len(starts))
+            end = min(start + step, frames)
+            yield (self._tone(voice, start, end), SAMPLE_RATE,
+                   end == frames)
+
+    @staticmethod
+    def _frames(text: str) -> int:
+        return int(SAMPLE_RATE * (0.2 + 0.05 * len(text)))
+
+    @staticmethod
+    def _tone(voice: object, start: int, end: int) -> bytes:
         pitch = float(voice)  # type: ignore[arg-type]
         step = 2 * math.pi * pitch / SAMPLE_RATE
-        pcm = array.array("h", (int(8000 * math.sin(step * i))
-                                for i in range(frames)))
-        return pcm.tobytes(), SAMPLE_RATE
+        return array.array("h", (int(8000 * math.sin(step * i))
+                                 for i in range(start, end))).tobytes()
 
 
 def pcm_to_wav(pcm: bytes, rate: int) -> bytes:

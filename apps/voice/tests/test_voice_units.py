@@ -129,3 +129,19 @@ def test_real_lock_is_complete():
     for mac in ("14.0", "15.0", "26.0"):
         chosen = Lock(data).wheels(mac)
         assert len({w["name"] for w in chosen}) == len(chosen) == len(names)
+
+
+def test_real_lock_engine_settings():
+    engine = json.loads((VOICE_DIR / "lock-macos-arm64.json").read_text())[
+        "engine"]
+    assert set(engine) == {
+        "id", "repo", "quantizeBits", "quantizeGroupSize", "cfgWeight",
+        "exaggeration", "temperature", "minP", "repetitionPenalty",
+        "maxTokens", "flowSteps", "promptSeconds", "stream"}
+    assert 1 <= engine["flowSteps"] < 10
+    assert 0 < engine["promptSeconds"] <= 10
+    assert set(engine["stream"]) == {"firstSeconds", "chunkSeconds",
+                                     "growth", "limitSeconds",
+                                     "contextSeconds"}
+    assert 0 < engine["stream"]["firstSeconds"] <= engine["stream"][
+        "limitSeconds"]
