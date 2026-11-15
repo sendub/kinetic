@@ -428,7 +428,7 @@ export function trackDecoder(
 
 // --- the bytes ---------------------------------------------------------------
 /** A file's bytes from base64 (`Uint8Array.fromBase64` where there is one). */
-function bytesOf(base64: string): ArrayBuffer {
+export function bytesOf(base64: string): ArrayBuffer {
   const native = (
     Uint8Array as unknown as { fromBase64?: (text: string) => Uint8Array }
   ).fromBase64;
@@ -442,6 +442,11 @@ function bytesOf(base64: string): ArrayBuffer {
 export interface ScriptReader {
   /** `file`'s bytes, from its script (`<file>.js`), which then goes. */
   bytes(file: string): Promise<ArrayBuffer>;
+  /**
+   * `file`'s bytes as its script gives them, base64: a voice's reference
+   * clip goes to the voice engine so (render/spoken.ts).
+   */
+  base64(file: string): Promise<string>;
   /** Removes the scripts still loading and the global they call. */
   destroy(): void;
 }
@@ -451,45 +456,55 @@ export function createScriptReader(
   doc: Document,
   win: typeof globalThis,
 ): ScriptReader {
-  /** Track scripts on the page, by file, and their bytes once given. */
+  /** Track scripts on the page, by file, and their base64 once given. */
   const scripts = new Map<
     string,
-    { tag: HTMLScriptElement; bytes: ArrayBuffer | null }
+    { tag: HTMLScriptElement; base64: string | null }
   >();
+  /** Each file's read under way, so one script serves every caller. */
+  const reading = new Map<string, Promise<string>>();
   const receive = (file: unknown, base64: unknown): void => {
     if (typeof file !== "string" || typeof base64 !== "string") return;
     const script = scripts.get(file);
-    if (script !== undefined && script.bytes === null) {
-      script.bytes = bytesOf(base64);
+    if (script !== undefined && script.base64 === null) {
+      script.base64 = base64;
     }
   };
   win.__kineticAudio = receive;
-  return {
-    bytes(file) {
-      return new Promise((resolve, reject) => {
-        const tag = doc.createElement("script");
-        const script = { tag, bytes: null as ArrayBuffer | null };
-        scripts.set(file, script);
-        const done = (): void => {
-          scripts.delete(file);
-          tag.remove();
-        };
-        tag.addEventListener("load", () => {
-          done();
-          if (script.bytes !== null) resolve(script.bytes);
-          else reject(new Error(`${file}.js gave no bytes for ${file}`));
-        });
-        tag.addEventListener("error", () => {
-          done();
-          reject(new Error(`${file}.js did not load`));
-        });
-        tag.src = `${file}.js`;
-        doc.head.append(tag);
+  const read = (file: string): Promise<string> => {
+    const under = reading.get(file);
+    if (under !== undefined) return under;
+    const promise = new Promise<string>((resolve, reject) => {
+      const tag = doc.createElement("script");
+      const script = { tag, base64: null as string | null };
+      scripts.set(file, script);
+      const done = (): void => {
+        scripts.delete(file);
+        reading.delete(file);
+        tag.remove();
+      };
+      tag.addEventListener("load", () => {
+        done();
+        if (script.base64 !== null) resolve(script.base64);
+        else reject(new Error(`${file}.js gave no bytes for ${file}`));
       });
-    },
+      tag.addEventListener("error", () => {
+        done();
+        reject(new Error(`${file}.js did not load`));
+      });
+      tag.src = `${file}.js`;
+      doc.head.append(tag);
+    });
+    reading.set(file, promise);
+    return promise;
+  };
+  return {
+    bytes: (file) => read(file).then(bytesOf),
+    base64: read,
     destroy() {
       for (const { tag } of scripts.values()) tag.remove();
       scripts.clear();
+      reading.clear();
       if (win.__kineticAudio === receive) win.__kineticAudio = undefined;
     },
   };

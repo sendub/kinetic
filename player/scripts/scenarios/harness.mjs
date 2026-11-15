@@ -74,6 +74,7 @@ import {
   setPlayAll,
   sleep,
 } from "../testing/core.mjs";
+import { FAKE_VOICE_HOST } from "../testing/fakevoice.mjs";
 
 // Expando stashed on the <video> element to prove the renderer reuses the
 // SAME element across a chain instead of re-creating it (docs Phase 6).
@@ -1185,7 +1186,9 @@ async function installRecordingHost(page, { kind, display }) {
  * on the Esc screen, so the walk answers every decision itself; it throws if the
  * switch did not end Off with the screen closed. `host: { kind, display }`
  * opens the page as a game app would show it, with a recording host
- * (installRecordingHost; returned as `host`). `hash` is added to the page
+ * (installRecordingHost; returned as `host`). `voiceHost: { ... }` opens it
+ * instead with the stand-in voice engine (../testing/fakevoice.mjs, its
+ * options), the same page script on either engine. `hash` is added to the page
  * URL (`"#start=<id>"`, docs/plan.md Phase 46, opens at that item).
  * `consoleLines` is every console line from the first load on, any type,
  * as `{ type, text }` (Chrome types `console.warn` "warn" and WebKit
@@ -1212,6 +1215,9 @@ export async function openScenario(name, options = {}) {
     options.host === undefined
       ? null
       : await installRecordingHost(page, options.host);
+  if (options.voiceHost !== undefined) {
+    await page.evaluateOnNewDocument(FAKE_VOICE_HOST, options.voiceHost);
+  }
   const cdp = await page.createCDPSession();
   const folder = options.folder ?? demoDir;
   await page.goto(

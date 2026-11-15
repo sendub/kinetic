@@ -82,6 +82,16 @@
 // the duck holds through a wrap's pause and under the menus, and lifts when
 // the video goes or shows its poster.
 //
+// Spoken lines (docs/plan.md Phase 52; render/spoken.ts): in a game app
+// that offers voice, a game with voices mounts the sound even with no
+// `audio`, so its lines have the Voice group, its volume and `v`. A
+// generated line plays on the voice sound as a recorded line does (its
+// track reads `spoken:<item id>` in the hook): the Voice group and volume,
+// held under the Esc screen, the branch map and a hidden page, stopped when
+// the reader leaves the item, started by the director's arrival rules; each
+// start tells render/spoken.ts how long it has left, for the auto-forward
+// hold. Without a voice host such a game mounts nothing, as before.
+//
 // Test hooks: the hidden `#audio` carries `data-target` (the target in
 // force, as JSON, set each time one applies) and `data-unlocked` (sound may
 // play: a key or click that counts came, or the page is in an app), and its
@@ -104,7 +114,7 @@ import type {
   TargetSound,
 } from "../machine/types";
 import { createDecodeCache, DECODED_CAP_BYTES } from "./audiocache";
-import { createScriptReader, trackDecoder } from "./audioload";
+import { bytesOf, createScriptReader, trackDecoder } from "./audioload";
 import {
   type AudioSlot,
   createSfxPool,
@@ -145,7 +155,9 @@ import {
   videoSoundStart,
 } from "./audiorules";
 import { readHost } from "./host";
+import { createSpokenLines, hasVoices, type SpokenLines } from "./spoken";
 import type { StageVideo } from "./visual";
+import type { VoiceClient } from "./voiceclient";
 
 /** What the testing tools set before the player starts (see the header). */
 interface TestAudio {
@@ -291,7 +303,16 @@ export interface AudioOptions {
   manifest: Manifest;
   machine: Machine;
   settings: MachineSettings;
+  /**
+   * The game app's voice engine (render/voiceclient.ts), when the host
+   * offers voice: a game with voices then has spoken lines, and mounts
+   * the sound even without `audio`. Absent or null: none.
+   */
+  voice?: VoiceClient | null;
 }
+
+/** A spoken line's track id on the voice sound (the hook shows it). */
+const SPOKEN_TRACK = "spoken:";
 
 /** What the hook's `sounds()` reports of one sound. */
 interface SoundReading {
@@ -335,14 +356,17 @@ interface Sound {
 const now = (): number => globalThis.performance.now();
 
 /**
- * Mounts the sound for `manifest`, or returns null when it has none, or
- * the browser has no Web Audio (no context, no listener). Sound on at
- * mount, the load's sound applies after a rest, as for any jump.
+ * Mounts the sound for `manifest`, or returns null when it has none (no
+ * tracks played, and no spoken lines: voices and a voice host), or the
+ * browser has no Web Audio (no context, no listener). Sound on at mount,
+ * the load's sound applies after a rest, as for any jump.
  */
 export function mountAudio(options: AudioOptions): AudioPlayer | null {
   const { root, manifest, machine } = options;
   const tracks = manifest.audio?.tracks;
-  if (tracks === undefined || !hasSound(manifest)) return null;
+  const voiceClient =
+    options.voice != null && hasVoices(manifest) ? options.voice : null;
+  if (!hasSound(manifest) && voiceClient === null) return null;
   const doc = root.ownerDocument;
   const win = doc.defaultView ?? globalThis;
   if (typeof win.AudioContext !== "function") return null;
@@ -770,6 +794,44 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
     s.fade = runFade(s.fade, at);
     setSoundGain(s);
     armFade(s);
+    // A spoken line holds auto-forward for what it has left to play, from
+    // each start (render/spoken.ts).
+    if (s === voice && isSpoken(s)) {
+      spoken?.started(voiceItem, plan.endSeconds - s.offset);
+    }
+  }
+
+  const isSpoken = (s: Sound): boolean =>
+    s.track?.startsWith(SPOKEN_TRACK) === true;
+
+  /**
+   * Loads a decoded `buffer` (a generated line) into `s` at its start,
+   * faded to `fade`, as track `id`: it plays once, to its end.
+   */
+  function loadBuffer(
+    s: Sound,
+    id: string,
+    buffer: AudioBuffer,
+    fade: number,
+  ): void {
+    stopSource(s);
+    clearTimeout(s.fadeTimer);
+    s.fadeTimer = undefined;
+    s.fadeDone = null;
+    s.loads += 1;
+    s.track = id;
+    s.file = null;
+    s.wanted = true;
+    s.ended = false;
+    s.fade = still(fade);
+    s.buffer = buffer;
+    s.plan = playPlan(
+      { file: "", durationSeconds: buffer.duration },
+      false,
+      buffer,
+    );
+    s.offset = s.plan.startSeconds;
+    setSoundGain(s);
   }
 
   /** Silences `s` where it stands, its fade held there. */
@@ -975,6 +1037,16 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
   function stopVoice(): void {
     if (voice !== null) release(voice);
     voiceItem = -1;
+  }
+
+  /** Item `item`'s generated line on the voice sound, unless it holds it. */
+  function startSpoken(item: number, buffer: AudioBuffer): void {
+    const id = `${SPOKEN_TRACK}${items[item]?.id ?? String(item)}`;
+    if (voiceItem === item && voice?.track === id) return;
+    voice ??= makeSound("voice");
+    loadBuffer(voice, id, buffer, 1);
+    voiceItem = item;
+    syncSound(voice);
   }
 
   function fire(cue: SfxCue): void {
@@ -1534,6 +1606,34 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
   };
   doc.addEventListener("visibilitychange", onVisibility);
 
+  // Spoken lines (render/spoken.ts): asked for on each arrival with its
+  // voice, played on the voice sound, holding auto-forward.
+  const spoken: SpokenLines<AudioBuffer> | null =
+    voiceClient === null
+      ? null
+      : createSpokenLines<AudioBuffer>({
+          items,
+          cast: manifest,
+          client: voiceClient,
+          on: settings.spokenLines,
+          clip: (file) =>
+            reader.base64(file).catch((error: unknown) => {
+              // Reported as a track that will not decode is: a game's test
+              // run lists it.
+              console.error(`Failed to read voice clip: ${file}`);
+              throw error;
+            }),
+          decode: (wav) => decodeTrack(bytesOf(wav)),
+          now: () => Date.now(),
+          hold: (index, until) => machine.setSpokenHold(index, until),
+          play: startSpoken,
+          stop: () => {
+            if (voice !== null && isSpoken(voice)) stopVoice();
+          },
+          playing: () =>
+            voice !== null && isSpoken(voice) ? voice.buffer : null,
+        });
+
   const director = createSoundDirector({
     machine,
     items,
@@ -1543,11 +1643,18 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
         hook.dataset.target = JSON.stringify(target);
         applyMusic(target.music, fadeMs);
         applyAmbience(target.ambience, fadeMs);
-        if (withVoice) startVoice(target.voice, machine.getState().cursor);
+        if (withVoice) {
+          const cursor = machine.getState().cursor;
+          startVoice(target.voice, cursor);
+          spoken?.arrive(cursor);
+        }
         sync();
       },
       fire,
-      leave: stopVoice,
+      leave() {
+        stopVoice();
+        spoken?.leave();
+      },
       fadeOutEffects() {
         for (const s of sfx) {
           if (s?.wanted) fadeTo(s, 0, REST_FADE_MS, () => releaseSfx(s));
@@ -1555,6 +1662,7 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
       },
       silence() {
         silence();
+        spoken?.leave();
         delete hook.dataset.target;
       },
     },
@@ -1620,13 +1728,28 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
         cursor: machine.getState().cursor,
         lastSfx,
       });
-      if (id === null || !settings.soundOn) return;
+      // With no recorded line, a Voice change samples the item's generated
+      // line when it is kept (render/spoken.ts).
+      const cursor = machine.getState().cursor;
+      const line =
+        id === null && group === "voice"
+          ? (spoken?.cached(cursor) ?? null)
+          : null;
+      if ((id === null && line === null) || !settings.soundOn) return;
       stopSample();
       sampleOf = group === "effects" ? "sfx" : "voice";
       sampler ??= makeSound("sample");
       sampler.gain.disconnect();
       sampler.gain.connect(groups[sampleOf]);
-      load(sampler, id, 1);
+      if (id !== null) load(sampler, id, 1);
+      else if (line !== null) {
+        loadBuffer(
+          sampler,
+          `${SPOKEN_TRACK}${items[cursor]?.id ?? ""}`,
+          line,
+          1,
+        );
+      }
       syncSound(sampler);
       const s = sampler;
       sampleTimer = setTimeout(() => release(s), SAMPLE_MS);
@@ -1635,6 +1758,7 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
       const wasOn = settings.soundOn;
       settings = { ...next };
       if (wasOn !== settings.soundOn) director.setSoundOn(settings.soundOn);
+      spoken?.setOn(settings.spokenLines);
       setGroups();
       updateUnlock();
       sync();
@@ -1694,6 +1818,7 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
       clearTimeout(sampleTimer);
       clearTimeout(hintTimer);
       director.destroy();
+      spoken?.destroy();
       unsubscribeWarm();
       for (const type of GESTURES)
         win.removeEventListener(type, onGesture, true);

@@ -953,3 +953,125 @@ describe("a voice line holds auto-forward while it is audible (Phase 47, item 5)
     m.destroy();
   });
 });
+
+describe("a spoken line holds auto-forward (Phase 52)", () => {
+  // render/spoken.ts tells the machine how long the generated line of the
+  // item under the cursor holds it: until a page time (`Date.now()`), up
+  // to 20 s from arrival while it is generated, then its actual end once
+  // it plays. Only while the voice is audible, never under skip or in
+  // manual mode, and only for the item it names.
+  const TEXT_MS = SETTINGS.minHoldMs;
+
+  function spoken(items: readonly Item[], audible = true): Machine {
+    const m = createMachine({ items, settings: SETTINGS, autoAdvance: true });
+    m.setVoiceAudible(audible);
+    return m;
+  }
+
+  it("waits until the hold's time while a line is wanted, then moves on", () => {
+    vi.useFakeTimers();
+    const m = spoken([image("a"), image("b")]);
+    m.setSpokenHold(0, Date.now() + 20_000);
+    vi.advanceTimersByTime(19_999);
+    expect(m.getState().cursor).toBe(0);
+    vi.advanceTimersByTime(1);
+    expect(m.getState().cursor).toBe(1);
+    m.destroy();
+  });
+
+  it("takes the line's own end once it starts, measured from its start", () => {
+    vi.useFakeTimers();
+    const m = spoken([image("a"), image("b")]);
+    m.setSpokenHold(0, Date.now() + 20_000); // generating
+    vi.advanceTimersByTime(3000); // it arrives and starts: 5 s long
+    m.setSpokenHold(0, Date.now() + 5000);
+    vi.advanceTimersByTime(4999);
+    expect(m.getState().cursor).toBe(0);
+    vi.advanceTimersByTime(1);
+    expect(m.getState().cursor).toBe(1);
+    m.destroy();
+  });
+
+  it("falls back to the text hold when the hold is cleared (a failed line)", () => {
+    vi.useFakeTimers();
+    const m = spoken([image("a"), image("b")]);
+    m.setSpokenHold(0, Date.now() + 20_000);
+    vi.advanceTimersByTime(TEXT_MS + 500);
+    expect(m.getState().cursor).toBe(0);
+    m.setSpokenHold(0, null);
+    vi.advanceTimersByTime(1);
+    expect(m.getState().cursor).toBe(1);
+    m.destroy();
+  });
+
+  it("keeps the longer text hold over a short line", () => {
+    vi.useFakeTimers();
+    const m = spoken([image("a"), image("b")]);
+    m.setSpokenHold(0, Date.now() + 200);
+    vi.advanceTimersByTime(TEXT_MS - 1);
+    expect(m.getState().cursor).toBe(0);
+    vi.advanceTimersByTime(1);
+    expect(m.getState().cursor).toBe(1);
+    m.destroy();
+  });
+
+  it("ignores a hold for another item, and one while the voice is not audible", () => {
+    vi.useFakeTimers();
+    const other = spoken([image("a"), image("b"), image("c")]);
+    other.setSpokenHold(1, Date.now() + 20_000);
+    vi.advanceTimersByTime(TEXT_MS);
+    expect(other.getState().cursor).toBe(1);
+    other.destroy();
+    const silent = spoken([image("a"), image("b")], false);
+    silent.setSpokenHold(0, Date.now() + 20_000);
+    vi.advanceTimersByTime(TEXT_MS);
+    expect(silent.getState().cursor).toBe(1);
+    silent.destroy();
+  });
+
+  it("is no hold in manual mode, and Space never waits for it", () => {
+    vi.useFakeTimers();
+    const m = spoken([image("a"), image("b"), image("c")]);
+    m.setAutoAdvance(false);
+    m.setSpokenHold(0, Date.now() + 20_000);
+    vi.advanceTimersByTime(60_000);
+    expect(m.getState().cursor).toBe(0);
+    m.advance();
+    expect(m.getState().cursor).toBe(1);
+    m.destroy();
+  });
+
+  it("never slows a skip burst", () => {
+    vi.useFakeTimers();
+    const items = [image("a"), image("b"), image("c")];
+    const m = createMachine({
+      items,
+      settings: SETTINGS,
+      resumeFrontier: 3,
+    });
+    m.setVoiceAudible(true);
+    m.wheelBack();
+    m.wheelBack();
+    m.setSpokenHold(0, Date.now() + 20_000);
+    m.toggleSkip();
+    vi.advanceTimersByTime(SETTINGS.skipDwellMs * 2);
+    expect(m.getState().cursor).toBe(2);
+    m.destroy();
+  });
+
+  it("re-arms from now on resume, so a line held under a menu still holds", () => {
+    vi.useFakeTimers();
+    const m = spoken([image("a"), image("b")]);
+    m.setSpokenHold(0, Date.now() + 4000);
+    vi.advanceTimersByTime(1000);
+    m.pause(); // the Esc screen: the line pauses too
+    vi.advanceTimersByTime(10_000);
+    m.setSpokenHold(0, Date.now() + 3000); // it plays on: 3 s left
+    m.resume();
+    vi.advanceTimersByTime(2999);
+    expect(m.getState().cursor).toBe(0);
+    vi.advanceTimersByTime(1);
+    expect(m.getState().cursor).toBe(1);
+    m.destroy();
+  });
+});

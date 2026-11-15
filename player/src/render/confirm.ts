@@ -65,6 +65,22 @@ export function importRequest(
   };
 }
 
+/**
+ * Removing the voices (docs/plan.md Phase 52, the Spoken lines row's
+ * Remove...): the engine and its model leave this computer, for every
+ * Kinetic game, and the row offers the download again.
+ */
+export function removeVoicesRequest(onConfirm: () => void): ConfirmRequest {
+  return {
+    title: "Remove voices",
+    message:
+      "Remove the voices from this computer to free their space? Every Kinetic game uses them; you can download them again.",
+    confirmLabel: "Remove",
+    hint: "y removes; Esc or n cancels",
+    onConfirm,
+  };
+}
+
 export interface ConfirmOverlay {
   isOpen(): boolean;
   /** Shows the panel over the Esc screen, asking `request`. */

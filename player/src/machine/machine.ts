@@ -563,6 +563,16 @@ export interface Machine {
    */
   setVoiceAudible(audible: boolean): void;
   /**
+   * A spoken line's hold (docs/plan.md Phase 52; render/spoken.ts): while
+   * the reader hears voice lines (`setVoiceAudible`), the auto-forward hold
+   * of item `index` lasts at least until `untilMs`, a `Date.now()` time:
+   * 20 s from arrival while its line is generated, then the line's own end
+   * once it plays. Null clears it. A hold for an item other than the one
+   * under the cursor counts for nothing; skip and manual mode are
+   * untouched, as for a recorded voice. A change re-times a pending hold.
+   */
+  setSpokenHold(index: number, untilMs: number | null): void;
+  /**
    * `a`: the auto-forward toggle (docs/plan.md Phase 13b, README `a`
    * bullet). Manual (off) is the player's start (main.ts constructs with
    * `autoAdvance: false`): nothing arms a hold timer, so items wait for
@@ -968,6 +978,8 @@ export function createMachine(options: MachineOptions): Machine {
   const voiceTracks = options.audio?.tracks;
   /** Whether the reader hears voice lines (`setVoiceAudible`). */
   let voiceAudible = false;
+  /** The spoken line's hold (`setSpokenHold`), null for none. */
+  let spokenHold: { index: number; until: number } | null = null;
   const count = items.length;
   const decisions = resolveDecisions(items, options.branches ?? []);
   /** Decisions keyed by the item index they fire on, in table order. */
@@ -1528,10 +1540,19 @@ export function createMachine(options: MachineOptions): Machine {
    */
   function voiceHoldMs(): number {
     if (!voiceAudible) return 0;
+    // A spoken line's hold is a time, measured here from when the item's
+    // timer was armed, as the delay is.
+    const spoken =
+      spokenHold !== null && spokenHold.index === cursor
+        ? spokenHold.until - timerArmedAt
+        : 0;
     const id = items[cursor]?.audio?.voice;
     const track = id === undefined ? undefined : voiceTracks?.[id];
-    if (track === undefined) return 0;
-    return (track.durationSeconds - (track.startSeconds ?? 0)) * 1000;
+    if (track === undefined) return spoken;
+    return Math.max(
+      spoken,
+      (track.durationSeconds - (track.startSeconds ?? 0)) * 1000,
+    );
   }
 
   /**
@@ -3482,6 +3503,12 @@ export function createMachine(options: MachineOptions): Machine {
     setVoiceAudible(audible) {
       if (audible === voiceAudible) return;
       voiceAudible = audible;
+      if (destroyed || count === 0) return;
+      retime();
+    },
+
+    setSpokenHold(index, untilMs) {
+      spokenHold = untilMs === null ? null : { index, until: untilMs };
       if (destroyed || count === 0) return;
       retime();
     },

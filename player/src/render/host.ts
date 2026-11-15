@@ -12,6 +12,11 @@
 // the page never asks for element fullscreen. Every host kind behaves the
 // same from the page's side.
 //
+// A host that offers spoken lines (docs/plan.md Phase 52, "The bridge") has
+// `voice: true`; the page then sends `{ type: "voice", op, ... }` messages
+// through the same `send` (render/voiceclient.ts holds them and the host's
+// answers).
+//
 // `windowActions` holds the Esc screen's two decisions (what the Fullscreen
 // / Window switch shows and does, what Exit does) over injected effects,
 // so both routes are unit-tested without a browser.
@@ -19,10 +24,28 @@
 /** The two display modes: the protocol's words, and the switch's halves. */
 export type DisplayMode = "fullscreen" | "window";
 
+/**
+ * A voice message (render/voiceclient.ts): `op` names it, and its other
+ * fields are the op's own.
+ */
+export interface VoiceMessage {
+  readonly type: "voice";
+  readonly op:
+    | "status"
+    | "install"
+    | "cancel"
+    | "remove"
+    | "voice"
+    | "speak"
+    | "drop";
+  readonly [field: string]: unknown;
+}
+
 /** What the page may send its host. */
 export type HostMessage =
   | { readonly type: "quit" }
-  | { readonly type: "display"; readonly mode: DisplayMode };
+  | { readonly type: "display"; readonly mode: DisplayMode }
+  | VoiceMessage;
 
 /** The host object as the page reads it. */
 export interface KineticHost {
@@ -30,6 +53,8 @@ export interface KineticHost {
   readonly kind: string;
   /** The display mode the host is in now. */
   readonly display: DisplayMode;
+  /** It offers spoken lines (its `voice` is exactly true). */
+  readonly voice: boolean;
   send(message: HostMessage): void;
 }
 
@@ -39,7 +64,8 @@ export const HOST_EVENT = "kinetic-host";
 /**
  * `value` (the page's `window.kineticHost`) as a host, or null when it is
  * not one: a host has a `send` function. A display other than `"window"`
- * reads as fullscreen, the apps' start. Never throws (a getter that throws
+ * reads as fullscreen, the apps' start; a `voice` other than true reads as
+ * no voice. Never throws (a getter that throws
  * reads as no host).
  */
 export function readHost(value: unknown): KineticHost | null {
@@ -48,6 +74,7 @@ export function readHost(value: unknown): KineticHost | null {
     const candidate = value as {
       kind?: unknown;
       display?: unknown;
+      voice?: unknown;
       send?: unknown;
     };
     const send = candidate.send;
@@ -55,6 +82,7 @@ export function readHost(value: unknown): KineticHost | null {
     return {
       kind: typeof candidate.kind === "string" ? candidate.kind : "",
       display: candidate.display === "window" ? "window" : "fullscreen",
+      voice: candidate.voice === true,
       send: (message) => {
         send.call(value, message);
       },
@@ -74,6 +102,8 @@ export interface HostLink {
   quit(): boolean;
   /** Asks the host for a display mode; false when there is no host. */
   setDisplay(mode: DisplayMode): boolean;
+  /** Sends `message` to the host; false when there is no host. */
+  send(message: HostMessage): boolean;
 }
 
 /** The slice of `window` the link reads. */
@@ -113,6 +143,7 @@ export function connectHost(win: HostWindow): HostLink {
     },
     quit: () => send({ type: "quit" }),
     setDisplay: (mode) => send({ type: "display", mode }),
+    send,
   };
 }
 

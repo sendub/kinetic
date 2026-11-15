@@ -375,6 +375,16 @@ export interface MachineSettings {
   effectsVolume: number;
   /** The Voice group's volume, 0 to 1; default 1. */
   voiceVolume: number;
+  /**
+   * Spoken lines (docs/plan.md Phase 52); default true. While on, and while
+   * a game app's voice engine is installed and ready, every line whose
+   * speaker has a voice (docs/content-format.md, "Voices") is generated and
+   * spoken through the Voice group (render/spoken.ts). It has no effect
+   * before the engine is installed, so on is the default: the download is
+   * the reader's opt-in, and the voices speak once it is done. A game
+   * without voices, or a page without a voice host, ignores it.
+   */
+  spokenLines: boolean;
 }
 
 export const DEFAULT_SETTINGS: MachineSettings = {
@@ -393,6 +403,7 @@ export const DEFAULT_SETTINGS: MachineSettings = {
   musicVolume: 1,
   effectsVolume: 1,
   voiceVolume: 1,
+  spokenLines: true,
 };
 
 /**

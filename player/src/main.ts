@@ -36,7 +36,11 @@
 // Phase 47's sound (render/audio.ts) follows the machine's arrivals; the
 // menus below tell it which screens are up, and the settings reach it with
 // the machine's; `v`, the Esc screen's Sound row and its Volumes sheet
-// (render/volumes.ts) change them, in a game with audio only.
+// (render/volumes.ts) change them, in a game with audio only. Phase 52's
+// spoken lines (render/spoken.ts) come from a game app's voice engine
+// (render/voiceclient.ts) when its host offers voice and the game has
+// voices: the sound then mounts with no audio too, and the Esc screen's
+// Spoken lines row offers the engine's download, progress and switch.
 // Composition only — rendering lives in src/render/, timing in
 // src/machine/, storage adapters in src/storage/.
 
@@ -64,6 +68,7 @@ import {
 import {
   importRequest,
   mountConfirmOverlay,
+  removeVoicesRequest,
   resetProgress,
   resetRequest,
 } from "./render/confirm";
@@ -82,7 +87,9 @@ import { layOutStrip, type MapStrip, runJump } from "./render/mapmodel";
 import { mountRouteAnnouncements } from "./render/routes";
 import { mountSegmentNotes } from "./render/segmentnote";
 import { mountSkipAnnouncements } from "./render/skip";
+import { hasVoices } from "./render/spoken";
 import { takeUrlStart } from "./render/urlstart";
+import { createVoiceClient } from "./render/voiceclient";
 import { mountVolumesOverlay, soundMessage } from "./render/volumes";
 import { installWheelInput } from "./render/wheel";
 import { CLOSE_TAB_NOTE, mountWindowControls } from "./render/windowcontrols";
@@ -247,13 +254,24 @@ function start(): void {
         ...(startAt >= 0 ? { startAt } : {}),
       });
       const shell = mountShell({ root, manifest, machine });
-      // The sound (docs/plan.md Phase 47): null for a game without audio,
-      // which then makes no audio element at all.
+      // Spoken lines (docs/plan.md Phase 52): a game with voices, in a game
+      // app whose host offers voice, talks to its voice engine. None in a
+      // browser tab, nor for a game without voices.
+      const voiceClient =
+        hostLink.host()?.voice === true && hasVoices(manifest)
+          ? createVoiceClient(window, (message) => {
+              hostLink.send(message);
+            })
+          : null;
+      // The sound (docs/plan.md Phase 47): null for a game without audio
+      // (and without spoken lines), which then makes no audio element at
+      // all.
       const audio = mountAudio({
         root,
         manifest,
         machine,
         settings: currentSettings,
+        voice: voiceClient,
       });
       // A video's sound plays with the stage's video (item 6), which follows
       // it and starts as it is heard (item 19).
@@ -443,6 +461,21 @@ function start(): void {
         ...(audio === null
           ? {}
           : { sound: { onVolumes: (opener) => volumes?.open(opener) } }),
+        // Spoken lines (docs/plan.md Phase 52): the row follows the voice
+        // engine; Remove... asks in the confirmation box, as Reset does.
+        ...(voiceClient === null
+          ? {}
+          : {
+              spoken: {
+                status: () => voiceClient.status(),
+                subscribe: (listener: () => void) =>
+                  voiceClient.subscribe(listener),
+                onInstall: () => voiceClient.install(),
+                onCancel: () => voiceClient.cancel(),
+                onRemove: () =>
+                  confirm.open(removeVoicesRequest(() => voiceClient.remove())),
+              },
+            }),
         // Import: the file is checked before anything is touched; a
         // refusal is said in the pill, held long enough to read, and a good
         // file asks the box.
@@ -495,9 +528,9 @@ function start(): void {
           ? null
           : mountVolumesOverlay({
               root,
-              hasVoice: manifest.items.some(
-                (item) => item.audio?.voice !== undefined,
-              ),
+              hasVoice:
+                voiceClient !== null ||
+                manifest.items.some((item) => item.audio?.voice !== undefined),
               settings: () => currentSettings,
               onChange: changeSound,
               onSample: (group) => audio.sample(group),

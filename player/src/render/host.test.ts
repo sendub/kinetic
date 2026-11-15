@@ -85,6 +85,32 @@ describe("readHost", () => {
   });
 });
 
+describe("readHost: the voice bridge (docs/plan.md Phase 52)", () => {
+  it("reads voice only from a host whose voice is exactly true", () => {
+    const send = () => {};
+    expect(readHost({ send, voice: true })?.voice).toBe(true);
+    expect(readHost({ send })?.voice).toBe(false);
+    expect(readHost({ send, voice: "yes" })?.voice).toBe(false);
+    expect(readHost({ send, voice: 1 })?.voice).toBe(false);
+  });
+
+  it("sends a voice message through the link to the host as it is", () => {
+    const win = new FakeWindow();
+    const sent: unknown[] = [];
+    win.kineticHost = {
+      kind: "mac-app",
+      voice: true,
+      send: (message: unknown) => sent.push(message),
+    };
+    const link = connectHost(win);
+    expect(link.send({ type: "voice", op: "status" })).toBe(true);
+    expect(sent).toEqual([{ type: "voice", op: "status" }]);
+    expect(
+      connectHost(new FakeWindow()).send({ type: "voice", op: "status" }),
+    ).toBe(false);
+  });
+});
+
 describe("connectHost", () => {
   it("is no host in a browser tab: nothing is sent", () => {
     const link = connectHost(new FakeWindow());

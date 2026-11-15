@@ -4480,8 +4480,33 @@ truthful: an unchecked box means nothing was accepted.
       timings, Whisper, speaker match and the pause measures; samples kept.
 - [ ] The Mac host (item 3). Tests: build_apps; driver scenario parts
       with a fake helper and a local server.
-- [ ] The player (item 4). Tests: unit tests; the `spoken` scenario file
+- [x] The player (item 4). Tests: unit tests; the `spoken` scenario file
       on Chrome and WebKit.
+      (2026-11-15: render/voiceclient.ts speaks the voice protocol
+      (requests `k<n>`, `window.__kineticVoice`, status subscription;
+      reference clips' base64 straight from their scripts through
+      `ScriptReader.base64`); render/spoken.ts chooses lines (text, no
+      recorded voice, the speaker's voice or the narrator; thoughts in the
+      speaker's voice), plans the current line and the next three spoken
+      lines in story order (12 items at most) at falling priorities,
+      drops the ones the reader leaves, registers each voice once per
+      ready session, and keeps decoded lines in a 32 MB LRU. audio.ts
+      plays a line on the existing voice Sound as `spoken:<itemId>`, so
+      the Voice group, `v` and every hold apply; a late line plays only if
+      the reader is still there. The machine's `setSpokenHold` deadline:
+      arrival + 20 s while generating, then the line's own end; skip and
+      manual never wait; a recorded voice wins. A voices-only game mounts
+      sound when the host offers voice. `spokenLines` (default on; the
+      download is the opt-in) and the Esc row: download with size and
+      note, progress with Cancel, Retry, the switch and "Remove..." through
+      the confirmation box, the unsupported message. fakevoice.mjs is the
+      stand-in host for both engines. Tests ran red first: npm test 1447.
+      Subagent: Chrome spoken audio screens 197/197; WebKit 202 pass, 2
+      partial (screens' headless fullscreen checks), on a copy of the tree
+      while item 3 changed the driver build. Orchestrator: npm test 1447,
+      tsc and biome clean on the player's files, Chrome spoken 27/27,
+      audio and screens 170/170. WebKit `spoken` is rerun on the real
+      tree with item 3.)
 - [ ] Casting (item 5). Tests: picking and manifest writing with a fake
       generator; one real casting run.
 - [ ] The voice demo (item 6). Tests: the builder's test; the Mac app

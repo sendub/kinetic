@@ -494,6 +494,14 @@ describe("sanitizeSettings — the settings the shipped adapter reads back", () 
     ).toEqual({ playAllRoutes: true });
   });
 
+  it("keeps the Spoken lines switch (on by default, Phase 52)", () => {
+    expect(DEFAULT_SETTINGS.spokenLines).toBe(true);
+    expect(sanitizeSettings({ spokenLines: false })).toEqual({
+      spokenLines: false,
+    });
+    expect(sanitizeSettings({ spokenLines: "off" })).toBeUndefined();
+  });
+
   it("keeps the branch map's Spoilers switch (off by default)", () => {
     expect(DEFAULT_SETTINGS.mapSpoilers).toBe(false);
     expect(sanitizeSettings({ mapSpoilers: true })).toEqual({

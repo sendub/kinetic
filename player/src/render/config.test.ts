@@ -10,9 +10,11 @@ import type { MachineSettings } from "../machine/types";
 import { DEFAULT_SETTINGS } from "../machine/types";
 import { createMemoryStorage } from "../storage/memory";
 import {
+  downloadLabel,
   EXPORT_DONE_NOTICE,
   IMPORT_FAILED_NOTICE,
   IMPORT_UNREADABLE_NOTICE,
+  installPercent,
   isSettingsControl,
   mountConfigOverlay,
   PLAY_ALL_TEXT,
@@ -32,6 +34,8 @@ import {
   SPEED_MIN,
   SPEED_STEP,
   SPEED_TIP,
+  SPOKEN_NOTE,
+  SPOKEN_TEXT,
   skipAllLabel,
   skipVideosLabel,
   speedLabel,
@@ -42,9 +46,11 @@ import {
 import {
   importRequest,
   mountConfirmOverlay,
+  removeVoicesRequest,
   resetProgress,
   resetRequest,
 } from "./confirm";
+import type { VoiceStatus } from "./voiceclient";
 
 describe("stepSpeed (README: configurable reading speed)", () => {
   it("walks the 0.25 grid in both directions", () => {
@@ -137,6 +143,8 @@ class FakeElement {
   files: unknown[] | null = null;
   /** How many times `click()` ran: a file input's picker opening. */
   clicks = 0;
+  /** Inline style (the voices' progress bar sets its width). */
+  readonly style: Record<string, string> = {};
   readonly ownerDocument: FakeDocument;
   private readonly attributes = new Map<string, string>();
   private readonly handlers = new Map<string, ((event: FakeEvent) => void)[]>();
@@ -275,12 +283,51 @@ const byAction = (root: FakeElement, action: string): FakeElement =>
     (el) => el.getAttribute("data-config-action") === action,
   );
 
+/** A voice host for the Spoken lines row: a status to set, and what was asked. */
+interface SpokenHost {
+  set(status: VoiceStatus | null): void;
+  readonly asked: string[];
+  readonly options: {
+    status(): VoiceStatus | null;
+    subscribe(listener: () => void): () => void;
+    onInstall(): void;
+    onCancel(): void;
+    onRemove(): void;
+  };
+}
+
+function spokenHost(initial: VoiceStatus | null): SpokenHost {
+  let status = initial;
+  const listeners = new Set<() => void>();
+  const asked: string[] = [];
+  return {
+    asked,
+    set(next) {
+      status = next;
+      for (const listener of listeners) listener();
+    },
+    options: {
+      status: () => status,
+      subscribe(listener) {
+        listeners.add(listener);
+        return () => listeners.delete(listener);
+      },
+      onInstall: () => asked.push("install"),
+      onCancel: () => asked.push("cancel"),
+      onRemove: () => asked.push("remove"),
+    },
+  };
+}
+
 /**
  * Mounts the panel over a mutable settings source, collecting onChange;
  * `sound` mounts it for a game with sound, collecting each Volumes... ask
  * (the button it came from).
  */
-function mount(initial: MachineSettings, { sound = false } = {}) {
+function mount(
+  initial: MachineSettings,
+  { sound = false, spoken }: { sound?: boolean; spoken?: SpokenHost } = {},
+) {
   const root = new FakeDocument().createElement("div");
   let inForce = initial;
   const changes: MachineSettings[] = [];
@@ -289,6 +336,7 @@ function mount(initial: MachineSettings, { sound = false } = {}) {
   const imports: unknown[] = [];
   const volumes: unknown[] = [];
   const overlay = mountConfigOverlay({
+    ...(spoken === undefined ? {} : { spoken: spoken.options }),
     ...(sound
       ? {
           sound: {
@@ -1024,5 +1072,193 @@ describe("the Sound row (docs/plan.md Phase 47 item 7)", () => {
     expect(byAction(holder.root, "sound").getAttribute("aria-pressed")).toBe(
       "false",
     );
+  });
+});
+
+describe("the Spoken lines row (docs/plan.md Phase 52, The setting)", () => {
+  const ABSENT: VoiceStatus = { state: "absent", downloadBytes: 3_200_000_000 };
+  /** The row's controls on show (not hidden), by action, in order. */
+  const shownActions = (root: FakeElement): string[] =>
+    walk(byClass(root, "config-spoken"))
+      .filter((el) => !el.hidden && el.getAttribute("data-config-action"))
+      .map((el) => el.getAttribute("data-config-action") ?? "");
+  const shown = (root: FakeElement, className: string): boolean =>
+    !byClass(root, className).hidden;
+
+  it("is drawn only with a voice host, as the last row of the Sound group", () => {
+    expect(
+      walk(mount(defaults, { sound: true }).root).some((el) =>
+        el.className.includes("config-spoken"),
+      ),
+    ).toBe(false);
+    const { root } = mount(defaults, {
+      sound: true,
+      spoken: spokenHost(ABSENT),
+    });
+    expect(groupLines(root)[2]).toEqual([
+      "Play all routes",
+      SOUND_TEXT,
+      SPOKEN_TEXT,
+      null, // the note under it
+    ]);
+    expect(SPOKEN_TEXT).toBe("Spoken lines");
+  });
+
+  it("offers the download with its size and a line on what it is, before it is installed", () => {
+    const { root } = mount(defaults, {
+      sound: true,
+      spoken: spokenHost(ABSENT),
+    });
+    expect(byClass(root, "config-spoken").getAttribute("data-state")).toBe(
+      "absent",
+    );
+    expect(shownActions(root)).toEqual(["voice-download"]);
+    expect(byAction(root, "voice-download").textContent).toBe(
+      "Download voices (3.2 GB)",
+    );
+    expect(shown(root, "config-spoken-note")).toBe(true);
+    expect(byClass(root, "config-spoken-note").textContent).toBe(SPOKEN_NOTE);
+    expect(SPOKEN_NOTE).toMatch(/this computer/);
+    expect(SPOKEN_NOTE).toMatch(/every Kinetic game/);
+  });
+
+  it("starts the install on a click, and turns spoken lines on for when it is done", () => {
+    const host = spokenHost(ABSENT);
+    const { root, changes } = mount(
+      { ...defaults, spokenLines: false },
+      { sound: true, spoken: host },
+    );
+    byAction(root, "voice-download").fire("click");
+    expect(host.asked).toEqual(["install"]);
+    expect(changes).toEqual([{ ...defaults, spokenLines: true }]);
+  });
+
+  it("shows the install's progress with its percent, and Cancel", () => {
+    const host = spokenHost(ABSENT);
+    const { root } = mount(defaults, { sound: true, spoken: host });
+    host.set({
+      ...ABSENT,
+      state: "installing",
+      done: 1_344_000_000,
+      total: 3_200_000_000,
+    });
+    expect(byClass(root, "config-spoken").getAttribute("data-state")).toBe(
+      "installing",
+    );
+    expect(shownActions(root)).toEqual(["voice-cancel"]);
+    const bar = byClass(root, "config-progress");
+    expect(bar.hidden).toBe(false);
+    expect(bar.getAttribute("role")).toBe("progressbar");
+    expect(bar.getAttribute("aria-valuenow")).toBe("42");
+    expect(byClass(root, "config-progress-fill").style.width).toBe("42%");
+    expect(byClass(root, "config-progress-value").textContent).toBe("42%");
+    expect(shown(root, "config-spoken-note")).toBe(false);
+    byAction(root, "voice-cancel").fire("click");
+    expect(host.asked).toEqual(["cancel"]);
+  });
+
+  it("shows the switch and Remove once ready; the switch is the spokenLines setting", () => {
+    const host = spokenHost({ ...ABSENT, state: "ready" });
+    const { root, changes } = mount(defaults, { sound: true, spoken: host });
+    expect(shownActions(root)).toEqual(["voice-remove", "spoken"]);
+    const toggle = byAction(root, "spoken");
+    expect(toggle.getAttribute("role")).toBe("switch");
+    expect(toggle.getAttribute("aria-pressed")).toBe("true");
+    expect(toggle.textContent).toBe("On");
+    toggle.fire("click");
+    expect(changes).toEqual([{ ...defaults, spokenLines: false }]);
+    expect(toggle.textContent).toBe("Off");
+    expect(byAction(root, "voice-remove").textContent).toBe("Remove…");
+    byAction(root, "voice-remove").fire("click");
+    expect(host.asked).toEqual(["remove"]);
+  });
+
+  it("shows an error's words and Retry, which installs again", () => {
+    const host = spokenHost({
+      ...ABSENT,
+      state: "error",
+      message: "The download failed.",
+    });
+    const { root } = mount(defaults, { sound: true, spoken: host });
+    expect(shownActions(root)).toEqual(["voice-retry"]);
+    expect(byClass(root, "config-spoken-message").textContent).toBe(
+      "The download failed.",
+    );
+    expect(shown(root, "config-spoken-message")).toBe(true);
+    byAction(root, "voice-retry").fire("click");
+    expect(host.asked).toEqual(["install"]);
+  });
+
+  it("shows only the words of a machine that cannot run the voices", () => {
+    const host = spokenHost({
+      ...ABSENT,
+      state: "unsupported",
+      message: "Spoken lines need a Mac with Apple silicon.",
+    });
+    const { root } = mount(defaults, { sound: true, spoken: host });
+    expect(shownActions(root)).toEqual([]);
+    expect(byClass(root, "config-spoken-message").textContent).toBe(
+      "Spoken lines need a Mac with Apple silicon.",
+    );
+  });
+
+  it("says it is checking until the host gives a status, then follows each one", () => {
+    const host = spokenHost(null);
+    const { root } = mount(defaults, { sound: true, spoken: host });
+    expect(shownActions(root)).toEqual([]);
+    expect(byClass(root, "config-spoken-message").textContent).toBe(
+      "Checking…",
+    );
+    host.set(ABSENT);
+    expect(shownActions(root)).toEqual(["voice-download"]);
+    host.set({ ...ABSENT, state: "ready" });
+    expect(shownActions(root)).toEqual(["voice-remove", "spoken"]);
+    expect(shown(root, "config-spoken-message")).toBe(false);
+  });
+
+  it("sizes the download to one decimal place of 1e9 bytes, and clamps the percent", () => {
+    expect(downloadLabel(3_200_000_000)).toBe("Download voices (3.2 GB)");
+    expect(downloadLabel(3_249_000_000)).toBe("Download voices (3.2 GB)");
+    expect(downloadLabel(12_000_000_000)).toBe("Download voices (12.0 GB)");
+    expect(installPercent({ state: "installing", downloadBytes: 1 })).toBe(0);
+    expect(
+      installPercent({
+        state: "installing",
+        downloadBytes: 1,
+        done: 5,
+        total: 0,
+      }),
+    ).toBe(0);
+    expect(
+      installPercent({
+        state: "installing",
+        downloadBytes: 1,
+        done: 999,
+        total: 1000,
+      }),
+    ).toBe(99);
+    expect(
+      installPercent({
+        state: "installing",
+        downloadBytes: 1,
+        done: 2000,
+        total: 1000,
+      }),
+    ).toBe(100);
+  });
+});
+
+describe("removing the voices asks in the confirmation box (Phase 52)", () => {
+  it("asks in its own words, with y to remove, and removes only on confirm", () => {
+    const removed: number[] = [];
+    const request = removeVoicesRequest(() => removed.push(1));
+    expect(request.title).toBe("Remove voices");
+    expect(request.message).toMatch(/free their space/);
+    expect(request.message).toMatch(/Every Kinetic game/);
+    expect(request.confirmLabel).toBe("Remove");
+    expect(request.hint).toBe("y removes; Esc or n cancels");
+    expect(removed).toEqual([]);
+    request.onConfirm();
+    expect(removed).toEqual([1]);
   });
 });
