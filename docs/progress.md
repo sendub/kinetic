@@ -4226,9 +4226,26 @@ truthful: an unchecked box means nothing was accepted.
 
 ## Phase 51: Release basics (2026-11-15, user)
 
-- [ ] License (docs/plan.md Phase 51, item 1). Tests: the built bundle
+- [x] License (docs/plan.md Phase 51, item 1). Tests: the built bundle
       carries the notice; build_apps tests read the plist key, the
       bundle's license file and the exe's resources.
+      (2026-11-15: root LICENSE (MIT, Copyright (c) 2026 Sendu Bala);
+      package.json `"license": "MIT"`, pyproject `license = "MIT"` with
+      setuptools>=77 (no `license-files`: PEP 639 allows no `..`).
+      bundle.mjs reads LICENSE: `buildBundle` gives app.js a `/*! ... */`
+      banner (dev.mjs shares the options) and index.html the notice as a
+      comment right after `<!doctype html>`, so no quirks mode. Mac app:
+      `NSHumanReadableCopyright` ("Made with Kinetic, Copyright (c) 2026
+      Sendu Bala, MIT License") and Contents/Resources/LICENSE; exe:
+      `LegalCopyright`, RT_RCDATA 1 Kinetic's text, RT_RCDATA 2 Go's
+      BSD-3-Clause text read from `go env GOROOT`/LICENSE at build time,
+      checked before anything is built. README "License". Tests ran red
+      first: bundle.test.mjs (new), test_build_apps.py (14 failed, 16
+      errored before), the real Mac and Windows builds included.
+      Orchestrator: npm test 1349, check clean, smoke 6/6, Chrome
+      checkgame and creator (which edit index.html) 64/64, pytest
+      test_build_apps and test_assemble_folder 128 passed; dist/app.js
+      and dist/index.html read.)
 - [ ] Kinetic's version stamped (item 2). Tests: the agreement test, the
       stamp, each `--version`, check-game naming the folder's player
       version and `unknown` for an unstamped `app.js`.

@@ -37,6 +37,11 @@ import assemble_folder  # noqa: E402
 import build_apps  # noqa: E402
 import windows_resources  # noqa: E402
 
+LICENSE = (REPO_ROOT / "LICENSE").read_bytes()
+COPYRIGHT = "Made with Kinetic, Copyright (c) 2026 Sendu Bala, MIT License"
+# A stand-in for the Go toolchain's LICENSE (BSD-3-Clause).
+GO_LICENSE = (b"Copyright 2009 The Go Authors.\n\nRedistribution and use in "
+              b"source and binary forms, with or without modification...\n")
 RED = (220, 20, 20)
 GREEN = (20, 220, 20)
 BLUE = (20, 20, 220)
@@ -303,8 +308,28 @@ def test_info_plist_contents() -> None:
         "CFBundleVersion": "1.0",
         "LSMinimumSystemVersion": "12.0",
         "NSHighResolutionCapable": True,
+        "NSHumanReadableCopyright": COPYRIGHT,
         "KineticTitle": "Rainy Day",
     }
+
+
+def test_the_license_is_mit_with_its_copyright_line() -> None:
+    lines = LICENSE.decode("utf-8").splitlines()
+    assert lines[:3] == ["MIT License", "", "Copyright (c) 2026 Sendu Bala"]
+    assert build_apps.kinetic_license() == LICENSE
+    assert build_apps.kinetic_copyright() == COPYRIGHT
+
+
+def test_a_license_without_a_copyright_line_is_refused(tmp_path,
+                                                       monkeypatch) -> None:
+    license_file = tmp_path / "LICENSE"
+    license_file.write_text("MIT License\n")
+    monkeypatch.setattr(build_apps, "LICENSE", license_file)
+    with pytest.raises(build_apps.BuildError, match="no Copyright line"):
+        build_apps.kinetic_copyright()
+    license_file.unlink()
+    with pytest.raises(build_apps.BuildError, match="Kinetic's license"):
+        build_apps.kinetic_license()
 
 
 def test_info_plist_carries_the_first_window_size() -> None:
@@ -438,10 +463,13 @@ def test_build_writes_the_bundle_with_the_default_icon(tmp_path, capsys,
     assert listing(app) == [
         "Contents", "Contents/Info.plist", "Contents/MacOS",
         "Contents/MacOS/kinetic", "Contents/Resources",
-        "Contents/Resources/AppIcon.icns", "Contents/_CodeSignature",
-        "Contents/_CodeSignature/CodeResources"]
+        "Contents/Resources/AppIcon.icns", "Contents/Resources/LICENSE",
+        "Contents/_CodeSignature", "Contents/_CodeSignature/CodeResources"]
     info = plistlib.loads((app / "Contents" / "Info.plist").read_bytes())
     assert info["CFBundleIdentifier"] == "org.kinetic.game.rainy-day"
+    # Kinetic's notice travels inside the app.
+    assert info["NSHumanReadableCopyright"] == COPYRIGHT
+    assert (app / "Contents" / "Resources" / "LICENSE").read_bytes() == LICENSE
     # The first window: the first graphic's pixel size (make_game's 64x48).
     assert info["KineticWindowSize"] == {"Width": 64, "Height": 48}
     assert_green(icns_pixels(app / "Contents" / "Resources" / "AppIcon.icns")
@@ -567,6 +595,7 @@ def test_real_build_on_this_mac(tmp_path) -> None:
         "Info.plist", "MacOS", "Resources", "_CodeSignature"]
     assert binary.stat().st_mode & 0o111
     assert (app / "Contents" / "Resources" / "AppIcon.icns").is_file()
+    assert (app / "Contents" / "Resources" / "LICENSE").read_bytes() == LICENSE
 
     def run(*command: str) -> subprocess.CompletedProcess:
         done = subprocess.run(list(command), capture_output=True, text=True)
@@ -580,6 +609,9 @@ def test_real_build_on_this_mac(tmp_path) -> None:
     size = run("plutil", "-extract", "KineticWindowSize", "json", "-o", "-",
                str(app / "Contents" / "Info.plist"))
     assert json.loads(size.stdout) == {"Width": 64, "Height": 48}
+    notice = run("plutil", "-extract", "NSHumanReadableCopyright", "raw", "-o",
+                 "-", str(app / "Contents" / "Info.plist"))
+    assert notice.stdout.strip() == COPYRIGHT
     assert run("xcrun", "lipo", "-archs", str(binary)).stdout.split() == ["arm64"]
     assert "minos 12.0" in run("xcrun", "vtool", "-show-build", str(binary)).stdout
     # A string only apps/macos/WebViewSetup.swift holds: the shared setup
@@ -820,6 +852,7 @@ def stub_go(monkeypatch: pytest.MonkeyPatch) -> list[dict]:
     builds: list[dict] = []
     monkeypatch.setattr(build_apps, "find_go", lambda: "/stub/bin/go")
     monkeypatch.setattr(build_apps, "go_version", lambda go: "1.27.1")
+    monkeypatch.setattr(build_apps, "go_license", lambda go: GO_LICENSE)
 
     def compile_windows(go: str, package: Path, exe: Path, ident,
                         window) -> None:
@@ -864,6 +897,11 @@ def test_windows_flag_builds_the_exe_with_the_default_icon(
     for picture in icons(tree).values():
         assert_green(picture.getpixel((picture.width // 2, picture.height // 2)))
     assert_dpi_manifest(tree[windows_resources.RT_MANIFEST, 1, LANG])
+    # Kinetic's notice and the Go toolchain's travel inside the exe.
+    assert tree[windows_resources.RT_RCDATA, 1, LANG] == LICENSE
+    assert tree[windows_resources.RT_RCDATA, 2, LANG] == GO_LICENSE
+    _, strings, _ = version_info(tree[windows_resources.RT_VERSION, 1, LANG])
+    assert strings["LegalCopyright"] == COPYRIGHT
     out = capsys.readouterr().out
     assert f"built {exe}" in out and "first.png" in out
     assert "first window 64x48" in out
@@ -1225,14 +1263,76 @@ def test_the_exe_resources() -> None:
     ident = build_apps.identity({"storyId": "rainy-day", "title": "Rainy Day"},
                                 Path("x"))
     tree = syso_resources(windows_resources.coff_object(
-        build_apps.exe_resources(quadrants(), ident, "Rainy Day.exe")))
+        build_apps.exe_resources(quadrants(), ident, "Rainy Day.exe",
+                                 GO_LICENSE)))
     for picture in icons(tree).values():
         assert_quadrants(picture)
     _, strings, _ = version_info(tree[16, 1, LANG])
     assert strings == {"FileDescription": "Rainy Day", "FileVersion": "1.0.0.0",
+                       "LegalCopyright": COPYRIGHT,
                        "OriginalFilename": "Rainy Day.exe", "ProductName": "Rainy Day",
                        "ProductVersion": "1.0.0.0", "KineticStoryId": "rainy-day"}
     assert_dpi_manifest(tree[24, 1, LANG])
+    # RT_RCDATA 1: Kinetic's MIT text; 2: Go's BSD-3-Clause text.
+    assert tree[10, 1, LANG] == LICENSE
+    assert tree[10, 2, LANG] == GO_LICENSE
+
+
+def stub_go_env(monkeypatch, stdout: str = "", returncode: int = 0,
+                failure: Exception | None = None) -> list[list[str]]:
+    """`go env GOROOT` answering `stdout`; returns the commands run."""
+    commands: list[list[str]] = []
+
+    def run(command, **options):
+        commands.append(command)
+        assert options["env"]["GOTOOLCHAIN"] == "local"
+        if failure is not None:
+            raise failure
+        return subprocess.CompletedProcess(command, returncode, stdout, "boom")
+
+    monkeypatch.setattr(build_apps.subprocess, "run", run)
+    return commands
+
+
+def test_go_license_is_the_building_toolchains_license(tmp_path,
+                                                       monkeypatch) -> None:
+    (tmp_path / "LICENSE").write_bytes(GO_LICENSE)
+    commands = stub_go_env(monkeypatch, f"{tmp_path}\n")
+    assert build_apps.go_license("/opt/go/bin/go") == GO_LICENSE
+    assert commands == [["/opt/go/bin/go", "env", "GOROOT"]]
+
+
+@pytest.mark.parametrize("answer, problem", [
+    ({"returncode": 1}, "go env GOROOT"),
+    ({"stdout": "\n"}, "go env GOROOT"),
+    ({"failure": OSError("no such file")}, "go env GOROOT"),
+    ({"failure": subprocess.TimeoutExpired("go", 60)}, "go env GOROOT"),
+    ({"stdout": "{root}"}, "Go's license"),
+    ({"stdout": "{root}", "license": b"not a license"}, "Go's license"),
+])
+def test_go_license_problems_are_build_errors(tmp_path, monkeypatch, answer,
+                                              problem) -> None:
+    answer = dict(answer)
+    if "license" in answer:
+        (tmp_path / "LICENSE").write_bytes(answer.pop("license"))
+    if "stdout" in answer:
+        answer["stdout"] = answer["stdout"].format(root=tmp_path)
+    stub_go_env(monkeypatch, **answer)
+    with pytest.raises(build_apps.BuildError, match=problem):
+        build_apps.go_license("go")
+
+
+def test_windows_build_without_gos_license_writes_nothing(
+        tmp_path, capsys, stub_go, monkeypatch) -> None:
+    folder = make_game(tmp_path)
+
+    def missing(go: str) -> bytes:
+        raise build_apps.BuildError("Go's license /x/LICENSE cannot be read")
+
+    monkeypatch.setattr(build_apps, "go_license", missing)
+    assert build_apps.main([str(folder), "--windows"]) == 1
+    assert "Go's license" in capsys.readouterr().err
+    assert stub_go == [] and not list(folder.glob("*.exe"))
 
 
 # --- the Windows exe: a real build -------------------------------------------
@@ -1263,13 +1363,21 @@ def test_real_windows_build(tmp_path) -> None:
     assert b"64x48" in program
     tree = exe_resources(pe)
     assert set(tree) == ({(3, n, LANG) for n in range(1, 8)}
-                         | {(14, 1, LANG), (16, 1, LANG), (24, 1, LANG)})
+                         | {(10, 1, LANG), (10, 2, LANG), (14, 1, LANG),
+                            (16, 1, LANG), (24, 1, LANG)})
+    # Kinetic's notice, and Go's from the toolchain that built the exe.
+    goroot = subprocess.run([build_apps.find_go(), "env", "GOROOT"],
+                            capture_output=True, text=True, check=True,
+                            env=build_apps.go_env()).stdout.strip()
+    assert tree[10, 1, LANG] == LICENSE
+    assert tree[10, 2, LANG] == (Path(goroot) / "LICENSE").read_bytes()
     assert_dpi_manifest(tree[24, 1, LANG])
     for picture in icons(tree).values():
         assert_green(picture.getpixel((picture.width // 2, picture.height // 2)))
     _, strings, _ = version_info(tree[16, 1, LANG])
     assert strings["FileDescription"] == strings["ProductName"] == "Rainy Day: Two?"
     assert strings["OriginalFilename"] == exe.name
+    assert strings["LegalCopyright"] == COPYRIGHT
     assert build_apps.read_exe_story(exe) == "rainy-day"
 
 

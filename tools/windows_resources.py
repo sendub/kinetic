@@ -8,12 +8,13 @@ section (three directory levels, type, then id, then language; then the
 data entries; then the data), with one relocation per data entry so the
 linker turns each entry's section offset into an image-relative address.
 
-`icon_resources`, `version_resource` and `manifest_resource` make the
-resources the exe carries: the icon as RT_ICON images plus the
-RT_GROUP_ICON directory Explorer, the taskbar and the game window read, a
-VERSIONINFO whose description Task Manager shows, and the application
-manifest that makes the exe per-monitor DPI aware (v2), so Windows does
-not stretch its window on a high-DPI screen.
+`icon_resources`, `version_resource`, `manifest_resource` and
+`data_resource` make the resources the exe carries: the icon as RT_ICON
+images plus the RT_GROUP_ICON directory Explorer, the taskbar and the game
+window read, a VERSIONINFO whose description Task Manager shows, the
+application manifest that makes the exe per-monitor DPI aware (v2), so
+Windows does not stretch its window on a high-DPI screen, and raw bytes as
+RT_RCDATA (the license texts the exe carries).
 """
 
 from __future__ import annotations
@@ -26,6 +27,7 @@ import numpy
 from PIL import Image
 
 RT_ICON = 3
+RT_RCDATA = 10
 RT_GROUP_ICON = 14
 RT_VERSION = 16
 RT_MANIFEST = 24
@@ -283,3 +285,11 @@ def manifest_resource(language: int = LANG_EN_US) -> Resource:
     when it starts the exe, in UTF-8."""
     return Resource(RT_MANIFEST, CREATEPROCESS_MANIFEST_ID, language,
                     APP_MANIFEST.encode("utf-8"))
+
+
+# --- raw data ------------------------------------------------------------------
+
+def data_resource(name_id: int, data: bytes,
+                  language: int = LANG_EN_US) -> Resource:
+    """`data` as an RT_RCDATA resource, byte for byte."""
+    return Resource(RT_RCDATA, name_id, language, data)

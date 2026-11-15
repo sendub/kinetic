@@ -26,13 +26,22 @@ through the WebView2 Runtime Windows provides, fullscreen or as the
 window the reader left (apps/README.md). The storyId, the title and the
 first window's size are linked in (`-ldflags -X`); the icon, a version
 resource (the title as its description, which Task Manager shows, and
-the storyId, which marks the exe as this script's) and an application
-manifest (per-monitor DPI awareness) go in as Windows resources, from
+the storyId, which marks the exe as this script's), an application
+manifest (per-monitor DPI awareness) and two license texts go in as
+Windows resources, from
 the COFF object tools/windows_resources.py writes into a copy of the
 package (`rsrc_windows_amd64.syso`, which the Go linker links). The
 package uses Go's standard library alone, so building needs only Go at
 the version apps/windows/go.mod names or later, on any OS, and downloads
 nothing; Go's caches stay under `.tmp/windows-app-build/`.
+
+Each app carries Kinetic's MIT notice (the repo's LICENSE), so an author
+who ships the apps as built owes nothing more: the Mac app as
+`Contents/Resources/LICENSE` and its Info.plist's
+`NSHumanReadableCopyright`, the exe as its version resource's
+`LegalCopyright` and RT_RCDATA resource 1. The exe also links the Go
+runtime, so RT_RCDATA resource 2 is Go's BSD-3-Clause notice, the LICENSE
+of the toolchain that builds it (`go env GOROOT`).
 
 An app or exe this script built before under the same name is replaced;
 each is built in a temporary folder beside the game folder and moved
@@ -76,6 +85,8 @@ from PIL import Image, ImageOps
 import windows_resources
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+# Kinetic's license (MIT), which every app carries.
+LICENSE = REPO_ROOT / "LICENSE"
 SCHEMA = REPO_ROOT / "docs" / "content-schema.json"
 MANIFEST_NAME = "manifest.json"
 PAGE_NAME = "index.html"
@@ -90,6 +101,8 @@ MAC_TARGET = "arm64-apple-macos12"
 MAC_MINIMUM_SYSTEM = "12.0"
 MAC_EXECUTABLE = "kinetic"
 MAC_ICON_NAME = "AppIcon"
+# The license text's name in the app's Contents/Resources.
+MAC_LICENSE_NAME = "LICENSE"
 MODULE_CACHE = REPO_ROOT / ".tmp" / "mac-app-build" / "module-cache"
 BUNDLE_ID_PREFIX = "org.kinetic.game."
 # Info.plist key the app reads for its menus (apps/macos/app/main.swift).
@@ -123,6 +136,12 @@ EXE_STORY = re.compile(
     re.escape((EXE_STORY_KEY + "\0").encode("utf-16-le"))
     + rb"(?:\x00\x00)?((?:[a-z0-9_-]\x00){1,64})\x00\x00")
 MAX_EXE_BYTES = 64 * 1024 * 1024
+# The exe's RT_RCDATA resources: Kinetic's MIT text and Go's BSD-3-Clause
+# text (the Go runtime is linked in).
+EXE_KINETIC_LICENSE_ID = 1
+EXE_GO_LICENSE_ID = 2
+# A phrase every BSD-style license holds, Go's included.
+BSD_PHRASE = b"Redistribution and use in source and binary forms"
 # What Windows refuses in a file name beyond the `/` and `:` that
 # safe_file_name already writes as `-`, and its reserved device names.
 WINDOWS_FORBIDDEN = '<>"\\|?*'
@@ -133,6 +152,24 @@ WINDOWS_RESERVED = {"CON", "PRN", "AUX", "NUL",
 
 class BuildError(Exception):
     """A reason the app cannot be built, worded for the author."""
+
+
+def kinetic_license() -> bytes:
+    """Kinetic's license text, the repo's LICENSE, as the apps carry it."""
+    try:
+        return LICENSE.read_bytes()
+    except OSError as exc:
+        raise BuildError(f"cannot read Kinetic's license {LICENSE}: "
+                         f"{exc.strerror or exc}") from None
+
+
+def kinetic_copyright() -> str:
+    """The one-line notice in the Mac app's Info.plist and the exe's
+    version resource, from the license's copyright line."""
+    for line in kinetic_license().decode("utf-8").splitlines():
+        if line.startswith("Copyright "):
+            return f"Made with Kinetic, {line}, MIT License"
+    raise BuildError(f"{LICENSE} has no Copyright line")
 
 
 @dataclass(frozen=True)
@@ -395,6 +432,7 @@ def info_plist(ident: Identity,
         "CFBundleVersion": APP_VERSION,
         "LSMinimumSystemVersion": MAC_MINIMUM_SYSTEM,
         "NSHighResolutionCapable": True,
+        "NSHumanReadableCopyright": kinetic_copyright(),
         TITLE_KEY: ident.title,
         **sized,
     }
@@ -479,6 +517,33 @@ def check_go() -> str:
     return go
 
 
+def go_license(go: str) -> bytes:
+    """Go's license (BSD-3-Clause) from the toolchain that builds the exe,
+    whose runtime is linked in: the LICENSE file in `go env GOROOT`."""
+    command = f"`{go} env GOROOT`"
+    try:
+        proc = subprocess.run([go, "env", "GOROOT"], capture_output=True,
+                              text=True, timeout=60, env=go_env(),
+                              cwd=REPO_ROOT)
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise BuildError(f"{command} failed: {exc}") from None
+    root = proc.stdout.strip()
+    if proc.returncode != 0 or not root:
+        raise BuildError(f"{command} failed: "
+                         f"{(proc.stderr or proc.stdout).strip()}")
+    path = Path(root) / "LICENSE"
+    try:
+        text = path.read_bytes()
+    except OSError as exc:
+        raise BuildError(f"Go's license {path} cannot be read "
+                         f"({exc.strerror or exc}); the exe carries it, as "
+                         "it links the Go runtime") from None
+    if BSD_PHRASE not in text:
+        raise BuildError(f"Go's license {path} is not the BSD license Go "
+                         "ships")
+    return text
+
+
 def exe_name(ident: Identity) -> str:
     """`<title>.exe`: the app's name with what Windows refuses in a file
     name written as `-`, and no trailing dot or space."""
@@ -511,17 +576,22 @@ def compile_windows(go: str, package: Path, exe: Path, ident: Identity,
          "compiling the Windows app", cwd=package, env=go_env())
 
 
-def exe_resources(square: Image.Image, ident: Identity,
-                  name: str) -> list[windows_resources.Resource]:
-    """The exe's icon, its version resource (title, file name, storyId)
-    and its application manifest."""
+def exe_resources(square: Image.Image, ident: Identity, name: str,
+                  go_notice: bytes) -> list[windows_resources.Resource]:
+    """The exe's icon, its version resource (title, Kinetic's copyright,
+    file name, storyId), its application manifest, and the license texts:
+    Kinetic's and `go_notice`, Go's."""
     version = ".".join(str(part) for part in EXE_VERSION)
     return [
         *windows_resources.icon_resources(square),
         windows_resources.manifest_resource(),
+        windows_resources.data_resource(EXE_KINETIC_LICENSE_ID,
+                                        kinetic_license()),
+        windows_resources.data_resource(EXE_GO_LICENSE_ID, go_notice),
         windows_resources.version_resource({
             "FileDescription": ident.title,
             "FileVersion": version,
+            "LegalCopyright": kinetic_copyright(),
             "OriginalFilename": name,
             "ProductName": ident.title,
             "ProductVersion": version,
@@ -555,6 +625,8 @@ class Prepared:
     go: str | None
     # The first graphic's pixel size, for the apps' first window.
     window: tuple[int, int] | None
+    # Go's license text, for the exe (None without --windows).
+    go_notice: bytes | None = None
 
 
 def prepare(folder: Path, icon: Path | None, *, mac: bool = False,
@@ -563,12 +635,14 @@ def prepare(folder: Path, icon: Path | None, *, mac: bool = False,
     manifest's storyId, each build's tools and the icon picture."""
     manifest = load_manifest(folder)
     ident = identity(manifest, folder)
+    kinetic_copyright()
     if mac:
         check_mac_toolchain()
     go = check_go() if windows else None
+    go_notice = go_license(go) if go is not None else None
     source = icon if icon is not None else first_graphic(manifest, folder)
     return Prepared(ident, load_icon(source), source, go,
-                    window_size(manifest, folder))
+                    window_size(manifest, folder), go_notice)
 
 
 def first_window(prepared: Prepared) -> str:
@@ -603,6 +677,8 @@ def build_mac_app(folder: Path, prepared: Prepared) -> Path:
         compile_mac(contents / "MacOS" / MAC_EXECUTABLE)
         write_icns(prepared.square,
                    contents / "Resources" / f"{MAC_ICON_NAME}.icns")
+        (contents / "Resources" / MAC_LICENSE_NAME).write_bytes(
+            kinetic_license())
         (contents / "Info.plist").write_bytes(
             plistlib.dumps(info_plist(ident, prepared.window)))
         sign_mac(app)
@@ -641,7 +717,8 @@ def build_windows_exe(folder: Path, prepared: Prepared) -> Path:
         shutil.copytree(WINDOWS_PACKAGE, package,
                         ignore=shutil.ignore_patterns("*_test.go", "*.syso"))
         (package / SYSO_NAME).write_bytes(windows_resources.coff_object(
-            exe_resources(prepared.square, ident, target.name)))
+            exe_resources(prepared.square, ident, target.name,
+                          prepared.go_notice)))
         exe = staging / target.name
         compile_windows(prepared.go, package, exe, ident, prepared.window)
         os.replace(exe, target)

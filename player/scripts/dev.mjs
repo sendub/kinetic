@@ -2,19 +2,17 @@
 // fixed port. esbuild serves the bundle from memory at /app.js and other
 // files from servedir, so only rebuilds are incremental. To develop against
 // content, copy the demo fixture's files into dist/ — its manifest.js wins
-// over the stub, which is only written when none is present.
+// over the stub, which is only written when none is present. The bundle
+// options, the license notice included, are the build's (scripts/bundle.mjs).
 import esbuild from "esbuild";
-import { stageBundleFiles } from "./bundle.mjs";
+import { BUNDLE_OPTIONS, stageBundleFiles } from "./bundle.mjs";
 
 const PORT = 5173;
 
 stageBundleFiles("dist");
 
 const ctx = await esbuild.context({
-  entryPoints: ["src/main.ts"],
-  bundle: true,
-  format: "iife",
-  target: "es2020",
+  ...BUNDLE_OPTIONS,
   sourcemap: true,
   outfile: "dist/app.js",
 });

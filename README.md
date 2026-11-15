@@ -61,3 +61,9 @@ A key held with ⌘, Ctrl or Alt is not one of these keys: the player leaves it 
 ## Not supported
 
 * Title or menu screens: only the Esc screen (keys and settings) and the branch map (with the bookmarks) exist, and starting jumps straight to content.
+
+## License
+
+Kinetic (the player, the Mac and Windows apps, the converter and the tools) is under the MIT License, in `LICENSE`. The converter's copy of unrpyc keeps its own MIT notice (`converter/vendor/unrpyc/LICENSE`); it stays in this repo and never goes into a game folder.
+
+A game folder carries the notice itself: its `index.html` and `app.js` open with it as a comment. The Mac app holds it in `Contents/Resources/LICENSE`, with a one-line copyright in Finder's Get Info. The Windows program holds it in its resources, beside Go's BSD-3-Clause notice for the Go runtime built into it, and shows the copyright line in its file properties. An author who ships the folder and apps as built owes nothing more: leave those files as they are and the license is met.

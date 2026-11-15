@@ -2,6 +2,7 @@
   "name": "kinetic-player",
   "version": "0.0.0",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "description": "Kinetic visual novel player (static web app, single classic bundle)",
   "scripts": {
