@@ -485,7 +485,7 @@ average 6-15):
 | Chrome | 100 | 0.5 / 0.9 | 0.5 / 0.8 | 2.1 / 2.5 | 2.0 / 2.3 |
 | Chrome | 160,000 | 9.0 / 11.0 | 0.5 / 0.8 | 12.0 / 12.7 | 2.1 / 2.9 |
 
-"Before" is the player as of commit 6d35bf6, "after" this phase's
+"Before" is the player as of commit cfcb180, "after" this phase's
 (`.tmp/perf-save-before.json` and `.tmp/perf-save.json`). At 160,000
 seen the mean press fell from 16.5 to 1.1 ms on WebKit and from 8.2 to
 0.6 ms on Chrome; at 100 seen nothing changed. Two earlier runs agreed:

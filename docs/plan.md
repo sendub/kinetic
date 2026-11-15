@@ -1656,7 +1656,7 @@ Facts the prototypes measured, which the items below rely on:
 - The scenario suite runs unchanged on WebKit through a WKWebView driver
   (`.tmp/webkit-driver/`). The driver uses an off-screen window and is
   configured the way the app configures its web view, so nothing appears on
-  screen. On 66ce4dc: 325 checks, 319 pass, 3 PARTIAL (element fullscreen,
+  screen. On 1127f04: 325 checks, 319 pass, 3 PARTIAL (element fullscreen,
   which WKWebView has off) and 3 FAIL, all of them Chrome assumptions in the
   tests (`.tmp/webkit-driver/README.md`). The user expects some of the six to
   go with Phases 41-42.
@@ -1682,7 +1682,7 @@ The work, in order:
    Done means the same test and check counts, and the full suite passing
    twice in a row with no new flake.
 2. Auto-forward after a restore. A creator session reported this, and a
-   synthetic machine test with ten items reproduced it on 66ce4dc. Press `a`
+   synthetic machine test with ten items reproduced it on 1127f04. Press `a`
    just after a reload: "Auto-forward on" shows but the restored item never
    moves until a press. README's `a` bullet promises that turning
    auto-forward on counts the time the item has already been on screen, so
@@ -3023,8 +3023,8 @@ loops back once and then stays on its last frame. Chrome loops the same
 items without end. Ranges and segments that end inside the file loop in
 both engines, and their `.mp4` files loop in both. They saw it on 16 of
 16 sampled WebKit runs and on 42 of 116 cases of their own loop probe
-under f04b4af (none restarted from 0, so Phase 49's play-after-seek
-change holds); it predates segments (it is in 6181b7c too). In their
+under dca45b3 (none restarted from 0, so Phase 49's play-after-seek
+change holds); it predates segments (it is in eae0956 too). In their
 game 339 items are `.mkv` ranges that run to the file's end, and 460 of
 the 467 items with segments are `.mkv`, so the last view of most of
 them stops looping in the macOS app. They will not change their manifest
