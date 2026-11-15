@@ -4422,7 +4422,7 @@ truthful: an unchecked box means nothing was accepted.
       converter/ and tools/ 1113, Chrome continueroute and branchmap
       73/73. Orchestrator: the builder reproduces the file byte for byte,
       test_rpyc, test_implicit, test_rpa 29 passed, npm test 1376, check
-      clean, Chrome continueroute 8/8, `git grep Rowan` empty.)
+      clean, Chrome continueroute 8/8, `git grep` for the old name empty.)
 - [x] Phase-closer (Phase 51): full pytest, the full `npm run verify` and
       `npm run verify -- --webkit`, package-proof; VERSION 1.8.0, the
       CHANGELOG dated, tag v1.8.0, `main` fast-forwarded.
