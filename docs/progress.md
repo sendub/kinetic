@@ -4341,7 +4341,15 @@ truthful: an unchecked box means nothing was accepted.
       test_release_version 37 passed; a demo copy with an unstamped
       app.js upgraded (`Kinetic unknown -> 1.8.0-dev`, exit 0, app.js
       equal to dist, no temporary file left).)
-- [ ] CHANGELOG (item 7).
+- [x] CHANGELOG (item 7).
+      (2026-11-15: CHANGELOG.md at the root: the version rules (and that
+      tags before 1.8.0 predate them), `**Upgrading:**` bullets for author
+      action, a 1.8.0-dev section for this phase, and one section per tag
+      v1.7.0 back to v1.0.0 dated from the tagged commit: 1.7.0 Phase 50,
+      1.6.0 Phase 49, 1.5.0 Phase 48, 1.4.0 Phase 47, 1.3.1 Phases 41-46,
+      1.3.0 Phases 37-40, 1.2.0 Phases 30-36, 1.1.1 Phase 29's fix, 1.1.0
+      Phases 25-28, 1.0.0 Phases 1-24 as the first release. Orchestrator:
+      read in full; ASCII, no game named.)
 - [ ] Docs (item 8): CREATE.md, README.md, AGENTS.md, packaging.md,
       verify-player.md; every example run.
 - [ ] Phase-closer (Phase 51): full pytest, the full `npm run verify` and
