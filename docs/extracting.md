@@ -144,6 +144,16 @@ never reads meaning into the name. Item ids no longer name files, so find
 an item's file through the manifest or the ledger. A hand-authored folder
 such as `fixtures/demo` may use any legal layout and stays flat.
 
+Beside `media/`, kinetic-extract writes `manifest.json`, its
+`manifest.js` shim, `build-ledger.json` and `manifest.schema.json`, a
+byte copy of `docs/content-schema.json` that the manifest's first key,
+`"$schema": "./manifest.schema.json"`, names (docs/plan.md Phase 51), so
+an editor checks a hand-edited manifest against the schema of the
+Kinetic release that wrote the folder (docs/content-format.md,
+Manifest). The ledger, `kinetic-media rebuild` and `kinetic-media
+posters` never read the copy, and `tools/assemble_folder.py` leaves it
+out of the folder readers get.
+
 ## Build ledger
 
 `build-ledger.json` sits beside the manifest; the player and validator

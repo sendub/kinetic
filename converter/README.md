@@ -4,7 +4,9 @@ Ren'Py extractor (docs/plan.md Phase 10 onwards): reads a Ren'Py
 project's `game/*.rpy` sources (decompiling `.rpyc` when no `.rpy`
 exists, reading `.rpa` archives) with a statement-subset parser and
 writes a playable Kinetic content folder: `manifest.json`,
-`manifest.js`, `build-ledger.json`, and every media file (posters
+`manifest.js`, `manifest.schema.json` (a copy of
+docs/content-schema.json for editors, named by the manifest's
+`$schema`), `build-ledger.json`, and every media file (posters
 included). The step-by-step guide for game makers and helper authors is
 CREATE.md, "Converting a Ren'Py project"; this file is the reference.
 

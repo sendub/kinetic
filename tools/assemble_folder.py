@@ -18,7 +18,10 @@ double-clicks open over `file://` with nothing else on disk:
   ignored, the bundle always comes from the build;
 - the content folder's other files as-is: `manifest.json`, a present
   `manifest.js`, media, and unreferenced extras such as the converter's
-  build ledger;
+  build ledger; not kinetic-extract's schema copy, `manifest.schema.json`
+  at the top (docs/plan.md Phase 51 item 5), which is for an author's
+  editor: the manifest's `$schema` key that names it is left as written,
+  and a reader's folder without the file is still valid;
 - a generated `manifest.js` when the content has `manifest.json` but no
   shim: `window.KINETIC_MANIFEST = <manifest JSON>;`, the rule documented
   in CREATE.md and checked by tools/validate_content.py;
@@ -53,6 +56,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT / "converter") not in sys.path:
     sys.path.insert(0, str(REPO_ROOT / "converter"))
 from kinetic_extract import audio_format  # noqa: E402
+from kinetic_extract.schema_copy import COPY_NAME  # noqa: E402
 from kinetic_extract.version import add_version_option  # noqa: E402
 BUNDLE_NAMES = ("index.html", "app.js")
 MANIFEST_NAME = "manifest.json"
@@ -188,16 +192,17 @@ def main(argv: list[str]) -> None:
     if out.exists():
         shutil.rmtree(out)
 
-    # The content minus any stale bundle copies: the output's bundle is
-    # always the one from player/dist.
+    # The content minus any stale bundle copies (the output's bundle is
+    # always the one from player/dist) and the schema copy.
     content_root = content.resolve()
+    left_at_top = {*BUNDLE_NAMES, COPY_NAME}
 
-    def ignore_stale_bundle(top: str, names: list[str]) -> set[str]:
+    def ignore_at_top(top: str, names: list[str]) -> set[str]:
         if Path(top).resolve() == content_root:
-            return {name for name in names if name in BUNDLE_NAMES}
+            return {name for name in names if name in left_at_top}
         return set()
 
-    shutil.copytree(content, out, ignore=ignore_stale_bundle)
+    shutil.copytree(content, out, ignore=ignore_at_top)
     for name in BUNDLE_NAMES:
         shutil.copyfile(dist / name, out / name)
 

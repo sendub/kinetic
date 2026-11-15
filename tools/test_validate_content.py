@@ -1584,6 +1584,68 @@ def test_bad_version_is_rejected(folder: Path, version: object) -> None:
 
 
 # ---------------------------------------------------------------------------
+# $schema (docs/plan.md Phase 51 item 5): an optional string naming the JSON
+# Schema an editor checks manifest.json against; kinetic-extract writes
+# "./manifest.schema.json". Its value is never read: any string passes.
+# Every other unknown top-level key is still rejected.
+# ---------------------------------------------------------------------------
+
+def test_schema_declares_dollar_schema_as_any_string() -> None:
+    schema = json.loads(SCHEMA.read_text(encoding="utf-8"))
+    assert schema["properties"]["$schema"]["type"] == "string"
+    assert set(schema["properties"]["$schema"]) <= {"type", "description"}
+    assert "$schema" not in schema["required"]
+    assert schema["additionalProperties"] is False
+
+
+@pytest.mark.parametrize("value", [
+    "./manifest.schema.json", "https://example.invalid/schema.json",
+    "not a path at all", ""])
+def test_dollar_schema_strings_pass(folder: Path, value: str) -> None:
+    manifest = {"$schema": value, **read_manifest(folder)}
+    write_manifest(folder, manifest)
+    assert problems_of(folder) == []
+    proc = run_cli(folder)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+
+
+@pytest.mark.parametrize("value", [1, None, True, {}, ["./x.json"]])
+def test_non_string_dollar_schema_is_rejected(folder: Path,
+                                              value: object) -> None:
+    manifest = read_manifest(folder)
+    manifest["$schema"] = value
+    write_manifest(folder, manifest)
+    problems = problems_of(folder)
+    assert len(problems) == 1, problems
+    assert problems[0].startswith("manifest.json: $schema:"), problems
+
+
+@pytest.mark.parametrize("key", ["$id", "schema", "manifestSchema"])
+def test_other_unknown_top_level_keys_are_still_rejected(
+        folder: Path, key: str) -> None:
+    manifest = read_manifest(folder)
+    manifest["$schema"] = "./manifest.schema.json"
+    manifest[key] = "./manifest.schema.json"
+    write_manifest(folder, manifest)
+    problems = problems_of(folder)
+    assert len(problems) == 1, problems
+    assert problems[0].startswith("manifest.json:"), problems
+    assert repr(key) in problems[0], problems
+
+
+def test_a_schema_copy_in_the_folder_is_not_a_problem(folder: Path) -> None:
+    """kinetic-extract's manifest.schema.json beside manifest.json is an
+    unreferenced extra like the build ledger."""
+    shutil.copyfile(SCHEMA, folder / "manifest.schema.json")
+    manifest = {"$schema": "./manifest.schema.json", **read_manifest(folder)}
+    write_manifest(folder, manifest)
+    assert problems_of(folder) == []
+    proc = run_cli(folder)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert proc.stdout + proc.stderr == ""
+
+
+# ---------------------------------------------------------------------------
 # Poster warnings (--ledger; docs/plan.md Phase 44 item 2): a video item's
 # poster whose ledger records do not show it made at the item's start, from
 # the item's video source. Warnings go to stderr and never change the exit.

@@ -93,8 +93,8 @@ def test_version_follows_title_in_key_order(tmp_path: Path) -> None:
         'define config.name = "Dawn"\n'
         'define config.version = "1.2"\n'))
     keys = list(manifest_of(project, tmp_path / "out"))
-    assert keys[:5] == ["schemaVersion", "storyId", "title", "version",
-                        "width"]
+    assert keys[:6] == ["$schema", "schemaVersion", "storyId", "title",
+                        "version", "width"]
 
 
 def test_slice_still_reads_the_version(tmp_path: Path) -> None:

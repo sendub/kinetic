@@ -98,6 +98,33 @@ describe("parseManifest", () => {
       parseManifest({ ...MANIFEST, title: 7, version }, ROOT),
     ).not.toThrow();
   });
+
+  // kinetic-extract's manifest opens with `$schema` (Phase 51 item 5):
+  // for an author's editor, never read by the player, whatever it holds.
+  it.each([
+    ["the schema copy", "./manifest.schema.json"],
+    ["a URL", "https://example.invalid/schema.json"],
+    ["not text", 7],
+  ])("loads a manifest whose $schema is %s", (_label, value) => {
+    const manifest = parseManifest({ $schema: value, ...MANIFEST }, ROOT);
+    expect(manifest.items).toEqual(MANIFEST.items);
+    expect(manifest.width).toBe(960);
+  });
+
+  // The schema-version policy (docs/content-format.md, "Schema version"):
+  // a field this player does not know, at the top level or on an item,
+  // is ignored rather than refused.
+  it("ignores top-level and item fields it does not know", () => {
+    const manifest = parseManifest(
+      {
+        ...MANIFEST,
+        laterTopLevelField: { any: "shape" },
+        items: [{ ...MANIFEST.items[0], laterItemField: [1, 2] }],
+      },
+      ROOT,
+    );
+    expect(manifest.items[0]).toMatchObject(MANIFEST.items[0]);
+  });
 });
 
 /**

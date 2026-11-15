@@ -25,7 +25,10 @@ decision; this file is the practical sheet.
   player reads only the scripts: a content folder keeps each audio file
   beside its script, and the assembled folder ships the scripts alone.
 - Unreferenced extras the converter leaves behind (such as
-  `build-ledger.json`), which the player and the validator ignore.
+  `build-ledger.json`), which the player and the validator ignore. Not
+  kinetic-extract's schema copy, `manifest.schema.json`: it is for an
+  author's editor, and the assembled folder leaves it out (the
+  manifest's `$schema` key stays; docs/content-format.md, Manifest).
 - Optionally `<title>.app`, the macOS app that plays the folder, and
   `<title>.exe`, the Windows program that shows it in a window of its
   own over WebView2, built only when the author asks: `tools/build_apps.py <folder>
@@ -52,7 +55,8 @@ The output folder holds exactly what the script places: the current
 bundle from `player/dist/` (a stale `index.html` or `app.js` inside the
 content folder is ignored), the content files, a generated
 `manifest.js` when the content has only `manifest.json`, and a
-generated script for each audio track file that has none. It then
+generated script for each audio track file that has none; the
+content's top-level `manifest.schema.json` is not copied. It then
 leaves out each audio track file whose script is there, unless an item
 also shows that file; the content folder keeps them. A non-empty
 output is refused unless `--force` replaces it. The script prints the

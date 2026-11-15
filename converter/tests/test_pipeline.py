@@ -23,7 +23,8 @@ from kinetic_extract.cli import main as cli_main
 REPO_ROOT = Path(__file__).resolve().parents[2]
 FIXTURE = REPO_ROOT / "fixtures" / "renpy_demo"
 CLIP = FIXTURE / "game" / "data" / "clip.mp4"
-FOLDER_FILES = {"manifest.json", "manifest.js", "build-ledger.json"}
+FOLDER_FILES = {"manifest.json", "manifest.js", "manifest.schema.json",
+                "build-ledger.json"}
 
 
 def extract(out: Path) -> tuple[dict, dict]:
@@ -163,7 +164,7 @@ def test_every_declared_path_is_the_sha256_of_its_bytes(tmp_path: Path) -> None:
     for ref in declared:
         assert is_content_addressed(out, ref), ref
     # Nothing shipped sits outside media/: the folder holds nothing but the
-    # three folder files plus media/<xx>/<sha256>.<ext>, and no assets/.
+    # four folder files plus media/<xx>/<sha256>.<ext>, and no assets/.
     on_disk = [p.relative_to(out).as_posix() for p in out.rglob("*")
                if p.is_file() and p.name not in FOLDER_FILES]
     assert all(len(ref.split("/")) == 3 and ref.startswith("media/")

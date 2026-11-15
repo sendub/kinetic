@@ -7,6 +7,10 @@
   "required": ["schemaVersion", "width", "height", "items"],
   "additionalProperties": false,
   "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "optional address of the JSON Schema an editor checks this manifest against; kinetic-extract writes ./manifest.schema.json, a copy of this schema beside manifest.json; the player and validator ignore the value; see docs/content-format.md § Manifest"
+    },
     "schemaVersion": {
       "const": 1
     },

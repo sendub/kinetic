@@ -60,7 +60,8 @@ def test_title_follows_story_id_in_key_order(tmp_path: Path) -> None:
     project = make_project(tmp_path / "Folder",
                            'define config.name = "Dawn"\n')
     keys = list(manifest_of(project, tmp_path / "out"))
-    assert keys[:4] == ["schemaVersion", "storyId", "title", "width"]
+    assert keys[:5] == ["$schema", "schemaVersion", "storyId", "title",
+                        "width"]
 
 
 def test_folder_name_when_no_config_name(tmp_path: Path) -> None:

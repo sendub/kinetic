@@ -11,8 +11,10 @@ Usage:
 <renpy_project> may be a directory containing ``game/``, a ``game/``
 directory itself, or a macOS ``.app`` bundle (the ``game`` dir is resolved
 under ``Contents/Resources/autorun``). Writes ``manifest.json``, the
-``manifest.js`` shim, ``build-ledger.json``, and every shipped media file
-(including posters) into ``out_dir`` and prints the skipped/notes summary.
+``manifest.js`` shim, ``manifest.schema.json`` (a copy of
+docs/content-schema.json the manifest's ``$schema`` names, for editors),
+``build-ledger.json``, and every shipped media file (including posters)
+into ``out_dir`` and prints the skipped/notes summary.
 Every shipped media file is content-addressed (docs/plan.md Phase 25):
 ``media/<h[:2]>/<h>.<ext>``, ``h`` the sha256 of the bytes shipped, so the
 same bytes get the same path on every run and identical outputs are one
@@ -82,6 +84,7 @@ from .media_cache import open_cache
 from .media_tools import MediaToolsError, run_tools
 from .parser import ID_MAX, FileParse, Report, parse_project, slug
 from .rpa import AssetArchives
+from .schema_copy import SCHEMA_REF, write_schema_copy
 from .selftest import ensure_ready
 from .timeline import TimelineResult, build_timeline
 from .version import add_version_option
@@ -267,6 +270,9 @@ def build_manifest(result: TimelineResult, width: int, height: int,
                    audio_tracks: dict[str, dict[str, Any]] | None = None,
                    ) -> dict[str, Any]:
     manifest: dict[str, Any] = {
+        # First, where editors look: the schema copy write_outputs puts
+        # beside manifest.json (docs/plan.md Phase 51 item 5).
+        "$schema": SCHEMA_REF,
         "schemaVersion": 1,
     }
     if story_id:
@@ -456,6 +462,7 @@ def write_outputs(out_dir: Path, manifest: dict[str, Any],
     shim = ("window.KINETIC_MANIFEST = "
             + json.dumps(manifest, ensure_ascii=False) + ";\n")
     (out_dir / "manifest.js").write_text(shim, encoding="utf-8")
+    write_schema_copy(out_dir)
     (out_dir / "build-ledger.json").write_text(
         json.dumps(ledger, indent=2, ensure_ascii=False) + "\n",
         encoding="utf-8")

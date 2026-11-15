@@ -16,6 +16,8 @@ my-novel/
   app.js          # player bundle, same copy step
   manifest.json   # source of truth for tools and validation
   manifest.js     # generated shim: window.KINETIC_MANIFEST = {...}
+  manifest.schema.json  # kinetic-extract's copy of the schema, for
+                  # editors; an assembled folder leaves it out
   media/ab/…      # converter output: media/<h[:2]>/<h>.<ext>
   *.jpg, *.mp4    # or any other legal layout, e.g. flat (hand-authored)
   *.m4a.js        # beside each audio file, its bytes as a script; an
@@ -39,6 +41,7 @@ my-novel/
 
 ```jsonc
 {
+  "$schema": "./manifest.schema.json",
   "schemaVersion": 1,
   "storyId": "the-lantern-at-low-tide",
   "title": "The Lantern at Low Tide",
@@ -49,7 +52,19 @@ my-novel/
 }
 ```
 
-- `schemaVersion`: integer, currently 1. Tools reject any other value.
+- `$schema` (optional): any string, the address of the JSON Schema an
+  editor checks the manifest against. The player and the validator
+  ignore its value. kinetic-extract writes
+  `"$schema": "./manifest.schema.json"` as the manifest's first key and
+  puts `manifest.schema.json`, a byte copy of `docs/content-schema.json`,
+  beside `manifest.json`, so VS Code and JetBrains editors check and
+  complete a hand-edited `manifest.json` offline, against the schema of
+  the Kinetic release that wrote the folder. `tools/assemble_folder.py`
+  leaves the copy out of the folder readers get and keeps the key in
+  the manifest as written; an editor that finds no file there checks
+  nothing.
+- `schemaVersion`: integer, currently 1. Tools reject any other value
+  (Schema version below).
 - `storyId` (optional): the story's stable identity, independent of where
   its folder lives: lowercase ASCII letters, digits, `-` and `_`, starting
   with a letter or digit, at most 64 characters
@@ -117,6 +132,23 @@ my-novel/
   honestly-empty folder — a converter run in which no visual resolved to
   a file ships no items rather than placeholders — and the player renders
   its no-content state for it.
+
+### Schema version
+
+A new optional field, at the top level or on an item, never changes
+`schemaVersion`: a folder without it means what it meant before. That
+is how `audio`, video `segments`, the game's `version` and `$schema`
+arrived after Kinetic 1.0.0 with `schemaVersion` still 1.
+`schemaVersion` changes only when a folder that was valid stops being
+valid or plays differently, and that comes with a major Kinetic
+release.
+
+An older player ignores top-level and item fields it does not know: it
+reads the fields it was built for and plays the rest of the folder
+without the new feature (an older player given a manifest with
+`audio`, for example, plays it silently). It still refuses any
+`schemaVersion` but 1. An older validator rejects those fields, because
+the schema it carries allows no key it does not list.
 
 ## Items
 
@@ -1001,8 +1033,9 @@ hand-authoring author, never a requirement: a small folder stays flat.
 
 The manifest stays authoritative: the player reads exactly the files
 the manifest references, never a directory scan. A folder may carry
-extra unreferenced files, such as the converter's build ledger; the
-player and the validator ignore them.
+extra unreferenced files, such as the converter's build ledger and its
+schema copy (`manifest.schema.json`); the player and the validator ignore
+them.
 
 ## Rules and validator invariants
 

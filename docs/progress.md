@@ -4294,8 +4294,32 @@ truthful: an unchecked box means nothing was accepted.
       fixtures/demo validates with no `version`.)
 - [ ] The versions on the Esc screen (item 4). Tests: help.test.ts; a
       scenario part on Chrome and WebKit.
-- [ ] `$schema` and the schema policy (item 5). Tests: validator cases;
+- [x] `$schema` and the schema policy (item 5). Tests: validator cases;
       the extractor's copy and key; the assembler leaves the copy out.
+      (2026-11-15: the schema takes an optional top-level `$schema`
+      string, every other unknown key still rejected. New
+      converter/kinetic_extract/schema_copy.py (`COPY_NAME`,
+      `SCHEMA_REF`, `write_schema_copy`, the schema found beside the
+      package as media-tools.json is); kinetic-extract writes `"$schema":
+      "./manifest.schema.json"` first (manifest.js too) and the byte copy.
+      assemble_folder.py leaves a top-level copy out and keeps the
+      manifest as written. The player needed no change: parseManifest
+      reads named fields only, back to v1.0.0. content-format.md: the
+      folder layout, `$schema`, and "Schema version" (new optional fields
+      never move it; it moves only when a valid folder stops being valid
+      or plays differently, with a major release; an older player ignores
+      unknown fields and refuses any schemaVersion but 1, an older
+      validator rejects them); extracting.md, packaging.md,
+      converter/README.md. Goldens: renpy_demo.manifest.json gains the
+      key; test_pipeline's folder files, and the key-order checks in
+      test_title and test_game_version. A non-editable converter install
+      would lack the schema, as it already lacks media-tools.json. Tests
+      ran red first: validator (11), test_schema_copy.py (ImportError),
+      assembler (2); manifest.test.ts cases green from the start (the
+      player already ignored the key). Subagent: full converter/ and
+      tools/ pytest 1092, package-proof 18/18, rebuild 15/15, posters and
+      validator clean on a fresh extract-demo. Orchestrator: npm test
+      1370, check clean, the four touched pytest files 326 passed.)
 - [ ] The upgrade command (item 6). Tests: an old folder upgraded, the
       refusals, `manifest.js` untouched, the schema copy, exit codes.
 - [ ] CHANGELOG (item 7).

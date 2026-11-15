@@ -156,6 +156,44 @@ def test_a_script_shipped_alone_is_kept(
     assert not (out / "rain.webm").exists()
 
 
+def test_the_schema_copy_is_left_out_the_manifest_kept(
+        tmp_path: Path, fake_dist: Path) -> None:
+    """kinetic-extract's manifest.schema.json is for an author's editor,
+    not for readers (docs/plan.md Phase 51 item 5): the assembled folder
+    has none, and manifest.json and manifest.js are copied as written,
+    their `$schema` key with them."""
+    folder = content(tmp_path, None)
+    manifest = {"$schema": "./manifest.schema.json",
+                **json.loads((folder / "manifest.json").read_text())}
+    text = json.dumps(manifest, indent=2) + "\n"
+    (folder / "manifest.json").write_text(text, encoding="utf-8")
+    shim = f"window.KINETIC_MANIFEST = {json.dumps(manifest)};\n"
+    (folder / "manifest.js").write_text(shim, encoding="utf-8")
+    (folder / "manifest.schema.json").write_text('{"title": "copy"}\n')
+    # A file of that name below the top is the author's own: it stays.
+    (folder / "notes").mkdir()
+    (folder / "notes" / "manifest.schema.json").write_text("{}\n")
+    out = tmp_path / "play"
+    assemble(folder, out)
+    assert not (out / "manifest.schema.json").exists()
+    assert (out / "notes" / "manifest.schema.json").exists()
+    assert (out / "manifest.json").read_text(encoding="utf-8") == text
+    assert (out / "manifest.js").read_text(encoding="utf-8") == shim
+    assert (folder / "manifest.schema.json").exists()
+    import validate_content
+    assert validate_content.validate_folder(out) == []
+
+
+def test_the_schema_copy_is_left_out_of_a_generated_shim_folder(
+        tmp_path: Path, fake_dist: Path) -> None:
+    folder = content(tmp_path, None)
+    (folder / "manifest.schema.json").write_text('{"title": "copy"}\n')
+    out = tmp_path / "play"
+    assemble(folder, out)
+    assert sorted(p.name for p in out.iterdir()) == [
+        "app.js", "first.png", "index.html", "manifest.js", "manifest.json"]
+
+
 def test_a_folder_without_sound_gets_no_script(
         tmp_path: Path, fake_dist: Path,
         capsys: pytest.CaptureFixture[str]) -> None:

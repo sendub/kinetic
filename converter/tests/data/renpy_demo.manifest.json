@@ -1,4 +1,5 @@
 {
+  "$schema": "./manifest.schema.json",
   "schemaVersion": 1,
   "storyId": "renpy_demo",
   "title": "renpy demo",
