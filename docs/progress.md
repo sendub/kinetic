@@ -4272,8 +4272,26 @@ truthful: an unchecked box means nothing was accepted.
       test 1360, check clean, all seven `--version` print `Kinetic
       1.8.0-dev` exit 0, Chrome checkgame and creator 69/69, pytest on the
       six touched files 442 passed; dist/app.js and index.html read.)
-- [ ] The game's version in the format (item 3). Tests: validator and
+- [x] The game's version in the format (item 3). Tests: validator and
       extractor cases; the demo still validates.
+      (2026-11-15: schema `version` (string, maxLength 40, pattern
+      `\\S`); types.ts `version?: string`; help.ts `gameVersionOf()`
+      (the title's rule, nothing shown yet); parseManifest unchanged, so
+      a bad `version` loads as a bad `title` does. parser.py reads
+      `config.version` in `define` and `init python` only when the
+      literal (plain or `_()`) is the whole value, so `"1." + str(x)`
+      gives none; cli.py `derive_game_version` (first non-blank literal,
+      escapes undone, trimmed, cut to 40) and `--game-version` (1-40
+      characters, else a usage error); key order storyId, title,
+      version; the summary prints `game version:`; a `--files` slice
+      still reads options.rpy. content-format.md "Manifest" and
+      validator invariant 4, extracting.md "Story ID, title and
+      version", converter/README.md. renpy_demo has no options.rpy, so
+      its outputs and package-proof are unchanged. Tests ran red first:
+      test_game_version.py (27; 14 red), validator cases (17; 14 red),
+      help.test.ts, manifest.test.ts. Orchestrator: npm test 1366, check
+      clean, pytest converter/ and test_validate_content 887 passed,
+      fixtures/demo validates with no `version`.)
 - [ ] The versions on the Esc screen (item 4). Tests: help.test.ts; a
       scenario part on Chrome and WebKit.
 - [ ] `$schema` and the schema policy (item 5). Tests: validator cases;

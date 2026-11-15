@@ -264,6 +264,12 @@ export interface Manifest {
    * Esc help screen and the page title. Absent: no heading.
    */
   title?: string;
+  /**
+   * Optional release of the game as its author names it, such as `1.2`
+   * or `0.9 beta` (docs/content-format.md): shown after the title on the
+   * Esc help screen. Not the format's `schemaVersion`. Absent: none.
+   */
+  version?: string;
   width: number;
   height: number;
   /** Position in the array is position in the novel. */

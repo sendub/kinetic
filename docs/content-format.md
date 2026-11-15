@@ -42,6 +42,7 @@ my-novel/
   "schemaVersion": 1,
   "storyId": "the-lantern-at-low-tide",
   "title": "The Lantern at Low Tide",
+  "version": "1.2",
   "width": 1920,
   "height": 1080,
   "items": []
@@ -83,6 +84,23 @@ my-novel/
   spaces read as one space (`My_Game-1.0` becomes `My Game 1.0`);
   `--title TEXT` sets it instead, and the game maker may edit it in the
   manifest at any time.
+- `version` (optional): the game's own release as its author names it
+  (`1.2`, `0.9 beta`, `Episode 3`), plain text with at least one
+  non-space character and at most 40 characters. It is the game's
+  version, not the format's (`schemaVersion`) or Kinetic's. The player
+  shows it on the Esc help screen after the `title` heading, smaller
+  and dimmer (with no `title`, the version alone where the heading would
+  be); it is set as text, so markup in it shows literally. Without it
+  nothing is shown. A value that is blank or not text shows nothing,
+  as a bad `title` does. Like `title` it is optional, so `schemaVersion`
+  did not change. kinetic-extract takes the Ren'Py project's
+  `config.version` when it is a string literal (`_()` unwrapped,
+  escaped quotes undone, trimmed, cut to 40 characters), such as the
+  `define config.version = "1.0"` in Ren'Py's `options.rpy` template;
+  anything else (an expression, a variable, `None`, a blank string)
+  gives no `version`. `--game-version TEXT` sets it instead (blank or
+  longer than 40 characters is a usage error), and the game maker may
+  edit it in the manifest at any time.
 - `width`, `height`: display resolution in pixels. Every generated image is
   exactly this size, and the player scales its surface to the screen.
 - `items`: the ordered sequence. Position in the array is position in the
@@ -1014,6 +1032,7 @@ The validator checks the schema plus these invariants:
 3. Item ids are unique.
 4. `schemaVersion` is 1; `storyId`, when present, is a slug as above;
    `title`, when present, is non-blank text of at most 200 characters;
+   `version`, when present, is non-blank text of at most 40 characters;
    `items` is an array (an empty one is valid — an
    honestly-empty folder, see Manifest); `frames` has at least two
    entries; `loopCount` is at least 1; `fps` and `durationSeconds` are

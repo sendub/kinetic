@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   gameTitleOf,
+  gameVersionOf,
   HELP_HINT,
   HELP_TITLE,
   helpKeyLabel,
@@ -99,6 +100,19 @@ describe("the game's name (docs/plan.md Phase 21, Game name on the Esc screen)",
     expect(pageTitleFor(" Rainy Day ")).toBe("Rainy Day");
     expect(pageTitleFor(undefined)).toBe("Kinetic");
     expect(pageTitleFor("  ")).toBe("Kinetic");
+  });
+});
+
+describe("the game's version (docs/plan.md Phase 51 item 3)", () => {
+  it("a manifest version is the release, trimmed; blank or non-text is none", () => {
+    expect(gameVersionOf("1.2")).toBe("1.2");
+    expect(gameVersionOf("  0.9 beta  ")).toBe("0.9 beta");
+    expect(gameVersionOf("<b>3</b>")).toBe("<b>3</b>");
+    expect(gameVersionOf("")).toBeNull();
+    expect(gameVersionOf("   ")).toBeNull();
+    expect(gameVersionOf(undefined)).toBeNull();
+    expect(gameVersionOf(1.2)).toBeNull();
+    expect(gameVersionOf(null)).toBeNull();
   });
 });
 

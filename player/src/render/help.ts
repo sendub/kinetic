@@ -52,8 +52,21 @@ export const PAGE_TITLE_DEFAULT = "Kinetic";
  * Pure.
  */
 export function gameTitleOf(title: unknown): string | null {
-  if (typeof title !== "string") return null;
-  const trimmed = title.trim();
+  return plainTextOf(title);
+}
+
+/**
+ * The game's release from the manifest `version` (docs/plan.md Phase 51),
+ * by the title's rule: trimmed; anything blank or not text is none. Pure.
+ */
+export function gameVersionOf(version: unknown): string | null {
+  return plainTextOf(version);
+}
+
+/** A manifest text field, trimmed, or `null` when blank or not text. */
+function plainTextOf(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
   return trimmed === "" ? null : trimmed;
 }
 

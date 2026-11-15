@@ -21,6 +21,12 @@
       "pattern": "\\S",
       "description": "optional name of the game, shown as a heading at the top of the player's Esc help screen and as the page title (absent: no heading); plain text, never HTML; see docs/content-format.md § Manifest"
     },
+    "version": {
+      "type": "string",
+      "maxLength": 40,
+      "pattern": "\\S",
+      "description": "optional release of the game as its author names it (1.2, 0.9 beta, Episode 3), shown after the title on the player's Esc help screen; plain text, never HTML; not the format's schemaVersion; see docs/content-format.md § Manifest"
+    },
     "width": {
       "type": "integer",
       "minimum": 1

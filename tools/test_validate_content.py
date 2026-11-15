@@ -1546,6 +1546,44 @@ def test_bad_title_is_rejected(folder: Path, title: object) -> None:
 
 
 # ---------------------------------------------------------------------------
+# version (docs/plan.md Phase 51 item 3): the game's own release, optional,
+# a non-blank string of at most 40 characters when present. The validator
+# checks it through docs/content-schema.json, so these cases are the
+# schema's too.
+# ---------------------------------------------------------------------------
+
+def test_demo_carries_no_version(demo: Path) -> None:
+    assert "version" not in read_manifest(demo)
+
+
+def test_absent_version_stays_valid(folder: Path) -> None:
+    manifest = read_manifest(folder)
+    manifest.pop("version", None)
+    write_manifest(folder, manifest)
+    assert problems_of(folder) == []
+
+
+@pytest.mark.parametrize("version", [
+    "1.2", "0.9 beta", "Episode 3", "<b>not html</b>", "第三話", "x",
+    " 1.0 ", "x" * 40])
+def test_versions_pass(folder: Path, version: str) -> None:
+    manifest = read_manifest(folder)
+    manifest["version"] = version
+    write_manifest(folder, manifest)
+    assert problems_of(folder) == []
+
+
+@pytest.mark.parametrize("version", ["", "   ", "x" * 41, 1.2, 3, None])
+def test_bad_version_is_rejected(folder: Path, version: object) -> None:
+    manifest = read_manifest(folder)
+    manifest["version"] = version
+    write_manifest(folder, manifest)
+    problems = problems_of(folder)
+    assert len(problems) == 1, problems
+    assert problems[0].startswith("manifest.json: version:"), problems
+
+
+# ---------------------------------------------------------------------------
 # Poster warnings (--ledger; docs/plan.md Phase 44 item 2): a video item's
 # poster whose ledger records do not show it made at the item's start, from
 # the item's video source. Warnings go to stderr and never change the exit.

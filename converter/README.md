@@ -143,9 +143,12 @@ project: `config.save_directory`, else `config.name`, else the project
 folder name (without `.app`), slugified; a slice still reads it from
 `options.rpy`. Its `title` (shown atop the player's Esc screen and as
 the page title) is `config.name`, else the folder name with `_`/`-`
-runs read as spaces. `--title TEXT` and `--story-id ID` override them
-(an ID that is not a valid `storyId` is a usage error). The summary
-prints both and their sources.
+runs read as spaces. Its `version` (the game's own release) is the
+`config.version` string literal, trimmed and cut to 40 characters, and
+absent when that is anything else. `--title TEXT`, `--game-version
+TEXT` and `--story-id ID` override them (an ID that is not a valid
+`storyId`, or a title or version that is blank or too long, is a usage
+error). The summary prints all three and their sources.
 
 `--decoder MODULE:FUNC` (repeatable, chained in order) runs a game's
 own unwrapping hook over the complete bytes of every media source, loose
@@ -166,8 +169,8 @@ Several projects (a game's episodes, in story order) make one game:
 `kinetic-extract <episode1> <episode2> [...] <out_dir>`. Episode 2's
 items follow episode 1's in one manifest, every id from project N gets
 the prefix `epN-` (unique, and stable across re-runs in the same order),
-and one `media/` holds identical media once. The `storyId` and `title`
-come from the first project unless given. Ledger media sources carry
+and one `media/` holds identical media once. The `storyId`, `title`
+and `version` come from the first project unless given. Ledger media sources carry
 `"project": N`. The slice options need a single project. A single
 project's output is unchanged. Details: docs/extracting.md, "Several
 episodes, one game".

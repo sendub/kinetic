@@ -75,6 +75,29 @@ describe("parseManifest", () => {
   ])("rejects %s", (_label, value) => {
     expect(() => parseManifest(value, ROOT)).toThrow();
   });
+
+  it("keeps the game's title and version as written (Phase 51 item 3)", () => {
+    const manifest = parseManifest(
+      { ...MANIFEST, title: "Rainy Day", version: "0.9 beta" },
+      ROOT,
+    );
+    expect(manifest.title).toBe("Rainy Day");
+    expect(manifest.version).toBe("0.9 beta");
+    expect(parseManifest(MANIFEST, ROOT).version).toBeUndefined();
+  });
+
+  // A bad `version`, like a bad `title`, never stops the game: the
+  // validator reports it, and the Esc screen shows no version for it.
+  it.each([
+    ["blank", "   "],
+    ["empty", ""],
+    ["not text", 1.2],
+    ["over 40 characters", "x".repeat(41)],
+  ])("loads a manifest whose version is %s", (_label, version) => {
+    expect(() =>
+      parseManifest({ ...MANIFEST, title: 7, version }, ROOT),
+    ).not.toThrow();
+  });
 });
 
 /**

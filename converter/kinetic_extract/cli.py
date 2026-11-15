@@ -5,7 +5,7 @@ Usage:
     kinetic-extract <renpy_project> [<renpy_project> ...] <out_dir>
                     [--width N] [--height N]
                     [--label NAME] [--max-items N] [--files GLOB]
-                    [--title TEXT] [--story-id ID]
+                    [--title TEXT] [--game-version TEXT] [--story-id ID]
                     [--decoder MODULE:FUNC ...]
 
 <renpy_project> may be a directory containing ``game/``, a ``game/``
@@ -52,9 +52,10 @@ items follow episode N-1's in one manifest. Every item, decision and
 route reference from project N gets the id prefix ``epN-`` (stable across
 re-runs, unique by construction); ledger sources say which project they
 came from (``project``: N, 1-based) and one ``media/`` holds identical
-media once. The story id and title come from the first project unless
-given; the display size is the most common across all. The slice options
-work only with one project. A single project's output is unchanged.
+media once. The story id, title and game version come from the first
+project unless given; the display size is the most common across all.
+The slice options work only with one project. A single project's output
+is unchanged.
 """
 
 from __future__ import annotations
@@ -183,6 +184,7 @@ def derive_story_id(configs: list[dict[str, str]],
 
 
 TITLE_MAX = 200        # docs/content-schema.json title maxLength
+VERSION_MAX = 40       # docs/content-schema.json version maxLength
 STORY_ID_RE = re.compile(r"[a-z0-9][a-z0-9_-]{0,63}")
 _ESCAPED_QUOTE_RE = re.compile(r"""\\(["'\\])""")
 
@@ -206,6 +208,20 @@ def derive_title(configs: list[dict[str, str]],
     return folder_title(project_folder_name(project)), "folder name"
 
 
+def derive_game_version(configs: list[dict[str, str]]
+                        ) -> tuple[str | None, str]:
+    """(version, where it came from), docs/plan.md Phase 51: the first
+    non-blank `config.version` string literal as written (its escaped
+    quotes undone), trimmed and cut to 40 characters, as `derive_title`
+    reads `config.name`; None when there is none (no fallback)."""
+    for config in configs:
+        version = _ESCAPED_QUOTE_RE.sub(r"\1",
+                                        config.get("version", "")).strip()
+        if version:
+            return version[:VERSION_MAX].rstrip(), "config.version"
+    return None, "no config.version string"
+
+
 def title_option(text: str) -> str:
     """argparse type for `--title`: trimmed, non-empty, at most 200."""
     title = text.strip()
@@ -213,6 +229,16 @@ def title_option(text: str) -> str:
         raise argparse.ArgumentTypeError(
             f"must be 1-{TITLE_MAX} characters after trimming spaces")
     return title
+
+
+def game_version_option(text: str) -> str:
+    """argparse type for `--game-version`: trimmed, non-empty, at most
+    40."""
+    version = text.strip()
+    if not version or len(version) > VERSION_MAX:
+        raise argparse.ArgumentTypeError(
+            f"must be 1-{VERSION_MAX} characters after trimming spaces")
+    return version
 
 
 def story_id_option(text: str) -> str:
@@ -237,6 +263,7 @@ def build_manifest(result: TimelineResult, width: int, height: int,
                    branches: list[dict[str, Any]] | None = None,
                    story_id: str | None = None,
                    title: str | None = None,
+                   version: str | None = None,
                    audio_tracks: dict[str, dict[str, Any]] | None = None,
                    ) -> dict[str, Any]:
     manifest: dict[str, Any] = {
@@ -246,6 +273,8 @@ def build_manifest(result: TimelineResult, width: int, height: int,
         manifest["storyId"] = story_id
     if title:
         manifest["title"] = title
+    if version:
+        manifest["version"] = version
     manifest |= {
         "width": width,
         "height": height,
@@ -438,6 +467,7 @@ def print_summary(result: TimelineResult, reports: list[Report],
                   story: tuple[str, str] | None = None,
                   title: tuple[str, str] | None = None,
                   sound: SoundShipment | None = None,
+                  version: tuple[str | None, str] | None = None,
                   ) -> None:
     counts: dict[str, int] = {}
     for record in result.items:
@@ -454,6 +484,9 @@ def print_summary(result: TimelineResult, reports: list[Report],
         print(f"story id: {story[0]} (from {story[1]})")
     if title is not None:
         print(f"title: {title[0] or '(none)'} (from {title[1]})")
+    if version is not None:
+        print(f"game version: {version[0]} (from {version[1]})"
+              if version[0] else "game version: (none)")
     notes = branch_notes or []
     detected = sum(1 for n in notes if n["result"] == "detected")
     skipped_menus = [n for n in notes if n["result"] == "skipped"]
@@ -509,6 +542,11 @@ def main(argv: list[str] | None = None) -> int:
                       help="the game's name, shown atop the player's Esc "
                            "screen and as the page title (default: "
                            "config.name, else the project folder name)")
+    argp.add_argument("--game-version", type=game_version_option,
+                      default=None, metavar="TEXT",
+                      help="the game's own release (1.2, 0.9 beta, "
+                           "Episode 3), at most 40 characters (default: "
+                           "config.version, else none)")
     argp.add_argument("--story-id", type=story_id_option, default=None,
                       metavar="ID",
                       help="the manifest storyId progress is saved under "
@@ -592,8 +630,15 @@ def main(argv: list[str] | None = None) -> int:
         title, title_source = derive_title(configs, first.project)
         if several:
             title_source += " of the first project"
+    if args.game_version:
+        version, version_source = args.game_version, "--game-version"
+    else:
+        version, version_source = derive_game_version(configs)
+        if several:
+            version_source += " of the first project"
     manifest = build_manifest(result, width, height, branches=branches,
                               story_id=story_id, title=title,
+                              version=version,
                               audio_tracks=sound.tracks)
     slice_opts = {"label": args.label, "maxItems": args.max_items,
                   "files": args.files}
@@ -614,7 +659,8 @@ def main(argv: list[str] | None = None) -> int:
         print(f"projects: {len(folders)} ({', '.join(folders)})")
     print_summary(result, reports, f"{width}x{height} ({source_note})",
                   skipped, branch_notes, (story_id, story_source),
-                  (title, title_source), sound)
+                  (title, title_source), sound,
+                  (version, version_source))
     if len(derived_ids) > 1:
         print("note: the projects derive different story ids ("
               + ", ".join(derived_ids) + "); using the first; --story-id "
@@ -660,12 +706,14 @@ def _walk_project(project: Path, args: argparse.Namespace
 
 def _identity_configs(episode: _Episode,
                       files: str | None) -> list[dict[str, str]]:
-    """The config settings a project's story id and title derive from."""
+    """The config settings a project's story id, title and version
+    derive from."""
     configs = [parsed.config for _rel, parsed in episode.parses]
     if files and not all(any(setting in c for c in configs)
-                         for setting in ("save_directory", "name")):
-        # A slice's identity and name are the whole game's: read the
-        # settings file the --files glob left out.
+                         for setting in ("save_directory", "name",
+                                         "version")):
+        # A slice's identity, name and release are the whole game's: read
+        # the settings file the --files glob left out.
         options, _i, _c, _s = parse_project(episode.game_dir, "options.rpy")
         configs += [parsed.config for _rel, parsed in options]
     return configs

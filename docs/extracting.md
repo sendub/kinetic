@@ -75,7 +75,8 @@ then the output folder.
 
 ```sh
 .venv/bin/kinetic-extract <episode1> <episode2> [...] <out> \
-    [--decoder MODULE:FUNC ...] [--story-id ID] [--title TEXT]
+    [--decoder MODULE:FUNC ...] [--story-id ID] [--title TEXT] \
+    [--game-version TEXT]
 ```
 
 - One continuous story: each project is parsed and walked on its own,
@@ -90,8 +91,8 @@ then the output folder.
   A single project gets no prefix: its output is exactly as before.
 - One `media/` folder: identical media across episodes is one file (one
   ledger `media` entry, the later episodes' sources under `alsoFrom`).
-- `storyId` and `title` come from the first project unless
-  `--story-id`/`--title` are given; the summary notes when the projects
+- `storyId`, `title` and `version` come from the first project unless
+  `--story-id`/`--title`/`--game-version` are given; the summary notes when the projects
   derive different story ids. The display size is the most common image
   size across all episodes; `--width`/`--height` and `--decoder` apply
   to every episode.
@@ -1380,16 +1381,24 @@ for a 175 MB output folder: only JPEG XL outputs are stored, kept
 originals are not. What a warm run still spends is reading, hashing and
 sniffing every source.
 
-## Story ID and title
+## Story ID, title and version
 
 Every extraction writes the manifest's `storyId` and `title`
 (docs/content-format.md, Manifest; docs/plan.md Phase 21). The `storyId`
 comes from `config.save_directory`, else `config.name`, else the project
 folder name, slugified; the `title` from `config.name`, else the folder
-name with `_`/`-` runs read as spaces. A slice still reads both from
-`options.rpy`. `--story-id ID` and `--title TEXT` override them (an ID
-that is not a valid `storyId` is a usage error), and the run summary
-prints both with their sources. Keep the `storyId` the same when you
+name with `_`/`-` runs read as spaces. The game's `version` (docs/plan.md
+Phase 51) comes from `config.version` when that is a string literal
+(plain or `_()`-wrapped, escaped quotes undone, trimmed, cut to 40
+characters), such as the `define config.version = "1.0"` of Ren'Py's
+`options.rpy` template; an expression, a variable, `None` or a blank
+string gives no `version`, and there is no fallback. A slice still reads
+all three from `options.rpy`. `--story-id ID`, `--title TEXT` and
+`--game-version TEXT` override them (an ID that is not a valid
+`storyId`, or a title or version that is blank or too long, is a usage
+error), and the run summary prints all three with their sources
+(`game version: (none)` when there is none). `--version` prints
+Kinetic's own version, not the game's. Keep the `storyId` the same when you
 re-extract an updated game, or readers' progress will not follow it.
 
 ## Media tools

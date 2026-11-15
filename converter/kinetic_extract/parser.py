@@ -57,10 +57,15 @@ _DEFINE_CHAR_RE = re.compile(
 # `config.save_directory = "..."` inside an `init python` block), and
 # `config.name`, plain or `_()`-wrapped. Only a string literal counts:
 # `None` or an expression names nothing. Single or double quotes.
+# `config.version` (the manifest `version`, docs/plan.md Phase 51) the
+# same way, except that the literal must be the whole value: `"1." +
+# str(build)` gives no version rather than its first part.
 _CONFIG_STRING_RE = re.compile(
-    r"""\s*(?:define\s+)?config\.(save_directory|name|voice_filename_format)"""
+    r"""\s*(?:define\s+)?"""
+    r"""config\.(save_directory|name|voice_filename_format|version)"""
     r"""\s*=\s*"""
-    r"""(?:_\(\s*)?(?:"((?:[^"\\]|\\.)*)"|'((?:[^'\\]|\\.)*)')""")
+    r"""(_\(\s*)?(?:"((?:[^"\\]|\\.)*)"|'((?:[^'\\]|\\.)*)')""")
+_WHOLE_VALUE_SETTINGS = frozenset({"version"})
 _SPEAKER_SAY_RE = re.compile(r"([A-Za-z_]\w*)\s*\"")
 _LABEL_HEAD_RE = re.compile(r"^label\s+([A-Za-z_]\w*)")
 # `renpy.register_statement("name", ...)`: a creator-defined statement.
@@ -205,8 +210,9 @@ class FileParse:
     characters: dict[str, str] = field(default_factory=dict)   # var -> display
     reports: list[Report] = field(default_factory=list)
     # First string literal assigned to `config.save_directory`,
-    # `config.name` (the manifest storyId and title) or
-    # `config.voice_filename_format` in this file, by setting name.
+    # `config.name` (the manifest storyId and title), `config.version`
+    # (the manifest version) or `config.voice_filename_format` in this
+    # file, by setting name.
     config: dict[str, str] = field(default_factory=dict)
     # `define audio.NAME = "file"` names; None when the value is not a
     # string literal (an expression the converter cannot follow).
@@ -528,17 +534,27 @@ def _call_text(raw_lines: list[str], n: int) -> str:
     return _continued(raw_lines, n, strip_comment(raw_lines[n]).strip())[0]
 
 
+def _whole_enough(m: re.Match[str], text: str) -> bool:
+    """Whether a config setting's literal counts: always, except for a
+    setting in `_WHOLE_VALUE_SETTINGS`, whose literal must end the line
+    (after the `)` of a `_()` wrapper)."""
+    if m.group(1) not in _WHOLE_VALUE_SETTINGS:
+        return True
+    rest = text[m.end():].strip()
+    return rest == (")" if m.group(2) else "")
+
+
 def _scan_settings(raw_lines: list[str], relname: str,
                    result: FileParse) -> None:
     """Read the settings that live in `init` and `python` blocks the
     statement walk skips, so every line is scanned, block or not: the
-    story id and title config, the voice file format, `define audio.x`
-    names and registered channels."""
+    story id, title and version config, the voice file format,
+    `define audio.x` names and registered channels."""
     for n, raw in enumerate(raw_lines):
         text = strip_comment(raw)
         m = _CONFIG_STRING_RE.match(text)
-        if m and m.group(1) not in result.config:
-            value = m.group(2) if m.group(2) is not None else m.group(3)
+        if m and m.group(1) not in result.config and _whole_enough(m, text):
+            value = m.group(3) if m.group(3) is not None else m.group(4)
             result.config[m.group(1)] = value
         defined = read_audio_define(text)
         if defined is not None:
