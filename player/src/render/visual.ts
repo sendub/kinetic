@@ -871,14 +871,9 @@ export function createVisualLayer(
 
   /**
    * Plays the element on from `to`: the seek, and, if it stopped at the
-   * file's end, play() once the seek has landed. play() on an ended video
-   * restarts it from 0, and in WebKit a seek asked for just before or just
-   * after it did not reliably win: the video played on from 0 (the
-   * segments scenario's held WebM, 4 runs in 8 with the seek first, 1 in 5
-   * with it after, 2026-11-14). Landed, the video is no longer ended.
-   * Nothing plays if by then a menu holds it (its resume plays it), the
-   * plan changed or the element went. One still playing (a range's end
-   * inside the file, or WebKit's later file ends) plays on from the seek.
+   * file's end, play() once the seek has landed (`playOnceLanded`). One
+   * still playing (a range's end inside the file, or WebKit's later file
+   * ends) plays on from the seek.
    */
   function playOnFrom(
     element: HTMLVideoElement,
@@ -889,15 +884,36 @@ export function createVisualLayer(
     fileEndDone = false;
     seekTo(element, to, true);
     startRangeWatch(element); // re-arms the rVFC chain after the seek
-    if (!stopped) return;
+    if (stopped) playOnceLanded(element, plan);
+  }
+
+  /**
+   * `playVideo` once the element's seek under way has landed, at once if
+   * none is. play() on an ended video restarts it from 0, and in WebKit a
+   * seek asked for just before or just after it did not reliably win: the
+   * video played on from 0 (the segments scenario's held WebM, 4 runs in 8
+   * with the seek first, 1 in 5 with it after, 2026-11-14; a segment
+   * stepped to from a counted video held at its file's end, 3 runs in 28,
+   * docs/plan.md Phase 50 item 4). Landed, the video is no longer ended.
+   * Nothing plays if by then a menu holds it (its resume plays it), the
+   * plan changed or the element went. A start from paused asks its sound's
+   * delay (`fromPaused`) only then, with the video where it will play from.
+   */
+  function playOnceLanded(
+    element: HTMLVideoElement,
+    plan: VideoPlan,
+    fromPaused = false,
+  ): void {
     if (!element.seeking) {
-      playVideo(element, plan);
+      playVideo(element, plan, fromPaused);
       return;
     }
     element.addEventListener(
       "seeked",
       () => {
-        if (video === element && videoPlan === plan) playVideo(element, plan);
+        if (video === element && videoPlan === plan) {
+          playVideo(element, plan, fromPaused);
+        }
       },
       { once: true },
     );
@@ -1032,6 +1048,9 @@ export function createVisualLayer(
       });
       return;
     }
+    // A start on a video held at its file's end (a segment stepped to from
+    // a counted video's last pass) plays once its seek lands.
+    const ended = element.ended;
     if (freshEntry || mode === "loop-once" || stepped) {
       seekTo(element, videoPlan.startSeconds);
     }
@@ -1042,7 +1061,8 @@ export function createVisualLayer(
       pass: () => passOf(item),
       restart: () => restartPass(element, item),
     });
-    playVideo(element, videoPlan, true);
+    if (ended) playOnceLanded(element, videoPlan, true);
+    else playVideo(element, videoPlan, true);
     startRangeWatch(element);
   }
 

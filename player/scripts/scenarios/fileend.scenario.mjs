@@ -34,7 +34,22 @@
 //   it), so the first load's Esc screen opens as it starts and its close
 //   resumes it (Phase 50 item 3): the same 2 wraps, held end and move on
 //   as counted (one pass then a hold was the bug: the menu's pause aborted
-//   the pending play(), which was read as autoplay refused).
+//   the pending play(), which was read as autoplay refused);
+// - back: a standalone counted item whose own range runs from 4.5 s to the
+//   file's end, `loopCount` 1, with segments at 1-2.5 s and 3-4.5 s
+//   (looping from 3.5 s), reached by Space with auto off; once its one
+//   pass holds paused at the file's end, Left steps to the last segment
+//   (Space and Right have none after the file's end). The frame callback
+//   can pause it just before the engine's end, `ended` false, where the
+//   bug cannot show: the part then seeks it to its duration in the page,
+//   so it holds ended as WebKit's own end leaves it, and fails if it does
+//   not. Read every 20 ms:
+//   from the step's seek on, the time never drops below the segment's
+//   start (3 s) for at least 1.5 s, and the segment then wraps from its
+//   end to 3.5 s (Phase 50 item 4: playing the ended element before the
+//   step's seek landed played it on from 0 in WebKit, about 1 run in 10,
+//   so this part can pass without the fix; the unit test in
+//   src/render/visual.test.ts shows the order).
 
 import { execFileSync } from "node:child_process";
 import { cpSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -42,6 +57,7 @@ import { join } from "node:path";
 import {
   demoDir,
   pressA,
+  pressNavKey,
   pressSpace,
   scenarioRoot,
   sleep,
@@ -77,6 +93,10 @@ const LONG_TEXT =
     180,
     " It holds at its end until this line has been read.",
   );
+
+// The `back` case's last segment: where it starts and loops from.
+const BACK_START = 3;
+const BACK_LOOP = 3.5;
 
 const CASES = {
   chain: {
@@ -124,6 +144,25 @@ const CASES = {
           ],
         },
         "A clip with one view to its file's end.",
+      ),
+    ],
+  },
+  back: {
+    items: (video) => [
+      video(
+        {
+          startSeconds: 4.5,
+          loopCount: 1,
+          segments: [
+            { startSeconds: 1, endSeconds: 2.5 },
+            {
+              startSeconds: BACK_START,
+              loopStartSeconds: BACK_LOOP,
+              endSeconds: 4.5,
+            },
+          ],
+        },
+        "A counted clip held at its file's end, with two views inside it.",
       ),
     ],
   },
@@ -198,9 +237,9 @@ function buildFolder(ext, kind) {
   return dir;
 }
 
-// In the page: every 30 ms the item on screen and the stage video's time,
-// paused and seeking state; restarted by each call.
-const START_LOG = () => {
+// In the page: every `ms` (30 by default) the item on screen and the stage
+// video's time, paused and seeking state; restarted by each call.
+const START_LOG = (ms = 30) => {
   if (window.__feLog) clearInterval(window.__feLog.timer);
   const log = { reads: [] };
   window.__feLog = log;
@@ -213,8 +252,9 @@ const START_LOG = () => {
       v: shown ? v.currentTime : null,
       paused: shown ? v.paused : null,
       seeking: shown ? v.seeking : null,
+      segment: document.getElementById("stage")?.getAttribute("data-segment"),
     });
-  }, 30);
+  }, ms);
 };
 const READ_LOG = () => window.__feLog.reads;
 const ON_ITEM = (id) =>
@@ -255,9 +295,107 @@ function stillFor(reads) {
 
 const r3 = (x) => (x === null ? null : Math.round(x * 1000) / 1000);
 
+/**
+ * The `back` case: held at the file's end after its one pass, Left steps to
+ * the last segment, which plays from its start and loops (Phase 50 item 4).
+ */
+async function runBack({ check, open }, ext, folder) {
+  const { page, cdp } = await open(`${ext}-back`, {
+    folder,
+    closeHelp: true,
+    hash: "#start=fe-pre",
+  });
+  await page.waitForFunction(ON_ITEM, { timeout: 5000 }, "fe-pre");
+  await pressSpace(cdp);
+  await page.waitForFunction(ON_ITEM, { timeout: 3000 }, "fe-video");
+  // Its one pass, held paused at the file's end. The frame callback can
+  // pause it a moment before the engine reaches its end (about 5.99 s,
+  // `ended` false), where play() plays on without a restart from 0: then
+  // sought to its duration, paused there, it is ended, the state WebKit's
+  // own end leaves it in.
+  const heldAt = await page.evaluate(async () => {
+    const until = (test, ms) =>
+      new Promise((resolve) => {
+        const begin = performance.now();
+        const look = () => {
+          if (test()) resolve(true);
+          else if (performance.now() - begin > ms) resolve(false);
+          else setTimeout(look, 20);
+        };
+        look();
+      });
+    const el = () => document.getElementById("visual-video");
+    await until(() => el()?.paused && el().currentTime >= 5.9, 8000);
+    await new Promise((r) => setTimeout(r, 400));
+    const v = el();
+    if (v === null) return null;
+    const sought = v.paused && !v.ended;
+    if (sought) {
+      v.currentTime = v.duration;
+      await until(() => !v.seeking && v.ended, 3000);
+    }
+    return { v: v.currentTime, paused: v.paused, ended: v.ended, sought };
+  });
+  const held = heldAt?.paused === true && heldAt.ended === true;
+  await page.evaluate(START_LOG, 20);
+  await sleep(100);
+  await pressNavKey(cdp, "ArrowLeft", 37);
+  // From the step's seek on (the first read off the file's end): the reads
+  // of the segment, and its wraps.
+  const afterStep = (reads) => {
+    const on = reads.filter((r) => r.item === "fe-video" && r.v !== null);
+    const i = on.findIndex((r) => r.v < FROM_END);
+    return i < 0 ? [] : on.slice(i);
+  };
+  const wrapsIn = (on) => {
+    const wraps = [];
+    for (let i = 1; i < on.length; i += 1) {
+      if (on[i].v < on[i - 1].v - 0.5) {
+        wraps.push([Math.round(on[i].at), r3(on[i - 1].v), r3(on[i].v)]);
+      }
+    }
+    return wraps;
+  };
+  const begin = Date.now();
+  let on = [];
+  for (;;) {
+    await sleep(300);
+    on = afterStep(await page.evaluate(READ_LOG));
+    const span = on.length > 0 ? on.at(-1).at - on[0].at : 0;
+    if (span >= 1500 && wrapsIn(on).length > 0) break;
+    if (Date.now() - begin > 6000) break;
+  }
+  const span = on.length > 0 ? on.at(-1).at - on[0].at : 0;
+  const low = on.filter((r) => r.v < BACK_START - 0.05);
+  const wraps = wrapsIn(on);
+  const loops = wraps.filter(
+    ([, from, to]) =>
+      from >= 4.3 && to >= BACK_LOOP - 0.05 && to <= BACK_LOOP + 0.6,
+  );
+  check(
+    `${ext}, Left from a counted video held at its file's end: the last segment plays from its start (3 s), never lower, then loops from 3.5 s`,
+    held &&
+      span >= 1500 &&
+      low.length === 0 &&
+      loops.length > 0 &&
+      loops.length === wraps.length &&
+      on.at(-1)?.segment === "2/2",
+    {
+      held: heldAt && { ...heldAt, v: r3(heldAt.v) },
+      spanMs: Math.round(span),
+      first: on.slice(0, 3).map((r) => [r3(r.v), r.paused, r.seeking]),
+      min: on.length > 0 ? r3(Math.min(...on.map((r) => r.v))) : null,
+      low: low.slice(0, 4).map((r) => [Math.round(r.at), r3(r.v)]),
+      wraps: wraps.slice(0, 4),
+      segment: on.at(-1)?.segment ?? null,
+    },
+  );
+}
+
 async function runCase({ check, open }, ext, kind) {
   const spec = CASES[kind];
   const folder = buildFolder(ext, kind);
+  if (kind === "back") return runBack({ check, open }, ext, folder);
   const counted = kind === "counted" || kind === "startat";
   const { page, cdp } = await open(`${ext}-${kind}`, {
     folder,

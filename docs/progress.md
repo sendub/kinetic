@@ -4155,9 +4155,28 @@ truthful: an unchecked box means nothing was accepted.
       fileend, media, segments, navigation, checkgame, menus Chrome
       149/149, WebKit 148 and 1 fail at load average 44, then 149/149 on
       a rerun.)
-- [ ] A segment stepped to from a held end plays from its start (item 4).
+- [x] A segment stepped to from a held end plays from its start (item 4).
       Tests: red first where it can be shown, a unit test and a scenario
       part on both engines.
+      (2026-11-15: render/visual.ts `playOnceLanded`, the play-after-seek
+      part of `playOnFrom`, now also starts a video `applyVideoMode`
+      finds ended (a segment stepped to by Left from a counted video's
+      last pass), its sound's start delay asked once the seek lands. Two
+      unit tests red first (play() before the seek landed; a menu's hold
+      during the seek then playing from 0). fileend gains a `back` part
+      per container: the counted pass held at the end (sought to the
+      duration in the page when the last-frame signal paused it just
+      short), ArrowLeft, the time never below the segment's start and the
+      segment looping. Before the fix WebKit failed it 1 run in 9; with
+      the step's seek skipped it fails on Chrome for every container. The
+      probe after the fix: 24 of 24 WebKit runs from the segment's start
+      (3 of 28 from 0 before). Orchestrator: with Moonlight running, HEAD
+      itself failed 11 videosound checks; once it was quit, npm test 1341,
+      check clean; fileend, media, segments, videosound, menus Chrome 118
+      and WebKit 128 of 119 and 129, the 2 fails gone on reruns (the
+      `back` part's old reload setup on Chrome, since made deterministic;
+      a videosound key-rule check, 31/31 on rerun); then fileend Chrome
+      42/42 in 4 runs, WebKit fileend and segments 65/65.)
 - [ ] A video held at its file's end stays held when a menu closes
       (item 5). Tests: red first, a unit test and a scenario part on both
       engines; no extra pass reported.

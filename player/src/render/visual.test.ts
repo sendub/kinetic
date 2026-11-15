@@ -1552,6 +1552,87 @@ describe("a loop-back at the file's end lands on its restart point, not 0", () =
     expect(videos[1].paused).toBe(false);
   });
 
+  // Phase 50 item 4: Left from a counted video held at its file's end steps
+  // to a segment; WebKit played the ended element on from 0 in 3 runs of
+  // 28 when it was played before the step's seek landed.
+  it("a step from a counted video held at its file's end plays the segment once its seek lands, its start asked then", () => {
+    const { layer, videos, show, ends } = lifecycleHarness([
+      vid({
+        id: "v-alone",
+        file: "a.mkv",
+        durationSeconds: 6,
+        startSeconds: 4.5,
+        loopCount: 1,
+        segments: [
+          { startSeconds: 1, endSeconds: 2.5 },
+          { startSeconds: 3, loopStartSeconds: 3.5, endSeconds: 4.5 },
+        ],
+      }),
+      item({ id: "pic", type: "image", file: "p.jpg" }),
+    ]);
+    const asked: Array<{ seeking: boolean; time: number }> = [];
+    layer.setStartDelay((element) => {
+      asked.push({ seeking: element.seeking, time: element.currentTime });
+      return 0;
+    });
+    show(0);
+    const v = videos[0];
+    v.duration = 6;
+    endAt(v, 6); // its one pass: reported, held at the end
+    expect(ends).toEqual([0]);
+    expect(v.paused).toBe(true);
+    const plays = v.plays;
+    asked.length = 0;
+    show(0, "advance", 1); // Left: the last segment
+    expect(v.seeking).toBe(true);
+    expect(v.plays).toBe(plays); // not before the seek lands
+    expect(asked).toEqual([]);
+    v.land();
+    expect(v.currentTime).toBe(3);
+    expect(v.paused).toBe(false);
+    expect(v.plays).toBe(plays + 1);
+    expect(asked).toEqual([{ seeking: false, time: 3 }]);
+    // The segment then loops from its loop start, reporting nothing more.
+    v.currentTime = 4.5;
+    v.fire("timeupdate");
+    expect(v.currentTime).toBe(3.5);
+    expect(ends).toEqual([0]);
+  });
+
+  it("a step on an ended element plays nothing once its seek lands if a menu holds it or the reader left", () => {
+    const items: Item[] = [
+      vid({
+        id: "v-alone",
+        file: "a.mkv",
+        durationSeconds: 6,
+        startSeconds: 4.5,
+        loopCount: 1,
+        segments: [{ startSeconds: 1, endSeconds: 2.5 }],
+      }),
+      item({ id: "pic", type: "image", file: "p.jpg" }),
+    ];
+    const { layer, videos, show } = lifecycleHarness(items);
+    show(0);
+    const v = videos[0];
+    endAt(v, 6);
+    show(0, "advance", 0);
+    layer.setPaused(true);
+    const held = v.plays;
+    v.land();
+    expect(v.plays).toBe(held);
+    expect(v.paused).toBe(true);
+    layer.setPaused(false); // the menu's resume plays it, from the segment
+    expect(v.paused).toBe(false);
+    expect(v.currentTime).toBe(1);
+    // Ended again, stepped back to the item's own range, then left.
+    endAt(v, 6);
+    show(0);
+    show(1);
+    const gone = v.plays;
+    v.land();
+    expect(v.plays).toBe(gone);
+  });
+
   it("plays nothing once the seek lands if the reader left, a menu holds it, or a step re-planned it", () => {
     const { layer, videos, show } = lifecycleHarness([
       vid({
