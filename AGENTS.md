@@ -27,9 +27,9 @@ are implementing and docs/stack.md for settled decisions.
   `.venv/bin/pytest converter/ tools/ -q -n auto` (pytest-xdist, one
   worker per core, about 45 s; a single file runs fine without `-n`).
 - `--version` on `kinetic-extract`, `kinetic-media`, `tools/`
-  `validate_content.py`, `assemble_folder.py`, `build_apps.py` and
-  `setup_media_tools.py`, and `check-game.mjs` prints `Kinetic
-  <VERSION>` and exits, needing no media tools. A built
+  `validate_content.py`, `assemble_folder.py`, `build_apps.py`,
+  `setup_media_tools.py` and `upgrade_folder.py`, and `check-game.mjs`
+  prints `Kinetic <VERSION>` and exits, needing no media tools. A built
   `app.js` opens with `/*! Kinetic <version> */`; read a folder's with
   `kinetic_extract.version.folder_player_version` (Python) or
   `folderKineticVersion` in `player/scripts/version.mjs` (null/None for
@@ -44,6 +44,9 @@ are implementing and docs/stack.md for settled decisions.
   go test ./...` (and `GOOS=windows go vet ./...` with the same
   variables); the host script test runs the script in Node and skips
   without it. Never launch a built app on the user's screen unasked.
+- Upgrade a game folder's player: `.venv/bin/python
+  tools/upgrade_folder.py <folder>` after `npm run build` (refuses a
+  stale `player/dist/`; CREATE.md, "Upgrading to a newer Kinetic").
 - Media only, no story parse: `.venv/bin/kinetic-media ship <game_root>
   <out> --list requests.json` (format: docs/extracting.md). Both
   `ship` and `rebuild` take `--jobs N` (default: one per core) and

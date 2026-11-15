@@ -151,8 +151,9 @@ byte copy of `docs/content-schema.json` that the manifest's first key,
 an editor checks a hand-edited manifest against the schema of the
 Kinetic release that wrote the folder (docs/content-format.md,
 Manifest). The ledger, `kinetic-media rebuild` and `kinetic-media
-posters` never read the copy, and `tools/assemble_folder.py` leaves it
-out of the folder readers get.
+posters` never read the copy, `tools/assemble_folder.py` leaves it
+out of the folder readers get, and `tools/upgrade_folder.py` replaces it
+with the current schema.
 
 ## Build ledger
 

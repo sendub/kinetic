@@ -23,6 +23,7 @@ and no network access at play time:
 my-novel/
   manifest.json    # source of truth, written by hand
   manifest.js      # generated shim, one command, see below
+  manifest.schema.json  # optional: the schema, for your editor (Manifest)
   *.jpg, *.mp4     # media, named per the conventions shown below
                    # (optionally under a subfolder: media/ab/window-004.jpg)
   *.m4a, *.mp3     # sound, if the game has any (Sound, below)
@@ -36,7 +37,8 @@ them is still valid input for the validator.
 ### Manifest
 
 `manifest.json` carries `schemaVersion` (1), an optional `storyId`, an
-optional `title`, the display `width` and `height` in pixels, and
+optional `title`, an optional `version`, the display `width` and
+`height` in pixels, and
 `items` in play order. The `storyId` names the story itself (lowercase
 letters, digits, `-`, `_`, starting with a letter or digit, at most 64
 characters, such as `rainy-day-1`): the player saves the reader's
@@ -48,7 +50,14 @@ and adding one later carries that progress over on the next load. The
 `title` is the game's name as readers see it (any text up to 200
 characters, such as `"Rainy Day"`): the player shows it as a heading at
 the top of the Esc help screen and as the browser tab's title. Without
-one the help screen has no heading and the tab reads `Kinetic`. Each item has a unique
+one the help screen has no heading and the tab reads `Kinetic`. The
+`version` is your game's own release as you name it (any text up to 40
+characters, such as `"1.2"`, `"0.9 beta"` or `"Episode 3"`): the Esc
+screen shows it after the `title` heading, smaller and dimmer, or alone
+where the heading would be when there is no `title`. Without one nothing
+is shown. It is not Kinetic's version, which the Esc screen shows on
+its own, small in the bottom-right corner (Upgrading to a newer
+Kinetic). Each item has a unique
 `id` (letters, digits, `-`, `_`, starting with a letter or digit), a
 `type`, and the fields its type requires:
 
@@ -95,9 +104,11 @@ two `text` lines that run over the looping video:
 
 ```json
 {
+  "$schema": "./manifest.schema.json",
   "schemaVersion": 1,
   "storyId": "rainy-day",
   "title": "Rainy Day",
+  "version": "1.0",
   "width": 1280,
   "height": 720,
   "items": [
@@ -132,6 +143,23 @@ underneath, and each holds for its text alone. The first carries
 `thought: true`, so the player shows it as Mei's unspoken thoughts.
 Neither the video's end nor its loops gate an advance while the chain of
 `text` items lasts.
+
+The first key, `$schema`, is for your editor; the player and the
+validator ignore it. Copy the schema into the folder once, from the
+root of your Kinetic checkout:
+
+```sh
+cp docs/content-schema.json my-novel/manifest.schema.json
+```
+
+VS Code, and other editors that read `$schema`, then check
+`manifest.json` against it as you type and complete its field names,
+offline. The copy is the schema of the Kinetic you copied it from;
+`tools/upgrade_folder.py` replaces it with the newer one when you
+upgrade (Upgrading to a newer Kinetic), and `tools/assemble_folder.py`
+leaves it out of the folder readers get (Playing the folder). The key
+may stay in the manifest without the file: an editor that finds no
+schema checks nothing.
 
 The item ids drive the file names: `<id>.<ext>` for an image or a
 video, where `ext` is the true shipped format (`jpg`, `png`, `webp`,
@@ -693,11 +721,20 @@ never deletes files, so media left over from the earlier run stays in
 The extractor names the game and the story: the `title` is the
 project's `config.name` (else its folder name, with `_` and `-` read as
 spaces), and the `storyId` is derived from `config.save_directory`,
-`config.name` or the folder name. Set either with `--title "Rainy Day"`
-and `--story-id rainy-day` (the id must already be a valid `storyId`),
-or edit `manifest.json` afterwards and regenerate `manifest.js`
+`config.name` or the folder name. The game's `version` is the project's
+`config.version` when that is a plain string, such as the `define
+config.version = "1.0"` in Ren'Py's `options.rpy` template; anything
+else gives no `version`. Set them with `--title "Rainy Day"`,
+`--story-id rainy-day` (the id must already be a valid `storyId`) and
+`--game-version "1.0"` (`--version` prints Kinetic's own version), or
+edit `manifest.json` afterwards and regenerate `manifest.js`
 (Generating manifest.js). Keep the `storyId` when you convert an
 updated game, so readers' progress follows it.
+
+The extractor also writes `manifest.schema.json`, a copy of the schema,
+beside the manifest, and opens the manifest with `"$schema":
+"./manifest.schema.json"`, so your editor checks the manifest as you
+edit it (Manifest). The assembled folder leaves the copy out.
 
 ### Several episodes, one game
 
@@ -1189,8 +1226,9 @@ cp player/dist/index.html player/dist/app.js my-novel/
 Or let `tools/assemble_folder.py <content-dir> <out-folder>` assemble a
 playable copy in one command: it copies the bundle and content, generates
 a missing `manifest.js` and the missing script of each sound file (Sound,
-above), ships the scripts without the sound files, and prints the folder
-size (docs/packaging.md).
+above), ships the scripts without the sound files, leaves out the schema
+copy, `manifest.schema.json` (Manifest), which only your editor needs,
+and prints the folder size (docs/packaging.md).
 
 Run `npm run build` in `player/` first if the bundle is not current.
 
@@ -1382,9 +1420,16 @@ What Windows readers get and see:
   `index.html`. A folder you build or copy on your own PC carries no
   mark, so its exe starts with no prompt.
 
-Keep each app inside its game folder. Upgrading the player (copying
-`index.html` and `app.js`, Upgrading to a newer Kinetic) needs no
+Keep each app inside its game folder. Upgrading the player
+(`tools/upgrade_folder.py`, Upgrading to a newer Kinetic) needs no
 rebuild, since each app plays whichever `index.html` sits beside it.
+
+Kinetic is under the MIT License (`LICENSE` in this repo), and the
+notice travels in what you ship: the folder's `index.html` and `app.js`
+open with it as a comment, the Mac app holds it in
+`Contents/Resources/LICENSE`, and the Windows program in its resources.
+You owe nothing beyond shipping the folder and apps as built: leave
+those files as they are and the license is met.
 
 ## Testing your game
 
@@ -1501,7 +1546,7 @@ check-game: step 30; 28 items seen; on screen: nest-return "Nested 1b: when it e
 On the demo, `--steps all` starts:
 
 ```text
-webkit: /Users/you/demo-play
+webkit: /Users/you/demo-play (Kinetic 1.8.0)
   0: intro-title "Kinetic demo. Every line explains what you are seeing. Sp..."
   1: text-speech "Spoken dialogue: the speaker's name, Mei, sits above it."
   2: text-thought "A thought: unspoken, so it is drawn differently from speech."
@@ -1519,6 +1564,13 @@ visited 32 of 32 items
 media: 26 files: 1 loaded during the walk, 25 checked after it (3 never requested)
 no console or page errors
 ```
+
+The first line names the engine, the folder and the Kinetic version of
+the folder's player, read from its `app.js`: a player built from a
+checkout between releases says so (`Kinetic 1.9.0-dev`), and one built
+before Kinetic 1.8.0, which did not record its version, gives `Kinetic
+unknown`. `check-game.mjs --version` prints the version of your
+checkout instead and opens nothing.
 
 The exit status says how it went:
 
@@ -1542,7 +1594,7 @@ node player/scripts/testing/check-game.mjs demo-play --start-at route1-start --u
 ```
 
 ```text
-webkit: /Users/you/demo-play
+webkit: /Users/you/demo-play (Kinetic 1.8.0)
   0: route1-start "Route 1, first line. A nested decision opens after the ne..."
   1: route1-nest "Route 1, second line: the nested decision hangs off this ..."
   2: route1-nest "Route 1, second line: the nested decision hangs off this ..." with the choice "Nested decision inside Route 1:" open
@@ -1715,7 +1767,7 @@ node player/scripts/testing/check-game.mjs demo-segments --start-at floor-clip -
 ```
 
 ```text
-webkit: /Users/you/demo-segments
+webkit: /Users/you/demo-segments (Kinetic 1.8.0)
   0: floor-clip "Short line one."
   1: floor-2 "Short line two."
   2: floor-3 "Line three waits."
@@ -2014,30 +2066,84 @@ The game:
 - `page` is the puppeteer page for anything else (`page.evaluate`,
   `page.mouse.click(x, y)`). In WebKit it offers the subset the player's
   own test suite uses.
-- `engine`, `folder` and `manifest` say what was opened.
+- `engine`, `folder` and `manifest` say what was opened, and
+  `kineticVersion` the Kinetic version of the folder's player, read from
+  its `app.js` (`null` for a player built before Kinetic 1.8.0).
 
 ## Upgrading to a newer Kinetic
 
 A game folder's player is two files, `index.html` and `app.js`; every
 other file (`manifest.json`, `manifest.js`, media, extras) is your
-content. To take a newer player's bug fixes, replace just those two:
+content. To take a newer player's fixes and features, pull and build
+it, then let `tools/upgrade_folder.py` replace just those two:
 
 ```sh
 git pull
 cd player && npm ci --cache ../.tmp/npm-cache && npm run build && cd ..
-cp player/dist/index.html player/dist/app.js my-novel/
-.venv/bin/python tools/validate_content.py my-novel
+.venv/bin/python tools/upgrade_folder.py my-novel
 ```
 
-Copy only those two files: `player/dist/manifest.js` is an empty
-placeholder that would overwrite your game's own `manifest.js` (the
-validator then reports that it does not equal `manifest.json`), and
-`app.js.map` is a debugging aid the folder does not need. `manifest.js`
-stays as it is, since it is generated from your `manifest.json`, not
-from the player; regenerate it only when you edit `manifest.json`
-(Generating manifest.js). The validator checks the folder against
-the newer rules; a clean run prints nothing. An app in the folder
-(Building the apps) keeps working without a rebuild.
+It prints the folder's Kinetic version before and after, and what it
+replaced, then runs the validator on the folder. Upgrading a folder made
+before Kinetic 1.8.0, whose player did not record its version:
+
+```text
+Kinetic unknown -> 1.8.0
+my-novel: replaced index.html, app.js
+```
+
+A folder that already has this version says `(already current)` after
+it, and is upgraded all the same. When the folder holds a schema copy
+(Manifest), the second line ends `and manifest.schema.json`: the copy is
+replaced with the newer schema. A folder without one gets none.
+
+The command never touches `manifest.json` or `manifest.js`: the shim is
+generated from your `manifest.json`, not from the player, so regenerate
+it only when you edit `manifest.json` (Generating manifest.js). Media,
+extras and the apps stay as they are too; an app in the folder (Building
+the apps) plays whichever `index.html` sits beside it, so it keeps
+working without a rebuild. Each file is written whole beside the old one
+and then put in its place, so an interrupted upgrade leaves the old
+player, never half of the new.
+
+It refuses, changing nothing, a folder with no `manifest.json`, and a
+`player/dist/` that is missing or not built from your checkout's
+current version, as after a `git pull` without `npm run build`:
+
+```text
+upgrade_folder: player/dist/app.js is Kinetic 1.7.0, not this clone's 1.8.0; run npm run build in player/
+```
+
+The validator then checks the folder against the newer rules, printing
+each problem as it does on its own (Validating). The folder stays
+upgraded when it reports problems; fix them and validate again:
+
+```text
+manifest.json: items[30].file: media file 'after-start.jpg' does not exist in the folder
+my-novel: 1 problem
+upgrade_folder: my-novel is upgraded, but the validator reports problems (above); fix them and run tools/validate_content.py my-novel
+```
+
+The exit status is 0 when the folder is upgraded and the validator
+passes (its warnings do not change that), 1 for a refusal, a file it
+cannot write or validator problems, and 2 when the folder is not a
+directory or the arguments are wrong.
+
+If you copy the player by hand instead, copy only `index.html` and
+`app.js` from `player/dist/`: its `manifest.js` is an empty placeholder
+that would overwrite your game's own (the validator then reports that it
+does not equal `manifest.json`).
+
+To see which Kinetic you have: the Esc screen shows the player's version
+small in its bottom-right corner, below the sheet (`Kinetic 1.8.0`);
+`--version` on `kinetic-extract`, `kinetic-media`, `check-game.mjs` and
+the `tools/` scripts (`upgrade_folder.py`, `assemble_folder.py`,
+`validate_content.py`, `build_apps.py`, `setup_media_tools.py`) prints
+your checkout's, as `Kinetic 1.8.0`; and check-game's first line names
+the folder's (The quick check). A checkout between releases reads as the
+next release with `-dev`, such as `1.9.0-dev`. CHANGELOG.md lists what
+each release changed, and marks with **Upgrading:** anything a release
+asks of you beyond running the command.
 
 A game with sound made before audio scripts existed fails the validator
 once per sound file, with `no script '<file>.js' beside it`. Write the

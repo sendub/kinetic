@@ -9,7 +9,10 @@ decision; this file is the practical sheet.
 
 - `index.html`: the entry point a reader double-clicks.
 - `app.js`: the player as one classic (IIFE) bundle; `file://` blocks ES
-  modules, so this is not a module build (docs/stack.md).
+  modules, so this is not a module build (docs/stack.md). Both files
+  open with a comment naming the Kinetic version that built them and
+  Kinetic's MIT notice, so the folder carries its license (README.md,
+  "License").
 - `manifest.json`: the manifest, source of truth (docs/content-format.md).
 - `manifest.js`: the generated shim that hands the manifest to the page
   without a fetch, since `file://` blocks it; the validator rejects a
@@ -66,6 +69,11 @@ run exits 0:
 ```sh
 .venv/bin/python tools/validate_content.py novel-play
 ```
+
+A folder already made takes a newer player with
+`.venv/bin/python tools/upgrade_folder.py novel-play`, which replaces
+only its `index.html` and `app.js` (CREATE.md, "Upgrading to a newer
+Kinetic").
 
 ## Double-click behavior and transport
 

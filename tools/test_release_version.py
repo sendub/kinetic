@@ -67,7 +67,7 @@ def test_package_json_and_pyproject_agree_with_version() -> None:
 
 @pytest.mark.parametrize("tool", [
     "validate_content.py", "assemble_folder.py", "build_apps.py",
-    "setup_media_tools.py"])
+    "setup_media_tools.py", "upgrade_folder.py"])
 def test_tool_version_prints_kinetic_version_and_does_nothing_else(
         tool, tmp_path) -> None:
     env = {k: v for k, v in os.environ.items()

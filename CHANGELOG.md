@@ -26,12 +26,13 @@ Release basics.
   Mac app carries it in its Resources and its Get Info line, and the
   Windows program in its resources beside the Go runtime's BSD notice.
   An author owes nothing beyond shipping the files as built.
-- Kinetic's version is easy to find: small and dim in a corner of the
-  Esc screen (`Kinetic 1.8.0`), at the top of `app.js` and `index.html`,
-  from `--version` on `kinetic-extract`, `kinetic-media`,
-  `check-game.mjs` and the `tools/` scripts, and in check-game's first
-  line, which names the folder's player version (`unknown` for an older
-  player). Built apps record the version that built them.
+- Kinetic's version is easy to find: small and dim in the bottom-right
+  corner of the Esc screen, below the sheet (`Kinetic 1.8.0`), at the
+  top of `app.js` and `index.html`, from `--version` on
+  `kinetic-extract`, `kinetic-media`, `check-game.mjs` and the `tools/`
+  scripts, and in check-game's first line, which names the folder's
+  player version (`unknown` for an older player). Built apps record the
+  version that built them.
 - A game can state its own version: the optional manifest field
   `version` (plain text, 1 to 40 characters) shows after the title on
   the Esc screen, smaller and dimmer. kinetic-extract fills it from the
@@ -45,12 +46,18 @@ Release basics.
   `schemaVersion` changes.
 - `tools/upgrade_folder.py <folder>` upgrades a game folder's player in
   one step: it copies only `index.html` and `app.js` from the built
-  player, refreshes the folder's schema copy, runs the validator and
-  prints `Kinetic <old> -> <new>`.
+  player, refreshes the folder's schema copy when it has one, runs the
+  validator and prints `Kinetic <old> -> <new>`. It never touches
+  `manifest.json`, `manifest.js` or the apps, and refuses a built player
+  that is missing or of another version than the checkout (run `npm run
+  build`).
 - This changelog.
 - **Upgrading:** use `tools/upgrade_folder.py` in place of copying the
   player files by hand. To show a game's version, add `version` to its
-  manifest or convert it again.
+  manifest or convert it again. To have your editor check a
+  hand-written manifest, copy docs/content-schema.json into the folder
+  as `manifest.schema.json` and add `"$schema":
+  "./manifest.schema.json"` (CREATE.md, "Manifest").
 
 ## 1.7.0 (2026-11-15)
 

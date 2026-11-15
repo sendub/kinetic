@@ -150,7 +150,10 @@ runs read as spaces. Its `version` (the game's own release) is the
 absent when that is anything else. `--title TEXT`, `--game-version
 TEXT` and `--story-id ID` override them (an ID that is not a valid
 `storyId`, or a title or version that is blank or too long, is a usage
-error). The summary prints all three and their sources.
+error). The summary prints all three and their sources. `--version`
+on `kinetic-extract` and `kinetic-media` prints Kinetic's own version
+(`Kinetic <VERSION>`, the repo's `VERSION` file), not the game's, and
+exits.
 
 `--decoder MODULE:FUNC` (repeatable, chained in order) runs a game's
 own unwrapping hook over the complete bytes of every media source, loose

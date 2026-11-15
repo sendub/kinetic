@@ -57,10 +57,13 @@ my-novel/
   ignore its value. kinetic-extract writes
   `"$schema": "./manifest.schema.json"` as the manifest's first key and
   puts `manifest.schema.json`, a byte copy of `docs/content-schema.json`,
-  beside `manifest.json`, so VS Code and JetBrains editors check and
-  complete a hand-edited `manifest.json` offline, against the schema of
-  the Kinetic release that wrote the folder. `tools/assemble_folder.py`
-  leaves the copy out of the folder readers get and keeps the key in
+  beside `manifest.json`, so VS Code, and other editors that read
+  `$schema`, check and complete a hand-edited `manifest.json` offline,
+  against the schema of the Kinetic release that wrote the folder.
+  `tools/upgrade_folder.py` replaces a folder's copy with the current
+  schema; a hand-written folder gets one by copying
+  `docs/content-schema.json` in under that name.
+  `tools/assemble_folder.py` leaves the copy out of the folder readers get and keeps the key in
   the manifest as written; an editor that finds no file there checks
   nothing.
 - `schemaVersion`: integer, currently 1. Tools reject any other value

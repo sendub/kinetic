@@ -4373,8 +4373,28 @@ truthful: an unchecked box means nothing was accepted.
       1.3.0 Phases 37-40, 1.2.0 Phases 30-36, 1.1.1 Phase 29's fix, 1.1.0
       Phases 25-28, 1.0.0 Phases 1-24 as the first release. Orchestrator:
       read in full; ASCII, no game named.)
-- [ ] Docs (item 8): CREATE.md, README.md, AGENTS.md, packaging.md,
+- [x] Docs (item 8): CREATE.md, README.md, AGENTS.md, packaging.md,
       verify-player.md; every example run.
+      (2026-11-15: CREATE.md: "Upgrading to a newer Kinetic" around
+      tools/upgrade_folder.py (output, refusals, exit codes, a note for
+      hand copying, where to see versions, CHANGELOG.md); the manifest's
+      `version` and `$schema`, the hand-author's schema copy, kinetic-
+      extract's `config.version`, `--game-version` and schema copy, the
+      assembler leaving the copy out, a license paragraph, check-game's
+      first line and `kineticVersion`. Examples show `1.8.0`, the version
+      this phase closes as; the runs printed `1.8.0-dev` and otherwise
+      match. README: the Esc bullet's versions, the upgrade command,
+      CHANGELOG.md. AGENTS.md: the upgrade command and its `--version`;
+      test_release_version.py checks it (8 passed). CHANGELOG 1.8.0-dev
+      matched to what landed; content-format.md, packaging.md,
+      extracting.md, converter/README.md small fixes. Editors: VS Code's
+      relative `$schema` confirmed from its JSON language service source;
+      JetBrains not confirmed, so the docs say "other editors that read
+      `$schema`". verify-player.md was done in item 4. Every example run
+      on demo copies (assemble, upgrade incl. refusals and a validator
+      problem, check-game on WebKit, kinetic-extract `--game-version`).
+      Orchestrator: read the CREATE.md diff, ASCII apart from README's
+      existing symbols, no game named, test_release_version 8 passed.)
 - [x] Scrub real games from the repo's text (item 8b). Tests: every
       touched test file passes with synthetic names; a grep for every
       corpus game name and corpus subpath finds nothing outside
