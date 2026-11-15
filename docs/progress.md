@@ -4134,8 +4134,27 @@ truthful: an unchecked box means nothing was accepted.
       check clean, smoke 6/6; fileend, media, segments, videosound, audio,
       screens Chrome 266/266, WebKit 281 pass and the 2 known fullscreen
       partials, load average up to 29.)
-- [ ] A counted video opened by `#start=` plays all its passes (item 3).
+- [x] A counted video opened by `#start=` plays all its passes (item 3).
       Tests: red first, a unit test or a scenario part on both engines.
+      (2026-11-15: the cause, seen by logging on both engines: on a first
+      load the Esc screen opens in the same task as the start item's
+      play(), its hold pauses the element, the engine rejects the pending
+      play() with an AbortError, and the autoplay-refused fallback
+      reported all 3 owed passes, so after the resume the first end held
+      and the machine moved on. Space and reloads open no Esc screen over
+      a pending play(). Fix in render/visual.ts `playVideo`: a play() a
+      later pause or start superseded (`startToken`) owes nothing; a real
+      refusal still reports every owed pass. Unit test red first
+      ([0, 0, 0] reported, expected none) and a guard that a refusal
+      after a menu's resume still reports; fileend gains a `startat` part
+      per container (counted, opened by `#start=` on a fresh profile):
+      red 33/36 on each engine, then 36/36 (WebKit 3 runs). Report-only
+      lead: Left from a counted item held at its file's end steps to a
+      segment and plays the ended element at once; WebKit played on from
+      0 in 3 of 28 runs. Orchestrator: npm test 1339, check clean;
+      fileend, media, segments, navigation, checkgame, menus Chrome
+      149/149, WebKit 148 and 1 fail at load average 44, then 149/149 on
+      a rerun.)
 - [ ] Docs (item 4): content-format.md, verify-player.md, CREATE.md if
       an author's rule changes; every example run.
 - [ ] Phase-closer (Phase 50): full pytest, the full `npm run verify`

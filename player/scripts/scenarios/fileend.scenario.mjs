@@ -28,7 +28,13 @@
 // - free: no range under a line (the element looped natively before
 //   Phase 50): 3 wraps to 0;
 // - nextdown: a chain range whose `endSeconds` is one float step below the
-//   duration (no frame reaches it): 3 wraps to 4 s at the file's end.
+//   duration (no frame reaches it): 3 wraps to 4 s at the file's end;
+// - startat: the counted item opened at page load by `#start=` on a fresh
+//   profile (as `openGame({startAt})` and check-game's `--start-at` open
+//   it), so the first load's Esc screen opens as it starts and its close
+//   resumes it (Phase 50 item 3): the same 2 wraps, held end and move on
+//   as counted (one pass then a hold was the bug: the menu's pause aborted
+//   the pending play(), which was read as autoplay refused).
 
 import { execFileSync } from "node:child_process";
 import { cpSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -83,6 +89,17 @@ const CASES = {
     ],
   },
   counted: {
+    loopStart: LOOP,
+    wraps: 2,
+    budgetMs: 20000,
+    items: (video) => [
+      video(
+        { startSeconds: START, loopStartSeconds: LOOP, loopCount: 3 },
+        LONG_TEXT,
+      ),
+    ],
+  },
+  startat: {
     loopStart: LOOP,
     wraps: 2,
     budgetMs: 20000,
@@ -241,16 +258,22 @@ const r3 = (x) => (x === null ? null : Math.round(x * 1000) / 1000);
 async function runCase({ check, open }, ext, kind) {
   const spec = CASES[kind];
   const folder = buildFolder(ext, kind);
+  const counted = kind === "counted" || kind === "startat";
   const { page, cdp } = await open(`${ext}-${kind}`, {
     folder,
     closeHelp: true,
-    hash: "#start=fe-pre",
+    hash: kind === "startat" ? "#start=fe-video" : "#start=fe-pre",
   });
-  await page.waitForFunction(ON_ITEM, { timeout: 5000 }, "fe-pre");
-  await page.evaluate(START_LOG);
-  await pressSpace(cdp);
-  await page.waitForFunction(ON_ITEM, { timeout: 3000 }, "fe-video");
-  if (kind === "counted") await pressA(cdp);
+  if (kind === "startat") {
+    await page.waitForFunction(ON_ITEM, { timeout: 5000 }, "fe-video");
+    await page.evaluate(START_LOG);
+  } else {
+    await page.waitForFunction(ON_ITEM, { timeout: 5000 }, "fe-pre");
+    await page.evaluate(START_LOG);
+    await pressSpace(cdp);
+    await page.waitForFunction(ON_ITEM, { timeout: 3000 }, "fe-video");
+  }
+  if (counted) await pressA(cdp);
   let stepped = true;
   if (kind === "segment") {
     // Its own 0-1.5 s pass holds at its end; Space steps to the view.
@@ -276,7 +299,7 @@ async function runCase({ check, open }, ext, kind) {
     reads = await page.evaluate(READ_LOG);
     const { good, bad } = wrapsOf(reads, spec.loopStart);
     if (bad.length > 0) break;
-    if (kind === "counted") {
+    if (counted) {
       if (reads.at(-1)?.item === "fe-after") break;
     } else if (good.length >= spec.wraps) {
       // Landed and playing on after the last wrap.
@@ -284,7 +307,7 @@ async function runCase({ check, open }, ext, kind) {
       if (last.v !== null && last.v > spec.loopStart + 0.3) break;
     }
     // Stuck on a frame (not a counted hold) for 3 s: it will not wrap.
-    if (kind !== "counted" && stillFor(reads) > 3000) break;
+    if (!counted && stillFor(reads) > 3000) break;
     if (Date.now() - begin > spec.budgetMs) break;
   }
   const { good, bad } = wrapsOf(reads, spec.loopStart);
@@ -296,7 +319,7 @@ async function runCase({ check, open }, ext, kind) {
     last: last && { item: last.item, v: r3(last.v), paused: last.paused },
     stillMs: Math.round(stillFor(reads)),
   };
-  if (kind === "counted") {
+  if (counted) {
     // Its last read on the item: held paused at the end, for a while.
     const onItem = reads.filter((r) => r.item === "fe-video" && r.v !== null);
     const held = onItem.at(-1) ?? null;
@@ -306,8 +329,9 @@ async function runCase({ check, open }, ext, kind) {
       heldMs = held.at - onItem[i].at;
     }
     const movedOn = reads.at(-1)?.item === "fe-after";
+    const how = kind === "startat" ? ", opened by #start= on a first load" : "";
     check(
-      `${ext}, counted loopCount 3 to the file's end: 2 wraps to its loop start, then held paused at the end, then the machine moves on`,
+      `${ext}, counted loopCount 3 to the file's end${how}: 2 wraps to its loop start, then held paused at the end, then the machine moves on`,
       good.length === 2 &&
         bad.length === 0 &&
         held !== null &&

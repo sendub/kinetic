@@ -940,7 +940,12 @@ export function createVisualLayer(
    * start, stay on the poster with no console error and report EVERY
    * remaining `ended` the plan still owes — the machine otherwise waits for
    * ends that can never come, so the timeline would dead-end on an
-   * unplayable video.
+   * unplayable video. A play() that a later pause or start superseded
+   * (`startToken`) was not refused and owes nothing: a menu's hold that
+   * pauses the element while its play() is pending makes the engine
+   * reject it with an AbortError (WebKit and Chrome), as the first load's
+   * Esc screen does to a counted video opened by `#start=`, and the
+   * resume plays every pass (docs/plan.md Phase 50 item 3).
    */
   function playVideo(
     element: HTMLVideoElement,
@@ -968,8 +973,15 @@ export function createVisualLayer(
       return;
     }
     const generation = videoGeneration;
+    const token = startToken;
     element.play().catch(() => {
-      if (generation !== videoGeneration || videoPlan !== plan) return;
+      if (
+        token !== startToken ||
+        generation !== videoGeneration ||
+        videoPlan !== plan
+      ) {
+        return;
+      }
       while (videoEndedCount < plan.reportEnds) {
         if (!reportEnd(plan)) return;
       }

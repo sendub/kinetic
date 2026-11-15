@@ -1872,3 +1872,86 @@ describe("a pass ending at the file's end loops back at every end (Phase 50)", (
     }
   });
 });
+
+// A counted video opened by `#start=` (docs/plan.md Phase 50 item 3): the
+// first load's Esc screen opens in the same task as the first render, so
+// the menu's hold pauses the element while its play() is still pending,
+// and the engine rejects that play() with an AbortError (WebKit and
+// Chrome, 2026-11-14). Such a play() was superseded, not refused by
+// autoplay: it owes no ends, and the resume plays every pass.
+class AbortableVideo extends LifeVideo {
+  private pending: ((reason: Error) => void) | null = null;
+  override play(): Promise<void> {
+    super.play();
+    return new Promise((_resolve, reject) => {
+      this.pending = reject;
+    });
+  }
+  override pause(): void {
+    super.pause();
+    const reject = this.pending;
+    this.pending = null;
+    reject?.(Object.assign(new Error("aborted"), { name: "AbortError" }));
+  }
+  /** The engine starts playing: the pending play() resolves. */
+  started(): void {
+    this.pending = null;
+  }
+}
+
+describe("a play() a menu's hold aborts owes no ends (Phase 50 item 3)", () => {
+  const counted = vid({
+    id: "v-count",
+    file: "c.mp4",
+    durationSeconds: 6,
+    startSeconds: 0.5,
+    loopStartSeconds: 3,
+    loopCount: 3,
+  });
+  const after = item({ id: "pic", type: "image", file: "p.jpg" });
+  const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+  it("the menu opened as the item starts: the resume plays all three passes", async () => {
+    const { layer, videos, show, ends } = lifecycleHarness(
+      [counted, after],
+      () => new AbortableVideo(),
+    );
+    show(0);
+    layer.setPaused(true); // the Esc screen, in the same task
+    await tick();
+    expect(ends).toEqual([]);
+    layer.setPaused(false);
+    const v = videos[0];
+    v.started();
+    for (let pass = 1; pass <= 3; pass += 1) {
+      v.end(6);
+      v.fire("ended");
+      expect(ends).toHaveLength(pass);
+      if (pass < 3) {
+        v.land();
+        expect(v.currentTime).toBe(3);
+        expect(v.paused).toBe(false);
+        v.started();
+      }
+    }
+    expect(v.paused).toBe(true); // the last pass holds at its end
+  });
+
+  it("autoplay refused after a menu's resume still reports every owed end", async () => {
+    const { layer, show, ends } = lifecycleHarness([counted, after], () => {
+      const v = new LifeVideo();
+      v.play = function (this: LifeVideo) {
+        this.plays += 1;
+        return Promise.reject(
+          Object.assign(new Error("refused"), { name: "NotAllowedError" }),
+        );
+      };
+      return v;
+    });
+    show(0);
+    layer.setPaused(true);
+    layer.setPaused(false);
+    await tick();
+    expect(ends).toEqual([0, 0, 0]);
+  });
+});
