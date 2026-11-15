@@ -12,9 +12,12 @@ the small PE/COFF readers below. All content is synthetic.
 
 from __future__ import annotations
 
+import base64
 import io
 import json
 import plistlib
+import re
+import shutil
 import struct
 import subprocess
 import sys
@@ -584,6 +587,77 @@ def test_the_app_compiles_the_shared_web_view_setup(tmp_path, monkeypatch) -> No
     assert str(shared) in command
 
 
+# --- the voice helper, embedded in the binary (docs/plan.md Phase 52) -------
+
+VOICE_DIR = REPO_ROOT / "apps" / "voice"
+
+
+def helper_files() -> dict[str, bytes]:
+    """What the app must carry: the helper package's Python files and the
+    Mac lock, by the path each takes under `<voice>/helper/`."""
+    files = {f"kinetic_voice/{p.name}": p.read_bytes()
+             for p in (VOICE_DIR / "kinetic_voice").glob("*.py")}
+    files["lock-macos-arm64.json"] = (
+        VOICE_DIR / "lock-macos-arm64.json").read_bytes()
+    return files
+
+
+def decode_embedded(source: str) -> dict[str, bytes]:
+    """The files a generated KineticVoiceEmbedded.swift holds."""
+    found = {}
+    for path, data in re.findall(r'\("([^"]+)", "([A-Za-z0-9+/=]*)"\)', source):
+        found[path] = base64.b64decode(data)
+    return found
+
+
+def test_the_embedded_helper_source_holds_every_helper_file() -> None:
+    source = build_apps.embedded_voice_source()
+    assert "enum KineticVoiceEmbedded" in source
+    assert decode_embedded(source) == helper_files()
+    # Stable, so the same checkout always compiles the same text.
+    assert build_apps.embedded_voice_source() == source
+
+
+def test_the_app_compiles_the_voice_engine_and_the_embedded_helper(
+        tmp_path, monkeypatch) -> None:
+    engine = REPO_ROOT / "apps" / "macos" / "VoiceEngine.swift"
+    assert engine in build_apps.MAC_SOURCES and engine.is_file()
+    seen: list[tuple[list[str], str]] = []
+
+    def run(command, what):
+        generated = [Path(arg) for arg in command
+                     if arg.endswith("KineticVoiceEmbedded.swift")]
+        assert len(generated) == 1
+        seen.append((command, generated[0].read_text()))
+
+    monkeypatch.setattr(build_apps, "_run", run)
+    build_apps.compile_mac(tmp_path / "kinetic")
+    ((command, source),) = seen
+    assert str(engine) in command
+    assert decode_embedded(source) == helper_files()
+    # Generated for the build only, and gone after it.
+    generated = next(Path(a) for a in command
+                     if a.endswith("KineticVoiceEmbedded.swift"))
+    assert not generated.exists()
+    assert REPO_ROOT / ".tmp" in generated.parents
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_the_driver_build_generates_the_same_embedded_source() -> None:
+    """player/scripts/webkit/build.mjs writes the identical text, so the
+    WebKit driver carries the helper the app carries."""
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("needs Node")
+    build = REPO_ROOT / "player" / "scripts" / "webkit" / "build.mjs"
+    script = (f"import({json.dumps(build.as_uri())}).then((m) => "
+              "process.stdout.write(m.embeddedVoiceSource()))")
+    proc = subprocess.run([node, "--input-type=module", "-e", script],
+                          capture_output=True, text=True)
+    assert proc.returncode == 0, proc.stderr
+    assert proc.stdout == build_apps.embedded_voice_source()
+
+
 def mac_toolchain() -> bool:
     return build_apps.host_is_mac() and build_apps.swift_toolchain_present()
 
@@ -630,6 +704,13 @@ def test_real_build_on_this_mac(tmp_path) -> None:
         REPO_ROOT / "apps" / "macos" / "app" / "main.swift").read_bytes()
     # The page-to-host bridge comes from the shared file too.
     assert b"__kineticHostSetDisplay" in binary.read_bytes()
+    # The voice helper and its lock live inside the binary (the bundle
+    # listing above is unchanged): each file's text, as the generated
+    # source holds it, is in the compiled program.
+    compiled = binary.read_bytes()
+    for path, data in helper_files().items():
+        assert base64.b64encode(data) in compiled, path
+    assert b"__kineticVoice" in compiled
     # macOS itself reads the icon, up to 1024 px.
     iconset = tmp_path / "AppIcon.iconset"
     run("iconutil", "-c", "iconset", "-o", str(iconset),

@@ -343,9 +343,13 @@ class Page {
    * The game app's page-to-host bridge (apps/macos/WebViewSetup.swift)
    * with a recording host, before the first goto: `display` is the mode
    * it starts in; each message the page sends lands in hostMessages.
+   * `voice: true` also gives it the app's own voice host
+   * (apps/macos/VoiceEngine.swift), set up from the environment the driver
+   * started with (launchWebKit's `env`): the page gets `voice: true` and
+   * its voice messages go there, not to hostMessages.
    */
-  async installHost(kind, display) {
-    await this.rpc.send("host", { kind, display });
+  async installHost(kind, display, { voice = false } = {}) {
+    await this.rpc.send("host", { kind, display, voice });
   }
   /** The host's display mode changed, as the reader's own control would. */
   async setHostDisplay(mode) {
@@ -466,6 +470,8 @@ class Page {
  * page's storage on disk there instead, so a later launch with the same
  * folder resumes it. `requireGestureForAudio` makes sound wait for a key or
  * click, as Safari does (test only: the game app plays sound at launch).
+ * `env` adds variables to the driver's environment (the voice host's test
+ * overrides, KINETIC_VOICE_DIR and the rest: apps/README.md).
  * Its page gets the test sound flag before anything loads (testaudio.mjs).
  * Throws, with the driver killed, when the driver cannot start, would show
  * its window, or lacks a hook.
@@ -478,6 +484,7 @@ export async function launchWebKit(options = {}) {
   const proc = spawn(file, args, {
     stdio: ["pipe", "pipe", "pipe"],
     detached: true,
+    env: { ...process.env, ...options.env },
   });
   const rpc = connect(proc);
   let timer;

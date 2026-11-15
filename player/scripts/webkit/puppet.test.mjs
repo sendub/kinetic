@@ -237,6 +237,45 @@ describe("launchWebKit", () => {
     await gesture.close();
   });
 
+  it("starts the driver with extra environment (the voice host's test overrides) and asks for the voice host", async () => {
+    // The ready line echoes the stand-in's environment.
+    const command = [
+      process.execPath,
+      "-e",
+      `process.stdout.write(JSON.stringify({ event: "ready", hooks: ${JSON.stringify(hooks())}, dir: process.env.KINETIC_VOICE_DIR ?? null, home: process.env.HOME ?? null }) + "\\n");
+       require("node:readline").createInterface({ input: process.stdin }).on("line", (line) => {
+         const { id, cmd } = JSON.parse(line);
+         process.stdout.write(JSON.stringify({ id, ok: true, value: true }) + "\\n");
+         if (cmd === "quit") process.exit(0);
+       });`,
+    ];
+    const browser = await launchWebKit({
+      command,
+      env: { KINETIC_VOICE_DIR: "/tmp/voice-test" },
+    });
+    // Added to the adapter's own environment, not in place of it.
+    expect(browser.ready.dir).toBe("/tmp/voice-test");
+    expect(browser.ready.home).toBe(process.env.HOME ?? null);
+    const page = await browser.newPage();
+    const sent = [];
+    const send = page.rpc.send;
+    page.rpc.send = (cmd, params) => {
+      sent.push({ cmd, ...params });
+      return send(cmd, params);
+    };
+    await page.installHost("mac-app", "window", { voice: true });
+    await page.installHost("mac-app", "window");
+    page.rpc.send = send;
+    expect(sent).toEqual([
+      { cmd: "host", kind: "mac-app", display: "window", voice: true },
+      { cmd: "host", kind: "mac-app", display: "window", voice: false },
+    ]);
+    await browser.close();
+    const plain = await launchWebKit({ command });
+    expect(plain.ready.dir).toBe(process.env.KINETIC_VOICE_DIR ?? null);
+    await plain.close();
+  });
+
   it("gives the page puppeteer's mouse: moves, presses and releases at a point", async () => {
     const browser = await launchWebKit({
       command: standIn({ event: "ready", hooks: hooks() }),

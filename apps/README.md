@@ -2,9 +2,11 @@
 
 `macos/` holds the macOS app (`app/`, Swift over the system WebKit) and the
 scenario suite's WebKit driver (`driver/`), which share
-`macos/WebViewSetup.swift`. `windows/` holds the Windows exe (Go's
-standard library over WebView2). `tools/build_apps.py` builds them into a
-game folder (CREATE.md, "Building the apps").
+`macos/WebViewSetup.swift` and `macos/VoiceEngine.swift`. `windows/` holds
+the Windows exe (Go's standard library over WebView2). `voice/` holds the
+voice helper both apps run for spoken lines (`voice/README.md`).
+`tools/build_apps.py` builds them into a game folder (CREATE.md, "Building
+the apps").
 
 ## Keys in the macOS app
 
@@ -149,3 +151,104 @@ and memory, the host script (run in Node when it is installed), the
 message and sender checks, the keys, download names, finding the
 runtime and the environment variables it sets for WebView2. Running the
 exe on Windows is a manual check.
+
+## Spoken lines
+
+The macOS app offers spoken lines (docs/plan.md Phase 52): `VoiceEngine`
+in `macos/VoiceEngine.swift`, which the app hands to `KineticHostBridge`.
+The WebKit driver compiles the same file. The Windows exe does not offer
+them yet.
+
+### The voice bridge
+
+With a voice host, `window.kineticHost` also has `voice: true`. The page
+sends `kineticHost.send({ type: "voice", op, ... })`, from the main frame
+only (a subframe's messages are dropped, as its other messages are). The
+host answers by calling `window.__kineticVoice(event)`, which the page
+defines when it starts. An event that finds no such function is dropped,
+except the latest status: the bridge keeps it and sends it before it
+handles the page's next voice message.
+
+| Page sends (`op`) | Fields | What happens |
+| --- | --- | --- |
+| `status` | | A `status` event. |
+| `install` | | Downloads Python, then runs the helper's install, with `status` events. |
+| `cancel` | | Stops the install; partial downloads stay, so the next `install` continues them. |
+| `remove` | | Stops any install and the helper, deletes the whole install, then `status` absent. |
+| `voice` | `id`, `data` (the reference clip, base64), `format` (its extension: `wav`, `flac` or `mp3`), `text`? | A `voice` event. |
+| `speak` | `id`, `voiceId`, `text`, `priority`, and any other field the helper takes (`stream`, `lang`), passed on | A `speech` event, or `dropped` or `error`. |
+| `drop` | `id` (a `speak`'s) | Cancels the line if it is still queued; either way the page gets `dropped` for it, once, never its `speech`. An id with no line in progress is ignored. |
+
+| Event (`event`) | Fields |
+| --- | --- |
+| `status` | `state`: `absent`, `installing`, `ready`, `error` or `unsupported`; `downloadBytes` (the whole install, Python included); with `installing`, `done` and `total` on one scale across the Python download and the helper's progress; with `error` and `unsupported`, `message`, for the reader. Sent on every change and in answer to `status`, `install` and `cancel`, progress at most four times a second. |
+| `voice` | `id`, `voiceId` (the clip's sha256). |
+| `speech` | `id`, `wav` (base64 WAV, 24 kHz 16-bit mono), `seconds`, and the helper's `genSeconds` and `cached`. |
+| `dropped` | `id`. |
+| `error` | `id`, `code` (the helper's codes, apps/voice/README.md, plus `not-installed` before the install, `helper-crashed` and `helper-stopped`), `message`. |
+| anything else | A helper event that names a request (`target`), such as a streamed line's chunks, passed on as `{ event, id: <the page's id>, ...the rest }`. |
+
+`unsupported` means a Mac without Apple silicon, or a macOS older than
+every build of some package in the lock (the helper's
+`unsupported-system`); its message names the macOS needed. An install
+first checks that the volume has the whole download plus 1 GB free, and
+reports `error` saying how much it needs and has.
+
+### The voice folder
+
+`~/Library/Application Support/Kinetic/Voice/`, one per Mac, shared by
+every Kinetic app. Nothing is written there until the page sends
+`install`. The app owns `python/` (unpacked from the download, with
+`.kinetic-python` holding the archive's sha256), `helper/` (the helper's
+files and the lock, written from the binary when absent or different) and
+`helper.log` (the helper's stderr and the app's notes on it, cut back past
+4 MB); the helper owns the rest (apps/voice/README.md, "The voice
+folder"). The Python archive downloads into `downloads/` as
+`python-<sha>.tar.gz.partial`, continued with a Range request after a
+cancel or a failure, checked against the lock's sha256 and unpacked with
+`/usr/bin/tar` into `python.partial/` before it is moved into place.
+`remove` deletes all of it, and the folder too when nothing else is in it.
+
+The app downloads from three places, all pinned by sha256 in
+`voice/lock-macos-arm64.json`: the Python build (25 MB) from
+python-build-standalone's GitHub releases, fetched by the app; the wheels
+from PyPI and the model files from Hugging Face (3.3 GB), fetched by the
+helper.
+
+### The helper
+
+The build embeds `voice/kinetic_voice/*.py` and the lock in the binary: it
+writes them, base64, into a generated `KineticVoiceEmbedded.swift`, never
+committed (`tools/build_apps.py` and `player/scripts/webkit/build.mjs`
+write the same text), so the bundle's layout is unchanged. The app runs
+`<voice>/python/bin/python3 -I -B <voice>/helper/kinetic_voice/__main__.py
+--root <voice>` with pipes for stdin and stdout. It starts the helper for
+`install` once Python is there, and for `status`, `voice` or `speak` once
+an install of this lock has finished (its `state.json`). It maps each page
+request id to an id of its own and back. If the helper exits unexpectedly
+it starts it once more, registers the page's voices again and sends every
+unanswered request again; a second crash is `status` error, until a
+`status` or `install` starts it afresh. It stops the helper when the app
+quits; a helper whose app was killed exits at the end of its input.
+
+### Test overrides
+
+Environment variables for the tests and the orchestrator's checks, never
+for readers. A relative path in them, the helper command's included, is
+taken from the app's working directory (the test helper command runs
+there; the real helper runs in the voice folder):
+
+| Variable | Effect |
+| --- | --- |
+| `KINETIC_VOICE_DIR` | The voice folder. |
+| `KINETIC_VOICE_DOWNLOAD_BASE` | Every download URL `https://<host>/<path>` becomes `<base>/<host>/<path>`, in the lock written for the helper too, so a local server stands in for all three sources. |
+| `KINETIC_VOICE_LOCK` | A lock file in place of the embedded one (the helper gets it too). |
+| `KINETIC_VOICE_PYTHON` | A Python to run the embedded helper with; no Python download. |
+| `KINETIC_VOICE_HELPER` | A whole command line run with `/bin/sh` in place of the helper; no Python download, and the helper starts for any request. |
+
+The driver's `host` request with `voice: true` gives its bridge a
+VoiceEngine set up from the driver's environment (`launchWebKit({ env })`,
+`page.installHost(kind, display, { voice: true })`). The `machost`
+scenario file runs it on WebKit against a local server, a fake Python
+archive whose `python3` runs the repo's `.venv` Python, and the helper's
+fake engine (docs/verify-player.md).

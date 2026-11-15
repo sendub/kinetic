@@ -4478,8 +4478,29 @@ truthful: an unchecked box means nothing was accepted.
       real output scored.)
 - [ ] Faster lines (item 2b, added from item 2's real check). Tests:
       timings, Whisper, speaker match and the pause measures; samples kept.
-- [ ] The Mac host (item 3). Tests: build_apps; driver scenario parts
+- [x] The Mac host (item 3). Tests: build_apps; driver scenario parts
       with a fake helper and a local server.
+      (2026-11-15: apps/macos/VoiceEngine.swift, in the app and the
+      driver: the voice folder (`KINETIC_VOICE_DIR` overrides), the helper
+      and lock embedded as base64 by a source both builds generate (the
+      bundle listing unchanged), the Python archive downloaded with
+      progress, Range resume and a sha256 check, unpacked by `/usr/bin/tar`
+      and marked with its sha256; a disk check before anything is created;
+      the helper run on pipes with its log in `helper.log`, restarted once
+      after a crash (voices and unanswered requests resent), then status
+      error; one byte scale for progress across Python and the helper;
+      `unsupported` from the lock's minimum macOS. KineticHostBridge takes
+      a voice host: `voice: true` in `kineticHost`, voice messages from the
+      main frame only, events by `callAsyncJavaScript`, the latest status
+      held until the page defines `__kineticVoice`. Test overrides:
+      KINETIC_VOICE_DIR, _DOWNLOAD_BASE (rewrites the lock so the helper's
+      downloads follow), _LOCK, _PYTHON, _HELPER. apps/README.md "Spoken
+      lines". Real check: the Python archive from GitHub in 1.3 s, ready
+      2.4 s later, a speak through VoiceEngine. Tests ran red first:
+      build_apps 124, puppet.test, machost 45/45 (a stalled pipe read
+      fixed). Orchestrator: build_apps 124 passed, WebKit machost and
+      spoken 72/72 with a relative scenario root (the fix for it
+      verified), check clean.)
 - [x] The player (item 4). Tests: unit tests; the `spoken` scenario file
       on Chrome and WebKit.
       (2026-11-15: render/voiceclient.ts speaks the voice protocol

@@ -17,6 +17,11 @@
 // The first window is the game's first graphic's size and shape (baked
 // into Info.plist by build_apps.py), scaled down to fit the screen; after
 // that the reader's size and place are kept.
+//
+// It offers spoken lines (docs/plan.md Phase 52): one VoiceEngine
+// (../VoiceEngine.swift), passed to the bridge, downloads the voice install
+// into the machine's shared voice folder when the page asks and runs the
+// voice helper, which the binary carries; it stops the helper at quit.
 
 import AppKit
 import WebKit
@@ -53,6 +58,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     var window: KineticWindow!
     var webView: WKWebView!
     var bridge: KineticHostBridge!
+    /// Spoken lines: the voice folder, the download and the helper.
+    let voice = VoiceEngine()
     var titleObservation: NSKeyValueObservation?
     /// From the moment the window starts into fullscreen until it is a
     /// window again: its frame then is not the reader's to keep.
@@ -77,7 +84,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         let config = KineticWebView.configuration(storage: .persistent)
         // The page's Exit and Fullscreen / Window (the Esc screen).
         bridge = KineticHostBridge(
-            kind: "mac-app", display: remembered,
+            kind: "mac-app", display: remembered, voice: voice,
             onQuit: { NSApp.terminate(nil) },
             onDisplay: { [weak self] mode in self?.show(mode) })
         bridge.install(on: config.userContentController)
@@ -221,6 +228,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     }
 
     func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool { true }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        voice.shutdown()
+    }
 
     // A crashed page would leave the window black; the player resumes where
     // the reader was.

@@ -15,7 +15,12 @@
 // message the page sends becomes a hostmessage line, and `hostDisplay` sets
 // the host's display mode as the reader's green button would, so the page
 // gets its `kinetic-host` event. Without it the page runs as in a browser
-// tab, which may ask to close itself (a windowclose line).
+// tab, which may ask to close itself (a windowclose line). With `voice:
+// true` the bridge also gets the game app's own voice host (VoiceEngine in
+// ../VoiceEngine.swift), set up from the environment the driver was
+// started with (KINETIC_VOICE_DIR and the other test overrides), and the
+// page speaks to it exactly as in the app; the helper stops when the
+// driver quits.
 //
 // Started with `--require-gesture-for-audio` (test only), sound waits for a
 // key or click as in Safari; the game app needs none. The page is always
@@ -211,6 +216,7 @@ final class Driver: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKScr
     var chooserFiles: [URL]?
     var pendingChooser: (([URL]?) -> Void)?
     var bridge: KineticHostBridge?
+    var voice: VoiceEngine?
 
     // MARK: placement
 
@@ -342,6 +348,10 @@ final class Driver: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKScr
         }
     }
 
+    func applicationWillTerminate(_ notification: Notification) {
+        voice?.shutdown()
+    }
+
     // MARK: requests
 
     func reply(_ id: Any, _ result: Result<Any, Error>) {
@@ -416,8 +426,9 @@ final class Driver: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKScr
                 reply(id, .failure(DriverError(description: "host: already installed, or a bad display")))
                 return
             }
+            if r["voice"] as? Bool == true { voice = VoiceEngine(settings: .environment()) }
             let recorder = KineticHostBridge(
-                kind: r["kind"] as? String ?? "mac-app", display: display,
+                kind: r["kind"] as? String ?? "mac-app", display: display, voice: voice,
                 onQuit: { emit(["event": "hostmessage", "message": ["type": "quit"]]) },
                 onDisplay: { emit(["event": "hostmessage", "message": ["type": "display", "mode": $0.rawValue]]) })
             recorder.install(on: webView.configuration.userContentController)

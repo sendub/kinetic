@@ -86,6 +86,18 @@ enum KineticWebView {
     }
 }
 
+/// What the bridge needs of a host that offers spoken lines (docs/plan.md
+/// Phase 52; VoiceEngine.swift is the one both hosts use). The bridge
+/// hands it each `{ type: "voice", op, ... }` message from the game's own
+/// page and sets `deliver`, through which it sends the page its events.
+/// Both run on the main thread.
+protocol KineticVoiceHost: AnyObject {
+    /// Sends one event to the page (`window.__kineticVoice(event)`).
+    var deliver: (([String: Any]) -> Void)? { get set }
+    /// One voice message from the main frame.
+    func receive(_ message: [String: Any])
+}
+
 /// The macOS side of the page-to-host protocol (docs/plan.md Phase 43 item
 /// 9; apps/README.md). A user script at document start gives the page
 /// `window.kineticHost = { kind, display, send(message) }`; `send` posts to
@@ -96,12 +108,20 @@ enum KineticWebView {
 /// gets a `kinetic-host` event. The user script is swapped on every change,
 /// so a reload starts with the mode in force.
 ///
+/// With a voice host the object also has `voice: true`, and
+/// `{ type: "voice", ... }` messages go to it; its events reach the page as
+/// `window.__kineticVoice(event)`. The page defines that function when it
+/// starts: an event that finds none is dropped, except the latest status,
+/// which is kept and sent before the page's next voice message is handled.
+///
 /// Both hosts install this: the game app with closures that quit and switch
 /// its window, the scenario suite's driver with ones that record.
 final class KineticHostBridge: NSObject, WKScriptMessageHandler {
     static let handlerName = "kineticHost"
     /// Where the user script keeps its setter (not enumerable).
     static let setterName = "__kineticHostSetDisplay"
+    /// The page's function for voice events, which the page defines.
+    static let voiceReceiver = "__kineticVoice"
 
     enum Display: String {
         case fullscreen
@@ -112,14 +132,23 @@ final class KineticHostBridge: NSObject, WKScriptMessageHandler {
     private(set) var display: Display
     private let onQuit: () -> Void
     private let onDisplay: (Display) -> Void
+    private let voice: KineticVoiceHost?
     private weak var controller: WKUserContentController?
     private var script: WKUserScript?
+    /// The web view whose page last sent a voice message: where voice
+    /// events go.
+    private weak var voiceView: WKWebView?
+    /// The latest status event the page had no receiver for yet.
+    private var heldStatus: [String: Any]?
+    /// Counts the status events sent, so only the latest is ever held.
+    private var statusCount = 0
 
-    init(kind: String, display: Display, onQuit: @escaping () -> Void,
-         onDisplay: @escaping (Display) -> Void)
+    init(kind: String, display: Display, voice: KineticVoiceHost? = nil,
+         onQuit: @escaping () -> Void, onDisplay: @escaping (Display) -> Void)
     {
         self.kind = kind
         self.display = display
+        self.voice = voice
         self.onQuit = onQuit
         self.onDisplay = onDisplay
     }
@@ -133,6 +162,7 @@ final class KineticHostBridge: NSObject, WKScriptMessageHandler {
         let fresh = makeScript()
         controller.addUserScript(fresh)
         script = fresh
+        voice?.deliver = { [weak self] event in self?.deliverVoice(event) }
     }
 
     /// Records `display` as the mode now and tells the page, if it differs.
@@ -161,20 +191,57 @@ final class KineticHostBridge: NSObject, WKScriptMessageHandler {
             onQuit()
         case "display":
             if let mode = (body["mode"] as? String).flatMap(Display.init(rawValue:)) { onDisplay(mode) }
+        case "voice":
+            guard let voice else { return }
+            voiceView = message.webView
+            if let held = heldStatus {
+                heldStatus = nil
+                deliverVoice(held)
+            }
+            voice.receive(body)
         default:
             break
         }
     }
 
+    /// Calls the page's voice receiver with `event`; a status that finds
+    /// none is held for the page's next voice message, anything else is
+    /// dropped (it answers a request of a page that is gone).
+    private func deliverVoice(_ event: [String: Any]) {
+        let isStatus = event["event"] as? String == "status"
+        guard let webView = voiceView else {
+            if isStatus { heldStatus = event }
+            return
+        }
+        if isStatus {
+            heldStatus = nil
+            statusCount += 1
+        }
+        let sent = statusCount
+        let call = """
+            if (typeof window.\(Self.voiceReceiver) !== "function") return false;
+            window.\(Self.voiceReceiver)(event);
+            return true;
+            """
+        webView.callAsyncJavaScript(call, arguments: ["event": event], in: nil, in: .page) { [weak self] result in
+            // A receiver that throws still received the event.
+            guard let self, isStatus, sent == self.statusCount,
+                case .success(let value) = result, (value as? Bool) == false
+            else { return }
+            self.heldStatus = event
+        }
+    }
+
     /// The user script for the mode now.
     private func makeScript() -> WKUserScript {
+        let voiceField = voice == nil ? "" : " voice: true,"
         let source = """
             (() => {
               const handler = window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.\(Self.handlerName);
               if (!handler || window.kineticHost) return;
               let display = \(Self.literal(display.rawValue));
               const host = Object.freeze({
-                kind: \(Self.literal(kind)),
+                kind: \(Self.literal(kind)),\(voiceField)
                 get display() { return display; },
                 send(message) { handler.postMessage(message); },
               });
