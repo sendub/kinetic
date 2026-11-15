@@ -3,7 +3,8 @@
 // files from servedir, so only rebuilds are incremental. To develop against
 // content, copy the demo fixture's files into dist/ — its manifest.js wins
 // over the stub, which is only written when none is present. The bundle
-// options, the license notice included, are the build's (scripts/bundle.mjs).
+// options, the version stamp, its constant and the license notice included,
+// are the build's (scripts/bundle.mjs).
 import esbuild from "esbuild";
 import { BUNDLE_OPTIONS, stageBundleFiles } from "./bundle.mjs";
 

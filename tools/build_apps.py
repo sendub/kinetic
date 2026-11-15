@@ -41,7 +41,12 @@ who ships the apps as built owes nothing more: the Mac app as
 `NSHumanReadableCopyright`, the exe as its version resource's
 `LegalCopyright` and RT_RCDATA resource 1. The exe also links the Go
 runtime, so RT_RCDATA resource 2 is Go's BSD-3-Clause notice, the LICENSE
-of the toolchain that builds it (`go env GOROOT`).
+of the toolchain that builds it (`go env GOROOT`). Each also records the
+Kinetic version that built it (the repo's VERSION): the Info.plist's
+`KineticVersion` and the version resource's `KineticVersion` string; the
+numeric `CFBundleShortVersionString` and FileVersion stay 1.0.
+
+`--version` prints `Kinetic <version>` and exits.
 
 An app or exe this script built before under the same name is replaced;
 each is built in a temporary folder beside the game folder and moved
@@ -85,6 +90,11 @@ from PIL import Image, ImageOps
 import windows_resources
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(REPO_ROOT / "converter") not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT / "converter"))
+from kinetic_extract.version import (add_version_option,  # noqa: E402
+                                     kinetic_version)
+
 # Kinetic's license (MIT), which every app carries.
 LICENSE = REPO_ROOT / "LICENSE"
 SCHEMA = REPO_ROOT / "docs" / "content-schema.json"
@@ -110,6 +120,11 @@ TITLE_KEY = "KineticTitle"
 # Info.plist key the app reads for its first window's size: the first
 # graphic's pixel size, {Width, Height} (apps/macos/app/main.swift).
 WINDOW_SIZE_KEY = "KineticWindowSize"
+# Info.plist key, and the exe's version resource string, naming the Kinetic
+# version that built the app (the repo's VERSION): the numeric
+# CFBundleShortVersionString and FileVersion stay APP_VERSION and
+# EXE_VERSION.
+KINETIC_VERSION_KEY = "KineticVersion"
 # EXIF orientations that turn a picture on its side (width and height swap).
 SIDEWAYS_ORIENTATIONS = {5, 6, 7, 8}
 APP_VERSION = "1.0"
@@ -433,6 +448,7 @@ def info_plist(ident: Identity,
         "LSMinimumSystemVersion": MAC_MINIMUM_SYSTEM,
         "NSHighResolutionCapable": True,
         "NSHumanReadableCopyright": kinetic_copyright(),
+        KINETIC_VERSION_KEY: kinetic_version(),
         TITLE_KEY: ident.title,
         **sized,
     }
@@ -579,7 +595,7 @@ def compile_windows(go: str, package: Path, exe: Path, ident: Identity,
 def exe_resources(square: Image.Image, ident: Identity, name: str,
                   go_notice: bytes) -> list[windows_resources.Resource]:
     """The exe's icon, its version resource (title, Kinetic's copyright,
-    file name, storyId), its application manifest, and the license texts:
+    file name, storyId, the Kinetic version that built it), its application manifest, and the license texts:
     Kinetic's and `go_notice`, Go's."""
     version = ".".join(str(part) for part in EXE_VERSION)
     return [
@@ -596,6 +612,7 @@ def exe_resources(square: Image.Image, ident: Identity, name: str,
             "ProductName": ident.title,
             "ProductVersion": version,
             EXE_STORY_KEY: ident.story_id,
+            KINETIC_VERSION_KEY: kinetic_version(),
         }, EXE_VERSION),
     ]
 
@@ -779,6 +796,7 @@ def main(argv: list[str]) -> int:
                         help="the apps' icon (PNG, JPEG, WebP, GIF or JPEG "
                              "XL, cut to a centred square); default: the "
                              "game's first graphic")
+    add_version_option(parser)
     args = parser.parse_args(argv)
     if not (args.mac or args.windows):
         parser.print_usage(sys.stderr)

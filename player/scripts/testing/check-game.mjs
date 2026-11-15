@@ -9,6 +9,13 @@
 //
 //   node player/scripts/testing/check-game.mjs <folder> [--engine webkit|chrome|auto]
 //       [--steps N|all] [--start-at ID] [--until ID] [--no-media-check]
+//   node player/scripts/testing/check-game.mjs --version
+//
+// The first line names the engine, the folder and the folder's player
+// version, read from its app.js's stamp (`webkit: <folder> (Kinetic
+// 1.8.0)`; `Kinetic unknown` for a player built before the stamp).
+// --version prints this checkout's Kinetic version (`Kinetic <VERSION>`)
+// and exits 0, opening nothing.
 //
 // --steps N    presses at most N times (default 10); `all` presses until the
 //              story ends, giving up (exit 1) after twice the manifest's
@@ -69,9 +76,11 @@
 // over 3.
 import { resolve } from "node:path";
 import { performance } from "node:perf_hooks";
+import { KINETIC_VERSION } from "../version.mjs";
 import { openGame, readManifestFile, summary } from "./kinetic.mjs";
 import {
   exitCode,
+  headerLine,
   mediaCheckLine,
   mediaSummaryLine,
   readArgs,
@@ -99,6 +108,10 @@ const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
 const say = (line) => console.error(`check-game: ${line}`);
 
 const args = readArgs(process.argv.slice(2));
+if (args.version) {
+  console.log(`Kinetic ${KINETIC_VERSION}`);
+  process.exit(0);
+}
 if (args.error !== undefined) {
   say(args.error);
   console.error(USAGE);
@@ -158,7 +171,7 @@ const walk = startWalk({
 });
 const heartbeat = setInterval(() => say(walk.heartbeat()), HEARTBEAT_MS);
 try {
-  console.log(`${game.engine}: ${game.folder}`);
+  console.log(headerLine(game.engine, game.folder, game.kineticVersion));
   let last = null;
   try {
     for (;;) {

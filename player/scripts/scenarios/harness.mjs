@@ -11,6 +11,7 @@ import {
   mkdirSync,
   readFileSync,
   rmSync,
+  writeFileSync,
 } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -932,6 +933,25 @@ if (!(engine in ENGINES)) {
   );
 }
 export const onWebKit = engine === "webkit";
+
+/** The repo's VERSION: the Kinetic version the built player is stamped with. */
+export const kineticVersion = readFileSync(
+  join(repoRoot, "VERSION"),
+  "utf8",
+).trim();
+
+/**
+ * Takes the version stamp, app.js's first line (scripts/version.mjs), out
+ * of the folder `dir`'s app.js: a player built before the stamp.
+ */
+export function removeVersionStamp(dir) {
+  const file = join(dir, "app.js");
+  const code = readFileSync(file, "utf8");
+  if (!code.startsWith("/*! Kinetic ")) {
+    throw new Error(`${file} does not open with the version stamp`);
+  }
+  writeFileSync(file, code.slice(code.indexOf("\n") + 1));
+}
 
 /** The demo manifest, read from fixtures/demo: ids, texts and order. */
 export const manifest = JSON.parse(

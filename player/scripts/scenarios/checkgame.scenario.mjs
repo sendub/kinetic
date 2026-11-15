@@ -58,6 +58,11 @@
 //   the steps come on its last line; on one with a segment item appended
 //   as the manifest's last item, the walk steps all three and ends with
 //   `story ended at step N`, N the step of the last view.
+// - The folder's player version (docs/plan.md Phase 51, item 2): the first
+//   line is `<engine>: <folder> (Kinetic <VERSION>)` on the demo and
+//   `(Kinetic unknown)` on a copy whose app.js has no version stamp (an
+//   older player), which still walks, exit 0; `--version` prints `Kinetic
+//   <VERSION>` and exits 0 with no browser started.
 
 import { execFile } from "node:child_process";
 import {
@@ -74,8 +79,10 @@ import {
   demoDir,
   engine,
   item,
+  kineticVersion,
   manifest,
   playerDir,
+  removeVersionStamp,
   scenarioRoot,
 } from "./harness.mjs";
 
@@ -100,6 +107,7 @@ export const parts = [
   segmentsAlone,
   segmentsAfterLines,
   segmentsAtEnd,
+  playerVersion,
 ];
 
 const CHECK_GAME = join(playerDir, "scripts", "testing", "check-game.mjs");
@@ -420,6 +428,37 @@ async function startAndUntil({ check }) {
       endStep(missed.stdout) === 1 &&
       missed.stdout.includes(`\nnever reached ${first.id} (--until)\n`),
     evidence(missed),
+  );
+}
+
+async function playerVersion({ check }) {
+  const quick = ["--steps", "1", "--no-media-check"];
+  const current = await checkGame(demoDir, quick);
+  check(
+    "the first line names the folder's player version, the repo's VERSION",
+    current.code === 0 &&
+      lines(current.stdout)[0] ===
+        `${engine}: ${resolve(demoDir)} (Kinetic ${kineticVersion})`,
+    evidence(current),
+  );
+  const folder = demoCopy("checkgame-unstamped");
+  removeVersionStamp(folder);
+  const older = await checkGame(folder, quick);
+  check(
+    "on a copy whose app.js has no version stamp (an older player) it is `Kinetic unknown`, and the walk still passes",
+    older.code === 0 &&
+      lines(older.stdout)[0] ===
+        `${engine}: ${resolve(folder)} (Kinetic unknown)` &&
+      itemLines(older.stdout).length === 2,
+    evidence(older),
+  );
+  const asked = await checkGame(demoDir, ["--version"]);
+  check(
+    "--version prints `Kinetic <VERSION>` and exits 0, starting no browser",
+    asked.code === 0 &&
+      asked.stdout === `Kinetic ${kineticVersion}\n` &&
+      asked.stderr === "",
+    evidence(asked),
   );
 }
 

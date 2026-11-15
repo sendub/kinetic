@@ -25,6 +25,10 @@
 // missing picture, an undecodable picture and an undecodable video passed
 // mid-walk each give one errors() line, and a page's console.warn is in
 // errors(), on both engines.
+//
+// The handle's kineticVersion (Phase 51, item 2) is the repo's VERSION on
+// the demo, and null on the older-player copy, whose app.js also lacks the
+// version stamp.
 
 import {
   cpSync,
@@ -44,8 +48,10 @@ import {
   emptyDir,
   engine,
   item,
+  kineticVersion,
   manifest,
   onWebKit,
+  removeVersionStamp,
   scenarioRoot,
 } from "./harness.mjs";
 
@@ -163,6 +169,11 @@ async function library({ check }) {
       viewport: VIEWPORT,
     });
     const start = await game.current();
+    check(
+      "the handle's kineticVersion is the folder's player version, the repo's VERSION",
+      game.kineticVersion === kineticVersion,
+      { kineticVersion: game.kineticVersion, VERSION: kineticVersion },
+    );
     check(
       "openGame opens the folder on the run's engine with the Esc screen closed, at the first item",
       game.engine === engine &&
@@ -646,10 +657,12 @@ async function stageItemFrames({ check }) {
 // before Phase 46 item 2, on the copy where two items share a line, with
 // no speaker and no picture of their own: only the player's saved place
 // tells them apart. A reopen starts the handle with nothing found yet,
-// which alone would pick the first.
+// which alone would pick the first. Its app.js has no version stamp either,
+// as a player built before Phase 51.
 async function olderPlayer({ check }) {
   const folder = twinsCopy("creator-older-twins");
   addPageScript(folder, "no-data-item.js", NO_DATA_ITEM);
+  removeVersionStamp(folder);
   const twinOf = item("video-chain-3");
   const twin = item("chain-still-3");
   const profile = join(scenarioRoot, "profiles", "creator-older-twins");
@@ -662,6 +675,11 @@ async function olderPlayer({ check }) {
   };
   try {
     const walk = await open();
+    check(
+      "the handle's kineticVersion is null for an older player, its app.js without the version stamp",
+      walk.kineticVersion === null,
+      { kineticVersion: walk.kineticVersion },
+    );
     const stage = await walk.page.evaluate(() => {
       const el = document.getElementById("stage");
       return el === null ? null : el.hasAttribute("data-item");

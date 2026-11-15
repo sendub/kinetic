@@ -83,6 +83,7 @@ from .parser import ID_MAX, FileParse, Report, parse_project, slug
 from .rpa import AssetArchives
 from .selftest import ensure_ready
 from .timeline import TimelineResult, build_timeline
+from .version import add_version_option
 
 SIMPLIFICATIONS = [
     "multiple .rpy files are processed in filename order and concatenated",
@@ -520,6 +521,7 @@ def main(argv: list[str] | None = None) -> int:
                            "bytes of every media source before format "
                            "detection; returns bytes, or None for "
                            "unchanged; repeatable, chained in order")
+    add_version_option(argp)
     args = argp.parse_args(argv)
     projects: list[Path] = args.renpy_project
     several = len(projects) > 1

@@ -106,6 +106,7 @@ from .ship import (LEDGER_NAME, LedgerError, ListError, check_same_tools,
                    delete_posters, load_ledger, merge_decoders,
                    merge_requests, read_list, request_records,
                    request_result, unreferenced_posters)
+from .version import add_version_option
 
 PROG = "kinetic-media"
 
@@ -354,6 +355,7 @@ def _add_limits(parser: argparse.ArgumentParser) -> None:
 def main(argv: list[str] | None = None) -> int:
     argp = argparse.ArgumentParser(
         prog=PROG, description="Kinetic media work without a story parse.")
+    add_version_option(argp)
     sub = argp.add_subparsers(dest="command", required=True)
     shipp = sub.add_parser(
         "ship", help="convert a list of sources into content-addressed "

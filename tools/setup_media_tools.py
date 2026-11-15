@@ -45,6 +45,7 @@ sys.path.insert(0, str(REPO_ROOT / "converter"))
 
 from kinetic_extract import media_tools, selftest  # noqa: E402
 from kinetic_extract.media_tools import MediaToolsError  # noqa: E402
+from kinetic_extract.version import add_version_option  # noqa: E402
 
 Fetch = Callable[[str, Path], None]
 Log = Callable[[str], None]
@@ -296,6 +297,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     argp.add_argument("--force", action="store_true",
                       help="re-download even when the pinned archives are "
                            "already installed")
+    add_version_option(argp)
     return argp.parse_args(argv)
 
 

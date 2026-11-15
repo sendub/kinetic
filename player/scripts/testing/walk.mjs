@@ -16,7 +16,14 @@ export const STUCK_MS = 2000;
 const NEVER_SHOWN_NAMED = 10;
 
 export const USAGE =
-  "usage: node check-game.mjs <game-folder> [--engine webkit|chrome|auto] [--steps N|all] [--start-at ID] [--until ID] [--no-media-check]";
+  "usage: node check-game.mjs <game-folder> [--engine webkit|chrome|auto] [--steps N|all] [--start-at ID] [--until ID] [--no-media-check]\n       node check-game.mjs --version";
+
+/**
+ * check-game's first line: the engine, the folder and the folder's player
+ * version (`version`, null for an older player's app.js with no stamp).
+ */
+export const headerLine = (engine, folder, version) =>
+  `${engine}: ${folder} (Kinetic ${version ?? "unknown"})`;
 
 /**
  * The presses `--steps all` makes at most: twice the manifest's item count
@@ -57,10 +64,12 @@ const screenKey = (now) =>
 /**
  * check-game.mjs's command line: `{ folder, engine, steps, startAt, until,
  * mediaCheck }` (`steps` a whole number or "all", default 10; `mediaCheck`
- * false for `--no-media-check`), or `{ error }` for anything else (exit 2
- * with USAGE).
+ * false for `--no-media-check`), `{ version: true }` when `--version` is
+ * anywhere on it (print Kinetic's version, nothing else), or `{ error }`
+ * for anything else (exit 2 with USAGE).
  */
 export function readArgs(argv) {
+  if (argv.includes("--version")) return { version: true };
   const options = {
     engine: "auto",
     steps: "10",

@@ -53,6 +53,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT / "converter") not in sys.path:
     sys.path.insert(0, str(REPO_ROOT / "converter"))
 from kinetic_extract import audio_format  # noqa: E402
+from kinetic_extract.version import add_version_option  # noqa: E402
 BUNDLE_NAMES = ("index.html", "app.js")
 MANIFEST_NAME = "manifest.json"
 SHIM_NAME = "manifest.js"
@@ -161,6 +162,7 @@ def main(argv: list[str]) -> None:
                         help="then add <title>.exe (tools/build_apps.py)")
     parser.add_argument("--icon", type=Path, metavar="IMAGE",
                         help="the apps' icon (tools/build_apps.py --icon)")
+    add_version_option(parser)
     args = parser.parse_args(argv[1:])
 
     content = Path(args.content_dir)

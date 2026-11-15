@@ -38,6 +38,8 @@ import build_apps  # noqa: E402
 import windows_resources  # noqa: E402
 
 LICENSE = (REPO_ROOT / "LICENSE").read_bytes()
+# The Kinetic version that builds the apps, which each records.
+KINETIC_VERSION = (REPO_ROOT / "VERSION").read_text(encoding="utf-8").strip()
 COPYRIGHT = "Made with Kinetic, Copyright (c) 2026 Sendu Bala, MIT License"
 # A stand-in for the Go toolchain's LICENSE (BSD-3-Clause).
 GO_LICENSE = (b"Copyright 2009 The Go Authors.\n\nRedistribution and use in "
@@ -309,6 +311,7 @@ def test_info_plist_contents() -> None:
         "LSMinimumSystemVersion": "12.0",
         "NSHighResolutionCapable": True,
         "NSHumanReadableCopyright": COPYRIGHT,
+        "KineticVersion": KINETIC_VERSION,
         "KineticTitle": "Rainy Day",
     }
 
@@ -470,6 +473,9 @@ def test_build_writes_the_bundle_with_the_default_icon(tmp_path, capsys,
     # Kinetic's notice travels inside the app.
     assert info["NSHumanReadableCopyright"] == COPYRIGHT
     assert (app / "Contents" / "Resources" / "LICENSE").read_bytes() == LICENSE
+    # So does the Kinetic version that built it, beside the numeric one.
+    assert info["KineticVersion"] == KINETIC_VERSION
+    assert info["CFBundleShortVersionString"] == "1.0"
     # The first window: the first graphic's pixel size (make_game's 64x48).
     assert info["KineticWindowSize"] == {"Width": 64, "Height": 48}
     assert_green(icns_pixels(app / "Contents" / "Resources" / "AppIcon.icns")
@@ -612,6 +618,9 @@ def test_real_build_on_this_mac(tmp_path) -> None:
     notice = run("plutil", "-extract", "NSHumanReadableCopyright", "raw", "-o",
                  "-", str(app / "Contents" / "Info.plist"))
     assert notice.stdout.strip() == COPYRIGHT
+    built_by = run("plutil", "-extract", "KineticVersion", "raw", "-o", "-",
+                   str(app / "Contents" / "Info.plist"))
+    assert built_by.stdout.strip() == KINETIC_VERSION
     assert run("xcrun", "lipo", "-archs", str(binary)).stdout.split() == ["arm64"]
     assert "minos 12.0" in run("xcrun", "vtool", "-show-build", str(binary)).stdout
     # A string only apps/macos/WebViewSetup.swift holds: the shared setup
@@ -902,6 +911,8 @@ def test_windows_flag_builds_the_exe_with_the_default_icon(
     assert tree[windows_resources.RT_RCDATA, 2, LANG] == GO_LICENSE
     _, strings, _ = version_info(tree[windows_resources.RT_VERSION, 1, LANG])
     assert strings["LegalCopyright"] == COPYRIGHT
+    assert strings["KineticVersion"] == KINETIC_VERSION
+    assert strings["FileVersion"] == "1.0.0.0"
     out = capsys.readouterr().out
     assert f"built {exe}" in out and "first.png" in out
     assert "first window 64x48" in out
@@ -1271,7 +1282,8 @@ def test_the_exe_resources() -> None:
     assert strings == {"FileDescription": "Rainy Day", "FileVersion": "1.0.0.0",
                        "LegalCopyright": COPYRIGHT,
                        "OriginalFilename": "Rainy Day.exe", "ProductName": "Rainy Day",
-                       "ProductVersion": "1.0.0.0", "KineticStoryId": "rainy-day"}
+                       "ProductVersion": "1.0.0.0", "KineticStoryId": "rainy-day",
+                       "KineticVersion": KINETIC_VERSION}
     assert_dpi_manifest(tree[24, 1, LANG])
     # RT_RCDATA 1: Kinetic's MIT text; 2: Go's BSD-3-Clause text.
     assert tree[10, 1, LANG] == LICENSE
@@ -1378,6 +1390,7 @@ def test_real_windows_build(tmp_path) -> None:
     assert strings["FileDescription"] == strings["ProductName"] == "Rainy Day: Two?"
     assert strings["OriginalFilename"] == exe.name
     assert strings["LegalCopyright"] == COPYRIGHT
+    assert strings["KineticVersion"] == KINETIC_VERSION
     assert build_apps.read_exe_story(exe) == "rainy-day"
 
 

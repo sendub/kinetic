@@ -83,6 +83,7 @@ DEFAULT_SCHEMA = REPO_ROOT / "docs" / "content-schema.json"
 if str(REPO_ROOT / "converter") not in sys.path:
     sys.path.insert(0, str(REPO_ROOT / "converter"))
 from kinetic_extract import audio_format  # noqa: E402
+from kinetic_extract.version import add_version_option  # noqa: E402
 
 MANIFEST_NAME = "manifest.json"
 SHIM_NAME = "manifest.js"
@@ -1559,6 +1560,7 @@ def main(argv: list[str] | None = None) -> int:
                              "exit status, about video items whose poster "
                              "this build or media ledger does not record as "
                              "made at the item's startSeconds")
+    add_version_option(parser)
     args = parser.parse_args(argv)
 
     if not args.content_dir.is_dir():

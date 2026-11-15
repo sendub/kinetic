@@ -3,10 +3,15 @@
 // end, a stuck player, the `--steps all` cap, `--until`, the summary and
 // the exit code. The scenario checkgame.scenario.mjs runs the CLI itself
 // on copies of the demo, on both engines.
+import { execFile } from "node:child_process";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
   capFor,
   exitCode,
+  headerLine,
   mediaCheckLine,
   mediaSummaryLine,
   readArgs,
@@ -435,6 +440,18 @@ describe("the heartbeat", () => {
 });
 
 describe("readArgs", () => {
+  it("reads --version anywhere on the line, ahead of anything wrong with the rest", () => {
+    for (const argv of [
+      ["--version"],
+      ["game", "--version"],
+      ["--version", "game", "--steps", "x"],
+      ["--engine", "safari", "--version"],
+    ]) {
+      expect(readArgs(argv), JSON.stringify(argv)).toEqual({ version: true });
+    }
+    expect(USAGE).toContain("node check-game.mjs --version");
+  });
+
   it("reads the folder and every option, --steps defaulting to 10", () => {
     expect(readArgs(["game"])).toEqual({
       folder: "game",
@@ -498,6 +515,45 @@ describe("readArgs", () => {
       ["game", "other"],
     ]) {
       expect(readArgs(argv), JSON.stringify(argv)).toHaveProperty("error");
+    }
+  });
+});
+
+describe("headerLine", () => {
+  it("names the engine, the folder and the folder's player version, unknown for an older player", () => {
+    expect(headerLine("webkit", "/games/demo", "1.8.0-dev")).toBe(
+      "webkit: /games/demo (Kinetic 1.8.0-dev)",
+    );
+    expect(headerLine("chrome", "/games/old", null)).toBe(
+      "chrome: /games/old (Kinetic unknown)",
+    );
+  });
+});
+
+describe("check-game.mjs --version", () => {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const version = readFileSync(resolve(here, "../../../VERSION"), "utf8");
+
+  it("prints `Kinetic <VERSION>` and exits 0, opening nothing", async () => {
+    const scratch = resolve(here, "../../../.tmp");
+    mkdirSync(scratch, { recursive: true });
+    const cwd = mkdtempSync(join(scratch, "check-game-version-"));
+    try {
+      const run = await new Promise((done) => {
+        execFile(
+          process.execPath,
+          [join(here, "check-game.mjs"), "--version"],
+          { cwd },
+          (error, stdout, stderr) => done({ error, stdout, stderr }),
+        );
+      });
+      expect(run).toEqual({
+        error: null,
+        stdout: `Kinetic ${version.trim()}\n`,
+        stderr: "",
+      });
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
     }
   });
 });

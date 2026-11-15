@@ -26,6 +26,14 @@ are implementing and docs/stack.md for settled decisions.
   passed. Tests
   `.venv/bin/pytest converter/ tools/ -q -n auto` (pytest-xdist, one
   worker per core, about 45 s; a single file runs fine without `-n`).
+- `--version` on `kinetic-extract`, `kinetic-media`, `tools/`
+  `validate_content.py`, `assemble_folder.py`, `build_apps.py` and
+  `setup_media_tools.py`, and `check-game.mjs` prints `Kinetic
+  <VERSION>` and exits, needing no media tools. A built
+  `app.js` opens with `/*! Kinetic <version> */`; read a folder's with
+  `kinetic_extract.version.folder_player_version` (Python) or
+  `folderKineticVersion` in `player/scripts/version.mjs` (null/None for
+  an older player).
 - Game apps: `.venv/bin/python tools/build_apps.py <game-folder> [--mac]
   [--windows] [--icon IMAGE]` adds `<title>.app` (needs macOS and a
   Swift toolchain) and `<title>.exe` (needs Go 1.27 or later, any OS;
@@ -158,6 +166,16 @@ orchestrator does not implement items inline.
 Unscheduled features, requested or maybe, are entries in docs/future.md.
 When the user schedules one, settle its "To settle" list with them, plan
 it as a docs/plan.md phase, and remove its entry.
+
+Versions: `VERSION` at the repo root is Kinetic's version; `version` in
+`player/package.json` (and its lockfile) and `converter/pyproject.toml`
+(PEP 440: `1.8.0-dev` is `1.8.0.dev0`) agree with it, which
+`tools/test_release_version.py` enforces. Each phase's planning commit
+sets the next `X.Y.Z-dev`. Its closing commit sets the release number
+(patch: fixes only; minor: a feature or a new optional manifest field;
+major: a change that stops existing folders or saves working, the only
+time `schemaVersion` moves), dates the CHANGELOG entry, tags `vX.Y.Z`
+and fast-forwards `main`.
 
 ## Git
 

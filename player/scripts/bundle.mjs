@@ -3,12 +3,15 @@
 // later by packaging (docs/plan.md Phase 12), which copies the bundle into a
 // content folder — that folder ships its own manifest.js, so the stub is
 // only ever written where no manifest.js exists. app.js and index.html open
-// with Kinetic's MIT notice, read from the repo's LICENSE, so every folder
-// that ships them carries it.
+// with Kinetic's version (the repo's VERSION, stamped as version.mjs says)
+// and its MIT notice, read from the repo's LICENSE, so every folder that
+// ships them carries both; the player reads the version as a compile-time
+// constant.
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import esbuild from "esbuild";
+import { KINETIC_VERSION, stampLine, VERSION_DEFINE } from "./version.mjs";
 
 /** Kinetic's license: the repo's LICENSE file, whole. */
 export const LICENSE_TEXT = readFileSync(
@@ -19,15 +22,17 @@ export const LICENSE_TEXT = readFileSync(
 /**
  * The esbuild options the build and dev scripts share. The player is opened
  * over file://, which blocks ES modules (see docs/stack.md), so the output
- * format is fixed as iife; the notice goes on as a banner, which esbuild
- * writes whatever `legalComments` says.
+ * format is fixed as iife; the version stamp and the notice go on as a
+ * banner, which esbuild writes whatever `legalComments` says, the stamp
+ * first; `define` gives src/version.ts the version.
  */
 export const BUNDLE_OPTIONS = {
   entryPoints: ["src/main.ts"],
   bundle: true,
   format: "iife",
   target: "es2020",
-  banner: { js: `/*!\n${LICENSE_TEXT}*/` },
+  define: VERSION_DEFINE,
+  banner: { js: `${stampLine(KINETIC_VERSION)}\n/*!\n${LICENSE_TEXT}*/` },
 };
 
 /** A real, valid, empty manifest: the player shows its no-content state. */
@@ -59,9 +64,9 @@ export async function buildBundle(outDir) {
 }
 
 /**
- * Writes index.html with the notice as a comment after its doctype (which
- * stays first, so no engine reads the page in quirks mode), and supplies a
- * manifest.js if the directory has none.
+ * Writes index.html with the version and the notice as comments after its
+ * doctype (which stays first, so no engine reads the page in quirks mode),
+ * and supplies a manifest.js if the directory has none.
  */
 export function stageBundleFiles(destDir) {
   mkdirSync(destDir, { recursive: true });
@@ -71,7 +76,7 @@ export function stageBundleFiles(destDir) {
   }
   writeFileSync(
     join(destDir, "index.html"),
-    `${DOCTYPE}<!--\n${LICENSE_TEXT}-->\n${page.slice(DOCTYPE.length)}`,
+    `${DOCTYPE}<!-- Kinetic ${KINETIC_VERSION} -->\n<!--\n${LICENSE_TEXT}-->\n${page.slice(DOCTYPE.length)}`,
   );
   return ensureManifestStub(destDir);
 }

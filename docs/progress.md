@@ -4246,9 +4246,32 @@ truthful: an unchecked box means nothing was accepted.
       checkgame and creator (which edit index.html) 64/64, pytest
       test_build_apps and test_assemble_folder 128 passed; dist/app.js
       and dist/index.html read.)
-- [ ] Kinetic's version stamped (item 2). Tests: the agreement test, the
+- [x] Kinetic's version stamped (item 2). Tests: the agreement test, the
       stamp, each `--version`, check-game naming the folder's player
       version and `unknown` for an unstamped `app.js`.
+      (2026-11-15: root VERSION `1.8.0-dev`; package.json and its lockfile
+      `1.8.0-dev`, pyproject `1.8.0.dev0`; tools/test_release_version.py
+      enforces the agreement. app.js opens `/*! Kinetic <version> */`
+      before the license banner, index.html has `<!-- Kinetic <version>
+      -->` after the doctype; the build refuses a VERSION not `X.Y.Z` or
+      `X.Y.Z-dev`. The player reads `KINETIC_VERSION` (src/version.ts,
+      esbuild `define`, vitest.config.mjs gives tests the same). Readers:
+      player/scripts/version.mjs `folderKineticVersion`, converter
+      kinetic_extract/version.py `folder_player_version` (it reads the
+      repo's VERSION, so no reinstall after an edit). `--version` on
+      kinetic-extract, kinetic-media, validate_content, assemble_folder,
+      build_apps, setup_media_tools and check-game (before the media-tools
+      check). check-game's first line `<engine>: <folder> (Kinetic X)` or
+      `(Kinetic unknown)`; `game.kineticVersion`. Mac Info.plist and exe
+      version resource `KineticVersion`. AGENTS.md: the version rules and
+      the readers. Kept on purpose: the converter's `__version__` 0.1.0,
+      which feeds the ledger's `mediaTools` and so the media cache key and
+      rebuild's ledger check; moving it would empty every cache and
+      refuse existing ledgers at each release. Tests ran red first apart
+      from version.test.mjs and the scenario checks. Orchestrator: npm
+      test 1360, check clean, all seven `--version` print `Kinetic
+      1.8.0-dev` exit 0, Chrome checkgame and creator 69/69, pytest on the
+      six touched files 442 passed; dist/app.js and index.html read.)
 - [ ] The game's version in the format (item 3). Tests: validator and
       extractor cases; the demo still validates.
 - [ ] The versions on the Esc screen (item 4). Tests: help.test.ts; a

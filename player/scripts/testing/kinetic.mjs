@@ -25,6 +25,7 @@ import {
 import { platform } from "node:os";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { folderKineticVersion } from "../version.mjs";
 import { DriverBuildError, ensureDriver } from "../webkit/build.mjs";
 import {
   CHOICE_CLOSED,
@@ -965,7 +966,10 @@ export function countChecked(previous, open) {
  * `could not decode`, `not readable` or `a symbolic link out of the
  * folder` (failedLoadReason, in core.mjs);
  * after a fast walk, await the handle's checkMedia() first. The handle's
- * current() reports the game's sound as `audio` (readAudio).
+ * current() reports the game's sound as `audio` (readAudio). The handle's
+ * `kineticVersion` is the folder's player version, read from its app.js's
+ * stamp on disk (folderKineticVersion, scripts/version.mjs): null for a
+ * player built before the stamp.
  * Resolves with the game handle (CREATE.md, "Testing your game").
  */
 export async function openGame(folder, options = {}) {
@@ -1057,6 +1061,7 @@ export async function openGame(folder, options = {}) {
       {
         engine: chosen,
         folder: dir,
+        kineticVersion: folderKineticVersion(dir),
         url,
         close,
       },
