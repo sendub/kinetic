@@ -4155,7 +4155,10 @@ truthful: an unchecked box means nothing was accepted.
       fileend, media, segments, navigation, checkgame, menus Chrome
       149/149, WebKit 148 and 1 fail at load average 44, then 149/149 on
       a rerun.)
-- [ ] Docs (item 4): content-format.md, verify-player.md, CREATE.md if
+- [ ] A segment stepped to from a held end plays from its start (item 4).
+      Tests: red first where it can be shown, a unit test and a scenario
+      part on both engines.
+- [ ] Docs (item 5): content-format.md, verify-player.md, CREATE.md if
       an author's rule changes; every example run.
 - [ ] Phase-closer (Phase 50): full pytest, the full `npm run verify`
       and `npm run verify -- --webkit`, package-proof.
