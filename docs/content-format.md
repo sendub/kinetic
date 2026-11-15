@@ -233,12 +233,24 @@ at least 0, default 0) and `endSeconds` (number greater than
 are stored as exact fractional seconds; the schema, the validator, and
 the player never round them. Playback duration is `endSeconds -
 startSeconds`, and the media gate and skip dwell use the range rather
-than the file's duration, as Timing describes. `ended` is emitted when
-playback reaches `endSeconds`, via a `timeupdate` clamp, not at the
-file's true end. The player seeks to `startSeconds` when the item is
-entered, clamps playback to `[startSeconds, endSeconds]`, and loops by
-seeking back to `startSeconds` when a pass completes; `loop=true`
-would seek to 0, which is wrong for a range.
+than the file's duration, as Timing describes. A pass ends when
+playback reaches `endSeconds`, not at the file's true end. The player
+seeks to `startSeconds` when the item is entered, clamps playback to
+`[startSeconds, endSeconds]`, and loops by seeking back when a pass
+completes. No video uses the element's own `loop`, which would seek to
+0, wrong for a range, and which WebKit holds at a Matroska or WebM
+file's end.
+
+A range whose end lies past the start of the file's last frame has no
+frame at its end, so its pass ends at the file's end: `endSeconds`
+absent or equal to `durationSeconds`, and also, for example, one float
+step below `durationSeconds`. The file's end is whichever comes first of
+the last frame having shown for one frame interval, a `timeupdate` at
+the end while the video plays on (up to about 0.25 s late in WebKit),
+and the element's `ended`; the player handles each end once. WebKit
+sends `ended` only at a Matroska or WebM file's first end, so no loop
+waits for it. A range that runs to the file's end need not set
+`endSeconds` to exactly `durationSeconds`.
 
 `loopStartSeconds` (number, at least 0, default `startSeconds`) is the
 loop restart point: the first pass runs from `startSeconds` to
@@ -249,8 +261,10 @@ pass from `startSeconds`. `loopStartSeconds` below `startSeconds` is
 legal (a loop may include pre-roll the first pass skipped); above it
 is the common case. The validator requires it to be less than the
 effective end, `endSeconds` or `durationSeconds` when there is no
-`endSeconds`, so a later pass always has length. The poster is
-unaffected: it stays the frame at `startSeconds`.
+`endSeconds`, so a later pass always has length. A chain and a
+`holdSeconds` video loop the same way, from `loopStartSeconds`, whose
+default falls back to 0 when `startSeconds` is absent too. The poster
+is unaffected: it stays the frame at `startSeconds`.
 
 The gate follows the passes rather than the range times `loopCount`:
 `firstPass + (loops - 1) * loopPass`, where `firstPass = endSeconds -
@@ -281,7 +295,8 @@ Honest caveat: browser `seek` lands on the nearest keyframe, so the
 first frame shown after `startSeconds` may be an earlier keyframe;
 frame-exact start accuracy depends on the browser and is not
 guaranteed. What is guaranteed is that playback stays within the range
-and its `ended` fires at `endSeconds`.
+and its pass ends at `endSeconds`, or at the file's end for a range
+that runs there.
 
 ### Video segments
 
@@ -332,8 +347,10 @@ segment.
 When the active segment changes, the video seeks once to its
 `startSeconds`, plays to its `endSeconds`, then loops
 `loopStartSeconds`..`endSeconds` until the next step, counting no
-passes. A `videoSound` (Audio) follows it: the sound plays the segment
-and loops with it. A menu's pause and resume keep the active segment.
+passes. A segment ending past the start of the file's last frame loops
+at the file's end, as a range does (Video playback ranges). A
+`videoSound` (Audio) follows it: the sound plays the segment and loops
+with it. A menu's pause and resume keep the active segment.
 
 Right and Left work on the same item, under the same conditions as
 Space's step, and do nothing anywhere else: not in auto-forward or
@@ -626,18 +643,25 @@ content:
   time and text hold time, so the loops complete before the item
   advances on its own.
 - A video's media gate is `holdSeconds` when present: the hold is
-  time driven only, `ended` is ignored, and the video plays as
-  background. Otherwise auto-advance fires at the later of the
-  `loopCount`-th `ended` event and the time bound from Video
-  playback ranges, `firstPass + (loopCount - 1) * loopPass`, which
-  without `loopStartSeconds` is `(endSeconds - startSeconds) *
-  loopCount`, and without a range `durationSeconds * loopCount`.
-  `ended` is emitted when playback reaches `endSeconds`, via a
-  `timeupdate` clamp, not the file's true end. The text hold always
-  applies alongside the gate.
+  time driven only, its pass ends are ignored, and the video plays as
+  background. Otherwise auto-advance fires at the later of the end of
+  the `loopCount`-th pass and the time bound from Video playback
+  ranges, `firstPass + (loopCount - 1) * loopPass`, which without
+  `loopStartSeconds` is `(endSeconds - startSeconds) * loopCount`, and
+  without a range `durationSeconds * loopCount`. A pass ends at
+  `endSeconds` or at the file's end, as Video playback ranges
+  describes. The text hold always applies alongside the gate.
+- After its last counted pass a video holds paused where that pass
+  ended, at `endSeconds` or the file's end, until the item is left or a
+  segment step plays it again. The Esc screen and the branch map pause
+  a playing video, and closing them resumes it from where it stood; a
+  held video stays held. If the browser refuses to play a counted
+  video, the player reports every pass it still owes, so auto-forward
+  does not wait for ends that cannot come; a play cut short by a menu
+  opening is not a refusal.
 - A media item followed by `text` items, and the `text` items after
   it, form a chain. The chain advances on text hold times alone. Loop
-  completion and the `ended` event gate nothing while it lasts, and
+  completion and pass ends gate nothing while it lasts, and
   the chain's visual plays throughout it, looping in place.
 - A video's `minPlaySeconds` is a floor on leaving its chain. When
   the current item is the last of that chain (the next item is not
@@ -678,7 +702,7 @@ content:
   lands on loops on, as the chain rule says. A `nav` arrival shows the
   stills above while the cursor is below the seen edge; at the edge it
   plays. Skip shows stills either way.
-- Because a rewound still never plays, it reports no `ended`: with the
+- Because a rewound still never plays, it reports no pass ends: with the
   cursor below the seen frontier on a `nav` arrival - a wheel step, a
   bookmark or `e` landing, a restore - the video gate is the time bound
   alone, the same pass-summed duration, and auto-advance fires when it
@@ -688,7 +712,7 @@ content:
   equals that replay, so auto pacing matches playback whether or not the
   element managed to play. At the seen frontier a freshly entered
   video - including one arrived at by navigation - does replay its range
-  and counted passes from `startSeconds`, and the `ended` condition
+  and counted passes from `startSeconds`, and the pass-end condition
   stays in force there (docs/plan.md Phase 16).
 
 ## Audio

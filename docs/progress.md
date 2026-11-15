@@ -4198,7 +4198,21 @@ truthful: an unchecked box means nothing was accepted.
       videosound, media, segments Chrome 128/128, WebKit 136 and 2
       videosound timing fails beside 4 other files at load average 7,
       then videosound alone 31/31 in 3 runs.)
-- [ ] Docs (item 6): content-format.md, verify-player.md, CREATE.md if
+- [x] Docs (item 6): content-format.md, verify-player.md, CREATE.md if
       an author's rule changes; every example run.
+      (2026-11-15: content-format.md "Video playback ranges" (no
+      `timeupdate` clamp or `loop=true`; a range ending past the start of
+      the last frame ends at the file's end, the three signals, each end
+      once, WebKit's single `ended`; chains and background videos loop
+      from `loopStartSeconds`), "Video segments" (a last segment loops at
+      the file's end), "Timing" (pass ends instead of `ended`; a new
+      bullet: a held video stays held through the Esc screen and the
+      map, a refusal reports the owed passes, a play a menu cut short is
+      not one). CREATE.md: the range and segment paragraphs say an end
+      past the last frame's start loops at the file's end.
+      verify-player.md: the `fileend` row (24 parts) and the `media`
+      row's changes. No command changed; tools/test_validate_content.py
+      268 passed. Orchestrator: read the diff against visual.ts, ASCII,
+      no game named.)
 - [ ] Phase-closer (Phase 50): full pytest, the full `npm run verify`
       and `npm run verify -- --webkit`, package-proof.

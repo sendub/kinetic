@@ -153,14 +153,16 @@ never a requirement; a folder you author by hand may stay flat. A folder may als
 carry extra unreferenced files, such as the converter's build ledger; the
 player and the validator ignore them.
 
-A video item may play a sub-range of its file: `startSeconds` (at
-least 0, default 0) and `endSeconds` (greater than `startSeconds`,
-default `durationSeconds`). Both are exact fractional seconds, never
-rounded; playback runs to `endSeconds` and its `ended` fires at the
-range end. Several items may reference the same file at different
-ranges, so one clip can serve several beats. To count in frames
-instead, store `startFrame / fps` and `endFrame / fps` as the
-seconds; the player never sees frame numbers.
+A video item may play a sub-range of its file: `startSeconds` (at least
+0, default 0) and `endSeconds` (greater than `startSeconds`, default
+`durationSeconds`). Both are exact fractional seconds, never rounded;
+each pass of the video ends at `endSeconds`. A range that runs to the
+file's end can leave `endSeconds` out, and any value past the start of
+the file's last frame also ends each pass at the file's end, so a time a
+float step below `durationSeconds` still loops. Several items may
+reference the same file at different ranges, so one clip can serve
+several beats. To count in frames instead, store `startFrame / fps` and
+`endFrame / fps` as the seconds; the player never sees frame numbers.
 
 A looping video may restart its later passes somewhere else:
 `loopStartSeconds` (at least 0, default `startSeconds`) is where
@@ -185,8 +187,10 @@ video.
 `loopStartSeconds` optional and no other keys. A view plays once from
 its `startSeconds` to its `endSeconds`, then loops from its
 `loopStartSeconds` (default its `startSeconds`) to its `endSeconds`
-until the next step. Only a `video` item takes `segments`. The validator
-checks:
+until the next step. A last view whose `endSeconds` lies past the start
+of the file's last frame (`durationSeconds`, or a float step below it)
+loops at the file's end, as a range does. Only a `video` item takes
+`segments`. The validator checks:
 
 - the list is not empty;
 - each `startSeconds` is at least 0;
