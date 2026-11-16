@@ -3538,6 +3538,30 @@ The orchestrator's choices, within those decisions:
 Tests and fixtures: synthetic text only, and the reference clips are
 designed voices, not anyone's recording.
 
+## Phase 53: Docs after 1.9.0 (2026-11-16, user)
+
+Three docs released in 1.9.0 still describe spoken lines on Windows as
+still to come, though the Windows program has them (Phase 52, item 12):
+CREATE.md, "Giving characters voices" ("The Windows program is getting
+the same sheet ... Until it ships"), README.md's feature list ("in the
+Mac app (the Windows program is next)") and docs/packaging.md ("needs the
+Mac app today (the Windows program is next)"). The user asked for them to
+be fixed. Docs only, so this phase closes as the patch release 1.9.1.
+
+1. Windows spoken lines in the docs. Those three places, and any other
+   user-facing doc found saying the same (a grep of the Markdown for
+   wording that puts Windows spoken lines in the future, or that says
+   only the reader's Mac generates lines), describe the shipped
+   behaviour: the Mac app (Apple silicon, macOS 14 or later, about
+   3.3 GB) and the Windows program (an NVIDIA card with driver 570.65 or
+   later, about 6.8 GB) both offer the download; elsewhere the button is
+   greyed out and its ? says why; a browser plays unrecorded voices
+   silently. docs/progress.md and the plan's history stay as written.
+   Tests: none (Markdown only); the full pytest at the close covers the
+   tests that read the docs.
+2. Phase-closer: full suites; VERSION 1.9.1, the CHANGELOG dated, tag,
+   `main` fast-forwarded.
+
 ## Sequencing
 
 1 -> 2 -> 2b -> 3 -> 4 -> 5 -> 6 -> 7 -> 7b -> 8 -> 9 -> 9b -> 9c -> 9d ->

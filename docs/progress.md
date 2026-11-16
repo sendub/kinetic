@@ -4766,3 +4766,11 @@ truthful: an unchecked box means nothing was accepted.
       sliders by content, Windows) and dated; VERSION, package.json,
       its lockfile and pyproject 1.9.0; tag v1.9.0; `main`
       fast-forwarded.)
+
+## Phase 53: Docs after 1.9.0 (2026-11-16, user)
+
+- [ ] Windows spoken lines in the docs (docs/plan.md Phase 53, item 1).
+      CREATE.md, README.md, docs/packaging.md and any other user-facing
+      doc stop describing Windows spoken lines as still to come.
+- [ ] Phase-closer (Phase 53): full suites; VERSION 1.9.1, the CHANGELOG
+      dated, tag v1.9.1, `main` fast-forwarded.
