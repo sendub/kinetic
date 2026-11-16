@@ -2,7 +2,7 @@
 
 What we learned in November 2026 about giving every line of a Kinetic
 game a generated voice, and the decisions now in force. docs/plan.md
-Phase 52 builds it, the Mac app first; the Windows app is in progress.
+Phase 52 built it, in the Mac app and the Windows program (1.9.0).
 The first round of research (Fish and Zonos, 2026-11-15) is kept at the
 end, under "Earlier research".
 

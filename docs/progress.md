@@ -4772,5 +4772,17 @@ truthful: an unchecked box means nothing was accepted.
 - [ ] Windows spoken lines in the docs (docs/plan.md Phase 53, item 1).
       CREATE.md, README.md, docs/packaging.md and any other user-facing
       doc stop describing Windows spoken lines as still to come.
+      (2026-11-16: CREATE.md "Giving characters voices" speaks of the Mac
+      app and the Windows program, gives both download sizes and both
+      voice folders, and the Windows bullet says what it needs instead of
+      "is getting the same sheet ... Until it ships"; the browser line is
+      its own bullet; "Hearing it" names either app. README.md's feature
+      bullet and docs/packaging.md give both apps' requirements and
+      sizes. docs/voice-reading.md's opening says Phase 52 built it in
+      both apps (1.9.0). Greps over README.md, CREATE.md, apps/README.md,
+      docs/*.md (not progress or plan) and fixtures/voices/README.md for
+      Windows-later and Mac-only wording find no other case. The
+      orchestrator rewrapped the edited paragraphs to 80 columns; no
+      dash or curly-quote characters added; `npm run check` clean.)
 - [ ] Phase-closer (Phase 53): full suites; VERSION 1.9.1, the CHANGELOG
       dated, tag v1.9.1, `main` fast-forwarded.

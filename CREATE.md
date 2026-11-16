@@ -1266,29 +1266,29 @@ text alone while its animation or video loops underneath, and each
 
 The folder can also hold a macOS app and a Windows program that readers
 open instead of `index.html` (Building the apps, below). A game with
-character voices speaks its lines in the Mac app (Giving characters
-voices, below).
+character voices speaks its lines in the Mac app and the Windows program
+(Giving characters voices, below).
 
 ## Giving characters voices
 
 A game can speak its lines. Each character gets a voice, and the reader's
-Mac generates every line in that voice while they read, a few lines ahead
-of the one on screen. The voices belong to the game folder; the speech
-model does not. It stays on the reader's machine, in a folder the Kinetic
-app fills the first time the reader asks for spoken lines. A game with no
-voices plays and validates as before.
+computer (a Mac or a Windows PC) generates every line in that voice while they
+read, a few lines ahead of the one on screen. The voices belong to the game
+folder; the speech model does not. It stays on the reader's machine, in a folder
+the Kinetic app fills the first time the reader asks for spoken lines. A game
+with no voices plays and validates as before.
 
-What the reader sees, in the Mac app:
+What the reader sees, in the Mac app and the Windows program:
 
-- The Esc screen's **Volumes...** sheet has a **Voice** row for a game that
-  has recorded voice lines or lines the model would speak. Where lines need
-  the model, the sheet shows **Download voice model** with its size, about
-  3.3 GB, in place of the Voice slider, followed by a small **?** that
-  explains the download on hover or keyboard focus. While it downloads the
-  sheet shows progress with a Cancel button, and an error with a Retry
-  button. Once the model is installed the Voice slider takes its place,
-  with a small **Remove voice model** beside the label; Remove frees the
-  space and asks first.
+- The Esc screen's **Volumes...** sheet has a **Voice** row for a game that has
+  recorded voice lines or lines the model would speak. Where lines need the
+  model, the sheet shows **Download voice model** with its size (about 3.3 GB on
+  a Mac, 6.8 GB on Windows), in place of the Voice slider, followed by a small
+  **?** that explains the download on hover or keyboard focus. While it
+  downloads the sheet shows progress with a Cancel button, and an error with a
+  Retry button. Once the model is installed the Voice slider takes its place,
+  with a small **Remove voice model** beside the label; Remove frees the space
+  and asks first.
 - There is no on/off switch for spoken lines. The Voice volume controls
   them: at 0 no line is generated, and raised again the line on screen is
   asked for again. Each line plays through the Voice volume,
@@ -1303,13 +1303,14 @@ What the reader sees, in the Mac app:
 - The download needs a Mac with Apple silicon and macOS 14 or later. On
   an older Mac, or an Intel one, the download button is greyed out and its
   ? says why.
-- The Windows program is getting the same sheet, for a PC with an NVIDIA
-  card (driver 570.65 or later); on any other PC the download button is
-  greyed out and its ? says why. Until it ships, and in a browser, a game
-  with voices but no recorded lines plays silently.
+- On Windows the download needs a PC with an NVIDIA card (driver 570.65
+  or later); on any other PC the download button is greyed out and its ?
+  says why.
+- In a browser, a game with voices but no recorded lines plays silently.
 
-The model installs once per Mac, in
-`~/Library/Application Support/Kinetic/Voice/`, and every Kinetic game on
+The model installs once per computer, in
+`~/Library/Application Support/Kinetic/Voice/` on a Mac and
+`%LOCALAPPDATA%\Kinetic\Voice\` on Windows, and every Kinetic game on
 the machine shares it (apps/README.md, "Spoken lines").
 
 ### The manifest
@@ -1472,11 +1473,11 @@ their scripts go in.
 
 ### Hearing it
 
-Assemble the folder and add the Mac app as usual (Building the apps,
-below), open the app, press Esc and open Volumes...: the Voice row offers
-the download. `fixtures/voice-demo`, built by `.venv/bin/python
-fixtures/build_voice_demo.py`, is a small worked game with two characters
-and a narrator whose clips came from this tool.
+Assemble the folder and add the Mac app or the Windows program as usual
+(Building the apps, below), open the app, press Esc and open Volumes...: the
+Voice row offers the download. `fixtures/voice-demo`, built by `.venv/bin/python
+fixtures/build_voice_demo.py`, is a small worked game with two characters and a
+narrator whose clips came from this tool.
 
 ## Building the apps
 

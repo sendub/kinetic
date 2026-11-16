@@ -142,11 +142,11 @@ player keeps each track it plays decoded, 23 MB a minute in stereo at
   (README.md, "Playing"). The macOS app plays sound at launch. The
   Windows exe asks WebView2 to do the same, which is not verified on
   Windows.
-- Generated speech needs the Mac app today (the Windows program is next)
-  and a one-time download of about 3.3 GB per machine (on Windows, 6.8 GB,
-  and only with an NVIDIA card), which a reader starts in the Esc screen's
-  Volumes box. In a browser, a game with voices and no recorded lines
-  plays silently.
+- Generated speech needs the Mac app (Apple silicon, macOS 14 or later) or the
+  Windows program (an NVIDIA card, driver 570.65 or later) and a one-time
+  download of about 3.3 GB on a Mac or 6.8 GB on Windows, shared by every
+  Kinetic game on the machine, which a reader starts in the Esc screen's Volumes
+  box. In a browser, a game with voices and no recorded lines plays silently.
 - Videos always play muted: a video's own sound ships as a separate audio
   track, its item's `videoSound` (docs/content-format.md, "Audio").
 - Ogg tracks (`.ogg`, `.oga`, `.opus`) pass the validator with a warning:
