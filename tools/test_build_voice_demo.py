@@ -48,6 +48,8 @@ DESCRIPTIONS = {
             "friendly voice.",
     "Helen": "An older British woman in her sixties with a warm, low, "
              "unhurried voice.",
+    "Radio": "A brisk, crisp male radio newsreader in his thirties with a "
+             "formal, clear broadcast voice.",
 }
 
 SCRIPT = re.compile(rb'__kineticAudio\("([^"\\]*)","([A-Za-z0-9+/]*={0,2})"'
@@ -167,7 +169,7 @@ def test_narration_before_between_and_after_the_exchange(
 
 def test_voices_and_narrator(manifest: dict) -> None:
     voices = manifest["voices"]
-    assert set(voices) == {"Wren", "Helen"}
+    assert set(voices) == {"Wren", "Helen", "Radio"}
     for name, voice in voices.items():
         assert voice == {"file": f"voices/{name.lower()}.flac",
                          "text": PHRASE,
@@ -190,17 +192,18 @@ def test_every_voice_file_and_script_is_there(built: Path,
         assert base64.b64decode(found.group(2), validate=True) == data
 
 
-@pytest.mark.parametrize("name", ["wren", "helen", "narrator"])
+@pytest.mark.parametrize("name", ["wren", "helen", "radio", "narrator"])
 def test_committed_clips_are_24k_mono_flac(name: str) -> None:
     data = (VOICES_DIR / f"{name}.flac").read_bytes()
     assert flac_format(data) == (24000, 1)
 
 
-def test_a_voiceless_speaker_has_a_line(manifest: dict) -> None:
+def test_every_speaker_has_a_voice_and_the_radio_a_line(
+        manifest: dict) -> None:
     voiced = set(manifest["voices"])
     speakers = {item["speaker"] for item in lines(manifest)
                 if item.get("speaker")}
-    assert speakers - voiced == {"Radio"}
+    assert speakers == voiced == {"Wren", "Helen", "Radio"}
 
 
 def test_wren_has_one_thought(manifest: dict) -> None:

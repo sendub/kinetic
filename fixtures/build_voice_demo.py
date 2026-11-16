@@ -13,7 +13,7 @@ Unlike the other demos this is a short story, not a guided tour
 (docs/plan.md Phase 52, item 6): a stranded traveller, Wren, reaches a
 lighthouse cottage in a storm and meets Helen. It shows spoken lines:
 
-- `voices` for Wren and Helen and a `narrator`, each a reference clip
+- `voices` for Wren, Helen and the Radio and a `narrator`, each a reference clip
   designed with Qwen3-TTS VoiceDesign (fixtures/voices/README.md),
   copied byte for byte from fixtures/voices/ into `voices/` with its
   `.js` script beside it, as tools/cast_voices.py's `pick` ships one;
@@ -21,7 +21,8 @@ lighthouse cottage in a storm and meets Helen. It shows spoken lines:
   word, Wren and Helen in turn;
 - narration (lines with no speaker) before, between and after;
 - a thought of Wren's (`thought: true`), spoken in her voice;
-- a line from a speaker with no voice, the radio, which stays silent.
+- a line from the radio, a fourth voice, a newsreader's bulletin heard
+  in the kitchen.
 
 It has no `audio` section, so it is also a voices-only game: the player
 mounts sound for the voices alone.
@@ -68,6 +69,9 @@ CAST = {
     NARRATOR: ("narrator.flac",
                "A calm, warm middle-aged male narrator with a clear, "
                "measured voice."),
+    "Radio": ("radio.flac",
+              "A brisk, crisp male radio newsreader in his thirties with a "
+              "formal, clear broadcast voice."),
 }
 
 # --------------------------------------------------------------------------

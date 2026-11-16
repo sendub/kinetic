@@ -4666,6 +4666,14 @@ truthful: an unchecked box means nothing was accepted.
       over SSH.
 - [ ] Recorded lines (item 13). Tests: the recorder with a fake engine; a
       real recording of the voice demo played in Chrome and WebKit.
-- [ ] The radio's voice (item 14). Tests: test_build_voice_demo.py.
+- [x] The radio's voice (item 14). Tests: test_build_voice_demo.py.
+      (2026-11-16: `cast_voices.py design --takes 3` from "A brisk, crisp
+      male radio newsreader in his thirties with a formal, clear broadcast
+      voice."; every take read the phrase under Whisper; take 3 picked,
+      the only one in a male range (139 Hz against 225 and 197 Hz, the
+      narrator 96 Hz). fixtures/voices/radio.flac (mono FLAC, 24 kHz,
+      10.64 s), its README row; Radio in the demo's CAST; the demo test
+      now asserts every speaker has a voice. Two builds byte-identical.
+      Orchestrator: test_build_voice_demo 17 passed, the clip probed.)
 - [ ] Phase-closer (Phase 52): full suites; VERSION 1.9.0, the CHANGELOG
       dated, tag v1.9.0, `main` fast-forwarded.
