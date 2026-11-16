@@ -4954,8 +4954,26 @@ truthful: an unchecked box means nothing was accepted.
       npm run check clean. Deviation: a language file may carry
       `$schema`, as a manifest may. Per-language voice lines are left to
       item 6.)
-- [ ] The player's words in a catalogue, English only (item 2), with
-      a pseudo-locale scenario over every screen.
+- [x] The player's words in a catalogue, English only (item 2), with
+      a pseudo-locale scenario over every screen. (Evidence:
+      `player/src/i18n/`: `en.ts` the source, 177 messages (5 plurals by
+      CLDR category), `t()`, `setUiLanguage` with every mounted
+      component redrawing through `localized`, `<html lang>` set in one
+      place for item 5's `dir`; PO files under `player/locales/`
+      compiled by `npm run i18n` (also run by `npm run build`) into the
+      committed `locales.generated.ts` and `messages.pot`, a staleness
+      test in `npm test`; our own PO reader with tests, no new
+      dependency. Test-only pseudo-locale `en-XA` via
+      `window.KINETIC_TEST_LOCALE`; the `catalogue` scenario (7 parts)
+      fails on any player text outside the markers or overflowing or
+      clipped. It found two overflows, fixed in index.html with the
+      English look unchanged (switch width a minimum; the voice
+      download button may wrap). Manifest diagnostics and host-supplied
+      voice messages stay English (item 7 takes the host's). Verified
+      by the orchestrator: npm test 1589/1589, check clean; `verify --
+      catalogue` 135/135 Chrome and WebKit; full Chrome `verify`
+      909/909; WebKit smoke 6/6; WebKit screens 121 + the 2 baseline
+      Keyboard Lock partials.)
 - [ ] Choosing and showing a game's language (item 3): the title-bar
       Language control, system-language start, fallback per string,
       `lang`/`dir` per string, reading time per language.

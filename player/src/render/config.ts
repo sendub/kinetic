@@ -42,6 +42,7 @@
 // closes it (docs/plan.md Phase 24): one outside the controls (backdrop) is
 // inert, and the slider and the file picker count as controls.
 
+import { formatNumber, localized, t } from "../i18n/catalogue.ts";
 import type { MachineSettings } from "../machine/types";
 import { wordingFor } from "./wording.ts";
 
@@ -65,74 +66,50 @@ export function stepSpeed(current: number, delta: number): number {
  * The readout at the row's right (smaller than the row's label): the
  * multiplier and, in parentheses, the approximate milliseconds per code
  * point it gives (base `msPerChar` / speed) — the hold rule of
- * docs/content-format.md, "Timing", in one line: `1.00x (~60 ms/char)`.
+ * docs/content-format.md, "Timing", in one line: `1.00x (~60 ms/char)`,
+ * its numbers written for the UI language.
  */
 export function speedLabel(readingSpeed: number, msPerChar: number): string {
-  const perChar = Math.round(msPerChar / readingSpeed);
-  return `${readingSpeed.toFixed(2)}x (~${String(perChar)} ms/char)`;
+  return t("config.speed.readout", {
+    speed: formatNumber(readingSpeed, {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+      useGrouping: false,
+    }),
+    ms: Math.round(msPerChar / readingSpeed),
+  });
 }
 
 /**
- * The skip options' heading and labels (docs/plan.md Phase 18): two options
- * of how Tab skips, not switches that start a skip.
+ * The words of the settings (docs/plan.md Phases 13, 18, 21, 22, 24, 26,
+ * 43, 47) are the catalogue's `config.*` messages (../i18n/en.ts): the
+ * skip options under "When Tab skips", two options of how Tab skips, not
+ * switches that start a skip; the Progress heading's line, "Progress ·
+ * saved automatically"; the speed row named for auto-forward, which it
+ * paces (the stored setting keeps its `readingSpeed` key); the tips
+ * behind the "?"s; and the pills an export or an unreadable import file
+ * shows (no file name: the browser or app may rename it).
  */
-export const SKIP_SECTION = "When Tab skips";
-export const SKIP_ALL_TEXT = "Skip unseen content too";
-export const SKIP_VIDEOS_TEXT = "Play videos in full";
-/** The heading over Export / Import / Reset progress (Phase 21). */
-export const PROGRESS_SECTION = "Progress";
-/**
- * What the heading's line adds after its name (Phase 22's note, cut to
- * one line in Phase 43 item 12): saving needs no action.
- */
-export const PROGRESS_SAVED = "saved automatically";
-/** The heading's line as read: "Progress · saved automatically". */
-export const PROGRESS_HEADING = `${PROGRESS_SECTION} · ${PROGRESS_SAVED}`;
-/** The Play all routes switch's label (Phase 13). */
-export const PLAY_ALL_TEXT = "Play all routes";
-/**
- * The tip behind Play all routes' "?" (Phase 43 item 12): what turning it
- * On does, so it reads true in either position (Phase 22).
- */
-export const PLAY_ALL_TIP = "When on, choices pick themselves on a countdown.";
 
-/** Export done (the pill): no file name, as the browser or app may rename it. */
-export const EXPORT_DONE_NOTICE = "Progress exported";
-/** Import refused: the picked file could not be read at all. */
-export const IMPORT_UNREADABLE_NOTICE = "That file could not be read.";
-
-/** The section's heading on the Esc screen (Phase 26). */
-export const SETTINGS_TITLE = "Settings";
-
-/**
- * The speed row's label (Phase 24): the speed paces auto-forward (`a`), so
- * it is named for it. The stored setting keeps its `readingSpeed` key.
- */
-export const SPEED_LABEL = "Auto-forward speed";
-/** The tip behind the speed label's "?": the other thing the speed paces. */
-export const SPEED_TIP = "Also times play-all's choice countdown.";
+/** A switch's text state, mirroring its aria-pressed value. */
+function onOff(on: boolean): string {
+  return on ? t("config.on") : t("config.off");
+}
 
 /** The skip-all switch's text state, mirroring its aria-pressed value. */
 export function skipAllLabel(skipAll: boolean): string {
-  return skipAll ? "On" : "Off";
+  return onOff(skipAll);
 }
 
 /** The skip-plays-videos switch's text state, same two states (Phase 18). */
 export function skipVideosLabel(skipPlaysVideos: boolean): string {
-  return skipPlaysVideos ? "On" : "Off";
+  return onOff(skipPlaysVideos);
 }
 
 /** The play-all-routes switch's text state, same two states (Phase 13). */
 export function playAllLabel(playAllRoutes: boolean): string {
-  return playAllRoutes ? "On" : "Off";
+  return onOff(playAllRoutes);
 }
-
-/**
- * The Sound row's label (docs/plan.md Phase 47 item 7): its switch is the
- * `soundOn` setting `v` turns, and its Volumes... button opens the sheet
- * (render/volumes.ts).
- */
-export const SOUND_TEXT = "Sound";
 
 /**
  * The state a "?" tip is in (`mountTip`): `idle` shows it only while the
@@ -162,13 +139,15 @@ export interface Tip {
   reset(): void;
   /** The tip's words, which the "?" and anything it describes read. */
   setText(text: string): void;
+  /** The "?"'s accessible name ("About ..."). */
+  setName(name: string): void;
   /** The tip's element id, for another control's `aria-describedby`. */
   readonly id: string;
 }
 
 /**
  * A "?" after a label (docs/plan.md Phase 43 item 12): a real button, named
- * `About <name>`, whose tip is in the DOM and is its description
+ * `name` ("About auto-forward speed"), whose tip is in the DOM and is its description
  * (aria-describedby), never a `title` (slow, unstyled, unreliable in
  * WKWebView and WebView2). index.html shows the tip on hover and on
  * keyboard focus, styled in the sheet's palette and kept inside the sheet.
@@ -191,7 +170,7 @@ export function mountTip(
   const button = doc.createElement("button");
   button.className = "config-tip";
   button.type = "button";
-  button.setAttribute("aria-label", `About ${name}`);
+  button.setAttribute("aria-label", name);
   button.setAttribute("data-config-action", `tip-${key}`);
   const body = doc.createElement("span");
   body.className = "config-tip-text";
@@ -211,6 +190,9 @@ export function mountTip(
     reset: () => set("idle"),
     setText: (next) => {
       body.textContent = next;
+    },
+    setName: (next) => {
+      button.setAttribute("aria-label", next);
     },
     id: body.id,
   };
@@ -308,16 +290,15 @@ export function mountConfigOverlay({
 
   const title = doc.createElement("h2");
   title.className = "config-title";
-  title.textContent = SETTINGS_TITLE;
 
   // The "?" tips, one shown at a time; every one idle again on open.
   const tips: Tip[] = [];
-  const tipFor = (key: string, name: string, text: string): HTMLElement => {
-    const tip = mountTip(doc, key, name, text, (opened) => {
+  const tipFor = (key: string): Tip => {
+    const tip = mountTip(doc, key, "", "", (opened) => {
       for (const other of tips) if (other !== opened) other.reset();
     });
     tips.push(tip);
-    return tip.element;
+    return tip;
   };
 
   // One group of the column (index.html's `.config-group`).
@@ -334,15 +315,11 @@ export function mountConfigOverlay({
   // else the speed paces, which used to be a line under the row.
   const speedLabelEl = doc.createElement("span");
   speedLabelEl.className = "config-label";
-  speedLabelEl.append(
-    SPEED_LABEL,
-    tipFor("speed", SPEED_LABEL.toLowerCase(), SPEED_TIP),
-  );
+  const speedTip = tipFor("speed");
   const speedDown = doc.createElement("button");
   speedDown.className = "config-step";
   speedDown.type = "button";
   speedDown.textContent = "−";
-  speedDown.setAttribute("aria-label", "Decrease auto-forward speed");
   speedDown.setAttribute("data-config-action", "speed-down");
   // The slider between the two buttons (docs/plan.md Phase 16): a native
   // range input, so the arrow keys and a drag both fire `input` and need no
@@ -355,7 +332,6 @@ export function mountConfigOverlay({
   speedSlider.min = String(SPEED_MIN);
   speedSlider.max = String(SPEED_MAX);
   speedSlider.step = String(SPEED_STEP);
-  speedSlider.setAttribute("aria-label", SPEED_LABEL);
   speedSlider.setAttribute("data-config-action", "speed-slider");
   const speedValue = doc.createElement("span");
   speedValue.className = "config-value config-speed-value";
@@ -363,19 +339,16 @@ export function mountConfigOverlay({
   speedUp.className = "config-step";
   speedUp.type = "button";
   speedUp.textContent = "+";
-  speedUp.setAttribute("aria-label", "Increase auto-forward speed");
   speedUp.setAttribute("data-config-action", "speed-up");
   speedRow.append(speedLabelEl, speedDown, speedSlider, speedUp, speedValue);
 
   const skipHeading = doc.createElement("p");
   skipHeading.className = "config-section";
-  skipHeading.textContent = SKIP_SECTION;
 
   const skipRow = doc.createElement("div");
   skipRow.className = "config-row config-option";
   const skipLabelEl = doc.createElement("span");
   skipLabelEl.className = "config-label";
-  skipLabelEl.textContent = SKIP_ALL_TEXT;
   const skipToggle = doc.createElement("button");
   skipToggle.className = "config-toggle config-skip-all";
   skipToggle.type = "button";
@@ -389,7 +362,6 @@ export function mountConfigOverlay({
   skipVideoRow.className = "config-row config-option";
   const skipVideoLabelEl = doc.createElement("span");
   skipVideoLabelEl.className = "config-label";
-  skipVideoLabelEl.textContent = SKIP_VIDEOS_TEXT;
   const skipVideoToggle = doc.createElement("button");
   skipVideoToggle.className = "config-toggle config-skip-videos";
   skipVideoToggle.type = "button";
@@ -405,10 +377,7 @@ export function mountConfigOverlay({
   playRow.className = "config-row";
   const playLabelEl = doc.createElement("span");
   playLabelEl.className = "config-label";
-  playLabelEl.append(
-    PLAY_ALL_TEXT,
-    tipFor("play-all", PLAY_ALL_TEXT.toLowerCase(), PLAY_ALL_TIP),
-  );
+  const playTip = tipFor("play-all");
   const playToggle = doc.createElement("button");
   playToggle.className = "config-toggle config-play-all";
   playToggle.type = "button";
@@ -423,19 +392,15 @@ export function mountConfigOverlay({
   soundRow.className = "config-row";
   const soundLabelEl = doc.createElement("span");
   soundLabelEl.className = "config-label";
-  soundLabelEl.textContent = SOUND_TEXT;
   const volumesButton = doc.createElement("button");
   volumesButton.className = "config-toggle config-volumes";
   volumesButton.type = "button";
-  volumesButton.textContent = "Volumes…";
-  volumesButton.setAttribute("aria-label", "Sound volumes");
   volumesButton.setAttribute("aria-haspopup", "dialog");
   volumesButton.setAttribute("data-config-action", "volumes");
   const soundToggle = doc.createElement("button");
   soundToggle.className = "config-toggle config-sound";
   soundToggle.type = "button";
   soundToggle.setAttribute("role", "switch");
-  soundToggle.setAttribute("aria-label", SOUND_TEXT);
   soundToggle.setAttribute("data-config-action", "sound");
   soundRow.append(soundLabelEl, volumesButton, soundToggle);
 
@@ -447,47 +412,33 @@ export function mountConfigOverlay({
   progressHeading.className = "config-section";
   const progressSaved = doc.createElement("span");
   progressSaved.className = "config-section-aside";
-  progressSaved.textContent = ` · ${PROGRESS_SAVED}`;
-  const progressTipEl = tipFor(
-    "progress",
-    "progress",
-    wordingFor(app()).progressTip,
-  );
-  const progressTip = tips[tips.length - 1];
-  progressHeading.append(PROGRESS_SECTION, progressSaved, progressTipEl);
+  const progressTip = tipFor("progress");
 
-  const actionRow = (
-    label: string,
-    text: string,
-    aria: string,
-    action: string,
-  ): HTMLElement => {
+  const actionRow = (action: string): HTMLElement => {
     const row = doc.createElement("div");
     row.className = "config-row config-option";
     const labelEl = doc.createElement("span");
     labelEl.className = "config-label";
-    labelEl.textContent = label;
     const button = doc.createElement("button");
     button.className = `config-toggle config-${action}`;
     button.type = "button";
-    button.textContent = text;
-    button.setAttribute("aria-label", aria);
     button.setAttribute("data-config-action", action);
     row.append(labelEl, button);
     return row;
   };
-  const exportRow = actionRow(
-    "Export progress",
-    "Export",
-    "Export this story's progress to a file",
-    "export-progress",
-  );
-  const importRow = actionRow(
-    "Import progress",
-    "Import…",
-    wordingFor(app()).importAria,
-    "import-progress",
-  );
+  /** An action row's words: its label, its button and the button's name. */
+  const labelRow = (
+    row: HTMLElement,
+    label: string,
+    text: string,
+    aria: string,
+  ): void => {
+    row.children[0].textContent = label;
+    row.children[1].textContent = text;
+    row.children[1].setAttribute("aria-label", aria);
+  };
+  const exportRow = actionRow("export-progress");
+  const importRow = actionRow("import-progress");
   const importButton = importRow.children[1] as HTMLElement;
   // The picker: a hidden file input the Import button clicks. Its own
   // (bubbling) click is marked a control, so it never reads as backdrop.
@@ -503,18 +454,8 @@ export function mountConfigOverlay({
   // nothing to clear" is simple and honest. Its control opens the
   // confirmation box (render/confirm.ts); the panel itself changes no
   // setting and clears nothing until the box confirms.
-  const resetRow = doc.createElement("div");
-  resetRow.className = "config-row config-option";
-  const resetLabelEl = doc.createElement("span");
-  resetLabelEl.className = "config-label";
-  resetLabelEl.textContent = "Reset progress";
-  const resetButton = doc.createElement("button");
-  resetButton.className = "config-toggle config-reset";
-  resetButton.type = "button";
-  resetButton.textContent = "Reset…";
-  resetButton.setAttribute("aria-label", "Reset all progress for this content");
-  resetButton.setAttribute("data-config-action", "reset-progress");
-  resetRow.append(resetLabelEl, resetButton);
+  const resetRow = actionRow("reset-progress");
+  resetRow.children[1].className = "config-toggle config-reset";
 
   panel.append(
     title,
@@ -528,6 +469,56 @@ export function mountConfigOverlay({
   // The values on show, kept so the next control click edits the whole
   // settings object; refreshed from the shell on every open.
   let current: MachineSettings = settings();
+
+  // The section's words, drawn again in each new UI language. The
+  // browser's or the app's (render/wording.ts) are the host's at the time;
+  // `paint` follows a host that arrives later.
+  localized(() => {
+    title.textContent = t("config.title");
+    const speedName = t("config.speed.label");
+    speedLabelEl.replaceChildren(speedName, speedTip.element);
+    speedTip.setName(t("config.speed.about"));
+    speedTip.setText(t("config.speed.tip"));
+    speedDown.setAttribute("aria-label", t("config.speed.decrease"));
+    speedSlider.setAttribute("aria-label", speedName);
+    speedUp.setAttribute("aria-label", t("config.speed.increase"));
+    skipHeading.textContent = t("config.skip.section", { tab: "Tab" });
+    skipLabelEl.textContent = t("config.skip.all");
+    skipVideoLabelEl.textContent = t("config.skip.videos");
+    playLabelEl.replaceChildren(t("config.playAll"), playTip.element);
+    playTip.setName(t("config.playAll.about"));
+    playTip.setText(t("config.playAll.tip"));
+    soundLabelEl.textContent = t("config.sound");
+    volumesButton.textContent = t("config.sound.volumes");
+    volumesButton.setAttribute("aria-label", t("config.sound.volumesAria"));
+    soundToggle.setAttribute("aria-label", t("config.sound"));
+    progressSaved.textContent = ` · ${t("config.progress.saved")}`;
+    progressHeading.replaceChildren(
+      t("config.progress.section"),
+      progressSaved,
+      progressTip.element,
+    );
+    progressTip.setName(t("config.progress.about"));
+    labelRow(
+      exportRow,
+      t("config.export.label"),
+      t("config.export.button"),
+      t("config.export.aria"),
+    );
+    labelRow(
+      importRow,
+      t("config.import.label"),
+      t("config.import.button"),
+      wordingFor(app()).importAria,
+    );
+    labelRow(
+      resetRow,
+      t("config.reset.label"),
+      t("config.reset.button"),
+      t("config.reset.aria"),
+    );
+    paint(current);
+  });
 
   function paint(next: MachineSettings): void {
     current = next;
@@ -543,7 +534,7 @@ export function mountConfigOverlay({
     skipVideoToggle.setAttribute("aria-pressed", String(next.skipPlaysVideos));
     playToggle.textContent = playAllLabel(next.playAllRoutes);
     playToggle.setAttribute("aria-pressed", String(next.playAllRoutes));
-    soundToggle.textContent = next.soundOn ? "On" : "Off";
+    soundToggle.textContent = onOff(next.soundOn);
     soundToggle.setAttribute("aria-pressed", String(next.soundOn));
   }
 
@@ -607,8 +598,6 @@ export function mountConfigOverlay({
   function close(): void {
     panel.hidden = true;
   }
-
-  paint(current);
 
   return {
     panel,

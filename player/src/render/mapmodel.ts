@@ -67,6 +67,7 @@
 // items, whatever the game's size. Cutting the strip into bands is linear
 // in what it draws, at any width.
 
+import { formatNumber, t } from "../i18n/catalogue.ts";
 import {
   joinsAtContinue,
   type ResolvedDecision,
@@ -415,17 +416,15 @@ interface Block {
   belowLeft: number;
 }
 
-function screensLabel(n: number): string {
-  return n === 1 ? "1 screen" : `${n} screens`;
-}
-
 /**
  * A stretch's count line: a compact stretch shows its screen count above
- * its line; one holding cards says it under them, with its bookmarks.
+ * its line; one holding cards says it under them, with its bookmarks, in
+ * the UI language (its length spaces the cards, so a new language lays the
+ * map out again: render/branchmap.ts).
  */
 export function countText(screens: number, bookmarks: number): string {
-  if (bookmarks === 0) return String(screens);
-  return `${screensLabel(screens)} · ${bookmarks === 1 ? "1 bookmark" : `${bookmarks} bookmarks`}`;
+  if (bookmarks === 0) return formatNumber(screens);
+  return `${t("map.count.screens", { count: screens })} · ${t("map.count.bookmarks", { count: bookmarks })}`;
 }
 
 /**
@@ -1790,9 +1789,10 @@ export function markMap(model: MapModel, reader: MapReader): MapMarks {
   };
 }
 
-/** The placeholders shown, with Spoilers off, for text the reader has not met. */
-export const HIDDEN_PROMPT = "Decision not reached";
-export const HIDDEN_ROUTE = "Unseen route";
+/**
+ * The placeholders shown, with Spoilers off, for text the reader has not
+ * met: the catalogue's `map.hidden.prompt` and `map.hidden.route`.
+ */
 
 /** A decision's question as the map may show it (full, untruncated). */
 export function promptText(
@@ -1800,7 +1800,7 @@ export function promptText(
   marks: MapMarks,
   decision: number,
 ): string {
-  if (marks.hidden[decision]) return HIDDEN_PROMPT;
+  if (marks.hidden[decision]) return t("map.hidden.prompt");
   return model.decisionAt[decision]?.prompt ?? "";
 }
 
@@ -1815,7 +1815,7 @@ export function routeText(
   key: number,
 ): string {
   const route = model.routes[key];
-  return marks.hidden[route.decision] ? HIDDEN_ROUTE : route.label;
+  return marks.hidden[route.decision] ? t("map.hidden.route") : route.label;
 }
 
 /** How far before a decision box the marker sits while its choice is up. */

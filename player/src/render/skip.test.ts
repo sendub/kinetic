@@ -11,12 +11,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createMachine } from "../machine/machine";
 import type { Branch, Item } from "../machine/types";
 import { DEFAULT_SETTINGS } from "../machine/types";
-import {
-  mountSkipAnnouncements,
-  SKIP_OFF_MESSAGE,
-  SKIP_ON_MESSAGE,
-  skipMessage,
-} from "./skip";
+import { mountSkipAnnouncements, skipMessage } from "./skip";
 
 function image(id: string): Item {
   return { id, type: "image", file: `${id}.jpg` };
@@ -62,8 +57,8 @@ function setup() {
   return { machine, shown, unmount };
 }
 
-const ON = [SKIP_ON_MESSAGE];
-const OFF = [SKIP_OFF_MESSAGE];
+const ON = ["Skip on"];
+const OFF = ["Skip off"];
 
 afterEach(() => {
   vi.useRealTimers();
@@ -71,10 +66,8 @@ afterEach(() => {
 
 describe("skipMessage", () => {
   it("names the skip mode the reader is now in", () => {
-    expect(SKIP_ON_MESSAGE).toBe("Skip on");
-    expect(SKIP_OFF_MESSAGE).toBe("Skip off");
-    expect(skipMessage(true)).toBe(SKIP_ON_MESSAGE);
-    expect(skipMessage(false)).toBe(SKIP_OFF_MESSAGE);
+    expect(skipMessage(true)).toBe("Skip on");
+    expect(skipMessage(false)).toBe("Skip off");
   });
 });
 

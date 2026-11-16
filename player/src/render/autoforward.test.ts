@@ -11,8 +11,6 @@ import { createMachine } from "../machine/machine";
 import type { Branch, Item, MachineSettings } from "../machine/types";
 import { DEFAULT_SETTINGS } from "../machine/types";
 import {
-  AUTO_FORWARD_OFF_MESSAGE,
-  AUTO_FORWARD_ON_MESSAGE,
   autoForwardMessage,
   mountAutoForwardAnnouncements,
 } from "./autoforward";
@@ -67,8 +65,8 @@ function setup(
   return { machine, shown, unmount };
 }
 
-const ON = [AUTO_FORWARD_ON_MESSAGE];
-const OFF = [AUTO_FORWARD_OFF_MESSAGE];
+const ON = ["Auto-forward on"];
+const OFF = ["Auto-forward off"];
 
 afterEach(() => {
   vi.useRealTimers();
@@ -76,10 +74,8 @@ afterEach(() => {
 
 describe("autoForwardMessage", () => {
   it("names the mode the reader is now in", () => {
-    expect(AUTO_FORWARD_ON_MESSAGE).toBe("Auto-forward on");
-    expect(AUTO_FORWARD_OFF_MESSAGE).toBe("Auto-forward off");
-    expect(autoForwardMessage(true)).toBe(AUTO_FORWARD_ON_MESSAGE);
-    expect(autoForwardMessage(false)).toBe(AUTO_FORWARD_OFF_MESSAGE);
+    expect(autoForwardMessage(true)).toBe("Auto-forward on");
+    expect(autoForwardMessage(false)).toBe("Auto-forward off");
   });
 });
 

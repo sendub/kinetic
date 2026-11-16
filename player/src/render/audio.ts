@@ -116,6 +116,7 @@
 // running and nothing heard, and the player puts the context and the mix
 // in its `mix`, for a tap that records what the reader would hear.
 
+import { localized, t } from "../i18n/catalogue.ts";
 import type { Machine } from "../machine/machine";
 import type {
   AudioTrack,
@@ -189,7 +190,9 @@ declare global {
 }
 
 /** The hint shown while the browser refuses sound until a key or click. */
-export const SOUND_HINT_TEXT = "Press any key for sound";
+export function soundHintText(): string {
+  return t("audio.soundHint");
+}
 
 /**
  * The upcoming items whose tracks the warm-up decodes, in array order as
@@ -419,7 +422,9 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
   const hint = doc.createElement("div");
   hint.id = "sound-hint";
   hint.setAttribute("role", "status");
-  hint.textContent = SOUND_HINT_TEXT;
+  const stopHint = localized(() => {
+    hint.textContent = soundHintText();
+  });
   hint.hidden = true;
   Object.assign(hint.style, {
     position: "fixed",
@@ -2037,6 +2042,7 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
       ctx.close().catch(() => undefined);
       hook.remove();
       hint.remove();
+      stopHint();
     },
   };
 }

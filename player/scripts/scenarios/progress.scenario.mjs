@@ -21,7 +21,6 @@ import {
   writeFileSync,
 } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { EXPORT_DONE_NOTICE } from "../../src/render/config.ts";
 import {
   CONFIG_CONTROL,
   CONFIRM_CONTROL,
@@ -130,7 +129,7 @@ export default async function ({ check, open }) {
   await clickCenter(a.cdp, CONFIG_CONTROL.exportProgress);
   const exportedPath = join(downloads, fileName);
   const downloaded = await waitForFile(exportedPath);
-  const pillShown = await pillSays(a.page, EXPORT_DONE_NOTICE);
+  const pillShown = await pillSays(a.page, "Progress exported");
   const pill = await a.page.evaluate(READ_PILL);
   const rowsAfter = await a.page.evaluate(READ_CONFIG_RECTS);
   const afterExport = await a.page.evaluate(READ_CONFIG_OVERLAY);

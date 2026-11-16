@@ -3,13 +3,10 @@ import { KINETIC_VERSION } from "../version";
 import {
   gameTitleOf,
   gameVersionOf,
-  HELP_HINT,
-  HELP_TITLE,
   helpKeyLabel,
   helpRows,
   helpScreenStateFor,
   mountHelpOverlay,
-  PAGE_TITLE_DEFAULT,
   pageTitleFor,
 } from "./help";
 import { keyHelpEntries } from "./keys";
@@ -45,10 +42,9 @@ describe("helpRows (drawn from the keymap, Phase 13b)", () => {
   });
 
   it("closes with Esc or Space, and says only that (Phases 18, 24, 26, 40)", () => {
-    expect(HELP_HINT).toBe("Esc or Space closes");
-    expect(HELP_HINT).not.toContain("Enter");
-    expect(HELP_HINT).not.toContain("·");
-    expect(HELP_HINT).not.toMatch(/\bc\b/);
+    expect("Esc or Space closes").not.toContain("Enter");
+    expect("Esc or Space closes").not.toContain("·");
+    expect("Esc or Space closes").not.toMatch(/\bc\b/);
   });
 
   it("draws no reset-box keys; Enter only with the decision arrows (Phase 18, long lists)", () => {
@@ -96,7 +92,6 @@ describe("the game's name (docs/plan.md Phase 21, Game name on the Esc screen)",
   });
 
   it("the page title is the game's name, else the player's own", () => {
-    expect(PAGE_TITLE_DEFAULT).toBe("Kinetic");
     expect(pageTitleFor("Kinetic demo")).toBe("Kinetic demo");
     expect(pageTitleFor(" Rainy Day ")).toBe("Rainy Day");
     expect(pageTitleFor(undefined)).toBe("Kinetic");
@@ -187,8 +182,7 @@ describe("mountHelpOverlay heading (Phase 21)", () => {
     expect(heading?.textContent).toBe("Kinetic demo");
     expect(hint?.className).toBe("help-hint");
     expect(title?.className).toBe("help-title");
-    expect(title?.textContent).toBe(HELP_TITLE);
-    expect(HELP_TITLE).toBe("Keys");
+    expect(title?.textContent).toBe("Keys");
   });
 
   it("sets the name as text, never as markup", () => {

@@ -1,15 +1,21 @@
 // The words a choice screen draws (docs/plan.md Phases 13, 18, 20). The
 // `#choice` overlay (render/choice.ts) draws these strings and the machine's
 // play-all countdown (`choiceCountdownMs`) counts them, so both read one
-// source: a word the reader sees is a word the countdown times. Pure, no DOM.
+// source: a word the reader sees is a word the countdown times, in the UI
+// language in force (the catalogue, ../i18n/catalogue.ts). Pure, no DOM.
 
+import { t } from "../i18n/catalogue.ts";
 import type { AutoPickView, ChoiceView, MachineSettings } from "./types";
 
 /** The label of the `continueAt` offer row. */
-export const CONTINUE_LABEL = "Return to main route";
+export function continueLabel(): string {
+  return t("choice.continue");
+}
 
 /** The marker beside a route that has already been played in this save. */
-export const SEEN_MARKER = "seen";
+export function seenMarker(): string {
+  return t("choice.seen");
+}
 
 /**
  * The auto-pick status line: the jump back (on a re-offer, its route label
@@ -22,11 +28,12 @@ export function autoPickStatus(
   auto: Pick<AutoPickView, "backFromLabel">,
   secondsLeft: number,
 ): string {
-  const back =
-    auto.backFromLabel === undefined
-      ? ""
-      : `Back in time: “${auto.backFromLabel}” is done. `;
-  return `${back}Play all routes picks in ${secondsLeft} s`;
+  return auto.backFromLabel === undefined
+    ? t("choice.autoPick", { seconds: secondsLeft })
+    : t("choice.autoPickBack", {
+        label: auto.backFromLabel,
+        seconds: secondsLeft,
+      });
 }
 
 /**
@@ -45,9 +52,9 @@ export function choiceScreenText(
     1,
   );
   const rows = view.routes.map((route) =>
-    route.seen ? `${route.label} ${SEEN_MARKER}` : route.label,
+    route.seen ? `${route.label} ${seenMarker()}` : route.label,
   );
-  if (view.continueOption === true) rows.push(CONTINUE_LABEL);
+  if (view.continueOption === true) rows.push(continueLabel());
   return [view.prompt, status, ...rows].join(" ");
 }
 

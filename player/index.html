@@ -431,8 +431,9 @@
          text rides on the side the knob leaves free, so the switch reads
          its own state, never by position alone. Off: grey track, knob
          left. On: gold track, knob right, dark text. The Esc switches say
-         "Off" / "On" at a fixed width; the map's says "Spoilers: Off" /
-         "Spoilers: On", so its track is longer. */
+         "Off" / "On" at a fixed width, which a longer word in another
+         language widens (docs/plan.md Phase 54); the map's says "Spoilers:
+         Off" / "Spoilers: On", so its track is longer. */
       .config-toggle[role="switch"],
       .map-tool[data-act="spoil"] {
         padding: 0 calc(var(--k-ctl-padx) * 0.75) 0 calc(var(--k-sw-knob) + 2px + var(--k-ctl-padx) * 0.5);
@@ -441,7 +442,7 @@
       }
       .config-toggle[role="switch"] {
         position: relative;
-        width: var(--k-sw-w);
+        min-width: var(--k-sw-w);
       }
       .config-toggle[role="switch"]::before,
       .map-tool[data-act="spoil"]::before {
@@ -1506,6 +1507,17 @@
       }
       .volume-model .config-tipwrap {
         margin-left: 0;
+      }
+      /* The download button's words wrap in a narrow sheet or a longer
+         language (docs/plan.md Phase 54) rather than push the line wider;
+         on one line it is the capsule's own height. */
+      .volume-model .volume-model-download {
+        flex: 0 1 auto;
+        height: auto;
+        min-height: var(--k-ctl-h);
+        padding-block: 0.3em;
+        white-space: normal;
+        text-align: center;
       }
       .volume-row .volume-model .config-tipwrap[data-tip] > .config-tip-text {
         left: 0;

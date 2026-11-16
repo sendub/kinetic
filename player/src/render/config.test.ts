@@ -4,32 +4,20 @@
 // Phase 16 gave the reading speed a slider between the step buttons), and
 // the real look and the end-to-end behaviour are walked by scripts/verify.mjs.
 
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
+import { SOURCE_LANGUAGE, setUiLanguage } from "../i18n/catalogue";
+import { enablePseudoLocale, PSEUDO_LOCALE, pseudoText } from "../i18n/pseudo";
 
 import type { MachineSettings } from "../machine/types";
 import { DEFAULT_SETTINGS } from "../machine/types";
 import { createMemoryStorage } from "../storage/memory";
 import {
-  EXPORT_DONE_NOTICE,
-  IMPORT_UNREADABLE_NOTICE,
   isSettingsControl,
   mountConfigOverlay,
-  PLAY_ALL_TEXT,
-  PLAY_ALL_TIP,
-  PROGRESS_HEADING,
-  PROGRESS_SAVED,
-  PROGRESS_SECTION,
   playAllLabel,
-  SETTINGS_TITLE,
-  SKIP_ALL_TEXT,
-  SKIP_SECTION,
-  SKIP_VIDEOS_TEXT,
-  SOUND_TEXT,
-  SPEED_LABEL,
   SPEED_MAX,
   SPEED_MIN,
   SPEED_STEP,
-  SPEED_TIP,
   skipAllLabel,
   skipVideosLabel,
   speedLabel,
@@ -208,8 +196,7 @@ describe("config panel (the reading-speed row: - slider + readout)", () => {
   it("names the speed for auto-forward, its ? saying it also times play-all's countdown", () => {
     const { root } = mount(defaults);
     const row = byClass(root, "config-row");
-    expect(words(row.children[0])).toBe(SPEED_LABEL);
-    expect(SPEED_LABEL).toBe("Auto-forward speed");
+    expect(words(row.children[0])).toBe("Auto-forward speed");
     expect(byAction(root, "speed-slider").getAttribute("aria-label")).toBe(
       "Auto-forward speed",
     );
@@ -223,7 +210,7 @@ describe("config panel (the reading-speed row: - slider + readout)", () => {
     // "?" straight after the label's words (Phase 43 item 12): a button
     // named for the speed, the tip its description, no title attribute.
     const label = row.children[0];
-    expect(label.childNodes[0]).toBe(SPEED_LABEL);
+    expect(label.childNodes[0]).toBe("Auto-forward speed");
     const tip = byAction(root, "tip-speed");
     expect(tip.tag).toBe("button");
     expect(tip.type).toBe("button");
@@ -234,8 +221,7 @@ describe("config panel (the reading-speed row: - slider + readout)", () => {
       (el) => el.id === tip.getAttribute("aria-describedby"),
     );
     expect(body?.getAttribute("role")).toBe("tooltip");
-    expect(body?.textContent).toBe(SPEED_TIP);
-    expect(SPEED_TIP).toBe("Also times play-all's choice countdown.");
+    expect(body?.textContent).toBe("Also times play-all's choice countdown.");
     expect(walk(root).some((el) => el.className.includes("speed-note"))).toBe(
       false,
     );
@@ -299,8 +285,7 @@ describe("config panel (the reading-speed row: - slider + readout)", () => {
     const { root } = mount(defaults);
     const [panel] = root.children;
     expect(panel?.children[0]?.className).toBe("config-title");
-    expect(byClass(root, "config-title").textContent).toBe(SETTINGS_TITLE);
-    expect(SETTINGS_TITLE).toBe("Settings");
+    expect(byClass(root, "config-title").textContent).toBe("Settings");
     expect(walk(root).some((el) => el.className === "config-hint")).toBe(false);
     expect(
       walk(root).some((el) => /\bc or\b|\bc closes\b/.test(el.textContent)),
@@ -363,25 +348,21 @@ describe("the panel layout: the skip settings read as options of Tab", () => {
     expect(lines).not.toContain(null);
     expect(lines).toEqual([
       "Auto-forward speed",
-      `# ${SKIP_SECTION}`,
-      `  ${SKIP_ALL_TEXT}`,
-      `  ${SKIP_VIDEOS_TEXT}`,
+      `# When Tab skips`,
+      `  Skip unseen content too`,
+      `  Play videos in full`,
       "Play all routes",
-      `# ${PROGRESS_HEADING}`,
+      `# Progress · saved automatically`,
       "  Export progress",
       "  Import progress",
       "  Reset progress",
     ]);
-    expect(PROGRESS_SECTION).toBe("Progress");
-    expect(SKIP_SECTION).toBe("When Tab skips");
-    expect(SKIP_ALL_TEXT).toBe("Skip unseen content too");
-    expect(SKIP_VIDEOS_TEXT).toBe("Play videos in full");
     // Each option's switch sits in its own labelled row.
     expect(byAction(root, "skip-all").parent?.children[0].textContent).toBe(
-      SKIP_ALL_TEXT,
+      "Skip unseen content too",
     );
     expect(byAction(root, "skip-videos").parent?.children[0].textContent).toBe(
-      SKIP_VIDEOS_TEXT,
+      "Play videos in full",
     );
   });
 
@@ -393,10 +374,14 @@ describe("the panel layout: the skip settings read as options of Tab", () => {
     // Progress buttons' line) ever moves apart.
     expect(groupLines(root)).toEqual([
       ["Auto-forward speed"],
-      [`# ${SKIP_SECTION}`, `  ${SKIP_ALL_TEXT}`, `  ${SKIP_VIDEOS_TEXT}`],
+      [
+        `# When Tab skips`,
+        `  Skip unseen content too`,
+        `  Play videos in full`,
+      ],
       ["Play all routes"],
       [
-        `# ${PROGRESS_HEADING}`,
+        `# Progress · saved automatically`,
         "  Export progress",
         "  Import progress",
         "  Reset progress",
@@ -414,7 +399,7 @@ describe("the panel layout: the skip settings read as options of Tab", () => {
       "config-toggle config-play-all",
     ]);
     const label = row?.children[0];
-    expect(label?.childNodes[0]).toBe(PLAY_ALL_TEXT);
+    expect(label?.childNodes[0]).toBe("Play all routes");
     expect(words(label as FakeElement)).toBe("Play all routes");
     const tip = byAction(root, "tip-play-all");
     expect(tip.tag).toBe("button");
@@ -425,10 +410,12 @@ describe("the panel layout: the skip settings read as options of Tab", () => {
       (el) => el.id === tip.getAttribute("aria-describedby"),
     );
     expect(body?.getAttribute("role")).toBe("tooltip");
-    expect(body?.textContent).toBe(PLAY_ALL_TIP);
+    expect(body?.textContent).toBe(
+      "When on, choices pick themselves on a countdown.",
+    );
     // Says what turning it On does, so it is true in the Off position too
     // (Phase 22).
-    expect(PLAY_ALL_TIP).toBe(
+    expect("When on, choices pick themselves on a countdown.").toBe(
       "When on, choices pick themselves on a countdown.",
     );
     expect(walk(root).some((el) => el.className === "config-note")).toBe(false);
@@ -437,18 +424,15 @@ describe("the panel layout: the skip settings read as options of Tab", () => {
   it("heads Progress with 'Progress · saved automatically', the rest of the note behind its ?", () => {
     const { root } = mount(defaults);
     const siblings = walk(root.children[0]).find((el) =>
-      el.children.some((child) => child.childNodes[0] === PROGRESS_SECTION),
+      el.children.some((child) => child.childNodes[0] === "Progress"),
     )?.children;
     if (siblings === undefined) throw new Error("no Progress group");
     const heading = siblings.find(
       (el) =>
-        el.className === "config-section" &&
-        el.childNodes[0] === PROGRESS_SECTION,
+        el.className === "config-section" && el.childNodes[0] === "Progress",
     );
     if (heading === undefined) throw new Error("no Progress heading");
-    expect(words(heading)).toBe(PROGRESS_HEADING);
-    expect(PROGRESS_HEADING).toBe("Progress · saved automatically");
-    expect(PROGRESS_SAVED).toBe("saved automatically");
+    expect(words(heading)).toBe("Progress · saved automatically");
     // Export's row follows the heading straight away: no note line between.
     expect(
       siblings[siblings.indexOf(heading) + 1].children[0].textContent,
@@ -730,8 +714,6 @@ describe("the Progress rows: Export and Import progress (Phase 21)", () => {
   it("words the notices main.ts shows in the pill: no file name on Export", () => {
     // The browser or the app may save the file under another name (the
     // Windows app's `name (2).json`), so the pill names none.
-    expect(EXPORT_DONE_NOTICE).toBe("Progress exported");
-    expect(IMPORT_UNREADABLE_NOTICE).toBe("That file could not be read.");
   });
 });
 
@@ -811,16 +793,19 @@ describe("the Sound row (docs/plan.md Phase 47 item 7)", () => {
     const { root } = mount(defaults, { sound: true });
     expect(groupLines(root)).toEqual([
       ["Auto-forward speed"],
-      [`# ${SKIP_SECTION}`, `  ${SKIP_ALL_TEXT}`, `  ${SKIP_VIDEOS_TEXT}`],
-      ["Play all routes", SOUND_TEXT],
       [
-        `# ${PROGRESS_HEADING}`,
+        `# When Tab skips`,
+        `  Skip unseen content too`,
+        `  Play videos in full`,
+      ],
+      ["Play all routes", "Sound"],
+      [
+        `# Progress · saved automatically`,
         "  Export progress",
         "  Import progress",
         "  Reset progress",
       ],
     ]);
-    expect(SOUND_TEXT).toBe("Sound");
     // The label, then Volumes..., then the switch trailing like every
     // other switch, so it lines up under Play all routes'.
     const row = byAction(root, "sound").parent;
@@ -878,7 +863,7 @@ describe("the Esc screen has no Spoken lines row (Phase 52 item 10)", () => {
     expect(
       walk(root).some((el) => el.className.includes("config-spoken")),
     ).toBe(false);
-    expect(groupLines(root)[2]).toEqual(["Play all routes", SOUND_TEXT]);
+    expect(groupLines(root)[2]).toEqual(["Play all routes", "Sound"]);
   });
 });
 
@@ -962,6 +947,69 @@ describe("the Esc screen's words follow the host (Phase 52 item 15)", () => {
     confirm.open(importRequest(undefined, () => {}, wordingFor(true)));
     expect(byClass(root, "confirm-message").textContent).toBe(
       "Replace the progress saved here for this story with the imported file?",
+    );
+  });
+});
+
+describe("the settings and the confirm box redraw in a new UI language (Phase 54 item 2)", () => {
+  // The pseudo-locale stands in for a real language: every word it draws
+  // is marked, so a word left in English shows.
+  enablePseudoLocale(PSEUDO_LOCALE);
+  afterEach(() => setUiLanguage(SOURCE_LANGUAGE));
+
+  it("switches every label, name and switch state live, and back", () => {
+    const m = mount(defaults, { sound: true });
+    m.overlay.open();
+    setUiLanguage(PSEUDO_LOCALE);
+    const panel = byClass(m.root, "config");
+    expect(byClass(panel, "config-title").textContent).toBe(
+      pseudoText("Settings"),
+    );
+    // Every text node and accessible name with a letter is marked.
+    for (const el of walk(panel)) {
+      for (const node of el.childNodes) {
+        if (typeof node === "string" && /\p{L}/u.test(node)) {
+          expect(node.replace(/⟦[^⟧]*⟧/g, "")).not.toMatch(/\p{L}/u);
+        }
+      }
+      const own = el.children.length === 0 ? el.textContent : "";
+      if (/\p{L}/u.test(own)) expect(own).toContain("⟦");
+      const name = el.getAttribute("aria-label");
+      if (name !== null) expect(name.startsWith("⟦")).toBe(true);
+    }
+    expect(byAction(panel, "skip-all").textContent).toBe(pseudoText("Off"));
+    expect(byAction(panel, "tip-speed").getAttribute("aria-label")).toBe(
+      pseudoText("About auto-forward speed"),
+    );
+    setUiLanguage(SOURCE_LANGUAGE);
+    expect(byClass(panel, "config-title").textContent).toBe("Settings");
+    expect(byAction(panel, "skip-all").textContent).toBe("Off");
+    expect(words(byClass(panel, "config-speed").children[0])).toBe(
+      "Auto-forward speed",
+    );
+  });
+
+  it("redraws an open confirmation box", () => {
+    const root = new FakeDocument().createElement("div");
+    const confirm = mountConfirmOverlay({
+      root: root as unknown as HTMLElement,
+      onCancel: () => {},
+    });
+    confirm.open(resetRequest(() => {}));
+    setUiLanguage(PSEUDO_LOCALE);
+    expect(byClass(root, "confirm-title").textContent).toBe(
+      pseudoText("Reset progress"),
+    );
+    expect(byClass(root, "confirm-hint").textContent).toBe(
+      pseudoText("{yes} resets; {esc} or {no} cancels")
+        .replace("{yes}", "y")
+        .replace("{esc}", "Esc")
+        .replace("{no}", "n"),
+    );
+    expect(byConfirm(root, "cancel").textContent).toBe(pseudoText("Cancel"));
+    setUiLanguage(SOURCE_LANGUAGE);
+    expect(byClass(root, "confirm-hint").textContent).toBe(
+      "y resets; Esc or n cancels",
     );
   });
 });

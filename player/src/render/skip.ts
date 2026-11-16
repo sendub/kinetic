@@ -9,14 +9,12 @@
 // panel's pause and a play-all choice a burst carries on through show
 // nothing. Same look, same 1.6 s hold, the newest announcement wins.
 
+import { t } from "../i18n/catalogue.ts";
 import type { Machine } from "../machine/machine";
-
-export const SKIP_ON_MESSAGE = "Skip on";
-export const SKIP_OFF_MESSAGE = "Skip off";
 
 /** The pill naming the skip mode the reader is now in. */
 export function skipMessage(on: boolean): string {
-  return on ? SKIP_ON_MESSAGE : SKIP_OFF_MESSAGE;
+  return on ? t("pill.skipOn") : t("pill.skipOff");
 }
 
 export interface SkipAnnouncementsOptions {

@@ -16,11 +16,6 @@ import {
 } from "node:fs";
 import { dirname, join } from "node:path";
 import { DEFAULT_SETTINGS } from "../../src/machine/types.ts";
-import { PLAY_ALL_TIP, SPEED_TIP } from "../../src/render/config.ts";
-import {
-  ALL_SEEN_TEXT,
-  EARLIER_UNSEEN_NOTICE,
-} from "../../src/render/endcard.ts";
 import { BROWSER_WORDING } from "../../src/render/wording.ts";
 import {
   audioDemoDir,
@@ -1954,8 +1949,16 @@ const READ_TIP = async (key) => {
 };
 
 const TIPS = [
-  ["speed", SPEED_TIP, "About auto-forward speed"],
-  ["play-all", PLAY_ALL_TIP, "About play all routes"],
+  [
+    "speed",
+    "Also times play-all's choice countdown.",
+    "About auto-forward speed",
+  ],
+  [
+    "play-all",
+    "When on, choices pick themselves on a countdown.",
+    "About play all routes",
+  ],
   ["progress", BROWSER_WORDING.progressTip, "About progress"],
 ];
 
@@ -2709,7 +2712,8 @@ async function contentUpdate({ check, open }) {
   const notice = await page.evaluate(READ_NOTICE);
   check(
     "the resume shows the quiet earlier-unseen notice (the prequel is unseen)",
-    notice.shown && notice.text === EARLIER_UNSEEN_NOTICE,
+    notice.shown &&
+      notice.text === "Earlier content you haven't seen - press u.",
     notice,
   );
 
@@ -2828,7 +2832,7 @@ async function insertedContent({ check, open }) {
       flashed &&
       walked2 &&
       before.shown &&
-      before.title === ALL_SEEN_TEXT &&
+      before.title === "You have seen everything." &&
       steppedBack === "after-start" &&
       record?.ctx?.lastShown === "after-start" &&
       Array.isArray(record?.ctx?.visited) &&
@@ -2894,7 +2898,7 @@ async function insertedContent({ check, open }) {
     "after the update the reload resumes on after-start and the resume notice shows",
     resumedId === "after-start" &&
       notice.shown &&
-      notice.text === EARLIER_UNSEEN_NOTICE,
+      notice.text === "Earlier content you haven't seen - press u.",
     { resumedId, notice },
   );
   await pressSpace(cdp);

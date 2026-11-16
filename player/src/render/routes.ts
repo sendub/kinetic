@@ -13,15 +13,18 @@
 // like an entry — so the shell marks those moves `quiet` and they announce
 // nothing (docs/plan.md Phase 27: a wheel step answers nothing).
 
+import { t } from "../i18n/catalogue.ts";
 import type { Machine } from "../machine/machine";
 import type { ContextFrame, Manifest } from "../machine/types";
 
 /** The pill shown when the journey jumps back to take another route. */
-export const BACK_JUMP_MESSAGE = "Back to try another route";
+export function backJumpMessage(): string {
+  return t("pill.backJump");
+}
 
 /** The pill naming the route the reader has just entered. */
 export function routeFlashLabel(label: string): string {
-  return `Route: ${label}`;
+  return t("pill.route", { label });
 }
 
 /** What one state snapshot says about the route context. */
@@ -84,7 +87,7 @@ export function routeAnnouncementsFor(
   if (label === undefined) return [];
   const route = routeFlashLabel(label);
   if (prev.autoPick === true) return [route];
-  return next.cursor < prev.cursor ? [BACK_JUMP_MESSAGE, route] : [route];
+  return next.cursor < prev.cursor ? [backJumpMessage(), route] : [route];
 }
 
 export interface RouteAnnouncementsOptions {

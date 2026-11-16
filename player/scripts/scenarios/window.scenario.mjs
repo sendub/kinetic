@@ -37,7 +37,6 @@
 
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { CLOSE_TAB_NOTE } from "../../src/render/windowcontrols.ts";
 import {
   CHROME_SCREEN,
   clickAt,
@@ -92,7 +91,11 @@ const READ_WINDOW = (closeTabNote) => {
     history: history.length,
   };
 };
-const readWindow = (page) => page.evaluate(READ_WINDOW, CLOSE_TAB_NOTE);
+const readWindow = (page) =>
+  page.evaluate(
+    READ_WINDOW,
+    "This browser keeps the tab open: close the tab to exit.",
+  );
 /** Host messages as text, `type` first (the Swift side orders keys its own way). */
 const asText = (messages) =>
   messages
@@ -395,7 +398,7 @@ async function exitAndWaitForNote(page, cdp) {
     page,
     (text) => document.getElementById("flash")?.textContent === text,
     3000,
-    CLOSE_TAB_NOTE,
+    "This browser keeps the tab open: close the tab to exit.",
   );
 }
 

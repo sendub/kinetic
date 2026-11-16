@@ -20,6 +20,7 @@
 // the codec then drops ids this manifest lacks, exactly as for a save
 // written by an older version of the content.
 
+import { t } from "../i18n/catalogue.ts";
 import { sanitizeBookmark, sanitizeState } from "./idb";
 import type { Bookmark, PersistedState, Storage } from "./types";
 
@@ -77,15 +78,17 @@ export function progressFileName(storyId: string | null): string {
   return `${storyId ?? "kinetic"}-progress.json`;
 }
 
-const NOT_JSON = "That file is not a Kinetic progress file (it is not JSON).";
-const NOT_PROGRESS = "That file is not a Kinetic progress file.";
-const damaged = (part: string): string =>
-  `That progress file is damaged: its ${part} missing or malformed.`;
+// The refusals' words are the catalogue's (`transfer.*`), in the UI
+// language when the check runs.
 
-/** A story as a refusal names it: by title, else by ID. */
+/** A story as a refusal names it: by title, else by ID, else `fallback`. */
 function storyName(story: StoryIdentity, fallback: string): string {
-  if (story.title !== undefined) return `"${story.title}"`;
-  if (story.storyId !== null) return `the story "${story.storyId}"`;
+  if (story.title !== undefined) {
+    return t("transfer.story.titled", { title: story.title });
+  }
+  if (story.storyId !== null) {
+    return t("transfer.story.id", { id: story.storyId });
+  }
   return fallback;
 }
 
@@ -104,28 +107,33 @@ export function parseProgressFile(
   try {
     raw = JSON.parse(text);
   } catch {
-    return { ok: false, message: NOT_JSON };
+    return { ok: false, message: t("transfer.notJson") };
   }
   if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
-    return { ok: false, message: NOT_PROGRESS };
+    return { ok: false, message: t("transfer.notProgress") };
   }
   const file = raw as Record<string, unknown>;
-  if (file.kind !== PROGRESS_KIND) return { ok: false, message: NOT_PROGRESS };
+  if (file.kind !== PROGRESS_KIND) {
+    return { ok: false, message: t("transfer.notProgress") };
+  }
   if (file.version !== PROGRESS_VERSION) {
     return {
       ok: false,
-      message: `That progress file is version ${JSON.stringify(
-        file.version ?? null,
-      )}; this player reads version ${String(PROGRESS_VERSION)}.`,
+      message: t("transfer.version", {
+        theirs: JSON.stringify(file.version ?? null),
+        ours: PROGRESS_VERSION,
+      }),
     };
   }
   if (file.storyId !== null && typeof file.storyId !== "string") {
-    return { ok: false, message: damaged("story ID is") };
+    return { ok: false, message: t("transfer.damaged.storyId") };
   }
   const state = sanitizeState(file.state);
-  if (state === null) return { ok: false, message: damaged("state is") };
+  if (state === null) {
+    return { ok: false, message: t("transfer.damaged.state") };
+  }
   if (!Array.isArray(file.bookmarks)) {
-    return { ok: false, message: damaged("bookmarks are") };
+    return { ok: false, message: t("transfer.damaged.bookmarks") };
   }
   if (file.storyId !== here.storyId) {
     const theirs: StoryIdentity = {
@@ -134,10 +142,13 @@ export function parseProgressFile(
     };
     return {
       ok: false,
-      message: `That file holds progress for ${storyName(
-        theirs,
-        "a story without an ID",
-      )}, not ${here.title === undefined ? "this story" : `"${here.title}"`}.`,
+      message: t("transfer.otherStory", {
+        theirs: storyName(theirs, t("transfer.story.noId")),
+        here:
+          here.title === undefined
+            ? t("transfer.story.this")
+            : t("transfer.story.titled", { title: here.title }),
+      }),
     };
   }
   const bookmarks = file.bookmarks

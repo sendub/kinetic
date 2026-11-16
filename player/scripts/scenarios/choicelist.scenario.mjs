@@ -22,7 +22,6 @@
 
 import { cpSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { LONG_CHOICE_HINT } from "../../src/render/choice.ts";
 import {
   CHOICE_OPEN,
   clickCenter,
@@ -276,7 +275,7 @@ export default async function ({ check, open }) {
         l0.rows.length === ROUTES &&
         panelFits(l0) &&
         l0.overflows &&
-        l0.hintText === LONG_CHOICE_HINT &&
+        l0.hintText === "1-9, arrows and Enter, or click picks a route" &&
         rowShown(l0, 0) &&
         !rowShown(l0, last),
       { fired, l0: { ...l0, rows: l0.rows.length } },

@@ -1,12 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { DisplayMode } from "./host";
-import {
-  CLOSE_TAB_NOTE,
-  DISPLAY_TEXT,
-  EXIT_TEXT,
-  mountWindowControls,
-  WINDOW_SECTION,
-} from "./windowcontrols";
+import { mountWindowControls } from "./windowcontrols";
 
 // The Esc screen's window controls (docs/plan.md Phase 43 item 9) over a
 // stub DOM, as the config panel's tests do: the group's parts, the
@@ -104,7 +98,7 @@ describe("mountWindowControls", () => {
     expect(group?.className).toBe("config-group");
     expect(group?.children).toHaveLength(3);
     const [heading, displayRow, exitRow] = group?.children ?? [];
-    expect(heading?.textContent).toBe(WINDOW_SECTION);
+    expect(heading?.textContent).toBe("Game window");
     expect(heading?.className).toBe("config-section");
     expect(displayRow?.className).toContain("config-inline");
     expect(exitRow?.className).toContain("config-inline");
@@ -112,8 +106,11 @@ describe("mountWindowControls", () => {
       displayRow?.children
         .filter((el) => el.tag === "button")
         .map((el) => el.textContent),
-    ).toEqual([DISPLAY_TEXT.fullscreen, DISPLAY_TEXT.window]);
-    expect(byAction(root, "exit-game").textContent).toBe(EXIT_TEXT);
+    ).toEqual([
+      { fullscreen: "Fullscreen", window: "Window" }.fullscreen,
+      { fullscreen: "Fullscreen", window: "Window" }.window,
+    ]);
+    expect(byAction(root, "exit-game").textContent).toBe("Exit");
     // Each row keeps its hidden label for screen readers' reading order.
     expect(displayRow?.children[0]?.className).toBe("config-label");
     expect(displayRow?.children[0]?.textContent).toBe("Display");
@@ -139,7 +136,7 @@ describe("mountWindowControls", () => {
 
   it("words the tab note as a sentence for the pill", () => {
     const view = mount("window");
-    expect(CLOSE_TAB_NOTE).toBe(
+    expect("This browser keeps the tab open: close the tab to exit.").toBe(
       "This browser keeps the tab open: close the tab to exit.",
     );
     expect("showNote" in view.controls).toBe(false);

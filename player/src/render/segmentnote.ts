@@ -16,12 +16,13 @@
 // (a pause, a setting, an arrival, which clears the segment) keeps or
 // drops the segment without a step, so none of them shows a note.
 
+import { t } from "../i18n/catalogue.ts";
 import type { Machine } from "../machine/machine";
 import type { SegmentView } from "../machine/types";
 
 /** The note's words for the active segment. */
 export function segmentNoteText(view: SegmentView): string {
-  return `View ${view.index + 1} of ${view.count}`;
+  return t("pill.segment", { index: view.index + 1, count: view.count });
 }
 
 export interface SegmentNotesOptions {

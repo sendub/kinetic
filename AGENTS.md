@@ -6,7 +6,10 @@ are implementing and docs/stack.md for settled decisions.
 ## Commands
 
 - Player: from `player/`: `npm test`, `npm run check`, `npm run build`,
-  `npm run dev`.
+  `npm run dev`. `npm run i18n` rewrites `player/locales/messages.pot`
+  and `src/i18n/locales.generated.ts` from the English catalogue and
+  the PO files (`npm run build` runs it; `npm test` fails while they
+  are stale; docs/verify-player.md, "The player's words").
 - Python tools/fixtures/validator: `.venv/bin/python` from the repo root;
   deps pinned in `requirements.txt`. Create the venv with
   `python3 -m venv .venv && .venv/bin/pip install -r requirements.txt` if

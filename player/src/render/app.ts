@@ -3,6 +3,7 @@
 // state, it never mutates it, and the leaf renderers stay independent of each
 // other and of the machine's commands.
 
+import { onUiLanguageChange } from "../i18n/catalogue.ts";
 import type { Machine } from "../machine/machine";
 import type { MachineState, Manifest } from "../machine/types";
 import { endCardText } from "./endcard";
@@ -533,6 +534,9 @@ export function mountShell({ root, manifest, machine }: ShellOptions): Shell {
 
   const unsubscribe = machine.subscribe(render);
   render(machine.getState());
+  // A new UI language redraws the screen's player words: the end card and
+  // a notice in place of a picture.
+  const stopWords = onUiLanguageChange(() => render(machine.getState()));
 
   return {
     toggleText() {
@@ -570,6 +574,7 @@ export function mountShell({ root, manifest, machine }: ShellOptions): Shell {
     unmount() {
       dismissNotice();
       unsubscribe();
+      stopWords();
       machine.setVideoClock(null);
       machine.destroy();
       visuals.destroy();

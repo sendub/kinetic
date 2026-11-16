@@ -80,8 +80,9 @@
 // All decisions are pure exports of mapmodel.ts and mapcards.ts; this file
 // only applies them.
 
+import { localized, type MessageKey, t } from "../i18n/catalogue.ts";
 import type { BookmarkSummary } from "../storage/types";
-import { DELETE_CROSS, DELETE_LABEL, formatTimestamp } from "./bookmarks";
+import { DELETE_CROSS, formatTimestamp } from "./bookmarks";
 import {
   type Deletions,
   latestDeleted,
@@ -133,21 +134,20 @@ import {
   visibleWorld,
 } from "./mapmodel";
 
-export const MAP_TITLE = "Branch map";
-
 /**
- * The header's buttons, in order: what each does, its text and the key its
- * hint names (the only help the header carries). The last two are the
- * halves of one "Full size | Fit" button, the pressed half the view on
- * show; F switches between them, so both name it.
+ * The header's buttons, in order: what each does, its text (the Spoilers
+ * switch's follows its state) and the key its hint names (the only help
+ * the header carries). The last two are the halves of one "Full size |
+ * Fit" button, the pressed half the view on show; F switches between them,
+ * so both name it.
  */
 export const MAP_TOOLS = [
-  { act: "spoil", text: spoilersLabel(false), key: "S" },
-  { act: "newest", text: "Newest bookmark", key: "N" },
-  { act: "here", text: "Centre", key: "C" },
-  { act: "full", text: "Full size", key: "F" },
-  { act: "fit", text: "Fit", key: "F" },
-] as const;
+  { act: "spoil", text: "map.spoilers.off", key: "S" },
+  { act: "newest", text: "map.newest", key: "N" },
+  { act: "here", text: "map.centre", key: "C" },
+  { act: "full", text: "map.full", key: "F" },
+  { act: "fit", text: "map.fit", key: "F" },
+] as const satisfies readonly { act: string; text: MessageKey; key: string }[];
 
 /** What the map needs to show and act on the bookmarks (the shell's storage). */
 export interface MapBookmarks {
@@ -235,7 +235,10 @@ export function lineScaleStyle(scale: number): Record<string, string> {
 
 /** A card's accessible name. */
 export function cardLabel(timestampMs: number, newest: boolean): string {
-  return `Bookmark ${formatTimestamp(timestampMs)}${newest ? " (newest)" : ""}`;
+  const time = formatTimestamp(timestampMs);
+  return newest
+    ? t("map.card.labelNewest", { time })
+    : t("map.card.label", { time });
 }
 
 /**
@@ -244,7 +247,7 @@ export function cardLabel(timestampMs: number, newest: boolean): string {
  * late and Safari not at all in fullscreen.
  */
 export function shortcutHint(key: string): string {
-  return `shortcut: ${key}`;
+  return t("map.shortcut", { key });
 }
 
 /**
@@ -253,7 +256,7 @@ export function shortcutHint(key: string): string {
  * `MapMarks.hidden`).
  */
 export function spoilersLabel(on: boolean): string {
-  return on ? "Spoilers: On" : "Spoilers: Off";
+  return on ? t("map.spoilers.on") : t("map.spoilers.off");
 }
 
 /** Full size's scroll per up or down arrow press, in screen pixels. */
@@ -307,15 +310,20 @@ export interface BranchMap {
 
 /** One route's status word, as the tooltip and aria label say it. */
 const ROUTE_WORD = {
-  unseen: "not seen",
-  partly: "partly seen",
-  played: "played",
-} as const;
+  unseen: "map.route.unseen",
+  partly: "map.route.partly",
+  played: "map.route.played",
+} as const satisfies Record<string, MessageKey>;
 const OUTCOME_WORD = {
-  continues: "continues the story",
-  returns: "returns to the choice",
-  ends: "an ending",
-} as const;
+  continues: "map.route.continues",
+  returns: "map.route.returns",
+  ends: "map.route.ends",
+} as const satisfies Record<string, MessageKey>;
+
+/** A node's accessible name: its title, then its status. */
+function nodeLabel(title: string, status: string): string {
+  return t("map.node.label", { title, status });
+}
 
 function escapeXml(text: string): string {
   return text
@@ -335,18 +343,24 @@ export function describeTarget(
     const node = model.decisionAt[target.decision];
     const total = node?.routes.length ?? 0;
     const status = marks.reached[target.decision]
-      ? `${marks.playedCount[target.decision]} of ${total} routes played`
-      : "not reached yet";
+      ? t("map.decision.played", {
+          played: marks.playedCount[target.decision],
+          count: total,
+        })
+      : t("map.decision.notReached");
     return { title: promptText(model, marks, target.decision), status };
   }
   const route = model.routes[target.key];
   const parts: string[] = [
-    ROUTE_WORD[marks.routes[target.key]],
-    OUTCOME_WORD[route.outcome],
+    t(ROUTE_WORD[marks.routes[target.key]]),
+    t(OUTCOME_WORD[route.outcome]),
   ];
-  if (marks.lastPick[target.key]) parts.push("your last pick");
-  if (!marks.reached[route.decision]) parts.push("decision not reached yet");
-  const title = `${route.route + 1}. ${routeText(model, marks, target.key)}`;
+  if (marks.lastPick[target.key]) parts.push(t("map.route.lastPick"));
+  if (!marks.reached[route.decision]) parts.push(t("map.route.notReached"));
+  const title = t("map.route.title", {
+    number: route.route + 1,
+    label: routeText(model, marks, target.key),
+  });
   return { title, status: parts.join(" · ") };
 }
 
@@ -540,7 +554,7 @@ export function detailMarkup(
     const target: MapTarget = { kind: "decision", decision: node.index };
     const { title, status } = describeTarget(model, marks, target);
     out.push(
-      `<g class="map-node map-dec${reached ? " map-reached" : " map-inert"}" data-d="${node.index}" transform="translate(${node.x} ${node.y})"${reached ? ' tabindex="0" role="button"' : ""} aria-label="${escapeXml(`${title}: ${status}`)}">` +
+      `<g class="map-node map-dec${reached ? " map-reached" : " map-inert"}" data-d="${node.index}" transform="translate(${node.x} ${node.y})"${reached ? ' tabindex="0" role="button"' : ""} aria-label="${escapeXml(nodeLabel(title, status))}">` +
         `<rect x="0" y="${-g.decH / 2}" width="${g.decW}" height="${g.decH}" rx="5"/>` +
         `<text class="map-dec-c" x="${g.decW / 2}" y="${NODE_FIGURE_BASELINE}">${decisionFigure(marks, node)}</text></g>`,
     );
@@ -554,7 +568,7 @@ export function detailMarkup(
       key,
     });
     out.push(
-      `<g class="map-node map-route ${routeClasses(marks, key, route.decision)}" data-r="${key}" data-state="${state}" transform="translate(${route.x} ${route.y})"${marks.reached[route.decision] ? ' tabindex="0" role="button"' : ""} aria-label="${escapeXml(`${title}: ${status}`)}">` +
+      `<g class="map-node map-route ${routeClasses(marks, key, route.decision)}" data-r="${key}" data-state="${state}" transform="translate(${route.x} ${route.y})"${marks.reached[route.decision] ? ' tabindex="0" role="button"' : ""} aria-label="${escapeXml(nodeLabel(title, status))}">` +
         `<rect x="0" y="${-g.routeH / 2}" width="${g.routeW}" height="${g.routeH}" rx="${g.routeH / 2}"/></g>`,
     );
   });
@@ -759,26 +773,29 @@ export function mountBranchMap({
   head.className = "map-head";
   const title = doc.createElement("h2");
   title.className = "map-title";
-  title.textContent = MAP_TITLE;
   const tools = doc.createElement("div");
   tools.className = "map-tools";
   const buttons = new Map<string, HTMLButtonElement>();
+  /** The header's words, drawn again in each new UI language. */
+  const toolWords: (() => void)[] = [];
   for (const { act, text, key } of MAP_TOOLS) {
     const button = doc.createElement("button");
     button.type = "button";
     button.className = "map-tool";
     button.dataset.act = act;
-    button.textContent = text;
-    const hint = shortcutHint(key);
-    button.dataset.hint = hint;
     button.setAttribute("aria-keyshortcuts", key);
     // The drawn hint is hidden from assistive tech (index.html); this
     // hidden twin carries the same text as the button's description.
     const described = doc.createElement("span");
     described.id = `map-hint-${act}`;
     described.hidden = true;
-    described.textContent = hint;
     button.setAttribute("aria-describedby", described.id);
+    toolWords.push(() => {
+      if (act !== "spoil") button.textContent = t(text);
+      const hint = shortcutHint(key);
+      button.dataset.hint = hint;
+      described.textContent = hint;
+    });
     tools.append(button, described);
     buttons.set(act, button);
   }
@@ -823,7 +840,8 @@ export function mountBranchMap({
   const here = group("map-here");
   here.innerHTML =
     '<circle class="map-here-ring" r="13"/><circle class="map-here-dot" r="6"/>' +
-    '<text class="map-here-label" y="32">you are here</text>';
+    '<text class="map-here-label" y="32"></text>';
+  const hereLabel = here.lastElementChild as SVGTextElement;
   top.append(here);
   stage.append(svg, cardLayer, top);
   // Full size's scroll bar (`SCROLL_BAR`), hidden from assistive tech: the
@@ -843,11 +861,9 @@ export function mountBranchMap({
   toast.setAttribute("role", "status");
   toast.hidden = true;
   const toastText = doc.createElement("span");
-  toastText.textContent = "Bookmark deleted";
   const toastUndo = doc.createElement("button");
   toastUndo.type = "button";
   toastUndo.className = "map-undo";
-  toastUndo.textContent = "Undo (Z)";
   toast.append(toastText, toastUndo);
   viewport.append(stage, bar, tip, toast);
   panel.append(head, viewport);
@@ -876,6 +892,26 @@ export function mountBranchMap({
     spoilButton.setAttribute("aria-pressed", String(spoilers));
   };
   const markNow = (m: MapModel) => markMap(m, { ...reader(), spoilers });
+  // The map's words in each new UI language: the header, the marker's
+  // label and the undo note now; the tree, its counts (whose length spaces
+  // the cards) and the cards are laid out again at the next open, or at
+  // once when the map is open.
+  let languages = 0;
+  localized(() => {
+    title.textContent = t("map.title");
+    for (const draw of toolWords) draw();
+    showSpoilers();
+    hereLabel.textContent = t("map.here");
+    toastText.textContent = t("map.toast.deleted");
+    toastUndo.textContent = t("map.toast.undo", { key: "Z" });
+    languages += 1;
+    if (languages === 1) return;
+    strip = null;
+    if (!panel.hidden) {
+      api.close();
+      api.open();
+    }
+  });
   let view: MapView = { x: 0, y: 0, scale: 1 };
   let frame = 0;
   // How the tree is drawn at this scale (`mapDrawing`; none yet).
@@ -1180,8 +1216,8 @@ export function mountBranchMap({
     del.type = "button";
     del.className = "bm-del";
     del.tabIndex = -1;
-    del.setAttribute("aria-label", DELETE_LABEL);
-    del.dataset.hint = DELETE_LABEL;
+    del.setAttribute("aria-label", t("map.card.delete"));
+    del.dataset.hint = t("map.card.delete");
     const cross = doc.createElementNS(SVG_NS, "svg");
     cross.setAttribute("viewBox", "0 0 24 24");
     cross.setAttribute("aria-hidden", "true");
@@ -1192,12 +1228,12 @@ export function mountBranchMap({
     const ghost = doc.createElement("div");
     ghost.className = "bm-ghost";
     const gone = doc.createElement("span");
-    gone.textContent = "Deleted";
+    gone.textContent = t("map.card.deleted");
     const undo = doc.createElement("button");
     undo.type = "button";
     undo.className = "bm-undo";
     undo.tabIndex = -1;
-    undo.textContent = "Undo";
+    undo.textContent = t("map.card.undo");
     ghost.append(gone, undo);
     el.append(thumb, del, ghost);
     return el;
@@ -1723,7 +1759,7 @@ export function mountBranchMap({
     panel.dataset.ready = "true";
   }
 
-  return {
+  const api: BranchMap = {
     isOpen() {
       return !panel.hidden;
     },
@@ -1752,6 +1788,7 @@ export function mountBranchMap({
     },
     close,
   };
+  return api;
 }
 
 function containsRect(outer: WorldRect, inner: WorldRect): boolean {

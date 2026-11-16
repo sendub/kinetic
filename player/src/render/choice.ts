@@ -68,53 +68,44 @@
 
 // `.ts` on purpose: the verify scenarios load this file under plain node,
 // which resolves no extensionless relative import.
+import { localized, t } from "../i18n/catalogue.ts";
 import {
   autoPickStatus,
-  CONTINUE_LABEL,
-  SEEN_MARKER,
+  continueLabel,
+  seenMarker,
 } from "../machine/choicetext.ts";
 import type { ChoiceView } from "../machine/types";
 
 // The screen's strings live with the machine, which counts them for the
 // play-all countdown (docs/plan.md Phase 20).
-export { autoPickStatus, CONTINUE_LABEL, SEEN_MARKER };
-
-/** The panel's input hint, shown under the prompt. */
-export const CHOICE_HINT = "1-9 or click picks a route";
-
-/**
- * The route half of the hint once the digits run out (more than nine
- * routes): the arrows and Enter reach every row.
- */
-export const LONG_CHOICE_HINT = "1-9, arrows and Enter, or click picks a route";
+export { autoPickStatus, continueLabel, seenMarker };
 
 /** The routes a digit can reach: `1`..`9`. */
 export const DIGIT_ROUTES = 9;
-
-/** The return half of the hint — only shown when the return row is drawn. */
-export const CONTINUE_HINT = "; 0 returns";
 
 /** The return row's number badge: its key, `0`. */
 export const CONTINUE_NUMBER = 0;
 
 /**
- * The hint for one view: the route keys always, `0` only when a
+ * The hint for one view: the route keys always (the arrows and Enter too
+ * once the digits run out, more than nine routes), `0` only when a
  * "Return to main route" row exists (docs/plan.md Phase 18 — the user had
- * read a return hint on views where nothing could answer it).
+ * read a return hint on views where nothing could answer it), and while
+ * play-all is about to answer, that Space takes the pick now. That extra
+ * stays through the picked phase, where Space still enters the route at
+ * once, so the pick changes no word (docs/progress.md Phase 24).
  */
 export function choiceHint(choice: ChoiceView): string {
   const routes =
-    choice.routes.length > DIGIT_ROUTES ? LONG_CHOICE_HINT : CHOICE_HINT;
-  const base = choice.continueOption === true ? routes + CONTINUE_HINT : routes;
-  return choice.autoPick !== undefined ? base + AUTO_PICK_HINT : base;
+    choice.routes.length > DIGIT_ROUTES
+      ? t("choice.hintLong", { enter: "Enter" })
+      : t("choice.hint");
+  const base =
+    choice.continueOption === true ? routes + t("choice.hintContinue") : routes;
+  return choice.autoPick !== undefined
+    ? base + t("choice.hintAutoPick", { space: "Space" })
+    : base;
 }
-
-/**
- * The hint's extra while play-all is about to answer: Space takes the pick
- * now. It stays through the picked phase, where Space still enters the
- * route at once, so the pick changes no word (docs/progress.md Phase 24).
- */
-export const AUTO_PICK_HINT = "; Space picks now";
 
 /**
  * The whole seconds the status line shows, `leftMs` before the pick: the
@@ -178,7 +169,7 @@ export function choiceRows(choice: ChoiceView | undefined): ChoiceRowModel[] {
       kind: "continue",
       routeIdx: -1,
       number: CONTINUE_NUMBER,
-      label: CONTINUE_LABEL,
+      label: continueLabel(),
       seen: false,
       pick: "none",
     });
@@ -289,7 +280,7 @@ export function mountChoiceOverlay({
 
   const hint = doc.createElement("p");
   hint.className = "choice-hint";
-  hint.textContent = CHOICE_HINT;
+  hint.textContent = t("choice.hint");
 
   const list = doc.createElement("div");
   list.className = "choice-list";
@@ -402,7 +393,11 @@ export function mountChoiceOverlay({
     if (!pick.picked) ticker = setInterval(update, 200);
   }
 
+  // The view on show, drawn again in a new UI language.
+  let shown: ChoiceView | null = null;
+
   function close(): void {
+    shown = null;
     stopTicker();
     shownArm = -1;
     cursor = null;
@@ -411,11 +406,12 @@ export function mountChoiceOverlay({
     panel.hidden = true;
   }
 
-  return {
+  const overlay: ChoiceOverlay = {
     isOpen() {
       return !panel.hidden;
     },
     render(choice: ChoiceView) {
+      shown = choice;
       const opening = panel.hidden || shownDecision !== choice.decisionId;
       if (opening) {
         cursor = null;
@@ -453,7 +449,7 @@ export function mountChoiceOverlay({
         if (row.seen) {
           const marker = doc.createElement("span");
           marker.className = "choice-seen";
-          marker.textContent = SEEN_MARKER;
+          marker.textContent = seenMarker();
           line.appendChild(marker);
         }
         return line;
@@ -499,4 +495,9 @@ export function mountChoiceOverlay({
       return target instanceof Node && list.contains(target);
     },
   };
+  // A new UI language redraws the open decision's words in it.
+  localized(() => {
+    if (shown !== null && !panel.hidden) overlay.render(shown);
+  });
+  return overlay;
 }

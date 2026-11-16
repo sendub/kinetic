@@ -18,7 +18,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 // The continue row's label, read from the module that draws it, so the
 // branch steps assert the same string the screen shows (as with fit.ts).
-import { CONTINUE_LABEL } from "../../src/render/choice.ts";
+import { continueLabel } from "../../src/render/choice.ts";
 // The contain-fit geometry comes from the renderer's own pure helper, read
 // straight from src (node runs the types away), so the driver's expectation
 // cannot drift from the rule the unit tests pin.
@@ -75,10 +75,14 @@ import {
   sleep,
 } from "../testing/core.mjs";
 import { FAKE_VOICE_HOST } from "../testing/fakevoice.mjs";
+import { testLocaleScript } from "../testing/testlocale.mjs";
 
 // Expando stashed on the <video> element to prove the renderer reuses the
 // SAME element across a chain instead of re-creating it (docs Phase 6).
 const VIDEO_TOKEN = "kinetic-verify-video";
+
+/** The continue row's label in English, the scenarios' language. */
+const CONTINUE_LABEL = continueLabel();
 
 // The Phase 8 bookmark list, read back from IndexedDB inside the page: the
 // database is the player's own storage (src/storage/idb.ts — db `kinetic`,
@@ -1264,6 +1268,9 @@ async function installRecordingHost(page, { kind, display }) {
  * URL (`"#start=<id>"`, docs/plan.md Phase 46, opens at that item).
  * `trace: true` sets `window.KINETIC_TEST_TRACE` before the player starts
  * (the item trace, src/render/trace.ts).
+ * `locale` gives the page the test-only UI language flag
+ * (../testing/testlocale.mjs; `PSEUDO_LOCALE` draws the player's words in
+ * the pseudo-locale).
  * `consoleLines` is every console line from the first load on, any type,
  * as `{ type, text }` (Chrome types `console.warn` "warn" and WebKit
  * "warning"); `errors` (collectErrors) keeps the errors and warnings of
@@ -1296,6 +1303,9 @@ export async function openScenario(name, options = {}) {
       : await installRecordingHost(page, options.host);
   if (options.voiceHost !== undefined) {
     await page.evaluateOnNewDocument(FAKE_VOICE_HOST, options.voiceHost);
+  }
+  if (options.locale !== undefined) {
+    await page.evaluateOnNewDocument(testLocaleScript(options.locale));
   }
   const cdp = await page.createCDPSession();
   const folder = options.folder ?? demoDir;

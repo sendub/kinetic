@@ -3,24 +3,31 @@
 // Pure: the download's size, its progress, the "?" help, and what the row
 // shows for each status of the voice engine (render/voiceclient.ts).
 
+import { formatNumber, t } from "../i18n/catalogue.ts";
 import type { VoiceStatus } from "./voiceclient";
 
 /** The row's words until the host gives a status. */
-export const MODEL_CHECKING = "Checking…";
-/** The help of a machine that cannot run the voices, when the host gives no reason. */
-export const MODEL_UNSUPPORTED =
-  "Spoken lines are not available on this computer.";
-/** An error's words when the host gives none. */
-export const MODEL_FAILED = "The voice model could not be downloaded.";
+export function modelChecking(): string {
+  return t("voice.checking");
+}
 
-/** A download's size in GB (1e9 bytes), to one decimal place: "3.3 GB". */
+/**
+ * A download's size in GB (1e9 bytes), to one decimal place, written for
+ * the UI language: "3.3 GB".
+ */
 export function gigabytes(bytes: number): string {
-  return `${(bytes / 1e9).toFixed(1)} GB`;
+  return formatNumber(bytes / 1e9, {
+    style: "unit",
+    unit: "gigabyte",
+    minimumFractionDigits: 1,
+    maximumFractionDigits: 1,
+    useGrouping: false,
+  });
 }
 
 /** The download button's words: "Download voice model (3.3 GB)". */
 export function downloadLabel(bytes: number): string {
-  return `Download voice model (${gigabytes(bytes)})`;
+  return t("voice.download", { size: gigabytes(bytes) });
 }
 
 /** An install's progress in whole percent, 0 to 100 (0 with no total). */
@@ -37,13 +44,9 @@ export function installPercent(status: VoiceStatus): number {
  */
 export function modelHelp(status: VoiceStatus): string {
   if (status.state === "unsupported") {
-    return status.message ?? MODEL_UNSUPPORTED;
+    return status.message ?? t("voice.unsupported");
   }
-  return (
-    "Spoken lines are made on this computer from the characters' voices. " +
-    `The voice model is downloaded once (${gigabytes(status.downloadBytes)}) ` +
-    "and every Kinetic game on this computer shares it."
-  );
+  return t("voice.help", { size: gigabytes(status.downloadBytes) });
 }
 
 /** Which of the model's controls the Voice row shows in place of its slider. */
@@ -114,7 +117,7 @@ export function voiceModelView(status: VoiceStatus | null): ModelView {
         ...base,
         area: "error",
         label,
-        message: status.message ?? MODEL_FAILED,
+        message: status.message ?? t("voice.failed"),
       };
     case "ready":
       return { ...base, area: "none", ready: true, removable: true, label };

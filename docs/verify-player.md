@@ -74,7 +74,10 @@ Phase 52): a page script, the same on both engines and apart from the real
 bridges, that offers `voice: true`, installs, voices lines as tones after
 a set delay, and keeps what the page sent in `window.__fakeVoice`
 (`readFakeVoice(page)`). `open(name, { hash: "#start=<id>" })` adds the hash to the page's
-URL. `open(name, { requireGestureForAudio: true })` starts the WebKit
+URL. `open(name, { locale: PSEUDO_LOCALE })` gives the page the test-only
+UI language flag (`player/scripts/testing/testlocale.mjs`), so the player
+draws its own words in the pseudo-locale ([The player's
+words](#the-players-words)). `open(name, { requireGestureForAudio: true })` starts the WebKit
 driver with `--require-gesture-for-audio`, so it refuses sound until a key
 or click as Safari does; Chrome always refuses, and the stock driver
 plays at once, as the macOS app does. The scenarios on
@@ -116,6 +119,73 @@ never ask for fullscreen.
 | `trace` | the item trace for tests (docs/plan.md Phase 54 item 1, `src/render/trace.ts`) on the demo, opened with `trace: true` (`window.KINETIC_TEST_TRACE` set before the player starts): the load's screen as record 0, a Tab skip burst from the first item to the last one read traced item by item in story order as skip arrivals, `n` from 0 with no gap, nothing dropped, each `kinetic:item` event's detail the array's record itself; without the flag no `__kineticTrace`, no `__kineticTraceDropped` and no event; then the testing library's `trace()` (Phase 54 item 2) through `openGame(folder, { trace: true })` on the run's engine, one part each: `libraryPick` (the first call holds only record 0, the load's screen, nothing dropped; after a Space walk to the decision and route 2 picked by its digit, the next call holds the records since, `n` going on with no gap: every item to the decision in story order, the decision's choice record answered by the reader, not Play all and not walked, with its routes in order, and route 2's first item inside the route; a call with nothing new resolves no records), `libraryPlayAll` (a Play all run from the opening to the end card: `n` from 0 with no gap, nothing dropped, every item of the demo once, only the demo's two decisions' choice records, each answered by Play all, the nested route's items inside both routes, the aftermath after every route, an end record last), `libraryRefusals` (`trace()` rejecting on a game opened without `trace: true`, and on copies whose player keeps no trace, one stamped with an older version and one with no version stamp, naming the player and the fix) |
 | `versions` | the versions on the Esc screen (docs/plan.md Phase 51 item 4), each part on a copy of a demo written under the scenario root with its manifest changed, read at 1920x1080, 1280x720, 800x600, 700x900, 600x900 and 480x270 (the Mac app's smallest window) with the screen scrolled to its end: `shown` (the demo with `title` and `version`): the heading reading the name then the version, the version inside it after the name's last line, smaller and dimmer than the name, whole and in the window; `Kinetic x.y.z` (the repo's VERSION) in the bottom-right corner on the ground below the sheet (a probe on the sheet's grid area), on the panel and outside the key grid, in the window, over none of the sheet, the grid, the settings, the heading, the hint, the Keys heading or any control (Fullscreen \| Window and Exit among them); the page title the name alone; `longTitle`: a 200-character title wrapping onto several lines and a 40-character version with no space whole after it, in the window, nothing scrolling across, the corner line still clear; `versionAlone`: no title, the version alone where the heading would be (a `p`, no heading), on or above the hint's line and before the keys, the page title `Kinetic` (1280x720, 480x270); `withSound` (the audio demo with a version): the `Sound off` pill `v` shows over the Esc screen clear of the corner line, and the Volumes sheet clear of it wherever the sheet fits the window, and at 480x270, where it cannot, over it (the point under the line's centre in the Volumes scrim); `KINETIC_VERSIONS_SHOTS=<dir>` saves the Esc screen at 1280x720 and 480x270 and the long title at 800x600 and 480x270 |
 | `progress` | export / import progress: one browser reads, bookmarks, sets 2.00x and exports (a real download of `<storyId>-progress.json`, checked field by field; "Progress exported" in the `#flash` pill, solid above the open Esc screen, every settings row where it was); a fresh profile on the same folder refuses another story's file in the pill, still fully shown 600 ms past a mode pill's hold, nothing on the screen moving (no box, nothing stored), then imports the real file through the confirm box and reloads onto the same item with the bookmark, 2.00x and help closed; one more item survives a reload (saving automatic again) |
+| `catalogue` | the player's words (docs/plan.md Phase 54 item 2) in the pseudo-locale on every screen and sheet: the Esc screen at 1280x800 and 600 wide with each "?" tip open, the reset box at both sizes, three import refusals and the close-tab note (pills), skip, auto-forward, bookmark, route, segment and sound pills, hidden text, the branch map with a card (also 600 wide), a route's, a decision's and a card's tooltip, a deleted card and its undo note, a decision counting down under Play all routes (both sizes), decisions picked by hand, an end card (both sizes), a decision offered again with its return row (both sizes), the empty folder's notice, the audio demo's Esc screen and Volumes sheet at both sizes, and under a stand-in voice engine (a game app's words) the voice model's offer, its tip, progress, error, installed row (both sizes) and removal box; each fails on a visible word, accessible name, hint or page title with a letter outside the markers (game text and key caps aside) or a text box that overflows or clips |
+
+## The player's words
+
+Every word the player draws or names for assistive tech (the Esc screen,
+help, settings, tips, the Volumes sheet, pills, confirmation boxes,
+decision hints, the end card, the branch map and its cards, the page
+title) comes from one catalogue by key; no render module draws a literal
+(docs/plan.md Phase 54 item 2). Game text and key caps (Space, Esc, Tab,
+Enter, letters, digits, arrows) are not the catalogue's: a sentence naming
+a key takes it as a placeholder, so a translation keeps it as keyboards
+print it.
+
+- `player/src/i18n/en.ts` holds the English, the source of truth: stable
+  dotted keys (`config.skip.section`), `{name}` placeholders, and plural
+  messages as objects keyed by CLDR plural category (`{ one, other }`).
+  Each entry's doc comment says where and how it is used; it becomes the
+  translator's note.
+- `player/src/i18n/catalogue.ts` looks messages up: `t(key, params)` in
+  the UI language, falling back to English per message (a key a language
+  lacks, or a language the catalogue lacks); a plural picks its category
+  from `params.count` by `Intl.PluralRules`; number parameters go through
+  `Intl.NumberFormat` (`formatNumber`). `setUiLanguage(tag)` switches the
+  language live: each component draws its words inside `localized(draw)`,
+  which runs again on every change, and `src/i18n/document.ts` keeps the
+  page's `lang` on the UI language (right to left joins it there).
+- Other languages are PO files, `player/locales/<tag>.po` (the tag a BCP
+  47 tag: `de`, `pt-BR`, `zh-Hans`). `msgctxt` is the key, `msgid` the
+  English; a plural message is one entry per category the language needs,
+  `msgctxt` `key#one`, `key#few` and so on. An empty `msgstr` is
+  untranslated (English shows); a fuzzy entry is used.
+- `npm run i18n` (`player/scripts/i18n.mjs`, which every build also runs)
+  writes the template `player/locales/messages.pot` from `en.ts` (English's
+  plural categories only, one and other) and compiles every `<tag>.po`
+  into `player/src/i18n/locales.generated.ts`, which the bundle carries.
+  Both are committed; `npm test` (`scripts/i18n.test.mjs`) fails while
+  either is stale, and the compiler reports and leaves out an entry with
+  an unknown key, a wrong plural shape or placeholders that differ from
+  the English. The PO reader is `player/scripts/po.mjs`.
+- To add a language: copy `messages.pot` to `<tag>.po`, fill each
+  `msgstr`, add the entries for any plural category the language has
+  beyond one and other, run `npm run i18n`, and run the `catalogue`
+  scenario in that language at the screen sizes above (docs/plan.md Phase
+  54 item 4 adds a language choice; until then a test sets it).
+- To add a message: add it to `en.ts` with its doc comment, draw it with
+  `t()` inside the component's `localized` drawing, and run `npm run
+  i18n`.
+
+The pseudo-locale, `en-XA` (`player/src/i18n/pseudo.ts`), is for tests
+only: every English message with its letters accented, padded with short
+words to about 140% of its length and wrapped in `⟦ ⟧`, placeholders kept.
+A screen drawn in it shows any word that does not come from the catalogue
+(no markers) and any box too tight for a longer language. Readers cannot
+reach it: the player turns it on only when the page has the test flag
+`window.KINETIC_TEST_LOCALE = "en-XA"`, which a launcher's page script sets
+before the player starts, as the sound flag is set
+(`player/scripts/testing/testlocale.mjs`; `open(name, { locale:
+PSEUDO_LOCALE })` in a scenario). The `catalogue` scenario walks every
+screen and sheet in it on Chrome and WebKit (`npm run verify -- catalogue`
+and `npm run verify -- --webkit catalogue`). Its page-side reader
+(`INSTALL_AUDIT`) fails a screen on a visible text node, `aria-label`,
+`data-hint` or `title` with a letter outside the markers, and on a text
+box wider than itself, one pushed past its flex row's edge, one outside
+the window or clipped by a box that does not scroll. Game text is exempt
+by where it is drawn (the band, a decision's question and route labels,
+the game's name and release, the map's labels), as are a voice engine's
+own messages, which come from the game app.
 
 ## WebKit
 

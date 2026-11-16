@@ -73,6 +73,15 @@ export class FakeElement {
     this.append(node);
   }
 
+  /** Drops every child (and its own text), then appends `nodes`. */
+  replaceChildren(...nodes: (FakeElement | string)[]): void {
+    for (const child of this.children) child.parent = null;
+    this.childNodes.length = 0;
+    this.children.length = 0;
+    this.ownText = "";
+    this.append(...nodes);
+  }
+
   closest(selector: string): FakeElement | null {
     const name = selector.match(/^\[([^\]]+)\]$/)?.[1];
     if (name === undefined) return null;

@@ -19,15 +19,9 @@
 // a reload resumes the saved place; no resume notice on a URL start; an
 // unknown id gives one console warning and the usual first screen.
 
-import { CHOICE_HINT, CONTINUE_HINT } from "../../src/render/choice.ts";
-import {
-  ALL_SEEN_TEXT,
-  EARLIER_UNSEEN_NOTICE,
-} from "../../src/render/endcard.ts";
 import {
   branch,
   CHOICE_OPEN,
-  CONTINUE_LABEL,
   currentItemId,
   HELP_CLOSED,
   HELP_OPEN,
@@ -125,10 +119,10 @@ function choiceIs(c, hints, b, seenIds, withReturn) {
   const returnOk = withReturn
     ? ret.length === 1 &&
       c.rows[c.rows.length - 1].isContinue &&
-      ret[0].label === CONTINUE_LABEL &&
+      ret[0].label === "Return to main route" &&
       ret[0].number === "0" &&
-      hints.choiceHint === CHOICE_HINT + CONTINUE_HINT
-    : ret.length === 0 && hints.choiceHint === CHOICE_HINT;
+      hints.choiceHint === "1-9 or click picks a route; 0 returns"
+    : ret.length === 0 && hints.choiceHint === "1-9 or click picks a route";
   return routesOk && returnOk;
 }
 
@@ -206,7 +200,7 @@ async function walkSession({ check, open }) {
   check(
     "34. a first fire draws no Return row and no 0 hint",
     s34.choice.rows?.every((r) => !r.isContinue) &&
-      s34.hints.choiceHint === CHOICE_HINT,
+      s34.hints.choiceHint === "1-9 or click picks a route",
     s34,
   );
 
@@ -401,7 +395,7 @@ async function walkSession({ check, open }) {
     "end card on after-end says everything has been seen once every item has been",
     onEnd &&
       end.hints.endingShown === true &&
-      end.hints.endingText === ALL_SEEN_TEXT &&
+      end.hints.endingText === "You have seen everything." &&
       end.hints.endingKey === null,
     end,
   );
@@ -654,7 +648,7 @@ async function resumeSession({ check, open }) {
   );
   check(
     "end card on after-end says everything has been seen",
-    onEnding && ending.hints.endingText === ALL_SEEN_TEXT,
+    onEnding && ending.hints.endingText === "You have seen everything.",
     ending.hints,
   );
 }
@@ -735,7 +729,7 @@ async function unseenSession({ check, open }) {
   check(
     "with everything seen the end card says so (no u line) and u does nothing",
     final !== false &&
-      final.hints.endingText === ALL_SEEN_TEXT &&
+      final.hints.endingText === "You have seen everything." &&
       final.hints.endingKey === null &&
       stayed.id === "after-end" &&
       (await page.evaluate(PAINT_SIG)) === sig,
@@ -1162,7 +1156,7 @@ async function urlStartMainSession({ check, open }) {
     resumed &&
       screen === "chain-still-3" &&
       back.hash === "" &&
-      back.notice === EARLIER_UNSEEN_NOTICE,
+      back.notice === "Earlier content you haven't seen - press u.",
     { back, screen },
   );
 }

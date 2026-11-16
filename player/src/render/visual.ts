@@ -65,6 +65,7 @@
 // player gets fills it maximally with the aspect ratio kept, and the manifest's
 // width/height are used for nothing at render time (docs/plan.md Phase 7b).
 
+import { t } from "../i18n/catalogue.ts";
 import type {
   AnimationItem,
   Item,
@@ -372,9 +373,7 @@ const now = (): number => globalThis.performance.now();
  * wording is unit-tested without a DOM.
  */
 export function emptyStateNoticeText(itemCount: number): string {
-  return itemCount === 0
-    ? "No content yet — this folder has an empty manifest."
-    : "No content to show.";
+  return itemCount === 0 ? t("visual.empty") : t("visual.nothing");
 }
 
 export function createVisualLayer(
@@ -1194,7 +1193,7 @@ export function createVisualLayer(
           // Unreachable for a valid manifest: visualIndex() resolves a `text`
           // item to its earlier media. Guard so a bad folder shows a label
           // rather than a blank screen.
-          showNotice("placeholder", `${item.id} — text item with no visual`);
+          showNotice("placeholder", t("visual.placeholder", { id: item.id }));
           return;
       }
     },

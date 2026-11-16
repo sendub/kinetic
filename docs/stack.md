@@ -62,6 +62,12 @@ Known constraints of the browser host, both accepted:
 - Build: esbuild, bundling to one classic `app.js` next to a handwritten
   `index.html`. Dev loop: esbuild `--servedir` (or `--watch`) plus browser
   reload; Vite not needed since there is no component tooling to justify.
+- The player's own words: one catalogue by key (`player/src/i18n/`),
+  English in TypeScript as the source, other languages compiled from
+  gettext PO files under `player/locales/` into the bundle, plurals by
+  `Intl.PluralRules` and numbers by `Intl.NumberFormat`, switchable live
+  with no reload (docs/plan.md Phase 54; docs/verify-player.md, "The
+  player's words"). No render module draws a literal.
 - Lint/format: Biome, one tool for both, minimal config.
 - Tests: Vitest for the state machine and pure modules (no DOM). Rendering
   and key handling verify through a documented manual checklist against the

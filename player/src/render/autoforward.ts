@@ -10,14 +10,12 @@
 // flag — show nothing. The pill is the route pill (`flashSequence`): same
 // look, same 1.6 s hold, and the newest announcement wins.
 
+import { t } from "../i18n/catalogue.ts";
 import type { Machine } from "../machine/machine";
-
-export const AUTO_FORWARD_ON_MESSAGE = "Auto-forward on";
-export const AUTO_FORWARD_OFF_MESSAGE = "Auto-forward off";
 
 /** The pill naming the mode the reader is now in. */
 export function autoForwardMessage(on: boolean): string {
-  return on ? AUTO_FORWARD_ON_MESSAGE : AUTO_FORWARD_OFF_MESSAGE;
+  return on ? t("pill.autoForwardOn") : t("pill.autoForwardOff");
 }
 
 export interface AutoForwardAnnouncementsOptions {

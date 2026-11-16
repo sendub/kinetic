@@ -29,6 +29,7 @@
 // half only applies them; the rows themselves live with the keymap
 // (single source), not here.
 
+import { localized, t } from "../i18n/catalogue.ts";
 import { KINETIC_VERSION } from "../version";
 import {
   CLICKABLE_HELP_COMMANDS,
@@ -36,17 +37,14 @@ import {
   keyHelpEntries,
 } from "./keys";
 
-/** The keys' heading, shown above the key grid. */
-export const HELP_TITLE = "Keys";
-
 /**
  * The screen's one hint (Phase 26, cut in Phase 40): its keys close it (a
- * click never closes it, Phase 24).
+ * click never closes it, Phase 24). Its words, the keys' heading's and the
+ * rows' are the catalogue's (../i18n/en.ts), drawn in the UI language.
  */
-export const HELP_HINT = "Esc or Space closes";
-
-/** The page title when the manifest names no game (index.html's own). */
-export const PAGE_TITLE_DEFAULT = "Kinetic";
+export function helpHint(): string {
+  return t("help.hint", { esc: "Esc", space: "Space" });
+}
 
 /**
  * The game's name from the manifest `title` (docs/plan.md Phase 21, Game
@@ -72,14 +70,17 @@ function plainTextOf(value: unknown): string | null {
   return trimmed === "" ? null : trimmed;
 }
 
-/** The page (tab) title: the game's name, else the player's own. Pure. */
+/**
+ * The page (tab) title: the game's name, else the player's own
+ * (index.html's, `page.title`).
+ */
 export function pageTitleFor(title: unknown): string {
-  return gameTitleOf(title) ?? PAGE_TITLE_DEFAULT;
+  return gameTitleOf(title) ?? t("page.title");
 }
 
 /** The Esc screen's corner line naming this player's Kinetic release. */
 export function kineticLine(): string {
-  return `Kinetic ${KINETIC_VERSION}`;
+  return t("help.kinetic", { version: KINETIC_VERSION });
 }
 
 export interface HelpOverlay {
@@ -172,54 +173,55 @@ export function mountHelpOverlay({
 
   const title = doc.createElement("h2");
   title.className = "help-title";
-  title.textContent = HELP_TITLE;
 
   const hint = doc.createElement("p");
   hint.className = "help-hint";
-  hint.textContent = HELP_HINT;
 
   // A grid that fills across before it goes down (Phase 26): index.html's
   // `.help-list` sizes its columns with auto-fill.
   const list = doc.createElement("div");
   list.className = "help-list";
-  for (const row of helpRows({ sound })) {
-    // A clickable row is a button (focusable, Enter activates it) drawn
-    // like the others; index.html's `button.help-row` adds only the
-    // hover/focus cue.
-    const command = row.command;
-    const clickable =
-      onEntry !== undefined &&
-      command !== null &&
-      CLICKABLE_HELP_COMMANDS.has(command);
-    const line = doc.createElement(clickable ? "button" : "div");
-    line.className = "help-row";
-    if (clickable) {
-      (line as HTMLButtonElement).type = "button";
-      line.addEventListener("click", () => onEntry(command));
+  const drawRows = (): void => {
+    list.textContent = "";
+    for (const row of helpRows({ sound })) {
+      // A clickable row is a button (focusable, Enter activates it) drawn
+      // like the others; index.html's `button.help-row` adds only the
+      // hover/focus cue.
+      const command = row.command;
+      const clickable =
+        onEntry !== undefined &&
+        command !== null &&
+        CLICKABLE_HELP_COMMANDS.has(command);
+      const line = doc.createElement(clickable ? "button" : "div");
+      line.className = "help-row";
+      if (clickable) {
+        (line as HTMLButtonElement).type = "button";
+        line.addEventListener("click", () => onEntry(command));
+      }
+      // The entry's key caps on one line, its description beneath
+      // (index.html's `.help-row`). Each word of a label is its own cap and
+      // a lone "/" is the "or" between caps, so `1-9 / 0` draws two caps;
+      // the spaces between are text nodes, so the line's text is still the
+      // label itself.
+      const key = doc.createElement("span");
+      key.className = "help-key";
+      row.keys
+        .join(" / ")
+        .split(" ")
+        .forEach((word, index) => {
+          if (index > 0) key.append(" ");
+          const part = doc.createElement(word === "/" ? "span" : "kbd");
+          part.className = word === "/" ? "help-or" : "help-cap";
+          part.textContent = word;
+          key.append(part);
+        });
+      const description = doc.createElement("span");
+      description.className = "help-desc";
+      description.textContent = row.description;
+      line.append(key, description);
+      list.appendChild(line);
     }
-    // The entry's key caps on one line, its description beneath
-    // (index.html's `.help-row`). Each word of a label is its own cap and
-    // a lone "/" is the "or" between caps, so `1-9 / 0` draws two caps;
-    // the spaces between are text nodes, so the line's text is still the
-    // label itself.
-    const key = doc.createElement("span");
-    key.className = "help-key";
-    row.keys
-      .join(" / ")
-      .split(" ")
-      .forEach((word, index) => {
-        if (index > 0) key.append(" ");
-        const part = doc.createElement(word === "/" ? "span" : "kbd");
-        part.className = word === "/" ? "help-or" : "help-cap";
-        part.textContent = word;
-        key.append(part);
-      });
-    const description = doc.createElement("span");
-    description.className = "help-desc";
-    description.textContent = row.description;
-    line.append(key, description);
-    list.appendChild(line);
-  }
+  };
 
   // The game's name heads the screen (Phase 21), its release after it,
   // smaller and dimmer (Phase 51), both set as text so markup shows
@@ -255,9 +257,16 @@ export function mountHelpOverlay({
   // corner, outside the sheet (index.html's `.help-kinetic`).
   const kinetic = doc.createElement("p");
   kinetic.className = "help-kinetic";
-  kinetic.textContent = kineticLine();
   panel.append(hint, title, list, kinetic);
   root.appendChild(panel);
+
+  // The screen's words, drawn again in each new UI language.
+  localized(() => {
+    title.textContent = t("help.title");
+    hint.textContent = helpHint();
+    kinetic.textContent = kineticLine();
+    drawRows();
+  });
 
   // No click handler on the panel: only its keys close it (Esc or Space,
   // main.ts), so a stray click — the first-load one included — leaves it

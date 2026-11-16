@@ -9,7 +9,6 @@ import { createMachine } from "../machine/machine";
 import type { Branch, Item, Manifest } from "../machine/types";
 import { DEFAULT_SETTINGS } from "../machine/types";
 import {
-  BACK_JUMP_MESSAGE,
   mountRouteAnnouncements,
   routeAnnouncementsFor,
   routeFlashLabel,
@@ -113,7 +112,7 @@ describe("routeAnnouncementsFor (the entry rule)", () => {
         { cursor: 2, frame: frame(0, 0) },
         LABELS,
       ),
-    ).toEqual([BACK_JUMP_MESSAGE, routeFlashLabel("Route A")]);
+    ).toEqual(["Back to try another route", routeFlashLabel("Route A")]);
   });
 
   it("the same open frame announcing nothing: no re-flash while inside", () => {

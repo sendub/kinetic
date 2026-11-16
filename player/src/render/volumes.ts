@@ -33,20 +33,17 @@
 // ready. The Voice volume is the only control of spoken lines: at 0 none
 // are made (render/spoken.ts `spokenOn`).
 
+import { formatNumber, localized, t } from "../i18n/catalogue.ts";
 import type { MachineSettings } from "../machine/types";
 import { mountTip, type Tip } from "./config";
 import { onScrimClick } from "./scrim";
 import type { SoundContent } from "./soundrows";
 import type { VoiceStatus } from "./voiceclient";
-import { MODEL_CHECKING, voiceModelView } from "./voicemodel";
+import { modelChecking, voiceModelView } from "./voicemodel";
 
-/** The `v` pill (like Tab's and `a`'s mode pills). */
-export const SOUND_ON_MESSAGE = "Sound on";
-export const SOUND_OFF_MESSAGE = "Sound off";
-
-/** The pill naming the state sound is now in. */
+/** The `v` pill naming the state sound is now in (like Tab's and `a`'s). */
 export function soundMessage(on: boolean): string {
-  return on ? SOUND_ON_MESSAGE : SOUND_OFF_MESSAGE;
+  return on ? t("pill.soundOn") : t("pill.soundOff");
 }
 
 /** The volumes walk 0 to 1 in this step. */
@@ -62,9 +59,14 @@ export function stepVolume(current: number, delta: number): number {
   return Math.min(10, Math.max(0, tenths)) / 10;
 }
 
+/** A whole percentage as the UI language writes it: "90%". */
+export function percentLabel(percent: number): string {
+  return formatNumber(percent / 100, { style: "percent", useGrouping: false });
+}
+
 /** A volume's readout: "90%". */
 export function volumeLabel(volume: number): string {
-  return `${String(Math.round(volume * 100))}%`;
+  return percentLabel(Math.round(volume * 100));
 }
 
 /** A setting the sheet changes. */
@@ -75,22 +77,37 @@ export type SampleGroup = "effects" | "voice";
 /** One row of the sheet. */
 export interface VolumeRow {
   readonly setting: VolumeSetting;
+  /** Its label, in the UI language. */
   readonly label: string;
-  /** Its controls' `data-config-action` prefix: `volume-<name>-down`. */
-  readonly name: string;
+  /**
+   * Its controls' `data-config-action` prefix (`volume-<name>-down`), and
+   * its words' keys in the catalogue (`volumes.<name>`, `.slider`,
+   * `.decrease`, `.increase`).
+   */
+  readonly name: "music" | "effects" | "voice";
   /** The sample a change plays; null for Music, which plays already. */
   readonly sample: SampleGroup | null;
 }
 
+function row(
+  setting: VolumeSetting,
+  name: VolumeRow["name"],
+  sample: SampleGroup | null,
+): VolumeRow {
+  return {
+    setting,
+    name,
+    sample,
+    get label() {
+      return t(`volumes.${name}`);
+    },
+  };
+}
+
 const ROWS: readonly VolumeRow[] = [
-  { setting: "musicVolume", label: "Music", name: "music", sample: null },
-  {
-    setting: "effectsVolume",
-    label: "Effects",
-    name: "effects",
-    sample: "effects",
-  },
-  { setting: "voiceVolume", label: "Voice", name: "voice", sample: "voice" },
+  row("musicVolume", "music", null),
+  row("effectsVolume", "effects", "effects"),
+  row("voiceVolume", "voice", "voice"),
 ];
 
 /** The sheet's rows: only the kinds of sound the game has. */
@@ -101,9 +118,6 @@ export function volumeRows(content: SoundContent): readonly VolumeRow[] {
     return content.voice;
   });
 }
-
-export const VOLUMES_TITLE = "Volumes";
-export const VOLUMES_HINT = "Esc closes";
 
 /** The voice engine as the Voice row uses it (main.ts: the voice client). */
 export interface VoiceModelControls {
@@ -175,7 +189,6 @@ export function mountVolumesOverlay({
   const title = doc.createElement("h2");
   title.className = "volumes-title";
   title.id = "volumes-title";
-  title.textContent = VOLUMES_TITLE;
 
   const list = doc.createElement("div");
   list.className = "volumes-list";
@@ -208,6 +221,8 @@ export function mountVolumesOverlay({
   let modelTip: Tip | null = null;
   /** The controls a model state hides; each hands its focus on. */
   const modelControls: HTMLElement[] = [];
+  /** Each row's fixed words, drawn again in a new UI language. */
+  const labellers: (() => void)[] = [];
 
   function move(row: VolumeRow, volume: number): void {
     current = { ...current, [row.setting]: volume };
@@ -221,28 +236,21 @@ export function mountVolumesOverlay({
     cell.setAttribute("data-volume", row.setting);
     const label = doc.createElement("span");
     label.className = "config-label";
-    label.textContent = row.label;
-    const lower = row.label.toLowerCase();
-    const down = button(
-      "config-step",
-      "−",
-      `Decrease ${lower} volume`,
-      `volume-${row.name}-down`,
-    );
+    const down = button("config-step", "−", "", `volume-${row.name}-down`);
     const slider = doc.createElement("input");
     slider.type = "range";
     slider.className = "config-slider";
     slider.min = "0";
     slider.max = "1";
     slider.step = String(VOLUME_STEP);
-    slider.setAttribute("aria-label", `${row.label} volume`);
     slider.setAttribute("data-config-action", `volume-${row.name}-slider`);
-    const up = button(
-      "config-step",
-      "+",
-      `Increase ${lower} volume`,
-      `volume-${row.name}-up`,
-    );
+    const up = button("config-step", "+", "", `volume-${row.name}-up`);
+    labellers.push(() => {
+      label.textContent = row.label;
+      down.setAttribute("aria-label", t(`volumes.${row.name}.decrease`));
+      slider.setAttribute("aria-label", t(`volumes.${row.name}.slider`));
+      up.setAttribute("aria-label", t(`volumes.${row.name}.increase`));
+    });
     const value = doc.createElement("span");
     value.className = "config-value";
     cell.append(label);
@@ -250,12 +258,17 @@ export function mountVolumesOverlay({
     let removeButton: HTMLButtonElement | null = null;
     if (remove) {
       // Beside the label, small, once the model is installed.
-      removeButton = button(
+      const remover = button(
         "config-toggle volume-remove",
-        "Remove voice model",
-        "Remove the voice model from this computer to free its space",
+        "",
+        "",
         "volume-voice-remove",
       );
+      removeButton = remover;
+      labellers.push(() => {
+        remover.textContent = t("volumes.remove");
+        remover.setAttribute("aria-label", t("volumes.removeAria"));
+      });
       removeButton.hidden = true;
       cell.append(removeButton);
     }
@@ -299,19 +312,12 @@ export function mountVolumesOverlay({
         "",
         "volume-model-download",
       );
-      const tip = mountTip(
-        doc,
-        "voice-model",
-        "the voice model",
-        "",
-        () => undefined,
-      );
+      const tip = mountTip(doc, "voice-model", "", "", () => undefined);
       modelTip = tip;
       download.setAttribute("aria-describedby", tip.id);
       const bar = doc.createElement("div");
       bar.className = "volume-progress";
       bar.setAttribute("role", "progressbar");
-      bar.setAttribute("aria-label", "Voice model download");
       bar.setAttribute("aria-valuemin", "0");
       bar.setAttribute("aria-valuemax", "100");
       const fill = doc.createElement("span");
@@ -321,17 +327,25 @@ export function mountVolumesOverlay({
       percent.className = "volume-progress-value";
       const cancel = button(
         "config-toggle volume-model-cancel",
-        "Cancel",
-        "Cancel the voice model download",
+        "",
+        "",
         "volume-model-cancel",
       );
       const retry = button(
         "config-toggle volume-model-retry",
-        "Retry",
-        "Retry the voice model download",
+        "",
+        "",
         "volume-model-retry",
       );
       area.append(message, download, tip.element, bar, percent, cancel, retry);
+      labellers.push(() => {
+        tip.setName(t("volumes.model.about"));
+        bar.setAttribute("aria-label", t("volumes.model.progress"));
+        cancel.textContent = t("volumes.model.cancel");
+        cancel.setAttribute("aria-label", t("volumes.model.cancelAria"));
+        retry.textContent = t("volumes.model.retry");
+        retry.setAttribute("aria-label", t("volumes.model.retryAria"));
+      });
       cell.append(area);
       modelControls.push(download, cancel, retry, removeButton);
 
@@ -361,7 +375,7 @@ export function mountVolumesOverlay({
         area.hidden = view.area === "none";
         message.hidden = view.area !== "checking" && view.area !== "error";
         message.textContent =
-          view.area === "checking" ? MODEL_CHECKING : view.message;
+          view.area === "checking" ? modelChecking() : view.message;
         const shown = view.area === "download";
         download.hidden = !shown;
         download.textContent = view.label;
@@ -380,7 +394,7 @@ export function mountVolumesOverlay({
         retry.hidden = view.area !== "error";
         bar.setAttribute("aria-valuenow", String(view.percent));
         fill.style.width = `${String(view.percent)}%`;
-        percent.textContent = `${String(view.percent)}%`;
+        percent.textContent = percentLabel(view.percent);
         // A control that had the focus and is hidden now hands it on: the
         // new slider once the model is ready, else the state's first
         // control, so the keyboard stays in the row.
@@ -394,16 +408,10 @@ export function mountVolumesOverlay({
     }
   }
 
-  const done = button(
-    "confirm-button volumes-done",
-    "Done",
-    "",
-    "volumes-done",
-  );
+  const done = button("confirm-button volumes-done", "", "", "volumes-done");
   done.addEventListener("click", () => close());
   const hint = doc.createElement("p");
   hint.className = "volumes-hint";
-  hint.textContent = VOLUMES_HINT;
 
   sheet.append(title, list, done, hint);
   panel.append(sheet);
@@ -412,7 +420,16 @@ export function mountVolumesOverlay({
   function paint(next: MachineSettings): void {
     for (const painter of painters) painter(next);
   }
-  paint(current);
+  // The sheet's words, drawn again (with the model's state) in each new UI
+  // language.
+  localized(() => {
+    title.textContent = t("volumes.title");
+    done.textContent = t("volumes.done");
+    hint.textContent = t("volumes.hint", { esc: "Esc" });
+    for (const label of labellers) label();
+    paint(current);
+    paintModel();
+  });
 
   /** Whether `el` and everything above it in the sheet is on show. */
   function isShown(el: HTMLElement): boolean {

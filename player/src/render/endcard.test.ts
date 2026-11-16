@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ALL_SEEN_TEXT, endCardText } from "./endcard";
+import { endCardText } from "./endcard";
 
 describe("endCardText (docs/plan.md Phase 18, End card)", () => {
   it("counts unplayed routes and points at u", () => {
@@ -31,6 +31,6 @@ describe("endCardText (docs/plan.md Phase 18, End card)", () => {
   it("says everything has been seen", () => {
     expect(
       endCardText({ unseenRoutes: 0, otherUnseen: false, nextUnseen: false }),
-    ).toEqual({ title: ALL_SEEN_TEXT });
+    ).toEqual({ title: "You have seen everything." });
   });
 });

@@ -46,6 +46,9 @@
 // Composition only — rendering lives in src/render/, timing in
 // src/machine/, storage adapters in src/storage/.
 
+import { localized, setUiLanguage, t } from "./i18n/catalogue";
+import { applyDocumentLanguage } from "./i18n/document";
+import { enablePseudoLocale } from "./i18n/pseudo";
 import { createMachine } from "./machine/machine";
 import type { MachineSettings } from "./machine/types";
 import { DEFAULT_SETTINGS } from "./machine/types";
@@ -60,12 +63,7 @@ import {
 import { mountBranchMap } from "./render/branchmap";
 import { captureVisualThumbnail } from "./render/capture";
 import { inputOwnerFor, mountChoiceOverlay } from "./render/choice";
-import {
-  EXPORT_DONE_NOTICE,
-  IMPORT_UNREADABLE_NOTICE,
-  isSettingsControl,
-  mountConfigOverlay,
-} from "./render/config";
+import { isSettingsControl, mountConfigOverlay } from "./render/config";
 import {
   importRequest,
   mountConfirmOverlay,
@@ -74,7 +72,7 @@ import {
   resetRequest,
 } from "./render/confirm";
 import { downloadText } from "./render/download";
-import { EARLIER_UNSEEN_NOTICE } from "./render/endcard";
+import { earlierUnseenNotice } from "./render/endcard";
 import {
   enterFullscreen,
   exitFullscreen,
@@ -94,7 +92,7 @@ import { takeUrlStart } from "./render/urlstart";
 import { createVoiceClient } from "./render/voiceclient";
 import { mountVolumesOverlay, soundMessage } from "./render/volumes";
 import { installWheelInput } from "./render/wheel";
-import { CLOSE_TAB_NOTE, mountWindowControls } from "./render/windowcontrols";
+import { closeTabNote, mountWindowControls } from "./render/windowcontrols";
 import { wordingFor } from "./render/wording";
 import { createIdbStorage, storageKeys, storyIdOf } from "./storage/idb";
 import { createContextCodec, resumeOptionsFor } from "./storage/ids";
@@ -174,6 +172,12 @@ function start(): void {
   if (root === null) {
     return; // index.html without a mount point: nothing to draw into.
   }
+  // The player's words (src/i18n/catalogue.ts): English, or the test-only
+  // pseudo-locale when a test launcher asked for it (src/i18n/pseudo.ts);
+  // the page's `lang` follows the UI language.
+  const pseudo = enablePseudoLocale(window.KINETIC_TEST_LOCALE);
+  if (pseudo !== null) setUiLanguage(pseudo);
+  applyDocumentLanguage(document);
   // A game app's host object (render/host.ts, docs/plan.md Phase 43): read
   // now and on every `kinetic-host` event, since it may arrive after load.
   // None in a browser tab.
@@ -191,7 +195,9 @@ function start(): void {
     async (manifest) => {
       // The game's name names the page (docs/plan.md Phase 21), else the
       // player's own title stays.
-      document.title = pageTitleFor(manifest.title);
+      localized(() => {
+        document.title = pageTitleFor(manifest.title);
+      });
       // One storage namespace per novel (docs/plan.md Phases 8, 21): its
       // manifest `storyId` when it has one, so moving or renaming the
       // folder keeps progress (and progress saved under the folder URL is
@@ -397,7 +403,7 @@ function start(): void {
         }
         // The confirmation arrives after both writes are durable, and never
         // interferes with `h`: it is not the overlay.
-        shell.flash("Bookmarked");
+        shell.flash(t("pill.bookmarked"));
       };
 
       // Warm the list once the story is up: the first read after this
@@ -464,7 +470,7 @@ function start(): void {
                 now: new Date(),
               });
               downloadText(document, name, JSON.stringify(file, null, 2));
-              shell.notify(EXPORT_DONE_NOTICE);
+              shell.notify(t("config.export.done"));
             });
         },
         // A game with sound controls gets the Sound row (docs/plan.md Phase
@@ -494,7 +500,7 @@ function start(): void {
                 ),
               );
             },
-            () => refuse(IMPORT_UNREADABLE_NOTICE),
+            () => refuse(t("config.import.unreadable")),
           );
         },
       });
@@ -582,7 +588,7 @@ function start(): void {
           setTimeout(run, ms);
         },
         tabStayed: () =>
-          shell.notify(CLOSE_TAB_NOTE, { holdMs: NOTICE_LONG_MS }),
+          shell.notify(closeTabNote(), { holdMs: NOTICE_LONG_MS }),
       });
       const windowControls = mountWindowControls({
         root: config.panel,
@@ -1160,14 +1166,14 @@ function start(): void {
       // on item 0, where nothing is earlier. A URL start is the place the
       // reader asked for, not a resume: no notice there.
       else if (startAt < 0 && machine.hasEarlierUnseen()) {
-        shell.showNotice(EARLIER_UNSEEN_NOTICE);
+        shell.showNotice(earlierUnseenNotice());
       }
     },
     (error: unknown) => {
       // An unreadable manifest is shown, never thrown: an uncaught rejection
       // would put a console error on a plain `file://` open.
       const detail = error instanceof Error ? error.message : String(error);
-      mountError(root, `Could not load the content: ${detail}`);
+      mountError(root, t("error.load", { detail }));
     },
   );
 }

@@ -6,15 +6,11 @@
 import { describe, expect, it } from "vitest";
 import type { ChoiceRoute, ChoiceView } from "../machine/types";
 import {
-  AUTO_PICK_HINT,
   autoPickSeconds,
   autoPickStatus,
-  CHOICE_HINT,
-  CONTINUE_LABEL,
   choiceHint,
   choiceRows,
   inputOwnerFor,
-  LONG_CHOICE_HINT,
   moveCursor,
   scrollIntoListDelta,
 } from "./choice";
@@ -67,7 +63,7 @@ describe("choiceRows (the overlay's row model)", () => {
       kind: "continue",
       routeIdx: -1,
       number: 0, // its key: the return row is picked with 0
-      label: CONTINUE_LABEL,
+      label: "Return to main route",
       seen: false,
       pick: "none",
     });
@@ -148,7 +144,9 @@ describe("a walked choice screen marks the walk's route (docs/plan.md Phase 27)"
   });
 
   it("keeps the hint: a walked screen counts nothing down", () => {
-    expect(choiceHint({ ...choice(routes), walkRoute: 1 })).toBe(CHOICE_HINT);
+    expect(choiceHint({ ...choice(routes), walkRoute: 1 })).toBe(
+      "1-9 or click picks a route",
+    );
   });
 });
 
@@ -224,12 +222,12 @@ describe("the play-all auto-pick on the choice screen (docs/plan.md Phase 18)", 
       routes: [],
     };
     expect(choiceHint({ ...view, autoPick: { ...base, picked: false } })).toBe(
-      CHOICE_HINT + AUTO_PICK_HINT,
+      "1-9 or click picks a route" + "; Space picks now",
     );
     expect(choiceHint({ ...view, autoPick: { ...base, picked: true } })).toBe(
-      CHOICE_HINT + AUTO_PICK_HINT,
+      "1-9 or click picks a route" + "; Space picks now",
     );
-    expect(choiceHint(view)).toBe(CHOICE_HINT);
+    expect(choiceHint(view)).toBe("1-9 or click picks a route");
     expect(choiceHint({ ...view, autoPick: { ...base, picked: false } })).toBe(
       "1-9 or click picks a route; Space picks now",
     );
@@ -240,8 +238,10 @@ describe("long choice lists (more routes than the digits reach)", () => {
   const routes = (n: number) => Array.from({ length: n }, (_, i) => route(i));
 
   it("the hint names the arrows and Enter only past nine routes", () => {
-    expect(choiceHint(choice(routes(9)))).toBe(CHOICE_HINT);
-    expect(choiceHint(choice(routes(10)))).toBe(LONG_CHOICE_HINT);
+    expect(choiceHint(choice(routes(9)))).toBe("1-9 or click picks a route");
+    expect(choiceHint(choice(routes(10)))).toBe(
+      "1-9, arrows and Enter, or click picks a route",
+    );
     expect(choiceHint(choice(routes(13), true))).toBe(
       "1-9, arrows and Enter, or click picks a route; 0 returns",
     );

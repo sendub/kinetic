@@ -16,16 +16,16 @@
 // both stores, reload. Kept out of main.ts so it is testable with the
 // memory backend and a stubbed reload.
 
+import { localized, t } from "../i18n/catalogue.ts";
 import type { Storage } from "../storage/types";
 import { onScrimClick } from "./scrim";
 import { BROWSER_WORDING, type Wording } from "./wording";
 
-/** The panel's message, verbatim from docs/plan.md Phase 16's wording. */
-export const RESET_MESSAGE =
-  "Reset all progress for this content? This clears resume position, " +
-  "seen items, routes, bookmarks and settings.";
-
-/** What one opening of the box asks, and what confirming does. */
+/**
+ * What one opening of the box asks, and what confirming does. Its words
+ * are read when drawn (getters over the catalogue), so a box redraws in a
+ * new UI language.
+ */
 export interface ConfirmRequest {
   readonly title: string;
   readonly message: string;
@@ -37,13 +37,24 @@ export interface ConfirmRequest {
   onConfirm(): void;
 }
 
-/** The Phase 16 reset, asked in its own words. */
+/** The keys a box's hint names, as keyboards print them. */
+const HINT_KEYS = { yes: "y", esc: "Esc", no: "n" } as const;
+
+/** The Phase 16 reset, asked in its own words (docs/plan.md Phase 16). */
 export function resetRequest(onConfirm: () => void): ConfirmRequest {
   return {
-    title: "Reset progress",
-    message: RESET_MESSAGE,
-    confirmLabel: "Reset",
-    hint: "y resets; Esc or n cancels",
+    get title() {
+      return t("confirm.reset.title");
+    },
+    get message() {
+      return t("confirm.reset.message");
+    },
+    get confirmLabel() {
+      return t("confirm.reset.button");
+    },
+    get hint() {
+      return t("confirm.reset.hint", HINT_KEYS);
+    },
     onConfirm,
   };
 }
@@ -59,10 +70,18 @@ export function importRequest(
   words: Wording = BROWSER_WORDING,
 ): ConfirmRequest {
   return {
-    title: "Import progress",
-    message: words.importConfirm(title),
-    confirmLabel: "Import",
-    hint: "y imports; Esc or n cancels",
+    get title() {
+      return t("confirm.import.title");
+    },
+    get message() {
+      return words.importConfirm(title);
+    },
+    get confirmLabel() {
+      return t("confirm.import.button");
+    },
+    get hint() {
+      return t("confirm.import.hint", HINT_KEYS);
+    },
     onConfirm,
   };
 }
@@ -75,11 +94,18 @@ export function importRequest(
  */
 export function removeVoicesRequest(onConfirm: () => void): ConfirmRequest {
   return {
-    title: "Remove voice model",
-    message:
-      "Remove the voice model from this computer to free its space? Every Kinetic game uses it; you can download it again.",
-    confirmLabel: "Remove",
-    hint: "y removes; Esc or n cancels",
+    get title() {
+      return t("confirm.removeVoices.title");
+    },
+    get message() {
+      return t("confirm.removeVoices.message");
+    },
+    get confirmLabel() {
+      return t("confirm.removeVoices.button");
+    },
+    get hint() {
+      return t("confirm.removeVoices.hint", HINT_KEYS);
+    },
     onConfirm,
   };
 }
@@ -126,7 +152,6 @@ export function mountConfirmOverlay({
   const cancelButton = doc.createElement("button");
   cancelButton.className = "confirm-button confirm-cancel";
   cancelButton.type = "button";
-  cancelButton.textContent = "Cancel";
   cancelButton.setAttribute("data-confirm-action", "cancel");
   actions.append(confirmButton, cancelButton);
 
@@ -171,16 +196,24 @@ export function mountConfirmOverlay({
     onCancel();
   });
 
+  // The words, the open request's included, in the UI language in force.
+  function draw(): void {
+    cancelButton.textContent = t("confirm.cancel");
+    if (asked === null) return;
+    title.textContent = asked.title;
+    message.textContent = asked.message;
+    confirmButton.textContent = asked.confirmLabel;
+    hint.textContent = asked.hint;
+  }
+  localized(draw);
+
   return {
     isOpen() {
       return !panel.hidden;
     },
     open(request) {
       asked = request;
-      title.textContent = request.title;
-      message.textContent = request.message;
-      confirmButton.textContent = request.confirmLabel;
-      hint.textContent = request.hint;
+      draw();
       panel.hidden = false;
     },
     accept,

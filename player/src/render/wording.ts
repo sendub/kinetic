@@ -6,8 +6,11 @@
 // page loads, so callers ask `wordingFor(link.host() !== null)` when they
 // show a text, not once at mount.
 //
-// Not here: `CLOSE_TAB_NOTE` (render/windowcontrols.ts) names the tab, and
-// it shows only when `link.quit()` found no host, so an app never reads it.
+// Not here: the close-tab note (`window.closeTab`, render/windowcontrols.ts)
+// names the tab, and it shows only when `link.quit()` found no host, so an
+// app never reads it.
+
+import { t } from "../i18n/catalogue.ts";
 
 export interface Wording {
   /** The "?" behind the Progress heading. */
@@ -20,26 +23,38 @@ export interface Wording {
   importConfirm(title: string | undefined): string;
 }
 
-const storyName = (title: string | undefined): string => title ?? "this story";
+const storyName = (title: string | undefined): string =>
+  title ?? t("wording.thisStory");
+
+// Each word is read from the catalogue (../i18n/catalogue.ts) when asked,
+// so it is in the UI language in force.
 
 export const BROWSER_WORDING: Wording = {
-  progressTip:
-    "Saved in this browser as you read. Export and Import carry it to another browser.",
-  importFailed:
-    "The import failed: this browser's storage refused it. Nothing was changed.",
-  importAria: "Import progress from a file, replacing this browser's",
+  get progressTip() {
+    return t("wording.browser.progressTip");
+  },
+  get importFailed() {
+    return t("wording.browser.importFailed");
+  },
+  get importAria() {
+    return t("wording.browser.importAria");
+  },
   importConfirm: (title) =>
-    `Replace this browser's progress for ${storyName(title)} with the imported file?`,
+    t("wording.browser.importConfirm", { story: storyName(title) }),
 };
 
 export const APP_WORDING: Wording = {
-  progressTip:
-    "Saved as you read. Export and Import carry it to another device.",
-  importFailed:
-    "The import failed: this computer's storage refused it. Nothing was changed.",
-  importAria: "Import progress from a file, replacing the progress saved here",
+  get progressTip() {
+    return t("wording.app.progressTip");
+  },
+  get importFailed() {
+    return t("wording.app.importFailed");
+  },
+  get importAria() {
+    return t("wording.app.importAria");
+  },
   importConfirm: (title) =>
-    `Replace the progress saved here for ${storyName(title)} with the imported file?`,
+    t("wording.app.importConfirm", { story: storyName(title) }),
 };
 
 /** The wording for a game app (`app`) or a browser tab. */

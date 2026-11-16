@@ -3,7 +3,10 @@
 // no state lives here. The wheel is a separate module (render/wheel.ts)
 // because a wheel event is not a key. The key help overlay renders this
 // module's own table (`keyHelpEntries`), so the listed keys and the
-// mapping in force cannot drift apart.
+// mapping in force cannot drift apart. The rows' words are the catalogue's
+// (`keys.*`, ../i18n/en.ts), read when the rows are built.
+
+import { type MessageKey, t } from "../i18n/catalogue.ts";
 
 /** The commands the shell and machine expose to the key map. */
 export interface KeyCommands {
@@ -195,42 +198,43 @@ const HELP_ROWS: ReadonlyArray<{
   command: KeyCommand | null;
   /** A second command drawn on the same row, its caps after the first's. */
   pairedWith?: KeyCommand;
-  /** Label for a non-command row (the wheel, the decision digits). */
+  /**
+   * Label for a non-command row: the decision keys' caps, as keyboards
+   * print them, or (`wheel`) the catalogue's one cap for the mouse wheel.
+   */
   plainLabel?: string;
-  description: string;
+  description: MessageKey;
 }> = [
-  { command: "advance", description: "next item; stops auto-forward" },
+  { command: "advance", description: "keys.advance" },
   {
     command: "segmentBack",
     pairedWith: "segmentForward",
-    description: "previous / next view of a video",
+    description: "keys.segments",
   },
-  {
-    command: null,
-    plainLabel: "wheel",
-    description: "back / forward through the story",
-  },
-  {
-    command: "jumpToEnd",
-    description: "jump to the furthest point read",
-  },
-  { command: "nextUnseen", description: "next unseen content" },
-  { command: "toggleSkip", description: "skip what you have seen" },
-  { command: "toggleAutoForward", description: "auto-forward on / off" },
-  { command: "toggleText", description: "hide / show the text" },
-  { command: "toggleSound", description: "sound on / off" },
-  { command: "bookmark", description: "bookmark this moment" },
-  { command: "toggleMap", description: "branch map and bookmarks" },
-  {
-    command: "dismissOverlay",
-    description: "this screen: keys and settings; closes the map",
-  },
+  { command: null, plainLabel: "wheel", description: "keys.wheel" },
+  { command: "jumpToEnd", description: "keys.end" },
+  { command: "nextUnseen", description: "keys.unseen" },
+  { command: "toggleSkip", description: "keys.skip" },
+  { command: "toggleAutoForward", description: "keys.autoForward" },
+  { command: "toggleText", description: "keys.text" },
+  { command: "toggleSound", description: "keys.sound" },
+  { command: "bookmark", description: "keys.bookmark" },
+  { command: "toggleMap", description: "keys.map" },
+  { command: "dismissOverlay", description: "keys.escape" },
   {
     command: null,
     plainLabel: "1-9 0 ↑↓ Enter",
-    description: "at a decision: pick a route; 0 returns to main route",
+    description: "keys.decision",
   },
 ];
+
+/**
+ * The wheel's cap: the catalogue's word, its spaces made unbreakable so
+ * the help draws it as one cap (it splits labels into caps at spaces).
+ */
+function wheelCap(): string {
+  return t("keys.wheel.cap").replace(/ /g, "\u00a0");
+}
 
 /**
  * The help screen's content, built FROM the key table (docs/plan.md Phase
@@ -256,7 +260,12 @@ export function keyHelpEntries(
           ? [row.command]
           : [row.command, row.pairedWith];
     let keys: string[];
-    if (row.command === null) keys = [row.plainLabel ?? "wheel"];
+    if (row.command === null)
+      keys = [
+        row.plainLabel === undefined || row.plainLabel === "wheel"
+          ? wheelCap()
+          : row.plainLabel,
+      ];
     else if (row.pairedWith === undefined) keys = entryKeysFor(row.command);
     else
       keys = [commands.flatMap((command) => entryKeysFor(command)).join(" ")];
@@ -264,7 +273,7 @@ export function keyHelpEntries(
       command: row.command,
       commands,
       keys,
-      description: row.description,
+      description: t(row.description),
     };
   });
 }

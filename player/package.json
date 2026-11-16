@@ -8,6 +8,7 @@
   "scripts": {
     "dev": "node scripts/dev.mjs",
     "build": "node scripts/build.mjs",
+    "i18n": "node scripts/i18n.mjs",
     "perf": "node scripts/perf.mjs",
     "perf:map": "node scripts/mapperf.mjs",
     "perf:save": "node scripts/saveperf.mjs",

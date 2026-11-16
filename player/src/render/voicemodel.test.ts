@@ -7,7 +7,6 @@ import {
   downloadLabel,
   gigabytes,
   installPercent,
-  MODEL_UNSUPPORTED,
   modelHelp,
   voiceModelView,
 } from "./voicemodel";
@@ -70,7 +69,7 @@ describe("modelHelp (the ? beside the download)", () => {
       }),
     ).toBe("Spoken lines need a Mac with Apple silicon.");
     expect(modelHelp({ ...ABSENT, state: "unsupported" })).toBe(
-      MODEL_UNSUPPORTED,
+      "Spoken lines are not available on this computer.",
     );
   });
 });

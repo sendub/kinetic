@@ -38,8 +38,6 @@ import {
   fullSizeWidth,
   HERE_DECISION_GAP,
   HERE_REACH,
-  HIDDEN_PROMPT,
-  HIDDEN_ROUTE,
   hitTest,
   itemPoint,
   jumpFor,
@@ -485,7 +483,7 @@ describe("buildMapModel: bands like a score's systems, endings tucked in", () =>
     expect(
       describeTarget(model, markMap(model, reader), { kind: "route", key })
         .title,
-    ).toBe(`3. ${HIDDEN_ROUTE}`);
+    ).toBe(`3. Unseen route`);
   });
 
   it("lays a no-decision story out as one row, and an empty one without failing", () => {
@@ -1611,8 +1609,8 @@ describe("Spoilers: text of decisions not reached stays hidden", () => {
     expect(marks.hidden).toEqual([true, true]);
     const text = pageText(model, reader);
     for (const real of REAL) expect(leaks(text, real)).toBe(false);
-    expect(text).toContain(HIDDEN_PROMPT);
-    expect(text).toContain(HIDDEN_ROUTE);
+    expect(text).toContain("Decision not reached");
+    expect(text).toContain("Unseen route");
     // Counts, marks and status lines are unchanged.
     expect(text).toContain("not reached yet");
     expect(text).toContain('class="map-count"');
@@ -1635,11 +1633,11 @@ describe("Spoilers: text of decisions not reached stays hidden", () => {
     const nestedRoute = routeKey(model, NESTED, 1);
     expect(
       describeTarget(model, marks, { kind: "route", key: nestedRoute }).title,
-    ).toBe(`2. ${HIDDEN_ROUTE}`);
+    ).toBe(`2. Unseen route`);
     expect(
       describeTarget(model, marks, { kind: "decision", decision: NESTED })
         .title,
-    ).toBe(HIDDEN_PROMPT);
+    ).toBe("Decision not reached");
   });
 
   it("on: everything shows, as before", () => {
@@ -1648,8 +1646,8 @@ describe("Spoilers: text of decisions not reached stays hidden", () => {
     expect(markMap(model, reader).hidden).toEqual([false, false]);
     const text = pageText(model, reader);
     for (const real of REAL) expect(text).toContain(real);
-    expect(text).not.toContain(HIDDEN_PROMPT);
-    expect(text).not.toContain(HIDDEN_ROUTE);
+    expect(text).not.toContain("Decision not reached");
+    expect(text).not.toContain("Unseen route");
   });
 
   it("changes no layout, marks or clicks: only the text", () => {

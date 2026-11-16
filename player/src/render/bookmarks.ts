@@ -25,13 +25,13 @@ import type { Bookmark, BookmarkSummary, SavedContext } from "../storage/types";
 import { thumbSize } from "./capture";
 
 /**
- * The delete control's x and its accessible name. The x is drawn, not a
+ * The delete control's x (its accessible name is the catalogue's
+ * `map.card.delete`). The x is drawn, not a
  * font's "×", whose ink sits off its circle's centre (by a different
  * amount in each font and size): an SVG path in a 24-unit box, symmetric
  * about the box's centre, which is the circle's (index.html `.bm-del`).
  */
 export const DELETE_CROSS = "M8.75 8.75 15.25 15.25M15.25 8.75 8.75 15.25";
-export const DELETE_LABEL = "Delete this bookmark";
 
 /**
  * What a card click asks the player to do: restore the context captured
