@@ -303,8 +303,9 @@ Kinetic app makes.
   sha256, into one per-machine folder shared by every Kinetic app
   (`~/Library/Application Support/Kinetic/Voice/` on a Mac,
   `%LOCALAPPDATA%\Kinetic\Voice\` on Windows). Nothing is fetched or
-  written there until the reader presses Download on the Esc screen's
-  Spoken lines row, and Remove deletes all of it. The sources are
+  written there until the reader presses Download voice model in the
+  Volumes box (offered only for a game with a line that needs the model),
+  and Remove voice model deletes all of it. The sources are
   python-build-standalone's GitHub releases, PyPI and Hugging Face.
 - Why a game folder still needs no network at play time: the rule is
   about the folder. A folder, with or without voices, plays from its own

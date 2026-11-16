@@ -36,11 +36,13 @@
 // Phase 47's sound (render/audio.ts) follows the machine's arrivals; the
 // menus below tell it which screens are up, and the settings reach it with
 // the machine's; `v`, the Esc screen's Sound row and its Volumes sheet
-// (render/volumes.ts) change them, in a game with audio only. Phase 52's
-// spoken lines (render/spoken.ts) come from a game app's voice engine
-// (render/voiceclient.ts) when its host offers voice and the game has
-// voices: the sound then mounts with no audio too, and the Esc screen's
-// Spoken lines row offers the engine's download, progress and switch.
+// (render/volumes.ts) change them, in a game with sound only (a row by
+// kind of sound, render/soundrows.ts). Phase 52's spoken lines
+// (render/spoken.ts) come from a game app's voice engine
+// (render/voiceclient.ts) when its host offers voice and some line has no
+// recording: the sound then mounts with no audio too, the Volumes sheet's
+// Voice row offers the engine's download, progress and removal, and the
+// Voice volume is the only control of them.
 // Composition only — rendering lives in src/render/, timing in
 // src/machine/, storage adapters in src/storage/.
 
@@ -87,7 +89,7 @@ import { layOutStrip, type MapStrip, runJump } from "./render/mapmodel";
 import { mountRouteAnnouncements } from "./render/routes";
 import { mountSegmentNotes } from "./render/segmentnote";
 import { mountSkipAnnouncements } from "./render/skip";
-import { hasVoices } from "./render/spoken";
+import { soundContent } from "./render/soundrows";
 import { takeUrlStart } from "./render/urlstart";
 import { createVoiceClient } from "./render/voiceclient";
 import { mountVolumesOverlay, soundMessage } from "./render/volumes";
@@ -254,18 +256,23 @@ function start(): void {
         ...(startAt >= 0 ? { startAt } : {}),
       });
       const shell = mountShell({ root, manifest, machine });
-      // Spoken lines (docs/plan.md Phase 52): a game with voices, in a game
-      // app whose host offers voice, talks to its voice engine. None in a
-      // browser tab, nor for a game without voices.
-      const voiceClient =
-        hostLink.host()?.voice === true && hasVoices(manifest)
-          ? createVoiceClient(window, (message) => {
-              hostLink.send(message);
-            })
-          : null;
+      // What sound the game has, and so which sound controls show (docs/plan.md
+      // Phase 52 item 10): derived once, here.
+      const hostVoice = hostLink.host()?.voice === true;
+      const content = soundContent(manifest, hostVoice);
+      // Spoken lines (docs/plan.md Phase 52): in a game app whose host
+      // offers voice, a game with a line the model would speak (one with no
+      // recording) talks to its voice engine, and offers its download in the
+      // Volumes sheet. None in a browser tab, nor when every line is
+      // recorded or the game has no voices.
+      const voiceClient = content.needsModel
+        ? createVoiceClient(window, (message) => {
+            hostLink.send(message);
+          })
+        : null;
       // The sound (docs/plan.md Phase 47): null for a game without audio
       // (and without spoken lines), which then makes no audio element at
-      // all.
+      // all. The controls (Sound row, Volumes..., `v`) follow `content`.
       const audio = mountAudio({
         root,
         manifest,
@@ -273,6 +280,9 @@ function start(): void {
         settings: currentSettings,
         voice: voiceClient,
       });
+      // The Sound row, Volumes... and `v` exist only for a game with a sound
+      // the reader can turn (a Music, Effects or Voice row).
+      const soundControls = audio !== null && content.any;
       // A video's sound plays with the stage's video (item 6), which follows
       // it and starts as it is heard (item 19).
       if (audio !== null) {
@@ -408,8 +418,8 @@ function start(): void {
         onEntry: (command) => {
           if (command === "toggleMap") runMapKey();
         },
-        // A game with audio lists `v` (docs/plan.md Phase 47 item 7).
-        sound: audio !== null,
+        // A game with sound controls lists `v` (docs/plan.md Phase 47 item 7).
+        sound: soundControls,
       });
       // The settings (Phase 26: on the Esc screen, under the keys; `c` is
       // gone). A control click applies the full next settings live — machine.setSettings re-arms
@@ -455,27 +465,12 @@ function start(): void {
               shell.notify(EXPORT_DONE_NOTICE);
             });
         },
-        // A game with audio gets the Sound row (docs/plan.md Phase 47
-        // item 7): its switch goes through onChange above, its Volumes...
+        // A game with sound controls gets the Sound row (docs/plan.md Phase
+        // 47 item 7): its switch goes through onChange above, its Volumes...
         // opens the sheet below.
-        ...(audio === null
-          ? {}
-          : { sound: { onVolumes: (opener) => volumes?.open(opener) } }),
-        // Spoken lines (docs/plan.md Phase 52): the row follows the voice
-        // engine; Remove... asks in the confirmation box, as Reset does.
-        ...(voiceClient === null
-          ? {}
-          : {
-              spoken: {
-                status: () => voiceClient.status(),
-                subscribe: (listener: () => void) =>
-                  voiceClient.subscribe(listener),
-                onInstall: () => voiceClient.install(),
-                onCancel: () => voiceClient.cancel(),
-                onRemove: () =>
-                  confirm.open(removeVoicesRequest(() => voiceClient.remove())),
-              },
-            }),
+        ...(soundControls
+          ? { sound: { onVolumes: (opener) => volumes?.open(opener) } }
+          : {}),
         // Import: the file is checked before anything is touched; a
         // refusal is said in the pill, held long enough to read, and a good
         // file asks the box.
@@ -521,21 +516,38 @@ function start(): void {
         persistUrgently();
       }
       // The Volumes sheet (item 7), over the Esc screen like the reset box;
-      // only a game with audio has one. Music and ambience play while it is
-      // open; an Effects or Voice change plays a sample.
-      const volumes =
-        audio === null
-          ? null
-          : mountVolumesOverlay({
-              root,
-              hasVoice:
-                voiceClient !== null ||
-                manifest.items.some((item) => item.audio?.voice !== undefined),
-              settings: () => currentSettings,
-              onChange: changeSound,
-              onSample: (group) => audio.sample(group),
-              onOpenChange: (open) => audio.setVolumesOpen(open),
-            });
+      // only a game with sound controls has one, with a row for each kind
+      // of sound it has. Music and ambience play while it is open; an
+      // Effects or Voice change plays a sample. Its Voice row carries the
+      // voice model's download, progress, help and removal (Phase 52 item
+      // 10); Remove asks in the confirmation box, as Reset does, which then
+      // sits over the sheet.
+      const volumes = soundControls
+        ? mountVolumesOverlay({
+            root,
+            content,
+            ...(voiceClient === null
+              ? {}
+              : {
+                  voiceModel: {
+                    status: () => voiceClient.status(),
+                    subscribe: (listener: () => void) =>
+                      voiceClient.subscribe(listener),
+                    onInstall: () => voiceClient.install(),
+                    onCancel: () => voiceClient.cancel(),
+                    onRemove: () =>
+                      confirm.open(
+                        removeVoicesRequest(() => voiceClient.remove()),
+                      ),
+                  },
+                }),
+            suspended: () => confirm.isOpen(),
+            settings: () => currentSettings,
+            onChange: changeSound,
+            onSample: (group) => audio?.sample(group),
+            onOpenChange: (open) => audio?.setVolumesOpen(open),
+          })
+        : null;
       // The window controls (docs/plan.md Phase 43 item 9), the last group
       // of the settings: Fullscreen | Window and Exit. A game app owns its
       // display mode and quits itself (render/host.ts); in a browser tab
@@ -984,7 +996,7 @@ function start(): void {
           // on applies the screen's music and ambience, with no one-shot
           // and no voice restart (render/audiorules.ts `setSoundOn`).
           toggleSound: () => {
-            if (audio === null || confirm.isOpen()) return;
+            if (!soundControls || confirm.isOpen()) return;
             if (volumes?.isOpen() === true) return;
             changeSound({
               ...currentSettings,
@@ -1019,13 +1031,15 @@ function start(): void {
           // checked FIRST: it sits over the Esc screen, and Escape cancels
           // the box without disturbing the screen under it.
           dismissOverlay: () => {
-            // The Volumes sheet, like the reset box, closes alone.
-            if (volumes?.isOpen() === true) {
-              volumes.close();
-              return;
-            }
+            // The confirmation box is checked first: it can sit over the
+            // Volumes sheet (Remove voice model), and Escape cancels it
+            // alone. The sheet, like the box, then closes alone.
             if (confirm.isOpen()) {
               confirm.close();
+              return;
+            }
+            if (volumes?.isOpen() === true) {
+              volumes.close();
               return;
             }
             if (help.isOpen()) {

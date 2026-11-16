@@ -1046,7 +1046,8 @@ size matters only once per game, not once per line. Ogg is accepted
 without the track warning, because the player never plays the clip: it
 hands the clip's bytes to the voice engine.
 
-With spoken lines on, these lines are spoken:
+With the voice model installed and the Voice volume above 0, these lines
+are spoken:
 
 - an item with text whose `speaker` has a voice, in that voice;
 - an item with text and no speaker, in the narrator's voice, when there

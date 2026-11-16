@@ -185,6 +185,12 @@ defines when it starts. An event that finds no such function is dropped,
 except the latest status: the bridge keeps it and sends it before it
 handles the page's next voice message.
 
+The player talks to the voice host only when some line needs the model: an
+item with text, a cast voice and no recorded `audio.voice`. A game whose
+lines are all recorded, or that casts no voice, sends the host nothing. The
+status shows in the Volumes box's Voice row (a download button, progress,
+an error, a greyed button for `unsupported`, or the slider once `ready`).
+
 | Page sends (`op`) | Fields | What happens |
 | --- | --- | --- |
 | `status` | | A `status` event. |

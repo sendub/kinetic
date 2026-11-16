@@ -16,15 +16,11 @@
 // file and either says its refusal in the pill or asks the confirmation
 // box) and Phase 16's "Reset progress", which opens the confirmation box
 // (render/confirm.ts). The three are actions and change no setting
-// themselves. A game with audio adds one Sound row under Play all routes
-// (docs/plan.md Phase 47 item 7): sound on or off, the setting `v` turns,
-// and "Volumes...", which opens the volumes sheet (render/volumes.ts). In a
-// game app that offers voice, a game with voices adds a "Spoken lines" row
-// under it (docs/plan.md Phase 52, "The setting"): the voices' download
-// with its size and a line on what it is, then its progress with Cancel,
-// then the `spokenLines` switch and "Remove..." (which asks in the
-// confirmation box, as Reset does); an error with Retry, or the words of a
-// machine that cannot run them. No other UI.
+// themselves. A game with sound the reader can control adds one Sound row
+// under Play all routes (docs/plan.md Phase 47 item 7, Phase 52 item 10):
+// sound on or off, the setting `v` turns, and "Volumes...", which opens the
+// volumes sheet (render/volumes.ts), where the voice model's download lives
+// too. A game with no sound has no such row. No other UI.
 //
 // The notes of the speed, Play all routes and the Progress group sit
 // behind a "?" (docs/plan.md Phase 43 item 12, `mountTip`): a button whose
@@ -47,7 +43,6 @@
 // inert, and the slider and the file picker count as controls.
 
 import type { MachineSettings } from "../machine/types";
-import type { VoiceStatus } from "./voiceclient";
 
 /** The reading-speed range the stepper and the slider walk, and its step. */
 export const SPEED_MIN = 0.25;
@@ -147,31 +142,6 @@ export function playAllLabel(playAllRoutes: boolean): string {
  */
 export const SOUND_TEXT = "Sound";
 
-/** The Spoken lines row's label (docs/plan.md Phase 52). */
-export const SPOKEN_TEXT = "Spoken lines";
-/** The line under the row while the voices are not installed. */
-export const SPOKEN_NOTE =
-  "The voices are made on this computer; every Kinetic game uses the one download.";
-/** The row's words until the host gives a status. */
-export const SPOKEN_CHECKING = "Checking…";
-
-/** A download's size in GB (1e9 bytes), to one decimal place: "3.2 GB". */
-export function gigabytes(bytes: number): string {
-  return `${(bytes / 1e9).toFixed(1)} GB`;
-}
-
-/** The download button's words: "Download voices (3.2 GB)". */
-export function downloadLabel(bytes: number): string {
-  return `Download voices (${gigabytes(bytes)})`;
-}
-
-/** An install's progress in whole percent, 0 to 100 (0 with no total). */
-export function installPercent(status: VoiceStatus): number {
-  const { done, total } = status;
-  if (done === undefined || total === undefined || total <= 0) return 0;
-  return Math.min(100, Math.max(0, Math.floor((done / total) * 100)));
-}
-
 /**
  * The state a "?" tip is in (`mountTip`): `idle` shows it only while the
  * "?" is hovered or has keyboard focus; `open` keeps it shown (a click or
@@ -198,6 +168,10 @@ export interface Tip {
   readonly element: HTMLElement;
   /** Back to idle (the screen reopening, or another tip opening). */
   reset(): void;
+  /** The tip's words, which the "?" and anything it describes read. */
+  setText(text: string): void;
+  /** The tip's element id, for another control's `aria-describedby`. */
+  readonly id: string;
 }
 
 /**
@@ -240,7 +214,14 @@ export function mountTip(
     state = next;
     wrap.setAttribute("data-tip", next);
   };
-  const tip: Tip = { element: wrap, reset: () => set("idle") };
+  const tip: Tip = {
+    element: wrap,
+    reset: () => set("idle"),
+    setText: (next) => {
+      body.textContent = next;
+    },
+    id: body.id,
+  };
   set("idle");
   button.addEventListener("click", () => {
     set(tipAfterClick(state));
@@ -302,27 +283,13 @@ export interface ConfigOverlayOptions {
    */
   onImport(file: File): void;
   /**
-   * The game has audio (docs/plan.md Phase 47 item 7): a Sound row joins
-   * Play all routes' group, its switch the `soundOn` setting and its
-   * Volumes... button `onVolumes`, given the button (focus goes back to it
-   * when the sheet closes). Absent: no Sound row.
+   * The game has sound with controls (docs/plan.md Phase 47 item 7, Phase
+   * 52 item 10): a Sound row joins Play all routes' group, its switch the
+   * `soundOn` setting and its Volumes... button `onVolumes`, given the
+   * button (focus goes back to it when the sheet closes). Absent: no Sound
+   * row.
    */
   sound?: { onVolumes(opener: HTMLElement): void };
-  /**
-   * A game app that offers voice, and a game with voices (docs/plan.md
-   * Phase 52): the Spoken lines row joins the Sound row's group. It shows
-   * the voice engine's `status` and repaints on each change `subscribe`
-   * reports; Download and Retry call `onInstall` (Download also turns the
-   * `spokenLines` setting on, through `onChange`), Cancel `onCancel`, and
-   * Remove... `onRemove`, which asks for confirmation. Absent: no row.
-   */
-  spoken?: {
-    status(): VoiceStatus | null;
-    subscribe(listener: () => void): () => void;
-    onInstall(): void;
-    onCancel(): void;
-    onRemove(): void;
-  };
 }
 
 export function mountConfigOverlay({
@@ -333,7 +300,6 @@ export function mountConfigOverlay({
   onExport,
   onImport,
   sound,
-  spoken,
 }: ConfigOverlayOptions): ConfigOverlay {
   const doc = root.ownerDocument;
 
@@ -464,7 +430,7 @@ export function mountConfigOverlay({
   volumesButton.className = "config-toggle config-volumes";
   volumesButton.type = "button";
   volumesButton.textContent = "Volumes…";
-  volumesButton.setAttribute("aria-label", "Music, effects and voice volumes");
+  volumesButton.setAttribute("aria-label", "Sound volumes");
   volumesButton.setAttribute("aria-haspopup", "dialog");
   volumesButton.setAttribute("data-config-action", "volumes");
   const soundToggle = doc.createElement("button");
@@ -474,87 +440,6 @@ export function mountConfigOverlay({
   soundToggle.setAttribute("aria-label", SOUND_TEXT);
   soundToggle.setAttribute("data-config-action", "sound");
   soundRow.append(soundLabelEl, volumesButton, soundToggle);
-
-  // Spoken lines (docs/plan.md Phase 52), in an app that offers voice and a
-  // game with voices: one row under Sound, every state's controls made once
-  // and shown by state (`paintSpoken`). Ready, its Remove... comes before
-  // its switch, as Sound's Volumes... does. Before the install a line under
-  // the row says what the download is.
-  const spokenRow = doc.createElement("div");
-  spokenRow.className = "config-row config-spoken";
-  const spokenLabelEl = doc.createElement("span");
-  spokenLabelEl.className = "config-label";
-  spokenLabelEl.textContent = SPOKEN_TEXT;
-  const spokenMessage = doc.createElement("span");
-  spokenMessage.className = "config-spoken-message";
-  const spokenButton = (
-    action: string,
-    text: string,
-    aria: string,
-  ): HTMLButtonElement => {
-    const button = doc.createElement("button");
-    button.className = `config-toggle config-${action}`;
-    button.type = "button";
-    button.textContent = text;
-    button.setAttribute("aria-label", aria);
-    button.setAttribute("data-config-action", action);
-    return button;
-  };
-  const downloadButton = spokenButton("voice-download", "", "");
-  const progress = doc.createElement("div");
-  progress.className = "config-progress";
-  progress.setAttribute("role", "progressbar");
-  progress.setAttribute("aria-label", "Voices download");
-  progress.setAttribute("aria-valuemin", "0");
-  progress.setAttribute("aria-valuemax", "100");
-  const progressFill = doc.createElement("span");
-  progressFill.className = "config-progress-fill";
-  progress.append(progressFill);
-  const progressValue = doc.createElement("span");
-  progressValue.className = "config-value config-progress-value";
-  const cancelButton = spokenButton(
-    "voice-cancel",
-    "Cancel",
-    "Cancel the voices download",
-  );
-  const retryButton = spokenButton(
-    "voice-retry",
-    "Retry",
-    "Retry the voices download",
-  );
-  const removeButton = spokenButton(
-    "voice-remove",
-    "Remove…",
-    "Remove the voices from this computer to free their space",
-  );
-  const spokenToggle = doc.createElement("button");
-  spokenToggle.className = "config-toggle config-spoken-switch";
-  spokenToggle.type = "button";
-  spokenToggle.setAttribute("role", "switch");
-  spokenToggle.setAttribute("aria-label", SPOKEN_TEXT);
-  spokenToggle.setAttribute("data-config-action", "spoken");
-  spokenRow.append(
-    spokenLabelEl,
-    spokenMessage,
-    progress,
-    progressValue,
-    downloadButton,
-    cancelButton,
-    retryButton,
-    removeButton,
-    spokenToggle,
-  );
-  const spokenNote = doc.createElement("p");
-  spokenNote.className = "config-spoken-note";
-  spokenNote.textContent = SPOKEN_NOTE;
-  /** Each state's first control, which takes the focus a state change hid. */
-  const spokenControls = [
-    downloadButton,
-    cancelButton,
-    retryButton,
-    removeButton,
-    spokenToggle,
-  ];
 
   // The Progress group (docs/plan.md Phase 21): Export, Import and Reset,
   // indented under their heading like the skip options, every control in
@@ -634,11 +519,7 @@ export function mountConfigOverlay({
     title,
     group(speedRow),
     group(skipHeading, skipRow, skipVideoRow),
-    group(
-      playRow,
-      ...(sound === undefined ? [] : [soundRow]),
-      ...(spoken === undefined ? [] : [spokenRow, spokenNote]),
-    ),
+    group(playRow, ...(sound === undefined ? [] : [soundRow])),
     group(progressHeading, exportRow, importRow, resetRow),
   );
   root.appendChild(panel);
@@ -659,54 +540,6 @@ export function mountConfigOverlay({
     playToggle.setAttribute("aria-pressed", String(next.playAllRoutes));
     soundToggle.textContent = next.soundOn ? "On" : "Off";
     soundToggle.setAttribute("aria-pressed", String(next.soundOn));
-    spokenToggle.textContent = next.spokenLines ? "On" : "Off";
-    spokenToggle.setAttribute("aria-pressed", String(next.spokenLines));
-    paintSpoken();
-  }
-
-  /**
-   * The Spoken lines row for the engine's status now: each state's controls
-   * shown and the rest hidden. A control that had the focus and is now
-   * hidden hands it to the new state's first control, so the keyboard
-   * stays in the row.
-   */
-  function paintSpoken(): void {
-    if (spoken === undefined) return;
-    const status = spoken.status();
-    const state = status?.state ?? "checking";
-    const focused = doc.activeElement ?? null;
-    const hadFocus = spokenControls.some((el) => el === focused);
-    spokenRow.setAttribute("data-state", state);
-    const words =
-      status === null
-        ? SPOKEN_CHECKING
-        : state === "error" || state === "unsupported"
-          ? (status.message ?? "")
-          : "";
-    spokenMessage.textContent = words;
-    spokenMessage.hidden = words === "";
-    if (status !== null) {
-      downloadButton.textContent = downloadLabel(status.downloadBytes);
-      downloadButton.setAttribute(
-        "aria-label",
-        `Download the voices for spoken lines, ${gigabytes(status.downloadBytes)}`,
-      );
-    }
-    const percent = status === null ? 0 : installPercent(status);
-    progress.setAttribute("aria-valuenow", String(percent));
-    progressFill.style.width = `${String(percent)}%`;
-    progressValue.textContent = `${String(percent)}%`;
-    downloadButton.hidden = state !== "absent";
-    spokenNote.hidden = state !== "absent";
-    progress.hidden = state !== "installing";
-    progressValue.hidden = state !== "installing";
-    cancelButton.hidden = state !== "installing";
-    retryButton.hidden = state !== "error";
-    removeButton.hidden = state !== "ready";
-    spokenToggle.hidden = state !== "ready";
-    if (hadFocus && (focused as HTMLElement | null)?.hidden === true) {
-      spokenControls.find((el) => !el.hidden)?.focus();
-    }
   }
 
   function move(next: MachineSettings): void {
@@ -738,19 +571,6 @@ export function mountConfigOverlay({
       move({ ...current, soundOn: !current.soundOn });
     } else if (action === "volumes") {
       sound?.onVolumes(volumesButton);
-    } else if (action === "spoken") {
-      move({ ...current, spokenLines: !current.spokenLines });
-    } else if (action === "voice-download") {
-      // On for when the install is done (docs/plan.md Phase 52: "on after
-      // the download").
-      if (!current.spokenLines) move({ ...current, spokenLines: true });
-      spoken?.onInstall();
-    } else if (action === "voice-retry") {
-      spoken?.onInstall();
-    } else if (action === "voice-cancel") {
-      spoken?.onCancel();
-    } else if (action === "voice-remove") {
-      spoken?.onRemove();
     } else if (action === "reset-progress") {
       // An action, not a settings move: the box confirms, the reset
       // reloads — the panel simply asks.
@@ -784,7 +604,6 @@ export function mountConfigOverlay({
   }
 
   paint(current);
-  spoken?.subscribe(paintSpoken);
 
   return {
     panel,

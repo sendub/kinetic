@@ -167,7 +167,12 @@ import {
   videoSoundStart,
 } from "./audiorules";
 import { readHost } from "./host";
-import { createSpokenLines, hasVoices, type SpokenLines } from "./spoken";
+import {
+  createSpokenLines,
+  hasVoices,
+  type SpokenLines,
+  spokenOn,
+} from "./spoken";
 import { appendPlan, resumePlan, streamPosition } from "./spokenstream";
 import type { StageVideo } from "./visual";
 import type { VoiceClient } from "./voiceclient";
@@ -1816,7 +1821,7 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
           items,
           cast: manifest,
           client: voiceClient,
-          on: settings.spokenLines,
+          on: spokenOn(settings),
           clip: (file) =>
             reader.base64(file).catch((error: unknown) => {
               // Reported as a track that will not decode is: a game's test
@@ -1961,7 +1966,7 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
       const wasOn = settings.soundOn;
       settings = { ...next };
       if (wasOn !== settings.soundOn) director.setSoundOn(settings.soundOn);
-      spoken?.setOn(settings.spokenLines);
+      spoken?.setOn(spokenOn(settings));
       setGroups();
       updateUnlock();
       sync();

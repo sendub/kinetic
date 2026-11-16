@@ -6,13 +6,22 @@
 // (soundtap.mjs) and what the fake engine was sent, never by listening.
 //
 // Each part opens its own browsers:
-// - the Spoken lines row is not there without a voice host (and the game,
-//   having no audio, mounts no sound), nor in a game without voices; on a
-//   machine that cannot run the voices it shows only the host's words;
-// - the download: the button with its size and a line on what it is,
-//   progress rising with Cancel, Cancel back to the offer, an error with
-//   Retry, ready with the switch and Remove..., which asks in the
-//   confirmation box and removes on y;
+// - the Volumes sheet's Voice row (docs/plan.md Phase 52 item 10): in a
+//   browser tab a game with voices but no recordings has no Volumes...
+//   button, Sound row or `v`, and nor has a game without voices; on a
+//   machine that cannot run the voices the sheet shows the download greyed
+//   out and its ? says why;
+// - the download, in the sheet: the button with its size in place of the
+//   slider and a ? help on hover and keyboard focus, progress rising with
+//   Cancel, Cancel back to the offer, an error with Retry, ready with the
+//   Voice slider (focus moved to it) and a small "Remove voice model",
+//   which asks in the confirmation box over the sheet (Escape cancels it
+//   alone) and removes on y;
+// - recorded lines: with some lines recorded and some not, the slider stays
+//   and the download takes a second line; with every line recorded there is
+//   no download, no voice client and no host message, in a browser tab too;
+// - the Voice volume at 0 asks the engine for nothing and drops what was
+//   asked; raised, it asks from the item on show;
 // - lines asked for in order: each voice registered once from its clip
 //   (format and bytes), the current line at the top priority and the next
 //   three below it, each in its speaker's voice (a thought in Mei's, a line
@@ -46,12 +55,17 @@ import {
   clickCenter,
   closeSettings,
   demoDir,
+  INSTALL_PILL_LOG,
   openSettings,
   pressA,
   pressE,
+  pressEnter,
+  pressEscape,
   pressH,
   pressKey,
+  pressNavKey,
   pressSpace,
+  pressTab,
   scenarioRoot,
   sleep,
   wheelUntil,
@@ -100,10 +114,13 @@ function toneWav(seconds, hz) {
 /**
  * A copy of the demo with voices and a narrator (their clips shipped as
  * scripts alone, as an assembled folder ships them); `recorded` also gives
- * Theo's line `chain-still-2` a recorded voice. One folder per session, as
- * parts run side by side.
+ * Theo's line `chain-still-2` a recorded voice, and `allRecorded` every line
+ * with a voice. One folder per session, as parts run side by side.
  */
-function buildFolder(name, { recorded = false } = {}) {
+export function buildFolder(
+  name,
+  { recorded = false, allRecorded = false } = {},
+) {
   const dir = join(scenarioRoot, `spoken-${name}`);
   rmSync(dir, { recursive: true, force: true });
   cpSync(demoDir, dir, { recursive: true });
@@ -132,6 +149,16 @@ function buildFolder(name, { recorded = false } = {}) {
     const item = manifest.items.find((it) => it.id === "chain-still-2");
     item.audio = { voice: "theo-line" };
   }
+  if (allRecorded) {
+    // Every line that would be spoken is recorded: no model is needed.
+    ship("voices/line.wav", 2, 440);
+    manifest.audio = {
+      tracks: { line: { file: "voices/line.wav", durationSeconds: 2 } },
+    };
+    for (const it of manifest.items) {
+      if (voiceFor(it) !== null) it.audio = { ...it.audio, voice: "line" };
+    }
+  }
   const json = JSON.stringify(manifest, null, 2);
   writeFileSync(join(dir, "manifest.json"), json);
   writeFileSync(
@@ -148,34 +175,118 @@ const READY = { state: "ready" };
 const ON_ITEM = (id) =>
   document.getElementById("stage")?.getAttribute("data-item") === id;
 
-/** The Spoken lines row as the reader sees it, null when it is not there. */
+const VOLUMES_BUTTON = '[data-config-action="volumes"]';
+const VOLUMES_OPEN = () => {
+  const sheet = document.getElementById("volumes");
+  return sheet !== null && !sheet.hidden;
+};
+
+/** The Esc screen's Volumes... button and Sound row, and the old Spoken lines row. */
+const READ_CONTROLS = () => ({
+  volumes: document.querySelector('[data-config-action="volumes"]') !== null,
+  sound: document.querySelector('[data-config-action="sound"]') !== null,
+  spokenRow:
+    document.querySelector(
+      '.config-spoken, [data-config-action="spoken"], [data-config-action="voice-download"]',
+    ) !== null,
+  sheet: document.getElementById("volumes") !== null,
+});
+
+/** The Voice row of the Volumes sheet as the reader sees it, null when it is not there. */
 const READ_ROW = () => {
-  const row = document.querySelector(".config-spoken");
+  const row = document.querySelector('.volume-row[data-volume="voiceVolume"]');
   if (row === null) return null;
-  const seen = (el) =>
-    el !== null && !el.hidden && el.getBoundingClientRect().width > 0;
-  const note = document.querySelector(".config-spoken-note");
+  const seen = (el) => el !== null && el.getClientRects().length > 0;
   const at = (action) => row.querySelector(`[data-config-action="${action}"]`);
+  const message = row.querySelector(".volume-model-message");
+  const tip = row.querySelector(".config-tip-text");
+  const bar = row.querySelector(".volume-progress");
+  const slider = at("volume-voice-slider");
+  const download = at("volume-model-download");
   return {
     state: row.getAttribute("data-state"),
-    message: seen(row.querySelector(".config-spoken-message"))
-      ? row.querySelector(".config-spoken-message").textContent
-      : null,
+    message: seen(message) ? message.textContent : null,
     actions: [...row.querySelectorAll("[data-config-action]")]
       .filter(seen)
       .map((el) => el.getAttribute("data-config-action")),
-    download: at("voice-download")?.textContent ?? null,
-    note: seen(note) ? note.textContent : null,
-    progress: seen(row.querySelector(".config-progress"))
-      ? Number(
-          row.querySelector(".config-progress").getAttribute("aria-valuenow"),
-        )
+    download: seen(download) ? download.textContent : null,
+    downloadDisabled: download?.disabled ?? null,
+    help: tip?.textContent ?? null,
+    describes:
+      download?.getAttribute("aria-describedby") === tip?.id &&
+      at("tip-voice-model")?.getAttribute("aria-describedby") === tip?.id,
+    progress: seen(bar) ? Number(bar.getAttribute("aria-valuenow")) : null,
+    percent: row.querySelector(".volume-progress-value")?.textContent ?? null,
+    readout: seen(row.querySelector(".config-value"))
+      ? row.querySelector(".config-value").textContent
       : null,
-    percent: row.querySelector(".config-progress-value")?.textContent ?? null,
-    pressed: at("spoken")?.getAttribute("aria-pressed") ?? null,
+    remove: seen(at("volume-voice-remove"))
+      ? at("volume-voice-remove").textContent
+      : null,
+    sliderBottom: seen(slider) ? slider.getBoundingClientRect().bottom : null,
+    downloadTop: seen(download) ? download.getBoundingClientRect().top : null,
+    focus: document.activeElement?.getAttribute?.("data-config-action") ?? null,
   };
 };
 const readRow = (page) => page.evaluate(READ_ROW);
+
+/** The ? help's tip as shown: visible, its text, whether it stays inside the window and the sheet's width. */
+const READ_HELP_TIP = () => {
+  const button = document.querySelector(
+    '[data-config-action="tip-voice-model"]',
+  );
+  const body = document.querySelector(".volume-model .config-tip-text");
+  const sheet = document
+    .querySelector(".volumes-sheet")
+    .getBoundingClientRect();
+  const r = body.getBoundingClientRect();
+  const b = button.getBoundingClientRect();
+  return {
+    shown: getComputedStyle(body).visibility === "visible",
+    role: body.getAttribute("role"),
+    name: button.getAttribute("aria-label"),
+    described:
+      document.getElementById(button.getAttribute("aria-describedby") ?? "")
+        ?.textContent ?? null,
+    focusVisible: button.matches(":focus-visible"),
+    inside:
+      r.left >= sheet.left - 0.5 &&
+      r.right <= sheet.right + 0.5 &&
+      r.top >= b.bottom - 1 &&
+      r.bottom <= innerHeight &&
+      r.width > 100,
+    centre: { x: (b.left + b.right) / 2, y: (b.top + b.bottom) / 2 },
+  };
+};
+
+const hover = (cdp, x, y) =>
+  cdp.send("Input.dispatchMouseEvent", {
+    type: "mouseMoved",
+    x,
+    y,
+    button: "none",
+    buttons: 0,
+  });
+
+/**
+ * Presses a control of the sheet from the keyboard: focus it, then Enter.
+ * (A mouse click leaves a button unfocused in Safari, so the focus handoff
+ * is walked from the keyboard, as both engines give it.)
+ */
+async function activate(page, cdp, action) {
+  await page.evaluate(
+    (a) => document.querySelector(`[data-config-action="${a}"]`).focus(),
+    action,
+  );
+  await pressEnter(cdp);
+}
+
+/** Opens the Volumes sheet over the Esc screen, as the reader does. */
+async function openSheet(page, cdp) {
+  await openSettings(page, cdp);
+  await clickCenter(cdp, VOLUMES_BUTTON);
+  await page.waitForFunction(VOLUMES_OPEN, { timeout: 3000 });
+}
 
 /** Polls the row until `ok(row)`; `{ ok, row }` with the last reading. */
 async function waitRow(page, ok, timeout = 5000) {
@@ -264,17 +375,33 @@ function voiceFor(item) {
 
 // --- parts -------------------------------------------------------------------
 
-/** Where the row is not, and the row on a machine that cannot run voices. */
+/**
+ * Where the Voice row is not, and the sheet on a machine that cannot run
+ * voices: no Volumes... button, Sound row or `v` without a sound the reader
+ * can control.
+ */
 async function rowShown({ check, open }) {
   const { dir } = buildFolder("row");
   const plain = await open("no-host", { folder: dir, closeHelp: true });
   await openSettings(plain.page, plain.cdp);
-  const noHost = await readRow(plain.page);
+  const noHost = await plain.page.evaluate(READ_CONTROLS);
   const noHostSound = await readSound(plain.page);
+  await closeSettings(plain.page, plain.cdp);
+  await plain.page.evaluate(INSTALL_PILL_LOG);
+  await pressKey(plain.cdp, "v", "KeyV", 86, "v");
+  await sleep(300);
+  const noHostPills = await plain.page.evaluate(() => [
+    ...(window.__pills ?? []),
+  ]);
   check(
-    "in a browser with no voice host a game with voices but no audio shows no Spoken lines row and mounts no sound, as before",
-    noHost === null && !noHostSound.hook,
-    { row: noHost, hook: noHostSound.hook },
+    "in a browser tab a game with voices and no recordings has no Volumes… button, no Sound row, no Spoken lines row, no sound and no V: the voices cannot be made there",
+    !noHost.volumes &&
+      !noHost.sound &&
+      !noHost.spokenRow &&
+      !noHost.sheet &&
+      !noHostSound.hook &&
+      noHostPills.length === 0,
+    { controls: noHost, hook: noHostSound.hook, pills: noHostPills },
   );
 
   const demo = await open("no-voices", {
@@ -283,15 +410,17 @@ async function rowShown({ check, open }) {
     voiceHost: READY,
   });
   await openSettings(demo.page, demo.cdp);
-  const noVoices = await readRow(demo.page);
+  const noVoices = await demo.page.evaluate(READ_CONTROLS);
   const demoSound = await readSound(demo.page);
   const demoFake = await readFakeVoice(demo.page);
   check(
-    "with a voice host, a game without voices shows no Spoken lines row, mounts no sound and sends the host nothing",
-    noVoices === null &&
+    "with a voice host, a game without voices has no Volumes… button or Sound row, mounts no sound and sends the host nothing",
+    !noVoices.volumes &&
+      !noVoices.sound &&
+      !noVoices.spokenRow &&
       !demoSound.hook &&
-      demoFake.messages.every((m) => m.type !== "voice"),
-    { row: noVoices, hook: demoSound.hook, messages: demoFake.messages },
+      demoFake.messages.length === 0,
+    { controls: noVoices, hook: demoSound.hook, messages: demoFake.messages },
   );
 
   const words = "Spoken lines need a Mac with Apple silicon.";
@@ -300,22 +429,32 @@ async function rowShown({ check, open }) {
     closeHelp: true,
     voiceHost: { state: "unsupported", message: words },
   });
-  await openSettings(intel.page, intel.cdp);
+  await openSheet(intel.page, intel.cdp);
   const unsupported = await waitRow(
     intel.page,
     (r) => r?.state === "unsupported",
   );
+  const hint = await (async () => {
+    await intel.page.evaluate(() =>
+      document.querySelector('[data-config-action="tip-voice-model"]').focus(),
+    );
+    return intel.page.evaluate(READ_HELP_TIP);
+  })();
   check(
-    "on a machine that cannot run the voices the row shows only the host's words",
+    "on a machine that cannot run the voices the sheet shows the download greyed out, in place of the slider, and its ? says why",
     unsupported.ok &&
-      unsupported.row.message === words &&
-      unsupported.row.actions.length === 0 &&
-      unsupported.row.note === null,
-    unsupported.row,
+      unsupported.row.downloadDisabled === true &&
+      unsupported.row.download === "Download voice model (3.2 GB)" &&
+      unsupported.row.help === words &&
+      JSON.stringify(unsupported.row.actions) ===
+        '["volume-model-download","tip-voice-model"]' &&
+      unsupported.row.readout === null &&
+      hint.described === words,
+    { row: unsupported.row, hint },
   );
 }
 
-/** The download: offer, progress, Cancel, an error and Retry, ready, Remove. */
+/** The download, in the Volumes sheet: offer, help, progress, Cancel, an error and Retry, ready, Remove. */
 async function download({ check, open }) {
   const { dir } = buildFolder("download");
   const { page, cdp } = await open("download", {
@@ -323,23 +462,66 @@ async function download({ check, open }) {
     closeHelp: true,
     voiceHost: {
       state: "absent",
-      downloadBytes: 3_200_000_000,
+      downloadBytes: 3_300_000_000,
       installMs: 1500,
     },
   });
-  await openSettings(page, cdp);
+  await page.setViewport({ width: 1280, height: 720, deviceScaleFactor: 1 });
+  await openSheet(page, cdp);
   const offer = await waitRow(page, (r) => r?.state === "absent");
+  const controls = await page.evaluate(READ_CONTROLS);
   check(
-    'before the install the row offers "Download voices (3.2 GB)" with a line saying the voices are made on this computer and the download serves every Kinetic game',
+    'before the install the Voice row offers "Download voice model (3.3 GB)" in place of the slider, then a ? help; the Esc screen has no Spoken lines row',
     offer.ok &&
-      offer.row.download === "Download voices (3.2 GB)" &&
-      JSON.stringify(offer.row.actions) === '["voice-download"]' &&
-      /this computer/.test(offer.row.note ?? "") &&
-      /every Kinetic game/.test(offer.row.note ?? ""),
-    offer.row,
+      offer.row.download === "Download voice model (3.3 GB)" &&
+      JSON.stringify(offer.row.actions) ===
+        '["volume-model-download","tip-voice-model"]' &&
+      offer.row.readout === null &&
+      offer.row.remove === null &&
+      controls.volumes &&
+      !controls.spokenRow,
+    { row: offer.row, controls },
   );
 
-  await clickCenter(cdp, '[data-config-action="voice-download"]');
+  // The help: hidden until the ? is focused or hovered, then a tooltip
+  // read by assistive technology (aria-describedby), inside the sheet.
+  const idle = await page.evaluate(READ_HELP_TIP);
+  await pressTab(cdp); // from the download button to the ?
+  const focused = await page.evaluate(READ_HELP_TIP);
+  await page.evaluate(() => document.activeElement?.blur());
+  await hover(cdp, focused.centre.x, focused.centre.y);
+  const hovered = await page.evaluate(READ_HELP_TIP);
+  await hover(cdp, 5, 5);
+  const away = await page.evaluate(READ_HELP_TIP);
+  const helpText = (t) =>
+    /made on this computer/.test(t) &&
+    /characters' voices/.test(t) &&
+    /downloaded once/.test(t) &&
+    /every Kinetic game on this computer/.test(t) &&
+    /3\.3 GB/.test(t);
+  check(
+    "the ? shows the explanation on keyboard focus and on hover (the lines are made here, one download shared by every Kinetic game, its size), as a tooltip a screen reader reads through aria-describedby, inside the sheet; moving away hides it",
+    !idle.shown &&
+      focused.shown &&
+      focused.focusVisible &&
+      focused.inside &&
+      focused.role === "tooltip" &&
+      focused.name === "About the voice model" &&
+      helpText(focused.described ?? "") &&
+      offer.row.describes &&
+      hovered.shown &&
+      hovered.inside &&
+      !away.shown,
+    {
+      idle,
+      focused,
+      hovered,
+      away: away.shown,
+      describes: offer.row.describes,
+    },
+  );
+
+  await clickCenter(cdp, '[data-config-action="volume-model-download"]');
   const first = await waitRow(
     page,
     (r) => r?.state === "installing" && r.progress > 0,
@@ -347,22 +529,23 @@ async function download({ check, open }) {
   await sleep(400);
   const later = await readRow(page);
   check(
-    "Download starts the install: a progress bar with its percent, rising, and Cancel",
+    "Download starts the install: a progress bar with its percent, rising, and Cancel, in the slider's place",
     first.ok &&
       later.state === "installing" &&
       later.progress > first.row.progress &&
       later.percent === `${later.progress}%` &&
-      JSON.stringify(later.actions) === '["voice-cancel"]' &&
-      later.note === null,
+      JSON.stringify(later.actions) === '["volume-model-cancel"]' &&
+      later.readout === null,
     { first: first.row, later },
   );
 
-  await clickCenter(cdp, '[data-config-action="voice-cancel"]');
+  await activate(page, cdp, "volume-model-cancel");
   const cancelled = await waitRow(page, (r) => r?.state === "absent");
   const afterCancel = await readFakeVoice(page);
   check(
-    "Cancel stops the install and the row offers the download again",
+    "Cancel stops the install and the row offers the download again, focus kept in the row",
     cancelled.ok &&
+      cancelled.row.focus === "volume-model-download" &&
       afterCancel.messages.some((m) => m.op === "install") &&
       afterCancel.messages.some((m) => m.op === "cancel"),
     { row: cancelled.row, ops: afterCancel.messages.map((m) => m.op) },
@@ -371,48 +554,76 @@ async function download({ check, open }) {
   await page.evaluate(() => {
     window.__fakeVoice.failInstalls = 1;
   });
-  await clickCenter(cdp, '[data-config-action="voice-download"]');
+  await clickCenter(cdp, '[data-config-action="volume-model-download"]');
   const failed = await waitRow(page, (r) => r?.state === "error", 5000);
   check(
     "an install that fails shows the host's words and Retry",
     failed.ok &&
       failed.row.message === "The download failed: the connection dropped." &&
-      JSON.stringify(failed.row.actions) === '["voice-retry"]',
+      JSON.stringify(failed.row.actions) === '["volume-model-retry"]',
     failed.row,
   );
 
-  await clickCenter(cdp, '[data-config-action="voice-retry"]');
+  await activate(page, cdp, "volume-model-retry");
   const retried = await waitRow(page, (r) => r?.state === "installing", 2000);
   const ready = await waitRow(page, (r) => r?.state === "ready", 5000);
   check(
-    "Retry installs again; once ready the row shows Remove... and the switch, On",
+    'Retry installs again; once ready the row shows the Voice slider at 100% with a small "Remove voice model" beside the label, and focus moves to the new slider',
     retried.ok &&
       ready.ok &&
-      JSON.stringify(ready.row.actions) === '["voice-remove","spoken"]' &&
-      ready.row.pressed === "true",
+      JSON.stringify(ready.row.actions) ===
+        '["volume-voice-remove","volume-voice-down","volume-voice-slider","volume-voice-up"]' &&
+      ready.row.remove === "Remove voice model" &&
+      ready.row.readout === "100%" &&
+      ready.row.focus === "volume-voice-slider",
     { retried: retried.row, ready: ready.row },
   );
 
-  await clickCenter(cdp, '[data-config-action="voice-remove"]');
+  await activate(page, cdp, "volume-voice-remove");
   const asked = await page
     .waitForFunction(CONFIRM_OPEN, { timeout: 3000 })
     .then(() => true)
     .catch(() => false);
-  const box = await page.evaluate(() => ({
-    title: document.querySelector(".confirm-title")?.textContent ?? null,
+  const box = await page.evaluate(() => {
+    const ok = document.querySelector('[data-confirm-action="confirm"]');
+    const r = ok?.getBoundingClientRect();
+    const top =
+      r === undefined
+        ? null
+        : document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+    return {
+      title: document.querySelector(".confirm-title")?.textContent ?? null,
+      stillReady: window.__fakeVoice.state === "ready",
+      // The box is over the sheet, not under it.
+      onTop: top?.closest("#confirm") !== null && top !== null,
+    };
+  });
+  // Escape cancels the box alone: the sheet stays, the model stays.
+  await pressEscape(cdp);
+  await sleep(200);
+  const afterEsc = await page.evaluate(() => ({
+    confirm: document.getElementById("confirm")?.hidden === false,
+    sheet: document.getElementById("volumes")?.hidden === false,
     stillReady: window.__fakeVoice.state === "ready",
   }));
+  await activate(page, cdp, "volume-voice-remove");
+  await page.waitForFunction(CONFIRM_OPEN, { timeout: 3000 });
   await pressY(cdp);
   const removed = await waitRow(page, (r) => r?.state === "absent");
   const afterRemove = await readFakeVoice(page);
   check(
-    "Remove... asks in the confirmation box first; y removes the voices and the row offers the download again",
+    "Remove voice model asks in the confirmation box, over the sheet; Escape cancels the box alone; y removes the model and the row offers the download again with focus on it",
     asked &&
-      box.title === "Remove voices" &&
+      box.title === "Remove voice model" &&
       box.stillReady &&
+      box.onTop &&
+      !afterEsc.confirm &&
+      afterEsc.sheet &&
+      afterEsc.stillReady &&
       removed.ok &&
+      removed.row.focus === "volume-model-download" &&
       afterRemove.messages.some((m) => m.op === "remove"),
-    { asked, box, row: removed.row },
+    { asked, box, afterEsc, row: removed.row },
   );
 }
 
@@ -1092,6 +1303,133 @@ async function streamedSlow({ check, open }) {
   );
 }
 
+/** The Voice volume is the only control of spoken lines: at 0 none are asked for. */
+async function volumeZero({ check, open }) {
+  const { dir, manifest } = buildFolder("zero");
+  const items = manifest.items;
+  const { page, cdp } = await open("zero", {
+    folder: dir,
+    closeHelp: true,
+    // Slow, so every request is still waiting when the volume moves.
+    voiceHost: { ...READY, delayMs: 30000 },
+  });
+  let r = await requests(page);
+  for (let n = 0; n < 60 && r.live.length < 4; n += 1) {
+    await sleep(50);
+    r = await requests(page);
+  }
+  const asked = r.live.map((x) => x.id);
+  await openSheet(page, cdp);
+  const ready = await readRow(page);
+  // The slider has focus: the left arrow steps it down ten times.
+  for (let n = 0; n < 10; n += 1) await pressNavKey(cdp, "ArrowLeft", 37);
+  await sleep(300);
+  const zero = await requests(page);
+  const row0 = await readRow(page);
+  check(
+    "the Voice volume at 0 drops every line asked for and asks for none",
+    r.live.length === 4 &&
+      ready.focus === "volume-voice-slider" &&
+      row0.readout === "0%" &&
+      zero.live.length === 0 &&
+      asked.every((id) => zero.fake.dropped.includes(id)),
+    { asked: r.live.length, readout: row0.readout, live: zero.live },
+  );
+
+  // Read on with the volume at 0: nothing new is asked for.
+  await pressEscape(cdp); // the sheet
+  await pressEscape(cdp); // the Esc screen
+  await sleep(200);
+  for (let n = 0; n < 2; n += 1) {
+    await pressSpace(cdp);
+    await sleep(200);
+  }
+  const moved = await requests(page);
+  check(
+    "reading on at volume 0 asks for no line",
+    moved.speaks.length === zero.speaks.length && moved.live.length === 0,
+    { before: zero.speaks.length, after: moved.speaks.length },
+  );
+
+  // Raised to 10%, the item on show and the lines ahead are asked for.
+  await openSheet(page, cdp);
+  await pressNavKey(cdp, "ArrowRight", 39);
+  const id = await page.evaluate(
+    () => document.getElementById("stage")?.getAttribute("data-item") ?? null,
+  );
+  const at = items.findIndex((it) => it.id === id);
+  const want = [];
+  if (voiceFor(items[at]) !== null) want.push(at);
+  for (let i = at + 1; i < items.length && want.length < 4; i += 1) {
+    if (voiceFor(items[i]) !== null) want.push(i);
+  }
+  let again = await requests(page);
+  for (let n = 0; n < 60 && again.live.length < want.length; n += 1) {
+    await sleep(50);
+    again = await requests(page);
+  }
+  check(
+    "raised again, the Voice volume asks for the line on show and the next three, newest first",
+    want.length > 0 &&
+      JSON.stringify(again.live.map(({ voice, text }) => ({ voice, text }))) ===
+        JSON.stringify(
+          want.map((i) => ({ voice: voiceFor(items[i]), text: items[i].text })),
+        ),
+    { id, want, live: again.live },
+  );
+}
+
+/** Recorded lines beside lines that need the model, and a game whose lines are all recorded. */
+async function recordedMix({ check, open }) {
+  const mix = buildFolder("mix", { recorded: true });
+  const both = await open("mix", {
+    folder: mix.dir,
+    closeHelp: true,
+    voiceHost: { state: "absent", downloadBytes: 3_300_000_000 },
+  });
+  await openSheet(both.page, both.cdp);
+  const offer = await waitRow(both.page, (r) => r?.state === "absent");
+  check(
+    "with some lines recorded and some needing the model, the Voice slider stays and the download takes a second line under it",
+    offer.ok &&
+      JSON.stringify(offer.row.actions) ===
+        '["volume-voice-down","volume-voice-slider","volume-voice-up","volume-model-download","tip-voice-model"]' &&
+      offer.row.readout === "100%" &&
+      offer.row.remove === null &&
+      offer.row.downloadTop > offer.row.sliderBottom,
+    offer.row,
+  );
+
+  const all = buildFolder("recorded-all", { allRecorded: true });
+  const app = await open("recorded-all", {
+    folder: all.dir,
+    closeHelp: true,
+    voiceHost: { state: "absent", downloadBytes: 3_300_000_000 },
+  });
+  await openSheet(app.page, app.cdp);
+  const slider = await readRow(app.page);
+  const fake = await readFakeVoice(app.page);
+  check(
+    "a game whose lines are all recorded offers no download in the app: the Voice slider alone, and the voice engine is never asked anything",
+    JSON.stringify(slider.actions) ===
+      '["volume-voice-down","volume-voice-slider","volume-voice-up"]' &&
+      slider.state === null &&
+      fake.messages.length === 0,
+    { row: slider, messages: fake.messages },
+  );
+
+  const tab = await open("recorded-tab", { folder: all.dir, closeHelp: true });
+  await openSheet(tab.page, tab.cdp);
+  const inTab = await readRow(tab.page);
+  check(
+    "and in a browser tab the Volumes sheet shows the Voice slider at once",
+    inTab !== null &&
+      JSON.stringify(inTab.actions) ===
+        '["volume-voice-down","volume-voice-slider","volume-voice-up"]',
+    inTab,
+  );
+}
+
 export const parts = [
   rowShown,
   download,
@@ -1099,6 +1437,8 @@ export const parts = [
   playback,
   lateLine,
   recorded,
+  volumeZero,
+  recordedMix,
   streamedLine,
   streamedHold,
   streamedLeave,

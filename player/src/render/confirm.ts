@@ -67,15 +67,16 @@ export function importRequest(
 }
 
 /**
- * Removing the voices (docs/plan.md Phase 52, the Spoken lines row's
- * Remove...): the engine and its model leave this computer, for every
- * Kinetic game, and the row offers the download again.
+ * Removing the voice model (docs/plan.md Phase 52 item 10, the Volumes
+ * sheet's "Remove voice model"): the engine and its model leave this
+ * computer, for every Kinetic game, and the sheet offers the download
+ * again.
  */
 export function removeVoicesRequest(onConfirm: () => void): ConfirmRequest {
   return {
-    title: "Remove voices",
+    title: "Remove voice model",
     message:
-      "Remove the voices from this computer to free their space? Every Kinetic game uses them; you can download them again.",
+      "Remove the voice model from this computer to free its space? Every Kinetic game uses it; you can download it again.",
     confirmLabel: "Remove",
     hint: "y removes; Esc or n cancels",
     onConfirm,

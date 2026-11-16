@@ -4657,8 +4657,26 @@ truthful: an unchecked box means nothing was accepted.
       with the real cross-build. Orchestrator: go test, vet, build_apps
       127 passed with the real lock. The windowed exe with the real engine
       waits for the user.)
-- [ ] Sound controls by content (item 10). Tests: unit tests; `spoken`,
+- [x] Sound controls by content (item 10). Tests: unit tests; `spoken`,
       `screens`, `audio`, `machost` on Chrome and WebKit.
+      (2026-11-16: render/soundrows.ts `soundContent` once per game: Music
+      for music or ambience, Effects for sfx or video sound, Voice for a
+      recorded `audio.voice` or, with host voice, a line the live rule
+      would speak; none means no Volumes..., no Sound row, no `v`. The
+      voice client only when some line needs the model. The Spoken lines
+      row and `spokenLines` gone (old records load); a Voice volume of 0
+      asks for no lines. The Voice row (render/voicemodel.ts): "Download
+      voice model (3.3 GB)" and a ? tip in place of the slider, progress
+      with Cancel, error with Retry, unsupported greyed with the reason in
+      the tip, ready with "Remove voice model" by the label; with recorded
+      lines too, the model on a second line. The confirm box over the
+      sheet (z-index 8; Escape closes it first). Tests: npm test 1512,
+      check clean, smoke 6/6, Chrome spoken screens audio videosound
+      265/265, WebKit spoken screens 167 + the 2 Keyboard Lock partials,
+      audio and machost clean. Orchestrator: npm test, check, Chrome spoken
+      and audio 127/127, WebKit spoken machost audio 179/179, screenshots
+      of the sheet absent, help, unsupported and ready with the stand-in
+      host.)
 - [x] A drag that ends outside the Volumes sheet leaves it open (item 11).
       Tests: a unit test and a scenario part.
       (2026-11-16: render/scrim.ts `onScrimClick` remembers the press

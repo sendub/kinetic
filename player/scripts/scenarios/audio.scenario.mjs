@@ -71,12 +71,14 @@ import {
   pressTab,
   pressU,
   pressZ,
+  READ_HELP,
   READ_MAP_CARDS,
   readPills,
   repoRoot,
   scenarioRoot,
   setPageVisible,
   sleep,
+  soundFolder,
   wheelUntil,
 } from "./harness.mjs";
 import {
@@ -1585,6 +1587,82 @@ const sampleOk = (r, maxMs = 2000) =>
   r.furthest <= maxMs / 1000 + 0.05;
 
 /**
+ * The Volumes sheet has a row only for the kinds of sound the game has
+ * (docs/plan.md Phase 52 item 10): music or ambience, one-shots or a
+ * video's sound, recorded voice lines. A game with none shows no
+ * Volumes... button, no Sound row, no V in the help, and `v` does nothing.
+ */
+async function volumeRows({ check, open, folders }) {
+  if (!built(check, folders)) return;
+  const mixes = [
+    [["music"], ["Music"]],
+    [["effects"], ["Effects"]],
+    [["voice"], ["Voice"]],
+    [
+      ["music", "voice"],
+      ["Music", "Voice"],
+    ],
+    [
+      ["music", "effects", "voice"],
+      ["Music", "Effects", "Voice"],
+    ],
+  ];
+  for (const [keep, labels] of mixes) {
+    const name = `rows-${keep.join("-")}`;
+    const { page, cdp } = await open(name, {
+      folder: soundFolder(name, keep),
+      closeHelp: true,
+    });
+    const up = await openVolumes(page, cdp);
+    const rows = await page.evaluate(() =>
+      [...document.querySelectorAll(".volume-row")].map(
+        (row) => row.querySelector(".config-label")?.textContent ?? null,
+      ),
+    );
+    const first = await page.evaluate(
+      () => document.activeElement?.getAttribute("data-config-action") ?? null,
+    );
+    const key = labels[0].toLowerCase();
+    check(
+      `a game with only ${keep.join(", ")} sound has the rows ${labels.join(", ")} in the Volumes sheet, focus on the first slider`,
+      up &&
+        JSON.stringify(rows) === JSON.stringify(labels) &&
+        first === `volume-${key}-slider`,
+      { rows, first },
+    );
+  }
+
+  // Tracks but no item names one: no sound to control.
+  const none = soundFolder("rows-none", []);
+  const { page, cdp } = await open("rows-none", {
+    folder: none,
+    closeHelp: true,
+  });
+  await openSettings(page, cdp);
+  const controls = await page.evaluate(() => ({
+    volumes: document.querySelector('[data-config-action="volumes"]') !== null,
+    sound: document.querySelector('[data-config-action="sound"]') !== null,
+    sheet: document.getElementById("volumes") !== null,
+    hook: document.getElementById("audio") !== null,
+  }));
+  const helpKeys = (await page.evaluate(READ_HELP)).rows.map((r) => r.key);
+  await closeSettings(page, cdp);
+  await page.evaluate(INSTALL_PILL_LOG);
+  await pressV(cdp);
+  await sleep(300);
+  const pills = await readPills(page);
+  check(
+    "a game whose tracks no item names has no Volumes… button, no Sound row, no V in the help, and v does nothing",
+    !controls.volumes &&
+      !controls.sound &&
+      !controls.sheet &&
+      !helpKeys.includes("V") &&
+      pills.length === 0,
+    { controls, helpKeys, pills },
+  );
+}
+
+/**
  * An Effects or Voice change plays a sample of at most 2 s at the new
  * level: the last one-shot fired, else the game's first one-shot; the
  * current item's voice, else the game's first voice line.
@@ -1788,6 +1866,7 @@ export const parts = [
   voiceHold,
   library,
   volumesSound,
+  volumeRows,
   volumeSamples,
   soundKey,
 ];

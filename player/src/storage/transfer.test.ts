@@ -250,6 +250,22 @@ describe("the sound settings travel with the progress file", () => {
   });
 });
 
+describe("a file from before Phase 52 item 10 still imports", () => {
+  it("ignores the Spoken lines switch it carries, keeping the rest", () => {
+    const text = exported({
+      state: { settings: { spokenLines: false, voiceVolume: 0.5 } },
+    });
+    expect(parseProgressFile(text, HERE)).toMatchObject({
+      ok: true,
+      state: { settings: { voiceVolume: 0.5 } },
+    });
+    const parsed = parseProgressFile(text, HERE);
+    expect(parsed.ok && "spokenLines" in (parsed.state.settings ?? {})).toBe(
+      false,
+    );
+  });
+});
+
 describe("importProgress (a confirmed import replaces, then reloads)", () => {
   async function filled() {
     const storage = createMemoryStorage();

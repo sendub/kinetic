@@ -4,7 +4,8 @@
 // (render/audio.ts) through the Voice group exactly as a recorded voice
 // line is.
 //
-// What is spoken (`spokenLine`): with spoken lines on and the engine ready,
+// What is spoken (`spokenLine`): with the Voice volume up (`spokenOn`) and
+// the engine ready,
 // an item with text that is not blank, no recorded `audio.voice` (a
 // recorded line always wins), and a voice: its speaker's in `voices`, or,
 // with no speaker (absent or empty), the `narrator`. A thought is spoken in
@@ -46,7 +47,7 @@
 // it already). While chunks are coming the line's end is unknown: its hold
 // is what the player has scheduled plus `STREAM_MORE_MS` (`started`),
 // renewed by each chunk, and exact once the final one is scheduled; the
-// 20 s wait covers only the time before the first chunk. Turning spoken lines off, or the engine leaving ready,
+// 20 s wait covers only the time before the first chunk. Spoken lines turning off (the Voice volume at 0), or the engine leaving ready,
 // stops the line and drops every request. Turned on again, or ready again,
 // the item on show is asked for as on an arrival.
 
@@ -85,6 +86,17 @@ export const SPOKEN_WAIT_MS = 20_000;
  * for again (the helper's disk cache answers it at once).
  */
 export const SPOKEN_CAP_BYTES = 32 * 1024 * 1024;
+
+/**
+ * Whether lines are asked of the engine at all: the Voice volume is above 0
+ * (docs/plan.md Phase 52 item 10; there is no Spoken lines switch). At 0 no
+ * line is prefetched and requests pending are cancelled; raised again, the
+ * item on show is asked for as on an arrival. A recorded voice line is
+ * simply silent at 0.
+ */
+export function spokenOn(settings: { readonly voiceVolume: number }): boolean {
+  return settings.voiceVolume > 0;
+}
 
 /** Whether a game casts any voice. */
 export function hasVoices(cast: Cast): boolean {
@@ -207,7 +219,7 @@ export interface SpokenOptions<B extends SpokenBuffer> {
     VoiceClient,
     "status" | "subscribe" | "register" | "speak" | "drop"
   >;
-  /** The Spoken lines setting at mount. */
+  /** `spokenOn` at mount. */
   on: boolean;
   /** A reference clip's bytes, base64 (its `<file>.js` script). */
   clip(file: string): Promise<string>;
@@ -245,7 +257,7 @@ export interface SpokenLines<B extends SpokenBuffer> {
    * chunks are still to come.
    */
   started(index: number, remaining: number, more?: boolean): void;
-  /** The Spoken lines setting changed. */
+  /** `spokenOn` changed (the Voice volume crossed 0). */
   setOn(on: boolean): void;
   /** Item `index`'s generated line, when it is kept. */
   cached(index: number): B | undefined;

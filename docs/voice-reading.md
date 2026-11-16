@@ -195,8 +195,10 @@ a. **Download size.** About 3.3 GB, because the only MLX copy of the
    model is full precision (2.7 GB) and Kinetic does not host a smaller
    one. Quantizing to 8 bits happens on load, so it saves memory and time,
    not download.
-b. **On by default.** Spoken lines are on once installed, and Download
-   turns them on. The switch can turn them off.
+b. **On by default.** Spoken lines have no switch. Once the model is
+   installed they speak at the Voice volume (the Volumes box's Voice row,
+   where the download button stood), and a Voice volume of 0 turns them off:
+   no line is asked for and those pending are dropped.
 c. **Thoughts.** A thought is spoken in its speaker's normal voice.
 d. **No speaker.** Lines with no speaker use the game's narrator voice;
    a speaker with no voice stays silent.
@@ -208,7 +210,8 @@ f. **Speed over match.** 5 flow steps and a 6 s voice prompt lower the
 g. **One folder per machine.** One voice folder serves every Kinetic game
    on the machine, and Remove deletes all of it, for every game.
 h. **macOS 14.** Voices need macOS 14 or later (the MLX packages), while
-   the app itself runs on macOS 12. On an older Mac the row says so.
+   the app itself runs on macOS 12. On an older Mac the download button is
+   greyed out and its ? says so.
 i. **Clips as FLAC.** Reference clips ship in the game as FLAC under
    `voices/`, about 270-340 KB each for a 9-13 s clip.
 j. **Chinese.** Chinese text segmentation is degraded because a library

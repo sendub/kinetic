@@ -81,6 +81,7 @@ import {
   SIGNATURE,
   sampleSignatures,
   sleep,
+  soundFolder,
   spaceTo,
   transitions,
   WHEEL_GAP_MS,
@@ -3300,6 +3301,50 @@ async function silentGame({ check, open }) {
   );
 }
 
+/**
+ * The sound controls follow the sound a game has (docs/plan.md Phase 52
+ * item 10): the Keys card's V row, the settings' Sound row (with Volumes…)
+ * and `v` exist for a game with music, effects or recorded voice lines, and
+ * not for one whose tracks no item names.
+ */
+async function soundByContent(args) {
+  if (!audioBuilt(args)) return;
+  const { check, open } = args;
+  for (const [name, keep, controls] of [
+    ["none", [], false],
+    ["effects", ["effects"], true],
+    ["voice", ["voice"], true],
+  ]) {
+    const { page, cdp } = await open(`sound-by-${name}`, {
+      folder: soundFolder(`by-${name}`, keep),
+      closeHelp: true,
+    });
+    await openSettings(page, cdp);
+    const help = await page.evaluate(READ_HELP);
+    const cfg = await page.evaluate(READ_CONFIG_OVERLAY);
+    const volumes = await page.evaluate(
+      () => document.querySelector('[data-config-action="volumes"]') !== null,
+    );
+    await closeSettings(page, cdp);
+    await page.evaluate(INSTALL_PILL_LOG);
+    await pressV(cdp);
+    await sleep(300);
+    const pills = await readPills(page);
+    check(
+      controls
+        ? `a game with only ${name} sound: the Keys card has V, the settings have a Sound row with Volumes…, and v shows its pill`
+        : "a game whose tracks no item names: the Keys card has no V, the settings no Sound row and no Volumes…, and v shows nothing",
+      JSON.stringify(help.rows.map((r) => r.key)) ===
+        JSON.stringify(controls ? HELP_KEYS_SOUND : HELP_KEYS) &&
+        JSON.stringify(cfg.lines) ===
+          JSON.stringify(controls ? CONFIG_LINES_SOUND : CONFIG_LINES) &&
+        volumes === controls &&
+        pills.length > 0 === controls,
+      { keys: help.rows.map((r) => r.key), lines: cfg.lines, volumes, pills },
+    );
+  }
+}
+
 // Independent parts (each opens its own browser); the runner runs them
 // side by side and prints their checks in this order. A part that throws
 // gets a FAIL "<part> completed" and the others still run.
@@ -3316,6 +3361,7 @@ export const parts = [
   escLayoutAudio,
   soundScreen,
   volumesDrag,
+  soundByContent,
   silentGame,
   escTips,
   settingsImmediateReload,

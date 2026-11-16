@@ -9,6 +9,7 @@ import {
   planSpeech,
   SPOKEN_WAIT_MS,
   spokenLine,
+  spokenOn,
   TOP_PRIORITY,
 } from "./spoken";
 import { STREAM_MORE_MS } from "./spokenstream";
@@ -488,6 +489,25 @@ describe("createSpokenLines: asking, playing and holding", () => {
     t.lines.setOn(false);
     expect(t.stops()).toBe(1);
     expect(last(t.holds)).toEqual([0, null]);
+    expect(t.client.live()).toEqual([]);
+  });
+
+  it("follows the Voice volume: none asked at 0, and raised it starts again from the item on show", async () => {
+    // Docs/plan.md Phase 52 item 10: no Spoken lines switch; the Voice
+    // volume at 0 is off.
+    expect(spokenOn({ voiceVolume: 0 })).toBe(false);
+    expect(spokenOn({ voiceVolume: 0.1 })).toBe(true);
+    expect(spokenOn({ voiceVolume: 1 })).toBe(true);
+    const t = setup({ on: spokenOn({ voiceVolume: 0 }) });
+    t.lines.arrive(0);
+    await flush();
+    expect(t.client.asked).toEqual([]);
+    t.lines.setOn(spokenOn({ voiceVolume: 0.5 }));
+    await flush();
+    expect(t.client.asked.length).toBeGreaterThan(0);
+    expect(t.client.asked[0]?.text).toBe("One.");
+    // Back to 0: pending requests are cancelled.
+    t.lines.setOn(spokenOn({ voiceVolume: 0 }));
     expect(t.client.live()).toEqual([]);
   });
 

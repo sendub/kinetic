@@ -923,6 +923,42 @@ const audioDemoSource = join(repoRoot, "fixtures", "audio-demo");
 // A track file's extensions (docs/content-format.md, "Audio").
 const AUDIO_FILE = /\.(mp3|m4a|wav|flac|webm|ogg|oga|opus)$/i;
 
+/**
+ * A copy of the audio demo keeping only some of its kinds of sound
+ * (docs/plan.md Phase 52 item 10: the Volumes sheet has a row for each kind
+ * a game has): `keep` lists `music` (music, ambience and their fades),
+ * `effects` (one-shots and a video's sound) and `voice` (recorded voice
+ * lines). The tracks stay defined; what no item names plays nothing and
+ * gets no row. One folder per `name`, as parts run side by side.
+ */
+export function soundFolder(name, keep) {
+  const dir = join(scenarioRoot, `sound-${name}`);
+  rmSync(dir, { recursive: true, force: true });
+  cpSync(audioDemoDir, dir, { recursive: true });
+  const file = join(dir, "manifest.json");
+  const manifest = JSON.parse(readFileSync(file, "utf8"));
+  const kinds = {
+    music: ["music", "ambience", "fadeMs"],
+    effects: ["sfx", "videoSound"],
+    voice: ["voice"],
+  };
+  const kept = new Set(keep.flatMap((kind) => kinds[kind]));
+  for (const item of manifest.items) {
+    if (item.audio === undefined) continue;
+    item.audio = Object.fromEntries(
+      Object.entries(item.audio).filter(([key]) => kept.has(key)),
+    );
+    if (Object.keys(item.audio).length === 0) delete item.audio;
+  }
+  const json = JSON.stringify(manifest, null, 2);
+  writeFileSync(file, json);
+  writeFileSync(
+    join(dir, "manifest.js"),
+    `window.KINETIC_MANIFEST = ${json};\n`,
+  );
+  return dir;
+}
+
 // The engine every scenario browser runs on: headless Chrome (the default)
 // or, with KINETIC_ENGINE=webkit (the runner's --webkit), the system WebKit
 // set up as the macOS game app sets it up (player/scripts/webkit).

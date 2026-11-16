@@ -10,11 +10,9 @@ import type { MachineSettings } from "../machine/types";
 import { DEFAULT_SETTINGS } from "../machine/types";
 import { createMemoryStorage } from "../storage/memory";
 import {
-  downloadLabel,
   EXPORT_DONE_NOTICE,
   IMPORT_FAILED_NOTICE,
   IMPORT_UNREADABLE_NOTICE,
-  installPercent,
   isSettingsControl,
   mountConfigOverlay,
   PLAY_ALL_TEXT,
@@ -34,8 +32,6 @@ import {
   SPEED_MIN,
   SPEED_STEP,
   SPEED_TIP,
-  SPOKEN_NOTE,
-  SPOKEN_TEXT,
   skipAllLabel,
   skipVideosLabel,
   speedLabel,
@@ -50,7 +46,15 @@ import {
   resetProgress,
   resetRequest,
 } from "./confirm";
-import type { VoiceStatus } from "./voiceclient";
+import {
+  byAction,
+  byClass,
+  FakeDocument,
+  type FakeElement,
+  find,
+  walk,
+  words,
+} from "./fakedom.testkit";
 
 describe("stepSpeed (README: configurable reading speed)", () => {
   it("walks the 0.25 grid in both directions", () => {
@@ -116,209 +120,6 @@ describe("playAllLabel (the Phase 13 play-all-routes switch)", () => {
   });
 });
 
-// --- the panel's DOM half (docs/plan.md Phase 16: minus button, slider,
-// plus button, current speed smaller at the row's right) ---
-//
-// The player's tests run in node, which has no DOM and no DOM library here,
-// so the panel is mounted onto this element: children, attributes, text,
-// `value` and listeners — all `mountConfigOverlay` touches. `closest`
-// resolves the one selector config.ts uses, an attribute name in brackets.
-class FakeElement {
-  readonly tag: string;
-  readonly children: FakeElement[] = [];
-  /** Every child in order, text included (`append` takes strings too). */
-  readonly childNodes: (FakeElement | string)[] = [];
-  parent: FakeElement | null = null;
-  id = "";
-  className = "";
-  type = "";
-  hidden = false;
-  private ownText = "";
-  value = "";
-  min = "";
-  max = "";
-  step = "";
-  accept = "";
-  /** A file input's chosen files (the picker's answer, set by a test). */
-  files: unknown[] | null = null;
-  /** How many times `click()` ran: a file input's picker opening. */
-  clicks = 0;
-  /** Inline style (the voices' progress bar sets its width). */
-  readonly style: Record<string, string> = {};
-  readonly ownerDocument: FakeDocument;
-  private readonly attributes = new Map<string, string>();
-  private readonly handlers = new Map<string, ((event: FakeEvent) => void)[]>();
-
-  constructor(tag: string, doc: FakeDocument) {
-    this.tag = tag;
-    this.ownerDocument = doc;
-  }
-
-  /** Its own text and its children's, in order, as the DOM's is. */
-  get textContent(): string {
-    return (
-      this.ownText +
-      this.childNodes
-        .map((node) => (typeof node === "string" ? node : node.textContent))
-        .join("")
-    );
-  }
-
-  set textContent(text: string) {
-    this.ownText = text;
-  }
-
-  setAttribute(name: string, value: string): void {
-    this.attributes.set(name, value);
-  }
-
-  getAttribute(name: string): string | null {
-    return this.attributes.get(name) ?? null;
-  }
-
-  append(...nodes: (FakeElement | string)[]): void {
-    for (const node of nodes) {
-      this.childNodes.push(node);
-      if (typeof node === "string") continue;
-      node.parent = this;
-      this.children.push(node);
-    }
-  }
-
-  appendChild(node: FakeElement): void {
-    this.append(node);
-  }
-
-  closest(selector: string): FakeElement | null {
-    const name = selector.match(/^\[([^\]]+)\]$/)?.[1];
-    if (name === undefined) return null;
-    for (let el: FakeElement | null = this; el !== null; el = el.parent) {
-      if (el.getAttribute(name) !== null) return el;
-    }
-    return null;
-  }
-
-  /** Like a real `click()`: counts, then dispatches a bubbling click. */
-  click(): void {
-    this.clicks += 1;
-    this.fire("click");
-  }
-
-  addEventListener(type: string, handler: (event: FakeEvent) => void): void {
-    const list = this.handlers.get(type) ?? [];
-    list.push(handler);
-    this.handlers.set(type, list);
-  }
-
-  /**
-   * Fires the listeners of `type` on this element and then on each parent in
-   * turn — a real event bubbles, and config.ts listens on the panel.
-   */
-  fire(type: string): void {
-    const event = { target: this };
-    for (let el: FakeElement | null = this; el !== null; el = el.parent) {
-      for (const handler of el.handlers.get(type) ?? []) {
-        handler(event);
-      }
-    }
-  }
-}
-
-interface FakeEvent {
-  target: FakeElement;
-}
-
-class FakeDocument {
-  createElement(tag: string): FakeElement {
-    return new FakeElement(tag, this);
-  }
-}
-
-// config.ts's click handler asks `target instanceof Element`; node has no
-// such global, so for this file the stub is it.
-globalThis.Element = FakeElement as unknown as typeof Element;
-
-function walk(el: FakeElement): FakeElement[] {
-  return [el, ...el.children.flatMap(walk)];
-}
-
-function find(
-  root: FakeElement,
-  label: string,
-  predicate: (el: FakeElement) => boolean,
-): FakeElement {
-  const el = walk(root).find(predicate);
-  if (el === undefined) throw new Error(`no ${label}`);
-  return el;
-}
-
-/**
- * An element's own words as the screen shows them on its line: its text
- * without the tip a "?" carries (that is the button's description, drawn
- * only on hover, focus or a click).
- */
-function words(el: FakeElement): string {
-  if (el.childNodes.length === 0) return el.textContent;
-  return el.childNodes
-    .map((node) =>
-      typeof node === "string"
-        ? node
-        : node.className === "config-tipwrap"
-          ? ""
-          : words(node),
-    )
-    .join("");
-}
-
-// className is matched as a token: the speed readout carries two classes.
-const byClass = (root: FakeElement, className: string): FakeElement =>
-  find(root, `.${className}`, (el) =>
-    el.className.split(" ").includes(className),
-  );
-
-const byAction = (root: FakeElement, action: string): FakeElement =>
-  find(
-    root,
-    `[data-config-action=${action}]`,
-    (el) => el.getAttribute("data-config-action") === action,
-  );
-
-/** A voice host for the Spoken lines row: a status to set, and what was asked. */
-interface SpokenHost {
-  set(status: VoiceStatus | null): void;
-  readonly asked: string[];
-  readonly options: {
-    status(): VoiceStatus | null;
-    subscribe(listener: () => void): () => void;
-    onInstall(): void;
-    onCancel(): void;
-    onRemove(): void;
-  };
-}
-
-function spokenHost(initial: VoiceStatus | null): SpokenHost {
-  let status = initial;
-  const listeners = new Set<() => void>();
-  const asked: string[] = [];
-  return {
-    asked,
-    set(next) {
-      status = next;
-      for (const listener of listeners) listener();
-    },
-    options: {
-      status: () => status,
-      subscribe(listener) {
-        listeners.add(listener);
-        return () => listeners.delete(listener);
-      },
-      onInstall: () => asked.push("install"),
-      onCancel: () => asked.push("cancel"),
-      onRemove: () => asked.push("remove"),
-    },
-  };
-}
-
 /**
  * Mounts the panel over a mutable settings source, collecting onChange;
  * `sound` mounts it for a game with sound, collecting each Volumes... ask
@@ -326,7 +127,7 @@ function spokenHost(initial: VoiceStatus | null): SpokenHost {
  */
 function mount(
   initial: MachineSettings,
-  { sound = false, spoken }: { sound?: boolean; spoken?: SpokenHost } = {},
+  { sound = false }: { sound?: boolean } = {},
 ) {
   const root = new FakeDocument().createElement("div");
   let inForce = initial;
@@ -336,7 +137,6 @@ function mount(
   const imports: unknown[] = [];
   const volumes: unknown[] = [];
   const overlay = mountConfigOverlay({
-    ...(spoken === undefined ? {} : { spoken: spoken.options }),
     ...(sound
       ? {
           sound: {
@@ -1059,9 +859,7 @@ describe("the Sound row (docs/plan.md Phase 47 item 7)", () => {
     button.fire("click");
     expect(volumes).toEqual([button]);
     expect(changes).toHaveLength(0);
-    expect(button.getAttribute("aria-label")).toBe(
-      "Music, effects and voice volumes",
-    );
+    expect(button.getAttribute("aria-label")).toBe("Sound volumes");
   });
 
   it("repaints from the settings in force on refresh (v pressed over the screen)", () => {
@@ -1075,185 +873,28 @@ describe("the Sound row (docs/plan.md Phase 47 item 7)", () => {
   });
 });
 
-describe("the Spoken lines row (docs/plan.md Phase 52, The setting)", () => {
-  const ABSENT: VoiceStatus = { state: "absent", downloadBytes: 3_200_000_000 };
-  /** The row's controls on show (not hidden), by action, in order. */
-  const shownActions = (root: FakeElement): string[] =>
-    walk(byClass(root, "config-spoken"))
-      .filter((el) => !el.hidden && el.getAttribute("data-config-action"))
-      .map((el) => el.getAttribute("data-config-action") ?? "");
-  const shown = (root: FakeElement, className: string): boolean =>
-    !byClass(root, className).hidden;
-
-  it("is drawn only with a voice host, as the last row of the Sound group", () => {
+describe("the Esc screen has no Spoken lines row (Phase 52 item 10)", () => {
+  it("has the Sound row, and no row, switch or download of the voices", () => {
+    const { root } = mount(defaults, { sound: true });
+    const actions = walk(root).map(
+      (el) => el.getAttribute("data-config-action") ?? "",
+    );
+    for (const gone of ["spoken", "voice-download", "voice-remove"]) {
+      expect(actions).not.toContain(gone);
+    }
     expect(
-      walk(mount(defaults, { sound: true }).root).some((el) =>
-        el.className.includes("config-spoken"),
-      ),
+      walk(root).some((el) => el.className.includes("config-spoken")),
     ).toBe(false);
-    const { root } = mount(defaults, {
-      sound: true,
-      spoken: spokenHost(ABSENT),
-    });
-    expect(groupLines(root)[2]).toEqual([
-      "Play all routes",
-      SOUND_TEXT,
-      SPOKEN_TEXT,
-      null, // the note under it
-    ]);
-    expect(SPOKEN_TEXT).toBe("Spoken lines");
-  });
-
-  it("offers the download with its size and a line on what it is, before it is installed", () => {
-    const { root } = mount(defaults, {
-      sound: true,
-      spoken: spokenHost(ABSENT),
-    });
-    expect(byClass(root, "config-spoken").getAttribute("data-state")).toBe(
-      "absent",
-    );
-    expect(shownActions(root)).toEqual(["voice-download"]);
-    expect(byAction(root, "voice-download").textContent).toBe(
-      "Download voices (3.2 GB)",
-    );
-    expect(shown(root, "config-spoken-note")).toBe(true);
-    expect(byClass(root, "config-spoken-note").textContent).toBe(SPOKEN_NOTE);
-    expect(SPOKEN_NOTE).toMatch(/this computer/);
-    expect(SPOKEN_NOTE).toMatch(/every Kinetic game/);
-  });
-
-  it("starts the install on a click, and turns spoken lines on for when it is done", () => {
-    const host = spokenHost(ABSENT);
-    const { root, changes } = mount(
-      { ...defaults, spokenLines: false },
-      { sound: true, spoken: host },
-    );
-    byAction(root, "voice-download").fire("click");
-    expect(host.asked).toEqual(["install"]);
-    expect(changes).toEqual([{ ...defaults, spokenLines: true }]);
-  });
-
-  it("shows the install's progress with its percent, and Cancel", () => {
-    const host = spokenHost(ABSENT);
-    const { root } = mount(defaults, { sound: true, spoken: host });
-    host.set({
-      ...ABSENT,
-      state: "installing",
-      done: 1_344_000_000,
-      total: 3_200_000_000,
-    });
-    expect(byClass(root, "config-spoken").getAttribute("data-state")).toBe(
-      "installing",
-    );
-    expect(shownActions(root)).toEqual(["voice-cancel"]);
-    const bar = byClass(root, "config-progress");
-    expect(bar.hidden).toBe(false);
-    expect(bar.getAttribute("role")).toBe("progressbar");
-    expect(bar.getAttribute("aria-valuenow")).toBe("42");
-    expect(byClass(root, "config-progress-fill").style.width).toBe("42%");
-    expect(byClass(root, "config-progress-value").textContent).toBe("42%");
-    expect(shown(root, "config-spoken-note")).toBe(false);
-    byAction(root, "voice-cancel").fire("click");
-    expect(host.asked).toEqual(["cancel"]);
-  });
-
-  it("shows the switch and Remove once ready; the switch is the spokenLines setting", () => {
-    const host = spokenHost({ ...ABSENT, state: "ready" });
-    const { root, changes } = mount(defaults, { sound: true, spoken: host });
-    expect(shownActions(root)).toEqual(["voice-remove", "spoken"]);
-    const toggle = byAction(root, "spoken");
-    expect(toggle.getAttribute("role")).toBe("switch");
-    expect(toggle.getAttribute("aria-pressed")).toBe("true");
-    expect(toggle.textContent).toBe("On");
-    toggle.fire("click");
-    expect(changes).toEqual([{ ...defaults, spokenLines: false }]);
-    expect(toggle.textContent).toBe("Off");
-    expect(byAction(root, "voice-remove").textContent).toBe("Remove…");
-    byAction(root, "voice-remove").fire("click");
-    expect(host.asked).toEqual(["remove"]);
-  });
-
-  it("shows an error's words and Retry, which installs again", () => {
-    const host = spokenHost({
-      ...ABSENT,
-      state: "error",
-      message: "The download failed.",
-    });
-    const { root } = mount(defaults, { sound: true, spoken: host });
-    expect(shownActions(root)).toEqual(["voice-retry"]);
-    expect(byClass(root, "config-spoken-message").textContent).toBe(
-      "The download failed.",
-    );
-    expect(shown(root, "config-spoken-message")).toBe(true);
-    byAction(root, "voice-retry").fire("click");
-    expect(host.asked).toEqual(["install"]);
-  });
-
-  it("shows only the words of a machine that cannot run the voices", () => {
-    const host = spokenHost({
-      ...ABSENT,
-      state: "unsupported",
-      message: "Spoken lines need a Mac with Apple silicon.",
-    });
-    const { root } = mount(defaults, { sound: true, spoken: host });
-    expect(shownActions(root)).toEqual([]);
-    expect(byClass(root, "config-spoken-message").textContent).toBe(
-      "Spoken lines need a Mac with Apple silicon.",
-    );
-  });
-
-  it("says it is checking until the host gives a status, then follows each one", () => {
-    const host = spokenHost(null);
-    const { root } = mount(defaults, { sound: true, spoken: host });
-    expect(shownActions(root)).toEqual([]);
-    expect(byClass(root, "config-spoken-message").textContent).toBe(
-      "Checking…",
-    );
-    host.set(ABSENT);
-    expect(shownActions(root)).toEqual(["voice-download"]);
-    host.set({ ...ABSENT, state: "ready" });
-    expect(shownActions(root)).toEqual(["voice-remove", "spoken"]);
-    expect(shown(root, "config-spoken-message")).toBe(false);
-  });
-
-  it("sizes the download to one decimal place of 1e9 bytes, and clamps the percent", () => {
-    expect(downloadLabel(3_200_000_000)).toBe("Download voices (3.2 GB)");
-    expect(downloadLabel(3_249_000_000)).toBe("Download voices (3.2 GB)");
-    expect(downloadLabel(12_000_000_000)).toBe("Download voices (12.0 GB)");
-    expect(installPercent({ state: "installing", downloadBytes: 1 })).toBe(0);
-    expect(
-      installPercent({
-        state: "installing",
-        downloadBytes: 1,
-        done: 5,
-        total: 0,
-      }),
-    ).toBe(0);
-    expect(
-      installPercent({
-        state: "installing",
-        downloadBytes: 1,
-        done: 999,
-        total: 1000,
-      }),
-    ).toBe(99);
-    expect(
-      installPercent({
-        state: "installing",
-        downloadBytes: 1,
-        done: 2000,
-        total: 1000,
-      }),
-    ).toBe(100);
+    expect(groupLines(root)[2]).toEqual(["Play all routes", SOUND_TEXT]);
   });
 });
 
-describe("removing the voices asks in the confirmation box (Phase 52)", () => {
+describe("removing the voice model asks in the confirmation box (Phase 52 item 10)", () => {
   it("asks in its own words, with y to remove, and removes only on confirm", () => {
     const removed: number[] = [];
     const request = removeVoicesRequest(() => removed.push(1));
-    expect(request.title).toBe("Remove voices");
-    expect(request.message).toMatch(/free their space/);
+    expect(request.title).toBe("Remove voice model");
+    expect(request.message).toMatch(/free its space/);
     expect(request.message).toMatch(/Every Kinetic game/);
     expect(request.confirmLabel).toBe("Remove");
     expect(request.hint).toBe("y removes; Esc or n cancels");

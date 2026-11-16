@@ -1280,21 +1280,33 @@ voices plays and validates as before.
 
 What the reader sees, in the Mac app:
 
-- A **Spoken lines** row on the Esc screen, shown only in a game that has
-  voices. Before the model is installed it offers **Download voices** with
-  its size, about 3.3 GB, and shows progress with a Cancel button. Once
-  installed, an on/off switch and **Remove...** appear; Remove frees the
+- The Esc screen's **Volumes...** sheet has a **Voice** row for a game that
+  has recorded voice lines or lines the model would speak. Where lines need
+  the model, the sheet shows **Download voice model** with its size, about
+  3.3 GB, in place of the Voice slider, followed by a small **?** that
+  explains the download on hover or keyboard focus. While it downloads the
+  sheet shows progress with a Cancel button, and an error with a Retry
+  button. Once the model is installed the Voice slider takes its place,
+  with a small **Remove voice model** beside the label; Remove frees the
   space and asks first.
-- Spoken lines come on when the download finishes. Each line plays through
-  the Voice volume, auto-forward waits for it to end, and a recorded
-  voice line (an item's `audio.voice`) is always played instead of a
-  generated one.
-- The row needs a Mac with Apple silicon and macOS 14 or later. It says so
-  on an older Mac.
-- The Windows program is getting the same row, for a PC with an NVIDIA
+- There is no on/off switch for spoken lines. The Voice volume controls
+  them: at 0 no line is generated, and raised again the line on screen is
+  asked for again. Each line plays through the Voice volume,
+  auto-forward waits for it to end, and a recorded voice line (an item's
+  `audio.voice`) is always played instead of a generated one.
+- The sheet and the **Sound** row show only what the game has: Music for a
+  game with music or ambience, Effects for one with sound effects or video
+  sound, Voice for recorded voice lines or lines the model would speak. A
+  game with none of them has no Volumes... button, no Sound row and no
+  `v` key. A game whose every line is recorded offers no download, in the
+  app or in a browser tab: the Voice slider shows at once.
+- The download needs a Mac with Apple silicon and macOS 14 or later. On
+  an older Mac, or an Intel one, the download button is greyed out and its
+  ? says why.
+- The Windows program is getting the same sheet, for a PC with an NVIDIA
   card (driver 570.65 or later); on any other PC the download button is
   greyed out and its ? says why. Until it ships, and in a browser, a game
-  with voices plays silently.
+  with voices but no recorded lines plays silently.
 
 The model installs once per Mac, in
 `~/Library/Application Support/Kinetic/Voice/`, and every Kinetic game on
@@ -1461,8 +1473,8 @@ their scripts go in.
 ### Hearing it
 
 Assemble the folder and add the Mac app as usual (Building the apps,
-below), open the app and press Esc: the Spoken lines row offers the
-download. `fixtures/voice-demo`, built by `.venv/bin/python
+below), open the app, press Esc and open Volumes...: the Voice row offers
+the download. `fixtures/voice-demo`, built by `.venv/bin/python
 fixtures/build_voice_demo.py`, is a small worked game with two characters
 and a narrator whose clips came from this tool.
 
