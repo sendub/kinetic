@@ -17,7 +17,7 @@ Taking a new release means replacing a game folder's player (CREATE.md,
 "Upgrading to a newer Kinetic"). Bullets marked **Upgrading:** ask
 something more of an author.
 
-## 1.9.1-dev
+## 1.9.1 (2026-11-16)
 
 - CREATE.md, README.md and docs/packaging.md no longer describe spoken
   lines on Windows as still to come: the Windows program has them since

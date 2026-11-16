@@ -1,6 +1,6 @@
 {
   "name": "kinetic-player",
-  "version": "1.9.1-dev",
+  "version": "1.9.1",
   "private": true,
   "license": "MIT",
   "type": "module",

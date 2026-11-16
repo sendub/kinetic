@@ -4784,5 +4784,16 @@ truthful: an unchecked box means nothing was accepted.
       Windows-later and Mac-only wording find no other case. The
       orchestrator rewrapped the edited paragraphs to 80 columns; no
       dash or curly-quote characters added; `npm run check` clean.)
-- [ ] Phase-closer (Phase 53): full suites; VERSION 1.9.1, the CHANGELOG
+- [x] Phase-closer (Phase 53): full suites; VERSION 1.9.1, the CHANGELOG
       dated, tag v1.9.1, `main` fast-forwarded.
+      (2026-11-16 on a93a838, with Moonlight streaming and macOS still
+      checking the Data disk, load average up to 24: full pytest 1240
+      passed in 748 s with one skip, tools/test_upgrade_folder.py's
+      stale player/dist, which passed 21/21 after `npm run build`;
+      apps/voice 87 passed; npm test 1519, check clean. The user chose a
+      smoke check in place of the full browser suites, since nothing
+      since v1.9.0 (which passed them all) changes code, only Markdown
+      and version numbers: `npm run verify -- --smoke` 6/6 on Chrome and
+      6/6 on WebKit. Then VERSION, package.json, its lockfile and
+      pyproject 1.9.1, the CHANGELOG entry dated, tag v1.9.1, `main`
+      fast-forwarded.)
