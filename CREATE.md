@@ -1395,6 +1395,65 @@ a character named "narrator" gives the tool another key with
 `--narrator-key`. `.venv/bin/python tools/cast_voices.py --help`, and
 `--help` on each command, list every option.
 
+### Recording the lines
+
+By default each reader's machine makes the lines, after a download of
+about 3.3 GB on a Mac and 6.8 GB on Windows. `tools/record_lines.py`
+makes them once, here, and ships them in the game as recorded voice
+lines. A reader of a game with every line recorded needs no model and
+sees no download: the Voice volume is there at once, in a browser tab too.
+Record when the game's readers should not have to download anything, or
+when they use a browser. Leave the lines live when the game is small and
+its readers have the apps: a recorded game is bigger, and its lines
+sound as they did on the day you recorded them.
+
+The tool speaks every line the player would speak live (an item with
+text whose speaker has a voice, or no speaker when there is a
+narrator, thoughts included) with the same engine the apps run, so a
+recorded line sounds as the live one would. It skips an item that
+already has its own `audio.voice`, so your own recordings stay. Quit
+any Kinetic game app first, since it shares the voice folder. From the
+repo root, after the media tools are set up:
+
+```sh
+.venv/bin/python tools/record_lines.py my-novel --dry-run
+.venv/bin/python tools/record_lines.py my-novel
+```
+
+`--dry-run` says how many lines would be recorded, and about how long and
+how large that is, without starting the engine. The real run uses this
+machine's voice folder (`~/Library/Application Support/Kinetic/Voice/`
+on a Mac, `%LOCALAPPDATA%\Kinetic\Voice\` on Windows), installing the
+voice engine there first, with the same download the apps make, when it
+is not complete. `--voice-dir DIR` uses another folder.
+
+Each distinct line becomes one mono Opus file in WebM under
+`my-novel/lines/`, with its script beside it, as a track in
+`audio.tracks` named `rec-` and a code, and the item's `audio.voice`
+names it. Two items that say the same words in the same voice share a
+file. `--bitrate KBPS` sets the quality: 16 (the default) sounds good
+and takes about 8 MB per hour of speech, 12 is usable. Progress goes to
+the terminal every 10 seconds with the time left, and the end says how
+many lines were recorded, reused and removed, and how big they are.
+
+Expect lines to take a little over half their length on an Apple silicon
+Mac, a third on a fast NVIDIA card. A large game of 75 hours of speech
+takes about 40 hours on a Mac and adds about 0.8 GB (docs/voice-reading.md,
+"A large game").
+Nothing is lost if you stop it: press Ctrl-C, or let it die, and run the
+same command again. It keeps every file it finished and carries on. A
+run keeps the manifest saved to within a minute.
+
+After you edit the game, run it again. It records only the lines whose
+words or voice changed, points the items at them, and deletes the
+tracks and files it made that no item uses any more. It never touches a
+track it did not make. Casting a voice again (a new clip or a new
+transcript) makes new recordings of that voice's lines at the next run.
+The tool keeps `manifest.json` in its own indentation, rewrites
+`manifest.js` if there is one, and runs the validator at the end.
+Assemble the folder as usual: the `lines/` files stay out of it and
+their scripts go in.
+
 ### Hearing it
 
 Assemble the folder and add the Mac app as usual (Building the apps,

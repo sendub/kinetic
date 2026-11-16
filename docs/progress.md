@@ -4674,8 +4674,26 @@ truthful: an unchecked box means nothing was accepted.
 - [ ] Windows voice needs an NVIDIA card (item 12). Tests: go test, vet,
       the cross-build, apps/voice, a player unit test; the host's check
       over SSH.
-- [ ] Recorded lines (item 13). Tests: the recorder with a fake engine; a
+- [x] Recorded lines (item 13). Tests: the recorder with a fake engine; a
       real recording of the voice demo played in Chrome and WebKit.
+      (2026-11-16: tools/record_lines.py drives the kinetic_voice helper
+      from the machine's voice folder (`--voice-dir`), installing it when
+      missing (install.py `install_python`: the lock's Python archive with
+      resume and sha256, then the helper's install); `line_voice` mirrors
+      spoken.ts `spokenLine`, a test fails if a clause of it goes. One
+      mono Opus WebM per distinct voice and text, `lines/<kk>/<key>.webm`
+      with its script, track `rec-<key[:32]>`, the key a sha256 of lock
+      id, engine settings, clip, transcript, text and bitrate; the engines
+      seed from the text, so two folders recorded apart are identical.
+      Reruns record only changes and remove only its own unused files;
+      atomic files, the manifest saved every 60 s and on Ctrl-C; progress
+      every 10 s; `--dry-run`. Real check on the M2: 0.54x real time; the
+      demo's 18 lines add 0.6 MB (18.6 kb/s); a rerun reused all 18; the
+      assembled folder walks 18 of 18 in Chrome and WebKit with no voice
+      host. Tests: record_lines 21, apps/voice 109. Docs: CREATE.md
+      "Recording the lines", content-format.md, voice-reading.md, AGENTS,
+      CHANGELOG. Orchestrator: both test files passed, check-game WebKit on
+      the recorded demo passed.)
 - [x] The radio's voice (item 14). Tests: test_build_voice_demo.py.
       (2026-11-16: `cast_voices.py design --takes 3` from "A brisk, crisp
       male radio newsreader in his thirties with a formal, clear broadcast

@@ -279,3 +279,53 @@ def test_a_reinstall_with_everything_on_disk_reports_it_all(
     assert again.request("install")["ok"] is True
     progress = [e for e in again.events if e.get("event") == "progress"]
     assert progress and progress[-1]["done"] == progress[-1]["total"] == total
+
+
+def python_archive() -> bytes:
+    """A tar.gz holding python/bin/python3 (a stand-in program)."""
+    import io
+    import tarfile
+    out = io.BytesIO()
+    with tarfile.open(fileobj=out, mode="w:gz") as tar:
+        body = b"#!/bin/sh\necho stand-in\n"
+        info = tarfile.TarInfo("python/bin/python3")
+        info.size, info.mode = len(body), 0o755
+        tar.addfile(info, io.BytesIO(body))
+    return out.getvalue()
+
+
+@pytest.mark.skipif(os.name == "nt", reason="the stand-in is a POSIX file")
+def test_install_python_downloads_checks_and_unpacks(tmp_path, file_server):
+    from conftest import sha
+    from kinetic_voice.install import (Installer, InstallError, Lock,
+                                       python_executable)
+    import threading
+    data = python_archive()
+    file_server.files["/py.tar.gz"] = data
+    lock = Lock({"id": "t", "wheels": [], "model": [], "engine": {},
+                 "python": {"url": file_server.base + "/py.tar.gz",
+                            "sha256": sha(data), "size": len(data)}})
+    root = tmp_path / "voice"
+    events: list[dict] = []
+    installer = Installer(root, lock, events.append)
+    assert installer.python_ready() is False
+    assert installer.install_python(threading.Event()) is True
+    assert python_executable(root).is_file()
+    assert os.access(python_executable(root), os.X_OK)
+    assert installer.python_ready() is True
+    assert any(e.get("phase") == "python" for e in events)
+    assert not (root / "downloads").exists()
+    assert not (root / "python.partial").exists()
+    # Already there: nothing fetched.
+    file_server.requests.clear()
+    assert installer.install_python(threading.Event()) is False
+    assert file_server.requests == []
+
+    # A wrong checksum is refused and the archive deleted.
+    bad = Lock({**lock.data, "python": {**lock.data["python"],
+                                        "sha256": "0" * 64}})
+    other = Installer(tmp_path / "other", bad, events.append)
+    with pytest.raises(InstallError) as err:
+        other.install_python(threading.Event())
+    assert err.value.code == "hash-mismatch"
+    assert not python_executable(tmp_path / "other").exists()

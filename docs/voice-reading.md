@@ -364,6 +364,27 @@ The same game's images and videos take 47 GB, so recording its voices would
 add under 2 per cent. Spoken lines add nothing but one reference clip per
 speaker, a FLAC of about 300 KB, 202 clips in all.
 
+## Recorded lines
+
+`tools/record_lines.py` (Phase 52 item 13) records every line a game
+would speak live, with the same helper and the machine's voice install,
+and writes them into the game as recorded voice lines: mono Opus in WebM
+at 16 kb/s by default, a track per distinct (voice, text) and
+`audio.voice` on each item. A reader then needs no model download, which
+is 3.3 GB on a Mac and 6.8 GB on Windows. The sizes in "A large game"
+are what it adds.
+
+Measured on an M2 Mac with the voice demo (18 lines, four voices, 1 min
+59 s of speech, made fresh): the engine ran at 0.54 of real time, 64 s,
+after 8 s to load the engine and the voices, with Moonlight running; the
+lines add 0.6 MB with their scripts: 241 KB of audio, 18.6 kb/s, the
+"Audio size" table's 17.9 for Opus 16k.
+The helper seeds each line from its text, so a rerun makes the same audio,
+and the recorder keeps its own key per line (engine lock and settings,
+clip and transcript, text, bitrate), so a rerun records only what changed.
+The speed puts a 75-hour game at about 40 hours of recording on a Mac
+and about 25 on a 5090 (0.32 to 0.34 of real time).
+
 ## Running the engines
 
 Notes from the first round, kept for anyone who wants to repeat it; Kinetic

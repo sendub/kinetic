@@ -1055,9 +1055,12 @@ With spoken lines on, these lines are spoken:
   voice.
 
 An item with a recorded voice line (`audio.voice`, Item audio) always
-plays the recording and is never generated. Speaker names are not
-spoken, only the text. Lines are spoken as written: the format has no
-direction markup.
+plays the recording and is never generated. `tools/record_lines.py`
+writes such recordings of every line that would be generated, so a game
+whose lines are all recorded needs no voice engine; it names its tracks
+`rec-` and 32 hex digits and keeps them in `lines/` (CREATE.md,
+"Recording the lines"). Speaker names are not spoken, only the text.
+Lines are spoken as written: the format has no direction markup.
 
 The validator warns, without failing, about a voice no item's `speaker`
 names and about a `narrator` when no item has text without a speaker.

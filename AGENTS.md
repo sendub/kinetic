@@ -129,7 +129,12 @@ are implementing and docs/stack.md for settled decisions.
   `_PYTHON` and `_HELPER` are test-only overrides of the Mac host
   (`apps/README.md`, "Spoken lines"); never set them for a real run, and
   never install the real voice into the user's own voice folder from a
-  test.
+  test. Recording a game's lines with the helper (Phase 52 item 13):
+  `.venv/bin/python tools/record_lines.py <game-folder> [--voice-dir DIR]
+  [--bitrate KBPS] [--dry-run]` (needs the pinned media tools; installs
+  the machine's voice folder when missing, so give it `--voice-dir` with
+  a `.tmp` install; its test, `.venv/bin/pytest tools/test_record_lines.py
+  -q`, drives the helper's fake engine).
 - ffmpeg and macOS `sips` are on PATH (fixture builders use them); there
   is no Rust toolchain.
 

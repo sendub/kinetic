@@ -44,6 +44,13 @@ something more of an author.
   recording. CREATE.md has a new section, "Giving characters voices".
 - `fixtures/voice-demo`, built by `fixtures/build_voice_demo.py`, is a
   short story with two characters and a narrator to try spoken lines on.
+- `tools/record_lines.py` records every line that would be spoken live,
+  with the same engine the apps use, as mono Opus in WebM (16 kb/s by
+  default) and writes them into the game as recorded voice lines, so a
+  reader needs no 3 GB voice download: about 0.8 GB for a 75-hour game.
+  It resumes after an interruption, and a rerun after edits records only
+  the lines that changed and removes the recordings no item uses.
+  CREATE.md has "Recording the lines".
 - **Upgrading:** nothing is needed for a game without voices. To give a
   game voices, upgrade its player (`tools/upgrade_folder.py`), cast the
   voices and build the Mac app again.

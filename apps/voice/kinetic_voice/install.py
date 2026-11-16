@@ -34,6 +34,9 @@ Hash = type(hashlib.sha256())
 HF_BASE = "https://huggingface.co"
 #: What ``remove`` deletes; ``python/`` and ``helper/`` belong to the app.
 OWNED = ("lib", "lib.partial", "models", "downloads", "cache", "state.json")
+#: Names the apps use for the private Python they unpack.
+PYTHON_DIR = "python"
+PYTHON_MARKER = ".kinetic-python"
 
 
 class InstallError(Exception):
@@ -55,6 +58,12 @@ def default_lock_path() -> Path:
     repo, ``helper/`` in the voice folder."""
     return Path(__file__).resolve().parent.parent / (
         f"lock-{platform_key()}.json")
+
+
+def python_executable(root: Path) -> Path:
+    """The private Python's program in the voice folder ``root``."""
+    base = root / PYTHON_DIR
+    return base / "python.exe" if os.name == "nt" else base / "bin" / "python3"
 
 
 def _version(text: str) -> tuple[int, ...]:
@@ -313,6 +322,56 @@ class Installer:
                                   for name in OWNED
                                   if (self.root / name).exists()),
         }
+
+    # The private Python (what the apps do before they can start the
+    # helper; tools/record_lines.py does it the same way)
+
+    def python_ready(self) -> bool:
+        py = self.lock.data["python"]
+        try:
+            marker = (self.root / PYTHON_DIR / PYTHON_MARKER).read_text()
+        except OSError:
+            return False
+        return marker == py["sha256"] and python_executable(
+            self.root).is_file()
+
+    def install_python(self, cancel: threading.Event) -> bool:
+        """Download the lock's Python build (resumed, sha256-checked),
+        unpack it with the system ``tar`` into ``python/`` and mark it.
+        Progress events count the archive's bytes. False when the right
+        build is already there."""
+        if self.python_ready():
+            return False
+        py = self.lock.data["python"]
+        self._total, self._done, self._last_emit = py["size"], 0, 0.0
+        archive = (self.root / "downloads"
+                   / f"python-{py['sha256'][:12]}.tar.gz")
+        self._fetch(py["url"], archive, py["size"], py["sha256"], "python",
+                    archive.name, cancel)
+        staging = self.root / (PYTHON_DIR + ".partial")
+        shutil.rmtree(staging, ignore_errors=True)
+        staging.mkdir(parents=True)
+        self.emit({"event": "log", "message": "unpacking python"})
+        result = subprocess.run(
+            ["tar", "-xzf", str(archive), "-C", str(staging)],
+            capture_output=True, text=True, check=False,
+            stdin=subprocess.DEVNULL)
+        unpacked = staging / PYTHON_DIR
+        if result.returncode != 0 or not python_executable(staging).is_file():
+            shutil.rmtree(staging, ignore_errors=True)
+            raise InstallError(
+                "unpack-failed", "the Python download could not be "
+                + "unpacked: " + (result.stderr.strip() or "no python/"))
+        (unpacked / PYTHON_MARKER).write_text(py["sha256"])
+        shutil.rmtree(self.root / PYTHON_DIR, ignore_errors=True)
+        os.replace(unpacked, self.root / PYTHON_DIR)
+        shutil.rmtree(staging, ignore_errors=True)
+        archive.unlink(missing_ok=True)
+        try:
+            archive.parent.rmdir()  # downloads/ only if nothing else is in it
+        except OSError:
+            pass
+        return True
 
     # Installing
 
