@@ -3166,6 +3166,98 @@ async function soundScreen(args) {
 }
 
 /**
+ * The drag that ended outside the sheet (docs/plan.md Phase 52 item 11):
+ * a press on the Music slider, dragged left, then right past the slider's
+ * end and out of the sheet, released on the scrim, leaves the sheet open
+ * (the click after a drag lands on the scrim, but the press did not start
+ * there); a press and release on the scrim still close it. The same on
+ * the reset box: a press on its Cancel button released on the backdrop
+ * leaves it open.
+ */
+async function volumesDrag(args) {
+  if (!audioBuilt(args)) return;
+  const { check, open } = args;
+  const { page, cdp } = await open("volumes-drag", {
+    folder: audioDemoDir,
+    closeHelp: true,
+  });
+  await page.setViewport({ width: 1280, height: 720, deviceScaleFactor: 1 });
+  await openSettings(page, cdp);
+  await clickCenter(cdp, VOLUMES_BUTTON);
+  await waitFor(page, VOLUMES_OPEN, 2000);
+  const geo = await page.evaluate(() => {
+    const s = document
+      .querySelector('[data-config-action="volume-music-slider"]')
+      .getBoundingClientRect();
+    const sheet = document
+      .querySelector(".volumes-sheet")
+      .getBoundingClientRect();
+    return {
+      left: s.left,
+      right: s.right,
+      y: s.top + s.height / 2,
+      sheetRight: sheet.right,
+    };
+  });
+  const move = (x, y, type = "mouseMoved") =>
+    cdp.send("Input.dispatchMouseEvent", {
+      type,
+      x,
+      y,
+      button: "left",
+      buttons: type === "mouseReleased" ? 0 : 1,
+      clickCount: type === "mouseMoved" ? 0 : 1,
+    });
+  const mid = (geo.left + geo.right) / 2;
+  await move(geo.right - 4, geo.y, "mousePressed");
+  await move(mid, geo.y);
+  await move(geo.left + 10, geo.y);
+  await sleep(50);
+  const low = await page.evaluate(READ_VOLUMES);
+  await move(geo.right + 10, geo.y);
+  await move(geo.sheetRight + 60, geo.y);
+  await move(geo.sheetRight + 60, geo.y, "mouseReleased");
+  await sleep(200);
+  const after = await page.evaluate(READ_VOLUMES);
+  check(
+    "a drag of the Music slider that ends outside the sheet leaves the sheet open, Music back at 100%",
+    low.rows[0].value !== "100%" &&
+      after.open === true &&
+      after.rows[0].value === "100%",
+    { low: low.rows?.[0], after },
+  );
+  await clickAt(cdp, 8, 8);
+  await sleep(150);
+  const outside = await page.evaluate(READ_VOLUMES);
+  check(
+    "a press and release on the scrim still close the sheet",
+    outside.open === false && outside.helpUp === true,
+    outside,
+  );
+
+  // The reset box: a press on Cancel released on the backdrop keeps it.
+  await clickCenter(cdp, CONFIG_CONTROL.reset);
+  await waitFor(page, CONFIRM_OPEN);
+  const cancel = await page.evaluate((sel) => {
+    const r = document.querySelector(sel).getBoundingClientRect();
+    return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+  }, CONFIRM_CONTROL.cancel);
+  await move(cancel.x, cancel.y, "mousePressed");
+  await move(8, 8);
+  await move(8, 8, "mouseReleased");
+  await sleep(150);
+  const kept = await page.evaluate(CONFIRM_OPEN);
+  await clickAt(cdp, 8, 8);
+  await sleep(150);
+  const closed = (await page.evaluate(CONFIRM_OPEN)) === false;
+  check(
+    "a press on the reset box's Cancel released on the backdrop leaves the box open; a press and release on the backdrop close it",
+    kept === true && closed,
+    { kept, closed },
+  );
+}
+
+/**
  * A game without audio (fixtures/demo): its Esc screen has neither the `v`
  * row nor the Sound row, and `v` does nothing anywhere: no pill, no
  * change, no audio element.
@@ -3223,6 +3315,7 @@ export const parts = [
   escLayout,
   escLayoutAudio,
   soundScreen,
+  volumesDrag,
   silentGame,
   escTips,
   settingsImmediateReload,

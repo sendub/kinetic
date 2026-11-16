@@ -17,6 +17,7 @@
 // each arrow-key step and the end of a drag (the slider's `change`).
 
 import type { MachineSettings } from "../machine/types";
+import { onScrimClick } from "./scrim";
 
 /** The `v` pill (like Tab's and `a`'s mode pills). */
 export const SOUND_ON_MESSAGE = "Sound on";
@@ -244,7 +245,9 @@ export function mountVolumesOverlay({
   // A click on the scrim, outside the sheet, closes it (as one on the
   // reset box's backdrop cancels it); one inside it only acts on its
   // controls.
-  panel.addEventListener("click", (event) => {
+  // A drag that began on the sheet and ended on the scrim is not one
+  // (render/scrim.ts).
+  onScrimClick<MouseEvent>(panel, (event) => {
     if (event.target === panel) close();
   });
 

@@ -17,6 +17,7 @@
 // memory backend and a stubbed reload.
 
 import type { Storage } from "../storage/types";
+import { onScrimClick } from "./scrim";
 
 /** The panel's message, verbatim from docs/plan.md Phase 16's wording. */
 export const RESET_MESSAGE =
@@ -152,7 +153,9 @@ export function mountConfirmOverlay({
   // backdrop and cancels. The panel closes first, so a callback that
   // decides not to reload (a failed delete still reloads; cancel simply
   // returns) cannot leave a stale box on screen.
-  panel.addEventListener("click", (event) => {
+  // A press that began on the box and ended on the backdrop is a drag,
+  // not a click on the backdrop (render/scrim.ts).
+  onScrimClick<MouseEvent>(panel, (event) => {
     const target = event.target;
     const control =
       target instanceof Element

@@ -4659,8 +4659,18 @@ truthful: an unchecked box means nothing was accepted.
       waits for the user.)
 - [ ] Sound controls by content (item 10). Tests: unit tests; `spoken`,
       `screens`, `audio`, `machost` on Chrome and WebKit.
-- [ ] A drag that ends outside the Volumes sheet leaves it open (item 11).
+- [x] A drag that ends outside the Volumes sheet leaves it open (item 11).
       Tests: a unit test and a scenario part.
+      (2026-11-16: render/scrim.ts `onScrimClick` remembers the press
+      target (capture phase) and passes a click only when it landed where
+      the press began; the Volumes sheet and the confirmation box use it.
+      screens part `volumesDrag` drags the Music slider out of the sheet
+      and a press on the reset box's Cancel out to the backdrop: red on
+      WebKit before the fix (sheet and box closed), Chrome red for the box
+      only (its range input captures the pointer). Tests: npm test 1482,
+      check clean, smoke 6/6, screens Chrome 111/111, WebKit 109 pass and
+      the 2 Keyboard Lock partials of the baseline. Orchestrator: npm test,
+      check, screens on WebKit (the drag part passes).)
 - [ ] Windows voice needs an NVIDIA card (item 12). Tests: go test, vet,
       the cross-build, apps/voice, a player unit test; the host's check
       over SSH.
