@@ -4735,5 +4735,7 @@ truthful: an unchecked box means nothing was accepted.
       10.64 s), its README row; Radio in the demo's CAST; the demo test
       now asserts every speaker has a voice. Two builds byte-identical.
       Orchestrator: test_build_voice_demo 17 passed, the clip probed.)
+- [ ] App wording without a browser (item 15). Tests: unit tests for both
+      forms; a `screens` part with the app host.
 - [ ] Phase-closer (Phase 52): full suites; VERSION 1.9.0, the CHANGELOG
       dated, tag v1.9.0, `main` fast-forwarded.

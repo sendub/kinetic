@@ -3524,8 +3524,16 @@ The orchestrator's choices, within those decisions:
     designed with `tools/cast_voices.py` and committed under
     `fixtures/voices/`, gives the demo's radio a voice. Tests:
     tools/test_build_voice_demo.py.
-15. Phase-closer: full suites; VERSION 1.9.0, the CHANGELOG dated, tag,
-    `main` fast-forwarded. Waits for the user's Windows check.
+15. App wording (added 2026-11-16, user). In a game app the player's
+    words never mention a browser: the Progress help says "Saved as you
+    read. Export and Import carry it to another device." and every other
+    text that names a browser (the import box, storage errors, the window
+    controls) has an app wording, chosen by whether a host is present.
+    The browser tab keeps today's words. Tests: unit tests for each text
+    in both forms; a `screens` part with the emulated app host.
+16. Phase-closer: full suites; VERSION 1.9.0, the CHANGELOG dated, tag,
+    `main` fast-forwarded. The user approved the Mac and Windows apps on
+    2026-11-16.
 
 Tests and fixtures: synthetic text only, and the reference clips are
 designed voices, not anyone's recording.
