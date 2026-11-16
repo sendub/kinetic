@@ -3455,7 +3455,76 @@ The orchestrator's choices, within those decisions:
    the neutral parts, `GOOS=windows go vet`, the cross-build; over SSH, a
    headless run of the download and helper. The windowed app needs the
    user.
-10. Phase-closer: full suites; VERSION 1.9.0, the CHANGELOG dated, tag,
+The user's decisions after trying the Mac demo (2026-11-16):
+
+- The sound controls follow what the game has. The Volumes sheet shows
+  Music only for a game with music or ambience, Effects only with
+  effects, and Voice only with voice lines, recorded or spoken. A game
+  with none of them shows no Volumes... button. The Spoken lines row
+  goes: the voice model's download button takes the Voice slider's place
+  in the sheet, with its explanation in a ? help shown on hover. Once
+  the model is installed the slider shows, with a small "remove voice
+  model" button beside the Voice label. There is no on/off switch for
+  spoken lines; the Voice volume controls them.
+- A drag on a slider that ends outside the sheet must not close it.
+- Every line of the demo is spoken, the radio's too.
+- Windows offers spoken lines only with an NVIDIA card. Without one, the
+  download button shows greyed out and its ? says why.
+- Recorded lines. A large game's voices come to about 0.8 GB as Opus at
+  16 kb/s in base64 scripts (docs/voice-reading.md, "A large game"),
+  against a model download of 3.3 GB on the Mac and 6.8 GB on Windows.
+  So authors get a tool that records every line with the same engine,
+  compresses it and writes it into the manifest as recorded voice lines.
+  A game whose lines are all recorded offers no download: the Voice
+  slider shows at once, in a browser tab too.
+
+The orchestrator's choices, within those decisions:
+
+- A Voice volume of 0 asks the engine for no lines. The `spokenLines`
+  setting goes; a saved or imported one is ignored.
+- The voice model is offered only when some line needs it: an item that
+  would be spoken and has no recorded `audio.voice`.
+- Windows drops the lock's CPU variant. With no NVIDIA GPU, or a driver
+  older than the lock's minimum, the host reports voice as unsupported
+  with the reason, the state an Intel Mac already shows.
+- The recorder drives the same `kinetic_voice` helper as the apps, from
+  the machine's voice install, so a recorded line sounds as the live one
+  would. Each line's seed comes from its voice and text, so a rerun
+  records the same audio. A rerun records only new or changed lines and
+  deletes the files it made that no item uses any more.
+
+10. Sound controls by content (added 2026-11-16, user). The Volumes
+    sheet's rows by what the game has, the Voice row's download, help,
+    progress, error and remove states in place of the Spoken lines row,
+    no `spokenLines`, a Voice volume of 0 asking for no lines, and no
+    Sound row or `v` for a game with no sound the reader can hear.
+    Tests: unit tests for the rows, the Voice row's states and the help;
+    `spoken`, `screens`, `audio` and `machost` scenario parts on Chrome
+    and WebKit.
+11. A drag that ends outside the Volumes sheet leaves it open (added
+    2026-11-16, user): the scrim closes the sheet only for a press that
+    starts and ends on it, and the confirmation box the same way. Tests:
+    a unit test and a scenario part for the drag.
+12. Windows voice needs an NVIDIA card (added 2026-11-16, user). The CPU
+    variant removed from the lock and the engine; the host's unsupported
+    state with its reason; the greyed button and its ? text in the
+    player. Tests: go test, vet, the cross-build, apps/voice tests, a
+    player unit test; over SSH, the host's check on the user's PC.
+13. Recorded lines (added 2026-11-16, user). `tools/record_lines.py`
+    records every line that would be spoken, with the helper and the
+    machine's voice install (installed first if missing, as the apps do),
+    as mono Opus in WebM at 16 kb/s (`--bitrate`) with the pinned ffmpeg,
+    each file with its `.js` script, a track per line in `audio.tracks`
+    and the item's `audio.voice`. It resumes after an interruption and
+    reports progress with time left. Docs: CREATE.md, content-format.md,
+    voice-reading.md. Tests: a fake engine for the manifest writing,
+    reruns and cleanup; one real recording of the voice demo on this Mac,
+    played in Chrome and WebKit with no voice install.
+14. The radio's voice (added 2026-11-16, user). A fourth reference clip,
+    designed with `tools/cast_voices.py` and committed under
+    `fixtures/voices/`, gives the demo's radio a voice. Tests:
+    tools/test_build_voice_demo.py.
+15. Phase-closer: full suites; VERSION 1.9.0, the CHANGELOG dated, tag,
     `main` fast-forwarded. Waits for the user's Windows check.
 
 Tests and fixtures: synthetic text only, and the reference clips are

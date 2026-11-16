@@ -4657,5 +4657,15 @@ truthful: an unchecked box means nothing was accepted.
       with the real cross-build. Orchestrator: go test, vet, build_apps
       127 passed with the real lock. The windowed exe with the real engine
       waits for the user.)
+- [ ] Sound controls by content (item 10). Tests: unit tests; `spoken`,
+      `screens`, `audio`, `machost` on Chrome and WebKit.
+- [ ] A drag that ends outside the Volumes sheet leaves it open (item 11).
+      Tests: a unit test and a scenario part.
+- [ ] Windows voice needs an NVIDIA card (item 12). Tests: go test, vet,
+      the cross-build, apps/voice, a player unit test; the host's check
+      over SSH.
+- [ ] Recorded lines (item 13). Tests: the recorder with a fake engine; a
+      real recording of the voice demo played in Chrome and WebKit.
+- [ ] The radio's voice (item 14). Tests: test_build_voice_demo.py.
 - [ ] Phase-closer (Phase 52): full suites; VERSION 1.9.0, the CHANGELOG
       dated, tag v1.9.0, `main` fast-forwarded.
