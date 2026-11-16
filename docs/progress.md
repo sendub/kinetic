@@ -4974,9 +4974,35 @@ truthful: an unchecked box means nothing was accepted.
       catalogue` 135/135 Chrome and WebKit; full Chrome `verify`
       909/909; WebKit smoke 6/6; WebKit screens 121 + the 2 baseline
       Keyboard Lock partials.)
-- [ ] Choosing and showing a game's language (item 3): the title-bar
+- [x] Choosing and showing a game's language (item 3): the title-bar
       Language control, system-language start, fallback per string,
-      `lang`/`dir` per string, reading time per language.
+      `lang`/`dir` per string, reading time per language. (Evidence:
+      `player/src/i18n/languages.ts` `startingLanguage` (saved, then
+      `navigator.languages` by `Intl.Locale.maximize()` with script and
+      CLDR region-group matching, then the base) and `uiLanguageFor`;
+      `render/gamewords.ts` loads `lang/<tag>.js` (a failing file shows
+      the base and a pill) and draws text, speakers, prompts, labels,
+      title and version with per-string `lang` and `dir`;
+      `render/languagecontrol.ts`, a listbox in the title bar whose
+      capsule never adds height (equal panel height with and without
+      `languages` proved at 1280x800, 700x600 and 600x900, probed at
+      eight more sizes); the choice is `MachineSettings.language`, per
+      `storyId`. `:lang()` system font stacks, CJK thoughts upright,
+      `line-break: strict` for zh/ja. Reading factors measured from
+      parallel translations of a converted corpus game: zh-Hans 2.85,
+      zh-Hant 2.82, ja 2.17, ko 1.96, others 1. Testing kit: a
+      `languages` launch option (Chrome `--lang`, WebKit
+      `-AppleLanguages`). Verified by the orchestrator: `verify --
+      languages` 58/58 Chrome and WebKit, Chrome smoke 6/6, check clean;
+      npm test hit 4 perf and property timeouts at load average about
+      10, and those three files passed 46/46 alone (the subagent's full
+      run at lower load passed 1647/1647; its catalogue, screens and
+      branches runs passed on both engines bar the 2 baseline Keyboard
+      Lock partials and 4 load-timed Chrome checks that passed on rerun).
+      Leads: Esc-screen controls take keyboard focus only after a click
+      (Tab is the skip key), as before; live spoken lines still speak
+      the base text (item 6); inline italics in the end card and resume
+      notice (item 4).)
 - [ ] The player's words in every catalogue language (item 4): 38
       draft PO files, checked for fit in Chrome and WebKit.
 - [ ] Right to left (item 5): logical CSS, mirrored screens, the

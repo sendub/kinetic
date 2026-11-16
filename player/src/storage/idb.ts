@@ -452,7 +452,7 @@ export function sanitizeSettings(
 ): Partial<MachineSettings> | undefined {
   if (typeof raw !== "object" || raw === null) return undefined;
   const source = raw as Record<string, unknown>;
-  const settings: Record<string, number | boolean> = {};
+  const settings: Record<string, number | boolean | string> = {};
   for (const field of Object.keys(
     DEFAULT_SETTINGS,
   ) as (keyof MachineSettings)[]) {
@@ -465,6 +465,8 @@ export function sanitizeSettings(
     ) {
       settings[field] = value;
     } else if (kind === "boolean" && typeof value === "boolean") {
+      settings[field] = value;
+    } else if (kind === "string" && typeof value === "string") {
       settings[field] = value;
     }
   }

@@ -696,6 +696,17 @@ content:
   millisecond-denominated player settings whose defaults are
   `minHoldMs = 1500` and `msPerChar = 60`. An item with no `text`
   holds for `minHoldMs`.
+- The player scales `msPerChar` per language (Translations): `text` is
+  the text as shown, and its `codepoints` are multiplied by a factor
+  for the language that text is in, so the hold is `max(minHoldMs,
+  codepoints(text) * msPerChar * factor / readingSpeed)`. Chinese,
+  Japanese and Korean say as much in far fewer code points than
+  English, so their factors come from the player's own table, measured
+  from parallel translations (Simplified Chinese 2.85, Traditional
+  Chinese 2.82, Japanese 2.17, Korean 1.96); every other language,
+  English included, uses 1, as an alphabetic script's longer text
+  already gets its longer hold. A line the chosen language file lacks
+  shows the base text and keeps the base language's factor.
 - `thought` changes no timing: a thought line holds exactly as the
   same `text` would as dialogue.
 - An image auto-advances when its text hold time elapses. A `text`
@@ -1190,6 +1201,14 @@ Rules of meaning:
   lacks shows the manifest's text. A stale translation still shows.
 - Pictures are the same in every language, and a language file can
   neither name nor ship a font.
+- The player opens a game in the reader's own pick, saved with their
+  settings for that `storyId`, while the game still offers it; else in
+  the browser's language when the game has it (a loose match: `de-AT`
+  takes `de`, `zh-TW` takes `zh-Hant`, `es-MX` takes `es-419` before
+  `es`); else in the base. With `languages` listed, the Esc screen's
+  title bar has a Language control to switch, which keeps the place,
+  picks, seen set and bookmarks. Each string drawn is marked with the
+  language it is in, so a fallback line carries the base's tag.
 
 The converter's Python helper for these files is
 `converter/kinetic_extract/language_file.py`: the hash

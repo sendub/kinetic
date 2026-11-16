@@ -3844,7 +3844,12 @@ The orchestrator's choices, within those decisions:
    move in the open list, Enter or a click picks, Escape closes the list
    only; switching redraws the current item, keeps position, picks, the
    seen set and auto-forward; the choice persists per `storyId` and
-   survives a reload. Per-language reading time as decided. Tests: unit
+   survives a reload. Per-language reading time as decided. The
+   system font stack per writing system (`:lang()` rules for Chinese,
+   Japanese, Korean, Arabic, Hebrew, Thai and the Indian scripts, with
+   the macOS and Windows system faces), and thoughts in those scripts
+   drawn upright, told apart by colour alone, since their fonts have no
+   italic. Tests: unit
    tests of matching and fallback; a `languages` scenario file on the
    language demo: the control absent in the demo and present in the
    language demo with the Esc panel the same height in both at 1280x800

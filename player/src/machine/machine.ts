@@ -140,6 +140,7 @@ import type {
   MachinePlace,
   MachineSettings,
   MachineState,
+  MachineWords,
   ManifestAudio,
   RouteResult,
   RouteSet,
@@ -217,6 +218,12 @@ export interface MachineOptions {
   audio?: ManifestAudio;
   /** Defaults to the global setTimeout/clearTimeout. */
   scheduler?: Scheduler;
+  /**
+   * The words the reader is shown (docs/plan.md Phase 54 item 3): the
+   * text holds and a choice screen's prompt, labels and countdown read
+   * them. Absent: the manifest's own.
+   */
+  words?: MachineWords;
 }
 
 export interface Machine {
@@ -563,6 +570,15 @@ export interface Machine {
    */
   setVoiceAudible(audible: boolean): void;
   /**
+   * A new language shown (docs/plan.md Phase 54 item 3): the words the
+   * holds and choice screens read (`MachineOptions.words`; null for the
+   * manifest's own). The state is emitted again, so an open choice redraws
+   * its prompt and labels, and a pending hold re-times as `setSettings`
+   * does, from when the item's timer was armed. Nothing else moves: the
+   * position, picks, seen set and auto-forward stay.
+   */
+  setWords(words: MachineWords | null): void;
+  /**
    * A spoken line's hold (docs/plan.md Phase 52; render/spoken.ts): while
    * the reader hears voice lines (`setVoiceAudible`), the auto-forward hold
    * of item `index` lasts at least until `untilMs`, a `Date.now()` time:
@@ -643,16 +659,21 @@ export const defaultScheduler: Scheduler = {
   cancel: (handle) => globalThis.clearTimeout(handle as never),
 };
 
-/** Text hold in ms: max(minHold, codepoints(text) * msPerChar / speed). */
+/**
+ * Text hold in ms: max(minHold, codepoints(text) * msPerChar * factor /
+ * speed), where `factor` is the reading-time factor of the language the
+ * text is shown in (docs/content-format.md "Timing"; 1 for most).
+ */
 export function textHoldMs(
   text: string | undefined,
   settings: MachineSettings,
+  factor = 1,
 ): number {
   const chars = [...(text ?? "")].length;
   if (chars === 0) return settings.minHoldMs;
   return Math.max(
     settings.minHoldMs,
-    (chars * settings.msPerChar) / settings.readingSpeed,
+    (chars * settings.msPerChar * factor) / settings.readingSpeed,
   );
 }
 
@@ -715,8 +736,14 @@ export function itemHoldMs(
   item: Item,
   settings: MachineSettings,
   nextIsText = false,
+  shown?: { readonly text: string | undefined; readonly factor: number },
 ): number {
-  const hold = textHoldMs(item.text, settings);
+  // The text as drawn, in its language (`MachineWords.itemText`), else
+  // the manifest's.
+  const hold =
+    shown === undefined
+      ? textHoldMs(item.text, settings)
+      : textHoldMs(shown.text, settings, shown.factor);
   if (nextIsText) return hold;
   if (item.type === "animation") {
     const loopMs = (item.frames.length * item.loopCount * 1000) / item.fps;
@@ -974,6 +1001,18 @@ export function createMachine(options: MachineOptions): Machine {
   // of it cannot silently retime the timeline.
   let settings: MachineSettings = { ...options.settings };
   const scheduler = options.scheduler ?? defaultScheduler;
+  /** The words shown (`setWords`); null for the manifest's own. */
+  let words: MachineWords | null = options.words ?? null;
+  /** A decision's prompt as drawn. */
+  const promptOf = (decision: ResolvedDecision): string =>
+    words === null
+      ? decision.prompt
+      : words.prompt(decision.id, decision.prompt);
+  /** A route's label as drawn. */
+  const labelOf = (decision: ResolvedDecision, route: ResolvedRoute): string =>
+    words === null
+      ? route.label
+      : words.label(decision.id, route.id, route.label);
   /** The tracks a voice hold reads its length from. */
   const voiceTracks = options.audio?.tracks;
   /** Whether the reader hears voice lines (`setVoiceAudible`). */
@@ -1337,7 +1376,9 @@ export function createMachine(options: MachineOptions): Machine {
     const view = choiceView(pendingChoice);
     const decision = decisions[held.decision];
     const back =
-      held.fromRoute >= 0 ? decision.routes[held.fromRoute].label : undefined;
+      held.fromRoute >= 0
+        ? labelOf(decision, decision.routes[held.fromRoute])
+        : undefined;
     return choiceCountdownMs(
       choiceScreenText(view, back),
       choiceRowCount(view),
@@ -1450,7 +1491,7 @@ export function createMachine(options: MachineOptions): Machine {
       Object.freeze({
         routeIdx: index,
         id: route.id,
-        label: route.label,
+        label: labelOf(decision, route),
         seen: isPlayed(decision.index, index),
       }),
     );
@@ -1464,13 +1505,18 @@ export function createMachine(options: MachineOptions): Machine {
             ms: held.ms,
             armId: held.armId,
             ...(held.fromRoute >= 0
-              ? { backFromLabel: decision.routes[held.fromRoute].label }
+              ? {
+                  backFromLabel: labelOf(
+                    decision,
+                    decision.routes[held.fromRoute],
+                  ),
+                }
               : {}),
           });
     const walk = pending.walk ?? -1;
     const view = {
       decisionId: decision.id,
-      prompt: decision.prompt,
+      prompt: promptOf(decision),
       routes,
       ...(pending.continueOption ? { continueOption: true } : {}),
       ...(auto === null ? {} : { autoPick: auto }),
@@ -1527,6 +1573,7 @@ export function createMachine(options: MachineOptions): Machine {
         items[cursor],
         settings,
         nextIsText(cursor) || segment !== null,
+        words?.itemText(cursor),
       ),
       chainExitFloorMs(),
       voiceHoldMs(),
@@ -3497,6 +3544,13 @@ export function createMachine(options: MachineOptions): Machine {
       } else if (autoPick === null && autoPickLiveChoice()) {
         emit();
       }
+      retime();
+    },
+
+    setWords(next) {
+      words = next;
+      if (destroyed || count === 0) return;
+      emit();
       retime();
     },
 

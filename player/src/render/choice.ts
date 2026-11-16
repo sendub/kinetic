@@ -75,6 +75,7 @@ import {
   seenMarker,
 } from "../machine/choicetext.ts";
 import type { ChoiceView } from "../machine/types";
+import { type GameWords, markLanguage } from "./gamewords.ts";
 
 // The screen's strings live with the machine, which counts them for the
 // play-all countdown (docs/plan.md Phase 20).
@@ -261,12 +262,21 @@ export interface ChoiceOverlayOptions {
   onPick(routeIdx: number): void;
   /** The "Return to main route" row: `machine.chooseContinue()`. */
   onContinue(): void;
+  /**
+   * The words shown (docs/plan.md Phase 54 item 3): the machine already
+   * hands over the prompt and labels in the shown language; this says
+   * which language each is in, so the prompt and every label are marked
+   * with their own `lang` (a label the language file lacks carries the
+   * base's) and `dir`. Absent: no marks.
+   */
+  words?: () => GameWords;
 }
 
 export function mountChoiceOverlay({
   root,
   onPick,
   onContinue,
+  words,
 }: ChoiceOverlayOptions): ChoiceOverlay {
   const doc = root.ownerDocument;
 
@@ -419,6 +429,13 @@ export function mountChoiceOverlay({
         shownDecision = choice.decisionId;
       }
       prompt.textContent = choice.prompt;
+      const shownWords = words?.();
+      if (shownWords !== undefined) {
+        markLanguage(
+          prompt,
+          shownWords.prompt(choice.decisionId, choice.prompt).lang,
+        );
+      }
       // The `0` hint follows the row: shown only when `continueOption`
       // is set, so the panel never promises a return it does not offer.
       hint.textContent = choiceHint(choice);
@@ -445,6 +462,15 @@ export function mountChoiceOverlay({
         const label = doc.createElement("span");
         label.className = "choice-label";
         label.textContent = row.label;
+        if (shownWords !== undefined && row.kind === "route") {
+          const route = choice.routes[row.routeIdx];
+          if (route !== undefined) {
+            markLanguage(
+              label,
+              shownWords.label(choice.decisionId, route.id, row.label).lang,
+            );
+          }
+        }
         line.append(number, label);
         if (row.seen) {
           const marker = doc.createElement("span");

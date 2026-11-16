@@ -47,6 +47,7 @@ export interface RouteObservation {
  */
 export function routeStartLabels(
   manifest: Manifest,
+  label?: (decisionId: string, routeId: string, base: string) => string,
 ): ReadonlyMap<number, string> {
   const labels = new Map<number, string>();
   const branches = manifest.branches ?? [];
@@ -58,7 +59,14 @@ export function routeStartLabels(
   for (const branch of branches) {
     for (const route of branch.routes) {
       const start = byId.get(route.start);
-      if (start !== undefined) labels.set(start, route.label);
+      if (start === undefined) continue;
+      // The label in the shown language (docs/plan.md Phase 54 item 3).
+      labels.set(
+        start,
+        label === undefined
+          ? route.label
+          : label(branch.id, route.id, route.label),
+      );
     }
   }
   return labels;
@@ -100,6 +108,12 @@ export interface RouteAnnouncementsOptions {
    * wheel step or `e`): the observation moves on, nothing is announced.
    */
   quiet?: () => boolean;
+  /**
+   * A route's label in the shown language (docs/plan.md Phase 54 item 3);
+   * a new function (a new language) re-reads every label. Absent: the
+   * manifest's.
+   */
+  label?: () => (decisionId: string, routeId: string, base: string) => string;
 }
 
 /**
@@ -112,8 +126,19 @@ export function mountRouteAnnouncements({
   manifest,
   flash,
   quiet,
+  label,
 }: RouteAnnouncementsOptions): () => void {
-  const labels = routeStartLabels(manifest);
+  let labelOf = label?.();
+  let labels = routeStartLabels(manifest, labelOf);
+  /** The labels in the language shown now. */
+  function currentLabels(): ReadonlyMap<number, string> {
+    const now = label?.();
+    if (now !== labelOf) {
+      labelOf = now;
+      labels = routeStartLabels(manifest, labelOf);
+    }
+    return labels;
+  }
 
   function observe(): RouteObservation {
     // The place, not the whole context: this runs on every state change,
@@ -131,7 +156,7 @@ export function mountRouteAnnouncements({
   let previous = observe();
   return machine.subscribe(() => {
     const next = observe();
-    const messages = routeAnnouncementsFor(previous, next, labels);
+    const messages = routeAnnouncementsFor(previous, next, currentLabels());
     previous = next;
     if (messages.length > 0 && quiet?.() !== true) flash(messages);
   });

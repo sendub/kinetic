@@ -470,7 +470,10 @@ class Page {
  * page's storage on disk there instead, so a later launch with the same
  * folder resumes it. `requireGestureForAudio` makes sound wait for a key or
  * click, as Safari does (test only: the game app plays sound at launch).
- * `env` adds variables to the driver's environment (the voice host's test
+ * `languages` (BCP 47 tags, most wanted first) are the reader's languages
+ * the page sees as `navigator.languages`: the driver starts with them as
+ * its AppleLanguages (the argument domain), which WebKit hands its web
+ * content. `env` adds variables to the driver's environment (the voice host's test
  * overrides, KINETIC_VOICE_DIR and the rest: apps/README.md).
  * Its page gets the test sound flag before anything loads (testaudio.mjs).
  * Throws, with the driver killed, when the driver cannot start, would show
@@ -481,6 +484,9 @@ export async function launchWebKit(options = {}) {
   const [file, ...args] = options.command ?? [ensureDriver()];
   if (options.profile) args.push(`--profile=${options.profile}`);
   if (options.requireGestureForAudio) args.push("--require-gesture-for-audio");
+  if (options.languages?.length > 0) {
+    args.push("-AppleLanguages", `(${options.languages.join(", ")})`);
+  }
   const proc = spawn(file, args, {
     stdio: ["pipe", "pipe", "pipe"],
     detached: true,

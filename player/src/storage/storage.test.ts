@@ -548,10 +548,20 @@ describe("sanitizeSettings — the settings the shipped adapter reads back", () 
     const all = Object.fromEntries(
       Object.entries(DEFAULT_SETTINGS).map(([field, value]) => [
         field,
-        typeof value === "number" ? value + 1 : !value,
+        typeof value === "number"
+          ? value + 1
+          : typeof value === "string"
+            ? `${value}x`
+            : !value,
       ]),
     );
     expect(sanitizeSettings(all)).toEqual(all);
+  });
+
+  it("keeps the game language the reader picked (none by default, Phase 54)", () => {
+    expect(DEFAULT_SETTINGS.language).toBe("");
+    expect(sanitizeSettings({ language: "de" })).toEqual({ language: "de" });
+    expect(sanitizeSettings({ language: 7 })).toBeUndefined();
   });
 });
 

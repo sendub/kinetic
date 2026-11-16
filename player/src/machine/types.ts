@@ -355,6 +355,29 @@ export interface LanguageFile {
   keepOriginalVoice?: boolean;
 }
 
+/**
+ * The manifest's words as the reader is shown them (docs/plan.md Phase 54
+ * item 3): a game's language file may translate an item's text, a
+ * decision's prompt and a route's label. The machine times and counts
+ * what is drawn, so it reads them through this; without it, the
+ * manifest's own. The renderer builds it from the language in use
+ * (render/gamewords.ts).
+ */
+export interface MachineWords {
+  /**
+   * Item `index`'s text as drawn and the reading-time factor of the
+   * language it is drawn in (1 for most; docs/content-format.md "Timing").
+   */
+  itemText(index: number): {
+    readonly text: string | undefined;
+    readonly factor: number;
+  };
+  /** A decision's prompt as drawn; `base` is the manifest's. */
+  prompt(decisionId: string, base: string): string;
+  /** A route's label as drawn; `base` is the manifest's. */
+  label(decisionId: string, routeId: string, base: string): string;
+}
+
 /** Player-side pacing settings (docs/content-format.md, "Timing"). */
 export interface MachineSettings {
   /** Reading-speed multiplier; default 1.0. */
@@ -430,6 +453,14 @@ export interface MachineSettings {
    * Spoken lines switch).
    */
   voiceVolume: number;
+  /**
+   * The game language the reader picked on the Esc screen's Language
+   * control (docs/plan.md Phase 54 item 3), a tag of the base or one of
+   * the manifest's `languages`; "" (the default) for none picked, when
+   * the game opens in the browser's language if it has it. A reader
+   * setting stored with the others, per story; the machine never reads it.
+   */
+  language: string;
 }
 
 export const DEFAULT_SETTINGS: MachineSettings = {
@@ -448,6 +479,7 @@ export const DEFAULT_SETTINGS: MachineSettings = {
   musicVolume: 1,
   effectsVolume: 1,
   voiceVolume: 1,
+  language: "",
 };
 
 /**

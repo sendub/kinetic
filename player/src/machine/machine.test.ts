@@ -169,6 +169,126 @@ describe("hold computation (docs/content-format.md Timing)", () => {
     expect(itemHoldMs(video(10, "a".repeat(40)), SETTINGS, true)).toBe(2400);
     expect(itemHoldMs(image("a".repeat(40)), SETTINGS, true)).toBe(2400);
   });
+
+  it("scales msPerChar by the shown language's factor (docs/plan.md Phase 54)", () => {
+    // 20 code points of Japanese at factor 2.17: 20 * 60 * 2.17 = 2604.
+    expect(textHoldMs("あ".repeat(20), SETTINGS, 2.17)).toBeCloseTo(2604);
+    // The factor scales before the floor: 10 * 60 * 2 = 1200 < 1500.
+    expect(textHoldMs("あ".repeat(10), SETTINGS, 2)).toBe(1500);
+    // Reading speed still divides it.
+    expect(
+      textHoldMs("あ".repeat(20), { ...SETTINGS, readingSpeed: 2 }, 2.5),
+    ).toBe(1500);
+    expect(textHoldMs("あ".repeat(40), SETTINGS, 1)).toBe(2400);
+  });
+
+  it("an item's hold counts the text shown, not the manifest's", () => {
+    const item = image("a".repeat(40)); // 2400 as written
+    expect(itemHoldMs(item, SETTINGS, false, { text: "b", factor: 1 })).toBe(
+      1500,
+    );
+    expect(
+      itemHoldMs(item, SETTINGS, false, { text: "日".repeat(30), factor: 2 }),
+    ).toBe(3600);
+    // No text shown: the floor.
+    expect(
+      itemHoldMs(item, SETTINGS, false, { text: undefined, factor: 1 }),
+    ).toBe(1500);
+  });
+});
+
+describe("words shown (docs/plan.md Phase 54 item 3)", () => {
+  const items: Item[] = [
+    { id: "a", type: "image", file: "a.jpg", text: "a".repeat(40) },
+    { id: "b", type: "text", text: "Short." },
+    { id: "r1", type: "text", text: "Route one." },
+    { id: "r2", type: "text", text: "Route two." },
+  ];
+  const branches: Branch[] = [
+    {
+      id: "pick",
+      after: "b",
+      prompt: "Which way?",
+      routes: [
+        { id: "one", label: "One", start: "r1", end: "r1" },
+        { id: "two", label: "Two", start: "r2", end: "r2" },
+      ],
+    },
+  ];
+  const german = {
+    itemText: (index: number) =>
+      index === 0
+        ? { text: "日".repeat(30), factor: 2 }
+        : { text: items[index]?.text, factor: 1 },
+    prompt: (id: string, base: string) => (id === "pick" ? "Wohin?" : base),
+    label: (_d: string, route: string, base: string) =>
+      route === "one" ? "Eins" : base,
+  };
+
+  it("times the hold by the shown text and its factor", () => {
+    vi.useFakeTimers();
+    const m = createMachine({
+      items,
+      settings: SETTINGS,
+      autoAdvance: true,
+      words: german,
+    });
+    vi.advanceTimersByTime(3599);
+    expect(m.getState().cursor).toBe(0);
+    vi.advanceTimersByTime(2);
+    expect(m.getState().cursor).toBe(1);
+    m.destroy();
+  });
+
+  it("draws the choice's prompt and labels through the words, falling back per label", () => {
+    const m = createMachine({
+      items,
+      branches,
+      settings: { ...SETTINGS, playAllRoutes: false },
+      words: german,
+    });
+    m.advance();
+    m.advance();
+    const choice = m.getState().choice;
+    expect(choice?.prompt).toBe("Wohin?");
+    expect(choice?.routes.map((route) => route.label)).toEqual(["Eins", "Two"]);
+    m.destroy();
+  });
+
+  it("setWords redraws an open choice and keeps the place", () => {
+    const m = createMachine({
+      items,
+      branches,
+      settings: { ...SETTINGS, playAllRoutes: false },
+    });
+    m.advance();
+    m.advance();
+    expect(m.getState().choice?.prompt).toBe("Which way?");
+    const seen: string[] = [];
+    m.subscribe((state) => {
+      if (state.choice !== undefined) seen.push(state.choice.prompt);
+    });
+    const before = m.exportContext();
+    m.setWords(german);
+    expect(seen).toEqual(["Wohin?"]);
+    expect(m.getState().choice?.routes[0]?.label).toBe("Eins");
+    expect(m.exportContext()).toEqual(before);
+    m.setWords(null);
+    expect(m.getState().choice?.prompt).toBe("Which way?");
+    m.destroy();
+  });
+
+  it("setWords re-times a pending hold from when it was armed", () => {
+    vi.useFakeTimers();
+    const m = createMachine({ items, settings: SETTINGS, autoAdvance: true });
+    vi.advanceTimersByTime(2000); // 2400 as written
+    m.setWords(german); // now 3600 from the arming
+    vi.advanceTimersByTime(1500);
+    expect(m.getState().cursor).toBe(0);
+    vi.advanceTimersByTime(101);
+    expect(m.getState().cursor).toBe(1);
+    m.destroy();
+  });
 });
 
 describe("advance() through every item type", () => {

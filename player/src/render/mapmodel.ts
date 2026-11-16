@@ -78,6 +78,22 @@ import type { MapPlace, SavedMapView } from "../storage/types";
 
 export type { MapPlace, SavedMapView };
 
+/** A map text as drawn: its text and the language it is in. */
+export interface MapShownText {
+  readonly text: string;
+  readonly lang: string;
+}
+
+/**
+ * The game's words in the shown language for the map (docs/plan.md Phase
+ * 54 item 3), by the machine's decision index and a route's index in it;
+ * `base` is the manifest's text, the fallback.
+ */
+export interface MapWords {
+  prompt(decision: number, base: string): MapShownText;
+  label(decision: number, route: number, base: string): MapShownText;
+}
+
 /**
  * Geometry in world units (CSS pixels at scale 1, Full size). Compact
  * (docs/plan.md Phase 35; a size up in Phase 40, the figures 13 px in
@@ -1694,6 +1710,8 @@ export interface MapReader {
    * the text of every decision not reached is hidden (`MapMarks.hidden`).
    */
   readonly spoilers?: boolean;
+  /** The words shown (Phase 54); absent: the manifest's. */
+  readonly words?: MapWords;
 }
 
 /** A route as the reader stands with it. */
@@ -1721,6 +1739,8 @@ export interface MapMarks {
   readonly runs: readonly RunMark[];
   /** The "you are here" point, in world units. */
   readonly here: { x: number; y: number; decision: number };
+  /** The words shown (`MapReader.words`); absent: the manifest's. */
+  readonly words?: MapWords;
 }
 
 /**
@@ -1786,6 +1806,7 @@ export function markMap(model: MapModel, reader: MapReader): MapMarks {
     lastPick,
     runs,
     here: hereOf(model, reader),
+    ...(reader.words === undefined ? {} : { words: reader.words }),
   };
 }
 
@@ -1801,7 +1822,41 @@ export function promptText(
   decision: number,
 ): string {
   if (marks.hidden[decision]) return t("map.hidden.prompt");
-  return model.decisionAt[decision]?.prompt ?? "";
+  return promptShown(model, marks, decision)?.text ?? "";
+}
+
+/**
+ * A decision's question in the shown language and the language it is in,
+ * or null while it is hidden (or not in the model).
+ */
+export function promptShown(
+  model: MapModel,
+  marks: MapMarks,
+  decision: number,
+): MapShownText | null {
+  if (marks.hidden[decision]) return null;
+  const base = model.decisionAt[decision]?.prompt;
+  if (base === undefined) return null;
+  return marks.words?.prompt(decision, base) ?? { text: base, lang: "" };
+}
+
+/**
+ * A route's label in the shown language and the language it is in, or
+ * null while it is hidden.
+ */
+export function routeShown(
+  model: MapModel,
+  marks: MapMarks,
+  key: number,
+): MapShownText | null {
+  const route = model.routes[key];
+  if (route === undefined || marks.hidden[route.decision]) return null;
+  return (
+    marks.words?.label(route.decision, route.route, route.label) ?? {
+      text: route.label,
+      lang: "",
+    }
+  );
 }
 
 /**
@@ -1815,7 +1870,9 @@ export function routeText(
   key: number,
 ): string {
   const route = model.routes[key];
-  return marks.hidden[route.decision] ? t("map.hidden.route") : route.label;
+  return marks.hidden[route.decision]
+    ? t("map.hidden.route")
+    : (routeShown(model, marks, key)?.text ?? route.label);
 }
 
 /** How far before a decision box the marker sits while its choice is up. */

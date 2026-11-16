@@ -9,22 +9,44 @@
 // line itself: "thought" for an unspoken thought, "speech" for dialogue. The
 // distinction itself is pure CSS (index.html), so the look can change without
 // touching this module (docs/plan.md Phase 7b).
+//
+// The line and the name are drawn in the shown language (docs/plan.md
+// Phase 54 item 3, render/gamewords.ts), each element marked with the
+// language its string is in (`lang`, and `dir` for right to left), so a
+// line the language file lacks carries the base's tag, the speaker's name
+// is upper-cased by its own language's rules (index.html's
+// `text-transform`: Turkish `i` becomes `İ`), and the fonts and line
+// breaking follow the writing system.
 
 import type { Item } from "../machine/types";
+import {
+  createGameWords,
+  type GameWords,
+  markLanguage,
+  type ShownText,
+} from "./gamewords";
 
 export interface OverlayContent {
-  speaker: string | null;
-  text: string;
+  speaker: ShownText | null;
+  text: ShownText;
 }
 
-/** Pure: what the overlay draws for an item, or null for nothing. */
+/** The manifest's own words, in English, for a caller that gives none. */
+const BASE_WORDS = createGameWords({}, null);
+
+/**
+ * Pure: what the overlay draws for an item in `words`' language, or null
+ * for nothing. The speaker's name is drawn through the language file's
+ * table; the item's `speaker` is only the key.
+ */
 export function overlayContentFor(
   item: Item | undefined,
+  words: GameWords = BASE_WORDS,
 ): OverlayContent | null {
-  const text = item?.text;
-  if (text === undefined || text === "") return null;
+  const text = words.itemText(item);
+  if (text === null) return null;
   const speaker = item?.speaker;
-  return { speaker: speaker ? speaker : null, text };
+  return { speaker: speaker ? words.speaker(speaker) : null, text };
 }
 
 /** How a drawn line reads: spoken dialogue, or an unspoken thought. */
@@ -41,8 +63,11 @@ export function overlayModeFor(item: Item | undefined): OverlayMode {
 }
 
 export interface TextOverlayLayer {
-  /** Draw this item's line, keeping the current `h` visibility. */
-  update(item: Item | undefined): void;
+  /**
+   * Draw this item's line in `words`' language (the base's when absent),
+   * keeping the current `h` visibility.
+   */
+  update(item: Item | undefined, words?: GameWords): void;
   /** The `h` toggle: hide or show the whole overlay; the visual stays. */
   setHidden(hidden: boolean): void;
 }
@@ -70,16 +95,18 @@ export function createTextOverlayLayer(root: HTMLElement): TextOverlayLayer {
     root.textContent = "";
     if (content === null) return;
     if (content.speaker !== null) {
-      speaker.textContent = content.speaker;
+      speaker.textContent = content.speaker.text;
+      markLanguage(speaker, content.speaker.lang);
       root.append(speaker);
     }
-    text.textContent = content.text;
+    text.textContent = content.text.text;
+    markLanguage(text, content.text.lang);
     root.append(text);
   }
 
   return {
-    update(item) {
-      content = overlayContentFor(item);
+    update(item, words) {
+      content = overlayContentFor(item, words);
       mode = overlayModeFor(item);
       apply();
     },

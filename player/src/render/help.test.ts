@@ -386,3 +386,42 @@ describe("the M entry is a control (m from the Esc screen)", () => {
     for (const row of mountRows()) expect(row.tagName).toBe("DIV");
   });
 });
+
+describe("the heading in a shown language (docs/plan.md Phase 54 item 3)", () => {
+  it("draws the name and release as given, each marked with its language", () => {
+    const root = new FakeDocument().createElement("div");
+    const help = mountHelpOverlay({
+      root: root as unknown as HTMLElement,
+      gameTitle: "The Lantern",
+      gameVersion: "Episode 3",
+    });
+    help.setHeading(
+      { text: "Die Laterne", lang: "de" },
+      { text: "الحلقة 3", lang: "ar" },
+    );
+    const [panel] = root.children;
+    const inside = descendants(panel as FakeElement);
+    const name = inside.find((el) => el.className === "help-game-name") as
+      | (FakeElement & { lang?: string; dir?: string })
+      | undefined;
+    const version = inside.find((el) => el.className === "help-version") as
+      | (FakeElement & { lang?: string; dir?: string })
+      | undefined;
+    expect(name?.textContent).toBe("Die Laterne");
+    expect([name?.lang, name?.dir]).toEqual(["de", "ltr"]);
+    expect(version?.textContent).toBe("الحلقة 3");
+    expect([version?.lang, version?.dir]).toEqual(["ar", "rtl"]);
+  });
+
+  it("adds no heading the manifest lacks", () => {
+    const root = new FakeDocument().createElement("div");
+    const help = mountHelpOverlay({ root: root as unknown as HTMLElement });
+    help.setHeading({ text: "Die Laterne", lang: "de" }, null);
+    const [panel] = root.children;
+    expect(
+      descendants(panel as FakeElement).some(
+        (el) => el.className === "help-game-name",
+      ),
+    ).toBe(false);
+  });
+});

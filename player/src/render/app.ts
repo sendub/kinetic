@@ -7,6 +7,7 @@ import { onUiLanguageChange } from "../i18n/catalogue.ts";
 import type { Machine } from "../machine/machine";
 import type { MachineState, Manifest } from "../machine/types";
 import { endCardText } from "./endcard";
+import { createGameWords, type GameWords } from "./gamewords";
 import { createTextOverlayLayer } from "./overlay";
 import { createVisualLayer, type StageVideo } from "./visual";
 
@@ -240,6 +241,11 @@ export interface Shell {
    * and yields to the end card, which already offers the same key.
    */
   showNotice(message: string): void;
+  /**
+   * A new language shown (docs/plan.md Phase 54 item 3): the line on
+   * screen is drawn again in it, nothing else moves.
+   */
+  setWords(words: GameWords): void;
   unmount(): void;
 }
 
@@ -248,9 +254,17 @@ export interface ShellOptions {
   root: HTMLElement;
   manifest: Manifest;
   machine: Machine;
+  /** The words shown at mount; absent: the manifest's own. */
+  words?: GameWords;
 }
 
-export function mountShell({ root, manifest, machine }: ShellOptions): Shell {
+export function mountShell({
+  root,
+  manifest,
+  machine,
+  words: initialWords,
+}: ShellOptions): Shell {
+  let words = initialWords ?? createGameWords(manifest, null);
   const doc = root.ownerDocument;
   const stage = doc.createElement("div");
   stage.id = "stage";
@@ -272,7 +286,7 @@ export function mountShell({ root, manifest, machine }: ShellOptions): Shell {
     textAlign: "center",
     color: "rgba(244, 239, 230, 0.86)",
     textShadow: "0 1px 3px rgba(0, 0, 0, 0.9)",
-    font: "400 clamp(12px, 1.5vh, 16px)/1.35 ui-sans-serif, system-ui, sans-serif",
+    font: "400 clamp(12px, 1.5vh, 16px)/1.35 var(--k-script) ui-sans-serif, system-ui, sans-serif",
     letterSpacing: "0.03em",
     pointerEvents: "none",
     userSelect: "none",
@@ -376,7 +390,7 @@ export function mountShell({ root, manifest, machine }: ShellOptions): Shell {
     // (still / loop-once / loop-forever) derives from the same state.
     const shown = manifest.items[state.cursor];
     visuals.update(manifest.items[machine.visualIndex()], state);
-    captions.update(shown);
+    captions.update(shown, words);
     // The item whose screen this is, for tests (docs/plan.md Phase 46): the
     // cursor's, whose line and picture were just applied, so no painted
     // frame pairs one item's screen with another's id. Under a choice it is
@@ -492,7 +506,7 @@ export function mountShell({ root, manifest, machine }: ShellOptions): Shell {
       background: "var(--k-pill-bg, rgba(10, 10, 12, 0.72))",
       border: "1px solid rgba(244, 239, 230, 0.22)",
       color: "#f4efe6",
-      font: "500 clamp(13px, 1.6vh, 17px)/1.3 ui-sans-serif, system-ui, sans-serif",
+      font: "500 clamp(13px, 1.6vh, 17px)/1.3 var(--k-script) ui-sans-serif, system-ui, sans-serif",
       letterSpacing: "0.04em",
       pointerEvents: "none", // clicks pass through to what is under it
       userSelect: "none",
@@ -571,6 +585,10 @@ export function mountShell({ root, manifest, machine }: ShellOptions): Shell {
       }
     },
     showNotice,
+    setWords(next) {
+      words = next;
+      render(machine.getState());
+    },
     unmount() {
       dismissNotice();
       unsubscribe();

@@ -31,6 +31,7 @@
 
 import { localized, t } from "../i18n/catalogue.ts";
 import { KINETIC_VERSION } from "../version";
+import { markLanguage, type ShownText } from "./gamewords";
 import {
   CLICKABLE_HELP_COMMANDS,
   type KeyCommand,
@@ -90,6 +91,20 @@ export interface HelpOverlay {
   /** Shows the screen. The shell pauses the machine and hides the stage. */
   open(): void;
   close(): void;
+  /**
+   * The game's name and release in the shown language (docs/plan.md Phase
+   * 54 item 3), each marked with the language it is in. The heading's
+   * shape stays the one mounted (a translation never adds or drops a
+   * name or a release, as each falls back to the manifest's).
+   */
+  setHeading(title: ShownText | null, version: ShownText | null): void;
+  /**
+   * Puts a control at the end of the title bar, after the hint (the
+   * Language control, Phase 54 item 3): the hint and the control share
+   * one bar (`.help-bar`), and the panel is marked `help-has-bar` so
+   * index.html keeps the control on the title's line at every width.
+   */
+  addTitleControl(control: HTMLElement): void;
 }
 
 export interface HelpOverlayOptions {
@@ -232,10 +247,13 @@ export function mountHelpOverlay({
   // neither, no heading.
   const name = gameTitleOf(gameTitle);
   const release = gameVersionOf(gameVersion);
+  let nameText: HTMLElement | null = null;
+  let versionText: HTMLElement | null = null;
   const versionLine = (tag: "span" | "p"): HTMLElement => {
     const line = doc.createElement(tag);
     line.className = "help-version";
     line.textContent = release ?? "";
+    versionText = line;
     return line;
   };
   if (name !== null) {
@@ -243,7 +261,7 @@ export function mountHelpOverlay({
     heading.className = "help-game";
     const text = doc.createElement("span");
     text.className = "help-game-text";
-    const nameText = doc.createElement("span");
+    nameText = doc.createElement("span");
     nameText.className = "help-game-name";
     nameText.textContent = name;
     text.append(nameText);
@@ -286,5 +304,35 @@ export function mountHelpOverlay({
       panel.hidden = false;
     },
     close,
+    setHeading(shownTitle, shownVersion) {
+      if (nameText !== null && shownTitle !== null) {
+        nameText.textContent = shownTitle.text;
+        markLanguage(nameText, shownTitle.lang);
+      }
+      if (versionText !== null && shownVersion !== null) {
+        versionText.textContent = shownVersion.text;
+        markLanguage(versionText, shownVersion.lang);
+      }
+    },
+    addTitleControl(control) {
+      // The bar takes the hint's place, so the panel's order holds.
+      const bar = doc.createElement("div");
+      bar.className = "help-bar";
+      panel.insertBefore(bar, hint);
+      bar.append(hint, control);
+      panel.classList.add("help-has-bar");
+      // Under 620px the control shares the name's line and the name keeps
+      // the line's full width less the control's room (index.html), so a
+      // name that fits beside it wraps as it would without it.
+      const Observer = globalThis.ResizeObserver;
+      if (typeof Observer === "function") {
+        new Observer(() => {
+          const width = control.getBoundingClientRect().width;
+          if (width > 0) {
+            panel.style.setProperty("--help-bar-room", `${Math.ceil(width)}px`);
+          }
+        }).observe(control);
+      }
+    },
   };
 }

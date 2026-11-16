@@ -92,7 +92,11 @@ function withTestAudio(context) {
  * unless `profile` names a folder to keep it in. `requireGestureForAudio`
  * makes the WebKit driver refuse sound until a key or click, as Safari
  * does (it otherwise allows it, as the macOS app does); headless Chrome
- * always requires one, as Chrome does. Each browser is tracked until
+ * always requires one, as Chrome does. `languages` (BCP 47 tags, most
+ * wanted first) are the reader's languages the page sees as
+ * `navigator.languages` (docs/plan.md Phase 54): Chrome's `--lang` and
+ * `--accept-lang`, the WebKit driver's AppleLanguages; absent, the
+ * system's. Each browser is tracked until
  * closeBrowser or killBrowser, so killLiveBrowsers can reap it.
  */
 export async function launchBrowser(
@@ -102,6 +106,7 @@ export async function launchBrowser(
     fresh = false,
     crashDumpsDir,
     requireGestureForAudio = false,
+    languages,
   },
 ) {
   const launch = async () => {
@@ -110,6 +115,7 @@ export async function launchBrowser(
       return launchWebKit({
         ...(profile === null ? {} : { profile }),
         requireGestureForAudio,
+        ...(languages === undefined ? {} : { languages }),
       });
     }
     if (fresh) rmSync(profile, { recursive: true, force: true });
@@ -126,6 +132,9 @@ export async function launchBrowser(
         // player reads as a window that already fills the screen, and it
         // would never ask for fullscreen (render/fullscreen.ts).
         `--screen-info={${CHROME_SCREEN.width}x${CHROME_SCREEN.height}}`,
+        ...(languages === undefined || languages.length === 0
+          ? []
+          : [`--lang=${languages[0]}`, `--accept-lang=${languages.join(",")}`]),
       ],
     });
   };

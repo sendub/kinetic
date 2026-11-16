@@ -435,7 +435,7 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
     background: "var(--k-pill-bg, rgba(10, 10, 12, 0.72))",
     border: "1px solid rgba(244, 239, 230, 0.22)",
     color: "rgba(244, 239, 230, 0.86)",
-    font: "500 clamp(12px, 1.4vh, 15px)/1.3 ui-sans-serif, system-ui, sans-serif",
+    font: "500 clamp(12px, 1.4vh, 15px)/1.3 var(--k-script) ui-sans-serif, system-ui, sans-serif",
     letterSpacing: "0.04em",
     pointerEvents: "none",
     userSelect: "none",

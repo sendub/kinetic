@@ -43,14 +43,31 @@
 // recording: the sound then mounts with no audio too, the Volumes sheet's
 // Voice row offers the engine's download, progress and removal, and the
 // Voice volume is the only control of them.
+// Phase 54's translations (render/gamewords.ts): the game opens in the
+// reader's saved language, else the browser's when the game has it, else
+// its own (i18n/languages.ts `startingLanguage`); that language's file
+// loads by script tag before the first screen, and every string falls
+// back to the manifest's on its own. The Esc screen's Language control
+// (render/languagecontrol.ts) switches it live, keeping the place, and the
+// player's own words follow the rule of `uiLanguageFor`.
 // Composition only — rendering lives in src/render/, timing in
 // src/machine/, storage adapters in src/storage/.
 
-import { localized, setUiLanguage, t } from "./i18n/catalogue";
+import { localized, setUiLanguage, t, uiLanguages } from "./i18n/catalogue";
 import { applyDocumentLanguage } from "./i18n/document";
+import {
+  autonym,
+  type RequestedLanguages,
+  startingLanguage,
+  uiLanguageFor,
+} from "./i18n/languages";
 import { enablePseudoLocale } from "./i18n/pseudo";
-import { createMachine } from "./machine/machine";
-import type { MachineSettings } from "./machine/types";
+import { createMachine, resolveDecisions } from "./machine/machine";
+import type {
+  LanguageFile,
+  MachineSettings,
+  MachineWords,
+} from "./machine/types";
 import { DEFAULT_SETTINGS } from "./machine/types";
 import { mountError, mountShell, NOTICE_LONG_MS } from "./render/app";
 import { mountAudio } from "./render/audio";
@@ -78,11 +95,27 @@ import {
   exitFullscreen,
   installGestureFullscreen,
 } from "./render/fullscreen";
+import {
+  createGameWords,
+  type GameWords,
+  holdTextOf,
+  loadLanguageFile,
+} from "./render/gamewords";
 import { gameTitleOf, mountHelpOverlay, pageTitleFor } from "./render/help";
 import { connectHost, type DisplayMode, windowActions } from "./render/host";
 import { installKeyMap, mapKeyAction, suspendTimeline } from "./render/keys";
-import { loadManifest } from "./render/manifest";
-import { layOutStrip, type MapStrip, runJump } from "./render/mapmodel";
+import {
+  type LanguageChoice,
+  type LanguageControl,
+  mountLanguageControl,
+} from "./render/languagecontrol";
+import { DEFAULT_LANGUAGE, loadManifest } from "./render/manifest";
+import {
+  layOutStrip,
+  type MapStrip,
+  type MapWords,
+  runJump,
+} from "./render/mapmodel";
 import { mountRouteAnnouncements } from "./render/routes";
 import { mountSegmentNotes } from "./render/segmentnote";
 import { mountSkipAnnouncements } from "./render/skip";
@@ -167,16 +200,36 @@ function mergeSettings(
   return merged;
 }
 
+/** The reader's languages, in their order of preference. */
+function browserLanguages(): RequestedLanguages {
+  const list = navigator.languages;
+  if (list !== undefined && list.length > 0) return list;
+  return typeof navigator.language === "string" ? [navigator.language] : [];
+}
+
 function start(): void {
   const root = document.getElementById("app");
   if (root === null) {
     return; // index.html without a mount point: nothing to draw into.
   }
-  // The player's words (src/i18n/catalogue.ts): English, or the test-only
-  // pseudo-locale when a test launcher asked for it (src/i18n/pseudo.ts);
-  // the page's `lang` follows the UI language.
+  // The player's words (src/i18n/catalogue.ts): in the reader's chosen
+  // language when the catalogue has it, else the browser's when it has
+  // that, else English (`uiLanguageFor`, docs/plan.md Phase 54), or the
+  // test-only pseudo-locale when a test launcher asked for it
+  // (src/i18n/pseudo.ts), which nothing else changes; the page's `lang`
+  // follows the UI language.
   const pseudo = enablePseudoLocale(window.KINETIC_TEST_LOCALE);
-  if (pseudo !== null) setUiLanguage(pseudo);
+  const applyUiLanguage = (chosen: string): void => {
+    setUiLanguage(
+      pseudo ??
+        uiLanguageFor({
+          chosen,
+          requested: browserLanguages(),
+          catalogue: uiLanguages(),
+        }),
+    );
+  };
+  applyUiLanguage("");
   applyDocumentLanguage(document);
   // A game app's host object (render/host.ts, docs/plan.md Phase 43): read
   // now and on every `kinetic-host` event, since it may arrive after load.
@@ -194,10 +247,13 @@ function start(): void {
   ).then(
     async (manifest) => {
       // The game's name names the page (docs/plan.md Phase 21), else the
-      // player's own title stays.
-      localized(() => {
-        document.title = pageTitleFor(manifest.title);
-      });
+      // player's own title stays; in the shown language (Phase 54), drawn
+      // again on each change of it (`showWords`).
+      const drawPageTitle = (): void => {
+        document.title = pageTitleFor(words?.title()?.text ?? manifest.title);
+      };
+      let words: GameWords | undefined;
+      localized(drawPageTitle);
       // One storage namespace per novel (docs/plan.md Phases 8, 21): its
       // manifest `storyId` when it has one, so moving or renaming the
       // folder keeps progress (and progress saved under the folder URL is
@@ -228,6 +284,73 @@ function start(): void {
       // reader reads at the pace they left off at. The machine learns
       // settings only here and through setSettings — never from storage.
       let currentSettings = mergeSettings(persisted?.settings);
+      // The game's languages (docs/plan.md Phase 54 item 3): the manifest's
+      // base and its language files. The game opens in the reader's saved
+      // choice, else the browser's language when the game has it, else
+      // its base; the file of a language other than the base loads before
+      // the first screen. One that cannot load leaves the base on show,
+      // and a pill says so once the screen is up. A file loaded is kept,
+      // so switching back to it is instant.
+      const baseLanguage = manifest.language ?? DEFAULT_LANGUAGE;
+      const gameLanguages = manifest.languages ?? [];
+      const loadedFiles = new Map<string, LanguageFile>();
+      const loadFile = async (tag: string): Promise<LanguageFile | null> => {
+        const kept = loadedFiles.get(tag);
+        if (kept !== undefined) return kept;
+        const file = await loadLanguageFile({ document, window }, tag);
+        if (file !== null) loadedFiles.set(tag, file);
+        return file;
+      };
+      let shownLanguage = startingLanguage({
+        base: baseLanguage,
+        languages: gameLanguages,
+        saved: currentSettings.language,
+        requested: browserLanguages(),
+      });
+      let unavailableAtStart: string | null = null;
+      if (shownLanguage !== baseLanguage) {
+        const file = await loadFile(shownLanguage);
+        if (file === null) {
+          unavailableAtStart = shownLanguage;
+          shownLanguage = baseLanguage;
+        }
+      }
+      words = createGameWords(manifest, loadedFiles.get(shownLanguage) ?? null);
+      drawPageTitle();
+      // The player's own words follow the reader's pick when the
+      // catalogue has it (none yet in a game they have not switched).
+      applyUiLanguage(currentSettings.language);
+      // The words the machine times and the choice screen counts, and the
+      // branch map's (by the machine's decision index), in the language
+      // shown.
+      const resolvedDecisions = resolveDecisions(
+        manifest.items,
+        manifest.branches ?? [],
+      );
+      const machineWordsOf = (shown: GameWords): MachineWords => ({
+        itemText: (index) => holdTextOf(shown, manifest.items[index]),
+        prompt: (decisionId, base) => shown.prompt(decisionId, base).text,
+        label: (decisionId, routeId, base) =>
+          shown.label(decisionId, routeId, base).text,
+      });
+      const mapWordsOf = (shown: GameWords): MapWords => ({
+        prompt: (decision, base) =>
+          shown.prompt(resolvedDecisions[decision]?.id ?? "", base),
+        label: (decision, route, base) => {
+          const resolved = resolvedDecisions[decision];
+          return shown.label(
+            resolved?.id ?? "",
+            resolved?.routes[route]?.id ?? "",
+            base,
+          );
+        },
+      });
+      const routeLabelOf =
+        (shown: GameWords) =>
+        (decisionId: string, routeId: string, base: string): string =>
+          shown.label(decisionId, routeId, base).text;
+      let mapWords = mapWordsOf(words);
+      let routeLabel = routeLabelOf(words);
       // The key help flag (docs/plan.md Phase 13b): absent in a record —
       // including every record written before 13b — reads as "not seen",
       // so existing readers meet the help exactly once more, then never
@@ -258,11 +381,12 @@ function start(): void {
         items: manifest.items,
         branches: manifest.branches,
         audio: manifest.audio,
+        words: machineWordsOf(words),
         settings: currentSettings,
         ...resumeOptionsFor(persisted, codec),
         ...(startAt >= 0 ? { startAt } : {}),
       });
-      const shell = mountShell({ root, manifest, machine });
+      const shell = mountShell({ root, manifest, machine, words });
       // What sound the game has, and so which sound controls show (docs/plan.md
       // Phase 52 item 10): derived once, here.
       const hostVoice = hostLink.host()?.voice === true;
@@ -428,6 +552,65 @@ function start(): void {
         // A game with sound controls lists `v` (docs/plan.md Phase 47 item 7).
         sound: soundControls,
       });
+      help.setHeading(words.title(), words.version());
+      // The Language control (docs/plan.md Phase 54 item 3): in the title
+      // bar of a game with more than one language, the base first, each
+      // named in itself (a file's own `name` where the browser has none).
+      const languageName = (tag: string): string =>
+        autonym(tag, loadedFiles.get(tag)?.name);
+      const languageControl: LanguageControl | null =
+        gameLanguages.length === 0
+          ? null
+          : mountLanguageControl({
+              panel: help.panel,
+              choices: (): LanguageChoice[] =>
+                [baseLanguage, ...gameLanguages].map((tag) => ({
+                  tag,
+                  name: languageName(tag),
+                })),
+              current: () => shownLanguage,
+              onPick: (tag) => {
+                void pickLanguage(tag);
+              },
+            });
+      if (languageControl !== null) {
+        help.addTitleControl(languageControl.button);
+      }
+      // A language picked: its file loads if it has not (one that cannot
+      // says so in a pill and changes nothing), then every screen draws
+      // its words again (the line on screen, an open choice, the title;
+      // the map reads them on its next open) with the place, picks, seen
+      // set, bookmarks and auto-forward as they were; the pick is saved
+      // with the settings, and the player's own words follow it. Only the
+      // latest pick applies.
+      let languagePicks = 0;
+      async function pickLanguage(tag: string): Promise<void> {
+        languagePicks += 1;
+        const pick = languagePicks;
+        const file = tag === baseLanguage ? null : await loadFile(tag);
+        if (pick !== languagePicks) return;
+        if (tag !== baseLanguage && file === null) {
+          shell.notify(t("lang.unavailable", { language: languageName(tag) }), {
+            holdMs: NOTICE_LONG_MS,
+          });
+          return;
+        }
+        shownLanguage = tag;
+        currentSettings = { ...currentSettings, language: tag };
+        showWords(createGameWords(manifest, file));
+        persistUrgently();
+        applyUiLanguage(tag);
+      }
+      function showWords(next: GameWords): void {
+        words = next;
+        mapWords = mapWordsOf(next);
+        routeLabel = routeLabelOf(next);
+        shell.setWords(next);
+        machine.setWords(machineWordsOf(next)); // an open choice redraws
+        help.setHeading(next.title(), next.version());
+        drawPageTitle();
+        languageControl?.refresh();
+      }
       // The settings (Phase 26: on the Esc screen, under the keys; `c` is
       // gone). A control click applies the full next settings live — machine.setSettings re-arms
       // the pending auto-advance with them (docs/plan.md Phase 9) — and
@@ -494,7 +677,7 @@ function start(): void {
               }
               confirm.open(
                 importRequest(
-                  gameTitle,
+                  words?.title()?.text ?? gameTitle,
                   () => runImport(parsed),
                   wordingFor(hostLink.host() !== null),
                 ),
@@ -660,6 +843,7 @@ function start(): void {
       };
       function closeHelp(): void {
         if (!help.isOpen()) return;
+        languageControl?.close();
         volumes?.close();
         help.close();
         config.close();
@@ -681,6 +865,7 @@ function start(): void {
         root,
         onPick: (routeIdx) => machine.choose(routeIdx),
         onContinue: () => machine.chooseContinue(),
+        words: () => words ?? createGameWords(manifest, null),
       });
       machine.subscribe((state) => {
         if (state.choice !== undefined) choice.render(state.choice);
@@ -711,6 +896,7 @@ function start(): void {
         manifest,
         flash: (messages) => shell.flashSequence(messages),
         quiet: () => walking,
+        label: () => routeLabel,
       });
       // The mode pills: "Auto-forward on" / "Auto-forward off" (docs/plan.md
       // Phase 20) and "Skip on" / "Skip off" (Phase 43) on every real flip
@@ -859,6 +1045,7 @@ function start(): void {
             lastPicks: ctx.lastPicks,
             cursor: state.cursor,
             choiceId: state.choice?.decisionId,
+            words: mapWords,
           };
         },
         onJump: (jump) => {
@@ -1139,6 +1326,15 @@ function start(): void {
       }
       document.addEventListener("keydown", syncMenuPause);
       document.addEventListener("click", syncMenuPause);
+
+      // A language that could not load at the start: said once the screen
+      // is up (the base shows meanwhile).
+      if (unavailableAtStart !== null) {
+        shell.notify(
+          t("lang.unavailable", { language: languageName(unavailableAtStart) }),
+          { holdMs: NOTICE_LONG_MS },
+        );
+      }
 
       // The item trace for tests (docs/plan.md Phase 54): only when the
       // page set `window.KINETIC_TEST_TRACE = true` before the player

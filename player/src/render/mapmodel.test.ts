@@ -484,6 +484,31 @@ describe("buildMapModel: bands like a score's systems, endings tucked in", () =>
       describeTarget(model, markMap(model, reader), { kind: "route", key })
         .title,
     ).toBe(`3. Unseen route`);
+    // In a shown language (Phase 54): the label through the words, its
+    // language on the tooltip; hidden, still the placeholder, unmarked.
+    const words = {
+      prompt: (_d: number, base: string) => ({ text: base, lang: "en" }),
+      label: (_d: number, _r: number, base: string) => ({
+        text: `«${base}»`,
+        lang: "de",
+      }),
+    };
+    expect(
+      describeTarget(
+        model,
+        markMap(model, { ...reader, spoilers: true, words }),
+        {
+          kind: "route",
+          key,
+        },
+      ),
+    ).toMatchObject({ title: `3. «${route.label}»`, lang: "de" });
+    const hidden = describeTarget(model, markMap(model, { ...reader, words }), {
+      kind: "route",
+      key,
+    });
+    expect(hidden.title).toBe("3. Unseen route");
+    expect(hidden.lang).toBeUndefined();
   });
 
   it("lays a no-decision story out as one row, and an empty one without failing", () => {

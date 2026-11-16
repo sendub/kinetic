@@ -1271,6 +1271,9 @@ async function installRecordingHost(page, { kind, display }) {
  * `locale` gives the page the test-only UI language flag
  * (../testing/testlocale.mjs; `PSEUDO_LOCALE` draws the player's words in
  * the pseudo-locale).
+ * `languages` (BCP 47 tags, most wanted first) sets the browser's own
+ * languages, `navigator.languages` (launchBrowser; the WebKit driver shows
+ * the page only the first, with a region added).
  * `consoleLines` is every console line from the first load on, any type,
  * as `{ type, text }` (Chrome types `console.warn` "warn" and WebKit
  * "warning"); `errors` (collectErrors) keeps the errors and warnings of
@@ -1284,6 +1287,9 @@ export async function openScenario(name, options = {}) {
     fresh: true,
     crashDumpsDir: join(scenarioRoot, "crashdumps"),
     requireGestureForAudio: options.requireGestureForAudio === true,
+    ...(options.languages === undefined
+      ? {}
+      : { languages: options.languages }),
   });
   const page = await browser.newPage();
   const errors = collectErrors(page);

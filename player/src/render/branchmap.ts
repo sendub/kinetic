@@ -83,6 +83,7 @@
 import { localized, type MessageKey, t } from "../i18n/catalogue.ts";
 import type { BookmarkSummary } from "../storage/types";
 import { DELETE_CROSS, formatTimestamp } from "./bookmarks";
+import { markLanguage } from "./gamewords";
 import {
   type Deletions,
   latestDeleted,
@@ -122,8 +123,10 @@ import {
   openingRecord,
   placeOf,
   pointAlong,
+  promptShown,
   promptText,
   remember,
+  routeShown,
   routeText,
   type SavedMapView,
   scrollView,
@@ -338,7 +341,7 @@ export function describeTarget(
   model: MapModel,
   marks: MapMarks,
   target: MapTarget,
-): { title: string; status: string } {
+): { title: string; status: string; lang?: string } {
   if (target.kind === "decision") {
     const node = model.decisionAt[target.decision];
     const total = node?.routes.length ?? 0;
@@ -348,7 +351,14 @@ export function describeTarget(
           count: total,
         })
       : t("map.decision.notReached");
-    return { title: promptText(model, marks, target.decision), status };
+    // The game's question, marked with its language (Phase 54) unless
+    // hidden (then the catalogue's placeholder, in the UI language).
+    const lang = promptShown(model, marks, target.decision)?.lang;
+    return {
+      title: promptText(model, marks, target.decision),
+      status,
+      ...(lang ? { lang } : {}),
+    };
   }
   const route = model.routes[target.key];
   const parts: string[] = [
@@ -361,7 +371,8 @@ export function describeTarget(
     number: route.route + 1,
     label: routeText(model, marks, target.key),
   });
-  return { title, status: parts.join(" · ") };
+  const lang = routeShown(model, marks, target.key)?.lang;
+  return { title, status: parts.join(" · "), ...(lang ? { lang } : {}) };
 }
 
 /** A world rectangle (culling); null means everything. */
@@ -1438,15 +1449,17 @@ export function mountBranchMap({
   // The tip's first line, and its dimmer second line if it has one.
   function placeTip(
     key: string,
-    fill: () => [string, string?],
+    fill: () => [string, string?, string?],
     clientX: number,
     clientY: number,
   ): void {
     if (tip.hidden || tipFor !== key) {
-      const [full, status] = fill();
+      const [full, status, lang] = fill();
       tip.textContent = "";
       const strong = doc.createElement("strong");
       strong.textContent = full;
+      // Game text in its own language (Phase 54): lang and direction.
+      if (lang !== undefined) markLanguage(strong, lang);
       tip.append(strong);
       if (status !== undefined) {
         const line = doc.createElement("span");
@@ -1474,8 +1487,8 @@ export function mountBranchMap({
     placeTip(
       key,
       () => {
-        const { title: full, status } = describeTarget(m, k, target);
-        return [full, status];
+        const { title: full, status, lang } = describeTarget(m, k, target);
+        return [full, status, lang];
       },
       clientX,
       clientY,

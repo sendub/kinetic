@@ -17,6 +17,9 @@
         --ink: #f4efe6;
         --accent: #e6b566;
         --ui-font: ui-sans-serif, system-ui, "Segoe UI", sans-serif;
+        /* The writing system's own faces, ahead of every stack (below). */
+        --k-script: "Kinetic none",;
+        --k-base-font: var(--ui-font);
       }
       * {
         box-sizing: border-box;
@@ -86,7 +89,7 @@
           rgba(0, 0, 0, 0)
         );
         color: var(--ink);
-        font-family: var(--ui-font);
+        font-family: var(--k-script) var(--ui-font);
         pointer-events: none;
         text-align: center;
       }
@@ -123,6 +126,84 @@
       .overlay-text[data-mode="thought"] {
         font-style: italic;
         color: #b9d4e8;
+      }
+
+      /* ==== Writing systems (docs/plan.md Phase 54 item 3) ================
+         System fonts only. Every piece of game text carries the language
+         it is in (`lang`, render/gamewords.ts), and the page carries the
+         player's UI language, so `:lang()` puts the writing system's own
+         macOS and Windows faces ahead of the usual stack: Chinese,
+         Japanese and Korean then draw their own forms of shared
+         characters, and Arabic, Hebrew, Thai and the Indian scripts a
+         readable face. A stack reads `var(--k-script) <its own stack>`;
+         `--k-script` ends in a comma, and by default names no font. An
+         element with its own `lang` takes it again (it would otherwise
+         inherit its parent's resolved stack). */
+      [lang]:not(html) {
+        font-family: var(--k-script) var(--k-base-font);
+      }
+      :lang(ja) {
+        --k-script: "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", "Yu Gothic", Meiryo,;
+      }
+      :lang(zh),
+      :lang(zh-Hans),
+      :lang(zh-CN),
+      :lang(zh-SG) {
+        --k-script: "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei",;
+      }
+      :lang(zh-Hant),
+      :lang(zh-TW),
+      :lang(zh-HK),
+      :lang(zh-MO) {
+        --k-script: "PingFang TC", "Microsoft JhengHei UI", "Microsoft JhengHei",;
+      }
+      :lang(ko) {
+        --k-script: "Apple SD Gothic Neo", "Malgun Gothic",;
+      }
+      :lang(ar),
+      :lang(fa),
+      :lang(ps) {
+        --k-script: "Geeza Pro", "Segoe UI", Tahoma,;
+      }
+      :lang(ur) {
+        --k-script: "Noto Nastaliq Urdu", "Geeza Pro", "Segoe UI", Tahoma,;
+      }
+      :lang(he),
+      :lang(yi) {
+        --k-script: system-ui, "Arial Hebrew", "Segoe UI",;
+      }
+      :lang(th) {
+        --k-script: Thonburi, "Leelawadee UI", Tahoma,;
+      }
+      :lang(hi),
+      :lang(mr),
+      :lang(ne) {
+        --k-script: "Kohinoor Devanagari", "Devanagari Sangam MN", "Nirmala UI",;
+      }
+      :lang(bn) {
+        --k-script: "Kohinoor Bangla", "Bangla Sangam MN", "Nirmala UI",;
+      }
+      :lang(gu) {
+        --k-script: "Kohinoor Gujarati", "Gujarati Sangam MN", "Nirmala UI",;
+      }
+      :lang(te) {
+        --k-script: "Kohinoor Telugu", "Telugu Sangam MN", "Nirmala UI",;
+      }
+      :lang(ta) {
+        --k-script: "Tamil Sangam MN", "Nirmala UI",;
+      }
+      /* Chinese and Japanese break lines by their strict rules (no small
+         kana or closing mark at a line's start). */
+      :lang(zh),
+      :lang(ja) {
+        line-break: strict;
+      }
+      /* Their faces, and Korean's, have no italic: a thought is drawn
+         upright there, told apart from dialogue by its colour alone. */
+      .overlay-text[data-mode="thought"]:lang(zh),
+      .overlay-text[data-mode="thought"]:lang(ja),
+      .overlay-text[data-mode="thought"]:lang(ko) {
+        font-style: normal;
       }
 
       /* ==== The panels: tokens ============================================
@@ -216,6 +297,7 @@
            reading text, 500 secondary text, 600 controls, 700 titles,
            headings and figures. */
         --k-font: system-ui, -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+        --k-base-font: var(--k-font);
         --k-font-figure: ui-rounded, var(--k-font);
         --k-t-display: clamp(22px, 3vh, 32px);
         --k-t-title: clamp(17px, 2.3vh, 24px);
@@ -260,7 +342,7 @@
         --k-focus: 2px solid var(--k-gold);
         --k-focus-off: 2px;
 
-        font-family: var(--k-font);
+        font-family: var(--k-script) var(--k-font);
         font-optical-sizing: auto;
         -webkit-font-smoothing: antialiased;
         -moz-osx-font-smoothing: grayscale;
@@ -381,7 +463,7 @@
         background: var(--k-ctl-fill);
         box-shadow: var(--k-ctl-edge);
         color: var(--k-t1);
-        font: var(--k-w-ctl) var(--k-t-ctl) / 1 var(--k-font);
+        font: var(--k-w-ctl) var(--k-t-ctl) / 1 var(--k-script) var(--k-font);
         letter-spacing: -0.006em;
         white-space: nowrap;
         cursor: pointer;
@@ -1286,6 +1368,173 @@
         }
       }
 
+      /* ---- The title bar's Language control (docs/plan.md Phase 54 item
+         3), only in a game with more than one language: the hint and the
+         control share one bar (render/help.ts `addTitleControl`), the
+         control after the hint. It takes no height: its margins cancel
+         its own (it overhangs the bar's line evenly), so the title row,
+         and with it the whole sheet, is as tall as without it at every
+         width. Under 620px, where the hint drops below the name, the bar
+         lets go of its two (`display: contents`): the hint takes its usual
+         line, and the control stays on the name's line, at its end, the
+         name keeping the line's width less the control's room
+         (`--help-bar-room`, render/help.ts), so a name that fits beside it
+         takes as many lines as it would without it. */
+      #help > .help-bar {
+        grid-column: hint-start / main-end;
+        grid-row: title;
+        justify-self: end;
+        align-self: center;
+        display: flex;
+        align-items: center;
+        gap: clamp(10px, 1.1vw, 14px);
+        min-width: 0;
+        margin: 0 0 0 16px;
+      }
+      #help > .help-bar > .help-hint {
+        min-width: 0;
+        margin: 0;
+      }
+      @media (min-width: 700px) {
+        #help > .help-bar {
+          grid-column: main-start / main-end;
+          margin: 0;
+        }
+      }
+      @media (max-width: 620px) {
+        #help > .help-bar {
+          display: contents;
+        }
+        #help.help-has-bar > .help-game,
+        #help.help-has-bar > .help-version {
+          padding-inline-end: calc(var(--help-bar-room, 0px) + 12px);
+        }
+        #help > .help-bar > .help-hint {
+          grid-column: main-start / main-end;
+          grid-row: hint;
+          justify-self: start;
+          margin: clamp(8px, 1.2vh, 12px) 0 0;
+        }
+        #help > .help-bar > .help-lang {
+          grid-column: main-start / main-end;
+          grid-row: title;
+          justify-self: end;
+          align-self: center;
+        }
+      }
+      /* The capsule: the panels' push button (Capsules, above) with a
+         globe, the language in its own name and a chevron. */
+      .help-lang {
+        display: inline-flex;
+        flex: none;
+        align-items: center;
+        gap: 0.42em;
+        height: var(--k-ctl-h);
+        margin-block: calc(var(--k-ctl-h) / -2);
+        padding: 0 calc(var(--k-ctl-padx) * 0.7) 0 calc(var(--k-ctl-padx) * 0.6);
+        border: 0;
+        border-radius: var(--k-r-pill);
+        background: var(--k-ctl-fill);
+        box-shadow: var(--k-ctl-edge);
+        color: var(--k-t1);
+        font: var(--k-w-ctl) var(--k-t-ctl) / 1 var(--k-script) var(--k-font);
+        letter-spacing: -0.006em;
+        white-space: nowrap;
+        cursor: pointer;
+      }
+      .help-lang:hover {
+        background: var(--k-ctl-fill-hover);
+      }
+      .help-lang:active,
+      .help-lang[aria-expanded="true"] {
+        background: var(--k-ctl-fill-press);
+      }
+      .help-lang:focus-visible {
+        outline: var(--k-focus);
+        outline-offset: var(--k-focus-off);
+      }
+      .help-lang svg,
+      .help-lang-check {
+        flex: none;
+        fill: none;
+        stroke: currentColor;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+      .help-lang-globe {
+        width: 1.15em;
+        height: 1.15em;
+        color: var(--k-t2);
+        stroke-width: 1.3;
+      }
+      .help-lang-chevron {
+        width: 0.95em;
+        height: 0.95em;
+        color: var(--k-t2);
+        stroke-width: 1.7;
+      }
+      /* The open list: a chip of the sheet over the screen, under the
+         button and aligned to its end (render/languagecontrol.ts places
+         it, fixed, so nothing moves and no box clips it); past the room
+         it has, it scrolls inside itself. The scrim under it catches a
+         click anywhere else. */
+      .help-lang-scrim {
+        position: fixed;
+        inset: 0;
+        z-index: 20;
+      }
+      #help > .help-lang-list {
+        position: fixed;
+        z-index: 21;
+        min-width: 11em;
+        max-width: min(22em, calc(100vw - 16px));
+        padding: 5px;
+        overflow-y: auto;
+        overscroll-behavior: contain;
+        border-radius: var(--k-r-md);
+        background: var(--k-sheen), var(--k-sheet);
+        box-shadow: var(--k-rim), var(--k-shadow-chip);
+        color: var(--k-t1);
+        font: var(--k-w-2) var(--k-t-ctl) / 1.25 var(--k-script) var(--k-font);
+        outline: none;
+        scrollbar-color: rgba(var(--k-ink), 0.28) transparent;
+        scrollbar-width: thin;
+      }
+      .help-lang-scrim[hidden],
+      .help-lang-list[hidden] {
+        display: none;
+      }
+      .help-lang-option {
+        display: flex;
+        align-items: center;
+        gap: 0.55em;
+        min-height: var(--k-ctl-h);
+        padding: 0.3em 1em 0.3em 0.6em;
+        border-radius: var(--k-r-sm);
+        cursor: pointer;
+        overflow-wrap: anywhere;
+      }
+      .help-lang-option.help-lang-active {
+        background: var(--k-cell-hover);
+        box-shadow: inset 0 0 0 1px var(--k-hair);
+      }
+      .help-lang-list:focus-visible .help-lang-active {
+        box-shadow: inset 0 0 0 2px var(--k-gold-edge);
+      }
+      .help-lang-check {
+        width: 1em;
+        height: 1em;
+        color: var(--k-gold);
+        stroke-width: 1.8;
+        visibility: hidden;
+      }
+      .help-lang-current {
+        font-weight: var(--k-w-ctl);
+      }
+      .help-lang-current .help-lang-check {
+        visibility: visible;
+      }
+
       /* ---- The pill over the Esc screen (Phase 43 item 12): its notices
          (Export done, an Import refusal, a tab that will not close) are
          the #flash pill render/app.ts draws (styled inline, z 10). Over
@@ -1939,7 +2188,7 @@
         background: var(--k-sheet);
         box-shadow: var(--k-rim), 0 0 0 0.5px rgba(0, 0, 0, 0.6);
         color: var(--k-t1);
-        font-family: var(--k-font);
+        font-family: var(--k-script) var(--k-font);
         font-size: var(--k-t-small);
         font-weight: var(--k-w-2);
         letter-spacing: 0.004em;
@@ -2120,7 +2369,7 @@
       /* Counts: secondary text, as everywhere. */
       .map-svg .map-count {
         fill: var(--k-t2);
-        font-family: var(--k-font);
+        font-family: var(--k-script) var(--k-font);
         font-size: 12px;
         font-weight: var(--k-w-2);
         text-anchor: middle;
@@ -2273,7 +2522,7 @@
       }
       .map-svg .map-here-label {
         fill: var(--k-gold);
-        font-family: var(--k-font);
+        font-family: var(--k-script) var(--k-font);
         font-size: 13px;
         letter-spacing: 0.05em;
         text-anchor: middle;
@@ -2494,6 +2743,7 @@
         .confirm-button,
         .choice-row,
         .choice-num,
+        .help-lang,
         .map-tool {
           transition:
             background-color 120ms ease-out,

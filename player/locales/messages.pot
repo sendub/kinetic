@@ -36,6 +36,23 @@ msgctxt "help.hint"
 msgid "{esc} or {space} closes"
 msgstr ""
 
+#. Esc screen, title bar: accessible name of the Language control, a button opening the list of the game's languages; {language} is the language shown now, named in itself (e.g. Deutsch).
+#. Placeholders: {language}.
+msgctxt "lang.control"
+msgid "Language: {language}"
+msgstr ""
+
+#. Esc screen: accessible name of the open list of the game's languages (each named in itself).
+msgctxt "lang.list"
+msgid "Language"
+msgstr ""
+
+#. Pill when a language of the game cannot be read: the game stays in the language it was in. {language} is that language named in itself (e.g. Deutsch).
+#. Placeholders: {language}.
+msgctxt "lang.unavailable"
+msgid "{language} could not be loaded"
+msgstr ""
+
 #. Esc screen, bottom corner: the player's name and release ({version}, e.g. 1.10.0).
 #. Placeholders: {version}.
 msgctxt "help.kinetic"

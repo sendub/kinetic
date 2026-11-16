@@ -20,6 +20,12 @@ export const EN = {
   "help.title": "Keys",
   /** Esc screen, title bar: the keys that close the screen. */
   "help.hint": "{esc} or {space} closes",
+  /** Esc screen, title bar: accessible name of the Language control, a button opening the list of the game's languages; {language} is the language shown now, named in itself (e.g. Deutsch). */
+  "lang.control": "Language: {language}",
+  /** Esc screen: accessible name of the open list of the game's languages (each named in itself). */
+  "lang.list": "Language",
+  /** Pill when a language of the game cannot be read: the game stays in the language it was in. {language} is that language named in itself (e.g. Deutsch). */
+  "lang.unavailable": "{language} could not be loaded",
   /** Esc screen, bottom corner: the player's name and release ({version}, e.g. 1.10.0). */
   "help.kinetic": "Kinetic {version}",
   /** Esc screen, key grid: the cap drawn for the mouse wheel (one cap, short). */

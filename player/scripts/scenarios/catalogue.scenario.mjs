@@ -10,7 +10,9 @@
 // and 600 wide; the audio demo adds the Sound row and the Volumes sheet,
 // a stand-in voice engine (../testing/fakevoice.mjs) the voice model's
 // download, progress, error and removal; a copy of the demo with video
-// segments the segment note. Pills are read as each one shows.
+// segments the segment note; the language demo the Language control and
+// its list (each language named in itself is exempt, as game text is).
+// Pills are read as each one shows.
 
 import { cpSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -39,6 +41,11 @@ import {
   sleep,
   wheel,
 } from "./harness.mjs";
+import {
+  HINT as LANG_HINT,
+  built as langDemoBuilt,
+  langFolder,
+} from "./languages.scenario.mjs";
 import { buildFolder } from "./spoken.scenario.mjs";
 
 export const title =
@@ -124,6 +131,8 @@ export const INSTALL_AUDIT = () => {
       if (el.closest(".choice-label") && !el.closest(".choice-continue")) {
         return true;
       }
+      // A language named in itself (the Language control and its list).
+      if (el.closest("[data-autonym]")) return true;
       if (el.closest(".map-labels, .map-tip strong")) {
         const bare = text.trim().replace(/…$/, "").trim();
         return content.some((c) => c.includes(bare));
@@ -834,4 +843,73 @@ async function voice({ check, open }) {
   await audit(page, check, "the removal box", { content, root: "#confirm" });
 }
 
-export const parts = [escScreen, story, playAll, choices, notes, sound, voice];
+/** The Esc screen of a game with languages: the Language control and its list. */
+async function languages({ check, open }) {
+  if (!langDemoBuilt) {
+    check("the language demo is built", false, LANG_HINT);
+    return;
+  }
+  const folder = langFolder("catalogue");
+  const content = gameText(
+    JSON.parse(readFileSync(join(folder, "manifest.json"), "utf8")),
+  );
+  const { page, cdp } = await openPseudo(open, "languages", { folder });
+  for (const [size, viewport] of [
+    ["1280x800", WIDE],
+    ["600 wide", NARROW],
+  ]) {
+    await page.setViewport(viewport);
+    await sleep(150);
+    await audit(
+      page,
+      check,
+      `the Esc screen with a Language control at ${size}`,
+      {
+        content,
+        least: 40,
+      },
+    );
+    const name = await page.evaluate(() =>
+      document.querySelector(".help-lang")?.getAttribute("aria-label"),
+    );
+    check(
+      `the Language control's accessible name is the catalogue's at ${size}`,
+      typeof name === "string" && name.startsWith("⟦") && name.endsWith("⟧"),
+      name,
+    );
+    await clickCenter(cdp, ".help-lang");
+    check(
+      `the language list opens at ${size}`,
+      await until(page, SHOWN, 2000, ".help-lang-list"),
+    );
+    await audit(page, check, `the language list at ${size}`, {
+      content,
+      root: ".help-lang-list",
+      least: 4,
+    });
+    const label = await page.evaluate(() =>
+      document.querySelector(".help-lang-list")?.getAttribute("aria-label"),
+    );
+    check(
+      `the list's accessible name is the catalogue's at ${size}`,
+      typeof label === "string" && label.startsWith("⟦"),
+      label,
+    );
+    await pressEscape(cdp);
+    await until(
+      page,
+      () => document.querySelector(".help-lang-list")?.hidden === true,
+    );
+  }
+}
+
+export const parts = [
+  escScreen,
+  story,
+  playAll,
+  choices,
+  notes,
+  sound,
+  voice,
+  languages,
+];
