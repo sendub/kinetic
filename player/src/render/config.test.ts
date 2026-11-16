@@ -11,7 +11,6 @@ import { DEFAULT_SETTINGS } from "../machine/types";
 import { createMemoryStorage } from "../storage/memory";
 import {
   EXPORT_DONE_NOTICE,
-  IMPORT_FAILED_NOTICE,
   IMPORT_UNREADABLE_NOTICE,
   isSettingsControl,
   mountConfigOverlay,
@@ -20,7 +19,6 @@ import {
   PROGRESS_HEADING,
   PROGRESS_SAVED,
   PROGRESS_SECTION,
-  PROGRESS_TIP,
   playAllLabel,
   SETTINGS_TITLE,
   SKIP_ALL_TEXT,
@@ -55,6 +53,7 @@ import {
   walk,
   words,
 } from "./fakedom.testkit";
+import { APP_WORDING, BROWSER_WORDING, wordingFor } from "./wording";
 
 describe("stepSpeed (README: configurable reading speed)", () => {
   it("walks the 0.25 grid in both directions", () => {
@@ -460,10 +459,7 @@ describe("the panel layout: the skip settings read as options of Tab", () => {
     const body = walk(root).find(
       (el) => el.id === tip.getAttribute("aria-describedby"),
     );
-    expect(body?.textContent).toBe(PROGRESS_TIP);
-    expect(PROGRESS_TIP).toBe(
-      "Saved in this browser as you read. Export and Import carry it to another browser.",
-    );
+    expect(body?.textContent).toBe(BROWSER_WORDING.progressTip);
     expect(walk(root).some((el) => el.className.includes("group-note"))).toBe(
       false,
     );
@@ -736,9 +732,6 @@ describe("the Progress rows: Export and Import progress (Phase 21)", () => {
     // Windows app's `name (2).json`), so the pill names none.
     expect(EXPORT_DONE_NOTICE).toBe("Progress exported");
     expect(IMPORT_UNREADABLE_NOTICE).toBe("That file could not be read.");
-    expect(IMPORT_FAILED_NOTICE).toBe(
-      "The import failed: this browser's storage refused it. Nothing was changed.",
-    );
   });
 });
 
@@ -901,5 +894,74 @@ describe("removing the voice model asks in the confirmation box (Phase 52 item 1
     expect(removed).toEqual([]);
     request.onConfirm();
     expect(removed).toEqual([1]);
+  });
+});
+
+describe("the Esc screen's words follow the host (Phase 52 item 15)", () => {
+  const mountWith = (app: () => boolean) => {
+    const root = new FakeDocument().createElement("div");
+    const overlay = mountConfigOverlay({
+      root: root as unknown as HTMLElement,
+      settings: () => DEFAULT_SETTINGS,
+      onChange: () => {},
+      onReset: () => {},
+      onExport: () => {},
+      onImport: () => {},
+      app,
+    });
+    const tipText = (): string | undefined =>
+      walk(root).find(
+        (el) =>
+          el.id ===
+          byAction(root, "tip-progress").getAttribute("aria-describedby"),
+      )?.textContent;
+    const importAria = (): string | null =>
+      byAction(root, "import-progress").getAttribute("aria-label");
+    return { overlay, tipText, importAria };
+  };
+
+  it("an app says no browser in the Progress help or the Import button", () => {
+    const m = mountWith(() => true);
+    expect(m.tipText()).toBe(
+      "Saved as you read. Export and Import carry it to another device.",
+    );
+    expect(m.importAria()).toBe(
+      "Import progress from a file, replacing the progress saved here",
+    );
+    m.overlay.open();
+    expect(m.tipText()).not.toMatch(/browser/i);
+    expect(m.importAria()).not.toMatch(/browser/i);
+  });
+
+  it("a tab keeps its words, and a host arriving after the mount changes them on open", () => {
+    let app = false;
+    const m = mountWith(() => app);
+    expect(m.tipText()).toBe(
+      "Saved in this browser as you read. Export and Import carry it to another browser.",
+    );
+    expect(m.importAria()).toBe(
+      "Import progress from a file, replacing this browser's",
+    );
+    app = true;
+    m.overlay.open();
+    expect(m.tipText()).toBe(APP_WORDING.progressTip);
+    expect(m.importAria()).toBe(APP_WORDING.importAria);
+  });
+
+  it("the import box asks in the app's words with the app's wording", () => {
+    const root = new FakeDocument().createElement("div");
+    const confirm = mountConfirmOverlay({
+      root: root as unknown as HTMLElement,
+      onCancel: () => {},
+    });
+    confirm.open(importRequest("Dawn Tale", () => {}, wordingFor(true)));
+    expect(byClass(root, "confirm-message").textContent).toBe(
+      "Replace the progress saved here for Dawn Tale with the imported file?",
+    );
+    confirm.close();
+    confirm.open(importRequest(undefined, () => {}, wordingFor(true)));
+    expect(byClass(root, "confirm-message").textContent).toBe(
+      "Replace the progress saved here for this story with the imported file?",
+    );
   });
 });

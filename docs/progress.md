@@ -4735,7 +4735,19 @@ truthful: an unchecked box means nothing was accepted.
       10.64 s), its README row; Radio in the demo's CAST; the demo test
       now asserts every speaker has a voice. Two builds byte-identical.
       Orchestrator: test_build_voice_demo 17 passed, the clip probed.)
-- [ ] App wording without a browser (item 15). Tests: unit tests for both
+- [x] App wording without a browser (item 15). Tests: unit tests for both
       forms; a `screens` part with the app host.
+      (2026-11-16: render/wording.ts `wordingFor(app)`, the browser's and
+      the app's words in one table: the Progress help ("Saved as you read.
+      Export and Import carry it to another device."), the import failure
+      pill, the Import button's name and the import box. The config
+      overlay asks on every paint, since a host may arrive after load.
+      CLOSE_TAB_NOTE stays: it shows only with no host. Tests: wording and
+      config 50 (red with the app tip set back), screens part `appWording`
+      with and without the emulated host; screens Chrome 123/123, WebKit
+      121 and the 2 Keyboard Lock partials. Orchestrator: wording, config
+      and confirm 50 passed, check clean; the full npm test and Chrome
+      screens had timeouts only, in untouched files, while the machine ran
+      fsck after a reboot (load 48); they go again in the full suites.)
 - [ ] Phase-closer (Phase 52): full suites; VERSION 1.9.0, the CHANGELOG
       dated, tag v1.9.0, `main` fast-forwarded.

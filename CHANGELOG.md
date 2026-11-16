@@ -53,6 +53,11 @@ something more of an author.
   It resumes after an interruption, and a rerun after edits records only
   the lines that changed and removes the recordings no item uses.
   CREATE.md has "Recording the lines".
+- In a game app (the Mac app, the Windows program) no text on the Esc
+  screen names a browser any more: Progress's help reads "Saved as you
+  read. Export and Import carry it to another device.", and the Import
+  button, its confirmation box and its failure notice speak of the
+  progress saved here. The browser tab keeps its words.
 - **Upgrading:** nothing is needed for a game without voices. To give a
   game voices, upgrade its player (`tools/upgrade_folder.py`), cast the
   voices and build the Mac app again.

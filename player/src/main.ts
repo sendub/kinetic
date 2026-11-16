@@ -62,7 +62,6 @@ import { captureVisualThumbnail } from "./render/capture";
 import { inputOwnerFor, mountChoiceOverlay } from "./render/choice";
 import {
   EXPORT_DONE_NOTICE,
-  IMPORT_FAILED_NOTICE,
   IMPORT_UNREADABLE_NOTICE,
   isSettingsControl,
   mountConfigOverlay,
@@ -95,6 +94,7 @@ import { createVoiceClient } from "./render/voiceclient";
 import { mountVolumesOverlay, soundMessage } from "./render/volumes";
 import { installWheelInput } from "./render/wheel";
 import { CLOSE_TAB_NOTE, mountWindowControls } from "./render/windowcontrols";
+import { wordingFor } from "./render/wording";
 import { createIdbStorage, storageKeys, storyIdOf } from "./storage/idb";
 import { createContextCodec, resumeOptionsFor } from "./storage/ids";
 import { createNoopStorage } from "./storage/noop";
@@ -428,6 +428,7 @@ function start(): void {
       // is not a state change, so this is the write's trigger.
       const config = mountConfigOverlay({
         root: help.panel,
+        app: () => hostLink.host() !== null,
         settings: () => currentSettings,
         onChange: (next) => {
           currentSettings = next;
@@ -484,7 +485,13 @@ function start(): void {
                 refuse(parsed.message);
                 return;
               }
-              confirm.open(importRequest(gameTitle, () => runImport(parsed)));
+              confirm.open(
+                importRequest(
+                  gameTitle,
+                  () => runImport(parsed),
+                  wordingFor(hostLink.host() !== null),
+                ),
+              );
             },
             () => refuse(IMPORT_UNREADABLE_NOTICE),
           );
@@ -624,7 +631,9 @@ function start(): void {
         }).then((ok) => {
           if (ok) return;
           resetting = false;
-          shell.notify(IMPORT_FAILED_NOTICE, { holdMs: NOTICE_LONG_MS });
+          shell.notify(wordingFor(hostLink.host() !== null).importFailed, {
+            holdMs: NOTICE_LONG_MS,
+          });
         });
       }
       // The Esc screen (docs/plan.md Phase 13b; Phase 26): the keymap's

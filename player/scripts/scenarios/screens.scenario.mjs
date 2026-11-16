@@ -16,15 +16,12 @@ import {
 } from "node:fs";
 import { dirname, join } from "node:path";
 import { DEFAULT_SETTINGS } from "../../src/machine/types.ts";
-import {
-  PLAY_ALL_TIP,
-  PROGRESS_TIP,
-  SPEED_TIP,
-} from "../../src/render/config.ts";
+import { PLAY_ALL_TIP, SPEED_TIP } from "../../src/render/config.ts";
 import {
   ALL_SEEN_TEXT,
   EARLIER_UNSEEN_NOTICE,
 } from "../../src/render/endcard.ts";
+import { BROWSER_WORDING } from "../../src/render/wording.ts";
 import {
   audioDemoDir,
   CONFIG_CLOSED,
@@ -1959,7 +1956,7 @@ const READ_TIP = async (key) => {
 const TIPS = [
   ["speed", SPEED_TIP, "About auto-forward speed"],
   ["play-all", PLAY_ALL_TIP, "About play all routes"],
-  ["progress", PROGRESS_TIP, "About progress"],
+  ["progress", BROWSER_WORDING.progressTip, "About progress"],
 ];
 
 const tipShows = (t, text, name) =>
@@ -3345,6 +3342,101 @@ async function soundByContent(args) {
   }
 }
 
+// Phase 52 item 15: a game app's player never names a browser. The same
+// Progress help, Import button and import box read the browser's words in
+// a tab and the app's with a host. The wording table is
+// src/render/wording.ts; its unit test holds every text.
+const BROWSER_PROGRESS_TIP =
+  "Saved in this browser as you read. Export and Import carry it to another browser.";
+const APP_PROGRESS_TIP =
+  "Saved as you read. Export and Import carry it to another device.";
+const BROWSER_IMPORT_ARIA =
+  "Import progress from a file, replacing this browser's";
+const APP_IMPORT_ARIA =
+  "Import progress from a file, replacing the progress saved here";
+
+/** Export through the page's own button (the file captured, not saved), then pick it as Import's file. */
+async function pickExportedFile(page) {
+  await page.evaluate(async () => {
+    const urls = [];
+    const make = URL.createObjectURL.bind(URL);
+    URL.createObjectURL = (blob) => {
+      urls.push(blob);
+      return make(blob);
+    };
+    // The export's temporary link is not followed: nothing is downloaded.
+    const clickLink = HTMLAnchorElement.prototype.click;
+    HTMLAnchorElement.prototype.click = () => {};
+    document.querySelector('[data-config-action="export-progress"]').click();
+    for (let i = 0; i < 50 && urls.length === 0; i += 1) {
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    HTMLAnchorElement.prototype.click = clickLink;
+    URL.createObjectURL = make;
+    const input = document.querySelector('[data-config-action="import-file"]');
+    const transfer = new DataTransfer();
+    transfer.items.add(
+      new File([urls[0]], "progress.json", { type: "application/json" }),
+    );
+    input.files = transfer.files;
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+}
+
+async function readProgressWords(page) {
+  return page.evaluate(() => ({
+    tip: document.getElementById("config-tip-progress")?.textContent ?? null,
+    aria:
+      document
+        .querySelector('[data-config-action="import-progress"]')
+        ?.getAttribute("aria-label") ?? null,
+  }));
+}
+
+async function appWording({ check, open }) {
+  for (const app of [false, true]) {
+    const label = app ? "with a game-app host" : "in a browser tab";
+    const { page, cdp } = await open(app ? "wording-app" : "wording-tab", {
+      closeHelp: true,
+      ...(app ? { host: { kind: "mac-app", display: "fullscreen" } } : {}),
+    });
+    await openSettings(page, cdp);
+    const words = await readProgressWords(page);
+    check(
+      app
+        ? `${label}: the Progress help and the Import button say no browser`
+        : `${label}: the Progress help and the Import button keep today's words`,
+      app
+        ? words.tip === APP_PROGRESS_TIP &&
+            words.aria === APP_IMPORT_ARIA &&
+            !/browser/i.test(`${words.tip} ${words.aria}`)
+        : words.tip === BROWSER_PROGRESS_TIP &&
+            words.aria === BROWSER_IMPORT_ARIA,
+      words,
+    );
+    await pickExportedFile(page);
+    const asked = await waitFor(page, () => {
+      const box = document.getElementById("confirm");
+      return box !== null && !box.hidden;
+    });
+    const box = await page.evaluate(READ_CONFIRM_OVERLAY);
+    const title = manifest.title;
+    check(
+      app
+        ? `${label}: the import box says no browser`
+        : `${label}: the import box keeps today's words`,
+      asked &&
+        (app
+          ? box.message ===
+              `Replace the progress saved here for ${title} with the imported file?` &&
+            !/browser/i.test(box.message)
+          : box.message ===
+            `Replace this browser's progress for ${title} with the imported file?`),
+      { asked, message: box.message },
+    );
+  }
+}
+
 // Independent parts (each opens its own browser); the runner runs them
 // side by side and prints their checks in this order. A part that throws
 // gets a FAIL "<part> completed" and the others still run.
@@ -3369,4 +3461,5 @@ export const parts = [
   reset,
   contentUpdate,
   insertedContent,
+  appWording,
 ];

@@ -43,6 +43,7 @@
 // inert, and the slider and the file picker count as controls.
 
 import type { MachineSettings } from "../machine/types";
+import { wordingFor } from "./wording.ts";
 
 /** The reading-speed range the stepper and the slider walk, and its step. */
 export const SPEED_MIN = 0.25;
@@ -87,12 +88,6 @@ export const PROGRESS_SECTION = "Progress";
 export const PROGRESS_SAVED = "saved automatically";
 /** The heading's line as read: "Progress · saved automatically". */
 export const PROGRESS_HEADING = `${PROGRESS_SECTION} · ${PROGRESS_SAVED}`;
-/**
- * The rest of the Phase 22 note, behind the heading's "?": where progress
- * is kept, and that Export / Import only carry it to another browser.
- */
-export const PROGRESS_TIP =
-  "Saved in this browser as you read. Export and Import carry it to another browser.";
 /** The Play all routes switch's label (Phase 13). */
 export const PLAY_ALL_TEXT = "Play all routes";
 /**
@@ -105,9 +100,6 @@ export const PLAY_ALL_TIP = "When on, choices pick themselves on a countdown.";
 export const EXPORT_DONE_NOTICE = "Progress exported";
 /** Import refused: the picked file could not be read at all. */
 export const IMPORT_UNREADABLE_NOTICE = "That file could not be read.";
-/** A confirmed import that the browser's storage refused. */
-export const IMPORT_FAILED_NOTICE =
-  "The import failed: this browser's storage refused it. Nothing was changed.";
 
 /** The section's heading on the Esc screen (Phase 26). */
 export const SETTINGS_TITLE = "Settings";
@@ -263,6 +255,11 @@ export interface ConfigOverlay {
 }
 
 export interface ConfigOverlayOptions {
+  /**
+   * A game app hosts the page (render/wording.ts): its words name no
+   * browser. Read on every open, since the host may arrive late.
+   */
+  app?(): boolean;
   /** The Esc screen's panel (`#help`); the section is its last child. */
   root: HTMLElement;
   /** The settings in force, read fresh whenever the panel opens. */
@@ -300,6 +297,7 @@ export function mountConfigOverlay({
   onExport,
   onImport,
   sound,
+  app = () => false,
 }: ConfigOverlayOptions): ConfigOverlay {
   const doc = root.ownerDocument;
 
@@ -450,11 +448,13 @@ export function mountConfigOverlay({
   const progressSaved = doc.createElement("span");
   progressSaved.className = "config-section-aside";
   progressSaved.textContent = ` · ${PROGRESS_SAVED}`;
-  progressHeading.append(
-    PROGRESS_SECTION,
-    progressSaved,
-    tipFor("progress", "progress", PROGRESS_TIP),
+  const progressTipEl = tipFor(
+    "progress",
+    "progress",
+    wordingFor(app()).progressTip,
   );
+  const progressTip = tips[tips.length - 1];
+  progressHeading.append(PROGRESS_SECTION, progressSaved, progressTipEl);
 
   const actionRow = (
     label: string,
@@ -485,9 +485,10 @@ export function mountConfigOverlay({
   const importRow = actionRow(
     "Import progress",
     "Import…",
-    "Import progress from a file, replacing this browser's",
+    wordingFor(app()).importAria,
     "import-progress",
   );
+  const importButton = importRow.children[1] as HTMLElement;
   // The picker: a hidden file input the Import button clicks. Its own
   // (bubbling) click is marked a control, so it never reads as backdrop.
   const importFile = doc.createElement("input");
@@ -530,6 +531,10 @@ export function mountConfigOverlay({
 
   function paint(next: MachineSettings): void {
     current = next;
+    // The host may have arrived since the mount: words follow it.
+    const words = wordingFor(app());
+    progressTip.setText(words.progressTip);
+    importButton.setAttribute("aria-label", words.importAria);
     speedSlider.value = String(next.readingSpeed);
     speedValue.textContent = speedLabel(next.readingSpeed, next.msPerChar);
     skipToggle.textContent = skipAllLabel(next.skipAll);

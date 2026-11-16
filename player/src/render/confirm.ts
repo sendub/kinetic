@@ -18,6 +18,7 @@
 
 import type { Storage } from "../storage/types";
 import { onScrimClick } from "./scrim";
+import { BROWSER_WORDING, type Wording } from "./wording";
 
 /** The panel's message, verbatim from docs/plan.md Phase 16's wording. */
 export const RESET_MESSAGE =
@@ -49,17 +50,17 @@ export function resetRequest(onConfirm: () => void): ConfirmRequest {
 
 /**
  * The Phase 21 import, asked once the file passed its checks; `title` is
- * the manifest's game name (absent: "this story").
+ * the manifest's game name (absent: "this story"); `words` is the
+ * browser's or the app's (render/wording.ts).
  */
 export function importRequest(
   title: string | undefined,
   onConfirm: () => void,
+  words: Wording = BROWSER_WORDING,
 ): ConfirmRequest {
   return {
     title: "Import progress",
-    message: `Replace this browser's progress for ${
-      title ?? "this story"
-    } with the imported file?`,
+    message: words.importConfirm(title),
     confirmLabel: "Import",
     hint: "y imports; Esc or n cancels",
     onConfirm,
