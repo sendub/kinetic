@@ -16,7 +16,6 @@ import http.client
 import json
 import os
 import platform
-import re
 import shutil
 import ssl
 import subprocess
@@ -70,36 +69,6 @@ def _version(text: str) -> tuple[int, ...]:
     return tuple(int(p) for p in text.split(".") if p.isdigit())
 
 
-#: Where Windows keeps nvidia-smi when its folder is not on the PATH.
-NVIDIA_SMI_WINDOWS = r"C:\Windows\System32\nvidia-smi.exe"
-
-
-def nvidia_driver() -> str | None:
-    """The NVIDIA driver's version when a GPU is usable, else ``None``.
-
-    ``nvidia-smi`` on the PATH or at its place in the Windows system
-    folder must run and exit 0. The answer is ``""`` when it ran but its
-    output is not a version number (a GPU all the same).
-    """
-    exe = shutil.which("nvidia-smi")
-    if exe is None and os.path.isfile(NVIDIA_SMI_WINDOWS):
-        exe = NVIDIA_SMI_WINDOWS
-    if exe is None:
-        return None
-    try:
-        result = subprocess.run(
-            [exe, "--query-gpu=driver_version", "--format=csv,noheader"],
-            capture_output=True, text=True, timeout=15, check=False,
-            stdin=subprocess.DEVNULL)
-    except (OSError, subprocess.SubprocessError):
-        return None
-    if result.returncode != 0:
-        return None
-    first = (result.stdout or "").strip().splitlines()
-    version = first[0].strip() if first else ""
-    return version if re.fullmatch(r"\d+(\.\d+)*", version) else ""
-
-
 class Lock:
     """A lock file: pinned wheels, model files and engine settings."""
 
@@ -114,36 +83,13 @@ class Lock:
     def read(cls, path: Path) -> Lock:
         return cls(json.loads(path.read_text()))
 
-    def variant(self) -> str | None:
-        """``"cuda"`` or ``"cpu"`` when the lock has wheels per variant
-        (PyTorch's CUDA and CPU builds), else ``None``. CUDA only on a
-        machine with a usable NVIDIA GPU whose driver is at least the
-        lock's ``cudaMinDriver``; ``KINETIC_VOICE_VARIANT`` forces one."""
-        if not any("variant" in w for w in self.data["wheels"]):
-            return None
-        forced = os.environ.get("KINETIC_VOICE_VARIANT", "").lower()
-        if forced in ("cuda", "cpu"):
-            return forced
-        driver = nvidia_driver()
-        if driver is None:
-            return "cpu"
-        need = self.data.get("cudaMinDriver")
-        if need and driver and _version(driver) < _version(need):
-            return "cpu"
-        return "cuda"
-
-    def wheels(self, macos: str | None = None,
-               variant: str | None = None) -> list[dict]:
+    def wheels(self, macos: str | None = None) -> list[dict]:
         """One wheel per package: an entry without ``minMacos``, or the
-        newest build whose ``minMacos`` this system meets; of the entries
-        with a ``variant``, those of this machine's (see ``variant``)."""
+        newest build whose ``minMacos`` this system meets."""
         mac = _version(macos if macos is not None
                        else platform.mac_ver()[0] or "0")
-        variant = variant or self.variant()
         chosen: dict[str, dict] = {}
         for entry in self.data["wheels"]:
-            if entry.get("variant") not in (None, variant):
-                continue
             need = entry.get("minMacos")
             if need is not None and _version(need) > mac:
                 continue
@@ -156,8 +102,7 @@ class Lock:
             oldest = [e["minMacos"] for e in self.data["wheels"]
                       if e["name"] in missing and "minMacos" in e]
             if not oldest:
-                raise ValueError("no build of " + ", ".join(sorted(missing))
-                                 + f" for the {variant} variant")
+                raise ValueError("no build of " + ", ".join(sorted(missing)))
             raise ValueError(
                 f"needs macOS {min(oldest, key=_version)} or later")
         return list(chosen.values())
@@ -246,17 +191,11 @@ class Installer:
         self.emit = emit
         self.pip = pip
         self._ctx: ssl.SSLContext | None = None
-        self._variant: str | None = None
 
     # What is there
 
-    def _choose_variant(self) -> None:
-        """Look at the machine once per call into the installer (the GPU
-        check runs a program), not once per wheel list."""
-        self._variant = self.lock.variant()
-
     def selected_wheels(self) -> list[dict]:
-        return self.lock.wheels(variant=self._variant)
+        return self.lock.wheels()
 
     def total_bytes(self) -> int:
         return (sum(w["size"] for w in self.selected_wheels())
@@ -278,7 +217,6 @@ class Installer:
         return path.is_file() and path.stat().st_size == entry["size"]
 
     def installed(self) -> bool:
-        self._choose_variant()
         return self._installed()
 
     def _installed(self) -> bool:
@@ -310,12 +248,10 @@ class Installer:
         return 0
 
     def status(self) -> dict:
-        self._choose_variant()
         total = self.total_bytes()
         return {
             "installed": self._installed(),
             "lock": self.lock.id,
-            "variant": self._variant,
             "downloadBytes": total,
             "remainingBytes": total - self._have_bytes(),
             "installedBytes": sum(folder_bytes(self.root / name)
@@ -376,7 +312,6 @@ class Installer:
     # Installing
 
     def run(self, cancel: threading.Event) -> dict:
-        self._choose_variant()
         if self._installed():
             return {"alreadyInstalled": True}
         started = time.time()
@@ -443,7 +378,6 @@ class Installer:
             "lock": self.lock.id,
             "engine": self.lock.engine.get("id"),
             "python": self.lock.data.get("python", {}).get("version"),
-            "variant": self._variant,
             "wheels": sorted(wheel_filename(w)
                              for w in self.selected_wheels()),
             "model": [{k: m[k] for k in ("repo", "revision", "path")}

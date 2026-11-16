@@ -48,6 +48,10 @@ type voicePlatform interface {
 	prepare(cmd *exec.Cmd)
 	// shell runs a whole command line (KINETIC_VOICE_HELPER).
 	shell(command string) *exec.Cmd
+	// nvidiaSmi is nvidia-smi's answer to nvidiaQuery (the cards' names
+	// and the driver version, one line each), or the error: it is missing,
+	// failed or hung.
+	nvidiaSmi() (string, error)
 }
 
 // Voice states the page sees ({event: "status", state}).
@@ -121,6 +125,9 @@ type voiceEngine struct {
 	lockLoaded bool
 	lock       *voiceLock
 	lockErr    error
+
+	// gpu is the graphics card check, made once (nil before).
+	gpu *gpuCheck
 
 	state         string
 	message       string
@@ -233,6 +240,10 @@ func (e *voiceEngine) status() {
 		return
 	}
 
+	if e.unsupported(lock) {
+		return
+	}
+
 	if e.install != nil {
 		e.push()
 
@@ -258,6 +269,29 @@ func (e *voiceEngine) status() {
 	e.request("status", map[string]any{}, nil, false, func(reply map[string]any, _ bool) {
 		e.statusAnswered(reply, lock)
 	})
+}
+
+// unsupported tells the page when this PC has no NVIDIA card the lock's
+// PyTorch can use, with the download's size for the greyed button. The card
+// is looked at once, on first use (nvidia-smi takes a moment).
+func (e *voiceEngine) unsupported(lock *voiceLock) bool {
+	if e.gpu == nil {
+		output, err := e.plat.nvidiaSmi()
+		check := checkNvidia(output, err, lock.CudaMinDriver)
+		e.gpu = &check
+
+		logf("voice: nvidia-smi gave %q (error: %v): graphics card %q, driver %q, %q", output, err,
+			check.GPU, check.Driver, check.Reason)
+	}
+
+	if e.gpu.Reason == "" {
+		return false
+	}
+
+	e.downloadBytes = e.fullDownload(lock)
+	e.setState(voiceUnsupported, e.gpu.Reason)
+
+	return true
 }
 
 func (e *voiceEngine) statusAnswered(reply map[string]any, lock *voiceLock) {
@@ -287,6 +321,10 @@ func (e *voiceEngine) statusAnswered(reply map[string]any, lock *voiceLock) {
 func (e *voiceEngine) startInstall() {
 	lock := e.currentLock()
 	if lock == nil {
+		return
+	}
+
+	if e.unsupported(lock) {
 		return
 	}
 

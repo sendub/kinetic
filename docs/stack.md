@@ -322,7 +322,9 @@ Kinetic app makes.
 - The engine is Chatterbox multilingual v3 (MIT), cloned from each
   character's reference clip, on MLX on a Mac (Apple silicon, macOS 14 or
   later). The Windows app runs the same helper with a PyTorch backend, on
-  an NVIDIA GPU when present and otherwise the CPU; that is in progress.
+  an NVIDIA GPU (CUDA), and only there: a Windows PC with no NVIDIA card
+  or an old driver is offered no download (the CPU was too slow); that is
+  in progress.
   The browser's own speech was rejected (no per-character voices).
 
 ## Revisit triggers

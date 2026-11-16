@@ -1,8 +1,8 @@
-"""The Windows backend's platform-neutral parts: wheel variants (CPU and
-CUDA PyTorch), NVIDIA detection, byte totals per variant, engine
-selection, the PyTorch engine with PyTorch absent, and the Windows lock's
-shape. The engine itself runs only where the install put PyTorch; the
-real run is in the README's measurements."""
+"""The Windows backend's platform-neutral parts: one CUDA build of PyTorch
+(a PC with no NVIDIA card is refused by the exe, never the helper), the
+installer's byte totals, engine selection, the PyTorch engine with PyTorch
+absent, and the Windows lock's shape. The engine itself runs only where
+the install put PyTorch; the real run is in the README's measurements."""
 
 from __future__ import annotations
 
@@ -18,174 +18,23 @@ from kinetic_voice import install
 from kinetic_voice.engine import create_engine
 from kinetic_voice.install import Installer, InstallError, Lock
 
-# The variants
 
-def wheel(name, variant=None, size=1, tag="x"):
-    entry = {"name": name, "url": f"https://x/{name}-{variant}-{tag}.whl",
-             "sha256": "0" * 64, "size": size}
-    if variant:
-        entry["variant"] = variant
-    return entry
+def fake_pip(requirements, target, cancel, tmp):
+    target.mkdir(parents=True)
 
-
-TORCH = [wheel("torch", "cuda", 2_500), wheel("torch", "cpu", 200),
-         wheel("torchaudio", "cuda", 10), wheel("torchaudio", "cpu", 5),
-         wheel("numpy", None, 7)]
-
-
-def lock_of(wheels, **extra):
-    return Lock({"id": "t", "wheels": wheels, "model": [],
-                 "engine": {}, **extra})
-
-
-def urls(wheels):
-    return sorted(w["url"].rsplit("/", 1)[-1] for w in wheels)
-
-
-def test_cuda_variant_takes_the_cuda_builds_and_the_shared_wheels():
-    chosen = lock_of(TORCH).wheels(variant="cuda")
-    assert urls(chosen) == ["numpy-None-x.whl", "torch-cuda-x.whl",
-                            "torchaudio-cuda-x.whl"]
-
-
-def test_cpu_variant_takes_the_cpu_builds_and_the_shared_wheels():
-    chosen = lock_of(TORCH).wheels(variant="cpu")
-    assert urls(chosen) == ["numpy-None-x.whl", "torch-cpu-x.whl",
-                            "torchaudio-cpu-x.whl"]
-
-
-def test_a_lock_without_variants_never_looks_for_a_gpu(monkeypatch):
-    def boom(*_):
-        raise AssertionError("looked for a GPU")
-    monkeypatch.setattr(install, "nvidia_driver", boom)
-    assert len(lock_of([wheel("numpy")]).wheels("15.0")) == 1
-
-
-def test_the_variant_defaults_to_what_the_machine_has(monkeypatch):
-    monkeypatch.delenv("KINETIC_VOICE_VARIANT", raising=False)
-    monkeypatch.setattr(install, "nvidia_driver", lambda: "572.83")
-    assert "torch-cuda-x.whl" in urls(lock_of(TORCH).wheels())
-    monkeypatch.setattr(install, "nvidia_driver", lambda: None)
-    assert "torch-cpu-x.whl" in urls(lock_of(TORCH).wheels())
-
-
-def test_a_driver_older_than_the_locks_minimum_gets_the_cpu_build(
-        monkeypatch):
-    monkeypatch.delenv("KINETIC_VOICE_VARIANT", raising=False)
-    lock = lock_of(TORCH, cudaMinDriver="570.65")
-    monkeypatch.setattr(install, "nvidia_driver", lambda: "566.36")
-    assert lock.variant() == "cpu"
-    monkeypatch.setattr(install, "nvidia_driver", lambda: "570.65")
-    assert lock.variant() == "cuda"
-    monkeypatch.setattr(install, "nvidia_driver", lambda: "572.83")
-    assert lock.variant() == "cuda"
-    monkeypatch.setattr(install, "nvidia_driver", lambda: "1000.1")
-    assert lock.variant() == "cuda"  # compared by number, not text
-
-
-def test_an_unreadable_driver_version_still_counts_as_a_gpu(monkeypatch):
-    monkeypatch.delenv("KINETIC_VOICE_VARIANT", raising=False)
-    monkeypatch.setattr(install, "nvidia_driver", lambda: "")
-    assert lock_of(TORCH, cudaMinDriver="570.65").variant() == "cuda"
-
-
-def test_the_environment_forces_a_variant(monkeypatch):
-    monkeypatch.setattr(install, "nvidia_driver", lambda: "572.83")
-    monkeypatch.setenv("KINETIC_VOICE_VARIANT", "cpu")
-    assert lock_of(TORCH).variant() == "cpu"
-    monkeypatch.setattr(install, "nvidia_driver", lambda: None)
-    monkeypatch.setenv("KINETIC_VOICE_VARIANT", "cuda")
-    assert lock_of(TORCH).variant() == "cuda"
-
-
-def test_a_wheel_missing_for_the_variant_is_an_error():
-    only_cuda = [w for w in TORCH if w.get("variant") != "cpu"
-                 or w["name"] != "torch"]
-    with pytest.raises(ValueError, match="torch"):
-        lock_of(only_cuda).wheels(variant="cpu")
-
-
-# NVIDIA detection
-
-class Done:
-    def __init__(self, code, out=""):
-        self.returncode = code
-        self.stdout = out
-
-
-def fake_run(monkeypatch, found, result):
-    """Pretend nvidia-smi is at ``found`` (a path or None) and ran as
-    ``result`` (a Done, or an exception to raise)."""
-    calls = []
-    monkeypatch.setattr(install.shutil, "which",
-                        lambda name: found if name == "nvidia-smi" else None)
-    monkeypatch.setattr(install.os.path, "isfile", lambda p: False)
-
-    def run(cmd, **kw):
-        calls.append(cmd)
-        if isinstance(result, Exception):
-            raise result
-        return result
-    monkeypatch.setattr(install.subprocess, "run", run)
-    return calls
-
-
-def test_nvidia_driver_from_nvidia_smi_on_the_path(monkeypatch):
-    calls = fake_run(monkeypatch, "/bin/nvidia-smi", Done(0, "572.83\n"))
-    assert install.nvidia_driver() == "572.83"
-    assert calls[0][0] == "/bin/nvidia-smi"
-
-
-def test_nvidia_driver_from_the_system_folder_when_not_on_the_path(
-        monkeypatch):
-    calls = fake_run(monkeypatch, None, Done(0, "572.83\n"))
-    system = r"C:\Windows\System32\nvidia-smi.exe"
-    monkeypatch.setattr(install.os.path, "isfile", lambda p: p == system)
-    assert install.nvidia_driver() == "572.83"
-    assert calls[0][0] == system
-
-
-def test_no_nvidia_smi_means_no_gpu(monkeypatch):
-    fake_run(monkeypatch, None, Done(0, "572.83\n"))
-    assert install.nvidia_driver() is None
-
-
-def test_a_failing_nvidia_smi_means_no_gpu(monkeypatch):
-    fake_run(monkeypatch, "/bin/nvidia-smi", Done(9, ""))
-    assert install.nvidia_driver() is None
-
-
-@pytest.mark.parametrize("error", [subprocess.TimeoutExpired("x", 1),
-                                   OSError("not executable")])
-def test_a_hung_or_broken_nvidia_smi_means_no_gpu(monkeypatch, error):
-    fake_run(monkeypatch, "/bin/nvidia-smi", error)
-    assert install.nvidia_driver() is None
-
-
-def test_nvidia_smi_output_that_is_not_a_version_is_still_a_gpu(
-        monkeypatch):
-    fake_run(monkeypatch, "/bin/nvidia-smi", Done(0, "garbled\n"))
-    assert install.nvidia_driver() == ""
-
-
-# Byte totals and the install marker per variant
 
 @pytest.fixture
-def variant_lock(tmp_path, file_server):
-    """A lock with CPU and CUDA 'torch' wheels of different sizes, served
-    locally; the files are not real wheels, so tests use a fake pip."""
+def small_lock(tmp_path, file_server):
+    """A lock with a 'torch' and a 'tiny' wheel, served locally; the files
+    are not real wheels, so tests use a fake pip."""
     wheels = []
-    for name, variant, size in [("torch", "cuda", 3000),
-                                ("torch", "cpu", 800),
-                                ("tiny", None, 100)]:
-        data = bytes([len(variant or "n")]) * size
-        file = f"{name}-{variant}.whl"
+    for name, size in [("torch", 3000), ("tiny", 100)]:
+        data = bytes([len(name)]) * size
+        file = f"{name}.whl"
         file_server.files["/wheels/" + file] = data
-        entry = {"name": name, "url": file_server.base + "/wheels/" + file,
-                 "sha256": sha(data), "size": size}
-        if variant:
-            entry["variant"] = variant
-        wheels.append(entry)
+        wheels.append({"name": name,
+                       "url": file_server.base + "/wheels/" + file,
+                       "sha256": sha(data), "size": size})
     model = b"m" * 500
     file_server.files["/hf/org/m/resolve/rev1/f.bin"] = model
     return Lock({"id": "w-1", "wheels": wheels,
@@ -196,60 +45,31 @@ def variant_lock(tmp_path, file_server):
                  "engine": {"id": "fake"}})
 
 
-def fake_pip(requirements, target, cancel, tmp):
-    target.mkdir(parents=True)
+def test_there_is_no_gpu_check_or_variant_in_the_helper():
+    # The exe looks for the NVIDIA card (apps/windows); the helper only
+    # installs what the lock lists.
+    assert not hasattr(install, "nvidia_driver")
+    assert not hasattr(Lock, "variant")
 
 
-@pytest.mark.parametrize("variant,total", [("cuda", 3600), ("cpu", 1400)])
-def test_download_bytes_follow_the_variant(tmp_path, monkeypatch,
-                                           variant_lock, variant, total):
-    monkeypatch.setenv("KINETIC_VOICE_VARIANT", variant)
-    installer = Installer(tmp_path, variant_lock, lambda e: None, fake_pip)
-    status = installer.status()
-    assert status["downloadBytes"] == status["remainingBytes"] == total
+def test_download_bytes_are_every_wheel_and_model_file(tmp_path, small_lock):
+    status = Installer(tmp_path, small_lock, lambda e: None,
+                       fake_pip).status()
+    assert status["downloadBytes"] == status["remainingBytes"] == 3600
+    assert "variant" not in status
 
 
-def test_install_fetches_only_the_chosen_variant(tmp_path, monkeypatch,
-                                                 variant_lock, file_server):
-    monkeypatch.setenv("KINETIC_VOICE_VARIANT", "cpu")
+def test_install_fetches_every_wheel(tmp_path, small_lock, file_server):
     events = []
-    installer = Installer(tmp_path, variant_lock, events.append, fake_pip)
+    installer = Installer(tmp_path, small_lock, events.append, fake_pip)
     installer.run(threading.Event())
     fetched = {p for p, _ in file_server.requests}
-    assert "/wheels/torch-cpu.whl" in fetched
-    assert "/wheels/torch-cuda.whl" not in fetched
+    assert {"/wheels/torch.whl", "/wheels/tiny.whl"} <= fetched
     last = [e for e in events if e.get("event") == "progress"][-1]
-    assert last["done"] == last["total"] == 1400
+    assert last["done"] == last["total"] == 3600
     state = json.loads((tmp_path / "state.json").read_text())
-    assert "torch-cpu.whl" in state["wheels"]
-    assert state["variant"] == "cpu"
-
-
-def test_a_gpu_arriving_after_a_cpu_install_needs_the_cuda_build(
-        tmp_path, monkeypatch, variant_lock):
-    monkeypatch.setenv("KINETIC_VOICE_VARIANT", "cpu")
-    installer = Installer(tmp_path, variant_lock, lambda e: None, fake_pip)
-    installer.run(threading.Event())
-    assert installer.status()["installed"] is True
-    monkeypatch.setenv("KINETIC_VOICE_VARIANT", "cuda")
-    status = installer.status()
-    assert status["installed"] is False
-    # The wheels go again (pip's input is deleted after an install); the
-    # model files stay.
-    assert status["remainingBytes"] == 3100
-
-
-def test_status_reports_the_variant(tmp_path, monkeypatch, variant_lock):
-    monkeypatch.setenv("KINETIC_VOICE_VARIANT", "cuda")
-    assert Installer(tmp_path, variant_lock, lambda e: None,
-                     fake_pip).status()["variant"] == "cuda"
-
-
-def test_a_lock_without_variants_reports_none(tmp_path):
-    lock = Lock({"id": "m", "wheels": [wheel("numpy")], "model": [],
-                 "engine": {}})
-    assert Installer(tmp_path, lock, lambda e: None,
-                     fake_pip).status()["variant"] is None
+    assert "torch.whl" in state["wheels"]
+    assert "variant" not in state
 
 
 def test_install_error_type_is_still_exported():
@@ -287,14 +107,11 @@ def torch_engine(tmp_path, **settings):
     return create_engine("chatterbox-torch", tmp_path, data)
 
 
-def test_the_line_cache_key_follows_the_settings_and_the_device(
-        tmp_path, monkeypatch):
-    monkeypatch.delenv("KINETIC_VOICE_DEVICE", raising=False)
+def test_the_line_cache_key_follows_the_settings(tmp_path):
     base = torch_engine(tmp_path).identity()
     assert base["engine"] == "chatterbox-torch"
     assert torch_engine(tmp_path, flowSteps=9).identity() != base
-    monkeypatch.setenv("KINETIC_VOICE_DEVICE", "cpu")
-    assert torch_engine(tmp_path).identity() != base
+    assert "device" not in base
 
 
 def test_loading_without_pytorch_is_a_clear_error(tmp_path, monkeypatch):
@@ -327,21 +144,15 @@ def test_the_helper_takes_the_engine_from_the_lock(start_helper, tmp_path):
 
 # The device
 
-@pytest.mark.parametrize("override,cuda,expect", [
-    ("", True, "cuda"), ("", False, "cpu"), ("auto", True, "cuda"),
-    ("cpu", True, "cpu"), ("CPU", False, "cpu"), ("cuda", True, "cuda"),
-])
-def test_device_choice(override, cuda, expect):
+def test_the_device_is_cuda():
     from kinetic_voice.engine_torch import resolve_device
-    assert resolve_device(override, cuda) == expect
+    assert resolve_device(True) == "cuda"
 
 
-def test_forcing_cuda_without_cuda_is_an_error():
+def test_without_cuda_the_engine_refuses_to_run():
     from kinetic_voice.engine_torch import resolve_device
-    with pytest.raises(RuntimeError, match="CUDA"):
-        resolve_device("cuda", False)
-    with pytest.raises(ValueError, match="gpu"):
-        resolve_device("gpu", True)
+    with pytest.raises(RuntimeError, match="NVIDIA"):
+        resolve_device(False)
 
 
 def test_punctuation_is_normalised_as_chatterbox_does():
@@ -376,7 +187,7 @@ def test_windows_lock_is_complete():
                          r"py2\.py3-none-win_amd64)\.whl$", name), name
         assert re.fullmatch(r"[0-9a-f]{64}", w["sha256"])
         assert w["size"] > 0
-        assert w.get("variant") in (None, "cuda", "cpu")
+        assert "variant" not in w
     repos = {m["repo"] for m in data["model"]}
     assert repos == {"ResembleAI/chatterbox"}
     for m in data["model"]:
@@ -385,28 +196,27 @@ def test_windows_lock_is_complete():
     assert data["engine"]["id"] == "chatterbox-torch"
 
 
-def test_windows_lock_has_one_wheel_per_package_in_each_variant():
+def test_windows_lock_has_one_wheel_per_package_and_torch_is_cuda():
     lock = Lock(windows_lock())
-    names = {w["name"] for w in lock.data["wheels"]}
-    for variant in ("cuda", "cpu"):
-        chosen = lock.wheels(variant=variant)
-        assert len({w["name"] for w in chosen}) == len(chosen) == len(names)
-    cuda = {w["name"]: w for w in lock.wheels(variant="cuda")}
-    cpu = {w["name"]: w for w in lock.wheels(variant="cpu")}
-    assert {"torch", "torchaudio"} <= {
-        n for n in names if cuda[n] != cpu[n]}
-    assert "%2Bcu128" in cuda["torch"]["url"]
-    assert "%2Bcpu" in cpu["torch"]["url"]
+    names = [w["name"] for w in lock.data["wheels"]]
+    assert len(set(names)) == len(names)
+    chosen = {w["name"]: w for w in lock.wheels()}
+    assert len(chosen) == len(names)
+    assert "%2Bcu128" in chosen["torch"]["url"]
+    assert "%2Bcu128" in chosen["torchaudio"]["url"]
+    assert "cpu" not in json.dumps(lock.data).lower().replace(
+        "cpython", "")
+
+
+def test_windows_lock_names_the_minimum_driver_the_exe_checks():
+    assert re.fullmatch(r"\d+\.\d+", windows_lock()["cudaMinDriver"])
 
 
 def test_windows_lock_download_sizes():
     lock = Lock(windows_lock())
-
-    def total(variant):
-        return (sum(w["size"] for w in lock.wheels(variant=variant))
-                + sum(m["size"] for m in lock.model))
-    assert total("cuda") - total("cpu") > 1.5e9  # the CUDA build is bigger
-    assert total("cpu") > 3e9  # the model files
+    total = (sum(w["size"] for w in lock.wheels())
+             + sum(m["size"] for m in lock.model))
+    assert 6.5e9 < total < 7.2e9  # CUDA PyTorch, the rest, the model files
 
 
 def test_windows_lock_engine_settings_match_the_mac_engines():

@@ -21,8 +21,7 @@ standard library only, so it runs before anything is installed.
   reference clips.
 - `kinetic_voice/engine.py`: the engine interface, the fake engine and the
   WAV writer. `engine_mlx.py` is Chatterbox multilingual v3 on MLX;
-  `engine_torch.py` is the same model on PyTorch for Windows (CUDA, else
-  CPU).
+  `engine_torch.py` is the same model on PyTorch for Windows (CUDA only).
 - `kinetic_voice/pipe.py`: reads requests from stdin without leaving a
   read pending on Windows (see "Windows" below).
 - `kinetic_voice/streaming.py`: when a streamed line is cut into chunks
@@ -85,7 +84,7 @@ cache, no index and its temporary files in `downloads/tmp/`.
 {
   "id": "macos-arm64-1",
   "python": {"version", "release", "url", "sha256", "size"},
-  "wheels": [{"name", "url", "sha256", "size", "minMacos"?, "variant"?}],
+  "wheels": [{"name", "url", "sha256", "size", "minMacos"?}],
   "cudaMinDriver"?: "570.65",
   "modelBaseUrl": "https://huggingface.co",
   "model": [{"repo", "revision", "path", "sha256", "size"}],
@@ -104,15 +103,13 @@ cache, no index and its temporary files in `downloads/tmp/`.
   with its `minMacos`; the install takes the newest one the system meets.
   On macOS older than 14 `status` and `install` fail with
   `unsupported-system`.
-- A package with a build per hardware variant (`torch`, `torchaudio` on
-  Windows) lists each with `variant`, `"cuda"` or `"cpu"`; the install
-  takes the CUDA builds only when `nvidia-smi` (on the PATH, or
-  `C:\Windows\System32\nvidia-smi.exe`) runs, exits 0 and reports a driver
-  at least `cudaMinDriver`, else the CPU builds. `KINETIC_VOICE_VARIANT`
-  (`cuda` or `cpu`) forces one, for tests. `status` reports the choice as
-  `variant` (`null` for a lock with none) and sizes `downloadBytes` for it;
-  a machine that gains a GPU after a CPU install reports `installed:
-  false` until `install` has fetched the CUDA builds.
+- `cudaMinDriver` (the Windows lock) is the oldest NVIDIA driver its CUDA
+  build of PyTorch runs on. The helper does not read it: the Windows exe
+  checks the card and the driver before it offers the install
+  (apps/README.md, "Spoken lines"), and the install refuses with
+  `unsupported` on a PC with no NVIDIA card or an older driver. The lock
+  has one build of each package; there is no CPU variant (it ran about
+  1.6 times real time, too slow).
 - The wheel's file name is the last part of its URL.
 - Model files download from `<modelBaseUrl>/<repo>/resolve/<revision>/<path>`.
 - A new `id` means a new install: `status` reports `installed: false`
@@ -153,9 +150,8 @@ or later: the model 2.71 GB, its speech tokenizer 0.49 GB, the wheels
 ## The Windows engine
 
 `lock-windows-x64.json` runs `chatterbox-torch`: Resemble AI's own
-`chatterbox-tts` 0.1.7 (MIT) models on PyTorch 2.8.0, on CUDA when
-`torch.cuda.is_available()`, else on the CPU (`KINETIC_VOICE_DEVICE=cpu`
-or `cuda` overrides it, for tests; it is part of the line cache's key).
+`chatterbox-tts` 0.1.7 (MIT) models on PyTorch 2.8.0, on CUDA; if
+`torch.cuda.is_available()` is false the engine refuses to load.
 The package's `ChatterboxMultilingualTTS` is not used: it loads the v2
 weights, recomputes the voice on every line, runs T3 with attention
 outputs and an alignment analyser, and applies Resemble's Perth
@@ -189,8 +185,8 @@ The lock's 61 wheels are the imports of load, prepare_voice, speak and
 speak_stream, found by running them with the package's full dependency
 set (83 distributions) and listing which were imported, then installing
 only those with `--no-deps` and running again: `torch` and `torchaudio`
-(CUDA 12.8 builds from `download.pytorch.org/whl/cu128`, CPU builds from
-`/whl/cpu`; the 5090 needs 12.8), `numpy` 1.26 (the package pins below
+(CUDA 12.8 builds from `download.pytorch.org/whl/cu128`; the 5090 needs
+12.8), `numpy` 1.26 (the package pins below
 2), `librosa` with `numba`, `llvmlite`, `scipy`, `scikit-learn`, `soxr`,
 `soundfile`, `audioread`, `pooch`, `joblib`, `lazy-loader`, `decorator`,
 `msgpack`, `transformers` 5.2 with `huggingface-hub`, `tokenizers`,
@@ -202,10 +198,10 @@ Left out of the package's list: `gradio`, `resemble-perth` (and its
 `pandas`, `pkg_resources`), `pyloudnorm`, `pykakasi`, `spacy-pkuseg`,
 `networkx`, `fsspec`, `hf-xet`, `typer`, `pydantic`.
 
-Downloads, on the 5090 PC: CUDA variant 6.83 GB (the wheels 3.62 GB, of
-which PyTorch 3.46 GB, and the model 3.21 GB), CPU variant 3.98 GB (the
-wheels 0.77 GB, PyTorch 0.62 GB); the Python build adds 47 MB, fetched by
-the app. The CUDA install took 181 s there and holds 11.35 GB on disk.
+Download, on the 5090 PC: 6.83 GB (the wheels 3.62 GB, of which PyTorch
+3.46 GB, and the model 3.21 GB); the Python build adds 47 MB, fetched by
+the app. (A CPU build was measured and dropped, below.)
+The CUDA install took 181 s there and holds 11.35 GB on disk.
 
 Two Windows facts the helper is built around, both found on a real
 install: a child process that inherits the helper's stdin pipe hangs at
@@ -221,10 +217,10 @@ A Ryzen 7 9800X3D (8 cores) with an RTX 5090 (driver 617.42), native
 Windows, helper started as the app starts it (`python.exe -I -B`),
 reference clip `fixtures/voices/helen.flac`, three synthetic lines of 3.6
 to 5.6 s. The PC was also rendering in Blender at times, which slows every
-number below by up to 2x (CUDA runs are launch-bound, CPU runs lose cores);
+number below by up to 2x (CUDA runs are launch-bound);
 ranges are the quiet-machine best to the loaded worst.
 
-| | CUDA (5090) | CPU (float32) |
+| | CUDA (5090) | CPU (float32; measured, then dropped) |
 | --- | --- | --- |
 | Install (real downloads) | 6.83 GB, 181 s, 11.35 GB on disk | 3.98 GB, 137 s, 7.10 GB on disk |
 | `warm` (engine load) | 10-12 s | 15 s |
@@ -239,9 +235,9 @@ token, so 1.9 s per second of speech... not quite: 135 tokens are 5.4 s of
 speech and took 6.8 s; the flow 2.1 s; the vocoder 0.2 s), and the
 CPU-variant install's own run with T3 quantized (1.0-1.1x whole, 1.5-1.7x
 streamed, first chunk 3.2 s). Float32 on the CPU is therefore too slow to
-keep ahead of a reader, and even the int8 numbers only just are: a game
-app should tell the reader a CPU PC is slow (`status` carries `device:
-"cpu"`) and leave spoken lines to lines fetched ahead.
+keep ahead of a reader, and even the int8 numbers only just are. The
+Windows app therefore offers spoken lines only with an NVIDIA card, and
+the lock and the engine have no CPU path.
 
 Quality, scored with Whisper large-v3-turbo as for the Mac models
 (`.tmp/voice-models/scripts/score.py`): on CUDA all six lines (whole and
@@ -278,7 +274,7 @@ starting on the engine.
 
 | Op | Request fields | Answer fields |
 | --- | --- | --- |
-| `status` | | `installed`, `lock`, `variant`, `downloadBytes` (the whole install), `remainingBytes` (what an install would still fetch), `installedBytes` (helper-owned files on disk), `engine`, `warm`, `installing`; `memoryBytes` and `peakMemoryBytes` once an engine that reports them is loaded; the PyTorch engine adds `device` (`cuda` or `cpu`) and, on CUDA, `gpu` |
+| `status` | | `installed`, `lock`, `downloadBytes` (the whole install), `remainingBytes` (what an install would still fetch), `installedBytes` (helper-owned files on disk), `engine`, `warm`, `installing`; `memoryBytes` and `peakMemoryBytes` once an engine that reports them is loaded; the PyTorch engine adds `device` (`cuda`) and `gpu` |
 | `install` | | `alreadyInstalled`, `seconds` |
 | `cancel` | `target`: a request id | `cancelled`; `state` (`queued`, `running`, `done`, `unknown`) when it was not cancelled |
 | `remove` | | |

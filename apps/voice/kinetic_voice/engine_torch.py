@@ -1,6 +1,7 @@
 """Chatterbox multilingual v3 on PyTorch (Windows), from Resemble AI's own
-``chatterbox-tts`` package (MIT), on CUDA when an NVIDIA GPU is usable and
-otherwise on the CPU.
+``chatterbox-tts`` package (MIT), on an NVIDIA GPU through CUDA. There is no
+CPU path: it ran about 1.6x real time, too slow, so the Windows app offers
+spoken lines only on a PC with an NVIDIA card.
 
 The package's ``ChatterboxMultilingualTTS`` is not used: it loads the v2
 checkpoint, re-reads the reference clip on every line, runs T3 with
@@ -39,7 +40,6 @@ those languages' text is tokenized without their preprocessing.
 from __future__ import annotations
 
 import gc
-import os
 import sys
 import tempfile
 import types
@@ -62,21 +62,13 @@ CONTEXT = 16
 HOP = 480
 
 
-def resolve_device(override: str, cuda_available: bool) -> str:
-    """``"cuda"`` or ``"cpu"``. ``override`` is ``KINETIC_VOICE_DEVICE``:
-    empty or ``auto`` picks CUDA when it is usable."""
-    choice = (override or "auto").lower()
-    if choice == "auto":
-        return "cuda" if cuda_available else "cpu"
-    if choice == "cpu":
-        return "cpu"
-    if choice == "cuda":
-        if not cuda_available:
-            raise RuntimeError("KINETIC_VOICE_DEVICE=cuda but CUDA is not "
-                               "usable on this machine")
-        return "cuda"
-    raise ValueError(f"KINETIC_VOICE_DEVICE={override!r}: expected auto, "
-                     "cuda or cpu (not a gpu name)")
+def resolve_device(cuda_available: bool) -> str:
+    """``"cuda"``, or an error when this PC cannot run it (the exe offers
+    no install then; this is the helper's own guard)."""
+    if not cuda_available:
+        raise RuntimeError("Spoken lines need an NVIDIA graphics card with "
+                           "CUDA, and none is usable on this machine")
+    return "cuda"
 
 
 _PUNCTUATION = [
@@ -119,7 +111,7 @@ class ChatterboxTorch(Engine):
         self.settings = lock["engine"]
         self.revisions = {m["repo"]: m["revision"]
                           for m in lock.get("model", [])}
-        self.device = "cpu"
+        self.device = "cuda"
         self.t3 = None
         self.s3gen = None
         self.ve = None
@@ -128,9 +120,7 @@ class ChatterboxTorch(Engine):
 
     def identity(self) -> dict:
         return {"engine": self.name, "model": self.revisions,
-                "settings": self.settings,
-                "device": os.environ.get("KINETIC_VOICE_DEVICE", "")
-                .lower() or "auto"}
+                "settings": self.settings}
 
     # Loading
 
@@ -147,9 +137,7 @@ class ChatterboxTorch(Engine):
             raise RuntimeError(
                 "PyTorch is not installed in the voice folder (run the "
                 f"install first): {err}") from None
-        self.device = resolve_device(
-            os.environ.get("KINETIC_VOICE_DEVICE", ""),
-            torch.cuda.is_available())
+        self.device = resolve_device(torch.cuda.is_available())
         self._chatterbox_models()
         from chatterbox.models.s3gen import S3Gen
         from chatterbox.models.t3 import T3
@@ -249,9 +237,9 @@ class ChatterboxTorch(Engine):
             t3.prepare_conditioning(cond)  # caches the prompt's embedding
         voice = TorchVoice(cond, gen)
         if not self._warmed:
-            # The first generation pays for the GPU's kernel selection and
-            # the CPU's first-use costs: do it now, so the reader's first
-            # line is as quick as the rest. Streaming too.
+            # The first generation pays for the GPU's kernel selection: do
+            # it now, so the reader's first line is as quick as the rest.
+            # Streaming too.
             self.speak(voice, "Ready.", "en")
             for _ in self.speak_stream(voice, "Ready, and steady.", "en"):
                 pass
@@ -364,9 +352,8 @@ class ChatterboxTorch(Engine):
             return feat[:, :, prompt_frames:]
 
     def _free(self) -> None:
-        if self.device == "cuda":
-            import torch
-            torch.cuda.empty_cache()
+        import torch
+        torch.cuda.empty_cache()
 
     @staticmethod
     def _pcm(wav: object) -> bytes:
@@ -437,10 +424,8 @@ class ChatterboxTorch(Engine):
     def stats(self) -> dict:
         if not self.loaded:
             return {}
-        stats: dict = {"device": self.device}
-        if self.device == "cuda":
-            import torch
-            stats["gpu"] = torch.cuda.get_device_name()
-            stats["memoryBytes"] = torch.cuda.memory_allocated()
-            stats["peakMemoryBytes"] = torch.cuda.max_memory_allocated()
-        return stats
+        import torch
+        return {"device": self.device,
+                "gpu": torch.cuda.get_device_name(),
+                "memoryBytes": torch.cuda.memory_allocated(),
+                "peakMemoryBytes": torch.cuda.max_memory_allocated()}

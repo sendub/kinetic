@@ -7,12 +7,16 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
+	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"time"
 )
 
 const (
@@ -45,6 +49,9 @@ type voiceSettings struct {
 	DownloadBase string
 	// LockFile is a lock file in place of the embedded one.
 	LockFile string
+	// NvidiaSmi is the program that asks for the graphics card, in place
+	// of the PC's own nvidia-smi; "off" is no such program.
+	NvidiaSmi string
 	// Python runs the embedded helper; no Python download.
 	Python string
 	// HelperCommand is a whole command line run in place of the helper;
@@ -67,6 +74,7 @@ func voiceSettingsFrom(getenv func(string) string, cwd string) voiceSettings {
 		Root:          absolute(getenv("KINETIC_VOICE_DIR")),
 		DownloadBase:  getenv("KINETIC_VOICE_DOWNLOAD_BASE"),
 		LockFile:      absolute(getenv("KINETIC_VOICE_LOCK")),
+		NvidiaSmi:     absoluteUnlessOff(getenv("KINETIC_VOICE_NVIDIA_SMI"), absolute),
 		Python:        absolute(getenv("KINETIC_VOICE_PYTHON")),
 		HelperCommand: getenv("KINETIC_VOICE_HELPER"),
 	}
@@ -80,6 +88,14 @@ func voiceSettingsFrom(getenv func(string) string, cwd string) voiceSettings {
 	return s
 }
 
+func absoluteUnlessOff(path string, absolute func(string) string) string {
+	if path == "off" {
+		return path
+	}
+
+	return absolute(path)
+}
+
 // errLockUnreadable is the reader's words for a lock the exe cannot use.
 var errLockUnreadable = errors.New("The voice lock file is not readable.")
 
@@ -91,10 +107,12 @@ type voiceLock struct {
 	PythonURL    string
 	PythonSHA256 string
 	PythonSize   int64
-	// HelperBytes is what the helper's install fetches: per package the
-	// largest wheel (a package listed more than once, as variants, has one
-	// picked by the helper on the reader's PC), and every model file. The
-	// helper's own progress replaces it once its install runs.
+	// CudaMinDriver is the oldest NVIDIA driver the PyTorch build in the
+	// lock runs on ("" for none).
+	CudaMinDriver string
+	// HelperBytes is what the helper's install fetches: every wheel and
+	// every model file. The helper's own progress replaces it once its
+	// install runs.
 	HelperBytes int64
 	// HelperText is the lock as the helper gets it (URLs moved under the
 	// download base when one is set).
@@ -110,9 +128,9 @@ func parseVoiceLock(data []byte, base string) (*voiceLock, error) {
 			SHA256 string `json:"sha256"`
 			Size   *int64 `json:"size"`
 		} `json:"python"`
-		Wheels *[]struct {
-			Name string `json:"name"`
-			Size int64  `json:"size"`
+		CudaMinDriver string `json:"cudaMinDriver"`
+		Wheels        *[]struct {
+			Size int64 `json:"size"`
 		} `json:"wheels"`
 		Model *[]struct {
 			Size int64 `json:"size"`
@@ -124,14 +142,9 @@ func parseVoiceLock(data []byte, base string) (*voiceLock, error) {
 		return nil, errLockUnreadable
 	}
 
-	largest := map[string]int64{}
-	for _, w := range *raw.Wheels {
-		largest[w.Name] = max(largest[w.Name], w.Size)
-	}
-
 	var helper int64
-	for _, size := range largest {
-		helper += size
+	for _, w := range *raw.Wheels {
+		helper += w.Size
 	}
 
 	for _, m := range *raw.Model {
@@ -140,7 +153,7 @@ func parseVoiceLock(data []byte, base string) (*voiceLock, error) {
 
 	lock := &voiceLock{
 		ID: *raw.ID, PythonURL: redirectURL(raw.Python.URL, base), PythonSHA256: raw.Python.SHA256,
-		PythonSize: *raw.Python.Size, HelperBytes: helper, HelperText: data,
+		PythonSize: *raw.Python.Size, CudaMinDriver: raw.CudaMinDriver, HelperBytes: helper, HelperText: data,
 	}
 
 	if base != "" {
@@ -276,4 +289,116 @@ func sameID(a, b any) bool {
 // gigabytes formats a byte count for the reader.
 func gigabytes(n int64) string {
 	return fmt.Sprintf("%.1f GB", float64(n)/1e9)
+}
+
+// Spoken lines run on an NVIDIA card only (docs/plan.md Phase 52 item 12):
+// the PyTorch build is CUDA, and on a CPU lines took 1.6 times as long as
+// they last.
+
+// gpuCheck is what the PC's graphics card allows. Reason is "" when spoken
+// lines can run, else the reader's words for the ? beside the greyed
+// download button.
+type gpuCheck struct {
+	GPU, Driver, Reason string
+}
+
+const (
+	noNvidiaReason = "Spoken lines need an NVIDIA graphics card. This computer doesn't have one."
+	// nvidiaQuery is what the exe asks nvidia-smi: one line per card,
+	// "<name>, <driver version>".
+	nvidiaQuery = "--query-gpu=name,driver_version"
+)
+
+// checkNvidia reads nvidia-smi's answer (its output, and the error from
+// running it: missing, failed or hung) against the lock's minimum driver.
+// A driver it cannot read as a version number is not held against the
+// card.
+func checkNvidia(output string, runErr error, minDriver string) gpuCheck {
+	if runErr != nil {
+		return gpuCheck{Reason: noNvidiaReason}
+	}
+
+	for _, line := range strings.Split(output, "\n") {
+		line = strings.TrimSpace(line)
+
+		cut := strings.LastIndex(line, ",")
+		if cut <= 0 {
+			continue
+		}
+
+		check := gpuCheck{GPU: strings.TrimSpace(line[:cut])}
+		if driver := strings.TrimSpace(line[cut+1:]); versionNumbers(driver) != nil {
+			check.Driver = driver
+		}
+
+		if check.Driver != "" && minDriver != "" && compareVersions(check.Driver, minDriver) < 0 {
+			check.Reason = fmt.Sprintf("Spoken lines need NVIDIA driver %s or later. "+
+				"Update the graphics driver to use them.", minDriver)
+		}
+
+		return check
+	}
+
+	return gpuCheck{Reason: noNvidiaReason}
+}
+
+// versionNumbers is "572.83" as [572 83]; nil when it is not dotted numbers.
+func versionNumbers(text string) []int {
+	var numbers []int
+
+	for _, part := range strings.Split(text, ".") {
+		n, err := strconv.Atoi(part)
+		if err != nil || n < 0 {
+			return nil
+		}
+
+		numbers = append(numbers, n)
+	}
+
+	return numbers
+}
+
+// compareVersions compares dotted numbers by value, not by text: -1, 0 or 1.
+func compareVersions(a, b string) int {
+	x, y := versionNumbers(a), versionNumbers(b)
+
+	for i := range max(len(x), len(y)) {
+		var p, q int
+		if i < len(x) {
+			p = x[i]
+		}
+
+		if i < len(y) {
+			q = y[i]
+		}
+
+		if p != q {
+			if p < q {
+				return -1
+			}
+
+			return 1
+		}
+	}
+
+	return 0
+}
+
+// runNvidiaSmi runs the program at exe for the cards' names and driver
+// version and returns its output; an error when it is missing, fails or
+// takes longer than limit. prepare hides its window (voicePlatform).
+func runNvidiaSmi(exe string, prepare func(*exec.Cmd), limit time.Duration) (string, error) {
+	if exe == "" {
+		return "", errors.New("nvidia-smi was not found")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), limit)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, exe, nvidiaQuery, "--format=csv,noheader")
+	prepare(cmd)
+
+	out, err := cmd.Output()
+
+	return string(out), err
 }

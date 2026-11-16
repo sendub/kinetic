@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -61,10 +62,10 @@ const sampleLock = `{
     "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261110/cpython-3.12.16%2B20261110-x86_64-pc-windows-msvc-install_only.tar.gz",
     "sha256": "abc123", "size": 47438699},
   "wheels": [
-    {"name": "torch", "url": "https://download.pytorch.org/whl/cpu/torch.whl", "sha256": "1", "size": 200},
     {"name": "torch", "url": "https://download.pytorch.org/whl/cu128/torch.whl", "sha256": "2", "size": 2500},
     {"name": "numpy", "url": "https://files.pythonhosted.org/numpy.whl", "sha256": "3", "size": 30}
   ],
+  "cudaMinDriver": "570.65",
   "model": [
     {"repo": "ResembleAI/chatterbox", "revision": "r", "path": "t3.safetensors", "sha256": "4", "size": 1000},
     {"repo": "ResembleAI/chatterbox", "revision": "r", "path": "s3gen.pt", "sha256": "5", "size": 400}
@@ -83,9 +84,11 @@ func TestParseVoiceLock(t *testing.T) {
 		t.Errorf("lock = %+v", lock)
 	}
 
-	// One wheel a package, the largest where a package has variants (the
-	// helper picks one, which the app cannot know before it runs), and
-	// every model file.
+	// Every wheel and every model file.
+	if lock.CudaMinDriver != "570.65" {
+		t.Errorf("CudaMinDriver = %q, want 570.65", lock.CudaMinDriver)
+	}
+
 	if want := int64(2500 + 30 + 1000 + 400); lock.HelperBytes != want {
 		t.Errorf("HelperBytes = %d, want %d", lock.HelperBytes, want)
 	}
@@ -131,8 +134,8 @@ func TestTheLockUnderADownloadBaseSendsEveryDownloadThere(t *testing.T) {
 	}
 
 	if helper.ID != "windows-x64-1" || helper.Python.URL != lock.PythonURL ||
-		helper.Wheels[0].URL != base+"download.pytorch.org/whl/cpu/torch.whl" ||
-		helper.Wheels[2].URL != base+"files.pythonhosted.org/numpy.whl" ||
+		helper.Wheels[0].URL != base+"download.pytorch.org/whl/cu128/torch.whl" ||
+		helper.Wheels[1].URL != base+"files.pythonhosted.org/numpy.whl" ||
 		helper.ModelBaseURL != base+"huggingface.co" || len(helper.Model) != 2 || helper.Model[0].Size != 1000 ||
 		helper.Engine["cfgWeight"] != 0.5 {
 		t.Errorf("the helper's lock = %+v", helper)
@@ -284,5 +287,31 @@ func TestTheVoiceHostScriptBehavesInAPage(t *testing.T) {
 	// display message: only a voice message flushes it.
 	if got.NotOnDisplay != 2 {
 		t.Errorf("a display message delivered the held status (%d seen)", got.NotOnDisplay)
+	}
+}
+
+// The real lock: one CUDA build, the download the page shows, the minimum
+// driver the exe checks.
+func TestTheRealLockIsTheCudaDownload(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join(repoRoot, "apps", "voice", voiceLockName))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if strings.Contains(strings.ToLower(strings.ReplaceAll(string(data), "cpython", "")), "cpu") {
+		t.Error("the Windows lock still names a CPU build")
+	}
+
+	lock, err := parseVoiceLock(data, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if lock.CudaMinDriver != "570.65" {
+		t.Errorf("CudaMinDriver = %q", lock.CudaMinDriver)
+	}
+
+	if total := lock.PythonSize + lock.HelperBytes; total < 6_800_000_000 || total > 6_900_000_000 {
+		t.Errorf("the download is %d bytes, want about 6.83 GB (the CUDA one)", total)
 	}
 }

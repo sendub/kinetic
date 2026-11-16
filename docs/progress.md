@@ -4671,9 +4671,23 @@ truthful: an unchecked box means nothing was accepted.
       check clean, smoke 6/6, screens Chrome 111/111, WebKit 109 pass and
       the 2 Keyboard Lock partials of the baseline. Orchestrator: npm test,
       check, screens on WebKit (the drag part passes).)
-- [ ] Windows voice needs an NVIDIA card (item 12). Tests: go test, vet,
+- [x] Windows voice needs an NVIDIA card (item 12). Tests: go test, vet,
       the cross-build, apps/voice, a player unit test; the host's check
       over SSH.
+      (2026-11-16: the CPU variant gone from lock-windows-x64.json (one
+      CUDA build, 6.83 GB), install.py and engine_torch.py (CUDA or a
+      refusal). The exe asks nvidia-smi once, hidden, cut off at 15 s
+      (`checkNvidia`, `compareVersions`, `runNvidiaSmi`): no card, a
+      failing nvidia-smi or a driver under `cudaMinDriver` 570.65 is
+      `unsupported` with the reason as the message and the full
+      `downloadBytes`, and install is refused. Test override
+      `KINETIC_VOICE_NVIDIA_SMI`. The player's greyed button and ? come
+      with item 10's Voice row. On the user's PC over SSH: RTX 5090,
+      driver 617.42, supported; with nvidia-smi off, "Spoken lines need an
+      NVIDIA graphics card. This computer doesn't have one."; the test
+      folder deleted. Tests: go test 63, vet clean, apps/voice 87,
+      record_lines and build_apps 148. Orchestrator: go test, vet, and
+      apps/voice, record_lines and build_apps 235 passed.)
 - [x] Recorded lines (item 13). Tests: the recorder with a fake engine; a
       real recording of the voice demo played in Chrome and WebKit.
       (2026-11-16: tools/record_lines.py drives the kinetic_voice helper

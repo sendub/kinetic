@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/fs"
 	"math/rand/v2"
@@ -72,6 +73,26 @@ func helperFiles(t *testing.T, lock []byte) fstest.MapFS {
 type testPlatform struct {
 	free    int64
 	hasFree bool
+	// smi is what nvidia-smi prints (an RTX 5090 on driver 572.83 when
+	// empty); smiErr makes it fail; smiCalls counts the runs.
+	smi      string
+	smiErr   error
+	smiCalls *atomic.Int32
+}
+
+func (p testPlatform) nvidiaSmi() (string, error) {
+	if p.smiCalls != nil {
+		p.smiCalls.Add(1)
+	}
+
+	switch {
+	case p.smiErr != nil:
+		return "", p.smiErr
+	case p.smi != "":
+		return p.smi, nil
+	}
+
+	return "NVIDIA GeForce RTX 5090, 572.83\n", nil
 }
 
 func (p testPlatform) freeBytes(string) (int64, bool) { return p.free, p.hasFree }
@@ -848,5 +869,75 @@ func TestSerialQueueRunsInOrder(t *testing.T) {
 
 	if len(got) != 1000 {
 		t.Fatalf("%d jobs ran", len(got))
+	}
+}
+
+func TestVoiceUnsupportedWithoutAnNvidiaCard(t *testing.T) {
+	archive, model := []byte("archive"), []byte("model!")
+	root := filepath.Join(t.TempDir(), "Voice")
+	server := newVoiceServer(t, archive, model)
+	calls := &atomic.Int32{}
+	h := newHarness(t, voiceSettings{Root: root, DownloadBase: server.URL}, helperFiles(t, testLock(archive, model)),
+		testPlatform{smiErr: errors.New("nvidia-smi is not here"), smiCalls: calls})
+
+	h.send(`{"type":"voice","op":"status"}`)
+	e := h.waitFor("unsupported", isStatus("unsupported"))
+
+	if e["message"] != noGPUMessage {
+		t.Errorf("message = %v, want %q", e["message"], noGPUMessage)
+	}
+
+	if e["downloadBytes"] != float64(len(archive)+len(model)) {
+		t.Errorf("downloadBytes = %v, want the whole download, for the greyed button", e["downloadBytes"])
+	}
+
+	// An install is refused, and nothing is written or fetched.
+	h.send(`{"type":"voice","op":"install"}`)
+	e = h.waitFor("unsupported again", isStatus("unsupported"))
+
+	if e["message"] != noGPUMessage {
+		t.Errorf("install message = %v", e["message"])
+	}
+
+	h.send(`{"type":"voice","op":"status"}`)
+	h.waitFor("unsupported a third time", isStatus("unsupported"))
+
+	if _, err := os.Stat(root); !os.IsNotExist(err) {
+		t.Error("a refused install made the voice folder")
+	}
+
+	if n := server.count(archivePath) + server.count(modelPath); n != 0 {
+		t.Errorf("a refused install made %d downloads", n)
+	}
+
+	if n := calls.Load(); n != 1 {
+		t.Errorf("nvidia-smi ran %d times, want once", n)
+	}
+}
+
+func TestVoiceUnsupportedWithAnOldDriver(t *testing.T) {
+	archive, model := []byte("archive"), []byte("model!")
+	lock := strings.Replace(string(testLock(archive, model)), `"engine"`, `"cudaMinDriver": "570.65", "engine"`, 1)
+	h := newHarness(t, voiceSettings{Root: filepath.Join(t.TempDir(), "Voice")}, helperFiles(t, []byte(lock)),
+		testPlatform{smi: "NVIDIA GeForce GTX 1060, 566.36\r\n"})
+
+	h.send(`{"type":"voice","op":"install"}`)
+	e := h.waitFor("unsupported", isStatus("unsupported"))
+
+	if e["message"] != oldDriverMessage {
+		t.Errorf("message = %v, want %q", e["message"], oldDriverMessage)
+	}
+}
+
+func TestVoiceStatusWithAnNvidiaCardIsAsBefore(t *testing.T) {
+	archive, model := []byte("archive"), []byte("model!")
+	lock := strings.Replace(string(testLock(archive, model)), `"engine"`, `"cudaMinDriver": "570.65", "engine"`, 1)
+	h := newHarness(t, voiceSettings{Root: filepath.Join(t.TempDir(), "Voice")}, helperFiles(t, []byte(lock)), testPlatform{})
+
+	h.send(`{"type":"voice","op":"status"}`)
+	e := h.waitFor("absent", isStatus("absent"))
+
+	if e["message"] != nil {
+		t.Errorf("a supported PC's status has a message: %v", e)
 	}
 }

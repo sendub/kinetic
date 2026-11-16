@@ -7,17 +7,48 @@ package main
 // WebView2 call is made.
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"sync"
 	"syscall"
+	"time"
 	"unsafe"
 )
 
 var procGetDiskFreeSpaceEx = kernel32.NewProc("GetDiskFreeSpaceExW")
 
-// windowsVoice is the engine's voicePlatform on Windows.
-type windowsVoice struct{}
+// windowsVoice is the engine's voicePlatform on Windows. smi is the test
+// override for nvidia-smi (voiceSettings.NvidiaSmi).
+type windowsVoice struct {
+	smi string
+}
+
+// nvidiaSmiTimeout is how long the exe waits for nvidia-smi, which takes
+// a moment to wake the driver.
+const nvidiaSmiTimeout = 15 * time.Second
+
+// nvidiaSmi runs nvidia-smi (the test override, else the one on the PATH,
+// else the one in the system folder, where the driver installs it), with
+// no console window.
+func (w windowsVoice) nvidiaSmi() (string, error) {
+	exe := w.smi
+
+	switch exe {
+	case "off":
+		return "", errors.New("nvidia-smi is switched off")
+	case "":
+		exe, _ = exec.LookPath("nvidia-smi")
+		if exe == "" {
+			system := winJoin(os.Getenv("SystemRoot"), "System32", "nvidia-smi.exe")
+			if _, err := os.Stat(system); err == nil {
+				exe = system
+			}
+		}
+	}
+
+	return runNvidiaSmi(exe, w.prepare, nvidiaSmiTimeout)
+}
 
 // freeBytes is GetDiskFreeSpaceExW's space free to this user on dir's
 // volume (quotas counted).
@@ -93,7 +124,7 @@ func (g *game) startVoice() {
 			logf("giving the page a voice event: %s", hresult(hr))
 		}
 	})
-	g.voice = newVoiceEngine(settings, embeddedVoice, windowsVoice{}, func(event map[string]any) {
+	g.voice = newVoiceEngine(settings, embeddedVoice, windowsVoice{smi: settings.NvidiaSmi}, func(event map[string]any) {
 		g.outMu.Lock()
 		g.out = append(g.out, event)
 		first := len(g.out) == 1

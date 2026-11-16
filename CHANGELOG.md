@@ -30,7 +30,9 @@ something more of an author.
   still being made, up to 20 seconds. Thoughts are spoken in their
   speaker's voice, lines with no speaker in a narrator voice, and a
   recorded voice line always plays instead. A browser plays such a game
-  silently.
+  silently. On Windows, spoken lines need an NVIDIA graphics card (driver
+  570.65 or later; a 6.8 GB download); on any other PC the download
+  button is greyed out and says why.
 - New optional manifest fields `voices` and `narrator` give each speaker
   a reference clip to clone (docs/content-format.md, "Voices"). The
   validator checks their files and scripts and warns about a voice nobody

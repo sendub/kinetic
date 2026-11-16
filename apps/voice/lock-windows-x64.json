@@ -11,31 +11,15 @@
   "wheels": [
     {
       "name": "torch",
-      "variant": "cuda",
       "url": "https://download.pytorch.org/whl/cu128/torch-2.8.0%2Bcu128-cp312-cp312-win_amd64.whl",
       "sha256": "0ad925202387f4e7314302a1b4f8860fa824357f9b1466d7992bf276370ebcff",
       "size": 3461384651
     },
     {
-      "name": "torch",
-      "variant": "cpu",
-      "url": "https://download.pytorch.org/whl/cpu/torch-2.8.0%2Bcpu-cp312-cp312-win_amd64.whl",
-      "sha256": "2be20b2c05a0cce10430cc25f32b689259640d273232b2de357c35729132256d",
-      "size": 619352539
-    },
-    {
       "name": "torchaudio",
-      "variant": "cuda",
       "url": "https://download.pytorch.org/whl/cu128/torchaudio-2.8.0%2Bcu128-cp312-cp312-win_amd64.whl",
       "sha256": "cce3a60cd9a97f7360c8f95504ac349311fb7d6b9b826135936764f4de5f782d",
       "size": 4673203
-    },
-    {
-      "name": "torchaudio",
-      "variant": "cpu",
-      "url": "https://download.pytorch.org/whl/cpu/torchaudio-2.8.0%2Bcpu-cp312-cp312-win_amd64.whl",
-      "sha256": "9b302192b570657c1cc787a4d487ae4bbb7f2aab1c01b1fcc46757e7f86f391e",
-      "size": 2495725
     },
     {
       "name": "pillow",

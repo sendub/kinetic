@@ -218,15 +218,12 @@ k. **Watermark.** Resemble's PyTorch package adds a PerTh watermark to
    step in its code, but a detector was not run on its output. Whether
    that is acceptable is the user's call. The Windows path uses the
    PyTorch package, so it would carry the mark.
-l. **Windows.** The Windows engine runs Resemble's PyTorch code on an
-   NVIDIA GPU when its driver is new enough, else on the CPU. On an RTX
-   5090 lines took 0.32-0.34x real time (first streamed chunk under 1 s),
-   but the download is 6.8 GB (CUDA PyTorch alone is 3.5 GB). On the CPU
-   (a Ryzen 7 9800X3D) lines took about 1.6x real time, too slow to keep
-   ahead of a reader, for a 4.0 GB download; int8 quantization doubled the
-   speed but garbled lines. Should the Windows app offer voices without an
-   NVIDIA GPU, with a warning that the reader will wait for lines, or not
-   at all?
+l. **Windows.** Decided (user, 2026-11-16): no voices without an
+   NVIDIA card. The engine runs Resemble's PyTorch code on CUDA; on an RTX
+   5090 lines took 0.32-0.34x real time (first streamed chunk under 1 s)
+   for a 6.8 GB download. The CPU took about 1.6x real time, too slow, so
+   its variant is gone. A PC with no NVIDIA card, or a driver older than
+   570.65, sees the download button greyed out with a ? saying why.
 m. **Four takes.** The casting tool makes 4 takes of each voice by
    default and the author picks by ear; `--takes` changes the number.
 

@@ -1291,8 +1291,10 @@ What the reader sees, in the Mac app:
   generated one.
 - The row needs a Mac with Apple silicon and macOS 14 or later. It says so
   on an older Mac.
-- The Windows program is getting the same row; until it ships, and in a
-  browser, a game with voices plays silently.
+- The Windows program is getting the same row, for a PC with an NVIDIA
+  card (driver 570.65 or later); on any other PC the download button is
+  greyed out and its ? says why. Until it ships, and in a browser, a game
+  with voices plays silently.
 
 The model installs once per Mac, in
 `~/Library/Application Support/Kinetic/Voice/`, and every Kinetic game on
@@ -1398,7 +1400,9 @@ a character named "narrator" gives the tool another key with
 ### Recording the lines
 
 By default each reader's machine makes the lines, after a download of
-about 3.3 GB on a Mac and 6.8 GB on Windows. `tools/record_lines.py`
+about 3.3 GB on a Mac and 6.8 GB on a Windows PC with an NVIDIA card (a
+Windows PC without one, or with a driver older than 570.65, is offered no
+download: the button is greyed out and its ? says why). `tools/record_lines.py`
 makes them once, here, and ships them in the game as recorded voice
 lines. A reader of a game with every line recorded needs no model and
 sees no download: the Voice volume is there at once, in a browser tab too.

@@ -206,7 +206,13 @@ handles the page's next voice message.
 
 `unsupported` means a Mac without Apple silicon, or a macOS older than
 every build of some package in the lock (the helper's
-`unsupported-system`); its message names the macOS needed. An install
+`unsupported-system`); its message names the macOS needed. On Windows it
+means no NVIDIA card, or a driver older than the lock's `cudaMinDriver`
+(570.65); `downloadBytes` is still the whole download (6.83 GB) so the
+page can show its greyed button, and the message is the reason for its ?
+help ("Spoken lines need an NVIDIA graphics card. This computer doesn't
+have one." or "Spoken lines need NVIDIA driver 570.65 or later. Update the
+graphics driver to use them."). An install
 first checks that the volume has the whole download plus 1 GB free, and
 reports `error` saying how much it needs and has.
 
@@ -234,8 +240,15 @@ helper.
 On Windows the voice folder is `%LOCALAPPDATA%\Kinetic\Voice\`, one per
 PC, shared by every Kinetic exe, and the lock is
 `voice/lock-windows-x64.json` (Python 3.12 from python-build-standalone's
-`x86_64-pc-windows-msvc-install_only` archive, 47 MB; the helper's wheels
-come in variants, cuda and cpu, from which it picks). The exe downloads
+`x86_64-pc-windows-msvc-install_only` archive, 47 MB; one CUDA 12.8 build
+of PyTorch, no CPU variant: spoken lines on Windows need an NVIDIA card).
+The exe asks `nvidia-smi` once, on the first voice status (the one on the
+PATH, else `System32\nvidia-smi.exe`; it runs with no console window and
+is cut off after 15 s, and the answer is logged to `helper.log`'s sibling
+log, `voice: nvidia-smi gave ...`). No card, a failing or missing
+`nvidia-smi`, or a driver below `cudaMinDriver` is `unsupported`, and
+`install` is refused in that state: nothing is written or downloaded.
+The exe downloads
 with `net/http` (progress, a Range request to continue a partial file,
 the sha256 check) and unpacks the archive itself with Go's `archive/tar`
 and `compress/gzip` into `python.partial\`, then moves it to `python\`:
@@ -276,6 +289,7 @@ there; the real helper runs in the voice folder):
 | `KINETIC_VOICE_DOWNLOAD_BASE` | Every download URL `https://<host>/<path>` becomes `<base>/<host>/<path>`, in the lock written for the helper too, so a local server stands in for all three sources. |
 | `KINETIC_VOICE_LOCK` | A lock file in place of the embedded one (the helper gets it too). |
 | `KINETIC_VOICE_PYTHON` | A Python to run the embedded helper with; no Python download. |
+| `KINETIC_VOICE_NVIDIA_SMI` | Windows only: a program to run in place of `nvidia-smi` (it gets `--query-gpu=name,driver_version --format=csv,noheader` and prints `<name>, <driver>` per card), or `off` for no such program, so the card check finds no GPU. |
 | `KINETIC_VOICE_HELPER` | A whole command line run with `/bin/sh` (Windows: `cmd.exe /d /s /c`) in place of the helper; no Python download, and the helper starts for any request. |
 
 The Windows exe reads the same variables (`windows/voice.go`,
