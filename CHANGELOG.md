@@ -17,22 +17,29 @@ Taking a new release means replacing a game folder's player (CREATE.md,
 "Upgrading to a newer Kinetic"). Bullets marked **Upgrading:** ask
 something more of an author.
 
-## 1.9.0-dev
+## 1.9.0 (2026-11-16)
 
-- Spoken lines (in progress; the Mac app first, the Windows program
-  next): a game can give its characters voices, and the reader's Mac
-  speaks each line in its speaker's voice, generated while they read.
-  A reader opts in on the Esc screen's **Spoken lines** row with a
-  one-time download of about 3.3 GB (Apple silicon, macOS 14 or later),
-  shared by every Kinetic game on the Mac, and can remove it there.
-  Lines are made at about half their length, the next ones ahead of the
-  reader, and kept so a reread is instant. Auto-forward waits for a line
-  still being made, up to 20 seconds. Thoughts are spoken in their
-  speaker's voice, lines with no speaker in a narrator voice, and a
-  recorded voice line always plays instead. A browser plays such a game
-  silently. On Windows, spoken lines need an NVIDIA graphics card (driver
-  570.65 or later; a 6.8 GB download); on any other PC the download
-  button is greyed out and says why.
+- Spoken lines: a game can give its characters voices, and the reader's
+  computer speaks each line in its speaker's voice, generated while they
+  read, in the Mac app and the Windows program. A reader opts in with
+  **Download voice model** in the Voice row of the Esc screen's
+  Volumes... sheet, a one-time download shared by every Kinetic game on
+  the computer: about 3.3 GB on a Mac (Apple silicon, macOS 14 or
+  later), 6.8 GB on Windows. The row's ? explains it, and once the model
+  is in, the row holds the Voice slider with a small **remove voice
+  model** button. Voice volume 0 asks for no lines. Lines are made at
+  about half their length, the next ones ahead of the reader, and kept
+  so a reread is instant. Auto-forward waits for a line still being
+  made, up to 20 seconds. Thoughts are spoken in their speaker's voice,
+  lines with no speaker in a narrator voice, and a recorded voice line
+  always plays instead. A browser plays such a game silently. On
+  Windows, spoken lines need an NVIDIA graphics card (driver 570.65 or
+  later); on any other PC the download button is greyed out and its ?
+  says why.
+- The Volumes... sheet shows a slider only for the sound a game has
+  (music, effects, voice), and a game with no sound at all has no
+  Volumes... button. Dragging a slider out of the sheet and letting go
+  no longer closes it.
 - New optional manifest fields `voices` and `narrator` give each speaker
   a reference clip to clone (docs/content-format.md, "Voices"). The
   validator checks their files and scripts and warns about a voice nobody
@@ -60,7 +67,8 @@ something more of an author.
   progress saved here. The browser tab keeps its words.
 - **Upgrading:** nothing is needed for a game without voices. To give a
   game voices, upgrade its player (`tools/upgrade_folder.py`), cast the
-  voices and build the Mac app again.
+  voices, and either build the Mac and Windows apps again or record the
+  lines with `tools/record_lines.py`.
 
 ## 1.8.0 (2026-11-15)
 

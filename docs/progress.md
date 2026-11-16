@@ -4749,5 +4749,20 @@ truthful: an unchecked box means nothing was accepted.
       and confirm 50 passed, check clean; the full npm test and Chrome
       screens had timeouts only, in untouched files, while the machine ran
       fsck after a reboot (load 48); they go again in the full suites.)
-- [ ] Phase-closer (Phase 52): full suites; VERSION 1.9.0, the CHANGELOG
+- [x] Phase-closer (Phase 52): full suites; VERSION 1.9.0, the CHANGELOG
       dated, tag v1.9.0, `main` fast-forwarded.
+      (2026-11-16 on 90dcaaf, Moonlight idle, macOS still checking the Data
+      disk after a reboot, load average 3 to 5: full pytest 1240 passed
+      and one stale-metadata failure in test_version.py, which passed
+      after the converter's editable install was rerun at 1.9.0;
+      apps/voice 87 passed; npm test 1519, check clean; Go test and
+      Windows vet clean; full `npm run verify` 774/774 on Chrome; `npm
+      run verify -- --webkit` 833 pass, 5 partial (the headless
+      fullscreen checks) and 1 fail, the videosound check that the
+      unlocking key starts the sound unsought (one seek under load),
+      which passed 31/31 in each of three reruns of `videosound` alone;
+      package-proof 18/18 with .tmp/extract-demo regenerated. The
+      CHANGELOG entry rewritten for the finished phase (the Voice row,
+      sliders by content, Windows) and dated; VERSION, package.json,
+      its lockfile and pyproject 1.9.0; tag v1.9.0; `main`
+      fast-forwarded.)
