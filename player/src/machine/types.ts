@@ -287,6 +287,17 @@ export interface Manifest {
    * Esc help screen. Not the format's `schemaVersion`. Absent: none.
    */
   version?: string;
+  /**
+   * Optional BCP 47 tag of the manifest's own text, the base every
+   * language file translates (docs/content-format.md, "Translations").
+   * Absent: `en`.
+   */
+  language?: string;
+  /**
+   * Optional tags of the folder's language files, `lang/<tag>.json` and
+   * its `lang/<tag>.js` each; never the base `language`.
+   */
+  languages?: readonly string[];
   width: number;
   height: number;
   /** Position in the array is position in the novel. */
@@ -302,6 +313,46 @@ export interface Manifest {
   voices?: Readonly<Record<string, ManifestVoice>>;
   /** Optional voice for items with text and no speaker. */
   narrator?: ManifestVoice;
+}
+
+/**
+ * One translated string of a language file (docs/content-format.md,
+ * "Translations"): the text drawn in that language, and the hash of the
+ * base text it was made from.
+ */
+export interface Translation {
+  text: string;
+  /** First 8 lowercase hex digits of the base string's SHA-256. */
+  from?: string;
+}
+
+/** A decision's prompt and route labels in one language. */
+export interface TranslatedDecision {
+  prompt?: Translation;
+  /** Route id, unique within its decision, to its label. */
+  routes?: Readonly<Record<string, Translation>>;
+}
+
+/**
+ * A language file, `lang/<tag>.json`, which its script `lang/<tag>.js`
+ * hands the player (docs/content-format.md, "Translations"). Every
+ * string falls back to the manifest's own when absent.
+ */
+export interface LanguageFile {
+  /** The file's tag, equal to its name and listed in `languages`. */
+  language: string;
+  /** The language's name in itself; absent: `Intl.DisplayNames`. */
+  name?: string;
+  title?: Translation;
+  version?: Translation;
+  /** Item id to its text. */
+  items?: Readonly<Record<string, Translation>>;
+  /** Speaker exactly as the manifest gives it to the name drawn. */
+  speakers?: Readonly<Record<string, string>>;
+  /** Decision id to its prompt and labels. */
+  decisions?: Readonly<Record<string, TranslatedDecision>>;
+  /** Base voice recordings play under this language's text; default false. */
+  keepOriginalVoice?: boolean;
 }
 
 /** Player-side pacing settings (docs/content-format.md, "Timing"). */

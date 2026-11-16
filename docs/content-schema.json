@@ -31,6 +31,17 @@
       "pattern": "\\S",
       "description": "optional release of the game as its author names it (1.2, 0.9 beta, Episode 3), shown after the title on the player's Esc help screen; plain text, never HTML; not the format's schemaVersion; see docs/content-format.md § Manifest"
     },
+    "language": {
+      "$ref": "#/$defs/languageTag",
+      "default": "en",
+      "description": "optional BCP 47 tag of the manifest's own language, the base every language file translates from (absent: en); see docs/content-format.md § Translations"
+    },
+    "languages": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/languageTag" },
+      "description": "optional tags of the language files in the folder, lang/<tag>.json each with its lang/<tag>.js; never the base language, which the validator enforces; see docs/content-format.md § Translations"
+    },
     "width": {
       "type": "integer",
       "minimum": 1
@@ -87,6 +98,11 @@
     "id": {
       "type": "string",
       "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$"
+    },
+    "languageTag": {
+      "type": "string",
+      "pattern": "^[a-z]{2,3}(-[A-Z][a-z]{3})?(-([A-Z]{2}|[0-9]{3}))?(-([a-z0-9]{5,8}|[0-9][a-z0-9]{3}))*$",
+      "description": "a BCP 47 tag, language[-Script][-REGION][-variant...], in canonical casing: de, zh-Hans, pt-BR, es-419; see docs/content-format.md § Translations"
     },
     "track": {
       "type": "object",

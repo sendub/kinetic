@@ -4934,9 +4934,26 @@ truthful: an unchecked box means nothing was accepted.
 
 ## Phase 54: Translations (2026-11-16, user)
 
-- [ ] The format (docs/plan.md Phase 54, item 1). Manifest `language`
+- [x] The format (docs/plan.md Phase 54, item 1). Manifest `language`
       and `languages`, the language file's schema, content-format.md
       "Translations", the validator's checks, `fixtures/lang-demo`.
+      (Evidence: docs/lang.schema.json and the two manifest fields in
+      docs/content-schema.json share one canonical-tag pattern with
+      `converter/kinetic_extract/language_file.py` and the player's
+      `isLanguageTag` (a test keeps them equal); the script is
+      `window.KINETIC_LANGUAGES["<tag>"] = <JSON>;`; `from` is the first
+      8 hex of the base text's SHA-256. content-format.md "Translations"
+      and rules 19-22. The validator errors on missing or differing
+      files, a wrong tag, unknown ids or speakers, blank text and the
+      prompt and label limits, and warns on missing, stale and long
+      strings with a coverage line per language. `fixtures/lang-demo`
+      (de, ja, ar; one missing and one stale German line) validates
+      with exactly those 2 warnings, exit 0; fixtures/demo unchanged.
+      Verified: pytest validate_content, build_lang_demo, build_demo,
+      language_file, release_version 441 passed; npm test 1540/1540;
+      npm run check clean. Deviation: a language file may carry
+      `$schema`, as a manifest may. Per-language voice lines are left to
+      item 6.)
 - [ ] The player's words in a catalogue, English only (item 2), with
       a pseudo-locale scenario over every screen.
 - [ ] Choosing and showing a game's language (item 3): the title-bar

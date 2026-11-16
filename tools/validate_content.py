@@ -43,6 +43,17 @@ when no item has text without a speaker, then a count, printed between
 the audio and poster warnings. They never change the exit status, and a
 manifest without voices prints none.
 
+Translation warnings, `language_warnings`, need no flag and follow the
+voice warnings: one such line per lang/*.json the manifest's
+`languages` does not list, then, per listed language, one per base
+string its file lacks, per stale translation (its `from` is not the
+hash of the base text now) and per item text over 1.5 times its base
+or longer than the game's longest base text, each kind capped at 20
+lines and a count of the rest; then one coverage line per language
+(`<dir>: de: 31 of 32 strings (96.8%), 1 stale, 0 unchecked`) and a
+count. They never change the exit status, and a manifest without
+`languages` prints none.
+
 Two layers of checking, per docs/content-format.md §Rules and validator
 invariants:
 
@@ -67,7 +78,11 @@ invariants:
    reference clip has its script beside it holding the file's bytes, or
    ships as that script alone (docs/content-format.md § Audio,
    § Voices);
-   and a present `manifest.js` shim embeds JSON equal to `manifest.json`.
+   a present `manifest.js` shim embeds JSON equal to `manifest.json`;
+   and each language file the manifest's `languages` lists exists with
+   its script, passes `docs/lang.schema.json`, and names only items,
+   speakers, decisions and routes the manifest has
+   (docs/content-format.md § Translations).
 """
 
 from __future__ import annotations
@@ -84,12 +99,14 @@ from jsonschema import Draft202012Validator, validators
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_SCHEMA = REPO_ROOT / "docs" / "content-schema.json"
+DEFAULT_LANG_SCHEMA = REPO_ROOT / "docs" / "lang.schema.json"
 
 # The audio script's shape and the loop-safe formats live with the
 # converter, which writes them; standard library only.
 if str(REPO_ROOT / "converter") not in sys.path:
     sys.path.insert(0, str(REPO_ROOT / "converter"))
 from kinetic_extract import audio_format  # noqa: E402
+from kinetic_extract import language_file  # noqa: E402
 from kinetic_extract.version import add_version_option  # noqa: E402
 
 MANIFEST_NAME = "manifest.json"
@@ -129,8 +146,8 @@ def _sort_key(parts: Any) -> list[tuple[int, int, str]]:
     return [(0, p, "") if isinstance(p, int) else (1, 0, str(p)) for p in parts]
 
 
-def _line(loc: str, reason: str) -> str:
-    return f"{MANIFEST_NAME}: {loc}: {reason}"
+def _line(loc: str, reason: str, file: str = MANIFEST_NAME) -> str:
+    return f"{file}: {loc}: {reason}"
 
 
 def _is_path_pattern(error: jsonschema.ValidationError,
@@ -201,6 +218,16 @@ def _decorate(error: jsonschema.ValidationError,
         return f"must be at most {error.validator_value} (found {value!r})"
     if kind == "minItems" and isinstance(value, list):
         return f"must have at least {error.validator_value} entries (found {len(value)})"
+    if kind == "pattern" and error.validator_value == \
+            language_file.TAG_PATTERN and isinstance(value, str):
+        return _tag_rule(value)
+    if kind == "pattern" and error.validator_value == "\\S" \
+            and isinstance(value, str):
+        return f"must hold at least one non-space character (found {value!r})"
+    if kind == "uniqueItems" and isinstance(value, list):
+        repeated = next((v for i, v in enumerate(value) if v in value[:i]),
+                        None)
+        return f"must not repeat an entry (found {repeated!r} twice)"
     if kind == "pattern" and "propertyNames" in error.absolute_schema_path:
         # The error sits on the object; only the message can name the key.
         return (f"name {value!r} does not match pattern "
@@ -208,6 +235,16 @@ def _decorate(error: jsonschema.ValidationError,
     if kind == "pattern":
         return f"does not match pattern {error.validator_value}"
     return error.message
+
+
+def _tag_rule(value: str) -> str:
+    """Why a language tag fails $defs/languageTag, in plain words."""
+    canonical = language_file.canonical_tag(value)
+    if canonical is None:
+        return (f"{value!r} is not a BCP 47 tag of the form "
+                "language[-Script][-REGION][-variant] (de, zh-Hans, pt-BR, "
+                "es-419)")
+    return f"{value!r} must be written {canonical!r} (canonical casing)"
 
 
 def _one_of_lines(
@@ -1409,31 +1446,392 @@ def _join(path: str, key: str) -> str:
 
 def shim_problems(content_dir: Path, manifest: Any) -> list[str]:
     """Invariant 5: a present manifest.js embeds JSON equal to manifest.json."""
-    path = content_dir / SHIM_NAME
+    return _script_problems(content_dir / SHIM_NAME, SHIM_NAME, SHIM_PREFIX,
+                            manifest, MANIFEST_NAME, "manifest JSON")
+
+
+def _script_problems(path: Path, label: str, prefix: str, expected: Any,
+                     expected_label: str, what: str) -> list[str]:
+    """A script `<prefix><JSON>;` (manifest.js, a language file's script)
+    whose JSON parses equal to `expected`, the parsed `expected_label`
+    (None: that file already reported its own problem)."""
     try:
         text = path.read_text(encoding="utf-8")
     except OSError as exc:
-        return [f"{SHIM_NAME}: cannot read: {exc.strerror or exc}"]
+        return [f"{label}: cannot read: {exc.strerror or exc}"]
     except UnicodeDecodeError as exc:
-        return [f"{SHIM_NAME}: not UTF-8 text: {exc.reason}"]
-    if not text.startswith(SHIM_PREFIX):
-        return [f"{SHIM_NAME}: must start with {SHIM_PREFIX!r}"]
-    body = text[len(SHIM_PREFIX):].rstrip("\r\n")
+        return [f"{label}: not UTF-8 text: {exc.reason}"]
+    if not text.startswith(prefix):
+        return [f"{label}: must start with {prefix!r}"]
+    body = text[len(prefix):].rstrip("\r\n")
     if not body.endswith(";"):
-        return [f"{SHIM_NAME}: must be {SHIM_PREFIX}<manifest JSON>; with "
-                "nothing after the semicolon"]
+        return [f"{label}: must be {prefix}<{what}>; with nothing after the "
+                "semicolon"]
     try:
         embedded = json.loads(body[:-1])
     except json.JSONDecodeError as exc:
-        return [f"{SHIM_NAME}: embedded JSON is invalid at line {exc.lineno} "
+        return [f"{label}: embedded JSON is invalid at line {exc.lineno} "
                 f"column {exc.colno}: {exc.msg}"]
-    if manifest is None:
-        return []  # manifest.json already reported its own problem
-    if embedded != manifest:
-        where = _first_difference(embedded, manifest) or "<root>"
-        return [f"{SHIM_NAME}: embedded JSON does not equal {MANIFEST_NAME} "
+    if expected is None:
+        return []
+    if embedded != expected:
+        where = _first_difference(embedded, expected) or "<root>"
+        return [f"{label}: embedded JSON does not equal {expected_label} "
                 f"(first difference at {where})"]
     return []
+
+
+# ---------------------------------------------------------------------------
+# Translations (docs/content-format.md § Translations)
+# ---------------------------------------------------------------------------
+
+LENGTH_FACTOR = 1.5   # a translated text over this times its base warns
+LIST_MAX = 20         # warnings of one kind listed per language
+
+
+class _Base:
+    """The manifest's translatable strings, as a language file keys them."""
+
+    def __init__(self, manifest: Any) -> None:
+        manifest = manifest if isinstance(manifest, dict) else {}
+        items = manifest.get("items")
+        items = [item for item in (items if isinstance(items, list) else [])
+                 if isinstance(item, dict) and isinstance(item.get("id"), str)]
+        self.item_ids = {item["id"] for item in items}
+        # Item id -> its text, for the items that draw one.
+        self.texts: dict[str, str] = {}
+        # Speakers of items that draw text, in order of first use.
+        self.speakers: dict[str, None] = {}
+        for item in items:
+            text = item.get("text")
+            if isinstance(text, str) and text.strip():
+                self.texts.setdefault(item["id"], text)
+                speaker = item.get("speaker")
+                if isinstance(speaker, str) and speaker:
+                    self.speakers.setdefault(speaker, None)
+        # Decision id -> (prompt, route id -> label).
+        self.decisions: dict[str, tuple[Any, dict[str, Any]]] = {}
+        branches = manifest.get("branches")
+        for branch in branches if isinstance(branches, list) else []:
+            if not isinstance(branch, dict) \
+                    or not isinstance(branch.get("id"), str):
+                continue
+            routes = branch.get("routes")
+            labels = {route["id"]: route.get("label")
+                      for route in (routes if isinstance(routes, list) else [])
+                      if isinstance(route, dict)
+                      and isinstance(route.get("id"), str)}
+            self.decisions.setdefault(branch["id"],
+                                      (branch.get("prompt"), labels))
+        self.title = manifest.get("title")
+        self.version = manifest.get("version")
+        self.longest = max((len(t) for t in self.texts.values()), default=0)
+
+    def strings(self) -> Iterator[tuple[str, str, Any]]:
+        """(location in a language file, kind, base string) for every
+        translatable string: title, version, speakers, item texts, then
+        each decision's prompt and route labels. A speaker's base is its
+        name; a speaker entry is a plain string, not a translation."""
+        for key in ("title", "version"):
+            value = getattr(self, key)
+            if isinstance(value, str):
+                yield key, "text", value
+        for speaker in self.speakers:
+            yield f"speakers.{speaker}", "speaker", speaker
+        for item_id, text in self.texts.items():
+            yield f"items.{item_id}", "item", text
+        for decision_id, (prompt, labels) in self.decisions.items():
+            if isinstance(prompt, str):
+                yield f"decisions.{decision_id}.prompt", "text", prompt
+            for route_id, label in labels.items():
+                if isinstance(label, str):
+                    yield (f"decisions.{decision_id}.routes.{route_id}",
+                           "text", label)
+
+
+def _languages(manifest: Any) -> tuple[str, list[tuple[int, str]]]:
+    """(the base language, (index, tag) of each well-formed, canonical
+    `languages` entry, first occurrence only). Malformed values are the
+    schema's to report."""
+    if not isinstance(manifest, dict):
+        return language_file.DEFAULT_LANGUAGE, []
+    base = manifest.get("language")
+    if not isinstance(base, str):
+        base = language_file.DEFAULT_LANGUAGE
+    tags = manifest.get("languages")
+    listed: list[tuple[int, str]] = []
+    seen: set[str] = set()
+    for i, tag in enumerate(tags if isinstance(tags, list) else []):
+        if isinstance(tag, str) and language_file.canonical_tag(tag) == tag \
+                and tag not in seen:
+            seen.add(tag)
+            listed.append((i, tag))
+    return base, listed
+
+
+def _lang_names(content_dir: Path) -> set[str]:
+    """The exact names in the folder's lang/ (a case-insensitive file
+    system would otherwise find lang/DE.json for de)."""
+    try:
+        return {p.name for p in (content_dir / language_file.LANG_DIR).iterdir()
+                if p.is_file()}
+    except OSError:
+        return set()
+
+
+def _entry_text(entry: Any) -> str | None:
+    """A translation's non-blank text, or None."""
+    text = entry.get("text") if isinstance(entry, dict) else None
+    return text if isinstance(text, str) and text.strip() else None
+
+
+def _lookup(data: dict[str, Any], loc: str) -> Any:
+    """The entry at a `_Base.strings` location in a language file, or
+    None. A speaker name may hold dots, so `speakers.` is split once."""
+    if loc in ("title", "version"):
+        return data.get(loc)
+    table, _, rest = loc.partition(".")
+    container = data.get(table)
+    if not isinstance(container, dict):
+        return None
+    if table in ("speakers", "items"):
+        return container.get(rest)
+    decision_id, _, tail = rest.partition(".")
+    decision = container.get(decision_id)
+    if not isinstance(decision, dict):
+        return None
+    if tail == "prompt":
+        return decision.get("prompt")
+    routes = decision.get("routes")
+    return routes.get(tail[len("routes."):]) if isinstance(routes, dict) \
+        else None
+
+
+def language_problems(content_dir: Path, manifest: Any,
+                      lang_schema_path: Path = DEFAULT_LANG_SCHEMA
+                      ) -> list[str]:
+    """Problems of the manifest's `languages` and its language files:
+    no tag is the base language; each listed tag has its lang/<tag>.json
+    and lang/<tag>.js, the script's JSON equals the file's, the file
+    passes docs/lang.schema.json, its `language` is its own tag, every
+    item, speaker, decision and route it names exists (an item with
+    text, a speaker of one, a route of that decision), and translated
+    prompts and labels keep the branch length limits."""
+    base_tag, listed = _languages(manifest)
+    problems: list[str] = []
+    tags = manifest.get("languages") if isinstance(manifest, dict) else None
+    for i, tag in enumerate(tags if isinstance(tags, list) else []):
+        if tag == base_tag:
+            problems.append(_line(
+                f"languages[{i}]",
+                f"{tag!r} is the manifest's own language, which has no "
+                "language file"))
+    if not listed:
+        return problems
+    lang_schema, schema_read = _read_json(Path(lang_schema_path),
+                                          str(lang_schema_path))
+    problems += schema_read
+    names = _lang_names(content_dir)
+    base = _Base(manifest)
+    for i, tag in listed:
+        if tag == base_tag:
+            continue
+        json_rel = language_file.json_path(tag)
+        script_rel = language_file.script_path(tag)
+        data = None
+        if f"{tag}.json" not in names:
+            problems.append(_line(f"languages[{i}]",
+                                  f"language file {json_rel!r} does not "
+                                  "exist in the folder"))
+        else:
+            data, read = _read_json(content_dir / json_rel, json_rel)
+            problems += read
+        if f"{tag}.js" not in names:
+            problems.append(_line(f"languages[{i}]",
+                                  f"language script {script_rel!r} does not "
+                                  "exist in the folder"))
+        else:
+            problems += _script_problems(
+                content_dir / script_rel, script_rel,
+                language_file.script_prefix(tag), data, json_rel,
+                "language file JSON")
+        if data is None:
+            continue
+        if lang_schema is not None:
+            pairs = schema_problems(data, lang_schema)
+            pairs.sort(key=lambda pair: (_sort_key(pair[0]), pair[1]))
+            problems += [_line(_loc(parts), reason, json_rel)
+                         for parts, reason in pairs]
+        if isinstance(data, dict):
+            problems += _language_file_problems(data, tag, base, json_rel)
+    return problems
+
+
+def _language_file_problems(data: dict[str, Any], tag: str, base: _Base,
+                            file: str) -> list[str]:
+    """The cross-field rules of one language file the schema cannot
+    express."""
+    problems: list[str] = []
+    language = data.get("language")
+    if isinstance(language, str) and language != tag:
+        problems.append(_line("language", f"must be {tag!r}, the file's name "
+                                          f"(found {language!r})", file))
+    items = data.get("items")
+    for item_id in items if isinstance(items, dict) else {}:
+        if item_id not in base.item_ids:
+            problems.append(_line(f"items.{item_id}",
+                                  f"no item has id {item_id!r}", file))
+        elif item_id not in base.texts:
+            problems.append(_line(f"items.{item_id}",
+                                  f"item {item_id!r} has no text to "
+                                  "translate", file))
+    speakers = data.get("speakers")
+    for speaker in speakers if isinstance(speakers, dict) else {}:
+        if speaker not in base.speakers:
+            problems.append(_line(f"speakers.{speaker}",
+                                  f"no item with text has speaker "
+                                  f"{speaker!r}", file))
+    decisions = data.get("decisions")
+    for decision_id, entry in (decisions.items()
+                               if isinstance(decisions, dict) else ()):
+        loc = f"decisions.{decision_id}"
+        if decision_id not in base.decisions:
+            problems.append(_line(loc, f"no decision has id {decision_id!r}",
+                                  file))
+            continue
+        if not isinstance(entry, dict):
+            continue  # the schema reports it
+        prompt = _entry_text(entry.get("prompt"))
+        if prompt is not None and len(prompt) >= BRANCH_PROMPT_MAX:
+            problems.append(_line(
+                f"{loc}.prompt.text",
+                f"must be shorter than {BRANCH_PROMPT_MAX} characters "
+                f"(found {len(prompt)})", file))
+        routes = entry.get("routes")
+        labels = base.decisions[decision_id][1]
+        for route_id, route in (routes.items()
+                                if isinstance(routes, dict) else ()):
+            rloc = f"{loc}.routes.{route_id}"
+            if route_id not in labels:
+                problems.append(_line(rloc, f"decision {decision_id!r} has "
+                                            f"no route {route_id!r}", file))
+                continue
+            label = _entry_text(route)
+            if label is not None and len(label) >= BRANCH_LABEL_MAX:
+                problems.append(_line(
+                    f"{rloc}.text",
+                    f"must be shorter than {BRANCH_LABEL_MAX} characters "
+                    f"(found {len(label)})", file))
+    return problems
+
+
+def _shorten(text: str, limit: int = 60) -> str:
+    return text if len(text) <= limit else text[:limit - 1] + "…"
+
+
+def _capped(lines: list[str], file: str, what: str) -> list[str]:
+    """`lines`, at most LIST_MAX of them, then one line counting the rest."""
+    if len(lines) <= LIST_MAX:
+        return lines
+    rest = len(lines) - LIST_MAX
+    return lines[:LIST_MAX] + [WARNING_PREFIX + _line(
+        "<root>", f"and {rest} more {what}", file)]
+
+
+def _percent(done: int, total: int) -> str:
+    """Coverage as a percentage, rounded down to 0.1 so that only a
+    complete language reads 100%."""
+    if total == 0 or done == total:
+        return "100%"
+    return f"{done * 1000 // total / 10:.1f}%"
+
+
+def language_warnings(manifest: Any, content_dir: Path
+                      ) -> tuple[list[str], list[str]]:
+    """(warning lines, coverage lines) for the folder's language files.
+
+    Warnings, per listed language whose file loads: each base string it
+    lacks (title, version, speaker, item text, prompt, route label); each
+    translation whose `from` is not the hash of the base text now
+    (stale); each item text longer than 1.5 times its base text or than
+    the game's longest base text, in code points. Each kind lists at most
+    LIST_MAX lines per language and then counts the rest. Before them,
+    one line per lang/*.json the manifest does not list. One coverage
+    line per listed language: strings translated of the base's, stale,
+    and unchecked (a translation with no `from`). A manifest without
+    `languages` and without language files gets nothing."""
+    base_tag, listed = _languages(manifest)
+    names = _lang_names(content_dir)
+    listed_tags = {tag for _i, tag in listed}
+    warnings: list[str] = []
+    for name in sorted(names):
+        if name.endswith(".json") and name[:-len(".json")] not in listed_tags:
+            warnings.append(WARNING_PREFIX + _line(
+                "<root>", f"not listed in {MANIFEST_NAME} languages, so the "
+                          "player never loads it",
+                f"{language_file.LANG_DIR}/{name}"))
+    coverage: list[str] = []
+    base = _Base(manifest)
+    for _i, tag in listed:
+        file = language_file.json_path(tag)
+        if tag == base_tag or f"{tag}.json" not in names:
+            continue
+        try:
+            data = json.loads((content_dir / file).read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue  # language_problems reports it
+        if not isinstance(data, dict):
+            continue
+        missing: list[str] = []
+        stale: list[str] = []
+        long: list[str] = []
+        total = done = stale_count = unchecked = 0
+        for loc, kind, text in base.strings():
+            total += 1
+            entry = _lookup(data, loc)
+            if kind == "speaker":
+                if isinstance(entry, str) and entry.strip():
+                    done += 1
+                else:
+                    missing.append(WARNING_PREFIX + _line(
+                        loc, f"no translation of speaker {text!r}", file))
+                continue
+            translated = _entry_text(entry)
+            if translated is None:
+                missing.append(WARNING_PREFIX + _line(
+                    loc, f"no translation (base: {_shorten(text)!r})", file))
+                continue
+            done += 1
+            made_from = entry.get("from")
+            if not isinstance(made_from, str):
+                unchecked += 1
+            elif made_from != language_file.base_hash(text):
+                stale_count += 1
+                stale.append(WARNING_PREFIX + _line(
+                    f"{loc}.from",
+                    f"stale: translated from a text hashing to {made_from!r}, "
+                    f"the base now hashes to {language_file.base_hash(text)!r} "
+                    f"(base: {_shorten(text)!r})", file))
+            if kind == "item":
+                reasons = []
+                if len(translated) > LENGTH_FACTOR * len(text):
+                    reasons.append(f"over {LENGTH_FACTOR:g} times its base "
+                                   f"text's {len(text)}")
+                if len(translated) > base.longest:
+                    reasons.append("longer than the game's longest base "
+                                   f"text ({base.longest})")
+                if reasons:
+                    long.append(WARNING_PREFIX + _line(
+                        f"{loc}.text",
+                        f"{len(translated)} characters, "
+                        + " and ".join(reasons), file))
+        warnings += _capped(missing, file, "strings without a translation")
+        warnings += _capped(stale, file, "stale translations")
+        warnings += _capped(long, file, "long translations")
+        coverage.append(f"{tag}: {done} of {total} strings "
+                        f"({_percent(done, total)}), {stale_count} stale, "
+                        f"{unchecked} unchecked")
+    return warnings, coverage
 
 
 # ---------------------------------------------------------------------------
@@ -1452,12 +1850,15 @@ def _read_json(path: Path, label: str) -> tuple[Any, list[str]]:
                       f"{exc.colno}: {exc.msg}"]
 
 
-def validate_folder(content_dir: Path, schema_path: Path = DEFAULT_SCHEMA) -> list[str]:
+def validate_folder(content_dir: Path, schema_path: Path = DEFAULT_SCHEMA,
+                    lang_schema_path: Path = DEFAULT_LANG_SCHEMA) -> list[str]:
     """Return one problem line per violation; an empty list means valid."""
-    return _validate(content_dir, schema_path)[1]
+    return _validate(content_dir, schema_path, lang_schema_path)[1]
 
 
-def _validate(content_dir: Path, schema_path: Path) -> tuple[Any, list[str]]:
+def _validate(content_dir: Path, schema_path: Path,
+              lang_schema_path: Path = DEFAULT_LANG_SCHEMA
+              ) -> tuple[Any, list[str]]:
     """(the parsed manifest or None, validate_folder's problem lines)."""
     content_dir = Path(content_dir)
     schema_path = Path(schema_path)
@@ -1488,6 +1889,9 @@ def _validate(content_dir: Path, schema_path: Path) -> tuple[Any, list[str]]:
 
     if (content_dir / SHIM_NAME).exists():
         problems += shim_problems(content_dir, manifest)
+
+    if manifest is not None:
+        problems += language_problems(content_dir, manifest, lang_schema_path)
 
     return manifest, list(dict.fromkeys(problems))
 
@@ -1668,6 +2072,14 @@ def main(argv: list[str] | None = None) -> int:
     if spoken:
         print(f"{args.content_dir}: {len(spoken)} voice warning"
               f"{'s' if len(spoken) != 1 else ''}", file=sys.stderr)
+    translated, coverage = language_warnings(manifest, args.content_dir)
+    for warning in translated:
+        print(warning, file=sys.stderr)
+    for line in coverage:
+        print(f"{args.content_dir}: {line}", file=sys.stderr)
+    if translated:
+        print(f"{args.content_dir}: {len(translated)} translation warning"
+              f"{'s' if len(translated) != 1 else ''}", file=sys.stderr)
     if media is not None:
         warnings = poster_warnings(manifest, media)
         for warning in warnings:

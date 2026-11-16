@@ -1,0 +1,109 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:kinetic:lang-schema-1",
+  "title": "Kinetic language file",
+  "description": "A lang/<tag>.json of a Kinetic content folder: one language's translation of the manifest's text. See docs/content-format.md § Translations for semantics.",
+  "type": "object",
+  "required": ["language"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "optional address of the JSON Schema an editor checks this file against; the player and validator ignore the value"
+    },
+    "language": {
+      "$ref": "#/$defs/languageTag",
+      "description": "this file's language; equal to the file name without .json and listed in the manifest's languages, which the validator enforces"
+    },
+    "name": {
+      "type": "string",
+      "maxLength": 40,
+      "pattern": "\\S",
+      "description": "optional name of the language in itself, as the Language control lists it (absent: the player names it with Intl.DisplayNames)"
+    },
+    "title": {
+      "allOf": [
+        { "$ref": "#/$defs/translation" },
+        { "properties": { "text": { "maxLength": 200 } } }
+      ],
+      "description": "optional translation of the manifest's title"
+    },
+    "version": {
+      "allOf": [
+        { "$ref": "#/$defs/translation" },
+        { "properties": { "text": { "maxLength": 40 } } }
+      ],
+      "description": "optional translation of the manifest's version"
+    },
+    "items": {
+      "type": "object",
+      "propertyNames": { "$ref": "#/$defs/id" },
+      "additionalProperties": { "$ref": "#/$defs/translation" },
+      "description": "item id -> the translation of that item's text; the id must name an item with text, which the validator enforces"
+    },
+    "speakers": {
+      "type": "object",
+      "propertyNames": { "minLength": 1 },
+      "additionalProperties": {
+        "type": "string",
+        "pattern": "\\S"
+      },
+      "description": "speaker exactly as the manifest's items give it -> the name drawn; the key must be a speaker of an item with text, which the validator enforces"
+    },
+    "decisions": {
+      "type": "object",
+      "propertyNames": { "$ref": "#/$defs/id" },
+      "additionalProperties": { "$ref": "#/$defs/decision" },
+      "description": "decision id -> the translation of its prompt and route labels; ids must resolve, which the validator enforces"
+    },
+    "keepOriginalVoice": {
+      "type": "boolean",
+      "default": false,
+      "description": "true: the base recordings of voice lines play under this language's text, like subtitles"
+    }
+  },
+  "$defs": {
+    "id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$"
+    },
+    "languageTag": {
+      "type": "string",
+      "pattern": "^[a-z]{2,3}(-[A-Z][a-z]{3})?(-([A-Z]{2}|[0-9]{3}))?(-([a-z0-9]{5,8}|[0-9][a-z0-9]{3}))*$",
+      "description": "a BCP 47 tag, language[-Script][-REGION][-variant...], in canonical casing: de, zh-Hans, pt-BR, es-419"
+    },
+    "translation": {
+      "type": "object",
+      "required": ["text"],
+      "additionalProperties": false,
+      "properties": {
+        "text": {
+          "type": "string",
+          "pattern": "\\S",
+          "description": "the translated string; plain text, never HTML"
+        },
+        "from": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{8}$",
+          "description": "optional first 8 lowercase hex digits of the SHA-256 of the base string's UTF-8 bytes the translation was made from; the validator warns when the base has changed since"
+        }
+      }
+    },
+    "decision": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "prompt": {
+          "$ref": "#/$defs/translation",
+          "description": "translation of the decision's prompt; shorter than 200 characters, which the validator enforces"
+        },
+        "routes": {
+          "type": "object",
+          "propertyNames": { "$ref": "#/$defs/id" },
+          "additionalProperties": { "$ref": "#/$defs/translation" },
+          "description": "route id, unique within this decision -> the translation of its label; shorter than 120 characters, which the validator enforces"
+        }
+      }
+    }
+  }
+}

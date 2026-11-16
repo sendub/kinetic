@@ -584,15 +584,9 @@ def report(out: Path, problems: list[str]) -> None:
     print("schema check OK")
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Generate the Kinetic feature demo content folder.")
-    parser.add_argument("--out", type=Path, default=DEMO_DIR,
-                        help="folder to delete and recreate "
-                             f"(default: {DEMO_DIR})")
-    out = parser.parse_args().out
-    reset_dir(out)
-
+def demo_manifest(out: Path) -> dict:
+    """Draw and encode every section's media into `out` and return the
+    demo's manifest; fixtures/build_lang_demo.py builds on it."""
     items: list[dict] = []
     items += section_intro(out)
     items += section_text(out)
@@ -616,9 +610,20 @@ def main() -> None:
         "items": items,
         "branches": branches,
     }
+    return manifest
 
+
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        description="Generate the Kinetic feature demo content folder.")
+    parser.add_argument("--out", type=Path, default=DEMO_DIR,
+                        help="folder to delete and recreate "
+                             f"(default: {DEMO_DIR})")
+    out = parser.parse_args().out
+    reset_dir(out)
+    manifest = demo_manifest(out)
     write_manifest(out, manifest)
-    report(out, folder_problems(out, items))
+    report(out, folder_problems(out, manifest["items"]))
 
 
 if __name__ == "__main__":

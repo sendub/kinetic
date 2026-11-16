@@ -28,6 +28,7 @@ BRANCH_EXAMPLE = TOOLS_DIR / "data" / "branches-example"
 CREATE_MD = REPO_ROOT / "CREATE.md"
 VALIDATOR = TOOLS_DIR / "validate_content.py"
 SCHEMA = REPO_ROOT / "docs" / "content-schema.json"
+LANG_SCHEMA = REPO_ROOT / "docs" / "lang.schema.json"
 
 if str(TOOLS_DIR) not in sys.path:
     sys.path.insert(0, str(TOOLS_DIR))
@@ -36,6 +37,7 @@ if str(REPO_ROOT / "converter") not in sys.path:
 
 import validate_content  # noqa: E402
 from kinetic_extract import audio_format  # noqa: E402
+from kinetic_extract import language_file  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -2845,3 +2847,539 @@ def test_reach_warnings_survive_malformed_manifests() -> None:
         {"id": "a"}, "not an item", {"id": 3}], "branches": [
         "x", {"id": "d", "after": "a", "routes": "x"},
         {"id": "e", "after": "a", "routes": [None, {"start": 1}]}]}) == []
+
+
+# ---------------------------------------------------------------------------
+# Translations (docs/content-format.md § Translations; docs/plan.md Phase
+# 54 item 1): the manifest's `language` and `languages`, and a language
+# file lang/<tag>.json with its script lang/<tag>.js per listed tag.
+# ---------------------------------------------------------------------------
+
+def full_language(manifest: dict[str, Any], tag: str) -> dict[str, Any]:
+    """A language file translating every string of `manifest`, each the
+    base reversed (so no length warning) with its base hash."""
+    def tr(base: str) -> dict[str, str]:
+        return {"text": base[::-1], "from": language_file.base_hash(base)}
+
+    items = [item for item in manifest["items"] if item.get("text")]
+    data: dict[str, Any] = {
+        "language": tag,
+        "speakers": {item["speaker"]: item["speaker"].upper()
+                     for item in items if item.get("speaker")},
+        "items": {item["id"]: tr(item["text"]) for item in items},
+        "decisions": {branch["id"]: {
+            "prompt": tr(branch["prompt"]),
+            "routes": {route["id"]: tr(route["label"])
+                       for route in branch["routes"]}}
+            for branch in manifest.get("branches", [])},
+    }
+    for key in ("title", "version"):
+        if key in manifest:
+            data[key] = tr(manifest[key])
+    return data
+
+
+def add_languages(folder: Path, *tags: str,
+                  **fields: Any) -> tuple[dict[str, Any], dict[str, dict]]:
+    """List `tags` in the folder's manifest (plus top-level `fields`) and
+    write a full language file for each; (manifest, tag -> file data)."""
+    manifest = read_manifest(folder)
+    manifest["languages"] = list(tags)
+    manifest.update(fields)
+    write_manifest(folder, manifest)
+    files = {}
+    for tag in tags:
+        files[tag] = full_language(manifest, tag)
+        language_file.write_language_file(folder, files[tag])
+    return manifest, files
+
+
+def write_language(folder: Path, data: dict[str, Any],
+                   tag: str | None = None) -> None:
+    """Write a language file and its script as lang/<tag>.json."""
+    tag = tag or data["language"]
+    text = json.dumps(data, indent=2, ensure_ascii=False) + "\n"
+    (folder / "lang").mkdir(exist_ok=True)
+    (folder / "lang" / f"{tag}.json").write_text(text, encoding="utf-8")
+    (folder / "lang" / f"{tag}.js").write_text(
+        language_file.script_text(tag, text), encoding="utf-8")
+
+
+def lang_warnings(folder: Path) -> list[str]:
+    return validate_content.language_warnings(read_manifest(folder),
+                                              folder)[0]
+
+
+def coverage_of(folder: Path) -> list[str]:
+    return validate_content.language_warnings(read_manifest(folder),
+                                              folder)[1]
+
+
+def test_schema_tag_patterns_match_the_helper() -> None:
+    """The manifest schema, the language file schema, the helper and the
+    player all spell the canonical tag the same way."""
+    content = json.loads(SCHEMA.read_text(encoding="utf-8"))
+    lang = json.loads(LANG_SCHEMA.read_text(encoding="utf-8"))
+    assert content["$defs"]["languageTag"]["pattern"] == \
+        language_file.TAG_PATTERN
+    assert lang["$defs"]["languageTag"]["pattern"] == \
+        language_file.TAG_PATTERN
+    player = (REPO_ROOT / "player" / "src" / "render" / "manifest.ts"
+              ).read_text(encoding="utf-8")
+    assert f"/{language_file.TAG_PATTERN}/" in player
+
+
+def test_a_full_translation_passes_with_full_coverage(folder: Path) -> None:
+    manifest, _files = add_languages(folder, "de", "ja", version="Episode 1")
+    assert problems_of(folder) == []
+    assert lang_warnings(folder) == []
+    # title, version, 2 speakers, 29 item texts, 2 prompts and 4 labels
+    assert coverage_of(folder) == [
+        "de: 39 of 39 strings (100%), 0 stale, 0 unchecked",
+        "ja: 39 of 39 strings (100%), 0 stale, 0 unchecked"]
+    proc = run_cli(folder)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert proc.stdout == ""
+    assert f"{folder}: de: 39 of 39 strings (100%), 0 stale, 0 unchecked" \
+        in proc.stderr.splitlines()
+    assert "translation warning" not in proc.stderr
+
+
+def test_language_fields_absent_print_nothing(demo: Path) -> None:
+    assert validate_content.language_warnings(read_manifest(demo), demo) \
+        == ([], [])
+
+
+def test_an_explicit_base_language_passes(folder: Path) -> None:
+    add_languages(folder, "en", "pt-BR", language="ja")
+    assert problems_of(folder) == []
+
+
+def test_empty_languages_passes(folder: Path) -> None:
+    manifest = read_manifest(folder)
+    manifest["languages"] = []
+    write_manifest(folder, manifest)
+    assert problems_of(folder) == []
+
+
+def test_a_minimal_language_file_passes_with_warnings(folder: Path) -> None:
+    """Only `language` is required; every string is then missing."""
+    add_languages(folder, "de")
+    write_language(folder, {"language": "de"})
+    assert problems_of(folder) == []
+    assert coverage_of(folder) == [
+        "de: 0 of 38 strings (0.0%), 0 stale, 0 unchecked"]
+
+
+@pytest.mark.parametrize("tag, why", [
+    ("DE", "'DE' must be written 'de' (canonical casing)"),
+    ("pt-br", "'pt-br' must be written 'pt-BR' (canonical casing)"),
+    ("zh-hans", "'zh-hans' must be written 'zh-Hans' (canonical casing)"),
+    ("pt_BR", "'pt_BR' is not a BCP 47 tag"),
+    ("english", "'english' is not a BCP 47 tag"),
+    ("", "'' is not a BCP 47 tag"),
+])
+def test_a_bad_tag_in_languages_is_reported(folder: Path, tag: str,
+                                            why: str) -> None:
+    manifest = read_manifest(folder)
+    manifest["languages"] = [tag]
+    write_manifest(folder, manifest)
+    problems = problems_of(folder)
+    assert len(problems) == 1, problems
+    assert problems[0].startswith(f"manifest.json: languages[0]: {why}")
+
+
+def test_a_bad_base_language_is_reported(folder: Path) -> None:
+    manifest = read_manifest(folder)
+    manifest["language"] = "EN"
+    write_manifest(folder, manifest)
+    assert problems_of(folder) == [
+        "manifest.json: language: 'EN' must be written 'en' (canonical "
+        "casing)"]
+
+
+@pytest.mark.parametrize("fields, index", [
+    ({}, 1),                     # the default base, en
+    ({"language": "de"}, 0),
+])
+def test_the_base_language_in_languages_is_reported(
+        folder: Path, fields: dict[str, str], index: int) -> None:
+    base = fields.get("language", "en")
+    add_languages(folder, "de" if base == "en" else "fr", **fields)
+    manifest = read_manifest(folder)
+    manifest["languages"].insert(index, base)
+    write_manifest(folder, manifest)
+    assert problems_of(folder) == [
+        f"manifest.json: languages[{index}]: {base!r} is the manifest's own "
+        "language, which has no language file"]
+
+
+def test_a_repeated_tag_is_reported(folder: Path) -> None:
+    add_languages(folder, "de")
+    manifest = read_manifest(folder)
+    manifest["languages"] = ["de", "ja", "de"]
+    write_manifest(folder, manifest)
+    write_language(folder, full_language(manifest, "ja"))
+    assert problems_of(folder) == [
+        "manifest.json: languages: must not repeat an entry (found 'de' "
+        "twice)"]
+
+
+def test_a_missing_language_file_is_reported(folder: Path) -> None:
+    add_languages(folder, "de")
+    (folder / "lang" / "de.json").unlink()
+    assert problems_of(folder) == [
+        "manifest.json: languages[0]: language file 'lang/de.json' does "
+        "not exist in the folder"]
+
+
+def test_a_missing_language_script_is_reported(folder: Path) -> None:
+    add_languages(folder, "de")
+    (folder / "lang" / "de.js").unlink()
+    assert problems_of(folder) == [
+        "manifest.json: languages[0]: language script 'lang/de.js' does "
+        "not exist in the folder"]
+
+
+def test_a_language_file_named_in_other_casing_is_missing(
+        folder: Path) -> None:
+    """The name must equal the tag exactly, even on a file system that
+    ignores case."""
+    _manifest, files = add_languages(folder, "de")
+    shutil.rmtree(folder / "lang")
+    write_language(folder, files["de"], tag="DE")
+    problems = problems_of(folder)
+    assert "manifest.json: languages[0]: language file 'lang/de.json' does " \
+           "not exist in the folder" in problems
+
+
+def test_a_script_that_differs_from_its_file_is_reported(
+        folder: Path) -> None:
+    _manifest, files = add_languages(folder, "de")
+    changed = dict(files["de"], name="Deutsch")
+    (folder / "lang" / "de.js").write_text(
+        language_file.script_text("de", json.dumps(changed)),
+        encoding="utf-8")
+    assert problems_of(folder) == [
+        "lang/de.js: embedded JSON does not equal lang/de.json (first "
+        "difference at name)"]
+
+
+def test_a_script_must_be_equal_json_not_bytes(folder: Path) -> None:
+    _manifest, files = add_languages(folder, "de")
+    (folder / "lang" / "de.js").write_text(
+        language_file.script_text("de", json.dumps(files["de"])),
+        encoding="utf-8")
+    assert problems_of(folder) == []
+
+
+@pytest.mark.parametrize("script, problem", [
+    ('window.KINETIC_MANIFEST = {"language": "de"};\n',
+     "lang/de.js: must start with 'window.KINETIC_LANGUAGES[\"de\"] = '"),
+    ('window.KINETIC_LANGUAGES["fr"] = {"language": "de"};\n',
+     "lang/de.js: must start with 'window.KINETIC_LANGUAGES[\"de\"] = '"),
+    ('window.KINETIC_LANGUAGES["de"] = {"language": "de"}\n',
+     'lang/de.js: must be window.KINETIC_LANGUAGES["de"] = <language file '
+     'JSON>; with nothing after the semicolon'),
+    ('window.KINETIC_LANGUAGES["de"] = {"language": };\n',
+     "lang/de.js: embedded JSON is invalid at line 1 column 14: Expecting "
+     "value"),
+])
+def test_a_malformed_script_is_reported(folder: Path, script: str,
+                                        problem: str) -> None:
+    add_languages(folder, "de")
+    write_language(folder, {"language": "de"})
+    (folder / "lang" / "de.js").write_text(script, encoding="utf-8")
+    assert problems_of(folder) == [problem]
+
+
+def test_language_not_its_file_name_is_reported(folder: Path) -> None:
+    _manifest, files = add_languages(folder, "de")
+    write_language(folder, dict(files["de"], language="fr"), tag="de")
+    assert problems_of(folder) == [
+        "lang/de.json: language: must be 'de', the file's name (found 'fr')"]
+
+
+def test_invalid_language_file_json_is_reported(folder: Path) -> None:
+    add_languages(folder, "de")
+    (folder / "lang" / "de.json").write_text("{", encoding="utf-8")
+    problems = problems_of(folder)
+    assert problems[0].startswith("lang/de.json: invalid JSON at line 1")
+    assert len(problems) == 1, problems
+
+
+@pytest.mark.parametrize("change, location", [
+    (lambda d: d.update(font="Serif"), "<root>"),
+    (lambda d: d.pop("language"), "<root>"),
+    (lambda d: d.update(language="Deutsch"), "language"),
+    (lambda d: d.update(name=""), "name"),
+    (lambda d: d["items"]["text-thought"].update(thought=True),
+     "items.text-thought"),
+    (lambda d: d["items"]["text-speech"].update({"from": "ABCDEF12"}),
+     "items.text-speech.from"),
+    (lambda d: d["items"]["text-speech"].update({"from": "abc"}),
+     "items.text-speech.from"),
+    (lambda d: d["items"].update({"text-speech": "Gesprochen"}),
+     "items.text-speech"),
+    (lambda d: d["items"].update({"bad id!": {"text": "x"}}), "items"),
+    (lambda d: d["speakers"].update(Mei=""), "speakers.Mei"),
+    (lambda d: d.update(keepOriginalVoice="yes"), "keepOriginalVoice"),
+    (lambda d: d.update(title={"text": "x" * 201}), "title.text"),
+    (lambda d: d.update(version={"text": "x" * 41}), "version.text"),
+    (lambda d: d["decisions"]["outer"].update(label={"text": "x"}),
+     "decisions.outer"),
+])
+def test_a_language_file_breaking_its_schema_is_reported(
+        folder: Path, change: Any, location: str) -> None:
+    _manifest, files = add_languages(folder, "de")
+    data = files["de"]
+    change(data)
+    write_language(folder, data, tag="de")
+    problems = problems_of(folder)
+    assert problems, data
+    assert all(p.startswith("lang/de.json: ") for p in problems), problems
+    assert problems[0].startswith(f"lang/de.json: {location}: "), problems
+
+
+@pytest.mark.parametrize("text", ["", "   "])
+def test_an_empty_text_is_reported(folder: Path, text: str) -> None:
+    _manifest, files = add_languages(folder, "de")
+    files["de"]["items"]["text-speech"]["text"] = text
+    write_language(folder, files["de"])
+    assert problems_of(folder) == [
+        "lang/de.json: items.text-speech.text: must hold at least one "
+        f"non-space character (found {text!r})"]
+
+
+def test_an_unknown_item_is_reported(folder: Path) -> None:
+    _manifest, files = add_languages(folder, "de")
+    files["de"]["items"]["no-such-item"] = {"text": "Hallo"}
+    write_language(folder, files["de"])
+    assert problems_of(folder) == [
+        "lang/de.json: items.no-such-item: no item has id 'no-such-item'"]
+
+
+def test_an_item_without_base_text_is_reported(folder: Path) -> None:
+    _manifest, files = add_languages(folder, "de")
+    files["de"]["items"]["text-bare"] = {"text": "Ein Bild"}
+    write_language(folder, files["de"])
+    assert problems_of(folder) == [
+        "lang/de.json: items.text-bare: item 'text-bare' has no text to "
+        "translate"]
+
+
+def test_an_unknown_speaker_is_reported(folder: Path) -> None:
+    _manifest, files = add_languages(folder, "de")
+    files["de"]["speakers"]["mei"] = "Mei"  # speakers match exactly
+    write_language(folder, files["de"])
+    assert problems_of(folder) == [
+        "lang/de.json: speakers.mei: no item with text has speaker 'mei'"]
+
+
+def test_an_unknown_decision_is_reported(folder: Path) -> None:
+    _manifest, files = add_languages(folder, "de")
+    files["de"]["decisions"]["route1"] = {"prompt": {"text": "Wohin?"}}
+    write_language(folder, files["de"])
+    assert problems_of(folder) == [
+        "lang/de.json: decisions.route1: no decision has id 'route1'"]
+
+
+def test_a_route_of_another_decision_is_reported(folder: Path) -> None:
+    """Route ids are unique only within their decision."""
+    _manifest, files = add_languages(folder, "de")
+    files["de"]["decisions"]["nested"]["routes"]["route1"] = {"text": "x"}
+    write_language(folder, files["de"])
+    assert problems_of(folder) == [
+        "lang/de.json: decisions.nested.routes.route1: decision 'nested' has "
+        "no route 'route1'"]
+
+
+@pytest.mark.parametrize("length, ok", [(199, True), (200, False)])
+def test_a_translated_prompt_keeps_the_branch_limit(
+        folder: Path, length: int, ok: bool) -> None:
+    _manifest, files = add_languages(folder, "de")
+    files["de"]["decisions"]["outer"]["prompt"] = {"text": "ü" * length}
+    write_language(folder, files["de"])
+    assert problems_of(folder) == ([] if ok else [
+        "lang/de.json: decisions.outer.prompt.text: must be shorter than "
+        "200 characters (found 200)"])
+
+
+@pytest.mark.parametrize("length, ok", [(119, True), (120, False)])
+def test_a_translated_label_keeps_the_branch_limit(
+        folder: Path, length: int, ok: bool) -> None:
+    _manifest, files = add_languages(folder, "de")
+    files["de"]["decisions"]["outer"]["routes"]["route2"] = {
+        "text": "語" * length}
+    write_language(folder, files["de"])
+    assert problems_of(folder) == ([] if ok else [
+        "lang/de.json: decisions.outer.routes.route2.text: must be shorter "
+        "than 120 characters (found 120)"])
+
+
+def test_an_unlisted_language_file_warns(folder: Path) -> None:
+    _manifest, files = add_languages(folder, "de")
+    write_language(folder, dict(files["de"], language="fr"), tag="fr")
+    assert problems_of(folder) == []
+    assert lang_warnings(folder) == [
+        "warning: lang/fr.json: <root>: not listed in manifest.json "
+        "languages, so the player never loads it"]
+
+
+def test_an_unlisted_language_file_warns_without_languages(
+        folder: Path) -> None:
+    write_language(folder, {"language": "fr"})
+    assert problems_of(folder) == []
+    assert len(lang_warnings(folder)) == 1
+
+
+def test_each_missing_string_warns(folder: Path) -> None:
+    _manifest, files = add_languages(folder, "de", version="Episode 1")
+    data = files["de"]
+    del data["title"], data["version"]
+    del data["speakers"]["Theo"]
+    del data["items"]["floor-2"]
+    del data["decisions"]["nested"]["prompt"]
+    del data["decisions"]["outer"]["routes"]["route2"]
+    write_language(folder, data)
+    assert problems_of(folder) == []
+    assert lang_warnings(folder) == [
+        "warning: lang/de.json: title: no translation (base: 'Kinetic "
+        "demo')",
+        "warning: lang/de.json: version: no translation (base: 'Episode 1')",
+        "warning: lang/de.json: speakers.Theo: no translation of speaker "
+        "'Theo'",
+        "warning: lang/de.json: items.floor-2: no translation (base: 'Short "
+        "line two.')",
+        "warning: lang/de.json: decisions.nested.prompt: no translation "
+        "(base: 'Nested decision inside Route 1:')",
+        "warning: lang/de.json: decisions.outer.routes.route2: no "
+        "translation (base: 'Route 2: an ending')",
+    ]
+    assert coverage_of(folder) == [
+        "de: 33 of 39 strings (84.6%), 0 stale, 0 unchecked"]
+
+
+def test_missing_strings_are_listed_up_to_the_cap(folder: Path) -> None:
+    _manifest, files = add_languages(folder, "de")
+    files["de"]["items"] = {}
+    write_language(folder, files["de"])
+    warnings = lang_warnings(folder)
+    assert len(warnings) == validate_content.LIST_MAX + 1
+    assert warnings[-1] == ("warning: lang/de.json: <root>: and 9 more "
+                            "strings without a translation")
+    assert coverage_of(folder) == [
+        "de: 9 of 38 strings (23.6%), 0 stale, 0 unchecked"]
+
+
+def test_a_stale_translation_warns(folder: Path) -> None:
+    _manifest, files = add_languages(folder, "de")
+    old = language_file.base_hash("An earlier wording.")
+    files["de"]["items"]["floor-3"]["from"] = old
+    write_language(folder, files["de"])
+    assert problems_of(folder) == []
+    now = language_file.base_hash("Line three waits.")
+    assert lang_warnings(folder) == [
+        f"warning: lang/de.json: items.floor-3.from: stale: translated from a "
+        f"text hashing to {old!r}, the base now hashes to {now!r} (base: "
+        "'Line three waits.')"]
+    assert coverage_of(folder) == [
+        "de: 38 of 38 strings (100%), 1 stale, 0 unchecked"]
+
+
+def test_a_stale_label_warns(folder: Path) -> None:
+    _manifest, files = add_languages(folder, "de")
+    files["de"]["decisions"]["outer"]["routes"]["route1"]["from"] = "00000000"
+    write_language(folder, files["de"])
+    warnings = lang_warnings(folder)
+    assert len(warnings) == 1
+    assert warnings[0].startswith(
+        "warning: lang/de.json: decisions.outer.routes.route1.from: stale: ")
+
+
+def test_the_hash_is_of_the_exact_base_bytes() -> None:
+    """No normalisation: a trailing space or another case is another
+    base text."""
+    assert language_file.base_hash("Hello") == \
+        __import__("hashlib").sha256(b"Hello").hexdigest()[:8]
+    assert language_file.base_hash("Hello ") != language_file.base_hash(
+        "Hello")
+    assert language_file.base_hash("café") == \
+        __import__("hashlib").sha256("café".encode()).hexdigest()[:8]
+
+
+def test_a_translation_without_from_is_unchecked_not_warned(
+        folder: Path) -> None:
+    _manifest, files = add_languages(folder, "de")
+    del files["de"]["items"]["floor-3"]["from"]
+    del files["de"]["decisions"]["outer"]["prompt"]["from"]
+    write_language(folder, files["de"])
+    assert problems_of(folder) == []
+    assert lang_warnings(folder) == []
+    assert coverage_of(folder) == [
+        "de: 38 of 38 strings (100%), 0 stale, 2 unchecked"]
+
+
+def test_a_text_over_one_and_a_half_times_its_base_warns(
+        folder: Path) -> None:
+    _manifest, files = add_languages(folder, "de")
+    base = "Line three waits."           # 17 code points
+    files["de"]["items"]["floor-3"]["text"] = "ü" * 25   # within 1.5x
+    write_language(folder, files["de"])
+    assert lang_warnings(folder) == []
+    files["de"]["items"]["floor-3"]["text"] = "ü" * 26   # over 25.5
+    write_language(folder, files["de"])
+    assert len(base) == 17
+    assert lang_warnings(folder) == [
+        "warning: lang/de.json: items.floor-3.text: 26 characters, over 1.5 "
+        "times its base text's 17"]
+
+
+def test_a_text_longer_than_the_longest_base_text_warns(
+        folder: Path) -> None:
+    manifest, files = add_languages(folder, "de")
+    longest = max(len(item.get("text") or "") for item in manifest["items"])
+    assert longest == 181
+    files["de"]["items"]["after-end"]["text"] = "x" * 182
+    write_language(folder, files["de"])
+    assert lang_warnings(folder) == [
+        "warning: lang/de.json: items.after-end.text: 182 characters, longer "
+        "than the game's longest base text (181)"]
+    files["de"]["items"]["floor-3"]["text"] = "x" * 182
+    write_language(folder, files["de"])
+    assert lang_warnings(folder)[0] == (
+        "warning: lang/de.json: items.floor-3.text: 182 characters, over 1.5 "
+        "times its base text's 17 and longer than the game's longest base "
+        "text (181)")
+
+
+def test_translation_warnings_print_with_a_count(folder: Path) -> None:
+    _manifest, files = add_languages(folder, "de")
+    del files["de"]["items"]["floor-2"]
+    write_language(folder, files["de"])
+    proc = run_cli(folder)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert proc.stdout == ""
+    assert proc.stderr.splitlines() == [
+        "warning: lang/de.json: items.floor-2: no translation (base: 'Short "
+        "line two.')",
+        f"{folder}: de: 37 of 38 strings (97.3%), 0 stale, 0 unchecked",
+        f"{folder}: 1 translation warning",
+    ]
+
+
+def test_coverage_rounds_down_so_only_complete_reads_100() -> None:
+    assert validate_content._percent(999, 1000) == "99.9%"
+    assert validate_content._percent(9999, 10000) == "99.9%"
+    assert validate_content._percent(1000, 1000) == "100%"
+    assert validate_content._percent(0, 0) == "100%"
+
+
+def test_language_checks_survive_malformed_manifests(tmp_path: Path) -> None:
+    for manifest in (None, [], {"languages": "de"}, {"languages": [3, None]},
+                     {"language": 7, "languages": ["de"]},
+                     {"languages": ["de"], "items": "x", "branches": 3}):
+        assert isinstance(validate_content.language_problems(
+            tmp_path, manifest), list)
+        assert isinstance(validate_content.language_warnings(
+            manifest, tmp_path), tuple)

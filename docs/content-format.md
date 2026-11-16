@@ -22,6 +22,8 @@ my-novel/
   *.jpg, *.mp4    # or any other legal layout, e.g. flat (hand-authored)
   *.m4a.js        # beside each audio file, its bytes as a script; an
                   # assembled folder ships the script alone (Audio)
+  lang/de.json    # a language file per translation (Translations)
+  lang/de.js      # generated: window.KINETIC_LANGUAGES["de"] = {...};
 ```
 
 - Every file the novel needs lives inside the folder. There are no absolute
@@ -119,6 +121,16 @@ my-novel/
   gives no `version`. `--game-version TEXT` sets it instead (blank or
   longer than 40 characters is a usage error), and the game maker may
   edit it in the manifest at any time.
+- `language` (optional): the language the manifest's own text is
+  written in, the base every translation is made from, as a language
+  tag (Translations): `"en"`, `"ja"`, `"pt-BR"`. Absent means `"en"`.
+- `languages` (optional): the tags of the language files in the
+  folder, one `lang/<tag>.json` each (Translations), such as
+  `["de", "ja", "ar"]`. The player cannot list a folder opened from
+  disk, so this list is how it learns which translations exist. Each
+  tag appears once and is never the base `language`. Absent or empty:
+  the game has only its base language. An older player ignores both
+  fields and plays the base, so neither changed `schemaVersion`.
 - `width`, `height`: display resolution in pixels. Every generated image is
   exactly this size, and the player scales its surface to the screen.
 - `items`: the ordered sequence. Position in the array is position in the
@@ -144,8 +156,8 @@ my-novel/
 A new optional field, at the top level or on an item, never changes
 `schemaVersion`: a folder without it means what it meant before. That
 is how `audio`, video `segments`, the game's `version`, `$schema`,
-`voices` and `narrator` arrived after Kinetic 1.0.0 with
-`schemaVersion` still 1.
+`voices`, `narrator`, `language` and `languages` arrived after Kinetic
+1.0.0 with `schemaVersion` still 1.
 `schemaVersion` changes only when a folder that was valid stops being
 valid or plays differently, and that comes with a major Kinetic
 release.
@@ -1066,6 +1078,124 @@ Lines are spoken as written: the format has no direction markup.
 The validator warns, without failing, about a voice no item's `speaker`
 names and about a `narrator` when no item has text without a speaker.
 
+## Translations
+
+A game can be read in more than one language from one folder
+(docs/plan.md Phase 54). `manifest.json` stays in its base language,
+named by its `language` field (default `"en"`), and each translation
+is a language file beside it. The manifest's `languages` lists the
+tags of the language files present:
+
+```text
+my-novel/
+  manifest.json   # "language": "en", "languages": ["de", "ja"]
+  lang/de.json    # the German language file
+  lang/de.js      # generated: window.KINETIC_LANGUAGES["de"] = {...};
+  lang/ja.json
+  lang/ja.js
+```
+
+- A language file is `lang/<tag>.json`, the path relative to the
+  manifest's directory, its name the tag exactly.
+- Beside it goes its script, `lang/<tag>.js`, which contains exactly
+  `window.KINETIC_LANGUAGES["<tag>"] = <the language file's JSON>;` and
+  a newline. The player creates `window.KINETIC_LANGUAGES` and adds
+  the chosen language's script as a classic script, so the folder works
+  over `file://` as `manifest.js` does. Only the chosen language loads.
+  Both files encode the same JSON; the validator checks this. Run
+  inside the content folder, one command writes every script:
+
+  ```sh
+  for f in lang/*.json; do t=$(basename "$f" .json); printf 'window.KINETIC_LANGUAGES["%s"] = %s;\n' "$t" "$(cat "$f")" > "lang/$t.js"; done
+  ```
+
+- A tag is a BCP 47 language tag of the form
+  `language[-Script][-REGION][-variant]`, written in canonical casing:
+  the language in lowercase (two or three letters), the script in title
+  case (four letters), the region in uppercase (two letters) or three
+  digits, a variant in lowercase. `de`, `ja`, `zh-Hans`, `pt-BR` and
+  `es-419` are tags; `DE`, `pt-br`, `zh_Hans` and `english` are not.
+
+A language file:
+
+```jsonc
+{
+  "language": "de",
+  "name": "Deutsch",
+  "title":   { "text": "Die Laterne bei Ebbe", "from": "1a2b3c4d" },
+  "version": { "text": "Folge 3", "from": "5e6f7a8b" },
+  "speakers": { "Mei": "Mei", "Old Theo": "Der alte Theo" },
+  "items": {
+    "title-001": { "text": "Du bist heute früh dran.", "from": "9c0d1e2f" }
+  },
+  "decisions": {
+    "outer": {
+      "prompt": { "text": "Wohin jetzt?", "from": "3a4b5c6d" },
+      "routes": {
+        "route1": { "text": "Zum Hafen", "from": "7e8f9a0b" }
+      }
+    }
+  },
+  "keepOriginalVoice": false
+}
+```
+
+- `language` (required): the file's tag, equal to its file name
+  without `.json`, and one of the manifest's `languages`.
+- `name` (optional): the language's name in itself, as the player's
+  Language control lists it, at most 40 characters. Absent: the player
+  names the language itself (`Intl.DisplayNames`).
+- `title`, `version` (optional): the manifest's `title` and `version`
+  translated, at most 200 and 40 characters as there.
+- `items` (optional): an item id to the translation of that item's
+  `text`. Only an item whose base `text` is not blank has an entry.
+- `speakers` (optional): a speaker name exactly as the manifest's items
+  give it, case and spaces included, to the name drawn in this
+  language, which holds a non-space character. The manifest's `speaker`
+  stays the speaker's identity, the key of `voices` and of this table;
+  the table changes only what is drawn.
+- `decisions` (optional): a decision id to an object with an optional
+  `prompt`, the translation of the decision's `prompt`, and optional
+  `routes`, a route id of that decision to the translation of its
+  `label`. A route id is unique only within its decision, hence the
+  nesting. The branch limits hold in every language: a prompt is
+  shorter than 200 characters and a label shorter than 120.
+- `keepOriginalVoice` (optional, default `false`): `true` plays the
+  base recordings of voice lines (`audio.voice`, Item audio) under this
+  language's text, like subtitles.
+- `$schema` (optional): any string, for editors, as in the manifest.
+
+A translation is an object with:
+
+- `text` (required): the translated string, plain text with at least
+  one non-space character. It is set as text, so markup shows
+  literally.
+- `from` (optional): the first 8 lowercase hex digits of the SHA-256
+  of the base string's UTF-8 bytes, exactly as the manifest has it,
+  with no normalisation. It records which base text the translation was
+  made from, so the validator can tell a translation made before the
+  base changed (stale). Without `from` that cannot be checked.
+
+Rules of meaning:
+
+- What is translatable: item `text`, speaker names, decision prompts,
+  route labels, and the manifest's `title` and `version`. Nothing else
+  is: `thought`, media, timing, audio, branches and every id stay the
+  manifest's, the same in every language.
+- One item, one text. A translation never splits an item over several
+  screens or merges items, so saves, bookmarks, the seen set and
+  progress, all kept by id, hold in every language.
+- At play time each string falls back to the base on its own: an item,
+  speaker, prompt, label, title or version the chosen language file
+  lacks shows the manifest's text. A stale translation still shows.
+- Pictures are the same in every language, and a language file can
+  neither name nor ship a font.
+
+The converter's Python helper for these files is
+`converter/kinetic_extract/language_file.py`: the hash
+(`base_hash`), tag casing (`canonical_tag`), and a writer of a
+language file and its script together (`write_language_file`).
+
 ## Naming conventions
 
 The converter names every file it ships, posters included, by the
@@ -1223,6 +1353,26 @@ The validator checks the schema plus these invariants:
     (the schema enforces these). Each voice's `file` has its script as
     a track file does (17), checked once per file however many tracks
     and voices name it.
+19. `language` and each `languages` entry are language tags in
+    canonical casing (Translations; the schema's pattern, which the
+    validator reports as a malformed tag or with its canonical
+    spelling); `languages` repeats no tag and does not hold the base
+    `language` (`"en"` when absent).
+20. For each tag in `languages`, `lang/<tag>.json` and `lang/<tag>.js`
+    exist with exactly those names, the script is the one line
+    Translations describes, and its JSON parses equal to the language
+    file's, compared as manifest.js is (5).
+21. Each language file validates against `docs/lang.schema.json`: a
+    `language` tag, translations with a non-blank `text` and an
+    optional 8-hex-digit `from`, non-blank speaker names, a `title` of
+    at most 200 characters and a `version` of at most 40, and no other
+    keys. Its `language` equals its file name.
+22. A language file names only what the manifest has: each `items` key
+    is the id of an item whose base `text` is not blank; each
+    `speakers` key is the `speaker` of an item with text; each
+    `decisions` key is a decision id, and each of its `routes` keys a
+    route of that decision. A translated prompt is shorter than 200
+    characters and a translated label shorter than 120, as in 13.
 
 The validator also warns about three things that are not problems: an
 Ogg track file (Audio says why), a looping track in a format that is
@@ -1258,3 +1408,27 @@ decision's route), where the story ends (Branches). The warning leaves
 stdout and the exit status alone, and a manifest without branches
 prints none. `check-game` finds the same items by walking (exit 3,
 "never shown").
+
+After the voice warnings it warns about translations, in the same form
+with the language file's path in place of `manifest.json`:
+
+- a `lang/*.json` file the manifest's `languages` does not list
+  (`not listed in manifest.json languages, so the player never loads
+  it`);
+- per listed language, each base string its file lacks: the title, the
+  version, a speaker, an item with text, a prompt or a route label
+  (`no translation (base: '<text>')`);
+- each stale translation, whose `from` is not the hash of the base
+  text as it is now (`stale: ...`);
+- each item text longer than 1.5 times its base text, or longer than
+  the game's longest base item text, counted in code points.
+
+Each kind lists at most 20 lines per language, then one line counting
+the rest. Then comes one coverage line per listed language, such as
+`my-novel: de: 412 of 415 strings (99.2%), 3 stale, 0 unchecked`: the
+base strings it translates of all of them (the percentage rounded down,
+so only a complete language reads 100%), how many of those are stale,
+and how many carry no `from` and so cannot be checked, which is not a
+warning. A count of the warnings follows (`N translation warnings`).
+These leave stdout and the exit status alone, and a manifest without
+`languages` and without language files prints none.

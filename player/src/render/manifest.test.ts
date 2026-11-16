@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  isLanguageTag,
   loadManifest,
   MANIFEST_URL,
   parseManifest,
@@ -124,6 +125,91 @@ describe("parseManifest", () => {
       ROOT,
     );
     expect(manifest.items[0]).toMatchObject(MANIFEST.items[0]);
+  });
+});
+
+// A game's languages (docs/content-format.md, "Translations"; Phase 54
+// item 1): `language` is the base, `languages` the language files present.
+// Bad values play as if absent, as a bad title does: the folder still
+// plays in its base language.
+describe("parseManifest languages", () => {
+  it("keeps a valid language and languages, returning the same object", () => {
+    const value = {
+      ...MANIFEST,
+      language: "ja",
+      languages: ["en", "zh-Hans", "pt-BR", "es-419", "sr-Latn-RS"],
+    };
+    const manifest = parseManifest(value, ROOT);
+    expect(manifest).toBe(value);
+    expect(manifest.language).toBe("ja");
+    expect(manifest.languages).toEqual([
+      "en",
+      "zh-Hans",
+      "pt-BR",
+      "es-419",
+      "sr-Latn-RS",
+    ]);
+  });
+
+  it("leaves both absent when the manifest has neither", () => {
+    const manifest = parseManifest(MANIFEST, ROOT);
+    expect(manifest.language).toBeUndefined();
+    expect(manifest.languages).toBeUndefined();
+  });
+
+  it.each([
+    ["not text", 7],
+    ["not canonical", "EN"],
+    ["an underscore tag", "pt_BR"],
+    ["a name, not a tag", "english"],
+    ["empty", ""],
+  ])("drops a language that is %s", (_label, language) => {
+    const value = { ...MANIFEST, language, languages: ["de"] };
+    const manifest = parseManifest(value, ROOT);
+    expect(manifest.language).toBeUndefined();
+    expect(manifest.languages).toEqual(["de"]);
+    expect(value.language).toBe(language); // the input is not changed
+  });
+
+  it("keeps only canonical tags in languages, each once, never the base", () => {
+    const languages = ["de", "DE", "pt-br", 3, "fr", "de", "en", "x"];
+    const value = { ...MANIFEST, languages };
+    const manifest = parseManifest(value, ROOT);
+    expect(manifest.languages).toEqual(["de", "fr"]);
+    expect(value.languages).toBe(languages);
+    expect(languages).toHaveLength(8);
+  });
+
+  it("measures the base against language when it is given", () => {
+    const manifest = parseManifest(
+      { ...MANIFEST, language: "de", languages: ["de", "en"] },
+      ROOT,
+    );
+    expect(manifest.languages).toEqual(["en"]);
+  });
+
+  it.each([
+    ["a string", "de"],
+    ["an object", { de: true }],
+    ["null", null],
+  ])("drops languages that is %s", (_label, languages) => {
+    const manifest = parseManifest({ ...MANIFEST, languages }, ROOT);
+    expect(manifest.languages).toBeUndefined();
+    expect(manifest.items).toEqual(MANIFEST.items);
+  });
+
+  it.each([
+    ["de", true],
+    ["zh-Hant", true],
+    ["es-419", true],
+    ["de-CH-1996", true],
+    ["zh-hans", false],
+    ["pt-br", false],
+    ["e", false],
+    ["deutsch", false],
+    ["de-", false],
+  ])("isLanguageTag(%s) is %s", (tag, ok) => {
+    expect(isLanguageTag(tag)).toBe(ok);
   });
 });
 

@@ -3901,7 +3901,9 @@ The orchestrator's choices, within those decisions:
    FILE.po` writes `lang/<tag>.json` and `.js`, records base hashes,
    adds the tag to `languages` and regenerates `manifest.js`; a fuzzy
    entry imports as stale. `status <folder>` prints coverage and stale
-   counts per language. A pinned pure-Python PO library or our own
+   counts per language. `kinetic_extract/schema_copy.py` also copies
+   `lang.schema.json` into a folder that has language files (a lead
+   from item 1). A pinned pure-Python PO library or our own
    reader, as the item's tests decide. Tests:
    `tools/test_translations.py`: export, import of a translated file
    that then validates, re-export after a base change marking fuzzy, an

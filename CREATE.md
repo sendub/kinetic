@@ -558,6 +558,15 @@ printf 'window.KINETIC_MANIFEST = %s;\n' "$(cat manifest.json)" > manifest.js
 The validator rejects a shim whose JSON differs from `manifest.json`, so
 regenerate the shim after every edit.
 
+A translated game's language files, `lang/<tag>.json`, each have a
+script beside them in the same way, `lang/<tag>.js` containing exactly
+`window.KINETIC_LANGUAGES["<tag>"] = <the file's JSON>;`
+(docs/content-format.md, "Translations"). One command writes them all:
+
+```sh
+for f in lang/*.json; do t=$(basename "$f" .json); printf 'window.KINETIC_LANGUAGES["%s"] = %s;\n' "$t" "$(cat "$f")" > "lang/$t.js"; done
+```
+
 ### Validating
 
 Run the validator from the repo root; it needs the jsonschema library,
@@ -579,6 +588,9 @@ ships as that script alone, as an assembled folder does), and a present
 `manifest.js` embeds JSON equal to `manifest.json`. An Ogg track, a
 looping track in MP3 or Opus in WebM, and a track no item uses each
 print a `warning:` line on stderr, which leaves the exit status alone.
+A translated game's language files are checked too: a missing or stale
+translation is a warning, and each language gets a coverage line
+(docs/content-format.md, "Rules and validator invariants").
 
 The validator also warns about items no reading reaches. It replays the
 player's own flow with Play all routes on, which shows every item any

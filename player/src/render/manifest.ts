@@ -12,6 +12,22 @@ import type { Manifest } from "../machine/types";
 /** Where the JSON is fetched from when nothing is embedded. */
 export const MANIFEST_URL = "manifest.json";
 
+/** The base language of a manifest without `language`. */
+export const DEFAULT_LANGUAGE = "en";
+
+/**
+ * A language tag in canonical casing (docs/content-format.md,
+ * "Translations"): `de`, `zh-Hans`, `pt-BR`, `es-419`. The same pattern
+ * as `$defs/languageTag` in docs/content-schema.json.
+ */
+const LANGUAGE_TAG =
+  /^[a-z]{2,3}(-[A-Z][a-z]{3})?(-([A-Z]{2}|[0-9]{3}))?(-([a-z0-9]{5,8}|[0-9][a-z0-9]{3}))*$/;
+
+/** Whether `value` is a language tag in canonical casing. */
+export function isLanguageTag(value: unknown): value is string {
+  return typeof value === "string" && LANGUAGE_TAG.test(value);
+}
+
 declare global {
   /** Set by the content folder's `manifest.js`, when it has one. */
   var KINETIC_MANIFEST: unknown;
@@ -133,7 +149,43 @@ export function parseManifest(value: unknown, contentRoot: string): Manifest {
   });
   if (candidate.audio !== undefined) checkTracks(candidate.audio, contentRoot);
   checkVoices(candidate, contentRoot);
-  return candidate as Manifest;
+  return withLanguages(candidate as Manifest);
+}
+
+/**
+ * The manifest with only usable `language` and `languages`
+ * (docs/content-format.md, "Translations"). Like a bad `title` or
+ * `storyId`, a bad value plays as if absent rather than refusing the
+ * folder: a `language` that is not a canonical tag is dropped (the base
+ * is then `en`), and `languages` keeps only canonical tags, each once,
+ * other than the base; one that is not an array is dropped. A manifest
+ * whose fields are fine comes back as the same object.
+ */
+function withLanguages(manifest: Manifest): Manifest {
+  const { language, languages } = manifest as {
+    language?: unknown;
+    languages?: unknown;
+  };
+  const base = isLanguageTag(language) ? language : DEFAULT_LANGUAGE;
+  const usable = Array.isArray(languages)
+    ? languages.filter(
+        (tag: unknown, index) =>
+          isLanguageTag(tag) &&
+          tag !== base &&
+          languages.indexOf(tag) === index,
+      )
+    : undefined;
+  const languageOk = language === undefined || isLanguageTag(language);
+  const languagesOk =
+    languages === undefined ||
+    (Array.isArray(languages) && usable?.length === languages.length);
+  if (languageOk && languagesOk) return manifest;
+  const { language: _dropped, languages: _alsoDropped, ...rest } = manifest;
+  return {
+    ...rest,
+    ...(isLanguageTag(language) ? { language } : {}),
+    ...(usable === undefined ? {} : { languages: usable }),
+  };
 }
 
 function checkPaths(
