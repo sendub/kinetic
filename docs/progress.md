@@ -4931,3 +4931,31 @@ truthful: an unchecked box means nothing was accepted.
       .tmp/extract-demo regenerated. VERSION, package.json, its lockfile
       and pyproject 1.10.1; the CHANGELOG entry dated; tag v1.10.1;
       `main` fast-forwarded.)
+
+## Phase 54: Translations (2026-11-16, user)
+
+- [ ] The format (docs/plan.md Phase 54, item 1). Manifest `language`
+      and `languages`, the language file's schema, content-format.md
+      "Translations", the validator's checks, `fixtures/lang-demo`.
+- [ ] The player's words in a catalogue, English only (item 2), with
+      a pseudo-locale scenario over every screen.
+- [ ] Choosing and showing a game's language (item 3): the title-bar
+      Language control, system-language start, fallback per string,
+      `lang`/`dir` per string, reading time per language.
+- [ ] The player's words in every catalogue language (item 4): 38
+      draft PO files, checked for fit in Chrome and WebKit.
+- [ ] Right to left (item 5): logical CSS, mirrored screens, the
+      branch map's layout unchanged.
+- [ ] Spoken lines per language (item 6): `lang` to the helper,
+      per-language recordings, `keepOriginalVoice`,
+      `record_lines.py --lang`.
+- [ ] The game apps (item 7): menus, window titles and early dialogs
+      in the reader's language.
+- [ ] The translator tools (item 8): `tools/translations.py export`,
+      `import`, `status`, PO with merge and fuzzy marking.
+- [ ] kinetic-extract reads Ren'Py translations (item 9).
+- [ ] Tools and docs around it (item 10): `check-game --lang`,
+      assemble and upgrade carry `lang/`, CREATE.md "Translating a
+      game".
+- [ ] Phase-closer (Phase 54): full suites; VERSION 1.10.0, the
+      CHANGELOG dated, tag v1.10.0, `main` fast-forwarded.

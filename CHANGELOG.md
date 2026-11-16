@@ -17,6 +17,12 @@ Taking a new release means replacing a game folder's player (CREATE.md,
 "Upgrading to a newer Kinetic"). Bullets marked **Upgrading:** ask
 something more of an author.
 
+## 1.10.0-dev
+
+- Translations (in progress): a game can be read in several languages
+  from one folder, chosen on the Esc screen, and the player's own words
+  come in many languages.
+
 ## 1.10.1 (2026-11-17)
 
 - Tests on the `webkit` engine (check-game, `openGame`) no longer lose

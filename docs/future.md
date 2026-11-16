@@ -247,30 +247,31 @@ To settle:
 - Whether reduced motion changes the timing rules in
   docs/content-format.md, "Timing".
 
-## Translations (maybe, 2026-11-14)
+## Per-language pictures (maybe, 2026-11-16)
 
-Today a manifest holds one language. Saves and bookmarks are keyed by
-item, decision and route ids, which a translation would keep, so
-translated text can sit beside the manifest.
+Phase 54 keeps pictures the same in every language. Words drawn into a
+picture (a phone screen, a sign, a title card) stay in the original
+language; an author can put them in a text item instead. Ren'Py can
+replace a file per language (`game/tl/<language>/`), but no game in the
+corpus does.
 
 Candidates:
 
-- A text file per language mapping item ids to `speaker` and `text`,
-  decision ids to `prompt`, route ids to `label`, plus the `title`.
-- A language choice on the Esc screen, defaulting to the browser's
-  language.
-- Validator checks that each language file covers every id.
-- An export and import for translators, such as CSV or PO.
-- kinetic-extract reading Ren'Py `translate` blocks.
+- A language file swapping an `image` item's file, or an animation's
+  frames, for its own.
+- Video swaps, much heavier and rarer.
 
 To settle:
 
-- The file layout, and what shows for a line a language lacks.
-- Whether voice tracks, images that contain text, and fonts vary by
-  language.
-- A reader setting in one folder, or one folder per language.
+- Whether a real game needs it.
+- How `kinetic-media ship`, the media ledger, `rebuild`, poster checks
+  and preloading handle files per language.
 
 ## Not wanted
 
 - Web hosting, such as itch.io (the user, 2026-11-14). A game stays a
   folder opened from disk or through its app.
+- Fonts shipped with a game, for its base language or a translation
+  (the user, 2026-11-16: game developers choose badly; a good, readable
+  system font is wanted). The player picks system fonts by writing
+  system.

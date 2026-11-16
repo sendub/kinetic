@@ -3689,6 +3689,255 @@ A fix with no new feature, so this phase closes as the patch 1.10.1.
 3. Phase-closer: full suites; VERSION 1.10.1, the CHANGELOG dated, tag,
    `main` fast-forwarded.
 
+## Phase 54: Translations (2026-11-16, user)
+
+A game can be read in more than one language, in one folder, and the
+player's own words come in many languages. The user scheduled
+docs/future.md's "Translations" entry, which is removed from there. A
+converting agent's feasibility note (2026-11-16) fed the design: its
+game's original ships seven filled translations for about 96% of its
+lines, and its measurements (German 1.17 of the English characters,
+Chinese 0.37, the longest German line three wrapped lines in the band)
+show that one translated text per item fits the existing band. The
+design serves freshly written games too, whose translations come later
+from contributors.
+
+The user's decisions (2026-11-16):
+
+- **The Language control** sits in the Esc screen's title bar, at the
+  right of "Esc or Space closes", and shows only when the game has more
+  than one language, so its presence changes no height. Below 700px wide
+  it stays on the title's line. It shows a globe and the current
+  language in its own name; a click opens a list over the screen (each
+  language in its own name), so opening it moves nothing either. Escape
+  closes the list first, then the screen.
+- **A missing line** is a build-time warning (the validator reports each
+  one and the coverage per language); in play it shows the original.
+- **The starting language** is the reader's system language when the
+  game has it (a loose match: `de-AT` takes `de`), otherwise the game's
+  own. The reader's choice on the Esc screen then wins, saved in the
+  settings per `storyId`.
+- **The player's own words** (Esc screen, help, choice hints, end card,
+  branch map, Volumes sheet, pills, confirmation boxes) come from a
+  catalogue in as many languages as can be written well and drawn by
+  system fonts.
+- **Fonts:** system fonts only. A language file can neither name nor
+  ship a font. The player chooses a readable system stack per writing
+  system and marks text with its language, so Chinese, Japanese and
+  Korean draw their own forms of shared characters. Shipped fonts are
+  not wanted at all (docs/future.md, "Not wanted").
+- **Spoken lines:** the shown language is spoken. A language file may
+  carry its own recorded lines; without one for an item, the apps
+  generate the line live in the shown language, and a browser, or a
+  language the engine lacks, stays silent. A language file may instead
+  say "keep the original voice lines": then the base recordings play
+  under its text, like subtitles. The converter sets that for Ren'Py
+  games with acted `voice` lines, as Ren'Py itself does.
+- **Pictures** are the same in every language. Per-language pictures
+  wait in docs/future.md as a maybe.
+- **The translator format** is PO (gettext) only, for games and for the
+  player's own catalogue.
+- **Right to left** is supported fully, within limits: game text,
+  choices, prompts, route labels, the Esc screen, help, end card and
+  pills mirror for Arabic, Persian, Hebrew and Urdu; the branch map's
+  layout does not (its labels still run right to left), and arrow keys
+  keep their physical meaning.
+- **kinetic-extract** reads Ren'Py's `translate` blocks: an official
+  Ren'Py feature, with a real example in the corpus (a game with `tl/`
+  folders in 14 languages, about 4,400 dialogue blocks each, plus
+  `translate xx strings` blocks for menu choices). It ignores Ren'Py's
+  `translate xx style` fonts and per-language file replacements, which
+  the decisions above leave out.
+
+The orchestrator's choices, within those decisions:
+
+- **One folder.** `manifest.json` stays in its base language and
+  unchanged apart from two optional fields: `language` (the base, a BCP
+  47 tag, default `en`) and `languages` (the tags of the language files
+  present, since a page opened from disk cannot list a folder). Older
+  players ignore both and play the base. `schemaVersion` stays 1.
+- **One language file per language**, `lang/<tag>.json`, with a
+  generated `lang/<tag>.js` beside it so it loads from disk as
+  `manifest.js` does. Only the chosen language loads. It holds the
+  `language` tag (equal to the file name), an optional `name` (else the
+  player names the language with `Intl.DisplayNames`), `title`,
+  `version`, `items` (item id to its text), `speakers` (the manifest's
+  speaker string to the name drawn), `decisions` (decision id to its
+  `prompt` and route id to `label`), optional recorded `voice` lines
+  with their tracks, and `keepOriginalVoice`. Every translated string
+  records a short hash of the base text it was made from, so the
+  validator can say which translations are stale. Nothing else is
+  translatable: `thought`, media, timing, branches and ids stay the
+  manifest's.
+- **One item, one text.** A translation never splits an item over
+  several screens or merges items. Saves, bookmarks, `#start`, the seen
+  set and progress stay per item, so switching language redraws the
+  current screen and keeps everything.
+- **Speakers stay keys.** The manifest's `speaker` remains the identity
+  (the `voices` keys, tools); the language file's `speakers` table
+  changes only what is drawn. Uppercase speaker names follow the shown
+  language (Turkish `i` becomes `İ`).
+- **A stale translation** (its base text changed since) still shows in
+  play; the validator warns, and the next PO export marks it for review.
+- **The player's language** is the reader's choice on the Esc screen
+  when the catalogue has it; with no choice made, the system language
+  when the catalogue has it; otherwise English. So a reader of a game
+  with one language still gets controls in their own language.
+- **Catalogue languages** (39, English included): Arabic, Bulgarian,
+  Catalan, Chinese (Simplified and Traditional), Croatian, Czech,
+  Danish, Dutch, English, Finnish, French, German, Greek, Hebrew, Hindi,
+  Hungarian, Indonesian, Italian, Japanese, Korean, Malay, Norwegian
+  Bokmål, Persian, Polish, Portuguese (Brazil and Portugal), Romanian,
+  Russian, Slovak, Spanish (Spain and Latin America), Swahili, Swedish,
+  Thai, Turkish, Ukrainian, Urdu and Vietnamese. Agents write the drafts;
+  each PO file says in its header that it is an unreviewed draft, and
+  CREATE.md invites corrections. A language whose text a system font
+  on macOS or Windows cannot draw, or whose words do not fit the
+  screens, is dropped and listed in its item's evidence note.
+- **Reading time per language.** The hold rule counts code points, so a
+  Chinese line would get about a third of an English line's time for the
+  same meaning. The player scales `msPerChar` by a per-language factor
+  from its own table, measured from the corpus example's parallel
+  translations (characters per language against English, as the
+  feasibility note measured Chinese at 0.37). Languages not in the table
+  use 1.
+
+1. The format. Schema for the manifest's `language` and `languages` and
+   for a language file (`lang.schema.json`); docs/content-format.md, a
+   "Translations" section; `types.ts`; the validator: each language file
+   and its `.js` agree; the tag matches the file name and the
+   manifest's list; a file the list names exists; an unknown item,
+   decision, route or speaker is an error; an empty text is an error;
+   a prompt of 200 characters or more, or a label of 120 or more, is an
+   error; a missing string is a warning, with coverage per language; a
+   stale string (base hash differs) is a warning; a text over 1.5x its
+   base, or longer than the game's longest base text, is a warning;
+   recorded voice tracks check as tracks do. `fixtures/build_lang_demo.py`
+   builds the gitignored `fixtures/lang-demo` from the demo's manifest
+   and media with three language files (German, Japanese and Arabic),
+   one missing line, one stale line, a speaker table, a translated
+   prompt and labels. Tests: validator cases for each rule, the demo and
+   the language demo validate, `tools/test_build_lang_demo.py`,
+   manifest.test.ts.
+2. The player's words in a catalogue, English only. Every reader-visible
+   string the player draws (render/*.ts, `wording.ts`'s browser and app
+   wordings, accessible names, pills, the confirmation boxes) comes from
+   one catalogue by key, with English in TypeScript and other languages
+   compiled at build time from PO files under `player/locales/`.
+   Plurals by `Intl.PluralRules` categories, numbers by
+   `Intl.NumberFormat`. Key-cap labels (Space, Tab, Esc, Enter) stay as
+   keyboards print them. A pseudo-locale (every string wrapped and made
+   40% longer) exists for tests only. Tests: unit tests of lookup,
+   plurals and fallback; a scenario walking every screen and sheet in
+   the pseudo-locale that fails on any visible text outside the markers
+   or any text overflowing its box, Chrome and WebKit; the existing
+   scenarios unchanged in English.
+3. Choosing and showing a game's language. The player reads `language`
+   and `languages`, picks the starting language as decided (matching
+   `navigator.languages` by `Intl.Locale`, so `zh-TW` takes `zh-Hant`
+   and `es-MX` takes `es-419`), loads `lang/<tag>.js` by script tag, and
+   draws text, speaker names, prompts, labels, title and version through
+   it, falling back to the base per string. `lang` (and `dir`) are set
+   on the band, the choice screen, the end card and the map's labels,
+   per string, so a fallback line carries the base language's tag. The
+   title-bar Language control as decided: keyboard reachable, arrows
+   move in the open list, Enter or a click picks, Escape closes the list
+   only; switching redraws the current item, keeps position, picks, the
+   seen set and auto-forward; the choice persists per `storyId` and
+   survives a reload. Per-language reading time as decided. Tests: unit
+   tests of matching and fallback; a `languages` scenario file on the
+   language demo: the control absent in the demo and present in the
+   language demo with the Esc panel the same height in both at 1280x800
+   and 600 wide, switching on an item and at a decision, a bookmark
+   restore landing on the same item in each language, reload keeping
+   the language, the missing line showing the base, a Turkish-style
+   uppercase check, Chrome and WebKit.
+4. The player's words in every catalogue language. The 38 other PO
+   files of the decided list, written as drafts and marked so;
+   `npm test` checks every catalogue is complete with matching
+   placeholders. The player's language follows the decided rule and
+   changes with the Language control. Tests: the item 2 scenario run in
+   each catalogue language at 1280x800, 700x600 and 600 wide (no
+   overflow, no clipping, no text outside the catalogue), Chrome and
+   WebKit; a language that cannot pass is dropped and listed.
+5. Right to left. `dir="rtl"` on the document for Arabic, Persian,
+   Hebrew and Urdu (catalogue or game text); `index.html`'s CSS moves to
+   logical properties (start and end, not left and right) so the Esc
+   screen, help, Volumes sheet, end card, pills, choice list and band
+   mirror; switches, sliders and the speed steps read right to left; the
+   branch map's layout stays as it is, its labels right to left; arrow
+   keys keep their physical meaning. Tests: an `rtl` scenario file
+   (mirrored geometry: Keys at the right of Settings, the Language
+   control at the left of the title bar, the slider's minimum at the
+   right; no overflow) in Arabic and Hebrew, Chrome and WebKit, and the
+   existing scenarios unchanged left to right.
+6. Spoken lines per language. The player passes the shown language to
+   the voice helper for live lines, and speaks nothing live in a
+   language the engine lacks; a language file's own recorded lines play
+   in that language; with `keepOriginalVoice` the base recordings play
+   under it, and without it they do not. `tools/record_lines.py --lang
+   TAG` records a language's lines into its language file. The helper's
+   cache key already includes the language; confirm it. Tests: helper
+   tests with the fake engine for `lang`; record_lines tests for
+   `--lang`; the `spoken` scenario file extended (the stand-in host
+   receives the shown language; base recordings silent under a
+   translation without `keepOriginalVoice`, playing with it), Chrome
+   and WebKit, and `machost` on WebKit.
+7. The game apps. The page tells the host its language
+   (`{type: "language", tag, dir}` through `send`); the Mac app retitles
+   its menu items and window title from a table the build generates
+   from the catalogue; the Windows program retitles its window. The
+   dialogs either app shows before the page loads use the system
+   language from the same table. Tests: build_apps tests (the table
+   embedded), the Go tests for the Windows message, a `machost`
+   scenario part for the Mac message, WebKit.
+8. The translator tools. `tools/translations.py export <folder> TAG`
+   writes `<tag>.po` with one entry per item text, speaker, prompt,
+   label, title and version: the id as `msgctxt`, the base text as
+   `msgid`, and as comments the speaker, the item's type, the previous
+   and next two lines, the decision and route, and the base length.
+   Exporting a language that already has a file merges: translations
+   kept, new strings added, stale ones marked fuzzy. `import <folder>
+   FILE.po` writes `lang/<tag>.json` and `.js`, records base hashes,
+   adds the tag to `languages` and regenerates `manifest.js`; a fuzzy
+   entry imports as stale. `status <folder>` prints coverage and stale
+   counts per language. A pinned pure-Python PO library or our own
+   reader, as the item's tests decide. Tests:
+   `tools/test_translations.py`: export, import of a translated file
+   that then validates, re-export after a base change marking fuzzy, an
+   unchanged round trip reproducing the file, Poedit-style line
+   wrapping read back, refusal of a PO for another game.
+9. kinetic-extract reads Ren'Py translations. Dialogue blocks under
+   `game/tl/<lang>/` matched to items by Ren'Py's translation
+   identifier (the label and the hash of the say statement, computed as
+   Ren'Py computes it), `translate <lang> strings` blocks for menu
+   choices and character names, a language-tag table for Ren'Py's
+   folder names (`zhCN` to `zh-Hans`, `ptBR` to `pt-BR`, `esLT` to
+   `es-419`, `None` skipped), and `--language-map` for others;
+   `keepOriginalVoice` set when the game has `voice` statements; style
+   blocks and file replacements ignored and counted in the report.
+   Lines merged into one item join their parts' translations. Tests: a
+   `tl/de` folder added to `fixtures/renpy_demo` with dialogue, strings
+   and a style block; converter tests of identifier matching, the tag
+   table, coverage and the report; a read-only real check on the corpus
+   example (coverage per language in the evidence note, the game not
+   named).
+10. Tools and docs around it. `check-game --lang TAG` walks with that
+    language shown and reports fallbacks and stale lines met;
+    `tools/assemble_folder.py` and `tools/upgrade_folder.py` carry
+    `lang/`; docs/packaging.md. CREATE.md gains "Translating a game":
+    the author's flow, a contributor's flow (Poedit, or Weblate or
+    Crowdin for a project online), Ren'Py translations, what readers
+    see, and how to correct the player's own catalogue. Tests:
+    check-game tests for `--lang`, assemble and upgrade tests for
+    `lang/`.
+11. Phase-closer: full suites; VERSION 1.10.0, the CHANGELOG dated, tag,
+    `main` fast-forwarded.
+
+Sequencing: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10 -> 11,
+serial. Items 8 and 9 need only item 1 and may run before 3 if the
+player items stall.
+
 ## Sequencing
 
 1 -> 2 -> 2b -> 3 -> 4 -> 5 -> 6 -> 7 -> 7b -> 8 -> 9 -> 9b -> 9c -> 9d ->
