@@ -340,6 +340,25 @@ describe("the Esc screen holds the settings (docs/plan.md Phase 26)", () => {
     );
     expect(descriptions).toContain("sound on / off");
   });
+
+  it("adds and drops the sound key's row as the language shown changes (Phase 54 item 6b)", () => {
+    const root = new FakeDocument().createElement("div");
+    const help = mountHelpOverlay({ root: root as unknown as HTMLElement });
+    const list = () =>
+      root.children[0]?.children.find((el) => el.className === "help-list");
+    const descriptions = () =>
+      list()?.children.map(
+        (row) =>
+          row.children.find((el) => el.className === "help-desc")?.textContent,
+      );
+    expect(descriptions()).not.toContain("sound on / off");
+    help.setSound(true);
+    expect(list()?.children).toHaveLength(helpRows({ sound: true }).length);
+    expect(descriptions()).toContain("sound on / off");
+    help.setSound(false);
+    expect(list()?.children).toHaveLength(helpRows().length);
+    expect(descriptions()).not.toContain("sound on / off");
+  });
 });
 
 describe("a click does not close the help (docs/plan.md Phase 24)", () => {

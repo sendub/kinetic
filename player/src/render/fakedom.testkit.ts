@@ -82,6 +82,23 @@ export class FakeElement {
     this.append(...nodes);
   }
 
+  /** Takes it out of its parent, as a real `remove()` does. */
+  remove(): void {
+    const parent = this.parent;
+    if (parent === null) return;
+    parent.children.splice(parent.children.indexOf(this), 1);
+    parent.childNodes.splice(parent.childNodes.indexOf(this), 1);
+    this.parent = null;
+  }
+
+  /** It or a descendant is `node`. */
+  contains(node: FakeElement | null): boolean {
+    for (let el = node; el !== null; el = el.parent) {
+      if (el === this) return true;
+    }
+    return false;
+  }
+
   closest(selector: string): FakeElement | null {
     const name = selector.match(/^\[([^\]]+)\]$/)?.[1];
     if (name === undefined) return null;

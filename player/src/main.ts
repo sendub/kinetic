@@ -49,7 +49,9 @@
 // loads by script tag before the first screen, and every string falls
 // back to the manifest's on its own. The Esc screen's Language control
 // (render/languagecontrol.ts) switches it live, keeping the place, and the
-// player's own words follow the rule of `uiLanguageFor`.
+// player's own words follow the rule of `uiLanguageFor`. The sound controls
+// and the voice engine follow what the language shown can play
+// (render/soundcontrols.ts).
 // Composition only — rendering lives in src/render/, timing in
 // src/machine/, storage adapters in src/storage/.
 
@@ -70,7 +72,7 @@ import type {
 } from "./machine/types";
 import { DEFAULT_SETTINGS } from "./machine/types";
 import { mountError, mountShell, NOTICE_LONG_MS } from "./render/app";
-import { mountAudio } from "./render/audio";
+import { type AudioPlayer, mountAudio } from "./render/audio";
 import { mountAutoForwardAnnouncements } from "./render/autoforward";
 import {
   bookmarkRestoreTarget,
@@ -120,11 +122,12 @@ import {
 import { mountRouteAnnouncements } from "./render/routes";
 import { mountSegmentNotes } from "./render/segmentnote";
 import { mountSkipAnnouncements } from "./render/skip";
+import { createSoundControls } from "./render/soundcontrols";
 import { type SoundContent, soundContent } from "./render/soundrows";
 import { hasVoices } from "./render/spoken";
 import { mountTrace } from "./render/trace";
 import { takeUrlStart } from "./render/urlstart";
-import { createVoiceClient } from "./render/voiceclient";
+import { createVoiceClient, type VoiceClient } from "./render/voiceclient";
 import { mountVolumesOverlay, soundMessage } from "./render/volumes";
 import { installWheelInput } from "./render/wheel";
 import { closeTabNote, mountWindowControls } from "./render/windowcontrols";
@@ -407,36 +410,45 @@ function start(): void {
       });
       const shell = mountShell({ root, manifest, machine, words });
       // What sound the game has, and so which sound controls show (docs/plan.md
-      // Phase 52 item 10): derived once, here.
+      // Phase 52 item 10), in the language shown (Phase 54 items 6 and 6b):
+      // decided here for the starting language and again on each switch
+      // (render/soundcontrols.ts): the Sound row, Volumes..., `v` and its
+      // keys row, and the sheet's rows.
       const hostVoice = hostLink.host()?.voice === true;
-      // In the language shown, and in the base (Phase 54 item 6: the
-      // Voice row follows the language shown, `contentFor`).
       const contentFor = (voices: LineVoices): SoundContent =>
         soundContent(manifest, hostVoice, voices);
-      const content = contentFor(lineVoices);
-      const baseContent =
-        lineVoices.shown.file === null
-          ? content
-          : contentFor(createLineVoices(manifest, null));
       // Spoken lines (docs/plan.md Phase 52): in a game app whose host
-      // offers voice, a game with a line the model would speak (one with no
-      // recording) talks to its voice engine, and offers its download in the
-      // Volumes sheet. None in a browser tab, nor when every line is
-      // recorded or the game has no voices. A game with voices and language
-      // files has one whenever the host offers voice: another language may
-      // need the model.
-      const voiceClient =
-        content.needsModel ||
-        baseContent.needsModel ||
-        (hostVoice && hasVoices(manifest) && gameLanguages.length > 0)
-          ? createVoiceClient(window, (message) => {
-              hostLink.send(message);
-            })
-          : null;
+      // offers voice, a language with a line the model would speak (one
+      // with no recording) talks to the voice engine, and offers its
+      // download in the Volumes sheet. The client is made the first time
+      // such a language is shown, at boot or on a switch; none in a browser
+      // tab, nor in a game whose every line in every language is recorded
+      // or silent. Its status reaches the sheet through `voiceListeners`,
+      // which the sheet can join before the client is made.
+      let voiceClient: VoiceClient | null = null;
+      const voiceListeners = new Set<() => void>();
+      let audio: AudioPlayer | null = null;
+      const sound = createSoundControls({
+        initial: contentFor(lineVoices),
+        audio: () => audio !== null,
+        makeVoiceClient: () => {
+          const client = createVoiceClient(window, (message) => {
+            hostLink.send(message);
+          });
+          voiceClient = client;
+          client.subscribe(() => {
+            for (const listener of [...voiceListeners]) listener();
+          });
+          audio?.setVoiceClient(client);
+        },
+        show: (shown) => showSoundControls(shown),
+        onContent: (next) => volumes?.setContent(next),
+      });
+      const bootContent = sound.content();
       // The sound (docs/plan.md Phase 47): null for a game without audio
-      // (and without spoken lines), which then makes no audio element at
-      // all. The controls (Sound row, Volumes..., `v`) follow `content`.
-      const audio = mountAudio({
+      // (and without spoken lines or language files), which then makes no
+      // audio element at all.
+      audio = mountAudio({
         root,
         manifest,
         machine,
@@ -444,23 +456,27 @@ function start(): void {
         voice: voiceClient,
         voices: lineVoices,
       });
-      // The Sound row, Volumes... and `v` exist only for a game with a sound
-      // the reader can turn (a Music, Effects or Voice row), in the language
-      // shown or the base.
-      const soundControls = audio !== null && (content.any || baseContent.any);
-      // The Volumes sheet's rows: those of the base and the language shown,
-      // and the Voice row in any game with language files (another
-      // language may have voice lines); each shows while the language
-      // shown has its sound.
-      const voiceRow =
-        content.voice || baseContent.voice || gameLanguages.length > 0;
+      // A game whose sound controls may show in some language: the one
+      // shown at boot has a sound the reader can turn (a Music, Effects or
+      // Voice row), or the game has language files (one may bring voice).
+      // Such a game builds the Sound row and the Volumes sheet; they show
+      // while the language shown has its sound (`sound.shown()`).
+      const soundPossible =
+        audio !== null && (bootContent.any || gameLanguages.length > 0);
+      // The Volumes sheet's rows: music and effects are the same in every
+      // language, and the Voice row is built in any game with language
+      // files; each shows while the language shown has its sound.
       const sheetRows: SoundContent = {
-        ...content,
-        music: content.music || baseContent.music,
-        effects: content.effects || baseContent.effects,
-        voice: voiceRow,
+        ...bootContent,
+        voice: bootContent.voice || gameLanguages.length > 0,
         any: true,
       };
+      // The sheet's voice model controls, in a game where some language may
+      // need the model; they show while the language shown does.
+      const modelPossible =
+        hostVoice &&
+        hasVoices(manifest) &&
+        (bootContent.needsModel || gameLanguages.length > 0);
       // A video's sound plays with the stage's video (item 6), which follows
       // it and starts as it is heard (item 19).
       if (audio !== null) {
@@ -596,8 +612,9 @@ function start(): void {
         onEntry: (command) => {
           if (command === "toggleMap") runMapKey();
         },
-        // A game with sound controls lists `v` (docs/plan.md Phase 47 item 7).
-        sound: soundControls,
+        // A game with sound controls lists `v` (docs/plan.md Phase 47 item 7),
+        // while the language shown has them (Phase 54 item 6b).
+        sound: sound.shown(),
       });
       help.setHeading(words.title(), words.version());
       // The Language control (docs/plan.md Phase 54 item 3): in the title
@@ -658,7 +675,9 @@ function start(): void {
         // The voices follow (Phase 54 item 6): the item's voice in the new
         // language, the Voice row and the model's offer.
         audio?.setVoices(lineVoices);
-        volumes?.setContent(contentFor(lineVoices));
+        // The sound controls follow what it can play (item 6b), the voice
+        // client made if it is the first language that needs the model.
+        sound.set(contentFor(lineVoices));
         help.setHeading(next.title(), next.version());
         drawPageTitle();
         languageControl?.refresh();
@@ -711,7 +730,7 @@ function start(): void {
         // A game with sound controls gets the Sound row (docs/plan.md Phase
         // 47 item 7): its switch goes through onChange above, its Volumes...
         // opens the sheet below.
-        ...(soundControls
+        ...(soundPossible
           ? { sound: { onVolumes: (opener) => volumes?.open(opener) } }
           : {}),
         // Import: the file is checked before anything is touched; a
@@ -771,26 +790,28 @@ function start(): void {
       // voice model's download, progress, help and removal (Phase 52 item
       // 10); Remove asks in the confirmation box, as Reset does, which then
       // sits over the sheet.
-      const volumes = soundControls
+      const volumes = soundPossible
         ? mountVolumesOverlay({
             root,
-            content,
+            content: bootContent,
             rows: sheetRows,
-            ...(voiceClient === null
-              ? {}
-              : {
+            ...(modelPossible
+              ? {
                   voiceModel: {
-                    status: () => voiceClient.status(),
-                    subscribe: (listener: () => void) =>
-                      voiceClient.subscribe(listener),
-                    onInstall: () => voiceClient.install(),
-                    onCancel: () => voiceClient.cancel(),
+                    status: () => voiceClient?.status() ?? null,
+                    subscribe: (listener: () => void) => {
+                      voiceListeners.add(listener);
+                      return () => voiceListeners.delete(listener);
+                    },
+                    onInstall: () => voiceClient?.install(),
+                    onCancel: () => voiceClient?.cancel(),
                     onRemove: () =>
                       confirm.open(
-                        removeVoicesRequest(() => voiceClient.remove()),
+                        removeVoicesRequest(() => voiceClient?.remove()),
                       ),
                   },
-                }),
+                }
+              : {}),
             suspended: () => confirm.isOpen(),
             settings: () => currentSettings,
             onChange: changeSound,
@@ -798,6 +819,17 @@ function start(): void {
             onOpenChange: (open) => audio?.setVolumesOpen(open),
           })
         : null;
+      // The Sound row starts built; a starting language without sound
+      // takes it away.
+      config.setSound(sound.shown());
+      // A switch that brings the sound controls or takes them away (item
+      // 6b): the keys row for `v` and the Sound row follow, and the sheet
+      // closes with nothing left to show.
+      function showSoundControls(shown: boolean): void {
+        help.setSound(shown);
+        config.setSound(shown);
+        if (!shown) volumes?.close();
+      }
       // The window controls (docs/plan.md Phase 43 item 9), the last group
       // of the settings: Fullscreen | Window and Exit. A game app owns its
       // display mode and quits itself (render/host.ts); in a browser tab
@@ -1252,7 +1284,7 @@ function start(): void {
           // on applies the screen's music and ambience, with no one-shot
           // and no voice restart (render/audiorules.ts `setSoundOn`).
           toggleSound: () => {
-            if (!soundControls || confirm.isOpen()) return;
+            if (!sound.shown() || confirm.isOpen()) return;
             if (volumes?.isOpen() === true) return;
             changeSound({
               ...currentSettings,

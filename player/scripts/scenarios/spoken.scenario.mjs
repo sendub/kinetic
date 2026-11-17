@@ -49,8 +49,16 @@
 //   `keepOriginalVoice` (the translation is spoken live instead) and plays
 //   with it (fr), and a language file's own recording plays (ja); the
 //   Volumes sheet's Voice row follows the language shown (the download
-//   offered, a slider alone when every line is recorded, no row when the
-//   language has no voice).
+//   offered, a slider alone when every line is recorded, no Volumes...
+//   button at all when the language has no sound);
+// - the sound controls per language (Phase 54 item 6b): in a browser tab, a
+//   game with no sound in its base gains the Sound row, Volumes..., `v` and
+//   the keys' V row on a switch to a language with recorded lines and
+//   loses them on a switch back (`v` doing nothing there); with a voice
+//   host, a game with music whose base and one language are fully recorded
+//   sends the host nothing (no `status`) and offers no download until a
+//   language with lines to make is shown, which then asks the host and
+//   offers it.
 
 import {
   cpSync,
@@ -130,7 +138,12 @@ function toneWav(seconds, hz) {
  */
 export function buildFolder(
   name,
-  { recorded = false, allRecorded = false, languages = null } = {},
+  {
+    recorded = false,
+    allRecorded = false,
+    languages = null,
+    music = false,
+  } = {},
 ) {
   const dir = join(scenarioRoot, `spoken-${name}`);
   rmSync(dir, { recursive: true, force: true });
@@ -144,6 +157,7 @@ export function buildFolder(
     );
   };
   for (const clip of Object.values(CLIPS)) ship(clip.file, 1.2, clip.hz);
+  mkdirSync(join(dir, "music"), { recursive: true });
   const manifest = JSON.parse(readFileSync(join(dir, "manifest.json"), "utf8"));
   manifest.voices = {
     Mei: { file: CLIPS.Mei.file, text: CLIPS.Mei.text },
@@ -169,6 +183,17 @@ export function buildFolder(
     for (const it of manifest.items) {
       if (voiceFor(it) !== null) it.audio = { ...it.audio, voice: "line" };
     }
+  }
+  if (music) {
+    // A tune on the first item: a sound every language has.
+    ship("music/tune.wav", 2, 330);
+    manifest.audio = {
+      tracks: {
+        ...manifest.audio?.tracks,
+        tune: { file: "music/tune.wav", durationSeconds: 2 },
+      },
+    };
+    manifest.items[0].audio = { ...manifest.items[0].audio, music: "tune" };
   }
   if (languages !== null) {
     // Language files (docs/content-format.md, "Translations"), each with
@@ -1816,7 +1841,9 @@ async function languageRow({ check, open }) {
   await pickLanguage(page, cdp, "ja");
   const japanese = await rowNow();
   await pickLanguage(page, cdp, "vi");
-  const vietnamese = await rowNow();
+  // Vietnamese has no sound at all: no Volumes... button to open the sheet
+  // from (item 6b).
+  const vietnamese = await page.evaluate(READ_CONTROLS);
   // The player's words follow the game's language: German's button is in
   // German.
   const offers = (r, words) =>
@@ -1836,9 +1863,215 @@ async function languageRow({ check, open }) {
     japanese,
   );
   check(
-    "in Vietnamese, which the engine lacks and which has no recordings, there is no Voice row",
-    vietnamese.hidden === true,
+    "in Vietnamese, which the engine lacks and which has no recordings, a game without other sound has no Volumes… button and no Sound row",
+    !vietnamese.volumes && !vietnamese.sound,
     vietnamese,
+  );
+}
+
+/** The Esc screen's sound controls and whether the keys list V (Esc open). */
+const READ_SOUND_CONTROLS = () => ({
+  volumes: document.querySelector('[data-config-action="volumes"]') !== null,
+  sound: document.querySelector('[data-config-action="sound"]') !== null,
+  keyV: [...document.querySelectorAll("#help .help-cap")].some(
+    (cap) => cap.textContent === "V",
+  ),
+});
+/** The Volumes sheet's rows, by setting, in order (the labels follow the UI language). */
+const READ_SHEET_ROWS = () =>
+  [...document.querySelectorAll("#volumes .volume-row")].map((row) =>
+    row.getAttribute("data-volume"),
+  );
+const pressV = (cdp) => pressKey(cdp, "v", "KeyV", 86, "v");
+
+/**
+ * A language file that records every voiced line of the demo, in one
+ * track of its own.
+ */
+function recordedLanguage(prefix) {
+  const items = translateAll(prefix);
+  const tag = prefix.toLowerCase();
+  return {
+    items,
+    voice: {
+      tracks: {
+        all: { file: `lang/${tag}/lines/all.wav`, durationSeconds: 1 },
+      },
+      items: Object.fromEntries(Object.keys(items).map((id) => [id, "all"])),
+    },
+  };
+}
+
+/**
+ * The sound controls follow the language shown (item 6b), in a browser tab:
+ * the demo has no sound and its voices cannot be made there, so the base has
+ * no controls; Japanese records every line, German none.
+ */
+async function languageControls({ check, open }) {
+  const { dir } = buildFolder("lang-controls", {
+    languages: {
+      ja: recordedLanguage("JA"),
+      de: { items: translateAll("DE") },
+    },
+  });
+  const { page, cdp } = await open("lang-controls", {
+    folder: dir,
+    closeHelp: true,
+  });
+  /** `v` with the Esc screen shut: the pills it showed. */
+  const vPills = async () => {
+    await page.evaluate(INSTALL_PILL_LOG);
+    await pressV(cdp);
+    await sleep(300);
+    return page.evaluate(() => [...(window.__pills ?? [])]);
+  };
+  const closeEsc = async () => {
+    await pressEscape(cdp);
+    await page.waitForFunction(() => document.getElementById("help").hidden, {
+      timeout: 3000,
+    });
+  };
+  await openSettings(page, cdp);
+  const base = await page.evaluate(READ_SOUND_CONTROLS);
+  await closeSettings(page, cdp);
+  const baseV = await vPills();
+  check(
+    "in the base, which has no sound, there is no Sound row, no Volumes… button and no V in the keys, and v does nothing",
+    !base.volumes && !base.sound && !base.keyV && baseV.length === 0,
+    { base, baseV },
+  );
+
+  await pickLanguage(page, cdp, "ja");
+  const japanese = await page.evaluate(READ_SOUND_CONTROLS);
+  await clickCenter(cdp, VOLUMES_BUTTON);
+  const sheetUp = await page
+    .waitForFunction(VOLUMES_OPEN, { timeout: 3000 })
+    .then(() => true)
+    .catch(() => false);
+  const rows = await page.evaluate(READ_SHEET_ROWS);
+  await pressEscape(cdp); // the sheet closes alone
+  await sleep(150);
+  await closeEsc();
+  // In Japanese the pills are in Japanese: told apart, and the switch read.
+  const offPills = await vPills();
+  const onPills = await vPills();
+  await openSettings(page, cdp);
+  const saved = await page.evaluate(
+    () =>
+      document
+        .querySelector('[data-config-action="sound"]')
+        ?.getAttribute("aria-pressed") === "true",
+  );
+  await closeEsc();
+  check(
+    "switched to Japanese, whose lines are recorded, the Sound row, Volumes… (a Voice row alone), the V key row and v itself arrive, with no reload",
+    japanese.volumes &&
+      japanese.sound &&
+      japanese.keyV &&
+      sheetUp &&
+      JSON.stringify(rows) === '["voiceVolume"]' &&
+      offPills.length === 1 &&
+      onPills.length === 1 &&
+      offPills[0] !== onPills[0] &&
+      saved === true,
+    { japanese, sheetUp, rows, offPills, onPills },
+  );
+
+  await pickLanguage(page, cdp, "de");
+  const german = await page.evaluate(READ_SOUND_CONTROLS);
+  await pickLanguage(page, cdp, "en");
+  const back = await page.evaluate(READ_SOUND_CONTROLS);
+  await closeEsc();
+  const backV = await vPills();
+  check(
+    "switched to German (nothing recorded, no voice host) and back to the base, they go again, and v does nothing",
+    !german.volumes &&
+      !german.sound &&
+      !german.keyV &&
+      !back.volumes &&
+      !back.sound &&
+      !back.keyV &&
+      backV.length === 0,
+    { german, back, backV },
+  );
+}
+
+/**
+ * With a voice host: a game with music whose base and Japanese record every
+ * line makes no voice client (the host hears nothing, no download is
+ * offered) until German, with lines to make, is shown.
+ */
+async function languageClient({ check, open }) {
+  const host = { state: "absent", downloadBytes: 3_300_000_000 };
+  const recorded = buildFolder("lang-client-recorded", {
+    allRecorded: true,
+    music: true,
+    languages: { ja: recordedLanguage("JA") },
+  });
+  const quiet = await open("lang-client-recorded", {
+    folder: recorded.dir,
+    closeHelp: true,
+    voiceHost: host,
+  });
+  await pickLanguage(quiet.page, quiet.cdp, "ja");
+  await pickLanguage(quiet.page, quiet.cdp, "en");
+  await sleep(300);
+  const quietFake = await readFakeVoice(quiet.page);
+  check(
+    "a game whose every line in every language is recorded sends the voice host nothing, not even status, through a switch and back",
+    quietFake.messages.length === 0,
+    quietFake.messages,
+  );
+
+  const { dir } = buildFolder("lang-client", {
+    allRecorded: true,
+    music: true,
+    languages: {
+      ja: recordedLanguage("JA"),
+      de: { items: translateAll("DE") },
+    },
+  });
+  const { page, cdp } = await open("lang-client", {
+    folder: dir,
+    closeHelp: true,
+    voiceHost: host,
+  });
+  const sheetNow = async () => {
+    await openSheet(page, cdp);
+    const rows = await page.evaluate(READ_SHEET_ROWS);
+    const row = await readRow(page);
+    await pressEscape(cdp); // the sheet closes alone
+    await sleep(150);
+    return { rows, row };
+  };
+  const base = await sheetNow();
+  await pickLanguage(page, cdp, "ja");
+  await closeSettings(page, cdp);
+  const japanese = await sheetNow();
+  const before = await readFakeVoice(page);
+  const slider = (r) =>
+    JSON.stringify(r.rows) === '["musicVolume","voiceVolume"]' &&
+    r.row?.state === null &&
+    r.row?.download === null &&
+    r.row?.readout !== null;
+  check(
+    "with music, the base and Japanese (every line recorded) show Music and a plain Voice slider, offer no download, and the host has heard nothing",
+    slider(base) && slider(japanese) && before.messages.length === 0,
+    { base, japanese, messages: before.messages },
+  );
+
+  await pickLanguage(page, cdp, "de");
+  await closeSettings(page, cdp);
+  await openSheet(page, cdp);
+  const offer = await waitRow(page, (r) => r?.state === "absent", 3000);
+  const after = await readFakeVoice(page);
+  check(
+    "switched to German, whose lines the model would make, the page asks the host its status once and the Voice row offers the download (in German) in place of the slider",
+    offer.ok &&
+      /\(3,3\sGB\)/.test(offer.row.download ?? "") &&
+      offer.row.readout === null &&
+      after.messages.filter((m) => m.op === "status").length === 1,
+    { row: offer.row, messages: after.messages },
   );
 }
 
@@ -1859,4 +2092,6 @@ export const parts = [
   languageRequests,
   languageRecordings,
   languageRow,
+  languageControls,
+  languageClient,
 ];

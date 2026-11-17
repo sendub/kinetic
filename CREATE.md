@@ -1312,6 +1312,12 @@ What the reader sees, in the Mac app and the Windows program:
   game with none of them has no Volumes... button, no Sound row and no
   `v` key. A game whose every line is recorded offers no download, in the
   app or in a browser tab: the Voice slider shows at once.
+- In a game with translations these follow the language on show, and
+  change as the reader switches: a language whose lines are recorded
+  brings the Voice row (and, in a game with no other sound, the Sound row,
+  Volumes... and `v`); a language with no sound at all takes them away;
+  the download is offered only while the language on show has lines the
+  model would speak (docs/content-format.md, "Translations").
 - The download needs a Mac with Apple silicon and macOS 14 or later. On
   an older Mac, or an Intel one, the download button is greyed out and its
   ? says why.
@@ -1440,7 +1446,11 @@ The tool speaks every line the player would speak live (an item with
 text whose speaker has a voice, or no speaker when there is a
 narrator, thoughts included) with the same engine the apps run, so a
 recorded line sounds as the live one would. It skips an item that
-already has its own `audio.voice`, so your own recordings stay. Quit
+already has its own `audio.voice`, so your own recordings stay. It
+speaks the game's own language, the manifest's `language` (English when
+it has none), as the apps speak it live; a game in a language the engine
+does not speak (docs/content-format.md, "Spoken lines per language",
+lists those it does) is refused before anything is touched. Quit
 any Kinetic game app first, since it shares the voice folder. From the
 repo root, after the media tools are set up:
 

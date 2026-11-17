@@ -99,7 +99,10 @@
 // its language. `setVoices` changes the language: on the item the reader
 // is on, a voice of the old language stops and the new one starts. A game
 // with language files mounts the sound even with no `audio`, as a file may
-// carry recordings.
+// carry recordings. Its voice client may come later (`setVoiceClient`,
+// Phase 54 item 6b): main.ts makes one only once a language that needs the
+// voice model is shown, and its spoken lines start then, on the item the
+// reader is on.
 //
 // A streamed line (Phase 52 item 4b; render/spokenstream.ts) arrives in
 // decoded chunks. They play on the same voice sound, through its gain and
@@ -318,6 +321,13 @@ export interface AudioPlayer {
    */
   setVoices(voices: LineVoices): void;
   /**
+   * The voice client arrived after the mount (docs/plan.md Phase 54 item
+   * 6b: made once a language needing the voice model is shown): spoken
+   * lines start, the item on show asked for at once. A second client, or
+   * one for a game without voices, changes nothing.
+   */
+  setVoiceClient(client: VoiceClient): void;
+  /**
    * The reader's settings changed (main.ts's `setSettings` path): sound on
    * or off and the three volumes act at once.
    */
@@ -436,8 +446,9 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
     ...ownTracks,
     ...voices?.tracks,
   };
+  const castVoices = hasVoices(manifest);
   const voiceClient =
-    options.voice != null && hasVoices(manifest) ? options.voice : null;
+    options.voice != null && castVoices ? options.voice : null;
   const languageFiles = (manifest.languages ?? []).length > 0;
   if (!hasSound(manifest) && voiceClient === null && !languageFiles) {
     return null;
@@ -1857,39 +1868,39 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
   doc.addEventListener("visibilitychange", onVisibility);
 
   // Spoken lines (render/spoken.ts): asked for on each arrival with its
-  // voice, played on the voice sound, holding auto-forward.
-  const spoken: SpokenLines<AudioBuffer> | null =
-    voiceClient === null
-      ? null
-      : createSpokenLines<AudioBuffer>({
-          items,
-          cast: manifest,
-          ...(voices === null
-            ? {}
-            : {
-                line: (index: number) => voices?.live(index) ?? null,
-              }),
-          client: voiceClient,
-          on: spokenOn(settings),
-          clip: (file) =>
-            reader.base64(file).catch((error: unknown) => {
-              // Reported as a track that will not decode is: a game's test
-              // run lists it.
-              console.error(`Failed to read voice clip: ${file}`);
-              throw error;
-            }),
-          decode: (wav) => decodeTrack(bytesOf(wav)),
-          now: () => Date.now(),
-          hold: (index, until) => machine.setSpokenHold(index, until),
-          play: startSpoken,
-          chunk: startSpokenChunk,
-          end: endSpoken,
-          stop: () => {
-            if (voice !== null && isSpoken(voice)) stopVoice();
-          },
-          playing: () =>
-            voice !== null && isSpoken(voice) ? voice.buffer : null,
-        });
+  // voice, played on the voice sound, holding auto-forward. Made with the
+  // voice client, at the mount or when it arrives (`setVoiceClient`).
+  const makeSpoken = (client: VoiceClient): SpokenLines<AudioBuffer> =>
+    createSpokenLines<AudioBuffer>({
+      items,
+      cast: manifest,
+      ...(voices === null
+        ? {}
+        : {
+            line: (index: number) => voices?.live(index) ?? null,
+          }),
+      client,
+      on: spokenOn(settings),
+      clip: (file) =>
+        reader.base64(file).catch((error: unknown) => {
+          // Reported as a track that will not decode is: a game's test
+          // run lists it.
+          console.error(`Failed to read voice clip: ${file}`);
+          throw error;
+        }),
+      decode: (wav) => decodeTrack(bytesOf(wav)),
+      now: () => Date.now(),
+      hold: (index, until) => machine.setSpokenHold(index, until),
+      play: startSpoken,
+      chunk: startSpokenChunk,
+      end: endSpoken,
+      stop: () => {
+        if (voice !== null && isSpoken(voice)) stopVoice();
+      },
+      playing: () => (voice !== null && isSpoken(voice) ? voice.buffer : null),
+    });
+  let spoken: SpokenLines<AudioBuffer> | null =
+    voiceClient === null ? null : makeSpoken(voiceClient);
 
   const director = createSoundDirector({
     machine,
@@ -2040,6 +2051,15 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
       }
       sync();
       scheduleWarm();
+    },
+    setVoiceClient(client) {
+      if (spoken !== null || !castVoices || destroyed) return;
+      spoken = makeSpoken(client);
+      // The reader is on an item whose voice already applied: its line is
+      // asked for now, as on an arrival.
+      if (voiceArrived >= 0 && voiceArrived === machine.getState().cursor) {
+        spoken.arrive(voiceArrived);
+      }
     },
     setSettings(next) {
       const wasOn = settings.soundOn;

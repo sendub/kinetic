@@ -36,8 +36,11 @@
 // A game in several languages (docs/plan.md Phase 54 item 6): what sound
 // there is can change with the language shown (`setContent`), so the sheet
 // builds every row the game may need (`rows`) and shows those the language
-// shown has; the Voice row offers the model only while that language needs
-// it, and is a plain slider otherwise.
+// shown has (a row it lacks leaves the list, so the rows' hairlines and
+// rounded ends stay right); the Voice row offers the model only while that
+// language needs it, and is a plain slider otherwise. A switch while the
+// sheet is open redraws its rows, and one to a language with no sound at
+// all closes it (Phase 54 item 6b).
 
 import { formatNumber, localized, t } from "../i18n/catalogue.ts";
 import type { MachineSettings } from "../machine/types";
@@ -146,7 +149,8 @@ export interface VolumesOverlay {
   close(): void;
   /**
    * What sound the language shown has now: the rows it lacks hide, and the
-   * Voice row offers the model only when `needsModel`.
+   * Voice row offers the model only when `needsModel`. Open, the sheet
+   * redraws, or closes when no row is left.
    */
   setContent(content: SoundContent): void;
 }
@@ -242,7 +246,7 @@ export function mountVolumesOverlay({
   const labellers: (() => void)[] = [];
   /** What sound the language shown has (`setContent`). */
   let showing = content;
-  /** Each row's cell, to show or hide. */
+  /** Each row's cell, in the sheet's order, to show or hide. */
   const cells = new Map<VolumeSetting, HTMLElement>();
 
   function move(row: VolumeRow, volume: number): void {
@@ -295,7 +299,6 @@ export function mountVolumesOverlay({
       cell.append(removeButton);
     }
     cell.append(down, slider, up, value);
-    list.append(cell);
     sliders.push(slider);
 
     const sample = (): void => {
@@ -451,10 +454,12 @@ export function mountVolumesOverlay({
   function paint(next: MachineSettings): void {
     for (const painter of painters) painter(next);
   }
-  /** Shows the rows the language shown has. */
+  /** Shows the rows the language shown has, in their order. */
   function showRows(): void {
     const on = new Set(volumeRows(showing).map((row) => row.setting));
-    for (const [setting, cell] of cells) cell.hidden = !on.has(setting);
+    list.replaceChildren(
+      ...[...cells].filter(([setting]) => on.has(setting)).map(([, c]) => c),
+    );
   }
   showRows();
   // The sheet's words, drawn again (with the model's state) in each new UI
@@ -468,11 +473,13 @@ export function mountVolumesOverlay({
     paintModel();
   });
 
-  /** Whether `el` and everything above it in the sheet is on show. */
+  /**
+   * Whether `el` is in the sheet (a row the language shown lacks is out of
+   * it) and it and everything above it there is on show.
+   */
   function isShown(el: HTMLElement): boolean {
-    for (let e: HTMLElement | null = el; e !== null && e !== sheet; ) {
-      if (e.hidden) return false;
-      e = e.parentElement;
+    for (let e: HTMLElement | null = el; e !== sheet; e = e.parentElement) {
+      if (e === null || e.hidden) return false;
     }
     return true;
   }
@@ -558,8 +565,16 @@ export function mountVolumesOverlay({
     close,
     setContent(next) {
       showing = next;
+      if (!next.any) close();
       showRows();
       paintModel();
+      // A row that held the focus may have left: the first control on show
+      // takes it, so the keyboard stays in the sheet.
+      if (!panel.hidden && !sheet.contains(doc.activeElement)) {
+        (sliders.find(isFocusable) ?? focusables()[0] ?? done).focus({
+          preventScroll: true,
+        });
+      }
     },
   };
 }

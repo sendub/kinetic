@@ -5072,8 +5072,22 @@ truthful: an unchecked box means nothing was accepted.
       `verify -- spoken audio` 143/143 Chrome, `--webkit spoken machost
       audio` 196/196. The subagent's runs: Go tests and vet clean,
       build_apps 127 passed, smoke 6/6 both engines.)
-- [ ] Sound controls per language, and base recordings in the base
-      language (item 6b, leads from item 6).
+- [x] Sound controls per language, and base recordings in the base
+      language (item 6b, leads from item 6). (Evidence:
+      `render/soundcontrols.ts` holds the shown language's sound content;
+      a switch adds or drops the Sound row, Volumes..., `v` and its Keys
+      row live, redraws an open sheet or closes it when nothing is left;
+      absent sheet rows are removed, not `hidden` (item 6's rows still
+      showed: fixed). The voice client is made only when a language
+      needing the model is first shown; an all-recorded game sends the
+      host nothing. `record_lines.py` speaks base lines in the manifest's
+      `language`, refusing one the engine lacks; English keys unchanged.
+      New `spoken` parts `languageControls` and `languageClient`, `audio`
+      part `languageRows`. Verified by the orchestrator: record_lines 32
+      passed; npm test 1701/1701, check clean; `verify -- spoken audio`
+      154/154 Chrome, `--webkit spoken audio machost` 207/207. The
+      subagent's `audio screens languages` runs passed on both engines
+      bar the 2 baseline Keyboard Lock partials.)
 - [ ] The game apps (item 7): menus, window titles and early dialogs
       in the reader's language.
 - [ ] The translator tools (item 8): `tools/translations.py export`,

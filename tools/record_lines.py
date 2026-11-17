@@ -41,6 +41,14 @@ and on Ctrl-C, and a rerun picks up from the files on disk. manifest.json
 keeps its own indentation; manifest.js is rewritten when the folder has one.
 tools/validate_content.py then runs on the folder.
 
+The lines are spoken in the manifest's `language` (default `en`), in the
+engine's language for it (its primary subtag; `nb` and `nn` are `no`), as
+the player speaks the base text live (player/src/render/linevoice.ts,
+`engineLanguage`); a base language the engine does not speak is refused
+(exit 2). An English base asks the helper for its default and keeps the
+key without a language, so recordings made before languages existed stay
+valid; any other base's key also holds the language.
+
 --lang TAG records one translation's lines instead (docs/plan.md Phase 54,
 item 6; docs/content-format.md, "Translations"), as the player would speak
 them live with that language shown (player/src/render/linevoice.ts,
@@ -242,7 +250,7 @@ class Plan:
     have: set[str]  # keys whose file is on disk
     kbps: int
     #: Where the files go (`lines_dir_of`), and the engine's language for
-    #: a language file's lines (None: the manifest's, in the default).
+    #: the lines (None: the helper's default, English).
     folder: str = LINES_DIR
     lang: str | None = None
 
@@ -260,7 +268,7 @@ class Plan:
 def line_key(lock: dict[str, Any], clip: Clip, text: str, kbps: int,
              lang: str | None = None) -> str:
     """sha256 of everything that decides a line's recorded bytes: with
-    `lang` (a language file's lines) the engine's language too."""
+    `lang` (any language but English) the engine's language too."""
     fields = {"v": KEY_VERSION, "lock": lock["id"], "engine": lock["engine"],
               "clip": clip.sha256, "clipText": clip.transcript, "text": text,
               "kbps": kbps}
@@ -315,16 +323,32 @@ def manifest_lines(manifest: dict[str, Any], own: dict[str, Any]
     return found
 
 
+def base_language(manifest: dict[str, Any]) -> str | None:
+    """The engine's language for the manifest's own lines: None for an
+    English base (the helper's default, and the key without a language,
+    as before languages existed), else the engine's id for the manifest's
+    `language`; Refusal(2) for one the engine does not speak."""
+    tag = manifest.get("language")
+    tag = tag if isinstance(tag, str) and tag else "en"
+    lang = engine_language(tag)
+    if lang is None:
+        raise Refusal(2, f"the game's language is {tag!r}, which the voice "
+                         f"engine does not speak; it speaks "
+                         f"{', '.join(LANGUAGES)}")
+    return None if lang == "en" else lang
+
+
 def plan(game: Path, manifest: dict[str, Any], lock: dict[str, Any],
          kbps: int, doc: Document | None = None) -> Plan:
-    """What to record for the manifest, or with `doc` a language file
-    (`LanguageFile`), against what is on disk."""
+    """What to record for the manifest (in its base language,
+    `base_language`), or with `doc` a language file (`LanguageFile`),
+    against what is on disk."""
     folder = doc.folder if doc is not None else LINES_DIR
-    lang = doc.lang if doc is not None else None
+    lang = doc.lang if doc is not None else base_language(manifest)
     tracks = doc.tracks() if doc is not None else (
         (manifest.get("audio") or {}).get("tracks") or {})
     own = {tid: t for tid, t in tracks.items() if own_track(tid, t, folder)}
-    wanted = manifest_lines(manifest, own) if doc is None or lang is None \
+    wanted = manifest_lines(manifest, own) if doc is None \
         else language_lines(manifest, doc.data, own)
     clips: dict[str | None, Clip] = {}
     lines: dict[str, Line] = {}

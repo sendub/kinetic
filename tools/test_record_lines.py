@@ -732,3 +732,67 @@ def test_lang_refusals(tmp_path, lock_file, helper_cmd, capsys):
     assert record(game, lock_file, helper_cmd, "--lang", "vi",
                   "--dry-run") == 2
     assert snapshot(game) == before
+
+
+# --- the base language (docs/plan.md Phase 54 item 6b) -----------------------
+
+def set_language(game: Path, tag: str) -> None:
+    manifest = load(game)
+    manifest["language"] = tag
+    write_manifest(game, manifest)
+
+
+def test_a_german_base_is_spoken_in_german(tmp_path, lock_file, helper_cmd,
+                                           speak_calls):
+    game = make_game(tmp_path)
+    set_language(game, "de-AT")
+    assert record(game, lock_file, helper_cmd) == 0
+    assert sorted(speak_calls.langs) == sorted([
+        ("The harbour at dusk.", "de"), ("You're early today.", "de"),
+        ("The tide waits for nobody.", "de"),
+        ("He never says hello.", "de")])
+    manifest = load(game)
+    assert voice_of(manifest, "line-1")
+    assert all(t["file"].startswith("lines/")
+               for t in owned(manifest).values())
+    assert validate_content.validate_folder(game) == []
+    # A rerun records nothing.
+    speak_calls.clear()
+    assert record(game, lock_file, helper_cmd) == 0
+    assert speak_calls == []
+
+
+def test_an_english_base_keeps_its_keys(tmp_path, lock_file, helper_cmd,
+                                        speak_calls):
+    """Recordings made before languages existed stay valid: an English
+    base (named or not) asks the helper for its default and keys its lines
+    without a language; a German base keys them apart."""
+    tracks = {}
+    for tag in (None, "en", "en-GB", "de"):
+        game = make_game(tmp_path, name=f"game-{tag}")
+        if tag is not None:
+            set_language(game, tag)
+        speak_calls.clear()
+        assert record(game, lock_file, helper_cmd) == 0
+        assert {lang for _, lang in speak_calls.langs} == \
+            ({"de"} if tag == "de" else {None})
+        tracks[tag] = set(owned(load(game)))
+    assert tracks["en"] == tracks[None] == tracks["en-GB"]
+    assert tracks["de"].isdisjoint(tracks[None])
+
+
+def test_a_base_language_the_engine_lacks_is_refused(tmp_path, lock_file,
+                                                     helper_cmd, capsys):
+    game = make_game(tmp_path)
+    set_language(game, "vi")
+    before = snapshot(game)
+    assert record(game, lock_file, helper_cmd) == 2
+    err = capsys.readouterr().err
+    assert "the game's language is 'vi'" in err
+    assert "the voice engine does not speak" in err
+    assert "de, el, en" in err
+    assert record(game, lock_file, helper_cmd, "--dry-run") == 2
+    assert snapshot(game) == before
+    # A translation's lines do not depend on the base's language.
+    add_language(game, "de", GERMAN)
+    assert record(game, lock_file, helper_cmd, "--lang", "de") == 0

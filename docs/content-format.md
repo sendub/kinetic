@@ -1083,7 +1083,7 @@ plays the recording and is never generated. `tools/record_lines.py`
 writes such recordings of every line that would be generated, so a game
 whose lines are all recorded needs no voice engine; it names its tracks
 `rec-` and 32 hex digits and keeps them in `lines/` (CREATE.md,
-"Recording the lines"). Speaker names are not spoken, only the text.
+"Recording the lines"), spoken in the manifest's `language`. Speaker names are not spoken, only the text.
 Lines are spoken as written: the format has no direction markup. A line is
 spoken in the engine's language for the manifest's `language`; with a
 translation shown, the shown text in that language's (Translations,
@@ -1260,9 +1260,18 @@ language: `pt-BR` and `pt-PT` are Portuguese, `zh-Hans` and `zh-Hant`
 Chinese, `nb` and `nn` Norwegian. A line in another language is not
 generated: it stays silent, unless the file records it. Recorded lines
 play in a browser too; generated ones need a Kinetic app with the voice
-model, as in the base. The Volumes sheet's Voice row and the model's
-download follow the language shown: a language whose every line is
-recorded offers no download.
+model, as in the base. The sound controls follow the language shown,
+changing on a switch without a reload: the Esc screen's Sound row, its
+Volumes... button, the `v` key and its row in the keys show while that
+language has a sound the reader can turn (music, ambience, effects or a
+video's sound, the same in every language, or that language's voice,
+recorded or generated), and the Volumes sheet shows a row for each kind
+it has. So a language with recorded lines in a game with no other sound
+brings them, and a language with no sound at all takes them away. The
+model's download is offered only while the language shown has a line to
+generate: a language whose every line is recorded offers none, and a
+game whose every line in every language is recorded (or silent) never
+talks to the voice engine at all.
 
 The converter's Python helper for these files is
 `converter/kinetic_extract/language_file.py`: the hash

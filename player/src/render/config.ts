@@ -233,6 +233,12 @@ export interface ConfigOverlay {
   open(): void;
   /** Repaints from the settings in force (`v` turned sound on or off). */
   refresh(): void;
+  /**
+   * Shows the Sound row (true) or takes it away (docs/plan.md Phase 54 item
+   * 6b: it follows what the language shown can play). Only with `sound`
+   * given; it starts shown.
+   */
+  setSound(shown: boolean): void;
   close(): void;
 }
 
@@ -266,7 +272,7 @@ export interface ConfigOverlayOptions {
    * 52 item 10): a Sound row joins Play all routes' group, its switch the
    * `soundOn` setting and its Volumes... button `onVolumes`, given the
    * button (focus goes back to it when the sheet closes). Absent: no Sound
-   * row.
+   * row, ever. Given, `setSound` takes the row away and brings it back.
    */
   sound?: { onVolumes(opener: HTMLElement): void };
 }
@@ -457,11 +463,12 @@ export function mountConfigOverlay({
   const resetRow = actionRow("reset-progress");
   resetRow.children[1].className = "config-toggle config-reset";
 
+  const playGroup = group(playRow, ...(sound === undefined ? [] : [soundRow]));
   panel.append(
     title,
     group(speedRow),
     group(skipHeading, skipRow, skipVideoRow),
-    group(playRow, ...(sound === undefined ? [] : [soundRow])),
+    playGroup,
     group(progressHeading, exportRow, importRow, resetRow),
   );
   root.appendChild(panel);
@@ -611,6 +618,15 @@ export function mountConfigOverlay({
     },
     refresh() {
       paint(settings());
+    },
+    setSound(shown) {
+      if (sound === undefined || shown === (soundRow.parentElement !== null)) {
+        return;
+      }
+      // Out of the group, not hidden: its rounded ends and hairlines go by
+      // the rows it holds (index.html's `.config-row`).
+      if (shown) playGroup.append(soundRow);
+      else soundRow.remove();
     },
     close,
   };

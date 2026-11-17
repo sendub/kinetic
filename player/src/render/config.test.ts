@@ -831,6 +831,30 @@ describe("the Sound row (docs/plan.md Phase 47 item 7)", () => {
     expect(changes[1]).toEqual(defaults);
   });
 
+  it("leaves and rejoins its group as the language shown changes (Phase 54 item 6b)", () => {
+    const { root, overlay } = mount(defaults, { sound: true });
+    const hasSound = () =>
+      walk(root).some(
+        (el) => el.getAttribute("data-config-action") === "sound",
+      );
+    overlay.setSound(false);
+    expect(hasSound()).toBe(false);
+    expect(groupLines(root)[2]).toEqual(["Play all routes"]);
+    overlay.setSound(false);
+    overlay.setSound(true);
+    expect(groupLines(root)[2]).toEqual(["Play all routes", "Sound"]);
+    overlay.setSound(true);
+    expect(groupLines(root)[2]).toEqual(["Play all routes", "Sound"]);
+    // A game with no sound row has none to bring.
+    const silent = mount(defaults);
+    silent.overlay.setSound(true);
+    expect(
+      walk(silent.root).some(
+        (el) => el.getAttribute("data-config-action") === "sound",
+      ),
+    ).toBe(false);
+  });
+
   it("Volumes... asks for the sheet with its own button and changes no setting", () => {
     const { root, changes, volumes } = mount(defaults, { sound: true });
     const button = byAction(root, "volumes");

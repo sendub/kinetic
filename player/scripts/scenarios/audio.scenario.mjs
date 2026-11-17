@@ -38,9 +38,13 @@
 //   only for the line's text once Voice is at 0 (an imported progress file
 //   carries the setting);
 // - fixtures/demo, a game without audio, makes no <audio> element and no
-//   hook, and openGame's current() reports `audio` (null there).
+//   hook, and openGame's current() reports `audio` (null there);
+// - the Volumes sheet per language (docs/plan.md Phase 54 item 6b), on a
+//   copy with music only and two language files: the Sound row stays in
+//   every language (music is the same in each), and the Voice row joins
+//   the Music row only while the language with recorded lines is shown.
 
-import { readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { openGame } from "../testing/kinetic.mjs";
 import {
@@ -1838,6 +1842,99 @@ async function soundKey({ check, open, folders }) {
   );
 }
 
+/**
+ * The Volumes sheet follows the language shown (item 6b): music only in the
+ * base, German with a recorded line of its own (the demo's voice file),
+ * French with none.
+ */
+async function languageRows({ check, open, folders }) {
+  if (!built(check, folders)) return;
+  const dir = soundFolder("lang-rows", ["music"]);
+  const manifest = JSON.parse(readFileSync(join(dir, "manifest.json"), "utf8"));
+  const languages = {
+    de: {
+      items: { "intro-title": { text: "DE: Die Audio-Demo." } },
+      voice: {
+        tracks: { intro: { file: "mei-1.webm", durationSeconds: 1.2 } },
+        items: { "intro-title": "intro" },
+      },
+    },
+    fr: { items: { "intro-title": { text: "FR: La démo audio." } } },
+  };
+  mkdirSync(join(dir, "lang"), { recursive: true });
+  for (const [tag, fields] of Object.entries(languages)) {
+    const text = JSON.stringify({ language: tag, ...fields }, null, 2);
+    writeFileSync(join(dir, "lang", `${tag}.json`), text);
+    writeFileSync(
+      join(dir, "lang", `${tag}.js`),
+      `window.KINETIC_LANGUAGES[${JSON.stringify(tag)}] = ${text};\n`,
+    );
+  }
+  manifest.languages = Object.keys(languages);
+  const json = JSON.stringify(manifest, null, 2);
+  writeFileSync(join(dir, "manifest.json"), json);
+  writeFileSync(
+    join(dir, "manifest.js"),
+    `window.KINETIC_MANIFEST = ${json};\n`,
+  );
+  const { page, cdp } = await open("lang-rows", {
+    folder: dir,
+    closeHelp: true,
+  });
+  /** Opens the Esc screen (if shut) and picks `tag` in its Language list. */
+  const pick = async (tag) => {
+    if (await page.evaluate(() => document.getElementById("help").hidden)) {
+      await pressEscape(cdp);
+      await page.waitForFunction(
+        () => !document.getElementById("help").hidden,
+        { timeout: 3000 },
+      );
+    }
+    await clickCenter(cdp, ".help-lang");
+    await page.waitForFunction(
+      () => document.querySelector(".help-lang-list")?.hidden === false,
+      { timeout: 3000 },
+    );
+    await clickCenter(cdp, `.help-lang-option[data-lang="${tag}"]`);
+    await page.waitForFunction(
+      (t) => document.querySelector(".help-lang-name")?.lang === t,
+      { timeout: 4000 },
+      tag,
+    );
+    await closeSettings(page, cdp);
+  };
+  /** The sheet's rows by setting (the labels follow the UI language). */
+  const rowsNow = async () => {
+    const up = await openVolumes(page, cdp);
+    const rows = await page.evaluate(() =>
+      [...document.querySelectorAll("#volumes .volume-row")].map((row) =>
+        row.getAttribute("data-volume"),
+      ),
+    );
+    await pressEscape(cdp); // the sheet closes alone
+    await sleep(150);
+    await closeSettings(page, cdp);
+    return up ? rows : null;
+  };
+  const base = await rowsNow();
+  await pick("de");
+  const german = await rowsNow();
+  await pick("fr");
+  const french = await rowsNow();
+  await pick("en");
+  const back = await rowsNow();
+  const music = JSON.stringify(["musicVolume"]);
+  check(
+    "the Sound row and Volumes… stay in every language of a game with music; the Voice row shows only in German, whose file records a line",
+    JSON.stringify(base) === music &&
+      JSON.stringify(german) ===
+        JSON.stringify(["musicVolume", "voiceVolume"]) &&
+      JSON.stringify(french) === music &&
+      JSON.stringify(back) === music,
+    { base, german, french, back },
+  );
+}
+
 // Independent parts (each opens its own browsers); the runner runs them
 // side by side and prints their checks in this order.
 export const parts = [
@@ -1869,4 +1966,5 @@ export const parts = [
   volumeRows,
   volumeSamples,
   soundKey,
+  languageRows,
 ];

@@ -130,6 +130,7 @@ function mountSheet(
   c: SoundContent,
   host: ReturnType<typeof modelHost> | null = null,
   settings: MachineSettings = DEFAULT_SETTINGS,
+  rows?: SoundContent,
 ) {
   const doc = new FakeDocument();
   const root = doc.createElement("div");
@@ -140,6 +141,7 @@ function mountSheet(
   const overlay = mountVolumesOverlay({
     root: root as unknown as HTMLElement,
     content: c,
+    ...(rows === undefined ? {} : { rows }),
     ...(host === null ? {} : { voiceModel: host.options }),
     settings: () => current,
     onChange: (next) => {
@@ -553,5 +555,62 @@ describe("soundMessage (the v pill)", () => {
   it("names the state sound is now in", () => {
     expect(soundMessage(true)).toBe("Sound on");
     expect(soundMessage(false)).toBe("Sound off");
+  });
+});
+
+describe("the rows follow the language shown (docs/plan.md Phase 54 item 6b)", () => {
+  const all = content({ music: true, effects: true, recordedVoice: true });
+  const shownRows = (root: FakeElement): (string | null)[] =>
+    walk(root)
+      .filter((el) => el.getAttribute("data-volume") !== null)
+      .map((el) => el.getAttribute("data-volume"));
+
+  it("holds only the rows the language shown has, in the sheet's order", () => {
+    const { root, overlay } = mountSheet(
+      content({ music: true }),
+      null,
+      DEFAULT_SETTINGS,
+      all,
+    );
+    expect(shownRows(root)).toEqual(["musicVolume"]);
+    overlay.setContent(content({ music: true, recordedVoice: true }));
+    expect(shownRows(root)).toEqual(["musicVolume", "voiceVolume"]);
+    overlay.setContent(all);
+    expect(shownRows(root)).toEqual([
+      "musicVolume",
+      "effectsVolume",
+      "voiceVolume",
+    ]);
+    overlay.setContent(content({ recordedVoice: true }));
+    expect(shownRows(root)).toEqual(["voiceVolume"]);
+  });
+
+  it("redraws while open, and closes when the language shown has no sound", () => {
+    const { doc, root, overlay, opens } = mountSheet(
+      content({ recordedVoice: true }),
+      null,
+      DEFAULT_SETTINGS,
+      all,
+    );
+    overlay.open(null);
+    expect(overlay.isOpen()).toBe(true);
+    overlay.setContent(content({ music: true }));
+    expect(overlay.isOpen()).toBe(true);
+    expect(shownRows(root)).toEqual(["musicVolume"]);
+    // The focus stays in the sheet, on the row now shown.
+    expect(doc.activeElement?.getAttribute("data-config-action")).toBe(
+      "volume-music-slider",
+    );
+    overlay.setContent(content());
+    expect(overlay.isOpen()).toBe(false);
+    expect(opens).toEqual([true, false]);
+    expect(shownRows(root)).toEqual([]);
+    // Opened on a language with voice only, the first slider on show is
+    // the Voice row's, not a row out of the sheet.
+    overlay.setContent(content({ recordedVoice: true }));
+    overlay.open(null);
+    expect(doc.activeElement?.getAttribute("data-config-action")).toBe(
+      "volume-voice-slider",
+    );
   });
 });

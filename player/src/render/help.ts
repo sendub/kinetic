@@ -105,6 +105,11 @@ export interface HelpOverlay {
    * index.html keeps the control on the title's line at every width.
    */
   addTitleControl(control: HTMLElement): void;
+  /**
+   * The keys list `v` (true) or not (docs/plan.md Phase 54 item 6b: the
+   * sound controls follow what the language shown can play).
+   */
+  setSound(sound: boolean): void;
 }
 
 export interface HelpOverlayOptions {
@@ -129,7 +134,8 @@ export interface HelpOverlayOptions {
   onEntry?: (command: KeyCommand) => void;
   /**
    * The game has audio (docs/plan.md Phase 47 item 7): the keys list `v`.
-   * Absent or false: no row for it, as `v` does nothing there.
+   * Absent or false: no row for it, as `v` does nothing there. At the
+   * mount; `setSound` changes it.
    */
   sound?: boolean;
 }
@@ -177,8 +183,9 @@ export function mountHelpOverlay({
   gameTitle,
   gameVersion,
   onEntry,
-  sound = false,
+  sound: soundAtMount = false,
 }: HelpOverlayOptions): HelpOverlay {
+  let sound = soundAtMount;
   const doc = root.ownerDocument;
 
   const panel = doc.createElement("div");
@@ -337,6 +344,11 @@ export function mountHelpOverlay({
           }
         }).observe(control);
       }
+    },
+    setSound(next) {
+      if (next === sound) return;
+      sound = next;
+      drawRows();
     },
   };
 }
