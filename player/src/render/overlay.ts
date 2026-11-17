@@ -17,14 +17,25 @@
 // is upper-cased by its own language's rules (index.html's
 // `text-transform`: Turkish `i` becomes `İ`), and the fonts and line
 // breaking follow the writing system.
+//
+// The line's text tags are read (docs/plan.md Phase 57 item 2,
+// render/tagged.ts): emphasis is drawn as elements, never as HTML. A
+// speaker with colours in the manifest's `characters` has the name and the
+// line drawn in them, looked up by the manifest's `speaker`, so a name a
+// language file changes keeps its colours. A coloured thought keeps its
+// italics and takes the speaker's colour in place of the thought blue,
+// drawn dimmer (`data-colored`, index.html) so it reads apart from speech
+// in the scripts with no italics too; with no colour, the look is the
+// stylesheet's alone.
 
-import type { Item } from "../machine/types";
+import type { CharacterStyle, Item } from "../machine/types";
 import {
   createGameWords,
   type GameWords,
   markLanguage,
   type ShownText,
 } from "./gamewords";
+import { drawTagged } from "./tagged.ts";
 
 export interface OverlayContent {
   speaker: ShownText | null;
@@ -47,6 +58,51 @@ export function overlayContentFor(
   if (text === null) return null;
   const speaker = item?.speaker;
   return { speaker: speaker ? words.speaker(speaker) : null, text };
+}
+
+/** The colours a line is drawn in: absent ones are the stylesheet's. */
+export interface SpeakerColors {
+  readonly name?: string;
+  readonly text?: string;
+}
+
+/** A colour the manifest may give: `#` and six hex digits. */
+const COLOR = /^#[0-9a-fA-F]{6}$/;
+
+/**
+ * Pure: the colours of `item`'s speaker in `characters` (the manifest's
+ * table, keyed by the item's `speaker`, never the drawn name). Narration,
+ * a speaker with no entry and a colour that is not `#rrggbb` give none.
+ */
+export function speakerColorsFor(
+  item: Item | undefined,
+  characters: Readonly<Record<string, CharacterStyle>> | undefined,
+): SpeakerColors {
+  const speaker = item?.speaker;
+  if (!speaker || characters === undefined) return {};
+  // Own entries only: a speaker named "constructor" is not a colour.
+  const entry: unknown = Object.getOwnPropertyDescriptor(
+    characters,
+    speaker,
+  )?.value;
+  if (typeof entry !== "object" || entry === null) return {};
+  const { nameColor, textColor } = entry as CharacterStyle;
+  return {
+    ...(typeof nameColor === "string" && COLOR.test(nameColor)
+      ? { name: nameColor }
+      : {}),
+    ...(typeof textColor === "string" && COLOR.test(textColor)
+      ? { text: textColor }
+      : {}),
+  };
+}
+
+/**
+ * Sets an element's own colour, or drops it for the stylesheet's (an
+ * empty inline value removes the property).
+ */
+function paint(element: HTMLElement, color: string | undefined): void {
+  element.style.color = color ?? "";
 }
 
 /** How a drawn line reads: spoken dialogue, or an unspoken thought. */
@@ -72,7 +128,14 @@ export interface TextOverlayLayer {
   setHidden(hidden: boolean): void;
 }
 
-export function createTextOverlayLayer(root: HTMLElement): TextOverlayLayer {
+/**
+ * The overlay in `root`; `characters` is the manifest's table of speaker
+ * colours (absent: every speaker in the stylesheet's colours).
+ */
+export function createTextOverlayLayer(
+  root: HTMLElement,
+  characters?: Readonly<Record<string, CharacterStyle>>,
+): TextOverlayLayer {
   const doc = root.ownerDocument;
   const speaker = doc.createElement("p");
   speaker.id = "overlay-speaker";
@@ -83,6 +146,7 @@ export function createTextOverlayLayer(root: HTMLElement): TextOverlayLayer {
   root.replaceChildren(speaker, text);
 
   let content: OverlayContent | null = null;
+  let colors: SpeakerColors = {};
   let mode: OverlayMode = "speech";
   let hidden = false;
 
@@ -97,16 +161,22 @@ export function createTextOverlayLayer(root: HTMLElement): TextOverlayLayer {
     if (content.speaker !== null) {
       speaker.textContent = content.speaker.text;
       markLanguage(speaker, content.speaker.lang);
+      paint(speaker, colors.name);
       root.append(speaker);
     }
-    text.textContent = content.text.text;
+    drawTagged(text, content.text.text);
     markLanguage(text, content.text.lang);
+    paint(text, colors.text);
+    // A coloured thought loses the thought blue; index.html dims it.
+    if (colors.text === undefined) text.removeAttribute("data-colored");
+    else text.setAttribute("data-colored", "");
     root.append(text);
   }
 
   return {
     update(item, words) {
       content = overlayContentFor(item, words);
+      colors = speakerColorsFor(item, characters);
       mode = overlayModeFor(item);
       apply();
     },

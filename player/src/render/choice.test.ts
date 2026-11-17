@@ -4,6 +4,7 @@
 // end-to-end screen is walked with the branch fixture (docs/verify-player.md).
 
 import { describe, expect, it } from "vitest";
+import { choiceScreenText } from "../machine/choicetext";
 import type { ChoiceRoute, ChoiceView } from "../machine/types";
 import {
   autoPickSeconds,
@@ -215,6 +216,12 @@ describe("the play-all auto-pick on the choice screen (docs/plan.md Phase 18)", 
     );
   });
 
+  it("quotes a route label as plain shown text, its tags read (Phase 57)", () => {
+    expect(autoPickStatus({ backFromLabel: "{i}Route{/i} 1{w}" }, 2)).toBe(
+      "Back in time: “Route 1” is done. Play all routes picks in 2 s",
+    );
+  });
+
   it("the hint offers Space while play-all is about to answer, picked phase included", () => {
     const view = {
       decisionId: "d",
@@ -291,5 +298,26 @@ describe("long choice lists (more routes than the digits reach)", () => {
     it("aligns the top of a row taller than the view", () => {
       expect(scrollIntoListDelta(view, { top: 200, bottom: 800 }, 0)).toBe(100);
     });
+  });
+});
+
+describe("choiceScreenText reads text tags (docs/plan.md Phase 57)", () => {
+  it("counts the prompt and labels as shown, not their tags", () => {
+    const tagged = choiceScreenText({
+      prompt: "{i}Which{/i} way?{w}",
+      routes: [
+        { ...route(0), label: "{b}North{/b}" },
+        { ...route(1, true), label: "South{p}road" },
+      ],
+    });
+    const plain = choiceScreenText({
+      prompt: "Which way?",
+      routes: [
+        { ...route(0), label: "North" },
+        { ...route(1, true), label: "South\nroad" },
+      ],
+    });
+    expect(tagged).toBe(plain);
+    expect(tagged).not.toContain("{");
   });
 });

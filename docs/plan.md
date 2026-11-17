@@ -4153,6 +4153,14 @@ The orchestrator's choices, within those decisions:
    unknown tags, `{{`, right-to-left text); scenario checks in Chrome
    and WebKit that italic and colour reach the page and no brace shows
    on the demo.
+2b. Spoken lines say the shown text (item 2's lead). `spokenLine` in
+    `player/src/render/spoken.ts` and tools/record_lines.py send the
+    raw text, tags included, to the voice engine and use it as the
+    cache and recording key. Both switch to the shown text (tags read,
+    `{p}` a pause or space) together, so live lines still match
+    recorded ones; a folder recorded before keeps working or the
+    validator says to re-record. Tests: unit tests on both sides with a
+    tagged line; the `spoken` scenario on Chrome and WebKit.
 3. The player's transitions. `dissolve` fades the new picture in over
    the old; `fade` takes the old to black over `out`, holds, and brings
    the new in over `in`, all on the compositor (opacity only). The new

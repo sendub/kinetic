@@ -127,6 +127,19 @@
         font-style: italic;
         color: #b9d4e8;
       }
+      /* A speaker's own textColor (docs/plan.md Phase 57 item 2; an
+         inline colour from render/overlay.ts, which marks the line
+         `data-colored`) takes the place of the blue. The italics stay, and
+         the thought is drawn dimmer, so it still reads apart from that
+         speaker's dialogue where a script has no italics (below). */
+      .overlay-text[data-mode="thought"][data-colored] {
+        opacity: 0.8;
+      }
+      /* Emphasis inside a thought ({i}, render/tagged.ts) is set upright,
+         the usual way to stress a word in italic text. */
+      .overlay-text[data-mode="thought"] i {
+        font-style: normal;
+      }
 
       /* ==== Writing systems (docs/plan.md Phase 56 item 3) ================
          System fonts only. Every piece of game text carries the language
@@ -1969,12 +1982,15 @@
         backdrop-filter: blur(40px) saturate(185%) brightness(1.06);
         box-shadow: var(--k-shadow-sheet);
       }
+      /* Game text breaks its line at a {p} tag, drawn as a newline
+         (render/tagged.ts), as the overlay's line does. */
       .choice-title {
         grid-row: 3;
         margin: 0 auto clamp(4px, 0.8vh, 8px);
         max-width: 60ch;
         line-height: 1.25;
         text-align: center;
+        white-space: pre-line;
       }
       /* Play all routes (docs/plan.md Phase 18): the machine is about to
          answer — a status line over a bar that drains to the pick. */
@@ -2088,6 +2104,7 @@
       .choice-label {
         flex: 1;
         line-height: 1.35;
+        white-space: pre-line;
       }
       /* The seen marker: a small capsule tag, a checkmark before "seen". */
       .choice-seen {

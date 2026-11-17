@@ -5,6 +5,7 @@
 // language in force (the catalogue, ../i18n/catalogue.ts). Pure, no DOM.
 
 import { t } from "../i18n/catalogue.ts";
+import { shownText } from "./texttags.ts";
 import type { AutoPickView, ChoiceView, MachineSettings } from "./types";
 
 /** The label of the `continueAt` offer row. */
@@ -31,7 +32,7 @@ export function autoPickStatus(
   return auto.backFromLabel === undefined
     ? t("choice.autoPick", { seconds: secondsLeft })
     : t("choice.autoPickBack", {
-        label: auto.backFromLabel,
+        label: shownText(auto.backFromLabel),
         seconds: secondsLeft,
       });
 }
@@ -51,11 +52,15 @@ export function choiceScreenText(
     backFromLabel === undefined ? {} : { backFromLabel },
     1,
   );
+  // The prompt and labels as shown, their text tags read (docs/plan.md
+  // Phase 57 item 2): a tag is not a word the reader reads.
   const rows = view.routes.map((route) =>
-    route.seen ? `${route.label} ${seenMarker()}` : route.label,
+    route.seen
+      ? `${shownText(route.label)} ${seenMarker()}`
+      : shownText(route.label),
   );
   if (view.continueOption === true) rows.push(continueLabel());
-  return [view.prompt, status, ...rows].join(" ");
+  return [shownText(view.prompt), status, ...rows].join(" ");
 }
 
 /** The rows a choice screen offers: its routes plus the return row. */

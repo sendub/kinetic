@@ -272,15 +272,24 @@ class FakeElement {
   removeAttribute(name: string): void {
     this.attributes.delete(name);
   }
-  append(...nodes: FakeElement[]): void {
-    this.children.push(...nodes);
+  /** A string becomes a text node, as the DOM's `append` makes one. */
+  private nodes(nodes: (FakeElement | string)[]): FakeElement[] {
+    return nodes.map((node) => {
+      if (typeof node !== "string") return node;
+      const text = new FakeElement(this.ownerDocument);
+      text.textContent = node;
+      return text;
+    });
+  }
+  append(...nodes: (FakeElement | string)[]): void {
+    this.children.push(...this.nodes(nodes));
   }
   appendChild(node: FakeElement): FakeElement {
     this.children.push(node);
     return node;
   }
-  replaceChildren(...nodes: FakeElement[]): void {
-    this.children = [...nodes];
+  replaceChildren(...nodes: (FakeElement | string)[]): void {
+    this.children = this.nodes(nodes);
   }
   remove(): void {}
   /** Its box's bottom edge, as a test sets it (the end card's). */

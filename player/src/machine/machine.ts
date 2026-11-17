@@ -126,6 +126,7 @@ import {
   SILENCE,
   type SoundResolver,
 } from "./sound";
+import { shownLength } from "./texttags";
 import type {
   Arrival,
   ArrivalKind,
@@ -663,14 +664,15 @@ export const defaultScheduler: Scheduler = {
 /**
  * Text hold in ms: max(minHold, codepoints(text) * msPerChar * factor /
  * speed), where `factor` is the reading-time factor of the language the
- * text is shown in (docs/content-format.md "Timing"; 1 for most).
+ * text is shown in (docs/content-format.md "Timing"; 1 for most) and the
+ * code points are those shown, its text tags read (`shownLength`).
  */
 export function textHoldMs(
   text: string | undefined,
   settings: MachineSettings,
   factor = 1,
 ): number {
-  const chars = [...(text ?? "")].length;
+  const chars = shownLength(text ?? "");
   if (chars === 0) return settings.minHoldMs;
   return Math.max(
     settings.minHoldMs,

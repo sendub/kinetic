@@ -753,7 +753,9 @@ that speaker is drawn in:
 - `nameColor` (optional): the colour of the speaker's name.
 - `textColor` (optional): the colour of the speaker's lines, thoughts
   included; the thought style (Items, `thought`) still sets a thought
-  apart from speech.
+  apart from speech. The player draws a coloured thought in the
+  speaker's colour in place of its own thought colour, still italic,
+  and dimmer, so it reads apart in the scripts it draws upright too.
 - Each colour is `#` and six hex digits, in either case: `#7fd6c2` and
   `#7FD6C2` are one colour. There is no alpha and no short `#rgb` form.
   An absent colour is the player's own: the gold name and the light

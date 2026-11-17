@@ -371,7 +371,7 @@ export function mountShell({
   machine.setVideoClock(() =>
     visuals.videoTime(manifest.items[machine.visualIndex()]),
   );
-  const captions = createTextOverlayLayer(overlay);
+  const captions = createTextOverlayLayer(overlay, manifest.characters);
   let textVisible = true;
   // The decision overlay hides the story text while it waits for an
   // answer (docs/plan.md Phase 13): a caption under the prompt would be

@@ -73,6 +73,7 @@ import {
   type ResolvedDecision,
   resolveDecisions,
 } from "../machine/machine";
+import { shownText } from "../machine/texttags.ts";
 import type { Branch, ContextFrame, Item, RouteSet } from "../machine/types";
 import type { MapPlace, SavedMapView } from "../storage/types";
 
@@ -1837,7 +1838,9 @@ export function promptShown(
   if (marks.hidden[decision]) return null;
   const base = model.decisionAt[decision]?.prompt;
   if (base === undefined) return null;
-  return marks.words?.prompt(decision, base) ?? { text: base, lang: "" };
+  const shown = marks.words?.prompt(decision, base) ?? { text: base, lang: "" };
+  // The map draws the plain shown text (docs/plan.md Phase 57 item 2).
+  return { ...shown, text: shownText(shown.text) };
 }
 
 /**
@@ -1851,12 +1854,16 @@ export function routeShown(
 ): MapShownText | null {
   const route = model.routes[key];
   if (route === undefined || marks.hidden[route.decision]) return null;
-  return (
-    marks.words?.label(route.decision, route.route, route.label) ?? {
-      text: route.label,
-      lang: "",
-    }
-  );
+  const shown = marks.words?.label(
+    route.decision,
+    route.route,
+    route.label,
+  ) ?? {
+    text: route.label,
+    lang: "",
+  };
+  // The map draws the plain shown text (docs/plan.md Phase 57 item 2).
+  return { ...shown, text: shownText(shown.text) };
 }
 
 /**
@@ -1872,7 +1879,7 @@ export function routeText(
   const route = model.routes[key];
   return marks.hidden[route.decision]
     ? t("map.hidden.route")
-    : (routeShown(model, marks, key)?.text ?? route.label);
+    : (routeShown(model, marks, key)?.text ?? shownText(route.label));
 }
 
 /** How far before a decision box the marker sits while its choice is up. */

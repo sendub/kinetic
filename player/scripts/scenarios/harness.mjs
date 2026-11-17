@@ -15,7 +15,9 @@ import {
 } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-
+// A line as the player draws it, its text tags read, from the player's
+// own parser, so the screen's line matches its item.
+import { shownText } from "../../src/machine/texttags.ts";
 // The continue row's label, read from the module that draws it, so the
 // branch steps assert the same string the screen shows (as with fit.ts).
 import { continueLabel } from "../../src/render/choice.ts";
@@ -1052,15 +1054,21 @@ export function branch(id) {
   return found;
 }
 
+/** The demo's items with each line as drawn (`shownText`). */
+const shownItems = manifest.items.map((it) =>
+  typeof it.text === "string" ? { ...it, text: shownText(it.text) } : it,
+);
+
 /**
  * The demo item the screen shows, identified from what it paints: the
- * overlay line when there is one (every demo line is unique), else the
- * visual's file. Null when nothing matches (an overlay or empty state).
+ * overlay line as drawn, its text tags read, when there is one (every demo
+ * line is unique), else the visual's file. Null when nothing matches (an
+ * overlay or empty state).
  */
 export async function currentItemId(page) {
   const s = await page.evaluate(PAGE_STATE);
   const videoShown = s.video?.visible === true;
-  const [first] = matchItems(manifest.items, {
+  const [first] = matchItems(shownItems, {
     text: s.text,
     file: videoShown ? s.video.poster : s.imgSrc,
   });

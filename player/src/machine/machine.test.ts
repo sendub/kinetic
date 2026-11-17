@@ -135,6 +135,25 @@ describe("hold computation (docs/content-format.md Timing)", () => {
     expect(textHoldMs("😀".repeat(30), SETTINGS)).toBe(1800);
   });
 
+  it("counts the code points shown, its text tags read (docs/plan.md Phase 57)", () => {
+    // 40 shown code points: the tags count nothing.
+    const tagged = `{i}${"a".repeat(20)}{/i}{w=1}{b}${"a".repeat(20)}{/b}`;
+    expect(textHoldMs(tagged, SETTINGS)).toBe(2400);
+    // {p} counts one, as does {{; text after {done} counts nothing.
+    expect(
+      textHoldMs(`${"a".repeat(38)}{p}{{{done}${"z".repeat(99)}`, SETTINGS),
+    ).toBe(2400);
+    // A text of tags alone shows nothing: the floor.
+    expect(textHoldMs("{w}{nw}", SETTINGS)).toBe(1500);
+    // And the shown language's text is read the same way.
+    expect(
+      itemHoldMs(image("a"), SETTINGS, false, {
+        text: `{size=+2}${"a".repeat(40)}{/size}`,
+        factor: 1,
+      }),
+    ).toBe(2400);
+  });
+
   it("animation hold is the later of loop time and text hold", () => {
     // 10 frames * 2 loops / 5 fps = 4 s.
     expect(itemHoldMs(animation(10, 5, 2), SETTINGS)).toBe(4000);

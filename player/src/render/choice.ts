@@ -76,6 +76,7 @@ import {
 } from "../machine/choicetext.ts";
 import type { ChoiceView } from "../machine/types";
 import { type GameWords, markLanguage } from "./gamewords.ts";
+import { drawTagged } from "./tagged.ts";
 
 // The screen's strings live with the machine, which counts them for the
 // play-all countdown (docs/plan.md Phase 20).
@@ -428,7 +429,8 @@ export function mountChoiceOverlay({
         scrolledPick = null;
         shownDecision = choice.decisionId;
       }
-      prompt.textContent = choice.prompt;
+      // Game text: its tags read (docs/plan.md Phase 57 item 2).
+      drawTagged(prompt, choice.prompt);
       const shownWords = words?.();
       if (shownWords !== undefined) {
         markLanguage(
@@ -461,7 +463,8 @@ export function mountChoiceOverlay({
         number.textContent = String(row.number);
         const label = doc.createElement("span");
         label.className = "choice-label";
-        label.textContent = row.label;
+        if (row.kind === "route") drawTagged(label, row.label);
+        else label.textContent = row.label;
         if (shownWords !== undefined && row.kind === "route") {
           const route = choice.routes[row.routeIdx];
           if (route !== undefined) {

@@ -86,18 +86,18 @@ const INSTALL_TIMELINE = () => {
   // Skip paces by pictures (docs/plan.md Phase 18): a burst walks its
   // `text` lines in zero time inside one task, so the observer's callback
   // sees only the final DOM. Each line the renderer wrote is still in the
-  // mutation records (the Text node it put in #overlay-text keeps its
-  // data), so those are logged first, as hidden-caption entries.
+  // mutation records (the nodes it put in #overlay-text keep their text:
+  // one record per line drawn, a text node, or several and emphasis
+  // elements for a line with text tags), so those are logged first, as
+  // hidden-caption entries.
   const lines = (records) => {
     for (const record of records ?? []) {
-      if (record.target?.id !== "overlay-text") continue;
-      for (const node of record.addedNodes) {
-        if (node.nodeType !== Node.TEXT_NODE || lastSnap === null) continue;
-        if (node.data === lastSnap.text) continue;
-        lastSnap = { ...lastSnap, text: node.data };
-        last = JSON.stringify(lastSnap);
-        window.__timeline.push({ t: performance.now(), ...lastSnap });
-      }
+      if (record.target?.id !== "overlay-text" || lastSnap === null) continue;
+      const data = Array.from(record.addedNodes, (n) => n.textContent).join("");
+      if (data === "" || data === lastSnap.text) continue;
+      lastSnap = { ...lastSnap, text: data };
+      last = JSON.stringify(lastSnap);
+      window.__timeline.push({ t: performance.now(), ...lastSnap });
     }
   };
   const probe = (records) => {

@@ -5287,9 +5287,34 @@ truthful: an unchecked box means nothing was accepted.
       Orchestrator: the same pytest files 574 and 512 passed; npm test
       1743, check clean; smoke 6/6; the five files 5582/5583 with the
       floor-chain check failing alone too (fixed), then media 22/22.)
-- [ ] The player draws tags and colours (item 2). Emphasis as DOM
+- [x] The player draws tags and colours (item 2). Emphasis as DOM
       elements, timing tags dropped, speaker colours, reading time
       counting shown characters.
+      (2026-11-17: `src/machine/texttags.ts` mirrors the Python parser
+      and passes all 43 docs/text-tags.json cases; `src/render/tagged.ts`
+      builds `<i>/<b>/<u>/<s>` with createElement and text nodes, never
+      innerHTML; `{p}` a newline under `pre-line`, now also on the
+      choice title and labels. Tags drawn in the overlay line, prompt
+      and route labels (language text too); the map, route pill and
+      play-all status draw plain shown text. Colours inline from
+      `characters` by the manifest's speaker key (own `#rrggbb` entries
+      only); a coloured thought takes the textColor, stays italic and
+      dims to 0.8 (`data-colored`) so scripts without italics still
+      tell it apart; `{i}` inside a thought sets upright. `textHoldMs`
+      counts shown code points. harness `currentItemId`, creator's
+      reading check and playall's logger compare shown text. New
+      `presentation` scenario. Lead: spoken lines send raw text with
+      tags to the voice engine (item 2b). Subagent: npm test 1815;
+      smoke 6/6; presentation 14/14 Chrome and WebKit; nine files
+      5802/5802 Chrome, WebKit 5801 + 3 fullscreen partials + a
+      checkgame stderr timing fail that passed alone. Orchestrator: npm
+      test 1815, check clean, smoke 6/6; presentation, reading,
+      languages, creator: WebKit 5520 pass + 1 fullscreen partial;
+      Chrome 5513 + one runner "scripts completed" fail at load 40,
+      then creator 33/33 alone and the other four 5488/5488.)
+- [ ] Spoken lines say the shown text (item 2b). The voice engine,
+      the live cache key and tools/record_lines.py use the text with
+      tags read, together.
 - [ ] The player's transitions (item 3). `dissolve` and `fade` that
       never delay navigation or text; navigation p95 within noise.
 - [x] The converter carries Ren'Py's presentation (item 4). Character

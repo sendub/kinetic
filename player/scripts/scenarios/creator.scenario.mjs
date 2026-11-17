@@ -40,6 +40,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join, resolve } from "node:path";
+import { shownText } from "../../src/machine/texttags.ts";
 import { openGame } from "../testing/kinetic.mjs";
 import {
   branch,
@@ -570,7 +571,10 @@ function visualOf(index) {
 function readingAgrees(reading) {
   const index = manifest.items.findIndex((it) => it.id === reading.id);
   if (index < 0) return false;
-  if (reading.text !== (manifest.items[index].text ?? "")) return false;
+  // The line as drawn: its text tags read (docs/plan.md Phase 57 item 2).
+  if (reading.text !== shownText(manifest.items[index].text ?? "")) {
+    return false;
+  }
   const visual = visualOf(index);
   switch (visual?.type) {
     case "image":

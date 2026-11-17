@@ -100,6 +100,13 @@ describe("routeStartLabels (the entry lookup)", () => {
     expect(shown.get(2)).toBe("Route A, übersetzt");
     expect(shown.get(4)).toBe("Turn them down");
   });
+
+  it("names a route in plain shown text, its tags read, for the pill (Phase 57)", () => {
+    const shown = routeStartLabels(MANIFEST, (_decision, _route, base) =>
+      base === "Route A" ? "{i}Route{/i} A{w}" : base,
+    );
+    expect(shown.get(2)).toBe("Route A");
+  });
 });
 
 describe("routeAnnouncementsFor (the entry rule)", () => {

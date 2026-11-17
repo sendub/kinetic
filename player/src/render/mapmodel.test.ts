@@ -1560,6 +1560,39 @@ describe("labels and markup", () => {
     expect(title).toContain("very very");
     expect(title.endsWith("long")).toBe(true);
   });
+
+  it("draws a question and route labels as plain shown text, their tags read (Phase 57)", () => {
+    const branches = DEMO_BRANCHES.map((b) =>
+      b.id === "outer"
+        ? {
+            ...b,
+            prompt: "Pick {i}one{/i}{w}",
+            routes: b.routes.map((r) => ({ ...r, label: `{b}${r.label}{/b}` })),
+          }
+        : b,
+    );
+    const model = buildMapModel(DEMO_ITEMS, branches);
+    const marks = markMap(model, {
+      ...readerOf(demoMachine()),
+      spoilers: true,
+    });
+    expect(
+      describeTarget(model, marks, { kind: "decision", decision: OUTER }).title,
+    ).toBe("Pick one");
+    const outerKey = model.routes.findIndex((r) => r.decision === OUTER);
+    const routeTitle = describeTarget(model, marks, {
+      kind: "route",
+      key: outerKey,
+    }).title;
+    expect(routeTitle).toContain(DEMO_BRANCHES[OUTER].routes[0].label);
+    expect(routeTitle).not.toMatch(/[{}]/);
+    const markup = [
+      detailMarkup(model, marks),
+      labelsMarkup(model, marks),
+    ].join("");
+    expect(markup).toContain("Pick one");
+    expect(markup).not.toMatch(/[{}]/);
+  });
 });
 
 describe("node status text (Phase 40: no click hints)", () => {

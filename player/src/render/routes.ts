@@ -15,6 +15,7 @@
 
 import { t } from "../i18n/catalogue.ts";
 import type { Machine } from "../machine/machine";
+import { shownText } from "../machine/texttags.ts";
 import type { ContextFrame, Manifest } from "../machine/types";
 
 /** The pill shown when the journey jumps back to take another route. */
@@ -60,12 +61,15 @@ export function routeStartLabels(
     for (const route of branch.routes) {
       const start = byId.get(route.start);
       if (start === undefined) continue;
-      // The label in the shown language (docs/plan.md Phase 56 item 3).
+      // The label in the shown language (docs/plan.md Phase 56 item 3),
+      // as plain shown text: a pill draws no emphasis (Phase 57 item 2).
       labels.set(
         start,
-        label === undefined
-          ? route.label
-          : label(branch.id, route.id, route.label),
+        shownText(
+          label === undefined
+            ? route.label
+            : label(branch.id, route.id, route.label),
+        ),
       );
     }
   }
