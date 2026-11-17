@@ -206,9 +206,11 @@ docs/content-format.md.
   a content directory the player loads.
 - Parsing: target `game/*.rpy` source directly with a small line/statement
   parser covering what kinetic novels use: `image`, `scene`, `show`,
-  `hide`, `say` (character, text), `movie`, `stop movie`, and simple
-  `label`/`jump` linear flow. Text format, ATL, transforms, and Python
-  blocks are out of scope; report what was skipped.
+  `hide`, `say` (character, text), `movie`, `stop movie`, and the
+  story's flow from `label start` through `jump`, `call` and `return`
+  (docs/extracting.md, "The walk follows labels"). Text format, ATL,
+  transforms, and Python blocks are out of scope; report what was
+  skipped.
 - Compiled-only projects: vendor unrpyc (a standalone Python .rpyc
   decompiler by deceleration; take the current maintained repo at vendor
   time, pin the version) to decompile `*.rpyc` when no `.rpy` exists.

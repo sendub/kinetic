@@ -58,7 +58,10 @@ def test_skipped_report_contents(tmp_path: Path) -> None:
     assert "unrecognized statement: imgfl 12345" in reasons
     assert "imgfl 12345" in statements
     assert any("menu unsupported" in r for r in reasons)
-    assert any("cross-file call" in r for r in reasons)
+    # The walk follows labels (Phase 57 item 4e): a call to a label no
+    # walked script defines is reported, not followed.
+    assert ("call target 'distant_scene' is not a label of the walked "
+            "scripts; not followed") in reasons
     assert any("transform statement" in r for r in reasons)
     assert any("hide skipped" in r for r in reasons)
     # Every item carries its source location and (where known) asset.

@@ -28,6 +28,7 @@ from pathlib import Path
 from typing import Any
 
 from .audio_cues import AudioFiles, AudioTrack, CueWalker
+from .flow import follow_labels
 from .media import probe_duration_seconds
 from .parser import Event, FileParse, Report, slug as _slug
 from .presentation import (CharacterColors, Resolved, TransitionCounts,
@@ -153,6 +154,10 @@ class TimelineResult:
     # The `with` expressions met: how many read as a transition, and the
     # cuts by name.
     transitions: TransitionCounts = field(default_factory=TransitionCounts)
+    # What the walk reached and left (kinetic_extract.flow): the ledger's
+    # `walk` and the summary's lines.
+    walk: dict[str, Any] = field(default_factory=dict)
+    walk_summary: list[str] = field(default_factory=list)
 
     def _next_id(self, slug: str) -> str:
         return f"{slug}-{len(self.items) + 1:03d}"
@@ -199,12 +204,19 @@ def build_timeline(parses: list[tuple[str, FileParse]],
                    asset_lookup=None,
                    implicit_lookup=None,
                    audio_files: AudioFiles | None = None,
+                   also_labels: list[str] | None = None,
+                   include_unreached: bool = False,
                    ) -> TimelineResult:
-    """Walk all parsed files (already in filename order) linearly.
+    """Walk the parsed files' story as Ren'Py runs it, from `label start`
+    through jumps, calls and fall-through (kinetic_extract.flow; file-name
+    order when there is no `label start`).
 
-    Slice options (docs/plan.md Phase 11): ``start_label`` skips all flow
-    before that label is defined; ``max_items`` stops the walk after that
-    many items. Both unset (default) means the whole project.
+    Slice options (docs/plan.md Phase 11): ``start_label`` starts the walk
+    at that label instead of `start`; ``max_items`` stops the walk after
+    that many items. Both unset (default) means the whole project.
+    ``also_labels`` are walked after the story, then, with
+    ``include_unreached``, every label still unreached that holds
+    dialogue (kinetic_extract.flow).
 
     ``asset_lookup(rel, kind) -> ("game/<archive>!<key>", extracted_path,
     source_ref) | None`` is
@@ -237,7 +249,8 @@ def build_timeline(parses: list[tuple[str, FileParse]],
     # Note -> (parse, first source, statement, uses) for how transitions
     # were read (a clamped time, a fade colour), reported once each.
     transition_notes: dict[str, list[Any]] = {}
-    started = start_label is None
+    walk = follow_labels(parses, start_label, also_labels, include_unreached)
+    result.walk, result.walk_summary = walk.record, walk.summary
     menu_state: dict[str, Any] | None = None  # open menu region (Phase 13)
     # The item the last say statement's text went to, which an `extend`
     # line continues; None at a menu's boundaries (a route's line never
@@ -426,179 +439,178 @@ def build_timeline(parses: list[tuple[str, FileParse]],
             cues.route_end(result.items[-1] if has_item else None)
 
     try:
-        for _rel, parsed in parses:
-            for event in parsed.events:
-                if not started:
-                    if event.kind == "label" and event.name == start_label:
-                        started = True
-                    continue
-                check_limit()
-                if event.kind in ("dialogue", "interact", "menu-open",
-                                  "choice-open", "menu-close",
-                                  "stop-movie"):
-                    fresh = False
-                if event.kind == "with":
-                    got = read_transition(parsed, event.source,
-                                          event.name or "None")
-                    if (fresh and pending is not None
-                            and not pending.consumed
-                            and not pending.unresolved):
-                        pending.transition = got.transition
-                    fresh = False
-                    continue
-                if event.kind == "visual":
-                    # A `with` clause: `with None`, the statement, then
-                    # the clause's `with`, so the visual takes it and the
-                    # changes before it are settled.
-                    clause = (read_transition(parsed, event.source,
-                                              event.transition)
-                              if event.transition is not None else None)
-                    fresh = clause is None
-                    name = event.name or "black"
-                    if name in _SOLID_COLORS and name not in image_defs:
-                        # A solid screen carries no media; the visual is
-                        # cleared.
-                        flush_bare()
-                        parsed.reports.append(Report(
-                            event.source, f"scene {name}",
-                            "solid color screen: no media item"))
-                        continue
-                    # Resolution order (docs/extracting.md BUG 5): the
-                    # explicit definition first — a `Movie(play=…)` def
-                    # answers as a video (BUG 2) — then its file on disk
-                    # or in the archives, then the implicit name index.
-                    defined = image_defs.get(name)
-                    kind, ref = def_value_target(defined) if defined \
-                        else ("image", None)
-                    resolved = None  # (kind, ledger_rel, abs, src_ref, n)
-                    if ref is not None:
-                        ledger_rel, abs_path, src_ref = asset_paths(
-                            ref, kind)
-                        if (src_ref is not None and "archive" in src_ref) \
-                                or (abs_path is not None
-                                    and abs_path.exists()):
-                            resolved = (kind, ledger_rel, abs_path,
-                                        src_ref, 1)
-                    if resolved is None and implicit_lookup is not None:
-                        hit = implicit_lookup(
-                            name, "video" if kind == "video" else "image")
-                        if hit is not None:
-                            ledger_rel, abs_path, src_ref, n = hit
-                            resolved = (kind, ledger_rel, abs_path,
-                                        src_ref, n)
+        for parsed, event in walk.events:
+            if event.kind == "flush":
+                # A file's end, in a file-order walk.
+                flush_bare()
+                continue
+            check_limit()
+            if event.kind in ("dialogue", "interact", "menu-open",
+                              "choice-open", "menu-close",
+                              "stop-movie"):
+                fresh = False
+            if event.kind == "with":
+                got = read_transition(parsed, event.source,
+                                      event.name or "None")
+                if (fresh and pending is not None
+                        and not pending.consumed
+                        and not pending.unresolved):
+                    pending.transition = got.transition
+                fresh = False
+                continue
+            if event.kind == "visual":
+                # A `with` clause: `with None`, the statement, then
+                # the clause's `with`, so the visual takes it and the
+                # changes before it are settled.
+                clause = (read_transition(parsed, event.source,
+                                          event.transition)
+                          if event.transition is not None else None)
+                fresh = clause is None
+                name = event.name or "black"
+                if name in _SOLID_COLORS and name not in image_defs:
+                    # A solid screen carries no media; the visual is
+                    # cleared.
                     flush_bare()
-                    if resolved is None:
-                        # BUG 1: an item whose visual never resolves is
-                        # dropped — never shipped as a missing-file
-                        # placeholder the validator and player must fail.
-                        reason = (
-                            f"droppedUnresolved: defined source asset "
-                            f"{ref!r} not found" if ref is not None else
-                            "droppedUnresolved: no image definition or "
-                            "asset answers the name")
-                        parsed.reports.append(
-                            Report(event.source, name, reason))
-                        pending = _Pending("image", name, None, None,
-                                           event.source)
-                        pending.unresolved = True
-                        continue
-                    kind, ledger_rel, abs_path, src_ref, n = resolved
-                    pending = _Pending(kind, name, ledger_rel, abs_path,
-                                       event.source, src_ref)
-                    if clause is not None:
-                        pending.transition = clause.transition
-                    if n > 1:
-                        chosen = ledger_rel.rsplit("!", 1)[-1]
-                        pending.notes.append(
-                            f"image name {name!r} is ambiguous: {n} assets "
-                            f"answer it; using the first in sorted order "
-                            f"({chosen})")
-                elif event.kind == "video":
-                    fresh = True
+                    parsed.reports.append(Report(
+                        event.source, f"scene {name}",
+                        "solid color screen: no media item"))
+                    continue
+                # Resolution order (docs/extracting.md BUG 5): the
+                # explicit definition first — a `Movie(play=…)` def
+                # answers as a video (BUG 2) — then its file on disk
+                # or in the archives, then the implicit name index.
+                defined = image_defs.get(name)
+                kind, ref = def_value_target(defined) if defined \
+                    else ("image", None)
+                resolved = None  # (kind, ledger_rel, abs, src_ref, n)
+                if ref is not None:
                     ledger_rel, abs_path, src_ref = asset_paths(
-                        event.asset, "video")
-                    flush_bare()
-                    pending = _Pending(
-                        "video", Path(event.asset or "movie").stem,
-                        ledger_rel, abs_path, event.source, src_ref)
-                    if not pending.from_archive and (abs_path is None
-                                         or not abs_path.exists()):
-                        # Same rule as scene refs (BUG 1): the video file
-                        # must exist for the item to ship.
-                        parsed.reports.append(Report(
-                            event.source, f"movie {event.asset}",
-                            f"droppedUnresolved: video asset "
-                            f"{event.asset!r} not found"))
-                        pending.unresolved = True
-                elif event.kind == "stop-movie":
-                    flush_bare()
-                elif (event.kind == "dialogue" and is_extend(event)
-                      and last_line is not None
-                      and not (pending is not None and pending.unresolved)):
-                    extend_line(last_line, event)
-                elif event.kind == "dialogue":
-                    speaker = event.speaker
-                    if is_extend(event):
-                        # No line before it in the walk: Ren'Py's
-                        # narrator says it.
-                        speaker = None
-                    if pending is not None and pending.unresolved:
-                        # The line belongs to a dropped visual (BUG 1):
-                        # a text item needs a visual, so it drops with it.
-                        parsed.reports.append(Report(
-                            event.source, event.text,
-                            "droppedUnresolved: line dropped with its "
-                            "unresolved visual"))
-                        cues.line_dropped()
-                        last_line = None
-                        continue
-                    if pending is not None and not pending.consumed:
-                        emit_media(pending, speaker, event.text,
-                                   event.source)
-                        pending.consumed = True
-                    else:
-                        item_id = result._next_id("line")
-                        item: dict[str, Any] = {"id": item_id,
-                                                "type": "text"}
-                        record = ItemRecord(item=item, source=event.source,
-                                            asset=None,
-                                            text_source=event.source)
-                        if pending is None:
-                            record.notes.append(
-                                "dialogue with no preceding visual in flow")
-                        apply_line(item, record, speaker, event.text)
-                        cues.attach(record)
-                        result.items.append(record)
-                        check_limit()
-                elif event.kind == "menu-open":
-                    # The lead-in ends here: a trailing visual becomes the
-                    # decision's `after` item, and the region starts empty.
+                        ref, kind)
+                    if (src_ref is not None and "archive" in src_ref) \
+                            or (abs_path is not None
+                                and abs_path.exists()):
+                        resolved = (kind, ledger_rel, abs_path,
+                                    src_ref, 1)
+                if resolved is None and implicit_lookup is not None:
+                    hit = implicit_lookup(
+                        name, "video" if kind == "video" else "image")
+                    if hit is not None:
+                        ledger_rel, abs_path, src_ref, n = hit
+                        resolved = (kind, ledger_rel, abs_path,
+                                    src_ref, n)
+                flush_bare()
+                if resolved is None:
+                    # BUG 1: an item whose visual never resolves is
+                    # dropped — never shipped as a missing-file
+                    # placeholder the validator and player must fail.
+                    reason = (
+                        f"droppedUnresolved: defined source asset "
+                        f"{ref!r} not found" if ref is not None else
+                        "droppedUnresolved: no image definition or "
+                        "asset answers the name")
+                    parsed.reports.append(
+                        Report(event.source, name, reason))
+                    pending = _Pending("image", name, None, None,
+                                       event.source)
+                    pending.unresolved = True
+                    continue
+                kind, ledger_rel, abs_path, src_ref, n = resolved
+                pending = _Pending(kind, name, ledger_rel, abs_path,
+                                   event.source, src_ref)
+                if clause is not None:
+                    pending.transition = clause.transition
+                if n > 1:
+                    chosen = ledger_rel.rsplit("!", 1)[-1]
+                    pending.notes.append(
+                        f"image name {name!r} is ambiguous: {n} assets "
+                        f"answer it; using the first in sorted order "
+                        f"({chosen})")
+            elif event.kind == "video":
+                fresh = True
+                ledger_rel, abs_path, src_ref = asset_paths(
+                    event.asset, "video")
+                flush_bare()
+                pending = _Pending(
+                    "video", Path(event.asset or "movie").stem,
+                    ledger_rel, abs_path, event.source, src_ref)
+                if not pending.from_archive and (abs_path is None
+                                     or not abs_path.exists()):
+                    # Same rule as scene refs (BUG 1): the video file
+                    # must exist for the item to ship.
+                    parsed.reports.append(Report(
+                        event.source, f"movie {event.asset}",
+                        f"droppedUnresolved: video asset "
+                        f"{event.asset!r} not found"))
+                    pending.unresolved = True
+            elif event.kind == "stop-movie":
+                flush_bare()
+            elif (event.kind == "dialogue" and is_extend(event)
+                  and last_line is not None
+                  and not (pending is not None and pending.unresolved)):
+                extend_line(last_line, event)
+            elif event.kind == "dialogue":
+                speaker = event.speaker
+                if is_extend(event):
+                    # No line before it in the walk: Ren'Py's
+                    # narrator says it.
+                    speaker = None
+                if pending is not None and pending.unresolved:
+                    # The line belongs to a dropped visual (BUG 1):
+                    # a text item needs a visual, so it drops with it.
+                    parsed.reports.append(Report(
+                        event.source, event.text,
+                        "droppedUnresolved: line dropped with its "
+                        "unresolved visual"))
+                    cues.line_dropped()
+                    last_line = None
+                    continue
+                if pending is not None and not pending.consumed:
+                    emit_media(pending, speaker, event.text,
+                               event.source)
+                    pending.consumed = True
+                else:
+                    item_id = result._next_id("line")
+                    item: dict[str, Any] = {"id": item_id,
+                                            "type": "text"}
+                    record = ItemRecord(item=item, source=event.source,
+                                        asset=None,
+                                        text_source=event.source)
+                    if pending is None:
+                        record.notes.append(
+                            "dialogue with no preceding visual in flow")
+                    apply_line(item, record, speaker, event.text)
+                    cues.attach(record)
+                    result.items.append(record)
+                    check_limit()
+            elif event.kind == "menu-open":
+                # The lead-in ends here: a trailing visual becomes the
+                # decision's `after` item, and the region starts empty.
+                flush_bare()
+                last_line = None
+                cues.menu_open()
+                menu_state = {
+                    "record": parsed.menus[int(event.name)],
+                    "after": len(result.items) - 1,
+                    "starts": [],
+                }
+            elif event.kind == "choice-open":
+                if menu_state is not None:
                     flush_bare()
                     last_line = None
-                    cues.menu_open()
-                    menu_state = {
-                        "record": parsed.menus[int(event.name)],
-                        "after": len(result.items) - 1,
-                        "starts": [],
-                    }
-                elif event.kind == "choice-open":
-                    if menu_state is not None:
-                        flush_bare()
-                        last_line = None
-                        end_route(menu_state)
-                        menu_state["starts"].append(len(result.items))
-                        cues.route_start()
-                elif event.kind == "menu-close":
-                    if menu_state is not None:
-                        flush_bare()
-                        last_line = None
-                        end_route(menu_state)
-                        close_menu(parsed, menu_state)
-                        cues.menu_close()
-                        menu_state = None
-                elif event.kind == "audio":
-                    cues.statement(parsed, event)
-            flush_bare()
+                    end_route(menu_state)
+                    menu_state["starts"].append(len(result.items))
+                    cues.route_start()
+            elif event.kind == "menu-close":
+                if menu_state is not None:
+                    flush_bare()
+                    last_line = None
+                    end_route(menu_state)
+                    close_menu(parsed, menu_state)
+                    cues.menu_close()
+                    menu_state = None
+            elif event.kind == "audio":
+                cues.statement(parsed, event)
+        flush_bare()
     except _SliceDone:
         pass
     for note, (parsed, source, statement, uses) in transition_notes.items():
@@ -611,10 +623,6 @@ def build_timeline(parses: list[tuple[str, FileParse]],
     cues.finish()
     result.audio_tracks = cues.tracks
 
-    if start_label is not None and not started:
-        raise SystemExit(
-            f"kinetic-extract: label {start_label!r} not found in the "
-            "parsed script")
     if not result.items and start_label is None and max_items is None:
         raise SystemExit("kinetic-extract: script produced no items")
     return result

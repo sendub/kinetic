@@ -21,9 +21,12 @@ Design notes:
   statement inside a choice block, fewer than two choices) is reported
   with ``menu unsupported (...)`` and its whole block is skipped, as before
   — never fatal.
-- ``jump``/``call`` targets known in the same file are noted and the walk
-  continues linearly (no real control flow); unknown targets are reported as
-  cross-file calls/jumps.
+- ``jump``, ``call`` and ``return`` become flow events (``Event.flow``, a
+  ``FlowStep``), and so do the jumps and calls inside an ``if``/``elif``/
+  ``else`` chain, a ``while`` or a menu the walk does not convert (a
+  ``fork`` event, one alternative per block). kinetic_extract.flow follows
+  them from ``label start`` (docs/plan.md Phase 57 item 4e); the blocks'
+  other statements are skipped as before.
 - Audio statements (``play``, ``queue``, ``stop``, ``voice`` and literal
   ``$ renpy.music``/``renpy.sound`` calls, docs/plan.md Phase 47 item 8)
   become ``audio`` events, in label flow and in choice blocks alike;
@@ -95,12 +98,28 @@ _SIMPLE_DEFINE_RE = re.compile(
 _WITH_CLAUSE_RE = re.compile(r"(?:^|\s)with\s+(?=\S)")
 _QUOTED_TEXT_RE = re.compile(r""""(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'""")
 _LABEL_HEAD_RE = re.compile(r"^label\s+([A-Za-z_]\w*)")
+# A label's whole name: a global one, `global.local`, or `.local` (a local
+# label of the global label above it).
+_LABEL_NAME_RE = re.compile(r"\.?[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)?")
+_LABEL_FULL_RE = re.compile(r"^label\s+(" + _LABEL_NAME_RE.pattern + ")")
+# A screen's `Jump("x")` and `Call("x")` actions with a literal label, and
+# the screens it includes with `use`.
+_SCREEN_ACTION_RE = re.compile(
+    r"""\b(Jump|Call)\(\s*(?:"([^"]*)"|'([^']*)')\s*[,)]""")
+_SCREEN_USE_RE = re.compile(r"use\s+([A-Za-z_]\w*)")
+_SCREEN_HEAD_RE = re.compile(r"screen\s+([A-Za-z_]\w*)")
+# A named menu, `menu name:`, which is also a label.
+_NAMED_MENU_RE = re.compile(r"menu\s+(" + _LABEL_NAME_RE.pattern + r")\s*:")
+# `$ renpy.jump("x")` and `$ renpy.call("x")` with a literal label.
+_PY_FLOW_RE = re.compile(
+    r"""\$\s*renpy\.(jump|call)\(\s*(?:"([^"]*)"|'([^']*)'|(.*?))\s*[,)]""")
 # `renpy.register_statement("name", ...)`: a creator-defined statement.
 _REGISTER_STATEMENT_RE = re.compile(
     r"register_statement\(\s*(?:name\s*=\s*)?[\"']([^\"']+)[\"']")
 _AUDIO_KEYWORDS = frozenset({"play", "queue", "stop", "voice"})
 CREATOR_STATEMENT = "creator-defined statement: not converted"
 SHOW_SCREEN = "show screen: a screen, not an image; not converted"
+CALL_SCREEN = "call screen: a screen, not converted; the walk goes on after it"
 AUDIO_IN_MENU = "audio inside an unsupported menu: not converted"
 
 # Block-opening keywords whose contents the walker skips silently (the
@@ -291,6 +310,28 @@ class Report:
 
 
 @dataclass
+class FlowStep:
+    """A statement that moves the walk (kinetic_extract.flow): ``jump``,
+    ``call`` (``target`` the label, None for `expression`, a computed
+    target), ``return``, a ``label`` inside a block the walk does not
+    convert (a place a jump can land), ``screen`` (`show screen` or `call
+    screen`, ``target`` the screen, whose `Jump` and `Call` actions the
+    walk follows), or a ``fork``: the blocks of an `if` chain, a `while`
+    or a menu the walk does not convert, each block's own steps in
+    ``alternatives`` (an empty one goes on after the fork)."""
+
+    kind: str                 # jump | call | return | label | screen | fork
+    source: str               # "game/script.rpy:12"
+    statement: str = ""
+    target: str | None = None
+    alternatives: list[list["FlowStep"]] = field(default_factory=list)
+    # A computed jump or call: the label-like string literals written in
+    # its own expression (`call expression choice(["a", "b"])`), which
+    # kinetic_extract.flow tries first.
+    candidates: list[str] = field(default_factory=list)
+
+
+@dataclass
 class Event:
     """A recognized statement in linear flow order.
 
@@ -304,7 +345,8 @@ class Event:
     kind: str            # visual | video | dialogue | stop-movie | label |
                          # menu-open | choice-open | menu-close | audio |
                          # with (a bare `with`) | interact (a `pause`, or
-                         # the implicit `with None` of a hide's clause)
+                         # the implicit `with None` of a hide's clause) |
+                         # jump | call | return | fork (``flow`` set)
     source: str
     text: str = ""       # dialogue text (dialogue events)
     speaker: str | None = None
@@ -314,6 +356,8 @@ class Event:
     cue: AudioStatement | None = None  # the statement (audio events)
     # The `with` clause's expression on a scene/show (visual events).
     transition: str | None = None
+    # The flow statement (jump, call, return and fork events).
+    flow: FlowStep | None = None
 
 
 @dataclass
@@ -375,16 +419,18 @@ class FileParse:
     # known while parsing: this file's own and those parse_project found
     # in the project's other files.
     creator_statements: set[str] = field(default_factory=set)
-
-
-def _label_names(lines: list[str]) -> set[str]:
-    """All label names defined in the file (for jump/call resolution)."""
-    names: set[str] = set()
-    for line in lines:
-        m = _LABEL_HEAD_RE.match(line)
-        if m:
-            names.add(m.group(1))
-    return names
+    # The label-like string literals written anywhere in the file's code
+    # (name_literals), candidates for a computed jump or call.
+    literals: set[str] = field(default_factory=set)
+    # Screen name -> its literal `Jump`/`Call` actions as jump and call
+    # steps, in order, and the screens it includes with `use`.
+    screens: dict[str, tuple[list[FlowStep], list[str]]] = field(
+        default_factory=dict)
+    # Index of the first report the statement walk made: those before it
+    # are settings read on every line, which hold whether or not the walk
+    # reaches them (kinetic_extract.flow drops the walk's reports from
+    # labels it does not reach).
+    story_reports_from: int = 0
 
 
 def with_clause(rest: str) -> str | None:
@@ -536,6 +582,235 @@ def _read_audio(keyword: str, line: str) -> AudioStatement | str | None:
     return None
 
 
+def full_label(name: str, cur_global: str | None) -> str:
+    """A label name as Ren'Py stores it: `.local` under the global label
+    above it becomes `global.local`."""
+    if name.startswith("."):
+        return f"{cur_global}{name}" if cur_global else name[1:]
+    return name
+
+
+def flow_statement(line: str, source: str, cur_global: str | None
+                   ) -> FlowStep | str | None:
+    """The flow step of a `jump`, `call`, `return` or literal
+    `$ renpy.jump/call(...)` line; a report reason for one the walk cannot
+    read (`call screen`, no target); None for any other line."""
+    keyword = line.split(" ", 1)[0].split(":", 1)[0]
+    if keyword == "return" or line == "$ renpy.return_statement()":
+        return FlowStep("return", source, line)
+    if line.startswith("$"):
+        m = _PY_FLOW_RE.match(line)
+        if m is None:
+            return None
+        literal = m.group(2) if m.group(2) is not None else m.group(3)
+        target = (literal.strip() if literal is not None
+                  and _LABEL_NAME_RE.fullmatch(literal.strip()) else None)
+        if target:
+            return FlowStep(m.group(1), source, line,
+                            full_label(target, cur_global))
+        return FlowStep(m.group(1), source, line, None,
+                        candidates=name_literals(line))
+    if keyword not in ("jump", "call"):
+        return None
+    words = line[len(keyword):].strip().split()
+    if not words:
+        return f"{keyword} without a target"
+    if words[0] == "expression":
+        return FlowStep(keyword, source, line, None,
+                        candidates=name_literals(line))
+    if keyword == "call" and words[0] == "screen":
+        return CALL_SCREEN
+    m = _LABEL_NAME_RE.match(words[0])
+    if m is None:
+        return f"{keyword} without a target"
+    return FlowStep(keyword, source, line, full_label(m.group(0), cur_global))
+
+
+# A string literal, double- or single-quoted, with what precedes it (an
+# `f` prefix makes it an f-string, whose text is not a name).
+_LITERAL_RE = re.compile(r"""(\w?)(?:"((?:[^"\\]|\\.)*)"|'((?:[^'\\]|\\.)*)')""")
+# A say statement or a menu choice: its quoted text is not a name.
+_SAY_LINE_RE = re.compile(
+    r"""(?:[A-Za-z_]\w*\s*)?(?:"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')"""
+    r"""(?:\s+with\s+\S+)?\s*$""")
+
+
+def name_literals(line: str) -> list[str]:
+    """The string literals on a line of code that could name a label
+    (`"day_2"`, `'ch1.end'`), in order; none from a say statement, a menu
+    choice or an f-string (kinetic_extract.flow's candidates for a
+    computed jump or call)."""
+    text = line.strip()
+    if text.startswith(("\"", "'")) or _SAY_LINE_RE.fullmatch(text):
+        return []
+    out: list[str] = []
+    for m in _LITERAL_RE.finditer(text):
+        if m.group(1) in ("f", "F"):
+            continue
+        value = m.group(2) if m.group(2) is not None else m.group(3)
+        if _LABEL_NAME_RE.fullmatch(value) and not value.startswith("."):
+            out.append(value)
+    return out
+
+
+def screen_shown(line: str) -> str | None:
+    """The screen a `show screen x` or `call screen x` line shows."""
+    words = line.split()
+    if len(words) >= 3 and words[0] in ("show", "call") \
+            and words[1] == "screen":
+        m = re.match(r"[A-Za-z_]\w*", words[2])
+        return m.group(0) if m else None
+    return None
+
+
+def _screen_flow(head: str, block: list[tuple[int, str, int]],
+                 relname: str, result: FileParse) -> None:
+    """Record a `screen` statement's literal `Jump`/`Call` actions and
+    `use`d screens (``block`` its lines)."""
+    m = _SCREEN_HEAD_RE.match(head)
+    if m is None:
+        return
+    actions: list[FlowStep] = []
+    uses: list[str] = []
+    for lineno, text, _indent in block:
+        for act in _SCREEN_ACTION_RE.finditer(text):
+            target = act.group(2) if act.group(2) is not None \
+                else act.group(3)
+            if _LABEL_NAME_RE.fullmatch(target.strip()):
+                actions.append(FlowStep(act.group(1).lower(),
+                                        f"{relname}:{lineno}", text,
+                                        target.strip()))
+        use = _SCREEN_USE_RE.match(text)
+        if use:
+            uses.append(use.group(1))
+    result.screens.setdefault(m.group(1), (actions, uses))
+
+
+def _block_steps(entries: list[tuple[int, str, int]], relname: str,
+                 cur_global: str | None) -> list[FlowStep]:
+    """The flow steps of a block the walk does not convert, in order:
+    ``entries`` holds ``(lineno, text, indent)`` for its lines. An `if`
+    chain, a `while` and a menu inside become ``fork`` steps (an `if` with
+    no `else`, and a `while`, also go on past it); other blocks
+    (`python:` and the like) are not looked into. A fork with no flow in
+    any block is left out."""
+    steps: list[FlowStep] = []
+    k = 0
+    while k < len(entries):
+        lineno, text, indent = entries[k]
+        j = k + 1
+        while j < len(entries) and entries[j][2] > indent:
+            j += 1
+        src = f"{relname}:{lineno}"
+        keyword = text.split(" ", 1)[0].split(":", 1)[0]
+        if keyword in ("if", "while") and text.endswith(":"):
+            alts = [_block_steps(entries[k + 1:j], relname, cur_global)]
+            ends = keyword == "while"
+            while (keyword == "if" and j < len(entries)
+                   and entries[j][2] == indent
+                   and entries[j][1].split(" ", 1)[0].split(":", 1)[0]
+                   in ("elif", "else")):
+                head = j
+                j += 1
+                while j < len(entries) and entries[j][2] > indent:
+                    j += 1
+                alts.append(_block_steps(entries[head + 1:j], relname,
+                                         cur_global))
+                ends = entries[head][1].startswith("else")
+            if keyword == "while" or not ends:
+                alts.append([])
+            if any(alts):
+                steps.append(FlowStep("fork", src, text, alternatives=alts))
+        elif keyword == "menu" and text.endswith(":"):
+            named = _NAMED_MENU_RE.match(text)
+            if named:
+                steps.append(FlowStep("label", src, text,
+                                      full_label(named.group(1), cur_global)))
+            alts = menu_alternatives(entries[k + 1:j], relname, cur_global)
+            if any(alts):
+                steps.append(FlowStep("fork", src, text, alternatives=alts))
+        elif keyword == "label" and _LABEL_FULL_RE.match(text):
+            # A label inside the block: a jump to it runs the rest of the
+            # block from here, its own block first.
+            name = _LABEL_FULL_RE.match(text).group(1)
+            steps.append(FlowStep("label", src, text,
+                                  full_label(name, cur_global)))
+            steps += _block_steps(entries[k + 1:j], relname, cur_global)
+        elif screen_shown(text) is not None:
+            steps.append(FlowStep("screen", src, text, screen_shown(text)))
+        else:
+            step = flow_statement(text, src, cur_global)
+            if isinstance(step, FlowStep):
+                steps.append(step)
+        k = j
+    return steps
+
+
+def menu_alternatives(block: list[tuple[int, str, int]], relname: str,
+                      cur_global: str | None) -> list[list[FlowStep]]:
+    """The flow steps of each choice of a menu block (its lines deeper
+    than the `menu:` line), one list per choice in order."""
+    if not block:
+        return []
+    base = min(indent for _n, _t, indent in block)
+    alts: list[list[FlowStep]] = []
+    k = 0
+    while k < len(block):
+        _lineno, text, indent = block[k]
+        j = k + 1
+        while j < len(block) and block[j][2] > indent:
+            j += 1
+        if indent == base and text.endswith(":"):
+            alts.append(_block_steps(block[k + 1:j], relname, cur_global))
+        k = j
+    return alts
+
+
+def _gather_block(raw_lines: list[str], start: int, indent: int,
+                  ) -> tuple[list[tuple[int, str, int]], int]:
+    """``(lineno, text, indent)`` of the non-blank lines from index
+    ``start`` deeper than ``indent``, and the index after them."""
+    block: list[tuple[int, str, int]] = []
+    j = start
+    while j < len(raw_lines):
+        content = strip_comment(raw_lines[j])
+        if not content.strip():
+            j += 1
+            continue
+        depth = len(content) - len(content.lstrip(" \t"))
+        if depth <= indent:
+            break
+        block.append((j + 1, content.strip(), depth))
+        j += 1
+    return block, j
+
+
+def _chain_fork(raw_lines: list[str], i: int, lineno: int, line: str,
+                indent: int, relname: str, cur_global: str | None,
+                ) -> FlowStep | None:
+    """The fork step of the `if` chain or `while` whose head (``line``,
+    raw line ``lineno``) was just read, ``i`` the index after it; None
+    when none of its blocks moves the walk."""
+    entries = [(lineno, line, indent)]
+    block, j = _gather_block(raw_lines, i, indent)
+    entries += block
+    while line.startswith("if") and j < len(raw_lines):
+        content = strip_comment(raw_lines[j])
+        if not content.strip():
+            j += 1
+            continue
+        depth = len(content) - len(content.lstrip(" \t"))
+        head = content.strip()
+        if depth != indent or head.split(" ", 1)[0].split(":", 1)[0] \
+                not in ("elif", "else"):
+            break
+        entries.append((j + 1, head, depth))
+        block, j = _gather_block(raw_lines, j + 1, indent)
+        entries += block
+    steps = _block_steps(entries, relname, cur_global)
+    return steps[0] if steps else None
+
+
 def _parse_menu_body(block: list[tuple[int, str, int]], relname: str,
                      caption: str | None, creator: set[str] = frozenset()):
     """Classify the interior lines of a menu block.
@@ -586,7 +861,8 @@ def _parse_menu_body(block: list[tuple[int, str, int]], relname: str,
 
 def _handle_menu(raw_lines: list[str], i: int, relname: str,
                  menu_lineno: int, menu_line: str, menu_indent: int,
-                 result: FileParse, cur_label: str | None) -> int:
+                 result: FileParse, cur_label: str | None,
+                 cur_global: str | None = None) -> int:
     """Parse the menu block whose ``menu:`` line was just read.
 
     ``i`` is the index of the line after the ``menu:`` line; the answer is
@@ -594,7 +870,9 @@ def _handle_menu(raw_lines: list[str], i: int, relname: str,
     rules (two or more plain quoted choices, each body parsing to events
     or noise) appends a MenuRecord plus marker events; anything else is
     reported ``menu unsupported (reason)`` and its block contributes
-    nothing to the stream, keeping the old skip behavior. Never fatal."""
+    nothing to the stream but a ``fork`` event when its choices jump or
+    call (the walk follows those, docs/plan.md Phase 57 item 4e). Never
+    fatal."""
     source = f"{relname}:{menu_lineno}"
     head_rest = menu_line[len("menu"):].strip()
     if head_rest.startswith(":"):
@@ -642,6 +920,11 @@ def _handle_menu(raw_lines: list[str], i: int, relname: str,
             prompt_defaulted=caption is None,
             choices=[label[:LABEL_MAX] for label, _src, _body in choices],
             skip_reason=reject))
+        alts = menu_alternatives(block, relname, cur_global)
+        if any(alts):
+            result.events.append(Event(
+                "fork", source, text=menu_line,
+                flow=FlowStep("fork", source, menu_line, alternatives=alts)))
         return j
 
     record = MenuRecord(
@@ -728,6 +1011,8 @@ def _scan_settings(raw_lines: list[str], relname: str,
     `define audio.x` names and registered channels."""
     for n, raw in enumerate(raw_lines):
         text = strip_comment(raw)
+        if "'" in text or "\"" in text:
+            result.literals.update(name_literals(text))
         m = _CONFIG_STRING_RE.match(text)
         if m and m.group(1) not in result.config and _whole_enough(m, text):
             value = m.group(3) if m.group(3) is not None else m.group(4)
@@ -767,6 +1052,14 @@ def _read_character(line: str, source: str, result: FileParse) -> None:
             result.character_kinds[var] = kind
 
 
+def _screen_event(result: FileParse, source: str, line: str) -> None:
+    """A ``screen`` flow event for a `show screen`/`call screen` line."""
+    name = screen_shown(line)
+    if name is not None:
+        result.events.append(Event("screen", source, text=line, flow=FlowStep(
+            "screen", source, line, name)))
+
+
 def _audio_event(result: FileParse, source: str, line: str,
                  read: AudioStatement | str | None) -> None:
     """Add an audio statement's event, or report why it is not read."""
@@ -795,13 +1088,14 @@ def parse_file(text: str, relname: str,
     result = FileParse(relname=relname,
                        creator_statements=set(creator_statements))
     raw_lines = text.lstrip("\ufeff").splitlines()
-    labels = _label_names(raw_lines)
     _scan_settings(raw_lines, relname, result)
+    result.story_reports_from = len(result.reports)
     result.creator_statements |= creator_statement_names(text)
 
     skip_indent: int | None = None  # depth of the line that opened a block
     skip_opener = ""                # that line's keyword
     cur_label: str | None = None    # label whose body the walk is in
+    cur_global: str | None = None   # the global label local ones belong to
     i = 0
     while i < len(raw_lines):
         raw = raw_lines[i]
@@ -852,6 +1146,11 @@ def parse_file(text: str, relname: str,
             # A call may run over several lines (a playlist, a
             # Character); they are not statements of their own.
             line, i = _continued(raw_lines, lineno - 1, line)
+            step = flow_statement(line, source, cur_global)
+            if isinstance(step, FlowStep):
+                result.events.append(Event(step.kind, source, text=line,
+                                           flow=step))
+                continue
             _audio_event(result, source, line, read_python(line))
             continue
         if keyword == "default":
@@ -862,6 +1161,11 @@ def parse_file(text: str, relname: str,
         if keyword == "pause":
             result.events.append(Event("interact", source))
             continue
+        if keyword == "return":
+            result.events.append(Event(
+                "return", source, text=line,
+                flow=FlowStep("return", source, line)))
+            continue
         if keyword in _QUIET_STATEMENT_KEYWORDS:
             continue
         if keyword == "image":
@@ -871,6 +1175,9 @@ def parse_file(text: str, relname: str,
                     Report(source, line, "image without a file"))
             else:
                 result.image_defs[head] = defined
+            # `image x:` opens an ATL block, whose quoted frames are not
+            # lines of dialogue.
+            open_block()
             continue
         if keyword == "scene":
             name = _name_tokens(rest)
@@ -887,8 +1194,10 @@ def parse_file(text: str, relname: str,
             if rest.startswith("screen "):
                 # `show screen x` shows a screen, which is not converted
                 # (Phase 57 item 4d: it used to be read as image `screen
-                # x` and dropped).
+                # x` and dropped); the walk follows its Jump and Call
+                # actions (kinetic_extract.flow).
                 result.reports.append(Report(source, line, SHOW_SCREEN))
+                _screen_event(result, source, line)
                 continue
             name = _name_tokens(rest)
             if name:
@@ -930,33 +1239,52 @@ def parse_file(text: str, relname: str,
             _audio_event(result, source, line, read)
             continue
         if keyword == "menu":
+            named = _NAMED_MENU_RE.match(line)
+            if named:
+                # `menu name:` is a label too: a jump to it shows the menu.
+                result.events.append(Event(
+                    "label", source, name=full_label(named.group(1),
+                                                     cur_global)))
             i = _handle_menu(raw_lines, i, relname, lineno, line, indent,
-                             result, cur_label)
+                             result, cur_label, cur_global)
             continue
         if keyword == "label":
             # The label body is the linear flow itself: never skipped. The
-            # event marks the position so a slice can start here (--label).
+            # event marks the position the walk goes to on a jump or call
+            # to it, and starts at for `label start` or --label
+            # (kinetic_extract.flow). Its name is the whole name, a local
+            # label's under its global one.
             m = _LABEL_HEAD_RE.match(line)
             if m:
                 cur_label = m.group(1)
-                result.events.append(Event("label", source, name=m.group(1)))
+            full = _LABEL_FULL_RE.match(line)
+            if full:
+                name = full_label(full.group(1), cur_global)
+                if "." not in full.group(1):
+                    cur_global = name
+                result.events.append(Event("label", source, name=name))
             continue
         if keyword in {"jump", "call"}:
-            target = rest.split(":", 1)[0].split()[0] if rest.split() else ""
-            if not target:
-                result.reports.append(
-                    Report(source, line, f"{keyword} without a target"))
-            elif target in labels:
-                result.reports.append(
-                    Report(source, line,
-                           f"{keyword} {target}: followed linearly"))
-            else:
-                result.reports.append(
-                    Report(source, line,
-                           f"{keyword} target {target!r} not in this file "
-                           "(cross-file call)"))
+            step = flow_statement(line, source, cur_global)
+            if isinstance(step, FlowStep):
+                result.events.append(Event(keyword, source, text=line,
+                                           flow=step))
+            elif step is not None:
+                result.reports.append(Report(source, line, step))
+                _screen_event(result, source, line)
             open_block()
             continue
+        if keyword == "screen":
+            block, _j = _gather_block(raw_lines, i, indent)
+            _screen_flow(line, block, relname, result)
+        if keyword in ("if", "while") and line.endswith(":"):
+            # Its blocks are skipped (and reported) as before; the jumps
+            # and calls in them are followed (kinetic_extract.flow).
+            fork = _chain_fork(raw_lines, i, lineno, line, indent, relname,
+                               cur_global)
+            if fork is not None:
+                result.events.append(Event("fork", source, text=line,
+                                           flow=fork))
         if keyword in _QUIET_BLOCK_KEYWORDS:
             open_block()
             continue
@@ -1200,8 +1528,9 @@ def parse_project(game_dir: Path, files_glob: str | None = None,
     (script members read from ``.rpa`` archives), ``rpaIgnoredTwins``
     (archive members skipped, with the reason: the key exists loose or in
     an earlier archive, or a ``.rpy`` has the same path), and
-    ``rpaFailed`` (archives whose index could not be read). Concatenating
-    the files in filename order is an MVP simplification.
+    ``rpaFailed`` (archives whose index could not be read). The story
+    walk does not follow this order: kinetic_extract.flow reads the
+    parses from `label start` (file-name order only without one).
     """
     from . import rpa as rpa_mod
     walked = walked_scripts(game_dir, files_glob)

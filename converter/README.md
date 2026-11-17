@@ -172,13 +172,14 @@ stops the run naming the source. Each change is a `decode` step in the
 ledger with the hook's code hash (docs/extracting.md, "Decoder hooks").
 
 Slice options (docs/plan.md Phase 11) extract part of a big game:
-`--label NAME` starts the walk at that label, `--max-items N` stops
-after N manifest items, and `--files GLOB` walks only the scripts
-matching GLOB, loose or archived (a `.rpy` pattern also takes a `.rpyc`
-with no `.rpy`; docs/extracting.md, "Which scripts are walked"). With
-none of them the whole
-project is extracted, as before. Requested slice options are recorded
-under `slice` in `build-ledger.json`.
+`--label NAME` starts the walk at that label and follows the story
+from there (docs/extracting.md, "The walk follows labels"),
+`--max-items N` stops after N manifest items, and `--files GLOB` walks
+only the scripts matching GLOB, loose or archived (a `.rpy` pattern
+also takes a `.rpyc` with no `.rpy`; docs/extracting.md, "Which scripts
+are walked"). With none of them the whole project is extracted, as
+before. Requested slice options are recorded under `slice` in
+`build-ledger.json`.
 
 Several projects (a game's episodes, in story order) make one game:
 `kinetic-extract <episode1> <episode2> [...] <out_dir>`. Episode 2's
@@ -273,10 +274,15 @@ docs/extracting.md, "Reuse cache".
 
 ## Simplifications (MVP, per docs/plan.md Phase 10)
 
-- Multiple `.rpy` files are processed in filename order and concatenated
-  into one linear flow.
-- `jump`/`call` targets inside the same file are noted and the walk
-  continues linearly; unknown (cross-file) targets are noted as well.
+- The story is read as Ren'Py runs it, from `label start` through
+  `jump`, `call` and `return`, fall-through, and the jumps and calls in
+  `if`/`while` blocks, unconverted menus and shown screens, each
+  statement once; a computed `jump`/`call expression` walks the labels
+  named by string literals in the game's code. Unreached labels and
+  scripts are listed in the ledger's `walk`, not emitted, unless
+  `--also-label NAME` or `--include-unreached` adds them after the story
+  (docs/extracting.md, "The walk follows labels"). A project with no
+  `label start` is read in filename order.
 - A `menu:` block becomes a decision only when it is conservatively
   detectable (plain quoted choices whose blocks are contiguous runs of
   recognized image/text items, flow continuing in place); its routes are

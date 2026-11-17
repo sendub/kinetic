@@ -5418,9 +5418,36 @@ truthful: an unchecked box means nothing was accepted.
       text before any picture from non-story scripts joined in file
       order, became item 4e. Subagent and orchestrator: converter suite
       924 passed; with the validator tests 1410.)
-- [ ] The walk follows labels (item 4e). The story is read from
+- [x] The walk follows labels (item 4e). The story is read from
       `label start` through jumps and calls, not by joining files in
       name order.
+      (2026-11-17: `converter/kinetic_extract/flow.py`. From `label
+      start` (or `--label`; neither present falls back to file order)
+      through `jump`, `call` with return at `return` or end of file,
+      fall-through, `call ... from`, local labels, named menus and
+      literal `renpy.jump/call`; every statement emitted once, a jump to
+      a walked label or a fork's meeting point a rejoin, a repeated call
+      carrying on; `if`/`while`/non-decision menu blocks walked to their
+      immediate post-dominator; `show/call screen` forks over the
+      screen's literal Jump/Call actions. Computed `jump/call
+      expression` and `renpy.jump/call(var)` walk candidates: the
+      site's own literals, then labels named by string literals in the
+      game's code (orchestrator's call), the first site taking the
+      shared list (documented: content back, sometimes out of place).
+      `--also-label`, `--include-unreached`; Ren'Py entry labels never
+      walked by default and named in the summary; end of file inside a
+      call returns (a documented difference). Ledger `walk` (reached,
+      unreached with dialogue counts, dynamic sites, rejoins, not
+      followed). On the way: `image x:` animation blocks no longer give
+      text items. Corpus, items / validator errors / unreached dialogue
+      lines, file order -> now: game 1 3601/37/0 -> 3501/0/63, game 2
+      8280/2/0 -> 7564/0/7 (716 bogus animation-frame lines gone), game
+      3 19313/155/0 -> 19068/0/107. docs/extracting.md "The walk follows
+      labels", converter/README.md, docs/stack.md. Subagent: test_flow
+      22; converter suite 1010 + 1 failing on item 9's in-progress
+      rename. Orchestrator: flow, parser, translations, episodes,
+      presentation, rpa 237; converter suite with validate and assemble
+      tests 1485 passed.)
 - [x] `kinetic report` (item 5). Reading time per route, speakers,
       unused files, longest lines, unknown tags; check-game reports
       overflowing lines.

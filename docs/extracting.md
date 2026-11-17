@@ -55,7 +55,8 @@ already reports as "image not defined".
 
 ## Slice support
 
-The CLI gained `--label NAME` (start the walk at that label),
+The CLI gained `--label NAME` (start the walk at that label, then
+follow the story from there: The walk follows labels, below),
 `--max-items N` (stop after N items), and `--files GLOB` (restrict the
 walked scripts: Which scripts are walked, below). Smoke runs
 (2026-02-13):
@@ -104,9 +105,119 @@ walk does not read neither hides another nor feeds identifiers
   either. The `.rpy` that beats a chosen `.rpyc` is looked for whatever
   `--files` says.
 
-The walk reads the chosen scripts in file-name order (loose `.rpy`,
-loose `.rpyc`, then archive members, sorted by file name with ties in
-that order).
+The chosen scripts are parsed in file-name order (loose `.rpy`, loose
+`.rpyc`, then archive members, sorted by file name with ties in that
+order). Every one of them is read for definitions (`image`, `define`,
+Characters, `define audio`, channels, screens), whether or not the story
+reaches it; the story itself is read as the next section says.
+
+### The walk follows labels
+
+Ren'Py runs a game from `label start`, and so does the walk
+(`kinetic_extract/flow.py`, docs/plan.md Phase 57 item 4e). Before it
+the walk joined the scripts in file-name order, so lines in scripts the
+story never runs (a developer script, a minigame) became items, and a
+game whose story order differs from its file order read out of order.
+
+- **Order**: from `label start` (or `--label NAME`) on through the
+  statements of its file; past the end of a label's block into whatever
+  follows in the same file (fall-through); to a `jump`'s label, wherever
+  it is defined; into a `call`'s label and back to the statement after
+  the call at its `return` or at the end of a file. `call x(args) from
+  y` calls `x`. Local labels (`label .x`, `label g.x`) and named menus
+  (`menu name:`) are labels too, as are literal `$ renpy.jump("x")` and
+  `$ renpy.call("x")`. The end of a file returning is a deliberate
+  difference: in Ren'Py, falling off the end of a file inside a call
+  ends the game, while the walk keeps the content after the call.
+- **Each statement once**: a label reached a second time is not walked
+  again. A jump to it ends that path there (a loop back, or a scene two
+  paths share, is read once, as the converter's routes rejoin the line
+  they left); a call to it goes on after the call. The ledger counts
+  both.
+- **Forks**: an `if`/`elif`/`else` chain, a `while`, and a menu that
+  does not become a decision keep their blocks skipped, as before, but
+  the jumps and calls inside are followed: each block's in turn, up to
+  the statement every block reaches (the fork's immediate
+  post-dominator in the script's flow), then that statement once. So
+  alternatives that rejoin read one after another and then the shared
+  rest, as the file-order join usually read them; an `if` with no
+  `else`, and a `while`, also go on past the fork. A label inside such a
+  block is a place a jump can land. A menu that becomes a decision is
+  unchanged: its choices hold no jump or call (Branches, in
+  docs/content-format.md, and the conservative rule in the ledger's
+  `simplifications`).
+- **Screens**: `show screen x` and `call screen x` are a fork of the
+  screen's literal `Jump("label")` and `Call("label")` actions, and
+  those of the screens it `use`s, in the screen's order, and of going
+  on past it, so a hub whose buttons jump reads each place they lead.
+- **Computed targets**: `jump expression`, `call expression` and `$
+  renpy.jump(var)`/`renpy.call(var)` name their label when the game
+  runs, often from a list or table in Python (a scene picked by a
+  function, an event system). Their candidates are the labels their own
+  expression names as string literals (`call expression
+  renpy.random.choice(["a", "b"])`), then the labels named by a string
+  literal anywhere in the game's code (Python blocks, `$` lines,
+  `define` and `default` values, screen code, lists and dicts; not
+  dialogue, menu choices or f-strings), in file order, leaving out the
+  labels literal flow reaches anyway (found by a first walk that follows
+  no computed target) and Ren'Py's entry labels (below). At the site the
+  candidates not yet walked are walked in that order: a `call
+  expression` calls each in turn, returning to the site after each, and
+  goes on; a `jump expression` reads each as a path of its own, one after
+  another (a fork whose paths share no join), and its own path ends
+  after them, as a jump's does. The first site the walk meets takes
+  every candidate of the shared pool not walked yet, so a scene picked
+  in several places reads at the first of them. Each site is reported
+  with how many candidates it walked; one with none is reported as not
+  followed.
+- **Not followed, and reported**: a target no walked script defines as
+  a label, a computed target with no candidate, and anything Python
+  decides without naming the label in a literal.
+- **Ren'Py's entry labels** (`splashscreen`, `before_main_menu`,
+  `main_menu`, `after_load`, `after_warp`, `quit`, `hide_windows`, and
+  labels starting with `_`) are run by Ren'Py itself, not by the story:
+  they are not walked and are never pool candidates. The summary names
+  the ones the game has (`walk: Ren'Py entry labels not walked: ...`),
+  so an agent can add one with `--also-label`.
+- **More after the story**: `--also-label NAME` (repeatable) walks the
+  story from that label after the story, as from `label start`;
+  `--include-unreached` then appends every label still unreached that
+  holds dialogue, in file order, each walked the same way. Both are
+  recorded in the ledger's `slice` and `walk`. `--also-label` works with
+  one project only, like `--label`.
+- **No `label start`**: a project without one (a patch, a fragment) is
+  read in file-name order as before, and the summary says so.
+
+What the walk left out is listed, not emitted. The summary prints
+`walk:` lines (labels reached and unreached, with up to 20 names, lines
+of dialogue unreached; scripts unreached, rejoins, calls not repeated,
+jumps and calls not followed; computed jumps and calls and the
+candidates they walked; what `--also-label` and `--include-unreached`
+added; the entry labels not walked), and the ledger's `walk` holds:
+
+- `start`: `label start` or `--label NAME`;
+- `labelsReached` (a count) and `labelsUnreached`: each label never
+  reached, `{"label", "source", "lines"}` with the lines of dialogue in
+  its block;
+- `scriptsUnreached`: scripts with story statements or labels the walk
+  never entered;
+- `linesUnreached`: every line of dialogue not walked;
+- `reportsUnreached`: how many reports the parser made for statements
+  in unreached labels, which are left out of `report` (a menu there is
+  `skipped` in `branchDetection` as "not reached from label start");
+- `rejoins`, `callsNotRepeated` (`{"source", "statement"}` each) and
+  `notFollowed` (`{"source", "statement", "reason"}`, also in `report`);
+- `dynamic`: each computed jump or call reached, `{"source",
+  "statement", "candidates", "walked"}` (also in `report`);
+- `entryLabelsUnreached`: the entry labels the game has that were not
+  walked;
+- `alsoLabels` (the `--also-label` names) and `appendedUnreached` (the
+  labels `--include-unreached` appended, `{"label", "source",
+  "lines"}`).
+
+With several projects `walk` is a list, one object per project with
+its `project` number, each walked from its own `label start`. A
+file-order walk records `{"order": "file names (no label start)"}`.
 
 ## Several episodes, one game
 
@@ -200,7 +311,8 @@ with the current schema.
 
 `build-ledger.json` sits beside the manifest; the player and validator
 ignore it. Besides the walk's record (`inputs`, `items`, `report`,
-`branchDetection`, the `rpyc*`/`rpa*` source lists, `slice`, the
+`branchDetection`, the `rpyc*`/`rpa*` source lists, `slice`, `walk`:
+The walk follows labels, above, the
 sound's `audioTracks` and video items' `sound`: Shipping the sound,
 below, `transitions`: Colours and transitions, below, and
 `translations`: Translations, below), it holds

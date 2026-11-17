@@ -5,6 +5,7 @@ Usage:
     kinetic-extract <renpy_project> [<renpy_project> ...] <out_dir>
                     [--width N] [--height N]
                     [--label NAME] [--max-items N] [--files GLOB]
+                    [--also-label NAME ...] [--include-unreached]
                     [--title TEXT] [--game-version TEXT] [--story-id ID]
                     [--decoder MODULE:FUNC ...]
                     [--no-translations] [--language-map NAME=TAG ...]
@@ -43,6 +44,14 @@ hooks") runs a game's own unwrapping hook over the complete bytes of every
 media source, loose file or archive member, before format detection;
 hooks chain in the order given. A hook that raises stops the run with a
 non-zero exit naming the hook, the source and the error.
+
+The story is read as Ren'Py runs it (docs/plan.md Phase 57 item 4e,
+kinetic_extract.flow): from ``label start`` through ``jump``, ``call``
+and ``return`` and the fall-through into the next statement; labels and
+scripts it never reaches are listed in the ledger's ``walk`` and the
+summary, not emitted. ``--also-label NAME`` (repeatable) walks the story
+from more labels after it, and ``--include-unreached`` appends every
+label still unreached that holds dialogue.
 
 Slice options (docs/plan.md Phase 11) extract part of a big game:
 ``--label NAME`` starts the walk at that label, ``--max-items N`` stops
@@ -112,9 +121,12 @@ from .translations import (ProjectTranslations, language_files,
 from .version import add_version_option
 
 SIMPLIFICATIONS = [
-    "multiple .rpy files are processed in filename order and concatenated",
-    "jump/call targets are followed linearly (no control flow); cross-file "
-    "targets are reported",
+    "the story is read from label start (or --label) through jump, call "
+    "and return, fall-through and the jumps and calls inside if/while "
+    "blocks, unconverted menus and shown screens, each statement once; a "
+    "computed jump/call expression walks the labels string literals in "
+    "the game's code name (ledger walk); with no label start the scripts "
+    "are read in filename order",
     "menus become branch decisions only when conservatively detectable "
     "(plain quoted choices whose blocks form contiguous runs of recognized "
     "image/text items, with flow continuing in place); all routes then get "
@@ -544,6 +556,7 @@ def print_summary(result: TimelineResult, reports: list[Report],
                   version: tuple[str | None, str] | None = None,
                   translation_lines: list[str] | None = None,
                   presentation_lines: list[str] | None = None,
+                  walk_lines: list[str] | None = None,
                   ) -> None:
     counts: dict[str, int] = {}
     for record in result.items:
@@ -563,6 +576,8 @@ def print_summary(result: TimelineResult, reports: list[Report],
     if version is not None:
         print(f"game version: {version[0]} (from {version[1]})"
               if version[0] else "game version: (none)")
+    for line in walk_lines or []:
+        print(line)
     notes = branch_notes or []
     detected = sum(1 for n in notes if n["result"] == "detected")
     skipped_menus = [n for n in notes if n["result"] == "skipped"]
@@ -609,8 +624,18 @@ def main(argv: list[str] | None = None) -> int:
     argp.add_argument("--height", type=int, default=None,
                       help="override display height")
     argp.add_argument("--label", default=None, metavar="NAME",
-                      help="start extraction at this label (skip earlier "
-                           "flow; fatal if no such label is parsed)")
+                      help="start the walk at this label instead of "
+                           "label start, following the story from there "
+                           "(fatal if no such label is parsed)")
+    argp.add_argument("--also-label", action="append", default=[],
+                      metavar="NAME",
+                      help="after the story, also walk the story from this "
+                           "label (repeatable; for a label the walk does "
+                           "not reach, such as a Ren'Py entry label)")
+    argp.add_argument("--include-unreached", action="store_true",
+                      help="after the story, append every label the walk "
+                           "still does not reach that holds dialogue, in "
+                           "file order")
     argp.add_argument("--max-items", type=int, default=None, metavar="N",
                       help="stop the walk after N manifest items")
     argp.add_argument("--files", default=None, metavar="GLOB",
@@ -666,9 +691,9 @@ def main(argv: list[str] | None = None) -> int:
     projects: list[Path] = args.renpy_project
     several = len(projects) > 1
     if several and (args.label is not None or args.max_items is not None
-                     or args.files is not None):
-        argp.error("--label, --max-items and --files work only with one "
-                   "project")
+                     or args.files is not None or args.also_label):
+        argp.error("--label, --also-label, --max-items and --files work "
+                   "only with one project")
 
     try:
         ensure_ready()
@@ -770,6 +795,10 @@ def main(argv: list[str] | None = None) -> int:
                                   characters=characters)
     slice_opts = {"label": args.label, "maxItems": args.max_items,
                   "files": args.files}
+    if args.also_label:
+        slice_opts["alsoLabel"] = args.also_label
+    if args.include_unreached:
+        slice_opts["includeUnreached"] = True
     folders = [project_folder_name(e.project) for e in episodes]
     ledger = build_ledger(result, reports,
                           [rel for rel, _ in parses],
@@ -785,6 +814,12 @@ def main(argv: list[str] | None = None) -> int:
     # What became of the `with` statements (docs/extracting.md, "Colours
     # and transitions").
     ledger["transitions"] = transition_record
+    # What the walk reached from label start and what it left
+    # (docs/extracting.md, "The walk follows labels"): one object, or one
+    # per project with its number.
+    ledger["walk"] = (episodes[0].result.walk if not several else
+                      [{"project": n, **e.result.walk}
+                       for n, e in enumerate(episodes, start=1)])
     skipped_tl = [name for p in projects_tl for name in p.skipped]
     if lang_stats or skipped_tl:
         # Per Ren'Py language read from game/tl/: its tag, the dialogue
@@ -806,7 +841,10 @@ def main(argv: list[str] | None = None) -> int:
                   + summary_lines(lang_stats,
                                   [d["language"] for d in lang_files],
                                   skipped_tl),
-                  presentation_lines)
+                  presentation_lines,
+                  [(f"ep{n}: " if several else "") + line
+                   for n, e in enumerate(episodes, start=1)
+                   for line in e.result.walk_summary])
     if len(derived_ids) > 1:
         print("note: the projects derive different story ids ("
               + ", ".join(derived_ids) + "); using the first; --story-id "
@@ -847,7 +885,9 @@ def _walk_project(project: Path, args: argparse.Namespace
                             start_label=args.label, max_items=args.max_items,
                             asset_lookup=asset_archives.lookup,
                             implicit_lookup=implicit.lookup,
-                            audio_files=AudioFiles(game_dir, asset_archives))
+                            audio_files=AudioFiles(game_dir, asset_archives),
+                            also_labels=args.also_label,
+                            include_unreached=args.include_unreached)
     if asset_archives.failed:
         sources.setdefault("rpaFailed", []).extend(asset_archives.failed)
     translations = (read_project(game_dir, result.items, args.language_map,
@@ -905,6 +945,14 @@ def _mark_episode(n: int, episode: _Episode) -> None:
         record.source = f"{tag}:{record.source}"
         if record.source_ref is not None:
             record.source_ref = {**record.source_ref, "project": n}
+    walk = episode.result.walk
+    for entry in (walk.get("labelsUnreached", []) + walk.get(
+            "callsNotRepeated", []) + walk.get("notFollowed", [])
+            + walk.get("dynamic", []) + walk.get("appendedUnreached", [])):
+        entry["source"] = f"{tag}:{entry['source']}"
+    if "scriptsUnreached" in walk:
+        walk["scriptsUnreached"] = [f"{tag}:{rel}"
+                                    for rel in walk["scriptsUnreached"]]
     for _rel, parsed in episode.parses:
         for report in parsed.reports:
             report.source = f"{tag}:{report.source}"

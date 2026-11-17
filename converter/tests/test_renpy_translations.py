@@ -928,8 +928,10 @@ def test_tl_inside_archives_is_read_like_loose_files(tmp_path: Path) -> None:
     from test_rpa import write_rpa
     rpa_mod.reset_cache()
     game = tmp_path / "game"
+    # The walk follows labels (Phase 57 item 4e): start jumps to the
+    # archived chapter, which file order used to append unreached.
     write(game / "script.rpy", 'label start:\n    scene black\n'
-                               '    e "Loose line."\n')
+                               '    e "Loose line."\n    jump chapter\n')
     loose = ident("start", 'e "Loose line."')
     archived = ident("chapter", 'e "Archived line."')
     write(game / "tl" / "de" / "script.rpy",
@@ -959,10 +961,10 @@ def test_tl_inside_archives_is_read_like_loose_files(tmp_path: Path) -> None:
     parses, defs, chars, _sources = parse_project(game)
     records = build_timeline(parses, defs, chars, game).items
     assert [r.text_source for r in records] == [
-        "game/scripts.rpa!chapter.rpy:2", "game/script.rpy:3"]
+        "game/script.rpy:3", "game/scripts.rpa!chapter.rpy:2"]
     project = tl.read_project(game, records)
     assert [r.translations.get("de") for r in records] == [
-        "Archivierte Zeile.", "Lose Zeile."]
+        "Lose Zeile.", "Archivierte Zeile."]
     assert project.stats["de"].matched == 2
 
 

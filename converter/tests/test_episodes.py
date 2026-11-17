@@ -148,6 +148,10 @@ def test_ledger_names_each_source_project(made: dict[str, Path]) -> None:
             if o["source"].get("path") == "game/data/bg-room.png"] == [2]
     for item_id, entry in ledger["items"].items():
         assert entry["source"].startswith(item_id[:4].rstrip("-") + ":")
+    # Each episode is walked from its own label start (Phase 57 item 4e).
+    assert [(w["project"], w["start"]) for w in ledger["walk"]] == [
+        (1, "label start"), (2, "label start")]
+    assert ledger["walk"][1]["notFollowed"][0]["source"].startswith("ep2:")
 
 
 def test_single_project_ledger_has_no_project_keys(
