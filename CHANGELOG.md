@@ -17,6 +17,8 @@ Taking a new release means replacing a game folder's player (CREATE.md,
 "Upgrading to a newer Kinetic"). Bullets marked **Upgrading:** ask
 something more of an author.
 
+## 1.10.1-dev
+
 ## 1.10.0 (2026-11-17)
 
 - A test-only trace of every screen the player shows: with

@@ -4879,3 +4879,14 @@ truthful: an unchecked box means nothing was accepted.
       trace, which no scenario but `trace` and `checkgame` turns on.
       VERSION, package.json, its lockfile and pyproject 1.10.0; the
       CHANGELOG entry dated; tag v1.10.0; `main` fast-forwarded.)
+
+## Phase 55: Reliable WebKit map checks, plain commit messages (2026-11-17, user)
+
+- [ ] Commit messages (docs/plan.md Phase 55, item 1). AGENTS.md's
+      Git section says a commit message describes the change in a short
+      subject, with no test counts or run evidence.
+- [ ] WebKit map checks (docs/plan.md Phase 55, item 2). The cause of
+      the intermittent `bookmarkmap` and `screens` failures on WebKit
+      found and fixed; 10 runs in a row pass.
+- [ ] Phase-closer (Phase 55): full suites; VERSION 1.10.1, the
+      CHANGELOG dated, tag v1.10.1, `main` fast-forwarded.

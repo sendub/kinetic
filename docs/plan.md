@@ -3644,6 +3644,51 @@ differently. A feature, so this phase closes as 1.10.0.
 4. Phase-closer: full suites; VERSION 1.10.0, the CHANGELOG dated, tag,
    `main` fast-forwarded.
 
+## Phase 55: Reliable WebKit map checks, plain commit messages (2026-11-17, user)
+
+Phase 54's closing WebKit run failed 10 checks in the scenario files
+`bookmarkmap` and `screens`, though its first full run passed them. Run
+alone at load average 5-8 (nothing else busy), the two files failed 1
+run in 3 at 1.10.0 and 2 runs in 4 at 1.9.1, so the fault predates the
+trace; Chrome passes them. The checks seen failing: "through 8 drags
+the cards and the lines move together" (a drag of dx -160, dy 20
+scrolled 0 where 20 was wanted), "a drag that starts on a card scrolls
+the map...", "clicking a card opens its bookmark", "x at Full size
+deletes the bookmark...", then a cascade of later steps in the same
+part (m reopens the map, the x on a card, reload resumes, the bookmark
+at its new place, `u` from chain-still-3), and once the screens check
+"skip from the bookmark stops on inserted-1". The user asked for a fix.
+
+The user also asked that commit messages describe the change rather
+than record test runs: recent subjects run to 200 characters of test
+counts and verify results. No repo file says how to write them, so
+agents copied the history.
+
+A fix with no new feature, so this phase closes as the patch 1.10.1.
+
+1. Commit messages. AGENTS.md's Git section says how the orchestrator
+   writes them: a short subject, `area: what changed` (player, tools,
+   converter, windows, macos, docs...), with the phase and item when
+   there is one; a body only when the reason or the shape of the
+   change needs saying; no test counts, verify results, load averages
+   or other run evidence, which belong in the item's evidence note in
+   docs/progress.md; planning and closing commits likewise (the closer
+   says the release, e.g. `release 1.10.1`). History is not rewritten.
+   Tests: none (Markdown); the closer's full pytest covers tests that
+   read AGENTS.md.
+2. WebKit map checks. Find why `bookmarkmap` and `screens` fail on and
+   off on WebKit, and fix the cause: a race in the scenarios' drag or
+   click helpers, in the WebKit driver, or a real player fault on
+   WebKit (Safari readers and the Mac app), which is fixed in the
+   player, not hidden in the test. A step that fails stops its part
+   cleanly rather than cascading where the harness allows. The report
+   names the cause with the evidence for it. Tests: a unit test for a
+   player or driver fault where one can show it; `npm run verify --
+   --webkit bookmarkmap screens` passes 10 runs in a row at normal load,
+   and the same files on Chrome.
+3. Phase-closer: full suites; VERSION 1.10.1, the CHANGELOG dated, tag,
+   `main` fast-forwarded.
+
 ## Sequencing
 
 1 -> 2 -> 2b -> 3 -> 4 -> 5 -> 6 -> 7 -> 7b -> 8 -> 9 -> 9b -> 9c -> 9d ->
