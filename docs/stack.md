@@ -1,13 +1,13 @@
 # Tech Stack: Investigation and Decisions
 
 Working notes for choosing the stack for Kinetic, a kinetic visual novel
-player (see README.md) with a Ren'Py content converter. Decisions in this file
-are settled unless a Revisit trigger fires; implementation follows
-docs/plan.md.
+player (README.md; docs/player.md has its behaviour) with a Ren'Py
+content converter. Decisions in this file are settled unless a Revisit
+trigger fires; implementation follows docs/plan.md.
 
 ## Requirements that drive the stack
 
-From README.md:
+From the README as it stood (docs/player.md now has the detail):
 
 - Display ordered images, animation frame groups, and video, fullscreen,
   with overlay text.

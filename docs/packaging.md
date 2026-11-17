@@ -313,9 +313,9 @@ player keeps each track it plays decoded, 23 MB a minute in stereo at
 - In a browser, sound starts with the reader's first key or click other
   than Esc or a Cmd, Ctrl or Alt shortcut, after every load, whatever the
   browser allows, and a pill says "Press any key for sound" until then
-  (README.md, "Playing"). The macOS app plays sound at launch. The
-  Windows exe asks WebView2 to do the same, which is not verified on
-  Windows.
+  (docs/player.md, "When sound starts"). The macOS app plays sound at
+  launch. The Windows exe asks WebView2 to do the same, which is not
+  verified on Windows.
 - Generated speech needs the Mac app (Apple silicon, macOS 14 or later) or the
   Windows program (an NVIDIA card, driver 570.65 or later) and a one-time
   download of about 3.3 GB on a Mac or 6.8 GB on Windows, shared by every

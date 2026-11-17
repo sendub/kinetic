@@ -34,7 +34,7 @@ export interface KeyCommands {
    */
   dismissOverlay(): void;
   /**
-   * `a`: toggle auto-forward (Phase 13b, README `a` bullet). Off is the
+   * `a`: toggle auto-forward (Phase 13b; docs/player.md, "Auto-forward"). Off is the
    * player's default: items wait for the reader until `a` is pressed.
    */
   toggleAutoForward(): void;

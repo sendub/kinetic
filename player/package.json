@@ -15,6 +15,7 @@
     "perf:sound": "node scripts/soundperf.mjs",
     "perf:decode": "node scripts/decodeperf.mjs",
     "package-proof": "node scripts/package-proof.mjs",
+    "screenshots": "node scripts/screenshots.mjs",
     "verify": "node scripts/build.mjs && node scripts/scenarios/run.mjs",
     "test": "vitest run",
     "check": "biome check . && tsc --noEmit"

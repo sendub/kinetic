@@ -483,7 +483,7 @@ const ARROW_LABELS: Record<string, string> = {
 describe("keyHelpEntries (the help lists the map itself, Phase 13b)", () => {
   // The drift test docs/plan.md Phase 13b asks for: the keymap module is
   // the single source, so a key or command without a help row fails here
-  // — the README's lost `a` bullet is exactly this drift, caught in code.
+  // — the old README's lost `a` bullet is exactly this drift, caught in code.
   function listedLabels(): Set<string> {
     return new Set(keyHelpEntries().flatMap((entry) => entry.keys));
   }

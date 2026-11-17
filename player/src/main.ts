@@ -13,7 +13,7 @@
 // (Phase 26: `c` is gone), whose changes apply live (machine.setSettings)
 // and persist with the context.
 // Phase 13b adds the manual/auto clarity and the `#help` key help: the
-// player STARTS manual (README advance bullet; `a` toggles auto-forward),
+// player STARTS manual (docs/player.md, "Reading"; `a` toggles auto-forward),
 // and the help screen — the keymap's own table on a black screen — shows
 // before any advance until storage says `helpSeen`; opening it pauses the
 // machine and hides the stage, closing it resumes the same item. The
@@ -401,7 +401,7 @@ function start(): void {
       // as it moves; it rides in every state write, and the map's close
       // issues one.
       let mapView: SavedMapView | undefined = persisted?.mapView;
-      // The machine starts MANUAL (README advance bullet, docs/plan.md
+      // The machine starts MANUAL (docs/player.md, "Reading"; docs/plan.md
       // Phase 13b): only the reader's presses move it until `a` turns
       // auto-forward on. The machine's own default is manual — not
       // passing `autoAdvance` here is that default, stated. The manifest's
@@ -560,7 +560,7 @@ function start(): void {
       });
       document.addEventListener("pagehide", persistUrgently);
 
-      // `b` (README bookmark bullet): the thumbnail is opportunistic — a
+      // `b` (docs/player.md, "Bookmarks"): the thumbnail is opportunistic — a
       // frame is captured only when it is drawable and the canvas readable
       // (over `file://` Chrome taints it, and null is expected); the
       // durable bookmark is `{timestampMs, itemId, ctx}` — keyed by id, so
@@ -1281,7 +1281,7 @@ function start(): void {
             void takeBookmark();
           },
           toggleMap: runMapKey,
-          // `a` (README auto-forward bullet): manual is the start, and `a`
+          // `a` (docs/player.md, "Auto-forward"): manual is the start, and `a`
           // toggles auto-advance. Turning it off cancels the pending hold;
           // a skip dwell keeps running — skipping is the reader's own run.
           // Space also turns it off (machine `advance()`, Phase 18). Every

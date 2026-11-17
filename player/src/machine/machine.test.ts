@@ -449,7 +449,7 @@ describe("auto-advance timing", () => {
 });
 
 describe("manual and auto modes, pause/resume (docs/plan.md Phase 13b)", () => {
-  // The player starts manual (README advance bullet): a machine built
+  // The player starts manual (docs/player.md, "Reading"): a machine built
   // without `autoAdvance` arms no hold for plain items — only the
   // reader's presses move it — and `setAutoAdvance` is the `a` toggle.
   function manualMachine(items: readonly Item[]) {
@@ -772,7 +772,7 @@ describe("manual and auto modes, pause/resume (docs/plan.md Phase 13b)", () => {
 describe("auto-forward over a settled item (docs/plan.md Phase 43)", () => {
   // A resume landing and the item Space stopped a skip burst on are
   // settled. Turning auto-forward on still counts the time the item has
-  // been on screen (README `a` bullet), and closing a screen re-arms its
+  // been on screen (docs/player.md, "Auto-forward"), and closing a screen re-arms its
   // hold fresh; only the last item, with nothing after it, stays put (an
   // open choice: branches.test.ts). Ten 1500 ms images, manual like the
   // player's start.
@@ -2389,8 +2389,8 @@ describe("goTo (t-overlay bookmark click), docs/plan.md Phase 8", () => {
       transition: "nav",
     });
     // ...and at the bare-image hold (1500 ms) auto-advance continues the
-    // novel from the bookmark — README: "continues the novel from that
-    // time point" — without moving the frontier.
+    // novel from the bookmark (docs/player.md, "Bookmarks": a click
+    // continues from there) — without moving the frontier.
     vi.advanceTimersByTime(1);
     expect(m.getState()).toEqual({
       cursor: 1,
@@ -3156,8 +3156,8 @@ describe("minPlaySeconds chain-exit floor (docs/plan.md Phase 15)", () => {
   it("skip stays immediate through the whole chain: the floor never delays a dwell", () => {
     vi.useFakeTimers();
     // skipAll so the burst walks the unseen chain rather than ending at it.
-    // Phase 15 correction (README: "manual advance and skip stay
-    // immediate"): the floor exists so AUTO play sees the video; a reader
+    // Phase 15 correction (docs/player.md, "Auto-forward": a minimum play time holds
+    // auto-forward only; manual advance and skip stay immediate): the floor exists so AUTO play sees the video; a reader
     // in skip mode chose speed, so even the step LEAVING an unmet chain is
     // a plain dwell.
     const m = machine(chained(5), {

@@ -13,7 +13,8 @@
 //     index-based `ctx` reads as no progress (a first boot), a malformed
 //     settings field as its default).
 //   - store `bookmarks`: keyPath `seq`, autoIncrement, so the key alone
-//     orders entries by insertion — the list the README draws bottom-first.
+//     orders entries by insertion (the map places them in story order,
+//     docs/player.md "Bookmarks").
 //     Each record carries a `content` field and a non-unique `content`
 //     index, so one novel's list is one index query in seq order while all
 //     novels share the database. A record carries `itemId` and its

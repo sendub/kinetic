@@ -1,5 +1,5 @@
 // Thumbnail capture of the currently visible surface (docs/plan.md Phase 8,
-// README bookmark bullet). The `b` binding will pass the visual layer's
+// docs/player.md "Bookmarks"). The `b` binding will pass the visual layer's
 // current element to `captureVisualThumbnail`, which paints its CURRENT
 // pixels — a decoded video frame, the on-screen animation frame, or an
 // image — into an offscreen canvas scaled per `thumbSize` (no wider than

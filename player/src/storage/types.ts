@@ -120,7 +120,7 @@ export interface PersistedState {
    */
   readonly ctx?: SavedContext;
   /**
-   * The reader's settings (README Esc bullet). A partial: a record may
+   * The reader's settings (docs/player.md, "Settings"). A partial: a record may
    * carry any subset, and the player merges it over `DEFAULT_SETTINGS` at
    * startup (main.ts). Absent means "nothing changed from the defaults".
    */
@@ -141,7 +141,7 @@ export interface PersistedState {
   readonly mapView?: SavedMapView;
 }
 
-/** One entry of the `b` bookmark list (README bookmark bullet). */
+/** One entry of the `b` bookmark list (docs/player.md, "Bookmarks"). */
 export interface Bookmark {
   /** Stable identifier, so a later overlay can reference one entry. */
   readonly id: string;

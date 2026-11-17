@@ -5730,10 +5730,40 @@ truthful: an unchecked box means nothing was accepted.
       stderr empty; a clean two-language folder silent on both streams,
       exit 0 under `--strict`; report's coverage section; the four test
       files 632; npm test 1853.)
-- [ ] A README for players and authors (item 11c). A short overview
+- [x] A README for players and authors (item 11c). A short overview
       with screenshots of the Esc screen, branch map and bookmarks; the
       detail moved to docs/player.md; AGENTS.md's closer rule to update
       the docs and screenshots.
+      (2026-11-17: README.md 4,132 -> 948 words: what Kinetic is (a
+      folder from disk or its own Mac or Windows app), "Why not
+      Ren'Py?" (nothing to install, every step within a frame, the
+      wheel through everything read, the map, no save slots, Play all
+      routes, languages and spoken lines, a conversion checkable without
+      watching), "A look around" with four screenshots and captions,
+      "For players", "For authors" (the v1.12.0 wheel line, kinetic
+      setup, extract, report, assemble, check, apps), licence.
+      docs/player.md (4,297 words) holds every key, control, screen and
+      setting, checked against keys.ts, branchmap.ts and the catalogue.
+      Images in docs/images/ (1280x720; bookmarks 1280x476) from
+      `npm run screenshots` (player/scripts/screenshots.mjs, the testing
+      library, pinned clock and UTC, byte-identical across runs) on a
+      new showcase story, fixtures/build_showcase_demo.py (gitignored
+      output, 3 decisions, 6 routes; fixtures/demo unchanged, since its
+      shape cannot show a fully played fork and an unreached decision
+      at once): the map shows a 2/2 fork with a bookmark on each route
+      and its return line, a 1/2 decision with "you are here", and an
+      unreached decision as a faded "?" with Spoilers off; the bookmark
+      close-up the newest card's gold outline, delete x and time; the
+      Esc screen; a coloured, tagged line. Links that named removed
+      README headings point at docs/player.md; code comments that cited
+      README bullets now cite docs/player.md (comments and two test
+      names only). AGENTS.md: `npm run screenshots` and the closer's
+      rule to update the docs and regenerate the screenshots when what
+      they show changed. Subagent: npm test 1853, check clean, showcase
+      and demo builder tests 4, no missing links, two identical
+      screenshot runs. Orchestrator: looked at every image; links
+      checked; builder tests 4; npm test 1853; check clean; the source
+      diff is comments and two describe names.)
 - [ ] Phase-closer (Phase 57): full suites; VERSION 1.12.0, the
       CHANGELOG dated, tag v1.12.0, `main` fast-forwarded, the wheel
       attached to the GitHub release.

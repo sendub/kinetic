@@ -205,7 +205,7 @@ export interface MachineOptions {
    */
   startAt?: number;
   /**
-   * Auto-forward mode (docs/plan.md Phase 13b, README `a` bullet). ABSENT
+   * Auto-forward mode (docs/plan.md Phase 13b; docs/player.md, "Auto-forward"). ABSENT
    * OR FALSE means manual — the documented default: no hold timer is
    * armed, items wait for `advance()` / the wheel / skip mode, and
    * nothing auto-advances until `setAutoAdvance(true)` (the `a` key).
@@ -460,7 +460,7 @@ export interface Machine {
    */
   hasEarlierUnseen(): boolean;
   /**
-   * Bookmark click (a card on the branch map, README `b` bullet): move the cursor to
+   * Bookmark click (a card on the branch map; docs/player.md, "Bookmarks"): move the cursor to
    * `index`, clamped to `[0, highest index ever shown]`. Nothing unseen is
    * entered — unseen items are reached by `advance()` or `choose()` — and no
    * decision fires; the route stack is left as it is. Inert while a choice
@@ -591,8 +591,8 @@ export interface Machine {
    */
   setSpokenHold(index: number, untilMs: number | null): void;
   /**
-   * `a`: the auto-forward toggle (docs/plan.md Phase 13b, README `a`
-   * bullet). Manual (off) is the player's start (main.ts constructs with
+   * `a`: the auto-forward toggle (docs/plan.md Phase 13b, docs/player.md,
+   * "Auto-forward"). Manual (off) is the player's start (main.ts constructs with
    * `autoAdvance: false`): nothing arms a hold timer, so items wait for
    * `advance()`, the wheel, or skip mode. Turning auto on arms what is
    * left of the current item's hold, measured from when the item first
@@ -1218,7 +1218,7 @@ export function createMachine(options: MachineOptions): Machine {
   // time is derived from it, so a settings re-arm never resets the wait.
   let chainHeadAt: number | null = null;
   // Auto-forward mode (Phase 13b): absent/false is manual — the documented
-  // default (README advance bullet): items wait for the reader until `a`.
+  // default (docs/player.md, "Reading"): items wait for the reader until `a`.
   let autoAdvance = options.autoAdvance === true;
   const autoListeners = new Set<(on: boolean) => void>();
   // The one writer of `autoAdvance` after construction: a real flip tells

@@ -188,6 +188,12 @@ are implementing and docs/stack.md for settled decisions.
   160,000-item story as a game folder for `perf`), and `perf:decode`
   (track decode time and result in WebKit and Chrome; needs PATH ffmpeg,
   no build).
+- README screenshots, from `player/` after `npm run build`: `npm run
+  screenshots` reads `fixtures/showcase-demo` in headless Chrome and
+  rewrites `docs/images/*.png` (reading, Esc screen, branch map,
+  bookmarks). That story is a gitignored build, `.venv/bin/python
+  fixtures/build_showcase_demo.py` (no ffmpeg; its test is
+  `tools/test_build_showcase_demo.py`).
 - Spoken lines (docs/plan.md Phase 52): the helper's tests,
   `.venv/bin/pytest apps/voice/tests -q -n auto` (a fake engine; no
   model). The casting tool needs its own venv, made once:
@@ -296,6 +302,14 @@ GH_TOKEN=$(gh auth token --user sendub) gh release create vX.Y.Z \
 
 After changing `VERSION`, rerun the converter's editable install so its
 package metadata matches (the version test reads it).
+
+Before its closing commit, the closer brings the docs up to date with
+the phase: README.md (its install line naming the new release),
+docs/player.md (the reference for every key, control, screen and
+setting), CREATE.md and the docs the phase touched. When anything the
+README screenshots show has changed (the Esc screen, the branch map,
+bookmarks, the reading screen), it reruns `npm run screenshots` and
+looks at each new image before committing it.
 
 ## Git
 

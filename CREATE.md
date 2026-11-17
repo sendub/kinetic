@@ -1468,9 +1468,9 @@ no transition, and an older player cuts. docs/content-format.md,
 ### Title, credits and content warnings
 
 Kinetic has no title, menu or credits screen of its own: opening a game
-goes straight to its first item (README.md, "Not supported"). A content
-warning, a title card and credits are items like any other, at the
-start or the end of the story:
+goes straight to its first item (docs/player.md, "No title or menu
+screens"). A content warning, a title card and credits are items like
+any other, at the start or the end of the story:
 
 - **A content warning** comes first: an image (a plain card, or the
   cover) with the warning as its text. A new reader sees it before
@@ -1803,7 +1803,7 @@ Windows apps play sound from launch (Building the apps). A reader who
 leaves fullscreen goes back on their next key or click, unless they
 choose Window on the Esc screen (kept with the other settings).
 
-The controls are listed in README.md ("Playing").
+Every key, screen and setting is described in docs/player.md.
 
 To look at one item without reading up to it, add `#start=<id>` to the
 page's address, such as `index.html#start=route1-start` for the demo's

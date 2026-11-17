@@ -7,7 +7,7 @@
 // mounts the settings section (render/config.ts) into this panel, so the
 // keys and the settings are one screen. The rows render from the keymap module's own table
 // (`keyHelpEntries` in render/keys.ts) — the keys shown are the keys that
-// are mapped, so the screen cannot drift from the mapping (the README's
+// are mapped, so the screen cannot drift from the mapping (the old README's
 // auto-forward bullet was the symptom; discoverability was the cause).
 //
 // It shows FIRST, before any advance, when storage says the reader has

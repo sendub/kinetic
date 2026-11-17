@@ -43,7 +43,7 @@ import {
 } from "./fakedom.testkit";
 import { APP_WORDING, BROWSER_WORDING, wordingFor } from "./wording";
 
-describe("stepSpeed (README: configurable reading speed)", () => {
+describe("stepSpeed (docs/player.md: the auto-forward speed setting)", () => {
   it("walks the 0.25 grid in both directions", () => {
     expect(stepSpeed(1.0, 1)).toBe(1.25);
     expect(stepSpeed(1.0, -1)).toBe(0.75);
@@ -82,7 +82,7 @@ describe("speedLabel (multiplier and its ms/char)", () => {
   });
 });
 
-describe("skipAllLabel (the README tab bullet's config option)", () => {
+describe("skipAllLabel (docs/player.md, Skip: Skip unseen content too)", () => {
   it("names the two states", () => {
     expect(skipAllLabel(true)).toBe("On");
     expect(skipAllLabel(false)).toBe("Off");

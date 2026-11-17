@@ -14,8 +14,8 @@
 // at the first item the way a fresh machine does.
 //
 // Walk logic mirrors docs/verify-player.md: read the item count from
-// window.KINETIC_MANIFEST, then press space once per step (the README space
-// binding) for enough steps to cross the whole manifest. A step settles if the
+// window.KINETIC_MANIFEST, then press space once per step (Space, docs/player.md
+// "Reading") for enough steps to cross the whole manifest. A step settles if the
 // machine was mid-hold, so one press never skips an item — at worst it
 // re-observes one. Each step records the ONE visible surface (the renderer
 // keeps exactly the image, the video, or the notice visible), so the run

@@ -1,77 +1,133 @@
 # Kinetic
 
-A browser player for kinetic visual novels: a simple alternative to Ren'Py. A novel is a self-contained folder of media plus the player; open its `index.html` in a browser. No install, no server, no network.
+Kinetic plays kinetic visual novels: stories you read rather than steer,
+told in pictures, animation, video, text and sound. A game is a folder.
+A reader double-clicks its `index.html` and it plays from disk in a
+browser such as Safari or Chrome, or opens the game's own Mac or Windows
+app beside it. There is nothing to install, no server and no network. An
+author converts an existing Ren'Py game with one command, or writes the
+folder by hand.
 
-## Playing
+![A speaker's line in her own colours, with italic and bold from Ren'Py text tags](docs/images/reading.png)
 
-* **Space**: next item. Manual is the default: one press, one item. In auto-forward, Space turns auto-forward off and stays on the item.
-* **← →** (Left and Right): on a video that marks several camera views (`segments`), after its last line, Space shows the views one by one before it moves on; Right steps to the next view without ever leaving the item, and Left to the view before. Each step shows "View n of m" in a brief pill. Elsewhere, and in auto-forward or skip, the arrows do nothing.
-* **a**: auto-forward on/off (Space also turns it off). A brief pill says "Auto-forward on" or "Auto-forward off" each time the mode changes, whichever key changed it. Turning it on counts the time the item has already been on screen, so an item already read moves on at once. It works on a choice screen too: the choice waits for your answer, and the route you pick then plays in the mode you set. Items advance at the auto-forward speed set on the **Esc** screen; animations play a few times, videos play out (or follow their loop count or display duration).
-* **Mouse wheel**: move back and forward through the story in story order, from wherever you are (a bookmark too), through the content you have seen. At a branch it follows the route you picked last there; choice screens are steps it passes through, the route it takes highlighted. Forward stops at the furthest point you have read. Reading on from before a choice plays it again as the first time (routes already seen stay marked), so with play all routes every route plays again.
-* **e**: jump to the furthest point you have read in the story.
-* **u**: go to the next unseen content wherever it is: an unplayed route (entered as if picked) or content earlier in the story, such as a prequel added by an update. A resume shows a quiet notice when such earlier content exists.
-* **Tab**: skip through content you have already seen, showing only first frames; it stops on the last seen item, and Space stops it on the current one. A brief pill says "Skip on" when it starts and "Skip off" whenever it stops, however it stops; Tab with nothing seen ahead, or at the end of the story, does nothing and shows nothing. A skip stops at a choice; Tab on a choice screen turns skip on (or off) without answering it, and once you pick, it skips through the route if you have read it before (or says "Skip off" if there is nothing seen to skip). Two settings under "When Tab skips" change how it skips: "Skip unseen content too" lets it run through unseen content, and with "Play videos in full" on, videos play out during a skip and Space cuts one short.
-* **h**: hide or show the text.
-* **v**: sound on or off, in a game with sound; a brief pill says "Sound on" or "Sound off". Turning it back on plays the screen's music and ambience again, but not its one-shots, and a voice line that was playing stays silent. The setting is kept with the Esc screen's settings. In a game without sound, v does nothing.
-* **b**: bookmark the current moment. Your bookmarks are on the branch map (**m**), each a thumbnail sitting on the story line at the very place you took it, in story order (one inside a route sits on that route's line); the newest has a gold outline, and hovering one shows when you took it. Click a thumbnail to continue from there (dragging on one scrolls the map instead). Hover a thumbnail for its **×** (shown in both views, Fit included) to delete it: it stays as a dashed outline you can click to bring it back, and a "Bookmark deleted" note offers **Undo** (or press **Z**) until the map closes.
-* **m**: the branch map: every decision as a small node showing how many of its routes you have played ("1/2", "?" before you reach it), its routes as numbered pills (played ones filled, unseen ones dashed; the route you picked last at each decision outlined in gold), the stretches between them as lines with their screen counts, your bookmarks on those lines (a stretch holding some grows to fit them side by side), a gold "you are here" marker, and decisions you have not reached yet faded. Hover a node or pill for its full text. It has two views, picked with the header's **Full size | Fit** button (the lit half is the view on show) or **F**, which switches: **Full size** shows your bookmarks at full thumbnail size with the map wrapped to the window's width, and scrolls up and down (the mouse wheel or trackpad, the scroll bar at the right, dragging the map, the up and down arrows, Page Up / Page Down, Home and End); **Fit** shows the whole map at once, as large as fits the window, and stays still. Nothing zooms or moves sideways. **C** shows Full size centred on where you are and **N** centred on your newest bookmark (the header's Centre and Newest bookmark buttons do the same; hover a button for its key). The first time it opens it is Full size, centred on where you are; after that it reopens in the view you left it in and, at Full size, where you scrolled to, even after a reload. If your last move there was **C** it centres on where you are again, wherever that is by then, as it does after Reset progress or after adding or deleting a bookmark. Resizing the window rewraps the map: Full size keeps what was in the middle of the window there, and Fit fits again. **Spoilers** (the header button, or **S**) is off by default: until you reach a decision, its question and its routes' labels read "Decision not reached" and "Unseen route" (a decision you have reached shows all its routes, played or not); turn it on to see everything. The setting is kept like the Esc screen's settings and travels with exported progress. Click a decision you have reached to go to its choice screen, or one of its routes to play that route from its start (a pick, as on the choice screen); unreached ones do nothing. Music and ambience play on under the map; a voice line pauses until it closes. Esc or m closes it. On the Esc screen, m (or a click on its M entry) swaps that screen for the map, so the next Esc goes back to the game.
-* **Esc**: the Esc screen, headed by the game's name when the manifest has a `title`, followed, smaller, by the game's version when it has a `version` (also shown on first load, before anything starts; Kinetic's own version sits small in the bottom-right corner): the keys, laid out across the screen, then every setting: auto-forward speed, shown as the multiplier and the time each character gets (`1.00x (~60 ms/char)`; its **?** says it also times play-all's choice countdown), the two "When Tab skips" options (skip unseen content too, play videos in full), play all routes (its **?** says what turning it on does), in a game with sound a Sound row (an on/off switch, the same setting as **v**, and **Volumes...**, below), under "Progress · saved automatically": export, import and reset progress, and under "Game window": a **Fullscreen | Window** switch (the lit half is how the game shows now) and **Exit**, which ends the game. Hover over a **?** or give it keyboard focus to read its note; a click or tap keeps it open or shuts it. Progress's **?** says the rest: progress saves in this browser as you read, and Export / Import are only for moving to another browser or machine. In a game app (the Mac app, the Windows program) the player never names a browser: the note reads "Saved as you read. Export and Import carry it to another device.", and the Import button, its confirmation box and its failure notice say "the progress saved here" or "this computer's storage" instead of "this browser". Export downloads `<storyId>-progress.json` (position, seen items, routes, bookmarks, settings) and says "Progress exported" in a pill at the top of the screen, naming no file, since the browser or the app may save it under another name (the Windows program's `name (2).json`); Import, on the other browser or machine, takes that file, refuses one from a different story (the pill says why, and stays a little longer), asks to confirm, replaces that browser's progress for the story and reloads where you were. Nothing on the screen moves when a pill shows. **Volumes...** opens a small box over the screen with a **-** slider **+** row for each kind of sound the game has, in steps of 10%: Music (music or ambience), Effects (one-shots or a video's sound) and Voice (recorded voice lines, or lines the Mac app can speak); a change is heard at once and saved. A game with none of them has no Sound row and no Volumes... button. Music and ambience play while the box is open, an Effects or Voice change plays a sample of at most 2 s at the new level, and Esc, Done or a click outside closes the box alone. Otherwise all sound pauses while the Esc screen is open and plays on when it closes. Esc opens the screen anywhere, including over a choice (which waits underneath; a play-all countdown pauses until you close it); over the branch map, Esc closes the map. Click a setting to change it; Esc or Space closes the screen and resumes, and a click does not (Space closes it even with a setting's button focused). In the Mac app, Fullscreen | Window switches the game's window (the green button and ⌃⌘F do too, and the switch follows them; no other key leaves fullscreen, so holding Esc only opens this screen), the app reopens the way you left it, and Exit quits. The Windows program does the same with its own window (F11 switches too, and the switch follows it; no other key leaves fullscreen there either), and its Exit closes the game. In a browser, Window leaves fullscreen and stays out of it, Fullscreen goes back, and the choice is kept with the other settings; Exit closes the tab when the browser lets a page do that (a tab opened straight on the game), and otherwise a pill asks you to close it. In fullscreen in Chrome or Edge, Esc still opens this screen, and holding Esc leaves fullscreen; Safari and Firefox take the first Esc to leave fullscreen.
-* **1-9**: pick a route at a decision (or click it). **0**: "Return to main route", when that row is shown. **↑ ↓** move a highlight over every row and **Enter** picks it, which reaches routes past 9. A list too long for the window scrolls inside the choice screen: with the pointer over it the mouse wheel scrolls the list; elsewhere on the screen the wheel moves through the story as usual.
+## Why not Ren'Py?
 
-A key held with ⌘, Ctrl or Alt is not one of these keys: the player leaves it to the browser or the app (in the Mac app ⌘Q quits and ⌘R reloads). In a browser the player goes fullscreen on the first key press or click other than Esc or such a shortcut, and whenever you have left fullscreen the next one goes back, unless Window is chosen on the Esc screen. It does not when the window already fills the screen. That first key or click also starts a game's sound: in a browser the player plays none before it, whatever the browser would allow, so after each load or reload a game with sound shows "Press any key for sound" in a small pill until then, and the key still does its own job. The Mac app plays sound from the start; the Windows program asks WebView2 to do the same (not yet checked on Windows). Sound pauses while the page is hidden (another tab in front, or the window minimised). Position, seen content, routes (including the route last picked at each choice), bookmarks and settings are saved in the browser under the story's ID (the manifest's `storyId`), so moving or renaming the folder keeps them, and the next visit resumes on the screen you left. The browser tab shows the game's `title`.
+Ren'Py is an engine for interactive visual novels: menus, variables,
+save slots, scripting. A kinetic novel needs little of that and gains
+from what Kinetic does instead:
 
-Languages: a game can come in several languages in one folder. It opens in your system language when it has it, and the Esc screen's title bar then has a Language control (a globe and the language's name) that switches at any moment, keeping your place, picks and bookmarks; a line not yet translated shows in the original, and spoken lines follow the language shown. The player's own words (the Esc screen and its notes, pills, confirmation boxes, choice hints, the end card and the branch map) come in 39 languages and follow your system language when it is one of them (the Language control changes the story only); under Arabic, Persian, Hebrew and Urdu the screens read right to left. The 38 besides English are unreviewed drafts; corrections are welcome (docs/verify-player.md, "The player's words"). Authors and translators: CREATE.md, "Translating a game".
+- **Nothing to install.** The folder is the game. `kinetic apps` adds a
+  Mac app and a Windows program to it, with no compiler, Xcode or Go on
+  the author's machine.
+- **Every step within a frame.** Space, the wheel, a jump or a click on
+  the map shows the next screen within 1/24 s, measured in
+  [docs/perf.md](docs/perf.md).
+- **The wheel goes everywhere you have been.** Scroll back and forward
+  through everything you have read, across routes and across restarts.
+  Ren'Py's rollback keeps a limited history, 128 steps by default.
+- **A map of the story.** `m` shows every decision and route, what you
+  have played, where you are and your bookmarks. Click a decision or
+  route you have reached to go there.
+- **No save slots.** Progress saves as you read, and `b` bookmarks a
+  moment, which waits on the map where you took it.
+- **Every route, hands off.** Play all routes, on by default, reads each
+  route in turn, shortest first, so a reader sees the whole story
+  without choosing.
+- **Many languages, and spoken lines.** One folder holds a game in
+  several languages, and the player's own words come in 39. In the apps,
+  a game whose characters have voices can speak every line, generated on
+  the reader's computer.
+- **A conversion you can check without watching.** `kinetic extract`
+  reads a Ren'Py game as Ren'Py runs it (`.rpy`, compiled `.rpyc`,
+  `.rpa` archives) and keeps its speaker colours, dissolves, fades, text
+  tags, translations and sound. `kinetic report`, `routes`, `validate`
+  and `check` print what you, or an AI agent doing the conversion, need
+  to compare it with the original, and `kinetic media rebuild` remakes
+  every media file byte for byte from the original game.
 
-## Content
+What Kinetic leaves out: game logic, variables, and title or menu
+screens. A title card or credits are pictures and text in the story.
 
-* Images, animations (a few images looped) and videos in any format Safari and Chrome both play (for example H.264 MP4, WebM, or MKV with VP9). Media fills the screen without stretching.
-* Videos can set a loop count, a display duration, a start/end range (with that range's own poster), a loop restart point, a minimum play time (in auto mode the dialogue over it waits for the clip), and camera views in one file that the reader steps through after the lines. Several items can share one video file.
-* Sound, optional: music that crossfades when it changes, ambience loops (several at once), one-shot effects (delayed, or cutting each other off on a named channel), voice lines (auto-forward waits for a line to end while you can hear it), and a video's own soundtrack, played in step with the clip and lowering the music while it plays. What plays follows the way you read: after a decision you hear the music of the route you read last. A wheel step or a jump plays the music, ambience and voice line of where you stop once you rest there for a quarter of a second, never its one-shots; skip changes no sound until it stops. Tracks are MP3, M4A (AAC), WAV, FLAC or WebM (Vorbis or Opus); videos themselves stay muted.
-* Spoken lines, optional and in the Mac app and the Windows program: a game that gives its characters voices has every line spoken in its speaker's voice, generated on the reader's computer while they read, a few lines ahead. The reader opts in with a one-time download (about 3.3 GB on a Mac with Apple silicon and macOS 14 or later, about 6.8 GB on a Windows PC with an NVIDIA card and driver 570.65 or later; on any other machine the button is greyed out and its ? says why, and the model is shared by every Kinetic game on that computer), a **Download voice model** button that stands in for the Voice slider in the Volumes box, with a **?** explaining it, and can remove the model there with a small **Remove voice model** button beside the Voice label. There is no on/off switch: the Voice volume controls the lines, and at 0 none are made. Lines with no speaker use a narrator voice; a recorded voice line always plays instead, and a game whose every line is recorded offers no download. A browser plays a game with unrecorded voices silently.
-* Text over the picture: dialogue with the speaker's name, thoughts (drawn differently), and narration. A run of text items keeps the previous picture or video on screen, a video playing on. A speaker can have colours of their own, for the name and for the lines, and a line can carry emphasis (italic, bold, underline, strike-through) and line breaks with Ren'Py's own text tags (`{i}`, `{b}`, `{p}` and the rest); the tags that only time Ren'Py's typing are left out.
-* Transitions: a picture can dissolve in over the one before, or fade through black. They never hold up the text: the line shows at once, any key ends a transition and does its job, and skip, the wheel, jumps and a reduced-motion setting cut.
-* Branches: a decision shows a prompt and its routes; shared lead-in and aftermath play once. A route continues the story, comes back to the decision, or ends. After a route ends you can pick another, and "Return to main route" appears once the continuing route has been finished. Decisions can nest. Kinetic is an interaction-free kinetic game, so the "play all routes" setting is on by default: it plays every route, shortest first, with no interaction: each choice still shows with the route it will take highlighted, counts down long enough to read the whole screen, then picks for you; after a route ends, the choice's status line names it ("Back in time: “<route>” is done."). Space picks at once, ending any skip; a number picks another route. It picks even with auto-forward off: the reader still presses Space through the text, but no decision waits for an answer. Turn it off on the Esc screen to choose every route yourself; that choice is saved, and Reset progress turns it back on.
-* Seen tracking is per item and per route; skip, resume and `u` respect it. An ending shows a small end card: how many routes are still unseen, with `u` for the next one, or "You have seen everything.".
+## A look around
 
-## Tools
+![The Esc screen: the keys on the left, the settings on the right](docs/images/esc-screen.png)
 
-* Installing: Kinetic's tools are one command, `kinetic`, from a wheel attached to each GitHub release: `pip install https://github.com/sendub/kinetic/releases/download/vX.Y.Z/kinetic-X.Y.Z-py3-none-any.whl` into a venv of its own (Python 3.12 or later), then `kinetic setup` once. Its subcommands convert (`extract`, `media`), check (`validate`, `report`, `routes`, `export`, `check`), and package (`assemble`, `apps`, `upgrade`) a game; `kinetic check` also needs Node.js 22.12 or later and, for its Chrome engine, Chrome, and the Mac app needs macOS. Converting runs on an Apple silicon Mac, 64-bit Windows or 64-bit Linux on Intel or AMD, the platforms with pinned media tools (not yet Linux on Arm); a converted folder's media verify with `kinetic media rebuild` on the platform that made them. The older names (`kinetic-extract`, `kinetic-media`, `tools/*.py` in a checkout) still work (CREATE.md, "Installing Kinetic").
-* Making a game: CREATE.md covers installing, converting a Ren'Py game (the checks an agent can read without watching the game, episodes, decoder hooks, your own converter, checking a folder with `rebuild`, and what to do when something fails), writing a content folder by hand (text tags, speaker colours, transitions, a title card, credits and content warnings), the apps, and testing a game with no window.
-* `converter/`: turns a Ren'Py project into this format (`kinetic extract`). It reads `.rpy` scripts, decompiles `.rpyc` when no `.rpy` exists, and reads `.rpa` archives directly. It reads the story as Ren'Py runs it, from `label start` through jumps and calls, and reports the labels it never reaches. Menus become branches only where their shape is clear. It keeps the speakers' colours, the `dissolve` and `fade` transitions and the text tags. It ships the sound the scripts play (music, ambience loops, one-shots and voice lines) and each video's audible soundtrack. Media files are named by their content, and the same game converts to the same bytes on any machine whose pinned tools pass the self-test.
-* `tools/cast_voices.py`: gives a game's characters voices. `design` makes several takes of each voice from a written description (Qwen3-TTS VoiceDesign, on an Apple silicon Mac), you pick one by ear with `pick`, or ship your own recording with `record`; the tool writes the manifest's `voices` and `narrator` (CREATE.md, "Giving characters voices"). `fixtures/voice-demo`, built by `.venv/bin/python fixtures/build_voice_demo.py`, is a small game that uses it.
-* Updating an existing game to a newer Kinetic replaces only its `index.html` and `app.js`, in one command, `kinetic upgrade <folder>`; readers keep their progress (CREATE.md, "Upgrading to a newer Kinetic").
-* Versions: the Esc screen shows the player's Kinetic version small in its bottom-right corner, and `kinetic --version` prints the installed tools'. CHANGELOG.md lists what each release changed. A game may show its own version too, after its title on the Esc screen (the manifest's `version`).
-* Runs on macOS with nothing to install beyond a browser. Navigation shows content within 1/24 s (measured in `docs/perf.md`).
+**Esc** opens the keys and every setting, over anything, a choice
+included. Esc or Space closes it.
 
-## The demo
+![The branch map at Fit: three decisions in three states](docs/images/map.png)
 
-`fixtures/demo` (built by `fixtures/build_demo.py`) is a guided tour: every line of its text explains what is on screen. Its sections:
+**m** opens the branch map. The first decision reads 2/2: both its
+routes played, a bookmark on each, and the dashed line is the route that
+returns to the choice. The second reads 1/2, the route you picked last
+marked in gold, with "you are here" on it. The third, not reached yet,
+is a faded "?" whose question and routes stay hidden while Spoilers is
+off.
 
-* Spoken dialogue, a thought, narration, and a bare picture (try `h`).
-* An animation: four pictures at 8 per second, shown twice.
-* A video under a chain of text lines (the clip plays on), then a chain over a still picture.
-* A one-second clip with a loop count of 3, then a WebM clip held for a set 4 seconds.
-* Two ranges of one video file, the second repeating from a later restart point.
-* A picture that dissolves in, a speaker with colours of her own, italic and bold from text tags, and a fade through black.
-* A clip with a minimum play time that holds its short dialogue chain in auto mode.
-* A decision: Route 1 continues the story and holds a nested decision (1a carries on, 1b comes back to the choice); Route 2 is an ending; both lead back to the choice, and finishing Route 1 reaches the shared aftermath.
+![Bookmarks on both routes of a fork, the newest hovered](docs/images/bookmarks.png)
 
-`fixtures/demo` has no sound, so it shows no sound controls. `fixtures/audio-demo` (built by `.venv/bin/python fixtures/build_audio_demo.py`, which needs ffmpeg on PATH) is a guided tour of sound: every line says what you should hear at that moment. Assemble it with the player like any folder (`.venv/bin/kinetic assemble fixtures/audio-demo audio-demo-play`) and open `index.html`; docs/verify-player.md, "Listening checklist", walks it step by step. Its sections:
+**b** bookmarks the moment. Each bookmark is a picture on the map where
+you took it, here one on each route of a fork; the newest has a gold
+outline, and hovering one shows when you took it and its delete button.
+Click one to read on from there.
 
-* Music: a calm tune fades in and carries over a line that sets none; a 4-second crossfade to a brighter tune; a fanfare that plays once and stops; a track that starts partway and loops back to an earlier point; a 2-second fade to silence.
-* Ambience: rain and a hum start together; the rain fades out while the hum plays on unbroken; then the hum stops.
-* One-shots: a knock 1.5 s after its line; a siren cut off by a bell on the same channel; the same two with no channel, overlapping.
-* Voice lines (chirps, since no speech can be generated): two speakers on a chain of lines, then a line whose 8.4 s voice outlasts its text, so auto-forward waits for it.
-* A decision whose two routes set different music and join in a scene that sets none, where you hear the route you read last.
-* A video playing a range of its file with a loop restart point, its own sound in step with it and lowering the music, under a chain of lines.
-* A closing scene that sets both music and ambience, so it sounds the same after either route.
+## For players
 
-## Not supported
+Double-click the game's `index.html`, or its app. The browser goes
+fullscreen on your first key. Space reads on, the wheel moves back and
+forth, and Esc lists everything else. Your place, what you have seen and
+your bookmarks are kept for next time; Export and Import on the Esc
+screen carry them to another machine.
 
-* Title or menu screens: only the Esc screen (keys and settings) and the branch map (with the bookmarks) exist, and starting jumps straight to content. A title card, credits and content warnings are image and text items at the start or end of the story (CREATE.md, "Title, credits and content warnings").
+[docs/player.md](docs/player.md) describes every key, screen and setting
+in full.
+
+## For authors
+
+Kinetic's tools are one command, `kinetic`, installed from the Python
+wheel on each [GitHub
+release](https://github.com/sendub/kinetic/releases) (Python 3.12 or
+later). `kinetic setup` then fetches the pinned media tools once:
+
+```sh
+python3 -m venv ~/kinetic-venv
+~/kinetic-venv/bin/pip install https://github.com/sendub/kinetic/releases/download/v1.12.0/kinetic-1.12.0-py3-none-any.whl
+~/kinetic-venv/bin/kinetic setup
+```
+
+With `~/kinetic-venv/bin` on your PATH, convert a Ren'Py game, check it
+and make the folder readers get:
+
+```sh
+kinetic extract ~/games/MyGame my-game
+kinetic report my-game
+kinetic assemble my-game my-game-play
+kinetic check my-game-play --steps all
+kinetic apps my-game-play --mac --windows
+```
+
+Converting runs on an Apple silicon Mac and on 64-bit Windows or Linux
+on Intel or AMD. `kinetic check` also needs Node.js 22.12 or later, and
+the Mac app needs a Mac to make it.
+
+[CREATE.md](CREATE.md) is the full guide: every check, episodes, writing
+a folder by hand (text tags, speaker colours, transitions, sound),
+giving characters voices, translating, the apps and testing.
+[docs/content-format.md](docs/content-format.md) specifies the folder,
+and [CHANGELOG.md](CHANGELOG.md) lists what each release changed.
 
 ## License
 
-Kinetic (the player, the Mac and Windows apps, the converter and the tools) is under the MIT License, in `LICENSE`. The converter's copy of unrpyc keeps its own MIT notice (`converter/vendor/unrpyc/LICENSE`); it stays in this repo and never goes into a game folder.
+Kinetic (the player, the Mac and Windows apps, the converter and the
+tools) is under the MIT License, in [LICENSE](LICENSE). The converter's
+copy of unrpyc keeps its own MIT notice
+(`converter/vendor/unrpyc/LICENSE`); it stays in this repo and never
+goes into a game folder.
 
-A game folder carries the notice itself: its `index.html` and `app.js` open with it as a comment. The Mac app holds it in `Contents/Resources/LICENSE`, with a one-line copyright in Finder's Get Info. The Windows program holds it in its resources, beside Go's BSD-3-Clause notice for the Go runtime built into it, and shows the copyright line in its file properties. An author who ships the folder and apps as built owes nothing more: leave those files as they are and the license is met.
+A game folder carries the notice itself: its `index.html` and `app.js`
+open with it as a comment. The Mac app holds it in
+`Contents/Resources/LICENSE` and shows a one-line copyright in Finder's
+Get Info. The Windows program holds it in its resources, beside Go's
+BSD-3-Clause notice for the Go runtime built into it, and shows the
+copyright line in its file properties. An author who ships the folder
+and apps as built owes nothing more.

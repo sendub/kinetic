@@ -1,5 +1,5 @@
-// The `#choice` decision overlay (docs/plan.md Phase 13, README decision
-// rules in docs/content-format.md "Branches"): while the machine holds a
+// The `#choice` decision overlay (docs/plan.md Phase 13, docs/player.md
+// "Decisions"; rules in docs/content-format.md "Branches"): while the machine holds a
 // pending decision (`MachineState.choice`) this panel shows the prompt over
 // a numbered list of routes — label plus a `seen` marker for routes already
 // played — and, when the machine offers it, a final "Return to main route"
