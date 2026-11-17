@@ -39,6 +39,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from bisect import bisect_left
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
@@ -185,6 +186,8 @@ def build_model(manifest: dict[str, Any]) -> Model:
         children.setdefault(decision.parent, []).append(decision)
     for siblings in children.values():
         siblings.sort(key=lambda d: d.after)
+    afters = {parent: [d.after for d in siblings]
+              for parent, siblings in children.items()}
     placed: dict[int, DecisionNode] = {}
 
     def branch_of(decision: Decision) -> dict[str, Any]:
@@ -195,8 +198,15 @@ def build_model(manifest: dict[str, Any]) -> Model:
              ) -> list[Stretch | DecisionNode]:
         elements: list[Stretch | DecisionNode] = []
         idx = start
-        for decision in children.get(parent, []):
-            if decision.after < idx or decision.after > end:
+        siblings = children.get(parent, [])
+        # Siblings are in `after` order: start at the first inside the
+        # span and stop past it.
+        first = bisect_left(afters[parent], start) if siblings else 0
+        for k in range(first, len(siblings)):
+            decision = siblings[k]
+            if decision.after > end:
+                break
+            if decision.after < idx:
                 continue
             if decision.index in placed:
                 continue

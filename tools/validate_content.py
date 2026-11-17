@@ -103,6 +103,7 @@ invariants:
 from __future__ import annotations
 
 import argparse
+import heapq
 import json
 import re
 import sys
@@ -662,31 +663,68 @@ def reach_warnings(manifest: Any) -> list[str]:
     if not decisions:
         return []  # without decisions every item shows in turn
     shown = _shown_by_play_all(items, decisions)
+    unshown = [i for i in range(len(items)) if i not in shown]
+    innermost = _innermost_regions(decisions, unshown)
     warnings: list[str] = []
-    for i, item in enumerate(items):
-        if i in shown:
-            continue
+    for i in unshown:
+        item = items[i]
         item_id = item.get("id") if isinstance(item, dict) else None
         why = "no reading from the opening reaches it"
-        width = None
-        for decision in decisions:
-            last = decision.continue_at - 1 if decision.continue_at >= 0 \
-                else decision.region_end
-            in_route = any(start <= i <= end
-                           for start, end, _result in decision.routes)
-            if decision.after < i <= last and not in_route \
-                    and (width is None or last - decision.after < width):
-                width = last - decision.after
-                bound = (f"before {items[decision.continue_at]['id']!r}"
-                         if decision.continue_at >= 0 else
-                         f"to its last route end "
-                         f"{items[decision.region_end]['id']!r}")
-                why = (f"inside decision {decision.id!r} (after "
-                       f"{items[decision.after]['id']!r}, {bound}) in none "
-                       f"of its routes")
+        decision = innermost.get(i)
+        if decision is not None:
+            bound = (f"before {items[decision.continue_at]['id']!r}"
+                     if decision.continue_at >= 0 else
+                     f"to its last route end "
+                     f"{items[decision.region_end]['id']!r}")
+            why = (f"inside decision {decision.id!r} (after "
+                   f"{items[decision.after]['id']!r}, {bound}) in none "
+                   f"of its routes")
         warnings.append(WARNING_PREFIX + _line(
             f"items[{i}]", f"item {item_id!r} is never shown: {why}"))
     return warnings
+
+
+def _innermost_regions(decisions: list[_Decision], indices: list[int]
+                       ) -> dict[int, _Decision]:
+    """Item index -> the decision with the narrowest region (after its
+    `after` item, up to the item before its `continueAt` or, for a pure
+    choice, its last route end) holding it in none of its routes, the
+    earliest decision on a tie; for each of the ascending `indices` that
+    has one.
+
+    One sweep in item order: regions join a heap keyed (width, decision)
+    when the sweep reaches them and leave it once past them; a decision
+    whose routes hold the item is set aside for that item only."""
+    regions = []
+    for decision in decisions:
+        last = decision.continue_at - 1 if decision.continue_at >= 0 \
+            else decision.region_end
+        if last > decision.after:
+            regions.append((decision.after + 1, last, decision.index))
+    regions.sort()
+    open_regions: list[tuple[int, int, int]] = []  # (width, decision, last)
+    next_region = 0
+    found: dict[int, _Decision] = {}
+    for i in indices:
+        while next_region < len(regions) and regions[next_region][0] <= i:
+            first, last, index = regions[next_region]
+            heapq.heappush(open_regions, (last - first + 1, index, last))
+            next_region += 1
+        aside: list[tuple[int, int, int]] = []
+        while open_regions:
+            top = open_regions[0]
+            decision = decisions[top[1]]
+            if top[2] < i:
+                heapq.heappop(open_regions)  # past it for good
+            elif any(start <= i <= end
+                     for start, end, _result in decision.routes):
+                aside.append(heapq.heappop(open_regions))
+            else:
+                found[i] = decision
+                break
+        for region in aside:
+            heapq.heappush(open_regions, region)
+    return found
 
 
 def _numeric_field(item: dict[str, Any], field: str) -> int | float | None:

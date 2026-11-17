@@ -12,6 +12,7 @@ parsed JSON and tolerates a malformed one: the schema reports that.
 
 from __future__ import annotations
 
+import heapq
 from typing import Any, Iterator
 
 
@@ -144,19 +145,43 @@ def resolve_decisions(items: list[Any], branches: list[Any]
             continue
         resolved.append(Decision(len(resolved), branch.get("id"), after,
                                   spans, continuing, continue_at))
-    # Nesting: the parent is the decision with the narrowest route span
-    # holding the child's `after` item.
-    for child in resolved:
-        tightest = None
-        for outer in resolved:
-            if outer is child:
-                continue
-            for start, end, _result in outer.routes:
-                if start <= child.after <= end \
-                        and (tightest is None or end - start < tightest):
-                    tightest = end - start
-                    child.parent = outer.index
+    _resolve_nesting(resolved)
     return resolved
+
+
+def _resolve_nesting(decisions: list[Decision]) -> None:
+    """Set each decision's parent: the other decision with the narrowest
+    route span holding its `after` item, the earliest decision on a tie.
+
+    One sweep in item order, near-linear in routes and decisions for any
+    shape (overlapping spans of a malformed manifest included): route
+    spans join a heap keyed (width, decision) when the sweep reaches
+    their start and leave it once past their end, so the heap's top at
+    each `after` item is the parent, unless it is the child's own route,
+    set aside for that one query."""
+    spans = sorted((start, end, decision.index)
+                   for decision in decisions
+                   for start, end, _result in decision.routes)
+    open_spans: list[tuple[int, int, int]] = []  # (width, decision, end)
+    next_span = 0
+    for child in sorted(decisions, key=lambda d: d.after):
+        at = child.after
+        while next_span < len(spans) and spans[next_span][0] <= at:
+            start, end, owner = spans[next_span]
+            heapq.heappush(open_spans, (end - start, owner, end))
+            next_span += 1
+        own: list[tuple[int, int, int]] = []
+        while open_spans:
+            top = open_spans[0]
+            if top[2] < at:
+                heapq.heappop(open_spans)  # past its end for good
+            elif top[1] == child.index:
+                own.append(heapq.heappop(open_spans))
+            else:
+                child.parent = top[1]
+                break
+        for span in own:
+            heapq.heappush(open_spans, span)
 
 
 def shown_by_play_all(items: list[Any], decisions: list[Decision]

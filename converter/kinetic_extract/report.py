@@ -350,10 +350,18 @@ def timing_section(manifest: dict[str, Any]) -> dict[str, Any]:
     language = _str(manifest.get("language")) \
         or language_file.DEFAULT_LANGUAGE
     branch_list = branches if isinstance(branches, list) else []
+    by_id: dict[str, dict[str, Any]] = {}
+    for b in branch_list:
+        if isinstance(b, dict) and isinstance(b.get("id"), str):
+            by_id.setdefault(b["id"], b)
+    children: dict[int, list[Decision]] = {}
+    for n in decisions:
+        children.setdefault(n.parent, []).append(n)
     decision_rows = []
     for d in sorted(decisions, key=lambda d: (d.after, d.index)):
-        branch = next((b for b in branch_list if isinstance(b, dict)
-                       and b.get("id") == d.id), {})
+        branch = by_id.get(d.id, {}) if isinstance(d.id, str) else next(
+            (b for b in branch_list if isinstance(b, dict)
+             and b.get("id") == d.id), {})
         route_defs = branch.get("routes") if isinstance(
             branch.get("routes"), list) else []
         routes = []
@@ -366,8 +374,8 @@ def timing_section(manifest: dict[str, Any]) -> dict[str, Any]:
                 "start": _item_id(items[start], start),
                 "end": _item_id(items[end], end),
                 "result": "continuing" if ri == d.continuing else result,
-                "nested": [n.id for n in decisions if n.parent == d.index
-                           and start <= n.after <= end],
+                "nested": [n.id for n in children.get(d.index, [])
+                           if start <= n.after <= end],
                 **figure([k for k in range(start, end + 1) if k in shown]),
             })
         decision_rows.append({

@@ -4240,6 +4240,16 @@ The orchestrator's choices, within those decisions:
     fast on games with thousands of decisions, same results. Tests: the
     existing ones unchanged; a 20,000-decision synthetic folder under a
     time bound.
+7c. Malformed branches never hang a tool (item 7b's lead). The
+    validator prints its problems and never exits when a `continueAt`
+    lies before its routes: `reach_warnings` runs the `shown_by_play_all`
+    walk even after `branches_problems` failed, and a backward join
+    loops; `report._shortest_ms` loops the same way, and routes raises
+    on an unhashable decision id. Skip the reading walks when branch
+    problems exist (report, routes and export say the branches are
+    malformed and exit 1 or 2 as fits), and guard the walks against a
+    backward join. Tests: a malformed folder for each tool finishes
+    under a time bound.
 8. Media tools for Windows and Linux. Drop `macos-x86_64` from
    `converter/media-tools.json` and the docs. On the user's Windows PC
    over SSH (the user's global notes say how), try ffmpeg 9.0.2 builds

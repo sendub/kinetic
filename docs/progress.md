@@ -5429,9 +5429,26 @@ truthful: an unchecked box means nothing was accepted.
       Subagent: test_routes 17, test_export 9, with report and version
       76; npm test 1821. Orchestrator: converter suite with the
       validator tests 1410 passed; routeshape 6; check clean.)
-- [ ] Decisions resolved in near-linear time (item 7b). Nesting and
+- [x] Decisions resolved in near-linear time (item 7b). Nesting and
       branch lookups no longer compare every decision with every
       other.
+      (2026-11-17: `folder_model._resolve_nesting`, one sweep in item
+      order with a heap of route spans keyed (width, decision index),
+      giving the old narrowest-span, earliest-tie answer; report looks
+      branches up by id with a parent-to-children map; routes'
+      `build_model` bisects to the first sibling in a span; the
+      validator's `reach_warnings` uses the same sweep. At 20,000
+      decisions (218k items): resolve 32.85 s -> 0.11 s, routes 36.77
+      -> 0.62, report 67.65 -> 4.21, validator branch checks 35.10 ->
+      0.35; jsonschema's own 30 s on 218k items unchanged. Equivalence
+      with the old all-pairs code (kept in the test) on 400 seeded
+      shapes each, byte-identical outputs on 300 shapes and the demo.
+      Leads: the validator never exits on a `continueAt` before its
+      routes, and an unhashable decision id raises in routes (item 7c).
+      Subagent and orchestrator: report, routes, export,
+      validate_content and test_decision_scale 521 passed.)
+- [ ] Malformed branches never hang a tool (item 7c). The validator,
+      report, routes and export stop cleanly on bad branches.
 - [ ] Media tools for Windows and Linux (item 8). Windows and
       linux-x86_64 pinned against the shared goldens, `macos-x86_64`
       dropped, AGENTS.md's pin rule rewritten.
