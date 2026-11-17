@@ -71,7 +71,7 @@
         border-radius: 4px;
         background: rgba(10, 10, 12, 0.6);
         color: var(--ink);
-        font: 500 clamp(14px, 1.7vh, 20px) / 1.45 var(--ui-font);
+        font: 500 clamp(14px, 1.7vh, 20px) / 1.45 var(--k-script) var(--ui-font);
         letter-spacing: 0.02em;
         text-align: center;
       }
@@ -198,11 +198,20 @@
       :lang(ja) {
         line-break: strict;
       }
-      /* Their faces, and Korean's, have no italic: a thought is drawn
-         upright there, told apart from dialogue by its colour alone. */
+      /* The player's own quiet asides, the end card's hint and the resume
+         notice (render/app.ts), are italic. */
+      .ui-aside {
+        font-style: italic;
+      }
+      /* Chinese, Japanese and Korean faces have no italic: a thought is
+         drawn upright there, told apart from dialogue by its colour alone,
+         and so is an aside in a UI language of theirs. */
       .overlay-text[data-mode="thought"]:lang(zh),
       .overlay-text[data-mode="thought"]:lang(ja),
-      .overlay-text[data-mode="thought"]:lang(ko) {
+      .overlay-text[data-mode="thought"]:lang(ko),
+      .ui-aside:lang(zh),
+      .ui-aside:lang(ja),
+      .ui-aside:lang(ko) {
         font-style: normal;
       }
 

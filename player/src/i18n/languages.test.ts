@@ -106,8 +106,23 @@ describe("uiLanguageFor: the language of the player's own words", () => {
     ).toBe("pt");
   });
 
-  it("is English when the reader chose a language the catalogue lacks", () => {
+  it("is the browser's language when the reader chose one the catalogue lacks", () => {
     expect(uiLanguageFor({ chosen: "ja", requested: ["de"], catalogue })).toBe(
+      "de",
+    );
+    expect(
+      uiLanguageFor({ chosen: "ja", requested: ["fr", "pt-PT"], catalogue }),
+    ).toBe("pt");
+  });
+
+  it("is English when neither the choice nor the browser's is in the catalogue", () => {
+    expect(uiLanguageFor({ chosen: "ja", requested: ["ko"], catalogue })).toBe(
+      "en",
+    );
+  });
+
+  it("keeps an explicit pick of English over the browser's language", () => {
+    expect(uiLanguageFor({ chosen: "en", requested: ["de"], catalogue })).toBe(
       "en",
     );
   });

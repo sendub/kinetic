@@ -62,7 +62,7 @@ const WIDE = { width: 1280, height: 800, deviceScaleFactor: 1 };
 const NARROW = { width: 600, height: 800, deviceScaleFactor: 1 };
 
 /** Every text of a manifest a screen may draw as game text. */
-function gameText(m) {
+export function gameText(m) {
   const texts = [m.title, m.version];
   for (const it of m.items) texts.push(it.text, it.speaker);
   for (const branch of m.branches ?? []) {
@@ -78,9 +78,52 @@ function gameText(m) {
 // ⟦ ⟧ markers, the boxes that overflow or clip their text, and how many
 // visible texts were read. Game text is exempt by where it is drawn (the
 // map's labels and tooltip title by being part of `content`), and a key cap
-// by being one.
-export const INSTALL_AUDIT = () => {
+// by being one. Installed with `messages` (every text of one language's
+// catalogue, `{placeholder}`s as written: uilanguages.scenario.mjs), a
+// text counts as a word outside the catalogue unless one of those
+// messages, its placeholders filled with anything, gives it whole or one
+// of its literal pieces holds it; markers are not looked for then.
+export const INSTALL_AUDIT = (messages = null) => {
   const LETTER = /\p{L}/u;
+  const HOLDER = /\{[A-Za-z0-9_]+\}/;
+  const squash = (text) => text.replace(/\s+/g, " ").trim();
+  const known =
+    messages === null
+      ? null
+      : (() => {
+          const pieces = [];
+          const patterns = [];
+          for (const message of messages) {
+            const parts = message.split(HOLDER).map(squash);
+            pieces.push(...parts.filter((p) => p !== ""));
+            if (!parts.some((p) => LETTER.test(p))) continue;
+            const body = message
+              .split(HOLDER)
+              .map((p) => squash(p).replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+              .join("[\\s\\S]*?");
+            patterns.push(new RegExp(`^${body}$`, "u"));
+          }
+          return { pieces, patterns };
+        })();
+  const explained = (text) =>
+    known.pieces.some((p) => p.includes(text)) ||
+    known.patterns.some((re) => re.test(text));
+  const foreign = (text, content = []) => {
+    if (known === null) return LETTER.test(unmarked(text));
+    if (!LETTER.test(text)) return false;
+    const bare = squash(text);
+    if (explained(bare)) return false;
+    // A text the player joins from several messages and game text with
+    // " · " or ": " (the map's accessible names, a heading's aside), its
+    // routes numbered ("1. "): each piece is one of them.
+    return bare
+      .split(/\s*[·:：・]\s*/u)
+      .map((piece) => piece.replace(/^\p{Nd}+[.)]\s*/u, "").trim())
+      .filter((piece) => LETTER.test(piece))
+      .some(
+        (piece) => !explained(piece) && !content.some((c) => c.includes(piece)),
+      );
+  };
   const KEYCAP = /^(Space|Esc|Tab|Enter|[A-Z]|←|→|↑↓|1-9|0)$/;
   const unmarked = (text) => {
     let out = "";
@@ -149,7 +192,7 @@ export const INSTALL_AUDIT = () => {
       textEls.add(el);
       if (!LETTER.test(node.data) || isContent(el, node.data)) continue;
       if (el.matches("kbd") && KEYCAP.test(node.data.trim())) continue;
-      if (LETTER.test(unmarked(node.data))) {
+      if (foreign(node.data, content)) {
         words.push({ where: path(el), text: node.data });
       }
     }
@@ -159,11 +202,11 @@ export const INSTALL_AUDIT = () => {
       if (!shown(el)) continue;
       for (const attr of ["aria-label", "data-hint", "title"]) {
         const value = el.getAttribute(attr);
-        if (value === null || !LETTER.test(unmarked(value))) continue;
+        if (value === null || !foreign(value, content)) continue;
         words.push({ where: `${path(el)} [${attr}]`, text: value });
       }
     }
-    if (root === null && LETTER.test(unmarked(document.title))) {
+    if (root === null && foreign(document.title, content)) {
       if (!content.includes(document.title)) {
         words.push({ where: "document.title", text: document.title });
       }
@@ -172,6 +215,32 @@ export const INSTALL_AUDIT = () => {
     const skip = (el) =>
       el.closest("#stage, #flash-status, svg") !== null ||
       ["INPUT", "CANVAS", "VIDEO", "IMG"].includes(el.tagName);
+    // Whether a text or a box on show in `block`'s flow reaches past its
+    // sides: a wider scroll width that only an invisible hit area gives
+    // (a "?" tip's finger-sized ::after) is no overflow, and a popup laid
+    // out of the flow (an open tip's note) is read as its own text.
+    const floats = (el, block) => {
+      for (let e = el; e !== null && e !== block; e = e.parentElement) {
+        if (/absolute|fixed/.test(getComputedStyle(e).position)) return true;
+      }
+      return false;
+    };
+    const spills = (block) => {
+      const edge = block.getBoundingClientRect();
+      const out = (r) =>
+        r.width > 0 && (r.left < edge.left - 1 || r.right > edge.right + 1);
+      const inFlow = (el) => shown(el) && !floats(el, block);
+      const walker = document.createTreeWalker(block, NodeFilter.SHOW_TEXT);
+      for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+        if (node.data.trim() === "" || !inFlow(node.parentElement)) continue;
+        const range = document.createRange();
+        range.selectNodeContents(node);
+        if ([...range.getClientRects()].some(out)) return true;
+      }
+      return [...block.querySelectorAll("*")].some(
+        (el) => inFlow(el) && out(el.getBoundingClientRect()),
+      );
+    };
     const tipOpen = (el) =>
       [...el.querySelectorAll(".config-tip-text")].some(shown);
     for (const el of textEls) {
@@ -192,7 +261,11 @@ export const INSTALL_AUDIT = () => {
           why,
           ...extra,
         });
-      if (!scrolls(cs.overflowX) && block.scrollWidth > block.clientWidth + 1) {
+      if (
+        !scrolls(cs.overflowX) &&
+        block.scrollWidth > block.clientWidth + 1 &&
+        spills(block)
+      ) {
         report("wider than its box", {
           box: path(block),
           scrollWidth: block.scrollWidth,
@@ -284,7 +357,7 @@ export const INSTALL_AUDIT = () => {
 };
 
 /** One screen read: a check that it is clean, and its findings. */
-async function audit(
+export async function audit(
   page,
   check,
   label,
@@ -309,12 +382,12 @@ async function audit(
 }
 
 /** The pills shown since the page loaded, each read as it showed. */
-async function pills(page) {
+export async function pills(page) {
   return page.evaluate(() => window.__kPills ?? []);
 }
 
 /** Checks every pill met: marked words, no overflow; `expected` were seen. */
-function checkPills(check, label, met, expected) {
+export function checkPills(check, label, met, expected) {
   const texts = met.map((p) => p.text);
   check(
     `${label}: the pills showed (${expected.length})`,
@@ -336,7 +409,7 @@ async function openPseudo(open, name, options = {}) {
 }
 
 /** Polls `predicate` in the page; whether it held within `ms`. */
-async function until(page, predicate, ms = 4000, ...args) {
+export async function until(page, predicate, ms = 4000, ...args) {
   try {
     await page.waitForFunction(predicate, { timeout: ms }, ...args);
     return true;
@@ -345,16 +418,16 @@ async function until(page, predicate, ms = 4000, ...args) {
   }
 }
 
-const ON_ITEM = (id) =>
+export const ON_ITEM = (id) =>
   document.getElementById("stage")?.getAttribute("data-item") === id;
 
-const SHOWN = (selector) => {
+export const SHOWN = (selector) => {
   const el = document.querySelector(selector);
   return el !== null && el.checkVisibility?.() !== false && !el.hidden;
 };
 
 /** Clicks the centre of each "?" of the Esc screen in turn, auditing each tip. */
-async function auditTips(page, cdp, check, label) {
+export async function auditTips(page, cdp, check, label) {
   const keys = await page.evaluate(() =>
     [...document.querySelectorAll("#help .config-tip")]
       .filter((b) => b.getBoundingClientRect().width > 0)
@@ -573,7 +646,7 @@ async function playAll({ check, open }) {
 }
 
 /** Space until a decision is open (at most `presses`); whether it is. */
-async function spaceToChoice(page, cdp, presses = 8) {
+export async function spaceToChoice(page, cdp, presses = 8) {
   for (let i = 0; i < presses; i += 1) {
     if (await until(page, CHOICE_OPEN, 700)) return true;
     await pressSpace(cdp);

@@ -1,0 +1,989 @@
+# Kinetic player: Swahili (sw).
+# An unreviewed draft written by an AI model on 2026-11-16.
+# Corrections are welcome: docs/verify-player.md, "The player's words".
+msgid ""
+msgstr ""
+"Project-Id-Version: Kinetic player\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Language: sw\n"
+
+#. Browser tab title when the game names itself nothing (the player's name).
+msgctxt "page.title"
+msgid "Kinetic"
+msgstr "Kinetic"
+
+#. Shown in place of the game when its files cannot be read; {detail} is a technical reason, in English.
+#. Placeholders: {detail}.
+msgctxt "error.load"
+msgid "Could not load the content: {detail}"
+msgstr "Imeshindwa kupakia maudhui: {detail}"
+
+#. Esc screen: the heading over the grid of keys.
+msgctxt "help.title"
+msgid "Keys"
+msgstr "Vitufe"
+
+#. Esc screen, title bar: the keys that close the screen.
+#. Placeholders: {esc}, {space}.
+msgctxt "help.hint"
+msgid "{esc} or {space} closes"
+msgstr "{esc} au {space} hufunga"
+
+#. Esc screen, title bar: accessible name of the Language control, a button opening the list of the game's languages; {language} is the language shown now, named in itself (e.g. Deutsch).
+#. Placeholders: {language}.
+msgctxt "lang.control"
+msgid "Language: {language}"
+msgstr "Lugha: {language}"
+
+#. Esc screen: accessible name of the open list of the game's languages (each named in itself).
+msgctxt "lang.list"
+msgid "Language"
+msgstr "Lugha"
+
+#. Pill when a language of the game cannot be read: the game stays in the language it was in. {language} is that language named in itself (e.g. Deutsch).
+#. Placeholders: {language}.
+msgctxt "lang.unavailable"
+msgid "{language} could not be loaded"
+msgstr "Imeshindwa kupakia {language}"
+
+#. Esc screen, bottom corner: the player's name and release ({version}, e.g. 1.10.0).
+#. Placeholders: {version}.
+msgctxt "help.kinetic"
+msgid "Kinetic {version}"
+msgstr "Kinetic {version}"
+
+#. Esc screen, key grid: the cap drawn for the mouse wheel (one cap, short).
+msgctxt "keys.wheel.cap"
+msgid "wheel"
+msgstr "gurudumu"
+
+#. Esc screen, key grid: what Space does (lower case, short).
+msgctxt "keys.advance"
+msgid "next item; stops auto-forward"
+msgstr "kipengee kinachofuata; husimamisha kusonga kiotomatiki"
+
+#. Esc screen, key grid: what the Left and Right arrows do.
+msgctxt "keys.segments"
+msgid "previous / next view of a video"
+msgstr "mwonekano uliotangulia / unaofuata wa video"
+
+#. Esc screen, key grid: what the mouse wheel does.
+msgctxt "keys.wheel"
+msgid "back / forward through the story"
+msgstr "nyuma / mbele katika hadithi"
+
+#. Esc screen, key grid: what E does.
+msgctxt "keys.end"
+msgid "jump to the furthest point read"
+msgstr "ruka hadi sehemu ya mbali zaidi uliyosoma"
+
+#. Esc screen, key grid: what U does.
+msgctxt "keys.unseen"
+msgid "next unseen content"
+msgstr "maudhui yanayofuata ambayo hujayaona"
+
+#. Esc screen, key grid: what Tab does.
+msgctxt "keys.skip"
+msgid "skip what you have seen"
+msgstr "ruka ulichokwisha kuona"
+
+#. Esc screen, key grid: what A does.
+msgctxt "keys.autoForward"
+msgid "auto-forward on / off"
+msgstr "washa / zima kusonga kiotomatiki"
+
+#. Esc screen, key grid: what H does.
+msgctxt "keys.text"
+msgid "hide / show the text"
+msgstr "ficha / onyesha maandishi"
+
+#. Esc screen, key grid: what V does (games with sound).
+msgctxt "keys.sound"
+msgid "sound on / off"
+msgstr "washa / zima sauti"
+
+#. Esc screen, key grid: what B does.
+msgctxt "keys.bookmark"
+msgid "bookmark this moment"
+msgstr "weka alamisho hapa"
+
+#. Esc screen, key grid: what M does (a click on the row opens the map too).
+msgctxt "keys.map"
+msgid "branch map and bookmarks"
+msgstr "ramani ya matawi na alamisho"
+
+#. Esc screen, key grid: what Esc does.
+msgctxt "keys.escape"
+msgid "this screen: keys and settings; closes the map"
+msgstr "skrini hii: vitufe na mipangilio; hufunga ramani"
+
+#. Esc screen, key grid: the keys at a decision (1-9, 0, arrows, Enter).
+msgctxt "keys.decision"
+msgid "at a decision: pick a route; 0 returns to main route"
+msgstr "kwenye chaguo: chagua njia; 0 hurudi kwenye njia kuu"
+
+#. Esc screen: the heading over the settings.
+msgctxt "config.title"
+msgid "Settings"
+msgstr "Mipangilio"
+
+#. Settings: the reading speed row's label (it paces auto-forward).
+msgctxt "config.speed.label"
+msgid "Auto-forward speed"
+msgstr "Kasi ya kusonga kiotomatiki"
+
+#. Settings: accessible name of the "?" after the speed label.
+msgctxt "config.speed.about"
+msgid "About auto-forward speed"
+msgstr "Kuhusu kasi ya kusonga kiotomatiki"
+
+#. Settings: the tip behind the speed's "?".
+msgctxt "config.speed.tip"
+msgid "Also times play-all's choice countdown."
+msgstr "Pia huweka muda wa kuhesabu kabla ya chaguo katika Cheza njia zote."
+
+#. Settings: accessible name of the speed's minus button.
+msgctxt "config.speed.decrease"
+msgid "Decrease auto-forward speed"
+msgstr "Punguza kasi ya kusonga kiotomatiki"
+
+#. Settings: accessible name of the speed's plus button.
+msgctxt "config.speed.increase"
+msgid "Increase auto-forward speed"
+msgstr "Ongeza kasi ya kusonga kiotomatiki"
+
+#. Settings: the speed readout, small; {speed} is the multiplier (1.00), {ms} the milliseconds per character.
+#. Placeholders: {speed}, {ms}.
+msgctxt "config.speed.readout"
+msgid "{speed}x (~{ms} ms/char)"
+msgstr "{speed}x (~{ms} ms/herufi)"
+
+#. Settings: the heading over the two options of how Tab skips ({tab} is the key).
+#. Placeholders: {tab}.
+msgctxt "config.skip.section"
+msgid "When {tab} skips"
+msgstr "{tab} inaporuka"
+
+#. Settings: option under "When Tab skips": skipping also passes content never seen.
+msgctxt "config.skip.all"
+msgid "Skip unseen content too"
+msgstr "Ruka pia maudhui ambayo hujaona"
+
+#. Settings: option under "When Tab skips": a skip plays each video in full.
+msgctxt "config.skip.videos"
+msgid "Play videos in full"
+msgstr "Cheza video kikamilifu"
+
+#. Settings: a switch's state, on (short).
+msgctxt "config.on"
+msgid "On"
+msgstr "Imewashwa"
+
+#. Settings: a switch's state, off (short).
+msgctxt "config.off"
+msgid "Off"
+msgstr "Imezimwa"
+
+#. Settings: the switch that makes every decision pick itself in turn.
+msgctxt "config.playAll"
+msgid "Play all routes"
+msgstr "Cheza njia zote"
+
+#. Settings: accessible name of the "?" after "Play all routes".
+msgctxt "config.playAll.about"
+msgid "About play all routes"
+msgstr "Kuhusu Cheza njia zote"
+
+#. Settings: the tip behind "Play all routes"' "?".
+msgctxt "config.playAll.tip"
+msgid "When on, choices pick themselves on a countdown."
+msgstr "Ikiwashwa, chaguo hufanywa zenyewe baada ya kuhesabu kurudi nyuma."
+
+#. Settings: the Sound row's label (games with sound).
+msgctxt "config.sound"
+msgid "Sound"
+msgstr "Sauti"
+
+#. Settings: the button that opens the Volumes sheet.
+msgctxt "config.sound.volumes"
+msgid "Volumes…"
+msgstr "Viwango vya sauti…"
+
+#. Settings: accessible name of the Volumes… button.
+msgctxt "config.sound.volumesAria"
+msgid "Sound volumes"
+msgstr "Viwango vya sauti"
+
+#. Settings: the heading over Export, Import and Reset.
+msgctxt "config.progress.section"
+msgid "Progress"
+msgstr "Maendeleo"
+
+#. Settings: after the Progress heading, dimmer: saving needs no action.
+msgctxt "config.progress.saved"
+msgid "saved automatically"
+msgstr "huhifadhiwa kiotomatiki"
+
+#. Settings: accessible name of the "?" after the Progress heading.
+msgctxt "config.progress.about"
+msgid "About progress"
+msgstr "Kuhusu maendeleo"
+
+#. Settings: the Export row's label.
+msgctxt "config.export.label"
+msgid "Export progress"
+msgstr "Hamisha maendeleo"
+
+#. Settings: the Export row's button (short).
+msgctxt "config.export.button"
+msgid "Export"
+msgstr "Hamisha"
+
+#. Settings: accessible name of the Export button.
+msgctxt "config.export.aria"
+msgid "Export this story's progress to a file"
+msgstr "Hamisha maendeleo ya hadithi hii kwenye faili"
+
+#. Notice pill after an export (the file's name is not said).
+msgctxt "config.export.done"
+msgid "Progress exported"
+msgstr "Maendeleo yamehamishwa"
+
+#. Settings: the Import row's label.
+msgctxt "config.import.label"
+msgid "Import progress"
+msgstr "Ingiza maendeleo"
+
+#. Settings: the Import row's button, which opens a file picker (short).
+msgctxt "config.import.button"
+msgid "Import…"
+msgstr "Ingiza…"
+
+#. Notice pill: the picked file could not be read at all.
+msgctxt "config.import.unreadable"
+msgid "That file could not be read."
+msgstr "Faili hiyo haikuweza kusomwa."
+
+#. Settings: the Reset row's label.
+msgctxt "config.reset.label"
+msgid "Reset progress"
+msgstr "Weka upya maendeleo"
+
+#. Settings: the Reset row's button, which opens a confirmation (short).
+msgctxt "config.reset.button"
+msgid "Reset…"
+msgstr "Weka upya…"
+
+#. Settings: accessible name of the Reset button.
+msgctxt "config.reset.aria"
+msgid "Reset all progress for this content"
+msgstr "Weka upya maendeleo yote ya maudhui haya"
+
+#. Settings (in a browser tab): the tip behind the Progress "?".
+msgctxt "wording.browser.progressTip"
+msgid "Saved in this browser as you read. Export and Import carry it to another browser."
+msgstr "Huhifadhiwa kwenye kivinjari hiki unaposoma. Hamisha na Ingiza huyapeleka kwenye kivinjari kingine."
+
+#. Notice pill (browser tab): a confirmed import that storage refused.
+msgctxt "wording.browser.importFailed"
+msgid "The import failed: this browser's storage refused it. Nothing was changed."
+msgstr "Uingizaji umeshindwa: hifadhi ya kivinjari hiki imeukataa. Hakuna kilichobadilishwa."
+
+#. Settings (browser tab): accessible name of the Import button.
+msgctxt "wording.browser.importAria"
+msgid "Import progress from a file, replacing this browser's"
+msgstr "Ingiza maendeleo kutoka kwenye faili, badala ya yale ya kivinjari hiki"
+
+#. Import confirmation (browser tab); {story} is the game's name or "this story".
+#. Placeholders: {story}.
+msgctxt "wording.browser.importConfirm"
+msgid "Replace this browser's progress for {story} with the imported file?"
+msgstr "Ungependa kubadilisha maendeleo ya {story} kwenye kivinjari hiki kwa faili iliyoingizwa?"
+
+#. Settings (game app): the tip behind the Progress "?".
+msgctxt "wording.app.progressTip"
+msgid "Saved as you read. Export and Import carry it to another device."
+msgstr "Huhifadhiwa unaposoma. Hamisha na Ingiza huyapeleka kwenye kifaa kingine."
+
+#. Notice pill (game app): a confirmed import that storage refused.
+msgctxt "wording.app.importFailed"
+msgid "The import failed: this computer's storage refused it. Nothing was changed."
+msgstr "Uingizaji umeshindwa: hifadhi ya kompyuta hii imeukataa. Hakuna kilichobadilishwa."
+
+#. Settings (game app): accessible name of the Import button.
+msgctxt "wording.app.importAria"
+msgid "Import progress from a file, replacing the progress saved here"
+msgstr "Ingiza maendeleo kutoka kwenye faili, badala ya yale yaliyohifadhiwa hapa"
+
+#. Import confirmation (game app); {story} is the game's name or "this story".
+#. Placeholders: {story}.
+msgctxt "wording.app.importConfirm"
+msgid "Replace the progress saved here for {story} with the imported file?"
+msgstr "Ungependa kubadilisha maendeleo ya {story} yaliyohifadhiwa hapa kwa faili iliyoingizwa?"
+
+#. Import confirmation: stands for {story} when the game names itself nothing.
+msgctxt "wording.thisStory"
+msgid "this story"
+msgstr "hadithi hii"
+
+#. Settings: the heading over the window controls.
+msgctxt "window.section"
+msgid "Game window"
+msgstr "Dirisha la mchezo"
+
+#. Settings, Game window: the label of the Fullscreen | Window switch (read by screen readers).
+msgctxt "window.display"
+msgid "Display"
+msgstr "Onyesho"
+
+#. Settings, Game window: one half of the display switch.
+msgctxt "window.fullscreen"
+msgid "Fullscreen"
+msgstr "Skrini nzima"
+
+#. Settings, Game window: the other half of the display switch.
+msgctxt "window.window"
+msgid "Window"
+msgstr "Dirisha"
+
+#. Settings, Game window: the button that quits (short).
+msgctxt "window.exit"
+msgid "Exit"
+msgstr "Ondoka"
+
+#. Settings, Game window: the Exit row's label and the button's accessible name.
+msgctxt "window.exitLabel"
+msgid "Exit the game"
+msgstr "Ondoka kwenye mchezo"
+
+#. Notice pill: a browser tab the page may not close.
+msgctxt "window.closeTab"
+msgid "This browser keeps the tab open: close the tab to exit."
+msgstr "Kivinjari hiki huacha kichupo wazi: funga kichupo ili kuondoka."
+
+#. Confirmation box: the button that changes nothing.
+msgctxt "confirm.cancel"
+msgid "Cancel"
+msgstr "Ghairi"
+
+#. Confirmation box, reset: its heading.
+msgctxt "confirm.reset.title"
+msgid "Reset progress"
+msgstr "Weka upya maendeleo"
+
+#. Confirmation box, reset: the question.
+msgctxt "confirm.reset.message"
+msgid "Reset all progress for this content? This clears resume position, seen items, routes, bookmarks and settings."
+msgstr "Ungependa kuweka upya maendeleo yote ya maudhui haya? Hii itafuta mahali pa kuendelea, vipengee ulivyoona, njia, alamisho na mipangilio."
+
+#. Confirmation box, reset: the confirming button (short).
+msgctxt "confirm.reset.button"
+msgid "Reset"
+msgstr "Weka upya"
+
+#. Confirmation box, reset: the keys under the buttons.
+#. Placeholders: {yes}, {esc}, {no}.
+msgctxt "confirm.reset.hint"
+msgid "{yes} resets; {esc} or {no} cancels"
+msgstr "{yes} huweka upya; {esc} au {no} hughairi"
+
+#. Confirmation box, import: its heading.
+msgctxt "confirm.import.title"
+msgid "Import progress"
+msgstr "Ingiza maendeleo"
+
+#. Confirmation box, import: the confirming button (short).
+msgctxt "confirm.import.button"
+msgid "Import"
+msgstr "Ingiza"
+
+#. Confirmation box, import: the keys under the buttons.
+#. Placeholders: {yes}, {esc}, {no}.
+msgctxt "confirm.import.hint"
+msgid "{yes} imports; {esc} or {no} cancels"
+msgstr "{yes} huingiza; {esc} au {no} hughairi"
+
+#. Confirmation box, removing the voice model: its heading.
+msgctxt "confirm.removeVoices.title"
+msgid "Remove voice model"
+msgstr "Ondoa modeli ya sauti"
+
+#. Confirmation box, removing the voice model: the question.
+msgctxt "confirm.removeVoices.message"
+msgid "Remove the voice model from this computer to free its space? Every Kinetic game uses it; you can download it again."
+msgstr "Ungependa kuondoa modeli ya sauti kwenye kompyuta hii ili kupata nafasi? Kila mchezo wa Kinetic huitumia; unaweza kuipakua tena."
+
+#. Confirmation box, removing the voice model: the confirming button (short).
+msgctxt "confirm.removeVoices.button"
+msgid "Remove"
+msgstr "Ondoa"
+
+#. Confirmation box, removing the voice model: the keys under the buttons.
+#. Placeholders: {yes}, {esc}, {no}.
+msgctxt "confirm.removeVoices.hint"
+msgid "{yes} removes; {esc} or {no} cancels"
+msgstr "{yes} huondoa; {esc} au {no} hughairi"
+
+#. Decision screen: the last row, back to the story's main line.
+msgctxt "choice.continue"
+msgid "Return to main route"
+msgstr "Rudi kwenye njia kuu"
+
+#. Decision screen: beside a route already played.
+msgctxt "choice.seen"
+msgid "seen"
+msgstr "imeonwa"
+
+#. Decision screen: the hint under the question.
+msgctxt "choice.hint"
+msgid "1-9 or click picks a route"
+msgstr "1-9 au bofya ili kuchagua njia"
+
+#. Decision screen: the hint with more than nine routes ({enter} is the key).
+#. Placeholders: {enter}.
+msgctxt "choice.hintLong"
+msgid "1-9, arrows and {enter}, or click picks a route"
+msgstr "1-9, mishale na {enter}, au bofya ili kuchagua njia"
+
+#. Decision screen: added to the hint when the return row is there.
+msgctxt "choice.hintContinue"
+msgid "; 0 returns"
+msgstr "; 0 hurudi"
+
+#. Decision screen: added to the hint while play-all is about to pick ({space} is the key).
+#. Placeholders: {space}.
+msgctxt "choice.hintAutoPick"
+msgid "; {space} picks now"
+msgstr "; {space} huchagua sasa"
+
+#. Decision screen, play-all: the countdown line; {seconds} left.
+#. Placeholders: {seconds}.
+msgctxt "choice.autoPick"
+msgid "Play all routes picks in {seconds} s"
+msgstr "Cheza njia zote itachagua baada ya sekunde {seconds}"
+
+#. Decision screen, play-all, after a jump back: {label} is the route just finished (game text).
+#. Placeholders: {label}, {seconds}.
+msgctxt "choice.autoPickBack"
+msgid "Back in time: “{label}” is done. Play all routes picks in {seconds} s"
+msgstr "Nyuma kwa wakati: “{label}” imekamilika. Cheza njia zote itachagua baada ya sekunde {seconds}"
+
+#. At an ending, top of the screen: everything has been seen.
+msgctxt "endcard.allSeen"
+msgid "You have seen everything."
+msgstr "Umeona kila kitu."
+
+#. At an ending: no routes left, but other content unseen.
+msgctxt "endcard.someUnseen"
+msgid "Some content is still unseen."
+msgstr "Bado kuna maudhui ambayo hujayaona."
+
+#. At an ending: {count} routes and other content unseen.
+#. Placeholders: {count}.
+#. Plural form "one" (CLDR), chosen by {count}.
+msgctxt "endcard.routesAndOther#one"
+msgid "{count} route and other content still unseen."
+msgstr "Bado hujaona njia {count} na maudhui mengine."
+
+#. At an ending: {count} routes and other content unseen.
+#. Placeholders: {count}.
+#. Plural form "other" (CLDR), chosen by {count}.
+msgctxt "endcard.routesAndOther#other"
+msgid "{count} routes and other content still unseen."
+msgstr "Bado hujaona njia {count} na maudhui mengine."
+
+#. At an ending: {count} routes unseen.
+#. Placeholders: {count}.
+#. Plural form "one" (CLDR), chosen by {count}.
+msgctxt "endcard.routes#one"
+msgid "{count} route still unseen."
+msgstr "Bado hujaona njia {count}."
+
+#. At an ending: {count} routes unseen.
+#. Placeholders: {count}.
+#. Plural form "other" (CLDR), chosen by {count}.
+msgctxt "endcard.routes#other"
+msgid "{count} routes still unseen."
+msgstr "Bado hujaona njia {count}."
+
+#. At an ending, under the count: the key to the next unseen content.
+#. Placeholders: {key}.
+msgctxt "endcard.next"
+msgid "Press {key} for the next one."
+msgstr "Bonyeza {key} kwa inayofuata."
+
+#. On a resume, top of the screen: unseen content earlier on ({key} is U).
+#. Placeholders: {key}.
+msgctxt "endcard.earlierUnseen"
+msgid "Earlier content you haven't seen - press {key}."
+msgstr "Kuna maudhui ya awali ambayo hujayaona — bonyeza {key}."
+
+#. Pill: skip mode started.
+msgctxt "pill.skipOn"
+msgid "Skip on"
+msgstr "Kuruka kumewashwa"
+
+#. Pill: skip mode stopped.
+msgctxt "pill.skipOff"
+msgid "Skip off"
+msgstr "Kuruka kumezimwa"
+
+#. Pill: auto-forward turned on.
+msgctxt "pill.autoForwardOn"
+msgid "Auto-forward on"
+msgstr "Kusonga kiotomatiki kumewashwa"
+
+#. Pill: auto-forward turned off.
+msgctxt "pill.autoForwardOff"
+msgid "Auto-forward off"
+msgstr "Kusonga kiotomatiki kumezimwa"
+
+#. Pill: sound turned on.
+msgctxt "pill.soundOn"
+msgid "Sound on"
+msgstr "Sauti imewashwa"
+
+#. Pill: sound turned off.
+msgctxt "pill.soundOff"
+msgid "Sound off"
+msgstr "Sauti imezimwa"
+
+#. Pill: a bookmark was saved.
+msgctxt "pill.bookmarked"
+msgid "Bookmarked"
+msgstr "Alamisho imewekwa"
+
+#. Pill: the story jumped back in time to take another route.
+msgctxt "pill.backJump"
+msgid "Back to try another route"
+msgstr "Nyuma ili kujaribu njia nyingine"
+
+#. Pill: the route just entered; {label} is its name (game text).
+#. Placeholders: {label}.
+msgctxt "pill.route"
+msgid "Route: {label}"
+msgstr "Njia: {label}"
+
+#. Pill on a video with several camera views: which view, {index} of {count}.
+#. Placeholders: {index}, {count}.
+msgctxt "pill.segment"
+msgid "View {index} of {count}"
+msgstr "Mwonekano {index} kati ya {count}"
+
+#. Pill until the browser allows sound.
+msgctxt "audio.soundHint"
+msgid "Press any key for sound"
+msgstr "Bonyeza kitufe chochote ili upate sauti"
+
+#. Shown instead of a picture: the game folder has no items at all.
+msgctxt "visual.empty"
+msgid "No content yet — this folder has an empty manifest."
+msgstr "Bado hakuna maudhui — folda hii ina manifest tupu."
+
+#. Shown instead of a picture: nothing to draw here.
+msgctxt "visual.nothing"
+msgid "No content to show."
+msgstr "Hakuna maudhui ya kuonyesha."
+
+#. Shown instead of a picture in a broken game: {id} is the item's identifier.
+#. Placeholders: {id}.
+msgctxt "visual.placeholder"
+msgid "{id} — text item with no visual"
+msgstr "{id} — kipengee cha maandishi kisicho na picha"
+
+#. Volumes sheet: its heading.
+msgctxt "volumes.title"
+msgid "Volumes"
+msgstr "Viwango vya sauti"
+
+#. Volumes sheet: the key that closes it.
+#. Placeholders: {esc}.
+msgctxt "volumes.hint"
+msgid "{esc} closes"
+msgstr "{esc} hufunga"
+
+#. Volumes sheet: the closing button.
+msgctxt "volumes.done"
+msgid "Done"
+msgstr "Nimemaliza"
+
+#. Volumes sheet: the music row.
+msgctxt "volumes.music"
+msgid "Music"
+msgstr "Muziki"
+
+#. Volumes sheet: accessible name of the music slider.
+msgctxt "volumes.music.slider"
+msgid "Music volume"
+msgstr "Kiwango cha sauti ya muziki"
+
+#. Volumes sheet: accessible name of the music minus button.
+msgctxt "volumes.music.decrease"
+msgid "Decrease music volume"
+msgstr "Punguza sauti ya muziki"
+
+#. Volumes sheet: accessible name of the music plus button.
+msgctxt "volumes.music.increase"
+msgid "Increase music volume"
+msgstr "Ongeza sauti ya muziki"
+
+#. Volumes sheet: the sound effects row.
+msgctxt "volumes.effects"
+msgid "Effects"
+msgstr "Madoido"
+
+#. Volumes sheet: accessible name of the effects slider.
+msgctxt "volumes.effects.slider"
+msgid "Effects volume"
+msgstr "Kiwango cha sauti ya madoido"
+
+#. Volumes sheet: accessible name of the effects minus button.
+msgctxt "volumes.effects.decrease"
+msgid "Decrease effects volume"
+msgstr "Punguza sauti ya madoido"
+
+#. Volumes sheet: accessible name of the effects plus button.
+msgctxt "volumes.effects.increase"
+msgid "Increase effects volume"
+msgstr "Ongeza sauti ya madoido"
+
+#. Volumes sheet: the spoken lines row.
+msgctxt "volumes.voice"
+msgid "Voice"
+msgstr "Mazungumzo"
+
+#. Volumes sheet: accessible name of the voice slider.
+msgctxt "volumes.voice.slider"
+msgid "Voice volume"
+msgstr "Kiwango cha sauti ya mazungumzo"
+
+#. Volumes sheet: accessible name of the voice minus button.
+msgctxt "volumes.voice.decrease"
+msgid "Decrease voice volume"
+msgstr "Punguza sauti ya mazungumzo"
+
+#. Volumes sheet: accessible name of the voice plus button.
+msgctxt "volumes.voice.increase"
+msgid "Increase voice volume"
+msgstr "Ongeza sauti ya mazungumzo"
+
+#. Volumes sheet, Voice row: the small button that removes the installed voice model.
+msgctxt "volumes.remove"
+msgid "Remove voice model"
+msgstr "Ondoa modeli ya sauti"
+
+#. Volumes sheet: accessible name of the remove button.
+msgctxt "volumes.removeAria"
+msgid "Remove the voice model from this computer to free its space"
+msgstr "Ondoa modeli ya sauti kwenye kompyuta hii ili kupata nafasi"
+
+#. Volumes sheet: accessible name of the "?" beside the voice model's download.
+msgctxt "volumes.model.about"
+msgid "About the voice model"
+msgstr "Kuhusu modeli ya sauti"
+
+#. Volumes sheet: accessible name of the voice model's download progress bar.
+msgctxt "volumes.model.progress"
+msgid "Voice model download"
+msgstr "Upakuaji wa modeli ya sauti"
+
+#. Volumes sheet: stops the voice model's download (short).
+msgctxt "volumes.model.cancel"
+msgid "Cancel"
+msgstr "Ghairi"
+
+#. Volumes sheet: accessible name of the download's Cancel.
+msgctxt "volumes.model.cancelAria"
+msgid "Cancel the voice model download"
+msgstr "Ghairi upakuaji wa modeli ya sauti"
+
+#. Volumes sheet: tries the failed download again (short).
+msgctxt "volumes.model.retry"
+msgid "Retry"
+msgstr "Jaribu tena"
+
+#. Volumes sheet: accessible name of Retry.
+msgctxt "volumes.model.retryAria"
+msgid "Retry the voice model download"
+msgstr "Jaribu tena kupakua modeli ya sauti"
+
+#. Volumes sheet, Voice row: until the game app says the voice model's state.
+msgctxt "voice.checking"
+msgid "Checking…"
+msgstr "Inakagua…"
+
+#. Volumes sheet, the voice model's "?": a computer that cannot make spoken lines.
+msgctxt "voice.unsupported"
+msgid "Spoken lines are not available on this computer."
+msgstr "Mazungumzo ya kutamkwa hayapatikani kwenye kompyuta hii."
+
+#. Volumes sheet: the voice model's download failed.
+msgctxt "voice.failed"
+msgid "The voice model could not be downloaded."
+msgstr "Modeli ya sauti haikuweza kupakuliwa."
+
+#. Volumes sheet: the download button; {size} is its size, e.g. 3.3 GB.
+#. Placeholders: {size}.
+msgctxt "voice.download"
+msgid "Download voice model ({size})"
+msgstr "Pakua modeli ya sauti ({size})"
+
+#. Volumes sheet: the tip behind the download's "?"; {size} is its size.
+#. Placeholders: {size}.
+msgctxt "voice.help"
+msgid "Spoken lines are made on this computer from the characters' voices. The voice model is downloaded once ({size}) and every Kinetic game on this computer shares it."
+msgstr "Mazungumzo ya kutamkwa hutengenezwa kwenye kompyuta hii kutoka kwa sauti za wahusika. Modeli ya sauti hupakuliwa mara moja ({size}) na kila mchezo wa Kinetic kwenye kompyuta hii huitumia pamoja."
+
+#. Branch map: its heading.
+msgctxt "map.title"
+msgid "Branch map"
+msgstr "Ramani ya matawi"
+
+#. Branch map: the Spoilers switch, on (decisions not reached show their words).
+msgctxt "map.spoilers.on"
+msgid "Spoilers: On"
+msgstr "Ufichuzi: Umewashwa"
+
+#. Branch map: the Spoilers switch, off (the default).
+msgctxt "map.spoilers.off"
+msgid "Spoilers: Off"
+msgstr "Ufichuzi: Umezimwa"
+
+#. Branch map header button: go to the newest bookmark.
+msgctxt "map.newest"
+msgid "Newest bookmark"
+msgstr "Alamisho mpya zaidi"
+
+#. Branch map header button: centre the view on where the reader is.
+msgctxt "map.centre"
+msgid "Centre"
+msgstr "Katikati"
+
+#. Branch map header button: the map at full size, scrolling.
+msgctxt "map.full"
+msgid "Full size"
+msgstr "Ukubwa kamili"
+
+#. Branch map header button: the whole map fitted to the screen.
+msgctxt "map.fit"
+msgid "Fit"
+msgstr "Tosheleza"
+
+#. Branch map: the hint on a header button; {key} is its key.
+#. Placeholders: {key}.
+msgctxt "map.shortcut"
+msgid "shortcut: {key}"
+msgstr "njia ya mkato: {key}"
+
+#. Branch map: the label under the reader's position marker (lower case).
+msgctxt "map.here"
+msgid "you are here"
+msgstr "uko hapa"
+
+#. Branch map: the note after a bookmark's ×.
+msgctxt "map.toast.deleted"
+msgid "Bookmark deleted"
+msgstr "Alamisho imefutwa"
+
+#. Branch map: the button in that note; {key} is its key (Z).
+#. Placeholders: {key}.
+msgctxt "map.toast.undo"
+msgid "Undo ({key})"
+msgstr "Tendua ({key})"
+
+#. Branch map: a bookmark card's accessible name; {time} is when it was made.
+#. Placeholders: {time}.
+msgctxt "map.card.label"
+msgid "Bookmark {time}"
+msgstr "Alamisho {time}"
+
+#. Branch map: the newest bookmark card's accessible name.
+#. Placeholders: {time}.
+msgctxt "map.card.labelNewest"
+msgid "Bookmark {time} (newest)"
+msgstr "Alamisho {time} (mpya zaidi)"
+
+#. Branch map: a bookmark card's × (accessible name and hint).
+msgctxt "map.card.delete"
+msgid "Delete this bookmark"
+msgstr "Futa alamisho hii"
+
+#. Branch map: a deleted card, until it fades (short).
+msgctxt "map.card.deleted"
+msgid "Deleted"
+msgstr "Imefutwa"
+
+#. Branch map: brings a deleted card back (short).
+msgctxt "map.card.undo"
+msgid "Undo"
+msgstr "Tendua"
+
+#. Branch map tooltip and accessible name: {title}, then {status}.
+#. Placeholders: {title}, {status}.
+msgctxt "map.node.label"
+msgid "{title}: {status}"
+msgstr "{title}: {status}"
+
+#. Branch map tooltip: a route's title, {number}. {label} (label is game text).
+#. Placeholders: {number}, {label}.
+msgctxt "map.route.title"
+msgid "{number}. {label}"
+msgstr "{number}. {label}"
+
+#. Branch map, a route's status: never entered.
+msgctxt "map.route.unseen"
+msgid "not seen"
+msgstr "haijaonwa"
+
+#. Branch map, a route's status: entered, not finished.
+msgctxt "map.route.partly"
+msgid "partly seen"
+msgstr "imeonwa kwa sehemu"
+
+#. Branch map, a route's status: played through.
+msgctxt "map.route.played"
+msgid "played"
+msgstr "imechezwa"
+
+#. Branch map, a route's outcome: it joins the story again.
+msgctxt "map.route.continues"
+msgid "continues the story"
+msgstr "inaendeleza hadithi"
+
+#. Branch map, a route's outcome: it comes back to its decision.
+msgctxt "map.route.returns"
+msgid "returns to the choice"
+msgstr "inarudi kwenye chaguo"
+
+#. Branch map, a route's outcome: it ends the story.
+msgctxt "map.route.ends"
+msgid "an ending"
+msgstr "mwisho mmojawapo"
+
+#. Branch map, a route's status: the route last picked there.
+msgctxt "map.route.lastPick"
+msgid "your last pick"
+msgstr "chaguo lako la mwisho"
+
+#. Branch map, a route's status: its decision not reached.
+msgctxt "map.route.notReached"
+msgid "decision not reached yet"
+msgstr "chaguo bado halijafikiwa"
+
+#. Branch map, a decision's status: {played} of its {count} routes played.
+#. Placeholders: {played}, {count}.
+#. Plural form "one" (CLDR), chosen by {count}.
+msgctxt "map.decision.played#one"
+msgid "{played} of {count} routes played"
+msgstr "njia {played} kati ya {count} imechezwa"
+
+#. Branch map, a decision's status: {played} of its {count} routes played.
+#. Placeholders: {played}, {count}.
+#. Plural form "other" (CLDR), chosen by {count}.
+msgctxt "map.decision.played#other"
+msgid "{played} of {count} routes played"
+msgstr "njia {played} kati ya {count} zimechezwa"
+
+#. Branch map, a decision's status: not reached yet.
+msgctxt "map.decision.notReached"
+msgid "not reached yet"
+msgstr "bado halijafikiwa"
+
+#. Branch map, Spoilers off: stands for a decision's question not reached.
+msgctxt "map.hidden.prompt"
+msgid "Decision not reached"
+msgstr "Chaguo ambalo halijafikiwa"
+
+#. Branch map, Spoilers off: stands for a route's name not reached.
+msgctxt "map.hidden.route"
+msgid "Unseen route"
+msgstr "Njia ambayo haijaonwa"
+
+#. Branch map, beside a stretch of story: its length in screens.
+#. Placeholders: {count}.
+#. Plural form "one" (CLDR), chosen by {count}.
+msgctxt "map.count.screens#one"
+msgid "{count} screen"
+msgstr "skrini {count}"
+
+#. Branch map, beside a stretch of story: its length in screens.
+#. Placeholders: {count}.
+#. Plural form "other" (CLDR), chosen by {count}.
+msgctxt "map.count.screens#other"
+msgid "{count} screens"
+msgstr "skrini {count}"
+
+#. Branch map, beside a stretch of story: its bookmarks.
+#. Placeholders: {count}.
+#. Plural form "one" (CLDR), chosen by {count}.
+msgctxt "map.count.bookmarks#one"
+msgid "{count} bookmark"
+msgstr "alamisho {count}"
+
+#. Branch map, beside a stretch of story: its bookmarks.
+#. Placeholders: {count}.
+#. Plural form "other" (CLDR), chosen by {count}.
+msgctxt "map.count.bookmarks#other"
+msgid "{count} bookmarks"
+msgstr "alamisho {count}"
+
+#. Import refused: the file is not JSON.
+msgctxt "transfer.notJson"
+msgid "That file is not a Kinetic progress file (it is not JSON)."
+msgstr "Faili hiyo si faili ya maendeleo ya Kinetic (si JSON)."
+
+#. Import refused: the file is JSON but not a progress file.
+msgctxt "transfer.notProgress"
+msgid "That file is not a Kinetic progress file."
+msgstr "Faili hiyo si faili ya maendeleo ya Kinetic."
+
+#. Import refused: another file version; {theirs} as written in it, {ours} a number.
+#. Placeholders: {theirs}, {ours}.
+msgctxt "transfer.version"
+msgid "That progress file is version {theirs}; this player reads version {ours}."
+msgstr "Faili hiyo ya maendeleo ni toleo {theirs}; kicheza hiki husoma toleo {ours}."
+
+#. Import refused: the file's story ID is damaged.
+msgctxt "transfer.damaged.storyId"
+msgid "That progress file is damaged: its story ID is missing or malformed."
+msgstr "Faili hiyo ya maendeleo imeharibika: kitambulisho cha hadithi hakipo au si sahihi."
+
+#. Import refused: the file's saved state is damaged.
+msgctxt "transfer.damaged.state"
+msgid "That progress file is damaged: its state is missing or malformed."
+msgstr "Faili hiyo ya maendeleo imeharibika: hali yake haipo au si sahihi."
+
+#. Import refused: the file's bookmarks are damaged.
+msgctxt "transfer.damaged.bookmarks"
+msgid "That progress file is damaged: its bookmarks are missing or malformed."
+msgstr "Faili hiyo ya maendeleo imeharibika: alamisho zake hazipo au si sahihi."
+
+#. Import refused: another game's file; {theirs} and {here} name the two games (the phrases below).
+#. Placeholders: {theirs}, {here}.
+msgctxt "transfer.otherStory"
+msgid "That file holds progress for {theirs}, not {here}."
+msgstr "Faili hiyo ina maendeleo ya {theirs}, si ya {here}."
+
+#. Names a game by its title in the message above; {title} is game text.
+#. Placeholders: {title}.
+msgctxt "transfer.story.titled"
+msgid "\"{title}\""
+msgstr "“{title}”"
+
+#. Names a game by its story ID in the message above.
+#. Placeholders: {id}.
+msgctxt "transfer.story.id"
+msgid "the story \"{id}\""
+msgstr "hadithi “{id}”"
+
+#. Names a file's game that has neither title nor ID, in the message above.
+msgctxt "transfer.story.noId"
+msgid "a story without an ID"
+msgstr "hadithi isiyo na kitambulisho"
+
+#. Names this game, untitled, in the message above.
+msgctxt "transfer.story.this"
+msgid "this story"
+msgstr "hadithi hii"

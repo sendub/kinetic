@@ -1,0 +1,1024 @@
+# Kinetic player: Romanian (ro).
+# An unreviewed draft written by an AI model on 2026-11-16.
+# Corrections are welcome: docs/verify-player.md, "The player's words".
+msgid ""
+msgstr ""
+"Project-Id-Version: Kinetic player\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Language: ro\n"
+
+#. Browser tab title when the game names itself nothing (the player's name).
+msgctxt "page.title"
+msgid "Kinetic"
+msgstr "Kinetic"
+
+#. Shown in place of the game when its files cannot be read; {detail} is a technical reason, in English.
+#. Placeholders: {detail}.
+msgctxt "error.load"
+msgid "Could not load the content: {detail}"
+msgstr "Conținutul nu a putut fi încărcat: {detail}"
+
+#. Esc screen: the heading over the grid of keys.
+msgctxt "help.title"
+msgid "Keys"
+msgstr "Taste"
+
+#. Esc screen, title bar: the keys that close the screen.
+#. Placeholders: {esc}, {space}.
+msgctxt "help.hint"
+msgid "{esc} or {space} closes"
+msgstr "{esc} sau {space} închide"
+
+#. Esc screen, title bar: accessible name of the Language control, a button opening the list of the game's languages; {language} is the language shown now, named in itself (e.g. Deutsch).
+#. Placeholders: {language}.
+msgctxt "lang.control"
+msgid "Language: {language}"
+msgstr "Limbă: {language}"
+
+#. Esc screen: accessible name of the open list of the game's languages (each named in itself).
+msgctxt "lang.list"
+msgid "Language"
+msgstr "Limbă"
+
+#. Pill when a language of the game cannot be read: the game stays in the language it was in. {language} is that language named in itself (e.g. Deutsch).
+#. Placeholders: {language}.
+msgctxt "lang.unavailable"
+msgid "{language} could not be loaded"
+msgstr "Nu s-a putut încărca {language}"
+
+#. Esc screen, bottom corner: the player's name and release ({version}, e.g. 1.10.0).
+#. Placeholders: {version}.
+msgctxt "help.kinetic"
+msgid "Kinetic {version}"
+msgstr "Kinetic {version}"
+
+#. Esc screen, key grid: the cap drawn for the mouse wheel (one cap, short).
+msgctxt "keys.wheel.cap"
+msgid "wheel"
+msgstr "rotiță"
+
+#. Esc screen, key grid: what Space does (lower case, short).
+msgctxt "keys.advance"
+msgid "next item; stops auto-forward"
+msgstr "elementul următor; oprește avansul automat"
+
+#. Esc screen, key grid: what the Left and Right arrows do.
+msgctxt "keys.segments"
+msgid "previous / next view of a video"
+msgstr "unghiul anterior / următor al unui videoclip"
+
+#. Esc screen, key grid: what the mouse wheel does.
+msgctxt "keys.wheel"
+msgid "back / forward through the story"
+msgstr "înapoi / înainte prin poveste"
+
+#. Esc screen, key grid: what E does.
+msgctxt "keys.end"
+msgid "jump to the furthest point read"
+msgstr "salt la cel mai îndepărtat punct citit"
+
+#. Esc screen, key grid: what U does.
+msgctxt "keys.unseen"
+msgid "next unseen content"
+msgstr "următorul conținut nevăzut"
+
+#. Esc screen, key grid: what Tab does.
+msgctxt "keys.skip"
+msgid "skip what you have seen"
+msgstr "sari peste ce ai văzut deja"
+
+#. Esc screen, key grid: what A does.
+msgctxt "keys.autoForward"
+msgid "auto-forward on / off"
+msgstr "avans automat pornit / oprit"
+
+#. Esc screen, key grid: what H does.
+msgctxt "keys.text"
+msgid "hide / show the text"
+msgstr "ascunde / arată textul"
+
+#. Esc screen, key grid: what V does (games with sound).
+msgctxt "keys.sound"
+msgid "sound on / off"
+msgstr "sunet pornit / oprit"
+
+#. Esc screen, key grid: what B does.
+msgctxt "keys.bookmark"
+msgid "bookmark this moment"
+msgstr "adaugă un marcaj aici"
+
+#. Esc screen, key grid: what M does (a click on the row opens the map too).
+msgctxt "keys.map"
+msgid "branch map and bookmarks"
+msgstr "harta rutelor și marcajele"
+
+#. Esc screen, key grid: what Esc does.
+msgctxt "keys.escape"
+msgid "this screen: keys and settings; closes the map"
+msgstr "acest ecran: taste și configurări; închide harta"
+
+#. Esc screen, key grid: the keys at a decision (1-9, 0, arrows, Enter).
+msgctxt "keys.decision"
+msgid "at a decision: pick a route; 0 returns to main route"
+msgstr "la o decizie: alege o rută; 0 revine la ruta principală"
+
+#. Esc screen: the heading over the settings.
+msgctxt "config.title"
+msgid "Settings"
+msgstr "Configurări"
+
+#. Settings: the reading speed row's label (it paces auto-forward).
+msgctxt "config.speed.label"
+msgid "Auto-forward speed"
+msgstr "Viteza avansului"
+
+#. Settings: accessible name of the "?" after the speed label.
+msgctxt "config.speed.about"
+msgid "About auto-forward speed"
+msgstr "Despre viteza avansului automat"
+
+#. Settings: the tip behind the speed's "?".
+msgctxt "config.speed.tip"
+msgid "Also times play-all's choice countdown."
+msgstr "Stabilește și ritmul numărătorii inverse din Joacă toate rutele."
+
+#. Settings: accessible name of the speed's minus button.
+msgctxt "config.speed.decrease"
+msgid "Decrease auto-forward speed"
+msgstr "Scade viteza avansului automat"
+
+#. Settings: accessible name of the speed's plus button.
+msgctxt "config.speed.increase"
+msgid "Increase auto-forward speed"
+msgstr "Crește viteza avansului automat"
+
+#. Settings: the speed readout, small; {speed} is the multiplier (1.00), {ms} the milliseconds per character.
+#. Placeholders: {speed}, {ms}.
+msgctxt "config.speed.readout"
+msgid "{speed}x (~{ms} ms/char)"
+msgstr "{speed}x (~{ms} ms/caracter)"
+
+#. Settings: the heading over the two options of how Tab skips ({tab} is the key).
+#. Placeholders: {tab}.
+msgctxt "config.skip.section"
+msgid "When {tab} skips"
+msgstr "Când {tab} sare"
+
+#. Settings: option under "When Tab skips": skipping also passes content never seen.
+msgctxt "config.skip.all"
+msgid "Skip unseen content too"
+msgstr "Sari și peste conținutul nevăzut"
+
+#. Settings: option under "When Tab skips": a skip plays each video in full.
+msgctxt "config.skip.videos"
+msgid "Play videos in full"
+msgstr "Redă videoclipurile complet"
+
+#. Settings: a switch's state, on (short).
+msgctxt "config.on"
+msgid "On"
+msgstr "Pornit"
+
+#. Settings: a switch's state, off (short).
+msgctxt "config.off"
+msgid "Off"
+msgstr "Oprit"
+
+#. Settings: the switch that makes every decision pick itself in turn.
+msgctxt "config.playAll"
+msgid "Play all routes"
+msgstr "Joacă toate rutele"
+
+#. Settings: accessible name of the "?" after "Play all routes".
+msgctxt "config.playAll.about"
+msgid "About play all routes"
+msgstr "Despre Joacă toate rutele"
+
+#. Settings: the tip behind "Play all routes"' "?".
+msgctxt "config.playAll.tip"
+msgid "When on, choices pick themselves on a countdown."
+msgstr "Când este pornit, alegerile se fac singure după o numărătoare inversă."
+
+#. Settings: the Sound row's label (games with sound).
+msgctxt "config.sound"
+msgid "Sound"
+msgstr "Sunet"
+
+#. Settings: the button that opens the Volumes sheet.
+msgctxt "config.sound.volumes"
+msgid "Volumes…"
+msgstr "Volume…"
+
+#. Settings: accessible name of the Volumes… button.
+msgctxt "config.sound.volumesAria"
+msgid "Sound volumes"
+msgstr "Volumele sunetului"
+
+#. Settings: the heading over Export, Import and Reset.
+msgctxt "config.progress.section"
+msgid "Progress"
+msgstr "Progres"
+
+#. Settings: after the Progress heading, dimmer: saving needs no action.
+msgctxt "config.progress.saved"
+msgid "saved automatically"
+msgstr "salvat automat"
+
+#. Settings: accessible name of the "?" after the Progress heading.
+msgctxt "config.progress.about"
+msgid "About progress"
+msgstr "Despre progres"
+
+#. Settings: the Export row's label.
+msgctxt "config.export.label"
+msgid "Export progress"
+msgstr "Exportă progresul"
+
+#. Settings: the Export row's button (short).
+msgctxt "config.export.button"
+msgid "Export"
+msgstr "Exportă"
+
+#. Settings: accessible name of the Export button.
+msgctxt "config.export.aria"
+msgid "Export this story's progress to a file"
+msgstr "Exportă într-un fișier progresul acestei povești"
+
+#. Notice pill after an export (the file's name is not said).
+msgctxt "config.export.done"
+msgid "Progress exported"
+msgstr "Progres exportat"
+
+#. Settings: the Import row's label.
+msgctxt "config.import.label"
+msgid "Import progress"
+msgstr "Importă progresul"
+
+#. Settings: the Import row's button, which opens a file picker (short).
+msgctxt "config.import.button"
+msgid "Import…"
+msgstr "Importă…"
+
+#. Notice pill: the picked file could not be read at all.
+msgctxt "config.import.unreadable"
+msgid "That file could not be read."
+msgstr "Fișierul nu a putut fi citit."
+
+#. Settings: the Reset row's label.
+msgctxt "config.reset.label"
+msgid "Reset progress"
+msgstr "Resetează progresul"
+
+#. Settings: the Reset row's button, which opens a confirmation (short).
+msgctxt "config.reset.button"
+msgid "Reset…"
+msgstr "Resetează…"
+
+#. Settings: accessible name of the Reset button.
+msgctxt "config.reset.aria"
+msgid "Reset all progress for this content"
+msgstr "Resetează tot progresul pentru acest conținut"
+
+#. Settings (in a browser tab): the tip behind the Progress "?".
+msgctxt "wording.browser.progressTip"
+msgid "Saved in this browser as you read. Export and Import carry it to another browser."
+msgstr "Salvat în acest browser pe măsură ce citești. Exportă și Importă îl mută în alt browser."
+
+#. Notice pill (browser tab): a confirmed import that storage refused.
+msgctxt "wording.browser.importFailed"
+msgid "The import failed: this browser's storage refused it. Nothing was changed."
+msgstr "Importul a eșuat: spațiul de stocare al acestui browser l-a refuzat. Nu s-a schimbat nimic."
+
+#. Settings (browser tab): accessible name of the Import button.
+msgctxt "wording.browser.importAria"
+msgid "Import progress from a file, replacing this browser's"
+msgstr "Importă progresul dintr-un fișier, înlocuindu-l pe cel din acest browser"
+
+#. Import confirmation (browser tab); {story} is the game's name or "this story".
+#. Placeholders: {story}.
+msgctxt "wording.browser.importConfirm"
+msgid "Replace this browser's progress for {story} with the imported file?"
+msgstr "Înlocuiești progresul pentru {story} din acest browser cu fișierul importat?"
+
+#. Settings (game app): the tip behind the Progress "?".
+msgctxt "wording.app.progressTip"
+msgid "Saved as you read. Export and Import carry it to another device."
+msgstr "Salvat pe măsură ce citești. Exportă și Importă îl mută pe alt dispozitiv."
+
+#. Notice pill (game app): a confirmed import that storage refused.
+msgctxt "wording.app.importFailed"
+msgid "The import failed: this computer's storage refused it. Nothing was changed."
+msgstr "Importul a eșuat: spațiul de stocare al acestui computer l-a refuzat. Nu s-a schimbat nimic."
+
+#. Settings (game app): accessible name of the Import button.
+msgctxt "wording.app.importAria"
+msgid "Import progress from a file, replacing the progress saved here"
+msgstr "Importă progresul dintr-un fișier, înlocuind progresul salvat aici"
+
+#. Import confirmation (game app); {story} is the game's name or "this story".
+#. Placeholders: {story}.
+msgctxt "wording.app.importConfirm"
+msgid "Replace the progress saved here for {story} with the imported file?"
+msgstr "Înlocuiești progresul pentru {story} salvat aici cu fișierul importat?"
+
+#. Import confirmation: stands for {story} when the game names itself nothing.
+msgctxt "wording.thisStory"
+msgid "this story"
+msgstr "această poveste"
+
+#. Settings: the heading over the window controls.
+msgctxt "window.section"
+msgid "Game window"
+msgstr "Fereastra jocului"
+
+#. Settings, Game window: the label of the Fullscreen | Window switch (read by screen readers).
+msgctxt "window.display"
+msgid "Display"
+msgstr "Afișare"
+
+#. Settings, Game window: one half of the display switch.
+msgctxt "window.fullscreen"
+msgid "Fullscreen"
+msgstr "Ecran complet"
+
+#. Settings, Game window: the other half of the display switch.
+msgctxt "window.window"
+msgid "Window"
+msgstr "Fereastră"
+
+#. Settings, Game window: the button that quits (short).
+msgctxt "window.exit"
+msgid "Exit"
+msgstr "Ieși"
+
+#. Settings, Game window: the Exit row's label and the button's accessible name.
+msgctxt "window.exitLabel"
+msgid "Exit the game"
+msgstr "Ieși din joc"
+
+#. Notice pill: a browser tab the page may not close.
+msgctxt "window.closeTab"
+msgid "This browser keeps the tab open: close the tab to exit."
+msgstr "Acest browser păstrează fila deschisă: închide fila pentru a ieși."
+
+#. Confirmation box: the button that changes nothing.
+msgctxt "confirm.cancel"
+msgid "Cancel"
+msgstr "Anulează"
+
+#. Confirmation box, reset: its heading.
+msgctxt "confirm.reset.title"
+msgid "Reset progress"
+msgstr "Resetează progresul"
+
+#. Confirmation box, reset: the question.
+msgctxt "confirm.reset.message"
+msgid "Reset all progress for this content? This clears resume position, seen items, routes, bookmarks and settings."
+msgstr "Resetezi tot progresul pentru acest conținut? Se șterg poziția salvată, elementele văzute, rutele, marcajele și configurările."
+
+#. Confirmation box, reset: the confirming button (short).
+msgctxt "confirm.reset.button"
+msgid "Reset"
+msgstr "Resetează"
+
+#. Confirmation box, reset: the keys under the buttons.
+#. Placeholders: {yes}, {esc}, {no}.
+msgctxt "confirm.reset.hint"
+msgid "{yes} resets; {esc} or {no} cancels"
+msgstr "{yes} resetează; {esc} sau {no} anulează"
+
+#. Confirmation box, import: its heading.
+msgctxt "confirm.import.title"
+msgid "Import progress"
+msgstr "Importă progresul"
+
+#. Confirmation box, import: the confirming button (short).
+msgctxt "confirm.import.button"
+msgid "Import"
+msgstr "Importă"
+
+#. Confirmation box, import: the keys under the buttons.
+#. Placeholders: {yes}, {esc}, {no}.
+msgctxt "confirm.import.hint"
+msgid "{yes} imports; {esc} or {no} cancels"
+msgstr "{yes} importă; {esc} sau {no} anulează"
+
+#. Confirmation box, removing the voice model: its heading.
+msgctxt "confirm.removeVoices.title"
+msgid "Remove voice model"
+msgstr "Elimină modelul vocal"
+
+#. Confirmation box, removing the voice model: the question.
+msgctxt "confirm.removeVoices.message"
+msgid "Remove the voice model from this computer to free its space? Every Kinetic game uses it; you can download it again."
+msgstr "Elimini modelul vocal de pe acest computer pentru a elibera spațiu? Toate jocurile Kinetic îl folosesc; îl poți descărca din nou."
+
+#. Confirmation box, removing the voice model: the confirming button (short).
+msgctxt "confirm.removeVoices.button"
+msgid "Remove"
+msgstr "Elimină"
+
+#. Confirmation box, removing the voice model: the keys under the buttons.
+#. Placeholders: {yes}, {esc}, {no}.
+msgctxt "confirm.removeVoices.hint"
+msgid "{yes} removes; {esc} or {no} cancels"
+msgstr "{yes} elimină; {esc} sau {no} anulează"
+
+#. Decision screen: the last row, back to the story's main line.
+msgctxt "choice.continue"
+msgid "Return to main route"
+msgstr "Revino la ruta principală"
+
+#. Decision screen: beside a route already played.
+msgctxt "choice.seen"
+msgid "seen"
+msgstr "văzută"
+
+#. Decision screen: the hint under the question.
+msgctxt "choice.hint"
+msgid "1-9 or click picks a route"
+msgstr "1-9 sau clic pentru a alege o rută"
+
+#. Decision screen: the hint with more than nine routes ({enter} is the key).
+#. Placeholders: {enter}.
+msgctxt "choice.hintLong"
+msgid "1-9, arrows and {enter}, or click picks a route"
+msgstr "1-9, săgeți și {enter} sau clic pentru a alege o rută"
+
+#. Decision screen: added to the hint when the return row is there.
+msgctxt "choice.hintContinue"
+msgid "; 0 returns"
+msgstr "; 0 revine"
+
+#. Decision screen: added to the hint while play-all is about to pick ({space} is the key).
+#. Placeholders: {space}.
+msgctxt "choice.hintAutoPick"
+msgid "; {space} picks now"
+msgstr "; {space} alege acum"
+
+#. Decision screen, play-all: the countdown line; {seconds} left.
+#. Placeholders: {seconds}.
+msgctxt "choice.autoPick"
+msgid "Play all routes picks in {seconds} s"
+msgstr "Modul Joacă toate rutele alege în {seconds} s"
+
+#. Decision screen, play-all, after a jump back: {label} is the route just finished (game text).
+#. Placeholders: {label}, {seconds}.
+msgctxt "choice.autoPickBack"
+msgid "Back in time: “{label}” is done. Play all routes picks in {seconds} s"
+msgstr "Înapoi în timp: ruta „{label}” e terminată. Modul Joacă toate rutele alege în {seconds} s"
+
+#. At an ending, top of the screen: everything has been seen.
+msgctxt "endcard.allSeen"
+msgid "You have seen everything."
+msgstr "Ai văzut tot."
+
+#. At an ending: no routes left, but other content unseen.
+msgctxt "endcard.someUnseen"
+msgid "Some content is still unseen."
+msgstr "Mai este conținut nevăzut."
+
+#. At an ending: {count} routes and other content unseen.
+#. Placeholders: {count}.
+#. Plural form "one" (CLDR), chosen by {count}.
+msgctxt "endcard.routesAndOther#one"
+msgid "{count} route and other content still unseen."
+msgstr "Încă nevăzute: {count} rută și alt conținut."
+
+#. At an ending: {count} routes and other content unseen.
+#. Placeholders: {count}.
+#. Plural form "few" (CLDR), chosen by {count}.
+msgctxt "endcard.routesAndOther#few"
+msgid "{count} routes and other content still unseen."
+msgstr "Încă nevăzute: {count} rute și alt conținut."
+
+#. At an ending: {count} routes and other content unseen.
+#. Placeholders: {count}.
+#. Plural form "other" (CLDR), chosen by {count}.
+msgctxt "endcard.routesAndOther#other"
+msgid "{count} routes and other content still unseen."
+msgstr "Încă nevăzute: {count} de rute și alt conținut."
+
+#. At an ending: {count} routes unseen.
+#. Placeholders: {count}.
+#. Plural form "one" (CLDR), chosen by {count}.
+msgctxt "endcard.routes#one"
+msgid "{count} route still unseen."
+msgstr "Încă nevăzută: {count} rută."
+
+#. At an ending: {count} routes unseen.
+#. Placeholders: {count}.
+#. Plural form "few" (CLDR), chosen by {count}.
+msgctxt "endcard.routes#few"
+msgid "{count} routes still unseen."
+msgstr "Încă nevăzute: {count} rute."
+
+#. At an ending: {count} routes unseen.
+#. Placeholders: {count}.
+#. Plural form "other" (CLDR), chosen by {count}.
+msgctxt "endcard.routes#other"
+msgid "{count} routes still unseen."
+msgstr "Încă nevăzute: {count} de rute."
+
+#. At an ending, under the count: the key to the next unseen content.
+#. Placeholders: {key}.
+msgctxt "endcard.next"
+msgid "Press {key} for the next one."
+msgstr "Apasă {key} pentru următoarea."
+
+#. On a resume, top of the screen: unseen content earlier on ({key} is U).
+#. Placeholders: {key}.
+msgctxt "endcard.earlierUnseen"
+msgid "Earlier content you haven't seen - press {key}."
+msgstr "Există conținut anterior nevăzut: apasă {key}."
+
+#. Pill: skip mode started.
+msgctxt "pill.skipOn"
+msgid "Skip on"
+msgstr "Salt pornit"
+
+#. Pill: skip mode stopped.
+msgctxt "pill.skipOff"
+msgid "Skip off"
+msgstr "Salt oprit"
+
+#. Pill: auto-forward turned on.
+msgctxt "pill.autoForwardOn"
+msgid "Auto-forward on"
+msgstr "Avans automat pornit"
+
+#. Pill: auto-forward turned off.
+msgctxt "pill.autoForwardOff"
+msgid "Auto-forward off"
+msgstr "Avans automat oprit"
+
+#. Pill: sound turned on.
+msgctxt "pill.soundOn"
+msgid "Sound on"
+msgstr "Sunet pornit"
+
+#. Pill: sound turned off.
+msgctxt "pill.soundOff"
+msgid "Sound off"
+msgstr "Sunet oprit"
+
+#. Pill: a bookmark was saved.
+msgctxt "pill.bookmarked"
+msgid "Bookmarked"
+msgstr "Marcaj adăugat"
+
+#. Pill: the story jumped back in time to take another route.
+msgctxt "pill.backJump"
+msgid "Back to try another route"
+msgstr "Înapoi pentru a încerca altă rută"
+
+#. Pill: the route just entered; {label} is its name (game text).
+#. Placeholders: {label}.
+msgctxt "pill.route"
+msgid "Route: {label}"
+msgstr "Rută: {label}"
+
+#. Pill on a video with several camera views: which view, {index} of {count}.
+#. Placeholders: {index}, {count}.
+msgctxt "pill.segment"
+msgid "View {index} of {count}"
+msgstr "Unghiul {index} din {count}"
+
+#. Pill until the browser allows sound.
+msgctxt "audio.soundHint"
+msgid "Press any key for sound"
+msgstr "Apasă orice tastă pentru sunet"
+
+#. Shown instead of a picture: the game folder has no items at all.
+msgctxt "visual.empty"
+msgid "No content yet — this folder has an empty manifest."
+msgstr "Încă nu există conținut: acest dosar are un manifest gol."
+
+#. Shown instead of a picture: nothing to draw here.
+msgctxt "visual.nothing"
+msgid "No content to show."
+msgstr "Niciun conținut de afișat."
+
+#. Shown instead of a picture in a broken game: {id} is the item's identifier.
+#. Placeholders: {id}.
+msgctxt "visual.placeholder"
+msgid "{id} — text item with no visual"
+msgstr "{id} — element de text fără imagine"
+
+#. Volumes sheet: its heading.
+msgctxt "volumes.title"
+msgid "Volumes"
+msgstr "Volume"
+
+#. Volumes sheet: the key that closes it.
+#. Placeholders: {esc}.
+msgctxt "volumes.hint"
+msgid "{esc} closes"
+msgstr "{esc} închide"
+
+#. Volumes sheet: the closing button.
+msgctxt "volumes.done"
+msgid "Done"
+msgstr "Gata"
+
+#. Volumes sheet: the music row.
+msgctxt "volumes.music"
+msgid "Music"
+msgstr "Muzică"
+
+#. Volumes sheet: accessible name of the music slider.
+msgctxt "volumes.music.slider"
+msgid "Music volume"
+msgstr "Volumul muzicii"
+
+#. Volumes sheet: accessible name of the music minus button.
+msgctxt "volumes.music.decrease"
+msgid "Decrease music volume"
+msgstr "Scade volumul muzicii"
+
+#. Volumes sheet: accessible name of the music plus button.
+msgctxt "volumes.music.increase"
+msgid "Increase music volume"
+msgstr "Crește volumul muzicii"
+
+#. Volumes sheet: the sound effects row.
+msgctxt "volumes.effects"
+msgid "Effects"
+msgstr "Efecte"
+
+#. Volumes sheet: accessible name of the effects slider.
+msgctxt "volumes.effects.slider"
+msgid "Effects volume"
+msgstr "Volumul efectelor"
+
+#. Volumes sheet: accessible name of the effects minus button.
+msgctxt "volumes.effects.decrease"
+msgid "Decrease effects volume"
+msgstr "Scade volumul efectelor"
+
+#. Volumes sheet: accessible name of the effects plus button.
+msgctxt "volumes.effects.increase"
+msgid "Increase effects volume"
+msgstr "Crește volumul efectelor"
+
+#. Volumes sheet: the spoken lines row.
+msgctxt "volumes.voice"
+msgid "Voice"
+msgstr "Voce"
+
+#. Volumes sheet: accessible name of the voice slider.
+msgctxt "volumes.voice.slider"
+msgid "Voice volume"
+msgstr "Volumul vocii"
+
+#. Volumes sheet: accessible name of the voice minus button.
+msgctxt "volumes.voice.decrease"
+msgid "Decrease voice volume"
+msgstr "Scade volumul vocii"
+
+#. Volumes sheet: accessible name of the voice plus button.
+msgctxt "volumes.voice.increase"
+msgid "Increase voice volume"
+msgstr "Crește volumul vocii"
+
+#. Volumes sheet, Voice row: the small button that removes the installed voice model.
+msgctxt "volumes.remove"
+msgid "Remove voice model"
+msgstr "Elimină modelul vocal"
+
+#. Volumes sheet: accessible name of the remove button.
+msgctxt "volumes.removeAria"
+msgid "Remove the voice model from this computer to free its space"
+msgstr "Elimină modelul vocal de pe acest computer pentru a elibera spațiu"
+
+#. Volumes sheet: accessible name of the "?" beside the voice model's download.
+msgctxt "volumes.model.about"
+msgid "About the voice model"
+msgstr "Despre modelul vocal"
+
+#. Volumes sheet: accessible name of the voice model's download progress bar.
+msgctxt "volumes.model.progress"
+msgid "Voice model download"
+msgstr "Descărcarea modelului vocal"
+
+#. Volumes sheet: stops the voice model's download (short).
+msgctxt "volumes.model.cancel"
+msgid "Cancel"
+msgstr "Anulează"
+
+#. Volumes sheet: accessible name of the download's Cancel.
+msgctxt "volumes.model.cancelAria"
+msgid "Cancel the voice model download"
+msgstr "Anulează descărcarea modelului vocal"
+
+#. Volumes sheet: tries the failed download again (short).
+msgctxt "volumes.model.retry"
+msgid "Retry"
+msgstr "Reîncearcă"
+
+#. Volumes sheet: accessible name of Retry.
+msgctxt "volumes.model.retryAria"
+msgid "Retry the voice model download"
+msgstr "Reîncearcă descărcarea modelului vocal"
+
+#. Volumes sheet, Voice row: until the game app says the voice model's state.
+msgctxt "voice.checking"
+msgid "Checking…"
+msgstr "Se verifică…"
+
+#. Volumes sheet, the voice model's "?": a computer that cannot make spoken lines.
+msgctxt "voice.unsupported"
+msgid "Spoken lines are not available on this computer."
+msgstr "Replicile vorbite nu sunt disponibile pe acest computer."
+
+#. Volumes sheet: the voice model's download failed.
+msgctxt "voice.failed"
+msgid "The voice model could not be downloaded."
+msgstr "Modelul vocal nu a putut fi descărcat."
+
+#. Volumes sheet: the download button; {size} is its size, e.g. 3.3 GB.
+#. Placeholders: {size}.
+msgctxt "voice.download"
+msgid "Download voice model ({size})"
+msgstr "Descarcă modelul vocal ({size})"
+
+#. Volumes sheet: the tip behind the download's "?"; {size} is its size.
+#. Placeholders: {size}.
+msgctxt "voice.help"
+msgid "Spoken lines are made on this computer from the characters' voices. The voice model is downloaded once ({size}) and every Kinetic game on this computer shares it."
+msgstr "Replicile vorbite sunt generate pe acest computer din vocile personajelor. Modelul vocal se descarcă o singură dată ({size}) și este folosit în comun de toate jocurile Kinetic de pe acest computer."
+
+#. Branch map: its heading.
+msgctxt "map.title"
+msgid "Branch map"
+msgstr "Harta rutelor"
+
+#. Branch map: the Spoilers switch, on (decisions not reached show their words).
+msgctxt "map.spoilers.on"
+msgid "Spoilers: On"
+msgstr "Spoilere: Da"
+
+#. Branch map: the Spoilers switch, off (the default).
+msgctxt "map.spoilers.off"
+msgid "Spoilers: Off"
+msgstr "Spoilere: Nu"
+
+#. Branch map header button: go to the newest bookmark.
+msgctxt "map.newest"
+msgid "Newest bookmark"
+msgstr "Ultimul marcaj"
+
+#. Branch map header button: centre the view on where the reader is.
+msgctxt "map.centre"
+msgid "Centre"
+msgstr "Centrează"
+
+#. Branch map header button: the map at full size, scrolling.
+msgctxt "map.full"
+msgid "Full size"
+msgstr "Mărime reală"
+
+#. Branch map header button: the whole map fitted to the screen.
+msgctxt "map.fit"
+msgid "Fit"
+msgstr "Încadrează"
+
+#. Branch map: the hint on a header button; {key} is its key.
+#. Placeholders: {key}.
+msgctxt "map.shortcut"
+msgid "shortcut: {key}"
+msgstr "scurtătură: {key}"
+
+#. Branch map: the label under the reader's position marker (lower case).
+msgctxt "map.here"
+msgid "you are here"
+msgstr "ești aici"
+
+#. Branch map: the note after a bookmark's ×.
+msgctxt "map.toast.deleted"
+msgid "Bookmark deleted"
+msgstr "Marcaj șters"
+
+#. Branch map: the button in that note; {key} is its key (Z).
+#. Placeholders: {key}.
+msgctxt "map.toast.undo"
+msgid "Undo ({key})"
+msgstr "Anulează ({key})"
+
+#. Branch map: a bookmark card's accessible name; {time} is when it was made.
+#. Placeholders: {time}.
+msgctxt "map.card.label"
+msgid "Bookmark {time}"
+msgstr "Marcaj {time}"
+
+#. Branch map: the newest bookmark card's accessible name.
+#. Placeholders: {time}.
+msgctxt "map.card.labelNewest"
+msgid "Bookmark {time} (newest)"
+msgstr "Marcaj {time} (cel mai nou)"
+
+#. Branch map: a bookmark card's × (accessible name and hint).
+msgctxt "map.card.delete"
+msgid "Delete this bookmark"
+msgstr "Șterge acest marcaj"
+
+#. Branch map: a deleted card, until it fades (short).
+msgctxt "map.card.deleted"
+msgid "Deleted"
+msgstr "Șters"
+
+#. Branch map: brings a deleted card back (short).
+msgctxt "map.card.undo"
+msgid "Undo"
+msgstr "Anulează"
+
+#. Branch map tooltip and accessible name: {title}, then {status}.
+#. Placeholders: {title}, {status}.
+msgctxt "map.node.label"
+msgid "{title}: {status}"
+msgstr "{title}: {status}"
+
+#. Branch map tooltip: a route's title, {number}. {label} (label is game text).
+#. Placeholders: {number}, {label}.
+msgctxt "map.route.title"
+msgid "{number}. {label}"
+msgstr "{number}. {label}"
+
+#. Branch map, a route's status: never entered.
+msgctxt "map.route.unseen"
+msgid "not seen"
+msgstr "nevăzută"
+
+#. Branch map, a route's status: entered, not finished.
+msgctxt "map.route.partly"
+msgid "partly seen"
+msgstr "văzută parțial"
+
+#. Branch map, a route's status: played through.
+msgctxt "map.route.played"
+msgid "played"
+msgstr "jucată"
+
+#. Branch map, a route's outcome: it joins the story again.
+msgctxt "map.route.continues"
+msgid "continues the story"
+msgstr "continuă povestea"
+
+#. Branch map, a route's outcome: it comes back to its decision.
+msgctxt "map.route.returns"
+msgid "returns to the choice"
+msgstr "revine la decizie"
+
+#. Branch map, a route's outcome: it ends the story.
+msgctxt "map.route.ends"
+msgid "an ending"
+msgstr "un final"
+
+#. Branch map, a route's status: the route last picked there.
+msgctxt "map.route.lastPick"
+msgid "your last pick"
+msgstr "ultima ta alegere"
+
+#. Branch map, a route's status: its decision not reached.
+msgctxt "map.route.notReached"
+msgid "decision not reached yet"
+msgstr "decizia nu a fost atinsă încă"
+
+#. Branch map, a decision's status: {played} of its {count} routes played.
+#. Placeholders: {played}, {count}.
+#. Plural form "one" (CLDR), chosen by {count}.
+msgctxt "map.decision.played#one"
+msgid "{played} of {count} routes played"
+msgstr "{played} din {count} rută jucată"
+
+#. Branch map, a decision's status: {played} of its {count} routes played.
+#. Placeholders: {played}, {count}.
+#. Plural form "few" (CLDR), chosen by {count}.
+msgctxt "map.decision.played#few"
+msgid "{played} of {count} routes played"
+msgstr "{played} din {count} rute jucate"
+
+#. Branch map, a decision's status: {played} of its {count} routes played.
+#. Placeholders: {played}, {count}.
+#. Plural form "other" (CLDR), chosen by {count}.
+msgctxt "map.decision.played#other"
+msgid "{played} of {count} routes played"
+msgstr "{played} din {count} de rute jucate"
+
+#. Branch map, a decision's status: not reached yet.
+msgctxt "map.decision.notReached"
+msgid "not reached yet"
+msgstr "neatinsă încă"
+
+#. Branch map, Spoilers off: stands for a decision's question not reached.
+msgctxt "map.hidden.prompt"
+msgid "Decision not reached"
+msgstr "Decizie neatinsă"
+
+#. Branch map, Spoilers off: stands for a route's name not reached.
+msgctxt "map.hidden.route"
+msgid "Unseen route"
+msgstr "Rută nevăzută"
+
+#. Branch map, beside a stretch of story: its length in screens.
+#. Placeholders: {count}.
+#. Plural form "one" (CLDR), chosen by {count}.
+msgctxt "map.count.screens#one"
+msgid "{count} screen"
+msgstr "{count} ecran"
+
+#. Branch map, beside a stretch of story: its length in screens.
+#. Placeholders: {count}.
+#. Plural form "few" (CLDR), chosen by {count}.
+msgctxt "map.count.screens#few"
+msgid "{count} screens"
+msgstr "{count} ecrane"
+
+#. Branch map, beside a stretch of story: its length in screens.
+#. Placeholders: {count}.
+#. Plural form "other" (CLDR), chosen by {count}.
+msgctxt "map.count.screens#other"
+msgid "{count} screens"
+msgstr "{count} de ecrane"
+
+#. Branch map, beside a stretch of story: its bookmarks.
+#. Placeholders: {count}.
+#. Plural form "one" (CLDR), chosen by {count}.
+msgctxt "map.count.bookmarks#one"
+msgid "{count} bookmark"
+msgstr "{count} marcaj"
+
+#. Branch map, beside a stretch of story: its bookmarks.
+#. Placeholders: {count}.
+#. Plural form "few" (CLDR), chosen by {count}.
+msgctxt "map.count.bookmarks#few"
+msgid "{count} bookmarks"
+msgstr "{count} marcaje"
+
+#. Branch map, beside a stretch of story: its bookmarks.
+#. Placeholders: {count}.
+#. Plural form "other" (CLDR), chosen by {count}.
+msgctxt "map.count.bookmarks#other"
+msgid "{count} bookmarks"
+msgstr "{count} de marcaje"
+
+#. Import refused: the file is not JSON.
+msgctxt "transfer.notJson"
+msgid "That file is not a Kinetic progress file (it is not JSON)."
+msgstr "Acest fișier nu este un fișier de progres Kinetic (nu este JSON)."
+
+#. Import refused: the file is JSON but not a progress file.
+msgctxt "transfer.notProgress"
+msgid "That file is not a Kinetic progress file."
+msgstr "Acest fișier nu este un fișier de progres Kinetic."
+
+#. Import refused: another file version; {theirs} as written in it, {ours} a number.
+#. Placeholders: {theirs}, {ours}.
+msgctxt "transfer.version"
+msgid "That progress file is version {theirs}; this player reads version {ours}."
+msgstr "Acest fișier de progres are versiunea {theirs}; acest player citește versiunea {ours}."
+
+#. Import refused: the file's story ID is damaged.
+msgctxt "transfer.damaged.storyId"
+msgid "That progress file is damaged: its story ID is missing or malformed."
+msgstr "Acest fișier de progres este deteriorat: ID-ul poveștii lipsește sau este invalid."
+
+#. Import refused: the file's saved state is damaged.
+msgctxt "transfer.damaged.state"
+msgid "That progress file is damaged: its state is missing or malformed."
+msgstr "Acest fișier de progres este deteriorat: starea lipsește sau este invalidă."
+
+#. Import refused: the file's bookmarks are damaged.
+msgctxt "transfer.damaged.bookmarks"
+msgid "That progress file is damaged: its bookmarks are missing or malformed."
+msgstr "Acest fișier de progres este deteriorat: marcajele lipsesc sau sunt invalide."
+
+#. Import refused: another game's file; {theirs} and {here} name the two games (the phrases below).
+#. Placeholders: {theirs}, {here}.
+msgctxt "transfer.otherStory"
+msgid "That file holds progress for {theirs}, not {here}."
+msgstr "Acest fișier conține progresul pentru {theirs}, nu pentru {here}."
+
+#. Names a game by its title in the message above; {title} is game text.
+#. Placeholders: {title}.
+msgctxt "transfer.story.titled"
+msgid "\"{title}\""
+msgstr "„{title}”"
+
+#. Names a game by its story ID in the message above.
+#. Placeholders: {id}.
+msgctxt "transfer.story.id"
+msgid "the story \"{id}\""
+msgstr "povestea „{id}”"
+
+#. Names a file's game that has neither title nor ID, in the message above.
+msgctxt "transfer.story.noId"
+msgid "a story without an ID"
+msgstr "o poveste fără ID"
+
+#. Names this game, untitled, in the message above.
+msgctxt "transfer.story.this"
+msgid "this story"
+msgstr "această poveste"

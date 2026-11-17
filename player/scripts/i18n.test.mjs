@@ -5,11 +5,13 @@ import { describe, expect, it } from "vitest";
 import { EN } from "../src/i18n/en.ts";
 import { pseudoCatalogue } from "../src/i18n/pseudo.ts";
 import {
+  auditLocale,
   buildModule,
   buildPot,
   compilePo,
   EN_SOURCE,
   generateI18n,
+  LOCALES_DIR,
   localeTags,
   placeholdersOf,
   readNotes,
@@ -167,6 +169,82 @@ describe("compilePo", () => {
       "de.po:32: msgid_plural is not used (msgctxt key#category is)",
       'de.po: "map.count.bookmarks" has no "other" form; left out',
     ]);
+  });
+});
+
+describe("auditLocale: a complete catalogue in its language", () => {
+  const draft = "# Kinetic player: X.\n# An unreviewed draft.\n";
+  /** A full translation of EN with `forms` for each plural message. */
+  function full(forms, header = draft) {
+    const catalogue = {};
+    for (const [key, message] of Object.entries(EN)) {
+      catalogue[key] = typeof message === "string" ? message : forms(message);
+    }
+    return header + poFor(catalogue);
+  }
+
+  it("passes a full translation with the language's plural forms", () => {
+    const ru = full((m) => ({
+      one: m.other,
+      few: m.other,
+      many: m.other,
+      other: m.other,
+    }));
+    expect(auditLocale("ru", ru)).toEqual([]);
+    expect(
+      auditLocale(
+        "ja",
+        full((m) => ({ other: m.other })),
+      ),
+    ).toEqual([]);
+  });
+
+  it("names a missing plural category the language uses", () => {
+    const text = full((m) => ({ one: m.one, other: m.other }));
+    expect(auditLocale("pl", text)).toContain(
+      'pl.po: "map.count.screens" lacks the "few" form pl uses',
+    );
+  });
+
+  it("lets a form drop {count} only where its category is one number", () => {
+    const one = (m) => ({
+      one: m.one.replaceAll("{count}", "1").replaceAll("{count} ", ""),
+      other: m.other,
+    });
+    // German "one" is 1 alone; Croatian "one" is also 21, 31 ...
+    expect(auditLocale("de", full(one))).toEqual([]);
+    const hr = full((m) => ({ ...one(m), few: m.other }));
+    expect(auditLocale("hr", hr)).toContain(
+      'hr.po: "map.count.screens#one" lacks {count}',
+    );
+    // {played} varies whatever the category.
+    const played = full((m) => ({
+      one: m.one.replaceAll("{played}", "x"),
+      other: m.other,
+    }));
+    expect(auditLocale("de", played)).toContain(
+      'de.po: "map.decision.played#one" lacks {played}',
+    );
+  });
+
+  it("names an untranslated message and a header with no draft mark", () => {
+    const text = full((m) => m, "# Kinetic player.\n").replace(
+      /msgctxt "help.title"\nmsgid "source"\nmsgstr "Keys"/,
+      'msgctxt "help.title"\nmsgid "source"\nmsgstr ""',
+    );
+    expect(auditLocale("de", text)).toEqual([
+      "de.po: the header does not say it is an unreviewed draft",
+      'de.po: "help.title" is not translated',
+    ]);
+  });
+
+  it("every player/locales/<tag>.po is complete, with matching placeholders", () => {
+    const tags = localeTags();
+    expect(tags.length).toBeGreaterThan(0);
+    for (const tag of tags) {
+      const text = readFileSync(join(LOCALES_DIR, `${tag}.po`), "utf8");
+      expect(auditLocale(tag, text), tag).toEqual([]);
+    }
   });
 });
 

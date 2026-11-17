@@ -1,0 +1,954 @@
+# Kinetic player: Traditional Chinese (Taiwan) (zh-Hant).
+# An unreviewed draft written by an AI model on 2026-11-16.
+# Corrections are welcome: docs/verify-player.md, "The player's words".
+msgid ""
+msgstr ""
+"Project-Id-Version: Kinetic player\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Language: zh-Hant\n"
+
+#. Browser tab title when the game names itself nothing (the player's name).
+msgctxt "page.title"
+msgid "Kinetic"
+msgstr "Kinetic"
+
+#. Shown in place of the game when its files cannot be read; {detail} is a technical reason, in English.
+#. Placeholders: {detail}.
+msgctxt "error.load"
+msgid "Could not load the content: {detail}"
+msgstr "無法載入內容：{detail}"
+
+#. Esc screen: the heading over the grid of keys.
+msgctxt "help.title"
+msgid "Keys"
+msgstr "按鍵"
+
+#. Esc screen, title bar: the keys that close the screen.
+#. Placeholders: {esc}, {space}.
+msgctxt "help.hint"
+msgid "{esc} or {space} closes"
+msgstr "按 {esc} 或 {space} 關閉"
+
+#. Esc screen, title bar: accessible name of the Language control, a button opening the list of the game's languages; {language} is the language shown now, named in itself (e.g. Deutsch).
+#. Placeholders: {language}.
+msgctxt "lang.control"
+msgid "Language: {language}"
+msgstr "語言：{language}"
+
+#. Esc screen: accessible name of the open list of the game's languages (each named in itself).
+msgctxt "lang.list"
+msgid "Language"
+msgstr "語言"
+
+#. Pill when a language of the game cannot be read: the game stays in the language it was in. {language} is that language named in itself (e.g. Deutsch).
+#. Placeholders: {language}.
+msgctxt "lang.unavailable"
+msgid "{language} could not be loaded"
+msgstr "無法載入{language}"
+
+#. Esc screen, bottom corner: the player's name and release ({version}, e.g. 1.10.0).
+#. Placeholders: {version}.
+msgctxt "help.kinetic"
+msgid "Kinetic {version}"
+msgstr "Kinetic {version}"
+
+#. Esc screen, key grid: the cap drawn for the mouse wheel (one cap, short).
+msgctxt "keys.wheel.cap"
+msgid "wheel"
+msgstr "滾輪"
+
+#. Esc screen, key grid: what Space does (lower case, short).
+msgctxt "keys.advance"
+msgid "next item; stops auto-forward"
+msgstr "下一項；停止自動播放"
+
+#. Esc screen, key grid: what the Left and Right arrows do.
+msgctxt "keys.segments"
+msgid "previous / next view of a video"
+msgstr "影片的上一個/下一個視角"
+
+#. Esc screen, key grid: what the mouse wheel does.
+msgctxt "keys.wheel"
+msgid "back / forward through the story"
+msgstr "在故事中後退/前進"
+
+#. Esc screen, key grid: what E does.
+msgctxt "keys.end"
+msgid "jump to the furthest point read"
+msgstr "跳到讀過的最遠處"
+
+#. Esc screen, key grid: what U does.
+msgctxt "keys.unseen"
+msgid "next unseen content"
+msgstr "下一處未讀內容"
+
+#. Esc screen, key grid: what Tab does.
+msgctxt "keys.skip"
+msgid "skip what you have seen"
+msgstr "略過已讀內容"
+
+#. Esc screen, key grid: what A does.
+msgctxt "keys.autoForward"
+msgid "auto-forward on / off"
+msgstr "開啟/關閉自動播放"
+
+#. Esc screen, key grid: what H does.
+msgctxt "keys.text"
+msgid "hide / show the text"
+msgstr "隱藏/顯示文字"
+
+#. Esc screen, key grid: what V does (games with sound).
+msgctxt "keys.sound"
+msgid "sound on / off"
+msgstr "開啟/關閉聲音"
+
+#. Esc screen, key grid: what B does.
+msgctxt "keys.bookmark"
+msgid "bookmark this moment"
+msgstr "將此刻加入書籤"
+
+#. Esc screen, key grid: what M does (a click on the row opens the map too).
+msgctxt "keys.map"
+msgid "branch map and bookmarks"
+msgstr "分支圖和書籤"
+
+#. Esc screen, key grid: what Esc does.
+msgctxt "keys.escape"
+msgid "this screen: keys and settings; closes the map"
+msgstr "本畫面：按鍵和設定；關閉分支圖"
+
+#. Esc screen, key grid: the keys at a decision (1-9, 0, arrows, Enter).
+msgctxt "keys.decision"
+msgid "at a decision: pick a route; 0 returns to main route"
+msgstr "在選擇點：選擇路線；0 回到主線"
+
+#. Esc screen: the heading over the settings.
+msgctxt "config.title"
+msgid "Settings"
+msgstr "設定"
+
+#. Settings: the reading speed row's label (it paces auto-forward).
+msgctxt "config.speed.label"
+msgid "Auto-forward speed"
+msgstr "自動播放速度"
+
+#. Settings: accessible name of the "?" after the speed label.
+msgctxt "config.speed.about"
+msgid "About auto-forward speed"
+msgstr "關於自動播放速度"
+
+#. Settings: the tip behind the speed's "?".
+msgctxt "config.speed.tip"
+msgid "Also times play-all's choice countdown."
+msgstr "也決定「播放所有路線」的選擇倒數時間。"
+
+#. Settings: accessible name of the speed's minus button.
+msgctxt "config.speed.decrease"
+msgid "Decrease auto-forward speed"
+msgstr "降低自動播放速度"
+
+#. Settings: accessible name of the speed's plus button.
+msgctxt "config.speed.increase"
+msgid "Increase auto-forward speed"
+msgstr "提高自動播放速度"
+
+#. Settings: the speed readout, small; {speed} is the multiplier (1.00), {ms} the milliseconds per character.
+#. Placeholders: {speed}, {ms}.
+msgctxt "config.speed.readout"
+msgid "{speed}x (~{ms} ms/char)"
+msgstr "{speed}x（每字約 {ms} 毫秒）"
+
+#. Settings: the heading over the two options of how Tab skips ({tab} is the key).
+#. Placeholders: {tab}.
+msgctxt "config.skip.section"
+msgid "When {tab} skips"
+msgstr "按 {tab} 略過時"
+
+#. Settings: option under "When Tab skips": skipping also passes content never seen.
+msgctxt "config.skip.all"
+msgid "Skip unseen content too"
+msgstr "也略過未讀內容"
+
+#. Settings: option under "When Tab skips": a skip plays each video in full.
+msgctxt "config.skip.videos"
+msgid "Play videos in full"
+msgstr "完整播放影片"
+
+#. Settings: a switch's state, on (short).
+msgctxt "config.on"
+msgid "On"
+msgstr "開啟"
+
+#. Settings: a switch's state, off (short).
+msgctxt "config.off"
+msgid "Off"
+msgstr "關閉"
+
+#. Settings: the switch that makes every decision pick itself in turn.
+msgctxt "config.playAll"
+msgid "Play all routes"
+msgstr "播放所有路線"
+
+#. Settings: accessible name of the "?" after "Play all routes".
+msgctxt "config.playAll.about"
+msgid "About play all routes"
+msgstr "關於播放所有路線"
+
+#. Settings: the tip behind "Play all routes"' "?".
+msgctxt "config.playAll.tip"
+msgid "When on, choices pick themselves on a countdown."
+msgstr "開啟後，倒數結束時會自動選擇選項。"
+
+#. Settings: the Sound row's label (games with sound).
+msgctxt "config.sound"
+msgid "Sound"
+msgstr "聲音"
+
+#. Settings: the button that opens the Volumes sheet.
+msgctxt "config.sound.volumes"
+msgid "Volumes…"
+msgstr "音量…"
+
+#. Settings: accessible name of the Volumes… button.
+msgctxt "config.sound.volumesAria"
+msgid "Sound volumes"
+msgstr "聲音音量"
+
+#. Settings: the heading over Export, Import and Reset.
+msgctxt "config.progress.section"
+msgid "Progress"
+msgstr "進度"
+
+#. Settings: after the Progress heading, dimmer: saving needs no action.
+msgctxt "config.progress.saved"
+msgid "saved automatically"
+msgstr "自動儲存"
+
+#. Settings: accessible name of the "?" after the Progress heading.
+msgctxt "config.progress.about"
+msgid "About progress"
+msgstr "關於進度"
+
+#. Settings: the Export row's label.
+msgctxt "config.export.label"
+msgid "Export progress"
+msgstr "匯出進度"
+
+#. Settings: the Export row's button (short).
+msgctxt "config.export.button"
+msgid "Export"
+msgstr "匯出"
+
+#. Settings: accessible name of the Export button.
+msgctxt "config.export.aria"
+msgid "Export this story's progress to a file"
+msgstr "將此故事的進度匯出成檔案"
+
+#. Notice pill after an export (the file's name is not said).
+msgctxt "config.export.done"
+msgid "Progress exported"
+msgstr "已匯出進度"
+
+#. Settings: the Import row's label.
+msgctxt "config.import.label"
+msgid "Import progress"
+msgstr "匯入進度"
+
+#. Settings: the Import row's button, which opens a file picker (short).
+msgctxt "config.import.button"
+msgid "Import…"
+msgstr "匯入…"
+
+#. Notice pill: the picked file could not be read at all.
+msgctxt "config.import.unreadable"
+msgid "That file could not be read."
+msgstr "無法讀取該檔案。"
+
+#. Settings: the Reset row's label.
+msgctxt "config.reset.label"
+msgid "Reset progress"
+msgstr "重設進度"
+
+#. Settings: the Reset row's button, which opens a confirmation (short).
+msgctxt "config.reset.button"
+msgid "Reset…"
+msgstr "重設…"
+
+#. Settings: accessible name of the Reset button.
+msgctxt "config.reset.aria"
+msgid "Reset all progress for this content"
+msgstr "重設此內容的所有進度"
+
+#. Settings (in a browser tab): the tip behind the Progress "?".
+msgctxt "wording.browser.progressTip"
+msgid "Saved in this browser as you read. Export and Import carry it to another browser."
+msgstr "閱讀時會儲存在此瀏覽器中。使用匯出和匯入可將進度移到其他瀏覽器。"
+
+#. Notice pill (browser tab): a confirmed import that storage refused.
+msgctxt "wording.browser.importFailed"
+msgid "The import failed: this browser's storage refused it. Nothing was changed."
+msgstr "匯入失敗：此瀏覽器的儲存空間拒絕了匯入。未做任何變更。"
+
+#. Settings (browser tab): accessible name of the Import button.
+msgctxt "wording.browser.importAria"
+msgid "Import progress from a file, replacing this browser's"
+msgstr "從檔案匯入進度，取代此瀏覽器中的進度"
+
+#. Import confirmation (browser tab); {story} is the game's name or "this story".
+#. Placeholders: {story}.
+msgctxt "wording.browser.importConfirm"
+msgid "Replace this browser's progress for {story} with the imported file?"
+msgstr "要以匯入的檔案取代此瀏覽器中{story}的進度嗎？"
+
+#. Settings (game app): the tip behind the Progress "?".
+msgctxt "wording.app.progressTip"
+msgid "Saved as you read. Export and Import carry it to another device."
+msgstr "閱讀時會自動儲存。使用匯出和匯入可將進度移到其他裝置。"
+
+#. Notice pill (game app): a confirmed import that storage refused.
+msgctxt "wording.app.importFailed"
+msgid "The import failed: this computer's storage refused it. Nothing was changed."
+msgstr "匯入失敗：此電腦的儲存空間拒絕了匯入。未做任何變更。"
+
+#. Settings (game app): accessible name of the Import button.
+msgctxt "wording.app.importAria"
+msgid "Import progress from a file, replacing the progress saved here"
+msgstr "從檔案匯入進度，取代儲存在此處的進度"
+
+#. Import confirmation (game app); {story} is the game's name or "this story".
+#. Placeholders: {story}.
+msgctxt "wording.app.importConfirm"
+msgid "Replace the progress saved here for {story} with the imported file?"
+msgstr "要以匯入的檔案取代此處儲存的{story}進度嗎？"
+
+#. Import confirmation: stands for {story} when the game names itself nothing.
+msgctxt "wording.thisStory"
+msgid "this story"
+msgstr "此故事"
+
+#. Settings: the heading over the window controls.
+msgctxt "window.section"
+msgid "Game window"
+msgstr "遊戲視窗"
+
+#. Settings, Game window: the label of the Fullscreen | Window switch (read by screen readers).
+msgctxt "window.display"
+msgid "Display"
+msgstr "顯示"
+
+#. Settings, Game window: one half of the display switch.
+msgctxt "window.fullscreen"
+msgid "Fullscreen"
+msgstr "全螢幕"
+
+#. Settings, Game window: the other half of the display switch.
+msgctxt "window.window"
+msgid "Window"
+msgstr "視窗"
+
+#. Settings, Game window: the button that quits (short).
+msgctxt "window.exit"
+msgid "Exit"
+msgstr "結束"
+
+#. Settings, Game window: the Exit row's label and the button's accessible name.
+msgctxt "window.exitLabel"
+msgid "Exit the game"
+msgstr "結束遊戲"
+
+#. Notice pill: a browser tab the page may not close.
+msgctxt "window.closeTab"
+msgid "This browser keeps the tab open: close the tab to exit."
+msgstr "此瀏覽器會保持分頁開啟：請關閉分頁以結束。"
+
+#. Confirmation box: the button that changes nothing.
+msgctxt "confirm.cancel"
+msgid "Cancel"
+msgstr "取消"
+
+#. Confirmation box, reset: its heading.
+msgctxt "confirm.reset.title"
+msgid "Reset progress"
+msgstr "重設進度"
+
+#. Confirmation box, reset: the question.
+msgctxt "confirm.reset.message"
+msgid "Reset all progress for this content? This clears resume position, seen items, routes, bookmarks and settings."
+msgstr "要重設此內容的所有進度嗎？這會清除續讀位置、已讀項目、路線、書籤和設定。"
+
+#. Confirmation box, reset: the confirming button (short).
+msgctxt "confirm.reset.button"
+msgid "Reset"
+msgstr "重設"
+
+#. Confirmation box, reset: the keys under the buttons.
+#. Placeholders: {yes}, {esc}, {no}.
+msgctxt "confirm.reset.hint"
+msgid "{yes} resets; {esc} or {no} cancels"
+msgstr "{yes} 重設；{esc} 或 {no} 取消"
+
+#. Confirmation box, import: its heading.
+msgctxt "confirm.import.title"
+msgid "Import progress"
+msgstr "匯入進度"
+
+#. Confirmation box, import: the confirming button (short).
+msgctxt "confirm.import.button"
+msgid "Import"
+msgstr "匯入"
+
+#. Confirmation box, import: the keys under the buttons.
+#. Placeholders: {yes}, {esc}, {no}.
+msgctxt "confirm.import.hint"
+msgid "{yes} imports; {esc} or {no} cancels"
+msgstr "{yes} 匯入；{esc} 或 {no} 取消"
+
+#. Confirmation box, removing the voice model: its heading.
+msgctxt "confirm.removeVoices.title"
+msgid "Remove voice model"
+msgstr "移除語音模型"
+
+#. Confirmation box, removing the voice model: the question.
+msgctxt "confirm.removeVoices.message"
+msgid "Remove the voice model from this computer to free its space? Every Kinetic game uses it; you can download it again."
+msgstr "要從此電腦移除語音模型以釋放空間嗎？所有 Kinetic 遊戲都會使用它；你可以再次下載。"
+
+#. Confirmation box, removing the voice model: the confirming button (short).
+msgctxt "confirm.removeVoices.button"
+msgid "Remove"
+msgstr "移除"
+
+#. Confirmation box, removing the voice model: the keys under the buttons.
+#. Placeholders: {yes}, {esc}, {no}.
+msgctxt "confirm.removeVoices.hint"
+msgid "{yes} removes; {esc} or {no} cancels"
+msgstr "{yes} 移除；{esc} 或 {no} 取消"
+
+#. Decision screen: the last row, back to the story's main line.
+msgctxt "choice.continue"
+msgid "Return to main route"
+msgstr "回到主線"
+
+#. Decision screen: beside a route already played.
+msgctxt "choice.seen"
+msgid "seen"
+msgstr "已讀"
+
+#. Decision screen: the hint under the question.
+msgctxt "choice.hint"
+msgid "1-9 or click picks a route"
+msgstr "按 1-9 或按一下以選擇路線"
+
+#. Decision screen: the hint with more than nine routes ({enter} is the key).
+#. Placeholders: {enter}.
+msgctxt "choice.hintLong"
+msgid "1-9, arrows and {enter}, or click picks a route"
+msgstr "按 1-9、方向鍵和 {enter}，或按一下以選擇路線"
+
+#. Decision screen: added to the hint when the return row is there.
+msgctxt "choice.hintContinue"
+msgid "; 0 returns"
+msgstr "；按 0 返回"
+
+#. Decision screen: added to the hint while play-all is about to pick ({space} is the key).
+#. Placeholders: {space}.
+msgctxt "choice.hintAutoPick"
+msgid "; {space} picks now"
+msgstr "；按 {space} 立即選擇"
+
+#. Decision screen, play-all: the countdown line; {seconds} left.
+#. Placeholders: {seconds}.
+msgctxt "choice.autoPick"
+msgid "Play all routes picks in {seconds} s"
+msgstr "播放所有路線：{seconds} 秒後選擇"
+
+#. Decision screen, play-all, after a jump back: {label} is the route just finished (game text).
+#. Placeholders: {label}, {seconds}.
+msgctxt "choice.autoPickBack"
+msgid "Back in time: “{label}” is done. Play all routes picks in {seconds} s"
+msgstr "已回溯：「{label}」已完成。播放所有路線：{seconds} 秒後選擇"
+
+#. At an ending, top of the screen: everything has been seen.
+msgctxt "endcard.allSeen"
+msgid "You have seen everything."
+msgstr "你已看完所有內容。"
+
+#. At an ending: no routes left, but other content unseen.
+msgctxt "endcard.someUnseen"
+msgid "Some content is still unseen."
+msgstr "仍有未讀內容。"
+
+#. At an ending: {count} routes and other content unseen.
+#. Placeholders: {count}.
+#. Plural form "other" (CLDR), chosen by {count}.
+msgctxt "endcard.routesAndOther#other"
+msgid "{count} routes and other content still unseen."
+msgstr "還有 {count} 條路線和其他內容未讀。"
+
+#. At an ending: {count} routes unseen.
+#. Placeholders: {count}.
+#. Plural form "other" (CLDR), chosen by {count}.
+msgctxt "endcard.routes#other"
+msgid "{count} routes still unseen."
+msgstr "還有 {count} 條路線未讀。"
+
+#. At an ending, under the count: the key to the next unseen content.
+#. Placeholders: {key}.
+msgctxt "endcard.next"
+msgid "Press {key} for the next one."
+msgstr "按 {key} 前往下一處。"
+
+#. On a resume, top of the screen: unseen content earlier on ({key} is U).
+#. Placeholders: {key}.
+msgctxt "endcard.earlierUnseen"
+msgid "Earlier content you haven't seen - press {key}."
+msgstr "前面有你未讀的內容——按 {key}。"
+
+#. Pill: skip mode started.
+msgctxt "pill.skipOn"
+msgid "Skip on"
+msgstr "已開啟略過"
+
+#. Pill: skip mode stopped.
+msgctxt "pill.skipOff"
+msgid "Skip off"
+msgstr "已關閉略過"
+
+#. Pill: auto-forward turned on.
+msgctxt "pill.autoForwardOn"
+msgid "Auto-forward on"
+msgstr "已開啟自動播放"
+
+#. Pill: auto-forward turned off.
+msgctxt "pill.autoForwardOff"
+msgid "Auto-forward off"
+msgstr "已關閉自動播放"
+
+#. Pill: sound turned on.
+msgctxt "pill.soundOn"
+msgid "Sound on"
+msgstr "已開啟聲音"
+
+#. Pill: sound turned off.
+msgctxt "pill.soundOff"
+msgid "Sound off"
+msgstr "已關閉聲音"
+
+#. Pill: a bookmark was saved.
+msgctxt "pill.bookmarked"
+msgid "Bookmarked"
+msgstr "已加入書籤"
+
+#. Pill: the story jumped back in time to take another route.
+msgctxt "pill.backJump"
+msgid "Back to try another route"
+msgstr "已返回，嘗試其他路線"
+
+#. Pill: the route just entered; {label} is its name (game text).
+#. Placeholders: {label}.
+msgctxt "pill.route"
+msgid "Route: {label}"
+msgstr "路線：{label}"
+
+#. Pill on a video with several camera views: which view, {index} of {count}.
+#. Placeholders: {index}, {count}.
+msgctxt "pill.segment"
+msgid "View {index} of {count}"
+msgstr "視角 {index}/{count}"
+
+#. Pill until the browser allows sound.
+msgctxt "audio.soundHint"
+msgid "Press any key for sound"
+msgstr "按任意鍵開啟聲音"
+
+#. Shown instead of a picture: the game folder has no items at all.
+msgctxt "visual.empty"
+msgid "No content yet — this folder has an empty manifest."
+msgstr "尚無內容——此資料夾的資訊清單是空的。"
+
+#. Shown instead of a picture: nothing to draw here.
+msgctxt "visual.nothing"
+msgid "No content to show."
+msgstr "沒有可顯示的內容。"
+
+#. Shown instead of a picture in a broken game: {id} is the item's identifier.
+#. Placeholders: {id}.
+msgctxt "visual.placeholder"
+msgid "{id} — text item with no visual"
+msgstr "{id} — 沒有畫面的文字項目"
+
+#. Volumes sheet: its heading.
+msgctxt "volumes.title"
+msgid "Volumes"
+msgstr "音量"
+
+#. Volumes sheet: the key that closes it.
+#. Placeholders: {esc}.
+msgctxt "volumes.hint"
+msgid "{esc} closes"
+msgstr "按 {esc} 關閉"
+
+#. Volumes sheet: the closing button.
+msgctxt "volumes.done"
+msgid "Done"
+msgstr "完成"
+
+#. Volumes sheet: the music row.
+msgctxt "volumes.music"
+msgid "Music"
+msgstr "音樂"
+
+#. Volumes sheet: accessible name of the music slider.
+msgctxt "volumes.music.slider"
+msgid "Music volume"
+msgstr "音樂音量"
+
+#. Volumes sheet: accessible name of the music minus button.
+msgctxt "volumes.music.decrease"
+msgid "Decrease music volume"
+msgstr "降低音樂音量"
+
+#. Volumes sheet: accessible name of the music plus button.
+msgctxt "volumes.music.increase"
+msgid "Increase music volume"
+msgstr "提高音樂音量"
+
+#. Volumes sheet: the sound effects row.
+msgctxt "volumes.effects"
+msgid "Effects"
+msgstr "音效"
+
+#. Volumes sheet: accessible name of the effects slider.
+msgctxt "volumes.effects.slider"
+msgid "Effects volume"
+msgstr "音效音量"
+
+#. Volumes sheet: accessible name of the effects minus button.
+msgctxt "volumes.effects.decrease"
+msgid "Decrease effects volume"
+msgstr "降低音效音量"
+
+#. Volumes sheet: accessible name of the effects plus button.
+msgctxt "volumes.effects.increase"
+msgid "Increase effects volume"
+msgstr "提高音效音量"
+
+#. Volumes sheet: the spoken lines row.
+msgctxt "volumes.voice"
+msgid "Voice"
+msgstr "語音"
+
+#. Volumes sheet: accessible name of the voice slider.
+msgctxt "volumes.voice.slider"
+msgid "Voice volume"
+msgstr "語音音量"
+
+#. Volumes sheet: accessible name of the voice minus button.
+msgctxt "volumes.voice.decrease"
+msgid "Decrease voice volume"
+msgstr "降低語音音量"
+
+#. Volumes sheet: accessible name of the voice plus button.
+msgctxt "volumes.voice.increase"
+msgid "Increase voice volume"
+msgstr "提高語音音量"
+
+#. Volumes sheet, Voice row: the small button that removes the installed voice model.
+msgctxt "volumes.remove"
+msgid "Remove voice model"
+msgstr "移除語音模型"
+
+#. Volumes sheet: accessible name of the remove button.
+msgctxt "volumes.removeAria"
+msgid "Remove the voice model from this computer to free its space"
+msgstr "從此電腦移除語音模型以釋放空間"
+
+#. Volumes sheet: accessible name of the "?" beside the voice model's download.
+msgctxt "volumes.model.about"
+msgid "About the voice model"
+msgstr "關於語音模型"
+
+#. Volumes sheet: accessible name of the voice model's download progress bar.
+msgctxt "volumes.model.progress"
+msgid "Voice model download"
+msgstr "語音模型下載"
+
+#. Volumes sheet: stops the voice model's download (short).
+msgctxt "volumes.model.cancel"
+msgid "Cancel"
+msgstr "取消"
+
+#. Volumes sheet: accessible name of the download's Cancel.
+msgctxt "volumes.model.cancelAria"
+msgid "Cancel the voice model download"
+msgstr "取消下載語音模型"
+
+#. Volumes sheet: tries the failed download again (short).
+msgctxt "volumes.model.retry"
+msgid "Retry"
+msgstr "重試"
+
+#. Volumes sheet: accessible name of Retry.
+msgctxt "volumes.model.retryAria"
+msgid "Retry the voice model download"
+msgstr "重試下載語音模型"
+
+#. Volumes sheet, Voice row: until the game app says the voice model's state.
+msgctxt "voice.checking"
+msgid "Checking…"
+msgstr "檢查中…"
+
+#. Volumes sheet, the voice model's "?": a computer that cannot make spoken lines.
+msgctxt "voice.unsupported"
+msgid "Spoken lines are not available on this computer."
+msgstr "此電腦不支援台詞語音。"
+
+#. Volumes sheet: the voice model's download failed.
+msgctxt "voice.failed"
+msgid "The voice model could not be downloaded."
+msgstr "無法下載語音模型。"
+
+#. Volumes sheet: the download button; {size} is its size, e.g. 3.3 GB.
+#. Placeholders: {size}.
+msgctxt "voice.download"
+msgid "Download voice model ({size})"
+msgstr "下載語音模型（{size}）"
+
+#. Volumes sheet: the tip behind the download's "?"; {size} is its size.
+#. Placeholders: {size}.
+msgctxt "voice.help"
+msgid "Spoken lines are made on this computer from the characters' voices. The voice model is downloaded once ({size}) and every Kinetic game on this computer shares it."
+msgstr "台詞語音會在此電腦上依角色的聲音產生。語音模型只需下載一次（{size}），此電腦上的所有 Kinetic 遊戲共用。"
+
+#. Branch map: its heading.
+msgctxt "map.title"
+msgid "Branch map"
+msgstr "分支圖"
+
+#. Branch map: the Spoilers switch, on (decisions not reached show their words).
+msgctxt "map.spoilers.on"
+msgid "Spoilers: On"
+msgstr "爆雷：開啟"
+
+#. Branch map: the Spoilers switch, off (the default).
+msgctxt "map.spoilers.off"
+msgid "Spoilers: Off"
+msgstr "爆雷：關閉"
+
+#. Branch map header button: go to the newest bookmark.
+msgctxt "map.newest"
+msgid "Newest bookmark"
+msgstr "最新書籤"
+
+#. Branch map header button: centre the view on where the reader is.
+msgctxt "map.centre"
+msgid "Centre"
+msgstr "置中"
+
+#. Branch map header button: the map at full size, scrolling.
+msgctxt "map.full"
+msgid "Full size"
+msgstr "實際大小"
+
+#. Branch map header button: the whole map fitted to the screen.
+msgctxt "map.fit"
+msgid "Fit"
+msgstr "符合畫面"
+
+#. Branch map: the hint on a header button; {key} is its key.
+#. Placeholders: {key}.
+msgctxt "map.shortcut"
+msgid "shortcut: {key}"
+msgstr "快速鍵：{key}"
+
+#. Branch map: the label under the reader's position marker (lower case).
+msgctxt "map.here"
+msgid "you are here"
+msgstr "你在這裡"
+
+#. Branch map: the note after a bookmark's ×.
+msgctxt "map.toast.deleted"
+msgid "Bookmark deleted"
+msgstr "已刪除書籤"
+
+#. Branch map: the button in that note; {key} is its key (Z).
+#. Placeholders: {key}.
+msgctxt "map.toast.undo"
+msgid "Undo ({key})"
+msgstr "還原（{key}）"
+
+#. Branch map: a bookmark card's accessible name; {time} is when it was made.
+#. Placeholders: {time}.
+msgctxt "map.card.label"
+msgid "Bookmark {time}"
+msgstr "書籤 {time}"
+
+#. Branch map: the newest bookmark card's accessible name.
+#. Placeholders: {time}.
+msgctxt "map.card.labelNewest"
+msgid "Bookmark {time} (newest)"
+msgstr "書籤 {time}（最新）"
+
+#. Branch map: a bookmark card's × (accessible name and hint).
+msgctxt "map.card.delete"
+msgid "Delete this bookmark"
+msgstr "刪除此書籤"
+
+#. Branch map: a deleted card, until it fades (short).
+msgctxt "map.card.deleted"
+msgid "Deleted"
+msgstr "已刪除"
+
+#. Branch map: brings a deleted card back (short).
+msgctxt "map.card.undo"
+msgid "Undo"
+msgstr "還原"
+
+#. Branch map tooltip and accessible name: {title}, then {status}.
+#. Placeholders: {title}, {status}.
+msgctxt "map.node.label"
+msgid "{title}: {status}"
+msgstr "{title}：{status}"
+
+#. Branch map tooltip: a route's title, {number}. {label} (label is game text).
+#. Placeholders: {number}, {label}.
+msgctxt "map.route.title"
+msgid "{number}. {label}"
+msgstr "{number}. {label}"
+
+#. Branch map, a route's status: never entered.
+msgctxt "map.route.unseen"
+msgid "not seen"
+msgstr "未讀"
+
+#. Branch map, a route's status: entered, not finished.
+msgctxt "map.route.partly"
+msgid "partly seen"
+msgstr "部分已讀"
+
+#. Branch map, a route's status: played through.
+msgctxt "map.route.played"
+msgid "played"
+msgstr "已玩完"
+
+#. Branch map, a route's outcome: it joins the story again.
+msgctxt "map.route.continues"
+msgid "continues the story"
+msgstr "繼續故事"
+
+#. Branch map, a route's outcome: it comes back to its decision.
+msgctxt "map.route.returns"
+msgid "returns to the choice"
+msgstr "回到選擇點"
+
+#. Branch map, a route's outcome: it ends the story.
+msgctxt "map.route.ends"
+msgid "an ending"
+msgstr "結局"
+
+#. Branch map, a route's status: the route last picked there.
+msgctxt "map.route.lastPick"
+msgid "your last pick"
+msgstr "你上次的選擇"
+
+#. Branch map, a route's status: its decision not reached.
+msgctxt "map.route.notReached"
+msgid "decision not reached yet"
+msgstr "尚未到達選擇點"
+
+#. Branch map, a decision's status: {played} of its {count} routes played.
+#. Placeholders: {played}, {count}.
+#. Plural form "other" (CLDR), chosen by {count}.
+msgctxt "map.decision.played#other"
+msgid "{played} of {count} routes played"
+msgstr "{count} 條路線中已玩 {played} 條"
+
+#. Branch map, a decision's status: not reached yet.
+msgctxt "map.decision.notReached"
+msgid "not reached yet"
+msgstr "尚未到達"
+
+#. Branch map, Spoilers off: stands for a decision's question not reached.
+msgctxt "map.hidden.prompt"
+msgid "Decision not reached"
+msgstr "未到達的選擇點"
+
+#. Branch map, Spoilers off: stands for a route's name not reached.
+msgctxt "map.hidden.route"
+msgid "Unseen route"
+msgstr "未讀路線"
+
+#. Branch map, beside a stretch of story: its length in screens.
+#. Placeholders: {count}.
+#. Plural form "other" (CLDR), chosen by {count}.
+msgctxt "map.count.screens#other"
+msgid "{count} screens"
+msgstr "{count} 個畫面"
+
+#. Branch map, beside a stretch of story: its bookmarks.
+#. Placeholders: {count}.
+#. Plural form "other" (CLDR), chosen by {count}.
+msgctxt "map.count.bookmarks#other"
+msgid "{count} bookmarks"
+msgstr "{count} 個書籤"
+
+#. Import refused: the file is not JSON.
+msgctxt "transfer.notJson"
+msgid "That file is not a Kinetic progress file (it is not JSON)."
+msgstr "該檔案不是 Kinetic 進度檔（不是 JSON）。"
+
+#. Import refused: the file is JSON but not a progress file.
+msgctxt "transfer.notProgress"
+msgid "That file is not a Kinetic progress file."
+msgstr "該檔案不是 Kinetic 進度檔。"
+
+#. Import refused: another file version; {theirs} as written in it, {ours} a number.
+#. Placeholders: {theirs}, {ours}.
+msgctxt "transfer.version"
+msgid "That progress file is version {theirs}; this player reads version {ours}."
+msgstr "該進度檔的版本為 {theirs}；此播放器只能讀取版本 {ours}。"
+
+#. Import refused: the file's story ID is damaged.
+msgctxt "transfer.damaged.storyId"
+msgid "That progress file is damaged: its story ID is missing or malformed."
+msgstr "該進度檔已損毀：故事 ID 遺失或格式錯誤。"
+
+#. Import refused: the file's saved state is damaged.
+msgctxt "transfer.damaged.state"
+msgid "That progress file is damaged: its state is missing or malformed."
+msgstr "該進度檔已損毀：狀態資料遺失或格式錯誤。"
+
+#. Import refused: the file's bookmarks are damaged.
+msgctxt "transfer.damaged.bookmarks"
+msgid "That progress file is damaged: its bookmarks are missing or malformed."
+msgstr "該進度檔已損毀：書籤遺失或格式錯誤。"
+
+#. Import refused: another game's file; {theirs} and {here} name the two games (the phrases below).
+#. Placeholders: {theirs}, {here}.
+msgctxt "transfer.otherStory"
+msgid "That file holds progress for {theirs}, not {here}."
+msgstr "該檔案儲存的是{theirs}的進度，而不是{here}的。"
+
+#. Names a game by its title in the message above; {title} is game text.
+#. Placeholders: {title}.
+msgctxt "transfer.story.titled"
+msgid "\"{title}\""
+msgstr "「{title}」"
+
+#. Names a game by its story ID in the message above.
+#. Placeholders: {id}.
+msgctxt "transfer.story.id"
+msgid "the story \"{id}\""
+msgstr "故事「{id}」"
+
+#. Names a file's game that has neither title nor ID, in the message above.
+msgctxt "transfer.story.noId"
+msgid "a story without an ID"
+msgstr "沒有 ID 的故事"
+
+#. Names this game, untitled, in the message above.
+msgctxt "transfer.story.this"
+msgid "this story"
+msgstr "此故事"

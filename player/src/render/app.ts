@@ -304,19 +304,21 @@ export function mountShell({
   const endCardTitle = doc.createElement("div");
   endCardTitle.className = "end-card-title";
   const endCardHint = doc.createElement("div");
-  endCardHint.className = "end-card-hint";
+  // Italic by its class, `ui-aside` (index.html), upright in Chinese,
+  // Japanese and Korean, whose faces have no italic.
+  endCardHint.className = "end-card-hint ui-aside";
   Object.assign(endCardHint.style, {
     marginTop: "2px",
-    fontStyle: "italic",
     color: "rgba(244, 239, 230, 0.66)",
   });
   endCard.append(endCardTitle, endCardHint);
-  // The resume notice (`showNotice`): one quiet italic line, no panel.
+  // The resume notice (`showNotice`): one quiet italic line (`ui-aside`),
+  // no panel.
   const notice = doc.createElement("div");
   notice.id = "notice";
+  notice.className = "ui-aside";
   notice.hidden = true;
   Object.assign(notice.style, quietStyle, {
-    fontStyle: "italic",
     color: "rgba(244, 239, 230, 0.78)",
   });
   // The notices' words for assistive tech (`notify`): a polite status

@@ -1,0 +1,1024 @@
+# Kinetic player: Spanish (Spain) (es).
+# An unreviewed draft written by an AI model on 2026-11-16.
+# Corrections are welcome: docs/verify-player.md, "The player's words".
+msgid ""
+msgstr ""
+"Project-Id-Version: Kinetic player\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Language: es\n"
+
+#. Browser tab title when the game names itself nothing (the player's name).
+msgctxt "page.title"
+msgid "Kinetic"
+msgstr "Kinetic"
+
+#. Shown in place of the game when its files cannot be read; {detail} is a technical reason, in English.
+#. Placeholders: {detail}.
+msgctxt "error.load"
+msgid "Could not load the content: {detail}"
+msgstr "No se ha podido cargar el contenido: {detail}"
+
+#. Esc screen: the heading over the grid of keys.
+msgctxt "help.title"
+msgid "Keys"
+msgstr "Teclas"
+
+#. Esc screen, title bar: the keys that close the screen.
+#. Placeholders: {esc}, {space}.
+msgctxt "help.hint"
+msgid "{esc} or {space} closes"
+msgstr "{esc} o {space} para cerrar"
+
+#. Esc screen, title bar: accessible name of the Language control, a button opening the list of the game's languages; {language} is the language shown now, named in itself (e.g. Deutsch).
+#. Placeholders: {language}.
+msgctxt "lang.control"
+msgid "Language: {language}"
+msgstr "Idioma: {language}"
+
+#. Esc screen: accessible name of the open list of the game's languages (each named in itself).
+msgctxt "lang.list"
+msgid "Language"
+msgstr "Idioma"
+
+#. Pill when a language of the game cannot be read: the game stays in the language it was in. {language} is that language named in itself (e.g. Deutsch).
+#. Placeholders: {language}.
+msgctxt "lang.unavailable"
+msgid "{language} could not be loaded"
+msgstr "No se ha podido cargar: {language}"
+
+#. Esc screen, bottom corner: the player's name and release ({version}, e.g. 1.10.0).
+#. Placeholders: {version}.
+msgctxt "help.kinetic"
+msgid "Kinetic {version}"
+msgstr "Kinetic {version}"
+
+#. Esc screen, key grid: the cap drawn for the mouse wheel (one cap, short).
+msgctxt "keys.wheel.cap"
+msgid "wheel"
+msgstr "rueda"
+
+#. Esc screen, key grid: what Space does (lower case, short).
+msgctxt "keys.advance"
+msgid "next item; stops auto-forward"
+msgstr "elemento siguiente; detiene el avance auto"
+
+#. Esc screen, key grid: what the Left and Right arrows do.
+msgctxt "keys.segments"
+msgid "previous / next view of a video"
+msgstr "vista anterior / siguiente de un vídeo"
+
+#. Esc screen, key grid: what the mouse wheel does.
+msgctxt "keys.wheel"
+msgid "back / forward through the story"
+msgstr "atrás / adelante por la historia"
+
+#. Esc screen, key grid: what E does.
+msgctxt "keys.end"
+msgid "jump to the furthest point read"
+msgstr "ir al punto leído más avanzado"
+
+#. Esc screen, key grid: what U does.
+msgctxt "keys.unseen"
+msgid "next unseen content"
+msgstr "siguiente contenido no visto"
+
+#. Esc screen, key grid: what Tab does.
+msgctxt "keys.skip"
+msgid "skip what you have seen"
+msgstr "saltar lo que ya has visto"
+
+#. Esc screen, key grid: what A does.
+msgctxt "keys.autoForward"
+msgid "auto-forward on / off"
+msgstr "activar / desactivar el avance auto"
+
+#. Esc screen, key grid: what H does.
+msgctxt "keys.text"
+msgid "hide / show the text"
+msgstr "ocultar / mostrar el texto"
+
+#. Esc screen, key grid: what V does (games with sound).
+msgctxt "keys.sound"
+msgid "sound on / off"
+msgstr "activar / desactivar el sonido"
+
+#. Esc screen, key grid: what B does.
+msgctxt "keys.bookmark"
+msgid "bookmark this moment"
+msgstr "añadir un marcador aquí"
+
+#. Esc screen, key grid: what M does (a click on the row opens the map too).
+msgctxt "keys.map"
+msgid "branch map and bookmarks"
+msgstr "mapa de rutas y marcadores"
+
+#. Esc screen, key grid: what Esc does.
+msgctxt "keys.escape"
+msgid "this screen: keys and settings; closes the map"
+msgstr "esta pantalla: teclas y ajustes; cierra el mapa"
+
+#. Esc screen, key grid: the keys at a decision (1-9, 0, arrows, Enter).
+msgctxt "keys.decision"
+msgid "at a decision: pick a route; 0 returns to main route"
+msgstr "en una decisión: elegir una ruta; 0 vuelve a la ruta principal"
+
+#. Esc screen: the heading over the settings.
+msgctxt "config.title"
+msgid "Settings"
+msgstr "Ajustes"
+
+#. Settings: the reading speed row's label (it paces auto-forward).
+msgctxt "config.speed.label"
+msgid "Auto-forward speed"
+msgstr "Velocidad de avance auto"
+
+#. Settings: accessible name of the "?" after the speed label.
+msgctxt "config.speed.about"
+msgid "About auto-forward speed"
+msgstr "Acerca de la velocidad de avance auto"
+
+#. Settings: the tip behind the speed's "?".
+msgctxt "config.speed.tip"
+msgid "Also times play-all's choice countdown."
+msgstr "También marca la cuenta atrás de «Jugar todas las rutas»."
+
+#. Settings: accessible name of the speed's minus button.
+msgctxt "config.speed.decrease"
+msgid "Decrease auto-forward speed"
+msgstr "Reducir la velocidad de avance auto"
+
+#. Settings: accessible name of the speed's plus button.
+msgctxt "config.speed.increase"
+msgid "Increase auto-forward speed"
+msgstr "Aumentar la velocidad de avance auto"
+
+#. Settings: the speed readout, small; {speed} is the multiplier (1.00), {ms} the milliseconds per character.
+#. Placeholders: {speed}, {ms}.
+msgctxt "config.speed.readout"
+msgid "{speed}x (~{ms} ms/char)"
+msgstr "{speed}x (~{ms} ms/car.)"
+
+#. Settings: the heading over the two options of how Tab skips ({tab} is the key).
+#. Placeholders: {tab}.
+msgctxt "config.skip.section"
+msgid "When {tab} skips"
+msgstr "Al saltar con {tab}"
+
+#. Settings: option under "When Tab skips": skipping also passes content never seen.
+msgctxt "config.skip.all"
+msgid "Skip unseen content too"
+msgstr "Saltar también lo no visto"
+
+#. Settings: option under "When Tab skips": a skip plays each video in full.
+msgctxt "config.skip.videos"
+msgid "Play videos in full"
+msgstr "Reproducir vídeos enteros"
+
+#. Settings: a switch's state, on (short).
+msgctxt "config.on"
+msgid "On"
+msgstr "Sí"
+
+#. Settings: a switch's state, off (short).
+msgctxt "config.off"
+msgid "Off"
+msgstr "No"
+
+#. Settings: the switch that makes every decision pick itself in turn.
+msgctxt "config.playAll"
+msgid "Play all routes"
+msgstr "Jugar todas las rutas"
+
+#. Settings: accessible name of the "?" after "Play all routes".
+msgctxt "config.playAll.about"
+msgid "About play all routes"
+msgstr "Acerca de Jugar todas las rutas"
+
+#. Settings: the tip behind "Play all routes"' "?".
+msgctxt "config.playAll.tip"
+msgid "When on, choices pick themselves on a countdown."
+msgstr "Si está activado, cada decisión se elige sola tras una cuenta atrás."
+
+#. Settings: the Sound row's label (games with sound).
+msgctxt "config.sound"
+msgid "Sound"
+msgstr "Sonido"
+
+#. Settings: the button that opens the Volumes sheet.
+msgctxt "config.sound.volumes"
+msgid "Volumes…"
+msgstr "Volúmenes…"
+
+#. Settings: accessible name of the Volumes… button.
+msgctxt "config.sound.volumesAria"
+msgid "Sound volumes"
+msgstr "Volúmenes de sonido"
+
+#. Settings: the heading over Export, Import and Reset.
+msgctxt "config.progress.section"
+msgid "Progress"
+msgstr "Progreso"
+
+#. Settings: after the Progress heading, dimmer: saving needs no action.
+msgctxt "config.progress.saved"
+msgid "saved automatically"
+msgstr "se guarda automáticamente"
+
+#. Settings: accessible name of the "?" after the Progress heading.
+msgctxt "config.progress.about"
+msgid "About progress"
+msgstr "Acerca del progreso"
+
+#. Settings: the Export row's label.
+msgctxt "config.export.label"
+msgid "Export progress"
+msgstr "Exportar progreso"
+
+#. Settings: the Export row's button (short).
+msgctxt "config.export.button"
+msgid "Export"
+msgstr "Exportar"
+
+#. Settings: accessible name of the Export button.
+msgctxt "config.export.aria"
+msgid "Export this story's progress to a file"
+msgstr "Exportar a un archivo el progreso de esta historia"
+
+#. Notice pill after an export (the file's name is not said).
+msgctxt "config.export.done"
+msgid "Progress exported"
+msgstr "Progreso exportado"
+
+#. Settings: the Import row's label.
+msgctxt "config.import.label"
+msgid "Import progress"
+msgstr "Importar progreso"
+
+#. Settings: the Import row's button, which opens a file picker (short).
+msgctxt "config.import.button"
+msgid "Import…"
+msgstr "Importar…"
+
+#. Notice pill: the picked file could not be read at all.
+msgctxt "config.import.unreadable"
+msgid "That file could not be read."
+msgstr "No se ha podido leer el archivo."
+
+#. Settings: the Reset row's label.
+msgctxt "config.reset.label"
+msgid "Reset progress"
+msgstr "Restablecer progreso"
+
+#. Settings: the Reset row's button, which opens a confirmation (short).
+msgctxt "config.reset.button"
+msgid "Reset…"
+msgstr "Restablecer…"
+
+#. Settings: accessible name of the Reset button.
+msgctxt "config.reset.aria"
+msgid "Reset all progress for this content"
+msgstr "Restablecer todo el progreso de este contenido"
+
+#. Settings (in a browser tab): the tip behind the Progress "?".
+msgctxt "wording.browser.progressTip"
+msgid "Saved in this browser as you read. Export and Import carry it to another browser."
+msgstr "Se guarda en este navegador mientras lees. Con Exportar e Importar puedes llevarlo a otro navegador."
+
+#. Notice pill (browser tab): a confirmed import that storage refused.
+msgctxt "wording.browser.importFailed"
+msgid "The import failed: this browser's storage refused it. Nothing was changed."
+msgstr "La importación ha fallado: el almacenamiento de este navegador la ha rechazado. No se ha cambiado nada."
+
+#. Settings (browser tab): accessible name of the Import button.
+msgctxt "wording.browser.importAria"
+msgid "Import progress from a file, replacing this browser's"
+msgstr "Importar el progreso desde un archivo y sustituir el de este navegador"
+
+#. Import confirmation (browser tab); {story} is the game's name or "this story".
+#. Placeholders: {story}.
+msgctxt "wording.browser.importConfirm"
+msgid "Replace this browser's progress for {story} with the imported file?"
+msgstr "¿Sustituir el progreso de este navegador para {story} por el archivo importado?"
+
+#. Settings (game app): the tip behind the Progress "?".
+msgctxt "wording.app.progressTip"
+msgid "Saved as you read. Export and Import carry it to another device."
+msgstr "Se guarda mientras lees. Con Exportar e Importar puedes llevarlo a otro dispositivo."
+
+#. Notice pill (game app): a confirmed import that storage refused.
+msgctxt "wording.app.importFailed"
+msgid "The import failed: this computer's storage refused it. Nothing was changed."
+msgstr "La importación ha fallado: el almacenamiento de este ordenador la ha rechazado. No se ha cambiado nada."
+
+#. Settings (game app): accessible name of the Import button.
+msgctxt "wording.app.importAria"
+msgid "Import progress from a file, replacing the progress saved here"
+msgstr "Importar el progreso desde un archivo y sustituir el progreso guardado aquí"
+
+#. Import confirmation (game app); {story} is the game's name or "this story".
+#. Placeholders: {story}.
+msgctxt "wording.app.importConfirm"
+msgid "Replace the progress saved here for {story} with the imported file?"
+msgstr "¿Sustituir el progreso guardado aquí para {story} por el archivo importado?"
+
+#. Import confirmation: stands for {story} when the game names itself nothing.
+msgctxt "wording.thisStory"
+msgid "this story"
+msgstr "esta historia"
+
+#. Settings: the heading over the window controls.
+msgctxt "window.section"
+msgid "Game window"
+msgstr "Ventana del juego"
+
+#. Settings, Game window: the label of the Fullscreen | Window switch (read by screen readers).
+msgctxt "window.display"
+msgid "Display"
+msgstr "Visualización"
+
+#. Settings, Game window: one half of the display switch.
+msgctxt "window.fullscreen"
+msgid "Fullscreen"
+msgstr "Pantalla completa"
+
+#. Settings, Game window: the other half of the display switch.
+msgctxt "window.window"
+msgid "Window"
+msgstr "Ventana"
+
+#. Settings, Game window: the button that quits (short).
+msgctxt "window.exit"
+msgid "Exit"
+msgstr "Salir"
+
+#. Settings, Game window: the Exit row's label and the button's accessible name.
+msgctxt "window.exitLabel"
+msgid "Exit the game"
+msgstr "Salir del juego"
+
+#. Notice pill: a browser tab the page may not close.
+msgctxt "window.closeTab"
+msgid "This browser keeps the tab open: close the tab to exit."
+msgstr "Este navegador mantiene la pestaña abierta: cierra la pestaña para salir."
+
+#. Confirmation box: the button that changes nothing.
+msgctxt "confirm.cancel"
+msgid "Cancel"
+msgstr "Cancelar"
+
+#. Confirmation box, reset: its heading.
+msgctxt "confirm.reset.title"
+msgid "Reset progress"
+msgstr "Restablecer progreso"
+
+#. Confirmation box, reset: the question.
+msgctxt "confirm.reset.message"
+msgid "Reset all progress for this content? This clears resume position, seen items, routes, bookmarks and settings."
+msgstr "¿Restablecer todo el progreso de este contenido? Se borrarán la posición de reanudación, los elementos vistos, las rutas, los marcadores y los ajustes."
+
+#. Confirmation box, reset: the confirming button (short).
+msgctxt "confirm.reset.button"
+msgid "Reset"
+msgstr "Restablecer"
+
+#. Confirmation box, reset: the keys under the buttons.
+#. Placeholders: {yes}, {esc}, {no}.
+msgctxt "confirm.reset.hint"
+msgid "{yes} resets; {esc} or {no} cancels"
+msgstr "{yes} restablece; {esc} o {no} cancela"
+
+#. Confirmation box, import: its heading.
+msgctxt "confirm.import.title"
+msgid "Import progress"
+msgstr "Importar progreso"
+
+#. Confirmation box, import: the confirming button (short).
+msgctxt "confirm.import.button"
+msgid "Import"
+msgstr "Importar"
+
+#. Confirmation box, import: the keys under the buttons.
+#. Placeholders: {yes}, {esc}, {no}.
+msgctxt "confirm.import.hint"
+msgid "{yes} imports; {esc} or {no} cancels"
+msgstr "{yes} importa; {esc} o {no} cancela"
+
+#. Confirmation box, removing the voice model: its heading.
+msgctxt "confirm.removeVoices.title"
+msgid "Remove voice model"
+msgstr "Eliminar modelo de voz"
+
+#. Confirmation box, removing the voice model: the question.
+msgctxt "confirm.removeVoices.message"
+msgid "Remove the voice model from this computer to free its space? Every Kinetic game uses it; you can download it again."
+msgstr "¿Eliminar el modelo de voz de este ordenador para liberar espacio? Todos los juegos de Kinetic lo usan; podrás volver a descargarlo."
+
+#. Confirmation box, removing the voice model: the confirming button (short).
+msgctxt "confirm.removeVoices.button"
+msgid "Remove"
+msgstr "Eliminar"
+
+#. Confirmation box, removing the voice model: the keys under the buttons.
+#. Placeholders: {yes}, {esc}, {no}.
+msgctxt "confirm.removeVoices.hint"
+msgid "{yes} removes; {esc} or {no} cancels"
+msgstr "{yes} elimina; {esc} o {no} cancela"
+
+#. Decision screen: the last row, back to the story's main line.
+msgctxt "choice.continue"
+msgid "Return to main route"
+msgstr "Volver a la ruta principal"
+
+#. Decision screen: beside a route already played.
+msgctxt "choice.seen"
+msgid "seen"
+msgstr "vista"
+
+#. Decision screen: the hint under the question.
+msgctxt "choice.hint"
+msgid "1-9 or click picks a route"
+msgstr "1-9 o un clic elige una ruta"
+
+#. Decision screen: the hint with more than nine routes ({enter} is the key).
+#. Placeholders: {enter}.
+msgctxt "choice.hintLong"
+msgid "1-9, arrows and {enter}, or click picks a route"
+msgstr "1-9, flechas y {enter}, o un clic elige una ruta"
+
+#. Decision screen: added to the hint when the return row is there.
+msgctxt "choice.hintContinue"
+msgid "; 0 returns"
+msgstr "; 0 vuelve"
+
+#. Decision screen: added to the hint while play-all is about to pick ({space} is the key).
+#. Placeholders: {space}.
+msgctxt "choice.hintAutoPick"
+msgid "; {space} picks now"
+msgstr "; {space} elige ya"
+
+#. Decision screen, play-all: the countdown line; {seconds} left.
+#. Placeholders: {seconds}.
+msgctxt "choice.autoPick"
+msgid "Play all routes picks in {seconds} s"
+msgstr "Jugar todas las rutas elige en {seconds} s"
+
+#. Decision screen, play-all, after a jump back: {label} is the route just finished (game text).
+#. Placeholders: {label}, {seconds}.
+msgctxt "choice.autoPickBack"
+msgid "Back in time: “{label}” is done. Play all routes picks in {seconds} s"
+msgstr "Atrás en el tiempo: «{label}» se ha completado. Jugar todas las rutas elige en {seconds} s"
+
+#. At an ending, top of the screen: everything has been seen.
+msgctxt "endcard.allSeen"
+msgid "You have seen everything."
+msgstr "Lo has visto todo."
+
+#. At an ending: no routes left, but other content unseen.
+msgctxt "endcard.someUnseen"
+msgid "Some content is still unseen."
+msgstr "Aún queda contenido por ver."
+
+#. At an ending: {count} routes and other content unseen.
+#. Placeholders: {count}.
+#. Plural form "one" (CLDR), chosen by {count}.
+msgctxt "endcard.routesAndOther#one"
+msgid "{count} route and other content still unseen."
+msgstr "Aún quedan por ver {count} ruta y otro contenido."
+
+#. At an ending: {count} routes and other content unseen.
+#. Placeholders: {count}.
+#. Plural form "many" (CLDR), chosen by {count}.
+msgctxt "endcard.routesAndOther#many"
+msgid "{count} routes and other content still unseen."
+msgstr "Aún quedan por ver {count} de rutas y otro contenido."
+
+#. At an ending: {count} routes and other content unseen.
+#. Placeholders: {count}.
+#. Plural form "other" (CLDR), chosen by {count}.
+msgctxt "endcard.routesAndOther#other"
+msgid "{count} routes and other content still unseen."
+msgstr "Aún quedan por ver {count} rutas y otro contenido."
+
+#. At an ending: {count} routes unseen.
+#. Placeholders: {count}.
+#. Plural form "one" (CLDR), chosen by {count}.
+msgctxt "endcard.routes#one"
+msgid "{count} route still unseen."
+msgstr "Aún queda {count} ruta por ver."
+
+#. At an ending: {count} routes unseen.
+#. Placeholders: {count}.
+#. Plural form "many" (CLDR), chosen by {count}.
+msgctxt "endcard.routes#many"
+msgid "{count} routes still unseen."
+msgstr "Aún quedan {count} de rutas por ver."
+
+#. At an ending: {count} routes unseen.
+#. Placeholders: {count}.
+#. Plural form "other" (CLDR), chosen by {count}.
+msgctxt "endcard.routes#other"
+msgid "{count} routes still unseen."
+msgstr "Aún quedan {count} rutas por ver."
+
+#. At an ending, under the count: the key to the next unseen content.
+#. Placeholders: {key}.
+msgctxt "endcard.next"
+msgid "Press {key} for the next one."
+msgstr "Pulsa {key} para ir a la siguiente."
+
+#. On a resume, top of the screen: unseen content earlier on ({key} is U).
+#. Placeholders: {key}.
+msgctxt "endcard.earlierUnseen"
+msgid "Earlier content you haven't seen - press {key}."
+msgstr "Hay contenido anterior que no has visto: pulsa {key}."
+
+#. Pill: skip mode started.
+msgctxt "pill.skipOn"
+msgid "Skip on"
+msgstr "Salto activado"
+
+#. Pill: skip mode stopped.
+msgctxt "pill.skipOff"
+msgid "Skip off"
+msgstr "Salto desactivado"
+
+#. Pill: auto-forward turned on.
+msgctxt "pill.autoForwardOn"
+msgid "Auto-forward on"
+msgstr "Avance auto activado"
+
+#. Pill: auto-forward turned off.
+msgctxt "pill.autoForwardOff"
+msgid "Auto-forward off"
+msgstr "Avance auto desactivado"
+
+#. Pill: sound turned on.
+msgctxt "pill.soundOn"
+msgid "Sound on"
+msgstr "Sonido activado"
+
+#. Pill: sound turned off.
+msgctxt "pill.soundOff"
+msgid "Sound off"
+msgstr "Sonido desactivado"
+
+#. Pill: a bookmark was saved.
+msgctxt "pill.bookmarked"
+msgid "Bookmarked"
+msgstr "Marcador añadido"
+
+#. Pill: the story jumped back in time to take another route.
+msgctxt "pill.backJump"
+msgid "Back to try another route"
+msgstr "Atrás para probar otra ruta"
+
+#. Pill: the route just entered; {label} is its name (game text).
+#. Placeholders: {label}.
+msgctxt "pill.route"
+msgid "Route: {label}"
+msgstr "Ruta: {label}"
+
+#. Pill on a video with several camera views: which view, {index} of {count}.
+#. Placeholders: {index}, {count}.
+msgctxt "pill.segment"
+msgid "View {index} of {count}"
+msgstr "Vista {index} de {count}"
+
+#. Pill until the browser allows sound.
+msgctxt "audio.soundHint"
+msgid "Press any key for sound"
+msgstr "Pulsa cualquier tecla para activar el sonido"
+
+#. Shown instead of a picture: the game folder has no items at all.
+msgctxt "visual.empty"
+msgid "No content yet — this folder has an empty manifest."
+msgstr "Aún no hay contenido: el manifiesto de esta carpeta está vacío."
+
+#. Shown instead of a picture: nothing to draw here.
+msgctxt "visual.nothing"
+msgid "No content to show."
+msgstr "No hay contenido que mostrar."
+
+#. Shown instead of a picture in a broken game: {id} is the item's identifier.
+#. Placeholders: {id}.
+msgctxt "visual.placeholder"
+msgid "{id} — text item with no visual"
+msgstr "{id} — elemento de texto sin imagen"
+
+#. Volumes sheet: its heading.
+msgctxt "volumes.title"
+msgid "Volumes"
+msgstr "Volúmenes"
+
+#. Volumes sheet: the key that closes it.
+#. Placeholders: {esc}.
+msgctxt "volumes.hint"
+msgid "{esc} closes"
+msgstr "{esc} para cerrar"
+
+#. Volumes sheet: the closing button.
+msgctxt "volumes.done"
+msgid "Done"
+msgstr "OK"
+
+#. Volumes sheet: the music row.
+msgctxt "volumes.music"
+msgid "Music"
+msgstr "Música"
+
+#. Volumes sheet: accessible name of the music slider.
+msgctxt "volumes.music.slider"
+msgid "Music volume"
+msgstr "Volumen de la música"
+
+#. Volumes sheet: accessible name of the music minus button.
+msgctxt "volumes.music.decrease"
+msgid "Decrease music volume"
+msgstr "Bajar el volumen de la música"
+
+#. Volumes sheet: accessible name of the music plus button.
+msgctxt "volumes.music.increase"
+msgid "Increase music volume"
+msgstr "Subir el volumen de la música"
+
+#. Volumes sheet: the sound effects row.
+msgctxt "volumes.effects"
+msgid "Effects"
+msgstr "Efectos"
+
+#. Volumes sheet: accessible name of the effects slider.
+msgctxt "volumes.effects.slider"
+msgid "Effects volume"
+msgstr "Volumen de los efectos"
+
+#. Volumes sheet: accessible name of the effects minus button.
+msgctxt "volumes.effects.decrease"
+msgid "Decrease effects volume"
+msgstr "Bajar el volumen de los efectos"
+
+#. Volumes sheet: accessible name of the effects plus button.
+msgctxt "volumes.effects.increase"
+msgid "Increase effects volume"
+msgstr "Subir el volumen de los efectos"
+
+#. Volumes sheet: the spoken lines row.
+msgctxt "volumes.voice"
+msgid "Voice"
+msgstr "Voz"
+
+#. Volumes sheet: accessible name of the voice slider.
+msgctxt "volumes.voice.slider"
+msgid "Voice volume"
+msgstr "Volumen de la voz"
+
+#. Volumes sheet: accessible name of the voice minus button.
+msgctxt "volumes.voice.decrease"
+msgid "Decrease voice volume"
+msgstr "Bajar el volumen de la voz"
+
+#. Volumes sheet: accessible name of the voice plus button.
+msgctxt "volumes.voice.increase"
+msgid "Increase voice volume"
+msgstr "Subir el volumen de la voz"
+
+#. Volumes sheet, Voice row: the small button that removes the installed voice model.
+msgctxt "volumes.remove"
+msgid "Remove voice model"
+msgstr "Eliminar modelo de voz"
+
+#. Volumes sheet: accessible name of the remove button.
+msgctxt "volumes.removeAria"
+msgid "Remove the voice model from this computer to free its space"
+msgstr "Eliminar el modelo de voz de este ordenador para liberar espacio"
+
+#. Volumes sheet: accessible name of the "?" beside the voice model's download.
+msgctxt "volumes.model.about"
+msgid "About the voice model"
+msgstr "Acerca del modelo de voz"
+
+#. Volumes sheet: accessible name of the voice model's download progress bar.
+msgctxt "volumes.model.progress"
+msgid "Voice model download"
+msgstr "Descarga del modelo de voz"
+
+#. Volumes sheet: stops the voice model's download (short).
+msgctxt "volumes.model.cancel"
+msgid "Cancel"
+msgstr "Cancelar"
+
+#. Volumes sheet: accessible name of the download's Cancel.
+msgctxt "volumes.model.cancelAria"
+msgid "Cancel the voice model download"
+msgstr "Cancelar la descarga del modelo de voz"
+
+#. Volumes sheet: tries the failed download again (short).
+msgctxt "volumes.model.retry"
+msgid "Retry"
+msgstr "Reintentar"
+
+#. Volumes sheet: accessible name of Retry.
+msgctxt "volumes.model.retryAria"
+msgid "Retry the voice model download"
+msgstr "Reintentar la descarga del modelo de voz"
+
+#. Volumes sheet, Voice row: until the game app says the voice model's state.
+msgctxt "voice.checking"
+msgid "Checking…"
+msgstr "Comprobando…"
+
+#. Volumes sheet, the voice model's "?": a computer that cannot make spoken lines.
+msgctxt "voice.unsupported"
+msgid "Spoken lines are not available on this computer."
+msgstr "Las frases habladas no están disponibles en este ordenador."
+
+#. Volumes sheet: the voice model's download failed.
+msgctxt "voice.failed"
+msgid "The voice model could not be downloaded."
+msgstr "No se ha podido descargar el modelo de voz."
+
+#. Volumes sheet: the download button; {size} is its size, e.g. 3.3 GB.
+#. Placeholders: {size}.
+msgctxt "voice.download"
+msgid "Download voice model ({size})"
+msgstr "Descargar modelo de voz ({size})"
+
+#. Volumes sheet: the tip behind the download's "?"; {size} is its size.
+#. Placeholders: {size}.
+msgctxt "voice.help"
+msgid "Spoken lines are made on this computer from the characters' voices. The voice model is downloaded once ({size}) and every Kinetic game on this computer shares it."
+msgstr "Las frases habladas se generan en este ordenador a partir de las voces de los personajes. El modelo de voz se descarga una sola vez ({size}) y lo comparten todos los juegos de Kinetic de este ordenador."
+
+#. Branch map: its heading.
+msgctxt "map.title"
+msgid "Branch map"
+msgstr "Mapa de rutas"
+
+#. Branch map: the Spoilers switch, on (decisions not reached show their words).
+msgctxt "map.spoilers.on"
+msgid "Spoilers: On"
+msgstr "Spoilers: sí"
+
+#. Branch map: the Spoilers switch, off (the default).
+msgctxt "map.spoilers.off"
+msgid "Spoilers: Off"
+msgstr "Spoilers: no"
+
+#. Branch map header button: go to the newest bookmark.
+msgctxt "map.newest"
+msgid "Newest bookmark"
+msgstr "Marcador más reciente"
+
+#. Branch map header button: centre the view on where the reader is.
+msgctxt "map.centre"
+msgid "Centre"
+msgstr "Centrar"
+
+#. Branch map header button: the map at full size, scrolling.
+msgctxt "map.full"
+msgid "Full size"
+msgstr "Tamaño real"
+
+#. Branch map header button: the whole map fitted to the screen.
+msgctxt "map.fit"
+msgid "Fit"
+msgstr "Ajustar"
+
+#. Branch map: the hint on a header button; {key} is its key.
+#. Placeholders: {key}.
+msgctxt "map.shortcut"
+msgid "shortcut: {key}"
+msgstr "atajo: {key}"
+
+#. Branch map: the label under the reader's position marker (lower case).
+msgctxt "map.here"
+msgid "you are here"
+msgstr "estás aquí"
+
+#. Branch map: the note after a bookmark's ×.
+msgctxt "map.toast.deleted"
+msgid "Bookmark deleted"
+msgstr "Marcador eliminado"
+
+#. Branch map: the button in that note; {key} is its key (Z).
+#. Placeholders: {key}.
+msgctxt "map.toast.undo"
+msgid "Undo ({key})"
+msgstr "Deshacer ({key})"
+
+#. Branch map: a bookmark card's accessible name; {time} is when it was made.
+#. Placeholders: {time}.
+msgctxt "map.card.label"
+msgid "Bookmark {time}"
+msgstr "Marcador {time}"
+
+#. Branch map: the newest bookmark card's accessible name.
+#. Placeholders: {time}.
+msgctxt "map.card.labelNewest"
+msgid "Bookmark {time} (newest)"
+msgstr "Marcador {time} (el más reciente)"
+
+#. Branch map: a bookmark card's × (accessible name and hint).
+msgctxt "map.card.delete"
+msgid "Delete this bookmark"
+msgstr "Eliminar este marcador"
+
+#. Branch map: a deleted card, until it fades (short).
+msgctxt "map.card.deleted"
+msgid "Deleted"
+msgstr "Eliminado"
+
+#. Branch map: brings a deleted card back (short).
+msgctxt "map.card.undo"
+msgid "Undo"
+msgstr "Deshacer"
+
+#. Branch map tooltip and accessible name: {title}, then {status}.
+#. Placeholders: {title}, {status}.
+msgctxt "map.node.label"
+msgid "{title}: {status}"
+msgstr "{title}: {status}"
+
+#. Branch map tooltip: a route's title, {number}. {label} (label is game text).
+#. Placeholders: {number}, {label}.
+msgctxt "map.route.title"
+msgid "{number}. {label}"
+msgstr "{number}. {label}"
+
+#. Branch map, a route's status: never entered.
+msgctxt "map.route.unseen"
+msgid "not seen"
+msgstr "no vista"
+
+#. Branch map, a route's status: entered, not finished.
+msgctxt "map.route.partly"
+msgid "partly seen"
+msgstr "vista en parte"
+
+#. Branch map, a route's status: played through.
+msgctxt "map.route.played"
+msgid "played"
+msgstr "jugada"
+
+#. Branch map, a route's outcome: it joins the story again.
+msgctxt "map.route.continues"
+msgid "continues the story"
+msgstr "continúa la historia"
+
+#. Branch map, a route's outcome: it comes back to its decision.
+msgctxt "map.route.returns"
+msgid "returns to the choice"
+msgstr "vuelve a la decisión"
+
+#. Branch map, a route's outcome: it ends the story.
+msgctxt "map.route.ends"
+msgid "an ending"
+msgstr "un final"
+
+#. Branch map, a route's status: the route last picked there.
+msgctxt "map.route.lastPick"
+msgid "your last pick"
+msgstr "tu última elección"
+
+#. Branch map, a route's status: its decision not reached.
+msgctxt "map.route.notReached"
+msgid "decision not reached yet"
+msgstr "decisión aún no alcanzada"
+
+#. Branch map, a decision's status: {played} of its {count} routes played.
+#. Placeholders: {played}, {count}.
+#. Plural form "one" (CLDR), chosen by {count}.
+msgctxt "map.decision.played#one"
+msgid "{played} of {count} routes played"
+msgstr "{played} de {count} ruta jugada"
+
+#. Branch map, a decision's status: {played} of its {count} routes played.
+#. Placeholders: {played}, {count}.
+#. Plural form "many" (CLDR), chosen by {count}.
+msgctxt "map.decision.played#many"
+msgid "{played} of {count} routes played"
+msgstr "{played} de {count} de rutas jugadas"
+
+#. Branch map, a decision's status: {played} of its {count} routes played.
+#. Placeholders: {played}, {count}.
+#. Plural form "other" (CLDR), chosen by {count}.
+msgctxt "map.decision.played#other"
+msgid "{played} of {count} routes played"
+msgstr "{played} de {count} rutas jugadas"
+
+#. Branch map, a decision's status: not reached yet.
+msgctxt "map.decision.notReached"
+msgid "not reached yet"
+msgstr "aún no alcanzada"
+
+#. Branch map, Spoilers off: stands for a decision's question not reached.
+msgctxt "map.hidden.prompt"
+msgid "Decision not reached"
+msgstr "Decisión no alcanzada"
+
+#. Branch map, Spoilers off: stands for a route's name not reached.
+msgctxt "map.hidden.route"
+msgid "Unseen route"
+msgstr "Ruta no vista"
+
+#. Branch map, beside a stretch of story: its length in screens.
+#. Placeholders: {count}.
+#. Plural form "one" (CLDR), chosen by {count}.
+msgctxt "map.count.screens#one"
+msgid "{count} screen"
+msgstr "{count} pantalla"
+
+#. Branch map, beside a stretch of story: its length in screens.
+#. Placeholders: {count}.
+#. Plural form "many" (CLDR), chosen by {count}.
+msgctxt "map.count.screens#many"
+msgid "{count} screens"
+msgstr "{count} de pantallas"
+
+#. Branch map, beside a stretch of story: its length in screens.
+#. Placeholders: {count}.
+#. Plural form "other" (CLDR), chosen by {count}.
+msgctxt "map.count.screens#other"
+msgid "{count} screens"
+msgstr "{count} pantallas"
+
+#. Branch map, beside a stretch of story: its bookmarks.
+#. Placeholders: {count}.
+#. Plural form "one" (CLDR), chosen by {count}.
+msgctxt "map.count.bookmarks#one"
+msgid "{count} bookmark"
+msgstr "{count} marcador"
+
+#. Branch map, beside a stretch of story: its bookmarks.
+#. Placeholders: {count}.
+#. Plural form "many" (CLDR), chosen by {count}.
+msgctxt "map.count.bookmarks#many"
+msgid "{count} bookmarks"
+msgstr "{count} de marcadores"
+
+#. Branch map, beside a stretch of story: its bookmarks.
+#. Placeholders: {count}.
+#. Plural form "other" (CLDR), chosen by {count}.
+msgctxt "map.count.bookmarks#other"
+msgid "{count} bookmarks"
+msgstr "{count} marcadores"
+
+#. Import refused: the file is not JSON.
+msgctxt "transfer.notJson"
+msgid "That file is not a Kinetic progress file (it is not JSON)."
+msgstr "Este archivo no es un archivo de progreso de Kinetic (no es JSON)."
+
+#. Import refused: the file is JSON but not a progress file.
+msgctxt "transfer.notProgress"
+msgid "That file is not a Kinetic progress file."
+msgstr "Este archivo no es un archivo de progreso de Kinetic."
+
+#. Import refused: another file version; {theirs} as written in it, {ours} a number.
+#. Placeholders: {theirs}, {ours}.
+msgctxt "transfer.version"
+msgid "That progress file is version {theirs}; this player reads version {ours}."
+msgstr "Este archivo de progreso es de la versión {theirs}; este reproductor lee la versión {ours}."
+
+#. Import refused: the file's story ID is damaged.
+msgctxt "transfer.damaged.storyId"
+msgid "That progress file is damaged: its story ID is missing or malformed."
+msgstr "Este archivo de progreso está dañado: falta el ID de la historia o no es válido."
+
+#. Import refused: the file's saved state is damaged.
+msgctxt "transfer.damaged.state"
+msgid "That progress file is damaged: its state is missing or malformed."
+msgstr "Este archivo de progreso está dañado: falta el estado o no es válido."
+
+#. Import refused: the file's bookmarks are damaged.
+msgctxt "transfer.damaged.bookmarks"
+msgid "That progress file is damaged: its bookmarks are missing or malformed."
+msgstr "Este archivo de progreso está dañado: faltan los marcadores o no son válidos."
+
+#. Import refused: another game's file; {theirs} and {here} name the two games (the phrases below).
+#. Placeholders: {theirs}, {here}.
+msgctxt "transfer.otherStory"
+msgid "That file holds progress for {theirs}, not {here}."
+msgstr "Este archivo contiene el progreso de {theirs}, no de {here}."
+
+#. Names a game by its title in the message above; {title} is game text.
+#. Placeholders: {title}.
+msgctxt "transfer.story.titled"
+msgid "\"{title}\""
+msgstr "«{title}»"
+
+#. Names a game by its story ID in the message above.
+#. Placeholders: {id}.
+msgctxt "transfer.story.id"
+msgid "the story \"{id}\""
+msgstr "la historia «{id}»"
+
+#. Names a file's game that has neither title nor ID, in the message above.
+msgctxt "transfer.story.noId"
+msgid "a story without an ID"
+msgstr "una historia sin ID"
+
+#. Names this game, untitled, in the message above.
+msgctxt "transfer.story.this"
+msgid "this story"
+msgstr "esta historia"

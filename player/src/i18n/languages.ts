@@ -189,21 +189,24 @@ export interface UiLanguageInput {
 const ENGLISH = "en";
 
 /**
- * The language of the player's own words (docs/plan.md Phase 54): the
- * language the reader picked when the catalogue has it (a loose match:
- * a pick of `pt-BR` takes a catalogue's `pt-BR`, else its `pt`); with no
- * pick made, the browser's language when the catalogue has it; otherwise
- * English.
+ * The language of the player's own words (docs/plan.md Phase 54 items 3
+ * and 4): the language the reader picked when the catalogue has it (a
+ * loose match: a pick of `pt-BR` takes a catalogue's `pt-BR`, else its
+ * `pt`); else, with no pick made or a pick the catalogue lacks, the
+ * browser's language when the catalogue has it (`bestLanguageMatch`);
+ * otherwise English. So a reader of French who picks a game's Esperanto
+ * keeps French controls.
  */
 export function uiLanguageFor({
   chosen,
   requested,
   catalogue,
 }: UiLanguageInput): string {
-  if (chosen !== undefined && chosen !== "") {
-    return bestLanguageMatch([chosen], catalogue) ?? ENGLISH;
-  }
-  return bestLanguageMatch(requested, catalogue) ?? ENGLISH;
+  const picked =
+    chosen === undefined || chosen === ""
+      ? null
+      : bestLanguageMatch([chosen], catalogue);
+  return picked ?? bestLanguageMatch(requested, catalogue) ?? ENGLISH;
 }
 
 /** Scripts written right to left (Unicode's RTL scripts in use). */

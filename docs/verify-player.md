@@ -124,7 +124,8 @@ never ask for fullscreen.
 | `versions` | the versions on the Esc screen (docs/plan.md Phase 51 item 4), each part on a copy of a demo written under the scenario root with its manifest changed, read at 1920x1080, 1280x720, 800x600, 700x900, 600x900 and 480x270 (the Mac app's smallest window) with the screen scrolled to its end: `shown` (the demo with `title` and `version`): the heading reading the name then the version, the version inside it after the name's last line, smaller and dimmer than the name, whole and in the window; `Kinetic x.y.z` (the repo's VERSION) in the bottom-right corner on the ground below the sheet (a probe on the sheet's grid area), on the panel and outside the key grid, in the window, over none of the sheet, the grid, the settings, the heading, the hint, the Keys heading or any control (Fullscreen \| Window and Exit among them); the page title the name alone; `longTitle`: a 200-character title wrapping onto several lines and a 40-character version with no space whole after it, in the window, nothing scrolling across, the corner line still clear; `versionAlone`: no title, the version alone where the heading would be (a `p`, no heading), on or above the hint's line and before the keys, the page title `Kinetic` (1280x720, 480x270); `withSound` (the audio demo with a version): the `Sound off` pill `v` shows over the Esc screen clear of the corner line, and the Volumes sheet clear of it wherever the sheet fits the window, and at 480x270, where it cannot, over it (the point under the line's centre in the Volumes scrim); `KINETIC_VERSIONS_SHOTS=<dir>` saves the Esc screen at 1280x720 and 480x270 and the long title at 800x600 and 480x270 |
 | `progress` | export / import progress: one browser reads, bookmarks, sets 2.00x and exports (a real download of `<storyId>-progress.json`, checked field by field; "Progress exported" in the `#flash` pill, solid above the open Esc screen, every settings row where it was); a fresh profile on the same folder refuses another story's file in the pill, still fully shown 600 ms past a mode pill's hold, nothing on the screen moving (no box, nothing stored), then imports the real file through the confirm box and reloads onto the same item with the bookmark, 2.00x and help closed; one more item survives a reload (saving automatic again) |
 | `catalogue` | the player's words (docs/plan.md Phase 54 item 2) in the pseudo-locale on every screen and sheet: the Esc screen at 1280x800 and 600 wide with each "?" tip open, the reset box at both sizes, three import refusals and the close-tab note (pills), skip, auto-forward, bookmark, route, segment and sound pills, hidden text, the branch map with a card (also 600 wide), a route's, a decision's and a card's tooltip, a deleted card and its undo note, a decision counting down under Play all routes (both sizes), decisions picked by hand, an end card (both sizes), a decision offered again with its return row (both sizes), the empty folder's notice, the audio demo's Esc screen and Volumes sheet at both sizes, under a stand-in voice engine (a game app's words) the voice model's offer, its tip, progress, error, installed row (both sizes) and removal box, and on the language demo the Esc screen with its Language control and the open language list (both sizes; each language named in itself is exempt, as game text is); each fails on a visible word, accessible name, hint or page title with a letter outside the markers (game text and key caps aside) or a text box that overflows or clips |
-| `languages` | a game's languages (docs/plan.md Phase 54 item 3) on `fixtures/lang-demo` (built with `.venv/bin/python fixtures/build_lang_demo.py`; FAILs naming it when missing) and `fixtures/demo`: no Language control with one language; with several, the Esc panel as tall as a copy without `languages` at 1280x800, 700x600 and 600x900, the control on the title's line; the starting language from the browser's (`de-AT` takes German, `ja-JP` Japanese, French the base); the list by click and by Enter, Up, Down, Home and End, Escape, Tab and a click outside closing the list alone, Space picking in it and closing the screen with it shut; German picked mid-story and at a decision (prompt, labels, route pill); the missing German line in English marked `en`; a Japanese thought upright, Arabic `dir="rtl"`; a bookmark landing on its item in German, Japanese and English; a reload keeping the language; the choice kept per `storyId`; a listed language whose file is missing (the base, a pill); a Turkish speaker drawn `MELİS` |
+| `languages` | a game's languages (docs/plan.md Phase 54 item 3) on `fixtures/lang-demo` (built with `.venv/bin/python fixtures/build_lang_demo.py`; FAILs naming it when missing) and `fixtures/demo`: no Language control with one language; with several, the Esc panel as tall as a copy without `languages` at 1280x800, 700x600 and 600x900, the control on the title's line; the starting language from the browser's (`de-AT` takes German, `ja-JP` Japanese, French the base); the list by click and by Enter, Up, Down, Home and End, Escape, Tab and a click outside closing the list alone, Space picking in it and closing the screen with it shut; German picked mid-story and at a decision (prompt, labels, route pill, and the player's own words turning German); the missing German line in English marked `en`; a Japanese thought upright, Arabic `dir="rtl"`; a bookmark landing on its item in German, Japanese and English; a reload keeping the language (the player's words too); the choice kept per `storyId`; a listed language whose file is missing (the base, a pill in the browser's language, French); a Turkish speaker drawn `MELİS` |
+| `uilanguages` | the player's words in each of the 38 catalogue languages besides English (docs/plan.md Phase 54 item 4), one part per four languages: a browser started with the language as the reader's (`languages`), the page's `lang` that language; every character of its catalogue drawn by a system font in the Esc screen's and the end card's fonts; the Esc screen at 1280x800, 700x600 and 600x800 with each "?" tip open, the reset box (1280x800 and 600 wide), a decision and the end card (each at the three sizes), route, auto-forward and bookmark pills, the branch map with a card at the three sizes and its three tooltips; the audio demo's Esc screen and Volumes sheet at the three sizes and its sound pills; the language demo's Esc screen and language list at the three sizes; the Esc screen in a game app at the three sizes and the voice model's row under the stand-in host (offer, tip, progress, error, ready, removal box). Each screen fails on a text overflowing, clipped or pushing its row wider, and on a word its language's catalogue does not give (an English message the language translates); right-to-left languages are read in the left-to-right layout |
 
 ## The player's words
 
@@ -151,8 +152,10 @@ print it.
   which runs again on every change, and `src/i18n/document.ts` keeps the
   page's `lang` on the UI language (right to left joins it there). The
   UI language is the game language the reader picked on the Esc screen's
-  Language control when the catalogue has it; with no pick, the
-  browser's language when the catalogue has it; otherwise English
+  Language control when the catalogue has it; otherwise (no pick, or a
+  pick the catalogue lacks) the browser's language when the catalogue
+  has it, matched as a game's starting language is (`de-AT` takes `de`,
+  `zh-TW` takes `zh-Hant`, `es-MX` takes `es-419`); otherwise English
   (`uiLanguageFor` in `player/src/i18n/languages.ts`, which also holds
   the game's starting-language match, text direction and per-language
   reading factors).
@@ -169,11 +172,28 @@ print it.
   either is stale, and the compiler reports and leaves out an entry with
   an unknown key, a wrong plural shape or placeholders that differ from
   the English. The PO reader is `player/scripts/po.mjs`.
-- To add a language: copy `messages.pot` to `<tag>.po`, fill each
-  `msgstr`, add the entries for any plural category the language has
-  beyond one and other, run `npm run i18n`, and run the `catalogue`
-  scenario in that language at the screen sizes above (docs/plan.md Phase
-  54 item 4 adds a language choice; until then a test sets it).
+- `npm test` also holds every `<tag>.po` to a complete catalogue
+  (`auditLocale` in `scripts/i18n.mjs`): its header says it is an
+  unreviewed draft; every message is translated; every plural message
+  has each CLDR category the language uses
+  (`Intl.PluralRules(tag).resolvedOptions().pluralCategories`: Polish
+  one, few, many and other; Japanese other alone); and each plural form
+  keeps the English placeholders, `{count}` aside only in a category
+  that one number alone takes (German "one" may read "Eine Route";
+  Russian "one", also 21 and 31, may not).
+- To add a language: copy `messages.pot` to `<tag>.po`, add the draft
+  header comment (as the others have it), fill each `msgstr`, add the
+  entries for any plural category the language has beyond one and other,
+  run `npm run i18n` and `npm test`, and run `npm run verify --
+  uilanguages` and `npm run verify -- --webkit uilanguages`, which take
+  every PO file.
+- To correct a translation: edit its `msgstr` in `<tag>.po` (keep each
+  `{placeholder}` and the file's own terms), run `npm run i18n` and `npm
+  test`, and run the `uilanguages` scenario on both engines: a longer
+  wording must still fit its control at 700x600 and 600 wide. Remove the
+  "unreviewed draft" line from the header only once a fluent reader has
+  checked the whole file.
+
 - To add a message: add it to `en.ts` with its doc comment, draw it with
   `t()` inside the component's `localized` drawing, and run `npm run
   i18n`.
@@ -192,11 +212,63 @@ screen and sheet in it on Chrome and WebKit (`npm run verify -- catalogue`
 and `npm run verify -- --webkit catalogue`). Its page-side reader
 (`INSTALL_AUDIT`) fails a screen on a visible text node, `aria-label`,
 `data-hint` or `title` with a letter outside the markers, and on a text
-box wider than itself, one pushed past its flex row's edge, one outside
-the window or clipped by a box that does not scroll. Game text is exempt
-by where it is drawn (the band, a decision's question and route labels,
-the game's name and release, the map's labels), as are a voice engine's
-own messages, which come from the game app.
+box wider than itself (a text or box on show inside it reaching past
+its sides: the wider scroll width an invisible hit area gives, a "?"
+tip's finger-sized ring, is not counted), one pushed past its flex row's
+edge, one outside the window or clipped by a box that does not scroll.
+Game text is exempt by where it is drawn (the band, a decision's question
+and route labels, the game's name and release, the map's labels), as are
+a voice engine's own messages, which come from the game app.
+
+The catalogue's languages (39, English the source): Arabic (`ar`),
+Bulgarian (`bg`), Catalan (`ca`), Chinese Simplified (`zh-Hans`) and
+Traditional (`zh-Hant`), Croatian (`hr`), Czech (`cs`), Danish (`da`),
+Dutch (`nl`), English (`en`), Finnish (`fi`), French (`fr`), German
+(`de`), Greek (`el`), Hebrew (`he`), Hindi (`hi`), Hungarian (`hu`),
+Indonesian (`id`), Italian (`it`), Japanese (`ja`), Korean (`ko`), Malay
+(`ms`), Norwegian Bokmål (`nb`), Persian (`fa`), Polish (`pl`), Portuguese
+of Brazil (`pt-BR`) and Portugal (`pt-PT`), Romanian (`ro`), Russian
+(`ru`), Slovak (`sk`), Spanish of Spain (`es`) and Latin America
+(`es-419`), Swahili (`sw`), Swedish (`sv`), Thai (`th`), Turkish (`tr`),
+Ukrainian (`uk`), Urdu (`ur`) and Vietnamese (`vi`). The 38 besides
+English are drafts written by an AI model, each marked so in its header.
+
+The `uilanguages` scenario checks each of them (`npm run verify --
+uilanguages`, and `--webkit`): a browser started with the language as
+the reader's shows the player's words in it, and every screen and sheet
+of the `catalogue` file is read with the same reader (`INSTALL_AUDIT`) at
+1280x800, 700x600 and 600 wide. A screen fails on a text box too small for
+its words, and on a word the language's catalogue does not give: an
+English message the language translates is caught, and one the PO keeps
+identical ("Kinetic") is the language's own. Arabic, Persian, Hebrew and
+Urdu are read in the left-to-right layout until Phase 54 item 5 mirrors
+them.
+
+Glyphs: the same scenario draws every character of each language's
+catalogue on a canvas in the computed fonts of the Esc screen and the end
+card, under the page's `lang`, and fails on any drawn as the missing-glyph
+box an unassigned code point (U+0378) draws. On macOS both engines draw a
+character no system font has as that same box, which the check proves
+each time by catching assigned characters of scripts macOS lacks (Kawi,
+Garay, Todhri, Ol Onal). Windows cannot be checked here; index.html's
+`:lang()` stacks name its system faces after the Mac's, and `system-ui`
+(Segoe UI) ends every stack:
+
+| Script | Languages | macOS face | Windows face |
+|---|---|---|---|
+| Latin, Cyrillic, Greek | bg ca cs da de el es es-419 fi fr hr hu id it ms nb nl pl pt-BR pt-PT ro ru sk sv sw tr uk vi | San Francisco (`system-ui`) | Segoe UI (`system-ui`) |
+| Arabic | ar, fa, ur | Geeza Pro (Urdu: Noto Nastaliq Urdu first) | Segoe UI, then Tahoma |
+| Hebrew | he | `system-ui`, Arial Hebrew | Segoe UI |
+| Thai | th | Thonburi | Leelawadee UI |
+| Devanagari | hi | Kohinoor Devanagari | Nirmala UI |
+| Chinese, Simplified | zh-Hans | PingFang SC | Microsoft YaHei UI |
+| Chinese, Traditional | zh-Hant | PingFang TC | Microsoft JhengHei UI |
+| Japanese | ja | Hiragino Sans | Yu Gothic UI, then Meiryo |
+| Korean | ko | Apple SD Gothic Neo | Malgun Gothic |
+
+Chinese, Japanese and Korean faces have no italic: under one of those UI
+languages the end card's hint and the resume notice (class `ui-aside`)
+are upright, as a thought in those languages is.
 
 ## WebKit
 

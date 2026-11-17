@@ -206,6 +206,81 @@ export function compilePo(text, en = EN, name = "<po>") {
   return { catalogue, problems };
 }
 
+/** The comment a draft PO file's header carries (docs/plan.md Phase 54). */
+export const DRAFT_MARK = /^#.*\bunreviewed draft\b/im;
+
+/** Whole numbers the plural check tries: 0 to 1000 and some millions. */
+const SAMPLE_COUNTS = [
+  ...Array.from({ length: 1001 }, (_, n) => n),
+  1_000_000,
+  1_000_001,
+  2_000_000,
+  10_000_000,
+];
+
+/**
+ * Whether `tag`'s plural `category` is chosen for exactly one whole number
+ * (German's `one` is 1 alone; Russian's `one` is 1, 21, 31 ...): only then
+ * may a form leave the number out ("Eine Route").
+ */
+function singleNumber(tag, category) {
+  const rules = new Intl.PluralRules(tag);
+  let n = 0;
+  for (const count of SAMPLE_COUNTS) {
+    if (rules.select(count) === category) n += 1;
+    if (n > 1) return false;
+  }
+  return n === 1;
+}
+
+/**
+ * What keeps the PO file `text` for `tag` from being a complete catalogue
+ * (docs/verify-player.md, "The player's words"), on top of what compilePo
+ * leaves out: a header without the "unreviewed draft" comment, a message
+ * with no translation, a plural message lacking a CLDR category `tag` uses
+ * (`Intl.PluralRules(tag).resolvedOptions().pluralCategories`), and a
+ * plural form without one of the English placeholders: only `{count}` may
+ * be left out, and only by a category chosen for one number alone.
+ */
+export function auditLocale(tag, text, en = EN) {
+  const name = `${tag}.po`;
+  const { catalogue, problems } = compilePo(text, en, name);
+  const found = [...problems];
+  const header = text.slice(0, text.search(/^msgid /m));
+  if (!DRAFT_MARK.test(header)) {
+    found.push(`${name}: the header does not say it is an unreviewed draft`);
+  }
+  const needed = new Intl.PluralRules(tag).resolvedOptions().pluralCategories;
+  for (const [key, english] of Object.entries(en)) {
+    const value = catalogue[key];
+    if (value === undefined) {
+      found.push(`${name}: "${key}" is not translated`);
+      continue;
+    }
+    if (typeof english === "string") continue;
+    const holders = messagePlaceholders(english);
+    for (const category of needed) {
+      const form = value[category];
+      if (form === undefined) {
+        found.push(
+          `${name}: "${key}" lacks the "${category}" form ${tag} uses`,
+        );
+        continue;
+      }
+      const used = placeholdersOf(form);
+      const missing = holders.filter(
+        (p) =>
+          !used.includes(p) &&
+          !(p === "{count}" && singleNumber(tag, category)),
+      );
+      if (missing.length > 0) {
+        found.push(`${name}: "${key}#${category}" lacks ${missing.join(", ")}`);
+      }
+    }
+  }
+  return found;
+}
+
 /** The tags of the PO files in `dir` (`<tag>.po`), sorted. */
 export function localeTags(dir = LOCALES_DIR) {
   if (!existsSync(dir)) return [];

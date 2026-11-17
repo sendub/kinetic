@@ -13,6 +13,8 @@
 // a bookmark landing on the same item in each language; a reload keeping
 // the language; the choice kept per storyId; the page title following
 // the language; and a Turkish speaker name upper-cased by Turkish rules.
+// Since item 4 the player's own words follow the browser's language and
+// a pick too, so the checks naming them read the catalogue (`uiText`).
 // The WebKit driver shows the page only the first of the reader's
 // languages, with a region added (`de-AT, de` reads as `de-DE`), which
 // every check allows.
@@ -27,6 +29,8 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
+import { EN } from "../../src/i18n/en.ts";
+import { LOCALES } from "../../src/i18n/locales.generated.ts";
 import {
   CHOICE_OPEN,
   clickAt,
@@ -70,6 +74,17 @@ const FILES = built
   : {};
 const baseText = (id) => BASE.items.find((it) => it.id === id).text;
 const shownText = (tag, id) => FILES[tag].items[id].text;
+
+/**
+ * The player's message `key` in the catalogue language `tag` (English
+ * where it has none), `{name}` placeholders filled from `params`: since
+ * Phase 54 item 4 the player's words follow the browser's language.
+ */
+const uiText = (tag, key, params = {}) =>
+  (LOCALES[tag]?.[key] ?? EN[key]).replace(
+    /\{([A-Za-z0-9_]+)\}/g,
+    (whole, name) => params[name] ?? whole,
+  );
 
 /** Fails the part when the language demo has not been built. */
 function needsDemo(check) {
@@ -315,10 +330,11 @@ async function startup({ check, open }) {
     de,
   );
   check(
-    "the control names the language in itself, its accessible name from the catalogue",
+    "the control names the language in itself, its accessible name from the German catalogue",
     de.control?.text === "Deutsch" &&
       de.control?.lang === "de" &&
-      de.controlName === "Language: Deutsch",
+      de.uiLang === "de" &&
+      de.controlName === uiText("de", "lang.control", { language: "Deutsch" }),
     de,
   );
   const japanese = await open("japanese", {
@@ -540,6 +556,13 @@ async function decision({ check, open }) {
       after.labels.every((l) => l.lang === "de"),
     after,
   );
+  // The player's own words follow the pick (Phase 54 item 4).
+  const uiLang = await page.evaluate(() => document.documentElement.lang);
+  check(
+    "picking German turns the player's own words German too",
+    uiLang === "de",
+    uiLang,
+  );
   // The route pill names the route in German.
   await page.evaluate(() => {
     window.__langPills = [];
@@ -696,10 +719,11 @@ async function persistence({ check, open }) {
   );
   const reloaded = await page.evaluate(READ_SHOWN);
   check(
-    "a reload keeps the picked language: the line, the control and the title",
+    "a reload keeps the picked language: the line, the control, the title and the player's own words",
     reloaded.text?.lang === "ja" &&
       reloaded.text?.text === shownText("ja", reloaded.item) &&
       reloaded.control?.text === "日本語" &&
+      reloaded.uiLang === "ja" &&
       reloaded.pageTitle === FILES.ja.title.text,
     reloaded,
   );
@@ -806,7 +830,10 @@ async function unavailable({ check, open }) {
   const after = await page.evaluate(READ_SHOWN);
   check(
     "picking it says it could not be loaded, in the UI language, and changes nothing",
-    pills.some((p) => p === "Français could not be loaded") &&
+    pills.some(
+      (p) => p === uiText("fr", "lang.unavailable", { language: "Français" }),
+    ) &&
+      after.uiLang === "fr" &&
       after.control?.text === "English" &&
       after.text?.lang === "en",
     { pills, after },

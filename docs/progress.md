@@ -5003,8 +5003,26 @@ truthful: an unchecked box means nothing was accepted.
       (Tab is the skip key), as before; live spoken lines still speak
       the base text (item 6); inline italics in the end card and resume
       notice (item 4).)
-- [ ] The player's words in every catalogue language (item 4): 38
-      draft PO files, checked for fit in Chrome and WebKit.
+- [x] The player's words in every catalogue language (item 4): 38
+      draft PO files, checked for fit in Chrome and WebKit. (Evidence:
+      38 PO files in `player/locales/`, written by four translator
+      subagents, each an "unreviewed draft" by its header, all 180
+      messages and every CLDR plural category; none dropped, no wording
+      shortened. `auditLocale` in `scripts/i18n.mjs` checks completeness,
+      plural categories, placeholders and the header in `npm test`.
+      `uiLanguageFor`: the reader's pick if catalogued, else the system
+      language if catalogued, else English (orchestrator's change).
+      Italic UI asides are a `.ui-aside` class, upright under zh, ja and
+      ko. `uilanguages` scenario (10 parts): every language's Esc screen
+      at three sizes with tips, reset box, decision, end card, pills,
+      branch map, Volumes sheet, language list and the voice-model row,
+      failing on overflow, clipping or English left where the language
+      has its own words; a canvas glyph check against U+0378's box finds
+      no missing glyphs in any language on either engine. app.js grows
+      from 455 KB to 1,110 KB (211 KB gzipped), kept bundled. Verified by
+      the orchestrator: npm test 1654/1654, check clean; `verify --
+      uilanguages languages` 5379/5379 in Chrome and in WebKit;
+      catalogue 150/150 Chrome; smoke 6/6 both engines.)
 - [ ] Right to left (item 5): logical CSS, mirrored screens, the
       branch map's layout unchanged.
 - [ ] Spoken lines per language (item 6): `lang` to the helper,
