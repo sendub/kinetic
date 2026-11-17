@@ -118,7 +118,7 @@ Candidates:
   bookmark, hiding the text and auto-forward.
 - A swipe steps back and forward, as the wheel does.
 
-Web hosting is not wanted (below), so phones and tablets may have no way
+Designing for web hosts is not wanted (below), so phones and tablets may have no way
 to open a game folder at all: iOS and Android browsers do not open a
 local `index.html` with its scripts (not verified). The gain is then mouse
 readers and touchscreen Windows and Mac laptops.
@@ -214,8 +214,13 @@ To settle:
 
 ## Not wanted
 
-- Web hosting, such as itch.io (the user, 2026-11-14). A game stays a
-  folder opened from disk or through its app.
+- Supporting web hosts, such as itch.io (the user, 2026-11-14,
+  clarified 2026-11-17): no work to fit a game within a hosting
+  platform's limits or rules, and no changes made for one. A game stays
+  a folder opened from disk or through its app. A folder is static
+  files, so serving it from a web host happens to work, and that is
+  welcome (Kinetic's own demo is on GitHub Pages, Phase 57 item 11d);
+  it is just not a target to design for.
 - Fonts shipped with a game, for its base language or a translation
   (the user, 2026-11-16: game developers choose badly; a good, readable
   system font is wanted). The player picks system fonts by writing

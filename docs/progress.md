@@ -5764,6 +5764,9 @@ truthful: an unchecked box means nothing was accepted.
       screenshot runs. Orchestrator: looked at every image; links
       checked; builder tests 4; npm test 1853; check clean; the source
       diff is comments and two describe names.)
+- [ ] The demo on GitHub Pages (item 11d). The demo tour published
+      to Pages, the player proven over HTTP(S), linked from the README,
+      republished by the closer.
 - [ ] Phase-closer (Phase 57): full suites; VERSION 1.12.0, the
       CHANGELOG dated, tag v1.12.0, `main` fast-forwarded, the wheel
       attached to the GitHub release.

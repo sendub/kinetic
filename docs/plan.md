@@ -4366,6 +4366,24 @@ The orchestrator's choices, within those decisions:
     phase-closer brings the docs up to date, README.md included, and
     regenerates the screenshots (`npm run screenshots`) when anything
     they show changed.
+11d. The demo on GitHub Pages (the user, 2026-11-17). A Kinetic folder
+    is static files, so it plays from a web host as well as from disk;
+    the user's "not wanted" is about designing for or changing games to
+    fit a hosting platform, not about hosting that just works (the entry
+    in docs/future.md now says so). Publish the demo tour (fixtures/demo,
+    the one whose every line explains what it shows) to GitHub Pages on
+    sendub/kinetic, so a visitor plays it from the README's "Try it in
+    your browser" link. `tools/publish_demo.py` builds the demo,
+    assembles it with the current player, and replaces the `gh-pages`
+    branch with it (one commit, no history kept), pushing as sendub;
+    Pages is enabled on that branch once. Prove the player works over
+    HTTPS: a scenario or check-game run against the folder served over
+    HTTP(S) locally (sound, saving, bookmarks, the map), and a check of
+    the live URL after publishing. The README links to it; AGENTS.md's
+    closer republishes it after the release. Tests: publish_demo's
+    folder build in a unit test (no push); the served-over-HTTP walk;
+    the live page loads (check-game or a fetch of index.html, app.js
+    and manifest.js) after the first publish.
 12. Phase-closer: full suites; VERSION 1.12.0, the CHANGELOG dated,
     tag, `main` fast-forwarded, and the wheel attached to the GitHub
     release v1.12.0.
