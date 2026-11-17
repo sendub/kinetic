@@ -9,7 +9,7 @@
 //
 //   node player/scripts/testing/check-game.mjs <folder> [--engine webkit|chrome|auto]
 //       [--steps N|all] [--start-at ID] [--until ID] [--no-media-check]
-//       [--trace FILE]
+//       [--trace FILE] [--lang TAG]
 //   node player/scripts/testing/check-game.mjs --version
 //
 // The first line names the engine, the folder and the folder's player
@@ -64,6 +64,20 @@
 //              dropped`. A folder whose player keeps no trace (an older
 //              one) fails the run before the walk, exit 1, naming its
 //              version and that rebuilding with a current player fixes it.
+// --lang TAG   walks with that game language shown (docs/content-format.md
+//              "Translations"): the manifest's base `language` or one its
+//              `languages` lists, as a reader whose system language it is
+//              would see it, the player's own words following it where its
+//              catalogue has the language (openGame's `language`). The
+//              first line ends `, language TAG`; a game that opens in
+//              another language fails (exit 1). After the walk, for a
+//              translation, two lines count the lines met (shown items
+//              with text): `TAG fallback lines: N of M met (no translation,
+//              the base text shown): ids` and `TAG stale lines: N of M met
+//              (translated from an older base text): ids` (`none` for 0,
+//              up to ten ids each, in manifest order); neither changes the
+//              exit code (the validator's warnings). For the base:
+//              `language TAG: the game's own, no translation to check`.
 //
 // After the walk: the items visited out of the manifest's count; for an
 // older player (no item id on the page), how many steps were named from
@@ -83,11 +97,12 @@
 // milliseconds for both (for tests).
 //
 // Exit codes: 0 passed; 1 console or page errors, a game that would not
-// open, a stuck player, the --steps all cap, an --until not reached, a
-// media check that stalled, or a --trace the folder's player cannot keep
-// or that could not be read or written; 2 bad arguments (a bad --engine
-// or --steps, an id the manifest lacks, a --trace FILE missing or not
-// writable), all checked before any browser starts; 3 a
+// open (or opened in another language than --lang), a stuck player, the
+// --steps all cap, an --until not reached, a media check that stalled, or
+// a --trace the folder's player cannot keep or that could not be read or
+// written; 2 bad arguments (a bad --engine or --steps, an id the manifest
+// lacks, a --trace FILE missing or not writable, a --lang the game does
+// not offer), all checked before any browser starts; 3 a
 // walk from the opening reached the story's end with items never shown, or
 // a walk reached its --until with items of its span not shown. 1 wins
 // over 3.
@@ -95,10 +110,17 @@ import { closeSync, openSync, writeSync } from "node:fs";
 import { resolve } from "node:path";
 import { performance } from "node:perf_hooks";
 import { KINETIC_VERSION } from "../version.mjs";
-import { openGame, readManifestFile, summary } from "./kinetic.mjs";
+import {
+  openGame,
+  readLanguageFile,
+  readManifestFile,
+  summary,
+} from "./kinetic.mjs";
 import {
   exitCode,
   headerLine,
+  languageLines,
+  languageProblem,
   mediaCheckLine,
   mediaSummaryLine,
   readArgs,
@@ -144,19 +166,28 @@ if (args.error !== undefined) {
   process.exit(2);
 }
 
-// Ids are checked against the folder's own manifest before any browser
-// starts.
+// Ids and the language are checked against the folder's own manifest
+// before any browser starts.
 const asked = [
   ["--start-at", args.startAt],
   ["--until", args.until],
 ].filter(([, id]) => id !== null);
-if (asked.length > 0) {
+if (asked.length > 0 || args.language !== null) {
   const read = readManifestFile(resolve(args.folder));
   if (read === null) {
+    const options = asked.map(([option]) => option);
+    if (args.language !== null) options.push("--lang");
     say(
-      `${resolve(args.folder)} has no readable manifest.js or manifest.json to find ${asked.map(([option]) => option).join(" and ")} in`,
+      `${resolve(args.folder)} has no readable manifest.js or manifest.json to find ${options.join(" and ")} in`,
     );
     process.exit(1);
+  }
+  if (args.language !== null) {
+    const problem = languageProblem(read, args.language);
+    if (problem !== null) {
+      say(problem);
+      process.exit(2);
+    }
   }
   const known = new Set(
     (Array.isArray(read.items) ? read.items : []).map((it) => it?.id),
@@ -186,6 +217,7 @@ try {
   game = await openGame(args.folder, {
     engine: args.engine,
     startAt: args.startAt,
+    language: args.language,
     mediaChecks: args.mediaCheck,
     trace: traceFd !== null,
   });
@@ -237,7 +269,9 @@ const walk = startWalk({
 });
 const heartbeat = setInterval(() => say(walk.heartbeat()), HEARTBEAT_MS);
 try {
-  console.log(headerLine(game.engine, game.folder, game.kineticVersion));
+  console.log(
+    headerLine(game.engine, game.folder, game.kineticVersion, args.language),
+  );
   let last = null;
   try {
     for (;;) {
@@ -267,6 +301,16 @@ try {
     } catch (error) {
       console.error(`check-game: --trace: ${error.message}`);
       traceFailed = true;
+    }
+  }
+  if (args.language !== null) {
+    for (const line of languageLines({
+      manifest: game.manifest,
+      tag: args.language,
+      file: readLanguageFile(game.folder, args.language),
+      shown: walk.shown(),
+    })) {
+      console.log(line);
     }
   }
   if (args.mediaCheck) {

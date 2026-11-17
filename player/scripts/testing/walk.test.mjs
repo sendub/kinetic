@@ -4,14 +4,24 @@
 // the exit code. The scenario checkgame.scenario.mjs runs the CLI itself
 // on copies of the demo, on both engines.
 import { execFile } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
+  baseHash,
   capFor,
   exitCode,
+  gameLanguages,
   headerLine,
+  languageLines,
+  languageProblem,
   mediaCheckLine,
   mediaSummaryLine,
   readArgs,
@@ -462,6 +472,7 @@ describe("readArgs", () => {
       until: null,
       mediaCheck: true,
       trace: null,
+      language: null,
     });
     expect(
       readArgs([
@@ -476,6 +487,8 @@ describe("readArgs", () => {
         "y",
         "--trace",
         "out/trace.jsonl",
+        "--lang",
+        "de",
       ]),
     ).toEqual({
       folder: "game",
@@ -485,8 +498,23 @@ describe("readArgs", () => {
       until: "y",
       mediaCheck: true,
       trace: "out/trace.jsonl",
+      language: "de",
     });
     expect(readArgs(["game", "--steps", "0"]).steps).toBe(0);
+  });
+
+  it("reads --lang and its tag, which it leaves for the manifest to judge", () => {
+    expect(readArgs(["game", "--lang", "de"])).toMatchObject({
+      folder: "game",
+      language: "de",
+      steps: 10,
+    });
+    expect(readArgs(["--lang", "zh-Hans", "game"]).language).toBe("zh-Hans");
+    expect(readArgs(["game", "--lang"])).toHaveProperty("error");
+    expect(readArgs(["game", "--lang", "--steps", "3"])).toHaveProperty(
+      "error",
+    );
+    expect(USAGE).toContain("[--lang TAG]");
   });
 
   it("makes --until walk with --steps all unless --steps is given", () => {
@@ -561,6 +589,126 @@ describe("headerLine", () => {
       "chrome: /games/old (Kinetic unknown)",
     );
   });
+
+  it("ends with the game language shown for a --lang walk, and is as before without one", () => {
+    expect(headerLine("webkit", "/games/demo", "1.10.0", "de")).toBe(
+      "webkit: /games/demo (Kinetic 1.10.0), language de",
+    );
+    expect(headerLine("webkit", "/games/demo", "1.10.0", null)).toBe(
+      "webkit: /games/demo (Kinetic 1.10.0)",
+    );
+  });
+});
+
+describe("--lang (docs/plan.md Phase 54, item 10)", () => {
+  const manifest = {
+    language: "en",
+    languages: ["de", "ja"],
+    items: [
+      { id: "a", text: "First line." },
+      { id: "b", text: "Second line." },
+      { id: "pic" },
+      { id: "c", text: "Third line." },
+      { id: "d", text: "Fourth line." },
+    ],
+  };
+  const de = {
+    language: "de",
+    items: {
+      a: { text: "Erste Zeile.", from: baseHash("First line.") },
+      // c: no translation; d: blank, which the player also falls back on.
+      b: { text: "Zweite Zeile.", from: baseHash("An older second line.") },
+      d: { text: "  ", from: baseHash("Fourth line.") },
+    },
+  };
+
+  it("offers the base (default en) and each listed language", () => {
+    expect(gameLanguages(manifest)).toEqual(["en", "de", "ja"]);
+    expect(gameLanguages({ items: [] })).toEqual(["en"]);
+    expect(gameLanguages({ language: "ja", languages: ["en"] })).toEqual([
+      "ja",
+      "en",
+    ]);
+  });
+
+  it("refuses a tag the game does not offer, naming those it does", () => {
+    expect(languageProblem(manifest, "de")).toBeNull();
+    expect(languageProblem(manifest, "en")).toBeNull();
+    expect(languageProblem(manifest, "xx")).toBe(
+      'this game has no language "xx" (--lang); it offers en, de, ja',
+    );
+    expect(languageProblem(manifest, "DE")).not.toBeNull();
+    expect(languageProblem({ items: [] }, "de")).toContain("it offers en");
+  });
+
+  it("hashes base text as the validator does (the first 8 hex of its SHA-256)", () => {
+    // Reference values from kinetic_extract.language_file.base_hash.
+    expect(baseHash("A thought: unspoken.")).toBe("973109b1");
+    expect(baseHash("Grüße, 世界")).toBe("49837434");
+  });
+
+  it("counts the lines met that fell back to the base and those translated from an older base text, in manifest order", () => {
+    expect(
+      languageLines({
+        manifest,
+        tag: "de",
+        file: de,
+        shown: ["d", "pic", "c", "b", "a"],
+      }),
+    ).toEqual([
+      "de fallback lines: 2 of 4 met (no translation, the base text shown): c, d",
+      "de stale lines: 1 of 4 met (translated from an older base text): b",
+    ]);
+  });
+
+  it("counts only the lines the walk met, and says none when nothing fell back or went stale", () => {
+    expect(
+      languageLines({ manifest, tag: "de", file: de, shown: ["a", "pic"] }),
+    ).toEqual([
+      "de fallback lines: none of 1 met (no translation, the base text shown)",
+      "de stale lines: none of 1 met (translated from an older base text)",
+    ]);
+  });
+
+  it("takes a translation without a recorded hash as not stale, and a missing file as every line falling back", () => {
+    const unchecked = { language: "ja", items: { a: { text: "一行目。" } } };
+    expect(
+      languageLines({ manifest, tag: "ja", file: unchecked, shown: ["a"] })[1],
+    ).toBe(
+      "ja stale lines: none of 1 met (translated from an older base text)",
+    );
+    expect(
+      languageLines({ manifest, tag: "ja", file: null, shown: ["a", "b"] })[0],
+    ).toBe(
+      "ja fallback lines: 2 of 2 met (no translation, the base text shown): a, b",
+    );
+  });
+
+  it("names at most ten ids and counts the rest", () => {
+    const many = {
+      language: "en",
+      languages: ["de"],
+      items: Array.from({ length: 12 }, (_, n) => ({
+        id: `i${n}`,
+        text: `Line ${n}.`,
+      })),
+    };
+    const [fallbacks] = languageLines({
+      manifest: many,
+      tag: "de",
+      file: { language: "de", items: {} },
+      shown: many.items.map((it) => it.id),
+    });
+    expect(fallbacks).toBe(
+      "de fallback lines: 12 of 12 met (no translation, the base text shown): i0, i1, i2, i3, i4, i5, i6, i7, i8, i9 and 2 more",
+    );
+  });
+
+  it("says the base language has nothing to check", () => {
+    expect(
+      languageLines({ manifest, tag: "en", file: null, shown: ["a"] }),
+    ).toEqual(["language en: the game's own, no translation to check"]);
+  });
 });
 
 describe("check-game.mjs --version", () => {
@@ -613,6 +761,36 @@ describe("check-game.mjs --trace FILE it cannot write", () => {
       expect(run.stderr).toContain(`check-game: cannot write --trace ${cwd}`);
     } finally {
       rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("check-game.mjs --lang", () => {
+  const here = dirname(fileURLToPath(import.meta.url));
+
+  it("exits 2 for a language the game does not offer, before any browser starts", async () => {
+    const scratch = resolve(here, "../../../.tmp");
+    mkdirSync(scratch, { recursive: true });
+    const folder = mkdtempSync(join(scratch, "check-game-lang-"));
+    try {
+      writeFileSync(
+        join(folder, "manifest.json"),
+        JSON.stringify({ language: "en", languages: ["de"], items: [] }),
+      );
+      const run = await new Promise((done) => {
+        execFile(
+          process.execPath,
+          [join(here, "check-game.mjs"), folder, "--lang", "fr"],
+          (error, stdout, stderr) => done({ error, stdout, stderr }),
+        );
+      });
+      expect(run.error?.code).toBe(2);
+      expect(run.stdout).toBe("");
+      expect(run.stderr).toBe(
+        'check-game: this game has no language "fr" (--lang); it offers en, de\n',
+      );
+    } finally {
+      rmSync(folder, { recursive: true, force: true });
     }
   });
 });

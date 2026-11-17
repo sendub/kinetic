@@ -5198,8 +5198,24 @@ truthful: an unchecked box means nothing was accepted.
       converter/ tools/` 1580 passed; the demo extracts and validates.
       Known limit: a `--files` slice can number a repeated line's `_1`
       suffix differently from the whole game.)
-- [ ] Tools and docs around it (item 10): `check-game --lang`,
+- [x] Tools and docs around it (item 10): `check-game --lang`,
       assemble and upgrade carry `lang/`, CREATE.md "Translating a
-      game".
+      game". (Evidence: `check-game --lang TAG` (and `openGame`'s
+      `language`) shows the game as a reader with that system language
+      would, checks the tag before any browser starts (exit 2), and
+      reports fallback and stale lines met; output unchanged without it.
+      Assembly carries `lang/` and treats `lang/<tag>/lines/` as manifest
+      voice clips are treated; upgrade leaves `lang/` byte-identical;
+      build_apps needed no change (the apps open the folder in place;
+      both built from an assembled translated folder). CREATE.md
+      "Translating a game" (readers, authors, contributors, Ren'Py,
+      spoken lines, the player's words, what is not translated) and
+      "Checking a translation"; docs/packaging.md; README Languages
+      paragraph; CHANGELOG 1.10.0-dev rewritten in full with one
+      Upgrading bullet (re-extracting can renumber items after an
+      `extend` line or an archived pair). Verified by the orchestrator:
+      assemble, upgrade and build_apps tests 172 passed; npm test
+      1725/1725, check clean; `verify -- checkgame` 43/43 Chrome and
+      WebKit; `--lang xx` exits 2 listing en, de, ja, ar.)
 - [ ] Phase-closer (Phase 54): full suites; VERSION 1.10.0, the
       CHANGELOG dated, tag v1.10.0, `main` fast-forwarded.

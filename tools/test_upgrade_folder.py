@@ -344,3 +344,44 @@ def test_the_real_build_upgrades_a_folder(
     assert upgrade_folder.folder_player_version(folder) == VERSION
     assert capsys.readouterr().out.splitlines()[0] == (
         f"Kinetic unknown -> {VERSION}")
+
+
+LANG_DEMO = REPO_ROOT / "fixtures" / "lang-demo"
+
+
+@pytest.mark.skipif(not (LANG_DEMO / "manifest.json").is_file(),
+                    reason="fixtures/lang-demo is not built "
+                           "(.venv/bin/python fixtures/build_lang_demo.py)")
+def test_a_translated_folder_keeps_its_languages_byte_for_byte(
+        tmp_path: Path, dist: Path,
+        capsys: pytest.CaptureFixture[str]) -> None:
+    """lang/ (docs/plan.md Phase 54): the language files, their scripts
+    and a language's recorded lines (shipped as scripts, the audio left
+    out, as tools/assemble_folder.py leaves it) are the author's content:
+    the upgrade replaces only the player, and the folder validates."""
+    import shutil
+
+    from kinetic_extract import audio_format, language_file
+    folder = tmp_path / "my-novel"
+    shutil.copytree(LANG_DEMO, folder)
+    (folder / "index.html").write_bytes(OLD_INDEX)
+    (folder / "app.js").write_bytes(OLD_APP)
+    lines = folder / language_file.voice_lines_dir("de")
+    lines.mkdir(parents=True)
+    file = f"{language_file.voice_lines_dir('de')}/intro.m4a"
+    (folder / file).write_bytes(b"sound of the German intro")
+    audio_format.write_script(folder, file)
+    (folder / file).unlink()
+    german = json.loads((folder / "lang" / "de.json").read_text())
+    german["voice"] = {
+        "tracks": {"de-intro": {"file": file, "durationSeconds": 1.0}},
+        "items": {"intro-title": "de-intro"}}
+    language_file.write_language_file(folder, german)
+    content = snapshot(folder, PLAYER)
+    assert any(name.startswith("lang/de/lines/") for name in content)
+    assert run(str(folder)) == 0
+    assert (folder / "app.js").read_bytes() == stamped(VERSION)
+    assert snapshot(folder, PLAYER) == content
+    out = capsys.readouterr()
+    assert out.out.splitlines()[1] == \
+        f"{folder}: replaced index.html, app.js"

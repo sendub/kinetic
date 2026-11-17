@@ -72,6 +72,15 @@
 //   `(Kinetic unknown)` on a copy whose app.js has no version stamp (an
 //   older player), which still walks, exit 0; `--version` prints `Kinetic
 //   <VERSION>` and exits 0 with no browser started.
+// - `--lang TAG` (docs/plan.md Phase 54, item 10) on a copy of the language
+//   demo: `--lang de --steps all` walks in German (its lines as the German
+//   file has them, the missing floor-2 in English), its first line ending
+//   `, language de`, and reports floor-2 as the one fallback and
+//   text-thought as the one stale line met, exit 0; `--lang ja` reports
+//   none of either; `--lang en` (the base) says there is nothing to check;
+//   without `--lang` the output has no language lines; a tag the game
+//   lacks exits 2 before any browser starts; a copy whose German script is
+//   gone opens in English, which fails the run (exit 1), saying so.
 
 import { execFile } from "node:child_process";
 import {
@@ -96,6 +105,11 @@ import {
   removeVersionStamp,
   scenarioRoot,
 } from "./harness.mjs";
+import {
+  HINT as LANG_HINT,
+  built as langDemoBuilt,
+  langFolder,
+} from "./languages.scenario.mjs";
 
 export const title = "check-game.mjs: the quick check on the demo and copies";
 
@@ -120,6 +134,7 @@ export const parts = [
   segmentsAtEnd,
   playerVersion,
   traceFile,
+  languageWalks,
 ];
 
 const CHECK_GAME = join(playerDir, "scripts", "testing", "check-game.mjs");
@@ -1084,5 +1099,133 @@ async function segmentsAtEnd({ check }) {
       endStep(run.stdout) === shown.at(-1).step &&
       run.stdout.includes(`\nvisited ${count} of ${count} items\n`),
     { views: views.lines, ...evidence(run) },
+  );
+}
+
+/** The `TAG fallback lines:` and `TAG stale lines:` summary lines of a run. */
+const languageReport = (stdout, tag) => ({
+  fallbacks:
+    lines(stdout).find((line) => line.startsWith(`${tag} fallback lines: `)) ??
+    null,
+  stale:
+    lines(stdout).find((line) => line.startsWith(`${tag} stale lines: `)) ??
+    null,
+});
+
+async function languageWalks({ check }) {
+  if (!langDemoBuilt) {
+    check("the language demo is built", false, LANG_HINT);
+    return;
+  }
+  const folder = langFolder("checkgame");
+  const read = (file) => JSON.parse(readFileSync(join(folder, file), "utf8"));
+  const base = read("manifest.json");
+  const german = read(join("lang", "de.json"));
+  const lineOf = (id) => base.items.find((it) => it.id === id).text;
+  const quick = ["--no-media-check"];
+
+  const de = await checkGame(folder, ["--lang", "de", "--steps", "all"]);
+  const shown = itemLines(de.stdout);
+  const deReport = languageReport(de.stdout, "de");
+  const met = base.items.filter((it) => it.text).length;
+  check(
+    "--lang de --steps all walks the language demo to its end, the first line ending `, language de`, exit 0",
+    de.code === 0 &&
+      lines(de.stdout)[0] ===
+        `${engine}: ${resolve(folder)} (Kinetic ${kineticVersion}), language de` &&
+      endStep(de.stdout) === shown.at(-1)?.step &&
+      de.stdout.includes(
+        `\nvisited ${base.items.length} of ${base.items.length} items\n`,
+      ),
+    evidence(de),
+  );
+  const startsWith = (id, text) =>
+    shown.some((s) => s.id === id && s.line.includes(`"${text.slice(0, 20)}`));
+  check(
+    "its steps show the German lines, and floor-2, which German lacks, in English",
+    startsWith("intro-title", german.items["intro-title"].text) &&
+      startsWith("text-thought", german.items["text-thought"].text) &&
+      startsWith("floor-2", lineOf("floor-2")) &&
+      !startsWith("intro-title", lineOf("intro-title")),
+    shown.map((s) => s.line).slice(0, 4),
+  );
+  check(
+    "the summary reports floor-2 as the one fallback and text-thought as the one stale line met",
+    deReport.fallbacks ===
+      `de fallback lines: 1 of ${met} met (no translation, the base text shown): floor-2` &&
+      deReport.stale ===
+        `de stale lines: 1 of ${met} met (translated from an older base text): text-thought`,
+    { ...deReport, met },
+  );
+
+  const ja = await checkGame(folder, [
+    "--lang",
+    "ja",
+    "--steps",
+    "3",
+    ...quick,
+  ]);
+  check(
+    "--lang ja reports no fallbacks and no stale lines among the lines it met, exit 0",
+    ja.code === 0 &&
+      lines(ja.stdout)[0].endsWith(", language ja") &&
+      languageReport(ja.stdout, "ja").fallbacks ===
+        "ja fallback lines: none of 4 met (no translation, the base text shown)" &&
+      languageReport(ja.stdout, "ja").stale ===
+        "ja stale lines: none of 4 met (translated from an older base text)",
+    evidence(ja),
+  );
+
+  const en = await checkGame(folder, [
+    "--lang",
+    "en",
+    "--steps",
+    "1",
+    ...quick,
+  ]);
+  const plain = await checkGame(folder, ["--steps", "1", ...quick]);
+  check(
+    "--lang en, the base, says there is nothing to check; without --lang there are no language lines and the first line is as before",
+    en.code === 0 &&
+      lines(en.stdout)[0].endsWith(", language en") &&
+      en.stdout.includes(
+        "\nlanguage en: the game's own, no translation to check\n",
+      ) &&
+      itemLines(en.stdout)[0]?.line.includes(
+        lineOf("intro-title").slice(0, 20),
+      ) &&
+      plain.code === 0 &&
+      lines(plain.stdout)[0] ===
+        `${engine}: ${resolve(folder)} (Kinetic ${kineticVersion})` &&
+      !/language|fallback lines|stale lines/.test(
+        lines(plain.stdout).slice(1).join("\n"),
+      ),
+    { en: evidence(en), plain: evidence(plain) },
+  );
+
+  const unknown = await checkGame(folder, ["--lang", "xx"]);
+  check(
+    "a tag the game lacks exits 2 before any browser starts, naming the languages it offers",
+    unknown.code === 2 &&
+      unknown.stdout === "" &&
+      unknown.stderr.includes(
+        'this game has no language "xx" (--lang); it offers en, de, ja, ar',
+      ),
+    evidence(unknown),
+  );
+
+  const broken = langFolder("checkgame-nofile");
+  rmSync(join(broken, "lang", "de.js"));
+  const lost = await checkGame(broken, [
+    "--lang",
+    "de",
+    "--steps",
+    "1",
+    ...quick,
+  ]);
+  check(
+    "a copy whose German script is gone opens in English, which fails the run (exit 1), saying so",
+    lost.code === 1 && lost.stderr.includes("opened in en, not de"),
+    evidence(lost),
   );
 }

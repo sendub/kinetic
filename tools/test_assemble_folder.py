@@ -240,3 +240,105 @@ def test_a_folder_without_sound_gets_no_script(
     assert sorted(p.name for p in out.rglob("*.js")) == ["app.js",
                                                          "manifest.js"]
     assert "audio script" not in capsys.readouterr().out
+
+
+LANG_DEMO = TOOLS_DIR.parent / "fixtures" / "lang-demo"
+needs_lang_demo = pytest.mark.skipif(
+    not (LANG_DEMO / "manifest.json").is_file(),
+    reason="fixtures/lang-demo is not built "
+           "(.venv/bin/python fixtures/build_lang_demo.py)")
+
+
+def translated(tmp_path: Path) -> Path:
+    """A copy of the language demo (docs/plan.md Phase 54 item 1): three
+    language files with their scripts, the schema copies beside them."""
+    import shutil
+    folder = tmp_path / "content"
+    shutil.copytree(LANG_DEMO, folder)
+    (folder / "lang.schema.json").write_text('{"title": "copy"}\n')
+    return folder
+
+
+def files_under(folder: Path) -> dict[str, bytes]:
+    return {p.relative_to(folder).as_posix(): p.read_bytes()
+            for p in sorted(folder.rglob("*")) if p.is_file()}
+
+
+@needs_lang_demo
+def test_a_translated_folder_carries_every_language_file_and_script(
+        tmp_path: Path, fake_dist: Path) -> None:
+    """lang/<tag>.json and .js of every listed language reach the
+    folder readers get, byte for byte, and it validates."""
+    folder = translated(tmp_path)
+    out = tmp_path / "play"
+    assemble(folder, out)
+    lang = files_under(folder / "lang")
+    assert sorted(lang) == ["ar.js", "ar.json", "de.js", "de.json",
+                            "ja.js", "ja.json"]
+    assert files_under(out / "lang") == lang
+    assert not (out / "lang.schema.json").exists()
+    import validate_content
+    assert validate_content.validate_folder(out) == []
+
+
+@needs_lang_demo
+def test_a_language_file_without_its_script_gets_one(
+        tmp_path: Path, fake_dist: Path,
+        capsys: pytest.CaptureFixture[str]) -> None:
+    """A hand-written language file with no script gets one, as a
+    manifest.json with no manifest.js does; an existing one is kept."""
+    folder = translated(tmp_path)
+    (folder / "lang" / "ja.js").unlink()
+    kept = (folder / "lang" / "de.js").read_bytes()
+    out = tmp_path / "play"
+    assemble(folder, out)
+    text = (folder / "lang" / "ja.json").read_text(encoding="utf-8")
+    assert (out / "lang" / "ja.js").read_text(encoding="utf-8") == \
+        assemble_folder.language_file.script_text("ja", text)
+    assert (out / "lang" / "de.js").read_bytes() == kept
+    assert not (folder / "lang" / "ja.js").exists()
+    assert "generated 1 language script" in capsys.readouterr().out
+    import validate_content
+    assert validate_content.validate_folder(out) == []
+
+
+@needs_lang_demo
+def test_a_languages_recorded_lines_ship_as_their_scripts_as_tracks_do(
+        tmp_path: Path, fake_dist: Path,
+        capsys: pytest.CaptureFixture[str]) -> None:
+    """A language file's own recorded lines (lang/<tag>/lines/, docs/
+    content-format.md "Spoken lines per language") follow the manifest
+    tracks' policy: a missing script is written, the audio file is left
+    out once its script is in, and the folder still validates."""
+    folder = translated(tmp_path)
+    lines = folder / "lang" / "de" / "lines"
+    lines.mkdir(parents=True)
+    for name in ("intro.m4a", "speech.m4a"):
+        (lines / name).write_bytes(f"sound of {name}".encode())
+    # One script already there, as tools/record_lines.py --lang writes it.
+    (lines / "speech.m4a.js").write_bytes(
+        assemble_folder.audio_format.script_bytes(
+            "lang/de/lines/speech.m4a", (lines / "speech.m4a").read_bytes()))
+    german = json.loads((folder / "lang" / "de.json").read_text())
+    german["voice"] = {
+        "tracks": {
+            "de-intro": {"file": "lang/de/lines/intro.m4a",
+                         "durationSeconds": 1.0},
+            "de-speech": {"file": "lang/de/lines/speech.m4a",
+                          "durationSeconds": 1.0}},
+        "items": {"intro-title": "de-intro", "text-speech": "de-speech"}}
+    assemble_folder.language_file.write_language_file(folder, german)
+    out = tmp_path / "play"
+    assemble(folder, out)
+    for name in ("intro.m4a", "speech.m4a"):
+        file = f"lang/de/lines/{name}"
+        assert not (out / file).exists()
+        assert held(out, file) == (lines / name).read_bytes()
+    printed = capsys.readouterr().out
+    assert "wrote 1 audio script" in printed
+    assert "left out 2 audio files" in printed
+    # The content folder keeps both, for record_lines and the validator.
+    assert (lines / "intro.m4a").exists()
+    assert not (lines / "intro.m4a.js").exists()
+    import validate_content
+    assert validate_content.validate_folder(out) == []

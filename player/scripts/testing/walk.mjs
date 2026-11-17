@@ -2,8 +2,12 @@
 // the browser so they can be tested on made-up steps and times
 // (walk.test.mjs): its arguments, when a walk stops (the story's end, a
 // stuck player, `--steps`, the `--steps all` cap, `--until`), the lines it
-// prints after the walk, the media check's progress line and its exit code. check-game.mjs opens the game,
-// presses Space and hands each step's current() reading to the walk.
+// prints after the walk (with `--trace`, docs/plan.md Phase 54, item 2,
+// the trace summary line), the media check's progress line, its exit code
+// and, with `--lang` (docs/plan.md Phase 54, item 10), the language checks.
+// check-game.mjs opens the game, presses Space and hands each step's
+// current() reading to the walk.
+import { createHash } from "node:crypto";
 import { summary } from "./kinetic.mjs";
 
 // Away from the story's end, Space changing nothing STUCK_PRESSES times
@@ -16,14 +20,15 @@ export const STUCK_MS = 2000;
 const NEVER_SHOWN_NAMED = 10;
 
 export const USAGE =
-  "usage: node check-game.mjs <game-folder> [--engine webkit|chrome|auto] [--steps N|all] [--start-at ID] [--until ID] [--no-media-check] [--trace FILE]\n       node check-game.mjs --version";
+  "usage: node check-game.mjs <game-folder> [--engine webkit|chrome|auto] [--steps N|all] [--start-at ID] [--until ID] [--no-media-check] [--trace FILE] [--lang TAG]\n       node check-game.mjs --version";
 
 /**
  * check-game's first line: the engine, the folder and the folder's player
- * version (`version`, null for an older player's app.js with no stamp).
+ * version (`version`, null for an older player's app.js with no stamp),
+ * then, for a `--lang` walk, the game language shown (`language`).
  */
-export const headerLine = (engine, folder, version) =>
-  `${engine}: ${folder} (Kinetic ${version ?? "unknown"})`;
+export const headerLine = (engine, folder, version, language = null) =>
+  `${engine}: ${folder} (Kinetic ${version ?? "unknown"})${language === null ? "" : `, language ${language}`}`;
 
 /**
  * The presses `--steps all` makes at most: twice the manifest's item count
@@ -46,6 +51,11 @@ export const segmentCount = (items) =>
 
 const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 const grouped = (n) => n.toLocaleString("en-US");
+// Up to NEVER_SHOWN_NAMED ids, then how many more.
+const namedIds = (ids) => {
+  const more = ids.length - NEVER_SHOWN_NAMED;
+  return `${ids.slice(0, NEVER_SHOWN_NAMED).join(", ")}${more > 0 ? ` and ${more} more` : ""}`;
+};
 
 // What "Space changed nothing" compares: the item, its line, its picture,
 // an open choice, a screen over it and the active video segment (as
@@ -63,9 +73,10 @@ const screenKey = (now) =>
 
 /**
  * check-game.mjs's command line: `{ folder, engine, steps, startAt, until,
- * mediaCheck, trace }` (`steps` a whole number or "all", default 10;
- * `mediaCheck` false for `--no-media-check`; `trace` the file `--trace`
- * names, else null), `{ version: true }` when `--version` is
+ * mediaCheck, trace, language }` (`steps` a whole number or "all", default
+ * 10; `mediaCheck` false for `--no-media-check`; `trace` the file
+ * `--trace` names, else null; `language` the `--lang` tag, else null),
+ * `{ version: true }` when `--version` is
  * anywhere on it (print Kinetic's version, nothing else), or `{ error }`
  * for anything else (exit 2 with USAGE).
  */
@@ -77,6 +88,7 @@ export function readArgs(argv) {
     "start-at": null,
     until: null,
     trace: null,
+    lang: null,
   };
   let mediaCheck = true;
   let stepsGiven = false;
@@ -133,6 +145,7 @@ export function readArgs(argv) {
     until: options.until,
     mediaCheck,
     trace: options.trace,
+    language: options.lang,
   };
 }
 
@@ -142,6 +155,80 @@ export function readArgs(argv) {
  */
 export const traceSummaryLine = ({ written, dropped, file }) =>
   `trace: ${grouped(written)} ${written === 1 ? "record" : "records"} written to ${file}, ${grouped(dropped)} dropped`;
+
+/**
+ * The languages a game offers (docs/content-format.md "Translations"): its
+ * base, the manifest's `language` (default `en`), then each tag its
+ * `languages` lists.
+ */
+export function gameLanguages(manifest) {
+  const base =
+    typeof manifest?.language === "string" ? manifest.language : "en";
+  const listed = Array.isArray(manifest?.languages)
+    ? manifest.languages.filter((tag) => typeof tag === "string")
+    : [];
+  return [base, ...listed.filter((tag) => tag !== base)];
+}
+
+/**
+ * Why `--lang tag` cannot walk `manifest`, or null when the game offers
+ * that language (gameLanguages; the tag as the manifest spells it).
+ */
+export function languageProblem(manifest, tag) {
+  const offered = gameLanguages(manifest);
+  if (offered.includes(tag)) return null;
+  return `this game has no language ${JSON.stringify(tag)} (--lang); it offers ${offered.join(", ")}`;
+}
+
+/** A translation's base-text hash: the first 8 hex of its SHA-256. */
+export const baseHash = (text) =>
+  createHash("sha256").update(text, "utf8").digest("hex").slice(0, 8);
+
+/**
+ * The summary's language lines for a `--lang tag` walk: of the lines met
+ * (`shown`, the ids shown, whose manifest item has text), those the
+ * language file `file` (lang/<tag>.json's content) has no text for, which
+ * the player showed in the base language, and those it translated from an
+ * older base text (a `from` that is not the base text's hash, as the
+ * validator's stale warning has it). Up to ten ids each, in manifest
+ * order. For the base language, one line saying there is nothing to check.
+ */
+export function languageLines({ manifest, tag, file, shown }) {
+  const [base] = gameLanguages(manifest);
+  if (tag === base) {
+    return [`language ${tag}: the game's own, no translation to check`];
+  }
+  const items = Array.isArray(manifest?.items) ? manifest.items : [];
+  const wanted = new Set(shown);
+  const texts =
+    file?.items !== null && typeof file?.items === "object" ? file.items : {};
+  const met = [];
+  const fallbacks = [];
+  const stale = [];
+  for (const it of items) {
+    if (!wanted.has(it?.id)) continue;
+    if (typeof it.text !== "string" || it.text === "") continue;
+    met.push(it.id);
+    const entry = Object.hasOwn(texts, it.id) ? texts[it.id] : null;
+    const text =
+      entry !== null && typeof entry === "object" ? entry.text : null;
+    if (typeof text !== "string" || text.trim() === "") {
+      fallbacks.push(it.id);
+    } else if (
+      typeof entry.from === "string" &&
+      entry.from !== baseHash(it.text)
+    ) {
+      stale.push(it.id);
+    }
+  }
+  const count = (ids) =>
+    `${ids.length === 0 ? "none" : ids.length} of ${grouped(met.length)} met`;
+  const listed = (ids) => (ids.length === 0 ? "" : `: ${namedIds(ids)}`);
+  return [
+    `${tag} fallback lines: ${count(fallbacks)} (no translation, the base text shown)${listed(fallbacks)}`,
+    `${tag} stale lines: ${count(stale)} (translated from an older base text)${listed(stale)}`,
+  ];
+}
 
 /**
  * The summary's media line, from checkMedia()'s counts: how many files
@@ -246,10 +333,7 @@ export function startWalk({
     span !== null && stop?.reason === "until"
       ? span.indexes.filter((n) => !seen.has(n)).map((n) => ids[n])
       : [];
-  const named = (missing) => {
-    const more = missing.length - NEVER_SHOWN_NAMED;
-    return `${missing.slice(0, NEVER_SHOWN_NAMED).join(", ")}${more > 0 ? ` and ${more} more` : ""}`;
-  };
+  const named = namedIds;
 
   const stopLine = () => {
     if (stop.reason === "end") return `story ended at step ${stop.step}`;

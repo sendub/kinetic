@@ -35,6 +35,17 @@ decision; this file is the practical sheet.
   is never in a game folder or an app: a reader's Kinetic app downloads it
   into a folder of its own, after an opt-in (docs/stack.md, "Voice install
   decision").
+- For a translated game (docs/content-format.md, "Translations"), a
+  `lang/` folder: for each tag the manifest's `languages` lists, the
+  language file `lang/<tag>.json` and its script `lang/<tag>.js`, which
+  hands it to the page without a fetch as `manifest.js` does; the player
+  loads only the language a reader is shown. A language with its own
+  recorded voice lines keeps them under `lang/<tag>/lines/`, each with
+  its script `<file>.js` as for a track: the assembled folder ships the
+  scripts and leaves the audio files out, and a content folder keeps
+  both. Not `lang.schema.json`, the language files' schema copy beside
+  the manifest, which is for an author's editor as `manifest.schema.json`
+  is.
 - Unreferenced extras the converter leaves behind (such as
   `build-ledger.json`), which the player and the validator ignore. Not
   kinetic-extract's schema copy, `manifest.schema.json`: it is for an
@@ -69,12 +80,15 @@ identical folder shape:
 The output folder holds exactly what the script places: the current
 bundle from `player/dist/` (a stale `index.html` or `app.js` inside the
 content folder is ignored), the content files, a generated
-`manifest.js` when the content has only `manifest.json`, and a
-generated script for each audio track file that has none; the
-content's top-level `manifest.schema.json` is not copied. It then
-leaves out each audio track file and each voice clip whose script is
-there, unless an item also shows that file; the content folder keeps
-them, and writes a missing voice script as it does a track's. A non-empty
+`manifest.js` when the content has only `manifest.json`, a generated
+`lang/<tag>.js` for each listed language file that has no script, and
+a generated script for each audio track file that has none; the
+content's top-level `manifest.schema.json` and `lang.schema.json` are
+not copied. It then leaves out each audio track file, each voice clip
+and each recorded line a listed language file names
+(`lang/<tag>/lines/`) whose script is there, unless an item also shows
+that file; the content folder keeps them, and writes a missing voice or
+line script as it does a track's. A non-empty
 output is refused unless `--force` replaces it. The script prints the
 file count and total size. Check the result with the validator; a clean
 run exits 0:
@@ -86,7 +100,7 @@ run exits 0:
 A folder already made takes a newer player with
 `.venv/bin/python tools/upgrade_folder.py novel-play`, which replaces
 only its `index.html` and `app.js` (CREATE.md, "Upgrading to a newer
-Kinetic").
+Kinetic"); `manifest.json`, media and `lang/` stay as they are.
 
 ## Double-click behavior and transport
 

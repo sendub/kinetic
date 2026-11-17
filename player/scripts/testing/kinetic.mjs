@@ -810,6 +810,68 @@ export function readManifestFile(dir) {
   }
 }
 
+const LANGUAGE_SHIM = (tag) =>
+  `window.KINETIC_LANGUAGES[${JSON.stringify(tag)}] = `;
+
+/**
+ * The folder `dir`'s language file for `tag` (docs/content-format.md
+ * "Translations"), as the player loads it: `lang/<tag>.js`'s JSON, else
+ * `lang/<tag>.json`; null when neither reads.
+ */
+export function readLanguageFile(dir, tag) {
+  const prefix = LANGUAGE_SHIM(tag);
+  try {
+    const shim = readFileSync(join(dir, "lang", `${tag}.js`), "utf8").trim();
+    if (shim.startsWith(prefix)) {
+      const data = JSON.parse(shim.slice(prefix.length).replace(/;$/, ""));
+      if (data !== null && typeof data === "object") return data;
+    }
+  } catch {
+    // Missing, or more than the plain assignment: the JSON next.
+  }
+  try {
+    return JSON.parse(readFileSync(join(dir, "lang", `${tag}.json`), "utf8"));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Refuses a `language` the folder's manifest does not offer (its base
+ * `language`, default `en`, or one its `languages` lists), before any
+ * browser starts. Returns the manifest's languages, base first.
+ */
+function checkLanguage(dir, language) {
+  if (typeof language !== "string" || language === "") {
+    throw new Error("openGame: language must be a language tag (a string)");
+  }
+  const manifest = readManifestFile(dir);
+  if (manifest === null) {
+    throw new Error(
+      `openGame: cannot check language ${JSON.stringify(language)}: ${dir} has no readable manifest.js or manifest.json`,
+    );
+  }
+  const base = typeof manifest.language === "string" ? manifest.language : "en";
+  const offered = [
+    base,
+    ...(Array.isArray(manifest.languages) ? manifest.languages : []).filter(
+      (tag) => typeof tag === "string" && tag !== base,
+    ),
+  ];
+  if (!offered.includes(language)) {
+    throw new Error(
+      `openGame: this game has no language ${JSON.stringify(language)} (language); it offers ${offered.join(", ")}`,
+    );
+  }
+  return offered;
+}
+
+// The game language the page shows: the Language control's own `lang`
+// (render/languagecontrol.ts names the shown language in itself); null
+// with no control (one language, or a player older than translations).
+const SHOWN_LANGUAGE = () =>
+  document.querySelector(".help-lang-name")?.getAttribute("lang") ?? null;
+
 /** Refuses a startAt the folder's manifest has no item for, before any browser starts. */
 function checkStartAt(dir, startAt) {
   if (typeof startAt !== "string") {
@@ -986,6 +1048,15 @@ export function countChecked(previous, open) {
  * - `trace`: true sets `window.KINETIC_TEST_TRACE` before the player
  *   starts (on every load, reloads included), so it keeps the item trace
  *   the handle's trace() reads (src/render/trace.ts). Default false.
+ * - `language`: a game language tag the manifest offers (its `language`,
+ *   default `en`, or one of its `languages`); the game opens showing it,
+ *   as for a reader whose system language it is, so the player's own
+ *   words follow it too where its catalogue has the language (else
+ *   English). A tag the game lacks throws before any browser starts; a
+ *   game that opens in another language throws once it has opened (a
+ *   language file that would not load, a `profile` holding another pick,
+ *   or a player older than translations). The handle's `language` is the
+ *   tag, null when not given (the system's languages, as before).
  * - `mediaChecks`: false loads no media file off the page to check it, so
  *   errors() lists only the failed loads the page's own elements report
  *   and checkMedia() throws (check-game's `--no-media-check`). Default
@@ -1017,6 +1088,7 @@ export async function openGame(folder, options = {}) {
     closeHelp = true,
     playAll = null,
     startAt = null,
+    language = null,
     mediaChecks = true,
     trace = false,
     log = (line) => console.error(line),
@@ -1036,6 +1108,7 @@ export async function openGame(folder, options = {}) {
     throw new Error("openGame: trace must be true or false");
   }
   if (startAt !== null) checkStartAt(dir, startAt);
+  const offered = language === null ? null : checkLanguage(dir, language);
   const chosen = chooseEngine(engine, log);
   const links = outsideLinks(dir);
   if (log) {
@@ -1053,6 +1126,7 @@ export async function openGame(folder, options = {}) {
   const browser = await launchBrowser(chosen, {
     profile: kept ?? temp,
     crashDumpsDir: join(scratch, "crashdumps"),
+    ...(language === null ? {} : { languages: [language] }),
   });
   let closed = false;
   const close = async () => {
@@ -1078,6 +1152,16 @@ export async function openGame(folder, options = {}) {
     );
     await waitForPlayer(page);
     if (startAt !== null) await checkStartedAt(page, startAt);
+    if (offered !== null && offered.length > 1) {
+      const shown = await page.evaluate(SHOWN_LANGUAGE);
+      if (shown !== language) {
+        throw new Error(
+          shown === null
+            ? `openGame: this folder's player shows no game languages (a player older than translations); upgrade the folder's player (CREATE.md, "Upgrading to a newer Kinetic") to open it in ${language}`
+            : `openGame: the game opened in ${shown}, not ${language} (language): its language file did not load, or the profile holds another pick`,
+        );
+      }
+    }
     const embedded = await page.evaluate(() => window.KINETIC_MANIFEST ?? null);
     const manifest = embedded ?? readManifestFile(dir) ?? { items: [] };
     if (closeHelp) await dismissHelp(page, cdp);
@@ -1105,6 +1189,7 @@ export async function openGame(folder, options = {}) {
         engine: chosen,
         folder: dir,
         kineticVersion: folderKineticVersion(dir),
+        language,
         url,
         close,
       },

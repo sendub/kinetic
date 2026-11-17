@@ -1259,9 +1259,11 @@ cp player/dist/index.html player/dist/app.js my-novel/
 Or let `tools/assemble_folder.py <content-dir> <out-folder>` assemble a
 playable copy in one command: it copies the bundle and content, generates
 a missing `manifest.js` and the missing script of each sound file (Sound,
-above), ships the scripts without the sound files, leaves out the schema
-copy, `manifest.schema.json` (Manifest), which only your editor needs,
-and prints the folder size (docs/packaging.md).
+above), ships the scripts without the sound files, carries the language
+files under `lang/` (Translating a game) with a missing `lang/<tag>.js`
+generated, leaves out the schema copies, `manifest.schema.json`
+(Manifest) and `lang.schema.json`, which only your editor needs, and
+prints the folder size (docs/packaging.md).
 
 Run `npm run build` in `player/` first if the bundle is not current.
 
@@ -1547,6 +1549,234 @@ Voice row offers the download. `fixtures/voice-demo`, built by `.venv/bin/python
 fixtures/build_voice_demo.py`, is a small worked game with two characters and a
 narrator whose clips came from this tool.
 
+## Translating a game
+
+A game can be read in more than one language from one folder. The
+manifest stays in the game's own language, the base, and each
+translation is a language file, `lang/<tag>.json` with its
+`lang/<tag>.js`, holding that language's lines, speaker names, choice
+questions and route labels, title and version (docs/content-format.md,
+"Translations"). A game converted from Ren'Py brings the translations
+its project has; any game can gain more later, from you or from
+contributors, with the translator tools.
+
+### What readers see
+
+- **The Language control.** With more than one language, the Esc
+  screen's title bar has a capsule at the right of "Esc or Space
+  closes": a globe and the current language, named in itself
+  (Deutsch, 日本語). A click opens a list of the game's languages over
+  the screen, so nothing moves; the arrow keys move in it, and Enter or
+  a click picks. Escape closes the list first, then the screen.
+  A game with one language has no control, and the screen looks as it
+  did.
+- **The starting language** is the reader's system language when the
+  game has it, matched loosely (`de-AT` takes `de`, `zh-TW` takes
+  `zh-Hant`, `es-MX` takes `es-419`), otherwise the base. Once a reader
+  picks a language, that pick wins, kept with their settings for this
+  game.
+- **Switching keeps everything.** One item has one text in every
+  language, so the place, picks, seen items, bookmarks and auto-forward
+  stay as they were; the screen on show is drawn again in the new
+  language. Auto-forward gives each language its own reading time:
+  Chinese, Japanese and Korean, which say more per character, hold each
+  character longer.
+- **A missing line shows the original.** Each line, name, question and
+  label falls back to the base on its own, so a part-translated game
+  plays whole. A line whose original changed after it was translated
+  still shows its translation until someone updates it.
+- **The player's own words** (the Esc screen, help, pills, confirmation
+  boxes, choice hints, the end card, the branch map, the Volumes sheet)
+  come in 39 languages, and the Mac app's menus and the apps' first
+  messages with them. They follow the language the reader picked when
+  Kinetic has its words, otherwise the system language when Kinetic has
+  that, otherwise English. So a reader whose game has one language
+  still gets the controls in their own.
+- **Right to left.** In Arabic, Persian, Hebrew and Urdu the screens
+  mirror: the text, choices, Esc screen, help, end card and pills read
+  from the right, and sliders run from the right. The branch map keeps
+  its layout (its labels still read right to left), and the arrow keys
+  keep their direction on the keyboard.
+- **Spoken lines follow the language shown** (Giving characters
+  voices). A language file may carry its own recorded lines; without
+  one for a line, the apps speak it live in that language, and a
+  browser, or a language the voice engine does not speak, stays silent.
+  A language file with `"keepOriginalVoice": true` plays the original
+  recording of a line it has not recorded itself under its text, like
+  subtitles, rather than speaking it live; without it the original
+  recordings stay silent under a translation.
+
+### The author's flow
+
+Translators work in PO files (gettext), which every translation tool
+reads. `tools/translations.py` writes one per language from the game,
+and turns the translated file back into the game's language file
+(docs/translating.md is its reference). From the repo root, with the
+game's content folder `my-novel`:
+
+```sh
+.venv/bin/python tools/translations.py export my-novel de
+```
+
+This writes `<storyId>.de.po` in the current folder, `my-novel.de.po`
+for a game whose `storyId` is `my-novel` (`--out FILE` names another
+file): one entry per line, speaker name, question, route label, title
+and version, in story order, each with notes on who speaks, the lines
+around it and its length. Send it to the translator. When it comes back:
+
+```sh
+.venv/bin/python tools/translations.py import my-novel my-novel.de.po
+.venv/bin/python tools/translations.py status my-novel
+```
+
+`import` writes `lang/de.json` and `lang/de.js`, adds `de` to the
+manifest's `languages` and rewrites `manifest.js`, then prints what the
+validator says of German. It refuses a file made for another game, and
+one in the game's own language. `status` prints each language's
+coverage:
+
+```text
+my-novel: base language en, 39 strings to translate
+de: 38 of 39 strings (97.4%), 1 stale, 0 unchecked, 1 missing
+```
+
+The validator (Validating) reports every language on each run: a
+coverage line per language, and a warning for each missing string, each
+stale one (translated from an earlier wording of its original) and each
+translation much longer than its original. These are warnings, not
+problems: the game plays, showing the original where a line is missing.
+A translated question must stay under 200 characters and a label under
+120, as in the base; those are problems.
+
+After you edit the story, export the language again. The new file
+keeps every translation, adds empty entries for new lines and marks a
+line whose original changed as needing review (fuzzy), so the
+translator sees what to check. Importing that file keeps a reviewed
+line current and leaves one still marked as stale.
+
+Walk the game in each language before release (Testing your game,
+"Checking a translation"):
+
+```sh
+node player/scripts/testing/check-game.mjs novel-play --lang de --steps all
+```
+
+It reports the lines the walk met that showed the original or were
+stale. Assembling (Playing the folder) carries `lang/` into the folder
+readers get, and `tools/upgrade_folder.py` leaves it as it is.
+
+### A contributor's flow
+
+A contributor needs only the PO file the author exported and a
+translation tool:
+
+- **Poedit**, a free desktop editor for macOS, Windows and Linux: open
+  the file, type each translation, save, send the file back.
+- **Weblate** or **Crowdin**, online, where several people translate one
+  game in the browser; both host open-source projects free. Add the
+  exported file to the project as that language's translation file,
+  then download it translated for the author to import.
+
+In the file, each entry is an original (`msgid`) and its translation
+(`msgstr`):
+
+```text
+#. Speaker: Mei
+#. Item: text-thought, a text item; a thought, not said aloud
+#. Before: text-speech: Spoken dialogue: the speaker's name, Mei, sits above it.
+#. After: text-narration: Narration has no name. Press h to hide all text; press h ag…
+#. Base length: 60 characters.
+#, fuzzy
+msgctxt "item:text-thought"
+msgid "A thought: unspoken, so it is drawn differently from speech."
+msgstr "Ein Gedanke: unausgesprochen, darum anders dargestellt."
+```
+
+- Fill in `msgstr` only. `msgctxt` says which line it is (`item:` and
+  the item's id, `speaker:`, `prompt:`, `label:`, `title`, `version`):
+  leave it, and the `msgid`, exactly as they are. Tools show `msgctxt`
+  as the context and keep it.
+- The `#.` lines are notes: who speaks, whether it is a thought, the
+  two lines before and after, the decision or route, and the original's
+  length. Poedit shows them as notes for translators; Weblate and
+  Crowdin show them beside the string. Keep a line about as long as its
+  original: the validator warns about one over one and a half times its
+  length, and a question or label has a hard limit.
+- Keep line breaks where the original has them. The player shows a line
+  exactly as written, markup included: a converted game's line may hold
+  a Ren'Py leftover such as `[name]`, which readers see as it stands, so
+  copy it into the translation unchanged.
+- Leave `msgstr` empty for a line you have not translated: readers see
+  the original there. A speaker's name may stay the same as the
+  original; fill it in anyway, so the tools count it as done.
+- An entry marked fuzzy (`#, fuzzy`, as above; Poedit's "Needs work",
+  Weblate's "Needs editing") is one whose original changed since it was
+  translated. Check it, fix it if needed, and clear the mark.
+
+### Ren'Py games
+
+kinetic-extract reads a Ren'Py project's own translations from
+`game/tl/<language>/`, loose or inside its archives, and writes a
+language file per language, its lines matched to the story by Ren'Py's
+own translation identifiers (Converting, checking and playing one game;
+docs/extracting.md, "Translations"). The summary prints each language's
+coverage. Three options change it:
+
+- `--language-map NAME=TAG` gives the language tag of a `tl/` folder
+  the converter does not know (`--language-map klingon=tlh`;
+  repeatable).
+- `--base-language TAG` names the game's own language when it is not
+  English (`--base-language ja`), so its `tl/english` becomes an English
+  language file.
+- `--no-translations` converts the base language alone.
+
+A game with recorded voice lines gets `"keepOriginalVoice": true` in
+each language file, as Ren'Py plays the original voices under a
+translation. Ren'Py's per-language fonts and replacement files are left
+out. `status` then shows what the converted languages cover, and
+`export` hands the rest to a translator.
+
+### Spoken lines per language
+
+`tools/record_lines.py --lang TAG` records one language's lines into its
+language file, under `lang/<tag>/lines/`, as it records the base's
+(Recording the lines):
+
+```sh
+.venv/bin/python tools/record_lines.py my-novel --lang de
+```
+
+Assembling ships each recorded line's script and leaves the audio file
+out, as it does for every track.
+
+### Correcting the player's own words
+
+The player's words in each language are a PO file in this repo,
+`player/locales/<tag>.po`. The 38 besides English are drafts no native
+speaker has reviewed yet, and corrections are welcome: edit a
+`msgstr`, keeping every `{placeholder}` as it is (the player fills in a
+key or a number there), then run `npm run i18n` and `npm test` in
+`player/`, and check that the longer wording still fits
+(docs/verify-player.md, "The player's words", says how, and how to add
+a language).
+
+### What is not translated
+
+- **Pictures** are the same in every language: text drawn into a
+  picture or video stays as drawn. Put words a reader must read into the
+  lines rather than the pictures.
+- **Fonts**: the player draws every language with the reader's system
+  fonts, a readable face per writing system, so Chinese, Japanese and
+  Korean each get their own forms of the characters they share. A
+  language file can neither name nor ship a font, by design.
+- Whether a line is a thought, media, timing, sound other than voice
+  lines, branches and ids are the manifest's, the same in every
+  language.
+
+The format of the language files is in docs/content-format.md,
+"Translations"; the translator tools' reference is
+docs/translating.md.
+
 ## Building the apps
 
 A game folder can also hold a macOS app, `<title>.app`, and a Windows
@@ -1797,6 +2027,9 @@ engine. The other options:
   check, below).
 - `--trace FILE` writes the player's record of every screen the walk
   showed to FILE, one JSON object per line (The item trace, below).
+- `--lang TAG` walks with that game language shown, and reports the
+  lines that fell back to the original or are out of date (Checking a
+  translation, below).
 
 Any walk stops at the story's end, whatever `--steps` says. The story
 has ended when Space changes nothing (the same item, line, picture,
@@ -1822,6 +2055,8 @@ steps`, followed by the reason when there is one (`reached ID
 - After a walk that reached its `--until` item, `span:` and the items of
   the span not shown (Checking part of a game, below).
 - With `--trace FILE`, `trace: N records written to FILE, D dropped`.
+- With `--lang`, the fallback and stale lines met (Checking a
+  translation, below).
 - `media: N files: L loaded during the walk, C checked after it (R never
   requested)`, from the media check.
 
@@ -1870,8 +2105,8 @@ The exit status says how it went:
 | Status | Meaning |
 | --- | --- |
 | 0 | Passed. |
-| 1 | Console or page errors (a file that failed to load or decode, a symbolic link out of the folder), a game that would not open (a player too old for `--start-at` among them), a stuck player, the `--steps all` limit, an `--until` item not reached, a media check that stalled or failed, or a `--trace` the folder's player cannot keep (an older player). |
-| 2 | Bad arguments: an unknown option, an `--engine` other than `webkit`, `chrome` or `auto`, a `--steps` that is neither a number nor `all`, an id the manifest does not have, or a `--trace` with no FILE or one that cannot be written (checked before anything opens). |
+| 1 | Console or page errors (a file that failed to load or decode, a symbolic link out of the folder), a game that would not open (a player too old for `--start-at` among them, or a game that opened in another language than `--lang` asked for), a stuck player, the `--steps all` limit, an `--until` item not reached, a media check that stalled or failed, or a `--trace` the folder's player cannot keep (an older player). |
+| 2 | Bad arguments: an unknown option, an `--engine` other than `webkit`, `chrome` or `auto`, a `--steps` that is neither a number nor `all`, an id the manifest does not have, a `--trace` with no FILE or one that cannot be written, or a `--lang` the game does not offer (checked before anything opens). |
 | 3 | A walk from the opening reached the story's end with items never shown, or a walk reached its `--until` item with items of its span not shown. |
 
 1 wins over 3: a walk with errors and items never shown exits 1.
@@ -2107,6 +2342,47 @@ assert.deepEqual((await game.current()).segment, { index: 2, count: 3 });
 await game.press("Space");
 assert.equal((await game.current()).id, "branch-title");
 ```
+
+#### Checking a translation
+
+`--lang TAG` walks a translated game (Translating a game) in one of its
+languages: the manifest's own `language` or one its `languages` lists.
+The game opens as it would for a reader whose system language that is,
+so the player's own words follow it too where Kinetic has them in that
+language (English otherwise). A tag the game does not offer exits 2
+before anything opens, naming the languages it has.
+
+```sh
+node player/scripts/testing/check-game.mjs novel-play --lang de --steps all
+```
+
+The first line ends `, language de`, the steps show the lines as
+German readers see them, and after the walk two lines count the lines
+it met (the items it showed that have text):
+
+```text
+webkit: /Users/you/lang-demo-play (Kinetic 1.10.0), language de
+  0: intro-title "Kinetic-Demo. Jede Zeile erklärt, was Sie sehen. Die Leer..."
+  ...
+story ended at step 35
+visited 32 of 32 items
+de fallback lines: 1 of 29 met (no translation, the base text shown): floor-2
+de stale lines: 1 of 29 met (translated from an older base text): text-thought
+```
+
+A fallback line has no German text, so readers see the original there.
+A stale line's original has changed since it was translated; it still
+shows. Each names up to ten item ids in manifest order, or says `none`.
+Neither changes the exit status: they are the validator's warnings, met
+in play. The validator reports every line of every language, met or not;
+`--lang` shows what a walk in that language meets. `--lang` with the
+game's own language says `language en: the game's own, no translation
+to check`.
+
+A game that opens in another language than the one asked for fails the
+run (exit 1) and says which: its language file did not load, or the
+folder's player is older than translations (Upgrading to a newer
+Kinetic). `openGame`'s `language` option does the same in a test script.
 
 ### A test script
 
@@ -2449,6 +2725,15 @@ as a folder, exits 2 before any browser starts.
   browser starts. A folder whose player is too old to start at an item
   throws once it has opened, saying so; upgrade its player (Upgrading to
   a newer Kinetic).
+- `language`: a game language tag, the manifest's `language` or one of
+  its `languages` (Translating a game). The game opens showing it, as
+  for a reader whose system language it is, and the player's own words
+  follow it where Kinetic has them in that language. A tag the game does
+  not offer throws before the browser starts; a game that opens in
+  another language throws once it has opened (its language file did not
+  load, the `profile` holds the reader's other pick, or the player is
+  older than translations). The game's `language` is the tag, or `null`
+  without the option.
 - `mediaChecks`: `false` loads no media file off the page to check it,
   as check-game's `--no-media-check` does: `errors()` then lists only
   the failed loads the page's own elements report, and `checkMedia()`
@@ -2593,8 +2878,8 @@ The game:
 ## Upgrading to a newer Kinetic
 
 A game folder's player is two files, `index.html` and `app.js`; every
-other file (`manifest.json`, `manifest.js`, media, extras) is your
-content. To take a newer player's fixes and features, pull and build
+other file (`manifest.json`, `manifest.js`, media, the language files
+under `lang/`, extras) is your content. To take a newer player's fixes and features, pull and build
 it, then let `tools/upgrade_folder.py` replace just those two:
 
 ```sh
@@ -2620,7 +2905,7 @@ replaced with the newer schema. A folder without one gets none.
 The command never touches `manifest.json` or `manifest.js`: the shim is
 generated from your `manifest.json`, not from the player, so regenerate
 it only when you edit `manifest.json` (Generating manifest.js). Media,
-extras and the apps stay as they are too; an app in the folder (Building
+`lang/`, extras and the apps stay as they are too; an app in the folder (Building
 the apps) plays whichever `index.html` sits beside it, so it keeps
 working without a rebuild. Each file is written whole beside the old one
 and then put in its place, so an interrupted upgrade leaves the old

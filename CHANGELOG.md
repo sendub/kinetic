@@ -19,30 +19,110 @@ something more of an author.
 
 ## 1.10.0-dev
 
-- Translations (in progress): a game can be read in several languages
-  from one folder, chosen on the Esc screen, and the player's own words
-  come in many languages.
+- Translations: a game can be read in several languages from one
+  folder. The manifest keeps the game's own text, and each translation
+  is a language file, `lang/<tag>.json` with its script `lang/<tag>.js`,
+  named in two new optional manifest fields: `language`, the game's own
+  (default `en`), and `languages` (docs/content-format.md,
+  "Translations"). A language file translates the lines, speaker names,
+  choice questions and route labels, the title and the version, each
+  recording which original it was made from; pictures, timing, sound
+  and branches stay the same in every language. Older players ignore
+  both fields and play the game's own language. The validator checks
+  the files and warns about each missing translation, each stale one
+  (its original changed since) and each much longer than its original,
+  with a coverage line per language.
+- The Language control: in a game with more than one language, the Esc
+  screen's title bar shows a globe and the current language in its own
+  name, at the right of "Esc or Space closes"; a click opens the list
+  over the screen, so nothing moves. Switching draws the screen on show
+  again in the new language and keeps the place, picks, seen items,
+  bookmarks and auto-forward. A game opens in the reader's system
+  language when it has it (`de-AT` takes `de`, `zh-TW` takes `zh-Hant`),
+  otherwise in its own; once the reader picks one, the pick is kept for
+  that game. A line with no translation shows the original. Auto-forward
+  gives each language its own reading time, so Chinese, Japanese and
+  Korean lines, which say more per character, are not rushed.
+- The player's own words (the Esc screen and its notes, help, pills,
+  confirmation boxes, choice hints, the end card, the branch map, the
+  Volumes sheet) come in 39 languages, following the language the reader
+  picked, otherwise their system language, when Kinetic has it, and
+  English otherwise. The Mac app's menus and window title, both apps'
+  messages before the game loads, and the voice download's messages
+  follow too. The 38 languages besides English are unreviewed drafts;
+  corrections are welcome (docs/verify-player.md, "The player's words").
+- Right to left: in Arabic, Persian, Hebrew and Urdu the text, choices,
+  Esc screen, help, Volumes sheet, end card and pills mirror, and
+  sliders run from the right. The branch map keeps its layout, and the
+  arrow keys keep their direction.
+- Every language is drawn in the reader's system fonts, a readable face
+  per writing system, so Chinese, Japanese and Korean each get their own
+  forms of shared characters. In scripts whose fonts have no italic
+  (Chinese, Japanese, Korean, Arabic, Persian, Urdu, Hebrew, Thai and
+  the Indian scripts), thoughts are drawn upright, set apart by colour
+  alone, and so are the end card's hint and the resume notice.
+- Spoken lines follow the language shown. A language file may carry its
+  own recorded lines (`voice`); without one, the apps speak a line live
+  in the language shown, and a language the voice engine does not speak
+  stays silent. `keepOriginalVoice` plays the original recordings under
+  a translation, like subtitles; without it they stay silent there. The
+  Sound row, Volumes..., `v` and the Volumes sheet's rows follow the
+  language shown, changing on a switch. `tools/record_lines.py --lang
+  TAG` records a language's lines into its language file, and without
+  `--lang` it now speaks the manifest's `language` rather than always
+  English, refusing one the engine lacks.
 - `tools/translations.py` hands a game's text to translators as PO
   files, the format Poedit, Weblate and Crowdin read: `export` writes a
   language's strings with context for each line (merging what the game
   already has, and marking for review a translation whose original has
   changed), `import` writes the language file from the translated file,
-  and `status` shows each language's coverage (docs/translating.md).
-- `kinetic-extract` reads a Ren'Py game's own translations (`game/tl/`):
-  each language becomes a language file, its lines matched to the story
-  by Ren'Py's translation identifiers and its menu choices, captions and
-  character names taken from its `strings` blocks; the summary reports
-  what matched and the coverage. `--language-map NAME=TAG` names a
-  language the converter does not know, and `--no-translations` leaves
+  and `status` shows each language's coverage (docs/translating.md;
+  CREATE.md, "Translating a game").
+- `kinetic-extract` reads a Ren'Py game's own translations (`game/tl/`,
+  loose or inside its `.rpa` archives): each language becomes a language
+  file, its lines matched to the story by Ren'Py's translation
+  identifiers and its menu choices, captions and character names taken
+  from its `strings` blocks; a translation whose English changed since
+  is kept, marked stale; a game with recorded voice lines gets
+  `keepOriginalVoice`, as Ren'Py plays the original voices. The summary
+  reports what matched and the coverage. `--language-map NAME=TAG` names
+  a language the converter does not know, `--base-language TAG` names a
+  game's own language when it is not English (its `tl/english` then
+  becomes an English language file), and `--no-translations` leaves
   them out (docs/extracting.md, "Translations").
-- `kinetic-extract` joins an `extend` line to the line before it, in one
-  item with that line's speaker, as Ren'Py shows it (before, it became
-  an item of its own spoken by "extend"); reads `_()`-wrapped character
-  names, `name=` and dynamic characters, so translations can rename
-  speakers; keeps a translation whose English has changed since, marked
-  stale; reads translations and scripts inside `.rpa` archives; and
-  `--base-language TAG` names a game's own language when it is not
-  English, so its `tl/english` becomes an English language file.
+- `kinetic-extract` fixes: an `extend` line joins the line before it,
+  in one item with that line's speaker, as Ren'Py shows it (before, it
+  became an item of its own spoken by "extend"); a character named with
+  `_()`, `name=` or a dynamic name gets its display name; an archive
+  holding both `x.rpy` and `x.rpyc` has the story read once, from the
+  `.rpy`, as for loose files (before, it was read twice, doubling every
+  item); a loose script in a subfolder of `game/`, which the walk does
+  not read, no longer hides the archived script it shadows; archived
+  scripts follow `--files` as loose ones do, and a loose `.rpyc` is no
+  longer also read as script text; looking up a game's archived
+  pictures and sounds is much faster (one large game's walk went from
+  over 5 minutes to under 40 seconds).
+- **Upgrading:** a folder you keep as converted needs nothing. Converting
+  a Ren'Py game again with this release may give a different folder:
+  the converter numbers items in story order, so in a game with `extend`
+  lines or with archived `.rpy` and `.rpyc` pairs, fewer items come out
+  and the items after the first change get new ids, and a speaker
+  defined with `_()` gets its display name in place of what it had. A
+  reader's saved place, seen items and bookmarks follow item ids, and
+  the manifest's `voices` follow speaker names, so check both before
+  shipping a converted game again under the same `storyId`.
+- `check-game.mjs --lang TAG` walks a game with that language shown and
+  reports the lines it met that showed the original (no translation)
+  or were stale; `openGame`'s `language` option does the same in a test
+  script (CREATE.md, "Testing your game").
+- `tools/assemble_folder.py` carries `lang/` into the folder readers
+  get, writing a missing `lang/<tag>.js`, and ships a language's
+  recorded lines as their scripts, leaving the audio files out as for
+  every track; `tools/upgrade_folder.py` leaves `lang/` as it is and
+  refreshes `lang.schema.json`, the language files' schema copy for an
+  author's editor, which assembly leaves out (docs/packaging.md).
+- The route pill on an ending no longer covers the end card: it sits
+  just below it at every window size.
 
 ## 1.10.1 (2026-11-17)
 
