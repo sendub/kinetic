@@ -4362,6 +4362,10 @@ The orchestrator's choices, within those decisions:
     translations, spoken lines, apps). Tests: links and image paths
     resolve; any test that reads README.md updated; docs/player.md
     checked against the help text and keys in the player source.
+    The user also asked (2026-11-17) for a rule: AGENTS.md says every
+    phase-closer brings the docs up to date, README.md included, and
+    regenerates the screenshots (`npm run screenshots`) when anything
+    they show changed.
 12. Phase-closer: full suites; VERSION 1.12.0, the CHANGELOG dated,
     tag, `main` fast-forwarded, and the wheel attached to the GitHub
     release v1.12.0.
