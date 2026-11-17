@@ -25,6 +25,7 @@ from .media import probe_duration_seconds
 from .parser import Event, FileParse, Report, slug as _slug
 
 _INTERPOLATION_RE = re.compile(r"\[[^][]*\]")
+_INTERPOLATION_NOTE = " interpolation(s) literal in text"
 # `image X = Movie(play="f.webm", ...)` (parser stores the value verbatim
 # as an expression): the play file is the item's video (BUG 2).
 _MOVIE_PLAY_RE = re.compile(r"\bplay\s*=\s*\"((?:[^\"\\]|\\.)*)\"")
@@ -83,9 +84,18 @@ class ItemRecord:
     # which Ren'Py's translations are matched to (``source`` is the
     # visual's line for a media item); None for an item without text.
     text_source: str | None = None
+    # The say statements the text is made of, ``(source, text)`` in order:
+    # the line itself, then each ``extend`` line that continues it (Ren'Py
+    # shows the line and its extensions in one box). Their translations
+    # are joined the same way (kinetic_extract.translations).
+    text_parts: list[tuple[str, str]] = field(default_factory=list)
     # Language tag -> the item's text in that language, read from the
     # game's tl/ folders (kinetic_extract.translations).
     translations: dict[str, str] = field(default_factory=dict)
+    # Language tag -> the base text a translation was made from, when it
+    # is not the item's text now (a translation of English that has
+    # changed since, kept so the validator reports it stale).
+    translation_bases: dict[str, str] = field(default_factory=dict)
 
 
 def set_video_duration(record: ItemRecord,
@@ -197,6 +207,10 @@ def build_timeline(parses: list[tuple[str, FileParse]],
     pending: _Pending | None = None
     started = start_label is None
     menu_state: dict[str, Any] | None = None  # open menu region (Phase 13)
+    # The item the last say statement's text went to, which an `extend`
+    # line continues; None at a menu's boundaries (a route's line never
+    # continues the lead-in's) and before the first line.
+    last_line: ItemRecord | None = None
 
     def check_limit() -> None:
         if max_items is not None and len(result.items) >= max_items:
@@ -264,6 +278,7 @@ def build_timeline(parses: list[tuple[str, FileParse]],
 
     def apply_line(item: dict[str, Any], record: ItemRecord,
                    speaker: str | None, text: str | None) -> None:
+        nonlocal last_line
         if text is None:
             return
         if speaker is not None:
@@ -272,10 +287,33 @@ def build_timeline(parses: list[tuple[str, FileParse]],
                 record.notes.append(
                     f"speaker {speaker!r} display name from Character define")
         item["text"] = text
-        count = len(_INTERPOLATION_RE.findall(text))
+        if record.text_source is not None:
+            record.text_parts = [(record.text_source, text)]
+        note_interpolations(record)
+        last_line = record
+
+    def is_extend(event: Event) -> bool:
+        """Ren'Py's `extend` speaker, unless the game defines its own."""
+        return event.speaker == "extend" and "extend" not in characters
+
+    def note_interpolations(record: ItemRecord) -> None:
+        record.notes = [n for n in record.notes
+                        if not n.endswith(_INTERPOLATION_NOTE)]
+        count = len(_INTERPOLATION_RE.findall(record.item["text"]))
         if count:
-            record.notes.append(
-                f"kept {count} interpolation(s) literal in text")
+            record.notes.append(f"kept {count}{_INTERPOLATION_NOTE}")
+
+    def extend_line(record: ItemRecord, event: Event) -> None:
+        """An `extend` line continues `record`, the last line's item:
+        Ren'Py shows the line with this text added, as written, in one
+        box with the same speaker (``_Extend`` in
+        renpy/common/00library.rpy; its ``{fast}`` only shows the earlier
+        part at once)."""
+        cues.extend_line()
+        record.item["text"] += event.text
+        record.text_parts.append((event.source, event.text))
+        record.notes.append(f"extended by the extend line at {event.source}")
+        note_interpolations(record)
 
     def close_menu(parsed: FileParse, ms: dict[str, Any]) -> None:
         """Judge an opened menu region when its `menu-close` arrives.
@@ -409,7 +447,16 @@ def build_timeline(parses: list[tuple[str, FileParse]],
                         pending.unresolved = True
                 elif event.kind == "stop-movie":
                     flush_bare()
+                elif (event.kind == "dialogue" and is_extend(event)
+                      and last_line is not None
+                      and not (pending is not None and pending.unresolved)):
+                    extend_line(last_line, event)
                 elif event.kind == "dialogue":
+                    speaker = event.speaker
+                    if is_extend(event):
+                        # No line before it in the walk: Ren'Py's
+                        # narrator says it.
+                        speaker = None
                     if pending is not None and pending.unresolved:
                         # The line belongs to a dropped visual (BUG 1):
                         # a text item needs a visual, so it drops with it.
@@ -418,9 +465,10 @@ def build_timeline(parses: list[tuple[str, FileParse]],
                             "droppedUnresolved: line dropped with its "
                             "unresolved visual"))
                         cues.line_dropped()
+                        last_line = None
                         continue
                     if pending is not None and not pending.consumed:
-                        emit_media(pending, event.speaker, event.text,
+                        emit_media(pending, speaker, event.text,
                                    event.source)
                         pending.consumed = True
                     else:
@@ -433,7 +481,7 @@ def build_timeline(parses: list[tuple[str, FileParse]],
                         if pending is None:
                             record.notes.append(
                                 "dialogue with no preceding visual in flow")
-                        apply_line(item, record, event.speaker, event.text)
+                        apply_line(item, record, speaker, event.text)
                         cues.attach(record)
                         result.items.append(record)
                         check_limit()
@@ -441,6 +489,7 @@ def build_timeline(parses: list[tuple[str, FileParse]],
                     # The lead-in ends here: a trailing visual becomes the
                     # decision's `after` item, and the region starts empty.
                     flush_bare()
+                    last_line = None
                     cues.menu_open()
                     menu_state = {
                         "record": parsed.menus[int(event.name)],
@@ -450,12 +499,14 @@ def build_timeline(parses: list[tuple[str, FileParse]],
                 elif event.kind == "choice-open":
                     if menu_state is not None:
                         flush_bare()
+                        last_line = None
                         end_route(menu_state)
                         menu_state["starts"].append(len(result.items))
                         cues.route_start()
                 elif event.kind == "menu-close":
                     if menu_state is not None:
                         flush_bare()
+                        last_line = None
                         end_route(menu_state)
                         close_menu(parsed, menu_state)
                         cues.menu_close()

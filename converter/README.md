@@ -190,7 +190,9 @@ prompts, speakers, title and version. Style and python blocks and
 per-language replacement files are ignored and counted, and the summary
 reports each language's matches and coverage. `--language-map NAME=TAG`
 (repeatable) gives the tag of a language name the built-in table does
-not know, or overrides it; `--no-translations` leaves translations out.
+not know, or overrides it; `--base-language TAG` names the language the
+game's script is in (the manifest's `language`, so `tl/english` becomes
+an English language file); `--no-translations` leaves translations out.
 `tl/` is never part of the script walk. Details: docs/extracting.md,
 "Translations".
 

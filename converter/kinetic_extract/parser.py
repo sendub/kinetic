@@ -45,8 +45,17 @@ from .audio_statements import (AudioChannel, AudioStatement, mentions_audio,
                                read_audio_define, read_channel, read_python,
                                read_statement)
 
+# `define e = Character(...)` or `DynamicCharacter(...)`: the display
+# name is read from the arguments by character_name.
 _DEFINE_CHAR_RE = re.compile(
-    r"define\s+([A-Za-z_]\w*)\s*=\s*Character\(\s*\"((?:[^\"\\]|\\.)*)\"")
+    r"define\s+([A-Za-z_]\w*)\s*=\s*(Character|DynamicCharacter)\s*\(")
+# A name argument the converter can read: a string literal, plain or
+# wrapped in Ren'Py's translation markers `_()` or `__()`.
+_NAME_ARG_RE = re.compile(
+    r"""(?:(__?)\s*\(\s*)?("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')"""
+    r"""\s*(\))?""", re.DOTALL)
+_KEYWORD_ARG_RE = re.compile(r"([A-Za-z_]\w*)\s*=(?!=)\s*(.*)", re.DOTALL)
+_DOTTED_NAME_RE = re.compile(r"[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*")
 # The speaker is any identifier at the line head followed by a quoted
 # string. The space between them is optional: the corpus writes both
 # `al "..."` and `al"..."` (docs/extracting.md BUG 3), and the keywords
@@ -124,6 +133,87 @@ def _parse_quoted(text: str, pos: int) -> tuple[str, int] | None:
         out.append(ch)
         i += 1
     return "".join(out), len(text)  # unterminated string: take the rest
+
+
+def _call_arguments(text: str, start: int) -> list[str] | None:
+    """The arguments of the call whose `(` is just before `start`, split
+    at the commas outside brackets and strings, each stripped; None when
+    the call does not close."""
+    out, depth, quote, i, begin = [], 0, "", start, start
+    while i < len(text):
+        ch = text[i]
+        if quote:
+            if ch == "\\":
+                i += 1
+            elif ch == quote:
+                quote = ""
+        elif ch in "\"'":
+            quote = ch
+        elif ch in "([{":
+            depth += 1
+        elif ch in ")]}":
+            if depth == 0:
+                out.append(text[begin:i].strip())
+                return [a for a in out if a]
+            depth -= 1
+        elif ch == "," and depth == 0:
+            out.append(text[begin:i].strip())
+            begin = i + 1
+        i += 1
+    return None
+
+
+def _literal_value(literal: str) -> str | None:
+    """A double- or single-quoted literal's text, as the converter reads
+    say text (_parse_quoted)."""
+    if literal[:1] == "'":
+        inner = literal[1:-1].replace("\\'", "'")
+        literal = '"' + inner.replace('"', '\\"') + '"'
+    parsed = _parse_quoted(literal, 0)
+    return parsed[0] if parsed else None
+
+
+def character_name(line: str) -> tuple[str, str] | None:
+    """``(variable, display name)`` of a `define x = Character(...)` (or
+    `DynamicCharacter(...)`) statement, or None when it is not one or its
+    name is not a literal the converter can read. The name is the first
+    positional argument or `name=`, a string literal, plain or wrapped in
+    `_()` or `__()` (Ren'Py's translation markers, so the name is the
+    text a `translate ... strings` block translates). A dynamic
+    character (`DynamicCharacter("var")`, or `dynamic=True`) names a
+    variable whose value Ren'Py shows: its name reads `[var]`, as
+    `Character("[var]")` does, kept literal like any interpolation."""
+    m = _DEFINE_CHAR_RE.match(line)
+    if m is None:
+        return None
+    args = _call_arguments(line, m.end())
+    if args is None:
+        return None
+    dynamic = m.group(2) == "DynamicCharacter"
+    name_arg = None
+    for arg in args:
+        kw = _KEYWORD_ARG_RE.fullmatch(arg)
+        if kw is None:
+            if name_arg is None:
+                name_arg = arg
+        elif kw.group(1) == "name":
+            name_arg = kw.group(2).strip()
+        elif kw.group(1) == "dynamic":
+            dynamic = kw.group(2).strip() == "True"
+    if name_arg is None:
+        return None
+    lit = _NAME_ARG_RE.fullmatch(name_arg)
+    if lit is None or bool(lit.group(1)) != bool(lit.group(3)):
+        return None
+    value = _literal_value(lit.group(2))
+    if value is None:
+        return None
+    if dynamic:
+        value = value.strip()
+        if lit.group(1) or not _DOTTED_NAME_RE.fullmatch(value):
+            return None
+        value = f"[{value}]"
+    return m.group(1), value
 
 
 def strip_comment(line: str) -> str:
@@ -641,10 +731,13 @@ def parse_file(text: str, relname: str,
             continue
 
         if keyword == "define":
-            m = _DEFINE_CHAR_RE.match(line)
-            if m:
-                name, display = m.group(1), _parse_quoted(f"\"{m.group(2)}\"", 0)
-                result.characters[name] = display[0] if display else m.group(2)
+            if _DEFINE_CHAR_RE.match(line):
+                # A Character call may run over several lines; they are
+                # not statements of their own.
+                line, i = _continued(raw_lines, lineno - 1, line)
+                named = character_name(line)
+                if named is not None:
+                    result.characters[named[0]] = named[1]
             # other defines: skipped silently
             continue
         if line.startswith("$"):

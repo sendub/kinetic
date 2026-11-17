@@ -3969,6 +3969,14 @@ The orchestrator's choices, within those decisions:
    are read (compiled-only `.rpyc` stay counted, not read). Tests:
    synthetic converter cases for each; the demo's golden output updated
    only where (a) changes it.
+9c. Archive script pairs and concatenated names (leads from item 9b).
+   An `.rpa` archive holding both `x.rpy` and `x.rpyc` has both walked
+   (`rpa.script_entries` drops only exact duplicates), duplicating the
+   story and costing a decompile; prefer the `.rpy`, as for loose files.
+   Item 9b made `Character("Ana" + x)` give the variable name where it
+   used to give "Ana": restore the leading literal for such
+   expressions. Tests: synthetic converter cases; a read-only timing
+   check of the corpus game whose walk did not finish in 10 minutes.
 10. Tools and docs around it. `check-game --lang TAG` walks with that
     language shown and reports fallbacks and stale lines met;
     `tools/assemble_folder.py` and `tools/upgrade_folder.py` carry

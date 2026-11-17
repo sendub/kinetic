@@ -5153,9 +5153,27 @@ truthful: an unchecked box means nothing was accepted.
       file to `test_renpy_translations.py`, which clashed with
       `tools/test_translations.py`); the demo extracts de and zh-Hans,
       validates (exit 0) and `status` reports 12 and 1 of 28.)
-- [ ] Converter leads from item 9 (item 9b): `extend` lines,
+- [x] Converter leads from item 9 (item 9b): `extend` lines,
       `_()`-wrapped names, `--base-language`, stale blocks kept as
-      stale, `tl/` inside archives.
+      stale, `tl/` inside archives. (Evidence: (a) an `extend` line is
+      concatenated onto the previous say's item, as Ren'Py's `_Extend`
+      shows it, and translations join the same parts; only the demo's
+      new `talk-020` changed in the golden, no ids moved. (b)
+      `parser.character_name` reads plain, `_()` and `__()` names,
+      across lines; interpolated names stay literal. (c)
+      `--base-language TAG` writes `language` and lets `tl/english`
+      become `lang/en.json`. (d) a changed-English block is kept with
+      `from` the old English's hash only when its commented code, label
+      and speaker all agree, and loses to a block for the new English.
+      (e) `tl/` scripts inside `.rpa` archives are read. Real checks on
+      converted corpus games (read-only): two wrapped names now translate
+      15 lines in all 14 languages (coverage 573 of 645); an all-archive
+      game matched 19,284 blocks of about 24k per language. Verified by
+      the orchestrator: full `pytest converter/ tools/` 1552 passed; the
+      demo extracts and validates, `talk-020` joined, no "extend"
+      speaker.)
+- [ ] Archive script pairs and concatenated names (item 9c, leads
+      from item 9b).
 - [ ] Tools and docs around it (item 10): `check-game --lang`,
       assemble and upgrade carry `lang/`, CREATE.md "Translating a
       game".

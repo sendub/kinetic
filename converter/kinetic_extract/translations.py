@@ -1,7 +1,8 @@
 """Ren'Py translations read by kinetic-extract (docs/plan.md Phase 54,
-item 9; docs/extracting.md, "Translations").
+items 9 and 9b; docs/extracting.md, "Translations").
 
-A Ren'Py project may ship translations under ``game/tl/<language>/``:
+A Ren'Py project may ship translations under ``game/tl/<language>/``,
+loose or inside its ``.rpa`` archives:
 
 - dialogue blocks, ``translate <language> <identifier>:``, each holding
   the translated say statement(s) of one source say statement. The
@@ -17,7 +18,9 @@ A Ren'Py project may ship translations under ``game/tl/<language>/``:
   identifier's line (it goes stale as the script is edited), and it is
   the fallback for an identifier that names no statement, taken only
   when the statement there now is the one Ren'Py commented inside the
-  block (``    # e "Hello."``);
+  block (``    # e "Hello."``), or, when the English there has changed
+  and the line is safely the same one (``stale_base``), kept with the
+  old English as the base it was made from, so that it reads stale;
 - string blocks, ``translate <language> strings:``, ``old``/``new``
   pairs, used here for menu choices (route labels), menu captions
   (prompts), character names (speakers) and the title and version;
@@ -34,8 +37,10 @@ one the item texts came through, so a translation is written as the
 manifest's text is: text tags and ``[interpolation]`` kept literal.
 
 ``read_project`` matches one project's translations to its walked items
-(``ItemRecord.translations``) and returns the per-language counts;
-``language_files`` turns them, with the manifest, into language files.
+(``ItemRecord.translations``, each part of an item's text, an ``extend``
+line being a part of the line before, translated by its own block) and
+returns the per-language counts; ``language_files`` turns them, with the
+manifest, into language files.
 """
 
 from __future__ import annotations
@@ -49,6 +54,7 @@ from typing import Any
 from .language_file import base_hash, canonical_tag
 from .parser import (LABEL_MAX, PROMPT_MAX, _parse_quoted,
                      creator_statement_names)
+from .rpa import RpaArchive, RpaError, archives_in
 
 TL_DIR = "tl"
 EXAMPLES_MAX = 5
@@ -669,6 +675,15 @@ class Group:
     line: int                   # the first statement's line
     codes: list[str]
     say_line: int | None        # the say statement's line, if any
+    # The walk's name for the file, when it is not `file`: an archive
+    # member's "game/<archive>.rpa!<key>" (item records' sources).
+    item_file: str | None = None
+
+    def say_source(self) -> str | None:
+        """The say statement's source as item records name it."""
+        if self.say_line is None:
+            return None
+        return f"{self.item_file or self.file}:{self.say_line}"
 
 
 def _first_word(text: str) -> str:
@@ -824,18 +839,51 @@ def _explicit_ids(lines: list[Line]) -> set[str]:
     return out
 
 
-def source_files(game_dir: Path) -> list[tuple[str, Path]]:
-    """Every loose ``.rpy`` under `game_dir` outside ``tl/``, as
-    ``(ledger name game/<rel>, path)``, in Ren'Py's load order (by path
-    under game/, without the extension)."""
-    found = []
+@dataclass
+class _GameFile:
+    """One file of the game: loose (``path``) or an archive member
+    (``archive`` and ``member``)."""
+
+    key: str                    # its path under game/, "tl/<lang>/x.rpy"
+    rel: str                    # its ledger name, "game/<key>" or
+                                # "game/<archive>.rpa!<key>"
+    path: Path | None = None
+    archive: RpaArchive | None = None
+    member: str | None = None
+
+    def text(self) -> str | None:
+        """The file's text, or None when it cannot be read."""
+        try:
+            data = (self.path.read_bytes() if self.path is not None
+                    else self.archive.open(self.member))
+        except (OSError, RpaError):
+            return None
+        return data.decode("utf-8-sig", errors="replace")
+
+
+def source_files(game_dir: Path) -> list[_GameFile]:
+    """Every ``.rpy`` script of the game outside ``tl/``: loose under
+    `game_dir`, and inside its .rpa archives (an archive member whose key
+    a loose file or an earlier archive has is left out), in Ren'Py's load
+    order (by path under game/, without the extension). A compiled-only
+    ``.rpyc`` is not read: the lines it holds have no identifiers here."""
+    found: dict[str, _GameFile] = {}
     for path in game_dir.rglob("*.rpy"):
-        rel = path.relative_to(game_dir).as_posix()
-        if rel.split("/", 1)[0] == TL_DIR or not path.is_file():
+        key = path.relative_to(game_dir).as_posix()
+        if key.split("/", 1)[0] == TL_DIR or not path.is_file():
             continue
-        found.append((rel[:-len(".rpy")], f"game/{rel}", path))
-    found.sort()
-    return [(name, path) for _key, name, path in found]
+        found[key] = _GameFile(key, f"game/{key}", path=path)
+    for arc in archives_in(game_dir):
+        try:
+            names = arc.names()
+        except RpaError:
+            continue    # the walk reports an archive it cannot index
+        for key in names:
+            if (key.endswith(".rpy") and key.split("/", 1)[0] != TL_DIR
+                    and key not in found):
+                found[key] = _GameFile(key, f"game/{arc.path.name}!{key}",
+                                       archive=arc, member=key)
+    return [found[k] for k in sorted(found, key=lambda k: k[:-len(".rpy")])]
 
 
 def source_groups(texts: list[tuple[str, str]]) -> list[Group]:
@@ -909,9 +957,8 @@ def _block_text(block: list[Line]) -> tuple[list[str], list[str | None]]:
     return texts, whos
 
 
-def _read_tl_file(path: Path, rel: str, languages: dict[str, LanguageRead],
+def _read_tl_file(text: str, rel: str, languages: dict[str, LanguageRead],
                   folder: str) -> None:
-    text = path.read_text(encoding="utf-8-sig", errors="replace")
     physical = text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
     for line in grouped_lines(text):
         m = _TRANSLATE_RE.match(line.text)
@@ -963,32 +1010,64 @@ def _read_tl_file(path: Path, rel: str, languages: dict[str, LanguageRead],
                                      texts, whos, original))
 
 
-def read_tl(game_dir: Path) -> dict[str, LanguageRead]:
-    """Every language under `game_dir`/tl, by Ren'Py language name (the
-    `translate NAME` statements' name; a folder of only other files is
-    known by its folder name). ``None`` is skipped."""
-    languages: dict[str, LanguageRead] = {}
+def _tl_files(game_dir: Path) -> list[_GameFile]:
+    """Every file under `game_dir`/tl/, loose, then in the game's .rpa
+    archives (Ren'Py reads translations from both); an archive member
+    whose key a loose file or an earlier archive already has is left
+    out, as kinetic_extract.rpa.script_entries leaves out script twins."""
+    files: dict[str, _GameFile] = {}
     tl = game_dir / TL_DIR
-    if not tl.is_dir():
-        return languages
-    for folder in sorted(p for p in tl.iterdir() if p.is_dir()):
-        if folder.name == "None":
+    if tl.is_dir():
+        for path in sorted(tl.rglob("*")):
+            key = path.relative_to(game_dir).as_posix()
+            if (path.is_file() and not path.name.startswith(".")
+                    and key.count("/") >= 2):
+                files[key] = _GameFile(key, f"game/{key}", path=path)
+    for arc in archives_in(game_dir):
+        try:
+            names = arc.names()
+        except RpaError:
+            continue    # the walk reports an archive it cannot index
+        for key in names:
+            parts = key.split("/")
+            if (parts[0] != TL_DIR or len(parts) < 3 or key in files
+                    or parts[-1].startswith(".")):
+                continue
+            files[key] = _GameFile(key, f"game/{arc.path.name}!{key}",
+                                 archive=arc, member=key)
+    return [files[k] for k in sorted(files)]
+
+
+def read_tl(game_dir: Path) -> dict[str, LanguageRead]:
+    """Every language under `game_dir`/tl, loose or inside the game's
+    .rpa archives, by Ren'Py language name (the `translate NAME`
+    statements' name; a folder of only other files is known by its
+    folder name). ``None`` and Python's ``__pycache__`` (which Ren'Py
+    leaves in some archives) are skipped."""
+    languages: dict[str, LanguageRead] = {}
+    by_folder: dict[str, list[_GameFile]] = {}
+    for f in _tl_files(game_dir):
+        by_folder.setdefault(f.key.split("/")[1], []).append(f)
+    for folder in sorted(by_folder):
+        if folder in ("None", "__pycache__"):
             continue
-        files = sorted(p for p in folder.rglob("*") if p.is_file()
-                       and not p.name.startswith("."))
-        scripts = {p.with_suffix("") for p in files if p.suffix == ".rpy"}
-        others = LanguageRead(folder.name)
-        for path in files:
-            rel = f"game/{path.relative_to(game_dir).as_posix()}"
-            if path.suffix == ".rpy":
-                _read_tl_file(path, rel, languages, folder.name)
-            elif path.suffix in _COMPILED:
-                if path.with_suffix("") not in scripts:
+        files = by_folder[folder]
+        scripts = {f.key[:-len(".rpy")] for f in files
+                   if f.key.endswith(".rpy")}
+        others = LanguageRead(folder)
+        for f in files:
+            suffix = Path(f.key).suffix
+            if suffix == ".rpy":
+                text = f.text()
+                if text is not None:
+                    _read_tl_file(text, f.rel, languages, folder)
+            elif suffix in _COMPILED:
+                if f.key[:-len(suffix)] not in scripts:
                     others.compiled_only += 1
             else:
                 others.replacement_files += 1
-        lang = languages.setdefault(folder.name, LanguageRead(folder.name))
-        lang.folders.add(folder.name)
+        lang = languages.setdefault(folder, LanguageRead(folder))
+        lang.folders.add(folder)
         lang.replacement_files += others.replacement_files
         lang.compiled_only += others.compiled_only
     return languages
@@ -1008,6 +1087,9 @@ class LanguageStats:
     blocks: int = 0
     matched: int = 0
     by_comment: int = 0          # matched through the comment alone
+    # Blocks of English changed since, kept with `from` the old English's
+    # hash (stale_base).
+    kept_stale: int = 0
     no_line: int = 0             # pass, or no say statement
     not_converted: int = 0       # source line found, no item for it
     unmatched: int = 0
@@ -1017,6 +1099,9 @@ class LanguageStats:
     disagree_examples: list[str] = field(default_factory=list)
     no_comment: int = 0
     joined: int = 0              # several lines joined into one text
+    # Items of several say statements (`extend` lines) with a part
+    # untranslated: no translation.
+    incomplete: int = 0
     duplicates: int = 0
     same_as_base: int = 0
     string_pairs: int = 0
@@ -1027,6 +1112,7 @@ class LanguageStats:
     compiled_only: int = 0
     done: int = 0
     total: int = 0
+    stale: int = 0               # of `done`, made from another base text
     over_limit: int = 0
 
     def ledger(self) -> dict[str, Any]:
@@ -1095,12 +1181,60 @@ def resolve_languages(read: dict[str, LanguageRead],
     return out
 
 
+_IDENTIFIER_RE = re.compile(r"(?:(.*)_)?([0-9a-f]{8})(?:_\d+)?")
+
+
+def _label_of(identifier: str) -> tuple[str | None, str] | None:
+    """(label part, digest) of a computed identifier, ``label_1234abcd``
+    or ``label_1234abcd_2``; None for another shape (an explicit id)."""
+    m = _IDENTIFIER_RE.fullmatch(identifier)
+    return (m[1], m[2]) if m else None
+
+
+def stale_base(block: Block, group: Group) -> str | None:
+    """The English `block` was translated from, when its identifier
+    names no statement now but the statement its location comment names
+    (`group`) is safely the same line with its English changed: the
+    statements Ren'Py commented inside the block hash to the block's
+    identifier (so they are the code it was made from), the identifier's
+    label is the label of the statement there now, and the old and new
+    say statements have the same speaker. None otherwise."""
+    old = _label_of(block.identifier)
+    if old is None or not block.original or group.say_line is None:
+        return None
+    md5 = hashlib.md5()
+    for code in block.original:
+        md5.update((code + "\r\n").encode("utf-8"))
+    if md5.hexdigest()[:8] != old[1]:
+        return None
+    labels = {lab[0] for lab in (_label_of(group.identifier),
+                                 _label_of(group.alternate or ""))
+              if lab is not None}
+    if old[0] not in labels:
+        return None
+    then = parse_say(block.original[-1])
+    now = parse_say(group.codes[-1])
+    if then is None or now is None or then.who != now.who:
+        return None
+    return item_text(then.literal)
+
+
+@dataclass
+class _Part:
+    """One say statement of an item's text, translated."""
+
+    text: str               # the translation
+    base: str               # the English it was made from
+
+
 def read_project(game_dir: Path, records: list[Any],
                  overrides: dict[str, str] | None = None,
                  base: str = "en") -> ProjectTranslations:
     """Read `game_dir`'s tl/ and give each walked item record
-    (`records`, kinetic_extract.timeline.ItemRecord, matched by its
-    ``text_source``) its translations, ``record.translations[tag]``."""
+    (`records`, kinetic_extract.timeline.ItemRecord, matched by the
+    sources of its ``text_parts``) its translations,
+    ``record.translations[tag]``, and for one made from English that has
+    changed since, ``record.translation_bases[tag]``, that English."""
     project = ProjectTranslations()
     read = read_tl(game_dir)
     if not read:
@@ -1109,21 +1243,31 @@ def read_project(game_dir: Path, records: list[Any],
                                   project.warnings, project.skipped)
     if not languages:
         return project
-    texts = []
-    for name, path in source_files(game_dir):
-        try:
-            texts.append((name, path.read_text(encoding="utf-8-sig")))
-        except (OSError, UnicodeDecodeError):
-            continue
+    texts, item_files = [], {}
+    for source in source_files(game_dir):
+        text = source.text()
+        if text is not None:
+            # Ren'Py names an archived script by its path under game/,
+            # as a loose one; the walk names it inside its archive.
+            texts.append((f"game/{source.key}", text))
+            item_files[f"game/{source.key}"] = source.rel
     groups = source_groups(texts)
+    for group in groups:
+        if item_files[group.file] != group.file:
+            group.item_file = item_files[group.file]
     by_id: dict[str, Group] = {}
     for group in groups:
         by_id.setdefault(group.identifier, group)
         if group.alternate:
             by_id.setdefault(group.alternate, group)
     by_loc = {(g.file, g.line): g for g in groups}
-    items = {r.text_source: r for r in records
-             if getattr(r, "text_source", None)}
+    # A say statement's source -> the item record its text went to and
+    # its place among the record's parts (an `extend` line is a part of
+    # the item before it).
+    parts_at: dict[str, tuple[Any, int]] = {}
+    for r in records:
+        for k, (source, _text) in enumerate(getattr(r, "text_parts", [])):
+            parts_at.setdefault(source, (r, k))
     for tag, lang in languages.items():
         stats = LanguageStats(lang.name, tag, sorted(lang.folders),
                               string_pairs=lang.string_pairs,
@@ -1133,6 +1277,10 @@ def read_project(game_dir: Path, records: list[Any],
                               compiled_only=lang.compiled_only)
         project.stats[tag] = stats
         project.strings[tag] = lang.strings
+        found: dict[int, dict[int, _Part]] = {}
+        # Blocks of English changed since: kept, as stale, once every
+        # block of the current English has had its line.
+        stale: list[tuple[Block, Group, str]] = []
         for block in lang.blocks:
             stats.blocks += 1
             by_identifier = by_id.get(block.identifier)
@@ -1150,7 +1298,12 @@ def read_project(game_dir: Path, records: list[Any],
             if (by_identifier is None and by_comment is not None
                     and block.original and block.original != by_comment.codes):
                 # The comment's line now holds another statement: the
-                # script changed since the translation was made.
+                # script changed since the translation was made. Kept as
+                # stale only when it is safely the same line.
+                old_english = stale_base(block, by_comment)
+                if old_english is not None and block.texts:
+                    stale.append((block, by_comment, old_english))
+                    continue
                 by_comment = None
             group = by_identifier or by_comment
             if not block.texts:
@@ -1162,27 +1315,65 @@ def read_project(game_dir: Path, records: list[Any],
                     stats.unmatched_examples.append(
                         f"{block.source} ({block.identifier})")
                 continue
-            record = (items.get(f"{group.file}:{group.say_line}")
-                      if group.say_line is not None else None)
-            if record is None or not record.item.get("text", "").strip():
-                stats.not_converted += 1
-                continue
-            text = join_texts(block.texts, block.whos)
-            if not text.strip():
-                stats.no_line += 1
-                continue
-            if tag in record.translations:
-                stats.duplicates += 1
-                continue
-            if len(block.texts) > 1:
-                stats.joined += 1
-            if by_identifier is None:
-                stats.by_comment += 1
-            if text == record.item["text"]:
-                stats.same_as_base += 1
-            record.translations[tag] = text
-            stats.matched += 1
+            if _take(block, group, None, parts_at, found, stats):
+                stats.matched += 1
+                if by_identifier is None:
+                    stats.by_comment += 1
+        for block, group, old_english in stale:
+            if _take(block, group, old_english, parts_at, found, stats):
+                stats.kept_stale += 1
+        _assemble(tag, records, found, stats)
     return project
+
+
+def _take(block: Block, group: Group, old_english: str | None,
+          parts_at: dict[str, tuple[Any, int]],
+          found: dict[int, dict[int, _Part]], stats: LanguageStats) -> bool:
+    """Give `block`'s translation to the item part made from `group`'s
+    say statement (made from `old_english`, when not None, instead of
+    the part's English now); False, counted, when there is none."""
+    source = group.say_source()
+    at = parts_at.get(source) if source is not None else None
+    if at is None or not at[0].item.get("text", "").strip():
+        stats.not_converted += 1
+        return False
+    record, k = at
+    text = join_texts(block.texts, block.whos)
+    if not text.strip():
+        stats.no_line += 1
+        return False
+    parts = found.setdefault(id(record), {})
+    if k in parts:
+        stats.duplicates += 1
+        return False
+    if len(block.texts) > 1:
+        stats.joined += 1
+    english = record.text_parts[k][1]
+    if text == english:
+        stats.same_as_base += 1
+    parts[k] = _Part(text, english if old_english is None else old_english)
+    return True
+
+
+def _assemble(tag: str, records: list[Any],
+              found: dict[int, dict[int, _Part]],
+              stats: LanguageStats) -> None:
+    """Each record's translation from its parts' (joined as the parts
+    are, an `extend` line's text added as written), when every part has
+    one; an item with a part untranslated keeps none, counted."""
+    for record in records:
+        parts = found.get(id(record))
+        if not parts:
+            continue
+        if len(parts) < len(record.text_parts):
+            stats.incomplete += 1
+            continue
+        text = "".join(parts[k].text for k in range(len(record.text_parts)))
+        made_from = "".join(parts[k].base
+                            for k in range(len(record.text_parts)))
+        record.translations[tag] = text
+        if made_from != record.item["text"]:
+            record.translation_bases[tag] = made_from
 
 
 # --------------------------------------------------------------------------
@@ -1215,8 +1406,8 @@ def language_files(manifest: dict[str, Any], records: list[Any],
                 stats[tag] = s
             else:
                 for key, value in s.__dict__.items():
-                    if isinstance(value, int) and key not in ("done",
-                                                              "total"):
+                    if isinstance(value, int) and key not in (
+                            "done", "total", "stale"):
                         setattr(stats[tag], key,
                                 getattr(stats[tag], key) + value)
             for old, new in project.strings.get(tag, {}).items():
@@ -1277,13 +1468,16 @@ def language_files(manifest: dict[str, Any], records: list[Any],
             data["speakers"] = names
             done += len(names)
         item_entries = {}
+        stale = 0
         for record in records:
             item_id = record.item.get("id")
             if record.skipped or item_id not in texts:
                 continue
             new = record.translations.get(tag)
             if new is not None and new.strip():
-                item_entries[item_id] = _entry(new, texts[item_id])
+                made_from = record.translation_bases.get(tag, texts[item_id])
+                item_entries[item_id] = _entry(new, made_from)
+                stale += made_from != texts[item_id]
         if item_entries:
             data["items"] = item_entries
             done += len(item_entries)
@@ -1311,7 +1505,7 @@ def language_files(manifest: dict[str, Any], records: list[Any],
         if decisions:
             data["decisions"] = decisions
         s.strings_used = len(used)
-        s.done, s.total = done, total
+        s.done, s.total, s.stale = done, total, stale
         if done == 0:
             continue
         if keep_voice:
@@ -1332,10 +1526,11 @@ def summary_lines(stats: dict[str, LanguageStats], written: list[str],
                   skipped: list[str]) -> list[str]:
     """The report's translation lines (kinetic-extract's summary): per
     language its dialogue blocks (matched to items, of those through the
-    comment alone; for lines the walk made no item of; pass or empty;
-    unmatched), whether each block's identifier and its comment name the
-    same line, the strings used, the coverage as the validator counts it
-    and what was ignored, then a few unmatched blocks by file:line."""
+    comment alone; kept as stale; for lines the walk made no item of;
+    pass or empty; unmatched), whether each block's identifier and its
+    comment name the same line, the strings used, the items of extend
+    lines with a part untranslated, the coverage as the validator counts
+    it and what was ignored, then a few unmatched blocks by file:line."""
     if not stats and not skipped:
         return []
     head = (f"translations: {len(written)} language file(s) written"
@@ -1348,16 +1543,21 @@ def summary_lines(stats: dict[str, LanguageStats], written: list[str],
         lines.append(
             f"  {tag} (tl/{', tl/'.join(s.folders)}): dialogue blocks "
             f"{s.blocks}: matched to items {s.matched} (by comment only "
-            f"{s.by_comment}), lines not in the story {s.not_converted}, "
+            f"{s.by_comment}), kept as stale {s.kept_stale}, lines not in "
+            f"the story {s.not_converted}, "
             f"pass or empty {s.no_line}, unmatched {s.unmatched}; "
             f"identifier and comment: agree {s.agree}, disagree "
             f"{s.disagree}, no comment {s.no_comment}")
         lines.append(
             f"    strings used {s.strings_used} of {s.string_pairs}; "
             f"several lines joined {s.joined}, duplicates {s.duplicates}, "
-            f"same as the base text {s.same_as_base}; coverage {tag}: "
+            f"same as the base text {s.same_as_base}"
+            + (f", extended lines missing a part {s.incomplete}"
+               if s.incomplete else "")
+            + f"; coverage {tag}: "
             f"{s.done} of {s.total} strings ({percent(s.done, s.total)}), "
-            f"0 stale, 0 unchecked; ignored: style blocks {s.style_blocks}, "
+            f"{s.stale} stale, 0 unchecked; ignored: style blocks "
+            f"{s.style_blocks}, "
             f"python blocks {s.python_blocks}, replacement files "
             f"{s.replacement_files}"
             + (f", compiled-only scripts {s.compiled_only}"

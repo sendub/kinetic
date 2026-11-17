@@ -35,6 +35,14 @@ something more of an author.
   what matched and the coverage. `--language-map NAME=TAG` names a
   language the converter does not know, and `--no-translations` leaves
   them out (docs/extracting.md, "Translations").
+- `kinetic-extract` joins an `extend` line to the line before it, in one
+  item with that line's speaker, as Ren'Py shows it (before, it became
+  an item of its own spoken by "extend"); reads `_()`-wrapped character
+  names, `name=` and dynamic characters, so translations can rename
+  speakers; keeps a translation whose English has changed since, marked
+  stale; reads translations and scripts inside `.rpa` archives; and
+  `--base-language TAG` names a game's own language when it is not
+  English, so its `tl/english` becomes an English language file.
 
 ## 1.10.1 (2026-11-17)
 

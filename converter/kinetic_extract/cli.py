@@ -8,6 +8,7 @@ Usage:
                     [--title TEXT] [--game-version TEXT] [--story-id ID]
                     [--decoder MODULE:FUNC ...]
                     [--no-translations] [--language-map NAME=TAG ...]
+                    [--base-language TAG]
 
 <renpy_project> may be a directory containing ``game/``, a ``game/``
 directory itself, or a macOS ``.app`` bundle (the ``game`` dir is resolved
@@ -68,7 +69,10 @@ translation identifier, ``strings`` blocks for route labels, prompts,
 speakers, title and version (kinetic_extract.translations).
 ``--no-translations`` leaves them out; ``--language-map NAME=TAG``
 (repeatable) names the tag of a language the built-in table does not
-know, or overrides it.
+know, or overrides it. ``--base-language TAG`` names the language the
+game's own script is written in (the manifest's ``language``; default
+English, left unwritten): a ``tl/`` language with that tag is skipped,
+and ``tl/english`` becomes an ``en`` language file like any other.
 """
 
 from __future__ import annotations
@@ -89,7 +93,8 @@ from .audio_cues import AudioFiles, carry_dropped_audio, rename_tracks
 from .audio_ship import SoundShipment, ship_sound
 from .decoders import Decoder, DecoderError, load_decoder
 from .images import ImplicitImages
-from .language_file import DEFAULT_LANGUAGE, write_language_file
+from .language_file import (DEFAULT_LANGUAGE, canonical_tag,
+                            write_language_file)
 from .media import (DEFAULT_SIZE, ExistingFileError,
                     most_common_image_size)
 from .media_cache import open_cache
@@ -276,6 +281,16 @@ def _language_map_arg(text: str) -> tuple[str, str]:
         raise argparse.ArgumentTypeError(str(exc)) from exc
 
 
+def _base_language_arg(text: str) -> str:
+    """argparse type for `--base-language`: the canonical tag."""
+    tag = canonical_tag(text.strip())
+    if tag is None:
+        raise argparse.ArgumentTypeError(
+            f"{text!r} must be a BCP 47 language tag such as en, ja, pt-BR "
+            "or zh-Hans")
+    return tag
+
+
 def decoder_option(text: str) -> Decoder:
     """argparse type for `--decoder`: the loaded hook, or a usage error."""
     try:
@@ -291,6 +306,7 @@ def build_manifest(result: TimelineResult, width: int, height: int,
                    version: str | None = None,
                    audio_tracks: dict[str, dict[str, Any]] | None = None,
                    languages: list[str] | None = None,
+                   language: str | None = None,
                    ) -> dict[str, Any]:
     manifest: dict[str, Any] = {
         # First, where editors look: the schema copy write_outputs puts
@@ -304,6 +320,9 @@ def build_manifest(result: TimelineResult, width: int, height: int,
         manifest["title"] = title
     if version:
         manifest["version"] = version
+    if language:
+        # The game's own language, given by --base-language.
+        manifest["language"] = language
     if languages:
         # The language files kinetic-extract wrote from game/tl/
         # (docs/content-format.md, "Translations").
@@ -614,6 +633,14 @@ def main(argv: list[str] | None = None) -> int:
                       help="the BCP 47 tag of the game/tl language NAME, "
                            "for a name the built-in table does not know "
                            "or to override it (repeatable)")
+    argp.add_argument("--base-language", type=_base_language_arg,
+                      default=None, metavar="TAG",
+                      help="the BCP 47 tag of the language the game's "
+                           "script is written in, written as the "
+                           "manifest's language (default: English, not "
+                           "written); a game/tl language with this tag is "
+                           "skipped, and game/tl/english becomes an en "
+                           "language file")
     add_version_option(argp)
     args = argp.parse_args(argv)
     args.language_map = dict(args.language_map)
@@ -695,7 +722,8 @@ def main(argv: list[str] | None = None) -> int:
     manifest = build_manifest(result, width, height, branches=branches,
                               story_id=story_id, title=title,
                               version=version,
-                              audio_tracks=sound.tracks)
+                              audio_tracks=sound.tracks,
+                              language=args.base_language)
     projects_tl = [e.translations for e in episodes
                    if e.translations is not None]
     lang_files, lang_stats, lang_warnings = language_files(
@@ -706,6 +734,7 @@ def main(argv: list[str] | None = None) -> int:
                                   story_id=story_id, title=title,
                                   version=version,
                                   audio_tracks=sound.tracks,
+                                  language=args.base_language,
                                   languages=[d["language"]
                                              for d in lang_files])
     slice_opts = {"label": args.label, "maxItems": args.max_items,
@@ -787,7 +816,7 @@ def _walk_project(project: Path, args: argparse.Namespace
     if asset_archives.failed:
         sources.setdefault("rpaFailed", []).extend(asset_archives.failed)
     translations = (read_project(game_dir, result.items, args.language_map,
-                                 DEFAULT_LANGUAGE)
+                                 args.base_language or DEFAULT_LANGUAGE)
                     if args.translations else None)
     return _Episode(project, game_dir, parses, sources, result,
                     translations)

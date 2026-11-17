@@ -79,6 +79,14 @@ translate de inside_deadbeef:
     # d "This line was cut."
     d "Diese Zeile wurde gestrichen."
 
+# The `extend` line continuing the television's line: the item's German
+# joins both blocks.
+# game/script.rpy:90
+translate de inside_7dccafb1:
+
+    # extend " Then it falls silent."
+    extend " Dann verstummt er."
+
 translate de strings:
 
     # game/script.rpy:47

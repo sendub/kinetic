@@ -87,10 +87,13 @@ label inside:
     "A tiny paper lantern blinks by the door."
     movie "data/talk.mp4"
     d "The television hums along."
+    extend " Then it falls silent."
     stop movie
     return
 
 # Translations: game/tl/ holds German (de), Simplified Chinese (zhCN) and an
 # unknown language name (klingon). The line inside the `if` of label inside
 # repeats a later line of the same label, so Ren'Py suffixes the later one's
-# translation identifier with _1.
+# translation identifier with _1. The `extend` line after the television's
+# line continues it in one box: one item, whose translation joins both
+# lines' translations.

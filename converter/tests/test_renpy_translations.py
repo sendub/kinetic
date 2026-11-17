@@ -20,10 +20,12 @@ from io import StringIO
 from pathlib import Path
 
 import pytest
+from PIL import Image
+from kinetic_extract import rpa as rpa_mod
 from kinetic_extract import translations as tl
 from kinetic_extract.cli import main as cli_main
 from kinetic_extract.images import ImplicitImages
-from kinetic_extract.parser import parse_project
+from kinetic_extract.parser import character_name, parse_project
 from kinetic_extract.timeline import build_timeline
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -223,8 +225,7 @@ def test_monologue_is_one_line_per_paragraph() -> None:
 
 
 def test_demo_identifiers_match_its_tl_files() -> None:
-    texts = [(name, path.read_text("utf-8"))
-             for name, path in tl.source_files(GAME)]
+    texts = [(source.rel, source.text()) for source in tl.source_files(GAME)]
     assert [name for name, _text in texts] == ["game/script.rpy"]
     by_say = {g.say_line: g.identifier for g in tl.source_groups(texts)}
     assert by_say[27] == ident("start", 'a "Welcome to the house."')
@@ -481,7 +482,8 @@ def test_demo_german_language_file(demo: dict) -> None:
         "bg-room-008": "Das Feuer knistert, und das Zimmer wird warm.",
         "line-012": "Die Nacht legt sich über das Haus.",
         "line-014": "Gute Nacht.",                          # suffix _1
-        "talk-020": "Der Fernseher summt mit.",             # comment only
+        # By comment only, and its extend line's block joined to it.
+        "talk-020": "Der Fernseher summt mit. Dann verstummt er.",
     }
     assert "line-003" not in items                          # `pass`
     for item_id, entry in de["items"].items():
@@ -520,10 +522,10 @@ def test_demo_report(demo: dict) -> None:
         in printed
     assert ("translations: 2 language file(s) written (de, zh-Hans); "
             "skipped: klingon (unknown name)") in printed
-    assert ("  de (tl/de): dialogue blocks 12: matched to items 8 (by "
-            "comment only 1), lines not in the story 2, pass or empty 1, "
-            "unmatched 1; identifier and comment: agree 10, disagree 0, "
-            "no comment 0") in printed
+    assert ("  de (tl/de): dialogue blocks 13: matched to items 9 (by "
+            "comment only 1), kept as stale 0, lines not in the story 2, "
+            "pass or empty 1, unmatched 1; identifier and comment: agree "
+            "11, disagree 0, no comment 0") in printed
     assert ("    strings used 4 of 5; several lines joined 1, duplicates 0, "
             "same as the base text 0; coverage de: 12 of 28 strings "
             "(42.8%), 0 stale, 0 unchecked; ignored: style blocks 1, "
@@ -534,7 +536,7 @@ def test_demo_report(demo: dict) -> None:
     assert ledger["skipped"] == ["klingon (unknown name)"]
     de = ledger["languages"]["de"]
     assert (de["name"], de["blocks"], de["matched"], de["done"],
-            de["total"]) == ("de", 12, 8, 12, 28)
+            de["total"]) == ("de", 13, 9, 12, 28)
 
 
 def test_demo_without_translations_is_the_english_golden(
@@ -587,3 +589,354 @@ def test_over_limit_strings_are_skipped(demo: dict) -> None:
     assert stats["fr"].over_limit == 1
     assert any("120 characters, over the limit of 119" in w
                for w in warnings)
+
+
+# --- item 9b (a): extend lines ------------------------------------------------
+
+def test_extend_continues_the_line_before_in_one_item(tmp_path: Path) -> None:
+    """Ren'Py shows the previous line with the extension added as
+    written, in one box, with the previous speaker; the walk makes one
+    item of them."""
+    game = tmp_path / "game"
+    write(game / "script.rpy",
+          'define e = Character("Eileen")\n'      # 1
+          'label start:\n'                        # 2
+          '    scene black\n'                     # 3
+          '    e "Wait"\n'                        # 4
+          '    extend ", there is more."\n'       # 5
+          '    extend " And [more]."\n'           # 6
+          '    "Narration."\n')                   # 7
+    records = walk(game)
+    assert [(r.item.get("speaker"), r.item["text"]) for r in records] == [
+        ("Eileen", "Wait, there is more. And [more]."), (None, "Narration.")]
+    first = records[0]
+    assert first.text_parts == [("game/script.rpy:4", "Wait"),
+                                ("game/script.rpy:5", ", there is more."),
+                                ("game/script.rpy:6", " And [more].")]
+    assert "kept 1 interpolation(s) literal in text" in first.notes
+
+
+def test_extend_with_no_line_before_it_is_narration(tmp_path: Path) -> None:
+    """At the start of the walk, and after a menu's boundary (a route's
+    line never continues the lead-in's), `extend` has no line of its own
+    to continue: Ren'Py's narrator says it."""
+    game = tmp_path / "game"
+    write(game / "script.rpy",
+          'label start:\n'
+          '    scene black\n'
+          '    extend "First."\n'
+          '    e "Choose."\n'
+          '    menu:\n'
+          '        "Left":\n'
+          '            extend "Gone left."\n'
+          '        "Right":\n'
+          '            e "Gone right."\n')
+    records = walk(game)
+    assert [(r.item.get("speaker"), r.item["text"]) for r in records] == [
+        (None, "First."), ("e", "Choose."), (None, "Gone left."),
+        ("e", "Gone right.")]
+
+
+def test_a_game_defined_extend_character_is_a_speaker(tmp_path: Path) -> None:
+    game = tmp_path / "game"
+    write(game / "script.rpy",
+          'define extend = Character("Ext")\n'
+          'label start:\n'
+          '    scene black\n'
+          '    e "One."\n'
+          '    extend "Two."\n')
+    assert [r.item.get("speaker") for r in walk(game)] == ["e", "Ext"]
+
+
+def test_extend_translations_join_as_the_lines_do(tmp_path: Path) -> None:
+    """Each say statement has its own identifier and block; the item's
+    translation joins the parts' translations as written. An item with a
+    part untranslated keeps none, counted."""
+    game = tmp_path / "game"
+    write(game / "script.rpy",
+          'label start:\n'                        # 1
+          '    scene black\n'                     # 2
+          '    e "Wait"\n'                        # 3
+          '    extend ", more."\n'                # 4
+          '    e "Half"\n'                        # 5
+          '    extend " done."\n')                # 6
+    blocks = [(3, 'e "Wait"', 'e "Warte"'),
+              (4, 'extend ", more."', 'extend ", noch mehr."'),
+              (5, 'e "Half"', 'e "Halb"')]
+    write(game / "tl" / "de" / "script.rpy", "".join(
+        f'# game/script.rpy:{line}\ntranslate de {ident("start", code)}:\n'
+        f'    # {code}\n    {new}\n\n' for line, code, new in blocks))
+    records = walk(game)
+    project = tl.read_project(game, records)
+    assert [r.translations.get("de") for r in records] == [
+        "Warte, noch mehr.", None]
+    s = project.stats["de"]
+    assert (s.blocks, s.matched, s.incomplete) == (3, 3, 1)
+    lines = tl.summary_lines(project.stats, ["de"], [])
+    assert "extended lines missing a part 1" in lines[2]
+
+
+def test_a_voice_before_an_extend_line_is_reported(tmp_path: Path) -> None:
+    game = tmp_path / "game"
+    write(game / "audio" / "v1.ogg", "x")
+    write(game / "audio" / "v2.ogg", "x")
+    write(game / "script.rpy",
+          'label start:\n'
+          '    scene black\n'
+          '    voice "audio/v1.ogg"\n'
+          '    e "Wait"\n'
+          '    voice "audio/v2.ogg"\n'
+          '    extend ", more."\n')
+    parses, defs, chars, _sources = parse_project(game)
+    result = build_timeline(parses, defs, chars, game)
+    [record] = result.items
+    voice = record.audio["voice"]
+    assert Path(result.audio_tracks[voice].source.path).name == "v1.ogg"
+    reasons = [r.reason for _rel, p in parses for r in p.reports]
+    assert any(r.startswith("voice before an extend line") for r in reasons)
+
+
+# --- item 9b (b): Character names ---------------------------------------------
+
+@pytest.mark.parametrize("line, named", [
+    ('define a = Character("Ana")', ("a", "Ana")),
+    ('define a = Character( "Ana", color="#fff")', ("a", "Ana")),
+    ("define a = Character('Ana')", ("a", "Ana")),
+    ('define c = Character(_("Crowd"), color="#fff")', ("c", "Crowd")),
+    ('define c = Character(__("Crowd"))', ("c", "Crowd")),
+    ('define c = Character(color="#fff", name=_("Mo"))', ("c", "Mo")),
+    ('define c = Character(name="Mo")', ("c", "Mo")),
+    ('define b = Character("[b_name]", color="#111")', ("b", "[b_name]")),
+    ('define p = DynamicCharacter("povname", color="#f00")',
+     ("p", "[povname]")),
+    ('define p = Character("store.pn", dynamic=True)', ("p", "[store.pn]")),
+    ('define x = Character(name_var)', None),
+    ('define x = Character(None)', None),
+    ('define x = Character(_("A") + suffix)', None),
+    ('define p = DynamicCharacter(_("povname"))', None),
+    ('define x = Character("Unclosed"', None),
+    ('define x = 3', None),
+])
+def test_character_names(line: str, named: tuple[str, str] | None) -> None:
+    assert character_name(line) == named
+
+
+def test_wrapped_names_are_speakers_strings_blocks_translate(
+        tmp_path: Path) -> None:
+    game = tmp_path / "game"
+    write(game / "script.rpy",
+          'define c = Character(_("Crowd"), color="#fff")\n'
+          'define m = Character(\n'
+          '    name=__("Megan"),\n'
+          '    color="#f0f")\n'
+          'define b = Character("[b_name]")\n'
+          'label start:\n'
+          '    scene black\n'
+          '    c "Cheers."\n'
+          '    m "Hello."\n'
+          '    b "Hi."\n')
+    write(game / "tl" / "de" / "names.rpy",
+          'translate de strings:\n'
+          '    old "Crowd"\n    new "Menge"\n'
+          '    old "Megan"\n    new "Megan"\n')
+    records = walk(game)
+    # The Character call over several lines is no narration of its own.
+    assert [(r.item.get("speaker"), r.item["text"]) for r in records] == [
+        ("Crowd", "Cheers."), ("Megan", "Hello."), ("[b_name]", "Hi.")]
+    project = tl.read_project(game, records)
+    manifest = {"items": [r.item for r in records]}
+    files, stats, _warnings = tl.language_files(manifest, records, [],
+                                                [project], None)
+    assert files == [{"language": "de",
+                      "speakers": {"Crowd": "Menge", "Megan": "Megan"}}]
+    assert stats["de"].strings_used == 2
+
+
+# --- item 9b (c): --base-language ---------------------------------------------
+
+def text_project(tmp_path: Path, script: str,
+                 tl_files: dict[str, str]) -> Path:
+    game = tmp_path / "proj" / "game"
+    write(game / "script.rpy", script)
+    game.joinpath("images").mkdir()
+    Image.new("RGB", (32, 18), (40, 60, 80)).save(game / "images" / "bg.png")
+    for rel, text in tl_files.items():
+        write(game / "tl" / rel, text)
+    return game.parent
+
+
+JA_SCRIPT = ('define k = Character("Kenji")\n'      # 1
+             'label start:\n'                       # 2
+             '    scene bg\n'                       # 3
+             '    k "Konnichiwa."\n'                # 4
+             '    "Ame ga furu."\n')                # 5
+
+
+def test_base_language_names_the_games_own_language(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    hello = ident("start", 'k "Konnichiwa."')
+    project = text_project(tmp_path, JA_SCRIPT, {
+        "english/script.rpy":
+            f'# game/script.rpy:4\ntranslate english {hello}:\n'
+            '    # k "Konnichiwa."\n    k "Hello."\n\n'
+            'translate english strings:\n'
+            '    old "Kenji"\n    new "Kenji"\n',
+        "japanese/script.rpy":
+            f'translate japanese {hello}:\n    k "Konnichiwa!"\n'})
+    out = tmp_path / "out"
+    assert cli_main([str(project), str(out), "--base-language", "JA"]) == 0
+    printed = capsys.readouterr().out
+    manifest = json.loads((out / "manifest.json").read_text("utf-8"))
+    assert manifest["language"] == "ja"
+    assert manifest["languages"] == ["en"]
+    en = lang_file(out, "en")
+    assert en["items"] == {"bg-001": {"text": "Hello.",
+                                        "from": sha8("Konnichiwa.")}}
+    assert en["speakers"] == {"Kenji": "Kenji"}
+    assert ("warning: translations: game/tl language 'japanese' is ja, the "
+            "manifest's base language: skipped") in printed
+    proc = subprocess.run(
+        [sys.executable, str(REPO_ROOT / "tools" / "validate_content.py"),
+         str(out)], capture_output=True, text=True, check=False)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    # Of the title, the speaker and the two lines.
+    assert "en: 2 of 4 strings (50.0%), 0 stale, 0 unchecked" in proc.stderr
+
+
+def test_without_base_language_english_is_skipped(tmp_path: Path) -> None:
+    hello = ident("start", 'k "Konnichiwa."')
+    project = text_project(tmp_path, JA_SCRIPT, {
+        "english/script.rpy":
+            f'translate english {hello}:\n    k "Hello."\n'})
+    out = tmp_path / "out"
+    with redirect_stdout(StringIO()):
+        assert cli_main([str(project), str(out)]) == 0
+    manifest = json.loads((out / "manifest.json").read_text("utf-8"))
+    assert "language" not in manifest and "languages" not in manifest
+
+
+def test_cli_refuses_a_malformed_base_language(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    with pytest.raises(SystemExit) as exc:
+        cli_main([str(FIXTURE), str(tmp_path / "out"),
+                  "--base-language", "japanese"])
+    assert exc.value.code == 2
+    assert "BCP 47 language tag" in capsys.readouterr().err
+
+
+# --- item 9b (d): blocks of changed English kept as stale ---------------------
+
+STALE_SCRIPT = ('label start:\n'                         # 1
+                '    scene black\n'                      # 2
+                '    e "Hello there."\n'                 # 3
+                '    e "The new second line."\n'         # 4
+                'label other:\n'                         # 5
+                '    e "Third, rewritten."\n'            # 6
+                '    f "Fourth, rewritten."\n')          # 7
+
+
+def stale_block(line: int, label: str, code: str, new: str,
+                identifier: str | None = None) -> str:
+    identifier = identifier or ident(label, code)
+    return (f'# game/script.rpy:{line}\ntranslate de {identifier}:\n'
+            f'    # {code}\n    {new}\n\n')
+
+
+def test_changed_english_is_kept_as_stale(tmp_path: Path) -> None:
+    """The identifier names no statement (the English changed), the
+    comment's line has the same speaker in the same label, and the code
+    Ren'Py commented in the block hashes to the identifier: the
+    translation is kept, made from the old English."""
+    game = tmp_path / "game"
+    write(game / "script.rpy", STALE_SCRIPT)
+    write(game / "tl" / "de" / "script.rpy",
+          stale_block(3, "start", 'e "Hello."', 'e "Hallo."')
+          # Another speaker at the comment's line: not the same line.
+          + stale_block(7, "other", 'e "Fourth."', 'e "Vierter."')
+          # The identifier's label is not the label there now.
+          + stale_block(6, "start", 'e "Third."', 'e "Dritter."')
+          # The commented code does not hash to the identifier.
+          + stale_block(4, "start", 'e "The second line."', 'e "Zweite."',
+                        identifier="start_0badc0de"))
+    records = walk(game)
+    project = tl.read_project(game, records)
+    hello = records[0]
+    assert hello.translations == {"de": "Hallo."}
+    assert hello.translation_bases == {"de": "Hello."}
+    assert [r.translations for r in records[1:]] == [{}, {}, {}]
+    s = project.stats["de"]
+    assert (s.blocks, s.matched, s.kept_stale, s.unmatched) == (4, 0, 1, 3)
+    manifest = {"items": [r.item for r in records if not r.skipped]}
+    files, stats, _w = tl.language_files(manifest, records, [], [project],
+                                         None)
+    assert files[0]["items"] == {
+        hello.item["id"]: {"text": "Hallo.", "from": sha8("Hello.")}}
+    assert stats["de"].stale == 1
+    lines = tl.summary_lines(stats, ["de"], [])
+    assert "kept as stale 1" in lines[1]
+    assert "1 of 6 strings (16.6%), 1 stale, 0 unchecked" in lines[2]
+
+
+def test_a_current_block_wins_over_a_stale_one(tmp_path: Path) -> None:
+    """Ren'Py's generator adds a block for the new English and leaves the
+    old one: the current translation is the one kept, whatever the
+    order."""
+    game = tmp_path / "game"
+    write(game / "script.rpy", STALE_SCRIPT)
+    write(game / "tl" / "de" / "script.rpy",
+          stale_block(3, "start", 'e "Hello."', 'e "Hallo."')
+          + stale_block(3, "start", 'e "Hello there."', 'e "Hallo du."'))
+    records = walk(game)
+    project = tl.read_project(game, records)
+    assert records[0].translations == {"de": "Hallo du."}
+    assert records[0].translation_bases == {}
+    s = project.stats["de"]
+    assert (s.matched, s.kept_stale, s.duplicates) == (1, 0, 1)
+
+
+# --- item 9b (e): tl/ inside .rpa archives ------------------------------------
+
+def test_tl_inside_archives_is_read_like_loose_files(tmp_path: Path) -> None:
+    """tl/ scripts inside an archive are read; a loose file wins over an
+    archived one with the same path; a compiled-only script is counted,
+    not read; other members are replacement files. Scripts inside an
+    archive give identifiers for the lines the walk read from it."""
+    from test_rpa import write_rpa
+    rpa_mod.reset_cache()
+    game = tmp_path / "game"
+    write(game / "script.rpy", 'label start:\n    scene black\n'
+                               '    e "Loose line."\n')
+    loose = ident("start", 'e "Loose line."')
+    archived = ident("chapter", 'e "Archived line."')
+    write(game / "tl" / "de" / "script.rpy",
+          f'translate de {loose}:\n    e "Lose Zeile."\n')
+    write_rpa(game / "scripts.rpa", {
+        "chapter.rpy": b'label chapter:\n    e "Archived line."\n',
+        "tl/de/script.rpy": f'translate de {loose}:\n'
+                            '    e "Shadowed."\n'.encode(),
+        "tl/de/chapter.rpy": f'# game/chapter.rpy:2\n'
+                             f'translate de {archived}:\n'
+                             '    e "Archivierte Zeile."\n'
+                             'translate de strings:\n'
+                             '    old "Go"\n    new "Los"\n'.encode(),
+        "tl/de/screens.rpyc": b"compiled only",
+        "tl/de/images/sign.png": b"replacement",
+        "tl/__pycache__/x.rpyb": b"cache",
+    })
+    read = tl.read_tl(game)
+    assert list(read) == ["de"]
+    de = read["de"]
+    assert [(b.identifier, b.source, b.texts) for b in de.blocks] == [
+        (archived, "game/scripts.rpa!tl/de/chapter.rpy:2",
+         ["Archivierte Zeile."]),
+        (loose, "game/tl/de/script.rpy:1", ["Lose Zeile."])]
+    assert de.strings == {"Go": "Los"}
+    assert (de.compiled_only, de.replacement_files) == (1, 1)
+    parses, defs, chars, _sources = parse_project(game)
+    records = build_timeline(parses, defs, chars, game).items
+    assert [r.text_source for r in records] == [
+        "game/scripts.rpa!chapter.rpy:2", "game/script.rpy:3"]
+    project = tl.read_project(game, records)
+    assert [r.translations.get("de") for r in records] == [
+        "Archivierte Zeile.", "Lose Zeile."]
+    assert project.stats["de"].matched == 2

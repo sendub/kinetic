@@ -761,8 +761,11 @@ title. The summary prints, per language, the blocks matched and not
 ... style`), `translate ... python` blocks and per-language replacement
 files are left out. A `tl/` folder name the extractor does not know
 (`klingon`) is skipped with a warning; give its language tag with
-`--language-map klingon=tlh` (repeatable). `--no-translations` converts
-the base language alone. Fill in what is missing with the translator
+`--language-map klingon=tlh` (repeatable). A game whose script is not
+in English names its language with `--base-language TAG` (`ja`), which
+becomes the manifest's `language`; its `tl/english` then becomes an
+English language file. `--no-translations` converts the base language
+alone. Fill in what is missing with the translator
 tools (docs/translating.md). Reference: docs/extracting.md,
 "Translations".
 

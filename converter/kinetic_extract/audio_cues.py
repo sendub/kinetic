@@ -88,6 +88,8 @@ UNKNOWN_CHANNEL = ("audio channel {channel!r} is not registered in the "
 MOVIE = "the movie channel plays video: not converted"
 VOICE_MENU = "voice before a menu: not converted"
 VOICE_DROPPED = "voice dropped with its line"
+VOICE_EXTEND = ("voice before an extend line: not converted (the line "
+                "joins the item before it, which keeps its own voice)")
 VOICE_NO_LINE = "voice with no line after it in its route: not converted"
 EMPTY_ROUTE = "audio cue in a choice block with no item: not converted"
 AMBIGUOUS = ("ambience after a menu whose routes leave different sets: "
@@ -548,6 +550,13 @@ class CueWalker:
         voice."""
         if self._voice is not None:
             self._report_voice(VOICE_DROPPED)
+
+    def extend_line(self) -> None:
+        """An `extend` line joined the item before it
+        (kinetic_extract.timeline): a voice waiting for it reaches no
+        item of its own. Other waiting cues stay for the next item."""
+        if self._voice is not None:
+            self._report_voice(VOICE_EXTEND)
 
     def finish(self) -> None:
         """The walk ended: cues still waiting reached no item."""
