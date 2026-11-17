@@ -5040,8 +5040,19 @@ truthful: an unchecked box means nothing was accepted.
       rtl screens` 245/245 Chrome, `--webkit rtl` 122/122; the
       subagent's full suites: Chrome 6463/6463, WebKit 6523 + the 5
       baseline headless-fullscreen and Keyboard Lock partials.)
-- [ ] The route pill clear of the end card, and Arabic-script asides
-      upright (item 5b, leads from item 5).
+- [x] The route pill clear of the end card, and Arabic-script asides
+      upright (item 5b, leads from item 5). (Evidence: `pillTop()` in
+      render/app.ts holds every pill 8 px under the end card while it
+      shows, else at 8%, re-placed on show, hide, card change, Esc and
+      resize; nothing else moves. Asides and thoughts upright for
+      zh/ja/ko, ar/fa/ps/ur, he/yi, th and the Indian scripts, whose
+      macOS faces have no italic (checked with CoreText). New checks:
+      `branches` `pillCardSession` and `rtl` `pillCard` (no intersection
+      at 1280x800, 700x600 and 600x900, live resize), `uilanguages`
+      upright set, an Arabic thought in `languages`, `pillTop` unit
+      tests. Verified by the orchestrator: npm test 1660/1660, check
+      clean; `verify -- branches rtl` 203/203 Chrome and WebKit; the
+      subagent's `uilanguages languages` 5418/5418 on both.)
 - [ ] Spoken lines per language (item 6): `lang` to the helper,
       per-language recordings, `keepOriginalVoice`,
       `record_lines.py --lang`.

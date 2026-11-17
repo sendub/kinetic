@@ -599,7 +599,7 @@ async function decision({ check, open }) {
   );
 }
 
-/** Japanese and Arabic: lang, direction, the thought upright. */
+/** Japanese and Arabic: lang, direction, the thought upright in both. */
 async function scripts({ check, open }) {
   if (!needsDemo(check)) return;
   const folder = langFolder("scripts");
@@ -654,6 +654,19 @@ async function scripts({ check, open }) {
       arabic.text?.dir === "rtl" &&
       arabic.speaker?.dir === "rtl",
     arabic,
+  );
+  // Arabic faces have no italic either (item 5b): its thought upright.
+  await pressSpace(ar.cdp);
+  await until(ar.page, ON_ITEM, 3000, "text-thought");
+  const arThought = await ar.page.evaluate(READ_SHOWN);
+  check(
+    "an Arabic thought: drawn upright in the thought colour",
+    arThought.mode === "thought" &&
+      arThought.text?.text === shownText("ar", "text-thought") &&
+      arThought.text?.lang === "ar" &&
+      arThought.fontStyle === "normal" &&
+      arThought.color === "rgb(185, 212, 232)",
+    arThought,
   );
 }
 

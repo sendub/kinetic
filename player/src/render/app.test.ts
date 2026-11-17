@@ -17,7 +17,9 @@ import {
   createPillQueue,
   mountShell,
   NOTICE_LONG_MS,
+  PILL_TOP,
   type PillMessage,
+  pillTop,
   ROUTE_PILL_MS,
 } from "./app";
 
@@ -281,6 +283,11 @@ class FakeElement {
     this.children = [...nodes];
   }
   remove(): void {}
+  /** Its box's bottom edge, as a test sets it (the end card's). */
+  bottom = 0;
+  getBoundingClientRect(): { bottom: number } {
+    return { bottom: this.bottom };
+  }
 }
 
 class FakeDocument {
@@ -385,7 +392,7 @@ function mountOver(items: readonly Item[], branches?: readonly Branch[]) {
   // rendered each state change, before anything the render deferred.
   const rendered: { state: MachineState; seen: Seen }[] = [];
   machine.subscribe((state) => rendered.push({ state, seen: seen() }));
-  return { machine, shell, stage, seen, wanted, rendered };
+  return { machine, shell, root, stage, seen, wanted, rendered };
 }
 
 describe("mountShell: the stage names the item on screen (data-item)", () => {
@@ -565,6 +572,71 @@ describe("mountShell: the stage video's clock steps segments (Phase 49)", () => 
     expect(stage.getAttribute("data-item")).toBe("after");
     expect(stage.hasAttribute("data-segment")).toBe(false);
     expect(rendered).toEqual(["1/2", "2/2", null]);
+    shell.unmount();
+  });
+});
+
+// --------------------------------------------------------------------------
+// The pill clear of the end card (docs/plan.md Phase 54 item 5b): while the
+// card shows, the #flash pill stands under it; otherwise at its 8%.
+// scripts/scenarios/branches.scenario.mjs and rtl.scenario.mjs measure it
+// in both browsers.
+// --------------------------------------------------------------------------
+
+describe("pillTop (the pill under the end card)", () => {
+  it("is the usual 8% with no end card showing", () => {
+    expect(pillTop(null)).toBe(PILL_TOP);
+    expect(PILL_TOP).toBe("8%");
+  });
+
+  it("is 8 px under the card's box, or 8% when that is lower", () => {
+    expect(pillTop(76.375)).toBe("max(8%, 85px)");
+    expect(pillTop(0)).toBe("max(8%, 8px)");
+  });
+});
+
+describe("mountShell: the pill and the end card", () => {
+  /** The ITEMS walk to `after`, the story's end, where the card shows. */
+  function atTheEnd() {
+    const mounted = mountOver(ITEMS, BRANCHES);
+    const { machine } = mounted;
+    machine.advance();
+    machine.advance();
+    machine.advance();
+    machine.choose(0);
+    machine.advance();
+    machine.choose(1);
+    machine.advance();
+    return mounted;
+  }
+  const lastPill = (root: FakeElement) => {
+    const pills = root.children.filter((child) => child.id === "flash");
+    return pills[pills.length - 1];
+  };
+
+  it("stands at 8% away from an ending", () => {
+    const { root, shell } = mountOver(ITEMS, BRANCHES);
+    shell.flash("Bookmarked");
+    expect(lastPill(root)?.style.top).toBe("8%");
+    shell.unmount();
+  });
+
+  it("stands under the end card while it shows, and back at 8% when it hides", () => {
+    const { root, shell, machine } = atTheEnd();
+    expect(machine.getState().endCard).toBeDefined();
+    const card = byId(root, "end-card") as FakeElement;
+    expect(card.hidden).toBe(false);
+    card.bottom = 90;
+    shell.flash("Bookmarked");
+    const pill = lastPill(root);
+    expect(pill?.style.top).toBe("max(8%, 98px)");
+    shell.setTextVisible(false); // `h` hides the card
+    expect(pill?.style.top).toBe("8%");
+    shell.setTextVisible(true);
+    expect(pill?.style.top).toBe("max(8%, 98px)");
+    // The Esc screen's opaque ground covers the card: nothing there moves.
+    shell.setStageVisible(false);
+    expect(pill?.style.top).toBe("8%");
     shell.unmount();
   });
 });

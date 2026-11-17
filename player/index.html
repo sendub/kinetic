@@ -203,15 +203,27 @@
       .ui-aside {
         font-style: italic;
       }
-      /* Chinese, Japanese and Korean faces have no italic: a thought is
-         drawn upright there, told apart from dialogue by its colour alone,
-         and so is an aside in a UI language of theirs. */
-      .overlay-text[data-mode="thought"]:lang(zh),
-      .overlay-text[data-mode="thought"]:lang(ja),
-      .overlay-text[data-mode="thought"]:lang(ko),
-      .ui-aside:lang(zh),
-      .ui-aside:lang(ja),
-      .ui-aside:lang(ko) {
+      /* Faces with no italic, which the browser would slant by itself:
+         Chinese, Japanese and Korean (item 3), and (Phase 54 item 5b) the
+         Arabic-script, Hebrew, Thai and Indian-script faces. On macOS
+         Geeza Pro, Noto Nastaliq Urdu, SF Arabic, SF Hebrew, Arial Hebrew,
+         Thonburi, the Kohinoor faces and every Sangam MN and MN face
+         (Devanagari, Bangla, Gujarati, Gurmukhi, Kannada, Malayalam,
+         Odia, Sinhala, Tamil, Telugu) have none. A thought is drawn
+         upright there, told apart from dialogue by its colour alone, and
+         so is an aside in a UI language of theirs. */
+      .overlay-text[data-mode="thought"]:is(:lang(zh), :lang(ja), :lang(ko)),
+      .overlay-text[data-mode="thought"]:is(:lang(ar), :lang(fa), :lang(ps), :lang(ur)),
+      .overlay-text[data-mode="thought"]:is(:lang(he), :lang(yi), :lang(th)),
+      .overlay-text[data-mode="thought"]:is(:lang(hi), :lang(mr), :lang(ne), :lang(bn)),
+      .overlay-text[data-mode="thought"]:is(:lang(gu), :lang(pa), :lang(ta), :lang(te)),
+      .overlay-text[data-mode="thought"]:is(:lang(kn), :lang(ml), :lang(or), :lang(si)),
+      .ui-aside:is(:lang(zh), :lang(ja), :lang(ko)),
+      .ui-aside:is(:lang(ar), :lang(fa), :lang(ps), :lang(ur)),
+      .ui-aside:is(:lang(he), :lang(yi), :lang(th)),
+      .ui-aside:is(:lang(hi), :lang(mr), :lang(ne), :lang(bn)),
+      .ui-aside:is(:lang(gu), :lang(pa), :lang(ta), :lang(te)),
+      .ui-aside:is(:lang(kn), :lang(ml), :lang(or), :lang(si)) {
         font-style: normal;
       }
 

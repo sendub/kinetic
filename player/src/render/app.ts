@@ -21,6 +21,28 @@ export const ROUTE_PILL_MS = 1600;
  */
 export const NOTICE_LONG_MS = 4000;
 
+/** The #flash pill's top edge, as a share of the window's height. */
+export const PILL_TOP = "8%";
+
+/** The room between the end card's box and a pill drawn under it. */
+export const PILL_CARD_GAP_PX = 8;
+
+/**
+ * The #flash pill's `top` (docs/plan.md Phase 54 item 5b). Both it and the
+ * end card are centred near the top of the window, and the card, which
+ * wraps to two or three lines in a narrow window or a long language, can
+ * reach past the pill's 8%. While the card shows (`cardBottom`, its box's
+ * bottom edge in pixels) the pill stands under it, `PILL_CARD_GAP_PX`
+ * below, or at its usual 8% when that is lower still; otherwise (null) at
+ * 8%. The card and every other element keep their places: the pill is the
+ * one transient thing there, and its news reads as well under the card.
+ */
+export function pillTop(cardBottom: number | null): string {
+  if (cardBottom === null) return PILL_TOP;
+  const below = Math.ceil(cardBottom + PILL_CARD_GAP_PX);
+  return `max(${PILL_TOP}, ${below}px)`;
+}
+
 /**
  * The pill never covers a choice screen with news the reader did not ask
  * for (docs/progress.md): `#choice` fills the window, so no spot is clear
@@ -305,7 +327,8 @@ export function mountShell({
   endCardTitle.className = "end-card-title";
   const endCardHint = doc.createElement("div");
   // Italic by its class, `ui-aside` (index.html), upright in Chinese,
-  // Japanese and Korean, whose faces have no italic.
+  // Japanese, Korean, the Arabic-script languages, Hebrew, Thai and the
+  // Indian scripts, whose faces have no italic.
   endCardHint.className = "end-card-hint ui-aside";
   Object.assign(endCardHint.style, {
     marginTop: "2px",
@@ -366,7 +389,28 @@ export function mountShell({
     captions.setHidden(!textVisible || choiceOpen || skipping);
     endCard.hidden = !textVisible || !endCardDue;
     notice.hidden = !textVisible || !noticeDue || endCardDue;
+    placeFlash();
   }
+
+  // The pill clear of the end card (`pillTop`): placed when it shows, when
+  // the card shows, hides or changes its words, when the stage hides for
+  // the Esc screen (whose opaque ground covers the card, so the pill keeps
+  // its 8% there and nothing on that screen moves), and when the window or
+  // the card changes size. Reads layout only while a pill is up.
+  function placeFlash(): void {
+    if (flashElement === null) return;
+    const cardShown = !endCard.hidden && !stage.hidden;
+    flashElement.style.top = pillTop(
+      cardShown ? endCard.getBoundingClientRect().bottom : null,
+    );
+  }
+  const view = doc.defaultView;
+  view?.addEventListener("resize", placeFlash);
+  const cardSize =
+    view?.ResizeObserver === undefined
+      ? null
+      : new view.ResizeObserver(placeFlash);
+  cardSize?.observe(endCard);
 
   function dismissNotice(): void {
     if (!noticeDue) return;
@@ -498,7 +542,7 @@ export function mountShell({
     pill.textContent = message;
     Object.assign(pill.style, {
       position: "fixed",
-      top: "8%",
+      top: PILL_TOP,
       left: "50%",
       transform: "translateX(-50%)",
       padding: "8px 18px",
@@ -518,6 +562,7 @@ export function mountShell({
     });
     root.appendChild(pill);
     flashElement = pill;
+    placeFlash();
     flashTimers.push(
       globalThis.setTimeout(() => {
         pill.style.opacity = "0";
@@ -564,6 +609,7 @@ export function mountShell({
     },
     setStageVisible(visible: boolean) {
       stage.hidden = !visible; // `.stage[hidden]` in index.html paints black
+      placeFlash();
     },
     setMediaPaused(paused: boolean) {
       visuals.setPaused(paused);
@@ -600,6 +646,8 @@ export function mountShell({
       visuals.destroy();
       clearFlash();
       pills.dropAll();
+      view?.removeEventListener("resize", placeFlash);
+      cardSize?.disconnect();
       globalThis.clearTimeout(statusTimer);
       root.replaceChildren();
     },

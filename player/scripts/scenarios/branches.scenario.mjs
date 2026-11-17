@@ -162,6 +162,7 @@ export const parts = [
   urlStartRouteSession,
   urlStartDecisionSession,
   urlStartUnknownSession,
+  pillCardSession,
 ];
 
 // ------------------------------------------------------------------
@@ -1279,4 +1280,148 @@ async function urlStartUnknownSession({ check, open }) {
   // still fails on anything else.
   const kept = errors.findIndex((line) => line.includes(`"${missing}"`));
   if (warned.length === 1 && kept >= 0) errors.splice(kept, 1);
+}
+
+// ---- The route pill and the end card (docs/plan.md Phase 54 item 5b) ----
+// On an ending the #flash pill (the route pill a pick shows, or any other)
+// sits clear of the end card's box: under it while the card shows, at its
+// usual 8% of the window otherwise. Read at 1280x800, 700x600 and 600x900
+// as each ending arrives, then by resizing while a pill shows. The `rtl`
+// file runs the same steps in an Arabic UI.
+
+const PILL_CARD_SIZES = [
+  [1280, 800],
+  [700, 600],
+  [600, 900],
+];
+
+// In the page: the pill's and the end card's boxes ({ l, r, t, b }, null
+// when absent or hidden), the window's height and the document's dir.
+const PILL_AND_CARD = () => {
+  const box = (id) => {
+    const el = document.getElementById(id);
+    if (el === null || el.hidden) return null;
+    const r = el.getBoundingClientRect();
+    return { l: r.left, r: r.right, t: r.top, b: r.bottom };
+  };
+  return {
+    pill: box("flash"),
+    pillText: document.getElementById("flash")?.textContent ?? null,
+    card: box("end-card"),
+    h: innerHeight,
+    dir: document.documentElement.dir,
+  };
+};
+
+const BOTH_SHOWN = () =>
+  document.getElementById("flash") !== null &&
+  document.getElementById("end-card")?.hidden === false;
+
+/** Whether two boxes share any area. */
+function intersects(a, b) {
+  return !(a.r <= b.l || b.r <= a.l || a.b <= b.t || b.b <= a.t);
+}
+
+/** Two animation frames: a resize's layout and its re-placement done. */
+const FRAMES = () =>
+  new Promise((done) =>
+    requestAnimationFrame(() => requestAnimationFrame(() => done(true))),
+  );
+
+/**
+ * The pill clear of the end card, in the UI that `languages` gives (the
+ * browser's default when absent); `label` names it in each check.
+ */
+export async function pillClearOfEndCard({ check, open }, label, languages) {
+  const L = (text) => `${label}: ${text}`;
+  const { page, cdp } = await open(`pillcard-${label}`, {
+    closeHelp: true,
+    manualChoices: true,
+    hash: "#start=branch-lead",
+    ...(languages === undefined ? {} : { languages }),
+  });
+  const waitFor = async (predicate, ms = 3000) =>
+    page
+      .waitForFunction(predicate, { timeout: ms })
+      .then(() => true)
+      .catch(() => false);
+  const dir = ["ar", "fa", "he", "ur"].includes(languages?.[0]) ? "rtl" : "ltr";
+  const pageDir = await page.evaluate(() => document.documentElement.dir);
+  check(L(`the page is ${dir}`), pageDir === dir, pageDir);
+  const reached = await spaceTo(page, cdp, outer.after);
+  await pressSpace(cdp);
+  check(L("the decision opens"), reached && (await waitChoice(page, true)));
+  for (const [width, height] of PILL_CARD_SIZES) {
+    const size = `${width}x${height}`;
+    await page.setViewport({ width, height, deviceScaleFactor: 1 });
+    await sleep(150);
+    await pressDigit(cdp, "2"); // route 2, an ending
+    const entered = await waitOn(page, route2.start);
+    await waitFor(() => document.getElementById("flash") !== null, 2000);
+    const before = await page.evaluate(PILL_AND_CARD);
+    check(
+      L(`${size}: away from an ending the route pill keeps its place, 8% down`),
+      entered &&
+        before.pill !== null &&
+        before.card === null &&
+        Math.abs(before.pill.t - before.h * 0.08) <= 1,
+      before,
+    );
+    await pressSpace(cdp);
+    const both = await waitFor(BOTH_SHOWN, 2000);
+    await page.evaluate(FRAMES);
+    const at = await page.evaluate(PILL_AND_CARD);
+    check(
+      L(`${size}: the route pill and the end card do not overlap`),
+      both &&
+        at.pill !== null &&
+        at.card !== null &&
+        !intersects(at.pill, at.card) &&
+        at.pill.b <= at.h,
+      at,
+    );
+    // Route 2 comes back to its decision.
+    await pressSpace(cdp);
+    await waitChoice(page, true);
+  }
+  // A pill showing over an ending while the window changes size: shown at
+  // 700x600, where the card is shortest, then each size with a taller card,
+  // so a pill left where it first stood would meet it.
+  const [wide, small, tall] = PILL_CARD_SIZES;
+  await page.setViewport({ width: small[0], height: small[1] });
+  await pressDigit(cdp, "2");
+  await waitOn(page, route2.start);
+  await pressSpace(cdp);
+  await waitFor(() => document.getElementById("end-card")?.hidden === false);
+  await sleep(300);
+  // A later task's mode pill replaces the route pills still up or queued.
+  await pressA(cdp);
+  await waitFor(BOTH_SHOWN, 2000);
+  const resized = [];
+  for (const [width, height] of [wide, tall]) {
+    await page.setViewport({ width, height, deviceScaleFactor: 1 });
+    await page.evaluate(FRAMES);
+    resized.push({
+      size: `${width}x${height}`,
+      ...(await page.evaluate(PILL_AND_CARD)),
+    });
+  }
+  await pressA(cdp);
+  check(
+    L(
+      "resized while a pill shows over an ending: it moves to stay just under the end card",
+    ),
+    resized.every(
+      (r) =>
+        r.pill !== null &&
+        r.card !== null &&
+        !intersects(r.pill, r.card) &&
+        Math.abs(r.pill.t - Math.max(r.h * 0.08, r.card.b + 8)) <= 1.5,
+    ),
+    resized,
+  );
+}
+
+async function pillCardSession(scenario) {
+  await pillClearOfEndCard(scenario, "en");
 }

@@ -85,6 +85,11 @@ const AUDIO_HINT =
 const HOST_ERROR = "The download failed: the connection dropped.";
 
 const WIDE = { width: 1280, height: 800, deviceScaleFactor: 1 };
+
+// The UI languages whose faces have no italic, so `.ui-aside` stands
+// upright in them (index.html): Chinese, Japanese and Korean (item 4),
+// Arabic, Persian, Urdu, Hebrew, Thai and Hindi (item 5b).
+const UPRIGHT = /^(zh|ja|ko|ar|fa|ur|he|th|hi)\b/;
 const MID = { width: 700, height: 600, deviceScaleFactor: 1 };
 const NARROW = { width: 600, height: 800, deviceScaleFactor: 1 };
 const SIZES = [
@@ -290,15 +295,19 @@ async function demoScreens({ check, open }, tag, langDir) {
     L("the end card shows at an ending"),
     await until(page, SHOWN, 3000, "#end-card"),
   );
-  // Chinese, Japanese and Korean faces have no italic: the hint stands
-  // upright there (index.html, `.ui-aside`), italic elsewhere.
+  // Chinese, Japanese, Korean, Arabic-script, Hebrew, Thai and
+  // Devanagari faces have no italic: the hint stands upright there
+  // (index.html, `.ui-aside`), italic elsewhere.
   const hintStyle = await page.evaluate(() => {
     const hint = document.querySelector("#end-card .end-card-hint");
     return hint === null ? null : getComputedStyle(hint).fontStyle;
   });
+  const upright = UPRIGHT.test(tag);
   check(
-    L("the end card's hint is italic, upright in Chinese, Japanese and Korean"),
-    hintStyle === (/^(zh|ja|ko)\b/.test(tag) ? "normal" : "italic"),
+    L(
+      `the end card's hint is ${upright ? "upright (its faces have no italic)" : "italic"}`,
+    ),
+    hintStyle === (upright ? "normal" : "italic"),
     hintStyle,
   );
   for (const [size, viewport] of SIZES) {

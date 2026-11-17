@@ -29,6 +29,7 @@
 import { mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
+import { pillClearOfEndCard } from "./branches.scenario.mjs";
 import {
   audit,
   checkPills,
@@ -820,4 +821,9 @@ async function live({ check, open }) {
   );
 }
 
-export const parts = [partFor("ar"), partFor("he"), live];
+/** The route pill clear of the end card in an Arabic UI (branches). */
+async function pillCard(scenario) {
+  await pillClearOfEndCard(scenario, "ar", ["ar"]);
+}
+
+export const parts = [partFor("ar"), partFor("he"), live, pillCard];
