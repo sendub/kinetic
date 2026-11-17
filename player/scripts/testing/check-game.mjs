@@ -79,6 +79,17 @@
 //              exit code (the validator's warnings). For the base:
 //              `language TAG: the game's own, no translation to check`.
 //
+// The window is the manifest's `width` x `height`, as the macOS app first
+// opens it, scaled with its shape kept to fit within 1920 x 1200 or to
+// reach 480 x 270 (walk.mjs windowFor; 1280 x 720 without a size). Each
+// time a line first shows, the walk measures it in the page
+// (TEXT_OVERFLOW): a line whose text runs past an edge of the screen (the
+// band grows upward, so a long line runs off the top) or wider than its
+// column (a word too long to wrap) prints `warning: <id>: its line
+// overflows at W x H: ...`, saying by how many pixels and where, below
+// the step that showed it; after the walk, `line overflow at W x H: none`
+// or the count and ids (up to ten). Overflow never changes the exit code.
+//
 // After the walk: the items visited out of the manifest's count; for an
 // older player (no item id on the page), how many steps were named from
 // the screen and how many of those were guesses; after a walk from the
@@ -123,12 +134,15 @@ import {
   languageProblem,
   mediaCheckLine,
   mediaSummaryLine,
+  overflowSummaryLine,
+  overflowWarning,
   readArgs,
   segmentCount,
   startWalk,
   traceSummaryLine,
   USAGE,
   untilSpan,
+  windowFor,
 } from "./walk.mjs";
 
 // After the walk and its media check, before reading the errors: a script
@@ -151,6 +165,43 @@ const HEARTBEAT_MS = envCount("KINETIC_CHECK_GAME_HEARTBEAT_MS", 30000);
 // at 200,000, never nears its cap. KINETIC_CHECK_GAME_TRACE_DRAIN_STEPS
 // sets it (for tests).
 const TRACE_DRAIN_STEPS = envCount("KINETIC_CHECK_GAME_TRACE_DRAIN_STEPS", 100);
+
+// In the page: how far the line on screen (#overlay-text) runs past the
+// screen's edges and past its own column, in whole pixels, `{ top,
+// bottom, left, right, column }` (0 for none), measured on the text's
+// own boxes (a Range over the line); null when it fits, or when no line
+// shows. The band (#overlay) sits at the bottom and grows upward with its
+// text, so a line too long for the screen runs off its top; a word too
+// long to wrap runs out of its column, sideways.
+const TEXT_OVERFLOW = () => {
+  const band = document.getElementById("overlay");
+  const line = document.getElementById("overlay-text");
+  if (band === null || line === null || band.hidden) return null;
+  if (line.textContent.trim() === "") return null;
+  const range = document.createRange();
+  range.selectNodeContents(line);
+  const boxes = Array.from(range.getClientRects()).filter(
+    (box) => box.width > 0 && box.height > 0,
+  );
+  if (boxes.length === 0) return null;
+  const text = {
+    top: Math.min(...boxes.map((box) => box.top)),
+    bottom: Math.max(...boxes.map((box) => box.bottom)),
+    left: Math.min(...boxes.map((box) => box.left)),
+    right: Math.max(...boxes.map((box) => box.right)),
+  };
+  const column = line.getBoundingClientRect();
+  const screen = document.documentElement;
+  const past = (px) => (px > 0.5 ? Math.ceil(px) : 0);
+  const overflow = {
+    top: past(-text.top),
+    bottom: past(text.bottom - screen.clientHeight),
+    left: past(-text.left),
+    right: past(text.right - screen.clientWidth),
+    column: past(Math.max(column.left - text.left, text.right - column.right)),
+  };
+  return Object.values(overflow).some((px) => px > 0) ? overflow : null;
+};
 
 const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
 const say = (line) => console.error(`check-game: ${line}`);
@@ -212,10 +263,15 @@ if (traceFile !== null) {
   }
 }
 
+// The window: the folder's size (windowFor), read before any browser
+// starts.
+const gameWindow = windowFor(readManifestFile(resolve(args.folder)));
+
 let game;
 try {
   game = await openGame(args.folder, {
     engine: args.engine,
+    viewport: gameWindow,
     startAt: args.startAt,
     language: args.language,
     mediaChecks: args.mediaCheck,
@@ -268,6 +324,22 @@ const walk = startWalk({
       : untilSpan(game.manifest, args.startAt ?? items[0]?.id, args.until),
 });
 const heartbeat = setInterval(() => say(walk.heartbeat()), HEARTBEAT_MS);
+// The lines measured for overflow (by item id, or by text on a screen no
+// item names), and the ids of those that overflowed, in walk order.
+const measured = new Set();
+const overflowing = [];
+/** Measures `now`'s line the first time it shows; warns if it overflows. */
+async function checkOverflow(now) {
+  if (now.text === null) return;
+  const key = now.id ?? now.text;
+  if (measured.has(key)) return;
+  measured.add(key);
+  const overflow = await game.page.evaluate(TEXT_OVERFLOW).catch(() => null);
+  if (overflow === null) return;
+  const id = now.id ?? `the line at step ${walk.step}`;
+  overflowing.push(id);
+  console.log(overflowWarning(id, gameWindow, overflow));
+}
 try {
   console.log(
     headerLine(game.engine, game.folder, game.kineticVersion, args.language),
@@ -287,6 +359,7 @@ try {
       const line = summary(now);
       if (line !== last) console.log(`  ${walk.step}: ${line}`);
       last = line;
+      await checkOverflow(now);
       if (stop !== null) break;
     }
   } catch (error) {
@@ -294,6 +367,7 @@ try {
   }
   clearInterval(heartbeat);
   for (const line of walk.lines()) console.log(line);
+  console.log(overflowSummaryLine(gameWindow, overflowing));
   if (traceFd !== null) {
     try {
       await writeTrace();

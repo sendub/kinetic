@@ -2074,6 +2074,8 @@ steps`, followed by the reason when there is one (`reached ID
   showed, in manifest order.
 - After a walk that reached its `--until` item, `span:` and the items of
   the span not shown (Checking part of a game, below).
+- `line overflow at W x H: none`, or how many lines overflowed and up to
+  ten of their ids (Lines that overflow, below).
 - With `--trace FILE`, `trace: N records written to FILE, D dropped`.
 - With `--lang`, the fallback and stale lines met (Checking a
   translation, below).
@@ -2109,6 +2111,7 @@ splits its 26 files (The media check, below):
   35: after-end "The end. Also try: u for unseen content, e for the end of..."
 story ended at step 35
 visited 32 of 32 items
+line overflow at 960 x 540: none
 media: 26 files: 1 loaded during the walk, 25 checked after it (3 never requested)
 no console or page errors
 ```
@@ -2130,6 +2133,29 @@ The exit status says how it went:
 | 3 | A walk from the opening reached the story's end with items never shown, or a walk reached its `--until` item with items of its span not shown. |
 
 1 wins over 3: a walk with errors and items never shown exits 1.
+
+#### Lines that overflow
+
+check-game opens the game in a window of the manifest's `width` x
+`height`, as the macOS app first opens it, scaled with its shape kept
+to fit within 1920 x 1200 or to reach 480 x 270 (1280 x 720 for a
+manifest without a size). The first time each line shows, it measures
+the line in the page. The text band sits at the bottom of the screen and
+grows upward with its text, so a line too long for the screen runs off
+its top, and a word too long to wrap (a long run with no spaces) runs out
+of its column sideways. Each such line prints a warning below the step
+that showed it, saying by how many pixels and where:
+
+```text
+  2: text-thought "A long line that will not fit. A long line that will not ..."
+warning: text-thought: its line overflows at 960 x 540: 307 px above the screen
+```
+
+The summary says `line overflow at 960 x 540: none`, or how many lines
+overflowed and up to ten of their ids. An overflowing line is a warning,
+not a failure: the exit status does not change. Split the line into two
+items, or shorten it. `kinetic report` lists the longest lines without
+opening a browser (Checking a conversion: kinetic report, below).
 
 #### Checking part of a game
 
@@ -2154,6 +2180,7 @@ webkit: /Users/you/demo-play (Kinetic 1.8.0)
 stopped after 7 steps: reached after-start (--until)
 visited 6 of 32 items
 span: 6 of 6 items shown from route1-start to after-start
+line overflow at 960 x 540: none
 media: 2 files: 0 loaded during the walk, 2 checked after it (0 never requested)
 no console or page errors
 ```
@@ -2182,6 +2209,7 @@ stopped after 14 steps: reached after-start (--until)
 visited 11 of 33 items
 span: 11 of 12 items shown from branch-title to after-start
 not shown in the span: aside-unreached
+line overflow at 960 x 540: none
 media: 6 files: 0 loaded during the walk, 6 checked after it (0 never requested)
 no console or page errors
 ```
@@ -2213,6 +2241,7 @@ Route 2's end and the aftermath, in no route, ends:
 story ended at step 35
 visited 32 of 33 items
 never shown: aside-unreached
+line overflow at 960 x 540: none
 media: 26 files: 2 loaded during the walk, 24 checked after it (3 never requested)
 no console or page errors
 ```
@@ -2325,6 +2354,7 @@ webkit: /Users/you/demo-segments (Kinetic 1.8.0)
   6: branch-lead "Shared lead-in: every route starts after this. The decisi..."
 stopped after 6 steps
 visited 5 of 32 items
+line overflow at 960 x 540: none
 media: 4 files: 1 loaded during the walk, 3 checked after it (0 never requested)
 no console or page errors
 ```
@@ -2386,6 +2416,7 @@ webkit: /Users/you/lang-demo-play (Kinetic 1.11.0), language de
   ...
 story ended at step 35
 visited 32 of 32 items
+line overflow at 960 x 540: none
 de fallback lines: 1 of 29 met (no translation, the base text shown): floor-2
 de stale lines: 1 of 29 met (translated from an older base text): text-thought
 ```
@@ -2403,6 +2434,44 @@ A game that opens in another language than the one asked for fails the
 run (exit 1) and says which: its language file did not load, or the
 folder's player is older than translations (Upgrading to a newer
 Kinetic). `openGame`'s `language` option does the same in a test script.
+
+### Checking a conversion: kinetic report
+
+`kinetic report` reads a game folder and prints what an agent, or anyone
+who cannot watch the game, would want to compare with the original. It
+opens no browser and needs no media tools:
+
+```sh
+.venv/bin/kinetic report novel-play
+.venv/bin/kinetic report novel-play --json
+```
+
+- Reading time with auto-forward at the player's default settings, by
+  the hold rule of docs/content-format.md "Timing" (text tags not
+  counted; an animation or video not followed by a line holds for its
+  loops or passes; a recorded voice line holds while it plays; choice
+  screens and transitions not counted): every item once, as Play all
+  routes reads it; the shortest reading from the opening to an ending;
+  the main line outside every route; and each route of each decision,
+  with nested decisions inside it. Items no reading reaches are listed
+  apart.
+- Speakers with their line counts and the narration count. Names that
+  differ only in case or spacing, or by one letter (`Mei` and `Mai`),
+  are flagged: often a typo or a mis-extracted speaker. A digit for a
+  digit (`Guard 1`, `Guard 2`) is not flagged.
+- The `characters` entries, the ones no speaker uses and the speakers
+  without one; how many picture items have a dissolve, a fade or a cut.
+- Text tag problems (an unknown or unclosed tag and the like) in lines,
+  prompts, route labels and language files, with where each is.
+- Files in the folder nothing references. The player's own files, the
+  manifest and its script, the schema copies, the ledgers, the apps and
+  licence and readme files are not listed.
+- The 20 longest lines by shown characters, with id, speaker, length and
+  their first 60 characters.
+
+`--json` prints the same report as one JSON object. The exit status is
+0 whenever the report ran, whatever it found, and 2 for bad arguments or
+a folder without a readable manifest.
 
 ### A test script
 
@@ -2715,6 +2784,7 @@ how many records it wrote:
 ```text
 story ended at step 35
 visited 32 of 32 items
+line overflow at 960 x 540: none
 trace: 37 records written to /Users/you/walk.jsonl, 0 dropped
 ```
 

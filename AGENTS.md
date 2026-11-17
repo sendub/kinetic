@@ -96,17 +96,27 @@ are implementing and docs/stack.md for settled decisions.
   the media check after the walk; `--trace FILE` writes the player's
   item trace, every item, choice and end record of the walk, to FILE as
   JSON lines; `--lang TAG` walks with that game language shown and
-  reports the fallback and stale lines met; exit 0 passed, 1 errors, a
-  stuck player, the `all` cap, `--until` not reached, a stalled media
-  check, a player too old to trace or a game opened in another language
-  than `--lang`, 2 bad arguments (a bad `--engine`, an unwritable
-  `--trace` FILE or a `--lang` the game lacks too), 3 a walk from the
-  opening reached the end with items never shown, or a span with items
-  not shown; 1 wins over 3), or a script using `openGame` from
+  reports the fallback and stale lines met; a line that overflows the
+  screen or its column at the folder's size prints a warning, with no
+  change to the exit code; exit 0 passed, 1 errors, a stuck player, the
+  `all` cap, `--until` not reached, a stalled media check, a player too
+  old to trace or a game opened in another language than `--lang`, 2
+  bad arguments (a bad `--engine`, an unwritable `--trace` FILE or a
+  `--lang` the game lacks too), 3 a walk from the opening reached the
+  end with items never shown, or a span with items not shown; 1 wins
+  over 3), or a script using `openGame` from
   `player/scripts/testing/kinetic.mjs` (`trace: true` and the handle's
   `trace()` read the same trace; `language: TAG` as `--lang`; CREATE.md,
   "Testing your game"); never hand-roll puppeteer against
   `player/node_modules`.
+- Report on a game folder for an agent, with no browser: `.venv/bin/kinetic
+  report <folder> [--json]` (reading time per route by the Timing hold
+  rule, speakers with line counts and look-alike names, `characters`
+  and transition counts, text tag problems, files nothing references,
+  the 20 longest lines; exit 0 whenever it ran, 2 bad arguments or no
+  readable manifest; CREATE.md, "Checking a conversion: kinetic
+  report"). `kinetic` is the one command later items extend with
+  subcommands (converter/kinetic_extract/kinetic_cli.py).
 - Automated browsers make no sound: Chrome starts only through
   `launchChrome` in `player/scripts/testing/core.mjs`
   (`--disable-audio-output`; biome blocks other `puppeteer-core`

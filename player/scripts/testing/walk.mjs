@@ -149,6 +149,76 @@ export function readArgs(argv) {
   };
 }
 
+// check-game's window when the manifest gives no usable size, as
+// openGame's default.
+export const DEFAULT_WINDOW = { width: 1280, height: 720 };
+// The largest window check-game opens (core.mjs CHROME_SCREEN, a common
+// screen), and the smallest (the macOS app's smallest window).
+const LARGEST_WINDOW = { width: 1920, height: 1200 };
+const SMALLEST_WINDOW = { width: 480, height: 270 };
+
+/**
+ * The window check-game opens a game in, `{ width, height }`: the
+ * manifest's `width` x `height`, as the macOS app first opens it, scaled
+ * with its shape kept to fit within 1920 x 1200 when larger and to reach
+ * 480 x 270 when smaller; DEFAULT_WINDOW without a usable size. The
+ * overflow check measures each line at this size.
+ */
+export function windowFor(manifest) {
+  const { width, height } = manifest ?? {};
+  const usable = (n) => Number.isInteger(n) && n > 0;
+  if (!usable(width) || !usable(height)) return { ...DEFAULT_WINDOW };
+  let scale = Math.min(
+    1,
+    LARGEST_WINDOW.width / width,
+    LARGEST_WINDOW.height / height,
+  );
+  if (width < SMALLEST_WINDOW.width || height < SMALLEST_WINDOW.height) {
+    scale = Math.min(
+      Math.max(SMALLEST_WINDOW.width / width, SMALLEST_WINDOW.height / height),
+      LARGEST_WINDOW.width / width,
+      LARGEST_WINDOW.height / height,
+    );
+  }
+  return {
+    width: Math.max(1, Math.round(width * scale)),
+    height: Math.max(1, Math.round(height * scale)),
+  };
+}
+
+const sizeOf = ({ width, height }) => `${width} x ${height}`;
+
+/**
+ * The warning check-game prints for a line that overflows (check-game's
+ * TEXT_OVERFLOW measures it): `id` names the item, `size` the window, and
+ * `overflow` holds how many pixels the text runs past the screen's `top`,
+ * `bottom`, `left` and `right` edges and past its own `column` (0 for
+ * none).
+ */
+export function overflowWarning(id, size, overflow) {
+  const parts = [];
+  if (overflow.top > 0) parts.push(`${overflow.top} px above the screen`);
+  if (overflow.bottom > 0) {
+    parts.push(`${overflow.bottom} px below the screen`);
+  }
+  if (overflow.left > 0) {
+    parts.push(`${overflow.left} px past the screen's left edge`);
+  }
+  if (overflow.right > 0) {
+    parts.push(`${overflow.right} px past the screen's right edge`);
+  }
+  if (overflow.column > 0) {
+    parts.push(
+      `${overflow.column} px wider than its column (a word too long to wrap)`,
+    );
+  }
+  return `warning: ${id}: its line overflows at ${sizeOf(size)}: ${parts.join(", ")}`;
+}
+
+/** The summary's overflow line: the lines that overflowed, by item id. */
+export const overflowSummaryLine = (size, ids) =>
+  `line overflow at ${sizeOf(size)}: ${ids.length === 0 ? "none" : `${plural(ids.length, "line")}: ${namedIds(ids)}`}`;
+
 /**
  * The summary's trace line (`--trace`): how many records were written to
  * `file` and how many the player dropped (past its cap, between drains).

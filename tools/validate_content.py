@@ -121,9 +121,23 @@ DEFAULT_LANG_SCHEMA = REPO_ROOT / "docs" / "lang.schema.json"
 if str(REPO_ROOT / "converter") not in sys.path:
     sys.path.insert(0, str(REPO_ROOT / "converter"))
 from kinetic_extract import audio_format  # noqa: E402
+from kinetic_extract import folder_model  # noqa: E402
 from kinetic_extract import language_file  # noqa: E402
 from kinetic_extract import text_tags  # noqa: E402
 from kinetic_extract.version import add_version_option  # noqa: E402
+from kinetic_extract.folder_model import (  # noqa: E402
+    iter_media_paths,
+)
+
+# The folder model (media paths, tracks, voices, decisions and the
+# reading walk) lives in the package, which `kinetic report` shares;
+# these names are the validator's own for it.
+_audio_tracks = folder_model.audio_tracks
+_voice_entries = folder_model.voice_entries
+_scripted_files = folder_model.scripted_files
+_Decision = folder_model.Decision
+_resolve_decisions = folder_model.resolve_decisions
+_shown_by_play_all = folder_model.shown_by_play_all
 
 MANIFEST_NAME = "manifest.json"
 SHIM_NAME = "manifest.js"
@@ -338,51 +352,6 @@ def schema_problems(manifest: Any, schema: Any) -> list[tuple[list[Any], str]]:
 # ---------------------------------------------------------------------------
 # Filesystem invariants
 # ---------------------------------------------------------------------------
-
-def iter_media_paths(manifest: Any) -> Iterator[tuple[str, Any]]:
-    """(location, value) for every media path the manifest references:
-    the items' files, frames and posters, then the audio track files and
-    the voices' reference clips."""
-    items = manifest.get("items") if isinstance(manifest, dict) else None
-    yield from _item_media_paths(items if isinstance(items, list) else [])
-    yield from _scripted_files(manifest)
-
-
-def _scripted_files(manifest: Any) -> Iterator[tuple[str, Any]]:
-    """(location, value) for every audio file the player reads from the
-    script beside it: each track's `file`, then each voice's `file`
-    (docs/content-format.md § Audio, § Voices)."""
-    for track_id, track in _audio_tracks(manifest).items():
-        if isinstance(track, dict) and "file" in track:
-            yield f"audio.tracks.{track_id}.file", track["file"]
-    for loc, voice in _voice_entries(manifest):
-        if isinstance(voice, dict) and "file" in voice:
-            yield f"{loc}.file", voice["file"]
-
-
-def _item_media_paths(items: list[Any]) -> Iterator[tuple[str, Any]]:
-    for i, item in enumerate(items):
-        if not isinstance(item, dict):
-            continue
-        base = f"items[{i}]"
-        item_type = item.get("type")
-        if item_type == "animation":
-            frames = item.get("frames")
-            if isinstance(frames, list):
-                for f, frame in enumerate(frames):
-                    yield f"{base}.frames[{f}]", frame
-            elif "frames" in item:
-                yield f"{base}.frames", frames
-            continue
-        if item_type == "video":
-            for field in ("file", "poster"):
-                if field in item:
-                    yield f"{base}.{field}", item[field]
-            continue
-        for field in ("file", "poster"):
-            if field in item:
-                yield f"{base}.{field}", item[field]
-
 
 def media_problems(content_dir: Path, manifest: Any,
                    schema_locs: set[str] = frozenset()) -> list[str]:
@@ -671,240 +640,6 @@ def branches_problems(manifest: Any) -> list[str]:
 # Unreachable items (a warning, not a problem)
 # ---------------------------------------------------------------------------
 
-class _Decision:
-    """A decision resolved to item indices, as machine.ts `ResolvedDecision`."""
-
-    __slots__ = ("index", "id", "after", "routes", "continuing",
-                 "continue_at", "parent", "region_end")
-
-    def __init__(self, index: int, branch_id: Any, after: int,
-                 routes: list[tuple[int, int, str]], continuing: int,
-                 continue_at: int) -> None:
-        self.index = index
-        self.id = branch_id
-        self.after = after
-        self.routes = routes  # (start, end, result) per route
-        self.continuing = continuing
-        self.continue_at = continue_at
-        self.parent = -1
-        self.region_end = max(end for _start, end, _result in routes)
-
-
-def _resolve_decisions(items: list[Any], branches: list[Any]
-                       ) -> list[_Decision]:
-    """The decisions the player plays, as machine.ts `resolveDecisions`:
-    one with an unresolvable reference, an inverted span, fewer than two
-    routes, half a continuingRoute/continueAt pair or a `"continue"`
-    route without a join is dropped, so its items play as plain ones."""
-    by_id: dict[str, int] = {}
-    for i, item in enumerate(items):
-        if isinstance(item, dict) and isinstance(item.get("id"), str):
-            by_id.setdefault(item["id"], i)
-
-    def ref(value: Any) -> int:
-        return by_id.get(value, -1) if isinstance(value, str) else -1
-
-    resolved: list[_Decision] = []
-    for branch in branches:
-        if not isinstance(branch, dict):
-            continue
-        routes = branch.get("routes")
-        after = ref(branch.get("after"))
-        if after < 0 or not isinstance(routes, list) or len(routes) < 2 \
-                or not all(isinstance(route, dict) for route in routes):
-            continue
-        named = branch.get("continuingRoute")
-        continuing = next((ri for ri, route in enumerate(routes)
-                           if isinstance(named, str)
-                           and route.get("id") == named), -1)
-        continue_at = ref(branch.get("continueAt")) \
-            if "continueAt" in branch else -1
-        if (continuing >= 0) != (continue_at >= 0):
-            continue
-        spans: list[tuple[int, int, str]] = []
-        for route in routes:
-            start, end = ref(route.get("start")), ref(route.get("end"))
-            result = route.get("result", "ending")
-            if start < 0 or end < 0 or start > end \
-                    or (result == "continue" and continue_at < 0):
-                break
-            spans.append((start, end, result))
-        if len(spans) != len(routes):
-            continue
-        resolved.append(_Decision(len(resolved), branch.get("id"), after,
-                                  spans, continuing, continue_at))
-    # Nesting: the parent is the decision with the narrowest route span
-    # holding the child's `after` item.
-    for child in resolved:
-        tightest = None
-        for outer in resolved:
-            if outer is child:
-                continue
-            for start, end, _result in outer.routes:
-                if start <= child.after <= end \
-                        and (tightest is None or end - start < tightest):
-                    tightest = end - start
-                    child.parent = outer.index
-    return resolved
-
-
-def _shown_by_play_all(items: list[Any], decisions: list[_Decision]
-                       ) -> set[int]:
-    """The item indices a reading from the opening shows under Play all
-    routes, given the manifest's non-empty `items` and its decisions.
-
-    A port of the player's forward flow (player/src/machine/machine.ts:
-    `moveForward`, `fireDecision`, `nextAutoRoute`, `handleRouteEnd`,
-    `endJoins`, `join`, `autoResolve`, `closeIfPureAndComplete`,
-    `relevantDecision`, `atRouteEnd`, `nothingFollows`), with each choice
-    taken at once as play-all takes it: the shortest route not played
-    this pass, the continuing route last. Play-all shows every item any
-    reading by choices shows (a reader picks among the same routes and
-    joins at the same `continueAt`, and an ending route's end, where a
-    manual reading stops, re-offers the choice here), so an item it never
-    shows no reading reaches; bookmarks and `u` jump rather than read.
-    player/src/machine/reach.test.ts holds this port to the machine.
-
-    The walk ends: entering a route marks it played this pass and that
-    record only grows, so there are at most as many entries as routes,
-    and between two entries every move goes forward (a step, a join to a
-    `continueAt` past its routes, a close past a menu region).
-    """
-    count = len(items)
-    by_after: dict[int, list[_Decision]] = {}
-    for decision in decisions:
-        by_after.setdefault(decision.after, []).append(decision)
-    route_ends = {end for decision in decisions
-                  for _start, end, _result in decision.routes}
-
-    stack: list[tuple[_Decision, int]] = []  # open (decision, route) frames
-    played: dict[int, set[int]] = {}  # routes entered this pass
-    shown = {0}
-    cursor = 0
-
-    def show(index: int) -> None:
-        nonlocal cursor
-        cursor = index
-        shown.add(index)
-
-    def relevant_decision(index: int) -> _Decision | None:
-        candidates = by_after.get(index)
-        if not candidates:
-            return None
-        for decision in candidates:
-            if not stack:
-                if decision.parent < 0:
-                    return decision
-                continue
-            frame_decision, route_idx = stack[-1]
-            start, end, _result = frame_decision.routes[route_idx]
-            inside = decision.parent == frame_decision.index \
-                and start <= index <= end
-            if inside or decision is frame_decision:
-                return decision
-        return None
-
-    def next_auto_route(decision: _Decision) -> int:
-        done = played.get(decision.index, set())
-        best = -1
-        for ri, (start, end, _result) in enumerate(decision.routes):
-            if ri == decision.continuing or ri in done:
-                continue
-            if best < 0 or end - start < (decision.routes[best][1]
-                                          - decision.routes[best][0]):
-                best = ri
-        if best >= 0:
-            return best
-        if decision.continuing >= 0 and decision.continuing not in done:
-            return decision.continuing
-        return -1
-
-    def close_frames_for(decision: _Decision) -> None:
-        for depth in range(len(stack) - 1, -1, -1):
-            if stack[depth][0] is decision:
-                del stack[depth:]
-                return
-
-    def enter_route(decision: _Decision, route_idx: int) -> None:
-        close_frames_for(decision)
-        played.setdefault(decision.index, set()).add(route_idx)
-        stack.append((decision, route_idx))
-        show(decision.routes[route_idx][0])
-
-    def leaves_enclosing(decision: _Decision, target: int) -> bool:
-        if not stack:
-            return False
-        frame_decision, route_idx = stack[-1]
-        return frame_decision.index == decision.parent \
-            and target > frame_decision.routes[route_idx][1]
-
-    def close_if_pure_and_complete(decision: _Decision) -> bool:
-        if decision.continuing >= 0 or next_auto_route(decision) >= 0:
-            return False
-        close_frames_for(decision)
-        target = decision.region_end + 1
-        if leaves_enclosing(decision, target):
-            handle_route_end()
-        elif target < count:
-            show(target)
-        return True
-
-    def join(decision: _Decision) -> None:
-        if leaves_enclosing(decision, decision.continue_at):
-            handle_route_end()
-        else:
-            show(decision.continue_at)
-
-    def auto_resolve(decision: _Decision) -> None:
-        close_frames_for(decision)
-        if decision.continue_at >= 0:
-            join(decision)
-        else:
-            close_if_pure_and_complete(decision)
-
-    def offer(decision: _Decision) -> None:
-        route_idx = next_auto_route(decision)
-        if route_idx >= 0:
-            enter_route(decision, route_idx)
-        else:
-            auto_resolve(decision)
-
-    def handle_route_end() -> None:
-        decision, route_idx = stack[-1]
-        if close_if_pure_and_complete(decision):
-            return
-        stack.pop()
-        _start, _end, result = decision.routes[route_idx]
-        joins = route_idx == decision.continuing or (
-            result == "continue" and next_auto_route(decision) < 0)
-        if joins:
-            join(decision)
-        else:
-            offer(decision)
-
-    def at_route_end() -> bool:
-        return bool(stack) and cursor == stack[-1][0].routes[stack[-1][1]][1]
-
-    def move_forward() -> bool:
-        """One forward settle; False where the story ends."""
-        before = len(shown), cursor
-        decision = relevant_decision(cursor)
-        if decision is not None:
-            if not close_if_pure_and_complete(decision):
-                offer(decision)
-        elif at_route_end():
-            handle_route_end()
-        elif cursor >= count - 1 or cursor in route_ends:
-            return False  # `nothingFollows`
-        else:
-            show(cursor + 1)
-        return (len(shown), cursor) != before
-
-    while move_forward():
-        pass
-    return shown
-
-
 def reach_warnings(manifest: Any) -> list[str]:
     """One warning line per item no reading from the opening shows
     (`_shown_by_play_all`), in item order.
@@ -1095,14 +830,6 @@ OGG_WARNING = ("Safari plays Ogg only from 18.4 (macOS 15.4) and WebKit's "
                "decode of Vorbis in Ogg loses its first 128 samples; "
                "kinetic-media copies Ogg into WebM, or re-encodes a looping "
                "Opus to AAC")
-
-
-def _audio_tracks(manifest: Any) -> dict[str, Any]:
-    """The manifest's `audio.tracks` object; {} when absent or malformed
-    (the schema reports a malformed one)."""
-    audio = manifest.get("audio") if isinstance(manifest, dict) else None
-    tracks = audio.get("tracks") if isinstance(audio, dict) else None
-    return tracks if isinstance(tracks, dict) else {}
 
 
 def _item_track_refs(audio: dict[str, Any]) -> Iterator[tuple[str, Any]]:
@@ -1389,20 +1116,6 @@ def audio_warnings(manifest: Any, content_dir: Path) -> list[str]:
 # ---------------------------------------------------------------------------
 # Voices (docs/content-format.md § Voices)
 # ---------------------------------------------------------------------------
-
-def _voice_entries(manifest: Any) -> Iterator[tuple[str, Any]]:
-    """(location, value) for each voice: `voices.<speaker>` in the
-    manifest's order, then `narrator`. Malformed containers yield
-    nothing; the schema reports them."""
-    if not isinstance(manifest, dict):
-        return
-    voices = manifest.get("voices")
-    if isinstance(voices, dict):
-        for speaker, voice in voices.items():
-            yield f"voices.{speaker}", voice
-    if "narrator" in manifest:
-        yield "narrator", manifest["narrator"]
-
 
 def voice_warnings(manifest: Any) -> list[str]:
     """One warning line per voice no item's `speaker` names, and one for

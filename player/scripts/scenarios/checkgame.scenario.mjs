@@ -81,6 +81,13 @@
 //   without `--lang` the output has no language lines; a tag the game
 //   lacks exits 2 before any browser starts; a copy whose German script is
 //   gone opens in English, which fails the run (exit 1), saying so.
+// - Overflowing lines (docs/plan.md Phase 57, item 5): the window is the
+//   demo's own 960 x 540, and the whole demo's summary says `line overflow
+//   at 960 x 540: none`. On a copy with a line too long for the screen and
+//   one holding a word too long to wrap, the walk prints a warning below
+//   each one's step, naming it and saying where it runs past (above the
+//   screen; wider than its column), once each, the summary names both, and
+//   the exit code stays 0.
 
 import { execFile } from "node:child_process";
 import {
@@ -135,6 +142,7 @@ export const parts = [
   playerVersion,
   traceFile,
   languageWalks,
+  overflowingLines,
 ];
 
 const CHECK_GAME = join(playerDir, "scripts", "testing", "check-game.mjs");
@@ -226,6 +234,12 @@ async function wholeDemo({ check }) {
       !run.stdout.includes("never shown") &&
       run.stdout.trimEnd().endsWith("no console or page errors"),
     { ended, last, ...evidence(run) },
+  );
+  check(
+    "the demo opens at its own 960 x 540 and no line overflows there",
+    run.stdout.includes("\nline overflow at 960 x 540: none\n") &&
+      !run.stdout.includes("warning: "),
+    evidence(run),
   );
   const media = mediaSummary(run.stdout);
   const referenced = referencedCount(manifest);
@@ -1227,5 +1241,59 @@ async function languageWalks({ check }) {
     "a copy whose German script is gone opens in English, which fails the run (exit 1), saying so",
     lost.code === 1 && lost.stderr.includes("opened in en, not de"),
     evidence(lost),
+  );
+}
+
+// A line too long for the demo's screen (the band grows upward, so it runs
+// off the top) and one with a word too long to wrap (it runs out of its
+// column, sideways): each warned of once, below its step; exit 0.
+async function overflowingLines({ check }) {
+  const folder = demoCopy("checkgame-overflow", (copy) => {
+    for (const it of copy.items) {
+      if (it.id === "text-thought") {
+        it.text = Array(120).fill("A line far too long to fit.").join(" ");
+      }
+      if (it.id === "text-narration") it.text = `Then ${"W".repeat(300)}`;
+    }
+    return copy;
+  });
+  const run = await checkGame(folder, [
+    "--until",
+    "text-bare",
+    "--no-media-check",
+  ]);
+  const out = lines(run.stdout);
+  const warned = (id) =>
+    out.filter((line) => line.startsWith(`warning: ${id}: `));
+  const below = (id) => {
+    const at = out.findIndex((line) => line.startsWith(`warning: ${id}: `));
+    return at > 0 && new RegExp(`^ {2}\\d+: ${id} `).test(out[at - 1]);
+  };
+  const [top] = warned("text-thought");
+  const [wide] = warned("text-narration");
+  check(
+    "a line too long for the screen warns once, below its step, that it runs above the screen at 960 x 540",
+    warned("text-thought").length === 1 &&
+      below("text-thought") &&
+      /^warning: text-thought: its line overflows at 960 x 540: \d+ px above the screen$/.test(
+        top,
+      ),
+    evidence(run),
+  );
+  check(
+    "a word too long to wrap warns once that the line is wider than its column",
+    warned("text-narration").length === 1 &&
+      below("text-narration") &&
+      /\d+ px wider than its column \(a word too long to wrap\)$/.test(wide),
+    { wide },
+  );
+  check(
+    "only those lines warn, the summary names both, and the exit code stays 0",
+    run.code === 0 &&
+      out.filter((line) => line.startsWith("warning: ")).length === 2 &&
+      out.includes(
+        "line overflow at 960 x 540: 2 lines: text-thought, text-narration",
+      ),
+    evidence(run),
   );
 }

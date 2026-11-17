@@ -5325,9 +5325,32 @@ truthful: an unchecked box means nothing was accepted.
       kind's name.
 - [ ] A corpus game's lost pictures (item 4d). The cause of game 1's
       3576 dropped visuals found and fixed.
-- [ ] `kinetic report` (item 5). Reading time per route, speakers,
+- [x] `kinetic report` (item 5). Reading time per route, speakers,
       unused files, longest lines, unknown tags; check-game reports
       overflowing lines.
+      (2026-11-17: the `kinetic` console script
+      (`kinetic_extract/kinetic_cli.py`, a `COMMANDS` tuple of modules
+      each with `register()`), `report.py`, and the validator's branch,
+      reachability and media-path code moved into
+      `kinetic_extract/folder_model.py`, which tools/validate_content.py
+      imports. The report: reading time at the player's defaults (shown
+      code points, the per-language factor, media holds when no text
+      item follows, minPlaySeconds, recorded voice lines) for every item
+      once, the shortest reading to an ending, the main line and each
+      route; speakers with look-alike names (case, spacing, one letter,
+      not digit for digit); characters; transitions; text tag problems;
+      unused files; the 20 longest lines; `--json` the same data; exit 0
+      when it ran, 2 on bad input. check-game opens at the manifest's
+      size (scaled into 480x270..1920x1200, 1280x720 without one) and
+      warns below a step whose line runs past the screen or its column,
+      then prints a `line overflow at WxH` summary; exit code unchanged.
+      CREATE.md "Checking a conversion: kinetic report" and "Lines that
+      overflow"; AGENTS.md bullets. Subagent: test_report 30,
+      validate_content 460, test_version 20 passed; npm test 1815;
+      checkgame 51/51 Chrome, 50/51 WebKit (a stderr progress-line
+      check at load 15, judged timing). Orchestrator: the four pytest
+      files 519 passed; walk.test 76; check clean; checkgame 51/51 on
+      Chrome and 51/51 on WebKit at load 11-25.)
 - [ ] `kinetic routes` (item 6). The branch structure as an outline,
       DOT and JSON, agreeing with the branch map's model.
 - [ ] `kinetic export` (item 7). Each route as Markdown with item ids,

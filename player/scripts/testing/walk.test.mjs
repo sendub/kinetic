@@ -24,6 +24,8 @@ import {
   languageProblem,
   mediaCheckLine,
   mediaSummaryLine,
+  overflowSummaryLine,
+  overflowWarning,
   readArgs,
   STUCK_MS,
   STUCK_PRESSES,
@@ -32,6 +34,7 @@ import {
   traceSummaryLine,
   USAGE,
   untilSpan,
+  windowFor,
 } from "./walk.mjs";
 
 const IDS = ["a", "b", "c", "d", "e"];
@@ -792,6 +795,87 @@ describe("check-game.mjs --lang", () => {
     } finally {
       rmSync(folder, { recursive: true, force: true });
     }
+  });
+});
+
+describe("windowFor (the overflow check's window)", () => {
+  it("is the manifest's size when it fits a 1920 x 1200 screen", () => {
+    expect(windowFor({ width: 960, height: 540 })).toEqual({
+      width: 960,
+      height: 540,
+    });
+    expect(windowFor({ width: 1920, height: 1080 })).toEqual({
+      width: 1920,
+      height: 1080,
+    });
+  });
+  it("is scaled down, its shape kept, to fit 1920 x 1200", () => {
+    expect(windowFor({ width: 3840, height: 2160 })).toEqual({
+      width: 1920,
+      height: 1080,
+    });
+    expect(windowFor({ width: 1600, height: 2400 })).toEqual({
+      width: 800,
+      height: 1200,
+    });
+  });
+  it("is scaled up to reach 480 x 270, within 1920 x 1200", () => {
+    expect(windowFor({ width: 240, height: 135 })).toEqual({
+      width: 480,
+      height: 270,
+    });
+    expect(windowFor({ width: 10, height: 10 })).toEqual({
+      width: 480,
+      height: 480,
+    });
+    expect(windowFor({ width: 1000, height: 10 })).toEqual({
+      width: 1920,
+      height: 19,
+    });
+  });
+  it("is 1280 x 720 without a usable size", () => {
+    for (const manifest of [
+      null,
+      {},
+      { width: 0, height: 540 },
+      { width: "960", height: 540 },
+      { width: 960.5, height: 540 },
+    ]) {
+      expect(windowFor(manifest)).toEqual({ width: 1280, height: 720 });
+    }
+  });
+});
+
+describe("overflowWarning and overflowSummaryLine", () => {
+  const size = { width: 960, height: 540 };
+  const none = { top: 0, bottom: 0, left: 0, right: 0, column: 0 };
+  it("names the item, the window and each edge the line runs past", () => {
+    expect(overflowWarning("long-line", size, { ...none, top: 42 })).toBe(
+      "warning: long-line: its line overflows at 960 x 540: 42 px above the screen",
+    );
+    expect(
+      overflowWarning("word", size, {
+        ...none,
+        right: 7,
+        left: 3,
+        bottom: 1,
+        column: 120,
+      }),
+    ).toBe(
+      "warning: word: its line overflows at 960 x 540: 1 px below the screen, 3 px past the screen's left edge, 7 px past the screen's right edge, 120 px wider than its column (a word too long to wrap)",
+    );
+  });
+  it("sums up the lines that overflowed, up to ten ids", () => {
+    expect(overflowSummaryLine(size, [])).toBe(
+      "line overflow at 960 x 540: none",
+    );
+    expect(overflowSummaryLine(size, ["a"])).toBe(
+      "line overflow at 960 x 540: 1 line: a",
+    );
+    const ids = Array.from({ length: 12 }, (_, n) => `l${n}`);
+    expect(overflowSummaryLine(size, ids)).toBe(
+      "line overflow at 960 x 540: 12 lines: l0, l1, l2, l3, l4, l5, l6, l7, l8, l9 and 2 more",
+    );
   });
 });
 

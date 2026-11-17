@@ -105,7 +105,8 @@ def test_cli_version_prints_kinetic_version_and_stops(
     assert err == ""
 
 
-@pytest.mark.parametrize("command", ["kinetic-extract", "kinetic-media"])
+@pytest.mark.parametrize("command", ["kinetic", "kinetic-extract",
+                                     "kinetic-media"])
 def test_installed_commands_print_the_version(command, tmp_path) -> None:
     script = Path(sys.executable).with_name(command)
     if not script.is_file():
