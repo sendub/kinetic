@@ -4859,5 +4859,23 @@ truthful: an unchecked box means nothing was accepted.
       Orchestrator: added lines ASCII only; `npm run check` clean;
       tools/test_validate_content.py, test_release_version.py and
       test_build_apps.py 469 passed.)
-- [ ] Phase-closer (Phase 54): full suites; VERSION 1.10.0, the
+- [x] Phase-closer (Phase 54): full suites; VERSION 1.10.0, the
       CHANGELOG dated, tag v1.10.0, `main` fast-forwarded.
+      (2026-11-17 on bbc3a07: full pytest 1241 passed; apps/voice 87
+      passed; Go test and Windows vet clean; npm test 1539, check clean;
+      full `npm run verify` 794/794 on Chrome; package-proof 18/18 with
+      .tmp/extract-demo regenerated. `npm run verify -- --webkit` ran
+      twice. First, at load average 15-25 from the suites themselves:
+      853 pass, 5 partial (the headless fullscreen checks), 1 fail, the
+      audio mix check that amb-shrink fades the rain while the hum loops
+      on (121 frames off); `audio` alone then passed 2 of 3 at load 12
+      and 5 of 5 at load 3-8. Second, at load 7-8: 844 pass, 5 partial,
+      10 fail, all in bookmarkmap and screens (drags on the map, card
+      clicks, the bookmark cascade after them), which passed in the first
+      run; those two files alone failed 1 of 3 runs (2 checks). The same
+      two files at v1.9.1, before this phase, failed 2 of 4 runs (the
+      same 8-drag check, a card drag, a delete) plus one earlier run's
+      screens skip check, so the WebKit map flakiness predates the
+      trace, which no scenario but `trace` and `checkgame` turns on.
+      VERSION, package.json, its lockfile and pyproject 1.10.0; the
+      CHANGELOG entry dated; tag v1.10.0; `main` fast-forwarded.)
