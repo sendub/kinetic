@@ -19,6 +19,11 @@ something more of an author.
 
 ## 1.10.1-dev
 
+- Tests on the `webkit` engine (check-game, `openGame`) no longer lose
+  clicks and drags when the computer's own mouse button is down while
+  they run: the WebKit helper now reports only its own simulated
+  button to the page.
+
 ## 1.10.0 (2026-11-17)
 
 - A test-only trace of every screen the player shows: with

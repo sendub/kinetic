@@ -169,6 +169,28 @@ func profileFolder() -> URL? {
     return dir
 }
 
+/// The mouse buttons the driver holds down (bit 0, the left one), which is
+/// what `+[NSEvent pressedMouseButtons]` answers in this process. WebKit
+/// reads that class method, the machine's real mouse, for the `buttons` of
+/// each mouse event it hands the page. With the real answer a press sent
+/// here reached the page unpressed (`pointerdown` with `buttons` 0), and
+/// one that met the user's own button held down anywhere on the machine
+/// reached it as a chorded press or release (Pointer Events): a
+/// `pointermove` with `buttons` 1 in place of the `pointerdown` or the
+/// `pointerup`. The map then never saw the press begin or end: a drag
+/// scrolled nothing, a card click opened nothing, and later moves dragged.
+/// WebKit's own test runner answers it from its simulated buttons too. The
+/// game app keeps the real answer.
+var driverButtons = 0
+func answerPressedMouseButtonsFromDriver() -> Bool {
+    guard let method = class_getClassMethod(NSEvent.self, NSSelectorFromString("pressedMouseButtons")) else {
+        return false
+    }
+    let answer: @convention(block) (AnyObject) -> Int = { _ in driverButtons }
+    method_setImplementation(method, imp_implementationWithBlock(answer))
+    return true
+}
+
 let outLock = NSLock()
 func emit(_ object: [String: Any]) {
     guard let data = try? JSONSerialization.data(withJSONObject: object) else { return }
@@ -186,10 +208,14 @@ func fatal(_ message: String) -> Never {
 
 // Counts the input events the page has received, so an input request can
 // answer only once the page has handled it (CDP's Input.* contract), and
-// forwards the console and page errors.
+// forwards the console and page errors. A mouse event is counted by its
+// pointer event, which every one of them fires: a page that cancels a
+// `pointerdown` (the branch map does) gets no `mousedown`, `mousemove` or
+// `mouseup` until the release, and counting those left each press there
+// unconfirmed for the request's whole limit.
 let pageShim = """
     (() => {
-      const counts = { keydown: 0, keyup: 0, mousedown: 0, mouseup: 0, mousemove: 0, wheel: 0 };
+      const counts = { keydown: 0, keyup: 0, pointerdown: 0, pointerup: 0, pointermove: 0, wheel: 0 };
       Object.defineProperty(window, "__kdrv", { value: counts });
       for (const type of Object.keys(counts))
         window.addEventListener(type, () => { counts[type] += 1; }, { capture: true, passive: true });
@@ -267,6 +293,9 @@ final class Driver: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKScr
                 fatal("this macOS's WebKit cannot keep a profile in a folder (it lacks the private _WKWebsiteDataStoreConfiguration initWithDirectory:); open without a profile, or on Chrome")
             }
             config.websiteDataStore = store
+        }
+        guard answerPressedMouseButtonsFromDriver() else {
+            fatal("cannot answer +[NSEvent pressedMouseButtons] from the driver's own buttons")
         }
         // Test hooks: the page runs as if in front although no one sees it.
         var hooks: [String: Bool] = [:]
@@ -561,8 +590,6 @@ final class Driver: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKScr
         }, done)
     }
 
-    var buttonDown = false
-
     func mouse(_ r: [String: Any], _ done: @escaping (Result<Any, Error>) -> Void) {
         let type = r["type"] as? String ?? "mouseMoved"
         let x = r["x"] as? Double ?? 0, y = r["y"] as? Double ?? 0
@@ -580,14 +607,14 @@ final class Driver: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKScr
         // Clicks go straight to the view: the window drops them because the
         // app is not active.
         case "mousePressed":
-            buttonDown = true
-            delivered("mousedown", limit: 1, { self.webView.mouseDown(with: mouseEvent(.leftMouseDown)) }, done)
+            driverButtons = 1
+            delivered("pointerdown", limit: 1, { self.webView.mouseDown(with: mouseEvent(.leftMouseDown)) }, done)
         case "mouseReleased":
-            buttonDown = false
-            delivered("mouseup", limit: 1, { self.webView.mouseUp(with: mouseEvent(.leftMouseUp)) }, done)
+            driverButtons = 0
+            delivered("pointerup", limit: 1, { self.webView.mouseUp(with: mouseEvent(.leftMouseUp)) }, done)
         case "mouseMoved":
-            delivered("mousemove", limit: 0.5, {
-                if self.buttonDown {
+            delivered("pointermove", limit: 0.5, {
+                if driverButtons != 0 {
                     self.webView.mouseDragged(with: mouseEvent(.leftMouseDragged))
                 } else {
                     self.webView.perform(NSSelectorFromString("_simulateMouseMove:"), with: mouseEvent(.mouseMoved))

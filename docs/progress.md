@@ -4892,8 +4892,34 @@ truthful: an unchecked box means nothing was accepted.
       planning and closing commits alike, the closer's subject the
       release; one good and one bad example; history kept. The Workflow
       line already sends evidence to the note. No test reads AGENTS.md.)
-- [ ] WebKit map checks (docs/plan.md Phase 55, item 2). The cause of
+- [x] WebKit map checks (docs/plan.md Phase 55, item 2). The cause of
       the intermittent `bookmarkmap` and `screens` failures on WebKit
       found and fixed; 10 runs in a row pass.
+      (2026-11-17: the WebKit driver's fault, not the player's or the
+      waits'. WebKit fills a mouse event's `buttons` from `+[NSEvent
+      pressedMouseButtons]`, the machine's real mouse, so a driver press
+      reached the page as `pointerdown` with buttons 0, and one that met
+      the user's own button held anywhere arrived as a chorded
+      `pointermove` in place of the `pointerdown` or `pointerup`; the map
+      never saw the press start or end, and every later step cascaded.
+      Shown by page pointer logs of a failing card click (no
+      `pointerup`), the driver logging the real buttons at 1 during a
+      run, and a driver forced to report the button held failing the
+      same 10 bookmarkmap checks every time. Fix in
+      apps/macos/driver/main.swift (the game app untouched): the driver
+      answers `pressedMouseButtons` from its own button state, as
+      WebKit's test runner does, and stops with an error if it cannot;
+      it also confirms mouse requests by pointer events, since the map
+      cancels `pointerdown` and the mouse events waited out their full
+      limit (the two files went from 64 s to 42 s). bookmarkmap checks
+      a card click reaches the page as `pointerdown 1,pointerup 0`, which
+      the old driver fails every time; docs/verify-player.md "WebKit"
+      gains a Mouse buttons bullet; the CHANGELOG notes the fix for
+      check-game and `openGame` on WebKit. Subagent: 10 of 10 WebKit
+      runs of the two files at load 10-30, full `--webkit` 855 pass, 5
+      partial, 0 fail. Orchestrator: npm test 1539, check clean, smoke
+      6/6 on both engines, the two files 153/153 on Chrome and 5 of 5
+      WebKit runs with 151 pass, 2 partial (headless fullscreen), 0
+      fail.)
 - [ ] Phase-closer (Phase 55): full suites; VERSION 1.10.1, the
       CHANGELOG dated, tag v1.10.1, `main` fast-forwarded.

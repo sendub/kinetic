@@ -6,7 +6,8 @@
 // size, a card its 280 x 158 thumbnail alone (no caption strip, Phase 40;
 // the newest outlined, its time in its label and tooltip), the count line
 // under them clear of the cards, no two overlapping; a click on a card
-// opens the bookmark (the map closes, the reader lands on it); a drag that
+// opens the bookmark (the map closes, the reader lands on it), reaching the
+// page as a pointerdown with the button held and a pointerup; a drag that
 // starts on a card scrolls Full size (in a window short enough to scroll)
 // and opens nothing; Delete, Backspace and Enter do nothing to a card; the
 // × deletes at Full size and at Fit (drawn at a usable screen size there),
@@ -511,16 +512,36 @@ async function cards({ check, open }) {
   await sleep(250);
   const now = await page.evaluate(READ_MAP_CARDS);
   const target = now.cards.find((x) => x.itemId === "text-narration");
+  await page.evaluate(() => {
+    window.__press = [];
+    for (const type of ["pointerdown", "pointerup"])
+      window.addEventListener(
+        type,
+        (e) => window.__press.push(`${e.type} ${e.buttons}`),
+        true,
+      );
+  });
   if (target !== undefined)
     await click(cdp, mid(target.rect).x, mid(target.rect).y);
   const closed = await waitFor(page, MAP_CLOSED, 3000);
   await sleep(200);
+  const press = await page.evaluate(() => window.__press);
   check(
     "clicking a card opens its bookmark: the map closes and the reader lands on its screen",
     target !== undefined &&
       closed &&
       (await currentItemId(page)) === "text-narration",
-    { closed, item: await currentItemId(page) },
+    { closed, item: await currentItemId(page), press },
+  );
+  // The press the map saw is the one sent, whatever the machine's own
+  // mouse was doing: on WebKit the button state is the driver's
+  // (apps/macos/driver/main.swift, driverButtons), not the real mouse's,
+  // which once turned a press or release into a chorded pointermove while
+  // the user held a button elsewhere.
+  check(
+    "the click reached the page as a pointerdown with the left button held (buttons 1) and a pointerup with none (buttons 0)",
+    press.join() === "pointerdown 1,pointerup 0",
+    press,
   );
 }
 

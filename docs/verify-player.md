@@ -168,6 +168,16 @@ units start longest first by `.tmp/scenario-times-webkit.json`.
   mouse moves and layer-tree waits. The driver's ready line reports each;
   if a macOS update removes one, the run stops naming it rather than
   give wrong results.
+- Mouse buttons: WebKit reads a mouse event's `buttons` from
+  `+[NSEvent pressedMouseButtons]`, the machine's real mouse, so the
+  driver answers that method from its own pressed button, as WebKit's test
+  runner does. Before, a press read as unpressed, and one that met the
+  user's own button held down in any app reached the
+  page as a chorded `pointermove` instead of its `pointerdown` or
+  `pointerup`: on and off, map drags scrolled nothing and card clicks
+  opened nothing (docs/plan.md Phase 55). A mouse request answers once
+  the page's pointer event has fired (a page that cancels `pointerdown`
+  gets no `mousedown` or `mouseup`).
 - Silent: WebKit has no fake output stream, so the driver mutes its page
   (`_setPageMuted:`). Media still plays, its clocks and events run, and
   the gesture rule holds; the muted output plays zeros. A driver that
