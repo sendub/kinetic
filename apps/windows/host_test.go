@@ -157,11 +157,17 @@ func TestHostScriptBehavesInAPage(t *testing.T) {
 
 func TestParseMessage(t *testing.T) {
 	good := map[string]hostMessage{
-		`{"type":"quit"}`:                          {Type: "quit"},
-		`{"type":"quit","mode":"window"}`:          {Type: "quit"},
-		`{"type":"display","mode":"window"}`:       {Type: "display", Mode: displayWindow},
-		`{"mode":"fullscreen","type":"display"}`:   {Type: "display", Mode: displayFullscreen},
-		`{"type":"display","mode":"window","x":1}`: {Type: "display", Mode: displayWindow},
+		`{"type":"quit"}`:                              {Type: "quit"},
+		`{"type":"quit","mode":"window"}`:              {Type: "quit"},
+		`{"type":"display","mode":"window"}`:           {Type: "display", Mode: displayWindow},
+		`{"mode":"fullscreen","type":"display"}`:       {Type: "display", Mode: displayFullscreen},
+		`{"type":"display","mode":"window","x":1}`:     {Type: "display", Mode: displayWindow},
+		`{"type":"display","mode":"window","ui":"de"}`: {Type: "display", Mode: displayWindow},
+		`{"type":"language","ui":"de","dir":"ltr","title":"Die Reise"}`: {
+			Type: "language", UI: "de", Dir: "ltr", Title: "Die Reise",
+		},
+		`{"type":"language","ui":"ar","dir":"rtl"}`: {Type: "language", UI: "ar", Dir: "rtl"},
+		`{"type":"language","ui":"ja","dir":"up"}`:  {Type: "language", UI: "ja", Dir: "ltr"},
 	}
 	for text, want := range good {
 		if got, ok := parseMessage(text); !ok || got != want {
@@ -172,9 +178,28 @@ func TestParseMessage(t *testing.T) {
 	for _, text := range []string{
 		``, `{`, `"quit"`, `null`, `[]`, `{}`, `{"type":"display"}`, `{"type":"display","mode":"maximized"}`,
 		`{"type":"close"}`, `{"type":7}`, `{"type":"QUIT"}`,
+		`{"type":"language"}`, `{"type":"language","ui":""}`, `{"type":"language","ui":7}`,
+		`{"type":"language","ui":"en","title":7}`,
 	} {
 		if got, ok := parseMessage(text); ok {
 			t.Errorf("parseMessage(%s) = %+v, want refused", text, got)
+		}
+	}
+}
+
+func TestLanguageTitle(t *testing.T) {
+	cases := []struct {
+		title, want string
+	}{
+		{"Die Reise", "Die Reise"},
+		{"  الرحلة  ", "الرحلة"},
+		{"", "Journey"},
+		{"   ", "Journey"},
+		{"Bad\x00Title", "Journey"},
+	}
+	for _, c := range cases {
+		if got := languageTitle(hostMessage{Type: "language", UI: "de", Title: c.title}, "Journey"); got != c.want {
+			t.Errorf("languageTitle(%q) = %q, want %q", c.title, got, c.want)
 		}
 	}
 }

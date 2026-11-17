@@ -7,9 +7,11 @@
 // real bridges, so the page meets the same host on Chrome and WebKit.
 //
 // It starts in `state` ("absent", "ready", "error" or "unsupported" with
-// `message`). `install` runs from absent (or error) through installing,
-// reporting progress every 100 ms over `installMs`, to ready, or to error
-// while `failInstalls` is above 0 (each failure counts it down); `cancel`
+// `message` and `problem`, the status's `code` and its numbers, as the apps
+// send them: docs/plan.md Phase 54 item 7). `install` runs from absent (or
+// error) through installing, reporting progress every 100 ms over
+// `installMs`, to ready, or to error (`download-failed`) while
+// `failInstalls` is above 0 (each failure counts it down); `cancel`
 // and `remove` go back to absent. `voice` answers with a voice id;
 // `speak` answers after the fake's `delayMs` (or `delays[text]`) with a
 // 24 kHz mono 16-bit WAV of a tone `secondsPerChar` long per character
@@ -31,12 +33,14 @@
 // ignores it), as the helper's does.
 //
 // Everything is in `window.__fakeVoice`, which a test reads and changes
-// with page.evaluate: `messages` (every message the page sent, as JSON
-// round-trips it), `events` (every event it gave the page), `answered` and
+// with page.evaluate: `messages` (every voice message the page sent, as
+// JSON round-trips it), `hostMessages` (the page's other messages, its
+// `language` ones), `events` (every event it gave the page), `answered` and
 // `dropped` (speak ids), `voices` (voice id -> { format, bytes, text }),
 // and the settings above, live (`delayMs`, `delays`, `failInstalls`,
 // `failTexts`, `holdTexts`, `chunkSeconds`, `chunkMs`, `replyMs`, `cachedMs`,
-// `cachedTexts`), and `release(text)`.
+// `cachedTexts`), `release(text)`, and `setStatus(state, message,
+// problem)`, which moves to a state and tells the page as the apps do.
 
 /** The page script; pass it to evaluateOnNewDocument with its options. */
 export const FAKE_VOICE_HOST = (options = {}) => {
@@ -45,6 +49,7 @@ export const FAKE_VOICE_HOST = (options = {}) => {
     downloadBytes: 3_200_000_000,
     installMs: 1500,
     message: "",
+    problem: {},
     delayMs: 200,
     secondsPerChar: 0.04,
     minSeconds: 0.6,
@@ -61,12 +66,14 @@ export const FAKE_VOICE_HOST = (options = {}) => {
   };
   const fake = {
     messages: [],
+    hostMessages: [],
     events: [],
     answered: [],
     dropped: [],
     voices: {},
     state: o.state,
     message: o.message,
+    problem: o.problem,
     done: 0,
     delayMs: o.delayMs,
     delays: {},
@@ -78,6 +85,9 @@ export const FAKE_VOICE_HOST = (options = {}) => {
     replyMs: o.replyMs,
     cachedMs: o.cachedMs,
     cachedTexts: [],
+    setStatus(state, message = "", problem = {}) {
+      setState(state, message, problem);
+    },
     release(text) {
       fake.holdTexts = fake.holdTexts.filter((t) => t !== text);
       for (const [id, m] of held) {
@@ -112,12 +122,14 @@ export const FAKE_VOICE_HOST = (options = {}) => {
     }
     if (fake.state === "error" || fake.state === "unsupported") {
       event.message = fake.message;
+      Object.assign(event, fake.problem);
     }
     return event;
   };
-  const setState = (state, message = "") => {
+  const setState = (state, message = "", problem = {}) => {
     fake.state = state;
     fake.message = message;
+    fake.problem = problem;
     emit(status());
   };
   const stopInstall = () => {
@@ -138,7 +150,9 @@ export const FAKE_VOICE_HOST = (options = {}) => {
       stopInstall();
       if (fake.failInstalls > 0) {
         fake.failInstalls -= 1;
-        setState("error", "The download failed: the connection dropped.");
+        setState("error", "The download failed: the connection dropped.", {
+          code: "download-failed",
+        });
       } else setState("ready");
     }, 100);
   };
@@ -317,8 +331,12 @@ export const FAKE_VOICE_HOST = (options = {}) => {
     voice: true,
     send(message) {
       const m = JSON.parse(JSON.stringify(message));
+      if (m.type !== "voice") {
+        fake.hostMessages.push(m);
+        return;
+      }
       fake.messages.push(m);
-      if (m.type === "voice") handle(m);
+      handle(m);
     },
   });
   Object.defineProperty(window, "kineticHost", { value: host });
@@ -332,6 +350,7 @@ export const readFakeVoice = (page) =>
     if (f === undefined) return null;
     return {
       messages: f.messages,
+      hostMessages: f.hostMessages,
       answered: f.answered,
       dropped: f.dropped,
       voices: f.voices,

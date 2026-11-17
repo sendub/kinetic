@@ -129,8 +129,11 @@ type voiceEngine struct {
 	// gpu is the graphics card check, made once (nil before).
 	gpu *gpuCheck
 
-	state         string
-	message       string
+	state   string
+	message string
+	// problem names an error or an unsupported machine for the page (its
+	// code and numbers); nil in the other states.
+	problem       *voiceProblem
 	downloadBytes int64
 	done          int64
 	total         int64
@@ -257,7 +260,7 @@ func (e *voiceEngine) status() {
 
 	if e.helper == nil && !e.installComplete(lock) {
 		e.downloadBytes = e.fullDownload(lock)
-		e.setState(voiceAbsent, "")
+		e.setState(voiceAbsent)
 
 		return
 	}
@@ -289,7 +292,7 @@ func (e *voiceEngine) unsupported(lock *voiceLock) bool {
 	}
 
 	e.downloadBytes = e.fullDownload(lock)
-	e.setState(voiceUnsupported, e.gpu.Reason)
+	e.setProblem(voiceUnsupported, e.gpu.problem())
 
 	return true
 }
@@ -306,14 +309,15 @@ func (e *voiceEngine) statusAnswered(reply map[string]any, lock *voiceLock) {
 		}
 
 		if reply["installed"] == true {
-			e.setState(voiceReady, "")
+			e.setState(voiceReady)
 		} else {
-			e.setState(voiceAbsent, "")
+			e.setState(voiceAbsent)
 		}
 	case reply["code"] == "unsupported-system":
-		e.setState(voiceUnsupported, fmt.Sprintf("Spoken lines do not run on this system (%v).", reply["error"]))
+		e.setProblem(voiceUnsupported, problemf(codeUnsupportedSystem, "Spoken lines do not run on this system (%v).",
+			reply["error"]))
 	default:
-		e.setState(voiceError, fmt.Sprintf("The voice helper could not report its state: %v.",
+		e.setProblem(voiceError, problemf(codeHelperFailed, "The voice helper could not report its state: %v.",
 			orDefault(reply["error"], "unknown error")))
 	}
 }
@@ -339,16 +343,18 @@ func (e *voiceEngine) startInstall() {
 
 	if !e.installComplete(lock) {
 		if free, ok := e.plat.freeBytes(nearestFolder(e.settings.Root)); ok && free < full+diskMargin {
-			e.setState(voiceError, fmt.Sprintf("Spoken lines need %s of free disk space (a %s download, then room "+
+			p := problemf(codeDiskSpace, "Spoken lines need %s of free disk space (a %s download, then room "+
 				"to unpack it); this PC has %s free. Free some space, then try again.", gigabytes(full+diskMargin),
-				gigabytes(full), gigabytes(free)))
+				gigabytes(full), gigabytes(free))
+			p.Fields = map[string]any{"needBytes": full + diskMargin, "freeBytes": free}
+			e.setProblem(voiceError, p)
 
 			return
 		}
 	}
 
 	if err := os.MkdirAll(e.settings.Root, 0o755); err != nil {
-		e.setState(voiceError, fmt.Sprintf("The voice folder %s cannot be made: %v", e.settings.Root, err))
+		e.setProblem(voiceError, problemf(codeFolderFailed, "The voice folder %s cannot be made: %v", e.settings.Root, err))
 
 		return
 	}
@@ -356,7 +362,7 @@ func (e *voiceEngine) startInstall() {
 	e.openLog()
 
 	if err := e.writeHelper(lock); err != nil {
-		e.setState(voiceError, fmt.Sprintf("The voice helper cannot be written: %v", err))
+		e.setProblem(voiceError, problemf(codeFolderFailed, "The voice helper cannot be written: %v", err))
 
 		return
 	}
@@ -372,7 +378,7 @@ func (e *voiceEngine) startInstall() {
 		e.done = min(fileSize(e.archivePartial(lock)), lock.PythonSize)
 	}
 
-	e.setState(voiceInstalling, "")
+	e.setState(voiceInstalling)
 
 	if e.pythonReady(lock) {
 		e.startHelperInstall(run, lock)
@@ -443,7 +449,7 @@ func (e *voiceEngine) removeFiles() {
 		e.downloadBytes = e.fullDownload(lock)
 	}
 
-	e.setState(voiceAbsent, "")
+	e.setState(voiceAbsent)
 }
 
 // relay sends a voice or speak request to the helper.
@@ -522,9 +528,22 @@ func (e *voiceEngine) drop(pageID any) {
 
 // --- the page's status ------------------------------------------------------
 
-func (e *voiceEngine) setState(state, message string) {
+// setState moves to a state with no problem (absent, installing, ready).
+func (e *voiceEngine) setState(state string) {
+	e.setProblem(state, nil)
+}
+
+// setProblem moves to state (error or unsupported) for problem, which the
+// page words by its code; its message is the English detail.
+func (e *voiceEngine) setProblem(state string, problem *voiceProblem) {
 	e.state = state
-	e.message = message
+	e.problem = problem
+	e.message = ""
+
+	if problem != nil {
+		e.message = problem.Message
+	}
+
 	e.lastProgress = time.Now()
 	e.push()
 }
@@ -554,8 +573,17 @@ func (e *voiceEngine) push() {
 		event["total"] = e.total
 	}
 
-	if e.message != "" && (e.state == voiceError || e.state == voiceUnsupported) {
-		event["message"] = e.message
+	if e.state == voiceError || e.state == voiceUnsupported {
+		if e.message != "" {
+			event["message"] = e.message
+		}
+
+		if e.problem != nil && e.problem.Code != "" {
+			event["code"] = e.problem.Code
+			for k, v := range e.problem.Fields {
+				event[k] = v
+			}
+		}
 	}
 
 	e.send(event)
@@ -578,7 +606,7 @@ func (e *voiceEngine) currentLock() *voiceLock {
 	}
 
 	if e.lockErr != nil {
-		e.setState(voiceError, e.lockErr.Error())
+		e.setProblem(voiceError, problemOf(e.lockErr))
 
 		return nil
 	}
@@ -602,7 +630,7 @@ func (e *voiceEngine) loadLock() (*voiceLock, error) {
 	}
 
 	if err != nil {
-		return nil, errors.New("The voice lock file is missing.")
+		return nil, &voiceProblem{Code: codeLockFailed, Message: "The voice lock file is missing."}
 	}
 
 	return parseVoiceLock(data, e.settings.DownloadBase)
@@ -794,7 +822,7 @@ func (e *voiceEngine) downloaded(run *voiceInstall, lock *voiceLock, err error) 
 		e.logLine(fmt.Sprintf("Python download cancelled at byte %d", fileSize(e.archivePartial(lock))))
 		e.finishCancelled(run)
 	case err != nil:
-		e.failInstall(err.Error())
+		e.failInstall(problemOf(err))
 	default:
 		e.unpackPython(run, lock)
 	}
@@ -817,7 +845,7 @@ func (e *voiceEngine) unpackPython(run *voiceInstall, lock *voiceLock) {
 			}
 
 			if err != nil {
-				e.failInstall(err.Error())
+				e.failInstall(problemOf(err))
 
 				return
 			}
@@ -878,21 +906,24 @@ func (e *voiceEngine) installAnswered(run *voiceInstall, reply map[string]any) {
 
 	switch {
 	case reply["ok"] == true:
-		e.setState(voiceReady, "")
+		e.setState(voiceReady)
 	case code == "cancelled":
 		e.finishCancelled(run)
 
 		return
 	case code == "unsupported-system":
-		e.setState(voiceUnsupported, fmt.Sprintf("Spoken lines do not run on this system (%v).", detail))
+		e.setProblem(voiceUnsupported, problemf(codeUnsupportedSystem, "Spoken lines do not run on this system (%v).",
+			detail))
 	case code == "download-failed":
-		e.setState(voiceError, fmt.Sprintf("A download failed (%v). Try again to continue it.", detail))
+		e.setProblem(voiceError, problemf(codeDownloadFailed, "A download failed (%v). Try again to continue it.",
+			detail))
 	case code == "hash-mismatch":
-		e.setState(voiceError, fmt.Sprintf("A download did not match its checksum (%v). Try again.", detail))
+		e.setProblem(voiceError, problemf(codeHashMismatch, "A download did not match its checksum (%v). Try again.",
+			detail))
 	case code == "pip-failed":
-		e.setState(voiceError, fmt.Sprintf("Installing the voice packages failed (%v).", detail))
+		e.setProblem(voiceError, problemf(codePipFailed, "Installing the voice packages failed (%v).", detail))
 	default:
-		e.setState(voiceError, fmt.Sprintf("The voice install failed (%v).", detail))
+		e.setProblem(voiceError, problemf(codeInstallFailed, "The voice install failed (%v).", detail))
 	}
 
 	if run.thenRemove {
@@ -907,18 +938,18 @@ func (e *voiceEngine) finishCancelled(run *voiceInstall) {
 		e.downloadBytes = e.fullDownload(lock)
 	}
 
-	e.setState(voiceAbsent, "")
+	e.setState(voiceAbsent)
 
 	if run.thenRemove {
 		e.remove()
 	}
 }
 
-func (e *voiceEngine) failInstall(text string) {
+func (e *voiceEngine) failInstall(problem *voiceProblem) {
 	run := e.install
 	e.install = nil
-	e.logLine("install failed: " + text)
-	e.setState(voiceError, text)
+	e.logLine("install failed: " + problem.Message)
+	e.setProblem(voiceError, problem)
 
 	if run != nil && run.thenRemove {
 		e.remove()
@@ -944,7 +975,7 @@ func (e *voiceEngine) startHelper(lock *voiceLock) bool {
 	}
 
 	if err != nil {
-		e.setState(voiceError, fmt.Sprintf("The voice helper could not start: %v", err))
+		e.setProblem(voiceError, problemf(codeHelperFailed, "The voice helper could not start: %v", err))
 
 		return false
 	}
@@ -1212,7 +1243,7 @@ func (e *voiceEngine) helperExited(gone *voiceHelper, waitErr error) {
 	e.install = nil
 	text := "The voice helper stopped unexpectedly. Its log is " + e.path("helper.log") + "."
 	e.failPending("helper-crashed", text)
-	e.setState(voiceError, text)
+	e.setProblem(voiceError, &voiceProblem{Code: codeHelperCrashed, Message: text})
 
 	if run != nil && run.thenRemove {
 		e.remove()

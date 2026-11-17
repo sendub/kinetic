@@ -44,7 +44,11 @@ decision; this file is the practical sheet.
   `<title>.exe`, the Windows program that shows it in a window of its
   own over WebView2, built only when the author asks: `tools/build_apps.py <folder>
   --mac --windows` (either flag alone builds one), or the same flags on
-  `tools/assemble_folder.py` (CREATE.md, "Building the apps").
+  `tools/assemble_folder.py` (CREATE.md, "Building the apps"). Each
+  app carries its own words (menus, alert, error box) in every language
+  of the player's catalogue, from `apps/host-words.json`, which `npm run
+  i18n` writes; a build stops with an error while that table is stale
+  against the catalogue (apps/README.md, "The apps' own words").
 
 ## Building one
 

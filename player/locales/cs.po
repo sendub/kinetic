@@ -764,6 +764,85 @@ msgctxt "voice.help"
 msgid "Spoken lines are made on this computer from the characters' voices. The voice model is downloaded once ({size}) and every Kinetic game on this computer shares it."
 msgstr "Mluvené repliky se vytvářejí na tomto počítači z hlasů postav. Hlasový model se stáhne jen jednou ({size}) a sdílejí ho všechny hry Kinetic na tomto počítači."
 
+#. Volumes sheet: a game app's voice problem the player has no words for; {text} is the general message above ("could not be downloaded" or "not available"), {detail} the app's own reason, in English.
+#. Placeholders: {text}, {detail}.
+msgctxt "voice.detail"
+msgid "{text} ({detail})"
+msgstr "{text} ({detail})"
+
+#. Volumes sheet, the voice model's "?" (a Mac app): this Mac has an Intel processor.
+msgctxt "voice.code.apple-silicon"
+msgid "Spoken lines need a Mac with Apple silicon."
+msgstr "Mluvené repliky vyžadují Mac s čipem Apple silicon."
+
+#. Volumes sheet, the voice model's "?" (a Mac app): {version} is the macOS version needed, e.g. 14.0.
+#. Placeholders: {version}.
+msgctxt "voice.code.macos-version"
+msgid "Spoken lines need macOS {version} or later."
+msgstr "Mluvené repliky vyžadují macOS {version} nebo novější."
+
+#. Volumes sheet, the voice model's "?": the computer's operating system is too old for the voice packages.
+msgctxt "voice.code.unsupported-system"
+msgid "Spoken lines need a newer operating system on this computer."
+msgstr "Mluvené repliky vyžadují na tomto počítači novější operační systém."
+
+#. Volumes sheet, the voice model's "?" (a Windows app): the PC has no NVIDIA graphics card.
+msgctxt "voice.code.no-nvidia"
+msgid "Spoken lines need an NVIDIA graphics card. This computer doesn't have one."
+msgstr "Mluvené repliky vyžadují grafickou kartu NVIDIA. Tento počítač ji nemá."
+
+#. Volumes sheet, the voice model's "?" (a Windows app): {version} is the NVIDIA driver version needed, e.g. 570.65.
+#. Placeholders: {version}.
+msgctxt "voice.code.nvidia-driver"
+msgid "Spoken lines need NVIDIA driver {version} or later. Update the graphics driver to use them."
+msgstr "Mluvené repliky vyžadují ovladač NVIDIA {version} nebo novější. Chcete-li je používat, aktualizujte grafický ovladač."
+
+#. Volumes sheet: not enough disk space for the voice model; {need} and {free} are sizes, e.g. 7.8 GB.
+#. Placeholders: {need}, {free}.
+msgctxt "voice.code.disk-space"
+msgid "Spoken lines need {need} of free disk space; this computer has {free} free. Free some space, then try again."
+msgstr "Mluvené repliky vyžadují {need} volného místa na disku; tento počítač má volných {free}. Uvolněte místo a zkuste to znovu."
+
+#. Volumes sheet: a part of the voice model's download failed (the network or the server).
+msgctxt "voice.code.download-failed"
+msgid "A download failed. Try again to continue it."
+msgstr "Stahování selhalo. Zkuste to znovu a bude pokračovat."
+
+#. Volumes sheet: a downloaded part of the voice model was damaged and was deleted.
+msgctxt "voice.code.hash-mismatch"
+msgid "A download did not match its checksum. Try again."
+msgstr "Stažený soubor neodpovídal kontrolnímu součtu. Zkuste to znovu."
+
+#. Volumes sheet: installing the downloaded voice packages failed.
+msgctxt "voice.code.pip-failed"
+msgid "Installing the voice packages failed."
+msgstr "Instalace hlasových balíčků selhala."
+
+#. Volumes sheet: the voice model's install failed for another reason.
+msgctxt "voice.code.install-failed"
+msgid "The voice install failed."
+msgstr "Instalace hlasu selhala."
+
+#. Volumes sheet: the folder the voice model goes in could not be created or written.
+msgctxt "voice.code.folder-failed"
+msgid "The voice folder could not be written."
+msgstr "Do složky hlasu nelze zapisovat."
+
+#. Volumes sheet: the program that makes spoken lines could not start.
+msgctxt "voice.code.helper-failed"
+msgid "The voice helper could not start."
+msgstr "Hlasového pomocníka se nepodařilo spustit."
+
+#. Volumes sheet: the program that makes spoken lines stopped.
+msgctxt "voice.code.helper-crashed"
+msgid "The voice helper stopped unexpectedly."
+msgstr "Hlasový pomocník se nečekaně zastavil."
+
+#. Volumes sheet: the voice setup inside the game app is damaged.
+msgctxt "voice.code.lock-failed"
+msgid "This app's voice setup cannot be read."
+msgstr "Nastavení hlasu v této aplikaci nelze přečíst."
+
 #. Branch map: its heading.
 msgctxt "map.title"
 msgid "Branch map"
@@ -1057,3 +1136,59 @@ msgstr "příběh bez ID"
 msgctxt "transfer.story.this"
 msgid "this story"
 msgstr "tento příběh"
+
+#. Mac app menu (the menu named after the game): hides the app; {title} is the game's title.
+#. Placeholders: {title}.
+msgctxt "host.menu.hide"
+msgid "Hide {title}"
+msgstr "Skrýt {title}"
+
+#. Mac app menu (the menu named after the game): quits the app; {title} is the game's title.
+#. Placeholders: {title}.
+msgctxt "host.menu.quit"
+msgid "Quit {title}"
+msgstr "Ukončit {title}"
+
+#. Mac app: the View menu's name in the menu bar.
+msgctxt "host.menu.view"
+msgid "View"
+msgstr "Zobrazení"
+
+#. Mac app, View menu: reloads the game's page (the reader keeps their place).
+msgctxt "host.menu.reload"
+msgid "Reload"
+msgstr "Načíst znovu"
+
+#. Mac app, View menu: switches between full screen and a window (macOS's own wording).
+msgctxt "host.menu.fullScreen"
+msgid "Toggle Full Screen"
+msgstr "Zapnout/vypnout celou obrazovku"
+
+#. Mac app, an alert before the game opens: the app is not in its game folder; {title} is the game's title.
+#. Placeholders: {title}.
+msgctxt "host.mac.missing.title"
+msgid "{title} cannot find its game."
+msgstr "{title} nemůže najít svou hru."
+
+#. Mac app, the alert above: what to do; {file} is the page's file name (index.html), kept as written.
+#. Placeholders: {file}.
+msgctxt "host.mac.missing.text"
+msgid "This app plays the {file} file in the folder it sits in, and there is none next to it. Keep the app inside its game folder. If the game folder was downloaded, open {file} in it instead."
+msgstr "Tato aplikace přehrává soubor {file} ve složce, ve které je, a vedle ní žádný není. Nechte aplikaci ve složce její hry. Pokud byla složka hry stažena, otevřete místo toho {file} v ní."
+
+#. Mac app, the alert above: its only button, which quits the app.
+msgctxt "host.mac.missing.quit"
+msgid "Quit"
+msgstr "Ukončit"
+
+#. Windows program, an error box before the game opens: the program is not in its game folder; {title} is the game's title, {file} the page's file name (index.html), kept as written; the blank line stays.
+#. Placeholders: {title}, {file}.
+msgctxt "host.windows.missing"
+msgid ""
+"{title} cannot find {file} next to this program.\n"
+"\n"
+"Keep the program inside its game folder, or open the folder's {file} instead."
+msgstr ""
+"{title} nemůže najít {file} vedle tohoto programu.\n"
+"\n"
+"Nechte program ve složce jeho hry, nebo místo toho otevřete soubor {file} ve složce."

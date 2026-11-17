@@ -1212,9 +1212,11 @@ const EMULATED_HOST = (kind, display) => {
 
 /**
  * Gives `page` a recording host before its first navigation, on either
- * engine: `messages()` lists what the page sent, `waitForMessages(n)`
- * waits until it has sent at least n, and `setDisplay(mode)` changes the
- * host's mode as the reader's own control would (the page gets
+ * engine: `messages()` lists what the page sent but its language messages,
+ * `languageMessages()` those (docs/plan.md Phase 54 item 7: the page sends
+ * one at boot and on each change of language), `waitForMessages(n)` waits
+ * until it has sent at least n of the first kind, and `setDisplay(mode)`
+ * changes the host's mode as the reader's own control would (the page gets
  * `kinetic-host`).
  */
 async function installRecordingHost(page, { kind, display }) {
@@ -1229,12 +1231,14 @@ async function installRecordingHost(page, { kind, display }) {
     script = await page.evaluateOnNewDocument(EMULATED_HOST, kind, display);
     page.hostMessages = recorded;
   }
-  const messages = () => [...page.hostMessages];
+  const messages = () => page.hostMessages.filter((m) => m.type !== "language");
   return {
     messages,
+    languageMessages: () =>
+      page.hostMessages.filter((m) => m.type === "language"),
     async waitForMessages(count, timeout = 3000) {
       const until = Date.now() + timeout;
-      while (page.hostMessages.length < count && Date.now() < until) {
+      while (messages().length < count && Date.now() < until) {
         await sleep(20);
       }
       return messages();

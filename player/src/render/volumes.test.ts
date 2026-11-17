@@ -283,12 +283,14 @@ describe("the Voice row when the model is needed (docs/plan.md Phase 52 item 10)
     const host = modelHost({
       ...ABSENT,
       state: "error",
-      message: "The download failed.",
+      code: "download-failed",
+      message: "The Python download failed (HTTP 503).",
     });
     const { root } = mountSheet(modelOnly, host);
     expect(shownActions(root)).toEqual(["volume-model-retry"]);
+    // The player's words for the host's code (Phase 54 item 7).
     expect(byClass(voiceRow(root), "volume-model-message").textContent).toBe(
-      "The download failed.",
+      "A download failed. Try again to continue it.",
     );
     control(root, "volume-model-retry").fire("click");
     expect(host.asked).toEqual(["install"]);
@@ -298,7 +300,12 @@ describe("the Voice row when the model is needed (docs/plan.md Phase 52 item 10)
     const why = "Spoken lines need a Mac with Apple silicon.";
     const { root } = mountSheet(
       modelOnly,
-      modelHost({ ...ABSENT, state: "unsupported", message: why }),
+      modelHost({
+        ...ABSENT,
+        state: "unsupported",
+        code: "apple-silicon",
+        message: "an Intel Mac",
+      }),
     );
     const download = control(root, "volume-model-download");
     expect(download.hidden).toBe(false);

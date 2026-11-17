@@ -12,6 +12,13 @@
 // the page never asks for element fullscreen. Every host kind behaves the
 // same from the page's side.
 //
+// The page also tells the host its language (docs/plan.md Phase 54 item
+// 7): `{ type: "language", ui, dir, title? }`, the UI language's tag, its
+// direction and the game's title as shown, once a host is there and again
+// on every change of the UI language or of the game's language
+// (`tellHostLanguage`), so a game app draws its own words (menus, window
+// title) in the reader's language.
+//
 // A host that offers spoken lines (docs/plan.md Phase 52, "The bridge") has
 // `voice: true`; the page then sends `{ type: "voice", op, ... }` messages
 // through the same `send` (render/voiceclient.ts holds them and the host's
@@ -20,6 +27,8 @@
 // `windowActions` holds the Esc screen's two decisions (what the Fullscreen
 // / Window switch shows and does, what Exit does) over injected effects,
 // so both routes are unit-tested without a browser.
+
+import { textDirection } from "../i18n/languages.ts";
 
 /** The two display modes: the protocol's words, and the switch's halves. */
 export type DisplayMode = "fullscreen" | "window";
@@ -41,10 +50,24 @@ export interface VoiceMessage {
   readonly [field: string]: unknown;
 }
 
+/**
+ * The page's language for the host's own words: `ui` the UI language's tag
+ * (the catalogue's, i18n/catalogue.ts `uiLanguage`), `dir` its direction,
+ * and `title` the game's title as shown (in the shown language), absent
+ * when the game has none.
+ */
+export interface LanguageMessage {
+  readonly type: "language";
+  readonly ui: string;
+  readonly dir: "ltr" | "rtl";
+  readonly title?: string;
+}
+
 /** What the page may send its host. */
 export type HostMessage =
   | { readonly type: "quit" }
   | { readonly type: "display"; readonly mode: DisplayMode }
+  | LanguageMessage
   | VoiceMessage;
 
 /** The host object as the page reads it. */
@@ -145,6 +168,48 @@ export function connectHost(win: HostWindow): HostLink {
     setDisplay: (mode) => send({ type: "display", mode }),
     send,
   };
+}
+
+/**
+ * The language message for UI language `ui` and the shown title (trimmed;
+ * none when blank or absent).
+ */
+export function languageMessage(
+  ui: string,
+  title?: string | null,
+): LanguageMessage {
+  const shown = typeof title === "string" ? title.trim() : "";
+  return {
+    type: "language",
+    ui,
+    dir: textDirection(ui),
+    ...(shown === "" ? {} : { title: shown }),
+  };
+}
+
+/**
+ * Keeps the host told the page's language: sends `current()` as soon as a
+ * host is there (now, or at the `kinetic-host` event that brings it, since
+ * the object may arrive after load) and again on each call of the returned
+ * function (the page calls it on every change of language or title). A
+ * message equal to the last one sent is not sent again, so a display
+ * change's event sends nothing.
+ */
+export function tellHostLanguage(
+  link: HostLink,
+  current: () => LanguageMessage,
+): () => void {
+  let last: string | null = null;
+  const update = (): void => {
+    if (link.host() === null) return;
+    const message = current();
+    const key = JSON.stringify(message);
+    if (key === last) return;
+    if (link.send(message)) last = key;
+  };
+  link.subscribe(update);
+  update();
+  return update;
 }
 
 /** What the Esc screen's window controls act through (main.ts wires it). */

@@ -722,6 +722,85 @@ msgctxt "voice.help"
 msgid "Spoken lines are made on this computer from the characters' voices. The voice model is downloaded once ({size}) and every Kinetic game on this computer shares it."
 msgstr "대사 음성은 캐릭터의 목소리를 바탕으로 이 컴퓨터에서 생성됩니다. 음성 모델은 한 번만 다운로드되며({size}), 이 컴퓨터의 모든 Kinetic 게임이 함께 사용합니다."
 
+#. Volumes sheet: a game app's voice problem the player has no words for; {text} is the general message above ("could not be downloaded" or "not available"), {detail} the app's own reason, in English.
+#. Placeholders: {text}, {detail}.
+msgctxt "voice.detail"
+msgid "{text} ({detail})"
+msgstr "{text}({detail})"
+
+#. Volumes sheet, the voice model's "?" (a Mac app): this Mac has an Intel processor.
+msgctxt "voice.code.apple-silicon"
+msgid "Spoken lines need a Mac with Apple silicon."
+msgstr "대사 음성을 사용하려면 Apple 실리콘이 탑재된 Mac이 필요합니다."
+
+#. Volumes sheet, the voice model's "?" (a Mac app): {version} is the macOS version needed, e.g. 14.0.
+#. Placeholders: {version}.
+msgctxt "voice.code.macos-version"
+msgid "Spoken lines need macOS {version} or later."
+msgstr "대사 음성을 사용하려면 macOS {version} 이상이 필요합니다."
+
+#. Volumes sheet, the voice model's "?": the computer's operating system is too old for the voice packages.
+msgctxt "voice.code.unsupported-system"
+msgid "Spoken lines need a newer operating system on this computer."
+msgstr "대사 음성을 사용하려면 이 컴퓨터에 더 최신 운영 체제가 필요합니다."
+
+#. Volumes sheet, the voice model's "?" (a Windows app): the PC has no NVIDIA graphics card.
+msgctxt "voice.code.no-nvidia"
+msgid "Spoken lines need an NVIDIA graphics card. This computer doesn't have one."
+msgstr "대사 음성을 사용하려면 NVIDIA 그래픽 카드가 필요합니다. 이 컴퓨터에는 없습니다."
+
+#. Volumes sheet, the voice model's "?" (a Windows app): {version} is the NVIDIA driver version needed, e.g. 570.65.
+#. Placeholders: {version}.
+msgctxt "voice.code.nvidia-driver"
+msgid "Spoken lines need NVIDIA driver {version} or later. Update the graphics driver to use them."
+msgstr "대사 음성을 사용하려면 NVIDIA 드라이버 {version} 이상이 필요합니다. 사용하려면 그래픽 드라이버를 업데이트하세요."
+
+#. Volumes sheet: not enough disk space for the voice model; {need} and {free} are sizes, e.g. 7.8 GB.
+#. Placeholders: {need}, {free}.
+msgctxt "voice.code.disk-space"
+msgid "Spoken lines need {need} of free disk space; this computer has {free} free. Free some space, then try again."
+msgstr "대사 음성을 사용하려면 디스크 여유 공간이 {need} 필요하지만 이 컴퓨터에는 {free}만 남아 있습니다. 공간을 확보한 뒤 다시 시도하세요."
+
+#. Volumes sheet: a part of the voice model's download failed (the network or the server).
+msgctxt "voice.code.download-failed"
+msgid "A download failed. Try again to continue it."
+msgstr "다운로드에 실패했습니다. 다시 시도하면 이어서 받습니다."
+
+#. Volumes sheet: a downloaded part of the voice model was damaged and was deleted.
+msgctxt "voice.code.hash-mismatch"
+msgid "A download did not match its checksum. Try again."
+msgstr "다운로드한 파일이 체크섬과 일치하지 않습니다. 다시 시도하세요."
+
+#. Volumes sheet: installing the downloaded voice packages failed.
+msgctxt "voice.code.pip-failed"
+msgid "Installing the voice packages failed."
+msgstr "음성 패키지를 설치하지 못했습니다."
+
+#. Volumes sheet: the voice model's install failed for another reason.
+msgctxt "voice.code.install-failed"
+msgid "The voice install failed."
+msgstr "음성 설치에 실패했습니다."
+
+#. Volumes sheet: the folder the voice model goes in could not be created or written.
+msgctxt "voice.code.folder-failed"
+msgid "The voice folder could not be written."
+msgstr "음성 폴더에 쓸 수 없습니다."
+
+#. Volumes sheet: the program that makes spoken lines could not start.
+msgctxt "voice.code.helper-failed"
+msgid "The voice helper could not start."
+msgstr "음성 도우미를 시작할 수 없습니다."
+
+#. Volumes sheet: the program that makes spoken lines stopped.
+msgctxt "voice.code.helper-crashed"
+msgid "The voice helper stopped unexpectedly."
+msgstr "음성 도우미가 예기치 않게 멈췄습니다."
+
+#. Volumes sheet: the voice setup inside the game app is damaged.
+msgctxt "voice.code.lock-failed"
+msgid "This app's voice setup cannot be read."
+msgstr "이 앱의 음성 설정을 읽을 수 없습니다."
+
 #. Branch map: its heading.
 msgctxt "map.title"
 msgid "Branch map"
@@ -952,3 +1031,59 @@ msgstr "ID가 없는 스토리"
 msgctxt "transfer.story.this"
 msgid "this story"
 msgstr "이 스토리"
+
+#. Mac app menu (the menu named after the game): hides the app; {title} is the game's title.
+#. Placeholders: {title}.
+msgctxt "host.menu.hide"
+msgid "Hide {title}"
+msgstr "{title} 가리기"
+
+#. Mac app menu (the menu named after the game): quits the app; {title} is the game's title.
+#. Placeholders: {title}.
+msgctxt "host.menu.quit"
+msgid "Quit {title}"
+msgstr "{title} 종료"
+
+#. Mac app: the View menu's name in the menu bar.
+msgctxt "host.menu.view"
+msgid "View"
+msgstr "보기"
+
+#. Mac app, View menu: reloads the game's page (the reader keeps their place).
+msgctxt "host.menu.reload"
+msgid "Reload"
+msgstr "새로고침"
+
+#. Mac app, View menu: switches between full screen and a window (macOS's own wording).
+msgctxt "host.menu.fullScreen"
+msgid "Toggle Full Screen"
+msgstr "전체 화면 켜기/끄기"
+
+#. Mac app, an alert before the game opens: the app is not in its game folder; {title} is the game's title.
+#. Placeholders: {title}.
+msgctxt "host.mac.missing.title"
+msgid "{title} cannot find its game."
+msgstr "{title}에서 게임을 찾을 수 없습니다."
+
+#. Mac app, the alert above: what to do; {file} is the page's file name (index.html), kept as written.
+#. Placeholders: {file}.
+msgctxt "host.mac.missing.text"
+msgid "This app plays the {file} file in the folder it sits in, and there is none next to it. Keep the app inside its game folder. If the game folder was downloaded, open {file} in it instead."
+msgstr "이 앱은 자신이 있는 폴더의 {file} 파일을 재생하는데, 옆에 그 파일이 없습니다. 앱을 게임 폴더 안에 두세요. 게임 폴더를 다운로드했다면 대신 그 안의 {file} 파일을 여세요."
+
+#. Mac app, the alert above: its only button, which quits the app.
+msgctxt "host.mac.missing.quit"
+msgid "Quit"
+msgstr "종료"
+
+#. Windows program, an error box before the game opens: the program is not in its game folder; {title} is the game's title, {file} the page's file name (index.html), kept as written; the blank line stays.
+#. Placeholders: {title}, {file}.
+msgctxt "host.windows.missing"
+msgid ""
+"{title} cannot find {file} next to this program.\n"
+"\n"
+"Keep the program inside its game folder, or open the folder's {file} instead."
+msgstr ""
+"{title}에서 이 프로그램 옆의 {file} 파일을 찾을 수 없습니다.\n"
+"\n"
+"프로그램을 게임 폴더 안에 두거나, 대신 폴더의 {file} 파일을 여세요."

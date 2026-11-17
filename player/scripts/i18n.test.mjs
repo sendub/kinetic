@@ -6,6 +6,7 @@ import { EN } from "../src/i18n/en.ts";
 import { pseudoCatalogue } from "../src/i18n/pseudo.ts";
 import {
   auditLocale,
+  buildHostWords,
   buildModule,
   buildPot,
   compilePo,
@@ -15,6 +16,7 @@ import {
   localeTags,
   placeholdersOf,
   readNotes,
+  sourceDigest,
   staleI18n,
 } from "./i18n.mjs";
 import { parsePo, poField } from "./po.mjs";
@@ -275,6 +277,47 @@ describe("the generated files", () => {
       expect(module).toContain(
         '"pt-BR": {\n    "config.title": "Configurações"',
       );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("the game apps' table holds the host.* messages alone, English first, and the sources' digest", () => {
+    const table = JSON.parse(
+      buildHostWords(
+        { de: { "host.menu.view": "Darstellung", "config.title": "X" } },
+        "abc",
+        { "host.menu.view": "View", "host.menu.reload": "Reload", "x.y": "Hi" },
+      ),
+    );
+    expect(table.source).toBe("abc");
+    expect(Object.keys(table.languages)).toEqual(["en", "de"]);
+    expect(table.languages.en).toEqual({
+      "host.menu.view": "View",
+      "host.menu.reload": "Reload",
+    });
+    // A message the language lacks is left out: the apps read English.
+    expect(table.languages.de).toEqual({ "host.menu.view": "Darstellung" });
+    const shipped = JSON.parse(
+      readFileSync(join(LOCALES_DIR, "..", "..", "apps", "host-words.json")),
+    );
+    expect(Object.keys(shipped.languages)).toEqual(["en", ...localeTags()]);
+    expect(shipped.source).toBe(sourceDigest());
+    for (const [tag, words] of Object.entries(shipped.languages)) {
+      expect(Object.keys(words), tag).toEqual(
+        Object.keys(EN).filter((key) => key.startsWith("host.")),
+      );
+    }
+  });
+
+  it("the sources' digest changes with a PO file", () => {
+    const dir = mkdtempSync(join(tmpdir(), "kinetic-locales-"));
+    try {
+      writeFileSync(join(dir, "de.po"), poFor({ "config.title": "A" }));
+      const before = sourceDigest(dir);
+      expect(sourceDigest(dir)).toBe(before);
+      writeFileSync(join(dir, "de.po"), poFor({ "config.title": "B" }));
+      expect(sourceDigest(dir)).not.toBe(before);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

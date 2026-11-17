@@ -13,7 +13,10 @@
 //   item 6);
 // - `drop` `{ id }`: a line the page no longer needs.
 // The host answers by calling `window.__kineticVoice(event)`:
-// `{ event: "status", state, downloadBytes, done?, total?, message? }`,
+// `{ event: "status", state, downloadBytes, done?, total?, message?, code?,
+// version?, needBytes?, freeBytes? }` (`code` names an error or an
+// unsupported machine for the player's words, render/voicemodel.ts, with
+// its numbers; `message` is the host's English detail),
 // `{ event: "voice", id, voiceId }`, `{ event: "speech", id, wav, seconds }`
 // (the WAV in base64), `{ event: "error", id?, code, message }` and
 // `{ event: "dropped", id }`. An event the page cannot read, or for an id it
@@ -54,8 +57,18 @@ export interface VoiceStatus {
   /** While installing: how far it has got, out of `total`. */
   readonly done?: number;
   readonly total?: number;
-  /** An error's or an unsupported machine's words. */
+  /** An error's or an unsupported machine's words, in English (a detail). */
   readonly message?: string;
+  /**
+   * What the error or the unsupported machine is, for the player's own
+   * words (render/voicemodel.ts `voiceProblem`; apps/README.md lists them).
+   */
+  readonly code?: string;
+  /** With `macos-version` and `nvidia-driver`: the version needed. */
+  readonly version?: string;
+  /** With `disk-space`: the bytes needed free, and the bytes free. */
+  readonly needBytes?: number;
+  readonly freeBytes?: number;
 }
 
 /** A generated line: a WAV (base64) and its length in seconds. */
@@ -122,6 +135,7 @@ const finite = (value: unknown): value is number =>
 /** A status event as a status, or null when it is not one. */
 function readStatus(event: Record<string, unknown>): VoiceStatus | null {
   const { state, downloadBytes, done, total, message } = event;
+  const { code, version, needBytes, freeBytes } = event;
   if (typeof state !== "string" || !STATES.has(state)) return null;
   if (!finite(downloadBytes)) return null;
   return {
@@ -130,6 +144,10 @@ function readStatus(event: Record<string, unknown>): VoiceStatus | null {
     ...(finite(done) ? { done } : {}),
     ...(finite(total) ? { total } : {}),
     ...(typeof message === "string" ? { message } : {}),
+    ...(typeof code === "string" && code !== "" ? { code } : {}),
+    ...(typeof version === "string" && version !== "" ? { version } : {}),
+    ...(finite(needBytes) ? { needBytes } : {}),
+    ...(finite(freeBytes) ? { freeBytes } : {}),
   };
 }
 

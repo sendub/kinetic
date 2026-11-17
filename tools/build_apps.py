@@ -23,6 +23,17 @@ lines"), so the bundle holds only the binary, the icon, the license and
 Info.plist. Building needs macOS with a Swift toolchain (Xcode or the
 Command Line Tools).
 
+Both apps carry their own words (the Mac menus and alert, the exe's error
+box) in every language of the player's catalogue: apps/host-words.json,
+which `npm run i18n` writes from player/src/i18n/en.ts and
+player/locales/<tag>.po (docs/plan.md Phase 54 item 7). The Mac app
+compiles it in from a generated KineticHostWordsEmbedded.swift (base64,
+never committed, the text player/scripts/webkit/build.mjs also writes);
+the exe embeds it as `hostwords.json` in the package copy with a generated
+`hostwords_embedded.go`. The table records a digest of the files it was
+made from, and a build stops with an error when they have changed since
+(run `npm run i18n` in player/).
+
 `--windows` adds `<title>.exe` (with the characters Windows forbids in a
 file name written as `-`): the Go program in apps/windows/, built for
 Windows x86-64 as a GUI program (so no console window opens), which
@@ -82,6 +93,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import hashlib
 import io
 import json
 import os
@@ -120,6 +132,7 @@ PAGE_NAME = "index.html"
 MAC_SOURCES = (
     REPO_ROOT / "apps" / "macos" / "WebViewSetup.swift",
     REPO_ROOT / "apps" / "macos" / "VoiceEngine.swift",
+    REPO_ROOT / "apps" / "macos" / "HostWords.swift",
     REPO_ROOT / "apps" / "macos" / "app" / "main.swift",
 )
 # The voice helper (apps/voice, docs/plan.md Phase 52), which the app
@@ -127,6 +140,13 @@ MAC_SOURCES = (
 VOICE_DIR = REPO_ROOT / "apps" / "voice"
 VOICE_LOCK_NAME = "lock-macos-arm64.json"
 EMBEDDED_VOICE_NAME = "KineticVoiceEmbedded.swift"
+# The apps' own words in every catalogue language (docs/plan.md Phase 54
+# item 7), which `npm run i18n` writes from these sources
+# (player/scripts/i18n.mjs, sourceDigest).
+HOST_WORDS = REPO_ROOT / "apps" / "host-words.json"
+PLAYER_CATALOGUE = REPO_ROOT / "player" / "src" / "i18n" / "en.ts"
+PLAYER_LOCALES = REPO_ROOT / "player" / "locales"
+EMBEDDED_HOST_WORDS_NAME = "KineticHostWordsEmbedded.swift"
 MAC_TARGET = "arm64-apple-macos12"
 MAC_MINIMUM_SYSTEM = "12.0"
 MAC_EXECUTABLE = "kinetic"
@@ -165,6 +185,10 @@ WINDOWS_PACKAGE = REPO_ROOT / "apps" / "windows"
 WINDOWS_VOICE_LOCK = VOICE_DIR / "lock-windows-x64.json"
 WINDOWS_EMBED_DIR = "voice"
 WINDOWS_EMBED_SOURCE = "voice_embedded.go"
+# The words table in the package copy, and the Go file that embeds it as
+# apps/windows/hostwords.go's embeddedHostWords.
+WINDOWS_HOST_WORDS = "hostwords.json"
+WINDOWS_HOST_WORDS_SOURCE = "hostwords_embedded.go"
 GO_CACHE = REPO_ROOT / ".tmp" / "windows-app-build"
 GO_DOWNLOAD = "https://go.dev/dl/"
 # The name the Go linker links for windows/amd64 (a _GOOS_GOARCH suffix).
@@ -308,6 +332,63 @@ def first_graphic(manifest: dict, folder: Path) -> Path:
     raise BuildError(
         "the manifest has no picture to make the app's icon from (no "
         "image, animation or video item); pass --icon IMAGE")
+
+
+# --- the apps' own words -----------------------------------------------------
+
+def host_words_digest() -> str:
+    """The sha256 of the files apps/host-words.json comes from, as
+    player/scripts/i18n.mjs (sourceDigest) computes it: en.ts, then each
+    PO file in tag order, each preceded by its name between NULs."""
+    digest = hashlib.sha256()
+    digest.update(b"src/i18n/en.ts\0")
+    digest.update(PLAYER_CATALOGUE.read_bytes())
+    for po in sorted(PLAYER_LOCALES.glob("*.po"), key=lambda p: p.stem):
+        digest.update(f"\0locales/{po.name}\0".encode())
+        digest.update(po.read_bytes())
+    return digest.hexdigest()
+
+
+def host_words() -> bytes:
+    """apps/host-words.json, checked: a table of languages made from the
+    catalogue as it is now."""
+    rerun = "run `npm run i18n` in player/ to write it"
+    try:
+        data = HOST_WORDS.read_bytes()
+        table = json.loads(data)
+    except FileNotFoundError:
+        raise BuildError(f"{HOST_WORDS} is missing; {rerun}") from None
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise BuildError(f"{HOST_WORDS} cannot be read ({exc}); {rerun}") from None
+    languages = table.get("languages") if isinstance(table, dict) else None
+    if not isinstance(languages, dict) or "en" not in languages:
+        raise BuildError(f"{HOST_WORDS} is not the apps' words table; {rerun}")
+    try:
+        current = host_words_digest()
+    except OSError as exc:
+        raise BuildError(f"the player's catalogue cannot be read: {exc}") from None
+    if table.get("source") != current:
+        raise BuildError(
+            f"{HOST_WORDS} is stale: the player's catalogue (en.ts or a PO "
+            f"file) changed since it was written; {rerun} again")
+    return data
+
+
+def embedded_host_words_source() -> str:
+    """KineticHostWordsEmbedded.swift: apps/host-words.json, base64, which
+    apps/macos/HostWords.swift reads. Never committed: each build writes
+    it, and player/scripts/webkit/build.mjs (embeddedHostWordsSource)
+    writes the identical text for the driver."""
+    data = base64.b64encode(HOST_WORDS.read_bytes()).decode("ascii")
+    return (
+        "// Generated by the build from apps/host-words.json (tools/build_apps.py\n"
+        "// and player/scripts/webkit/build.mjs write the same text); never\n"
+        "// committed. HostWords.swift reads it.\n"
+        "\n"
+        "enum KineticHostWordsEmbedded {\n"
+        "    /// apps/host-words.json, base64.\n"
+        f'    static let base64 = "{data}"\n'
+        "}\n")
 
 
 # --- the icon ----------------------------------------------------------------
@@ -477,16 +558,19 @@ def embedded_voice_source() -> str:
 def compile_mac(binary: Path) -> None:
     """Compile the app's binary (through xcrun, which hands swiftc the
     macOS SDK; flags in step with player/scripts/webkit/build.mjs), with
-    the embedded helper's source generated for this build alone."""
+    the embedded helper's and words table's sources generated for this
+    build alone."""
     MODULE_CACHE.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="embedded-",
                                      dir=MODULE_CACHE.parent) as work:
         embedded = Path(work) / EMBEDDED_VOICE_NAME
         embedded.write_text(embedded_voice_source(), encoding="utf-8")
+        words = Path(work) / EMBEDDED_HOST_WORDS_NAME
+        words.write_text(embedded_host_words_source(), encoding="utf-8")
         _run(["xcrun", "--sdk", "macosx", "swiftc", "-O", "-target",
               MAC_TARGET, "-module-cache-path", str(MODULE_CACHE), "-o",
               str(binary), *(str(source) for source in MAC_SOURCES),
-              str(embedded)],
+              str(embedded), str(words)],
              "compiling the app")
 
 
@@ -691,6 +775,33 @@ def embed_windows_voice(package: Path) -> None:
                                                 encoding="utf-8")
 
 
+def embedded_host_words_go() -> str:
+    """hostwords_embedded.go for the package copy: embeds hostwords.json
+    as apps/windows/hostwords.go's embeddedHostWords."""
+    return (
+        "// Generated by tools/build_apps.py from apps/host-words.json; never\n"
+        "// committed.\n"
+        "\n"
+        "package main\n"
+        "\n"
+        "import _ \"embed\"\n"
+        "\n"
+        f"//go:embed {WINDOWS_HOST_WORDS}\n"
+        "var hostWordsFile []byte\n"
+        "\n"
+        "func init() {\n"
+        "\tembeddedHostWords = hostWordsFile\n"
+        "}\n")
+
+
+def embed_windows_host_words(package: Path) -> None:
+    """Copy the words table into the package copy, with the Go file that
+    embeds it (prepare() has checked it is current)."""
+    shutil.copyfile(HOST_WORDS, package / WINDOWS_HOST_WORDS)
+    (package / WINDOWS_HOST_WORDS_SOURCE).write_text(embedded_host_words_go(),
+                                                     encoding="utf-8")
+
+
 def exe_resources(square: Image.Image, ident: Identity, name: str,
                   go_notice: bytes) -> list[windows_resources.Resource]:
     """The exe's icon, its version resource (title, Kinetic's copyright,
@@ -752,6 +863,7 @@ def prepare(folder: Path, icon: Path | None, *, mac: bool = False,
     manifest = load_manifest(folder)
     ident = identity(manifest, folder)
     kinetic_copyright()
+    host_words()
     if mac:
         check_mac_toolchain()
     go = check_go() if windows else None
@@ -833,6 +945,7 @@ def build_windows_exe(folder: Path, prepared: Prepared) -> Path:
         shutil.copytree(WINDOWS_PACKAGE, package,
                         ignore=shutil.ignore_patterns("*_test.go", "*.syso"))
         embed_windows_voice(package)
+        embed_windows_host_words(package)
         (package / SYSO_NAME).write_bytes(windows_resources.coff_object(
             exe_resources(prepared.square, ident, target.name,
                           prepared.go_notice)))

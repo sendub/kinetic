@@ -56,8 +56,21 @@ describe("createVoiceClient", () => {
       state: "error",
       downloadBytes: 1,
       message: "No space",
+      code: "disk-space",
+      needBytes: 9_000_000_000,
+      freeBytes: 1_000_000_000,
+      version: 3,
     });
-    expect(client.status()?.message).toBe("No space");
+    // The code and its numbers for the player's words; a field of the
+    // wrong kind is dropped.
+    expect(client.status()).toEqual({
+      state: "error",
+      downloadBytes: 1,
+      message: "No space",
+      code: "disk-space",
+      needBytes: 9_000_000_000,
+      freeBytes: 1_000_000_000,
+    });
     stop();
     event({ event: "status", state: "absent", downloadBytes: 1 });
     expect(heard.map((s) => s.state)).toEqual(["installing", "error"]);

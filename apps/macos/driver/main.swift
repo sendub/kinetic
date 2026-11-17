@@ -3,8 +3,8 @@
 // (../WebViewSetup.swift) and takes JSON-lines requests on stdin, writing
 // one reply line per request on stdout ({"id","ok","value"|"error"}) plus
 // {"event":...} lines: ready, navigated, console, pageerror, hosterror,
-// download, filechooser, hostmessage, windowclose, windowkey, keyequivalent,
-// fatal. One process is one fresh profile (a non-persistent data store),
+// download, filechooser, hostmessage, hostlanguage, windowclose, windowkey,
+// keyequivalent, fatal. One process is one fresh profile (a non-persistent data store),
 // unless it is started with `--profile=<dir>`: then its storage is kept on
 // disk in that folder (WebKit's private directory-rooted data store), so a
 // later process given the same folder finds it again. player/scripts/webkit/
@@ -14,7 +14,16 @@
 // (KineticHostBridge in ../WebViewSetup.swift) with a recording host: each
 // message the page sends becomes a hostmessage line, and `hostDisplay` sets
 // the host's display mode as the reader's green button would, so the page
-// gets its `kinetic-host` event. Without it the page runs as in a browser
+// gets its `kinetic-host` event. The page's `language` message (docs/plan.md
+// Phase 54 item 7) is a hostmessage line too, and the driver then does with
+// it what the game app does, through the same ../HostWords.swift: its
+// window takes the title the page shows, and a hostlanguage line reports
+// that title, the catalogue language the words were looked up in and the
+// game app's menu words for it. The `hostWords` request answers, for lists
+// of preferred languages, the language the game app would pick before the
+// page loads and its missing-game alert's words, and the same pick for the
+// driver's own Locale.preferredLanguages (`-AppleLanguages` sets them).
+// Without it the page runs as in a browser
 // tab, which may ask to close itself (a windowclose line). With `voice:
 // true` the bridge also gets the game app's own voice host (VoiceEngine in
 // ../VoiceEngine.swift), set up from the environment the driver was
@@ -459,10 +468,29 @@ final class Driver: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKScr
             let recorder = KineticHostBridge(
                 kind: r["kind"] as? String ?? "mac-app", display: display, voice: voice,
                 onQuit: { emit(["event": "hostmessage", "message": ["type": "quit"]]) },
-                onDisplay: { emit(["event": "hostmessage", "message": ["type": "display", "mode": $0.rawValue]]) })
+                onDisplay: { emit(["event": "hostmessage", "message": ["type": "display", "mode": $0.rawValue]]) },
+                onLanguage: { [weak self] language in self?.follow(language) })
             recorder.install(on: webView.configuration.userContentController)
             bridge = recorder
             reply(id, .success(true))
+        case "hostWords":
+            // For each list of preferred languages: the game app's pick
+            // before the page loads, and its alert's words in it.
+            let title = r["title"] as? String ?? "Kinetic"
+            let answers = (r["requested"] as? [[String]] ?? []).map { requested -> [String: Any] in
+                let language = HostWords.embedded.language(for: requested)
+                return [
+                    "language": language,
+                    "alert": HostMissingGameAlert(HostWords.embedded, language: language, title: title).dictionary,
+                ]
+            }
+            let preferred = Locale.preferredLanguages
+            reply(
+                id,
+                .success([
+                    "languages": HostWords.embedded.languages, "answers": answers,
+                    "system": ["preferred": preferred, "language": HostWords.embedded.language(for: preferred)],
+                ]))
         case "hostDisplay":
             guard let bridge, let mode = KineticHostBridge.Display(rawValue: r["mode"] as? String ?? "") else {
                 reply(id, .failure(DriverError(description: "hostDisplay: no host installed, or a bad mode")))
@@ -485,6 +513,22 @@ final class Driver: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKScr
         default:
             reply(id, .failure(DriverError(description: "unknown cmd \(cmd)")))
         }
+    }
+
+    /// The page's language message, as the game app follows it
+    /// (app/main.swift `follow`): the window's title, and the menu words.
+    func follow(_ language: HostLanguage) {
+        var message: [String: Any] = ["type": "language", "ui": language.ui, "dir": language.dir]
+        if let title = language.title { message["title"] = title }
+        emit(["event": "hostmessage", "message": message])
+        let title = language.shownTitle(or: "Kinetic")
+        window.title = title
+        let words = HostWords.embedded
+        let looked = words.language(for: [language.ui])
+        emit([
+            "event": "hostlanguage", "language": looked, "windowTitle": window.title,
+            "menu": HostMenuTitles(words, language: looked, title: title).dictionary,
+        ])
     }
 
     func screenshot(_ clip: [String: Double]?, _ done: @escaping (Result<Any, Error>) -> Void) {

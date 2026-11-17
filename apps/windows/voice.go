@@ -96,8 +96,54 @@ func absoluteUnlessOff(path string, absolute func(string) string) string {
 	return absolute(path)
 }
 
-// errLockUnreadable is the reader's words for a lock the exe cannot use.
-var errLockUnreadable = errors.New("The voice lock file is not readable.")
+// The codes the page gets with an error or an unsupported machine
+// (docs/plan.md Phase 54 item 7; apps/README.md, "The voice bridge"),
+// which it words from the player's catalogue; the message beside each is
+// an English detail for the log.
+const (
+	codeUnsupportedSystem = "unsupported-system"
+	codeNoNvidia          = "no-nvidia"
+	codeNvidiaDriver      = "nvidia-driver"
+	codeDiskSpace         = "disk-space"
+	codeDownloadFailed    = "download-failed"
+	codeHashMismatch      = "hash-mismatch"
+	codePipFailed         = "pip-failed"
+	codeInstallFailed     = "install-failed"
+	codeFolderFailed      = "folder-failed"
+	codeHelperFailed      = "helper-failed"
+	codeHelperCrashed     = "helper-crashed"
+	codeLockFailed        = "lock-failed"
+)
+
+// voiceProblem is an error or an unsupported machine as the page gets it:
+// Code names it, Message is the English detail, and Fields are the code's
+// own numbers (version; needBytes and freeBytes).
+type voiceProblem struct {
+	Code    string
+	Message string
+	Fields  map[string]any
+}
+
+func (p *voiceProblem) Error() string { return p.Message }
+
+// problemf is a voice problem with code and an English detail.
+func problemf(code, format string, args ...any) *voiceProblem {
+	return &voiceProblem{Code: code, Message: fmt.Sprintf(format, args...)}
+}
+
+// problemOf is err as a voice problem: its own, else install-failed with
+// err's words as the detail.
+func problemOf(err error) *voiceProblem {
+	var p *voiceProblem
+	if errors.As(err, &p) {
+		return p
+	}
+
+	return &voiceProblem{Code: codeInstallFailed, Message: err.Error()}
+}
+
+// errLockUnreadable is a lock the exe cannot use.
+var errLockUnreadable = &voiceProblem{Code: codeLockFailed, Message: "The voice lock file is not readable."}
 
 // voiceLock is what the exe needs of the lock (apps/voice/README.md, "The
 // lock"): the Python build it downloads itself and the sizes of what the
@@ -296,10 +342,27 @@ func gigabytes(n int64) string {
 // they last.
 
 // gpuCheck is what the PC's graphics card allows. Reason is "" when spoken
-// lines can run, else the reader's words for the ? beside the greyed
-// download button.
+// lines can run, else why not, in English; Code names it for the page's
+// words for the ? beside the greyed download button, and Version is the
+// driver needed with codeNvidiaDriver.
 type gpuCheck struct {
 	GPU, Driver, Reason string
+	Code, Version       string
+}
+
+// problem is the check's reason as the page gets it (nil when lines can
+// run).
+func (c gpuCheck) problem() *voiceProblem {
+	if c.Reason == "" {
+		return nil
+	}
+
+	p := &voiceProblem{Code: c.Code, Message: c.Reason}
+	if c.Version != "" {
+		p.Fields = map[string]any{"version": c.Version}
+	}
+
+	return p
 }
 
 const (
@@ -315,7 +378,7 @@ const (
 // card.
 func checkNvidia(output string, runErr error, minDriver string) gpuCheck {
 	if runErr != nil {
-		return gpuCheck{Reason: noNvidiaReason}
+		return gpuCheck{Reason: noNvidiaReason, Code: codeNoNvidia}
 	}
 
 	for _, line := range strings.Split(output, "\n") {
@@ -334,12 +397,13 @@ func checkNvidia(output string, runErr error, minDriver string) gpuCheck {
 		if check.Driver != "" && minDriver != "" && compareVersions(check.Driver, minDriver) < 0 {
 			check.Reason = fmt.Sprintf("Spoken lines need NVIDIA driver %s or later. "+
 				"Update the graphics driver to use them.", minDriver)
+			check.Code, check.Version = codeNvidiaDriver, minDriver
 		}
 
 		return check
 	}
 
-	return gpuCheck{Reason: noNvidiaReason}
+	return gpuCheck{Reason: noNvidiaReason, Code: codeNoNvidia}
 }
 
 // versionNumbers is "572.83" as [572 83]; nil when it is not dotted numbers.

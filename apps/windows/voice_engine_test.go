@@ -359,7 +359,7 @@ func TestVoiceWithoutALock(t *testing.T) {
 	h.send(`{"type":"voice","op":"install"}`)
 	e := h.waitFor("an error", isStatus("error"))
 
-	if e["message"] != "The voice lock file is missing." {
+	if e["message"] != "The voice lock file is missing." || e["code"] != codeLockFailed {
 		t.Errorf("status = %v", e)
 	}
 }
@@ -377,6 +377,12 @@ func TestVoiceInstallChecksTheFreeSpaceFirst(t *testing.T) {
 		"this PC has 0.9 GB free. Free some space, then try again."
 	if e["message"] != want {
 		t.Errorf("message = %q, want %q", e["message"], want)
+	}
+
+	// The page words it from its code and the two sizes.
+	need := float64(len(archive) + len(model) + diskMargin)
+	if e["code"] != codeDiskSpace || e["needBytes"] != need || e["freeBytes"] != float64(900_000_000) {
+		t.Errorf("status = %v, want disk-space with needBytes %v and freeBytes 9e8", e, need)
 	}
 
 	if _, err := os.Stat(root); !os.IsNotExist(err) {
@@ -599,7 +605,8 @@ func TestVoiceInstallWithABadChecksum(t *testing.T) {
 	h.send(`{"type":"voice","op":"install"}`)
 	e := h.waitFor("error", isStatus("error"))
 
-	if e["message"] != "The Python download did not match its checksum, so it was deleted. Try again." {
+	if e["message"] != "The Python download did not match its checksum, so it was deleted. Try again." ||
+		e["code"] != codeHashMismatch {
 		t.Errorf("status = %v", e)
 	}
 
@@ -688,7 +695,8 @@ func TestVoiceDropAndTheHelpersRestart(t *testing.T) {
 	h.killHelper()
 
 	e := h.waitFor("error", isStatus("error"))
-	if !strings.HasPrefix(e["message"].(string), "The voice helper stopped unexpectedly. Its log is ") {
+	if !strings.HasPrefix(e["message"].(string), "The voice helper stopped unexpectedly. Its log is ") ||
+		e["code"] != codeHelperCrashed {
 		t.Errorf("status = %v", e)
 	}
 
@@ -784,8 +792,9 @@ func TestVoiceInstallFailuresReachTheReaderInWords(t *testing.T) {
 				state = "unsupported"
 			}
 
-			if e := h.waitFor(state, isStatus(state)); e["message"] != want {
-				t.Errorf("status = %v, want %q", e, want)
+			// The helper's code is the page's code for it.
+			if e := h.waitFor(state, isStatus(state)); e["message"] != want || e["code"] != code {
+				t.Errorf("status = %v, want %q and code %s", e, want, code)
 			}
 
 			// The helper's progress was on the install's scale.
@@ -901,8 +910,8 @@ func TestVoiceUnsupportedWithoutAnNvidiaCard(t *testing.T) {
 	h.send(`{"type":"voice","op":"status"}`)
 	e := h.waitFor("unsupported", isStatus("unsupported"))
 
-	if e["message"] != noGPUMessage {
-		t.Errorf("message = %v, want %q", e["message"], noGPUMessage)
+	if e["message"] != noGPUMessage || e["code"] != codeNoNvidia || e["version"] != nil {
+		t.Errorf("status = %v, want %q and code no-nvidia", e, noGPUMessage)
 	}
 
 	if e["downloadBytes"] != float64(len(archive)+len(model)) {
@@ -942,8 +951,8 @@ func TestVoiceUnsupportedWithAnOldDriver(t *testing.T) {
 	h.send(`{"type":"voice","op":"install"}`)
 	e := h.waitFor("unsupported", isStatus("unsupported"))
 
-	if e["message"] != oldDriverMessage {
-		t.Errorf("message = %v, want %q", e["message"], oldDriverMessage)
+	if e["message"] != oldDriverMessage || e["code"] != codeNvidiaDriver || e["version"] != "570.65" {
+		t.Errorf("status = %v, want %q, code nvidia-driver and version 570.65", e, oldDriverMessage)
 	}
 }
 

@@ -2,8 +2,14 @@
 // (docs/plan.md Phase 52 item 10; the row itself is render/volumes.ts).
 // Pure: the download's size, its progress, the "?" help, and what the row
 // shows for each status of the voice engine (render/voiceclient.ts).
+//
+// A game app's error or unsupported machine comes with a `code` (docs/plan.md
+// Phase 54 item 7; apps/README.md, "The voice bridge"), which the player
+// words from its catalogue (`voice.code.<code>`); the host's `message` is
+// an English detail for its log. Only a code the player does not know (or
+// none, from an older app) shows the general words with that detail.
 
-import { formatNumber, t } from "../i18n/catalogue.ts";
+import { formatNumber, type MessageKey, t } from "../i18n/catalogue.ts";
 import type { VoiceStatus } from "./voiceclient";
 
 /** The row's words until the host gives a status. */
@@ -37,15 +43,54 @@ export function installPercent(status: VoiceStatus): number {
   return Math.min(100, Math.max(0, Math.floor((done / total) * 100)));
 }
 
+/** The codes a game app sends with an error or an unsupported machine. */
+export const VOICE_CODES = [
+  "apple-silicon",
+  "macos-version",
+  "unsupported-system",
+  "no-nvidia",
+  "nvidia-driver",
+  "disk-space",
+  "download-failed",
+  "hash-mismatch",
+  "pip-failed",
+  "install-failed",
+  "folder-failed",
+  "helper-failed",
+  "helper-crashed",
+  "lock-failed",
+] as const;
+
+const KNOWN_CODES: ReadonlySet<string> = new Set(VOICE_CODES);
+
+/**
+ * The words for a status in `error` or `unsupported`: the catalogue's for
+ * its `code` (with its version or sizes); for an unknown code, or none,
+ * the general words (`voice.failed`, `voice.unsupported`) and the host's
+ * English `message` as a detail when it gave one.
+ */
+export function voiceProblem(status: VoiceStatus): string {
+  const code = status.code;
+  if (code !== undefined && KNOWN_CODES.has(code)) {
+    return t(`voice.code.${code}` as MessageKey, {
+      version: status.version ?? "?",
+      need: gigabytes(status.needBytes ?? 0),
+      free: gigabytes(status.freeBytes ?? 0),
+    });
+  }
+  const general = t(
+    status.state === "unsupported" ? "voice.unsupported" : "voice.failed",
+  );
+  const detail = status.message?.trim() ?? "";
+  return detail === "" ? general : t("voice.detail", { text: general, detail });
+}
+
 /**
  * What the "?" beside the download says: what the model is and why it is
- * downloaded; on a machine that cannot run it, why not (the host's
- * `message`).
+ * downloaded; on a machine that cannot run it, why not (`voiceProblem`).
  */
 export function modelHelp(status: VoiceStatus): string {
-  if (status.state === "unsupported") {
-    return status.message ?? t("voice.unsupported");
-  }
+  if (status.state === "unsupported") return voiceProblem(status);
   return t("voice.help", { size: gigabytes(status.downloadBytes) });
 }
 
@@ -117,7 +162,7 @@ export function voiceModelView(status: VoiceStatus | null): ModelView {
         ...base,
         area: "error",
         label,
-        message: status.message ?? t("voice.failed"),
+        message: voiceProblem(status),
       };
     case "ready":
       return { ...base, area: "none", ready: true, removable: true, label };

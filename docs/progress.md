@@ -5088,8 +5088,30 @@ truthful: an unchecked box means nothing was accepted.
       154/154 Chrome, `--webkit spoken audio machost` 207/207. The
       subagent's `audio screens languages` runs passed on both engines
       bar the 2 baseline Keyboard Lock partials.)
-- [ ] The game apps (item 7): menus, window titles and early dialogs
-      in the reader's language.
+- [x] The game apps (item 7): menus, window titles and early dialogs
+      in the reader's language. (Evidence: the page sends `{type:
+      "language", ui, dir, title?}` (render/host.ts) at boot, when a late
+      host arrives, and on every change. New `host.*` catalogue keys (Mac
+      menus and missing-game alert, the Windows missing-index box) in
+      all 39 languages; the author-only "built without its game's
+      details" box stays English. `npm run i18n` also writes
+      `apps/host-words.json` (digest-checked by npm test and by
+      build_apps, which refuses a stale table); the Mac app embeds it as
+      Swift (shared `apps/macos/HostWords.swift`), the exe with
+      `//go:embed` (`apps/windows/hostwords.go`); both match languages by
+      the player's rule (45 shared cases in
+      `apps/host-language-cases.json`). Mac menus start in the system
+      language, then follow `ui`; window titles follow `title`. Voice
+      statuses carry a stable `code` shown from `voice.code.<code>`, the
+      English detail only for an unknown code. Retry and Cancel no longer
+      shrink (they overflowed in six languages). Verified by the
+      orchestrator: build_apps and voice helper pytest 249 passed; Go
+      test and Windows vet clean; npm test 1714/1714, check clean;
+      `--webkit machost` 55/55; `verify -- spoken catalogue` 228/228
+      Chrome. The subagent built both apps for the language demo (not
+      launched) and ran `catalogue uilanguages spoken` on both engines,
+      all passing; WebKit `window` has the same 2 tab-fullscreen
+      partials as the commit before it, checked by the orchestrator.)
 - [ ] The translator tools (item 8): `tools/translations.py export`,
       `import`, `status`, PO with merge and fuzzy marking.
 - [ ] kinetic-extract reads Ren'Py translations (item 9).

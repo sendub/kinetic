@@ -2,13 +2,17 @@
 // item 10): the download's words and size, the progress, and what the Voice
 // row shows for each status of the voice engine.
 
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
+import { setUiLanguage } from "../i18n/catalogue";
+import { EN } from "../i18n/en";
 import {
   downloadLabel,
   gigabytes,
   installPercent,
   modelHelp,
+  VOICE_CODES,
   voiceModelView,
+  voiceProblem,
 } from "./voicemodel";
 
 const ABSENT = { state: "absent", downloadBytes: 3_300_000_000 } as const;
@@ -60,16 +64,90 @@ describe("modelHelp (the ? beside the download)", () => {
     expect(text).toMatch(/3\.3 GB/);
   });
 
-  it("gives an unsupported machine's reason, and a fallback with none", () => {
+  it("gives an unsupported machine's reason by its code, and a fallback with none", () => {
     expect(
       modelHelp({
         ...ABSENT,
         state: "unsupported",
-        message: "Spoken lines need a Mac with Apple silicon.",
+        code: "macos-version",
+        version: "14.0",
+        message: "Spoken lines need macOS 14.0 or later.",
       }),
-    ).toBe("Spoken lines need a Mac with Apple silicon.");
+    ).toBe("Spoken lines need macOS 14.0 or later.");
     expect(modelHelp({ ...ABSENT, state: "unsupported" })).toBe(
       "Spoken lines are not available on this computer.",
+    );
+  });
+});
+
+describe("voiceProblem: a host's error in the player's words (Phase 54 item 7)", () => {
+  afterEach(() => setUiLanguage("en"));
+
+  it("has catalogue words for every code a host sends", () => {
+    for (const code of VOICE_CODES) {
+      expect(EN, code).toHaveProperty(`voice.code.${code}`);
+    }
+  });
+
+  it("words each code from the catalogue, never the host's English", () => {
+    const status = { ...ABSENT, state: "error" as const, message: "detail" };
+    for (const code of VOICE_CODES) {
+      const words = voiceProblem({ ...status, code });
+      expect(words, code).not.toContain("detail");
+      expect(words, code).not.toContain("{");
+    }
+    expect(voiceProblem({ ...status, code: "download-failed" })).toBe(
+      "A download failed. Try again to continue it.",
+    );
+  });
+
+  it("fills in a code's version and sizes", () => {
+    expect(
+      voiceProblem({
+        ...ABSENT,
+        state: "unsupported",
+        code: "nvidia-driver",
+        version: "570.65",
+      }),
+    ).toBe(
+      "Spoken lines need NVIDIA driver 570.65 or later. Update the graphics driver to use them.",
+    );
+    expect(
+      voiceProblem({
+        ...ABSENT,
+        state: "error",
+        code: "disk-space",
+        needBytes: 7_830_000_000,
+        freeBytes: 2_100_000_000,
+      }),
+    ).toBe(
+      "Spoken lines need 7.8 GB of free disk space; this computer has 2.1 GB free. Free some space, then try again.",
+    );
+  });
+
+  it("is in the UI language", () => {
+    setUiLanguage("de");
+    expect(
+      voiceProblem({ ...ABSENT, state: "error", code: "hash-mismatch" }),
+    ).toBe(
+      "Ein Download passte nicht zu seiner Prüfsumme. Versuche es erneut.",
+    );
+  });
+
+  it("an unknown code, or none: the general words and the host's detail", () => {
+    expect(
+      voiceProblem({
+        ...ABSENT,
+        state: "error",
+        code: "new-trouble",
+        message: "The disk caught fire.",
+      }),
+    ).toBe("The voice model could not be downloaded. (The disk caught fire.)");
+    expect(
+      voiceProblem({ ...ABSENT, state: "unsupported", message: "No GPU." }),
+    ).toBe("Spoken lines are not available on this computer. (No GPU.)");
+    expect(voiceProblem({ ...ABSENT, state: "error" })).toBe(
+      "The voice model could not be downloaded.",
     );
   });
 });
@@ -107,15 +185,28 @@ describe("voiceModelView: what the Voice row shows for each status", () => {
 
   it("error: its words and Retry", () => {
     expect(
-      voiceModelView({ ...ABSENT, state: "error", message: "Failed." }),
-    ).toMatchObject({ area: "error", message: "Failed.", help: null });
+      voiceModelView({
+        ...ABSENT,
+        state: "error",
+        code: "pip-failed",
+        message: "pip said no.",
+      }),
+    ).toMatchObject({
+      area: "error",
+      message: "Installing the voice packages failed.",
+      help: null,
+    });
     expect(voiceModelView({ ...ABSENT, state: "error" }).message).not.toBe("");
   });
 
   it("unsupported: the download greyed, its help the reason", () => {
     expect(
-      voiceModelView({ ...ABSENT, state: "unsupported", message: "No GPU." }),
-    ).toMatchObject({ area: "download", disabled: true, help: "No GPU." });
+      voiceModelView({ ...ABSENT, state: "unsupported", code: "no-nvidia" }),
+    ).toMatchObject({
+      area: "download",
+      disabled: true,
+      help: "Spoken lines need an NVIDIA graphics card. This computer doesn't have one.",
+    });
   });
 
   it("ready: the model can be removed, nothing else to show", () => {

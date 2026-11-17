@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -45,6 +46,37 @@ func TestCheckNvidia(t *testing.T) {
 		if got.GPU != c.gpu || got.Driver != c.driver || got.Reason != c.reason {
 			t.Errorf("%s: checkNvidia = %+v, want GPU %q driver %q reason %q", c.name, got, c.gpu, c.driver, c.reason)
 		}
+
+		// Each reason has its code for the page's words (and the driver
+		// needed); a card that can run them has neither.
+		wantCode, wantVersion := "", ""
+
+		switch {
+		case c.reason == noNvidiaReason:
+			wantCode = codeNoNvidia
+		case c.reason != "":
+			wantCode, wantVersion = codeNvidiaDriver, c.min
+		}
+
+		if got.Code != wantCode || got.Version != wantVersion {
+			t.Errorf("%s: code %q version %q, want %q %q", c.name, got.Code, got.Version, wantCode, wantVersion)
+		}
+
+		if p := got.problem(); (p == nil) != (c.reason == "") ||
+			(p != nil && (p.Code != wantCode || p.Message != c.reason)) {
+			t.Errorf("%s: problem %+v", c.name, p)
+		}
+	}
+}
+
+func TestProblemOfAnyError(t *testing.T) {
+	if p := problemOf(errors.New("odd")); p.Code != codeInstallFailed || p.Message != "odd" {
+		t.Errorf("a plain error: %+v", p)
+	}
+
+	wrapped := fmt.Errorf("outer: %w", problemf(codeFolderFailed, "inner %d", 1))
+	if p := problemOf(wrapped); p.Code != codeFolderFailed || p.Message != "inner 1" {
+		t.Errorf("a wrapped problem: %+v", p)
 	}
 }
 

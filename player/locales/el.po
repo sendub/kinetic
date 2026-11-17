@@ -736,6 +736,85 @@ msgctxt "voice.help"
 msgid "Spoken lines are made on this computer from the characters' voices. The voice model is downloaded once ({size}) and every Kinetic game on this computer shares it."
 msgstr "Οι εκφωνημένες ατάκες δημιουργούνται σε αυτόν τον υπολογιστή από τις φωνές των χαρακτήρων. Το μοντέλο φωνής λαμβάνεται μία φορά ({size}) και το μοιράζονται όλα τα παιχνίδια Kinetic αυτού του υπολογιστή."
 
+#. Volumes sheet: a game app's voice problem the player has no words for; {text} is the general message above ("could not be downloaded" or "not available"), {detail} the app's own reason, in English.
+#. Placeholders: {text}, {detail}.
+msgctxt "voice.detail"
+msgid "{text} ({detail})"
+msgstr "{text} ({detail})"
+
+#. Volumes sheet, the voice model's "?" (a Mac app): this Mac has an Intel processor.
+msgctxt "voice.code.apple-silicon"
+msgid "Spoken lines need a Mac with Apple silicon."
+msgstr "Οι εκφωνημένες ατάκες χρειάζονται Mac με Apple silicon."
+
+#. Volumes sheet, the voice model's "?" (a Mac app): {version} is the macOS version needed, e.g. 14.0.
+#. Placeholders: {version}.
+msgctxt "voice.code.macos-version"
+msgid "Spoken lines need macOS {version} or later."
+msgstr "Οι εκφωνημένες ατάκες χρειάζονται macOS {version} ή νεότερο."
+
+#. Volumes sheet, the voice model's "?": the computer's operating system is too old for the voice packages.
+msgctxt "voice.code.unsupported-system"
+msgid "Spoken lines need a newer operating system on this computer."
+msgstr "Οι εκφωνημένες ατάκες χρειάζονται νεότερο λειτουργικό σύστημα σε αυτόν τον υπολογιστή."
+
+#. Volumes sheet, the voice model's "?" (a Windows app): the PC has no NVIDIA graphics card.
+msgctxt "voice.code.no-nvidia"
+msgid "Spoken lines need an NVIDIA graphics card. This computer doesn't have one."
+msgstr "Οι εκφωνημένες ατάκες χρειάζονται κάρτα γραφικών NVIDIA. Αυτός ο υπολογιστής δεν έχει."
+
+#. Volumes sheet, the voice model's "?" (a Windows app): {version} is the NVIDIA driver version needed, e.g. 570.65.
+#. Placeholders: {version}.
+msgctxt "voice.code.nvidia-driver"
+msgid "Spoken lines need NVIDIA driver {version} or later. Update the graphics driver to use them."
+msgstr "Οι εκφωνημένες ατάκες χρειάζονται πρόγραμμα οδήγησης NVIDIA {version} ή νεότερο. Ενημερώστε το πρόγραμμα οδήγησης γραφικών για να τις χρησιμοποιήσετε."
+
+#. Volumes sheet: not enough disk space for the voice model; {need} and {free} are sizes, e.g. 7.8 GB.
+#. Placeholders: {need}, {free}.
+msgctxt "voice.code.disk-space"
+msgid "Spoken lines need {need} of free disk space; this computer has {free} free. Free some space, then try again."
+msgstr "Οι εκφωνημένες ατάκες χρειάζονται {need} ελεύθερο χώρο στον δίσκο· αυτός ο υπολογιστής έχει {free} ελεύθερα. Ελευθερώστε χώρο και δοκιμάστε ξανά."
+
+#. Volumes sheet: a part of the voice model's download failed (the network or the server).
+msgctxt "voice.code.download-failed"
+msgid "A download failed. Try again to continue it."
+msgstr "Μια λήψη απέτυχε. Δοκιμάστε ξανά για να συνεχιστεί."
+
+#. Volumes sheet: a downloaded part of the voice model was damaged and was deleted.
+msgctxt "voice.code.hash-mismatch"
+msgid "A download did not match its checksum. Try again."
+msgstr "Μια λήψη δεν ταίριαξε με το άθροισμα ελέγχου της. Δοκιμάστε ξανά."
+
+#. Volumes sheet: installing the downloaded voice packages failed.
+msgctxt "voice.code.pip-failed"
+msgid "Installing the voice packages failed."
+msgstr "Η εγκατάσταση των πακέτων φωνής απέτυχε."
+
+#. Volumes sheet: the voice model's install failed for another reason.
+msgctxt "voice.code.install-failed"
+msgid "The voice install failed."
+msgstr "Η εγκατάσταση της φωνής απέτυχε."
+
+#. Volumes sheet: the folder the voice model goes in could not be created or written.
+msgctxt "voice.code.folder-failed"
+msgid "The voice folder could not be written."
+msgstr "Δεν ήταν δυνατή η εγγραφή στον φάκελο φωνής."
+
+#. Volumes sheet: the program that makes spoken lines could not start.
+msgctxt "voice.code.helper-failed"
+msgid "The voice helper could not start."
+msgstr "Δεν ήταν δυνατή η εκκίνηση του βοηθού φωνής."
+
+#. Volumes sheet: the program that makes spoken lines stopped.
+msgctxt "voice.code.helper-crashed"
+msgid "The voice helper stopped unexpectedly."
+msgstr "Ο βοηθός φωνής σταμάτησε απροσδόκητα."
+
+#. Volumes sheet: the voice setup inside the game app is damaged.
+msgctxt "voice.code.lock-failed"
+msgid "This app's voice setup cannot be read."
+msgstr "Δεν είναι δυνατή η ανάγνωση των ρυθμίσεων φωνής αυτής της εφαρμογής."
+
 #. Branch map: its heading.
 msgctxt "map.title"
 msgid "Branch map"
@@ -987,3 +1066,59 @@ msgstr "μια ιστορία χωρίς ID"
 msgctxt "transfer.story.this"
 msgid "this story"
 msgstr "αυτή την ιστορία"
+
+#. Mac app menu (the menu named after the game): hides the app; {title} is the game's title.
+#. Placeholders: {title}.
+msgctxt "host.menu.hide"
+msgid "Hide {title}"
+msgstr "Απόκρυψη {title}"
+
+#. Mac app menu (the menu named after the game): quits the app; {title} is the game's title.
+#. Placeholders: {title}.
+msgctxt "host.menu.quit"
+msgid "Quit {title}"
+msgstr "Τερματισμός {title}"
+
+#. Mac app: the View menu's name in the menu bar.
+msgctxt "host.menu.view"
+msgid "View"
+msgstr "Προβολή"
+
+#. Mac app, View menu: reloads the game's page (the reader keeps their place).
+msgctxt "host.menu.reload"
+msgid "Reload"
+msgstr "Επαναφόρτωση"
+
+#. Mac app, View menu: switches between full screen and a window (macOS's own wording).
+msgctxt "host.menu.fullScreen"
+msgid "Toggle Full Screen"
+msgstr "Εναλλαγή πλήρους οθόνης"
+
+#. Mac app, an alert before the game opens: the app is not in its game folder; {title} is the game's title.
+#. Placeholders: {title}.
+msgctxt "host.mac.missing.title"
+msgid "{title} cannot find its game."
+msgstr "Το {title} δεν βρίσκει το παιχνίδι του."
+
+#. Mac app, the alert above: what to do; {file} is the page's file name (index.html), kept as written.
+#. Placeholders: {file}.
+msgctxt "host.mac.missing.text"
+msgid "This app plays the {file} file in the folder it sits in, and there is none next to it. Keep the app inside its game folder. If the game folder was downloaded, open {file} in it instead."
+msgstr "Αυτή η εφαρμογή παίζει το αρχείο {file} του φακέλου όπου βρίσκεται, και δίπλα της δεν υπάρχει κανένα. Κρατήστε την εφαρμογή μέσα στον φάκελο του παιχνιδιού της. Αν ο φάκελος του παιχνιδιού λήφθηκε από το διαδίκτυο, ανοίξτε αντί γι’ αυτό το {file} μέσα σε αυτόν."
+
+#. Mac app, the alert above: its only button, which quits the app.
+msgctxt "host.mac.missing.quit"
+msgid "Quit"
+msgstr "Τερματισμός"
+
+#. Windows program, an error box before the game opens: the program is not in its game folder; {title} is the game's title, {file} the page's file name (index.html), kept as written; the blank line stays.
+#. Placeholders: {title}, {file}.
+msgctxt "host.windows.missing"
+msgid ""
+"{title} cannot find {file} next to this program.\n"
+"\n"
+"Keep the program inside its game folder, or open the folder's {file} instead."
+msgstr ""
+"Το {title} δεν βρίσκει το {file} δίπλα σε αυτό το πρόγραμμα.\n"
+"\n"
+"Κρατήστε το πρόγραμμα μέσα στον φάκελο του παιχνιδιού του ή ανοίξτε αντί γι’ αυτό το αρχείο {file} του φακέλου."

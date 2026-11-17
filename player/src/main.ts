@@ -55,7 +55,14 @@
 // Composition only — rendering lives in src/render/, timing in
 // src/machine/, storage adapters in src/storage/.
 
-import { localized, setUiLanguage, t, uiLanguages } from "./i18n/catalogue";
+import {
+  localized,
+  onUiLanguageChange,
+  setUiLanguage,
+  t,
+  uiLanguage,
+  uiLanguages,
+} from "./i18n/catalogue";
 import { applyDocumentLanguage } from "./i18n/document";
 import {
   autonym,
@@ -104,7 +111,13 @@ import {
   loadLanguageFile,
 } from "./render/gamewords";
 import { gameTitleOf, mountHelpOverlay, pageTitleFor } from "./render/help";
-import { connectHost, type DisplayMode, windowActions } from "./render/host";
+import {
+  connectHost,
+  type DisplayMode,
+  languageMessage,
+  tellHostLanguage,
+  windowActions,
+} from "./render/host";
 import { installKeyMap, mapKeyAction, suspendTimeline } from "./render/keys";
 import {
   type LanguageChoice,
@@ -240,6 +253,14 @@ function start(): void {
   // now and on every `kinetic-host` event, since it may arrive after load.
   // None in a browser tab.
   const hostLink = connectHost(window);
+  // The host draws its own words (menus, window title) in the page's
+  // language (Phase 54 item 7): told now, or when the host arrives, and on
+  // every change of the UI language or of the title shown (drawPageTitle).
+  let shownTitle: string | null = null;
+  const tellLanguage = tellHostLanguage(hostLink, () =>
+    languageMessage(uiLanguage(), shownTitle),
+  );
+  onUiLanguageChange(tellLanguage);
   // The manifest contract, with the sources injected so it is testable:
   //   window.KINETIC_MANIFEST ?? await fetch("manifest.json").then(r => r.json())
   // `document.baseURI` is the content folder's own `index.html`, so it is both
@@ -255,7 +276,10 @@ function start(): void {
       // player's own title stays; in the shown language (Phase 54), drawn
       // again on each change of it (`showWords`).
       const drawPageTitle = (): void => {
-        document.title = pageTitleFor(words?.title()?.text ?? manifest.title);
+        const title = words?.title()?.text ?? manifest.title;
+        document.title = pageTitleFor(title);
+        shownTitle = gameTitleOf(title);
+        tellLanguage();
       };
       let words: GameWords | undefined;
       localized(drawPageTitle);

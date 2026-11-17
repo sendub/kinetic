@@ -377,17 +377,25 @@ async function browserTab({ check, open }) {
   const lateBefore = await readWindow(page);
   await clickCenter(cdp, HALF.fullscreen);
   await clickCenter(cdp, EXIT);
-  await waitFor(page, () => window.__late.length >= 2);
+  await waitFor(
+    page,
+    () => window.__late.filter((m) => m.type !== "language").length >= 2,
+  );
   await closeSettings(page, cdp);
   const lateKey = await asks(page, () => pressSpace(cdp));
-  const late = await page.evaluate(() => window.__late);
+  const sentLate = await page.evaluate(() => window.__late);
+  // The page tells a late host its language as it arrives (docs/plan.md
+  // Phase 54 item 7), before anything else.
+  const late = sentLate.filter((m) => m.type !== "language");
   check(
-    "tab: a host that appears after load takes over: its mode pressed, a half and Exit sent to it, no fullscreen asked",
+    "tab: a host that appears after load takes over: told the page's language first, its mode pressed, a half and Exit sent to it, no fullscreen asked",
     tookOver &&
+      sentLate[0]?.type === "language" &&
+      sentLate[0]?.ui === "en" &&
       asText(late) === "display fullscreen, quit" &&
       lateKey.asked === 0 &&
       (await readWindow(page)).fsAttempts === lateBefore.fsAttempts,
-    { tookOver, late, lateKey },
+    { tookOver, sentLate, lateKey },
   );
 }
 

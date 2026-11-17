@@ -736,6 +736,85 @@ msgctxt "voice.help"
 msgid "Spoken lines are made on this computer from the characters' voices. The voice model is downloaded once ({size}) and every Kinetic game on this computer shares it."
 msgstr "گفتار روی همین رایانه از صدای شخصیت‌ها ساخته می‌شود. مدل صدا یک بار بارگیری می‌شود ({size}) و همهٔ بازی‌های Kinetic روی این رایانه از آن استفاده می‌کنند."
 
+#. Volumes sheet: a game app's voice problem the player has no words for; {text} is the general message above ("could not be downloaded" or "not available"), {detail} the app's own reason, in English.
+#. Placeholders: {text}, {detail}.
+msgctxt "voice.detail"
+msgid "{text} ({detail})"
+msgstr "{text} ({detail})"
+
+#. Volumes sheet, the voice model's "?" (a Mac app): this Mac has an Intel processor.
+msgctxt "voice.code.apple-silicon"
+msgid "Spoken lines need a Mac with Apple silicon."
+msgstr "گفتار به مک با تراشهٔ Apple silicon نیاز دارد."
+
+#. Volumes sheet, the voice model's "?" (a Mac app): {version} is the macOS version needed, e.g. 14.0.
+#. Placeholders: {version}.
+msgctxt "voice.code.macos-version"
+msgid "Spoken lines need macOS {version} or later."
+msgstr "گفتار به macOS {version} یا جدیدتر نیاز دارد."
+
+#. Volumes sheet, the voice model's "?": the computer's operating system is too old for the voice packages.
+msgctxt "voice.code.unsupported-system"
+msgid "Spoken lines need a newer operating system on this computer."
+msgstr "گفتار به سیستم‌عامل جدیدتری روی این رایانه نیاز دارد."
+
+#. Volumes sheet, the voice model's "?" (a Windows app): the PC has no NVIDIA graphics card.
+msgctxt "voice.code.no-nvidia"
+msgid "Spoken lines need an NVIDIA graphics card. This computer doesn't have one."
+msgstr "گفتار به کارت گرافیک NVIDIA نیاز دارد. این رایانه چنین کارتی ندارد."
+
+#. Volumes sheet, the voice model's "?" (a Windows app): {version} is the NVIDIA driver version needed, e.g. 570.65.
+#. Placeholders: {version}.
+msgctxt "voice.code.nvidia-driver"
+msgid "Spoken lines need NVIDIA driver {version} or later. Update the graphics driver to use them."
+msgstr "گفتار به درایور NVIDIA نسخهٔ {version} یا جدیدتر نیاز دارد. برای استفاده از آن، درایور گرافیک را به‌روز کنید."
+
+#. Volumes sheet: not enough disk space for the voice model; {need} and {free} are sizes, e.g. 7.8 GB.
+#. Placeholders: {need}, {free}.
+msgctxt "voice.code.disk-space"
+msgid "Spoken lines need {need} of free disk space; this computer has {free} free. Free some space, then try again."
+msgstr "گفتار به {need} فضای خالی روی دیسک نیاز دارد؛ این رایانه {free} فضای خالی دارد. کمی فضا آزاد کنید و دوباره تلاش کنید."
+
+#. Volumes sheet: a part of the voice model's download failed (the network or the server).
+msgctxt "voice.code.download-failed"
+msgid "A download failed. Try again to continue it."
+msgstr "یکی از بارگیری‌ها انجام نشد. برای ادامهٔ آن دوباره تلاش کنید."
+
+#. Volumes sheet: a downloaded part of the voice model was damaged and was deleted.
+msgctxt "voice.code.hash-mismatch"
+msgid "A download did not match its checksum. Try again."
+msgstr "یکی از بارگیری‌ها با مجموع بررسی‌اش جور نبود. دوباره تلاش کنید."
+
+#. Volumes sheet: installing the downloaded voice packages failed.
+msgctxt "voice.code.pip-failed"
+msgid "Installing the voice packages failed."
+msgstr "نصب بسته‌های صدا انجام نشد."
+
+#. Volumes sheet: the voice model's install failed for another reason.
+msgctxt "voice.code.install-failed"
+msgid "The voice install failed."
+msgstr "نصب صدا انجام نشد."
+
+#. Volumes sheet: the folder the voice model goes in could not be created or written.
+msgctxt "voice.code.folder-failed"
+msgid "The voice folder could not be written."
+msgstr "نوشتن در پوشهٔ صدا ممکن نشد."
+
+#. Volumes sheet: the program that makes spoken lines could not start.
+msgctxt "voice.code.helper-failed"
+msgid "The voice helper could not start."
+msgstr "دستیار صدا اجرا نشد."
+
+#. Volumes sheet: the program that makes spoken lines stopped.
+msgctxt "voice.code.helper-crashed"
+msgid "The voice helper stopped unexpectedly."
+msgstr "دستیار صدا به‌طور غیرمنتظره متوقف شد."
+
+#. Volumes sheet: the voice setup inside the game app is damaged.
+msgctxt "voice.code.lock-failed"
+msgid "This app's voice setup cannot be read."
+msgstr "تنظیمات صدای این برنامه خوانده نمی‌شود."
+
 #. Branch map: its heading.
 msgctxt "map.title"
 msgid "Branch map"
@@ -987,3 +1066,59 @@ msgstr "داستانی بدون شناسه"
 msgctxt "transfer.story.this"
 msgid "this story"
 msgstr "این داستان"
+
+#. Mac app menu (the menu named after the game): hides the app; {title} is the game's title.
+#. Placeholders: {title}.
+msgctxt "host.menu.hide"
+msgid "Hide {title}"
+msgstr "پنهان کردن {title}"
+
+#. Mac app menu (the menu named after the game): quits the app; {title} is the game's title.
+#. Placeholders: {title}.
+msgctxt "host.menu.quit"
+msgid "Quit {title}"
+msgstr "خروج از {title}"
+
+#. Mac app: the View menu's name in the menu bar.
+msgctxt "host.menu.view"
+msgid "View"
+msgstr "نما"
+
+#. Mac app, View menu: reloads the game's page (the reader keeps their place).
+msgctxt "host.menu.reload"
+msgid "Reload"
+msgstr "بارگذاری دوباره"
+
+#. Mac app, View menu: switches between full screen and a window (macOS's own wording).
+msgctxt "host.menu.fullScreen"
+msgid "Toggle Full Screen"
+msgstr "تغییر حالت تمام‌صفحه"
+
+#. Mac app, an alert before the game opens: the app is not in its game folder; {title} is the game's title.
+#. Placeholders: {title}.
+msgctxt "host.mac.missing.title"
+msgid "{title} cannot find its game."
+msgstr "{title} بازی خود را پیدا نمی‌کند."
+
+#. Mac app, the alert above: what to do; {file} is the page's file name (index.html), kept as written.
+#. Placeholders: {file}.
+msgctxt "host.mac.missing.text"
+msgid "This app plays the {file} file in the folder it sits in, and there is none next to it. Keep the app inside its game folder. If the game folder was downloaded, open {file} in it instead."
+msgstr "این برنامه پروندهٔ {file} را در پوشه‌ای که در آن قرار دارد اجرا می‌کند، و کنار آن چنین پرونده‌ای نیست. برنامه را درون پوشهٔ بازی‌اش نگه دارید. اگر پوشهٔ بازی بارگیری شده است، به‌جای آن {file} را در آن باز کنید."
+
+#. Mac app, the alert above: its only button, which quits the app.
+msgctxt "host.mac.missing.quit"
+msgid "Quit"
+msgstr "خروج"
+
+#. Windows program, an error box before the game opens: the program is not in its game folder; {title} is the game's title, {file} the page's file name (index.html), kept as written; the blank line stays.
+#. Placeholders: {title}, {file}.
+msgctxt "host.windows.missing"
+msgid ""
+"{title} cannot find {file} next to this program.\n"
+"\n"
+"Keep the program inside its game folder, or open the folder's {file} instead."
+msgstr ""
+"{title} پروندهٔ {file} را کنار این برنامه پیدا نمی‌کند.\n"
+"\n"
+"برنامه را درون پوشهٔ بازی‌اش نگه دارید، یا به‌جای آن پروندهٔ {file} پوشه را باز کنید."

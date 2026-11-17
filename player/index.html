@@ -1848,6 +1848,13 @@
         color: var(--k-t3);
         cursor: default;
       }
+      /* Retry and Cancel keep their words' width; a long message (a game
+         app's voice error in a longer language, docs/plan.md Phase 54 item
+         7) wraps beside them instead. */
+      .volume-model .volume-model-retry,
+      .volume-model .volume-model-cancel {
+        flex: none;
+      }
       .volume-model-message {
         flex: 1 1 auto;
         min-width: 0;

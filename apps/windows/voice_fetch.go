@@ -50,12 +50,12 @@ func downloadFile(ctx context.Context, client *http.Client, url, partial string,
 	}
 
 	if err := os.MkdirAll(filepath.Dir(partial), 0o755); err != nil {
-		return fmt.Errorf("The Python download cannot be saved: %w", err)
+		return problemf(codeFolderFailed, "The Python download cannot be saved: %v", err)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		return errors.New("The Python download's address is not valid.")
+		return problemf(codeInstallFailed, "The Python download's address is not valid.")
 	}
 
 	req.Header.Set("User-Agent", "kinetic-voice")
@@ -80,12 +80,12 @@ func downloadFile(ctx context.Context, client *http.Client, url, partial string,
 		flags |= os.O_TRUNC
 		have = 0
 	default:
-		return fmt.Errorf("The Python download failed (HTTP %d).", resp.StatusCode)
+		return problemf(codeDownloadFailed, "The Python download failed (HTTP %d).", resp.StatusCode)
 	}
 
 	file, err := os.OpenFile(partial, flags, 0o644)
 	if err != nil {
-		return fmt.Errorf("The Python download cannot be saved: %w", err)
+		return problemf(codeFolderFailed, "The Python download cannot be saved: %v", err)
 	}
 
 	defer file.Close()
@@ -96,7 +96,7 @@ func downloadFile(ctx context.Context, client *http.Client, url, partial string,
 		n, readErr := resp.Body.Read(buf)
 		if n > 0 {
 			if _, err := file.Write(buf[:n]); err != nil {
-				return fmt.Errorf("The Python download cannot be saved: %w", err)
+				return problemf(codeFolderFailed, "The Python download cannot be saved: %v", err)
 			}
 
 			have += int64(n)
@@ -112,12 +112,14 @@ func downloadFile(ctx context.Context, client *http.Client, url, partial string,
 		}
 
 		if have > size {
-			return fmt.Errorf("The Python download is larger than the %d bytes it should be. Try again.", size)
+			return problemf(codeDownloadFailed,
+				"The Python download is larger than the %d bytes it should be. Try again.", size)
 		}
 	}
 
 	if have != size {
-		return fmt.Errorf("The Python download stopped at %d of %d bytes. Try again to continue it.", have, size)
+		return problemf(codeDownloadFailed,
+			"The Python download stopped at %d of %d bytes. Try again to continue it.", have, size)
 	}
 
 	return file.Close()
@@ -129,7 +131,7 @@ func failed(ctx context.Context, err error) error {
 		return ctx.Err()
 	}
 
-	return fmt.Errorf("The Python download failed: %v. Try again to continue it.", err)
+	return problemf(codeDownloadFailed, "The Python download failed: %v. Try again to continue it.", err)
 }
 
 // fileSize is a file's size, 0 when it is not there.
@@ -166,13 +168,14 @@ func sha256File(name string) (string, error) {
 func unpackPython(archive, sha, root string) error {
 	digest, err := sha256File(archive)
 	if err != nil {
-		return errors.New("The Python download cannot be read.")
+		return problemf(codeInstallFailed, "The Python download cannot be read.")
 	}
 
 	if digest != sha {
 		_ = os.Remove(archive)
 
-		return errors.New("The Python download did not match its checksum, so it was deleted. Try again.")
+		return problemf(codeHashMismatch,
+			"The Python download did not match its checksum, so it was deleted. Try again.")
 	}
 
 	staging := filepath.Join(root, "python.partial")
@@ -185,23 +188,23 @@ func unpackPython(archive, sha, root string) error {
 	}
 
 	if err := extractTarGz(archive, staging); err != nil {
-		return fail(fmt.Errorf("Python could not be unpacked: %w", err))
+		return fail(problemf(codeInstallFailed, "Python could not be unpacked: %v", err))
 	}
 
 	unpacked := filepath.Join(staging, "python")
 	if info, err := os.Stat(filepath.Join(unpacked, pythonExe)); err != nil || !info.Mode().IsRegular() {
-		return fail(errors.New(`The Python download holds no python\python.exe.`))
+		return fail(problemf(codeInstallFailed, `The Python download holds no python\python.exe.`))
 	}
 
 	if err := os.WriteFile(filepath.Join(unpacked, pythonMarker), []byte(sha), 0o644); err != nil {
-		return fail(fmt.Errorf("Python could not be unpacked: %w", err))
+		return fail(problemf(codeInstallFailed, "Python could not be unpacked: %v", err))
 	}
 
 	target := filepath.Join(root, "python")
 	_ = os.RemoveAll(target)
 
 	if err := os.Rename(unpacked, target); err != nil {
-		return fail(fmt.Errorf("Python could not be unpacked: %w", err))
+		return fail(problemf(codeInstallFailed, "Python could not be unpacked: %v", err))
 	}
 
 	_ = os.RemoveAll(staging)

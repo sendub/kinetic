@@ -222,7 +222,7 @@ const READ_PANEL = () => {
 };
 
 /** Opens the Esc screen (if shut) and picks `tag` in its Language list. */
-async function pickLanguage(page, cdp, tag) {
+export async function pickLanguage(page, cdp, tag) {
   if (await page.evaluate(HELP_CLOSED)) {
     await pressEscape(cdp);
     await until(page, HELP_OPEN);

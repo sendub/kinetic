@@ -658,6 +658,137 @@ def test_the_driver_build_generates_the_same_embedded_source() -> None:
     assert proc.stdout == build_apps.embedded_voice_source()
 
 
+# --- the apps' own words (docs/plan.md Phase 54 item 7) ---------------------
+
+HOST_WORDS = REPO_ROOT / "apps" / "host-words.json"
+
+
+def decode_host_words(source: str) -> bytes:
+    """The table a generated KineticHostWordsEmbedded.swift holds."""
+    (data,) = re.findall(r'static let base64 = "([A-Za-z0-9+/=]*)"', source)
+    return base64.b64decode(data)
+
+
+def test_the_host_words_table_is_current_and_holds_every_language() -> None:
+    data = build_apps.host_words()
+    assert data == HOST_WORDS.read_bytes()
+    table = json.loads(data)
+    tags = sorted(p.stem for p in (REPO_ROOT / "player" / "locales").glob("*.po"))
+    assert list(table["languages"]) == ["en", *tags]
+    for tag, words in table["languages"].items():
+        assert "host.menu.quit" in words and "host.windows.missing" in words, tag
+    assert table["languages"]["en"]["host.menu.quit"] == "Quit {title}"
+
+
+def test_the_digest_is_the_one_npm_run_i18n_writes() -> None:
+    """tools/build_apps.py and player/scripts/i18n.mjs (sourceDigest) hash
+    the same files the same way."""
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("needs Node")
+    i18n = REPO_ROOT / "player" / "scripts" / "i18n.mjs"
+    script = (f"import({json.dumps(i18n.as_uri())}).then((m) => "
+              "process.stdout.write(m.sourceDigest()))")
+    proc = subprocess.run([node, "--input-type=module", "-e", script],
+                          capture_output=True, text=True,
+                          cwd=REPO_ROOT / "player")
+    assert proc.returncode == 0, proc.stderr
+    assert proc.stdout == build_apps.host_words_digest()
+
+
+@pytest.fixture
+def stale_locales(tmp_path_factory, monkeypatch) -> Path:
+    """The player's PO files with one translation changed since
+    apps/host-words.json was written."""
+    locales = tmp_path_factory.mktemp("locales")
+    for po in (REPO_ROOT / "player" / "locales").glob("*.po"):
+        shutil.copyfile(po, locales / po.name)
+    de = locales / "de.po"
+    de.write_text(de.read_text(encoding="utf-8").replace(
+        'msgstr "{title} beenden"', 'msgstr "{title} schließen"'),
+        encoding="utf-8")
+    monkeypatch.setattr(build_apps, "PLAYER_LOCALES", locales)
+    return locales
+
+
+@pytest.mark.parametrize("flag", ["--mac", "--windows"])
+def test_a_stale_host_words_table_stops_either_build(
+        tmp_path, capsys, stub_toolchain, stub_go, stale_locales,
+        flag) -> None:
+    folder = make_game(tmp_path)
+    before = listing(folder)
+    assert build_apps.main([str(folder), flag]) == 1
+    err = capsys.readouterr().err
+    assert "host-words.json is stale" in err and "npm run i18n" in err
+    assert stub_toolchain == [] and stub_go == []
+    assert listing(folder) == before
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["rainy"]
+
+
+def test_a_missing_host_words_table_stops_the_build(
+        tmp_path, capsys, monkeypatch, stub_toolchain) -> None:
+    monkeypatch.setattr(build_apps, "HOST_WORDS", tmp_path / "none.json")
+    folder = make_game(tmp_path)
+    assert build_apps.main([str(folder), "--mac"]) == 1
+    assert "none.json is missing" in capsys.readouterr().err
+    assert stub_toolchain == []
+
+
+def test_the_app_compiles_the_host_words_and_their_table(
+        tmp_path, monkeypatch) -> None:
+    words = REPO_ROOT / "apps" / "macos" / "HostWords.swift"
+    assert words in build_apps.MAC_SOURCES and words.is_file()
+    driver_build = (
+        REPO_ROOT / "player" / "scripts" / "webkit" / "build.mjs").read_text()
+    assert '"HostWords.swift"' in driver_build
+    seen: list[tuple[list[str], str]] = []
+
+    def run(command, what):
+        generated = [Path(arg) for arg in command
+                     if arg.endswith("KineticHostWordsEmbedded.swift")]
+        assert len(generated) == 1
+        seen.append((command, generated[0].read_text()))
+
+    monkeypatch.setattr(build_apps, "_run", run)
+    build_apps.compile_mac(tmp_path / "kinetic")
+    ((command, source),) = seen
+    assert str(words) in command
+    assert "enum KineticHostWordsEmbedded" in source
+    assert decode_host_words(source) == HOST_WORDS.read_bytes()
+    assert not next(Path(a) for a in command
+                    if a.endswith("KineticHostWordsEmbedded.swift")).exists()
+
+
+def test_the_driver_build_generates_the_same_host_words_source() -> None:
+    """player/scripts/webkit/build.mjs writes the identical text, so the
+    WebKit driver's words are the app's."""
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("needs Node")
+    build = REPO_ROOT / "player" / "scripts" / "webkit" / "build.mjs"
+    script = (f"import({json.dumps(build.as_uri())}).then((m) => "
+              "process.stdout.write(m.embeddedHostWordsSource()))")
+    proc = subprocess.run([node, "--input-type=module", "-e", script],
+                          capture_output=True, text=True)
+    assert proc.returncode == 0, proc.stderr
+    assert proc.stdout == build_apps.embedded_host_words_source()
+
+
+def test_windows_build_embeds_the_host_words(tmp_path, stub_go) -> None:
+    """The table goes into the package copy as hostwords.json with a Go
+    file that embeds it as hostwords.go's embeddedHostWords."""
+    folder = make_game(tmp_path)
+    assert build_apps.main([str(folder), "--windows"]) == 0
+    (record,) = stub_go
+    assert record["host_words"] == HOST_WORDS.read_bytes()
+    source = record["host_words_go"]
+    assert "package main" in source
+    assert f"//go:embed {build_apps.WINDOWS_HOST_WORDS}\n" in source
+    assert "embeddedHostWords = hostWordsFile" in source
+    words_go = (REPO_ROOT / "apps" / "windows" / "hostwords.go").read_text()
+    assert "var embeddedHostWords []byte" in words_go
+
+
 def mac_toolchain() -> bool:
     return build_apps.host_is_mac() and build_apps.swift_toolchain_present()
 
@@ -711,6 +842,8 @@ def test_real_build_on_this_mac(tmp_path) -> None:
     for path, data in helper_files().items():
         assert base64.b64encode(data) in compiled, path
     assert b"__kineticVoice" in compiled
+    # So does the words table, every catalogue language's menus and alert.
+    assert base64.b64encode(HOST_WORDS.read_bytes()) in compiled
     # macOS itself reads the icon, up to 1024 px.
     iconset = tmp_path / "AppIcon.iconset"
     run("iconutil", "-c", "iconset", "-o", str(iconset),
@@ -949,9 +1082,15 @@ def stub_go(monkeypatch: pytest.MonkeyPatch, windows_lock) -> list[dict]:
         syso = (package / build_apps.SYSO_NAME).read_bytes()
         embedded = package / build_apps.WINDOWS_EMBED_SOURCE
         voice = package / build_apps.WINDOWS_EMBED_DIR
+        words = package / build_apps.WINDOWS_HOST_WORDS
+        words_go = package / build_apps.WINDOWS_HOST_WORDS_SOURCE
         builds.append({"go": go, "exe": exe, "ident": ident, "syso": syso,
                        "window": window,
                        "files": sorted(p.name for p in package.iterdir()),
+                       "host_words": (words.read_bytes()
+                                      if words.exists() else None),
+                       "host_words_go": (words_go.read_text()
+                                         if words_go.exists() else None),
                        "embedded": (embedded.read_text()
                                     if embedded.exists() else None),
                        "voice": {p.relative_to(voice).as_posix():
@@ -1014,7 +1153,8 @@ def test_windows_flag_builds_the_exe_with_the_default_icon(
     assert record["files"] == sorted(
         [p.name for p in package.iterdir() if not p.name.endswith("_test.go")]
         + [build_apps.SYSO_NAME, build_apps.WINDOWS_EMBED_DIR,
-           build_apps.WINDOWS_EMBED_SOURCE])
+           build_apps.WINDOWS_EMBED_SOURCE, build_apps.WINDOWS_HOST_WORDS,
+           build_apps.WINDOWS_HOST_WORDS_SOURCE])
     assert record["exe"].parents[1] == tmp_path.resolve()
     assert sorted(p.name for p in tmp_path.iterdir()) == ["rainy"]
     assert listing(folder) == ["Rainy Day.exe", "first.png", "index.html",
@@ -1562,6 +1702,9 @@ def test_real_windows_build_carries_the_voice_helper(tmp_path, capsys,
         assert data in program, path
     # The Windows side of the voice bridge is linked in.
     assert b"__kineticHostVoice" in program and b"GetDiskFreeSpaceExW" in program
+    # So is the words table, and the call that picks its language.
+    assert HOST_WORDS.read_bytes() in program
+    assert b"GetUserPreferredUILanguages" in program
     assert sorted(p.name for p in tmp_path.iterdir()) == ["rainy"]
 
 

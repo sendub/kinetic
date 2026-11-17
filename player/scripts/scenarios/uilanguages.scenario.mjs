@@ -16,8 +16,10 @@
 // visible word, accessible name, hint or title that the language's own
 // catalogue does not give: an English message the language translates
 // shows up here, while a message the PO keeps identical ("Kinetic") is
-// the language's own. Game text, key caps, a language named in itself and
-// the stand-in host's own message are exempt as in `catalogue`.
+// the language's own. Game text, key caps and a language named in itself
+// are exempt as in `catalogue`. Each voice code a game app sends shows the
+// language's words for it in the voice model's row (docs/plan.md Phase 54
+// item 7).
 //
 // Glyphs: on the Esc screen, every character of the language's catalogue
 // is drawn on a canvas in the computed fonts of the Esc screen and of the
@@ -42,6 +44,7 @@ import { LOCALES } from "../../src/i18n/locales.generated.ts";
 import {
   audit,
   auditTips,
+  auditVoiceCodes,
   checkPills,
   gameText,
   INSTALL_AUDIT,
@@ -79,10 +82,6 @@ export const title =
 
 const AUDIO_HINT =
   "fixtures/audio-demo is missing: build it with .venv/bin/python fixtures/build_audio_demo.py";
-
-// The stand-in voice engine's own words for a failed download: a host's
-// message, not the player's (../testing/fakevoice.mjs).
-const HOST_ERROR = "The download failed: the connection dropped.";
 
 const WIDE = { width: 1280, height: 800, deviceScaleFactor: 1 };
 
@@ -534,7 +533,8 @@ async function voiceScreens({ check, open }, tag, voice) {
     root: "#volumes",
   });
   check(L("the download fails once"), await row("error"));
-  await sheet("the download's error", [HOST_ERROR]);
+  await sheet("the download's error");
+  await auditVoiceCodes(page, cdp, check, L("the voice codes"), content);
   await clickCenter(cdp, '[data-config-action="volume-model-retry"]');
   check(L("the retried download finishes"), await row("ready"));
   await sheet("the installed model's row");

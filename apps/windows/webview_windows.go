@@ -360,6 +360,9 @@ func (g *game) webMessage(_, b uintptr) {
 	switch {
 	case m.Type == "quit":
 		postMessage(g.hwnd, wmClose, 0)
+	case m.Type == "language":
+		// The window takes the title the page shows, in its language.
+		_, _, _ = procSetWindowText.Call(uintptr(g.hwnd), uintptr(unsafe.Pointer(utf16(languageTitle(m, gameTitle())))))
 	case m.Mode == displayFullscreen:
 		postMessage(g.hwnd, wmAppDisplay, 1)
 	default:

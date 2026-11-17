@@ -233,6 +233,13 @@ class Page {
     this.hostMessages = [];
     this.closedByPage = false;
     rpc.on("hostmessage", (m) => this.hostMessages.push(m.message));
+    // WebKit only: what the driver did with each `language` message, as the
+    // game app does (apps/macos/HostWords.swift): { language, windowTitle,
+    // menu: { hide, quit, view, reload, fullScreen } }.
+    this.hostLanguages = [];
+    rpc.on("hostlanguage", ({ language, windowTitle, menu }) =>
+      this.hostLanguages.push({ language, windowTitle, menu }),
+    );
     // WebKit only: each key the page left unhandled, which came back from
     // the web view to the game app's window class, as { fate, code,
     // repeat }: fate "dropped" (the window kept it from AppKit) or
@@ -350,6 +357,17 @@ class Page {
    */
   async installHost(kind, display, { voice = false } = {}) {
     await this.rpc.send("host", { kind, display, voice });
+  }
+  /**
+   * WebKit only: for each list of preferred languages in `requested`, the
+   * language the game app picks before its page loads and its missing-game
+   * alert in it (`title` its game's): `{ languages, system, answers:
+   * [{ language, alert: { title, text, quit } }] }`, `languages` the app's
+   * table's and `system` `{ preferred, language }`, the pick for the
+   * driver's own preferred languages (launchWebKit's `languages`).
+   */
+  async hostWords(requested, title = "Kinetic") {
+    return this.rpc.send("hostWords", { requested, title });
   }
   /** The host's display mode changed, as the reader's own control would. */
   async setHostDisplay(mode) {

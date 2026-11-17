@@ -14,15 +14,17 @@ func init() {
 }
 
 func main() {
+	// For the author, not a reader: an exe built outside build_apps.py, so
+	// in English.
 	if storyID == "" {
 		fail("This program was built without its game's details.\n\n" +
 			"Build it with tools/build_apps.py --windows, or open the game's index.html instead.")
 	}
 
+	// A reader who moved the exe: in their display language.
 	page, err := gamePage()
 	if err != nil {
-		fail(gameTitle() + " cannot find " + pageName + " next to this program.\n\n" +
-			"Keep the program inside its game folder, or open the folder's " + pageName + " instead.")
+		failWith("host.windows.missing", map[string]string{"title": gameTitle(), "file": pageName})
 	}
 
 	// A second launch while the game is open brings it forward.

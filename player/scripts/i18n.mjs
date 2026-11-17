@@ -1,8 +1,8 @@
 // The player's catalogue tooling (docs/plan.md Phase 54 item 2;
-// docs/verify-player.md, "The player's words"). Two generated files,
-// both committed, both rewritten by `npm run i18n` and by every build,
-// and both checked by `npm test` (scripts/i18n.test.mjs), which fails
-// while either is stale:
+// docs/verify-player.md, "The player's words"). Three generated files,
+// all committed, all rewritten by `npm run i18n` and by every build,
+// and all checked by `npm test` (scripts/i18n.test.mjs), which fails
+// while any is stale:
 //
 // - player/locales/messages.pot, the translators' template, from the
 //   English catalogue (src/i18n/en.ts): one entry per message, `msgctxt`
@@ -19,9 +19,16 @@
 //   on a plain message or none on a plural one, or placeholders not the
 //   English's is left out and reported.
 //
-// Run: `node scripts/i18n.mjs` (writes both, prints any problem) or
+// - apps/host-words.json, the game apps' own words (docs/plan.md Phase 54
+//   item 7): the `host.*` messages alone, in English and every language,
+//   with `source`, a sha256 over en.ts and the PO files it was made from
+//   (`sourceDigest`), so tools/build_apps.py, which embeds the table in
+//   each app, refuses a stale one without running Node.
+//
+// Run: `node scripts/i18n.mjs` (writes all three, prints any problem) or
 // `node scripts/i18n.mjs --check` (writes nothing; exit 1 if stale).
 
+import { createHash } from "node:crypto";
 import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -38,6 +45,9 @@ export const GENERATED_FILE = join(
   "i18n",
   "locales.generated.ts",
 );
+export const HOST_WORDS_FILE = join(playerDir, "..", "apps", "host-words.json");
+/** The prefix of the messages the game apps draw themselves. */
+export const HOST_PREFIX = "host.";
 
 /** The `{name}` placeholders in `text`, in order, each once. */
 export function placeholdersOf(text) {
@@ -306,8 +316,52 @@ export function buildModule(locales) {
 }
 
 /**
- * Both generated files' text from the sources now: `{ pot, module,
- * problems, tags }`.
+ * The sha256 (hex) of the sources the generated files come from: en.ts,
+ * then each PO file in tag order, each preceded by its name
+ * (`src/i18n/en.ts`, `locales/<tag>.po`) between NULs. tools/build_apps.py
+ * (`host_words_digest`) computes the same to tell a stale
+ * apps/host-words.json.
+ */
+export function sourceDigest(dir = LOCALES_DIR, enSource = EN_SOURCE) {
+  const hash = createHash("sha256");
+  hash.update("src/i18n/en.ts\0");
+  hash.update(readFileSync(enSource));
+  for (const tag of localeTags(dir)) {
+    hash.update(`\0locales/${tag}.po\0`);
+    hash.update(readFileSync(join(dir, `${tag}.po`)));
+  }
+  return hash.digest("hex");
+}
+
+/**
+ * apps/host-words.json's text: the `host.*` messages of English and of
+ * each compiled catalogue in `locales` (a key a language lacks is left
+ * out; the apps read English for it), and the sources' digest.
+ */
+export function buildHostWords(locales, digest, en = EN) {
+  const pick = (catalogue) =>
+    Object.fromEntries(
+      Object.keys(en)
+        .filter((key) => key.startsWith(HOST_PREFIX))
+        .filter((key) => typeof catalogue[key] === "string")
+        .map((key) => [key, catalogue[key]]),
+    );
+  const languages = { en: pick(en) };
+  for (const [tag, catalogue] of Object.entries(locales)) {
+    languages[tag] = pick(catalogue);
+  }
+  const table = {
+    generated:
+      "by player/scripts/i18n.mjs from player/src/i18n/en.ts and player/locales/<tag>.po: do not edit; npm run i18n rewrites it",
+    source: digest,
+    languages,
+  };
+  return `${JSON.stringify(table, null, 2)}\n`;
+}
+
+/**
+ * The generated files' text from the sources now: `{ pot, module,
+ * hostWords, problems, tags }`.
  */
 export function generateI18n(dir = LOCALES_DIR) {
   const pot = buildPot();
@@ -320,7 +374,8 @@ export function generateI18n(dir = LOCALES_DIR) {
     locales[tag] = compiled.catalogue;
     problems.push(...compiled.problems);
   }
-  return { pot, module: buildModule(locales), problems, tags };
+  const hostWords = buildHostWords(locales, sourceDigest(dir));
+  return { pot, module: buildModule(locales), hostWords, problems, tags };
 }
 
 function readOr(file) {
@@ -335,6 +390,9 @@ export function writeI18n() {
   if (readOr(GENERATED_FILE) !== generated.module) {
     writeFileSync(GENERATED_FILE, generated.module);
   }
+  if (readOr(HOST_WORDS_FILE) !== generated.hostWords) {
+    writeFileSync(HOST_WORDS_FILE, generated.hostWords);
+  }
   return generated;
 }
 
@@ -344,6 +402,9 @@ export function staleI18n() {
   const stale = [];
   if (readOr(POT_FILE) !== generated.pot) stale.push(POT_FILE);
   if (readOr(GENERATED_FILE) !== generated.module) stale.push(GENERATED_FILE);
+  if (readOr(HOST_WORDS_FILE) !== generated.hostWords) {
+    stale.push(HOST_WORDS_FILE);
+  }
   return stale;
 }
 
@@ -356,6 +417,6 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const { problems, tags } = writeI18n();
   for (const problem of problems) console.warn(problem);
   console.log(
-    `${Object.keys(EN).length} messages; messages.pot and ${tags.length} language(s) written`,
+    `${Object.keys(EN).length} messages; messages.pot, ${tags.length} language(s) and apps/host-words.json written`,
   );
 }

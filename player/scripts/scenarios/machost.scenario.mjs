@@ -17,6 +17,14 @@
 // (KINETIC_VOICE_HELPER): the repo's helper with a slow fake engine, and a
 // stand-in that streams chunks.
 //
+// `language` runs the player itself on the language demo under the app's
+// bridge (docs/plan.md Phase 54 item 7): the page's `language` message
+// reaches the Swift side, which retitles the driver's window and works out
+// the app's menu words through the app's own apps/macos/HostWords.swift,
+// and the driver answers which language the app would pick from a list of
+// preferred languages (the cases in apps/host-language-cases.json, which
+// the player and the Windows program match too).
+//
 // Chrome has no app host: on Chrome every part returns at once.
 
 import { execFileSync } from "node:child_process";
@@ -36,6 +44,12 @@ import { dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { launchWebKit } from "../webkit/puppet.mjs";
 import { onWebKit, repoRoot, scenarioRoot, sleep } from "./harness.mjs";
+import {
+  HINT as LANG_HINT,
+  built as langDemoBuilt,
+  langFolder,
+  pickLanguage,
+} from "./languages.scenario.mjs";
 
 export const title =
   "the macOS app's voice host: the Python download, the helper and the bridge (WebKit only)";
@@ -817,8 +831,9 @@ async function helper({ check }) {
   );
   const forE = await waitEvent(page, (e) => e.id === "e", 5000);
   check(
-    "a second crash: status error with a message naming the log, and the line in flight answered with an error",
+    "a second crash: status error (code helper-crashed) with a message naming the log, and the line in flight answered with an error",
     crashed !== null &&
+      crashed.code === "helper-crashed" &&
       /stopped unexpectedly/.test(crashed.message) &&
       crashed.message.includes("helper.log") &&
       forE?.event === "error" &&
@@ -1000,8 +1015,10 @@ async function limits({ check }) {
     await sleep(500);
     const after = (await events(a.page)).filter((e) => e.event === "status");
     check(
-      "a macOS older than every build of a package in the lock: status and install say unsupported, naming the oldest macOS that works, with nothing written or fetched",
+      "a macOS older than every build of a package in the lock: status and install say unsupported (code macos-version, version 98.1), naming the oldest macOS that works, with nothing written or fetched",
       unsupported?.state === "unsupported" &&
+        unsupported.code === "macos-version" &&
+        unsupported.version === "98.1" &&
         unsupported.message.includes("macOS 98.1 or later") &&
         after.length === 2 &&
         after[1].state === "unsupported" &&
@@ -1018,8 +1035,10 @@ async function limits({ check }) {
     await send(b.page, "install");
     const short = await waitEvent(b.page, (e) => e.event === "status");
     check(
-      "too little free disk for the download plus 1 GB: error saying how much is needed and free, with nothing written or fetched",
+      "too little free disk for the download plus 1 GB: error (code disk-space with the bytes needed and free) saying how much is needed and free, with nothing written or fetched",
       short?.state === "error" &&
+        short.code === "disk-space" &&
+        short.needBytes > short.freeBytes &&
         /need .* GB of free disk space/.test(short.message) &&
         /GB free/.test(short.message) &&
         !existsSync(hugeRoot) &&
@@ -1093,4 +1112,153 @@ async function limits({ check }) {
   }
 }
 
-export const parts = [install, resume, helper, relay, limits];
+/** The game apps' words table and the shared matching cases. */
+const readJson = (file) => JSON.parse(readFileSync(file, "utf8"));
+const HOST_WORDS = readJson(join(repoRoot, "apps", "host-words.json"));
+const LANGUAGE_CASES = readJson(
+  join(repoRoot, "apps", "host-language-cases.json"),
+);
+
+/** Message `key` of the app's table in `tag`, `{name}`s filled. */
+const hostText = (tag, key, params = {}) =>
+  (HOST_WORDS.languages[tag]?.[key] ?? HOST_WORDS.languages.en[key]).replace(
+    /\{([A-Za-z0-9_]+)\}/g,
+    (whole, name) => params[name] ?? whole,
+  );
+
+/** The app's menu words in `tag` for `title`, as the driver reports them. */
+const menuWords = (tag, title) => ({
+  hide: hostText(tag, "host.menu.hide", { title }),
+  quit: hostText(tag, "host.menu.quit", { title }),
+  view: hostText(tag, "host.menu.view"),
+  reload: hostText(tag, "host.menu.reload"),
+  fullScreen: hostText(tag, "host.menu.fullScreen"),
+});
+
+/** Whether two JSON values are equal, whatever their keys' order. */
+const same = (a, b) => {
+  const sorted = (v) =>
+    v !== null && typeof v === "object" && !Array.isArray(v)
+      ? Object.fromEntries(
+          Object.keys(v)
+            .sort()
+            .map((k) => [k, sorted(v[k])]),
+        )
+      : v;
+  return JSON.stringify(sorted(a)) === JSON.stringify(sorted(b));
+};
+
+/** Polls the driver's records until `test` holds; whether it did. */
+async function waitFor(test, timeout = 6000) {
+  const until = Date.now() + timeout;
+  while (!test() && Date.now() < until) await sleep(50);
+  return test();
+}
+
+/**
+ * The player's language message reaching the app (Phase 54 item 7): at
+ * boot in the reader's language (German) with the German title, then
+ * Arabic, right to left, after the reader picks Arabic; each time the
+ * driver's window takes the title and the app's menu words follow, all
+ * through the app's own Swift. Then which language the app picks before
+ * its page loads, for every shared case and for the driver's own
+ * preferred languages, and its alert's words.
+ */
+async function language({ check, open }) {
+  if (!onWebKit) return;
+  if (!langDemoBuilt) {
+    check("the language demo is built", false, LANG_HINT);
+    return;
+  }
+  const folder = langFolder("machost");
+  const titleOf = (tag) =>
+    readJson(join(folder, "lang", `${tag}.json`)).title.text;
+  const de = titleOf("de");
+  const ar = titleOf("ar");
+  const { page, cdp, host } = await open("language", {
+    folder,
+    host: { kind: "mac-app", display: "window" },
+    languages: ["de"],
+    closeHelp: true,
+  });
+  const latest = () => host.languageMessages().at(-1);
+  const applied = () => page.hostLanguages.at(-1);
+  await waitFor(() => applied()?.windowTitle === de);
+  check(
+    "at boot the page tells the app its language: ui de, left to right, the German title",
+    same(latest(), { type: "language", ui: "de", dir: "ltr", title: de }),
+    host.languageMessages(),
+  );
+  check(
+    "the app follows it: the window takes the German title and the menus are German",
+    same(applied(), {
+      language: "de",
+      windowTitle: de,
+      menu: menuWords("de", de),
+    }),
+    { applied: applied(), want: menuWords("de", de) },
+  );
+  const atBoot = host.languageMessages().length;
+
+  await pickLanguage(page, cdp, "ar");
+  await waitFor(() => applied()?.language === "ar");
+  check(
+    "picking Arabic tells the app: ui ar, right to left, the Arabic title",
+    same(latest(), { type: "language", ui: "ar", dir: "rtl", title: ar }),
+    host.languageMessages(),
+  );
+  check(
+    "the app follows: the Arabic title and Arabic menus",
+    same(applied(), {
+      language: "ar",
+      windowTitle: ar,
+      menu: menuWords("ar", ar),
+    }),
+    applied(),
+  );
+  const sent = host.languageMessages();
+  check(
+    "the page never sends the same language message twice running, and sends none for the display",
+    sent.every((m, i) => i === 0 || !same(m, sent[i - 1])) &&
+      sent.length > atBoot &&
+      host.messages().length === 0,
+    { sent, others: host.messages() },
+  );
+
+  const answer = await page.hostWords(
+    LANGUAGE_CASES.cases.map((c) => c.requested),
+    "Journey",
+  );
+  const wrong = LANGUAGE_CASES.cases
+    .map((c, i) => ({ ...c, got: answer.answers[i]?.language }))
+    .filter((c) => c.got !== (c.expect ?? "en"));
+  check(
+    `before the page, the app picks its language by the player's rule (${LANGUAGE_CASES.cases.length} shared cases, English when none matches)`,
+    JSON.stringify(answer.languages) ===
+      JSON.stringify(LANGUAGE_CASES.catalogue) && wrong.length === 0,
+    { wrong, languages: answer.languages },
+  );
+  const alertIn = (tag) => ({
+    title: hostText(tag, "host.mac.missing.title", { title: "Journey" }),
+    text: hostText(tag, "host.mac.missing.text", { file: "index.html" }),
+    quit: hostText(tag, "host.mac.missing.quit"),
+  });
+  const deAlert = answer.answers.find((a) => a.language === "de")?.alert;
+  const enAlert = answer.answers.find((a) => a.language === "en")?.alert;
+  check(
+    "the missing-game alert is in that language (German here, English when none matches)",
+    same(deAlert, alertIn("de")) &&
+      same(enAlert, alertIn("en")) &&
+      deAlert.text.includes("index.html") &&
+      !deAlert.title.includes("{"),
+    { deAlert, enAlert },
+  );
+  check(
+    "the system's preferred languages (German here) pick German",
+    answer.system.preferred[0]?.startsWith("de") &&
+      answer.system.language === "de",
+    answer.system,
+  );
+}
+
+export const parts = [install, resume, helper, relay, limits, language];

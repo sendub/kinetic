@@ -9,13 +9,16 @@
 // overflows its width or is clipped. The Esc screen is read at 1280x800
 // and 600 wide; the audio demo adds the Sound row and the Volumes sheet,
 // a stand-in voice engine (../testing/fakevoice.mjs) the voice model's
-// download, progress, error and removal; a copy of the demo with video
-// segments the segment note; the language demo the Language control and
-// its list (each language named in itself is exempt, as game text is).
+// download, progress, error (each voice code a game app sends, in the
+// player's words: docs/plan.md Phase 54 item 7) and removal; a copy of
+// the demo with video segments the segment note; the language demo the
+// Language control and its list (each language named in itself is
+// exempt, as game text is).
 // Pills are read as each one shows.
 
 import { cpSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { EN } from "../../src/i18n/en.ts";
 import { PSEUDO_LOCALE } from "../testing/testlocale.mjs";
 import {
   audioDemoDir,
@@ -54,9 +57,20 @@ export const title =
 const AUDIO_HINT =
   "fixtures/audio-demo is missing: build it with .venv/bin/python fixtures/build_audio_demo.py";
 
-// The stand-in voice engine's own words for a failed download: a host's
-// message, not the player's (../testing/fakevoice.mjs).
-const HOST_ERROR = "The download failed: the connection dropped.";
+// The codes a game app sends with a voice error or a machine that cannot
+// run the voices (docs/plan.md Phase 54 item 7; apps/README.md), each with
+// the player's own words, `voice.code.<code>`; the first five name a
+// machine that cannot run them.
+const VOICE_CODES = Object.keys(EN)
+  .filter((key) => key.startsWith("voice.code."))
+  .map((key) => key.slice("voice.code.".length));
+const UNSUPPORTED_CODES = new Set([
+  "apple-silicon",
+  "macos-version",
+  "unsupported-system",
+  "no-nvidia",
+  "nvidia-driver",
+]);
 
 const WIDE = { width: 1280, height: 800, deviceScaleFactor: 1 };
 const NARROW = { width: 600, height: 800, deviceScaleFactor: 1 };
@@ -379,6 +393,86 @@ export async function audit(
     found.boxes.slice(0, 8),
   );
   return found;
+}
+
+/**
+ * The Voice row under the stand-in host (open on the Volumes sheet) for
+ * each code a game app sends: the host's status with that code, its
+ * numbers and an English detail; the row's message (an error) or its "?"
+ * tip (a machine that cannot run the voices), opened, must be the
+ * catalogue's words for the code (never the detail, never the general
+ * words with it) and fit. One check over all the codes. The row is left
+ * in the last code's error state.
+ */
+export async function auditVoiceCodes(page, cdp, check, label, content) {
+  const failed = [];
+  let texts = 0;
+  for (const code of VOICE_CODES) {
+    const state = UNSUPPORTED_CODES.has(code) ? "unsupported" : "error";
+    await page.evaluate(
+      (s, detail, problem) => window.__fakeVoice.setStatus(s, detail, problem),
+      state,
+      `HOST DETAIL ${code}`,
+      {
+        code,
+        version: "14.0",
+        needBytes: 7_830_000_000,
+        freeBytes: 2_100_000_000,
+      },
+    );
+    const shown = await until(
+      page,
+      (s) =>
+        document.querySelector('[data-volume="voiceVolume"]')?.dataset.state ===
+        s,
+      3000,
+      state,
+    );
+    const tip = '[data-config-action="tip-voice-model"]';
+    const tipOpen = (s) =>
+      document.querySelector(s)?.parentElement?.getAttribute("data-tip") ===
+      "open";
+    if (state === "unsupported") {
+      await clickCenter(cdp, tip);
+      await until(page, tipOpen, 2000, tip);
+    }
+    const words = await page.evaluate((s) => {
+      const row = document.querySelector('[data-volume="voiceVolume"]');
+      const el = row?.querySelector(
+        s === "error" ? ".volume-model-message" : ".config-tip-text",
+      );
+      return el?.textContent ?? null;
+    }, state);
+    const found = await page.evaluate((o) => window.__kAudit(o), {
+      content,
+      host: [],
+      root: "#volumes",
+    });
+    if (state === "unsupported" && (await page.evaluate(tipOpen, tip))) {
+      await clickCenter(cdp, tip);
+    }
+    texts += found.texts;
+    if (
+      !shown ||
+      !words ||
+      words.includes("HOST DETAIL") ||
+      found.words.length > 0 ||
+      found.boxes.length > 0
+    ) {
+      failed.push({
+        code,
+        shown,
+        words,
+        outside: found.words.slice(0, 4),
+        boxes: found.boxes.slice(0, 4),
+      });
+    }
+  }
+  check(
+    `${label}: each of the ${VOICE_CODES.length} voice codes a game app sends shows the catalogue's words for it, fitting (${texts} texts read)`,
+    failed.length === 0,
+    failed,
+  );
 }
 
 /** The pills shown since the page loaded, each read as it showed. */
@@ -895,9 +989,9 @@ async function voice({ check, open }) {
   check("the download fails once", await row("error"));
   await audit(page, check, "the download's error", {
     content,
-    host: [HOST_ERROR],
     root: "#volumes",
   });
+  await auditVoiceCodes(page, cdp, check, "the voice codes", content);
   await clickCenter(cdp, '[data-config-action="volume-model-retry"]');
   check("the retried download finishes", await row("ready"));
   await audit(page, check, "the installed model's row", {

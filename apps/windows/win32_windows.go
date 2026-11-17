@@ -57,6 +57,7 @@ var (
 	procGetStockObject               = gdi32.NewProc("GetStockObject")
 	procGetModuleHandle              = kernel32.NewProc("GetModuleHandleW")
 	procCreateMutex                  = kernel32.NewProc("CreateMutexW")
+	procGetUserPreferredUILanguages  = kernel32.NewProc("GetUserPreferredUILanguages")
 	procCoInitializeEx               = ole32.NewProc("CoInitializeEx")
 	procCoTaskMemFree                = ole32.NewProc("CoTaskMemFree")
 	procSHGetKnownFolderPath         = shell32.NewProc("SHGetKnownFolderPath")
@@ -362,6 +363,37 @@ func openInBrowser(page string) {
 	if err := hidden("rundll32.exe", "url.dll,FileProtocolHandler", page).Start(); err != nil {
 		logf("opening %s in the default browser: %v", page, err)
 	}
+}
+
+// muiLanguageName asks GetUserPreferredUILanguages for tags (en-US), not
+// LCIDs.
+const muiLanguageName = 0x8
+
+// userUILanguages is the user's Windows display languages, most wanted
+// first (GetUserPreferredUILanguages), as BCP 47 tags; none when Windows
+// does not say.
+func userUILanguages() []string {
+	var count, size uint32
+
+	if ok, _, _ := procGetUserPreferredUILanguages.Call(muiLanguageName, uintptr(unsafe.Pointer(&count)), 0,
+		uintptr(unsafe.Pointer(&size))); ok == 0 || size == 0 {
+		return nil
+	}
+
+	buffer := make([]uint16, size)
+	if ok, _, _ := procGetUserPreferredUILanguages.Call(muiLanguageName, uintptr(unsafe.Pointer(&count)),
+		uintptr(unsafe.Pointer(&buffer[0])), uintptr(unsafe.Pointer(&size))); ok == 0 {
+		return nil
+	}
+
+	return splitMultiString(buffer)
+}
+
+// failWith shows the message key of the exe's own words (hostwords.go) in
+// the user's display language, then exits.
+func failWith(key string, params map[string]string) {
+	words := parseHostWords(embeddedHostWords)
+	fail(words.text(hostLanguage(userUILanguages(), words), key, params))
 }
 
 // fail shows message in an error box captioned with the game's title, then

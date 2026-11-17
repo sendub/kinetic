@@ -32,9 +32,15 @@
 import CryptoKit
 import Foundation
 
-/// A failure with the words the reader sees.
+/// A failure as the page gets it (docs/plan.md Phase 54 item 7;
+/// apps/README.md, "The voice bridge"): `code` names it, which the page
+/// words from the player's catalogue; `message` is an English detail for
+/// the log; `fields` are the code's own numbers (`version`; `needBytes` and
+/// `freeBytes`).
 struct VoiceFailure: Error {
+    let code: String
     let message: String
+    var fields: [String: Any] = [:]
 }
 
 final class VoiceEngine: NSObject, KineticVoiceHost, URLSessionDataDelegate {
@@ -90,7 +96,7 @@ final class VoiceEngine: NSObject, KineticVoiceHost, URLSessionDataDelegate {
                 let url = python["url"] as? String, let sha = python["sha256"] as? String,
                 let size = VoiceEngine.int64(python["size"]), let wheels = json["wheels"] as? [[String: Any]],
                 let model = json["model"] as? [[String: Any]]
-            else { throw VoiceFailure(message: "The voice lock file is not readable.") }
+            else { throw VoiceFailure(code: "lock-failed", message: "The voice lock file is not readable.") }
             self.id = id
             pythonSHA256 = sha
             pythonSize = size
@@ -142,7 +148,10 @@ final class VoiceEngine: NSObject, KineticVoiceHost, URLSessionDataDelegate {
                 let oldest = wheels.filter { missing.contains($0["name"] as? String ?? "") }
                     .compactMap { $0["minMacos"] as? String }
                     .min { VoiceEngine.version($0).lexicographicallyPrecedes(VoiceEngine.version($1)) } ?? "?"
-                return .failure(VoiceFailure(message: "Spoken lines need macOS \(oldest) or later."))
+                return .failure(
+                    VoiceFailure(
+                        code: "macos-version", message: "Spoken lines need macOS \(oldest) or later.",
+                        fields: ["version": oldest]))
             }
             return .success(names.compactMap { chosen[$0] })
         }
@@ -170,7 +179,7 @@ final class VoiceEngine: NSObject, KineticVoiceHost, URLSessionDataDelegate {
         var task: URLSessionDataTask?
         var file: FileHandle?
         var have: Int64 = 0
-        var failure: String?
+        var failure: VoiceFailure?
         var helperRequest: Int?
     }
 
@@ -224,6 +233,8 @@ final class VoiceEngine: NSObject, KineticVoiceHost, URLSessionDataDelegate {
     // The state, on `queue` only.
     private var state: State?
     private var message: String?
+    /// With `error` and `unsupported`: the failure's code and numbers.
+    private var failure: VoiceFailure?
     private var downloadBytes: Int64 = 0
     private var done: Int64 = 0
     private var total: Int64 = 0
@@ -295,7 +306,7 @@ final class VoiceEngine: NSObject, KineticVoiceHost, URLSessionDataDelegate {
     private func status() {
         guard let lock = currentLock() else { return }
         if let reason = unsupported(lock) {
-            setState(.unsupported, message: reason)
+            setState(.unsupported, failure: reason)
             return
         }
         if install != nil {
@@ -319,16 +330,23 @@ final class VoiceEngine: NSObject, KineticVoiceHost, URLSessionDataDelegate {
             if let bytes = Self.int64(reply["downloadBytes"]) { downloadBytes = pythonBytes(lock) + bytes }
             setState(reply["installed"] as? Bool == true ? .ready : .absent)
         } else if reply["code"] as? String == "unsupported-system" {
-            setState(.unsupported, message: "Spoken lines need a newer macOS (\(reply["error"] ?? "")).")
+            setState(
+                .unsupported,
+                failure: VoiceFailure(
+                    code: "unsupported-system", message: "Spoken lines need a newer macOS (\(reply["error"] ?? ""))."))
         } else {
-            setState(.error, message: "The voice helper could not report its state: \(reply["error"] ?? "unknown error").")
+            setState(
+                .error,
+                failure: VoiceFailure(
+                    code: "helper-failed",
+                    message: "The voice helper could not report its state: \(reply["error"] ?? "unknown error")."))
         }
     }
 
     private func startInstall() {
         guard let lock = currentLock() else { return }
         if let reason = unsupported(lock) {
-            setState(.unsupported, message: reason)
+            setState(.unsupported, failure: reason)
             return
         }
         if install != nil {
@@ -340,22 +358,32 @@ final class VoiceEngine: NSObject, KineticVoiceHost, URLSessionDataDelegate {
         if !installComplete(lock), let free = freeBytes(), free < full + Self.diskMargin {
             setState(
                 .error,
-                message: "Spoken lines need \(Self.gigabytes(full + Self.diskMargin)) of free disk space "
-                    + "(a \(Self.gigabytes(full)) download, then room to unpack it); this Mac has "
-                    + "\(Self.gigabytes(free)) free. Free some space, then try again.")
+                failure: VoiceFailure(
+                    code: "disk-space",
+                    message: "Spoken lines need \(Self.gigabytes(full + Self.diskMargin)) of free disk space "
+                        + "(a \(Self.gigabytes(full)) download, then room to unpack it); this Mac has "
+                        + "\(Self.gigabytes(free)) free. Free some space, then try again.",
+                    fields: ["needBytes": full + Self.diskMargin, "freeBytes": free]))
             return
         }
         do {
             try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
         } catch {
-            setState(.error, message: "The voice folder \(root.path) cannot be made: \(error.localizedDescription)")
+            setState(
+                .error,
+                failure: VoiceFailure(
+                    code: "folder-failed",
+                    message: "The voice folder \(root.path) cannot be made: \(error.localizedDescription)"))
             return
         }
         _ = openLog()
         do {
             try writeHelper(lock)
         } catch {
-            setState(.error, message: "The voice helper cannot be written: \(error.localizedDescription)")
+            setState(
+                .error,
+                failure: VoiceFailure(
+                    code: "folder-failed", message: "The voice helper cannot be written: \(error.localizedDescription)"))
             return
         }
         let run = Install()
@@ -475,9 +503,17 @@ final class VoiceEngine: NSObject, KineticVoiceHost, URLSessionDataDelegate {
 
     // MARK: the page's status
 
-    private func setState(_ next: State, message text: String? = nil) {
+    /// A state with no failure (absent, installing, ready).
+    private func setState(_ next: State) {
+        setState(next, failure: nil)
+    }
+
+    /// `error` or `unsupported` for `failure`, which the page words by its
+    /// code.
+    private func setState(_ next: State, failure reason: VoiceFailure?) {
         state = next
-        message = text
+        failure = reason
+        message = reason?.message
         lastProgress = ProcessInfo.processInfo.systemUptime
         push()
     }
@@ -499,7 +535,13 @@ final class VoiceEngine: NSObject, KineticVoiceHost, URLSessionDataDelegate {
             event["done"] = done
             event["total"] = total
         }
-        if let message, state == .error || state == .unsupported { event["message"] = message }
+        if state == .error || state == .unsupported {
+            if let message { event["message"] = message }
+            if let failure {
+                event["code"] = failure.code
+                event.merge(failure.fields) { _, field in field }
+            }
+        }
         send(event)
     }
 
@@ -517,13 +559,15 @@ final class VoiceEngine: NSObject, KineticVoiceHost, URLSessionDataDelegate {
             data = KineticVoiceEmbedded.files.first { $0.path == KineticVoiceEmbedded.lockPath }
                 .flatMap { Data(base64Encoded: $0.base64) }
         }
-        guard let data else { return .failure(VoiceFailure(message: "The voice lock file is missing.")) }
+        guard let data else { return .failure(VoiceFailure(code: "lock-failed", message: "The voice lock file is missing.")) }
         do {
             return .success(try Lock(data, downloadBase: settings.downloadBase))
         } catch let failure as VoiceFailure {
             return .failure(failure)
         } catch {
-            return .failure(VoiceFailure(message: "The voice lock file is not readable: \(error.localizedDescription)"))
+            return .failure(
+                VoiceFailure(
+                    code: "lock-failed", message: "The voice lock file is not readable: \(error.localizedDescription)"))
         }
     }
 
@@ -531,19 +575,19 @@ final class VoiceEngine: NSObject, KineticVoiceHost, URLSessionDataDelegate {
         switch lockLoad {
         case .success(let lock): return lock
         case .failure(let failure):
-            setState(.error, message: failure.message)
+            setState(.error, failure: failure)
             return nil
         }
     }
 
-    private func unsupported(_ lock: Lock) -> String? {
+    private func unsupported(_ lock: Lock) -> VoiceFailure? {
         #if arch(arm64)
             if case .failure(let failure) = lock.wheels(for: ProcessInfo.processInfo.operatingSystemVersion) {
-                return failure.message
+                return failure
             }
             return nil
         #else
-            return "Spoken lines need a Mac with Apple silicon."
+            return VoiceFailure(code: "apple-silicon", message: "Spoken lines need a Mac with Apple silicon.")
         #endif
     }
 
@@ -629,7 +673,7 @@ final class VoiceEngine: NSObject, KineticVoiceHost, URLSessionDataDelegate {
             return
         }
         guard let url = URL(string: lock.pythonURL) else {
-            failInstall("The Python download's address is not valid.")
+            failInstall(VoiceFailure(code: "install-failed", message: "The Python download's address is not valid."))
             return
         }
         var request = URLRequest(url: url)
@@ -663,12 +707,13 @@ final class VoiceEngine: NSObject, KineticVoiceHost, URLSessionDataDelegate {
                 run.file = try FileHandle(forWritingTo: partial)
                 run.have = 0
             } else {
-                run.failure = "The Python download failed (HTTP \(code))."
+                run.failure = VoiceFailure(code: "download-failed", message: "The Python download failed (HTTP \(code)).")
                 completionHandler(.cancel)
                 return
             }
         } catch {
-            run.failure = "The Python download cannot be saved: \(error.localizedDescription)"
+            run.failure = VoiceFailure(
+                code: "folder-failed", message: "The Python download cannot be saved: \(error.localizedDescription)")
             completionHandler(.cancel)
             return
         }
@@ -680,7 +725,8 @@ final class VoiceEngine: NSObject, KineticVoiceHost, URLSessionDataDelegate {
         do {
             try file.write(contentsOf: data)
         } catch {
-            run.failure = "The Python download cannot be saved: \(error.localizedDescription)"
+            run.failure = VoiceFailure(
+                code: "folder-failed", message: "The Python download cannot be saved: \(error.localizedDescription)")
             dataTask.cancel()
             return
         }
@@ -699,9 +745,17 @@ final class VoiceEngine: NSObject, KineticVoiceHost, URLSessionDataDelegate {
         } else if let failure = run.failure {
             failInstall(failure)
         } else if let error {
-            failInstall("The Python download failed: \(error.localizedDescription). Try again to continue it.")
+            failInstall(
+                VoiceFailure(
+                    code: "download-failed",
+                    message: "The Python download failed: \(error.localizedDescription). Try again to continue it."))
         } else if run.have != lock.pythonSize {
-            failInstall("The Python download stopped at \(run.have) of \(lock.pythonSize) bytes. Try again to continue it.")
+            failInstall(
+                VoiceFailure(
+                    code: "download-failed",
+                    message:
+                        "The Python download stopped at \(run.have) of \(lock.pythonSize) bytes. Try again to continue it."
+                ))
         } else {
             unpackPython(run, lock)
         }
@@ -718,7 +772,7 @@ final class VoiceEngine: NSObject, KineticVoiceHost, URLSessionDataDelegate {
             self.queue.async {
                 guard self.install === run else { return }
                 switch result {
-                case .failure(let failure): self.failInstall(failure.message)
+                case .failure(let failure): self.failInstall(failure)
                 case .success:
                     self.logLine("Python unpacked into \(root.appendingPathComponent("python").path)")
                     if run.cancelled { self.finishCancelled(run) } else { self.startHelperInstall(run, lock) }
@@ -730,12 +784,14 @@ final class VoiceEngine: NSObject, KineticVoiceHost, URLSessionDataDelegate {
     static func unpack(archive: URL, sha256: String, root: URL) -> Result<Void, VoiceFailure> {
         let fileManager = FileManager.default
         guard let digest = sha256Hex(of: archive) else {
-            return .failure(VoiceFailure(message: "The Python download cannot be read."))
+            return .failure(VoiceFailure(code: "install-failed", message: "The Python download cannot be read."))
         }
         guard digest == sha256 else {
             try? fileManager.removeItem(at: archive)
             return .failure(
-                VoiceFailure(message: "The Python download did not match its checksum, so it was deleted. Try again."))
+                VoiceFailure(
+                    code: "hash-mismatch",
+                    message: "The Python download did not match its checksum, so it was deleted. Try again."))
         }
         let staging = root.appendingPathComponent("python.partial")
         try? fileManager.removeItem(at: staging)
@@ -749,12 +805,14 @@ final class VoiceEngine: NSObject, KineticVoiceHost, URLSessionDataDelegate {
             try tar.run()
             tar.waitUntilExit()
             guard tar.terminationStatus == 0 else {
-                throw VoiceFailure(message: "The Python download could not be unpacked (tar exit \(tar.terminationStatus)).")
+                throw VoiceFailure(
+                    code: "install-failed",
+                    message: "The Python download could not be unpacked (tar exit \(tar.terminationStatus)).")
             }
             // python-build-standalone's install_only archives hold python/.
             let unpacked = staging.appendingPathComponent("python")
             guard fileManager.isExecutableFile(atPath: unpacked.appendingPathComponent("bin/python3").path) else {
-                throw VoiceFailure(message: "The Python download holds no python/bin/python3.")
+                throw VoiceFailure(code: "install-failed", message: "The Python download holds no python/bin/python3.")
             }
             try Data(sha256.utf8).write(to: unpacked.appendingPathComponent(pythonMarker), options: .atomic)
             let target = root.appendingPathComponent("python")
@@ -770,7 +828,8 @@ final class VoiceEngine: NSObject, KineticVoiceHost, URLSessionDataDelegate {
             return .failure(failure)
         } catch {
             try? fileManager.removeItem(at: staging)
-            return .failure(VoiceFailure(message: "Python could not be unpacked: \(error.localizedDescription)"))
+            return .failure(
+                VoiceFailure(code: "install-failed", message: "Python could not be unpacked: \(error.localizedDescription)"))
         }
     }
 
@@ -816,17 +875,26 @@ final class VoiceEngine: NSObject, KineticVoiceHost, URLSessionDataDelegate {
             finishCancelled(run)
             return
         } else if code == "unsupported-system" {
-            setState(.unsupported, message: "Spoken lines need a newer macOS (\(reply["error"] ?? "")).")
+            setState(
+                .unsupported,
+                failure: VoiceFailure(
+                    code: "unsupported-system", message: "Spoken lines need a newer macOS (\(reply["error"] ?? ""))."))
         } else {
+            // The helper's code is the page's (apps/voice/README.md).
             let detail = reply["error"] as? String ?? "unknown error"
-            let what: String
+            let failure: VoiceFailure
             switch code {
-            case "download-failed": what = "A download failed (\(detail)). Try again to continue it."
-            case "hash-mismatch": what = "A download did not match its checksum (\(detail)). Try again."
-            case "pip-failed": what = "Installing the voice packages failed (\(detail))."
-            default: what = "The voice install failed (\(detail))."
+            case "download-failed":
+                failure = VoiceFailure(code: "download-failed", message: "A download failed (\(detail)). Try again to continue it.")
+            case "hash-mismatch":
+                failure = VoiceFailure(
+                    code: "hash-mismatch", message: "A download did not match its checksum (\(detail)). Try again.")
+            case "pip-failed":
+                failure = VoiceFailure(code: "pip-failed", message: "Installing the voice packages failed (\(detail)).")
+            default:
+                failure = VoiceFailure(code: "install-failed", message: "The voice install failed (\(detail)).")
             }
-            setState(.error, message: what)
+            setState(.error, failure: failure)
         }
         if run.thenRemove { remove() }
     }
@@ -838,11 +906,11 @@ final class VoiceEngine: NSObject, KineticVoiceHost, URLSessionDataDelegate {
         if run.thenRemove { remove() }
     }
 
-    private func failInstall(_ text: String) {
+    private func failInstall(_ failure: VoiceFailure) {
         let run = install
         install = nil
-        logLine("install failed: \(text)")
-        setState(.error, message: text)
+        logLine("install failed: \(failure.message)")
+        setState(.error, failure: failure)
         if run?.thenRemove == true { remove() }
     }
 
@@ -859,7 +927,7 @@ final class VoiceEngine: NSObject, KineticVoiceHost, URLSessionDataDelegate {
             return true
         } catch {
             let text = (error as? VoiceFailure)?.message ?? error.localizedDescription
-            setState(.error, message: "The voice helper could not start: \(text)")
+            setState(.error, failure: VoiceFailure(code: "helper-failed", message: "The voice helper could not start: \(text)"))
             return false
         }
     }
@@ -1027,7 +1095,7 @@ final class VoiceEngine: NSObject, KineticVoiceHost, URLSessionDataDelegate {
         install = nil
         let text = "The voice helper stopped unexpectedly. Its log is \(path("helper.log").path)."
         failPending("helper-crashed", text)
-        setState(.error, message: text)
+        setState(.error, failure: VoiceFailure(code: "helper-crashed", message: text))
         if run?.thenRemove == true { remove() }
     }
 

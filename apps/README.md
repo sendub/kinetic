@@ -2,7 +2,8 @@
 
 `macos/` holds the macOS app (`app/`, Swift over the system WebKit) and the
 scenario suite's WebKit driver (`driver/`), which share
-`macos/WebViewSetup.swift` and `macos/VoiceEngine.swift`. `windows/` holds
+`macos/WebViewSetup.swift`, `macos/VoiceEngine.swift` and
+`macos/HostWords.swift`. `windows/` holds
 the Windows exe (Go's standard library over WebView2). `voice/` holds the
 voice helper both apps run for spoken lines (`voice/README.md`).
 `tools/build_apps.py` builds them into a game folder (CREATE.md, "Building
@@ -94,6 +95,17 @@ is `player/src/render/host.ts`; the macOS side is `KineticHostBridge` in
 - With a host present the page never asks for element fullscreen. Without
   one (a browser tab) the page keeps a Display setting with its other
   settings and uses the Fullscreen API.
+- The page sends `{ type: "language", ui, dir, title? }` (docs/plan.md
+  Phase 54 item 7): `ui` the tag of the language its own words are in
+  (the player's UI language, a catalogue language), `dir` `"ltr"` or
+  `"rtl"`, and `title` the game's title as shown, in the language shown,
+  absent when the game has none. It sends it as soon as the host object
+  is there (at load, or at the `kinetic-host` event that brings it), again
+  once the manifest gives the title, and on every change of the UI
+  language or of the game's language; never the same message twice
+  running. The host draws its own words in `ui` and titles its window
+  with `title`, else the game's title it was built with (The apps' own
+  words, below).
 
 On macOS a user script at document start defines the object, `send` posts
 to the `kineticHost` script message handler, and the app reports each
@@ -148,8 +160,11 @@ the page in it through WebView2, the Edge engine Windows provides to apps.
 
 `go test` in `windows/` covers the decisions on any OS: the window plan
 and memory, the host script (run in Node when it is installed), the
-message and sender checks, the keys, download names, finding the
-runtime and the environment variables it sets for WebView2. Running the
+message and sender checks (the language message and the title it gives
+the window too), the keys, download names, finding the runtime, the
+environment variables it sets for WebView2, and the words table (its
+language matching against the shared cases, the lookup and its English
+fallback, and reading `GetUserPreferredUILanguages`' list). Running the
 exe on Windows is a manual check.
 
 The voice host's decisions are tested the same way, on any OS
@@ -165,6 +180,59 @@ cross-compiled `go test -c` binary that runs the engine without a window
 against the real Python download. A windowed exe's own run, with a real
 game, is a manual check. `tools/build_apps.py --windows` stops with an
 error when `voice/lock-windows-x64.json` is missing.
+
+## The apps' own words
+
+What the apps draw themselves comes from the player's catalogue, in all
+its languages (docs/plan.md Phase 54 item 7; docs/verify-player.md, "The
+player's words"): the `host.*` messages of `player/src/i18n/en.ts` and
+`player/locales/<tag>.po`, which `npm run i18n` writes to
+`apps/host-words.json` (committed; `npm test` fails while it is stale).
+`tools/build_apps.py` embeds it in each app and stops when it is stale
+against the catalogue (a digest of `en.ts` and the PO files is in it):
+
+| Key | Where |
+| --- | --- |
+| `host.menu.hide`, `host.menu.quit` | The Mac app menu's Hide and Quit items, `{title}` the shown title. |
+| `host.menu.view`, `host.menu.reload`, `host.menu.fullScreen` | The Mac View menu, its Reload and Toggle Full Screen. |
+| `host.mac.missing.title`, `.text`, `.quit` | The Mac alert when the app finds no `index.html` beside it. |
+| `host.windows.missing` | The exe's error box when it finds no `index.html` beside it. |
+
+The Mac menus have only these items: there is no About, Hide Others or
+Show All item to translate. The window title is the game's title alone,
+with no words around it. Words that stay English: the exe's error box for
+an exe built outside `tools/build_apps.py` ("built without its game's
+details"), which only an author can meet, and the English detail of a
+voice status (`message`, for the log; the page shows its `code`'s words).
+
+Before the page loads, an app picks the language from the system's
+preferred languages (`Locale.preferredLanguages` on macOS, the user's
+display languages from `GetUserPreferredUILanguages` on Windows) by the
+player's own rule (`bestLanguageMatch` in
+`player/src/i18n/languages.ts`): the first preferred language with a
+match in the table, a match being the same tag, else the same language
+and script (likely subtags filled in, so `zh-TW` takes `zh-Hant`) with the
+same region, a region group (`es-MX` takes `es-419`) or no region; else
+English. `apps/host-language-cases.json` holds cases the player
+(`languages.test.ts`), the exe (`hostwords_test.go`) and the Mac app (the
+`machost` scenario, through the WebKit driver) all check. A language
+message then moves the Mac menus to `ui` and both windows' titles to
+`title`.
+
+- macOS: `macos/HostWords.swift` (shared with the WebKit driver) reads
+  the table, compiled in as a generated `KineticHostWordsEmbedded.swift`
+  (base64, never committed; `tools/build_apps.py` and
+  `player/scripts/webkit/build.mjs` write the same text), matches the
+  language, and gives the menu and alert words; `KineticHostBridge` hands
+  each language message to the app's `onLanguage`. The app's window
+  still follows the page's `document.title` too, which is the same title.
+- Windows: `windows/hostwords.go` (platform-neutral, tested on any OS)
+  reads the table, which the build copies into the package as
+  `hostwords.json` with a generated `hostwords_embedded.go` (never
+  committed); a build without it (`go test`) uses the built-in English,
+  which `hostwords_test.go` holds to the table's. On a language message
+  the exe sets its window's text (`languageTitle`); the document-title
+  handler keeps doing so for an older page.
 
 ## Spoken lines
 
@@ -206,11 +274,12 @@ an error, a greyed button for `unsupported`, or the slider once `ready`).
 
 | Event (`event`) | Fields |
 | --- | --- |
-| `status` | `state`: `absent`, `installing`, `ready`, `error` or `unsupported`; `downloadBytes` (the whole install, Python included); with `installing`, `done` and `total` on one scale across the Python download and the helper's progress; with `error` and `unsupported`, `message`, for the reader. Sent on every change and in answer to `status`, `install` and `cancel`, progress at most four times a second. |
+| `status` | `state`: `absent`, `installing`, `ready`, `error` or `unsupported`; `downloadBytes` (the whole install, Python included); with `installing`, `done` and `total` on one scale across the Python download and the helper's progress; with `error` and `unsupported`, `code` (below), the code's own fields, and `message`, an English detail for logs. Sent on every change and in answer to `status`, `install` and `cancel`, progress at most four times a second. |
 | `voice` | `id`, `voiceId` (the clip's sha256). |
 | `speech` | `id`, `wav` (base64 WAV, 24 kHz 16-bit mono), `seconds`, and the helper's `genSeconds` and `cached`. |
 | `dropped` | `id`. |
 | `error` | `id`, `code` (the helper's codes, apps/voice/README.md, plus `not-installed` before the install, `helper-crashed` and `helper-stopped`), `message`. |
+| anything else | A helper event that names a request (`target`), such as a streamed line's chunks, passed on as `{ event, id: <the page's id>, ...the rest }`. |
 
 `lang` is the engine's language for the text (docs/plan.md Phase 54 item
 6): the player sends the language the line is shown in, as the engine
@@ -220,19 +289,38 @@ German. A line in a language the engine does not speak is never asked
 for; the helper refuses one with `bad-request` (apps/voice/README.md,
 "The protocol", lists the 23). Both hosts pass the field on as the page
 sent it, and the helper's line cache keys on it.
-| anything else | A helper event that names a request (`target`), such as a streamed line's chunks, passed on as `{ event, id: <the page's id>, ...the rest }`. |
 
 `unsupported` means a Mac without Apple silicon, or a macOS older than
 every build of some package in the lock (the helper's
 `unsupported-system`); its message names the macOS needed. On Windows it
 means no NVIDIA card, or a driver older than the lock's `cudaMinDriver`
 (570.65); `downloadBytes` is still the whole download (6.83 GB) so the
-page can show its greyed button, and the message is the reason for its ?
-help ("Spoken lines need an NVIDIA graphics card. This computer doesn't
-have one." or "Spoken lines need NVIDIA driver 570.65 or later. Update the
-graphics driver to use them."). An install
-first checks that the volume has the whole download plus 1 GB free, and
-reports `error` saying how much it needs and has.
+page can show its greyed button, with the reason in its ? help. An
+install first checks that the volume has the whole download plus 1 GB
+free, and reports `error` saying how much it needs and has.
+
+The page shows the player's words for a status's `code` in the reader's
+language (`voice.code.<code>` in the catalogue; docs/plan.md Phase 54 item
+7), never the English `message`; for a code it does not know, or none (an
+app built before the codes), it shows its general words ("could not be
+downloaded", "not available") with the `message` after them. The codes:
+
+| `code` | State | Fields | When |
+| --- | --- | --- | --- |
+| `apple-silicon` | `unsupported` | | A Mac without Apple silicon. |
+| `macos-version` | `unsupported` | `version` | A macOS older than every build of some package in the lock; `version` the oldest that works. |
+| `unsupported-system` | `unsupported` | | The helper's `unsupported-system` (both apps). |
+| `no-nvidia` | `unsupported` | | Windows: no NVIDIA card, or no working `nvidia-smi`. |
+| `nvidia-driver` | `unsupported` | `version` | Windows: a driver older than the lock's `cudaMinDriver`, which `version` gives. |
+| `disk-space` | `error` | `needBytes`, `freeBytes` | Less free space than the download plus 1 GB. |
+| `download-failed` | `error` | | The Python download (network, HTTP, short, too long) or the helper's `download-failed`. |
+| `hash-mismatch` | `error` | | The Python archive or the helper's download did not match its sha256. |
+| `pip-failed` | `error` | | The helper's `pip-failed`. |
+| `install-failed` | `error` | | Unpacking Python, or any other install failure (the helper's `install-failed` and unknown codes). |
+| `folder-failed` | `error` | | The voice folder, its download or the helper's files cannot be written. |
+| `helper-failed` | `error` | | The helper cannot start, or cannot report its state. |
+| `helper-crashed` | `error` | | The helper stopped a second time. |
+| `lock-failed` | `error` | | The lock built into the app is missing or unreadable. |
 
 ### The voice folder
 

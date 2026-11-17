@@ -104,11 +104,16 @@ func setterScript(display string) string {
 	return "window." + hostSetter + " && window." + hostSetter + "(" + jsString(display) + ");"
 }
 
-// hostMessage is a message the page sent: {type: "quit"}, or {type:
-// "display", mode}.
+// hostMessage is a message the page sent: {type: "quit"}, {type:
+// "display", mode}, or {type: "language", ui, dir, title?} (docs/plan.md
+// Phase 54 item 7: the page's UI language, its direction, and the game's
+// title as shown).
 type hostMessage struct {
-	Type string `json:"type"`
-	Mode string `json:"mode"`
+	Type  string `json:"type"`
+	Mode  string `json:"mode"`
+	UI    string `json:"ui"`
+	Dir   string `json:"dir"`
+	Title string `json:"title"`
 }
 
 // parseMessage reads a page message as WebView2 hands it over (the posted
@@ -123,7 +128,14 @@ func parseMessage(text string) (hostMessage, bool) {
 	case m.Type == "quit":
 		return hostMessage{Type: "quit"}, true
 	case m.Type == "display" && (m.Mode == displayFullscreen || m.Mode == displayWindow):
-		return m, true
+		return hostMessage{Type: "display", Mode: m.Mode}, true
+	case m.Type == "language" && m.UI != "":
+		dir := "ltr"
+		if m.Dir == "rtl" {
+			dir = "rtl"
+		}
+
+		return hostMessage{Type: "language", UI: m.UI, Dir: dir, Title: m.Title}, true
 	default:
 		return hostMessage{}, false
 	}
@@ -259,6 +271,18 @@ func freeName(dir, name string, taken func(path string) bool) string {
 	}
 
 	return path
+}
+
+// languageTitle is the window's title for a language message: the title
+// the page shows, trimmed, else the game's (the manifest's, built in) when
+// the page has none or one a window caption cannot hold (a NUL ends it).
+func languageTitle(m hostMessage, game string) string {
+	title := strings.TrimSpace(m.Title)
+	if title == "" || strings.ContainsRune(title, 0) {
+		return game
+	}
+
+	return title
 }
 
 // windowTitle is the window's title for the page's: the page's, unless it

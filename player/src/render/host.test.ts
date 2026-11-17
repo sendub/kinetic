@@ -6,7 +6,9 @@ import {
   HOST_EVENT,
   type HostMessage,
   type HostWindow,
+  languageMessage,
   readHost,
+  tellHostLanguage,
   type WindowEffects,
   windowActions,
 } from "./host";
@@ -221,6 +223,70 @@ function effects(options: {
   };
   return { fx, log, timers, win };
 }
+
+describe("the language message (docs/plan.md Phase 54 item 7)", () => {
+  it("names the UI language, its direction and the title shown", () => {
+    expect(languageMessage("de", "Die Reise")).toEqual({
+      type: "language",
+      ui: "de",
+      dir: "ltr",
+      title: "Die Reise",
+    });
+    expect(languageMessage("ar", "  الرحلة ")).toEqual({
+      type: "language",
+      ui: "ar",
+      dir: "rtl",
+      title: "الرحلة",
+    });
+    expect(languageMessage("he").dir).toBe("rtl");
+  });
+
+  it("leaves the title out when the game has none", () => {
+    expect(languageMessage("en", null)).toEqual({
+      type: "language",
+      ui: "en",
+      dir: "ltr",
+    });
+    expect("title" in languageMessage("en", "   ")).toBe(false);
+  });
+
+  it("tells a host there at boot once, and again only when it changes", () => {
+    const win = new FakeWindow();
+    const host = appHost();
+    win.kineticHost = host.object;
+    const link = connectHost(win);
+    let ui = "en";
+    let title: string | null = "Journey";
+    const update = tellHostLanguage(link, () => languageMessage(ui, title));
+    expect(host.sent).toEqual([
+      { type: "language", ui: "en", dir: "ltr", title: "Journey" },
+    ]);
+    update();
+    win.fire(HOST_EVENT); // a display change: nothing new to say
+    expect(host.sent).toHaveLength(1);
+    ui = "ar";
+    update();
+    title = "رحلة";
+    update();
+    expect(host.sent.slice(1)).toEqual([
+      { type: "language", ui: "ar", dir: "rtl", title: "Journey" },
+      { type: "language", ui: "ar", dir: "rtl", title: "رحلة" },
+    ]);
+  });
+
+  it("waits for a host that arrives after load, and sends nothing without one", () => {
+    const win = new FakeWindow();
+    const link = connectHost(win);
+    let ui = "en";
+    const update = tellHostLanguage(link, () => languageMessage(ui, null));
+    ui = "ja";
+    update(); // no host yet: nothing to send to
+    const host = appHost();
+    win.kineticHost = host.object;
+    win.fire(HOST_EVENT);
+    expect(host.sent).toEqual([{ type: "language", ui: "ja", dir: "ltr" }]);
+  });
+});
 
 describe("windowActions with a host (a game app)", () => {
   it("shows the host's display mode, following its changes", () => {

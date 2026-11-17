@@ -1574,6 +1574,16 @@ Add the apps to an assembled folder, or assemble with them:
   before it builds either. `assemble_folder.py` checks the `storyId`,
   the tools and the icon before it copies anything.
 
+Both apps speak the reader's language where they draw words of their
+own: the Mac app's menus (Hide, Quit, View, Reload, Toggle Full Screen)
+and its alert when it cannot find its game, and the Windows program's
+error box, in any language of the player's own catalogue, else English.
+Before the game opens they follow the system's language; once it runs
+they follow the language the player's words are in, and the window takes
+the game's title in the language shown. In a checkout where the player's
+catalogue has changed since `npm run i18n` last ran, the build stops and
+says to run it.
+
 Building the Mac app needs a Mac with a Swift toolchain: Xcode, or the
 Command Line Tools (`xcode-select --install`). On any other system, or
 without the toolchain, `--mac` stops with one error saying so and writes

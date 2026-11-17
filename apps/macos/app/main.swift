@@ -22,6 +22,10 @@
 // (../VoiceEngine.swift), passed to the bridge, downloads the voice install
 // into the machine's shared voice folder when the page asks and runs the
 // voice helper, which the binary carries; it stops the helper at quit.
+//
+// Its own words (the menus, the alert below, the window title) are in the
+// reader's language (docs/plan.md Phase 54 item 7; ../HostWords.swift):
+// the system's until the page says its UI language, then the page's.
 
 import AppKit
 import WebKit
@@ -32,6 +36,9 @@ let gameTitle =
     Bundle.main.object(forInfoDictionaryKey: "KineticTitle") as? String
     ?? Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String
     ?? "Kinetic"
+
+/// The app's own words in every catalogue language (../HostWords.swift).
+let hostWords = HostWords.embedded
 
 /// UserDefaults keys (under the app's bundle id): the display mode it was
 /// left in, and its window's frame the last time it was a window.
@@ -61,6 +68,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     /// Spoken lines: the voice folder, the download and the helper.
     let voice = VoiceEngine()
     var titleObservation: NSKeyValueObservation?
+    /// The menu items whose words follow the language.
+    var hideItem: NSMenuItem!
+    var quitItem: NSMenuItem!
+    var viewItem: NSMenuItem!
+    var reloadItem: NSMenuItem!
+    var fullScreenItem: NSMenuItem!
     /// From the moment the window starts into fullscreen until it is a
     /// window again: its frame then is not the reader's to keep.
     var fullScreen = false
@@ -68,11 +81,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     static let style: NSWindow.StyleMask = [.titled, .closable, .miniaturizable, .resizable]
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // The system's language until the page says its own.
+        let systemLanguage = hostWords.language(for: Locale.preferredLanguages)
         buildMenu()
+        retitleMenus(HostMenuTitles(hostWords, language: systemLanguage, title: gameTitle))
         let page = Bundle.main.bundleURL.deletingLastPathComponent()
             .appendingPathComponent("index.html")
         guard FileManager.default.fileExists(atPath: page.path) else {
-            explainMissingGame()
+            explainMissingGame(HostMissingGameAlert(hostWords, language: systemLanguage, title: gameTitle))
             NSApp.terminate(nil)
             return
         }
@@ -86,7 +102,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         bridge = KineticHostBridge(
             kind: "mac-app", display: remembered, voice: voice,
             onQuit: { NSApp.terminate(nil) },
-            onDisplay: { [weak self] mode in self?.show(mode) })
+            onDisplay: { [weak self] mode in self?.show(mode) },
+            onLanguage: { [weak self] language in self?.follow(language) })
         bridge.install(on: config.userContentController)
 
         let content = NSWindow.contentRect(forFrameRect: windowedFrame(), styleMask: Self.style)
@@ -112,6 +129,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         }
         KineticWebView.load(webView, page: page)
         NSApp.activate(ignoringOtherApps: true)
+    }
+
+    /// The page said its language: the menus and the window title follow
+    /// it, with the title it shows.
+    func follow(_ language: HostLanguage) {
+        let title = language.shownTitle(or: gameTitle)
+        window.title = title
+        retitleMenus(HostMenuTitles(hostWords, language: hostWords.language(for: [language.ui]), title: title))
     }
 
     /// The page asked for a display mode.
@@ -209,15 +234,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     /// The app plays the index.html beside it. Moved out of its folder, or
     /// opened from a quarantined download (which macOS runs from a hidden
     /// copy elsewhere, App Translocation), it finds none and says why.
-    private func explainMissingGame() {
+    private func explainMissingGame(_ words: HostMissingGameAlert) {
         NSApp.activate(ignoringOtherApps: true)
         let alert = NSAlert()
-        alert.messageText = "\(gameTitle) cannot find its game."
-        alert.informativeText =
-            "This app plays the index.html file in the folder it sits in, and there is none next to it. "
-            + "Keep the app inside its game folder. If the game folder was downloaded, "
-            + "open index.html in it instead."
-        alert.addButton(withTitle: "Quit")
+        alert.messageText = words.title
+        alert.informativeText = words.text
+        alert.addButton(withTitle: words.quit)
         alert.runModal()
     }
 
@@ -304,32 +326,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
 
     @objc func reload(_ sender: Any?) { webView.reload() }
 
+    /// The menus, their words set by retitleMenus.
     private func buildMenu() {
         let main = NSMenu()
         let appItem = NSMenuItem()
         main.addItem(appItem)
         let appMenu = NSMenu()
-        appMenu.addItem(
-            withTitle: "Hide \(gameTitle)", action: #selector(NSApplication.hide(_:)),
-            keyEquivalent: "h")
+        hideItem = appMenu.addItem(withTitle: "", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
         appMenu.addItem(.separator())
-        appMenu.addItem(
-            withTitle: "Quit \(gameTitle)", action: #selector(NSApplication.terminate(_:)),
-            keyEquivalent: "q")
+        quitItem = appMenu.addItem(
+            withTitle: "", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         appItem.submenu = appMenu
 
-        let viewItem = NSMenuItem()
+        viewItem = NSMenuItem()
         main.addItem(viewItem)
-        let viewMenu = NSMenu(title: "View")
-        let reloadItem = viewMenu.addItem(
-            withTitle: "Reload", action: #selector(reload(_:)), keyEquivalent: "r")
+        let viewMenu = NSMenu()
+        reloadItem = viewMenu.addItem(withTitle: "", action: #selector(reload(_:)), keyEquivalent: "r")
         reloadItem.target = self
-        let fullscreen = viewMenu.addItem(
-            withTitle: "Toggle Full Screen", action: #selector(NSWindow.toggleFullScreen(_:)),
-            keyEquivalent: "f")
-        fullscreen.keyEquivalentModifierMask = [.command, .control]
+        fullScreenItem = viewMenu.addItem(
+            withTitle: "", action: #selector(NSWindow.toggleFullScreen(_:)), keyEquivalent: "f")
+        fullScreenItem.keyEquivalentModifierMask = [.command, .control]
         viewItem.submenu = viewMenu
         NSApp.mainMenu = main
+    }
+
+    /// Gives the menus their words (the menu bar shows the View menu's
+    /// title).
+    private func retitleMenus(_ titles: HostMenuTitles) {
+        hideItem.title = titles.hide
+        quitItem.title = titles.quit
+        viewItem.title = titles.view
+        viewItem.submenu?.title = titles.view
+        reloadItem.title = titles.reload
+        fullScreenItem.title = titles.fullScreen
     }
 }
 

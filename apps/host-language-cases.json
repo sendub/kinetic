@@ -1,0 +1,317 @@
+{
+  "about": "Which catalogue language a reader's system languages pick, by the player's rule (player/src/i18n/languages.ts bestLanguageMatch); null: none, so English. The player's tests (languages.test.ts), the Windows program's (hostwords_test.go) and the machost scenario (the Mac's, through the WebKit driver) all check these.",
+  "catalogue": [
+    "en",
+    "ar",
+    "bg",
+    "ca",
+    "cs",
+    "da",
+    "de",
+    "el",
+    "es",
+    "es-419",
+    "fa",
+    "fi",
+    "fr",
+    "he",
+    "hi",
+    "hr",
+    "hu",
+    "id",
+    "it",
+    "ja",
+    "ko",
+    "ms",
+    "nb",
+    "nl",
+    "pl",
+    "pt-BR",
+    "pt-PT",
+    "ro",
+    "ru",
+    "sk",
+    "sv",
+    "sw",
+    "th",
+    "tr",
+    "uk",
+    "ur",
+    "vi",
+    "zh-Hans",
+    "zh-Hant"
+  ],
+  "cases": [
+    {
+      "requested": [
+        "de-AT"
+      ],
+      "expect": "de"
+    },
+    {
+      "requested": [
+        "de"
+      ],
+      "expect": "de"
+    },
+    {
+      "requested": [
+        "EN-gb"
+      ],
+      "expect": "en"
+    },
+    {
+      "requested": [
+        "zh-TW"
+      ],
+      "expect": "zh-Hant"
+    },
+    {
+      "requested": [
+        "zh-HK"
+      ],
+      "expect": "zh-Hant"
+    },
+    {
+      "requested": [
+        "zh-MO"
+      ],
+      "expect": "zh-Hant"
+    },
+    {
+      "requested": [
+        "zh-CN"
+      ],
+      "expect": "zh-Hans"
+    },
+    {
+      "requested": [
+        "zh-SG"
+      ],
+      "expect": "zh-Hans"
+    },
+    {
+      "requested": [
+        "zh"
+      ],
+      "expect": "zh-Hans"
+    },
+    {
+      "requested": [
+        "zh-Hant-TW"
+      ],
+      "expect": "zh-Hant"
+    },
+    {
+      "requested": [
+        "zh-Hans-US"
+      ],
+      "expect": "zh-Hans"
+    },
+    {
+      "requested": [
+        "zh-Hant-CN"
+      ],
+      "expect": "zh-Hant"
+    },
+    {
+      "requested": [
+        "ZH-hant"
+      ],
+      "expect": "zh-Hant"
+    },
+    {
+      "requested": [
+        "es-MX"
+      ],
+      "expect": "es-419"
+    },
+    {
+      "requested": [
+        "es-US"
+      ],
+      "expect": "es-419"
+    },
+    {
+      "requested": [
+        "es-419"
+      ],
+      "expect": "es-419"
+    },
+    {
+      "requested": [
+        "es-ES"
+      ],
+      "expect": "es"
+    },
+    {
+      "requested": [
+        "es"
+      ],
+      "expect": "es"
+    },
+    {
+      "requested": [
+        "es-GQ"
+      ],
+      "expect": "es"
+    },
+    {
+      "requested": [
+        "pt"
+      ],
+      "expect": "pt-BR"
+    },
+    {
+      "requested": [
+        "pt-BR"
+      ],
+      "expect": "pt-BR"
+    },
+    {
+      "requested": [
+        "pt-PT"
+      ],
+      "expect": "pt-PT"
+    },
+    {
+      "requested": [
+        "pt-AO"
+      ],
+      "expect": "pt-BR"
+    },
+    {
+      "requested": [
+        "nb-NO"
+      ],
+      "expect": "nb"
+    },
+    {
+      "requested": [
+        "no"
+      ],
+      "expect": null
+    },
+    {
+      "requested": [
+        "nn-NO"
+      ],
+      "expect": null
+    },
+    {
+      "requested": [
+        "iw"
+      ],
+      "expect": "he"
+    },
+    {
+      "requested": [
+        "in-ID"
+      ],
+      "expect": "id"
+    },
+    {
+      "requested": [
+        "he-IL"
+      ],
+      "expect": "he"
+    },
+    {
+      "requested": [
+        "ar-EG"
+      ],
+      "expect": "ar"
+    },
+    {
+      "requested": [
+        "fa-IR"
+      ],
+      "expect": "fa"
+    },
+    {
+      "requested": [
+        "ur-IN"
+      ],
+      "expect": "ur"
+    },
+    {
+      "requested": [
+        "ko-KR"
+      ],
+      "expect": "ko"
+    },
+    {
+      "requested": [
+        "sw-KE"
+      ],
+      "expect": "sw"
+    },
+    {
+      "requested": [
+        "uk-UA"
+      ],
+      "expect": "uk"
+    },
+    {
+      "requested": [
+        "th-TH"
+      ],
+      "expect": "th"
+    },
+    {
+      "requested": [
+        "hi-IN"
+      ],
+      "expect": "hi"
+    },
+    {
+      "requested": [
+        "sr-Latn-RS",
+        "fr-CA"
+      ],
+      "expect": "fr"
+    },
+    {
+      "requested": [
+        "ja-JP",
+        "en"
+      ],
+      "expect": "ja"
+    },
+    {
+      "requested": [
+        "xx",
+        "de"
+      ],
+      "expect": "de"
+    },
+    {
+      "requested": [
+        "ms-Arab"
+      ],
+      "expect": null
+    },
+    {
+      "requested": [
+        "hi-Latn"
+      ],
+      "expect": null
+    },
+    {
+      "requested": [
+        "xx"
+      ],
+      "expect": null
+    },
+    {
+      "requested": [],
+      "expect": null
+    },
+    {
+      "requested": [
+        ""
+      ],
+      "expect": null
+    }
+  ]
+}

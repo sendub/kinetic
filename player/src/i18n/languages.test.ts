@@ -1,4 +1,6 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import { uiLanguages } from "./catalogue";
 import {
   autonym,
   bestLanguageMatch,
@@ -59,6 +61,34 @@ describe("bestLanguageMatch: a reader's languages against a game's", () => {
 
   it("skips what is not a tag", () => {
     expect(bestLanguageMatch(["", "!!", "de"], ["en", "de"])).toBe("de");
+  });
+});
+
+describe("the game apps' cases (apps/host-language-cases.json, Phase 54 item 7)", () => {
+  // The Mac app and the Windows program pick their own words' language by
+  // the same rule, from the same cases (hostwords_test.go, the machost
+  // scenario).
+  const file = JSON.parse(
+    readFileSync(
+      new URL("../../../apps/host-language-cases.json", import.meta.url),
+      "utf8",
+    ),
+  ) as {
+    catalogue: string[];
+    cases: { requested: string[]; expect: string | null }[];
+  };
+
+  it("are against the catalogue's languages, English first", () => {
+    expect(file.catalogue).toEqual(uiLanguages());
+  });
+
+  it("match as the player matches", () => {
+    for (const { requested, expect: want } of file.cases) {
+      expect(
+        bestLanguageMatch(requested, file.catalogue),
+        String(requested),
+      ).toBe(want);
+    }
   });
 });
 

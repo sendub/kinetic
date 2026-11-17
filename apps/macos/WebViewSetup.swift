@@ -108,6 +108,10 @@ protocol KineticVoiceHost: AnyObject {
 /// gets a `kinetic-host` event. The user script is swapped on every change,
 /// so a reload starts with the mode in force.
 ///
+/// `{ type: "language", ui, dir, title? }` (docs/plan.md Phase 54 item 7)
+/// goes to `onLanguage` as a HostLanguage (HostWords.swift): the page's UI
+/// language and the title it shows, for the host's own words.
+///
 /// With a voice host the object also has `voice: true`, and
 /// `{ type: "voice", ... }` messages go to it; its events reach the page as
 /// `window.__kineticVoice(event)`. The page defines that function when it
@@ -132,6 +136,7 @@ final class KineticHostBridge: NSObject, WKScriptMessageHandler {
     private(set) var display: Display
     private let onQuit: () -> Void
     private let onDisplay: (Display) -> Void
+    private let onLanguage: ((HostLanguage) -> Void)?
     private let voice: KineticVoiceHost?
     private weak var controller: WKUserContentController?
     private var script: WKUserScript?
@@ -144,13 +149,15 @@ final class KineticHostBridge: NSObject, WKScriptMessageHandler {
     private var statusCount = 0
 
     init(kind: String, display: Display, voice: KineticVoiceHost? = nil,
-         onQuit: @escaping () -> Void, onDisplay: @escaping (Display) -> Void)
+         onQuit: @escaping () -> Void, onDisplay: @escaping (Display) -> Void,
+         onLanguage: ((HostLanguage) -> Void)? = nil)
     {
         self.kind = kind
         self.display = display
         self.voice = voice
         self.onQuit = onQuit
         self.onDisplay = onDisplay
+        self.onLanguage = onLanguage
     }
 
     /// Adds the user script and the message handler. The controller keeps
@@ -191,6 +198,8 @@ final class KineticHostBridge: NSObject, WKScriptMessageHandler {
             onQuit()
         case "display":
             if let mode = (body["mode"] as? String).flatMap(Display.init(rawValue:)) { onDisplay(mode) }
+        case "language":
+            if let language = HostLanguage(message: body) { onLanguage?(language) }
         case "voice":
             guard let voice else { return }
             voiceView = message.webView

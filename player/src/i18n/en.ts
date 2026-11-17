@@ -314,6 +314,41 @@ export const EN = {
   /** Volumes sheet: the tip behind the download's "?"; {size} is its size. */
   "voice.help":
     "Spoken lines are made on this computer from the characters' voices. The voice model is downloaded once ({size}) and every Kinetic game on this computer shares it.",
+  /** Volumes sheet: a game app's voice problem the player has no words for; {text} is the general message above ("could not be downloaded" or "not available"), {detail} the app's own reason, in English. */
+  "voice.detail": "{text} ({detail})",
+  /** Volumes sheet, the voice model's "?" (a Mac app): this Mac has an Intel processor. */
+  "voice.code.apple-silicon": "Spoken lines need a Mac with Apple silicon.",
+  /** Volumes sheet, the voice model's "?" (a Mac app): {version} is the macOS version needed, e.g. 14.0. */
+  "voice.code.macos-version": "Spoken lines need macOS {version} or later.",
+  /** Volumes sheet, the voice model's "?": the computer's operating system is too old for the voice packages. */
+  "voice.code.unsupported-system":
+    "Spoken lines need a newer operating system on this computer.",
+  /** Volumes sheet, the voice model's "?" (a Windows app): the PC has no NVIDIA graphics card. */
+  "voice.code.no-nvidia":
+    "Spoken lines need an NVIDIA graphics card. This computer doesn't have one.",
+  /** Volumes sheet, the voice model's "?" (a Windows app): {version} is the NVIDIA driver version needed, e.g. 570.65. */
+  "voice.code.nvidia-driver":
+    "Spoken lines need NVIDIA driver {version} or later. Update the graphics driver to use them.",
+  /** Volumes sheet: not enough disk space for the voice model; {need} and {free} are sizes, e.g. 7.8 GB. */
+  "voice.code.disk-space":
+    "Spoken lines need {need} of free disk space; this computer has {free} free. Free some space, then try again.",
+  /** Volumes sheet: a part of the voice model's download failed (the network or the server). */
+  "voice.code.download-failed": "A download failed. Try again to continue it.",
+  /** Volumes sheet: a downloaded part of the voice model was damaged and was deleted. */
+  "voice.code.hash-mismatch":
+    "A download did not match its checksum. Try again.",
+  /** Volumes sheet: installing the downloaded voice packages failed. */
+  "voice.code.pip-failed": "Installing the voice packages failed.",
+  /** Volumes sheet: the voice model's install failed for another reason. */
+  "voice.code.install-failed": "The voice install failed.",
+  /** Volumes sheet: the folder the voice model goes in could not be created or written. */
+  "voice.code.folder-failed": "The voice folder could not be written.",
+  /** Volumes sheet: the program that makes spoken lines could not start. */
+  "voice.code.helper-failed": "The voice helper could not start.",
+  /** Volumes sheet: the program that makes spoken lines stopped. */
+  "voice.code.helper-crashed": "The voice helper stopped unexpectedly.",
+  /** Volumes sheet: the voice setup inside the game app is damaged. */
+  "voice.code.lock-failed": "This app's voice setup cannot be read.",
 
   /** Branch map: its heading. */
   "map.title": "Branch map",
@@ -416,4 +451,25 @@ export const EN = {
   "transfer.story.noId": "a story without an ID",
   /** Names this game, untitled, in the message above. */
   "transfer.story.this": "this story",
+
+  /** Mac app menu (the menu named after the game): hides the app; {title} is the game's title. */
+  "host.menu.hide": "Hide {title}",
+  /** Mac app menu (the menu named after the game): quits the app; {title} is the game's title. */
+  "host.menu.quit": "Quit {title}",
+  /** Mac app: the View menu's name in the menu bar. */
+  "host.menu.view": "View",
+  /** Mac app, View menu: reloads the game's page (the reader keeps their place). */
+  "host.menu.reload": "Reload",
+  /** Mac app, View menu: switches between full screen and a window (macOS's own wording). */
+  "host.menu.fullScreen": "Toggle Full Screen",
+  /** Mac app, an alert before the game opens: the app is not in its game folder; {title} is the game's title. */
+  "host.mac.missing.title": "{title} cannot find its game.",
+  /** Mac app, the alert above: what to do; {file} is the page's file name (index.html), kept as written. */
+  "host.mac.missing.text":
+    "This app plays the {file} file in the folder it sits in, and there is none next to it. Keep the app inside its game folder. If the game folder was downloaded, open {file} in it instead.",
+  /** Mac app, the alert above: its only button, which quits the app. */
+  "host.mac.missing.quit": "Quit",
+  /** Windows program, an error box before the game opens: the program is not in its game folder; {title} is the game's title, {file} the page's file name (index.html), kept as written; the blank line stays. */
+  "host.windows.missing":
+    "{title} cannot find {file} next to this program.\n\nKeep the program inside its game folder, or open the folder's {file} instead.",
 } as const satisfies Record<string, Message>;

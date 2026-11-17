@@ -492,7 +492,11 @@ async function rowShown({ check, open }) {
   const intel = await open("unsupported", {
     folder: dir,
     closeHelp: true,
-    voiceHost: { state: "unsupported", message: words },
+    voiceHost: {
+      state: "unsupported",
+      message: "an Intel Mac",
+      problem: { code: "apple-silicon" },
+    },
   });
   await openSheet(intel.page, intel.cdp);
   const unsupported = await waitRow(
@@ -622,9 +626,9 @@ async function download({ check, open }) {
   await clickCenter(cdp, '[data-config-action="volume-model-download"]');
   const failed = await waitRow(page, (r) => r?.state === "error", 5000);
   check(
-    "an install that fails shows the host's words and Retry",
+    "an install that fails shows the player's words for the host's code (download-failed) and Retry",
     failed.ok &&
-      failed.row.message === "The download failed: the connection dropped." &&
+      failed.row.message === "A download failed. Try again to continue it." &&
       JSON.stringify(failed.row.actions) === '["volume-model-retry"]',
     failed.row,
   );

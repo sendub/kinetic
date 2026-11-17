@@ -722,6 +722,85 @@ msgctxt "voice.help"
 msgid "Spoken lines are made on this computer from the characters' voices. The voice model is downloaded once ({size}) and every Kinetic game on this computer shares it."
 msgstr "บทพูดแบบมีเสียงสร้างขึ้นบนคอมพิวเตอร์นี้จากเสียงของตัวละคร โมเดลเสียงพูดจะดาวน์โหลดเพียงครั้งเดียว ({size}) และเกม Kinetic ทุกเกมบนคอมพิวเตอร์นี้ใช้ร่วมกัน"
 
+#. Volumes sheet: a game app's voice problem the player has no words for; {text} is the general message above ("could not be downloaded" or "not available"), {detail} the app's own reason, in English.
+#. Placeholders: {text}, {detail}.
+msgctxt "voice.detail"
+msgid "{text} ({detail})"
+msgstr "{text} ({detail})"
+
+#. Volumes sheet, the voice model's "?" (a Mac app): this Mac has an Intel processor.
+msgctxt "voice.code.apple-silicon"
+msgid "Spoken lines need a Mac with Apple silicon."
+msgstr "บทพูดแบบมีเสียงต้องใช้ Mac ที่มี Apple silicon"
+
+#. Volumes sheet, the voice model's "?" (a Mac app): {version} is the macOS version needed, e.g. 14.0.
+#. Placeholders: {version}.
+msgctxt "voice.code.macos-version"
+msgid "Spoken lines need macOS {version} or later."
+msgstr "บทพูดแบบมีเสียงต้องใช้ macOS {version} ขึ้นไป"
+
+#. Volumes sheet, the voice model's "?": the computer's operating system is too old for the voice packages.
+msgctxt "voice.code.unsupported-system"
+msgid "Spoken lines need a newer operating system on this computer."
+msgstr "บทพูดแบบมีเสียงต้องใช้ระบบปฏิบัติการที่ใหม่กว่านี้บนคอมพิวเตอร์นี้"
+
+#. Volumes sheet, the voice model's "?" (a Windows app): the PC has no NVIDIA graphics card.
+msgctxt "voice.code.no-nvidia"
+msgid "Spoken lines need an NVIDIA graphics card. This computer doesn't have one."
+msgstr "บทพูดแบบมีเสียงต้องใช้การ์ดจอ NVIDIA ซึ่งคอมพิวเตอร์นี้ไม่มี"
+
+#. Volumes sheet, the voice model's "?" (a Windows app): {version} is the NVIDIA driver version needed, e.g. 570.65.
+#. Placeholders: {version}.
+msgctxt "voice.code.nvidia-driver"
+msgid "Spoken lines need NVIDIA driver {version} or later. Update the graphics driver to use them."
+msgstr "บทพูดแบบมีเสียงต้องใช้ไดรเวอร์ NVIDIA {version} ขึ้นไป อัปเดตไดรเวอร์การ์ดจอเพื่อใช้งาน"
+
+#. Volumes sheet: not enough disk space for the voice model; {need} and {free} are sizes, e.g. 7.8 GB.
+#. Placeholders: {need}, {free}.
+msgctxt "voice.code.disk-space"
+msgid "Spoken lines need {need} of free disk space; this computer has {free} free. Free some space, then try again."
+msgstr "บทพูดแบบมีเสียงต้องใช้พื้นที่ว่างบนดิสก์ {need} แต่คอมพิวเตอร์นี้มีพื้นที่ว่าง {free} โปรดเพิ่มพื้นที่ว่างแล้วลองอีกครั้ง"
+
+#. Volumes sheet: a part of the voice model's download failed (the network or the server).
+msgctxt "voice.code.download-failed"
+msgid "A download failed. Try again to continue it."
+msgstr "การดาวน์โหลดล้มเหลว ลองอีกครั้งเพื่อดาวน์โหลดต่อ"
+
+#. Volumes sheet: a downloaded part of the voice model was damaged and was deleted.
+msgctxt "voice.code.hash-mismatch"
+msgid "A download did not match its checksum. Try again."
+msgstr "ไฟล์ที่ดาวน์โหลดไม่ตรงกับเช็กซัม ลองอีกครั้ง"
+
+#. Volumes sheet: installing the downloaded voice packages failed.
+msgctxt "voice.code.pip-failed"
+msgid "Installing the voice packages failed."
+msgstr "ติดตั้งแพ็กเกจเสียงพูดไม่สำเร็จ"
+
+#. Volumes sheet: the voice model's install failed for another reason.
+msgctxt "voice.code.install-failed"
+msgid "The voice install failed."
+msgstr "ติดตั้งเสียงพูดไม่สำเร็จ"
+
+#. Volumes sheet: the folder the voice model goes in could not be created or written.
+msgctxt "voice.code.folder-failed"
+msgid "The voice folder could not be written."
+msgstr "เขียนลงโฟลเดอร์เสียงพูดไม่ได้"
+
+#. Volumes sheet: the program that makes spoken lines could not start.
+msgctxt "voice.code.helper-failed"
+msgid "The voice helper could not start."
+msgstr "เริ่มตัวช่วยเสียงพูดไม่ได้"
+
+#. Volumes sheet: the program that makes spoken lines stopped.
+msgctxt "voice.code.helper-crashed"
+msgid "The voice helper stopped unexpectedly."
+msgstr "ตัวช่วยเสียงพูดหยุดทำงานโดยไม่คาดคิด"
+
+#. Volumes sheet: the voice setup inside the game app is damaged.
+msgctxt "voice.code.lock-failed"
+msgid "This app's voice setup cannot be read."
+msgstr "อ่านการตั้งค่าเสียงพูดของแอปนี้ไม่ได้"
+
 #. Branch map: its heading.
 msgctxt "map.title"
 msgid "Branch map"
@@ -952,3 +1031,59 @@ msgstr "เรื่องที่ไม่มี ID"
 msgctxt "transfer.story.this"
 msgid "this story"
 msgstr "เรื่องนี้"
+
+#. Mac app menu (the menu named after the game): hides the app; {title} is the game's title.
+#. Placeholders: {title}.
+msgctxt "host.menu.hide"
+msgid "Hide {title}"
+msgstr "ซ่อน {title}"
+
+#. Mac app menu (the menu named after the game): quits the app; {title} is the game's title.
+#. Placeholders: {title}.
+msgctxt "host.menu.quit"
+msgid "Quit {title}"
+msgstr "ออกจาก {title}"
+
+#. Mac app: the View menu's name in the menu bar.
+msgctxt "host.menu.view"
+msgid "View"
+msgstr "มุมมอง"
+
+#. Mac app, View menu: reloads the game's page (the reader keeps their place).
+msgctxt "host.menu.reload"
+msgid "Reload"
+msgstr "โหลดซ้ำ"
+
+#. Mac app, View menu: switches between full screen and a window (macOS's own wording).
+msgctxt "host.menu.fullScreen"
+msgid "Toggle Full Screen"
+msgstr "เปิด/ปิดเต็มหน้าจอ"
+
+#. Mac app, an alert before the game opens: the app is not in its game folder; {title} is the game's title.
+#. Placeholders: {title}.
+msgctxt "host.mac.missing.title"
+msgid "{title} cannot find its game."
+msgstr "{title} หาเกมของตัวเองไม่พบ"
+
+#. Mac app, the alert above: what to do; {file} is the page's file name (index.html), kept as written.
+#. Placeholders: {file}.
+msgctxt "host.mac.missing.text"
+msgid "This app plays the {file} file in the folder it sits in, and there is none next to it. Keep the app inside its game folder. If the game folder was downloaded, open {file} in it instead."
+msgstr "แอปนี้เล่นไฟล์ {file} ในโฟลเดอร์ที่แอปอยู่ แต่ข้างแอปไม่มีไฟล์นี้ เก็บแอปไว้ในโฟลเดอร์ของเกม หากดาวน์โหลดโฟลเดอร์เกมมา ให้เปิด {file} ในโฟลเดอร์นั้นแทน"
+
+#. Mac app, the alert above: its only button, which quits the app.
+msgctxt "host.mac.missing.quit"
+msgid "Quit"
+msgstr "ออก"
+
+#. Windows program, an error box before the game opens: the program is not in its game folder; {title} is the game's title, {file} the page's file name (index.html), kept as written; the blank line stays.
+#. Placeholders: {title}, {file}.
+msgctxt "host.windows.missing"
+msgid ""
+"{title} cannot find {file} next to this program.\n"
+"\n"
+"Keep the program inside its game folder, or open the folder's {file} instead."
+msgstr ""
+"{title} หา {file} ข้างโปรแกรมนี้ไม่พบ\n"
+"\n"
+"เก็บโปรแกรมไว้ในโฟลเดอร์ของเกม หรือเปิดไฟล์ {file} ในโฟลเดอร์แทน"
